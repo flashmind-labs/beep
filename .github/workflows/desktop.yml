@@ -1,8 +1,8 @@
 # Builds and releases desktop installers for a `desktop-v<version>` tag
 # (made by `just patch`, `just minor` or `just release`).
-# It must be signed and notarized, its version must match
-# the tag, and the DMG is attached to a GitHub release for the tag and
-# uploaded to R2 with the archive installed apps update themselves from.
+# It must be signed and notarized, its version must match the tag, and the
+# Apple silicon and Intel DMGs are attached to a GitHub release for the tag
+# and uploaded to R2 with the archives installed apps update themselves from.
 #
 # The repository variable BEEP_SERVER_URL sets the report server address.
 #
@@ -40,11 +40,12 @@ jobs:
           node-version: "22"
       - uses: astral-sh/setup-uv@v7
 
-      # One universal app runs on Apple silicon and Intel Macs.
+      # One app per architecture: a universal app is twice the download.
+      # Each step loops over ARCHES; ${arch/arm64/aarch64} is the Rust name.
       - name: Set the build directory
         run: |
           echo "CARGO_TARGET_DIR=$GITHUB_WORKSPACE/target" >> "$GITHUB_ENV"
-          echo "BUNDLE=$GITHUB_WORKSPACE/target/universal-apple-darwin/release/bundle/macos" >> "$GITHUB_ENV"
+          echo "ARCHES=arm64 x86_64" >> "$GITHUB_ENV"
 
       - name: Check signing credentials and version
         env:
@@ -72,7 +73,6 @@ jobs:
           python3 -m unittest discover -s scripts/tests
           python3 scripts/changelog.py notes "$version" > "$RUNNER_TEMP/release-notes.md"
           echo "VERSION=$version" >> "$GITHUB_ENV"
-          echo "DMG=target/macos-release/Beep-$version-universal.dmg" >> "$GITHUB_ENV"
 
       - name: Prepare the native macOS updater
         run: bash scripts/download-sparkle.sh
@@ -118,28 +118,40 @@ jobs:
           # The signed archive is what the app updates itself from.
           # Only this signed build has the native updater: a local build signed
           # ad hoc cannot load Sparkle.framework under the hardened runtime.
-          PATH="/usr/bin:$PATH" ../node_modules/.bin/tauri build --target universal-apple-darwin \
-            --bundles app --features sparkle \
-            --config tauri.sparkle.conf.json \
-            --config '{"bundle":{"createUpdaterArtifacts":true}}'
-          app="$BUNDLE/Beep.app"
-          codesign --verify --deep --strict "$app"
-          xcrun stapler validate "$app"
-          spctl --assess --type execute --verbose=2 "$app"
-          lipo "$app/Contents/MacOS/beep-desktop" -verify_arch arm64 x86_64
+          for arch in $ARCHES; do
+            target="${arch/arm64/aarch64}-apple-darwin"
+            PATH="/usr/bin:$PATH" ../node_modules/.bin/tauri build --target "$target" \
+              --bundles app --features sparkle \
+              --config tauri.sparkle.conf.json \
+              --config '{"bundle":{"createUpdaterArtifacts":true}}'
+            app="$CARGO_TARGET_DIR/$target/release/bundle/macos/Beep.app"
+            codesign --verify --deep --strict "$app"
+            xcrun stapler validate "$app"
+            spctl --assess --type execute --verbose=2 "$app"
+            lipo "$app/Contents/MacOS/beep-desktop" -verify_arch "$arch"
+          done
 
-      - name: Package and notarize the DMG
+      - name: Package and notarize the DMGs
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID || vars.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID || vars.APPLE_API_ISSUER_ID }}
-        run: bash scripts/release-macos-dmg.sh
+        run: |
+          set -euo pipefail
+          for arch in $ARCHES; do
+            BUNDLE="$CARGO_TARGET_DIR/${arch/arm64/aarch64}-apple-darwin/release/bundle/macos" \
+              DMG="target/macos-release/Beep-$VERSION-$arch.dmg" \
+              bash scripts/release-macos-dmg.sh
+          done
 
-      - name: Sign the Sparkle update and write release notes
+      # One feed for both: Sparkle skips the arm64 item on Intel Macs.
+      - name: Sign the Sparkle updates and write release notes
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           python3 scripts/write-macos-appcast.py \
-            --app "$BUNDLE/Beep.app" --dmg "$DMG" \
+            --app "$CARGO_TARGET_DIR/aarch64-apple-darwin/release/bundle/macos/Beep.app" \
+            --dmg "target/macos-release/Beep-$VERSION-arm64.dmg" \
+            --dmg "target/macos-release/Beep-$VERSION-x86_64.dmg" \
             --version "$VERSION" --output target/macos-release/appcast.xml
 
       - name: Remove signing material
@@ -168,11 +180,13 @@ jobs:
               --title "Beep desktop $VERSION" --notes-file "$RUNNER_TEMP/release-notes.md"
           fi
           gh release upload "$GITHUB_REF_NAME" --clobber \
-            "$DMG" "$DMG.sha256" target/macos-release/appcast.xml
+            target/macos-release/*.dmg target/macos-release/*.sha256 \
+            target/macos-release/appcast.xml
 
       # Also into the R2 bucket under beep/macos/, served at
-      # https://releases.flashmind.com/beep/macos/. Beep-latest.dmg is the
-      # download link that never changes, and latest.json tells installed apps
+      # https://releases.flashmind.com/beep/macos/. Beep-latest.dmg (Apple
+      # silicon) and Beep-latest-x86_64.dmg (Intel) are the download links that
+      # never change, and latest.json tells installed apps
       # about the update archive. Skipped until the CF_* secrets are set.
       - name: Stage the R2 upload
         id: r2
@@ -183,19 +197,27 @@ jobs:
           if [[ -z "$CF_ENDPOINT" ]]; then echo "No R2 secrets, skipping"; exit 0; fi
           account=$(bash scripts/r2.sh account)
           echo "account=$account" >> "$GITHUB_OUTPUT"
-          archive="Beep-$VERSION-universal.app.tar.gz"
           files="$RUNNER_TEMP/r2-files"
           manifest="$RUNNER_TEMP/r2-manifest"
           mkdir -p "$files" "$manifest"
-          cp "$DMG" "$DMG.sha256" "$files/"
+          cp target/macos-release/*.dmg target/macos-release/*.sha256 "$files/"
           cp target/macos-release/appcast.xml "$manifest/"
-          cp "$DMG" "$files/Beep-latest.dmg"
-          cp "$BUNDLE/Beep.app.tar.gz" "$files/$archive"
+          cp "$files/Beep-$VERSION-arm64.dmg" "$files/Beep-latest.dmg"
+          cp "$files/Beep-$VERSION-x86_64.dmg" "$files/Beep-latest-x86_64.dmg"
+          platforms='{}'
+          for arch in $ARCHES; do
+            rust="${arch/arm64/aarch64}"
+            bundle="$CARGO_TARGET_DIR/$rust-apple-darwin/release/bundle/macos"
+            archive="Beep-$VERSION-$rust.app.tar.gz"
+            cp "$bundle/Beep.app.tar.gz" "$files/$archive"
+            platforms=$(jq --arg key "darwin-$rust" \
+              --arg signature "$(cat "$bundle/Beep.app.tar.gz.sig")" \
+              --arg url "https://releases.flashmind.com/beep/macos/$archive" \
+              '. + {($key): {signature: $signature, url: $url}}' <<< "$platforms")
+          done
           jq -n --arg version "$VERSION" --arg date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --rawfile notes "$RUNNER_TEMP/release-notes.md" \
-            --arg signature "$(cat "$BUNDLE/Beep.app.tar.gz.sig")" \
-            --arg url "https://releases.flashmind.com/beep/macos/$archive" \
-            '{version: $version, notes: $notes, pub_date: $date, platforms: {"darwin-aarch64": {signature: $signature, url: $url}, "darwin-x86_64": {signature: $signature, url: $url}}}' \
+            --rawfile notes "$RUNNER_TEMP/release-notes.md" --argjson platforms "$platforms" \
+            '{version: $version, notes: $notes, pub_date: $date, platforms: $platforms}' \
             > "$manifest/latest.json"
           # Apps outside Developer mode read the minor feeds, so they skip patches.
           if [[ "$VERSION" == *.0 ]]; then

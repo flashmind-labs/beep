@@ -3,9 +3,10 @@
 //! `ExitPlanMode`, and a form for `AskUserQuestion`'s questions, in the
 //! schema Claude Code's adapter uses.
 
+use crate::agents::acp::bridge::{choice_options, selected_option};
 use agent_client_protocol::v1::schema::{
     CreateElicitationRequest, CreateElicitationResponse, ElicitationAction, PermissionOption,
-    PermissionOptionKind, RequestPermissionOutcome, RequestPermissionResponse, SessionId,
+    PermissionOptionKind, RequestPermissionResponse, SessionId,
 };
 use serde_json::{Map, Value, json};
 
@@ -52,7 +53,7 @@ pub(super) fn tool_decision(
     input: Value,
     suggested: Option<Value>,
 ) -> Value {
-    match selected(answer).as_deref() {
+    match selected_option(answer).as_deref() {
         Some(ALLOW) => allow(input, None),
         Some(ALWAYS) => allow(input, suggested),
         _ => deny(REFUSED),
@@ -97,7 +98,7 @@ pub(super) fn plan_decision(
     answer: Result<RequestPermissionResponse, agent_client_protocol::Error>,
     input: Value,
 ) -> (Value, Option<&'static str>) {
-    let mode = match selected(answer).as_deref() {
+    let mode = match selected_option(answer).as_deref() {
         Some(PLAN_BYPASS) => "bypassPermissions",
         Some(PLAN_ACCEPT_EDITS) => "acceptEdits",
         Some(PLAN_DEFAULT) => "default",
@@ -135,18 +136,7 @@ pub(super) fn form(
     let mut properties = Map::new();
 
     for (index, question) in asked.iter().enumerate() {
-        let choices: Vec<Value> = question["options"]
-            .as_array()?
-            .iter()
-            .filter_map(|option| {
-                let label = option["label"].as_str()?;
-                let mut choice = json!({"const": label, "title": label});
-                if let Some(description) = option["description"].as_str() {
-                    choice["description"] = json!(description);
-                }
-                Some(choice)
-            })
-            .collect();
+        let choices = choice_options(question["options"].as_array()?);
         let multiple = question["multiSelect"] == true;
         let mut field = match multiple {
             true => json!({"type": "array", "items": {"anyOf": choices}}),
@@ -160,7 +150,9 @@ pub(super) fn form(
         }
         let custom = match multiple {
             true => "Type your own answer to add to your selection above (optional).",
-            false => "Type your own answer, or add a note to the option you chose above (optional).",
+            false => {
+                "Type your own answer, or add a note to the option you chose above (optional)."
+            }
         };
         properties.insert(format!("question_{index}"), field);
         properties.insert(
@@ -276,15 +268,6 @@ fn scalar(value: &Value) -> Option<String> {
         Value::String(text) => Some(text.clone()),
         Value::Number(number) => Some(number.to_string()),
         Value::Bool(flag) => Some(flag.to_string()),
-        _ => None,
-    }
-}
-
-/// The option the user picked; `None` when the request was cancelled or
-/// failed, which refuses.
-fn selected(answer: Result<RequestPermissionResponse, agent_client_protocol::Error>) -> Option<String> {
-    match answer.ok()?.outcome {
-        RequestPermissionOutcome::Selected(selected) => Some(selected.option_id.to_string()),
         _ => None,
     }
 }

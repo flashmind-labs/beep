@@ -1,4 +1,4 @@
-// "Change folder…" on a machine of a project: points the project there at
+// "Change folder" on a machine of a project: points the project there at
 // another folder. Nothing is moved, and the folder it had stays on disk as
 // it is.
 import { refresh } from "../center/refresh.ts";
@@ -20,5 +20,5 @@ export function changeFolder(project: string, machine: { id: string; name: strin
 export function changeFolderItems(project: string, m: { id: string; name: string; kind: string; folder: string | null }): MenuItem[] {
   if (m.kind !== "here" || !m.folder) return [];
   const from = m.folder;
-  return [{ label: "Change folder…", on: () => changeFolder(project, m, from) }];
+  return [{ label: "Change folder", on: () => changeFolder(project, m, from) }];
 }

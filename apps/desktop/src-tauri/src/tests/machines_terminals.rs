@@ -207,3 +207,40 @@ fn output_that_does_not_follow_goes_apart() {
     assert_eq!(output(sent.first()), (1, 1));
     assert_eq!(output(batch.take(start).as_ref()), (100, 1));
 }
+
+#[test]
+fn consecutive_resizes_coalesce_around_keystrokes() {
+    let burst = vec![
+        TerminalInput::Resize { cols: 80, rows: 24 },
+        TerminalInput::Resize {
+            cols: 100,
+            rows: 30,
+        },
+        TerminalInput::Keys {
+            data: ByteBuf::from(b"ls\n".to_vec()),
+        },
+        TerminalInput::Resize {
+            cols: 110,
+            rows: 32,
+        },
+        TerminalInput::Resize {
+            cols: 120,
+            rows: 40,
+        },
+    ];
+    let requests = coalesce_pty_inputs(burst);
+    assert_eq!(
+        requests,
+        vec![
+            PtyRequest::Resize {
+                size: Size::clamped(100, 30),
+            },
+            PtyRequest::Input {
+                data: ByteBuf::from(b"ls\n".to_vec()),
+            },
+            PtyRequest::Resize {
+                size: Size::clamped(120, 40),
+            },
+        ]
+    );
+}

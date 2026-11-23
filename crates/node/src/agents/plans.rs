@@ -1,6 +1,6 @@
 //! How much of each coding agent's plan is left (`read_claude`,
-//! `read_codex`), from the agent's own CLI as signed in here. Neither sends a
-//! model request, and the node never reads their token files.
+//! `read_codex`, `read_agy`), from the agent's own CLI as signed in here.
+//! None sends a model request, and the node never reads their token files.
 
 use super::{
     acp::{Line, LineReader},
@@ -46,6 +46,10 @@ pub(super) const CLAUDE_ARGS: &[&str] = &[
 
 /// Codex's JSON-RPC server on stdio.
 pub(super) const CODEX_ARGS: &[&str] = &["app-server"];
+
+/// Antigravity's `/usage` command in print mode, which answers from the
+/// quota service without a model turn or a saved conversation.
+pub(super) const AGY_ARGS: &[&str] = &["-p", "/usage", "--output-format", "stream-json"];
 
 /// What the CLI is answered with next.
 enum Step {
@@ -102,6 +106,21 @@ pub(super) async fn read_codex(command: Command) -> Result<Option<PlanUsage>> {
     }
 
     Ok(codex_plan(&answer["result"], unix_now()))
+}
+
+/// Antigravity's plan usage; `None` when it reports no limits, such as on
+/// an API key.
+pub(super) async fn read_agy(command: Command) -> Result<Option<PlanUsage>> {
+    let answer = exchange(command, Vec::new(), |line| {
+        if line["event"] != "command_result" || line["command"]["name"] != "usage" {
+            return Step::Wait;
+        }
+
+        Step::Done(line["command"]["data"].clone())
+    })
+    .await?;
+
+    Ok(agy_plan(&answer, unix_now()))
 }
 
 /// Starts `command`, sends it `first` as JSON lines and answers each line
@@ -257,6 +276,55 @@ fn codex_plan(result: &Value, at: u64) -> Option<PlanUsage> {
     Some(PlanUsage {
         agent: AgentSlug::CODEX,
         plan: limits["planType"].as_str().map(str::to_owned),
+        windows,
+        credits: Vec::new(),
+        account: None,
+        at,
+    })
+}
+
+/// The plan in Antigravity's `/usage`: `groups` of models that share
+/// limits, each with `buckets` holding a `window` such as `weekly`,
+/// `remaining_fraction` from 0 to 1 and `reset_time` in RFC 3339. A bucket
+/// not used yet resets a full window from the moment it is asked, so its
+/// time is left out.
+fn agy_plan(data: &Value, at: u64) -> Option<PlanUsage> {
+    let mut windows: Vec<LimitWindow> = data["groups"]
+        .as_array()?
+        .iter()
+        .flat_map(|group| {
+            let scope = group["name"].as_str();
+            group["buckets"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(move |bucket| {
+                    let minutes = match bucket["window"].as_str()? {
+                        "weekly" => WEEK_MINUTES,
+                        "daily" => 24 * 60,
+                        _ => return None,
+                    };
+                    let left = bucket["remaining_fraction"].as_f64()?.clamp(0.0, 1.0);
+                    Some(LimitWindow {
+                        minutes,
+                        used_percent: (1.0 - left) * 100.0,
+                        resets_at: (left < 1.0)
+                            .then(|| bucket["reset_time"].as_str())
+                            .flatten()
+                            .and_then(crate::agents::claude::unix_seconds),
+                        scope: scope.map(str::to_owned),
+                    })
+                })
+        })
+        .collect();
+    if windows.is_empty() {
+        return None;
+    }
+
+    windows.sort_by_key(|window| window.minutes);
+    Some(PlanUsage {
+        agent: AgentSlug::AGY,
+        plan: None,
         windows,
         credits: Vec::new(),
         account: None,

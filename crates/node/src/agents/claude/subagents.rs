@@ -20,7 +20,7 @@ use std::{
 };
 
 fn conversation(session: &Path, agent: &str) -> Option<String> {
-    let parent = if session.parent()?.file_name()? == "subagents" {
+    let parent = if is_native(session) {
         session.parent()?.parent()?.file_name()?.to_str()?
     } else {
         session.file_stem()?.to_str()?
@@ -201,28 +201,8 @@ fn attach_each<'a>(
         if id.is_none() && !keep_text {
             continue;
         }
-        entry.text = text(spawn, agent, &read(&agent.transcript));
-
-        if let Some(id) = id {
-            add_conversation(&mut entry.text, &id);
-        }
+        entry.text = text(spawn, agent, &read(&agent.transcript), id.as_deref());
     }
-}
-
-fn add_conversation(text: &mut String, id: &str) {
-    let mut lines = text.split('\n').peekable();
-    let mut prefix = Vec::new();
-    prefix.push(lines.next().unwrap_or_default());
-    while lines.peek().is_some_and(|line| {
-        line.starts_with("[steps]") || line.starts_with("[step ") || line.starts_with("[agent]")
-    }) {
-        prefix.push(lines.next().unwrap_or_default());
-    }
-    *text = format!(
-        "{}\n[session] {id}\n{}",
-        prefix.join("\n"),
-        lines.collect::<Vec<_>>().join("\n")
-    );
 }
 
 /// Refresh ACP spawn calls from the harness's child files.
@@ -436,7 +416,7 @@ fn status(spawn: &Spawn, agent: &Found) -> Status {
 }
 
 /// The entry of the call that started `agent`, as a live session writes it.
-fn text(spawn: &Spawn, agent: &Found, run: &Run) -> String {
+fn text(spawn: &Spawn, agent: &Found, run: &Run, session: Option<&str>) -> String {
     let status = status(spawn, agent);
     let title = spawn
         .description
@@ -468,6 +448,10 @@ fn text(spawn: &Spawn, agent: &Found, run: &Run) -> String {
         .filter(|name| !name.is_empty());
     if let Some(name) = name {
         text.push_str(&format!("\n[agent] {}", cut(name, MAX_STEP)));
+    }
+
+    if let Some(id) = session {
+        text.push_str(&format!("\n[session] {id}"));
     }
 
     if let Some(model) = run.model.as_deref().or(spawn.model.as_deref()) {

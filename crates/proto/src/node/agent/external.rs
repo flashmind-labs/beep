@@ -59,6 +59,8 @@ pub struct ExternalSession {
     /// The home assistant, as the node that ran it in Beep kept it; false
     /// from an older node.
     pub assistant: bool,
+    /// The custom agent it ran as, as the node that ran it in Beep kept it.
+    pub persona: Option<super::Persona>,
 }
 
 /// An external Claude Code session as its hooks report it, for

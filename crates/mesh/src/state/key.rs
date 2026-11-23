@@ -40,6 +40,10 @@ pub enum Key {
     NoticeRead(String),
     /// A library of agent skills and where it is installed: `skill-library/<name>`.
     SkillLibrary(String),
+    /// The last successful check of a Git library.
+    SkillLibraryCheck(String),
+    /// A controller that can schedule daily library checks.
+    SkillLibraryChecker(String),
     /// A project's choices for the skills installed in it: `project-skills/<org/repo>`.
     ProjectSkills(String),
     /// The name the user gave a machine, as UTF-8 text in place of the one it joined with:
@@ -75,6 +79,8 @@ impl fmt::Display for Key {
             Key::Observer(n) => write!(f, "observer/{n}"),
             Key::NoticeRead(n) => write!(f, "notice-read/{n}"),
             Key::SkillLibrary(n) => write!(f, "skill-library/{n}"),
+            Key::SkillLibraryCheck(n) => write!(f, "skill-library-check/{n}"),
+            Key::SkillLibraryChecker(n) => write!(f, "skill-library-checker/{n}"),
             Key::ProjectSkills(n) => write!(f, "project-skills/{n}"),
             Key::MachineName(n) => write!(f, "machine-name/{n}"),
             Key::Team(repo) => write!(f, "team/{repo}"),
@@ -129,6 +135,8 @@ impl FromStr for Key {
             "observer" => Ok(Key::Observer(name)),
             "notice-read" => Ok(Key::NoticeRead(name)),
             "skill-library" => Ok(Key::SkillLibrary(name)),
+            "skill-library-check" => Ok(Key::SkillLibraryCheck(name)),
+            "skill-library-checker" => Ok(Key::SkillLibraryChecker(name)),
             "project-skills" => Ok(Key::ProjectSkills(name)),
             "machine-name" => Ok(Key::MachineName(name)),
             "team" => name.parse().map(Key::Team).map_err(|_| bad()),

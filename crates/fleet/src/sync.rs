@@ -6,24 +6,46 @@ mod ignored;
 use crate::{
     desk::Desk,
     error::{FleetError, Result},
+    peer::Peers,
     records::{WRITES, find_project, project_key, read, scan, write},
+    session::Changed,
 };
 use beep_mesh::{Key, PeerClient};
 use beep_projects::model::plain_path;
 use beep_proto::{
-    ConflictKeep, MachineSync, MachineSyncDetail, ProjectMachine, ProjectSync, ProjectSyncDetail,
-    SyncProgress, SyncStatus, SyncthingPlace,
+    AgentSlug, ConflictKeep, MachineSync, MachineSyncDetail, ProjectMachine, ProjectSync,
+    ProjectSyncDetail, SyncProgress, SyncStatus, SyncthingPlace, check_agent,
     node::{
         mesh_state::{ProjectSyncSettings, SyncSpec},
         sync::{Keep, PROTOCOL, ProjectStatus, Reply, Request, State},
     },
 };
-use futures::{StreamExt, stream};
+use futures::{
+    FutureExt, StreamExt,
+    future::{BoxFuture, Shared},
+    stream,
+};
 use iroh::EndpointId;
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    collections::{BTreeSet, HashMap},
+    sync::{Arc, Mutex, PoisonError},
+    time::{Duration, Instant},
+};
+use tokio::time::timeout;
 
 /// Machines asked about their sync at once.
 const MACHINES_AT_ONCE: usize = 8;
+/// How long a machine's cached sync report stays fresh before a background refresh starts.
+const SYNC_FRESH: Duration = Duration::from_secs(5);
+/// How long the very first uncached sync read waits on a slow node before returning and letting
+/// the node's background task push `Changed::Sync` when it answers.
+const SYNC_FIRST_WAIT: Duration = Duration::from_millis(750);
+/// How long a background sync status call waits on one node.
+const SYNC_CALL_LIMIT: Duration = Duration::from_secs(6);
+/// How long a subscribed sync read waits before using cached state while the stream catches up.
+const SNAPSHOT_POLL_WAIT: Duration = Duration::from_millis(50);
+/// How long a Syncthing folder-share check waits on one machine.
+const SYNCTHING_CALL_LIMIT: Duration = Duration::from_secs(3);
 /// Why a machine that answered without the project does not sync it: a node from before it
 /// reported the projects it refused.
 const NOT_LISTED: &str =
@@ -36,6 +58,183 @@ async fn sync_call(client: &PeerClient, request: &Request) -> Result<Reply> {
     match client.call(PROTOCOL, request).await? {
         Reply::Error { message } => Err(FleetError::Refused(message)),
         reply => Ok(reply),
+    }
+}
+
+type InFlightSync = Shared<BoxFuture<'static, Option<Vec<ProjectStatus>>>>;
+
+struct KeptSync {
+    at: Instant,
+    projects: Option<Vec<ProjectStatus>>,
+}
+
+#[derive(Default)]
+struct HeldSync {
+    known: HashMap<EndpointId, KeptSync>,
+    in_flight: HashMap<EndpointId, InFlightSync>,
+    refresh_ids: HashMap<EndpointId, u64>,
+    next_refresh: u64,
+    /// Machines whose cold initial refresh already spent `SYNC_FIRST_WAIT`, so later reads return
+    /// immediately until the in-flight refresh finishes.
+    waited: BTreeSet<EndpointId>,
+}
+
+/// Per-machine sync status actor/cache: serves known state immediately and refreshes slow or
+/// degraded machines in the background without holding up healthy machines.
+pub(crate) struct SyncStatuses {
+    held: Mutex<HeldSync>,
+    changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>,
+}
+
+impl SyncStatuses {
+    pub(crate) fn new(changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>) -> Self {
+        Self {
+            held: Mutex::default(),
+            changed,
+        }
+    }
+
+    pub(crate) fn remember(&self, machine: EndpointId, projects: Option<Vec<ProjectStatus>>) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.in_flight.remove(&machine);
+        held.refresh_ids.remove(&machine);
+        held.waited.remove(&machine);
+        held.known.insert(
+            machine,
+            KeptSync {
+                at: Instant::now(),
+                projects,
+            },
+        );
+    }
+
+    pub(crate) fn forget(&self, machine: EndpointId) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.in_flight.remove(&machine);
+        held.refresh_ids.remove(&machine);
+        held.known.remove(&machine);
+        held.waited.remove(&machine);
+    }
+
+    pub(crate) fn clear(&self) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.in_flight.clear();
+        held.refresh_ids.clear();
+        held.known.clear();
+        held.waited.clear();
+    }
+
+    fn peek(&self, machine: EndpointId) -> Option<(Option<Vec<ProjectStatus>>, bool)> {
+        let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let kept = held.known.get(&machine)?;
+        Some((kept.projects.clone(), kept.at.elapsed() >= SYNC_FRESH))
+    }
+
+    fn start_refresh(self: &Arc<Self>, machine: EndpointId, peers: Arc<dyn Peers>) -> InFlightSync {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(running) = held.in_flight.get(&machine) {
+            return running.clone();
+        }
+
+        held.next_refresh = held.next_refresh.wrapping_add(1);
+        let refresh_id = held.next_refresh;
+        held.refresh_ids.insert(machine, refresh_id);
+
+        let this = self.clone();
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        tokio::spawn(async move {
+            let fetched = fetch_node_statuses(&peers, machine).await;
+            let notify = {
+                let mut held = this.held.lock().unwrap_or_else(PoisonError::into_inner);
+                let valid = held.refresh_ids.get(&machine) == Some(&refresh_id);
+                if valid {
+                    held.in_flight.remove(&machine);
+                    held.refresh_ids.remove(&machine);
+                }
+                if !held.in_flight.contains_key(&machine) {
+                    held.waited.remove(&machine);
+                }
+
+                if !valid {
+                    false
+                } else {
+                    let changed = held
+                        .known
+                        .get(&machine)
+                        .is_none_or(|old| old.projects != fetched);
+                    held.known.insert(
+                        machine,
+                        KeptSync {
+                            at: Instant::now(),
+                            projects: fetched.clone(),
+                        },
+                    );
+                    changed
+                }
+            };
+            let _ = tx.send(fetched);
+
+            if notify && let Some(changed) = &this.changed {
+                changed(Changed::Sync);
+            }
+        });
+
+        let shared = async move { rx.await.unwrap_or(None) }.boxed().shared();
+        held.in_flight.insert(machine, shared.clone());
+        shared
+    }
+
+    async fn read_or_refresh(
+        self: &Arc<Self>,
+        machine: EndpointId,
+        peers: Arc<dyn Peers>,
+    ) -> Option<Vec<ProjectStatus>> {
+        if let Some((cached, stale)) = self.peek(machine) {
+            if stale {
+                drop(self.start_refresh(machine, peers));
+            }
+
+            return cached;
+        }
+
+        {
+            let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+            if held.in_flight.contains_key(&machine) && held.waited.contains(&machine) {
+                return None;
+            }
+        }
+
+        let running = self.start_refresh(machine, peers);
+        match timeout(SYNC_FIRST_WAIT, running).await {
+            Ok(projects) => projects,
+            Err(_) => {
+                self.held
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .waited
+                    .insert(machine);
+                None
+            }
+        }
+    }
+}
+
+async fn fetch_node_statuses(
+    peers: &Arc<dyn Peers>,
+    machine: EndpointId,
+) -> Option<Vec<ProjectStatus>> {
+    let client = timeout(SYNC_CALL_LIMIT, peers.client(machine))
+        .await
+        .ok()?
+        .ok()?;
+    let reply: Reply = client
+        .call_within(SYNC_CALL_LIMIT, PROTOCOL, &Request::Status {})
+        .await
+        .ok()?;
+
+    match reply {
+        Reply::Status { projects } => Some(projects),
+        _ => None,
     }
 }
 
@@ -99,6 +298,7 @@ impl Desk {
             settings.paused_projects.clear();
             write(&self.mesh, Key::ProjectSync, Some(&settings)).await?;
         }
+        self.hosts.sync_statuses().clear();
         Ok(())
     }
 
@@ -116,6 +316,28 @@ impl Desk {
         }
 
         Ok(stored.record.git_auto_recovery)
+    }
+
+    /// The harnesses whose sessions may run in `project`; `None` is every harness.
+    pub fn project_harnesses(&self, project: &str) -> Result<Option<Vec<AgentSlug>>> {
+        let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        Ok(stored.record.harnesses)
+    }
+
+    /// Saves the harnesses whose sessions may run in `project`, for every machine.
+    pub async fn save_project_harnesses(
+        &self,
+        project: &str,
+        harnesses: Option<Vec<AgentSlug>>,
+    ) -> Result<()> {
+        for agent in harnesses.iter().flatten() {
+            check_agent(agent.as_ref())?;
+        }
+
+        let _write = WRITES.lock().await;
+        let mut stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
+        stored.record.harnesses = harnesses;
+        write(&self.mesh, project_key(&stored.name), Some(&stored.record)).await
     }
 
     /// A replicated choice, applied on each machine when it is reachable.
@@ -217,20 +439,44 @@ impl Desk {
 
     /// What `machine` says of every project it syncs; `None` when it is offline or does not answer.
     pub(crate) async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
-        let client = self.peers.client(machine).await.ok()?;
-        let reply = match client
-            .snapshot(beep_proto::node::events::Read::SyncList)
-            .await
-        {
-            Some(Ok(beep_proto::node::events::Value::Sync(reply))) => *reply,
-            Some(_) => return None,
-            None => client.call(PROTOCOL, &Request::Status {}).await.ok()?,
-        };
-
-        match reply {
-            Reply::Status { projects } => Some(projects),
-            _ => None,
+        if !self.is_online(machine) {
+            self.hosts.sync_statuses().forget(machine);
+            return None;
         }
+
+        if let Ok(Ok(client)) = timeout(SNAPSHOT_POLL_WAIT, self.peers.client(machine)).await {
+            match timeout(
+                SNAPSHOT_POLL_WAIT,
+                client.snapshot(beep_proto::node::events::Read::SyncList),
+            )
+            .await
+            {
+                Ok(Some(Ok(beep_proto::node::events::Value::Sync(reply)))) => {
+                    return match *reply {
+                        Reply::Status { projects } => {
+                            self.hosts
+                                .sync_statuses()
+                                .remember(machine, Some(projects.clone()));
+                            Some(projects)
+                        }
+                        _ => None,
+                    };
+                }
+                Ok(Some(_)) => {
+                    return self
+                        .hosts
+                        .sync_statuses()
+                        .peek(machine)
+                        .and_then(|(p, _)| p);
+                }
+                Ok(None) | Err(_) => {}
+            }
+        }
+
+        self.hosts
+            .sync_statuses()
+            .read_or_refresh(machine, self.peers.clone())
+            .await
     }
 
     pub(crate) fn name_of(&self, machine: EndpointId) -> String {
@@ -415,6 +661,7 @@ impl Desk {
                 write(&self.mesh, key, Some(&spec)).await?;
             }
         }
+        self.hosts.sync_statuses().clear();
         self.sync_detail(project).await
     }
 
@@ -456,7 +703,10 @@ impl Desk {
         )
         .await?;
         match reply {
-            Reply::Resolved {} => Ok(()),
+            Reply::Resolved {} => {
+                self.hosts.sync_statuses().forget(machine);
+                Ok(())
+            }
             _ => Err(FleetError::refused("The machine answered something else.")),
         }
     }
@@ -477,7 +727,10 @@ impl Desk {
         .await?;
 
         match reply {
-            Reply::StartedOver {} => Ok(()),
+            Reply::StartedOver {} => {
+                self.hosts.sync_statuses().forget(machine);
+                Ok(())
+            }
             _ => Err(FleetError::refused("The machine answered something else.")),
         }
     }
@@ -496,9 +749,10 @@ impl Desk {
         let Some(record) = find_project(&self.mesh, name) else {
             return Vec::new();
         };
+        let ids: Vec<EndpointId> = record.places.keys().copied().collect();
         let mut out = Vec::new();
 
-        for seen in self.seen().await {
+        for seen in self.seen_among(&ids).await {
             let Ok(id) = seen.machine.id.parse::<EndpointId>() else {
                 continue;
             };
@@ -507,10 +761,12 @@ impl Desk {
             };
 
             if let Some(synced) = env.syncthing_folder(&place.folder) {
-                if self
-                    .syncthing_files(&seen.machine.id, &place.folder, None)
-                    .await
-                    .is_ok_and(|files| !files.enabled)
+                if timeout(
+                    SYNCTHING_CALL_LIMIT,
+                    self.syncthing_files(&seen.machine.id, &place.folder, None),
+                )
+                .await
+                .is_ok_and(|res| res.is_ok_and(|files| !files.enabled))
                 {
                     continue;
                 }

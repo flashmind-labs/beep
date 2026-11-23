@@ -25,7 +25,7 @@ pub struct TurnUsage {
     pub at: u64,
     /// What the turn cost at API prices, in US dollars, when the agent
     /// reports a cost (an ACP `usage_update`'s running `cost`, counted per
-    /// turn). Codex and Gemini report none.
+    /// turn). Codex reports none.
     pub cost_usd: Option<f64>,
     /// Every token the turn used: input, cached input, output.
     pub tokens: u64,
@@ -74,6 +74,20 @@ pub struct SessionSpend {
     pub since: u64,
     /// What it spent each hour with each model.
     pub hours: Vec<HourSpend>,
+    /// Session totals without dated usage, replaced in full on every report.
+    #[serde(default)]
+    pub historical: Vec<HistoricalSpend>,
+}
+
+/// The remaining undated usage and its known transcript bounds, in Unix seconds.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HistoricalSpend {
+    pub first: Option<u64>,
+    pub last: Option<u64>,
+    pub tokens: u64,
+    pub cost_usd: f64,
+    pub billing: Billing,
 }
 
 /// What one session spent with one model in one hour.

@@ -3,10 +3,7 @@
 //! projects of the checkouts the machines have. Each action does what the
 //! Add a project and New project sheets do.
 
-use super::{
-    create::{CreatedRow, ForgeRow},
-    import::FoundRow,
-};
+use super::create::CreatedRow;
 use crate::{
     fleet::{Fleet, files as direct, projects::desk},
     machines::list::MachineLists,
@@ -154,9 +151,8 @@ async fn run(app: &AppHandle, args: &str) -> Result<Value, String> {
     match action {
         Action::Hosts => {
             let forges = desk.forges().await.map_err(|e| e.to_string())?;
-            let rows: Vec<ForgeRow> = forges.into_iter().map(ForgeRow::from).collect();
 
-            Ok(json!(rows))
+            Ok(json!(forges))
         }
         Action::Create {
             name,
@@ -335,13 +331,9 @@ async fn found(
         }
     }
 
-    let rows: Vec<FoundRow> = desk
-        .group_found(held.found.last())
-        .into_iter()
-        .map(FoundRow::from)
-        .collect();
+    let found = desk.group_found(held.found.last());
 
-    json!({ "found": rows, "problems": problems })
+    json!({ "found": found, "problems": problems })
 }
 
 /// Makes projects of the found checkouts `names` names, a few at a time,

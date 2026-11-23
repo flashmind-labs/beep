@@ -170,7 +170,7 @@ pub fn agent_name(agent: &str) -> &str {
     match agent {
         "claude" => "Claude Code",
         "codex" => "Codex",
-        "gemini" => "Gemini CLI",
+        "agy" => "Antigravity",
         "pi" => "pi",
         "flsh" => "flsh",
         "opencode" => "OpenCode",

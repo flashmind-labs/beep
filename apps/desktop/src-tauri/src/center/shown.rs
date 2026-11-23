@@ -5,7 +5,7 @@ use beep_proto::AgentNoticeKey;
 use beep_proto::SessionId;
 use std::{
     collections::HashMap,
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{Mutex, MutexGuard},
     time::{Duration, Instant},
 };
 
@@ -29,7 +29,7 @@ struct ShownAgent {
 
 impl AgentsShown {
     fn views(&self) -> MutexGuard<'_, HashMap<String, ShownAgent>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        super::lock(&self.0)
     }
 
     /// Webview `label` read `session` of `agent` on `machine_id` at `at`.

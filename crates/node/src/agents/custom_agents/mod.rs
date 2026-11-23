@@ -176,6 +176,42 @@ pub(super) fn list(folder: &Path, home: Option<&Path>) -> Result<Vec<CustomAgent
     Ok(reader.agents)
 }
 
+/// The custom agent called `name`, in any case, that a thread runs as:
+/// one `folder` defines, else the user's own in `home`, the one for
+/// `harness` first. One without instructions or that could not be read is
+/// none. Otherwise why not, naming the ones there are. Blocks on the file
+/// system.
+pub(crate) fn persona(folder: &Path, home: Option<&Path>, name: &str, harness: &str) -> Result<CustomAgent, String> {
+    let mut usable = list(folder, home).map_err(|e| format!("{e:#}"))?;
+    usable.retain(|agent| agent.error.is_none() && !agent.prompt.trim().is_empty());
+    let named = |agent: &&CustomAgent| agent.name.eq_ignore_ascii_case(name.trim());
+
+    // The first of the best: the project's come ahead of the user's.
+    if let Some(found) = usable.iter().filter(named).min_by_key(|agent| agent.harness.as_ref() != harness) {
+        return Ok(found.clone());
+    }
+
+    let mut names: Vec<&str> = usable.iter().map(|agent| agent.name.as_str()).collect();
+    let mut seen = HashSet::new();
+    names.retain(|name| seen.insert(*name));
+
+    Err(match names.is_empty() {
+        true => format!("There is no custom agent called {name}: this folder and the user define none."),
+        false => format!("There is no custom agent called {name}. There are: {}.", names.join(", ")),
+    })
+}
+
+/// What a session that runs as `persona` is told of it, with Beep's word
+/// ahead of its first prompt.
+pub(crate) fn persona_brief(persona: &CustomAgent) -> String {
+    format!(
+        "You run as the custom agent {}, defined in {}. Follow its instructions:\n\n{}",
+        persona.name,
+        persona.path,
+        persona.prompt.trim()
+    )
+}
+
 /// The rows read so far, and the files they came from, so a file is read
 /// once when the project folder is the home.
 #[derive(Default)]

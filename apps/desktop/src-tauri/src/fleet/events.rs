@@ -1020,6 +1020,16 @@ impl Events {
             return Ok(None);
         }
 
+        self.call_machine(machine, operation, Duration::from_secs(125))
+            .await
+    }
+
+    pub(crate) async fn call_machine(
+        &self,
+        machine: EndpointId,
+        operation: Operation,
+        limit: Duration,
+    ) -> Result<Option<CallReply>> {
         let sender = self
             .commands
             .lock()
@@ -1031,13 +1041,13 @@ impl Events {
         };
         let (reply, result) = oneshot::channel();
         timeout(
-            Duration::from_secs(15),
+            Duration::from_secs(5),
             sender.send(Call { operation, reply }),
         )
         .await
         .map_err(|_| DesktopError::Lost("the machine".into()))?
         .map_err(|_| DesktopError::Lost("the machine".into()))?;
-        let result = timeout(Duration::from_secs(125), result)
+        let result = timeout(limit, result)
             .await
             .map_err(|_| DesktopError::Unsure("the machine".into()))?
             .map_err(|_| DesktopError::Unsure("the machine".into()))?;

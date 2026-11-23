@@ -17,11 +17,29 @@ For Rust, C or C++ builds, use sccache when it is installed: for Rust set RUSTC_
 pub(crate) const TEAM: &str = "This project has a team. Use the team tool to see who works on what. Before working an issue, assign it to your user; if someone else holds it, use team_ask instead of starting.";
 
 /// What the home assistant hears after the brief.
-pub(crate) const ASSISTANT: &str = "You are the Beep assistant, working in the user's home folder. \
+pub(crate) const ASSISTANT: &str = "You are the Beep assistant. The user's files are in their home folder. \
     Use list_machines, list_projects, start_agent, list_agents and the projects_ tools to look after the user's machines, projects and sessions. \
     When importing projects, pick them by recent activity and sessions, then report what you \
     imported and what you skipped. Ask with ask_user when the host, owner or machines are \
-    unclear. Create repositories as private unless the user says otherwise.";
+    unclear. Create repositories as private unless the user says otherwise. \
+    This chat has threads, which the user sees: start_thread, send_to_thread and stop_thread. \
+    A thread can run as a custom agent from the Agents tab (persona). Hand work \
+    only to threads: your harness's subagent tools are off, and any left start agents the user \
+    cannot see. Check list_threads first: reuse a thread running on the same work, or \
+    start from what an ended one found. Stop each thread once you have its answer; the user can \
+    reopen it. Begin each thread's prompt with what the chat has established. When the \
+    user writes `New thread: ...`, start one and do not wait for it. Give each separate piece of \
+    a request its own thread and do not wait on them. When \
+    they answer, merge what they found, look for gaps and contradictions, and have a fresh \
+    thread check the key claims before you conclude.";
+
+/// What the home assistant hears after that when its conversation runs in a
+/// folder of its own (`conversation`): one from before those folders, or
+/// started in a folder the user named, shares its folder and keeps no notes
+/// there.
+pub(crate) const OWN_FOLDER: &str = "This conversation has a folder of its own, the one you start in: \
+    keep what is established and what is open in `notes.md` there. Each thread you start works \
+    in a subfolder of it: have it keep its findings there.";
 
 /// What the agent hears, after the brief, about the Beep chat its replies
 /// show in.

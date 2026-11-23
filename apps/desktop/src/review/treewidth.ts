@@ -1,6 +1,7 @@
 // The diff file list's width, kept between launches: dragged by its grip,
 // stepped with the arrow keys, reset by a double-click, and kept within the
 // body so the diff has room.
+import { readWindowPreference, writeWindowPreference } from "../ui/window-layout.ts";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { dragHandle } from "../ui/drag.ts";
 
@@ -11,7 +12,7 @@ const KEY = "beep.diffTreeWidth";
 
 function load() {
   try {
-    const saved = localStorage.getItem(KEY);
+    const saved = readWindowPreference(KEY);
     const width = Number(saved);
     if (saved && Number.isFinite(width)) return Math.max(MIN, Math.min(MAX, width));
   } catch { /* use the default when storage is unavailable */ }
@@ -20,7 +21,7 @@ function load() {
 }
 
 function save(width: number) {
-  try { localStorage.setItem(KEY, String(width)); } catch { /* kept for this view only */ }
+  try { writeWindowPreference(KEY, String(width)); } catch { /* kept for this view only */ }
 }
 
 /// Leaves 320px for the diff and 1px for the divider.

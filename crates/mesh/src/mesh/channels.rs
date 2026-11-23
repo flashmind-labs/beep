@@ -2,7 +2,7 @@
 //! mesh replication.
 
 use super::{Inner, Mesh};
-use crate::{MeshError, OPEN_TIMEOUT, wire};
+use crate::{MeshError, OPEN_TIMEOUT, RETRY, wire};
 use futures::StreamExt;
 use iroh::{
     EndpointAddr, EndpointId,
@@ -15,16 +15,12 @@ use std::{
 };
 use tokio::{
     sync::Mutex as AsyncMutex,
-    time::{Duration, Instant, timeout},
+    time::{Instant, timeout},
 };
-
-const FIRST_RETRY: Duration = Duration::from_secs(1);
-const MAX_RETRY: Duration = Duration::from_secs(30);
 
 struct FailedDial {
     peer_session: Option<u64>,
     retry_at: Instant,
-    pause: Duration,
     reason: String,
 }
 
@@ -304,15 +300,10 @@ impl Mesh {
         let connection = match result {
             Ok(connection) => connection,
             Err(reason) => {
-                let pause = failed
-                    .as_ref()
-                    .filter(|previous| previous.peer_session == opening_session)
-                    .map_or(FIRST_RETRY, |previous| (previous.pause * 2).min(MAX_RETRY));
-                tracing::warn!(?peer, protocol = %String::from_utf8_lossy(alpn), retry_ms = pause.as_millis(), %reason, "peer protocol connection failed; backing off");
+                tracing::warn!(?peer, protocol = %String::from_utf8_lossy(alpn), retry_ms = RETRY.as_millis(), %reason, "peer protocol connection failed; trying again later");
                 *failed = Some(FailedDial {
                     peer_session: opening_session,
-                    retry_at: Instant::now() + pause,
-                    pause,
+                    retry_at: Instant::now() + RETRY,
                     reason: reason.clone(),
                 });
 

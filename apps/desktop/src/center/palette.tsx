@@ -31,8 +31,14 @@ export interface PaletteDeps {
   /// The Coding agents page.
   providers(): void;
   project(name: string): void;
+  projects?(): void;
+  terminals?(): void;
+  newSession?(): void;
   /// The Add a project sheet, which lists the folders agents worked in.
   addProject(): void;
+  addMachine?(): void;
+  shortcuts?(): void;
+  report?(): void;
   /// The project's Branches list.
   branches(name: string): void;
   /// The project whose hits list first: a project window's own.
@@ -49,6 +55,19 @@ const ICONS = {
 const GROUPS: Record<HitKind, string> = { action: "Actions", setting: "Settings", project: "Projects", folder: "Projects", agent_session: "Coding agents", code: "Projects and code", branch: "Projects and code", machine: "Machines" };
 /// The icon each kind draws with, from ICONS or IC; one not here has its own name.
 const ICON_OF: Partial<Record<HitKind, keyof typeof ICONS | keyof typeof IC>> = { branch: "code", folder: "project", setting: "gear", action: "plus" };
+
+const ACTION_ICONS: Record<string, keyof typeof ICONS | keyof typeof IC> = {
+  home: "home",
+  projects: "project",
+  terminals: "term",
+  coding_agents: "agent_session",
+  settings: "gear",
+};
+
+function hitIcon(hit: Hit): keyof typeof ICONS | keyof typeof IC {
+  if (hit.kind === "action" && hit.id in ACTION_ICONS) return ACTION_ICONS[hit.id];
+  return ICON_OF[hit.kind] ?? (hit.kind as keyof typeof ICONS | keyof typeof IC);
+}
 
 let deps: PaletteDeps | null = null;
 /// Whether the palette is open, and its search field once drawn.
@@ -148,7 +167,7 @@ function draw(q: string) {
       keys={[["↑↓", "move"], ["↵", "open"], ...(listing ? [["←", "back"]] : more ? [["→", "sessions"]] : []), ["esc", "close"]]}
       icon={(hit: Hit) => {
         if (hit.session) return <HarnessIcon agent={hit.session.agent} className="dmag-ic" />;
-        const name = ICON_OF[hit.kind] ?? hit.kind;
+        const name = hitIcon(hit);
         return <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC] }} />;
       }}
       windowProps={hit => {
@@ -175,9 +194,16 @@ function pick(hit: Hit) {
 
   switch (hit.kind) {
     case "action":
+      if (hit.id === "new_session") return deps!.newSession?.();
       if (hit.id === "home") return go("home");
+      if (hit.id === "projects") return deps!.projects ? deps!.projects() : project("");
+      if (hit.id === "terminals") return deps!.terminals?.();
+      if (hit.id === "add_project") return addProject();
+      if (hit.id === "add_machine") return deps!.addMachine?.();
       if (hit.id === "coding_agents") return deps!.providers();
       if (hit.id === "settings") return go("pane", "settings");
+      if (hit.id === "shortcuts") return deps!.shortcuts?.();
+      if (hit.id === "report_problem") return deps!.report?.();
       return;
     case "machine": return jump(`m-${hit.id}`);
     case "setting": return settings(hit.id);

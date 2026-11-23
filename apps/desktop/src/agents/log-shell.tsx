@@ -26,7 +26,7 @@ function sameNote(a: LogShell["note"], b: LogShell["note"]) {
 function sameShell(a: LogShell, b: LogShell) {
   return a.why === b.why && a.starting === b.starting && a.log === b.log && sameQuestion(a.question, b.question)
     && a.questionKey === b.questionKey && a.answering === b.answering
-    && a.error === b.error && a.external === b.external && sameNote(a.note, b.note) && a.retry === b.retry;
+    && a.error === b.error && a.external === b.external && a.switchModel === b.switchModel && sameNote(a.note, b.note) && a.retry === b.retry;
 }
 
 /// A cached body keeps its shell and transcript until the session is evicted.
@@ -57,7 +57,9 @@ export function showLogShell(body: HTMLElement, value: LogShell, units: readonly
     if (heldPart("card", !sameQuestion(prior.question, value.question) || prior.questionKey !== value.questionKey || prior.answering !== value.answering)) {
       next.question = prior.question; next.questionKey = prior.questionKey; next.answering = prior.answering; deferred = true;
     }
-    if (heldPart("error", prior.error !== value.error || prior.external !== value.external)) { next.error = prior.error; next.external = prior.external; deferred = true; }
+    if (heldPart("error", prior.error !== value.error || prior.external !== value.external || prior.switchModel !== value.switchModel)) {
+      next.error = prior.error; next.external = prior.external; next.switchModel = prior.switchModel; deferred = true;
+    }
     if (heldPart("note", !sameNote(prior.note, value.note))) { next.note = prior.note; deferred = true; }
     if (heldPart("retry", prior.retry !== value.retry)) { next.retry = prior.retry; deferred = true; }
     if (log.el && !value.log && held.some(node => log.el?.contains(node))) { next.log = true; deferred = true; }

@@ -14,7 +14,7 @@ const view = (row = session) => ({
 
 test("opening a short transcript page reads all earlier messages without scrolling", async ({ page }) => {
   const active = { ...session, status: "idle", external: false };
-  const entries = [{ kind: "user", text: "Latest prompt" }, { kind: "agent", text: "Latest reply" }];
+  const entries = [{ kind: "other", text: "[conversation compacted]\nEarlier context." }, { kind: "agent", text: "Latest reply" }];
   await openDesktop(page, false, { agent_view: { ...view(active), entries, earlier: 202 } });
   await page.evaluate(() => {
     window.__navigation.holdNext("agent_older");
@@ -39,6 +39,8 @@ test("opening a short transcript page reads all earlier messages without scrolli
   await page.evaluate(() => window.__navigation.release("agent_older"));
   await expect.poll(reads).toEqual([202, 2]);
   await expect(body).toContainText("First prompt");
+  await body.getByText("Context summarized", { exact: true }).click();
+  await expect(body.getByText("Earlier context.", { exact: true })).toBeVisible();
   await expect(body).toContainText("Latest reply");
 });
 
@@ -63,6 +65,24 @@ test("an imported session with an unknown model can choose before continuing", a
   expect(calls[0].args).toMatchObject({ prompt: null, model: "test-model" });
   expect(calls[1].args).toMatchObject({ session: "resumed-session", steer: { configure: { model: "test-model", effort: null, fast: null } } });
   expect(calls[2].args).toMatchObject({ session: "resumed-session", steer: { prompt: { text: "Continue with this model" } } });
+});
+
+test("a failed turn runs its prompt again on the model picked from its error", async ({ page }) => {
+  const idle = { ...session, agent: "claude", status: "idle", external: false };
+  const entries = [{ kind: "user", text: "<beep-context>\nContext\n</beep-context>\nCheck the alerts" }];
+  await openDesktop(page, false, {
+    agent_view: { ...view(idle), entries, error: "No endpoints found for this model" }, agent_steer: [],
+    agent_models: { pick: "listed", current: null, models: [{ id: "test-model", name: "Test model", description: null }] },
+  });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), idle);
+  await page.getByRole("button", { name: "Retry with another model" }).click();
+  await page.locator('[data-agmo="test-model"]').click();
+
+  const steers = () => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").map(c => c.args.steer));
+  await expect.poll(steers).toEqual([
+    { configure: { model: "test-model", effort: null, fast: null } },
+    { prompt: { text: "Check the alerts" } },
+  ]);
 });
 
 test("touch scrolling releases the log before the next animation frame", async ({ page }) => {
@@ -99,6 +119,54 @@ test("touch scrolling releases the log before the next animation frame", async (
   await expect.poll(() => body.evaluate((el: HTMLElement & { touching?: boolean }) => el.touching)).toBe(false);
   await body.evaluate(el => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event("scroll")); });
   await expect.poll(() => body.evaluate((el: HTMLElement & { stuck?: boolean }) => el.stuck)).toBe(true);
+});
+
+test("returning from Home opens the same conversation at its latest message", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  await openDesktop(page, false, { agent_view: view(active) });
+  const open = () => page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  const body = page.locator("#agbody");
+  const gap = () => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop);
+  const jump = page.getByRole("button", { name: "Scroll to bottom" });
+
+  await open();
+  await expect(body).toContainText("Message 39");
+  await expect.poll(gap).toBeLessThan(2);
+  await page.keyboard.press("Home");
+  await expect.poll(() => body.evaluate((el: HTMLElement & { top?: number }) => el.top)).toBe(0);
+  await expect(jump).toBeVisible();
+
+  await page.evaluate(() => window.__navigation.open("home"));
+  await expect(body).toBeHidden();
+  await open();
+  await expect(body).toBeVisible();
+  await expect(body.getByText("Message 39", { exact: false })).toBeInViewport();
+  await expect.poll(gap).toBeLessThan(2);
+  await expect(jump).toBeHidden();
+});
+
+test("reopening the desktop window returns the conversation to the latest message", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  await openDesktop(page, false, { agent_view: view(active) });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  const body = page.locator("#agbody");
+  const jump = page.getByRole("button", { name: "Scroll to bottom" });
+  await expect(body).toContainText("Message 39");
+  await expect(body.getByText("Message 39", { exact: false })).toBeInViewport();
+  await page.keyboard.press("Home");
+  await expect.poll(() => body.evaluate((el: HTMLElement & { top?: number }) => el.top)).toBe(0);
+  await expect(jump).toBeVisible();
+
+  await page.evaluate(() => {
+    window.__navigation.emit("center-hidden", null);
+    window.__navigation.emit("center-shown", null);
+  });
+  await expect(jump).toBeVisible();
+
+  await page.evaluate(() => window.__navigation.emit("center-reopened", null));
+  await expect(body.getByText("Message 39", { exact: false })).toBeInViewport();
+  await expect.poll(() => body.evaluate(el => el.scrollHeight - el.clientHeight - el.scrollTop)).toBeLessThan(2);
+  await expect(jump).toBeHidden();
 });
 
 for (const custom of [

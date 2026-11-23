@@ -71,6 +71,7 @@ impl Machine {
     pub fn new(dir: &Path, project_tools: Option<Arc<dyn ProjectTools>>) -> Self {
         let provision = Provision::new(dir);
         let mut offers = Offers::local(&[], provision.clone());
+        offers.agents.list_beep_skills();
         // The assistant's project tools on this Mac reach this app.
         offers.project_tools = project_tools;
         #[cfg(target_os = "macos")]

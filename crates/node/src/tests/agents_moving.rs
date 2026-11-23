@@ -195,6 +195,7 @@ fn a_moved_session_begins_as_its_source_saved_it() {
         effort: Some(Effort::High),
         fast: Some(true),
         account: None,
+        named: false,
     };
     let arrival = Arrival {
         id: &SessionId::from("held-1"),
@@ -203,8 +204,10 @@ fn a_moved_session_begins_as_its_source_saved_it() {
         worktrees: Vec::new(),
         from,
         saved: Some(saved),
+        chat: false,
     };
-    let begin = arrival.begin("moved".into(), "brief".into());
+    let me = iroh::SecretKey::generate().public();
+    let begin = arrival.begin("moved".into(), "brief".into(), me);
     assert_eq!(begin.title.as_deref(), Some("Plan the week"));
     assert_eq!(begin.model, Some(ModelId::new("deep")));
     assert_eq!(begin.mode.as_deref(), Some("plan"));
@@ -217,8 +220,87 @@ fn a_moved_session_begins_as_its_source_saved_it() {
         saved: None,
         ..arrival
     };
-    let begin = older.begin("moved".into(), "brief".into());
+    let begin = older.begin("moved".into(), "brief".into(), me);
     assert_eq!(begin.model, Some(ModelId::new("fast")));
     assert!(!begin.assistant);
     assert_eq!(begin.title, None);
+}
+
+#[test]
+fn a_thread_that_moves_with_its_chat_stays_its_chats() {
+    use super::resume::{Arrival, kept_here};
+    use crate::agents::SavedSession;
+    use beep_proto::node::agent::{ParentLink, SessionInfo};
+
+    let (from, me, elsewhere) = (
+        iroh::SecretKey::generate().public(),
+        iroh::SecretKey::generate().public(),
+        iroh::SecretKey::generate().public(),
+    );
+    let link = ParentLink {
+        machine: Some(from),
+        session: "chat-1".into(),
+        key: "a3f9c1".into(),
+        root_machine: Some(from),
+        root: "chat-1".into(),
+        depth: 1,
+        others: 0,
+        agent: "claude".into(),
+        mode: None,
+        background: false,
+    };
+    let saved = |parent: ParentLink| SavedSession {
+        info: SessionInfo {
+            id: "held-1".into(),
+            title: Some("Pricing".into()),
+            cwd: "/srv/laptop/.beep/assistant/ab12/pricing".into(),
+            parent: Some(parent),
+            ..SessionInfo::default()
+        },
+        effort: None,
+        fast: None,
+        account: None,
+        named: true,
+    };
+    let thread = Arrival {
+        id: &SessionId::from("held-1"),
+        mode: None,
+        model: None,
+        worktrees: Vec::new(),
+        from,
+        saved: Some(saved(link.clone())),
+        chat: true,
+    };
+
+    // Its chat runs here now, under its own id, and its name is its parent's.
+    let begin = thread.begin("moved".into(), "brief".into(), me);
+    let parent = begin.parent.expect("it keeps its parent");
+    assert_eq!((parent.machine, parent.root_machine), (Some(me), Some(me)));
+    assert_eq!((parent.session.as_ref(), parent.key.as_ref()), ("chat-1", "chat-1"));
+    assert!(begin.named);
+
+    // One that came ended is kept in its folder here, under its chat.
+    let kept = kept_here(&thread, Path::new("/work/.beep/assistant/ab12/pricing"), me)
+        .expect("what the source saved stays");
+    assert_eq!(kept.info.cwd, "/work/.beep/assistant/ab12/pricing");
+    assert_eq!(kept.info.parent.and_then(|link| link.machine), Some(me));
+
+    // A parent on a third machine stays where it is.
+    let remote = Arrival {
+        saved: Some(saved(ParentLink {
+            machine: Some(elsewhere),
+            ..link.clone()
+        })),
+        ..thread
+    };
+    let parent = remote.begin("moved".into(), "brief".into(), me).parent;
+    assert_eq!(parent.and_then(|link| link.machine), Some(elsewhere));
+
+    // A project's session leaves the one that started it behind.
+    let project = Arrival {
+        saved: Some(saved(link)),
+        chat: false,
+        ..remote
+    };
+    assert_eq!(project.begin("moved".into(), "brief".into(), me).parent, None);
 }

@@ -2,7 +2,7 @@ use beep_proto::SessionId;
 use super::*;
 use crate::agents::Agents;
 use crate::agents::found::Stores;
-use beep_proto::node::agent::{SessionsReply, SessionsRequest};
+use beep_proto::node::agent::{ExternalSession, SessionsReply, SessionsRequest};
 use beep_proto::node::{LinkRx, agent::Presence};
 use serde_json::json;
 use std::sync::Arc;
@@ -211,4 +211,46 @@ async fn continuing_here_ends_only_the_followed_session_s_process() {
         .unwrap()
         .unwrap();
     assert_eq!(status.signal(), Some(libc::SIGTERM));
+}
+
+/// flsh registers with no title, then sends the generated one on the same
+/// connection; it replaces the first prompt read from the transcript.
+#[test]
+fn a_later_presence_title_replaces_the_first_prompt() {
+    let registry = Registry::default();
+    let connection = Uuid::new_v4();
+    let found = || ExternalSession {
+        id: SessionId::from("session_a"),
+        agent: "flsh".into(),
+        title: Some("explain rust lifetimes to me please".into()),
+        ..ExternalSession::default()
+    };
+    registry
+        .register(registration("session_a"), connection)
+        .unwrap();
+    let mut sessions = vec![found()];
+    registry.merge(&mut sessions);
+    assert_eq!(
+        sessions[0].title.as_deref(),
+        Some("explain rust lifetimes to me please")
+    );
+
+    let mut titled = registration("session_a");
+    titled.title = Some("Explain Rust lifetime annotations".into());
+    registry.register(titled, connection).unwrap();
+    let mut sessions = vec![found()];
+    registry.merge(&mut sessions);
+    assert_eq!(
+        sessions[0].title.as_deref(),
+        Some("Explain Rust lifetime annotations")
+    );
+
+    // A later registration without a title keeps it.
+    registry
+        .register(registration("session_a"), connection)
+        .unwrap();
+    assert_eq!(
+        registry.snapshot()[0].title.as_deref(),
+        Some("Explain Rust lifetime annotations")
+    );
 }

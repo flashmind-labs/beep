@@ -3,7 +3,7 @@ use crate::{
     agents::{AgentKind, Session, live::Live},
     link::restart::{self, Reopen},
 };
-use beep_proto::node::agent::EntryKind;
+use beep_proto::node::agent::{EntryKind, ExternalSession};
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tokio::sync::watch;
@@ -602,6 +602,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     }]);
     agents.settings_arrived();
     let resumed = agents
@@ -626,15 +627,41 @@ fn an_ended_assistant_kept_from_before_is_still_the_assistant() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     };
+    let mut thread = kept("thread", false, false);
+    thread.info.title = Some("Prices".into());
+    thread.named = true;
+    let mut task = kept("task", false, false);
+    task.info.title = Some("An older name".into());
     agents.keep_saved(vec![
         kept("chat", true, false),
-        kept("task", false, false),
+        task,
         kept("review", true, true),
+        thread,
     ]);
 
-    let assistants = agents.assistants();
-    assert_eq!(assistants, HashSet::from([SessionId::from("chat")]));
+    // What the agents' files say of them, and of one never run here.
+    let mut found: Vec<ExternalSession> = ["chat", "task", "review", "thread", "outside"]
+        .into_iter()
+        .map(|id| ExternalSession {
+            id: id.into(),
+            title: Some("Its agent's name".into()),
+            assistant: true,
+            ..ExternalSession::default()
+        })
+        .collect();
+    agents.mark_kept(&mut found);
+    let assistants: Vec<&str> = found
+        .iter()
+        .filter(|session| session.assistant)
+        .map(|session| session.id.as_ref())
+        .collect();
+    assert_eq!(assistants, ["chat"]);
+    // Only a name its parent gave stands in for its agent's.
+    let titles: Vec<_> = found.iter().map(|session| session.title.as_deref()).collect();
+    let agents_name = Some("Its agent's name");
+    assert_eq!(titles, [agents_name, agents_name, agents_name, Some("Prices"), agents_name]);
 }
 
 #[test]
@@ -699,6 +726,7 @@ fn a_new_note_reads_as_an_old_node_keeps_it() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     };
     Reopen::new(Vec::new(), Vec::new(), vec![saved])
         .save(dir.path())
@@ -760,7 +788,137 @@ fn a_reviewer_taken_over_is_never_the_assistant() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     };
 
-    assert!(!agents.resumed_begin(None, &SessionId::from("held-1"), saved).assistant);
+    assert!(!agents.resumed_begin(&SessionId::from("held-1"), saved).assistant);
+}
+
+/// flsh sends a session's title again right after `session/load`. A session
+/// saved before its title arrived keeps the first prompt until then.
+#[tokio::test]
+async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
+    let dir = tempfile::tempdir().expect("temporary folder");
+    let mut kind = adapter(&dir.path().join("log"));
+    kind.args[1] = ADAPTER.replace(
+        r#"*'"session/load"'*) reply '{}' ;;"#,
+        r#"*'"session/load"'*) reply '{}'
+          echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"held-1","update":{"sessionUpdate":"session_info_update","title":"Explain Rust lifetimes"}}}' ;;"#,
+    );
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before
+        .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
+        .expect("starts");
+    until(&mut session.live.clone(), |live| live.info.turns == 1).await;
+    before.shutdown().await;
+    let stopped = before.open_sessions();
+    assert_eq!(stopped[0].title.as_deref(), Some("explain lifetimes"));
+
+    let after = Agents::new(vec![kind]);
+    after.settings_arrived();
+    after.reopen(stopped).await;
+    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
+    until(&mut resumed.live.clone(), |live| {
+        live.info.title.as_deref() == Some("Explain Rust lifetimes")
+    })
+    .await;
+    after.shutdown().await;
+}
+
+/// flsh writes a title from the first prompt it gets, which carries Beep's
+/// brief: a session that came back with a title keeps it.
+#[tokio::test]
+async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
+    let dir = tempfile::tempdir().expect("temporary folder");
+    let mut kind = adapter(&dir.path().join("log"));
+    kind.args[1] = ADAPTER.replace(
+        r#"    *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;"#,
+        r#"    *'rename it'*)
+      echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"held-1","update":{"sessionUpdate":"session_info_update","title":"Titled from the brief"}}}'
+      reply '{"stopReason":"end_turn"}' ;;
+    *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;"#,
+    );
+    let before = Agents::new(vec![kind.clone()]);
+    let session = before
+        .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
+        .expect("starts");
+    until(&mut session.live.clone(), |live| live.info.turns == 1).await;
+    before.shutdown().await;
+    let stopped = before.open_sessions();
+
+    let after = Agents::new(vec![kind]);
+    after.settings_arrived();
+    after.reopen(stopped).await;
+    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
+    resumed
+        .order(Command::Prompt("rename it".to_owned().into()))
+        .await
+        .expect("the prompt is taken");
+    let mut live = resumed.live.clone();
+    until(&mut live, |live| live.info.turns >= 1 && live.status() == Status::Idle).await;
+    assert_eq!(
+        watched::read(&live, |live| live.info.title.clone()).as_deref(),
+        Some("explain lifetimes")
+    );
+    after.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let agents = Agents::new(vec![adapter(&dir.path().join("log"))]);
+    let kept = |id: &str, assistant: bool, parent: Option<ParentLink>| SavedSession {
+        info: SessionInfo {
+            id: id.into(),
+            agent: "fake".into(),
+            cwd: format!("/home/user/.beep/assistant/{id}"),
+            assistant,
+            parent,
+            ..SessionInfo::default()
+        },
+        effort: None,
+        fast: None,
+        account: None,
+        named: false,
+    };
+    let link = ParentLink {
+        machine: None,
+        session: "main-1".into(),
+        key: "main-1".into(),
+        root_machine: None,
+        root: "main-1".into(),
+        depth: 1,
+        others: 0,
+        agent: "fake".into(),
+        mode: None,
+        background: false,
+    };
+    agents.keep_saved(vec![
+        kept("main-1", true, None),
+        kept("thread-1", true, Some(link)),
+        kept("plain-1", false, None),
+    ]);
+
+    // Only the main chat of an assistant conversation takes its folder with it.
+    assert_eq!(
+        agents.conversation_of(&SessionId::from("main-1")),
+        Some(std::path::PathBuf::from("/home/user/.beep/assistant/main-1"))
+    );
+    assert_eq!(agents.conversation_of(&SessionId::from("thread-1")), None);
+    assert_eq!(agents.conversation_of(&SessionId::from("plain-1")), None);
+
+    // A chat started in another's folder shares it: neither takes it while
+    // the other is there, and the last of them does.
+    let mut guest = kept("main-2", true, None);
+    guest.info.cwd = "/home/user/.beep/assistant/main-1".into();
+    agents.keep_saved(vec![kept("main-1", true, None), guest]);
+    assert_eq!(agents.conversation_of(&SessionId::from("main-1")), None);
+    assert_eq!(agents.conversation_of(&SessionId::from("main-2")), None);
+    agents.forget_saved(&SessionId::from("main-2"));
+    assert_eq!(
+        agents.conversation_of(&SessionId::from("main-1")),
+        Some(std::path::PathBuf::from("/home/user/.beep/assistant/main-1"))
+    );
+    assert_eq!(agents.conversation_of(&SessionId::from("gone-1")), None);
+    agents.shutdown().await;
 }

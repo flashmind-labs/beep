@@ -3,13 +3,12 @@
 //! skipped.
 
 use beep_proto::SessionId;
-use super::{Agent, Memos, Seen, prompt_title};
+use super::{Agent, Memos, Seen, prompt_title, read_databases, xdg_data_dir};
 use std::{
     env,
     ffi::OsStr,
     fs,
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 /// The title OpenCode gives a session before it names it; the first prompt
@@ -57,11 +56,7 @@ pub(super) fn configured() -> Option<PathBuf> {
 
 /// OpenCode's data folder, which follows XDG on every platform.
 fn data_dir() -> Option<PathBuf> {
-    let base = match env::var_os("XDG_DATA_HOME") {
-        Some(dir) if Path::new(&dir).is_absolute() => PathBuf::from(dir),
-        _ => dirs::home_dir()?.join(".local/share"),
-    };
-    Some(base.join("opencode"))
+    Some(xdg_data_dir(dirs::home_dir())?.join("opencode"))
 }
 
 /// The databases at `root`: the database itself, or those in the folder.
@@ -75,23 +70,7 @@ pub(crate) fn databases_at(root: &Path) -> Vec<PathBuf> {
 
 /// The sessions in `root`: a database, or a data folder of them.
 pub(super) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
-    let databases = databases_at(root);
-    let mut seen = Vec::new();
-
-    for database in databases {
-        match memos
-            .databases
-            .read_database(&database, || read(&database).map(Arc::new))
-        {
-            Ok(found) => seen.extend(found.iter().cloned()),
-            Err(e) => log::debug!(
-                "OpenCode sessions not read; database={} error={e}",
-                database.display()
-            ),
-        }
-    }
-
-    seen
+    read_databases(memos, databases_at(root), read, "OpenCode")
 }
 
 /// The `opencode*.db` files in the data folder `dir`.

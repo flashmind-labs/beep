@@ -10,7 +10,7 @@ impl Syncs {
         folder: &str,
         enabled: Option<bool>,
     ) -> Result<SyncthingFiles> {
-        let folders = if self.follows_mesh() {
+        let folders = if lock(&self.inner.mesh).is_some() {
             self.inner.folders.everywhere()
         } else {
             self.inner.folders.clone()

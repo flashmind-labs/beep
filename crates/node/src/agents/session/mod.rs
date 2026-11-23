@@ -7,8 +7,9 @@ use super::{
     acp::Prompt,
     alerts::AlertHub,
     compaction::{Compactor, Policy, Route},
+    family::Mark,
     images::Images,
-    kinds::{CODEX_CONFIG, known},
+    kinds::{CODEX_CONFIG, OPENCODE_PERMISSION, known},
     live::{Live, Sent},
     processes::Processes,
     route, unix_now,
@@ -23,14 +24,14 @@ use anyhow::Result;
 use beep_proto::{AccountName, ModelId};
 use beep_proto::SessionId;
 use beep_proto::node::agent::{
-    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, SessionDevice, SessionInfo,
+    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, Persona, SessionDevice, SessionInfo,
     Status,
 };
 use beep_proto::watched;
 use futures::stream::FuturesUnordered;
 use std::{
     borrow::Cow,
-    collections::{HashSet, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     path::Path,
     sync::{
         Arc, Mutex,
@@ -38,7 +39,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::{OnceCell, mpsc, oneshot, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio_util::task::AbortOnDropHandle;
 
 mod actor;
@@ -141,6 +142,9 @@ pub(super) enum Command {
     },
     /// The move is off: prompts are taken again.
     NotMoving,
+    /// Its parent ended for good, so it closes: unless it is moving, when
+    /// its parent may have left first for the machine it goes to.
+    ParentGone,
 }
 
 /// A question the node asks in a session.
@@ -171,8 +175,8 @@ pub(super) struct Session {
     pub(super) agent: String,
     orders: mpsc::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
-    /// Native history before the adapter's replay, read once for a resumed Claude session.
-    pub(super) history: Option<OnceCell<Vec<Entry>>>,
+    /// Where the retained live replay begins in Claude's saved transcript.
+    pub(super) history: Option<crate::AsyncMutex<Option<super::running::History>>>,
     moved_cwd: Mutex<Option<String>>,
     /// A temporary reviewer (`agents::reviews`): never listed, never kept
     /// over a restart, offered `submit_review`.
@@ -189,6 +193,12 @@ pub(super) struct Session {
     /// Messages from agents that are not its parent since the user last
     /// wrote, so two agents cannot keep each other talking.
     peer_messages: AtomicU32,
+    /// What it last saw of each relative in its chat (`family::changes`),
+    /// by the relative's `id` here. Not kept over a restart.
+    seen: Mutex<HashMap<SessionId, Mark>>,
+    /// The user's message began the turn that runs or ran last, so its end
+    /// is no news to its parent (`family::notes`).
+    pub(super) user_turn: Arc<AtomicBool>,
 }
 
 /// The most messages a session takes from other agents between two of the
@@ -216,6 +226,8 @@ pub(super) struct Start<'a> {
     pub(super) earlier: Vec<Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
     pub(super) title: Option<String>,
+    /// Its parent gave `title`.
+    pub(super) named: bool,
     /// The model to run a new session on, rather than the agent's own.
     pub(super) model: Option<ModelId>,
     /// How hard a new session thinks, rather than the agent's own level.
@@ -236,8 +248,12 @@ pub(super) struct Start<'a> {
     /// Beep's word to the agent, kept out of the transcript: in its system
     /// prompt when it takes one, else ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
-    /// Saved user instructions and Beep's checkout rule for the whole session.
+    /// Saved user instructions, delivered only through a system prompt.
+    pub(super) instructions: Option<String>,
+    /// Beep's checkout rule for the whole session.
     pub(super) rule: Option<String>,
+    /// The skills Beep keeps in its own folder, listed for the agent.
+    pub(super) skills: Option<String>,
     /// The Beep MCP server for the agent, passed in `session/new` and
     /// `session/load`. With it the brief also says what its tools are.
     pub(super) mcp: Option<McpServer>,
@@ -245,6 +261,8 @@ pub(super) struct Start<'a> {
     pub(super) assistant: bool,
     /// The named account it runs signed in as; `None` for the default one.
     pub(super) account: Option<AccountName>,
+    /// The custom agent it runs as.
+    pub(super) persona: Option<Persona>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -263,7 +281,7 @@ async fn follow_parent(mut parent: watch::Receiver<Live>, orders: mpsc::Sender<O
         // Refused when the child ended first.
         let _ = orders
             .send(Order {
-                command: Command::Close { by_user: false },
+                command: Command::ParentGone,
                 done,
             })
             .await;
@@ -286,6 +304,7 @@ impl Session {
             earlier,
             timestamps,
             title,
+            named,
             model,
             effort,
             fast,
@@ -295,18 +314,19 @@ impl Session {
             note,
             worktrees,
             brief,
+            mut instructions,
             rule,
+            skills,
             mcp,
             assistant,
             account,
+            persona,
             images,
             usage,
             alerts,
             stopping,
         } = start;
         let protocol = super::acp::Protocol::from_env(&kind.env)?;
-        let skills = crate::machine::provision::skills_dir()
-            .and_then(|dir| crate::machine::provision::skills_brief(&dir));
 
         // Only a new session takes the default model. A resumed one takes the
         // model and thinking level it ran on, when the caller kept them.
@@ -338,11 +358,48 @@ impl Session {
         // An off switch the node inherited, such as `DISABLE_AUTO_COMPACT`
         // from the shell that started it, would beat the setting.
         let cleared = native_policy.and_then(|policy| policy.cleared(route, &kind.env));
+        let own_folder = (assistant && mcp.is_some())
+            .then(dirs::home_dir)
+            .flatten()
+            .and_then(|home| super::conversation::brief(&home, cwd));
+        let mut standing = [
+            rule.as_deref(),
+            mcp.is_some().then_some(super::mcp::BRIEF),
+            (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+            own_folder,
+            mcp.is_some().then_some(super::mcp::CHAT),
+            skills.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .fold(None, |text, part| actor::joined(text, Some(part)));
+        let mut brief = brief.map(Cow::into_owned);
+
         let mut process = command(&kind.program);
         // The credentials this agent may have, such as Claude Code's token.
         spawn_env::apply(&mut process, Scope::for_agent(&kind.name, account.as_ref()));
+        let native_flsh = kind.name == "flsh"
+            && Path::new(&kind.program).file_stem().is_some_and(|stem| stem == "flsh")
+            && kind.args.first().is_some_and(|arg| arg == "acp");
+        if native_flsh {
+            let mut system = actor::joined(instructions.take(), standing.take().as_deref());
+            if resume.is_none() {
+                system = actor::joined(brief.take(), system.as_deref());
+            }
+
+            // flsh supports one --system at the root and another after acp.
+            // Preserve an existing subcommand flag when adding ours.
+            let flag = system.map(|text| format!("--system={text}"));
+            if kind.args.iter().any(|arg| arg == "--system" || arg.starts_with("--system=")) {
+                process.args(flag).args(&kind.args);
+            } else {
+                process.args(&kind.args).args(flag);
+            }
+        } else {
+            process.args(&kind.args);
+        }
+
         process
-            .args(&kind.args)
             .args(flag)
             .envs(&kind.env)
             .envs(agent_env)
@@ -351,30 +408,29 @@ impl Session {
             process.env_remove(name);
         }
 
-        if kind.name == "codex"
-            && resume.is_some()
-            && let Some(model) = &model
-        {
-            let current = process
-                .as_std()
-                .get_envs()
-                .find(|(name, _)| *name == CODEX_CONFIG)
-                .and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
-                .or_else(|| std::env::var_os(CODEX_CONFIG));
-            let mut config = match current.filter(|value| !value.is_empty()) {
-                Some(value) => serde_json::from_str::<
-                    Option<serde_json::Map<String, serde_json::Value>>,
-                >(&value.to_string_lossy())
-                .map_err(|_| anyhow::anyhow!("CODEX_CONFIG must be a JSON object"))?
-                .unwrap_or_default(),
-                None => serde_json::Map::new(),
-            };
+        if kind.name == "codex" {
+            let mut config = serde_json::Map::new();
+
             // Codex checks the model during resume, before ACP can switch it.
-            config.insert(
-                "model".to_owned(),
-                serde_json::Value::String(model.to_string()),
-            );
-            process.env(CODEX_CONFIG, serde_json::Value::Object(config).to_string());
+            if resume.is_some()
+                && let Some(model) = &model
+            {
+                config.insert("model".to_owned(), serde_json::json!(model.to_string()));
+            }
+
+            // The home assistant starts threads in place of Codex's own agents.
+            if assistant {
+                config.insert("features.multi_agent".to_owned(), serde_json::json!(false));
+                config.insert("features.multi_agent_v2".to_owned(), serde_json::json!(false));
+            }
+
+            add_json_env(&mut process, CODEX_CONFIG, config)?;
+        }
+
+        // And in place of OpenCode's subagents, whose tool's permission is `task`.
+        if kind.name == "opencode" && assistant {
+            let deny = serde_json::Map::from_iter([("task".to_owned(), serde_json::json!("deny"))]);
+            add_json_env(&mut process, OPENCODE_PERMISSION, deny)?;
         }
 
         if let Some(wrapper) = cargo::wrapper(cwd, &kind.env) {
@@ -403,6 +459,8 @@ impl Session {
         // bridge starts its CLI the same way, once the session starts.
         let agent = super::start(process, kind.bridge.as_ref())?;
         let processes = Processes::new(agent.running.pid());
+        // The agent names a session that came back with a title only on load.
+        let kept_title = resume.is_some() && title.is_some();
         let info = SessionInfo {
             title,
             id: resume.clone().unwrap_or_default(),
@@ -418,9 +476,11 @@ impl Session {
             worktrees,
             assistant,
             account: account.clone(),
+            persona,
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);
+        first.named = named;
         if let Some(note) = note {
             first.push(EntryKind::Other, &note);
         }
@@ -428,7 +488,7 @@ impl Session {
         first.agent_session = resume.clone();
         let (live_tx, live) = watch::channel(first);
         let (orders, orders_rx) = mpsc::channel(ORDERS);
-        let history = (resume.is_some() && kind.name == "claude").then(OnceCell::new);
+        let history = (kind.name == "claude").then(Default::default);
         let actor = Actor {
             live: live_tx,
             alerts,
@@ -454,24 +514,18 @@ impl Session {
             steers: VecDeque::new(),
             sent: 0,
             context_turn: false,
+            kept_title,
             turn: None,
             held_end: None,
             stopping: None,
             by_user: false,
             stop_within,
             running: HashSet::new(),
-            brief: brief.map(Cow::into_owned),
-            standing: actor::joined(
-                actor::joined(
-                    actor::joined(
-                        actor::joined(rule, mcp.is_some().then_some(super::mcp::BRIEF)),
-                        (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
-                    ),
-                    mcp.is_some().then_some(super::mcp::CHAT),
-                ),
-                skills.as_deref(),
-            ),
+            brief,
+            instructions,
+            standing,
             mcp_servers: mcp.into_iter().collect(),
+            subagents: !assistant,
             resume,
             earlier,
             model,
@@ -509,7 +563,15 @@ impl Session {
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),
             peer_messages: AtomicU32::new(0),
+            seen: Mutex::default(),
+            user_turn: Arc::default(),
         })
+    }
+
+    /// Closes with `parent` from now on, as a child started while its
+    /// parent ran does: one that came to this machine before its parent.
+    pub(super) fn follow(&self, parent: watch::Receiver<Live>) {
+        self.keep(tokio::spawn(follow_parent(parent, self.orders.clone())));
     }
 
     /// Keeps `task`, which watches over a child, for as long as the session
@@ -532,6 +594,17 @@ impl Session {
                      Stop and let the user decide."
                 )
             })
+    }
+
+    /// Notes what it now saw of the relative `id`, and gives what it saw
+    /// of it before.
+    pub(super) fn see(&self, id: &SessionId, mark: Mark) -> Option<Mark> {
+        crate::lock(&self.seen).insert(id.clone(), mark)
+    }
+
+    /// What it last saw of the relative `id`.
+    pub(super) fn saw(&self, id: &SessionId) -> Option<Mark> {
+        crate::lock(&self.seen).get(id).copied()
     }
 
     /// The user wrote: other agents may message the session again.
@@ -618,6 +691,38 @@ async fn named_info(live: &mut watch::Receiver<Live>) -> Result<SessionInfo, Str
                 .unwrap_or_else(|| "the agent stopped before giving a session id".to_owned()))
         }
     })
+}
+
+
+/// Adds `entries` to the JSON object in `process`'s variable `name`, or the
+/// one this node inherited, leaving the rest of it. Nothing to add changes
+/// nothing. A variable that is not a JSON object is an error.
+fn add_json_env(
+    process: &mut tokio::process::Command,
+    name: &str,
+    entries: serde_json::Map<String, serde_json::Value>,
+) -> Result<()> {
+    if entries.is_empty() {
+        return Ok(());
+    }
+
+    let current = process
+        .as_std()
+        .get_envs()
+        .find(|(var, _)| *var == name)
+        .and_then(|(_, value)| value.map(std::ffi::OsStr::to_os_string))
+        .or_else(|| std::env::var_os(name));
+    let mut object = match current.filter(|value| !value.is_empty()) {
+        Some(value) => serde_json::from_str::<Option<serde_json::Map<String, serde_json::Value>>>(
+            &value.to_string_lossy(),
+        )
+        .map_err(|_| anyhow::anyhow!("{name} must be a JSON object"))?
+        .unwrap_or_default(),
+        None => serde_json::Map::new(),
+    };
+    object.extend(entries);
+    process.env(name, serde_json::Value::Object(object).to_string());
+    Ok(())
 }
 
 #[cfg(test)]

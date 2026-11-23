@@ -4,7 +4,13 @@ use super::*;
 fn a_list_that_cannot_be_read_keeps_the_last_one() {
     let held = Arc::new(Held::<String>::default());
     let refresh = held.begin().expect("the first refresh starts");
+    assert!(!held.take_again());
     assert!(held.begin().is_none(), "one refresh runs at a time");
+    assert!(
+        held.take_again(),
+        "a concurrent request queues one follow-up pass"
+    );
+    assert!(!held.take_again());
     assert!(held.finish(Ok(vec!["far".to_owned()]), |a, b| a == b));
     drop(refresh);
     let refresh = held.begin().expect("the next refresh starts");

@@ -1,7 +1,9 @@
 // Moving a coding agent session to another machine, apart from the DOM so it
 // can be tested: the menu's notes, the steps, what the lists say and which
 // machine's copy of a session they show.
-import type { OpenAgent } from "./agents.ts";
+import type { AgentSession, OpenAgent } from "./agents.ts";
+import { starters } from "./nesting-state.ts";
+import { transferSpeed } from "../agentpane/files-state.ts";
 
 /// A move record (MoveView).
 export interface MoveRecord {
@@ -30,7 +32,13 @@ export interface MoveProgress {
   worktrees: number;
   /// The source's checkout has uncommitted edits, which stay there.
   edits_left: boolean;
+  /// Bytes of a chat's files copied, and what they take on the source.
+  files_copied: number;
+  files_total: number;
 }
+
+/// When the window first saw a move's files come, and now, in ms.
+export interface FilesTiming { since: number; now: number }
 
 /// A machine a session could move to, with what the desktop knows of it.
 export interface MoveTarget {
@@ -47,21 +55,50 @@ export interface MoveTarget {
 
 /// The harnesses whose sessions move (the others keep theirs in a database,
 /// and wait for later).
-const MOVABLE = new Set(["claude", "codex", "pi"]);
+const MOVABLE = new Set(["claude", "codex", "pi", "flsh"]);
 
-const NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "pi" };
+const NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "pi", flsh: "flsh" };
 
 /// Whether a session can be offered a move at all.
 export const canMove = (s: { agent: string }) => MOVABLE.has(s.agent);
 
-/// What the menu says under a machine, and whether it can be picked. An
+/// What the menu says under a machine, and whether it can be picked: it
+/// needs every harness of `agents` (a chat's threads may use several). An
 /// offline machine can: the move waits for it.
-export function targetNote(t: MoveTarget, agent: string): { note: string; enabled: boolean; offline: boolean } {
+export function targetNote(t: MoveTarget, agents: readonly string[]): { note: string; enabled: boolean; offline: boolean } {
   if (t.old) return { note: "update this machine first", enabled: false, offline: false };
   if (!t.checkout) return { note: "no checkout: import first", enabled: false, offline: false };
-  if (!t.harnesses.includes(agent)) return { note: `no ${NAMES[agent] ?? agent} here`, enabled: false, offline: false };
+  const missing = agents.find(agent => !t.harnesses.includes(agent));
+  if (missing) return { note: `no ${NAMES[missing] ?? missing} here`, enabled: false, offline: false };
   if (!t.online) return { note: "offline: moves when it returns", enabled: true, offline: true };
   return { note: "folder ready", enabled: true, offline: false };
+}
+
+/// The sessions that move with `chat`, the chat first, then its threads and
+/// theirs, oldest first, and the harnesses they use. A reviewer works on a
+/// project, not in the chat's folder, and stays, as does an ended thread that
+/// worked in another folder. Refused while a thread is on another machine,
+/// or runs outside the chat's folder: the chat leaving would close it.
+export function chatSessions(rows: readonly AgentSession[], chat: AgentSession): { sessions: AgentSession[]; agents: string[] } | { refused: string } {
+  const from = starters(rows), inChat = new Set<AgentSession>([chat]);
+  const threads: AgentSession[] = [];
+
+  // Agents start agents three deep at most, so three passes find them all.
+  for (let depth = 0; depth < 3; depth += 1) {
+    for (const row of rows) {
+      const parent = row.reviewer || inChat.has(row) ? undefined : from(row);
+      if (parent && inChat.has(parent)) { inChat.add(row); threads.push(row); }
+    }
+  }
+
+  const inFolder = (row: AgentSession) => row.cwd.startsWith(`${chat.cwd}/`) || row.cwd.startsWith(`${chat.cwd}\\`);
+  const moving = threads.filter(row => inFolder(row) || row.status !== "ended");
+  const away = moving.find(row => row.machine_id !== chat.machine_id);
+  if (away) return { refused: `a thread of this chat is on ${away.machine_name}` };
+  if (moving.some(row => !inFolder(row))) return { refused: "a thread works outside the chat's folder until it ends" };
+  const sessions = [chat, ...moving.sort((a, b) => a.started_at - b.started_at)];
+
+  return { sessions, agents: [...new Set(sessions.map(row => row.agent))] };
 }
 
 /// Megabytes with one decimal, or kilobytes under one.
@@ -77,14 +114,15 @@ export interface MoveRow {
 /// The steps above the composer: the conversation, the checkouts and the
 /// session's worktrees, the resume, each done, running or still to come,
 /// and a note when uncommitted edits stay on the source.
-export function moveRows(p: MoveProgress, from: string, to: string, toOnline = true): MoveRow[] {
-  const steps = moveSteps(p, from, to, toOnline);
+export function moveRows(p: MoveProgress, from: string, to: string, toOnline = true, what: "session" | "chat" = "session", timing: FilesTiming | null = null): MoveRow[] {
+  const steps = moveSteps(p, from, to, toOnline, what, timing);
   return p.edits_left ? [...steps, { state: "note", text: `Uncommitted edits in the project folder stay on ${from}` }] : steps;
 }
 
-function moveSteps(p: MoveProgress, from: string, to: string, toOnline: boolean): MoveRow[] {
+function moveSteps(p: MoveProgress, from: string, to: string, toOnline: boolean, what: "session" | "chat", timing: FilesTiming | null): MoveRow[] {
   const resume = `Resuming on ${to}`;
-  const checkouts = "Checkouts and worktrees";
+  // A chat brings the files of its folder; a session the project's checkouts.
+  const [checkouts, copying] = what === "chat" ? ["Files", filesLine(p, timing)] : ["Checkouts and worktrees", "Checkouts"];
 
   switch (p.phase) {
     case "waiting":
@@ -107,7 +145,7 @@ function moveSteps(p: MoveProgress, from: string, to: string, toOnline: boolean)
         { state: "done", text: `Conversation ${fmtBytes(p.total)}` },
         // What it waits for, such as checkouts at two commits, else the
         // worktree coming over.
-        { state: "run", text: p.reason ?? (p.worktree ? `Worktree ${p.worktree} ${p.worktree_at} of ${p.worktrees}` : "Checkouts") },
+        { state: "run", text: p.reason ?? (p.worktree ? `Worktree ${p.worktree} ${p.worktree_at} of ${p.worktrees}` : copying) },
         { state: "todo", text: resume },
       ];
     default:
@@ -119,9 +157,24 @@ function moveSteps(p: MoveProgress, from: string, to: string, toOnline: boolean)
   }
 }
 
-/// How long a target may take to see a record in the mesh before the
-/// window stops saying it waits for it.
-const SEEN_WITHIN_MS = 2 * 60_000;
+/// How full the bar over the input is: the share of the conversation, or of a chat's files,
+/// copied, below 100 until the step is over. Null for a step with no size.
+export function movePct(p: MoveProgress): number | null {
+  const [done, size] = p.phase === "conversation" ? [p.copied, p.total] : p.phase === "files" ? [p.files_copied, p.files_total] : [0, 0];
+  return size > 0 ? Math.min(99, Math.round((done * 100) / size)) : null;
+}
+
+/// A chat's files as they come: how much of how much, and their speed once they are slow.
+function filesLine(p: MoveProgress, timing: FilesTiming | null) {
+  const pct = movePct(p);
+  if (pct === null) return "Files";
+  const speed = timing && transferSpeed({ started: timing.since, done: p.files_copied, size: p.files_total }, timing.now);
+
+  return `Files ${fmtBytes(p.files_copied)} of ${fmtBytes(p.files_total)} · ${pct}%${speed ? ` · ${speed}` : ""}`;
+}
+
+/// A new move may still be reaching its target through the mesh.
+export const awaitingMove = (record: MoveRecord, now: number) => now - record.at < 2 * 60_000;
 
 /// What the target says of a move, read for the window: a target that has
 /// not heard of a recent move yet still has to take it up, so it waits; one
@@ -130,7 +183,7 @@ const SEEN_WITHIN_MS = 2 * 60_000;
 export function effective(p: MoveProgress | null | undefined, record: MoveRecord | undefined, now: number): MoveProgress | null {
   if (!p || !record) return p ?? null;
   if (p.answer === "update") return { ...p, answer: "known", phase: "failed", reason: "that machine's beep-node is too old to take sessions" };
-  if (p.answer === "unknown") return now - record.at < SEEN_WITHIN_MS ? { ...p, answer: "known", phase: "waiting" } : null;
+  if (p.answer === "unknown") return awaitingMove(record, now) ? { ...p, answer: "known", phase: "waiting" } : null;
   return p;
 }
 

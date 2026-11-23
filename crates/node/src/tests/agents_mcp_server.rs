@@ -488,6 +488,66 @@ const PROJECT_TOOLS: [&str; 5] = [
     "projects_import",
 ];
 
+/// The thread tools, which only the home assistant gets, each with the
+/// agent tool it calls.
+const THREAD_TOOLS: [(&str, Tool); 5] = [
+    ("start_thread", Tool::StartAgent),
+    ("thread_status", Tool::AgentStatus),
+    ("send_to_thread", Tool::SendToAgent),
+    ("stop_thread", Tool::StopAgent),
+    ("list_threads", Tool::ListAgents),
+];
+
+#[tokio::test]
+async fn thread_tools_call_the_agent_tools_for_the_assistant_alone() {
+    let session = SessionId::from("a3f9c1");
+    let args = |name: &str| match name {
+        "start_thread" => json!({ "title": "Pricing", "prompt": "work" }),
+        "send_to_thread" => json!({ "id": "b7e2d4", "text": "and the EU?" }),
+        "list_threads" => json!({}),
+        _ => json!({ "id": "b7e2d4" }),
+    };
+    let other = Fake::new("allow");
+
+    for (name, _) in THREAD_TOOLS {
+        let result = call(&other, &session, name, args(name)).await;
+        assert!(
+            result.failed && result.text == format!("There is no tool {name}."),
+            "{result:?}"
+        );
+    }
+
+    assert!(other.calls.lock().unwrap().is_empty(), "nothing is forwarded");
+    let assistant = Fake {
+        assistant: true,
+        ..Fake::new("allow")
+    };
+
+    for (name, _) in THREAD_TOOLS {
+        call(&assistant, &session, name, args(name)).await;
+    }
+
+    {
+        let calls = assistant.calls.lock().unwrap();
+        let called: Vec<Tool> = calls.iter().map(|call| call.tool).collect();
+        assert_eq!(called, THREAD_TOOLS.map(|(_, tool)| tool));
+        assert_eq!(calls[0].args, args("start_thread").to_string());
+    }
+
+    // A thread is the chat's: it has a name, and nothing says where it runs.
+    for refused in [
+        json!({ "prompt": "work" }),
+        json!({ "title": " ", "prompt": "work" }),
+        json!({ "title": "Pricing", "prompt": "work", "machine": "build-box" }),
+        json!({ "title": "Pricing", "prompt": "work", "cwd": "/srv/project" }),
+    ] {
+        let result = call(&assistant, &session, "start_thread", refused).await;
+        assert!(result.failed, "{result:?}");
+    }
+
+    assert_eq!(assistant.calls.lock().unwrap().len(), THREAD_TOOLS.len());
+}
+
 #[test]
 fn assistant_session_lists_the_project_tools_in_place_of_review() {
     let listed = catalog::tools(false, false, true);
@@ -495,6 +555,7 @@ fn assistant_session_lists_the_project_tools_in_place_of_review() {
     let expected: Vec<&str> = ALL
         .into_iter()
         .filter(|name| *name != "review")
+        .chain(THREAD_TOOLS.map(|(name, _)| name))
         .chain(PROJECT_TOOLS)
         .collect();
     assert_eq!(assistant, expected);
@@ -559,8 +620,9 @@ async fn project_tools_reach_the_desktop_as_projects_with_their_action() {
 #[test]
 fn the_tool_definitions_fit_the_budget() {
     const TOKENS: usize = 4_250;
-    // The home assistant's list has the project tools in place of review.
-    const ASSISTANT_TOKENS: usize = 4_500;
+    // The home assistant's list has the thread and project tools in place
+    // of review.
+    const ASSISTANT_TOKENS: usize = 4_900;
 
     for (assistant, budget) in [(false, TOKENS), (true, ASSISTANT_TOKENS)] {
         let listed = catalog::tools(false, false, assistant).to_string();
@@ -568,7 +630,72 @@ fn the_tool_definitions_fit_the_budget() {
         assert!(tokens <= budget, "{tokens} tokens, assistant {assistant}");
     }
     let brief = (super::super::BRIEF.len() + super::super::ASSISTANT.len()) / 4;
-    assert!(brief <= 500, "the assistant's brief is {brief} tokens");
+    assert!(brief <= 700, "the assistant's brief is {brief} tokens");
+}
+
+#[test]
+fn catalog_schemas_preserve_exact_serialized_json_for_every_mode() {
+    use sha2::{Digest, Sha256};
+
+    let preserved = serde_json::to_vec(&json!({ "b": 1, "a": 2 })).unwrap() == br#"{"b":1,"a":2}"#;
+    let cases = [
+        (
+            (false, false, false),
+            16_563,
+            "56b17db42fe15f92d5fa539c5fa006288e4b033330298573d6f4355847c7c1a2",
+            "a1626056177be4c5f46c70d1ceba5c99bfdf898875dd026ff092aa1b89a6d09a",
+        ),
+        (
+            (false, false, true),
+            19_593,
+            "cbb8a6fad3f1d9e1b8d2fdf53ce8c1b2410d134428b0fa4d7ac14c5f47b2a696",
+            "93d69865b976c2b7e0e28986f5d1eb9dccc0030f6182ebd050125cec77aa8513",
+        ),
+        (
+            (false, true, false),
+            14_097,
+            "b579b45b447ca84c83417043872641665abc63208b5710079909bddb811e4a8f",
+            "9e4788abf5578e4d744f60c651cb12d1833328e052ceed46e968baa545df0060",
+        ),
+        (
+            (false, true, true),
+            17_127,
+            "2215e19a87a72991aa3160f7772ac5c29cf6ba9e14c8d1b5257871bb307fde40",
+            "23a796b0e327588ef1147ca97f7769962fde956cf1d562f0bc61da19f5751672",
+        ),
+        (
+            (true, false, false),
+            16_533,
+            "a74344de7a994ea009bf92a25c27e4622fad21e892972ac2ff4fe14cf20949f0",
+            "23efb53bba55ce208a0a620c6fd3d5a4ce29f6900f4d97e6f4938a110b82d5f0",
+        ),
+        (
+            (true, false, true),
+            20_633,
+            "0efa2cd76ea2caa68b8086c83cde2896159bf7426e8f855cc1a53584c71d237f",
+            "f5876a3c4ad81ebee57da4ee7c8e65aa6e5fe5c759b695e16e5ff212a3e98bbf",
+        ),
+        (
+            (true, true, false),
+            14_067,
+            "f4434a0b3a4a3f9a5b89ae7e827393dd31b950b899d4f49b44af7cdfe871cf9b",
+            "31c8d999f6461639c87b40fa12c89e4e0acd0a18f0b9c37ff50b4e26101be514",
+        ),
+        (
+            (true, true, true),
+            18_167,
+            "59be54d08de8fedab836f4e8f998734872703cfa1febe3b769885627b4e42967",
+            "06004ffa7781fd7d6b006cc15d44e0180435b115c8ff43c9aba3165fe25b7015",
+        ),
+    ];
+
+    for ((reviewer, alone, assistant), len, ordered_sha, sorted_sha) in cases {
+        let rendered = catalog::tools(reviewer, alone, assistant).to_string();
+        let digest = hex::encode(Sha256::digest(rendered.as_bytes()));
+        let expected = if preserved { ordered_sha } else { sorted_sha };
+        assert_eq!(rendered.len(), len, "mode ({reviewer}, {alone}, {assistant})");
+        assert_eq!(digest, expected, "mode ({reviewer}, {alone}, {assistant})");
+    }
 }
 
 #[tokio::test]

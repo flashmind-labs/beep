@@ -19,7 +19,7 @@ fn own() -> adapters::Installed {
 
 #[test]
 fn a_native_cli_with_no_adapter_and_no_npx_lacks_its_adapter_or_runs_direct() {
-    let natives = has(&["claude", "codex", "pi", "gemini", "hermes"]);
+    let natives = has(&["claude", "codex", "pi", "agy", "hermes"]);
 
     assert_eq!(launch(known("pi"), &natives, None), Some(Launch::LacksAdapter));
     // Claude Code and Codex run on the node's own bridge meanwhile.
@@ -31,9 +31,9 @@ fn a_native_cli_with_no_adapter_and_no_npx_lacks_its_adapter_or_runs_direct() {
         panic!("Codex runs without its adapter");
     };
     assert_eq!(codex.bridge, Some(Bridge::Codex { wsl: None }));
-    // Gemini CLI speaks ACP itself.
+    // Antigravity speaks ACP itself.
     assert!(matches!(
-        launch(known("gemini"), &natives, None),
+        launch(known("agy"), &natives, None),
         Some(Launch::Ready(_))
     ));
     assert!(matches!(

@@ -5,10 +5,11 @@
 import { memo, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
+import { APPLE, onPhone } from "../ui/platform.ts";
 import { dragHandle } from "../ui/drag.ts";
 import type { Dock } from "./media-state.ts";
 import { type DockView, dividerDrag, dividerKey, mainRef, paneModel, paneRefs, resetDivider, shellRef, stripRefs } from "./media-layout.ts";
-import { foldDock, moveDock, pickPhoneTab, pickTab, tabMenu } from "./media-draw.ts";
+import { foldDock, moveDock, pickPhoneTab, pickTab, tabMenu, touchTab } from "./media-draw.ts";
 import { closeTab, newTerminal, P, type MediaTab } from "./media.ts";
 import { ghostRef, tabDown } from "./drag.ts";
 import { PaneTab, PaneTabs, PhonePaneTabs, type PaneTabActions } from "./tabs-view.tsx";
@@ -18,11 +19,13 @@ import { ArtifactsView } from "./artifacts-list.tsx";
 import { RunningPane } from "./running-view.tsx";
 import { DevicePane } from "./device-view.tsx";
 import { SubagentsView } from "./subagents-view.tsx";
+import { ChatAgentsPane } from "./chat-agents.tsx";
 import { changesModel, leftChanges, placedChanges } from "./changes.ts";
 import { TextView } from "./text-view.tsx";
 import { ImageView } from "./image-view.tsx";
 import { ModelView, PdfView, PendingView, PlayerView } from "./media-view.tsx";
 import { TermView } from "./term-footer.tsx";
+import { SessionTabView } from "./session-tab-view.tsx";
 
 /// The session's shell: the conversation with the bottom dock under it, and the right dock.
 export function PaneShell({ children }: { children: ReactNode }) {
@@ -73,6 +76,17 @@ export function PaneDock({ dock }: { dock: Dock }) {
   return <><div ref={divider} className={`agdiv${resizing ? " active" : ""}`} id={`agdiv-${dock}`} data-dock={dock} role="separator" aria-orientation={oriented.current ? bottom ? "horizontal" : "vertical" : undefined} tabIndex={0} title="Drag to resize, double-click to reset" hidden={hidden}
       onDoubleClick={() => resetDivider(dock)} onKeyDown={event => { if (dividerKey(dock, event.key)) { event.preventDefault(); event.stopPropagation(); } }} />
     <aside ref={paneRefs[dock]} className={`agpane${model?.zoomed ? " zoomed" : ""}`} id={`agpane-${dock}`} data-dock={dock} tabIndex={-1} hidden={hidden} style={model?.size != null ? { flexBasis: `var(--drag-size, ${model.size}px)` } : undefined}
+      onKeyDownCapture={event => {
+        if (event.key.toLowerCase() !== "f" || event.shiftKey || event.altKey || event.nativeEvent.isComposing) return;
+        if (APPLE ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return;
+        const tab = P.tabs.find(tab => tab.id === model?.on);
+        if (!tab?.text || tab.text.binary || (!tab.edit && tab.preview?.active) || onPhone()) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        tab.findRequest = (tab.findRequest ?? 0) + 1;
+        touchTab(tab);
+      }}
       onPointerDownCapture={event => { const pane = event.currentTarget; if (!pane.contains(document.activeElement)) pane.focus({ preventScroll: true }); }}>
       <div className="agpane-content"><div className="agphead">
         <div className="agtabs" role="tablist">{model && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={ACTIONS[dock]} />}</div>
@@ -92,6 +106,7 @@ function PaneView({ view }: { view: DockView }) {
     case "artifacts": return <ArtifactsView hidden={view.hidden} />;
     case "running": return <RunningPane hidden={view.hidden} />;
     case "device": return <DevicePane hidden={view.hidden} />;
+    case "agents": return <ChatAgentsPane hidden={view.hidden} />;
     case "subagents": return <div className="agpview subs" hidden={view.hidden}><SubagentsView rows={P.subs} /></div>;
     case "tab": return <TabView tab={view.tab} rev={view.rev} hidden={view.hidden} />;
   }
@@ -119,6 +134,7 @@ const ChangesView = memo(function ChangesView({ hidden }: { hidden: boolean }) {
 const TabView = memo(function TabView({ tab, hidden }: { tab: MediaTab; rev: number; hidden: boolean }) {
   const machine = P.session?.machine_id ?? null;
   if (tab.kind === "term" && tab.term && !tab.error) return <TermView tab={tab} term={tab.term} hidden={hidden} />;
+  if (tab.kind === "session" && tab.splitSession) return <div className="agpview agsplit-view" hidden={hidden}><SessionTabView session={tab.splitSession} hidden={hidden} close={() => closeTab(tab.id)} /></div>;
   const ready = !tab.error && (tab.kind === "text" ? !!tab.text : tab.kind === "term" ? false : tab.kind === "model" ? !!tab.bytes : !!tab.url);
   return <div className="agpview" hidden={hidden}>{!ready ? <PendingView tab={tab} />
     : tab.kind === "text" && tab.text ? <TextView tab={tab} text={tab.text} />

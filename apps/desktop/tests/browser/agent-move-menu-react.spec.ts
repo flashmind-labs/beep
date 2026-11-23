@@ -64,3 +64,30 @@ test("Esc closes the move menu first, and a session left and opened again shows 
   await button.click();
   await expect(page.getByRole("menuitem", { name: /Other box/ })).toBeVisible();
 });
+
+test("an assistant chat moves with its threads to a machine that has their harnesses", async ({ page }) => {
+  const folder = "/srv/.beep/assistant/chat-one";
+  const chat = { machine_id: "build-box", machine_name: "Build box", id: "chat-one", agent: "flsh", title: "Plan the trip", cwd: folder, status: "idle", doing: null, started_at: 1, last_activity: 1, external: false, question: null, assistant: true, model: null };
+  const thread = { ...chat, id: "thread-one", agent: "claude", title: "Research", cwd: `${folder}/research`, assistant: false, started_at: 2, status: "ended", parent: { machine_id: "build-box", id: "chat-one", key: "" } };
+  const host = (machine_id: string, machine_name: string, agents: string[]) => ({ machine_id, machine_name, agents, workspace: null, home: "/srv", capabilities: [], assistant: true, moves_chats: true });
+  await openDesktop(page, false, {
+    agent_hosts: [host("build-box", "Build box", ["flsh", "claude"]), host("other", "Other box", ["flsh", "claude"]), host("small", "Small box", ["flsh"])],
+    agent_sessions: [chat, thread], chat_move: [],
+    agent_view: { session: chat, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 },
+  });
+  await page.evaluate(target => window.__navigation.open({ agent: { kind: "agent", ...target } }), chat);
+
+  await page.locator("#agmoveb").click();
+  await expect(page.getByRole("menuitem", { name: /Small box/ })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: /Small box/ })).toContainText("no Claude Code here");
+  await page.getByRole("menuitem", { name: /Other box/ }).click();
+
+  const calls = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "chat_move").map(call => call.args));
+  await expect.poll(calls).toEqual([{
+    machineId: "build-box", to: "other", stop: false,
+    sessions: [
+      { agent: "flsh", session: "chat-one", cwd: folder, model: null, ended: false },
+      { agent: "claude", session: "thread-one", cwd: `${folder}/research`, model: null, ended: true },
+    ],
+  }]);
+});

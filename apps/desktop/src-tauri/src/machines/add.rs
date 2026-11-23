@@ -6,14 +6,17 @@
 use crate::{
     beep::identity::computer_name,
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines, files as direct},
+    fleet::{
+        Fleet, Machines, files as direct,
+        node_actor::{FAST_JOB_WAIT, JobKind},
+    },
 };
 use beep_mesh::{DeviceKind, Invitation, MeshError, ShortTicket};
 use iroh_tickets::Ticket;
 use qrcode::{EcLevel, QrCode, render::svg::Color};
 use serde::Serialize;
 use std::{sync::Arc, time::Duration};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 /// A ticket as the sheet shows it.
 #[derive(Debug, Serialize)]
@@ -125,15 +128,50 @@ pub async fn ticket_machine(
 /// Where `machine_id` looks for git checkouts, `~/` for home.
 #[tauri::command]
 pub async fn machine_search(fleet: Machines<'_>, machine_id: String) -> Result<String> {
-    direct::machine_search(&fleet, fleet.machine(&machine_id)?).await
+    let machine = fleet.machine(&machine_id)?;
+    let fleet_arc = fleet.inner().clone();
+    fleet
+        .projections()
+        .search
+        .read(
+            machine,
+            PartialEq::eq,
+            || {},
+            move || async move { direct::machine_search(&fleet_arc, machine).await },
+        )
+        .await
 }
 
 /// Has `machine_id` look for git checkouts in `search` and walk it again.
 #[tauri::command]
 pub async fn set_machine_search(
+    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: String,
     search: String,
 ) -> Result<String> {
-    direct::set_machine_search(&fleet, fleet.machine(&machine_id)?, &search).await
+    let machine = fleet.machine(&machine_id)?;
+    let trimmed = search.trim();
+    let optimistic = if trimmed.is_empty() {
+        "~/".to_owned()
+    } else {
+        trimmed.to_owned()
+    };
+    fleet.projections().search.put(machine, optimistic.clone());
+    let fleet_arc = fleet.inner().clone();
+    fleet
+        .node_ops()
+        .submit(
+            Some(app),
+            fleet_arc,
+            machine,
+            JobKind::SetSearch { search },
+            FAST_JOB_WAIT,
+        )
+        .await?;
+    Ok(fleet
+        .projections()
+        .search
+        .peek(&machine)
+        .unwrap_or(optimistic))
 }

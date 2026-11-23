@@ -1,12 +1,13 @@
 //! The command center windows: the main one, hidden instead of closed, and
-//! one per project, labelled by the project's name. Entry points: `open`,
-//! `open_project`, `hide_on_close`, `is_center`.
+//! one per project or assistant chat, labelled by what it shows. Entry
+//! points: `open`, `center_open_window`, `hide_on_close`, `is_center`.
 
 use crate::{bar, beep::state::Prefs, error::Result};
 use beep_proto::watched;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
-    sync::{Mutex, MutexGuard, PoisonError},
+    sync::{Mutex, MutexGuard},
 };
 #[cfg(target_os = "macos")]
 use tauri::window::{Effect, EffectState, EffectsBuilder};
@@ -25,15 +26,17 @@ const MIN_HEIGHT: f64 = 640.0;
 /// Share of the screen the window opens at.
 #[cfg_attr(mobile, allow(dead_code))]
 const SHARE: f64 = 0.95;
-/// Labels of the windows that each show one project.
+/// Labels of the windows that each show one project, or one chat.
 const PROJECT_PREFIX: &str = "project-";
-/// How far each project window opens down and right of the one before.
+const CHAT_PREFIX: &str = "chat-";
+/// How far each project or chat window opens down and right of the one before.
 const CASCADE: f64 = 28.0;
 /// Told to a command center page when its window hides, minimizes, is
 /// covered or goes to the background, and when it shows again, which pauses
 /// and resumes what it draws.
 const HIDDEN_EVENT: &str = "center-hidden";
 const SHOWN_EVENT: &str = "center-shown";
+const REOPENED_EVENT: &str = "center-reopened";
 
 /// Where a window opens on the screen under the mouse: at `size`, or
 /// `SHARE` of the screen without one, at least the minimum where the
@@ -88,13 +91,20 @@ pub(crate) fn join_dock<R: Runtime>(_: &AppHandle<R>) {}
 /// right by `offset` from where the main window opens. While it is open
 /// Beep sits in the Dock.
 #[cfg_attr(mobile, allow(dead_code, unused_variables, unused_mut))]
-fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) -> Result<()> {
+fn build<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+    title: &str,
+    offset: f64,
+    focus: bool,
+) -> Result<()> {
     join_dock(app);
     let mut builder = crate::navigation::guard(WebviewWindowBuilder::new(
         app,
         label,
         WebviewUrl::App("center.html".into()),
     ))
+    .focused(focus)
     .title(title)
     .resizable(true)
     // Files dragged in from Finder reach the page as HTML drops, as in
@@ -106,6 +116,10 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
         builder = builder
             .maximizable(true)
             .min_inner_size(MIN_WIDTH, MIN_HEIGHT);
+    }
+    #[cfg(desktop)]
+    if !focus {
+        builder = builder.initialization_script("window.__BEEP_RESTORING_WINDOW__ = true;");
     }
     // The UI reads this to know it runs on a phone, before its scripts load.
     #[cfg(mobile)]
@@ -147,7 +161,7 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
     {
         let size = app
             .try_state::<Prefs>()
-            .filter(|_| label.starts_with(PROJECT_PREFIX))
+            .filter(|_| alone(label))
             .and_then(|prefs| prefs.project_window());
         builder = match frame(app, size) {
             Some((position, size)) => builder
@@ -164,7 +178,14 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
 
     #[cfg(target_os = "ios")]
     window.with_webview(|webview| crate::platform::ios_keyboard::hide_bar(webview.inner()))?;
-    window.set_focus()?;
+    #[cfg(desktop)]
+    if alone(label) {
+        let window = window.as_ref().window();
+        app.run_on_main_thread(move || super::window_session::opened(&window))?;
+    }
+    if focus {
+        window.set_focus()?;
+    }
     Ok(())
 }
 
@@ -173,7 +194,7 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
 pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     bar::hide(app);
     let Some(window) = app.get_webview_window(LABEL) else {
-        return build(app, LABEL, "Beep", 0.0);
+        return build(app, LABEL, "Beep", 0.0, true);
     };
 
     if !window.is_visible()? {
@@ -182,15 +203,18 @@ pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
         // WKWebView may still report a hidden window as visible, so the
         // page hears it from here.
         tell(app, LABEL, true, Tell::Always);
+        if let Err(e) = app.emit_to(LABEL, REOPENED_EVENT, ()) {
+            log::warn!("telling the command center it reopened: {e}");
+        }
         return Ok(());
     }
 
     bring_up(&window)
 }
 
-/// Closing the main window hides it instead, so it keeps its page, data
-/// and scroll and reopens at once; its data keeps syncing slowly while
-/// hidden. False for any other window, which closes as before.
+/// Closing the main window hides it instead, so it keeps its page and data
+/// and reopens at once. Its data keeps syncing slowly while hidden.
+/// False for any other window, which closes.
 pub(crate) fn hide_on_close<R: Runtime>(window: &Window<R>) -> bool {
     if window.label() != LABEL {
         return false;
@@ -215,7 +239,7 @@ pub fn center_close_window(window: Window) -> Result<()> {
     Ok(window.close()?)
 }
 
-/// Whether a command center window, the main one or a project's, is on
+/// Whether a command center window, the main one or a project's or chat's, is on
 /// screen, leaving out `closing`, which may still be listed. The main
 /// window hides when closed.
 #[cfg(target_os = "macos")]
@@ -238,30 +262,77 @@ pub(crate) fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
     }
 }
 
-/// Whether `label` is a command center window: the main one or a project's.
+/// Whether `label` is a command center window: the main one, a project's or a chat's.
 pub(crate) fn is_center(label: &str) -> bool {
-    label == LABEL || label.starts_with(PROJECT_PREFIX)
+    label == LABEL || alone(label)
 }
 
-/// The label of project `name`'s window: the prefix, then the name in hex,
-/// since a label takes only letters, digits and a few signs.
-pub(super) fn project_label(name: &str) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut label = String::from(PROJECT_PREFIX);
+/// What a window apart from the main one shows alone: a project, or an
+/// assistant chat with its threads. Its label says which.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Alone {
+    Project { project: String },
+    Chat { machine_id: String, session: String },
+}
 
-    for byte in name.bytes() {
-        label.push(char::from(DIGITS[usize::from(byte >> 4)]));
-        label.push(char::from(DIGITS[usize::from(byte & 0xf)]));
+impl Alone {
+    /// The window's label: a prefix, then the name in hex, since a label
+    /// takes only letters, digits and a few signs.
+    pub(super) fn label(&self) -> String {
+        match self {
+            Self::Project { project } => format!("{PROJECT_PREFIX}{}", hex(project)),
+            Self::Chat {
+                machine_id,
+                session,
+            } => format!("{CHAT_PREFIX}{}", hex(&format!("{machine_id}\n{session}"))),
+        }
     }
 
-    label
+    /// What window `label` shows, `None` for the main one and any other.
+    pub(super) fn of(label: &str) -> Option<Self> {
+        if let Some(name) = label.strip_prefix(PROJECT_PREFIX) {
+            return Some(Self::Project {
+                project: unhex(name)?,
+            });
+        }
+
+        let chat = unhex(label.strip_prefix(CHAT_PREFIX)?)?;
+        let (machine_id, session) = chat.split_once('\n')?;
+        Some(Self::Chat {
+            machine_id: machine_id.to_owned(),
+            session: session.to_owned(),
+        })
+    }
+
+    /// The window's title until its page names it.
+    fn title(&self) -> &str {
+        match self {
+            Self::Project { project } => project,
+            Self::Chat { .. } => "Assistant",
+        }
+    }
 }
 
-/// The project a window label names, `None` for any other window.
-fn label_project(label: &str) -> Option<String> {
-    let hex = label.strip_prefix(PROJECT_PREFIX)?;
+/// Whether `label` is a window showing a project or a chat alone.
+pub(super) fn alone(label: &str) -> bool {
+    label.starts_with(PROJECT_PREFIX) || label.starts_with(CHAT_PREFIX)
+}
 
-    if hex.is_empty() || hex.len() % 2 != 0 {
+fn hex(text: &str) -> String {
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut hex = String::with_capacity(text.len() * 2);
+
+    for byte in text.bytes() {
+        hex.push(char::from(DIGITS[usize::from(byte >> 4)]));
+        hex.push(char::from(DIGITS[usize::from(byte & 0xf)]));
+    }
+
+    hex
+}
+
+fn unhex(hex: &str) -> Option<String> {
+    if hex.is_empty() || !hex.len().is_multiple_of(2) {
         return None;
     }
 
@@ -272,7 +343,7 @@ fn label_project(label: &str) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
-/// What opening a project in its own window does.
+/// What opening a project or a chat in its own window does.
 #[derive(Debug, PartialEq, Eq)]
 enum Pick {
     /// Its window is open already: bring that one up.
@@ -283,8 +354,8 @@ enum Pick {
 }
 
 /// What to do for project `name`, given the labels of the windows open.
-fn pick<'a>(name: &str, open: impl IntoIterator<Item = &'a str>) -> Pick {
-    let label = project_label(name);
+fn pick<'a>(alone: &Alone, open: impl IntoIterator<Item = &'a str>) -> Pick {
+    let label = alone.label();
     let mut cascade: u32 = 0;
 
     for open in open {
@@ -292,7 +363,7 @@ fn pick<'a>(name: &str, open: impl IntoIterator<Item = &'a str>) -> Pick {
             return Pick::Focus(label);
         }
 
-        if open.starts_with(PROJECT_PREFIX) {
+        if self::alone(open) {
             cascade = cascade.saturating_add(1);
         }
     }
@@ -300,31 +371,47 @@ fn pick<'a>(name: &str, open: impl IntoIterator<Item = &'a str>) -> Pick {
     Pick::Open { label, cascade }
 }
 
-/// Opens project `project` in a window of its own, or brings up the one it
-/// has. The window keeps its own history, and closing it leaves the rest.
-#[tauri::command]
-pub fn center_open_project_window(app: AppHandle, project: String) -> Result<()> {
+/// Opens a project or a chat in a window of its own, or brings up the one
+/// it has. The window keeps its own history, and closing it leaves the rest.
+// WebView2 must build the new webview outside the calling window's IPC handler.
+#[cfg_attr(windows, tauri::command(async))]
+#[cfg_attr(not(windows), tauri::command)]
+pub fn center_open_window(app: AppHandle, alone: Alone) -> Result<()> {
     bar::hide(&app);
     let labels: Vec<String> = app.webview_windows().into_keys().collect();
 
-    match pick(&project, labels.iter().map(String::as_str)) {
+    match pick(&alone, labels.iter().map(String::as_str)) {
         Pick::Focus(label) => match app.get_webview_window(&label) {
             Some(window) => bring_up(&window),
-            None => build(&app, &label, &project, CASCADE),
+            None => build(&app, &label, alone.title(), CASCADE, true),
         },
         Pick::Open { label, cascade } => {
             // The first step is already one in, off the main window.
             let steps = f64::from(cascade % 8 + 1);
-            build(&app, &label, &project, CASCADE * steps)
+            build(&app, &label, alone.title(), CASCADE * steps, true)
         }
     }
 }
 
-/// The project the calling window was opened on, `None` in the main
-/// window.
+#[cfg(desktop)]
+pub(crate) fn restore_detached(app: &AppHandle) {
+    for target in app
+        .state::<super::window_session::WindowSession>()
+        .open_windows()
+    {
+        let label = target.label();
+        if app.get_webview_window(&label).is_none()
+            && let Err(error) = build(app, &label, target.title(), CASCADE, false)
+        {
+            log::warn!("reopening a detached window: {error}");
+        }
+    }
+}
+
+/// What the calling window shows alone, `None` in the main window.
 #[tauri::command]
-pub fn center_window_project(window: WebviewWindow) -> Option<String> {
-    label_project(window.label())
+pub fn center_window_alone(window: WebviewWindow) -> Option<Alone> {
+    Alone::of(window.label())
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -337,7 +424,7 @@ pub(crate) struct OnScreen(Mutex<HashMap<String, watch::Sender<Option<bool>>>>);
 
 impl OnScreen {
     fn told(&self) -> MutexGuard<'_, HashMap<String, watch::Sender<Option<bool>>>> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+        super::lock(&self.0)
     }
 
     /// Records that `label` shows or not, true if that changed.
@@ -480,6 +567,14 @@ pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEven
         note_project_size(window, *size);
     }
 
+    #[cfg(desktop)]
+    if matches!(
+        event,
+        WindowEvent::Focused(_) | WindowEvent::Moved(_) | WindowEvent::Resized(_)
+    ) {
+        super::window_session::changed(window);
+    }
+
     if let Some((shown, when)) = shown_after(event, || on_screen(window)) {
         tell(window.app_handle(), window.label(), shown, when);
     }
@@ -495,7 +590,7 @@ fn note_project_size<R: Runtime>(window: &Window<R>, size: PhysicalSize<u32>) {
             || window.is_minimized().unwrap_or(true)
     };
 
-    if !window.label().starts_with(PROJECT_PREFIX) || size.width == 0 || filled() {
+    if !alone(window.label()) || size.width == 0 || filled() {
         return;
     }
 
@@ -560,6 +655,7 @@ fn watch_occlusion<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
     let watched = window.as_ref().window();
     let label = watched.label().to_owned();
     let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+        super::window_session::changed(&watched);
         tell(
             watched.app_handle(),
             watched.label(),
@@ -595,7 +691,7 @@ pub(crate) fn forget<R: Runtime>(app: &AppHandle<R>, label: &str) {
     }
 
     // The next project window opens at the size this one had.
-    if label.starts_with(PROJECT_PREFIX)
+    if alone(label)
         && let Some(prefs) = app.try_state::<Prefs>()
     {
         prefs.save();

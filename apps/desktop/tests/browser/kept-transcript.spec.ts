@@ -67,7 +67,7 @@ test("a streaming session is kept by the native follow, with no keep call from t
   expect(await calls(page, "transcript_keep")).toHaveLength(0);
 });
 
-test("a kept log scrolled up into older entries comes back where the reader left it", async ({ page }) => {
+test("a kept log reopens at the latest message with its older entries still loaded", async ({ page }) => {
   await openDesktop(page);
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
@@ -97,21 +97,16 @@ test("a kept log scrolled up into older entries comes back where the reader left
   await page.keyboard.press("Home");
   await expect(body).toContainText("Question 0");
   await body.evaluate(b => { b.scrollTop = 160; });
-  const place = () => body.evaluate(b => {
-    const top = b.getBoundingClientRect().top;
-    const row = [...b.querySelectorAll<HTMLElement>("[data-row]")].find(el => el.getBoundingClientRect().bottom > top);
-    return { text: row?.textContent ?? "", off: Math.round((row?.getBoundingClientRect().top ?? 0) - top), top: Math.round(b.scrollTop) };
-  });
-  const before = await place();
-  expect(before.text).not.toBe("");
-  expect(before.top).toBe(160);
+  await expect.poll(() => body.evaluate(b => b.scrollTop)).toBe(160);
+  await expect(page.getByRole("button", { name: "Scroll to bottom" })).toBeVisible();
 
   await open("notice-two");
   await expect(body).toContainText("Answer 1");
   await open("notice-one");
-  await expect(body).toContainText(before.text);
-  await page.waitForTimeout(300);
-  expect(await place()).toEqual(before);
+  await expect(body.getByText("Answer 399", { exact: true })).toBeInViewport();
+  await expect.poll(() => body.evaluate(b => b.scrollHeight - b.clientHeight - b.scrollTop)).toBeLessThan(2);
+  await page.keyboard.press("Home");
+  await expect(body).toContainText("Question 0");
   expect(await calls(page, "agent_older")).toHaveLength(1);
 });
 
@@ -127,7 +122,7 @@ test("a deleted session's kept log is not drawn again", async ({ page }) => {
 
   await page.evaluate(() => window.__navigation.open("home"));
   await page.locator(".cwin").getByText("First notification").first().click({ button: "right" });
-  await page.getByRole("menuitem", { name: "Delete…" }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
   await expect.poll(() => calls(page, "agent_delete")).toHaveLength(1);
 

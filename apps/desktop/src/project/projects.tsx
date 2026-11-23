@@ -25,6 +25,8 @@ import { drawProjectComp, fillBar } from "./composer.tsx";
 import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.tsx";
 import { terminalNote, terminalWhere } from "../terminals/terminals.tsx";
 import { go } from "../center/views.tsx";
+import { OpenProjects } from "../center/home-overview.tsx";
+import { homeForDisplay } from "../center/home-state.ts";
 import { type RunningAgent } from "../agents/running-state.ts";
 
 /// Every project as a card, grouped by org: its agents, when it was last
@@ -45,7 +47,7 @@ export function overviewSection(listed: Project[]): PagePart[] {
   const rows = listed.map(p => ({ ...p, last: projectActivity(p, state.sessions.get(p.name), null) || null }));
   const groups = overviewGroups(rows, state.top, state.groups, overviewOrder(rows));
   overviewHost ??= retainedHost(null);
-  showWindowParts([{ part: "project-overview", host: overviewHost, content: <ProjectsOverview groups={groups} editing={state.renaming} sort={projectSort} changeSort={changeSort}
+  showWindowParts([{ part: "project-overview", host: overviewHost, content: <ProjectsOverview groups={groups} active={state.home ? <OpenProjects home={homeForDisplay(state.home)} /> : null} editing={state.renaming} sort={projectSort} changeSort={changeSort}
     sync={(name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name))} add={addProject}
   /> }]);
   return [hostPart(overviewHost)];
@@ -104,7 +106,7 @@ export function projectDetail(p: Project): PagePart[] {
 
 /// The project's custom agents: the named agents its folder defines for
 /// each harness on one machine, and the user's own there.
-const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent });
+const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent, own: false });
 
 /// "Custom agents", read on this Mac's checkout or else the first machine
 /// with one. Named apart from "Agents", the ones running now.

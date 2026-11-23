@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { route, type ProjectScope } from "../src/project/projectwindow.ts";
+import { route, type WindowScope } from "../src/project/projectwindow.ts";
 
-const scope: ProjectScope = {
+const scope: WindowScope = {
+  kind: "project",
   project: "org/site",
   folders: [{ id: "build-box", folder: "/srv/site" }],
 };

@@ -48,9 +48,32 @@ interface FieldUi {
 
 const EMPTY: FieldUi = { slots: {}, signatures: {}, queue: null, attachments: null, menu: null, work: { queued: 0, open: false }, stop: { shown: false, stopping: false }, dropping: false, uploading: false };
 const fieldUi = createStore<FieldUi>(() => EMPTY);
+let batching = 0;
+let dirtyBatch = false;
 /// Callers read the composer right after they change it, as when focusing
-/// what they drew, so the views update at once.
-const set = (patch: Partial<FieldUi> | ((state: FieldUi) => Partial<FieldUi>)) => flushSync(() => fieldUi.setState(patch));
+/// what they drew, so the views update at once unless batched together.
+const set = (patch: Partial<FieldUi> | ((state: FieldUi) => Partial<FieldUi>)) => {
+  if (batching > 0) {
+    dirtyBatch = true;
+    fieldUi.setState(patch);
+    return;
+  }
+  flushSync(() => fieldUi.setState(patch));
+};
+
+/// Coalesces several composer control updates into at most one synchronous commit.
+export function batchComposerUi(run: () => void) {
+  batching++;
+  try {
+    run();
+  } finally {
+    batching--;
+    if (batching === 0 && dirtyBatch) {
+      dirtyBatch = false;
+      flushSync(() => fieldUi.setState(state => ({ ...state })));
+    }
+  }
+}
 
 /// The session's model picker host, which places itself by the model pill.
 export const modelPickHost = createRef<HTMLDivElement>();
@@ -166,7 +189,10 @@ export function StopButton({ stop }: { stop(): void }) {
 }
 
 const AttachmentSheet = lazy(async () => {
-  const { ModalOverlay, Modal, Dialog } = await import("react-aria-components");
+  const [{ ModalOverlay, Modal }, { Dialog }] = await Promise.all([
+    import("react-aria-components/Modal"),
+    import("react-aria-components/Dialog"),
+  ]);
 
   return { default: function AttachmentDialog({ onClose, children }: { onClose(): void; children: ReactNode }) {
     return <ModalOverlay className="am-scrim" isOpen isDismissable onOpenChange={next => { if (!next) onClose(); }}>

@@ -6,7 +6,7 @@ use crate::error::Result;
 use beep_proto::AgentNoticeKey;
 use beep_proto::SessionId;
 use serde::{Deserialize, Serialize};
-use std::sync::{Mutex, PoisonError};
+use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
 /// A view of the window that the bar, the tray or another window can hand
@@ -120,11 +120,11 @@ pub(crate) struct Pending(Mutex<Option<CenterTarget>>);
 
 impl Pending {
     fn put(&self, target: CenterTarget) {
-        *self.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(target);
+        *super::lock(&self.0) = Some(target);
     }
 
     fn take(&self) -> Option<CenterTarget> {
-        self.0.lock().unwrap_or_else(PoisonError::into_inner).take()
+        super::lock(&self.0).take()
     }
 }
 

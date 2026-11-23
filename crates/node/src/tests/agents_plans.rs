@@ -52,3 +52,47 @@ async fn reads_a_cli_that_answers() {
     assert_eq!(plan.plan.as_deref(), Some("pro"));
     assert_eq!(plan.windows[0].used_percent, 38.0);
 }
+
+#[test]
+fn antigravity_usage_gives_a_window_per_group() {
+    let data = json!({
+        "groups": [
+            {"name": "Gemini Models", "buckets": [
+                {"id": "gemini-weekly", "window": "weekly", "remaining_fraction": 0.75, "reset_time": "2026-11-29T05:30:21Z"},
+            ]},
+            {"name": "Claude and GPT models", "buckets": [
+                {"id": "3p-weekly", "window": "weekly", "remaining_fraction": 1, "reset_time": "2026-11-29T06:12:45Z"},
+                {"id": "3p-other", "window": "monthly", "remaining_fraction": 0.5},
+            ]},
+        ],
+    });
+    let plan = agy_plan(&data, 7).unwrap();
+    assert_eq!(plan.agent, AgentSlug::AGY);
+    let shown: Vec<(u32, f64, Option<u64>, Option<&str>)> = plan
+        .windows
+        .iter()
+        .map(|w| (w.minutes, w.used_percent, w.resets_at, w.scope.as_deref()))
+        .collect();
+    // An unused bucket's reset moves with every read, so it is left out.
+    assert_eq!(
+        shown,
+        [
+            (10080, 25.0, Some(1_795_930_221), Some("Gemini Models")),
+            (10080, 0.0, None, Some("Claude and GPT models")),
+        ]
+    );
+    assert_eq!(agy_plan(&json!({"groups": []}), 7), None);
+}
+
+/// A CLI that prints `/usage` as Antigravity does.
+#[cfg(unix)]
+#[tokio::test]
+async fn reads_antigravity_usage() {
+    let mut command = Command::new("sh");
+    command.args([
+        "-c",
+        r#"echo '{"event":"init"}'; echo '{"event":"command_result","command":{"name":"usage","data":{"groups":[{"name":"Gemini Models","buckets":[{"window":"weekly","remaining_fraction":0.5,"reset_time":"2026-11-29T05:30:21Z"}]}]}}}'; cat >/dev/null"#,
+    ]);
+    let plan = read_agy(command).await.unwrap().unwrap();
+    assert_eq!(plan.windows[0].used_percent, 50.0);
+}

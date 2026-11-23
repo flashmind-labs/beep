@@ -41,7 +41,7 @@ const KNOWN_TOOLS: &[(&str, &[&str])] = &[
     ("just", &["--version"]),
     ("claude", &["--version"]),
     ("codex", &["--version"]),
-    ("gemini", &["--version"]),
+    ("agy", &["--version"]),
     ("pi", &["--version"]),
     ("flsh", &["--version"]),
     ("opencode", &["--version"]),
@@ -112,15 +112,11 @@ async fn probe_machine() -> EnvReport {
             .await,
         );
     }
-    // Signed in when their sign-in files are there; never read.
-    if at("gemini").is_some() {
-        let key = ["GEMINI_API_KEY", "GOOGLE_API_KEY"]
-            .iter()
-            .any(|name| env::var_os(name).is_some() || spawn_env::secret(name).is_some());
-        let file = has_file(home.as_deref(), ".gemini/oauth_creds.json").await;
-        logins.push(stored("gemini", key || file));
+    // It has no status command: listing its models fails when signed out.
+    if let Some(program) = at("agy") {
+        logins.push(login("agy", &program, &["models"], |_| None, |_| None).await);
     }
-
+    // Signed in when its sign-in file is there; never read.
     if at("pi").is_some() {
         let file = has_file(home.as_deref(), ".pi/agent/auth.json").await;
         logins.push(stored("pi", file));

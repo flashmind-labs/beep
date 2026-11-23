@@ -11,6 +11,7 @@ fn library(global: Pick, project: Pick) -> SkillLibrary {
         skills: Vec::new(),
         global,
         projects: [(PROJECT.to_owned(), project)].into_iter().collect(),
+        chats: Default::default(),
     }
 }
 
@@ -42,7 +43,7 @@ fn picked_skills_install_update_and_uninstall_without_losing_edits() {
     put(&home.join(".claude/skills"), "style", "Mine.", "v1");
     let global = disk::targets(&home);
     let checkouts = [Checkout {
-        project: PROJECT.into(),
+        place: Place::Project(PROJECT.into()),
         folder: checkout.clone(),
         keep_out_of_git: true,
     }];
@@ -162,4 +163,80 @@ fn the_exclude_block_is_replaced_and_lines_outside_it_stay() {
     );
     assert_eq!(with_block(&more, &[]), "one\ntwo\nthree\n");
     assert_eq!(with_block("one", &[]), "one");
+}
+
+#[test]
+fn root_and_child_skills_can_be_picked_for_a_project_on_either_node() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("Example-Skill.git");
+    let reader = temp.path().join("reader");
+    let peer = temp.path().join("peer");
+    put(&repo, "", "Reads examples.", "Body");
+    put(&repo, "skills/notes", "Takes notes.", "Notes");
+    fs::create_dir(repo.join("references")).unwrap();
+    fs::write(repo.join("references/guide.md"), "Guide").unwrap();
+    run_git(&repo, &["init", "--quiet"]);
+    run_git(&repo, &["add", "."]);
+    run_git(&repo, &["commit", "--quiet", "-m", "Add skill"]);
+
+    let url = repo.to_str().unwrap();
+    let (revision, skills) = store::inspect_git(&reader, url).unwrap();
+    assert_eq!(skills.len(), 2);
+    assert_eq!(skills[1].name, "notes");
+    let name = &skills[0].name;
+    assert_eq!(name, "example-skill");
+    assert_eq!(skills[0].description, "Reads examples.");
+
+    let copy = store::copy_root(&peer, url, &revision).unwrap();
+    for skill in &skills {
+        let files = store::skill_at(&reader, url, &revision, &skill.name).unwrap().unwrap();
+        write(&copy.join(&skill.name), &files).unwrap();
+    }
+    let clone = store::ensure_git(&reader, url, &revision).unwrap();
+
+    for (node, source) in [(reader, clone), (peer, copy)] {
+        let checkout = Checkout {
+            place: Place::Project(PROJECT.into()),
+            folder: node.join("project"),
+            keep_out_of_git: false,
+        };
+        fs::create_dir_all(&checkout.folder).unwrap();
+        let mut ready = Ready {
+            name: name.clone(),
+            library: SkillLibrary {
+                url: url.into(),
+                revision: revision.clone(),
+                skills: skills.clone(),
+                ..library(Pick::None, names(&[name]))
+            },
+            store: Some(source),
+        };
+        let checkouts = std::slice::from_ref(&checkout);
+        let mut record = Record::load(&node).unwrap();
+        for picked in [names(&[name]), Pick::All, names(&["notes"])] {
+            ready.library.projects.insert(PROJECT.into(), picked.clone());
+            let desired = wants(std::slice::from_ref(&ready), &[], checkouts);
+            let problems = apply(&mut record, desired, checkouts);
+            assert!(problems.is_empty(), "{problems:?}");
+
+            for folder in PROJECT_FOLDERS {
+                let target = checkout.folder.join(folder);
+                let main = target.join(name);
+                let child = target.join("notes");
+                assert_eq!(main.exists(), picked.has(name));
+                assert_eq!(child.exists(), picked.has("notes"));
+
+                if main.exists() {
+                    assert_eq!(read(&main), read(&repo));
+                    assert_eq!(fs::read_to_string(main.join("references/guide.md")).unwrap(), "Guide");
+                    assert_eq!(read(&main.join("skills/notes")), read(&repo.join("skills/notes")));
+                    assert!(!main.join(".git").exists());
+                }
+
+                if child.exists() {
+                    assert_eq!(read(&child), read(&repo.join("skills/notes")));
+                }
+            }
+        }
+    }
 }

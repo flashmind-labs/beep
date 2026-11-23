@@ -1,6 +1,5 @@
 //! `sync/1` (see `beep_proto::node::sync`): keeps project folders in step
-//! with the same project on the user's other machines. `Syncs::configure`
-//! takes the server's project list.
+//! with the same project on the user's other machines.
 
 use crate::{
     AsyncMutex,
@@ -25,7 +24,6 @@ use beep_proto::node::{
 use futures::future::join_all;
 use iroh::{Endpoint, EndpointAddr, EndpointId};
 use iroh_blobs::{Hash, store::fs::FsStore};
-use lists::Lists;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -49,7 +47,6 @@ mod gitconfig;
 mod gitdir;
 mod handoff;
 mod ignored;
-mod lists;
 mod map;
 #[cfg(test)]
 #[path = "../../tests/files_sync_map_sim.rs"]
@@ -71,8 +68,6 @@ use watch::{Key, Watcher};
 
 /// How long a scan `Request::Rescan` asks for may take.
 const RESCAN_LIMIT: Duration = Duration::from_secs(120);
-/// How long a peer connection or stream may take to open.
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// How long a transfer may wait for its next data before it gives up. A
 /// connection can stay open on a path that no longer carries data (a NAT
 /// mapping gone, with the relay keeping the connection alive); without a
@@ -152,10 +147,8 @@ impl Stopped {
 /// Where a list of projects comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Source {
-    /// Saved on disk: the server set each of them before.
-    Saved,
-    /// The server, which may be turning one on now. Keeps to `files`.
-    Server,
+    /// Set directly or saved on disk: keeps to `folders`.
+    Direct,
     /// The signed mesh. A desktop set it, and may run any command on the
     /// machine anyway, so its folder may be anywhere.
     Mesh,
@@ -181,8 +174,6 @@ struct Inner {
     /// The mesh this node follows, once it is in one: it names the
     /// projects, and its device list says who may sync them.
     mesh: Mutex<Option<Mesh>>,
-    /// What the mesh and the server each say of the projects.
-    lists: Mutex<Lists>,
 }
 
 /// Stops `running` and waits for its task, which saves its state, a while.
@@ -290,13 +281,13 @@ impl Syncs {
                 configuring: AsyncMutex::new(()),
                 serving: Arc::default(),
                 mesh: Mutex::default(),
-                lists: Mutex::default(),
             }),
         };
-        // What the server set before keeps its peers while the mesh waits for a machine.
-        lock(&syncs.inner.lists).set_server(&config.projects);
 
-        for refused in syncs.configure_from(config.projects, Source::Saved).await {
+        for refused in syncs
+            .configure_from(config.projects, Source::Direct, true)
+            .await
+        {
             log::warn!("not syncing {}: {}", refused.project, refused.message);
         }
 
@@ -336,16 +327,12 @@ impl Syncs {
     }
 
     /// Syncs exactly `projects`, and says which it refused. A project left
-    /// out stops; its files stay and its state is forgotten. A folder
-    /// Syncthing keeps in step is refused when the server names it new here,
-    /// and held when the server set it before or the mesh names it.
+    /// out stops; its files stay and its state is forgotten.
     pub async fn configure(&self, projects: Vec<Project>) -> Vec<Refused> {
-        lock(&self.inner.lists).set_server(&projects);
-        self.configure_from(projects, Source::Server).await
+        self.configure_from(projects, Source::Direct, false).await
     }
 
-    /// Follows `mesh` from now on: its device list says who may sync, and
-    /// the server's project list is ignored.
+    /// Follows `mesh` from now on: its device list says who may sync.
     pub(crate) fn follow(&self, mesh: Mesh) {
         *lock(&self.inner.mesh) = Some(mesh);
     }
@@ -358,68 +345,19 @@ impl Syncs {
         for running in lock(&self.inner.projects).values() {
             running.shared.set_recovery(None);
         }
-
-        lock(&self.inner.lists).clear_mesh();
     }
 
-    /// Whether the mesh owns the project list, so the caller's is ignored.
-    fn follows_mesh(&self) -> bool {
-        lock(&self.inner.mesh)
-            .as_ref()
-            .is_some_and(|mesh| mesh.has_held("sync/"))
+    /// Syncs the projects the mesh names.
+    pub(crate) async fn configure_from_mesh(&self, projects: Vec<Project>) -> Vec<Refused> {
+        self.configure_from(projects, Source::Mesh, true).await
     }
 
-    /// Syncs the projects the mesh names, `pending` being those that still name
-    /// a machine that has not joined it: those keep the peers the server set.
-    pub(crate) async fn configure_from_mesh(
+    async fn configure_from(
         &self,
         projects: Vec<Project>,
-        pending: BTreeSet<String>,
+        from: Source,
+        keep: bool,
     ) -> Vec<Refused> {
-        lock(&self.inner.lists).set_mesh(projects, pending);
-        self.apply_lists().await
-    }
-
-    /// The server's list while the mesh owns it: only the peers of a project
-    /// still waiting for a machine are taken. It says which of its projects
-    /// the mesh does not name, which do not sync here.
-    pub(crate) async fn configure_beside_mesh(&self, projects: Vec<Project>) -> Vec<Refused> {
-        let ignored: Vec<Refused> = {
-            let mut lists = lock(&self.inner.lists);
-            lists.set_server(&projects);
-            lists
-                .not_in_mesh(&projects)
-                .into_iter()
-                .map(|name| Refused {
-                    project: name.to_owned(),
-                    message: "this machine takes its projects from its mesh".to_owned(),
-                })
-                .collect()
-        };
-
-        if !ignored.is_empty() {
-            log::info!(
-                "ignored the server's sync list for {} projects: the mesh sets them",
-                ignored.len()
-            );
-        }
-        // Before the mesh has been read there is nothing to put it beside.
-        let mut refused = if lock(&self.inner.lists).has_mesh() {
-            self.apply_lists().await
-        } else {
-            Vec::new()
-        };
-        refused.extend(ignored);
-        refused
-    }
-
-    async fn apply_lists(&self) -> Vec<Refused> {
-        let me = self.inner.parts.endpoint.id();
-        let projects = lock(&self.inner.lists).effective(me, |peer| self.inner.removed(peer));
-        self.configure_from(projects, Source::Mesh).await
-    }
-
-    async fn configure_from(&self, projects: Vec<Project>, from: Source) -> Vec<Refused> {
         let _one = self.inner.configuring.lock().await;
         let me = self.inner.parts.endpoint.id();
         let mut refused = Vec::new();
@@ -484,7 +422,7 @@ impl Syncs {
                 .remove(&project.name)
                 .is_some_and(|held| held.project.folder == project.folder);
             if let Some(managed) = managed {
-                if was_held || from != Source::Server {
+                if was_held || keep {
                     log::info!("not syncing {}: {}", project.name, managed.reason());
                     lock(&self.inner.held).insert(
                         project.name.clone(),
@@ -517,9 +455,7 @@ impl Syncs {
                         project: project.name.clone(),
                         message: message.clone(),
                     });
-                    // The server is told and decides; what the mesh or the saved list names
-                    // stays on the list and is tried again.
-                    if from != Source::Server {
+                    if keep {
                         lock(&self.inner.stopped).insert(
                             project.name.clone(),
                             Stopped {
@@ -560,7 +496,7 @@ impl Syncs {
         let (root, made) = spawn_blocking(move || {
             let folders = match from {
                 Source::Mesh => folders.everywhere(),
-                Source::Saved | Source::Server => folders,
+                Source::Direct => folders,
             };
             let made = match &ignored {
                 Some(scope) => scope.prepare(&folders)?,
@@ -966,7 +902,10 @@ impl Syncs {
                 bail!("{project} is not synced on this machine");
             }
 
-            names.iter().filter_map(|name| projects.remove(name)).collect()
+            names
+                .iter()
+                .filter_map(|name| projects.remove(name))
+                .collect()
         };
         let again: Vec<(Project, Source)> = stopped
             .iter()
@@ -1139,8 +1078,14 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
 
 async fn answer(syncs: &Syncs, request: Request) -> Result<Reply> {
     Ok(match request {
-        Request::Configure { projects } if syncs.follows_mesh() => Reply::Configured {
-            refused: syncs.configure_beside_mesh(projects).await,
+        Request::Configure { projects } if lock(&syncs.inner.mesh).is_some() => Reply::Configured {
+            refused: projects
+                .into_iter()
+                .map(|project| Refused {
+                    project: project.name,
+                    message: "this machine takes its projects from its mesh".to_owned(),
+                })
+                .collect(),
             addr: syncs.addr(),
         },
         Request::Configure { projects } => Reply::Configured {

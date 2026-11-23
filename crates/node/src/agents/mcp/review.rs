@@ -2,13 +2,13 @@
 //! temporary reviewer it starts as a child (`agents::reviews`), and the
 //! reviewer hands its findings in. Both run on the caller's own node.
 
-use beep_proto::SessionId;
-use super::reply::{done, fail, ok, parse};
+use super::reply::{fail, json_done, ok, parse};
 use crate::agents::{
     family::{WAIT_LIMIT, WAIT_POLL},
     reviews::MAX_FINDINGS,
 };
 use crate::link::Offers;
+use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{ReviewOrder, ReviewRun, SubmittedReview},
     tools::{Reply, Request},
@@ -48,6 +48,7 @@ impl From<ReviewRun> for ReviewView {
             (None, Some(_)) => "failed",
             (None, None) => "working",
         };
+
         Self {
             id: run.id,
             state,
@@ -60,35 +61,37 @@ impl From<ReviewRun> for ReviewView {
 
 /// Answers `review` for the session that called it.
 pub(super) async fn review(offers: &Offers, request: &Request) -> Reply {
-    match parse::<ReviewArgs>(&request.args) {
-        Ok(args) => run_review(offers, &request.session, args).await,
-        Err(e) => fail(e),
-    }
+    run_review(offers, request).await.unwrap_or_else(fail)
 }
 
 /// Answers `submit_review` for the session that called it.
 pub(super) fn submit(offers: &Offers, request: &Request) -> Reply {
-    match parse::<SubmittedReview>(&request.args) {
-        Ok(review) => submit_review(offers, &request.session, review),
-        Err(e) => fail(e),
-    }
+    submit_review(offers, request).unwrap_or_else(fail)
 }
 
-async fn run_review(offers: &Offers, session: &SessionId, args: ReviewArgs) -> Reply {
+/// How `run` stands, as `review` and `agent_status` answer it.
+pub(super) fn standing(run: ReviewRun) -> Reply {
+    answer(&ReviewView::from(run))
+}
+
+async fn run_review(offers: &Offers, request: &Request) -> Result<Reply, String> {
+    let args: ReviewArgs = parse(&request.args)?;
     let agents = &offers.agents;
-    let Some((caller, who)) = agents.caller(session) else {
-        return fail("This session is not one this node runs.");
-    };
+    let (caller, who) = agents
+        .caller(&request.session)
+        .ok_or("This session is not one this node runs.")?;
 
     if caller.reviewer {
-        return fail("A reviewer does not start reviews. Call submit_review.");
+        return Err("A reviewer does not start reviews. Call submit_review.".to_owned());
     }
 
     let run = match args.id {
-        Some(id) => match agents.review_for(&who, &Into::<SessionId>::into(id.trim())) {
-            Some(run) => run,
-            None => return fail(format!("You have no review {}.", id.trim())),
-        },
+        Some(id) => {
+            let trimmed = id.trim();
+            agents
+                .review_for(&who, &Into::<SessionId>::into(trimmed))
+                .ok_or_else(|| format!("You have no review {trimmed}."))?
+        }
         None => {
             let info = caller.info();
             let order = ReviewOrder {
@@ -105,33 +108,25 @@ async fn run_review(offers: &Offers, session: &SessionId, args: ReviewArgs) -> R
                 focus: args.focus.unwrap_or_default(),
                 parent: Some(caller.id.clone()),
             };
-
-            match agents.start_review(order).await {
-                Ok(run) => run,
-                Err(e) => return fail(e),
-            }
+            agents.start_review(order).await?
         }
     };
-    answer(&waited(offers, &who, run).await)
-}
 
-/// How `run` stands, as `review` and `agent_status` answer it.
-pub(super) fn standing(run: ReviewRun) -> Reply {
-    answer(&run.into())
+    Ok(answer(&waited(offers, &who, run).await))
 }
 
 fn answer(view: &ReviewView) -> Reply {
-    match serde_json::to_string(view) {
-        Ok(text) => done(text, view.state == "failed"),
-        Err(e) => fail(format!("Could not write the answer: {e}")),
-    }
+    json_done(view, view.state == "failed")
 }
 
 /// Waits for the review to end, at most `WAIT_LIMIT`, as `start_agent`'s
 /// `wait` does: a tool call must come back before the agent's client gives up.
-async fn waited(offers: &Offers, who: &crate::agents::family::Who, run: ReviewRun) -> ReviewView {
+async fn waited(
+    offers: &Offers,
+    who: &crate::agents::family::Who,
+    mut run: ReviewRun,
+) -> ReviewView {
     let deadline = Instant::now() + WAIT_LIMIT;
-    let mut run = run;
 
     while run.running() {
         if Instant::now() >= deadline {
@@ -151,16 +146,18 @@ async fn waited(offers: &Offers, who: &crate::agents::family::Who, run: ReviewRu
         }
     }
 
-    run.into()
+    ReviewView::from(run)
 }
 
-fn submit_review(offers: &Offers, session: &SessionId, review: SubmittedReview) -> Reply {
+fn submit_review(offers: &Offers, request: &Request) -> Result<Reply, String> {
+    let review: SubmittedReview = parse(&request.args)?;
+
     if review.summary.trim().is_empty() {
-        return fail("Give a `summary`.");
+        return Err("Give a `summary`.".to_owned());
     }
 
     if review.findings.len() > MAX_FINDINGS {
-        return fail(format!(
+        return Err(format!(
             "Give at most {MAX_FINDINGS} findings, the ones that matter most."
         ));
     }
@@ -170,15 +167,14 @@ fn submit_review(offers: &Offers, session: &SessionId, review: SubmittedReview) 
         .iter()
         .find(|finding| finding.file.trim().is_empty() || finding.summary.trim().is_empty())
     {
-        return fail(format!(
+        return Err(format!(
             "Each finding needs a `file` and a `summary`: {bad:?}"
         ));
     }
 
-    match offers.agents.submit_review(session, review) {
-        Ok(()) => ok("Submitted. The review is done: end your turn."),
-        Err(e) => fail(e),
-    }
+    offers.agents.submit_review(&request.session, review)?;
+
+    Ok(ok("Submitted. The review is done: end your turn."))
 }
 
 #[cfg(test)]

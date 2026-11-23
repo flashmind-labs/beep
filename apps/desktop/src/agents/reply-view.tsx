@@ -2,9 +2,9 @@
 // reply and what came with a prompt (Beep's context, another session's
 // message, a child's reply). Their bodies are sanitized Markdown HTML.
 import { conversationBlocked } from "./turnrows.ts";
-import { memo } from "react";
+import { memo, useRef, type MouseEvent } from "react";
 import { HarnessIcon } from "../ui/icons.tsx";
-import { CopyButton, useHtml } from "../ui/kit.tsx";
+import { Button, CopyButton, useHtml } from "../ui/kit.tsx";
 import { sessionMessageTitle, type PromptPart } from "./promptparts-state.ts";
 import { EntryTime } from "./turn-heading-view.tsx";
 import { SubIcon } from "./activity-view.tsx";
@@ -22,12 +22,23 @@ export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow 
   return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} />{reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}<div className="reply-body">{body}</div></div>;
 });
 
-export function AgentError({ message }: { message: string }) {
-  return <div className="derrcard" role="alert"><b>{conversationBlocked(message) ? "Conversation blocked" : "The turn did not finish"}</b><span>{message}</span></div>;
+/// `switchModel` offers to run the failed prompt again on a model the user picks.
+export function AgentError({ message, switchModel = false }: { message: string; switchModel?: boolean }) {
+  return <div className="derrcard" role="alert"><b>{conversationBlocked(message) ? "Conversation blocked" : "The turn did not finish"}</b><span>{message}</span>{switchModel && <Button small data-agretrymodel="">Retry with another model</Button>}</div>;
 }
 
+/// A triple-click selects the whole prompt: macOS WebKit's own paragraph
+/// selection runs on past it to the end of the log.
 export const AgentPrompt = memo(function AgentPrompt({ prompt }: { prompt: PromptRow }) {
-  return <div className="dcoderen user md" data-at={prompt.row}><b>You <EntryTime at={prompt.sentAt ?? null} /></b>{prompt.html && <div className="said" dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.files.length > 0 && <AttachedFiles paths={prompt.files} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;
+  const said = useRef<HTMLDivElement>(null);
+  const selectPrompt = (event: MouseEvent) => {
+    if (event.detail < 3 || !said.current) return;
+
+    event.preventDefault();
+    getSelection()?.selectAllChildren(said.current);
+  };
+
+  return <div className="dcoderen user md" data-at={prompt.row} onMouseDown={selectPrompt}><b>You <EntryTime at={prompt.sentAt ?? null} /></b>{prompt.html && <div className="said" ref={said} dangerouslySetInnerHTML={{ __html: prompt.html }} />}{prompt.files.length > 0 && <AttachedFiles paths={prompt.files} />}{prompt.pictures && <span className="pics" dangerouslySetInnerHTML={{ __html: prompt.pictures }} />}</div>;
 });
 
 /// The files a prompt named, by file name. More than five fold under a

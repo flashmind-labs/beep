@@ -20,6 +20,7 @@ use beep_proto::{
         harness::{AutoCompact, HarnessConfig, ModelCompact},
         mesh_state::{Credential, SkillSync, StateValue, SyncSpec},
         shell::{self, Event, Request},
+        skill_library,
         status::Report,
         sync::{self, FOLDER_MISSING, ProjectStatus, State as SyncState, SyncthingFiles},
         usage::{HourSpend, PlanUsage, SessionSpend},
@@ -38,6 +39,7 @@ use tempfile::TempDir;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,
+    sync::{mpsc, oneshot},
     time::timeout,
 };
 
@@ -127,6 +129,8 @@ fn online(mesh: &Mesh, id: EndpointId) -> bool {
 /// A machine's side of its sessions: what it prints for a command, and what its agents spent.
 #[derive(Default)]
 struct FakeNode {
+    /// A test supplies each Git inspection result after the request arrives.
+    skill_reads: Option<mpsc::UnboundedSender<oneshot::Sender<skill_library::Reply>>>,
     /// Commands the shell ran.
     ran: Mutex<Vec<String>>,
     /// What a command prints, by a word it contains.
@@ -186,6 +190,18 @@ impl FakeNode {
         }
 
         match open.protocol.as_str() {
+            skill_library::PROTOCOL => {
+                let Some(reads) = &self.skill_reads else {
+                    return;
+                };
+                if let Ok(Some(skill_library::Request::Inspect { .. })) = rx.recv().await {
+                    let (send, receive) = tokio::sync::oneshot::channel();
+                    reads.send(send).expect("the test is listening");
+                    if let Ok(reply) = receive.await {
+                        tx.send(&reply).await.expect("the reader answers");
+                    }
+                }
+            }
             "status/1" => {
                 let offers = vec![shell::PROTOCOL.to_owned(), SESSIONS_PROTOCOL.to_owned()];
                 let env = EnvReport {
@@ -401,6 +417,211 @@ async fn fleet() -> Fleet {
         studio,
         laptop,
         build,
+    }
+}
+
+async fn next_skill_read(
+    reads: &mut mpsc::UnboundedReceiver<oneshot::Sender<skill_library::Reply>>,
+) -> oneshot::Sender<skill_library::Reply> {
+    timeout(LIMIT, reads.recv())
+        .await
+        .expect("a Git inspection was requested")
+        .expect("reader is running")
+}
+
+async fn check_without_fetching(
+    desk: &Desk,
+    reads: &mut mpsc::UnboundedReceiver<oneshot::Sender<skill_library::Reply>>,
+) {
+    tokio::select! {
+        result = desk.check_skill_libraries() => result.unwrap(),
+        _ = reads.recv() => panic!("unexpected Git inspection"),
+    }
+}
+
+#[tokio::test]
+async fn one_controller_updates_due_skill_libraries_and_keeps_edits_made_during_fetch() {
+    use beep_proto::node::mesh_state::{LibrarySkill, Pick};
+
+    let f = fleet().await;
+    let (send, mut reads) = tokio::sync::mpsc::unbounded_channel();
+    let reader = Arc::new(FakeNode {
+        skill_reads: Some(send),
+        ..FakeNode::default()
+    });
+    let hosts = [(&f.studio, &reader), (&f.laptop, &reader)];
+    let a = desk(&f.studio, &hosts).await;
+    let b = desk(&f.laptop, &hosts).await;
+    let url = "https://example.org/skills.git";
+    let inspected = |revision: &str| skill_library::Reply::Inspected {
+        revision: revision.to_owned(),
+        skills: vec![LibrarySkill {
+            name: "notes".into(),
+            description: "Notes".into(),
+        }],
+    };
+
+    let (added, ()) = tokio::join!(a.add_skill_library(url.into(), true), async {
+        next_skill_read(&mut reads)
+            .await
+            .send(inspected("first"))
+            .unwrap();
+    });
+    let (name, first) = added.unwrap();
+    let key = Key::SkillLibrary(name.clone());
+    let checked = Key::SkillLibraryCheck(name.clone());
+    until(&f.laptop.mesh, |mesh| {
+        mesh.get(&checked).is_some() && mesh.get(&key).is_some()
+    })
+    .await;
+    a.check_skill_libraries().await.unwrap();
+    b.check_skill_libraries().await.unwrap();
+    for dev in [&f.studio, &f.laptop] {
+        until(&dev.mesh, |mesh| {
+            mesh.scan("skill-library-checker/").len() == 2
+        })
+        .await;
+    }
+
+    let (leader, follower) = if f.studio.id < f.laptop.id {
+        (&a, &b)
+    } else {
+        (&b, &a)
+    };
+    // Adding counted as today's check. An older installation or an expired check is due.
+    check_without_fetching(leader, &mut reads).await;
+    let yesterday = rmp_serde::to_vec(&(url, &first.revision, f.studio.id, 1u64)).unwrap();
+    f.studio
+        .mesh
+        .set(checked.clone(), Some(yesterday.clone()))
+        .await
+        .unwrap();
+    until(&f.laptop.mesh, |mesh| {
+        mesh.get(&checked).as_ref() == Some(&yesterday)
+    })
+    .await;
+    check_without_fetching(follower, &mut reads).await;
+
+    until(&f.build.mesh, |mesh| mesh.get(&key).is_some()).await;
+    let node_key = f.build._router.endpoint().secret_key().clone();
+    f.build._router.shutdown().await.unwrap();
+    drop(f.build.mesh);
+    until(&f.studio.mesh, |mesh| !online(mesh, f.build.id)).await;
+
+    let pick = Pick::Only(["notes".to_owned()].into());
+    let (pass, ()) = tokio::join!(leader.check_skill_libraries(), async {
+        let answer = next_skill_read(&mut reads).await;
+        leader
+            .edit_skill_library(&name, |lib| lib.global = pick.clone())
+            .await
+            .unwrap();
+        answer.send(inspected("second")).unwrap();
+    });
+    pass.unwrap();
+    // Reopen the offline node with its original files and membership.
+    let endpoint = bind(&node_key).await;
+    let reconnected = Mesh::open(f.build._dir.path(), endpoint.clone())
+        .await
+        .unwrap()
+        .unwrap();
+    let _router = serve(endpoint, &reconnected);
+    until(&reconnected, |mesh| {
+        mesh.get(&key).is_some_and(|bytes| {
+            beep_proto::node::mesh_state::SkillLibrary::from_bytes(&bytes)
+                .is_ok_and(|lib| lib.revision == "second" && lib.global == pick)
+        })
+    })
+    .await;
+    check_without_fetching(leader, &mut reads).await;
+
+    // Manual update still reads immediately. Removing during a fetch keeps the library removed.
+    let (updated, ()) = tokio::join!(leader.update_skill_library(&name), async {
+        let answer = next_skill_read(&mut reads).await;
+        leader.remove_skill_library(&name).await.unwrap();
+        answer.send(inspected("third")).unwrap();
+    });
+    assert!(matches!(updated, Err(FleetError::NotFound)));
+    assert!(leader.skill_library(&name).is_none());
+}
+
+#[tokio::test]
+async fn an_existing_skill_library_retries_a_failed_check_and_stays_fresh_for_a_day() {
+    use beep_proto::node::mesh_state::{Pick, SkillLibrary};
+
+    let dev = create("desktop").await;
+    let (send, mut reads) = tokio::sync::mpsc::unbounded_channel();
+    let reader = Arc::new(FakeNode {
+        skill_reads: Some(send),
+        ..FakeNode::default()
+    });
+    let desk = desk(&dev, &[(&dev, &reader)]).await;
+    let library = SkillLibrary {
+        url: "https://example.org/tools.git".into(),
+        revision: "first".into(),
+        skills: Vec::new(),
+        global: Pick::All,
+        projects: Default::default(),
+        chats: Default::default(),
+    };
+    desk.set_skill_library("tools", &library).await.unwrap();
+    desk.check_skill_libraries().await.unwrap();
+    let checked = Key::SkillLibraryCheck("tools".into());
+
+    let (pass, ()) = tokio::join!(desk.check_skill_libraries(), async {
+        next_skill_read(&mut reads)
+            .await
+            .send(skill_library::Reply::Failed {
+                message: "Offline".into(),
+            })
+            .unwrap();
+    });
+    pass.unwrap();
+    assert!(dev.mesh.get(&checked).is_none());
+    assert_eq!(desk.skill_library("tools"), Some(library.clone()));
+
+    let (pass, ()) = tokio::join!(desk.check_skill_libraries(), async {
+        next_skill_read(&mut reads)
+            .await
+            .send(skill_library::Reply::Inspected {
+                revision: library.revision.clone(),
+                skills: Vec::new(),
+            })
+            .unwrap();
+    });
+    pass.unwrap();
+    assert!(dev.mesh.get(&checked).is_some());
+
+    let now = u64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
+    )
+    .unwrap();
+    for hours in [23, 24] {
+        let stamp = rmp_serde::to_vec(&(
+            &library.url,
+            &library.revision,
+            dev.id,
+            now - hours * 3_600_000,
+        ))
+        .unwrap();
+        dev.mesh.set(checked.clone(), Some(stamp)).await.unwrap();
+        if hours == 23 {
+            check_without_fetching(&desk, &mut reads).await;
+            continue;
+        }
+
+        let (pass, ()) = tokio::join!(desk.check_skill_libraries(), async {
+            next_skill_read(&mut reads)
+                .await
+                .send(skill_library::Reply::Inspected {
+                    revision: library.revision.clone(),
+                    skills: Vec::new(),
+                })
+                .unwrap();
+        });
+        pass.unwrap();
     }
 }
 
@@ -813,6 +1034,13 @@ async fn usage_sums_every_machine() {
             session: session.into(),
             cwd: "/home/user/widget".into(),
             since: 0,
+            historical: vec![beep_proto::node::usage::HistoricalSpend {
+                first: Some(now - 172800),
+                last: Some(now - 86400),
+                cost_usd: 1.25,
+                tokens: 1000,
+                billing: beep_proto::node::usage::Billing::Metered,
+            }],
             hours: vec![HourSpend {
                 hour: now - now % 3600,
                 model: "claude-opus-4-1".into(),
@@ -838,7 +1066,11 @@ async fn usage_sums_every_machine() {
         },
     };
     let build = Arc::new(FakeNode {
-        usage: vec![spend("a", 1.5, 100), plan(now - 60, 10.0)],
+        usage: vec![
+            spend("a", 0.5, 80),
+            spend("a", 1.5, 100),
+            plan(now - 60, 10.0),
+        ],
         ..FakeNode::default()
     });
     let mac = Arc::new(FakeNode {
@@ -851,6 +1083,10 @@ async fn usage_sums_every_machine() {
     let bill = studio.spend().await.expect("the bill reads");
     assert_eq!(bill.today.cost_usd, 3.5);
     assert_eq!(bill.today.metered_tokens, 150);
+    assert_eq!(bill.today.daily.len(), 1);
+    assert_eq!(bill.today.daily[0].cost_usd, 3.5);
+    assert_eq!(bill.historical.len(), 2);
+    assert!(bill.historical.iter().all(|row| row.cost_usd == 1.25));
     assert_eq!(bill.week.cost_usd, 3.5);
     assert_eq!(bill.today.harnesses.len(), 1);
     // The freshest plan reading of an agent wins, and names the machine that read it.
@@ -2712,6 +2948,137 @@ async fn a_harness_variable_taken_out_drops_its_record_and_one_left_blank_keeps_
 }
 
 #[tokio::test]
+async fn a_chat_is_asked_to_move_with_its_threads() {
+    use beep_fleet::{ChatMoveAsk, ChatSession};
+    let f = fleet().await;
+    let second = join(&f.studio, DeviceKind::Node, "mac-box").await;
+    until(&f.studio.mesh, |m| online(m, second.id)).await;
+    let desk = desk(&f.studio, &[]).await;
+    let session = |agent: &str, id: &str, cwd: &str, ended: bool| ChatSession {
+        agent: agent.to_owned(),
+        id: SessionId::from(id),
+        cwd: cwd.to_owned(),
+        model: None,
+        ended,
+    };
+    let ask = |sessions: Vec<ChatSession>| ChatMoveAsk {
+        from: f.build.id,
+        to: second.id,
+        sessions,
+        stop: false,
+    };
+    let why = |result: Result<_, FleetError>| match result {
+        Err(FleetError::Refused(why)) => why,
+        other => panic!("not refused: {:?}", other.map(|_| ())),
+    };
+    let chat = "/srv/home/.beep/assistant/ab12";
+    assert!(
+        why(desk
+            .move_chat(ask(vec![session("opencode", "c", chat, false)]))
+            .await)
+        .contains("yet")
+    );
+    assert!(
+        why(desk
+            .move_chat(ask(vec![session("flsh", "c", "/srv/home/notes", false)]))
+            .await)
+        .contains("folder of its own")
+    );
+    let stray = vec![
+        session("flsh", "c", chat, false),
+        session(
+            "codex",
+            "t",
+            "/srv/home/.beep/assistant/zz99/pricing",
+            false,
+        ),
+    ];
+    assert!(why(desk.move_chat(ask(stray)).await).contains("not in this chat"));
+    assert!(
+        desk.moves().is_empty(),
+        "a move that cannot go writes nothing"
+    );
+
+    // The user named the chat on its machine: the name goes with it.
+    beep_fleet::session_titles::save(
+        &f.studio.mesh,
+        &f.build.id.to_string(),
+        "flsh",
+        &SessionId::from("c"),
+        "Uni2 research",
+    )
+    .await
+    .expect("the title is saved");
+    let records = desk
+        .move_chat(ask(vec![
+            session("flsh", "c", chat, false),
+            session(
+                "codex",
+                "t1",
+                "/srv/home/.beep/assistant/ab12/pricing",
+                false,
+            ),
+            session(
+                "claude",
+                "t2",
+                "/srv/home/.beep/assistant/ab12/pricing/deep",
+                true,
+            ),
+        ]))
+        .await
+        .expect("the move is asked for");
+    let told: Vec<_> = records
+        .iter()
+        .map(|record| {
+            let chat = record.conversation.as_ref().expect("a chat's session");
+            (
+                record.id.as_ref(),
+                record.path.as_str(),
+                chat.root.as_str(),
+                chat.ended,
+            )
+        })
+        .collect();
+    assert_eq!(
+        beep_fleet::session_titles::get(
+            &f.studio.mesh,
+            &second.id.to_string(),
+            "flsh",
+            &SessionId::from("c")
+        )
+        .as_deref(),
+        Some("Uni2 research")
+    );
+    let root = "/srv/home/.beep/assistant";
+    assert_eq!(
+        told,
+        [
+            ("c", "ab12", root, false),
+            ("t1", "ab12/pricing", root, false),
+            ("t2", "ab12/pricing/deep", root, true),
+        ]
+    );
+    assert!(records.iter().all(|record| record.project.is_empty()));
+    assert_eq!(desk.moves().len(), 3);
+
+    // A chat on a Windows machine keeps its folders' names.
+    let records = desk
+        .move_chat(ask(vec![session(
+            "claude",
+            "w",
+            r"C:\Users\me\.beep\assistant\cd34",
+            false,
+        )]))
+        .await
+        .expect("the move is asked for");
+    let chat = records[0].conversation.as_ref().expect("a chat's session");
+    assert_eq!(
+        (records[0].path.as_str(), chat.root.as_str()),
+        ("cd34", r"C:\Users\me\.beep\assistant")
+    );
+}
+
+#[tokio::test]
 async fn a_move_is_asked_for_in_the_mesh_and_refused_in_plain_words_when_it_cannot_go() {
     use beep_fleet::MoveAsk;
     use beep_proto::node::mesh_state::{SessionMove, StateValue, SyncSpec};
@@ -3219,6 +3586,7 @@ async fn session_title_overrides_replicate_and_clear_without_changing_generated_
         model: None,
         assistant: false,
         account: None,
+        persona: None,
     };
     let mut refreshed = generated.clone();
     session_titles::apply(&other.mesh, &mut refreshed);

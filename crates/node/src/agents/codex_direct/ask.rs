@@ -4,9 +4,10 @@
 //! server's elicitation, with the options and schemas Codex's adapter uses.
 
 use super::items::strip_shell;
+use crate::agents::acp::bridge::{ClientReply, ClientRequest, choice_options, selected_option};
 use agent_client_protocol::v1::schema::{
     CreateElicitationRequest, CreateElicitationResponse, ElicitationAction,
-    RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse, SessionId,
+    RequestPermissionRequest, SessionId,
 };
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
@@ -26,12 +27,6 @@ pub(super) enum Asked {
     Elicitation,
 }
 
-/// The client's answer to a request of ours.
-pub(super) enum Reply {
-    Permission(Result<RequestPermissionResponse, agent_client_protocol::Error>),
-    Form(Result<CreateElicitationResponse, agent_client_protocol::Error>),
-}
-
 /// A question Codex asks mid-turn.
 pub(super) struct Question {
     id: String,
@@ -47,24 +42,40 @@ pub(super) fn ask(
     method: &str,
     params: &Value,
     forms: bool,
-) -> Option<(Request, Asked)> {
+) -> Option<(ClientRequest, Asked)> {
     match method {
         "item/commandExecution/requestApproval" => {
             let (options, decisions) = command_options(params);
             let call = command_call(params);
-            Some((Request::Permission(permission(session, call, options)?), Asked::Command(decisions)))
+            Some((
+                ClientRequest::Permission(permission(session, call, options)?),
+                Asked::Command(decisions),
+            ))
         }
         "item/fileChange/requestApproval" => {
             let call = json!({"toolCallId": params["itemId"], "title": "Edit files", "kind": "edit", "status": "pending"});
             let options = [
                 ("allow_once", "Yes, proceed", "allow_once"),
-                ("allow_for_session", "Yes, and don't ask again for these files", "allow_always"),
-                ("cancel", "No, and tell Codex what to do differently", "reject_once"),
+                (
+                    "allow_for_session",
+                    "Yes, and don't ask again for these files",
+                    "allow_always",
+                ),
+                (
+                    "cancel",
+                    "No, and tell Codex what to do differently",
+                    "reject_once",
+                ),
             ];
-            Some((Request::Permission(permission(session, call, options.map(option).into())?), Asked::FileChange))
+            Some((
+                ClientRequest::Permission(permission(session, call, options.map(option).into())?),
+                Asked::FileChange,
+            ))
         }
         "item/permissions/requestApproval" => {
-            let reason = params["reason"].as_str().filter(|reason| !reason.is_empty());
+            let reason = params["reason"]
+                .as_str()
+                .filter(|reason| !reason.is_empty());
             let call = json!({
                 "toolCallId": params["itemId"],
                 "title": "Grant permissions?",
@@ -74,17 +85,36 @@ pub(super) fn ask(
                 "content": reason.map(|reason| json!({"type": "content", "content": {"type": "text", "text": reason}})).into_iter().collect::<Vec<_>>(),
             });
             let options = [
-                ("allow_permissions_turn", "Yes, grant these permissions for this turn", "allow_once"),
-                ("allow_permissions_turn_strict_auto_review", "Yes, grant for this turn with strict auto review", "allow_once"),
-                ("allow_permissions_session", "Yes, grant these permissions for this session", "allow_always"),
-                ("reject_permissions", "No, continue without permissions", "reject_once"),
+                (
+                    "allow_permissions_turn",
+                    "Yes, grant these permissions for this turn",
+                    "allow_once",
+                ),
+                (
+                    "allow_permissions_turn_strict_auto_review",
+                    "Yes, grant for this turn with strict auto review",
+                    "allow_once",
+                ),
+                (
+                    "allow_permissions_session",
+                    "Yes, grant these permissions for this session",
+                    "allow_always",
+                ),
+                (
+                    "reject_permissions",
+                    "No, continue without permissions",
+                    "reject_once",
+                ),
             ];
             let request = permission(session, call, options.map(option).into())?;
-            Some((Request::Permission(request), Asked::Permissions(params["permissions"].clone())))
+            Some((
+                ClientRequest::Permission(request),
+                Asked::Permissions(params["permissions"].clone()),
+            ))
         }
         "item/tool/requestUserInput" if forms => {
             let (form, questions) = questions_form(session, params)?;
-            Some((Request::Form(form), Asked::Questions(questions)))
+            Some((ClientRequest::Form(form), Asked::Questions(questions)))
         }
         "mcpServer/elicitation/request" if forms && params["mode"] == "form" => {
             let form = json!({
@@ -96,39 +126,33 @@ pub(super) fn ask(
             let form = serde_json::from_value(form)
                 .inspect_err(|e| log::warn!("an MCP server's form does not read: {e}"))
                 .ok()?;
-            Some((Request::Form(form), Asked::Elicitation))
+            Some((ClientRequest::Form(form), Asked::Elicitation))
         }
         _ => None,
     }
 }
 
-/// A request for the client.
-pub(super) enum Request {
-    Permission(RequestPermissionRequest),
-    Form(CreateElicitationRequest),
-}
-
 /// What Codex is told of the client's `reply` to what it `asked`.
-pub(super) fn answer(asked: Asked, reply: Reply) -> Value {
+pub(super) fn answer(asked: Asked, reply: ClientReply) -> Value {
     match (asked, reply) {
-        (Asked::Command(decisions), Reply::Permission(reply)) => {
-            let picked = selected(reply);
+        (Asked::Command(decisions), ClientReply::Permission(reply)) => {
+            let picked = selected_option(reply);
             let decision = decisions
                 .into_iter()
                 .find(|(id, _)| picked.as_deref() == Some(id.as_str()))
                 .map_or_else(|| json!("cancel"), |(_, decision)| decision);
             json!({"decision": decision})
         }
-        (Asked::FileChange, Reply::Permission(reply)) => {
-            let decision = match selected(reply).as_deref() {
+        (Asked::FileChange, ClientReply::Permission(reply)) => {
+            let decision = match selected_option(reply).as_deref() {
                 Some("allow_once") => "accept",
                 Some("allow_for_session") => "acceptForSession",
                 _ => "cancel",
             };
             json!({"decision": decision})
         }
-        (Asked::Permissions(permissions), Reply::Permission(reply)) => {
-            let (scope, strict) = match selected(reply).as_deref() {
+        (Asked::Permissions(permissions), ClientReply::Permission(reply)) => {
+            let (scope, strict) = match selected_option(reply).as_deref() {
                 Some("allow_permissions_turn") => ("turn", false),
                 Some("allow_permissions_turn_strict_auto_review") => ("turn", true),
                 Some("allow_permissions_session") => ("session", false),
@@ -142,9 +166,13 @@ pub(super) fn answer(asked: Asked, reply: Reply) -> Value {
             }
             json!({"permissions": granted, "scope": scope, "strictAutoReview": strict})
         }
-        (Asked::Questions(questions), Reply::Form(reply)) => json!({"answers": answers(reply, &questions)}),
-        (Asked::Elicitation, Reply::Form(reply)) => match reply.map(|reply| reply.action) {
-            Ok(ElicitationAction::Accept(accepted)) => json!({"action": "accept", "content": accepted.content}),
+        (Asked::Questions(questions), ClientReply::Form(reply)) => {
+            json!({"answers": answers(reply, &questions)})
+        }
+        (Asked::Elicitation, ClientReply::Form(reply)) => match reply.map(|reply| reply.action) {
+            Ok(ElicitationAction::Accept(accepted)) => {
+                json!({"action": "accept", "content": accepted.content})
+            }
             Ok(ElicitationAction::Decline) => json!({"action": "decline", "content": null}),
             _ => json!({"action": "cancel", "content": null}),
         },
@@ -156,8 +184,12 @@ pub(super) fn answer(asked: Asked, reply: Reply) -> Value {
 /// null for a request that has no such answer, which is refused.
 pub(super) fn refused(method: &str) -> Value {
     match method {
-        "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" => json!({"decision": "decline"}),
-        "item/permissions/requestApproval" => json!({"permissions": {}, "scope": "turn", "strictAutoReview": false}),
+        "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" => {
+            json!({"decision": "decline"})
+        }
+        "item/permissions/requestApproval" => {
+            json!({"permissions": {}, "scope": "turn", "strictAutoReview": false})
+        }
         "item/tool/requestUserInput" => json!({"answers": {}}),
         "mcpServer/elicitation/request" => json!({"action": "decline", "content": null}),
         _ => Value::Null,
@@ -169,7 +201,10 @@ pub(super) fn refused(method: &str) -> Value {
 /// decline or cancel.
 fn command_options(params: &Value) -> (Vec<Value>, Vec<(String, Value)>) {
     let network = !params["networkApprovalContext"].is_null();
-    let offered = params["availableDecisions"].as_array().filter(|offered| !offered.is_empty()).cloned();
+    let offered = params["availableDecisions"]
+        .as_array()
+        .filter(|offered| !offered.is_empty())
+        .cloned();
     let decisions = offered.unwrap_or_else(|| match params["additionalPermissions"].is_null() {
         _ if network => vec![json!("accept"), json!("acceptForSession"), json!("decline"), json!("cancel")],
         false => vec![json!("accept"), json!("cancel")],
@@ -187,19 +222,42 @@ fn command_options(params: &Value) -> (Vec<Value>, Vec<(String, Value)>) {
     let mut ids = HashSet::new();
     for (index, decision) in decisions.into_iter().enumerate() {
         let (id, name, kind) = match decision.as_str() {
-            Some("accept") if network => ("allow_once".to_owned(), "Yes, just this once".to_owned(), "allow_once"),
-            Some("accept") => ("allow_once".to_owned(), "Yes, proceed".to_owned(), "allow_once"),
+            Some("accept") if network => (
+                "allow_once".to_owned(),
+                "Yes, just this once".to_owned(),
+                "allow_once",
+            ),
+            Some("accept") => (
+                "allow_once".to_owned(),
+                "Yes, proceed".to_owned(),
+                "allow_once",
+            ),
             Some("acceptForSession") => {
                 let name = match (network, params["additionalPermissions"].is_null()) {
                     (true, _) => "Yes, and allow this host for this conversation",
                     (false, false) => "Yes, and allow these permissions for this session",
                     (false, true) => "Yes, and don't ask again for this command in this session",
                 };
-                ("allow_for_session".to_owned(), name.to_owned(), "allow_always")
+                (
+                    "allow_for_session".to_owned(),
+                    name.to_owned(),
+                    "allow_always",
+                )
             }
-            Some("decline") => ("decline".to_owned(), "No, continue without running it".to_owned(), "reject_once"),
-            Some("cancel") => ("cancel".to_owned(), "No, and tell Codex what to do differently".to_owned(), "reject_once"),
-            _ => match (&decision["acceptWithExecpolicyAmendment"], &decision["applyNetworkPolicyAmendment"]) {
+            Some("decline") => (
+                "decline".to_owned(),
+                "No, continue without running it".to_owned(),
+                "reject_once",
+            ),
+            Some("cancel") => (
+                "cancel".to_owned(),
+                "No, and tell Codex what to do differently".to_owned(),
+                "reject_once",
+            ),
+            _ => match (
+                &decision["acceptWithExecpolicyAmendment"],
+                &decision["applyNetworkPolicyAmendment"],
+            ) {
                 (amendment, _) if amendment.is_object() => {
                     let prefix: Vec<&str> = amendment["execpolicy_amendment"]
                         .as_array()
@@ -211,8 +269,13 @@ fn command_options(params: &Value) -> (Vec<Value>, Vec<(String, Value)>) {
                     if prefix.contains(['\n', '\r']) {
                         continue;
                     }
-                    let name = format!("Yes, and don't ask again for commands that start with `{prefix}`");
-                    ("accept_execpolicy_amendment".to_owned(), name, "allow_always")
+                    let name =
+                        format!("Yes, and don't ask again for commands that start with `{prefix}`");
+                    (
+                        "accept_execpolicy_amendment".to_owned(),
+                        name,
+                        "allow_always",
+                    )
                 }
                 (_, amendment) if amendment.is_object() => {
                     let allow = amendment["network_policy_amendment"]["action"] == "allow";
@@ -220,13 +283,20 @@ fn command_options(params: &Value) -> (Vec<Value>, Vec<(String, Value)>) {
                         true => ("Yes, and allow this host in the future", "allow_always"),
                         false => ("No, and block this host in the future", "reject_always"),
                     };
-                    (format!("apply_network_policy_amendment:{index}"), name.to_owned(), kind)
+                    (
+                        format!("apply_network_policy_amendment:{index}"),
+                        name.to_owned(),
+                        kind,
+                    )
                 }
                 _ => continue,
             },
         };
         if ids.insert(id.clone()) {
-            options.push((json!({"optionId": id, "name": name, "kind": kind}), (id, decision)));
+            options.push((
+                json!({"optionId": id, "name": name, "kind": kind}),
+                (id, decision),
+            ));
         }
     }
 
@@ -244,7 +314,11 @@ fn command_call(params: &Value) -> Value {
     let network = &params["networkApprovalContext"];
     let command = params["command"].as_str().map(strip_shell);
     let title = match (network.is_object(), &command) {
-        (true, _) => format!("{} network access to {}", text(network, "protocol"), text(network, "host")),
+        (true, _) => format!(
+            "{} network access to {}",
+            text(network, "protocol"),
+            text(network, "host")
+        ),
         (false, Some(command)) => command.clone(),
         (false, None) => "Run command".to_owned(),
     };
@@ -256,8 +330,17 @@ fn command_call(params: &Value) -> Value {
         input.insert("cwd".to_owned(), json!(cwd));
     }
     let lines: Vec<Value> = [
-        network.is_object().then(|| format!("{} access to {}", text(network, "protocol"), text(network, "host"))),
-        params["reason"].as_str().filter(|reason| !reason.is_empty()).map(str::to_owned),
+        network.is_object().then(|| {
+            format!(
+                "{} access to {}",
+                text(network, "protocol"),
+                text(network, "host")
+            )
+        }),
+        params["reason"]
+            .as_str()
+            .filter(|reason| !reason.is_empty())
+            .map(str::to_owned),
     ]
     .into_iter()
     .flatten()
@@ -274,7 +357,11 @@ fn command_call(params: &Value) -> Value {
     })
 }
 
-fn permission(session: &SessionId, call: Value, options: Vec<Value>) -> Option<RequestPermissionRequest> {
+fn permission(
+    session: &SessionId,
+    call: Value,
+    options: Vec<Value>,
+) -> Option<RequestPermissionRequest> {
     serde_json::from_value(json!({"sessionId": session, "toolCall": call, "options": options}))
         .inspect_err(|e| log::warn!("Codex's approval does not make a permission request: {e}"))
         .ok()
@@ -287,9 +374,15 @@ fn option((id, name, kind): (&str, &str, &str)) -> Value {
 /// The form for the questions of a `requestUserInput`, as Codex's adapter
 /// builds it: a choice for a question with options, with a note field when
 /// it takes an answer of the user's own, else a text field.
-fn questions_form(session: &SessionId, params: &Value) -> Option<(CreateElicitationRequest, Vec<Question>)> {
+fn questions_form(
+    session: &SessionId,
+    params: &Value,
+) -> Option<(CreateElicitationRequest, Vec<Question>)> {
     let asked = params["questions"].as_array()?;
-    let ids: HashSet<&str> = asked.iter().filter_map(|question| question["id"].as_str()).collect();
+    let ids: HashSet<&str> = asked
+        .iter()
+        .filter_map(|question| question["id"].as_str())
+        .collect();
     let mut properties = Map::new();
     let mut required = Vec::new();
     let mut questions = Vec::new();
@@ -298,7 +391,10 @@ fn questions_form(session: &SessionId, params: &Value) -> Option<(CreateElicitat
         let Some(id) = question["id"].as_str() else {
             continue;
         };
-        let options = question["options"].as_array().map(Vec::as_slice).unwrap_or_default();
+        let options = question["options"]
+            .as_array()
+            .map(Vec::as_slice)
+            .unwrap_or_default();
         let other = question["isOther"] == true && !options.is_empty();
         let title = [&question["question"], &question["header"]]
             .into_iter()
@@ -309,22 +405,16 @@ fn questions_form(session: &SessionId, params: &Value) -> Option<(CreateElicitat
             "type": "string",
             "_meta": {"codex": {"isOther": question["isOther"], "isSecret": question["isSecret"]}},
         });
-        if let Some(header) = question["header"].as_str().filter(|header| !header.is_empty()) {
+        if let Some(header) = question["header"]
+            .as_str()
+            .filter(|header| !header.is_empty())
+        {
             field["description"] = json!(header);
         }
 
         if !options.is_empty() {
-            let mut choices: Vec<Value> = options
-                .iter()
-                .filter_map(|option| {
-                    let label = option["label"].as_str()?;
-                    let mut choice = json!({"const": label, "title": label});
-                    if let Some(description) = option["description"].as_str().filter(|d| !d.is_empty()) {
-                        choice["description"] = json!(description);
-                    }
-                    Some(choice)
-                })
-                .collect();
+            let mut choices = choice_options(options);
+
             if other && !choices.iter().any(|choice| choice["const"] == OTHER) {
                 choices.push(json!({"const": OTHER, "title": OTHER, "description": "Provide a different answer in the note field."}));
             }
@@ -351,7 +441,10 @@ fn questions_form(session: &SessionId, params: &Value) -> Option<(CreateElicitat
             );
             note
         });
-        questions.push(Question { id: id.to_owned(), note });
+        questions.push(Question {
+            id: id.to_owned(),
+            note,
+        });
     }
 
     if questions.is_empty() {
@@ -374,7 +467,10 @@ fn questions_form(session: &SessionId, params: &Value) -> Option<(CreateElicitat
 
 /// Codex's answers from the form's `reply`: each question's choice or
 /// words, with a note as `user_note: …`. A form not filled in answers none.
-fn answers(reply: Result<CreateElicitationResponse, agent_client_protocol::Error>, questions: &[Question]) -> Value {
+fn answers(
+    reply: Result<CreateElicitationResponse, agent_client_protocol::Error>,
+    questions: &[Question],
+) -> Value {
     let Ok(ElicitationAction::Accept(accepted)) = reply.map(|reply| reply.action) else {
         return json!({});
     };
@@ -382,7 +478,10 @@ fn answers(reply: Result<CreateElicitationResponse, agent_client_protocol::Error
     let values = |key: &str| -> Vec<String> {
         match &content[key] {
             Value::String(text) if !text.trim().is_empty() => vec![text.clone()],
-            Value::Array(items) => items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect(),
+            Value::Array(items) => items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect(),
             _ => Vec::new(),
         }
     };
@@ -391,7 +490,11 @@ fn answers(reply: Result<CreateElicitationResponse, agent_client_protocol::Error
     for question in questions {
         let mut given = values(&question.id);
         if let Some(note) = &question.note {
-            given.extend(values(note).into_iter().map(|note| format!("{NOTE}{}", note.trim())));
+            given.extend(
+                values(note)
+                    .into_iter()
+                    .map(|note| format!("{NOTE}{}", note.trim())),
+            );
         }
         if !given.is_empty() {
             answers.insert(question.id.clone(), json!({"answers": given}));
@@ -399,15 +502,6 @@ fn answers(reply: Result<CreateElicitationResponse, agent_client_protocol::Error
     }
 
     Value::Object(answers)
-}
-
-/// The option the user picked; `None` when the request was cancelled or
-/// failed.
-fn selected(reply: Result<RequestPermissionResponse, agent_client_protocol::Error>) -> Option<String> {
-    match reply.ok()?.outcome {
-        RequestPermissionOutcome::Selected(selected) => Some(selected.option_id.to_string()),
-        _ => None,
-    }
 }
 
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {

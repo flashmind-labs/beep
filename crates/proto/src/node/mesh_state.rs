@@ -65,6 +65,10 @@ pub struct SkillLibrary {
     pub global: Pick,
     /// The skills installed in each project's checkouts, by project (`org/repo`).
     pub projects: BTreeMap<String, Pick>,
+    /// The skills installed in each assistant chat's folder and its threads' folders, by the
+    /// name of the chat's folder.
+    #[serde(default)]
+    pub chats: BTreeMap<String, Pick>,
 }
 
 /// One skill of a library: its folder name and the description in its SKILL.md.
@@ -152,6 +156,10 @@ pub struct ProjectRecord {
     /// Repository URL changes, replayed on machines that were offline.
     #[serde(default)]
     pub remote_renames: Vec<RemoteRename>,
+    /// The harnesses whose sessions may run in its checkouts; `None` allows
+    /// every harness. Each node refuses a session of another harness there.
+    #[serde(default)]
+    pub harnesses: Option<Vec<AgentSlug>>,
 }
 
 impl ProjectRecord {
@@ -249,6 +257,22 @@ pub struct SessionMove {
     /// Added after `model`.
     #[serde(default)]
     pub worktrees: Vec<String>,
+    /// Set for a session of an assistant chat, which runs in no project:
+    /// `project` is empty and `path` is its folder below `root`, with `/`
+    /// between the names. Added after `worktrees`.
+    #[serde(default)]
+    pub conversation: Option<ConversationMove>,
+}
+
+/// What a `SessionMove` says of a session of an assistant chat: the chat
+/// itself or one of its threads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConversationMove {
+    /// The folder the source keeps its chats in, `<home>/.beep/assistant`.
+    pub root: String,
+    /// The session had ended: the target keeps it, ended, and does not
+    /// start it.
+    pub ended: bool,
 }
 
 /// The linked worktree in a `SessionMove` from an app from before worktree

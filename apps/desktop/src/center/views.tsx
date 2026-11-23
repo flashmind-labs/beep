@@ -9,14 +9,15 @@ import { shownChanged } from "../ui/active.ts";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { perfOpened, perfView, perfViewOf } from "../ui/perf.ts";
 import type { PaneTarget } from "../bar/pane.ts";
-import { mainTarget, route, type CenterTarget, type ProjectScope } from "../project/projectwindow.ts";
+import { keepWindowSession, mainTarget, route, type Alone, type CenterTarget, type WindowScope } from "../project/projectwindow.ts";
+import { sessions } from "../agents/sessions.ts";
+import { threadsByChat } from "../agents/threads-state.ts";
 import { shortName } from "../project/agent.ts";
 import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName } from "./state.ts";
 import { drawSide, openProjects, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { instructionsView, openSettings, providersView } from "../settings/sheet.ts";
 import { paneView } from "./pane.tsx";
 import { homeView } from "./home.tsx";
-import { ProjectsPage, projectsView } from "../project/page.tsx";
 import { TerminalsPage, terminalsView } from "../terminals/view.tsx";
 import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
@@ -24,10 +25,22 @@ import { S } from "../bar/core.ts";
 import { isStarting } from "../agents/starting-state.ts";
 import { canGoBack, syncMobile } from "./mobile.tsx";
 import { placeWindowParts } from "./window-root.tsx";
-import { shell, windowHost } from "./window-shell.tsx";
+import { closeSideOver, shell, windowHost } from "./window-shell.tsx";
 import { movePlaying, swipePlaying, type Swipe } from "../ui/motion.ts";
 
 let currentPage: Location | null = null;
+
+let loadedProjects: typeof import("../project/page.tsx") | null = null;
+const projectsView: CenterView<"projects"> = {
+  currentArg: () => loadedProjects?.projectsView.currentArg?.() ?? { project: null, tile: null },
+  title: () => loadedProjects ? (typeof loadedProjects.projectsView.title === "function" ? loadedProjects.projectsView.title() : { title: loadedProjects.projectsView.title ?? "Projects" }) : { title: "Projects" },
+  async mount(el, arg) {
+    loadedProjects ??= await import("../project/page.tsx");
+    await loadedProjects.projectsView.mount(el, arg);
+    if (currentPage?.view === "projects") drawTop();
+  },
+  unmount: () => loadedProjects?.projectsView.unmount?.(),
+};
 
 /// The view `name` is.
 function viewOf(name: ViewName): CenterView {
@@ -71,7 +84,7 @@ const PageBox = memo(function PageBox({ name, hidden, drawn }: { name: Page; hid
 /// Instructions and Coding agents, so those draw into whichever host mounted them.
 const PageContent = memo(function PageContent({ name }: { name: Page; drawn: number }) {
   switch (name) {
-    case "projects": return <ProjectsPage />;
+    case "projects": return loadedProjects ? <loadedProjects.ProjectsPage /> : null;
     case "terminals": return <TerminalsPage />;
     case "instructions": case "providers": return null;
   }
@@ -97,16 +110,32 @@ function opensAgent(arg: PaneTarget): arg is Extract<PaneTarget, { agent: unknow
   return !!arg && typeof arg === "object" && ("agent" in arg || "agentnew" in arg);
 }
 
-/// The project a project window shows alone; null in the main window.
-export let windowProject: string | null = null;
-export function setWindowProject(name: string | null) { windowProject = name; }
+/// The project or chat a window shows alone; null in the main window.
+export let windowAlone: Alone | null = null;
+export function setWindowAlone(alone: Alone | null) { windowAlone = alone; }
 
-/// What a project window keeps for itself; null in the main window.
-function windowScope(): ProjectScope | null {
-  const project = windowProject;
-  if (!project) return null;
-  const p = (projectRows() || []).find(r => r.name === project);
-  return { project, folders: p?.machines ?? [] };
+/// The project a project's window shows; null in any other.
+export function aloneProject() {
+  return windowAlone?.kind === "project" ? windowAlone.project : null;
+}
+
+/// What a project's or chat's window keeps for itself; null in the main window.
+function windowScope(): WindowScope | null {
+  const alone = windowAlone;
+  if (!alone) return null;
+  if (alone.kind === "chat") {
+    const chat = sessions.find(row => row.machine_id === alone.machine_id && row.id === alone.session);
+    const threads = chat ? threadsByChat(sessions).get(chat)?.map(thread => thread.row) ?? [] : [];
+    return { kind: "chat", sessions: [{ machine_id: alone.machine_id, id: alone.session }, ...threads] };
+  }
+
+  const p = (projectRows() || []).find(r => r.name === alone.project);
+  return { kind: "project", project: alone.project, folders: p?.machines ?? [] };
+}
+
+/// A session may have moved out of this project or chat since it was saved.
+export function opensHere(page: Location): boolean {
+  return route(windowScope(), page) === "here";
 }
 
 /// Shows `target` in the main window, bringing it up.
@@ -146,7 +175,9 @@ export function currentLocation(): Location | null {
 }
 
 /// Whether there is a page to go back or forward to.
-export const hasHistory = (forward: boolean) => pages.has(forward);
+export function hasHistory(forward: boolean) {
+  return pages.has(forward);
+}
 
 /// Goes one page back (⌘[) or forward (⌘]), if there is one; false when there is none.
 export function goHistory(forward: boolean): boolean {
@@ -178,10 +209,11 @@ export function go(...[name, arg]: NavigationArgs): boolean {
 }
 
 export function goTo(target: Location): boolean {
+  closeSideOver();
   const page = withReturnTarget(target, currentLocation());
   const { view: name, arg } = page;
 
-  if (route(windowScope(), page) === "main") {
+  if (!opensHere(page)) {
     toMain(mainTarget(page));
     return false;
   }
@@ -206,6 +238,7 @@ export function goTo(target: Location): boolean {
   if (!moving) { if (previous) pages.visit(previous, next, replaceSpent); else pages.start(next); }
   if (previous && previous.view !== name) viewOf(previous.view).unmount?.();
   currentPage = page;
+  if (windowAlone) keepWindowSession(page);
   perfView(perfViewOf(pageName(name, arg)));
   show(name);
   const mounted = view.mount(box, arg);
@@ -270,10 +303,11 @@ function withReturnTarget(page: Location, current: Location | null): Location {
 export function drawTop() {
   const view = currentPage ? viewOf(currentPage.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
-  const project = windowProject;
+  const project = aloneProject(), alone = windowAlone;
   const row = projectRows()?.find(row => row.name === project);
   const label = row ? projectName(row) : project;
   if (project) document.title = label ?? project;
+  if (alone?.kind === "chat") document.title = sessions.find(row => row.machine_id === alone.machine_id && row.id === alone.session)?.title || "Assistant";
   const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? S.view : null]);
   placeWindowParts({
     "project-back": project ? <Button {...projectWindowProps(project).clicks} {...projectWindowProps(project).menu} small className="pw-back" id="pw-back" title={`Back to ${label} (esc)`} hidden={currentPage?.view === "projects"} onClick={() => void openProjects(project)}>{shortName(label ?? project)}</Button> : null,

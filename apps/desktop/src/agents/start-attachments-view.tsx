@@ -1,7 +1,7 @@
 import { useEffect, useMemo } from "react";
 import { AttachmentBatch, ImagePreview, RemoveChip } from "./composer-ui.tsx";
 import { identity } from "../ui/parts.tsx";
-import { Spinner } from "../ui/kit.tsx";
+import { ProgressBar, Spinner } from "../ui/kit.tsx";
 import { previewsOf } from "./images.tsx";
 import type { Attached } from "./agentqueue.ts";
 import type { PendingFile } from "./start-files.ts";
@@ -11,7 +11,7 @@ export function StartAttachmentChips({ images, files, progress, remove }: { imag
   const loose = (file: File) => !images.some(image => image.original === file);
   const uploaded = progress?.size ? Math.round(progress.done / progress.size * 100) : 0;
 
-  return <>{progress && <div className="agupbar" role="progressbar" aria-label="Uploading" aria-valuenow={uploaded} title={`Uploading: ${uploaded}%`}><span style={{ width: `${uploaded}%` }} /></div>}
+  return <>{progress && <ProgressBar pct={uploaded} label="Uploading" />}
     <AttachmentBatch count={images.length + files.filter(({ file }) => loose(file)).length}>{images.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={previewsOf(images)} index={i} listed /><RemoveChip name={image.name} data="data-startimage" index={i} remove={() => remove("image", i)} /></span>)}
     {files.map((entry, i) => loose(entry.file) && <span className="att" key={identity(entry)} title={entry.error ?? undefined}><LocalFile entry={entry} /><RemoveChip name={entry.file.name || "file"} data="data-startfile" index={i} remove={() => remove("file", i)} /></span>)}</AttachmentBatch></>;
 }

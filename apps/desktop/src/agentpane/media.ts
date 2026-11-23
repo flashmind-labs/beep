@@ -4,6 +4,7 @@
 // PDFs the agent made or looked at, its files, artifacts, terminals and
 // subagents, each a tab. Drawing the tabs is in media-draw.ts, the docks'
 // layout and dividers in media-layout.ts.
+import { readWindowPreference, writeWindowPreference, windowPreferenceKey } from "../ui/window-layout.ts";
 import { shownMessage } from "../agents/session-frame.tsx";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
@@ -69,9 +70,21 @@ export interface FileEdit {
 /// A place in a text by its 0-based line and column.
 export interface TextPlace { line: number; column: number }
 
-/// What a tab shows: a media file, a file of the Files tab as text, or a
-/// terminal.
-export type TabKind = MediaKind | "text" | "term";
+/// What a tab shows: a media file, a file of the Files tab as text, a
+/// terminal, or another coding agent session beside this one.
+export type TabKind = MediaKind | "text" | "term" | "session";
+
+/// A coding agent session opened beside the primary conversation in a dock tab.
+export interface SplitSession {
+  machine_id: string;
+  machine_name: string;
+  agent: string;
+  id: string;
+  title: string | null;
+  cwd: string;
+  status: string;
+  external: boolean;
+}
 
 /// One tab: a file of the session's machine, a picture already here, or a
 /// terminal on the machine.
@@ -117,6 +130,12 @@ export interface MediaTab {
   previewQueued?: boolean;
   preview?: { active: boolean; loading: boolean; src: string; html: string; error: string };
   edit?: FileEdit | null;
+  /// Positive while file search is open. Each Find shortcut refocuses the field.
+  findRequest?: number;
+  /// Reads that failed in a row, and the timer of the next, while its file
+  /// may still come.
+  tries?: number;
+  retry?: ReturnType<typeof setTimeout>;
   /// A terminal tab's terminal, once it started.
   term?: PaneTerm;
   /// Where a new terminal tab starts its shell (its machine and folder stay
@@ -127,6 +146,8 @@ export interface MediaTab {
   /// Its tab was closed: the terminal is being stopped, or is stopped once
   /// it started.
   closed?: boolean;
+  /// Another coding agent session shown live in this tab.
+  splitSession?: SplitSession | null;
 }
 
 /// The session the pane belongs to.
@@ -147,6 +168,7 @@ export const CHANGES = "changes";
 export const ARTS = "artifacts";
 export const RUNNING = "running";
 export const DEVICE = "device";
+export const AGENTS = "agents";
 const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
 /// How far a tab moves under the pointer before it drags.
 export const DRAG_START = 5;
@@ -173,13 +195,19 @@ export const P = {
   phoneShown: false,
 };
 
+function savedPane(key: string): unknown {
+  const scoped = windowPreferenceKey(key);
+  return readView(scoped) ?? (scoped === key ? null : readView(key));
+}
+
 /// Starts the pane for session `s`, closing what the last one had open.
 export function startPane(s: PaneSession) {
   closePaneTabs();
   P.session = s;
   paneReleased = true;
   P.on = { right: FILES, bottom: FILES };
-  const saved = readView(viewKey(s.machine_id, s.id));
+  const key = viewKey(s.machine_id, s.id);
+  const saved = savedPane(key);
   P.layout = loadLayout();
   if (saved && typeof saved === "object" && "layout" in saved) P.layout = readLayout(JSON.stringify(saved.layout));
   foldInBar();
@@ -301,11 +329,19 @@ function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Parti
   focusTab(t.id);
 }
 
+/// Folds dock `d` or shows it, as the user asked. A right pane shown on a window too narrow for
+/// it beside the conversation stays shown once the window is wide, as when an assistant chat's
+/// list steps aside for it; one hidden there leaves the wide layout's choice as it was.
+export function setFolded(d: Dock, folded: boolean) {
+  P.layout.hidden[d] = folded;
+  if (d === "right" && !folded && P.wideFolded !== null) P.wideFolded = false;
+}
+
 /// Shows tab `id`, unfolding its dock, and gives the pane the keys.
 export function focusTab(id: string) {
   const d = dockOf(id);
   leaveLog();
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   saveLayout();
   P.on[d] = id;
   rememberPane();
@@ -325,7 +361,7 @@ export function showPaneTab(n: number) {
   const id = [...right, ...bottom][n];
   if (!id || !shell()) return false;
   const d = dockOf(id);
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   if (P.zoom) P.zoom = d;
   saveLayout();
   showTab(d, id);
@@ -536,12 +572,42 @@ export function closeFocusedTab() {
   return true;
 }
 
+/// Opens coding agent session `s` as a live split tab in the right dock beside
+/// the open conversation.
+export function openSessionBeside(s: SplitSession, dock: Dock = "right") {
+  if (!shell()) return;
+  const id = `session:${s.machine_id}:${s.agent}:${s.id}`;
+  const found = P.tabs.find(t => t.id === id);
+  if (found) {
+    found.splitSession = s;
+    found.name = s.title || s.agent || "Session";
+    const d = dockOf(id);
+    setFolded(d, false);
+    saveLayout();
+    showTab(d, id);
+    return;
+  }
+
+  const tab: MediaTab = {
+    id, kind: "session", name: s.title || s.agent || "Session", path: null, url: null,
+    size: 0, started: Date.now(), done: 0, error: "", rev: 0, viewHidden: false, note: null,
+    player: null, playerAt: 0, splitSession: s,
+  };
+  P.tabs.push(tab);
+  if (dock === "bottom") { P.layout = moveTab(P.layout, id, "bottom"); P.moved.set(id, "bottom"); }
+  const d = dockOf(id);
+  setFolded(d, false);
+  P.on[d] = id;
+  saveLayout();
+  draw();
+}
+
 /// Shows the Files tab, unfolding its dock.
 export function showFiles() {
   const d = dockOf(FILES);
   leaveLog();
   P.on[d] = FILES;
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   draw();
 }
 
@@ -555,7 +621,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
   if (paneModel.getState().phone) return pickPhoneTab(id);
 
   const d = dockOf(id);
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   saveLayout();
   showTab(d, id);
 }
@@ -565,7 +631,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
 export function showDevice() {
   if (!shell() || paneModel.getState().phone || !tabIds().includes(DEVICE)) return;
   const d = dockOf(DEVICE);
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   saveLayout();
   P.on[d] = DEVICE;
   rememberPane();
@@ -580,7 +646,7 @@ export function showArtifact(path?: string) {
   const d = dockOf(ARTS);
   leaveLog();
   P.on[d] = ARTS;
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   saveLayout();
   draw();
   return true;
@@ -593,7 +659,7 @@ export function showChanges(zoomed = true) {
   if (!shell()) return;
   const d = dockOf(CHANGES);
   P.on[d] = CHANGES;
-  P.layout.hidden[d] = false;
+  setFolded(d, false);
   setPaneModel({ log: false });
   draw();
 
@@ -639,7 +705,7 @@ export function rememberPane() {
   const key = viewKey(P.session.machine_id, P.session.id);
   const pending = P.tabs.filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
   if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  writeView(key, { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
+  writeView(windowPreferenceKey(key), { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
 }
 
 function savedTab(t: MediaTab) {
@@ -671,10 +737,10 @@ export function rememberTerminal(key: string, tab: MediaTab, row: TerminalRow) {
   tab.existing = row;
   if (P.tabs.includes(tab)) { rememberPane(); return; }
   if (tab.closed) return;
-  const saved = readView(key);
+  const saved = savedPane(key);
   if (!saved || typeof saved !== "object" || !("tabs" in saved) || !Array.isArray(saved.tabs)) return;
   saved.tabs = saved.tabs.map(item => item && typeof item === "object" && item.id === tab.id ? savedTab(tab) : item);
-  writeView(key, saved);
+  writeView(windowPreferenceKey(key), saved);
 }
 
 window.addEventListener("pagehide", rememberPane);
@@ -691,7 +757,7 @@ function dropTab(t: MediaTab) {
 changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); unfollowFiles(); P.watch?.disconnect(); P.watch = null; watchShell(null); } });
 
 function loadLayout(): PaneLayout {
-  try { return readLayout(localStorage.getItem(KEY)); } catch { return readLayout(null); }
+  try { return readLayout(readWindowPreference(KEY)); } catch { return readLayout(null); }
 }
 
 /// The layout to keep: a narrow window's fold of the right pane is not kept.
@@ -700,6 +766,6 @@ function keptLayout(): PaneLayout {
 }
 
 export function saveLayout() {
-  try { localStorage.setItem(KEY, JSON.stringify(keptLayout())); } catch { /* kept while the window is open */ }
+  try { writeWindowPreference(KEY, JSON.stringify(keptLayout())); } catch { /* kept while the window is open */ }
   rememberPane();
 }

@@ -14,8 +14,8 @@ test("header text updates in place without keeping its initial placeholder", asy
 
 test("project-window Back retains its button across page updates", async ({ page }) => {
   // Too narrow for the project's sessions, which go back to the project with its name.
-  await page.setViewportSize({ width: 1000, height: 800 });
-  await openDesktop(page, false, { center_window_project: projectName });
+  await page.setViewportSize({ width: 640, height: 800 });
+  await openDesktop(page, false, { center_window_alone: { kind: "project", project: projectName } });
   await expect(page.locator("body")).toHaveClass(/pw/);
   const back = page.locator("#pw-back");
   await expect(back).toBeHidden();

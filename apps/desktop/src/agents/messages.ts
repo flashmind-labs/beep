@@ -3,14 +3,16 @@
 import { type Attached, dropDelivered, type OutboxRow, sentFromOutbox, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.tsx";
 import { sessionPicks } from "./session.tsx";
-import { sentText } from "./agentlog.ts";
-import { composeMessage, prependDraft } from "../chat/compose.tsx";
+import { imageLines, sentText } from "./agentlog.ts";
+import { promptParts } from "./promptparts-state.ts";
+import { composeMessage, prependDraft, startField } from "../chat/compose.tsx";
+import { NEW_THREAD } from "./threads-state.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, currentMentions, mentionImages, setMentionImages, type MentionState } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue, showUploadPending } from "./composer-ui.tsx";
-import { type AgentQuestion, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
+import { type AgentQuestion, type AgentRow, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";
@@ -18,6 +20,7 @@ import { drawAgentAttached, fitAttachedImages, keepSentImages, keepAgentPics } f
 import { drawAgentBody } from "./logview.tsx";
 import { sameSession } from "./running-state.ts";
 import { conflicted, invoke, listen } from "../ui/tauri.ts";
+import { reopened } from "./closing.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
@@ -397,10 +400,18 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   return false;
 }
 
-/// Sends the diff review `text` as one message: a steer while a turn runs,
-/// else a message, or what continues an ended session. "" when it went,
-/// else why not; the field keeps what was typed.
-export async function sendReview(text: string) {
+/// Sends the last prompt's words again, without Beep's context or images.
+export async function resendPrompt() {
+  const said = AG.page?.entries.findLast(en => en.kind === "user");
+  const own = said ? promptParts(said.text).filter(p => p.kind === "user").map(p => p.text).join("\n") : "";
+  const text = imageLines(own).text.trim();
+  if (text) await sendPrompt(text);
+}
+
+/// Sends `text` as one message: a steer while a turn runs, else a message,
+/// or what continues an ended session. "" when it went, else why not; the
+/// field keeps what was typed.
+export async function sendPrompt(text: string) {
   const o = AG.open, page = AG.page;
   if (!o || !page) return "No session is open.";
   let ok: boolean;
@@ -438,10 +449,21 @@ export async function resumeEndedSession(session: OpenAgent, prompt: string | nu
   const configure = pick && (pick.model || pick.effort || pick.fast !== null) ? { model: pick.model || null, effort: pick.effort, fast: pick.fast } : null;
   const model = session.agent === "codex" ? configure?.model ?? null : null;
   const started = await invoke<Started>("agent_resume", { ...where(session), prompt: configure ? null : prompt, model }, AGENT_SEND_WAIT_MS);
+  reopened({ machine_id: session.machine_id, id: session.session });
+  reopened(started.session);
   if (configure && pick) {
     const target = where(openOf(started.session));
     await invoke("agent_steer", { ...target, steer: { configure } }, AGENT_SEND_WAIT_MS);
-    if (prompt !== null) await invoke("agent_steer", { ...target, steer: { prompt: { text: prompt } } }, AGENT_SEND_WAIT_MS);
+
+    if (prompt !== null) {
+      try {
+        await invoke("agent_steer", { ...target, steer: { prompt: { text: prompt } } }, AGENT_SEND_WAIT_MS);
+      } catch (e) {
+        const failed = sendError(e);
+        if (failed.kind !== "waiting" && failed.kind !== "timeout") throw e;
+      }
+    }
+
     sessionPicks.set(started.session.id, pick);
   }
   resumePicks.delete(session.session);
@@ -544,3 +566,10 @@ const draftOf = ({ text, images }: Taken): Draft => ({
   typed: text, paths: [],
   images: images.map(({ name, mime, data }) => ({ name, mime, data, size: Math.floor(data.length * 3 / 4), url: `data:${mime};base64,${data}`, original: null })),
 });
+
+/// Starts the message that asks the chat `s` for a thread, for the user to say what it is for:
+/// in its field when it is open, else in its kept draft, which shows once it opens.
+export function draftNewThread(s: AgentRow) {
+  const field = sameSession(AG.open, s) && AG.page ? agentMessage.current : null;
+  if (field) startField(field, NEW_THREAD); else prependDraft(conversationKey(s), NEW_THREAD);
+}

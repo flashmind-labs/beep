@@ -12,7 +12,10 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex, OnceLock},
 };
-use tokio::{sync::watch, task::spawn_blocking};
+use tokio::{
+    sync::{Notify, watch},
+    task::spawn_blocking,
+};
 
 /// One move's progress, written by its task.
 pub(super) type Tracker = Arc<watch::Sender<MoveProgress>>;
@@ -53,6 +56,9 @@ pub(crate) struct Moves {
     /// Held while a target places a worktree and notes it, so taking the
     /// move back waits for that to finish.
     pub(super) placing: Arc<AsyncMutex<()>>,
+    /// Told each time a move ends on this side, which leaves room for one
+    /// that found none: a chat moves as many sessions at once.
+    pub(super) ended: Notify,
 }
 
 /// A session the source ended is served as running while this lives, so a

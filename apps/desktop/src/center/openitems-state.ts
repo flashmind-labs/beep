@@ -94,6 +94,31 @@ export function itemTime(sort: GitSort, item: Pick<GitItemRow, "updated_at" | "o
   return sort === "created" ? item.opened_at ?? 0 : item.updated_at;
 }
 
+/// The stretch of time Home keeps its open items to: all of them, this week from Monday, or
+/// one day, `back` days before today.
+export type GitPeriod = { kind: "all" } | { kind: "week" } | { kind: "day"; back: number };
+
+/// The items `sort` times inside `period`, in local time.
+export function inPeriod<T extends Pick<GitItemRow, "updated_at" | "opened_at">>(items: readonly T[], period: GitPeriod, sort: GitSort, now: number): T[] {
+  if (period.kind === "all") return [...items];
+  const day = new Date(now);
+  day.setHours(0, 0, 0, 0);
+  day.setDate(day.getDate() - (period.kind === "week" ? (day.getDay() + 6) % 7 : period.back));
+  const from = day.getTime();
+  day.setDate(day.getDate() + 1);
+  const to = period.kind === "week" ? Infinity : day.getTime();
+
+  return items.filter(item => { const at = itemTime(sort, item); return at >= from && at < to; });
+}
+
+/// The day `back` days before today: Today, Yesterday, then its date.
+export function dayLabel(back: number, now: number) {
+  if (back < 2) return back ? "Yesterday" : "Today";
+  const day = new Date(now);
+  day.setDate(day.getDate() - back);
+  return day.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+}
+
 /// The repository's web page from an item's.
 export function repoUrl(url: string | null | undefined) {
   return String(url || "").replace(/\/(pull|pulls|issues)\/\d+([/?#].*)?$/, "");

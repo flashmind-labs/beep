@@ -674,6 +674,10 @@ pub(super) fn take_steers(steers: &mut VecDeque<Prompt>) -> Option<Prompt> {
             merged.text = format!("{}\n\n{}", merged.text, next.text);
         }
         merged.images.extend(next.images);
+        merged.context = match (merged.context.take(), next.context) {
+            (Some(first), Some(second)) => Some(format!("{first}\n{second}")),
+            (first, second) => first.or(second),
+        };
     }
 
     Some(merged)

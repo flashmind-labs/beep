@@ -3,7 +3,7 @@
 //! per online member, started and stopped as the mesh changes, so a read
 //! never waits on the network.
 
-use beep_mesh::{Device, Mesh, PeerClient, SessionFn, machine::machine_capability};
+use beep_mesh::{Device, Mesh, PeerClient, RETRY, SessionFn, machine::machine_capability};
 use beep_proto::watched;
 use beep_proto::{
     AgentHost, Machine, MachineApp, MachineDetails, MachineDisk, MachineEnv, MachineGpu,
@@ -33,9 +33,6 @@ use tokio::{
     time::{Instant as TokioInstant, MissedTickBehavior, interval, sleep_until},
 };
 
-/// How long to wait before following a member whose follow ended without the
-/// mesh changing.
-const RETRY: Duration = Duration::from_secs(15);
 /// How long a member that is not on counts as being connected to, after the
 /// mesh opens or its link goes: the mesh dials it at once, and a dial gives
 /// up after 10 seconds.
@@ -399,6 +396,13 @@ impl Status {
     /// What `machine` last reported about itself, if it did.
     pub fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
         self.shared.peers().get(&machine)?.env.clone()
+    }
+
+    /// The protocols `machine` last reported offering on `status/1`, once it has said.
+    pub fn last_offers(&self, machine: EndpointId) -> Option<Vec<String>> {
+        let peers = self.shared.peers();
+        let peer = peers.get(&machine)?;
+        (!peer.offers.is_empty()).then(|| peer.offers.clone())
     }
 
     /// The apps, graphics cards and abilities of each machine; one that has

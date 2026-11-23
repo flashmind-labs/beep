@@ -75,9 +75,9 @@ function usePlacement(content: string, anchor: () => HTMLElement | null) {
     // The unplaced picker sits at the fixed origin. With an iPhone's keyboard up the window
     // is scrolled, and client rects are off from that origin by the scroll.
     const origin = pick.getBoundingClientRect();
-    const view = { width: window.innerWidth, height: window.innerHeight };
-    const at = placePopover({ top: a.top - origin.top, left: a.left - origin.left, width: a.width, height: a.height }, { width: pick.offsetWidth, height: pick.offsetHeight }, view);
-    setPlace(at);
+    const frame = frameOf(pill);
+    const at = placePopover({ top: a.top - frame.top, left: a.left - frame.left, width: a.width, height: a.height }, { width: pick.offsetWidth, height: pick.offsetHeight }, frame);
+    setPlace({ ...at, top: at.top + frame.top - origin.top, left: at.left + frame.left - origin.left });
   }, [place]);
   useEffect(() => {
     const again = () => setPlace(null);
@@ -91,6 +91,15 @@ function usePlacement(content: string, anchor: () => HTMLElement | null) {
 
   const style: CSSProperties | undefined = place ? { top: `${place.top}px`, left: `${place.left}px`, width: `${place.width}px`, ...(place.maxHeight === null ? {} : { "--pick-h": `${place.maxHeight}px` }) } : undefined;
   return { node, style };
+}
+
+/// Where a picker opened from `pill` may go: the panel the pill is in, whose
+/// edges cut a picker that runs past them in WebKit, else the window.
+function frameOf(pill: HTMLElement) {
+  const panel = pill.closest(".cc-main")?.getBoundingClientRect();
+  const left = Math.max(0, panel?.left ?? 0), top = Math.max(0, panel?.top ?? 0);
+  const right = Math.min(window.innerWidth, panel?.right ?? Infinity), bottom = Math.min(window.innerHeight, panel?.bottom ?? Infinity);
+  return { left, top, width: right - left, height: bottom - top };
 }
 
 function Check() {

@@ -30,6 +30,7 @@ interface TauriGlobal {
   webviewWindow: {
     /// Its `listen` hears only events sent to this window; `event.listen` hears them for every window.
     getCurrentWebviewWindow(): {
+      readonly label: string;
       listen<T = unknown>(event: string, handler: (event: TauriEvent<T>) => void): Promise<() => void>;
       /// The title bar's theme on Windows and Linux. Absent from the tests' stand-ins.
       setTheme?(theme: "light" | "dark"): Promise<void>;
@@ -49,6 +50,7 @@ interface TauriInternals {
 declare global {
   interface Window {
     __TAURI__: TauriGlobal;
+    __BEEP_RESTORING_WINDOW__?: boolean;
     __TAURI_INTERNALS__: TauriInternals;
     /// When the app put the kept Home frame on the page, in milliseconds since the Unix epoch.
     __BEEP_KEPT_FRAME_AT__?: number;
@@ -181,7 +183,7 @@ const UNTIMED = new Set([
   "gh_sign_in", "harness_compact", "import_project", "machine_sign_in", "mesh_join",
   "plugins_stage_folder", "plugins_stage_git", "plugins_stage_update",
   "project_add_to_machine", "project_git_move", "report_collect", "report_issue", "report_send", "rescan_found",
-  "save_machine_log", "save_picture", "session_move", "terminal_attach", "terminal_open", "terminal_output",
+  "save_machine_log", "save_picture", "session_move", "chat_move", "terminal_attach", "terminal_open", "terminal_output",
   "update_machine", "update_machine_tool", "use_cli_login",
 ]);
 

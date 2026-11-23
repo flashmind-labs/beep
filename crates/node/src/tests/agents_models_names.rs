@@ -38,9 +38,9 @@ fn flsh_ids_read_as_names_with_their_provider() {
         ),
         ("mistral:mistral-code-fim-latest", "mistral", "Mistral Code FIM Latest"),
         (
-            "openrouter:google/gemini-3.1-flash-lite-preview",
+            "openrouter:qwen/qwen3-coder-flash-preview",
             "openrouter",
-            "Gemini 3.1 Flash Lite Preview",
+            "Qwen3 Coder Flash Preview",
         ),
         (
             "openrouter:deepseek/deepseek-chat-v3-0324",
@@ -87,7 +87,7 @@ fn ids_without_a_provider_keep_no_provider() {
 fn odd_ids_stay_readable() {
     assert_eq!(display_name("---"), "---");
     assert_eq!(display_name("chroma"), "Chroma");
-    assert_eq!(display_name("gemini-2.5-pro"), "Gemini 2.5 Pro");
+    assert_eq!(display_name("grok-4.1-fast"), "Grok 4.1 Fast");
     assert_eq!(display_name("labs-leanstral-1-5-1"), "Labs Leanstral 1.5.1");
     assert_eq!(display_name("mistral-large-4-0"), "Mistral Large 4.0");
 }

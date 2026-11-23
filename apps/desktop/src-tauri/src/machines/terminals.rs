@@ -4,6 +4,7 @@
 
 use crate::{
     beep::epoch_ms,
+    center::home_sessions::HOME_CHANGED,
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
@@ -15,20 +16,34 @@ use beep_mesh::machine::terminals::{Heard, heard};
 use beep_proto::{
     MAX_TERMINAL_INPUT, OpenTerminal, Terminal, TerminalEvent, TerminalInput, TerminalOutput,
     TerminalState,
-    node::terminal::{Reply as PtyReply, Request as PtyRequest, Size},
+    node::{
+        LinkTx,
+        terminal::{Reply as PtyReply, Request as PtyRequest, Size},
+    },
 };
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, Mutex, PoisonError},
+    time::Duration,
+};
 use tauri::{
-    AppHandle, Manager, State, WebviewWindow,
+    AppHandle, Emitter, Manager, State, WebviewWindow,
     ipc::{Channel, InvokeResponseBody},
 };
-use tokio::{sync::mpsc, time::Instant};
+use tokio::{
+    sync::mpsc,
+    time::{Instant, timeout},
+};
 use uuid::Uuid;
 
 /// Keys and sizes waiting to go up one attached terminal's stream.
-const INPUT_QUEUE: usize = 64;
+const INPUT_QUEUE: usize = 256;
+/// Bound on queuing keystrokes into a stalled terminal stream before telling the caller.
+const INPUT_WAIT: Duration = Duration::from_millis(250);
+/// Bound on writing one PTY frame over a degraded node link.
+const WRITE_LIMIT: Duration = Duration::from_secs(10);
 /// The most output one message to the window carries, and how long output
 /// waits for more once a flood began: each message costs the webview a
 /// script and a fetch, so a flood goes in few large ones.
@@ -93,9 +108,14 @@ fn same_terminal(old: &Terminal, new: &Terminal) -> bool {
 /// the windows redraw when one changes.
 async fn every(app: &AppHandle, fleet: &Arc<Fleet>, held: &MachineLists) -> Result<Vec<Terminal>> {
     let f = fleet.clone();
-    let remote =
-        held.terminals
-            .refreshed(app, async move { direct::remote(&f).await }, same_terminal);
+    let remote = held.terminals.refreshed(
+        app,
+        move || {
+            let f = f.clone();
+            async move { direct::remote(&f).await }
+        },
+        same_terminal,
+    );
     let mut rows = direct::local(fleet).await?;
     rows.extend(direct::remote_now(fleet, &remote));
     Ok(rows)
@@ -183,8 +203,16 @@ pub async fn terminal_output(fleet: Machines<'_>, id: Uuid) -> Result<OutputView
 }
 
 #[tauri::command]
-pub async fn terminal_close(fleet: Machines<'_>, id: Uuid) -> Result<()> {
-    direct::close(&fleet, id).await
+pub async fn terminal_close(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    held: State<'_, MachineLists>,
+    id: Uuid,
+) -> Result<()> {
+    direct::close_with(Some(app.clone()), &fleet, id).await?;
+    held.terminals.replace(Vec::new(), |t| t.id == id);
+    let _ = app.emit(HOME_CHANGED, ());
+    Ok(())
 }
 
 /// What an attached terminal tells the window. Output goes as raw bytes,
@@ -366,14 +394,14 @@ pub async fn terminal_attach(
     rows: u32,
     on_event: Channel<InvokeResponseBody>,
 ) -> Result<()> {
-    let (mut tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
+    let (tx, mut rx) = match direct::attach(&fleet, id, from, cols, rows).await? {
         Opened::Live { tx, rx } => (tx, rx),
         Opened::Over(event) => {
             on_event.send(TermEvent::from(event).body()?)?;
             return Ok(());
         }
     };
-    let (input_tx, mut input) = mpsc::channel(INPUT_QUEUE);
+    let (input_tx, input) = mpsc::channel(INPUT_QUEUE);
     let viewer = Viewer { terminal: id, view };
     let serial = attached.follow(viewer, window.label(), input_tx);
     let _unfollow = Unfollow {
@@ -394,6 +422,8 @@ pub async fn terminal_attach(
     on_event.send(TermEvent::Attached.body()?)?;
     let ended = |state| TerminalEvent::Ended { state };
     let mut batch = OutputBatch::default();
+    let writes = send_pty_inputs(tx, input);
+    tokio::pin!(writes);
 
     loop {
         tokio::select! {
@@ -412,23 +442,62 @@ pub async fn terminal_attach(
                     return Ok(());
                 }
             },
-            typed = input.recv() => {
-                let request = match typed {
-                    Some(TerminalInput::Keys { data }) => PtyRequest::Input { data },
-                    Some(TerminalInput::Resize { cols, rows }) => PtyRequest::Resize {
-                        size: Size::clamped(cols, rows),
-                    },
-                    // Detached: closing the node's stream detaches there too.
-                    None => return Ok(()),
-                };
-
-                if tx.send(&request).await.is_err() {
+            sent = &mut writes => {
+                if !sent {
                     batch.send(&on_event, ended(TerminalState::Offline {}))?;
-                    return Ok(());
                 }
+
+                return Ok(());
             }
         }
     }
+}
+
+/// Converts a drained burst of queued terminal inputs into wire requests, coalescing
+/// consecutive `Resize` frames so dragging a pane border over a slow link sends only the latest.
+fn coalesce_pty_inputs(burst: impl IntoIterator<Item = TerminalInput>) -> Vec<PtyRequest> {
+    let mut out = Vec::new();
+    let mut pending_resize: Option<Size> = None;
+
+    for item in burst {
+        match item {
+            TerminalInput::Resize { cols, rows } => {
+                pending_resize = Some(Size::clamped(cols, rows));
+            }
+            TerminalInput::Keys { data } => {
+                if let Some(size) = pending_resize.take() {
+                    out.push(PtyRequest::Resize { size });
+                }
+                out.push(PtyRequest::Input { data });
+            }
+        }
+    }
+
+    if let Some(size) = pending_resize {
+        out.push(PtyRequest::Resize { size });
+    }
+
+    out
+}
+
+/// Drains `input` onto `tx` without blocking output reading while `tx.send` awaits flow control.
+/// Returns `true` on clean detach and `false` if the node link failed or timed out.
+async fn send_pty_inputs(mut tx: LinkTx, mut input: mpsc::Receiver<TerminalInput>) -> bool {
+    while let Some(first) = input.recv().await {
+        let mut burst = vec![first];
+        while let Ok(more) = input.try_recv() {
+            burst.push(more);
+        }
+
+        for request in coalesce_pty_inputs(burst) {
+            match timeout(WRITE_LIMIT, tx.send(&request)).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(_) => return false,
+            }
+        }
+    }
+
+    true
 }
 
 /// Keys typed into attached terminal `id`, in pieces the machine takes.
@@ -442,10 +511,19 @@ pub async fn terminal_input(
     let input = attached.get(&Viewer { terminal: id, view }, "terminal")?;
 
     for piece in keys(data.as_bytes()) {
-        input
-            .send(piece)
-            .await
-            .map_err(|_| DesktopError::BadRequest("The terminal is no longer attached.".into()))?;
+        match timeout(INPUT_WAIT, input.send(piece)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(_)) => {
+                return Err(DesktopError::BadRequest(
+                    "The terminal is no longer attached.".into(),
+                ));
+            }
+            Err(_) => {
+                return Err(DesktopError::TimedOut(
+                    "The terminal connection is congested.".into(),
+                ));
+            }
+        }
     }
 
     Ok(())
@@ -460,6 +538,9 @@ fn keys(data: &[u8]) -> Vec<TerminalInput> {
         .collect()
 }
 
+static OVERFLOW_RESIZE: LazyLock<Mutex<HashMap<Viewer, (u32, u32)>>> =
+    LazyLock::new(Mutex::default);
+
 #[tauri::command]
 pub async fn terminal_resize(
     attached: State<'_, Attached>,
@@ -468,11 +549,48 @@ pub async fn terminal_resize(
     cols: u32,
     rows: u32,
 ) -> Result<()> {
-    let input = attached.get(&Viewer { terminal: id, view }, "terminal")?;
-    input
-        .send(TerminalInput::Resize { cols, rows })
-        .await
-        .map_err(|_| DesktopError::BadRequest("The terminal is no longer attached.".into()))
+    let viewer = Viewer { terminal: id, view };
+    let input = attached.get(&viewer, "terminal")?;
+    let mut overflow = OVERFLOW_RESIZE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+
+    match input.try_send(TerminalInput::Resize { cols, rows }) {
+        Ok(()) => {
+            overflow.remove(&viewer);
+            Ok(())
+        }
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            let start_drainer = overflow.insert(viewer, (cols, rows)).is_none();
+            drop(overflow);
+
+            if start_drainer {
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        let Ok(permit) = input.reserve().await else {
+                            OVERFLOW_RESIZE
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .remove(&viewer);
+                            return;
+                        };
+                        let mut overflow = OVERFLOW_RESIZE
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner);
+                        let Some((cols, rows)) = overflow.remove(&viewer) else {
+                            return;
+                        };
+                        permit.send(TerminalInput::Resize { cols, rows });
+                    }
+                });
+            }
+
+            Ok(())
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => Err(DesktopError::BadRequest(
+            "The terminal is no longer attached.".into(),
+        )),
+    }
 }
 
 /// Stops following terminal `id` in `view`; it keeps running on its

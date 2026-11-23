@@ -79,6 +79,33 @@ fn opencode_gives_its_page_and_code() {
 }
 
 #[test]
+fn antigravity_gives_its_link_and_asks_for_a_code() {
+    // What agy 1.5 prints in print mode with JSON events, on pipes.
+    let url = "https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=0000-abc.apps.googleusercontent.com&code_challenge=abc&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&response_type=code&state=xyz";
+    let printed = format!(
+        "Authentication required. Please visit the URL to log in:\n  {url}\n\n\
+         Waiting for authentication (timeout 60s)...\n\
+         Or, paste the authorization code here and press Enter:\n"
+    );
+    assert_eq!(
+        prompt(Tool::Agy, &printed),
+        Some(State::Waiting {
+            url: url.into(),
+            code: None,
+            asks_code: true,
+        })
+    );
+    let ended = format!(
+        "{printed}\nError: authentication interrupted.\nerror: authentication failed or timed out\n\
+         {{\"event\":\"result\",\"result\":{{\"status\":\"ERROR\"}}}}\n"
+    );
+    assert_eq!(
+        failure("agy", &ended),
+        "agy could not sign in: error: authentication failed or timed out"
+    );
+}
+
+#[test]
 fn only_the_agents_own_links_are_passed_on() {
     let openai = hosts(Tool::Codex);
     assert!(link("https://auth.openai.com/codex/device", openai).is_some());

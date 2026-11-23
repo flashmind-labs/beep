@@ -6,6 +6,7 @@ use crate::{
     fleet::{
         Fleet, Machines,
         files::{PeerShell, Place},
+        node_actor::GitStateRow,
     },
 };
 use beep_projects::{
@@ -16,9 +17,17 @@ use beep_proto::node::events::GitRead;
 use futures::future::join_all;
 use iroh::EndpointId;
 use serde::Serialize;
+use std::time::Duration;
+use tauri::{AppHandle, Emitter};
+use tokio::time::timeout;
+
+/// Event fired when a slow machine's Git branch/ahead-behind projection finishes in the background.
+const GIT_CHANGED: &str = "project-git-changed";
+/// Fast wait for a `fetch: true` call before returning cached local state while fetch completes.
+const FETCH_FAST_WAIT: Duration = Duration::from_millis(1500);
 
 /// One checkout's branch and how far it is from its upstream.
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct GitRow {
     machine_id: String,
     /// `None` on a detached HEAD.
@@ -29,6 +38,29 @@ pub struct GitRow {
     behind: u32,
     /// Why the checkout could not be read.
     error: Option<String>,
+}
+
+impl GitRow {
+    fn from_cached(machine: EndpointId, cached: GitStateRow) -> Self {
+        Self {
+            machine_id: machine.to_string(),
+            branch: cached.branch,
+            upstream: cached.upstream,
+            ahead: cached.ahead,
+            behind: cached.behind,
+            error: cached.error,
+        }
+    }
+
+    fn cached(&self) -> GitStateRow {
+        GitStateRow {
+            branch: self.branch.clone(),
+            upstream: self.upstream.clone(),
+            ahead: self.ahead,
+            behind: self.behind,
+            error: self.error.clone(),
+        }
+    }
 }
 
 /// Where a checkout's state comes from.
@@ -66,14 +98,21 @@ async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
         state.map_err(|e| format!("{e:#}"))
     };
 
-    match read.await {
-        Ok(state) => {
+    let limit = if matches!(from, ReadFrom::Fetched) {
+        std::time::Duration::from_secs(15)
+    } else {
+        std::time::Duration::from_secs(5)
+    };
+
+    match tokio::time::timeout(limit, read).await {
+        Ok(Ok(state)) => {
             row.branch = state.branch;
             row.upstream = state.upstream;
             row.ahead = state.ahead;
             row.behind = state.behind;
         }
-        Err(why) => row.error = Some(why),
+        Ok(Err(why)) => row.error = Some(why),
+        Err(_) => row.error = Some("did not answer in time".into()),
     }
 
     row
@@ -83,6 +122,7 @@ async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
 /// a `fetch`. Nothing for a project the mesh does not record.
 #[tauri::command]
 pub async fn project_git_state(
+    app: AppHandle,
     fleet: Machines<'_>,
     project: String,
     fetch: bool,
@@ -95,15 +135,88 @@ pub async fn project_git_state(
     }
 
     let places = placed(&fleet, &project)?;
-    Ok(join_all(places.iter().map(|place| {
-        let from = if fetch {
-            ReadFrom::Fetched
-        } else {
-            ReadFrom::LocalRefs
-        };
-        row(&fleet, place, from)
+    let fleet_arc = fleet.inner().clone();
+
+    if !fetch {
+        let rows = join_all(places.into_iter().map(|place| {
+            let app = app.clone();
+            let fleet_arc = fleet_arc.clone();
+            async move {
+                if place.machine == fleet_arc.id() {
+                    let read = row(&fleet_arc, &place, ReadFrom::LocalRefs).await;
+                    fleet_arc
+                        .projections()
+                        .git_state
+                        .put((place.machine, place.folder), read.cached());
+                    return Some(read);
+                }
+
+                let machine = place.machine;
+                let key = (machine, place.folder.clone());
+                let notify = move || {
+                    let _ = app.emit(GIT_CHANGED, ());
+                };
+                let fleet_fetch = fleet_arc.clone();
+                let got = fleet_arc
+                    .projections()
+                    .git_state
+                    .read_fast_with_fresh(
+                        key,
+                        |_| Duration::from_secs(10),
+                        PartialEq::eq,
+                        notify,
+                        move || async move {
+                            Ok(row(&fleet_fetch, &place, ReadFrom::LocalRefs)
+                                .await
+                                .cached())
+                        },
+                    )
+                    .await;
+                match got {
+                    Some(Ok(cached)) => Some(GitRow::from_cached(machine, cached)),
+                    Some(Err(_)) | None => None,
+                }
+            }
+        }))
+        .await;
+        return Ok(rows.into_iter().flatten().collect());
+    }
+
+    let rows = join_all(places.into_iter().map(|place| {
+        let app = app.clone();
+        let fleet_arc = fleet_arc.clone();
+        async move {
+            let key = (place.machine, place.folder.clone());
+            let prior = fleet_arc.projections().git_state.peek(&key);
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let fleet_bg = fleet_arc.clone();
+            let place_bg = place.clone();
+            let key_bg = key.clone();
+            let app_bg = app.clone();
+
+            tauri::async_runtime::spawn(async move {
+                let fetched = row(&fleet_bg, &place_bg, ReadFrom::Fetched).await;
+                let cached = fetched.cached();
+                let changed =
+                    fleet_bg.projections().git_state.peek(&key_bg).as_ref() != Some(&cached);
+                fleet_bg.projections().git_state.put(key_bg, cached);
+                let timed_out = tx.send(fetched).is_err();
+
+                if timed_out && changed {
+                    let _ = app_bg.emit(GIT_CHANGED, ());
+                }
+            });
+
+            match timeout(FETCH_FAST_WAIT, rx).await {
+                Ok(Ok(fetched)) => Some(fetched),
+                Ok(Err(_)) | Err(_) => {
+                    prior.map(|cached| GitRow::from_cached(place.machine, cached))
+                }
+            }
+        }
     }))
-    .await)
+    .await;
+    Ok(rows.into_iter().flatten().collect())
 }
 
 /// Pulls (fast-forward only) or pushes `branch` of `project`'s checkout on `machine_id`, then
@@ -124,9 +237,16 @@ pub async fn project_git_move(
         .into_iter()
         .find(|place| place.machine == machine)
         .ok_or_else(|| DesktopError::BadRequest(format!("{name} has no checkout of {project}.")))?;
-    let shell = PeerShell::on(&fleet, machine).await?;
+    let shell = timeout(Duration::from_secs(4), PeerShell::on(&fleet, machine))
+        .await
+        .map_err(|_| DesktopError::TimedOut(format!("{name} did not answer in time.")))??;
     run_move(&shell, &place.folder, branch, direction)
         .await
         .map_err(|why| DesktopError::BadRequest(format!("{name}: {why}")))?;
-    Ok(row(&fleet, &place, ReadFrom::Fetched).await)
+    let updated = row(&fleet, &place, ReadFrom::Fetched).await;
+    fleet
+        .projections()
+        .git_state
+        .put((place.machine, place.folder), updated.cached());
+    Ok(updated)
 }

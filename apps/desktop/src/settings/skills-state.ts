@@ -17,7 +17,13 @@ export interface SkillLibrary {
   global: Pick;
   /// By project (`org/repo`).
   projects: Record<string, Pick>;
+  /// By the name of an assistant chat's folder.
+  chats: Record<string, Pick>;
 }
+
+/// Where a Skills sheet picks for: a project's checkouts, or an assistant chat's folder and its
+/// threads'.
+export type SkillsPlace = { kind: "project"; project: string } | { kind: "chat"; chat: string };
 
 /// What a machine could not fetch or install (`skill_libraries_problems`).
 export interface LibraryProblem {
@@ -103,8 +109,10 @@ export function whereChip(library: SkillLibrary): { text: string; title: string 
   }
 
   const projects = libraryProjects(library);
-  if (!projects.length) return { text: "Not installed", title: null };
-  return { text: `In ${plural(projects.length, "project")}`, title: projects.join(", ") };
+  const chats = Object.values(library.chats).filter(pick => pick !== "None").length;
+  if (!projects.length && !chats) return { text: "Not installed", title: null };
+  if (!projects.length) return { text: `In ${plural(chats, "chat")}`, title: null };
+  return { text: `In ${[plural(projects.length, "project"), ...chats ? [plural(chats, "chat")] : []].join(" and ")}`, title: projects.join(", ") };
 }
 
 /// The repository as the row shows it: without its scheme or `.git`.
@@ -149,7 +157,8 @@ export function projectLines(libraries: readonly SkillLibrary[], picks: Readonly
   });
 }
 
-/// Each library's pick for `project`, as the sheet starts.
-export function projectPicks(libraries: readonly SkillLibrary[], project: string): Record<string, Pick> {
-  return Object.fromEntries(libraries.map(library => [library.name, library.projects[project] ?? "None"]));
+/// Each library's pick for `place`, as its sheet starts.
+export function placePicks(libraries: readonly SkillLibrary[], place: SkillsPlace): Record<string, Pick> {
+  const pick = (library: SkillLibrary) => (place.kind === "project" ? library.projects[place.project] : library.chats[place.chat]) ?? "None";
+  return Object.fromEntries(libraries.map(library => [library.name, pick(library)]));
 }

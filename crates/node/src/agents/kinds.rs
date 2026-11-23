@@ -11,6 +11,8 @@ use std::{
 };
 
 pub(super) const CODEX_CONFIG: &str = "CODEX_CONFIG";
+/// OpenCode's permission rules, as JSON.
+pub(super) const OPENCODE_PERMISSION: &str = "OPENCODE_PERMISSION";
 
 /// An agent this node can start: a program that speaks ACP on its stdio.
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -230,19 +232,19 @@ pub(super) const KNOWN: &[Known] = &[
         },
         async_tasks: false,
     },
-    // YOLO approves every tool. Gemini CLI drops back to `default` in a
-    // folder it does not trust, so the folder is trusted too.
+    // Google's Antigravity CLI. It has no session modes; the flag approves
+    // every tool. Model and thinking are its ACP config options.
     Known {
-        name: "gemini",
-        title: "Gemini CLI",
-        cli: "gemini",
-        adapter: Adapter::Flags(&["--acp", "--approval-mode", "yolo"]),
-        env: &[("GEMINI_CLI_TRUST_WORKSPACE", "true")],
+        name: "agy",
+        title: "Antigravity",
+        cli: "agy",
+        adapter: Adapter::Flags(&["acp", "--dangerously-skip-permissions"]),
+        env: &[],
         thinking_env: &[],
         bypass_mode: None,
-        full_mode: Some("yolo"),
+        full_mode: None,
         read_only_mode: None,
-        model_flag: true,
+        model_flag: false,
         compact: Route::OwnTrigger,
         async_tasks: false,
     },
@@ -302,7 +304,7 @@ pub(super) const KNOWN: &[Known] = &[
         title: "OpenCode",
         cli: "opencode",
         adapter: Adapter::Flags(&["acp"]),
-        env: &[("OPENCODE_PERMISSION", r#"{"*":"allow"}"#)],
+        env: &[(OPENCODE_PERMISSION, r#"{"*":"allow"}"#)],
         thinking_env: &[],
         bypass_mode: None,
         full_mode: None,

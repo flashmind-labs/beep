@@ -4,7 +4,7 @@
 use beep_proto::SessionId;
 use super::{
     Env, Stored,
-    follow::reconcile,
+    follow::{in_order, reconcile},
     progress::{Target, show},
     saved::{Folder, Phase, Saved, valid_id},
     source,
@@ -92,6 +92,7 @@ async fn source_env() -> Source {
         mesh,
         endpoint,
         state: Folder::new(dir.path()),
+        home: dir.path().join("home"),
         roots: StoreRoots {
             claude: dir.path().join("claude"),
             codex: dir.path().join("codex"),
@@ -117,6 +118,7 @@ fn record(env: &Env, stop: bool) -> SessionMove {
         mode: None,
         model: None,
         worktrees: Vec::new(),
+        conversation: None,
         stop,
         at: 1_793_696_400_000,
         worktree: None,
@@ -249,6 +251,26 @@ async fn a_session_that_moves_takes_no_new_prompt() {
         let refused = session.order(command).await.expect_err("refused");
         assert!(refused.contains("moving to another machine"), "{refused}");
     }
+    source.env.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_thread_that_moves_outlives_a_parent_that_left_first() {
+    let source = source_env().await;
+    let session = asking(&source).await;
+    session
+        .order(Command::Moving { stop: false })
+        .await
+        .expect("held");
+    session.order(Command::ParentGone).await.expect("heard");
+    session
+        .order(Command::NotMoving)
+        .await
+        .expect("it still takes orders");
+
+    // One that does not move ends with its parent.
+    session.order(Command::ParentGone).await.expect("heard");
+    ended(&session).await;
     source.env.agents.shutdown().await;
 }
 
@@ -437,6 +459,71 @@ async fn a_move_taken_back_after_an_earlier_one_ended_here_still_frees_the_sessi
         .await
         .expect("the session takes prompts again: the old tracker did not hide the cancel");
     env.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_move_that_ends_has_the_records_looked_at_again() {
+    let source = source_env().await;
+    let env = Arc::new(source.env);
+    // A move to this machine of a session of an agent that cannot move.
+    let record = SessionMove {
+        agent: AgentSlug::from("opencode"),
+        from: SecretKey::generate().public(),
+        to: env.mesh.me(),
+        ..record(&env, false)
+    };
+    env.mesh
+        .set(
+            Key::SessionMove(SessionId::from("held-1")),
+            Some(record.to_bytes().expect("a record encodes")),
+        )
+        .await
+        .expect("the record is written");
+    let ended = env.agents.moves.ended.notified();
+    let mut running = HashMap::new();
+    reconcile(&env, &mut running).await;
+
+    timeout(Duration::from_secs(30), ended)
+        .await
+        .expect("a record that found no room is taken up when a move ends");
+    env.agents.shutdown().await;
+}
+
+#[test]
+fn the_oldest_move_is_taken_up_first_and_a_chat_before_its_threads() {
+    let machine = SecretKey::generate().public();
+    let one = |id: &str, path: &str, at| {
+        let record = SessionMove {
+            agent: AgentSlug::from("fake"),
+            id: id.into(),
+            from: machine,
+            to: machine,
+            project: String::new(),
+            path: path.to_owned(),
+            mode: None,
+            model: None,
+            worktrees: Vec::new(),
+            conversation: None,
+            stop: false,
+            at,
+            worktree: None,
+        };
+        (SessionId::from(id), record)
+    };
+    let records = HashMap::from([
+        one("third", "ab12/c", 2),
+        one("first", "ab12/a", 2),
+        one("chat", "ab12", 2),
+        one("second", "ab12/b", 2),
+        one("older", "zz", 1),
+    ]);
+
+    let order: Vec<String> = in_order(records)
+        .into_iter()
+        .map(|(id, _)| id.as_ref().to_owned())
+        .collect();
+
+    assert_eq!(order, ["older", "chat", "first", "second", "third"]);
 }
 
 #[test]

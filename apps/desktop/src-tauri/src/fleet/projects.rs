@@ -42,6 +42,10 @@ impl Peers for Fleet {
     fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
         self.status().last_env(machine)
     }
+
+    fn last_offers(&self, machine: EndpointId) -> Option<Vec<String>> {
+        self.status().last_offers(machine)
+    }
 }
 
 /// A desk over the mesh, waiting for it to open.

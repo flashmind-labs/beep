@@ -19,6 +19,8 @@ fn a_known_move_carries_its_numbers_and_reason() {
         worktree_at: 1,
         worktrees: 2,
         edits_left: true,
+        files_copied: 3,
+        files_total: 9,
     }));
     assert_eq!(
         (

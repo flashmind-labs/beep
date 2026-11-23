@@ -316,13 +316,6 @@ fn every_known_agent_starts_without_permission_prompts() {
         )
     );
     assert_eq!(
-        launched("gemini"),
-        (
-            vec!["--acp".into(), "--approval-mode".into(), "yolo".into()],
-            vec![pair("GEMINI_CLI_TRUST_WORKSPACE", "true")]
-        )
-    );
-    assert_eq!(
         launched("opencode"),
         (
             vec!["acp".into()],
@@ -333,6 +326,13 @@ fn every_known_agent_starts_without_permission_prompts() {
     assert_eq!(launched("pi"), (vec![], vec![]));
     assert_eq!(launched("flsh"), (vec!["acp".into()], vec![]));
     assert_eq!(launched("hermes"), (vec!["acp".into()], vec![]));
+    assert_eq!(
+        launched("agy"),
+        (
+            vec!["acp".into(), "--dangerously-skip-permissions".into()],
+            vec![]
+        )
+    );
     assert_eq!(
         kinds::known("hermes").unwrap().bypass_mode,
         Some("dont_ask")
@@ -1142,11 +1142,16 @@ async fn resumed_claude_reads_native_history_before_a_partial_replay() {
             serde_json::json!({"type":"user", "uuid":"old-user", "message":{"content":"yes"}}),
             serde_json::json!({"type":"assistant", "uuid":"old-agent", "parentUuid":"old-user", "message":{"content":[{"type":"text", "text":"Original answer"}]}}),
         ];
+        let summary =
+            "This session is being continued from a previous conversation that ran out of context. Keep the literal <beep-context>example</beep-context> in the summary.";
         if compacted {
+            records.push(serde_json::json!({"type":"system", "subtype":"compact_boundary"}));
+            records.push(serde_json::json!({"type":"user","isCompactSummary":true,"message":{"content":"Older summary"}}));
+            records.push(serde_json::json!({"type":"assistant","message":{"content":[{"type":"text","text":"Intermediate reply"}]}}));
             records.push(serde_json::json!({"type":"system", "subtype":"compact_boundary"}));
         }
         records.extend([
-            serde_json::json!({"type":"user", "uuid":"new-user", "parentUuid":"missing", "message":{"content":"yes"}}),
+            serde_json::json!({"type":"user", "uuid":"new-user", "parentUuid":"missing", "isCompactSummary":compacted, "message":{"content":if compacted {summary} else {"yes"}}}),
             serde_json::json!({"type":"assistant", "uuid":"new-agent", "parentUuid":"new-user", "message":{"content":[{"type":"text", "text":"Recent answer"}]}}),
         ]);
         let text = records
@@ -1172,9 +1177,14 @@ while read -r line; do
   esac
 done
 "#;
+        let script = if compacted {
+            script.replace("update user_message_chunk yes", &format!("update user_message_chunk '<beep-context>Context</beep-context>'\nupdate user_message_chunk '{summary}'"))
+        } else {
+            script.to_owned()
+        };
         let session = agents
             .start(
-                &sh_agent("claude", script),
+                &sh_agent("claude", &script),
                 Some(root.path().to_str().unwrap()),
                 Begin {
                     resume: Some(CLAUDE_ID.into()),
@@ -1191,15 +1201,20 @@ done
         .unwrap()
         .unwrap();
 
+        let expected = if compacted {
+            super::compaction::summary_note(summary)
+        } else {
+            "yes".to_owned()
+        };
         let (recent, earlier) = agents.live_transcript(&session, 2, None).await;
         assert_eq!(
             recent
                 .iter()
                 .map(|entry| entry.text.as_str())
                 .collect::<Vec<_>>(),
-            ["yes", "Recent answer"]
+            [expected.as_str(), "Recent answer"]
         );
-        assert_eq!(earlier, if compacted { 3 } else { 2 });
+        assert_eq!(earlier, if compacted { 4 } else { 2 });
         let (older, start) = agents.live_transcript(&session, 20, Some(earlier)).await;
         assert_eq!(start, 0);
         assert_eq!(older[0].text, "yes");
@@ -1207,6 +1222,9 @@ done
         assert_eq!(older.len(), earlier as usize);
         if compacted {
             assert_eq!(older[2].kind, EntryKind::Compacted);
+            assert_eq!(older[2].text, "[conversation compacted]\nOlder summary");
+            assert_eq!(older[3].text, "Intermediate reply");
+            assert_eq!(recent[0].kind, EntryKind::Compacted);
         }
         let (joined, start) = agents.live_transcript(&session, 20, None).await;
         assert_eq!(start, 0);

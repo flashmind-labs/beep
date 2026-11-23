@@ -80,9 +80,11 @@ pub struct AgentSlug(Cow<'static, str>);
 text_id!(AgentSlug);
 
 impl AgentSlug {
+    pub const AGY: AgentSlug = AgentSlug(Cow::Borrowed("agy"));
     pub const CLAUDE: AgentSlug = AgentSlug(Cow::Borrowed("claude"));
     pub const CODEX: AgentSlug = AgentSlug(Cow::Borrowed("codex"));
     pub const FLSH: AgentSlug = AgentSlug(Cow::Borrowed("flsh"));
+    pub const PI: AgentSlug = AgentSlug(Cow::Borrowed("pi"));
 }
 
 impl From<AgentAccount> for AgentSlug {

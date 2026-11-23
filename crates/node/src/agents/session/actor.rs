@@ -250,6 +250,10 @@ pub(super) struct Actor {
     /// The prompts sent so far, which numbers each turn.
     pub(super) sent: u64,
     pub(super) context_turn: bool,
+    /// It came back with a title, which a title the agent writes from a
+    /// prompt sent here does not replace: flsh writes one from the first
+    /// prompt it gets, Beep's brief included.
+    pub(super) kept_title: bool,
     /// The turn running, by its number, while its prompt is unanswered.
     pub(super) turn: Option<u64>,
     /// The end of the last turn, held while its subagents run.
@@ -265,12 +269,17 @@ pub(super) struct Actor {
     /// Beep's word to the agent from whoever started the session; once
     /// `initialize` is answered, what the first prompt still carries.
     pub(super) brief: Option<String>,
+    /// Saved instructions still to be delivered through ACP.
+    pub(super) instructions: Option<String>,
     /// What holds for the whole session: the git rule for its folder and
     /// what the Beep tools are. In the system prompt of an agent that takes
     /// one; for the others, said again after the agent compacts.
     pub(super) standing: Option<String>,
     /// The MCP servers the agent's session gets.
     pub(super) mcp_servers: Vec<McpServer>,
+    /// Whether the agent may start subagents of its own harness; the home
+    /// assistant starts threads instead.
+    pub(super) subagents: bool,
     /// Questions waiting, the first one shown.
     pub(super) asked: VecDeque<Asked>,
     pub(super) next_question: u32,
@@ -574,6 +583,15 @@ impl Actor {
                         return Ok(End::Closed);
                     };
 
+                    let command = match command {
+                        Command::ParentGone if self.moving => {
+                            let _ = done.send(Ok(()));
+                            continue;
+                        }
+                        Command::ParentGone => Command::Close { by_user: false },
+                        other => other,
+                    };
+
                     if let Command::Close { by_user } = command {
                         self.by_user = by_user;
                         self.live.send_modify(|live| live.closing = by_user);
@@ -713,8 +731,7 @@ impl Actor {
             }
             Event::Update(update) => {
                 let update = *update;
-                // Automatic recovery context must not replace the user's title.
-                if self.context_turn && matches!(update, SessionUpdate::SessionInfoUpdate(_)) {
+                if self.drops_title() && matches!(update, SessionUpdate::SessionInfoUpdate(_)) {
                     return Ok(());
                 }
 
@@ -1054,13 +1071,17 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         initialized: &acp::Capabilities,
     ) -> Option<End> {
-        // The standing rules hold for the whole session; the caller's brief
-        // is said once, where the session starts or resumes. An agent with
-        // no system prompt gets both in its first prompt and the rules again
-        // after each compaction, which can summarize them away.
         let takes_system = initialized.system_prompt;
+        if self.instructions.is_some() && !takes_system {
+            return Some(End::Failed(format!(
+                "{} cannot apply saved instructions. Use an adapter that supports ACP system prompts.",
+                self.agent
+            )));
+        }
+
+        // Only Beep's built-in guidance can be repeated in user prompts.
         let standing = if takes_system {
-            self.standing.take()
+            joined(self.instructions.take(), self.standing.take().as_deref())
         } else {
             self.standing.clone()
         };
@@ -1077,7 +1098,12 @@ impl Actor {
                 None
             };
 
-            match acp::new_session(&self.cwd, self.mcp_servers.clone(), system.as_deref()) {
+            match acp::new_session(
+                &self.cwd,
+                self.mcp_servers.clone(),
+                system.as_deref(),
+                self.subagents,
+            ) {
                 Ok(request) => self.send(cx, request, Reply::NewSession),
                 Err(e) => return Some(End::Failed(format!("the agent did not start: {e}"))),
             }
@@ -1108,6 +1134,7 @@ impl Actor {
             &self.cwd,
             self.mcp_servers.clone(),
             system.as_deref(),
+            self.subagents,
         ) {
             Ok(request) => self.send(cx, request, |result| Reply::Resumed(session, result)),
             Err(e) => {
@@ -1144,6 +1171,13 @@ impl Actor {
         );
     }
 
+    /// Whether a title the agent writes now is dropped: one written from
+    /// the recovery context alone, or one written from a prompt sent here
+    /// to a session that came back with its title.
+    pub(super) fn drops_title(&self) -> bool {
+        self.context_turn || (self.kept_title && self.sent > 0)
+    }
+
     /// Whether `text` is what the adapter says before the session's first
     /// prompt: an agent message before the session exists, which only a
     /// loaded session's replay has, or the banner it named.
@@ -1165,7 +1199,10 @@ impl Actor {
         offered: Offered,
     ) -> Option<End> {
         let earlier = std::mem::take(&mut self.earlier);
-        self.live.send_modify(|live| live.restore_times(&earlier));
+        self.live.send_modify(|live| {
+            live.finish_replay();
+            live.restore_times(&earlier);
+        });
         self.acp_session = Some(session.clone());
         if let Some(state) = self.initial_v2_state.take() {
             self.v2_state(cx, state);

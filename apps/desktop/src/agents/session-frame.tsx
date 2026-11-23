@@ -1,3 +1,4 @@
+import { readWindowPreference, writeWindowPreference } from "../ui/window-layout.ts";
 import { ComposeField } from "../chat/compose.tsx";
 import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
@@ -12,7 +13,8 @@ import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import type { ChatBody } from "../ui/turn.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-view.tsx";
-import { MoveBox, MoveHere } from "./move-view.tsx";
+import { RunningPages } from "../agentpane/running-view.tsx";
+import { MoveBar, MoveBox, MoveHere } from "./move-view.tsx";
 import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, useUploadPending, WorkLine } from "./composer-ui.tsx";
 import { cancelContinue, continuing } from "./continue-here.ts";
 import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.tsx";
@@ -21,7 +23,8 @@ import { syncJump } from "./logview.tsx";
 import { ComposerPresence, PluginSlot, SessionHeaderSlot } from "../plugins/slot-view.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
-import type { SessionUsage } from "./agents.ts";
+import type { Persona, SessionUsage } from "./agents.ts";
+import { PersonaTag } from "../project/customagents-view.tsx";
 
 interface AgentHintsModel { value: HintViewModel; project: string | null }
 interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
@@ -95,6 +98,8 @@ export function DraftHead({ project, openProject, machine, windowProps = null }:
 
 interface SessionHeadProps {
   agent: string; title: string; folder: string; branch: string; cwd: string; machine: string; usage: SessionUsage | null;
+  /// The custom agent it runs as.
+  persona: Persona | null;
   /// The session's machine id and its id, for plugins.
   machineId: string; session: string;
   /// The session's machine, harness and id, which the move views follow.
@@ -106,8 +111,8 @@ interface SessionHeadProps {
   saveTitle: ((value: string) => Promise<void>) | null;
 }
 
-export function SessionHead({ agent, title, folder, branch, openProject, windowProps = null, cwd, machine, usage, moveKey, saveTitle, machineId, session }: SessionHeadProps) {
-  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <Button look="plain" className="agproj" id="agproj" {...windowProps?.clicks} {...windowProps?.menu} onClick={openProject}>{folder}</Button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /></small></span><SessionHeaderSlot machine={machineId} session={session} /><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage && <UsageBits usage={usage} />}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
+export function SessionHead({ agent, title, folder, branch, persona, openProject, windowProps = null, cwd, machine, usage, moveKey, saveTitle, machineId, session }: SessionHeadProps) {
+  return <><HarnessIcon agent={agent} className="dapp dcoderav" /><span className="tt"><SessionTitle title={title} save={fixedTitle(title) ? null : saveTitle} /><small className="aglocation" title={cwd}><span className="agfolder">{openProject ? <Button look="plain" className="agproj" id="agproj" {...windowProps?.clicks} {...windowProps?.menu} onClick={openProject}>{folder}</Button> : <span id="agproj">{folder}</span>}<span id="agbranch">{branch}</span></span><span>@</span><MoveHere moveKey={moveKey} machine={machine} /><PersonaTag persona={persona} /></small></span><SessionHeaderSlot machine={machineId} session={session} /><small id="aguse" className="aguse" title="Context used / capacity · session tokens · session spend / remaining credits">{usage && <UsageBits usage={usage} />}</small><span id="agstate"><FieldControl slot="state" /></span><span ref={editHost} id="agedit" className="agedit" /></>;
 }
 
 /// A session's usage in its header: a meter of the context, then the tokens and the spend.
@@ -118,11 +123,11 @@ function UsageBits({ usage }: { usage: SessionUsage }) {
 }
 
 /// Redraws the session head with `change`; false when the frame shows no session head.
-export function updateSessionHead(change: Partial<Pick<SessionHeadProps, "title" | "folder" | "branch" | "usage" | "machine">>) {
+export function updateSessionHead(change: Partial<Pick<SessionHeadProps, "title" | "folder" | "branch" | "usage" | "machine" | "persona">>) {
   const owner = current, head = owner?.frame.head;
   if (!owner || !isValidElement<SessionHeadProps>(head) || head.type !== SessionHead) return false;
-  const unchanged = Object.entries(change).every(([key, value]) => key === "usage"
-    ? JSON.stringify(head.props.usage) === JSON.stringify(value)
+  const unchanged = Object.entries(change).every(([key, value]) => key === "usage" || key === "persona"
+    ? JSON.stringify(head.props[key]) === JSON.stringify(value)
     : head.props[key as keyof typeof change] === value);
   if (unchanged) return true;
   owner.frame = { ...owner.frame, head: cloneElement(head, change) };
@@ -184,19 +189,24 @@ function ContinueHere({ target, start }: ContinueHereProps) {
 }
 
 const FIELD_HEIGHT = "beep.fieldHeight";
-const keptFieldHeight = (): number => { try { return Math.max(0, Number(localStorage.getItem(FIELD_HEIGHT)) || 0); } catch { return 0; } };
+function keptFieldHeight(key: string): number {
+  try {
+    const height = Number(readWindowPreference(key) ?? readWindowPreference(FIELD_HEIGHT));
+    return Number.isFinite(height) ? Math.max(0, height) : 0;
+  } catch { return 0; }
+}
 
 /// The top edge of the message field: dragging it makes the field taller, up to
 /// half the conversation, and a double-click returns it to one line. The height
 /// is kept for this window.
-function FieldGrip() {
-  const grip = useRef<HTMLSpanElement>(null), [height, setHeight] = useState(keptFieldHeight);
+function FieldGrip({ preference }: { preference: string }) {
+  const grip = useRef<HTMLSpanElement>(null), [height, setHeight] = useState(() => keptFieldHeight(preference));
 
   useLayoutEffect(() => { grip.current?.parentElement?.style.setProperty("--field-h", `${height}px`); }, [height]);
 
   const keep = (next: number) => {
     setHeight(next);
-    try { localStorage.setItem(FIELD_HEIGHT, String(next)); } catch { /* kept for this launch only */ }
+    try { writeWindowPreference(preference, String(next)); } catch { /* kept for this launch only */ }
   };
   const drag = (event: ReactPointerEvent<HTMLSpanElement>) => {
     const field = event.currentTarget.parentElement, area = field?.querySelector("textarea");
@@ -214,11 +224,12 @@ function FieldGrip() {
 }
 
 export function SessionField({ mode, name, banner, moveKey, machine, session, continueHere, attach, draft, removeLast, send, stop, openParent, retry, cancel }: SessionFieldProps) {
+  const fieldPreference = `${FIELD_HEIGHT}:${draft}`;
   const input = agentMessage, dropping = useFieldDrop(), uploading = useUploadPending();
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><Button id="agnativeparent" onClick={openParent}>Open parent</Button></div>;
   if (mode === "starting") return <div className="dmuted dbanner dtakeover"><span>{banner}</span>{retry && <Button onClick={retry}>Retry</Button>}<Button look="quiet" onClick={cancel}>Cancel</Button></div>;
   if (mode === "readonly") return continueHere ? <div className="dmuted dbanner dtakeover"><span>{banner}</span><ContinueHere {...continueHere} /></div> : <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><FieldControl slot="steps" /><div id="agtasks"><FieldControl slot="tasks" /></div><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><ComposerPresence machine={machine} session={session} /><PluginSlot name="composer" /><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><FieldGrip /><FilePicker attach={attach} /><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><ComposeField key={draft} ref={input} draft={draft} images={attach} removeLast={removeLast} grow={156} id="agmsg" rows={1} readOnly={uploading} aria-busy={uploading} style={uploading ? { opacity: 0.5, cursor: "wait" } : undefined} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" disabled={uploading} onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
+  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><FieldControl slot="steps" /><div id="agtasks"><FieldControl slot="tasks" /></div><RunningPages /><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><ComposerPresence machine={machine} session={session} /><PluginSlot name="composer" /><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><MoveBar moveKey={moveKey} /><FieldGrip key={fieldPreference} preference={fieldPreference} /><FilePicker attach={attach} /><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><ComposeField key={draft} ref={input} draft={draft} images={attach} removeLast={removeLast} grow={156} id="agmsg" rows={1} readOnly={uploading} aria-busy={uploading} style={uploading ? { opacity: 0.5, cursor: "wait" } : undefined} autoComplete="off" spellCheck={false} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" disabled={uploading} onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals

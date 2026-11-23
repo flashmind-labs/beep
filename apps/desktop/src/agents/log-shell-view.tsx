@@ -19,6 +19,8 @@ export interface LogShell {
   answering: boolean;
   error: string | null;
   external: boolean;
+  /// The failed turn offers to run again on another model.
+  switchModel: boolean;
   /// `connecting`: the log is what this device kept, and its machine has not answered yet.
   note: { text: string; tone: "error" | "muted" | "connecting" } | null;
   retry: boolean;
@@ -35,10 +37,10 @@ export function AgentLogShell({ value, log }: { value: LogShell; log: LogWindow 
     {question && <div className="dcard dcoder" data-log-part="card">
       <div className="q"><b>{question.text}</b>{question.detail && <code>{question.detail}</code>}<div className="dups" ref={questionRef({ key: value.questionKey ?? "", allows: question.options.map(option => option.allow), disabled: value.answering })}>{question.options.map((option, index) => <Button key={index} look={index === allow ? "primary" : "secondary"} danger={index === deny} data-agopt={index} data-agquestion={value.questionKey ?? ""} data-agallow={String(option.allow)} disabled={value.answering}>{option.name}{index === allow ? <kbd>⌘<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M20 5v7a3 3 0 0 1-3 3H5m4-4l-4 4 4 4" /></svg></kbd> : index === deny ? <kbd>⌘D</kbd> : null}</Button>)}{deny < 0 && <Button data-agcancel disabled={value.answering}>Cancel<kbd>⌘.</kbd></Button>}</div></div>
     </div>}
-    {value.error && (value.external ? <div className="derr" data-log-part="error">{value.error}</div> : <div data-log-part="error"><AgentError message={value.error} /></div>)}
+    {value.error && (value.external ? <div className="derr" data-log-part="error">{value.error}</div> : <div data-log-part="error"><AgentError message={value.error} switchModel={value.switchModel} /></div>)}
     {value.note && <div className={value.note.tone === "error" ? "derr" : value.note.tone === "connecting" ? "dmuted dlate" : "dmuted"} data-log-part="note">{value.note.text}</div>}
     {value.retry && <Button look="quiet" id="agresume" data-log-part="retry">Retry</Button>}
-  </div><button className="dagjump" id="agjump" hidden>Jump to latest<Icon name="pull" /></button></>;
+  </div><Button look="plain" className="dagjump" id="agjump" hidden>Scroll to bottom<Icon name="pull" /></Button></>;
 }
 
 /// The log's turns as React draws them; the window decides which.

@@ -23,142 +23,121 @@ interface Place {
   external?: boolean;
 }
 
-/// How old the session's reported place may be, in milliseconds.
 const REPORT_MS = 5000;
+const KNOWN = 8;
+const bare = (dir: string) => dir.replace(/\/+$/, "") || "/";
+const sessionKey = (p: Place) => (p.id ? `${p.machine_id}\n${p.id}\n${bare(p.cwd)}` : "");
 
-const W = {
+/// Per-session worktree tracking, owned directly while shown and kept in `known`.
+interface SessionWorktrees {
+  trees: Tree[];
+  cwd: string;
+  follow: boolean;
+  placed: WorkPlace | null;
+  pick: string | null;
+  seen: string | null;
+  last: string;
+  next: number;
+  handled: boolean;
+  log: { entries: Entry[]; earlier: number };
+  asked: Set<string>;
+  shown: string;
+  finished: Set<number>;
+}
+
+const makeSession = (cwd: string): SessionWorktrees => ({
+  trees: [], cwd, follow: true, placed: null, pick: null, seen: null, last: cwd, next: 0,
+  handled: false, log: { entries: [], earlier: 0 }, asked: new Set(), shown: cwd, finished: new Set(),
+});
+
+/// The sessions shown last, by machine and session, most recent last.
+const known = new Map<string, SessionWorktrees>();
+let current: SessionWorktrees = makeSession("");
+
+const view = {
   place: null as Place | null,
-  trees: [] as Tree[],
-  /// The folder the pane works from: the session's, or its main checkout once
-  /// the session's own is gone (a removed worktree).
-  cwd: "",
   reading: false,
-  /// Asked to read the list while it was being read.
   again: false,
-  follow: true,
-  /// Where the machine says the session works; ahead of what the log shows.
-  placed: null as WorkPlace | null,
-  /// The root picked by hand.
-  pick: null as string | null,
-  /// The root the agent last worked in, once it left the session's folder or came back.
-  seen: null as string | null,
-  /// The root relative paths in the log are taken from, and the place of
-  /// the first entry not read yet.
-  last: "",
-  next: 0,
-  /// The root of the subagent shown, and a pick made while it shows.
   child: null as string | null,
-  handled: false,
-  log: { entries: [] as Entry[], earlier: 0 },
-  /// What made the list be read again, each once.
-  asked: new Set<string>(),
-  /// The root the tabs read now.
-  shown: "",
   open: false,
   search: "",
-  finished: new Set<number>(),
   changed: (_root: boolean) => {},
 };
 
 let firstRead: Promise<void> = Promise.resolve();
-
-/// The menu lists every worktree of the repository, not only the session's
-/// folder and the worktrees the session made. Kept while the window is open.
 let showAll = false;
+let settled = false;
 
 /// Initial reads wait until a removed worktree has resolved to its checkout.
 export function worktreesReady(): Promise<void> { return firstRead; }
-
-/// Whether the first read of the session's worktrees finished, so the root
-/// shown is no longer only the session's folder by default.
-let settled = false;
 export const worktreesSettled = () => settled;
 
-const bare = (dir: string) => dir.replace(/\/+$/, "") || "/";
-
-/// What is known of a session's worktrees, kept while another session shows.
-type Known = Pick<typeof W, "trees" | "cwd" | "follow" | "placed" | "pick" | "seen" | "last" | "next" | "handled" | "log" | "asked" | "shown" | "finished">;
-
-/// The sessions shown last, by machine and session, most recent last.
-const known = new Map<string, Known>();
-const KNOWN = 8;
-const sessionKey = (p: Place) => p.id ? `${p.machine_id}\n${p.id}\n${bare(p.cwd)}` : "";
-
 /// Starts on session `place`; `changed` hears that the root moved (true)
-/// or that the menu needs drawing again (false). A session shown before
-/// starts on the worktree it showed, so its tabs do not flip to the
-/// session's folder and back while the list is read again.
+/// or that the menu needs drawing again (false).
 export function startWorktrees(place: Place, changed: (root: boolean) => void) {
-  const leaving = W.place && sessionKey(W.place);
+  const key = sessionKey(place);
+  let entry = key ? known.get(key) ?? null : null;
+  const kept = entry !== null;
 
-  if (leaving) {
-    const { trees, cwd, follow, placed, pick, seen, last, next, handled, log, asked, shown, finished } = W;
-    known.delete(leaving);
-    known.set(leaving, { trees, cwd, follow, placed, pick, seen, last, next, handled, log, asked, shown, finished });
-    for (const key of known.keys()) if (known.size > KNOWN) known.delete(key);
+  if (!entry) entry = makeSession(bare(place.cwd));
+  if (key) {
+    known.delete(key);
+    known.set(key, entry);
+    for (const old of known.keys()) if (known.size > KNOWN) known.delete(old);
   }
 
-  const kept = known.get(sessionKey(place)) ?? null;
-  Object.assign(W, {
-    place, trees: [], reading: false, again: false, follow: true, placed: null, pick: null, seen: null, cwd: bare(place.cwd), last: bare(place.cwd), next: 0, child: null, handled: false,
-    log: { entries: [], earlier: 0 }, asked: new Set(), shown: bare(place.cwd), open: false, search: "", finished: new Set<number>(), changed,
-    ...kept,
-  });
-  settled = !!kept;
-  const read = readTrees().finally(() => { if (W.place === place) settled = true; });
+  current = entry;
+  Object.assign(view, { place, reading: false, again: false, child: null, open: false, search: "", changed });
+  settled = kept;
+  const read = readTrees().finally(() => { if (view.place === place) settled = true; });
   firstRead = kept ? Promise.resolve() : read;
   report();
 }
 
 /// Reads where the machine says the session works, and follows it.
 function report() {
-  const p = W.place;
-  // The empty agent view has no session to ask about yet.
+  const p = view.place;
   if (!p?.id) return;
   const got = placeOf({ machine_id: p.machine_id, agent: p.agent, id: p.id, external: p.external }, REPORT_MS);
-  if (JSON.stringify(got) === JSON.stringify(W.placed)) return;
-  const moved = W.placed !== null && got?.folder !== W.placed.folder;
-  W.placed = got;
+  if (JSON.stringify(got) === JSON.stringify(current.placed)) return;
+  const moved = current.placed !== null && got?.folder !== current.placed.folder;
+  current.placed = got;
   if (got && (got.linked || moved)) {
-    const root = reportedRoot(W.trees, W.cwd, got.folder);
-    if (root) { W.seen = root; W.last = root; }
+    const root = reportedRoot(current.trees, current.cwd, got.folder);
+    if (root) { current.seen = root; current.last = root; }
   }
-  if (got && !W.trees.some(t => bare(t.path) === bare(got.folder))) ask([got.folder]);
+  if (got && !current.trees.some(t => bare(t.path) === bare(got.folder))) ask([got.folder]);
   apply(true);
-  W.changed(false);
+  view.changed(false);
 }
 onPlaces(report);
 
 /// The folder Files and Changes read.
 export function paneRoot() {
-  const p = W.place;
-  return !p ? "" : W.shown === bare(p.cwd) ? p.cwd : W.shown;
+  const p = view.place;
+  return !p ? "" : current.shown === bare(p.cwd) ? p.cwd : current.shown;
 }
 
 /// The top of the checkout holding the session's folder when that folder
 /// is a subfolder of it, such as a session in `apps/desktop`; else null.
 export function checkoutTop() {
-  const own = W.trees.find(t => t.own);
-  return own && bare(own.path) !== bare(W.cwd) ? bare(own.path) : null;
+  const own = current.trees.find(t => t.own);
+  return own && bare(own.path) !== bare(current.cwd) ? bare(own.path) : null;
 }
 
 /// Whether the folder the tabs read is a linked worktree, not the main
 /// checkout: git lists the main checkout first.
 export function paneLinked() {
   const root = paneRoot();
-  const at = W.trees.findIndex(t => rootOf(t, W.cwd) === root);
+  const at = current.trees.findIndex(t => rootOf(t, current.cwd) === root);
   if (at >= 0) return at > 0;
-  return !!W.placed?.linked && bare(W.placed.folder) === bare(root);
+  return !!current.placed?.linked && bare(current.placed.folder) === bare(root);
 }
 
-/// The last revision heard of each folder's `files` topic, by machine. A new
-/// subscription is primed with the last event again, which is no change.
 const heard = new Map<string, number>();
 
 /// Calls `changed` when the node says something in `root` on `machine`
-/// changed, its Git metadata included. The subscription stays while a view
-/// of the folder is kept, shown or not, so returning to it knows whether to
-/// read again. Returns the unsubscribe.
+/// changed, its Git metadata included.
 export function watchRoot(machine: string, root: string, changed: () => void): () => void {
   const name = topic("files", root), id = `${machine}\n${name}`;
   let seen = heard.get(id) ?? null;
@@ -170,112 +149,96 @@ export function watchRoot(machine: string, root: string, changed: () => void): (
   }, { machine });
 }
 
-/// Reads the list of worktrees again, as the Changes tab does on a refresh.
 export function refreshWorktrees() {
-  readTrees();
+  void readTrees();
 }
 
 async function readTrees() {
-  const p = W.place;
+  const p = view.place, session = current;
   if (!p?.cwd) return;
-  if (W.reading) { W.again = true; return; }
-  W.reading = true;
+  if (view.reading) { view.again = true; return; }
+  view.reading = true;
   let listed = false;
 
   try {
     const asked = await invoke<Tree[] | null>("agent_worktrees", { machineId: p.machine_id, folder: p.cwd, session: p.id || null });
     const got = asked ?? [];
-    if (W.place?.id !== p.id) return;
+    if (view.place?.id !== p.id || current !== session) return;
 
-    if (JSON.stringify(got) !== JSON.stringify(W.trees)) {
-      W.trees = got;
+    if (JSON.stringify(got) !== JSON.stringify(session.trees)) {
+      session.trees = got;
       listed = true;
-      // A removed worktree: go on from the main checkout. The log is read
-      // again from its start, against the new list and folder.
-      W.cwd = removedCheckout(got, p.cwd) ?? bare(p.cwd);
-      if (W.seen && !got.some(t => rootOf(t, W.cwd) === W.seen)) W.seen = null;
-      Object.assign(W, { next: W.log.earlier, last: W.seen ?? W.cwd });
-      const roots = got.map(t => rootOf(t, W.cwd));
-      if (W.pick && !roots.includes(W.pick)) W.pick = null;
+      session.cwd = removedCheckout(got, p.cwd) ?? bare(p.cwd);
+      if (session.seen && !got.some(t => rootOf(t, session.cwd) === session.seen)) session.seen = null;
+      session.next = session.log.earlier;
+      session.last = session.seen ?? session.cwd;
+      const roots = got.map(t => rootOf(t, session.cwd));
+      if (session.pick && !roots.includes(session.pick)) session.pick = null;
     }
   } catch {
     // A node from before worktrees, or one out of reach: no list.
   } finally {
-    if (W.place?.id === p.id) W.reading = false;
+    if (view.place?.id === p.id && current === session) view.reading = false;
   }
 
-  if (W.place?.id !== p.id) return;
+  if (view.place?.id !== p.id || current !== session) return;
   scan();
   apply(true);
-  if (listed) W.changed(false);
-  if (W.again) { W.again = false; readTrees(); }
+  if (listed) view.changed(false);
+  if (view.again) { view.again = false; void readTrees(); }
 }
 
-/// The root the tabs should read: the subagent's, else the hand pick or
-/// where the agent works.
 function want() {
-  const p = W.place;
-  const reported = p && W.placed ? reportedRoot(W.trees, W.cwd, W.placed.folder) : null;
-  return W.child ?? (W.follow ? W.seen ?? reported : W.pick) ?? W.cwd;
+  const reported = view.place && current.placed ? reportedRoot(current.trees, current.cwd, current.placed.folder) : null;
+  return view.child ?? (current.follow ? current.seen ?? reported : current.pick) ?? current.cwd;
 }
 
-/// Points the tabs at `want()`. A switch the agent or a subagent caused
-/// waits while a comment is being written.
 function apply(auto: boolean) {
   const next = want();
-  if (next === W.shown) return;
-  // A switch waits while a comment in the Changes tab has text.
+  if (next === current.shown) return;
   if (auto && writingComment()) return;
-  W.shown = next;
-  W.changed(true);
+  current.shown = next;
+  view.changed(true);
 }
 
-// The switch that waited goes ahead as the comment box closes.
 for (const type of ["click", "keyup", "focusout"]) {
   document.addEventListener(type, () => {
-    if (W.place && want() !== W.shown) setTimeout(() => apply(true), 0);
+    if (view.place && want() !== current.shown) setTimeout(() => apply(true), 0);
   }, true);
 }
 
-/// Reads the entries not read yet, or the log again after the list changed.
 function scan() {
-  const p = W.place;
-  const { entries, earlier } = W.log;
-  if (!p?.cwd) return;
-  if (W.next < earlier || W.next > earlier + entries.length) Object.assign(W, { next: earlier, last: W.cwd });
-  const got = follow(entries.slice(W.next - earlier), W.trees, W.cwd, W.last);
-  W.next += got.done;
-  W.last = got.kept;
-  if (got.hit) W.seen = got.last;
+  if (!view.place?.cwd) return;
+  const { entries, earlier } = current.log;
+  if (current.next < earlier || current.next > earlier + entries.length) { current.next = earlier; current.last = current.cwd; }
+  const got = follow(entries.slice(current.next - earlier), current.trees, current.cwd, current.last);
+  current.next += got.done;
+  current.last = got.kept;
+  if (got.hit) current.seen = got.last;
   ask(got.unknown);
 }
 
-/// Reads the list again for something in the log it may not have.
 function ask(keys: string[]) {
-  // No list: not a repository, or a node that does not say.
-  if (!W.trees.length) return;
-  const fresh = keys.filter(k => !W.asked.has(k));
-  for (const k of fresh) W.asked.add(k);
-  if (fresh.length) readTrees();
+  if (!current.trees.length) return;
+  const fresh = keys.filter(k => !current.asked.has(k));
+  for (const k of fresh) current.asked.add(k);
+  if (fresh.length) void readTrees();
 }
 
-/// The log as it was drawn: its `entries` from place `earlier`, and the
-/// titles of the steps of the subagent open, null on the session itself.
 export function followAgent(entries: Entry[], earlier: number, steps: string[] | null) {
-  const p = W.place;
-  if (!p?.cwd) return;
-  W.log = { entries, earlier };
+  if (!view.place?.cwd) return;
+  current.log = { entries, earlier };
   const finished = finishedTools(entries, earlier);
-  const changed = finished.some(index => !W.finished.has(index));
-  for (const index of finished) W.finished.add(index);
-  for (const index of W.finished) if (index < earlier) W.finished.delete(index);
-  if (changed) readTrees();
-  if (!steps) W.handled = false;
-  W.child = null;
+  const changed = finished.some(index => !current.finished.has(index));
+  for (const index of finished) current.finished.add(index);
+  for (const index of current.finished) if (index < earlier) current.finished.delete(index);
+  if (changed) void readTrees();
+  if (!steps) current.handled = false;
+  view.child = null;
 
-  if (steps && !W.handled) {
-    const got = followSteps(steps, W.trees, W.cwd);
-    if (got.hit) W.child = got.last;
+  if (steps && !current.handled) {
+    const got = followSteps(steps, current.trees, current.cwd);
+    if (got.hit) view.child = got.last;
     ask(got.unknown);
   }
 
@@ -287,71 +250,54 @@ export function followAgent(entries: Entry[], earlier: number, steps: string[] |
 // ----- The dropdown -----
 
 function pickRoot(root: string | null) {
-  W.handled = true;
-  W.child = null;
-  W.open = false;
-  W.search = "";
-  if (root == null) {
-    W.follow = !W.follow;
-    W.pick = W.follow ? null : W.shown;
-  } else Object.assign(W, { follow: false, pick: root });
+  Object.assign(view, { child: null, open: false, search: "" });
+  current.handled = true;
+  if (root == null) { current.follow = !current.follow; current.pick = current.follow ? null : current.shown; }
+  else { current.follow = false; current.pick = root; }
   apply(false);
-  W.changed(false);
+  view.changed(false);
 }
 
-/// The session's folder is gone and the pane works from its main checkout.
-function removed(p: Place) {
-  return W.cwd !== bare(p.cwd);
-}
+const removed = (p: Place) => current.cwd !== bare(p.cwd);
 
-/// The branch the pane shows in place of a removed worktree, while it is the
-/// one showing; null otherwise.
 export function removedBranch() {
-  const p = W.place;
-  const main = W.trees.find(t => t.own);
-  return p && main && removed(p) && W.shown === W.cwd ? treeName(main) : null;
+  const p = view.place;
+  const main = current.trees.find(t => t.own);
+  return p && main && removed(p) && current.shown === current.cwd ? treeName(main) : null;
 }
 
-/// The dropdown in the head of a dock showing Files or Changes: only while
-/// there is more than one worktree to show, or the pane is not on the
-/// session's folder. Null when it does not show.
 export function worktreeMenu(): WorktreeMenuModel | null {
-  const p = W.place;
-  if (!p || !(W.trees.length > 1 || W.shown !== bare(p.cwd) || removed(p) || !!W.placed?.linked)) return null;
-  const now = W.trees.find(t => rootOf(t, W.cwd) === W.shown);
-  const label = now ? treeName(now) : W.placed && bare(W.placed.folder) === W.shown ? placeName(W.placed) : baseName(W.shown);
-  const main = W.trees.find(t => t.own);
-  const listed = W.trees.filter(t => {
-    const path = rootOf(t, W.cwd);
-    return showAll || t.own || t.created || path === W.shown || path === W.seen;
+  const p = view.place;
+  if (!p || !(current.trees.length > 1 || current.shown !== bare(p.cwd) || removed(p) || !!current.placed?.linked)) return null;
+  const now = current.trees.find(t => rootOf(t, current.cwd) === current.shown);
+  const label = now ? treeName(now) : current.placed && bare(current.placed.folder) === current.shown ? placeName(current.placed) : baseName(current.shown);
+  const main = current.trees.find(t => t.own);
+  const listed = current.trees.filter(t => {
+    const path = rootOf(t, current.cwd);
+    return showAll || t.own || t.created || path === current.shown || path === current.seen;
   });
   const items = listed.map(t => {
-    const path = rootOf(t, W.cwd);
+    const path = rootOf(t, current.cwd);
     const sub = t.own ? (removed(p) ? "main checkout" : "the session's folder")
       : main && t.path.startsWith(`${bare(main.path)}/`) ? t.path.slice(bare(main.path).length + 1) : t.path;
-    return { path, title: t.path, name: treeName(t), sub: sub + (W.seen === path ? " · agent here" : ""), visible: matchesTree(t, W.search) };
+    return { path, title: t.path, name: treeName(t), sub: sub + (current.seen === path ? " · agent here" : ""), visible: matchesTree(t, view.search) };
   });
   return {
-    label, items, shown: W.shown, follow: W.follow, open: W.open, search: W.search, all: showAll,
-    pick: pickRoot, showAll: (all: boolean) => { showAll = all; W.changed(false); }, searchChanged: (value: string) => { W.search = value; W.changed(false); },
-    toggle: () => {
-      W.open = !W.open;
-      W.search = "";
-      W.changed(false);
-    },
+    label, items, shown: current.shown, follow: current.follow, open: view.open, search: view.search, all: showAll,
+    pick: pickRoot, showAll: (all: boolean) => { showAll = all; view.changed(false); }, searchChanged: (value: string) => { view.search = value; view.changed(false); },
+    toggle: () => { view.open = !view.open; view.search = ""; view.changed(false); },
   };
 }
 
-/// Closes the menu; true when one was open.
 function closeWorktreeMenu() {
-  if (!W.open) return false;
-  W.open = false;
-  W.changed(false);
+  if (!view.open) return false;
+  view.open = false;
+  view.changed(false);
   return true;
 }
 
 window.addEventListener("pointerdown", e => {
-  if (W.open && !(e.target instanceof Element && e.target.closest(".agwtw"))) closeWorktreeMenu();
+  if (view.open && !(e.target instanceof Element && e.target.closest(".agwtw"))) closeWorktreeMenu();
 }, true);
 window.addEventListener("keydown", e => {
   if (e.key === "Escape" && closeWorktreeMenu()) { e.preventDefault(); e.stopImmediatePropagation(); }

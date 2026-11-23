@@ -9,9 +9,15 @@
 //! that ended or was stopped, for a turn or session the parent stopped, or
 //! while the parent waits on that child in `start_agent` (`wait` gives the
 //! state). Reviewers report through `submit_review` and send none.
+//!
+//! What the user did in the child is no news that should start a turn: the
+//! end of a turn the user's message began, a question in it, and a stop or a
+//! close by the user send nothing to an idle parent here, whose next turn
+//! hears of it instead (`changes`). A parent on another machine is told as
+//! before.
 
 use beep_proto::SessionId;
-use super::{Agents, Command, Live, Session, children};
+use super::{Agents, Command, Live, Mark, Session, children};
 use crate::{agents::tags, link::Membership, team::asks::Delivery};
 use beep_proto::node::agent::{Status, StopReason};
 use beep_proto::watched;
@@ -19,7 +25,10 @@ use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    sync::{Arc, Mutex, OnceLock, Weak},
+    sync::{
+        Arc, Mutex, OnceLock, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tokio::sync::watch;
 
@@ -115,6 +124,14 @@ impl Waits {
     }
 }
 
+/// A note and how the child stood when it was made.
+struct Told {
+    note: ChildNote,
+    mark: Mark,
+    /// The user's doing, which wakes no idle parent.
+    quiet: bool,
+}
+
 /// Where a child's notes go.
 enum To {
     /// The parent runs here.
@@ -147,7 +164,12 @@ impl Agents {
                 None => return,
             },
         };
-        let task = follow(session.live.clone(), to, self.family.membership.clone());
+        let child = Child {
+            id: session.id.clone(),
+            live: session.live.clone(),
+            user_turn: session.user_turn.clone(),
+        };
+        let task = follow(child, to, self.family.membership.clone());
         session.keep(tokio::spawn(task));
     }
 
@@ -170,7 +192,7 @@ impl Agents {
             .get(parent)
             .ok_or_else(|| format!("There is no session {parent} here."))?;
         let id = format!("{}@{}", kid.id, kid.name);
-        deliver(&session, &self.family.waits, &id, note).await
+        deliver(&session, &self.family.waits, &id, note, None).await
     }
 }
 
@@ -221,9 +243,23 @@ pub(super) fn open_to_teammates(live: &Live, card: &str) -> Result<bool, String>
     Ok(idle)
 }
 
+/// The child `follow` follows.
+struct Child {
+    /// Its id on this node, which its parent here keeps what it saw of it by.
+    id: SessionId,
+    live: watch::Receiver<Live>,
+    /// Whether the user's message began its turn (`Session::user_turn`).
+    user_turn: Arc<AtomicBool>,
+}
+
 /// Follows a child's state and sends a note for each turn it finishes, each
 /// time it starts to ask and each stop by the user, until it ends.
-async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLock<Membership>>) {
+async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
+    let Child {
+        id: key,
+        mut live,
+        user_turn,
+    } = child;
     // A session counts its turns from its start, so one that ended before
     // this first look is told too.
     let (mut turns, mut asking) = (0, false);
@@ -231,37 +267,53 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
 
     while std::mem::take(&mut first) || live.changed().await.is_ok() {
         let mut ended = false;
-        let note = watched::read_and_update(&mut live, |now| match now.status() {
-            Status::Ended => {
-                ended = true;
-                now.stopped_by_user.then(|| note_of(now, NoteState::Closed))
-            }
-            Status::Asking if !asking => {
-                asking = true;
-                Some(note_of(now, NoteState::Asking))
-            }
-            Status::Asking => None,
-            Status::Idle => {
-                asking = false;
-                let done = now.info.turns > turns;
-                turns = now.info.turns;
-                // A turn with prompts behind it is not the end, and the
-                // parent knows of a stop it made itself.
-                if !done {
-                    None
-                } else if now.info.state.last_stop == Some(StopReason::Cancelled) {
-                    now.stopped_by_user
-                        .then(|| note_of(now, NoteState::Stopped))
-                } else {
-                    (now.info.state.queued == 0).then(|| note_of(now, NoteState::Finished))
+        let mut quiet = false;
+        let told = watched::read_and_update(&mut live, |now| {
+            let note = match now.status() {
+                Status::Ended => {
+                    ended = true;
+                    quiet = true;
+                    now.stopped_by_user.then(|| note_of(now, NoteState::Closed))
                 }
-            }
-            _ => {
-                asking = false;
-                None
-            }
+                Status::Asking if !asking => {
+                    asking = true;
+                    quiet = user_turn.load(Ordering::Relaxed);
+                    Some(note_of(now, NoteState::Asking))
+                }
+                Status::Asking => None,
+                Status::Idle => {
+                    asking = false;
+                    let done = now.info.turns > turns;
+                    turns = now.info.turns;
+                    // A turn with prompts behind it is not the end, and the
+                    // parent knows of a stop it made itself.
+                    if !done {
+                        None
+                    } else if now.info.state.last_stop == Some(StopReason::Cancelled) {
+                        quiet = true;
+                        user_turn.store(false, Ordering::Relaxed);
+                        now.stopped_by_user
+                            .then(|| note_of(now, NoteState::Stopped))
+                    } else if now.info.state.queued == 0 {
+                        quiet = user_turn.swap(false, Ordering::Relaxed);
+                        Some(note_of(now, NoteState::Finished))
+                    } else {
+                        None
+                    }
+                }
+                _ => {
+                    asking = false;
+                    None
+                }
+            };
+
+            note.map(|note| Told {
+                note,
+                mark: Into::<Mark>::into(&*now),
+                quiet,
+            })
         });
-        let Some(note) = note else {
+        let Some(Told { note, mark, quiet }) = told else {
             if ended {
                 return;
             }
@@ -272,7 +324,12 @@ async fn follow(mut live: watch::Receiver<Live>, to: To, membership: Arc<OnceLoc
             To::Here { parent, waits } => match parent.upgrade() {
                 Some(parent) => {
                     let id = children::full_id(note.id.as_ref(), &children::machine_name(mesh.as_ref()));
-                    deliver(&parent, waits, &id, &note).await
+                    let seen = Seen {
+                        child: &key,
+                        mark,
+                        quiet,
+                    };
+                    deliver(&parent, waits, &id, &note, Some(seen)).await
                 }
                 None => return,
             },
@@ -316,18 +373,39 @@ fn note_of(live: &Live, state: NoteState) -> ChildNote {
     }
 }
 
+/// What a parent here is to note of the child a note is about.
+struct Seen<'a> {
+    /// The child's id on this node.
+    child: &'a SessionId,
+    /// How it stood when the note was made.
+    mark: Mark,
+    /// The note is of the user's doing.
+    quiet: bool,
+}
+
 /// Puts `note`, about the child `parent` knows as `id`, into `parent`: none
-/// when the parent ended or was stopped, or waits on that child.
+/// when the parent ended or was stopped, or waits on that child, and none of
+/// the user's doing while the parent is idle, which stays unseen for the
+/// parent's next turn to say. `seen` is of a child on this node.
 async fn deliver(
     parent: &Session,
     waits: &Waits,
     id: &str,
     note: &ChildNote,
+    seen: Option<Seen<'_>>,
 ) -> Result<(), String> {
     let (idle, stopped) = watched::read(&parent.live, idle_or_stopped);
 
     if stopped || waits.holds(&Agents::name_of(parent), id) {
         return Ok(());
+    }
+
+    if let Some(seen) = seen {
+        if seen.quiet && idle {
+            return Ok(());
+        }
+
+        parent.see(seen.child, seen.mark);
     }
 
     put(parent, idle, note.text_for(id)).await

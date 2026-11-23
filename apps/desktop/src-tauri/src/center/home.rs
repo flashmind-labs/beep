@@ -11,10 +11,9 @@ use crate::{
     beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
-        Fleet, alerts,
+        Fleet,
         projects::{FleetState, desk},
     },
-    notices::history,
     projects::ProjectRow,
     tray::waiting::WaitingList,
 };
@@ -33,7 +32,7 @@ use serde::Serialize;
 use std::{
     cmp::Reverse,
     collections::HashMap,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard},
 };
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tokio::join;
@@ -44,7 +43,6 @@ use tokio::join;
 #[allow(clippy::too_many_arguments)]
 pub async fn center_answer_agent(
     window: WebviewWindow,
-    events: State<'_, crate::fleet::events::Events>,
     fleet: State<'_, Arc<Fleet>>,
     machine_id: String,
     agent: String,
@@ -59,55 +57,16 @@ pub async fn center_answer_agent(
         question: Some(question),
         machine_name: String::new(),
     };
-    let answered = answer_agent(&window, &events, &fleet, &key, reply).await;
+    let answered =
+        crate::agents::outbox::answer(window.app_handle(), &fleet, window.label(), &key, reply)
+            .await;
 
-    if let Ok(()) | Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) =
-        answered
-    {
-        history::answered(window.app_handle(), &key);
+    if let Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) = answered {
+        crate::agents::outbox::answered_locally(window.app_handle(), &key);
     }
 
     window.state::<WaitingList>().poke();
     answered
-}
-
-/// Sends `reply` to the question `key` names, over the open event link when
-/// the machine has one.
-async fn answer_agent(
-    window: &WebviewWindow,
-    events: &crate::fleet::events::Events,
-    fleet: &Arc<Fleet>,
-    key: &AgentNoticeKey,
-    reply: String,
-) -> Result<()> {
-    let Some(question) = key.question else {
-        return Ok(());
-    };
-
-    if !alerts::reaches(fleet, &key.machine_id) {
-        return Err(DesktopError::NotInMesh);
-    }
-
-    if let Some(machine) = fleet.member(&key.machine_id) {
-        let operation = beep_proto::node::events::Operation::Agent {
-            agent: key.agent.clone(),
-            session: key.session.clone(),
-            request: beep_proto::node::agent::Request::Answer {
-                question,
-                reply: reply.clone(),
-            },
-        };
-
-        if events
-            .call(window.label(), machine, operation)
-            .await?
-            .is_some()
-        {
-            return Ok(());
-        }
-    }
-
-    alerts::answer(fleet, key, &reply).await
 }
 
 /// What Home shows. A section is `None` when it cannot be listed.
@@ -241,7 +200,7 @@ struct Flight {
 
 impl HomeReads {
     fn flight(&self) -> MutexGuard<'_, Flight> {
-        self.flight.lock().unwrap_or_else(PoisonError::into_inner)
+        super::lock(&self.flight)
     }
 
     /// Home, from the read under way or a new one.

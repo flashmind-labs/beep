@@ -36,7 +36,7 @@ function TermFooter({ tab, term }: { tab: MediaTab; term: PaneTerm }) {
     const items: MenuItem[] = [];
     if (term.link === "detached") items.push({ label: "Attach", on: reattach });
     if (term.link === "attached" || term.link === "attaching") items.push({ label: "Detach", on: () => { detachTerm(term); touchTab(tab); } });
-    items.push({ label: term.row.state === "running" && term.link !== "ended" ? "Kill…" : "Close", warn: true, on: close });
+    items.push({ label: term.row.state === "running" && term.link !== "ended" ? "Kill" : "Close", warn: true, on: close });
     openMenu(event.nativeEvent, tab.name, items);
   };
   return <div className="agpacts" onContextMenu={menu}><span className="meta mono">{tab.note ?? termStatus(term, term.row.machine_name)}</span><span className="sp" /><Button data-tattach="1" hidden={term.link !== "detached"} onClick={reattach}>Attach</Button><Button danger data-tkill="1" onClick={close}>Close</Button></div>;

@@ -202,17 +202,31 @@ class ReleaseNotes(unittest.TestCase):
         body = "### Fixed\n\n- Keep <notes> & release details."
 
         with tempfile.TemporaryDirectory() as directory:
-            dmg = Path(directory) / "Beep-0.2.0-arm64.dmg"
-            dmg.write_bytes(b"signed disk image")
-            feed = ET.fromstring(appcast.appcast(info, "0.2.0", dmg, "signature", body))
-            item = feed.find("channel/item")
-            self.assertEqual(item.findtext("description"), body)
-            self.assertEqual(item.find("description").get(f"{{{appcast.SPARKLE}}}format"), "markdown")
-            self.assertEqual(item.find("enclosure").get("length"), str(dmg.stat().st_size))
-            self.assertEqual(item.findtext(f"{{{appcast.SPARKLE}}}version"), "0.2.0")
+            dmgs = []
+            for arch in ("arm64", "x86_64"):
+                dmg = Path(directory) / f"Beep-0.2.0-{arch}.dmg"
+                dmg.write_bytes(f"signed {arch} disk image".encode())
+                dmgs.append((dmg, f"signature-{arch}"))
+            feed = ET.fromstring(appcast.appcast(info, "0.2.0", dmgs, body))
+            arm, intel = feed.findall("channel/item")
+            requirement = f"{{{appcast.SPARKLE}}}hardwareRequirements"
+
+            for item, (dmg, signature) in zip((arm, intel), dmgs):
+                self.assertEqual(item.findtext("description"), body)
+                self.assertEqual(item.find("description").get(f"{{{appcast.SPARKLE}}}format"), "markdown")
+                self.assertEqual(item.find("enclosure").get("url"), f"{appcast.BASE_URL}/{dmg.name}")
+                self.assertEqual(item.find("enclosure").get(f"{{{appcast.SPARKLE}}}edSignature"), signature)
+                self.assertEqual(item.find("enclosure").get("length"), str(dmg.stat().st_size))
+                self.assertEqual(item.findtext(f"{{{appcast.SPARKLE}}}version"), "0.2.0")
+
+            # Sparkle takes the first of equal versions; Intel Macs skip this one.
+            self.assertEqual(arm.findtext(requirement), "arm64")
+            self.assertIsNone(intel.find(requirement))
 
             with self.assertRaises(ValueError):
-                appcast.appcast(info, "0.2.1", dmg, "signature", body)
+                appcast.appcast(info, "0.2.1", dmgs, body)
+            with self.assertRaises(ValueError):
+                appcast.appcast(info, "0.2.0", dmgs[::-1], body)
 
     def test_derives_sparkle_public_key_from_known_ed25519_seed(self):
         # RFC 8032 test vector 1, a public test key.

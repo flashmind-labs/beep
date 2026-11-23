@@ -21,6 +21,7 @@ fn external(id: &str, status: AgentStatus) -> MachineSession {
         model: None,
         assistant: false,
         account: None,
+        persona: None,
     }
 }
 

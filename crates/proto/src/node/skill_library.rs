@@ -68,3 +68,22 @@ pub struct Problem {
     pub place: String,
     pub message: String,
 }
+
+/// A name for a new library from its repository URL: the last part without `.git`, lower case,
+/// with anything but letters, digits, `-`, `_` and `.` as `-`.
+pub fn library_name(url: &str) -> String {
+    let last = url
+        .trim_end_matches('/')
+        .rsplit(['/', ':'])
+        .next()
+        .unwrap_or_default();
+    let last = last.strip_suffix(".git").unwrap_or(last);
+
+    last.chars()
+        .map(|c| match c {
+            'a'..='z' | '0'..='9' | '-' | '_' | '.' => c,
+            'A'..='Z' => c.to_ascii_lowercase(),
+            _ => '-',
+        })
+        .collect()
+}

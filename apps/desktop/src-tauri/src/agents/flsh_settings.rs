@@ -1,5 +1,6 @@
-//! flsh's own settings on the Coding agents page: OpenRouter routing and
-//! auto-compact, the same on every machine. The page sends plain text; it
+//! flsh's own settings on the Coding agents page: OpenRouter routing, which
+//! pi takes too, and auto-compact, for all models and per model, the same on
+//! every machine. The page sends plain text; it
 //! is parsed into the protocol's types here, and checked before it goes.
 
 use crate::{
@@ -10,6 +11,7 @@ use beep_proto::{
     FlshAutoCompact, FlshModel, FlshModelRule, FlshQuantization, FlshSettings, FlshSort,
 };
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
 
 /// The settings as the page reads and writes them. Null or empty means
 /// flsh's own default.
@@ -22,35 +24,39 @@ pub struct FlshView {
     allow_fallbacks: Option<bool>,
     autocompact: Option<FlshAutoCompact>,
     models: Vec<ModelRuleView>,
+    stream_idle_timeout_secs: Option<NonZeroU32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct ModelRuleView {
     /// `provider:model`, such as `openrouter:vendor/model`.
     model: String,
+    /// Compacts as all models do; `enabled` and `tokens` are then unused.
+    inherits_compaction: bool,
     enabled: bool,
     tokens: Option<u32>,
+    /// Null keeps the list for all models; empty allows any.
+    quantizations: Option<Vec<String>>,
 }
 
 impl From<FlshSettings> for FlshView {
     fn from(settings: FlshSettings) -> Self {
         Self {
             zdr: settings.zdr,
-            quantizations: settings
-                .quantizations
-                .into_iter()
-                .map(|q| <&str>::from(q).to_owned())
-                .collect(),
+            quantizations: names(settings.quantizations),
             sort: settings.sort.map(|sort| <&str>::from(sort).to_owned()),
             allow_fallbacks: settings.allow_fallbacks,
             autocompact: settings.autocompact,
+            stream_idle_timeout_secs: settings.stream_idle_timeout_secs,
             models: settings
                 .models
                 .into_iter()
                 .map(|rule| ModelRuleView {
                     model: rule.model.to_string(),
+                    inherits_compaction: rule.inherits_compaction,
                     enabled: rule.autocompact.enabled,
                     tokens: rule.autocompact.tokens,
+                    quantizations: rule.quantizations.map(names),
                 })
                 .collect(),
         }
@@ -62,14 +68,7 @@ impl TryFrom<FlshView> for FlshSettings {
 
     fn try_from(view: FlshView) -> Result<Self> {
         let bad = |text: String| DesktopError::BadRequest(text);
-        let quantizations = view
-            .quantizations
-            .iter()
-            .map(|q| {
-                q.parse::<FlshQuantization>()
-                    .map_err(|_| bad(format!("{q} is not a quantization OpenRouter knows.")))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        let quantizations = parsed(&view.quantizations)?;
         let sort = view
             .sort
             .as_deref()
@@ -78,6 +77,12 @@ impl TryFrom<FlshView> for FlshSettings {
                     .map_err(|_| bad(format!("{sort} is not a provider sort.")))
             })
             .transpose()?;
+        // A released node writes a rule's compaction even when it inherits:
+        // there it is the rule for all models.
+        let inherited = view.autocompact.unwrap_or(FlshAutoCompact {
+            enabled: true,
+            tokens: None,
+        });
         let models = view
             .models
             .into_iter()
@@ -88,12 +93,18 @@ impl TryFrom<FlshView> for FlshSettings {
                         "{name} is not a model flsh knows; name it provider:model, such as openrouter:vendor/model."
                     ))
                 })?;
-                Ok(FlshModelRule {
-                    model,
-                    autocompact: FlshAutoCompact {
+                let autocompact = match rule.inherits_compaction {
+                    true => inherited,
+                    false => FlshAutoCompact {
                         enabled: rule.enabled,
                         tokens: rule.tokens,
                     },
+                };
+                Ok(FlshModelRule {
+                    model,
+                    autocompact,
+                    inherits_compaction: rule.inherits_compaction,
+                    quantizations: rule.quantizations.as_deref().map(parsed).transpose()?,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
@@ -103,11 +114,32 @@ impl TryFrom<FlshView> for FlshSettings {
             sort,
             allow_fallbacks: view.allow_fallbacks,
             autocompact: view.autocompact,
+            stream_idle_timeout_secs: view.stream_idle_timeout_secs,
             models,
         };
         settings.check().map_err(|e| bad(e.to_string()))?;
         Ok(settings)
     }
+}
+
+/// Quantizations as the page shows them.
+fn names(quantizations: Vec<FlshQuantization>) -> Vec<String> {
+    quantizations
+        .into_iter()
+        .map(|q| <&str>::from(q).to_owned())
+        .collect()
+}
+
+/// Quantizations the page sent.
+fn parsed(names: &[String]) -> Result<Vec<FlshQuantization>> {
+    names
+        .iter()
+        .map(|q| {
+            q.parse::<FlshQuantization>().map_err(|_| {
+                DesktopError::BadRequest(format!("{q} is not a quantization OpenRouter knows."))
+            })
+        })
+        .collect()
 }
 
 /// The user's flsh settings.

@@ -2,14 +2,10 @@
 //! scripts load. The app puts it on the page at document start (`script`).
 
 use crate::error::{DesktopError, Result};
-use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 #[cfg(any(desktop, test))]
-use std::io::ErrorKind;
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, io::ErrorKind};
 use tauri::{AppHandle, Manager, Runtime};
 
 const FILE: &str = "home-frame.json";
@@ -100,16 +96,7 @@ fn save_to(path: &Path, app: &str, frame: &HomeFrame) -> anyhow::Result<()> {
         app: app.to_owned(),
         frame: frame.clone(),
     })?;
-
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).with_context(|| format!("making {}", dir.display()))?;
-    }
-
-    let mut partial = path.as_os_str().to_owned();
-    partial.push(".part");
-    fs::write(&partial, bytes).with_context(|| format!("writing {}", path.display()))?;
-    fs::rename(&partial, path).with_context(|| format!("replacing {}", path.display()))?;
-    Ok(())
+    super::write_part(path, &bytes)
 }
 
 /// Keeps `frame` as the Home the next launch paints first.

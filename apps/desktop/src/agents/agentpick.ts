@@ -8,7 +8,7 @@ import { folderOn } from "../project/projects-state.ts";
 
 /// The harnesses the picker's rail shows, in this order; others a machine
 /// offers (such as OpenCode) follow.
-const RAIL = ["claude", "codex", "gemini", "pi", "flsh"];
+const RAIL = ["claude", "codex", "agy", "pi", "flsh"];
 
 /// A rail badge: the harness, and whether the picked machine has it.
 interface RailItem {
@@ -30,7 +30,7 @@ export function byOrder(order: readonly string[]) {
 }
 
 /// The harnesses in the order a form prefers them.
-export const AGENT_ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh", "hermes"];
+export const AGENT_ORDER = ["claude", "codex", "agy", "opencode", "pi", "flsh", "hermes"];
 export const byPreference = byOrder(AGENT_ORDER);
 
 /// The harness the form starts on: the one picked when the machine has

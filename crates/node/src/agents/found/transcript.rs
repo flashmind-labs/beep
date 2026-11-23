@@ -3,14 +3,21 @@
 
 use beep_proto::SessionId;
 use super::{Agent, Stores, codex_run};
-use crate::agents::{SubagentRun, claude::Excerpt, cut, subagent::Subagent, tags, window::window};
+use crate::agents::{
+    SubagentRun,
+    claude::Excerpt,
+    cut,
+    subagent::Subagent,
+    tags,
+    window::{content_text, finish_tool_call, tail_lines, titled_call, window},
+};
 use anyhow::{Result, bail};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;
 use std::{
     collections::HashMap,
     fs::File,
-    io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
+    io::{self, BufRead, BufReader, Read},
     path::Path,
     sync::Arc,
 };
@@ -71,38 +78,12 @@ impl Stores {
 /// The lines of the last `MAX_READ` bytes of the file at `path`; a line cut
 /// by the start of that stretch is left out.
 fn lines(path: &Path) -> io::Result<impl Iterator<Item = Value>> {
-    let mut file = File::open(path)?;
-    let len = file.metadata()?.len();
-    let cut_at = len.saturating_sub(MAX_READ);
-    file.seek(SeekFrom::Start(cut_at))?;
-    let mut reader = BufReader::new(file.take(MAX_READ));
-
-    if cut_at > 0 {
-        reader.read_until(b'\n', &mut Vec::new())?;
-    }
-
-    Ok(reader
-        .lines()
-        .map_while(Result::ok)
-        .filter_map(|line| serde_json::from_str::<Value>(&line).ok()))
+    Ok(tail_lines(path, MAX_READ)?.filter_map(|line| serde_json::from_str::<Value>(&line).ok()))
 }
 
 fn entry(kind: EntryKind, text: &str) -> Option<Entry> {
     let text = text.trim();
     (!text.is_empty()).then(|| Entry::new(kind, cut(text, MAX_ENTRY)))
-}
-
-/// The text of a message's `content` parts.
-fn text_of(content: &Value) -> String {
-    match content {
-        Value::String(text) => text.clone(),
-        Value::Array(parts) => parts
-            .iter()
-            .filter_map(|part| part["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("\n"),
-        _ => String::new(),
-    }
 }
 
 /// A prompt's text from its `content`, a bare brief Beep sent ahead of it
@@ -159,12 +140,14 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
             {
                 entry(EntryKind::User, &prompt_of(&payload["item"]["content"]))
             }
-            (Some("response_item"), Some("message")) if payload["role"] == "assistant" => {
-                entry(EntryKind::Agent, &text_of(&payload["content"]))
-            }
-            (Some("response_item"), Some("reasoning")) => {
-                entry(EntryKind::Thought, &text_of(&payload["summary"]))
-            }
+            (Some("response_item"), Some("message")) if payload["role"] == "assistant" => entry(
+                EntryKind::Agent,
+                &content_text(&payload["content"]).unwrap_or_default(),
+            ),
+            (Some("response_item"), Some("reasoning")) => entry(
+                EntryKind::Thought,
+                &content_text(&payload["summary"]).unwrap_or_default(),
+            ),
             (Some("response_item"), Some("function_call" | "custom_tool_call")) => {
                 let title = if native {
                     let name = payload["name"].as_str().unwrap_or("tool");
@@ -208,10 +191,6 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
                     .and_then(|id| calls.get(id))
                     .and_then(|&at| entries.get_mut(at))
                 {
-                    let title = call
-                        .text
-                        .strip_suffix(" [in_progress]")
-                        .unwrap_or(&call.text);
                     let output = payload["output"]
                         .as_str()
                         .map(str::to_owned)
@@ -234,13 +213,7 @@ fn codex(path: &Path) -> io::Result<Vec<Entry>> {
                                         .is_some_and(|code| code != 0)
                                 })
                         });
-                    call.text = cut(
-                        &format!(
-                            "{title} [{}]\n{output}",
-                            if failed { "failed" } else { "completed" }
-                        ),
-                        MAX_ENTRY,
-                    );
+                    finish_tool_call(&mut call.text, failed, &output, MAX_ENTRY);
                 }
 
                 None
@@ -285,11 +258,9 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
                         ),
                         Some("toolCall") => {
                             let name = part["name"].as_str().unwrap_or("tool");
-                            let title = match codex_run::detail(&part["arguments"]) {
-                                Some(detail) if !detail.is_empty() => format!("{name}: {detail}"),
-                                _ => name.to_owned(),
-                            };
-                            let made = entry(EntryKind::Tool, &title);
+                            let detail = codex_run::detail(&part["arguments"]);
+                            let made =
+                                entry(EntryKind::Tool, &titled_call(name, detail.as_deref()));
                             if let Some(id) = part["id"].as_str() {
                                 calls.insert(id.to_owned(), entries.len());
                             }
@@ -344,11 +315,11 @@ fn flsh(path: &Path) -> io::Result<Vec<Entry>> {
                         continue;
                     }
 
-                    let title = match codex_run::detail(&call["arguments"]) {
-                        Some(detail) if !detail.is_empty() => format!("{name}: {detail}"),
-                        _ => name.to_owned(),
-                    };
-                    entries.extend(entry(EntryKind::Tool, &title));
+                    let detail = codex_run::detail(&call["arguments"]);
+                    entries.extend(entry(
+                        EntryKind::Tool,
+                        &titled_call(name, detail.as_deref()),
+                    ));
                 }
             }
             _ => {}

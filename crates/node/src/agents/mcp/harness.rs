@@ -1,7 +1,7 @@
 //! Model discovery for coding agents, on this node or a peer.
 
 use super::machines::{find, over_the_mesh};
-use super::reply::{fail as failed, ok, parse};
+use super::reply::{fail, json_of, parse};
 use crate::{
     agents::{Agents, known},
     link::Offers,
@@ -50,6 +50,7 @@ impl HarnessInfo {
             .map_or(harness.as_str(), |kind| kind.title)
             .to_owned();
         let effort_levels = efforts(&harness);
+
         Self {
             harness,
             title,
@@ -64,30 +65,28 @@ impl HarnessInfo {
 /// Routes discovery to the named machine, defaulting to this node even
 /// when it has not joined a mesh.
 pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
-    let args = match Args::try_from(request) {
-        Ok(args) => args,
-        Err(e) => return failed(e),
-    };
+    route(offers, request).await.unwrap_or_else(fail)
+}
+
+async fn route(offers: &Offers, request: &Request) -> Result<Reply, String> {
+    let args = Args::try_from(request)?;
     let Some(name) = args.machine else {
-        return answer(&offers.agents, request).await;
+        return Ok(answer(&offers.agents, request).await);
     };
-    let Some(mesh) = offers.mesh.get() else {
-        return failed("This machine is not in a mesh yet. Leave out `machine` to query here.");
-    };
-    let Some(target) = find(&mesh, &name) else {
-        return failed(format!(
-            "No machine called {name}. Use list_machines for the names."
-        ));
-    };
+    let mesh = offers
+        .mesh
+        .get()
+        .ok_or("This machine is not in a mesh yet. Leave out `machine` to query here.")?;
+    let target = find(&mesh, &name)
+        .ok_or_else(|| format!("No machine called {name}. Use list_machines for the names."))?;
 
     if target.id == mesh.me() {
-        return answer(&offers.agents, request).await;
+        return Ok(answer(&offers.agents, request).await);
     }
 
-    match over_the_mesh(&mesh, target.id, request).await {
-        Ok(reply) => reply,
-        Err(e) => failed(format!("Could not query {}: {e:#}", target.name)),
-    }
+    over_the_mesh(&mesh, target.id, request)
+        .await
+        .map_err(|e| format!("Could not query {}: {e:#}", target.name))
 }
 
 /// Answers here, including when a peer sent the request. Never forwards
@@ -95,22 +94,19 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
 pub(crate) async fn answer(agents: &Agents, request: &Request) -> Reply {
     let args = match Args::try_from(request) {
         Ok(args) => args,
-        Err(e) => return failed(e),
+        Err(e) => return fail(e),
     };
     let Some(models) = agents.models(&args.harness).await else {
         let kinds = agents.kinds();
         let names: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
-        return failed(format!(
+        return fail(format!(
             "This machine has no {} agent. It has: {}.",
             args.harness,
             names.join(", ")
         ));
     };
 
-    match serde_json::to_string(&HarnessInfo::new(args.harness, models)) {
-        Ok(text) => ok(text),
-        Err(e) => failed(format!("Could not write the harness info: {e}")),
-    }
+    json_of(&HarnessInfo::new(args.harness, models))
 }
 
 #[cfg(test)]

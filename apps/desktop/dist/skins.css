@@ -14,6 +14,10 @@
   --dim: color-mix(in srgb, var(--muted) 90%, var(--ink));
   --deep: color-mix(in srgb, var(--ink) 80%, #000);
   --border-hi: color-mix(in srgb, var(--border) 75%, var(--fg));
+  --card-fill: color-mix(in srgb, var(--fg) 4%, transparent);
+  --card-fill-hi: color-mix(in srgb, var(--fg) 7%, transparent);
+  --lit-edge: color-mix(in srgb, var(--fg) 16%, transparent);
+  --lit-peak: color-mix(in srgb, var(--accent) 60%, var(--fg));
   --radius-sm: calc(var(--radius) * .75);
   --display: var(--body);
   --mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
@@ -135,4 +139,11 @@
   --ok: #4f8f46; --err: #c9473a; --warn: #a66a00; --link: #b8433d; --deep: #fffdf9;
   --radius: 9px;
   color-scheme: light;
+}
+:root:is([data-skin="paper"], [data-skin="solarized"], [data-skin="macos"], [data-skin="warm"]) {
+  --shade: color-mix(in srgb, var(--fg) 18%, transparent);
+  --card-fill: var(--surface);
+  --card-fill-hi: color-mix(in srgb, var(--fg) 4%, var(--surface));
+  --lit-edge: color-mix(in srgb, var(--border-hi) 45%, transparent);
+  --lit-peak: color-mix(in srgb, var(--accent) 55%, var(--surface));
 }

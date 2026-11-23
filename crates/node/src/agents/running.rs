@@ -15,14 +15,14 @@ use anyhow::{Context, Result};
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{
-        self, CheckoutPlan, ModelList, ParentLink, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
+        self, CheckoutPlan, ModelList, ParentLink, Persona, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
         Status,
     },
     harness::{AgentSettings, HarnessReport},
     usage::PlanUsage,
 };
 use beep_proto::watched;
-use beep_proto::{AccountName, AgentAccount, AgentHost, ModelId, Upload};
+use beep_proto::{AccountName, AgentAccount, AgentHost, AgentSlug, ModelId, Upload};
 use std::time::Duration;
 use std::{
     borrow::Cow,
@@ -39,12 +39,28 @@ use tokio::{
     task::spawn_blocking,
 };
 
+#[derive(Clone)]
+pub(super) struct History {
+    path: PathBuf,
+    native: u64,
+    dropped: u64,
+}
+
 impl Agents {
     /// Gives the sessions started from now on the Beep MCP server, as
     /// `launch` starts it. Only the first call counts.
     pub fn serve_mcp(&self, launch: Arc<Launch>) {
         // A second launch would give the same server.
         let _ = self.mcp.set(launch);
+    }
+
+    /// Lists the skills in Beep's own skills folder for the sessions
+    /// started from now on, as a node that serves does. Only the first call
+    /// counts.
+    pub fn list_beep_skills(&self) {
+        if let Some(dir) = crate::machine::provision::skills_dir() {
+            let _ = self.skills_dir.set(dir);
+        }
     }
 
     /// Whether `session` is one of this node's and still runs.
@@ -58,6 +74,17 @@ impl Agents {
     pub(crate) fn folder_of(&self, session: &SessionId) -> Option<PathBuf> {
         self.get(session)
             .map(|session| PathBuf::from(session.info().cwd))
+    }
+
+    /// The folders this node's sessions work in, the ended ones it keeps too.
+    pub(crate) fn folders(&self) -> std::collections::BTreeSet<PathBuf> {
+        // Read once the lock is released: `info` reads each session's state.
+        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+
+        sessions
+            .iter()
+            .map(|session| PathBuf::from(session.info().cwd))
+            .collect()
     }
 
     /// Keeps `device` as the device `session` uses, or forgets it.
@@ -116,16 +143,10 @@ impl Agents {
         last: usize,
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
-        let history = self.claude_history(session).await;
-        let offset = history.len() as u64;
-
-        if offset != 0 && before.is_some_and(|before| before <= offset) {
-            let range = super::window::window(0, history.len(), last, before);
-            return (history[range.clone()].to_vec(), range.start as u64);
-        }
-
-        let before = before.map(|before| before.saturating_sub(offset));
-        let (mut entries, earlier) = self.codex_transcript(session, last, before).await;
+        let history = self.claude_history(session, last, before).await;
+        let (native, dropped) = history.as_ref().map_or((0, 0), |h| (h.native, h.dropped));
+        let live_before = before.map(|end| end.saturating_sub(native).saturating_add(dropped));
+        let (mut entries, earlier) = self.codex_transcript(session, last, live_before).await;
 
         if session.agent == "claude" {
             let (id, calls) = {
@@ -150,65 +171,87 @@ impl Agents {
         }
 
         mcp::children::show_children(self, session, &mut entries);
-        let retained = if earlier == 0 {
-            last.saturating_sub(entries.len()).min(history.len())
-        } else {
-            0
-        };
-        if retained == 0 {
-            return (entries, offset + earlier);
+        let start = native + earlier.saturating_sub(dropped);
+        if let Some(history) = history
+            && earlier == dropped
+            && entries.len() < last
+        {
+            let end = before.unwrap_or(native).min(native);
+            if end > 0 {
+                match self
+                    .external
+                    .page(history.path, last - entries.len(), Some(end))
+                    .await
+                {
+                    Ok(mut page) => {
+                        page.entries.extend(entries);
+                        return (page.entries, page.earlier);
+                    }
+                    Err(error) => log::warn!("native history page not recovered: {error:#}"),
+                }
+            } else if entries.is_empty() {
+                return (entries, 0);
+            }
         }
 
-        let mut joined = history[history.len() - retained..].to_vec();
-        joined.extend(entries);
-
-        (joined, offset + earlier - retained as u64)
+        (entries, start)
     }
 
-    /// ACP replays can start after a compaction or a missing parent record.
-    /// Keep the available native prefix without changing live tool positions.
-    async fn claude_history<'a>(&self, session: &'a Session) -> &'a [agent::Entry] {
-        let Some(history) = &session.history else {
-            return &[];
-        };
-        let id = watched::read(&session.live, |live| {
-            (live.status() != Status::Starting)
-                .then(|| live.agent_session.clone())
-                .flatten()
+    async fn claude_history(
+        &self,
+        session: &Session,
+        last: usize,
+        before: Option<u64>,
+    ) -> Option<History> {
+        let mut cached = session.history.as_ref()?.lock().await;
+        let (id, (dropped, retained)) = watched::read(&session.live, |live| {
+            (
+                live.agent_session
+                    .clone()
+                    .filter(|_| live.status() != Status::Starting),
+                live.retained_range(),
+            )
         });
-        let Some(id) = id else {
-            return &[];
-        };
-
-        match history
-            .get_or_try_init(|| async {
-                let Some(read) = self
-                    .external
-                    .transcript(&id, super::live::MAX_ENTRIES, None)
-                    .await?
-                else {
-                    anyhow::bail!("native transcript not found");
-                };
-                let (replay, earlier) = watched::read(&session.live, |live| {
-                    live.transcript_before(usize::MAX, None)
-                });
-                let mut read = read.before_replay(&replay);
-                if earlier != 0 {
-                    read.entries.clear();
-                }
-
-                for picture in read.pictures {
-                    self.images.keep(&id, picture);
-                }
-
-                Ok::<_, anyhow::Error>(read.entries)
-            })
-            .await
+        let id = id?;
+        // Fresh sessions have a private handle until the agent assigns an id.
+        // Their entire conversation is already live until the first eviction.
+        if session.id != id && dropped == 0 {
+            return None;
+        }
+        if let Some(history) = cached
+            .as_ref()
+            .filter(|h| h.dropped == dropped || (before.is_none() && last <= retained))
         {
-            Ok(history) => history,
+            return Some(history.clone());
+        }
+
+        // Realign after live entries were evicted only when a page needs disk
+        // history. Newest-page polls can keep their existing position.
+        let result: Result<History> = async {
+            let path = self
+                .external
+                .file(&id)
+                .await?
+                .context("native transcript not found")?;
+            let (replay, dropped) = watched::read(&session.live, |live| {
+                live.transcript_before(usize::MAX, None)
+            });
+            let native = self.external.prefix_len(path.clone(), replay).await?;
+            Ok(History {
+                path,
+                native,
+                dropped,
+            })
+        }
+        .await;
+        match result {
+            Ok(history) => {
+                *cached = Some(history.clone());
+                Some(history)
+            }
             Err(error) => {
                 log::warn!("native history not recovered: {error:#}");
-                &[]
+                None
             }
         }
     }
@@ -311,16 +354,15 @@ impl Agents {
         Some(list)
     }
 
-    /// The CLI of `agent`, with `args`, as a plan read starts it: signed
+    /// The CLI of agent `name`, with `args`, as a plan read starts it: signed
     /// in as the agent's sessions on `account` are, with the user's settings
     /// for it. `None` when this node does not run it or the user turned it off.
     fn cli(
         &self,
-        agent: AgentAccount,
+        name: &str,
         account: Option<&AccountName>,
         args: &[&str],
     ) -> Option<tokio::process::Command> {
-        let name = agent.as_ref();
         let kind = self.named(name)?;
         let kind = self.settings.configured(&kind).ok()?;
         let program = harnesses::find(name)?;
@@ -375,7 +417,17 @@ impl Agents {
             })
             .map(|(agent, account)| self.read_plan(agent, account))
             .collect::<FuturesUnordered<_>>();
-        reads.collect::<Vec<()>>().await;
+        tokio::join!(reads.collect::<Vec<()>>(), self.read_agy_plan());
+    }
+
+    /// Reads Antigravity's plan into `usage`; it has no named accounts.
+    async fn read_agy_plan(&self) {
+        let name = AgentSlug::AGY;
+        let Some(command) = self.cli(name.as_ref(), None, plans::AGY_ARGS) else {
+            return;
+        };
+
+        self.keep_plan(name.as_ref(), None, plans::read_agy(command).await);
     }
 
     /// Reads `agent`'s plan on `account` into `usage`.
@@ -384,7 +436,7 @@ impl Agents {
             AgentAccount::Claude => plans::CLAUDE_ARGS,
             AgentAccount::Codex => plans::CODEX_ARGS,
         };
-        let Some(command) = self.cli(agent, account.as_ref(), args) else {
+        let Some(command) = self.cli(agent.as_ref(), account.as_ref(), args) else {
             return;
         };
         let read = match agent {
@@ -392,10 +444,15 @@ impl Agents {
             AgentAccount::Codex => plans::read_codex(command).await,
         };
 
+        self.keep_plan(agent.as_ref(), account, read);
+    }
+
+    /// Keeps `name`'s plan read on `account` in `usage`.
+    fn keep_plan(&self, name: &str, account: Option<AccountName>, read: Result<Option<PlanUsage>>) {
         match read {
             Ok(Some(plan)) => self.usage.set_plan(PlanUsage { account, ..plan }),
             Ok(None) => {}
-            Err(e) => log::info!("{} plan usage not read: {e:#}", agent.as_ref()),
+            Err(e) => log::info!("{name} plan usage not read: {e:#}"),
         }
     }
 
@@ -706,7 +763,12 @@ impl Agents {
     ) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
         signs_in(&kind.name, begin.account.as_ref())?;
-        let (cwd, brief) = in_project(cwd, begin.resume.is_some(), begin.brief)?;
+        let own = own_folder(cwd, &begin)?;
+        let (cwd, brief) = in_project(own.as_deref().or(cwd), begin.resume.is_some(), begin.brief)?;
+        let brief = match begin.instructions {
+            Some(instructions) => super::session::standing(brief.map(Cow::into_owned), Some(&instructions)).map(Cow::Owned),
+            None => brief,
+        };
         let brief = match self.mesh().is_some_and(|mesh| crate::team::home::in_team(&mesh, &cwd)) {
             true => Some(Cow::Owned(match brief {
                 Some(brief) => format!("{brief}\n\n{}", super::brief::TEAM),
@@ -714,17 +776,20 @@ impl Agents {
             })),
             false => brief,
         };
+
+        if let Some(mesh) = self.mesh() {
+            mcp::projects::may_run(&mesh, &cwd, &kind.name).map_err(anyhow::Error::msg)?;
+        }
+
         // Held until the session is in the list: recovery checks it under this lock.
         let recovering = crate::lock(&self.recovering);
         not_recovering(&recovering, &cwd)?;
         let assistant = begin.assistant;
         // A reviewer changes nothing, so it needs no git rule.
-        let rule = super::session::standing(
-            crate::lock(&self.instructions)
-                .clone()
-                .filter(|text| !text.trim().is_empty()),
-            checkout::rule(&cwd).filter(|_| !begin.review),
-        );
+        let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
+        let instructions = crate::lock(&self.instructions)
+            .clone()
+            .filter(|text| !text.trim().is_empty());
         let mut sessions = self.lock();
         // Checked under the lock: two takeovers of one session must not
         // both start it.
@@ -786,11 +851,13 @@ impl Agents {
             prompt: begin.prompt.map(|text| Prompt {
                 text,
                 images: begin.images,
+                context: None,
             }),
             resume: begin.resume,
             earlier: begin.earlier,
             timestamps: begin.timestamps,
             title: begin.title,
+            named: begin.named,
             model: begin.model,
             mode: begin.mode,
             effort: begin.effort,
@@ -800,10 +867,16 @@ impl Agents {
             note: begin.note,
             worktrees: begin.worktrees,
             brief,
+            instructions,
             rule,
+            skills: self
+                .skills_dir
+                .get()
+                .and_then(|dir| crate::machine::provision::skills_brief(dir)),
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
             assistant,
             account: begin.account,
+            persona: begin.persona,
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
@@ -911,6 +984,8 @@ pub(super) struct Begin {
     pub(super) earlier: Vec<agent::Entry>,
     pub(super) timestamps: Option<(u64, u64)>,
     pub(super) title: Option<String>,
+    /// Its parent gave `title`, which its agent's own names leave alone.
+    pub(super) named: bool,
     pub(super) model: Option<ModelId>,
     pub(super) effort: Option<agent::Effort>,
     pub(super) fast: Option<bool>,
@@ -932,6 +1007,10 @@ pub(super) struct Begin {
     pub(super) assistant: bool,
     /// The named account to sign in as; `None` for the default one.
     pub(super) account: Option<AccountName>,
+    /// The custom agent it runs as.
+    pub(super) persona: Option<Persona>,
+    /// The custom agent's instructions, said once after Beep's brief.
+    pub(super) instructions: Option<String>,
 }
 
 /// Refuses a start as `account` that this node cannot sign `agent` in as,
@@ -993,6 +1072,33 @@ fn in_project(
         ),
     };
     Ok((project, brief.or(Some(Cow::Owned(said)))))
+}
+
+/// The folder of its own a new assistant conversation starts in, which its
+/// threads share. `None` for every other start.
+fn own_folder(cwd: Option<&str>, begin: &Begin) -> Result<Option<String>> {
+    if !begin.assistant || begin.resume.is_some() {
+        return Ok(None);
+    }
+
+    let home = dirs::home_dir().context("this machine has no home folder")?;
+    let made = super::conversation::own(&home, cwd, new_id)
+        .context("making the conversation's folder")?;
+    Ok(made.map(|folder| folder.to_string_lossy().into_owned()))
+}
+
+impl Agents {
+    /// The subfolder of its own, made now, that a child called `title`
+    /// starts in when its parent names none and `parent` is in an assistant
+    /// conversation's folder. `None` anywhere else: it starts in the parent's.
+    pub(super) fn child_folder(&self, parent: &Session, title: Option<&str>) -> Result<Option<PathBuf>> {
+        let Some(home) = dirs::home_dir() else {
+            return Ok(None);
+        };
+
+        super::conversation::thread_folder(&home, Path::new(&parent.info().cwd), title, new_id)
+            .context("making the thread's folder")
+    }
 }
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or

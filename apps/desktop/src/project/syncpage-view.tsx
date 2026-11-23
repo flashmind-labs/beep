@@ -34,8 +34,8 @@ function ConflictRow({ sync, project, conflict, machines, busy, paused }: { sync
     if (!gitConflict(conflict.path)) items.push({ label: comparing ? "Hide" : "Compare", on: () => void sync.compare(project, conflict, machines) });
     if (sync.fix && conflict.holder) items.push({ label: "Fix with an agent", on: () => sync.fix?.(project, conflict) });
     if (conflict.resolver && !disabled) {
-      items.push({ label: "Keep this copy…", warn: true, on: () => confirmSheet({ title: "Keep this copy?", text: `It takes the place of ${conflict.original} on every machine.`, action: "Keep this copy", run: () => sync.resolve(project, conflict, true) }) },
-        { label: "Keep the original…", warn: true, on: () => confirmSheet({ title: "Keep the original?", text: `${conflict.original} stays and this copy is deleted on every machine.`, action: "Keep the original", run: () => sync.resolve(project, conflict, false) }) });
+      items.push({ label: "Keep this copy", warn: true, on: () => confirmSheet({ title: "Keep this copy?", text: `It takes the place of ${conflict.original} on every machine.`, action: "Keep this copy", run: () => sync.resolve(project, conflict, true) }) },
+        { label: "Keep the original", warn: true, on: () => confirmSheet({ title: "Keep the original?", text: `${conflict.original} stays and this copy is deleted on every machine.`, action: "Keep the original", run: () => sync.resolve(project, conflict, false) }) });
     }
     if (items.length) openMenu(event, conflict.path, items);
   };

@@ -241,7 +241,7 @@ pub fn picked_effort(
 }
 
 /// The agent Auto starts when the request names none, most preferred first.
-const PREFERRED: [&str; 6] = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
+const PREFERRED: [&str; 5] = ["claude", "codex", "opencode", "pi", "flsh"];
 
 /// `named`, or the one `host` prefers when the call names none.
 pub fn pick_agent(host: &AgentHost, named: Option<&str>) -> Result<String, ApiError> {

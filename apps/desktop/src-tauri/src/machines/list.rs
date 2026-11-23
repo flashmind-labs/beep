@@ -3,7 +3,7 @@
 
 use crate::{
     beep::{epoch_ms, state::Prefs},
-    center::home_sessions::HOME_CHANGED,
+    center::{home_sessions::HOME_CHANGED, lock},
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
     fleet::{ClockOff, Fleet, Machines, files as direct},
@@ -22,7 +22,7 @@ use std::{
     future::Future,
     path::PathBuf,
     sync::{
-        Arc, Mutex, PoisonError,
+        Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
     time::{Duration, Instant},
@@ -64,21 +64,30 @@ impl From<Machine> for MachineView {
     }
 }
 
+struct HeldState<T> {
+    list: Vec<T>,
+    /// When the list was last read, for `refreshed_after`.
+    read_at: Option<Instant>,
+}
+
 /// What the machines last listed for one request. Read at once, and
 /// refreshed in the background, so a slow machine delays nothing.
 pub struct Held<T> {
-    list: Mutex<Vec<T>>,
+    state: Mutex<HeldState<T>>,
     refreshing: AtomicBool,
-    /// When the list was last read, for `refreshed_after`.
-    read_at: Mutex<Option<Instant>>,
+    /// Set when another refresh is requested while one is still in flight on a slow machine.
+    again: AtomicBool,
 }
 
 impl<T> Default for Held<T> {
     fn default() -> Self {
         Self {
-            list: Mutex::default(),
+            state: Mutex::new(HeldState {
+                list: Vec::new(),
+                read_at: None,
+            }),
             refreshing: AtomicBool::new(false),
-            read_at: Mutex::default(),
+            again: AtomicBool::new(false),
         }
     }
 }
@@ -95,21 +104,28 @@ impl<T> Drop for Refresh<T> {
 
 impl<T: Clone + Send + 'static> Held<T> {
     pub(crate) fn last(&self) -> Vec<T> {
-        self.list
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&self.state).list.clone()
     }
 
     /// Changes the list as held, for what this app knows before the next read.
     pub(crate) fn edit(&self, change: impl FnOnce(&mut [T])) {
-        let mut held = self.list.lock().unwrap_or_else(PoisonError::into_inner);
-        change(held.as_mut_slice());
+        change(&mut lock(&self.state).list);
     }
 
-    /// Allows a refresh, unless one runs: one at a time.
+    /// Allows a refresh, unless one runs: one at a time, with a follow-up pass queued if asked
+    /// again while a slow machine is still answering.
     fn begin(self: &Arc<Self>) -> Option<Refresh<T>> {
-        (!self.refreshing.swap(true, Ordering::Relaxed)).then(|| Refresh(self.clone()))
+        if self.refreshing.swap(true, Ordering::AcqRel) {
+            self.again.store(true, Ordering::Release);
+            None
+        } else {
+            self.again.store(false, Ordering::Release);
+            Some(Refresh(self.clone()))
+        }
+    }
+
+    fn take_again(&self) -> bool {
+        self.again.swap(false, Ordering::AcqRel)
     }
 
     /// Keeps `listed`; a list that could not be read keeps the last one.
@@ -118,11 +134,15 @@ impl<T: Clone + Send + 'static> Held<T> {
     fn finish(&self, listed: Result<Vec<T>>, same: impl Fn(&T, &T) -> bool) -> bool {
         match listed {
             Ok(listed) => {
-                *self.read_at.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
-                let mut held = self.list.lock().unwrap_or_else(PoisonError::into_inner);
-                let changed = held.len() != listed.len()
-                    || held.iter().zip(&listed).any(|(old, new)| !same(old, new));
-                *held = listed;
+                let mut held = lock(&self.state);
+                held.read_at = Some(Instant::now());
+                let changed = held.list.len() != listed.len()
+                    || held
+                        .list
+                        .iter()
+                        .zip(&listed)
+                        .any(|(old, new)| !same(old, new));
+                held.list = listed;
                 changed
             }
             Err(e) => {
@@ -134,12 +154,11 @@ impl<T: Clone + Send + 'static> Held<T> {
 
     /// Reads the list again with `ask` in the background, one at a time;
     /// the windows redraw when `same` tells the new list from the last.
-    fn refresh_with(
-        self: &Arc<Self>,
-        app: &AppHandle,
-        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
-        same: fn(&T, &T) -> bool,
-    ) {
+    fn refresh_with<F, Fut>(self: &Arc<Self>, app: &AppHandle, mut ask: F, same: fn(&T, &T) -> bool)
+    where
+        F: FnMut() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Vec<T>>> + Send + 'static,
+    {
         let Some(refresh) = self.begin() else {
             return;
         };
@@ -147,43 +166,56 @@ impl<T: Clone + Send + 'static> Held<T> {
         // Ends with `ask`, which the caller bounds; nothing else owns it.
         tauri::async_runtime::spawn(async move {
             let _refresh = refresh;
-            let listed = ask.await;
 
-            if held.finish(listed, same)
-                && let Err(e) = app.emit(HOME_CHANGED, ())
-            {
-                log::warn!("telling the windows a list changed: {e}");
+            loop {
+                let listed = ask().await;
+
+                if held.finish(listed, same)
+                    && let Err(e) = app.emit(HOME_CHANGED, ())
+                {
+                    log::warn!("telling the windows a list changed: {e}");
+                }
+
+                if !held.take_again() {
+                    break;
+                }
             }
         });
     }
 
     /// What `ask` listed last, at once, and `ask` run again in the
     /// background for the next call.
-    pub(crate) fn refreshed(
+    pub(crate) fn refreshed<F, Fut>(
         self: &Arc<Self>,
         app: &AppHandle,
-        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
+        ask: F,
         same: fn(&T, &T) -> bool,
-    ) -> Vec<T> {
+    ) -> Vec<T>
+    where
+        F: FnMut() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Vec<T>>> + Send + 'static,
+    {
         self.refresh_with(app, ask, same);
         self.last()
     }
 
     /// As `refreshed`, but `ask` runs only once the last read is `fresh`
     /// old, so the callers in between share it.
-    pub(crate) fn refreshed_after(
+    pub(crate) fn refreshed_after<F, Fut>(
         self: &Arc<Self>,
         app: &AppHandle,
-        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
+        ask: F,
         same: fn(&T, &T) -> bool,
         fresh: Duration,
-    ) -> Vec<T> {
-        let due = self
+    ) -> Vec<T>
+    where
+        F: FnMut() -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Vec<T>>> + Send + 'static,
+    {
+        if lock(&self.state)
             .read_at
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_none_or(|at| at.elapsed() >= fresh);
-        if due {
+            .is_none_or(|at| at.elapsed() >= fresh)
+        {
             self.refresh_with(app, ask, same);
         }
 
@@ -193,28 +225,26 @@ impl<T: Clone + Send + 'static> Held<T> {
     /// Replaces the rows `of` picks with `rows`, for a change that one machine
     /// sent; the others stay as held.
     pub(crate) fn replace(&self, rows: Vec<T>, of: impl Fn(&T) -> bool) {
-        let mut held = self.list.lock().unwrap_or_else(PoisonError::into_inner);
-        held.retain(|row| !of(row));
-        held.extend(rows);
+        let mut held = lock(&self.state);
+        held.list.retain(|row| !of(row));
+        held.list.extend(rows);
     }
 
     /// Whether the list was read since it started or was last made stale.
     pub(crate) fn was_read(&self) -> bool {
-        self.read_at
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .is_some()
+        lock(&self.state).read_at.is_some()
     }
 
     /// Keeps `listed`, read by the caller.
     pub(crate) fn keep(&self, listed: Vec<T>) {
-        *self.read_at.lock().unwrap_or_else(PoisonError::into_inner) = Some(Instant::now());
-        *self.list.lock().unwrap_or_else(PoisonError::into_inner) = listed;
+        let mut held = lock(&self.state);
+        held.read_at = Some(Instant::now());
+        held.list = listed;
     }
 
     /// The next `refreshed_after` reads again, however recent the last read.
     pub(crate) fn stale(&self) {
-        *self.read_at.lock().unwrap_or_else(PoisonError::into_inner) = None;
+        lock(&self.state).read_at = None;
     }
 }
 
@@ -242,15 +272,12 @@ pub(crate) struct FoundOn(Mutex<Vec<MachineFound>>);
 
 impl FoundOn {
     pub(crate) fn last(&self) -> Vec<MachineFound> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
+        lock(&self.0).clone()
     }
 
     /// Keeps `found` in place of what its machine named before.
     pub(crate) fn keep(&self, found: MachineFound) {
-        let mut all = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut all = lock(&self.0);
         all.retain(|known| known.machine_id != found.machine_id);
         all.push(found);
     }

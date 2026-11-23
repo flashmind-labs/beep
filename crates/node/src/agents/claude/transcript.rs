@@ -4,13 +4,17 @@
 
 use super::subagents;
 use crate::agents::{
+    compaction::{COMPACTED_ENTRY, summary_note},
     live::{ARTIFACT_TOOL, SKILL_TOOL},
     tool_details,
 };
 use crate::{
     agents::mcp::calls::Tool as BeepTool,
     agents::tags::{self, Part},
-    agents::{Picture, block_picture, cut, window::window},
+    agents::{
+        Picture, block_picture, cut,
+        window::{content_text, finish_tool_call, window},
+    },
     files::fsat::{self, FileId},
 };
 use beep_proto::{
@@ -21,7 +25,7 @@ use serde_json::Value;
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    io::{self, Read, Seek, SeekFrom},
+    io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
     ops::Range,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -44,7 +48,11 @@ const MAX_TOOL: usize = 160;
 /// What a transcript says about a session as a whole.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(super) struct Said {
+    /// Where it works now: the folder of its newest tool line.
     pub(super) cwd: Option<String>,
+    /// The folder it was started in, which Claude Code files it under and
+    /// resumes it in, wherever it worked since.
+    pub(super) launched: Option<String>,
     pub(super) title: Option<String>,
     /// A title the user set, which wins over the generated one.
     custom_title: Option<String>,
@@ -171,17 +179,21 @@ impl Digest {
 
         self.before_ms = self.line_ms.take().or(self.before_ms);
         self.line_ms = at_ms;
+        // A resumed Claude starts in the session's launch folder, so only a
+        // tool line moves the folder: a restart alone must not leave the
+        // worktree the session works in.
         if let Some(cwd) = value["cwd"].as_str() {
-            self.said.cwd = Some(cwd.to_owned());
+            self.said.launched.get_or_insert_with(|| cwd.to_owned());
+            if self.said.cwd.is_none() || runs_tool(&value) {
+                self.said.cwd = Some(cwd.to_owned());
+            }
         }
         match value["type"].as_str().unwrap_or("") {
             "user" => self.user(&value),
             "assistant" => self.assistant(&value),
             "system" => match value["subtype"].as_str() {
                 Some("turn_duration") => self.turns_ended += 1,
-                Some("compact_boundary") => {
-                    self.push(EntryKind::Compacted, "[conversation compacted]")
-                }
+                Some("compact_boundary") => self.push(EntryKind::Compacted, COMPACTED_ENTRY),
                 _ => {}
             },
             "ai-title" => self.said.title = text_field(&value, "aiTitle"),
@@ -193,9 +205,20 @@ impl Digest {
     }
 
     fn user(&mut self, value: &Value) {
-        if value["isMeta"].as_bool() == Some(true)
-            || value["isCompactSummary"].as_bool() == Some(true)
-        {
+        if value["isCompactSummary"] == true {
+            if let Some(summary) = content_text(&value["message"]["content"]) {
+                if !self.entries.last().is_some_and(|entry| {
+                    entry.kind == EntryKind::Compacted && entry.text == COMPACTED_ENTRY
+                }) {
+                    self.push(EntryKind::Compacted, COMPACTED_ENTRY);
+                }
+                if let Some(entry) = self.entries.last_mut() {
+                    entry.text = summary_note(&summary);
+                }
+            }
+            return;
+        }
+        if value["isMeta"] == true {
             return;
         }
         // Prompts other than the user's own, such as a finished task's notice.
@@ -440,18 +463,8 @@ impl Digest {
         let Some(entry) = self.tool_entry(id) else {
             return;
         };
-        let title = entry
-            .text
-            .strip_suffix(" [in_progress]")
-            .unwrap_or(&entry.text);
-        let output = text_of(&block["content"]).unwrap_or_default();
-        entry.text = cut(
-            &format!(
-                "{title} [{}]\n{output}",
-                if failed { "failed" } else { "completed" }
-            ),
-            MAX_ENTRY,
-        );
+        let output = content_text(&block["content"]).unwrap_or_default();
+        finish_tool_call(&mut entry.text, failed, &output, MAX_ENTRY);
     }
 
     /// Retitles the `Skill` call `id` whose result says its skill forked:
@@ -492,7 +505,7 @@ impl Digest {
     /// as a live session writes a finished call: `Artifact: <path>
     /// [completed]`, then the link.
     fn artifact_published(&mut self, id: &str, content: &Value) {
-        let Some(text) = text_of(content) else {
+        let Some(text) = content_text(content) else {
             return;
         };
         let Some(link) = artifact_link(&text) else {
@@ -528,6 +541,15 @@ impl Digest {
     fn push(&mut self, kind: EntryKind, text: &str) {
         self.entries.push(Entry::new(kind, cut(text, MAX_ENTRY)));
     }
+}
+
+/// Whether a transcript line calls a tool or carries a tool's result.
+fn runs_tool(value: &Value) -> bool {
+    value["message"]["content"].as_array().is_some_and(|blocks| {
+        blocks
+            .iter()
+            .any(|block| matches!(block["type"].as_str(), Some("tool_use" | "tool_result")))
+    })
 }
 
 fn text_field(value: &Value, key: &str) -> Option<String> {
@@ -617,41 +639,11 @@ pub(crate) fn unix_seconds(text: &str) -> Option<u64> {
     unix_millis(text).map(|ms| ms / 1000)
 }
 
-/// Unix milliseconds of an RFC 3339 UTC time such as
-/// `2026-10-29T12:34:56.789Z`.
+/// Unix milliseconds of an RFC 3339 time such as `2026-10-29T12:34:56.789Z`.
 fn unix_millis(text: &str) -> Option<u64> {
-    let (date, time) = text.split_once('T')?;
-    let mut date = date.split('-');
-    let year: i64 = date.next()?.parse().ok()?;
-    let month: i64 = date.next()?.parse().ok()?;
-    let day: i64 = date.next()?.parse().ok()?;
-    let time = time.trim_end_matches('Z');
-    let mut time = time.split(':');
-    let hour: i64 = time.next()?.parse().ok()?;
-    let minute: i64 = time.next()?.parse().ok()?;
-    let seconds = time.next()?;
-    let (second, fraction) = seconds.split_once('.').unwrap_or((seconds, ""));
-    let second: i64 = second.parse().ok()?;
-    // Milliseconds from the first three digits of the fraction.
-    let mut millis: i64 = 0;
-
-    for (i, digit) in fraction.chars().take(3).enumerate() {
-        let digit = i64::from(digit.to_digit(10)?);
-        millis += digit * [100, 10, 1][i];
-    }
-
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return None;
-    }
-    // Days since 1970-01-01, from Howard Hinnant's days_from_civil.
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let mp = (month + 9) % 12;
-    let doy = (153 * mp + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146_097 + doe - 719_468;
-    u64::try_from((days * 86_400 + hour * 3600 + minute * 60 + second) * 1000 + millis).ok()
+    chrono::DateTime::parse_from_rfc3339(text)
+        .ok()
+        .and_then(|at| u64::try_from(at.timestamp_millis()).ok())
 }
 
 /// The complete lines at the end of a file.
@@ -787,27 +779,6 @@ impl Gist {
     }
 }
 
-/// A tool result's content as text: a string as it is, a list of blocks as
-/// their texts on lines. `None` for any other content.
-fn text_of(content: &Value) -> Option<String> {
-    match content {
-        Value::String(text) => Some(text.clone()),
-        Value::Array(blocks) => Some(
-            blocks
-                .iter()
-                .filter_map(|block| block["text"].as_str())
-                .collect::<Vec<_>>()
-                .join("\n"),
-        ),
-        _ => None,
-    }
-}
-
-/// When the session started, from the first timestamp in the file's head.
-pub(super) fn started_at(path: &Path) -> io::Result<Option<u64>> {
-    Ok(head(path)?.first_at)
-}
-
 /// What the file's head says: where the session started, and when.
 pub(super) fn head(path: &Path) -> io::Result<Digest> {
     let mut file = File::open(path)?;
@@ -826,38 +797,32 @@ pub(crate) struct Excerpt {
     pub(crate) pictures: Vec<Picture>,
 }
 
-impl Excerpt {
-    /// Recover history omitted by ACP without duplicating the replay. Prefer
-    /// the longest match, then the newest one when conversations repeat.
-    pub(crate) fn before_replay(mut self, replay: &[Entry]) -> Self {
-        let anchors: Vec<_> = replay.iter().filter_map(anchor).collect();
-        let native: Vec<_> = self
-            .entries
+/// Recover history omitted by ACP without duplicating the replay. Prefer
+/// the longest match, then the newest one when conversations repeat.
+pub(super) fn prefix_len(entries: &[Entry], replay: &[Entry]) -> usize {
+    let anchors: Vec<_> = replay.iter().filter_map(anchor).collect();
+    let native: Vec<_> = entries
+        .iter()
+        .enumerate()
+        .filter_map(|(at, entry)| Some((at, anchor(entry)?)))
+        .collect();
+    if anchors.is_empty() && replay.iter().all(|entry| entry.kind == EntryKind::Other) {
+        entries.len()
+    } else {
+        native
             .iter()
             .enumerate()
-            .filter_map(|(at, entry)| Some((at, anchor(entry)?)))
-            .collect();
-        let keep =
-            if anchors.is_empty() && replay.iter().all(|entry| entry.kind == EntryKind::Other) {
-                self.entries.len()
-            } else {
-                native
+            .filter_map(|(at, (index, _))| {
+                let matched = native[at..]
                     .iter()
-                    .enumerate()
-                    .filter_map(|(at, (index, _))| {
-                        let matched = native[at..]
-                            .iter()
-                            .map(|(_, anchor)| anchor)
-                            .zip(&anchors)
-                            .take_while(|(native, replay)| native.matches(replay))
-                            .count();
-                        (matched > 0).then_some((matched, *index))
-                    })
-                    .max_by_key(|(matched, _)| *matched)
-                    .map_or(0, |(_, at)| at)
-            };
-        self.entries.truncate(keep);
-        self
+                    .map(|(_, anchor)| anchor)
+                    .zip(&anchors)
+                    .take_while(|(native, replay)| native.matches(replay))
+                    .count();
+                (matched > 0).then_some((matched, *index))
+            })
+            .max_by_key(|(matched, _)| *matched)
+            .map_or(0, |(_, at)| at)
     }
 }
 
@@ -869,7 +834,7 @@ enum Anchor {
         truncated: bool,
     },
     Tool(Option<String>, Option<String>),
-    Compacted,
+    Compacted(String),
 }
 
 impl Anchor {
@@ -887,6 +852,12 @@ impl Anchor {
                     ..
                 },
             ) => kind == other_kind && (text == other || (*truncated && other.starts_with(text))),
+            (Self::Compacted(left), Self::Compacted(right)) => {
+                left.is_empty()
+                    || right.is_empty()
+                    || left.starts_with(right)
+                    || right.starts_with(left)
+            }
             _ => self == replay,
         }
     }
@@ -894,6 +865,8 @@ impl Anchor {
 
 fn anchor(entry: &Entry) -> Option<Anchor> {
     match entry.kind {
+        EntryKind::User if entry.text.starts_with("<beep-context>")
+            && tags::parts(&entry.text).iter().all(|part| matches!(part, Part::Context(_))) => None,
         EntryKind::User | EntryKind::Agent | EntryKind::Thought => {
             // ACP streams blocks together; the native reader separates them.
             let text = cut(entry.text.trim(), MAX_ENTRY)
@@ -909,14 +882,20 @@ fn anchor(entry: &Entry) -> Option<Anchor> {
             .tool
             .as_ref()
             .map(|tool| Anchor::Tool(tool.name.clone(), tool.input.clone())),
-        EntryKind::Compacted => Some(Anchor::Compacted),
+        EntryKind::Compacted => Some(Anchor::Compacted(
+            entry
+                .text
+                .split_once('\n')
+                .map_or("", |(_, summary)| summary)
+                .to_owned(),
+        )),
         _ => None,
     }
 }
 
 /// The `last` entries before entry `before` (the end when `None`) of the
 /// transcript at `path`, with the pictures their image lines show. The
-/// file is read as far back as `MAX_WINDOW` once and kept in `kept`, which
+/// file is indexed from its first line and kept in `kept`, which
 /// parses only the lines appended since, so every page counts entries from
 /// the same first one.
 pub(super) fn entries(
@@ -973,9 +952,7 @@ const CHECKED: u64 = 256;
 /// Parsed transcripts by path, at most `cap`. Each is kept while its file
 /// only grows: an append parses just the new lines, carrying the tool,
 /// subagent and picture state of the lines before, so it reads as a whole
-/// parse of the same text would. A file that shrinks or changes before the
-/// parsed end, or grows past twice `MAX_WINDOW`, is parsed again from its
-/// last `MAX_WINDOW`.
+/// parse of the same text would. A replacement or rewrite rebuilds the index.
 #[derive(Debug)]
 pub(crate) struct Transcripts {
     cap: usize,
@@ -996,8 +973,7 @@ type Slot = Arc<Mutex<Option<Parsed>>>;
 #[derive(Debug)]
 struct Parsed {
     digest: Digest,
-    /// Where the parse started and ended: after the last whole line.
-    start: u64,
+    /// Offset after the last complete line.
     end: u64,
     /// The file's length and time when last read, to skip an unchanged one.
     len: u64,
@@ -1072,36 +1048,52 @@ fn refresh(path: &Path, parsed: &mut Option<Parsed>) -> io::Result<()> {
             return Ok(());
         }
 
-        let grows = len >= kept.end && len - kept.start <= 2 * MAX_WINDOW;
-
-        if grows && bytes_before(&mut file, kept.end)? == kept.check {
-            let tail = read_from(&mut file, kept.end, len)?;
-            crate::agents::transcript_stage("read", started);
-            let parsing = Instant::now();
-            kept.digest.lines(&tail.text);
-            crate::agents::transcript_stage("parse", parsing);
-            kept.check = bytes_before(&mut file, tail.end)?;
-            (kept.end, kept.len, kept.modified) = (tail.end, len, modified);
+        if len >= kept.end && bytes_before(&mut file, kept.end)? == kept.check {
+            kept.end = read_lines(&mut file, kept.end, len, &mut kept.digest)?;
+            kept.check = bytes_before(&mut file, kept.end)?;
+            (kept.len, kept.modified) = (len, modified);
             return Ok(());
         }
     }
 
-    let start = len.saturating_sub(MAX_WINDOW);
-    let tail = read_from(&mut file, start, len)?;
-    crate::agents::transcript_stage("read", started);
-    let parsing = Instant::now();
-    let digest = Digest::for_file(path, &tail.text, true);
-    crate::agents::transcript_stage("parse", parsing);
+    let mut digest = Digest::for_file(path, "", true);
+    let end = read_lines(&mut file, 0, len, &mut digest)?;
+    crate::agents::transcript_stage("parse", started);
     *parsed = Some(Parsed {
         digest,
-        start,
-        end: tail.end,
+        end,
         len,
         modified,
         id,
-        check: bytes_before(&mut file, tail.end)?,
+        check: bytes_before(&mut file, end)?,
     });
     Ok(())
+}
+
+/// Index complete JSONL records without buffering the entire file. An unfinished
+/// final record is retried from its first byte on the next refresh.
+fn read_lines(file: &mut File, start: u64, len: u64, digest: &mut Digest) -> io::Result<u64> {
+    file.seek(SeekFrom::Start(start))?;
+    let mut reader = BufReader::new(file.take(len - start));
+    let mut line = Vec::new();
+    let mut end = start;
+    loop {
+        line.clear();
+        let count = reader.read_until(b'\n', &mut line)?;
+        if line.last() != Some(&b'\n') {
+            break;
+        }
+        if let Ok(record) = std::str::from_utf8(&line) {
+            digest.line(record);
+            // Keep image keys in the scrollback. Images::find_in_file reads the
+            // bytes on demand, including pictures near the start of long chats.
+            if let Some(pictures) = &mut digest.pictures {
+                pictures.clear();
+            }
+        }
+        end += count as u64;
+    }
+    Ok(end)
 }
 
 /// The up to `CHECKED` bytes before `end`.
@@ -1247,6 +1239,26 @@ pub(super) mod tests {
     }
 
     #[test]
+    fn a_resume_in_the_launch_folder_keeps_the_worktree_its_tools_ran_in() {
+        let line = |cwd: &str, content: Value| {
+            serde_json::json!({"type": "user", "cwd": cwd, "message": {"role": "user", "content": content}})
+                .to_string()
+        };
+        let tool = serde_json::json!([{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}]);
+        let lines = [
+            line("/srv/project", "start".into()),
+            line("/srv/project/.worktrees/fix", tool.clone()),
+            line("/srv/project", "how does it work?".into()),
+        ];
+        let digest = Digest::read(&lines.join("\n"));
+        assert_eq!(digest.said.cwd.as_deref(), Some("/srv/project/.worktrees/fix"));
+        assert_eq!(digest.said.launched.as_deref(), Some("/srv/project"));
+
+        let back = [lines.join("\n"), line("/srv/project", tool)].join("\n");
+        assert_eq!(Digest::read(&back).said.cwd.as_deref(), Some("/srv/project"));
+    }
+
+    #[test]
     fn a_transcript_reads_as_prompts_text_and_tool_lines() {
         let digest = Digest::read(FIXTURE);
         assert_eq!(digest.said.cwd.as_deref(), Some("/srv/project"));
@@ -1272,7 +1284,10 @@ pub(super) mod tests {
                 (EntryKind::Tool, "Bash: cargo test net (failed)"),
                 (EntryKind::Agent, "The test raced the server. Fixed it."),
                 (EntryKind::User, "/compact keep the test names"),
-                (EntryKind::Compacted, "[conversation compacted]"),
+                (
+                    EntryKind::Compacted,
+                    "[conversation compacted]\nThis session is being continued from a previous conversation."
+                ),
                 (EntryKind::User, "now run the whole suite"),
                 (EntryKind::Tool, "Bash: cargo test"),
                 (EntryKind::Agent, "All 42 tests pass now."),

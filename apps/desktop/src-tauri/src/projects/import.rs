@@ -3,7 +3,6 @@
 
 use super::list::ProjectRow;
 use crate::{
-    beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Machines, files as direct,
@@ -12,46 +11,10 @@ use crate::{
     machines::list::MachineLists,
 };
 use beep_fleet::ImportJob;
-use beep_proto::{
-    BranchPlace, FoundAgent, FoundPlace, FoundProject, GitHostKind, HostRepos, MachineFolder,
-};
-use serde::{Deserialize, Serialize};
+use beep_proto::{BranchPlace, FoundProject, HostRepos, MachineFolder};
+use serde::Serialize;
 use std::path::{Path, PathBuf};
 use tauri::State;
-
-/// A branch the import sheet gives a worktree, on `machine_id` or, without
-/// one, the machine the project lands on.
-#[derive(Debug, Deserialize)]
-pub struct WorktreeArg {
-    branch: String,
-    machine_id: Option<String>,
-}
-
-/// A git checkout the user's coding agents worked in, as the Add a project
-/// sheet lists it.
-#[derive(Debug, Serialize)]
-pub struct FoundRow {
-    /// `org/repo`.
-    name: String,
-    /// What `import_project` takes as the repository.
-    remote: String,
-    places: Vec<FoundPlace>,
-    agents: Vec<FoundAgent>,
-    /// In milliseconds since the Unix epoch.
-    last_activity: u64,
-}
-
-impl From<FoundProject> for FoundRow {
-    fn from(p: FoundProject) -> Self {
-        Self {
-            name: p.project,
-            remote: p.remote,
-            places: p.places,
-            agents: p.agents,
-            last_activity: epoch_ms(p.last_activity),
-        }
-    }
-}
 
 /// The checkouts on the machines that are not projects yet, as each machine
 /// named them last: at once, for `rescan_found` to bring up to date.
@@ -59,7 +22,7 @@ impl From<FoundProject> for FoundRow {
 pub async fn found_projects(
     session: FleetState<'_>,
     held: State<'_, MachineLists>,
-) -> Result<Vec<FoundRow>> {
+) -> Result<Vec<FoundProject>> {
     Ok(grouped(&session, &held).await)
 }
 
@@ -86,7 +49,7 @@ pub fn found_machines(fleet: Machines<'_>) -> Vec<FoundMachine> {
 /// The found list after one machine looked again, and why it could not.
 #[derive(Debug, Serialize)]
 pub struct FoundAfter {
-    rows: Vec<FoundRow>,
+    rows: Vec<FoundProject>,
     /// In words, when the machine could not say what it has.
     problem: Option<String>,
 }
@@ -116,59 +79,18 @@ pub async fn rescan_found(
 
 /// What the machines named last, without what the mesh already has as a
 /// project.
-async fn grouped(session: &FleetState<'_>, held: &MachineLists) -> Vec<FoundRow> {
+async fn grouped(session: &FleetState<'_>, held: &MachineLists) -> Vec<FoundProject> {
     let here = held.found.last();
-    let found = match desk(session).await {
+    match desk(session).await {
         Ok(desk) => desk.group_found(here),
         Err(_) => beep_projects::imports::found::group(here, &[], &[]),
-    };
-    found.into_iter().map(FoundRow::from).collect()
-}
-
-/// One git host's repositories to clone, as the Add a project sheet lists
-/// them.
-#[derive(Debug, Serialize)]
-pub struct HostReposRow {
-    host: String,
-    github: bool,
-    repos: Vec<HostRepoRow>,
-    error: Option<String>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct HostRepoRow {
-    /// `org/repo`.
-    name: String,
-    /// What `import_project` takes as the repository.
-    url: String,
-    /// In milliseconds since the Unix epoch.
-    updated_at: u64,
-}
-
-impl From<HostRepos> for HostReposRow {
-    fn from(h: HostRepos) -> Self {
-        Self {
-            github: matches!(h.kind, GitHostKind::GitHub {}),
-            host: h.host,
-            repos: h
-                .repos
-                .into_iter()
-                .map(|r| HostRepoRow {
-                    name: r.name,
-                    url: r.url,
-                    updated_at: epoch_ms(r.updated_at),
-                })
-                .collect(),
-            error: h.error,
-        }
     }
 }
 
 /// The user's repositories on their git hosts, to clone.
 #[tauri::command]
-pub async fn host_repos(fleet: FleetState<'_>) -> Result<Vec<HostReposRow>> {
-    let hosts = desk(&fleet).await?.host_repos().await?;
-    Ok(hosts.into_iter().map(HostReposRow::from).collect())
+pub async fn host_repos(fleet: FleetState<'_>) -> Result<Vec<HostRepos>> {
+    Ok(desk(&fleet).await?.host_repos().await?)
 }
 
 /// Shows a project's folder on this Mac in Finder.
@@ -199,7 +121,7 @@ pub async fn import_project(
     repo: String,
     machine_id: Option<String>,
     folder: Option<String>,
-    worktrees: Option<Vec<WorktreeArg>>,
+    worktrees: Option<Vec<BranchPlace>>,
     parent: Option<String>,
     syncthing_files: Option<bool>,
 ) -> Result<ProjectRow> {

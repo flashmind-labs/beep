@@ -102,7 +102,7 @@ const ACCOUNTS: readonly ViewCommand[] = ["agent_accounts", "usage_get"];
 const WRITES: Readonly<Record<string, readonly ViewCommand[]>> = {
   agent_steer: SESSIONS, agent_start: SESSIONS, agent_begin: SESSIONS, agent_begin_retry: SESSIONS, agent_resume: SESSIONS,
   agent_delete: SESSIONS, agent_title_save: SESSIONS, agent_stop_process: SESSIONS, agent_close_external: SESSIONS, agent_review_start: SESSIONS,
-  center_answer_agent: SESSIONS, session_move: SESSIONS, session_move_cancel: SESSIONS,
+  center_answer_agent: SESSIONS, session_move: SESSIONS, session_move_cancel: SESSIONS, chat_move: SESSIONS,
   terminal_open: ["center_home", "list_machines"],
   terminal_close: ["center_home", "list_machines"],
   agent_file_save: ["project_sync"], agent_tree_edit: ["project_sync"], agent_tree_upload: ["project_sync"],

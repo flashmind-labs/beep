@@ -47,7 +47,8 @@ interface NavigationHarness {
   hold(command: string): void;
   holdNext(command: string): void;
   release(command: string): void;
-  rejectOnce(command: string): void;
+  /// Fails the next `command` with `error`, a plain test failure when none is given.
+  rejectOnce(command: string, error?: string): void;
   /// Every later call of `command` fails.
   rejectAll(command: string): void;
 }
@@ -55,7 +56,7 @@ type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
   core: { invoke(command: string, args?: Record<string, unknown>): Promise<unknown>; Channel: new <T>() => { id: number; onmessage(message: T): void } };
   event: { listen(name: string, handler: NativeHandler): Promise<() => void> };
-  webviewWindow: { getCurrentWebviewWindow(): { listen(name: string, handler: NativeHandler): Promise<() => void> } };
+  webviewWindow: { getCurrentWebviewWindow(): { label: string; listen(name: string, handler: NativeHandler): Promise<() => void> } };
 }
 
 declare global { interface Window { __navigation: NavigationHarness } }
@@ -105,8 +106,9 @@ export async function sessionSettled(page: Page): Promise<void> {
   await expect.poll(() => page.evaluate(() => {
     const main = document.querySelector<HTMLElement>(".cc-main");
     const top = main?.querySelector<HTMLElement>(":scope > .cc-top");
+    const head = main?.querySelector<HTMLElement>(".ag-head");
     const agent = main?.querySelector(':scope > #pane-box:not([hidden]) > .dbar[data-view="agent"]');
-    const toolsKept = main && top && main.style.getPropertyValue("--top-w") === `${top.offsetWidth}px`;
+    const toolsKept = Boolean(head && top && head.getBoundingClientRect().right <= top.getBoundingClientRect().left + 0.5);
 
     const pane = document.querySelector<HTMLElement>("#agpane-right");
     const shell = document.querySelector<HTMLElement>(".agshell");
@@ -117,7 +119,7 @@ export async function sessionSettled(page: Page): Promise<void> {
   }), { message: "the session's layout settles" }).toBe(true);
 }
 
-export async function openDesktop(page: Page, streaming = false, responses: Record<string, unknown> = {}): Promise<void> {
+export async function openDesktop(page: Page, streaming = false, responses: Record<string, unknown> = {}, windowLabel = "center"): Promise<void> {
   const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
   const contentTypes = new Map([[".html", "text/html"], [".js", "text/javascript"], [".css", "text/css"], [".svg", "image/svg+xml"], [".woff2", "font/woff2"]]);
   await page.route("https://app.test/**", async route => {
@@ -128,17 +130,22 @@ export async function openDesktop(page: Page, streaming = false, responses: Reco
     try { await route.fulfill({ body: await readFile(path), contentType: contentTypes.get(extname(path)) ?? "application/octet-stream" }); }
     catch { await route.fulfill({ status: 404 }); }
   });
-  await page.addInitScript(installNativeBoundary, { ...fixture, streaming, responses });
+  // Most flows here look at Home's lanes: a test of the review picks it before it opens.
+  await page.addInitScript(() => {
+    try { if (localStorage.getItem("beep.home.grouping") === null) localStorage.setItem("beep.home.grouping", "lanes"); }
+    catch { /* a blank page has no storage */ }
+  });
+  await page.addInitScript(installNativeBoundary, { ...fixture, streaming, responses, windowLabel });
   await page.goto("https://app.test/center.html");
   await page.waitForFunction(() => window.__navigation.ready());
 }
 
-function installNativeBoundary(data: Fixture & { responses: Record<string, unknown> }): void {
+function installNativeBoundary(data: Fixture & { responses: Record<string, unknown>; windowLabel: string }): void {
   // The first-run screen was answered, so it stays out of every test's page.
   try { localStorage.setItem("beep.firstRunDone", "1"); } catch { /* the page has no storage */ }
   interface EventChannel { onmessage(event: unknown): void }
   const channel = (value: unknown): value is EventChannel => value !== null && typeof value === "object" && "onmessage" in value && typeof value.onmessage === "function";
-  const rejected = new Set<string>();
+  const rejected = new Map<string, string>();
   const failing = new Set<string>();
   const held = new Set<string>();
   const heldOnce = new Set<string>();
@@ -175,7 +182,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       async invoke(command, args = {}) {
         calls.push({ command, args });
         if (held.has(command) || heldOnce.delete(command)) await new Promise<void>(resolve => { releases.set(command, resolve); });
-        if (rejected.delete(command) || failing.has(command)) throw new Error("Requested test failure");
+        const failure = rejected.get(command);
+        if (rejected.delete(command)) throw new Error(failure);
+        if (failing.has(command)) throw new Error("Requested test failure");
         if (command === "center_pending") { pendingReads++; const target = pending; pending = null; return target; }
 
         if (command === "mesh_watch") {
@@ -229,7 +238,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
         }
 
         if (command === "agent_view") {
-          return structuredClone(answers.agent_view ?? agentPage(args.session));
+          const bySession = answers.agent_views && typeof answers.agent_views === "object" && typeof args.session === "string"
+            ? Reflect.get(answers.agent_views, args.session) : undefined;
+          return structuredClone(bySession ?? answers.agent_view ?? agentPage(args.session));
         }
 
         return structuredClone(answers[command] ?? null);
@@ -242,7 +253,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       registered.add(handler);
       return () => { registered.delete(handler); };
     } },
-    webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (name, handler) => boundary.event.listen(name, handler) }) },
+    webviewWindow: { getCurrentWebviewWindow: () => ({ label: data.windowLabel, listen: (name, handler) => boundary.event.listen(name, handler) }) },
   };
   Object.defineProperty(window, "__TAURI__", { value: boundary });
   // The callbacks Rust's channel messages call; nothing here sends any.
@@ -260,7 +271,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       follows.get(id)?.onmessage({ kind: "delta", resumed: false, cursor: empty, page: { ...agentPage(id), usage }, modes: null, tasks: [] });
     },
     emit(name, payload) { for (const handler of handlers.get(name) ?? []) handler({ payload }); },
-    rejectOnce(command) { rejected.add(command); },
+    rejectOnce(command, error = "Requested test failure") { rejected.set(command, error); },
     rejectAll(command) { failing.add(command); },
     hold(command) { held.add(command); },
     holdNext(command) { heldOnce.add(command); },
@@ -275,7 +286,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       const event: MeshEvent = { machine_id: data.project.machine_id, topic, revision: at ?? ++revision, initial: false };
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === topic)) reader.channel.onmessage(event);
     },
-    ready: () => (pendingReads > 0 || typeof answers.center_window_project === "string") && handlers.has("center-open"),
+    ready: () => (pendingReads > 0 || (typeof answers.center_window_alone === "object" && answers.center_window_alone !== null)) && handlers.has("center-open"),
   };
   Object.defineProperty(window, "__navigation", { value: harness });
 }

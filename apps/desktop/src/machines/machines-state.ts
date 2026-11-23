@@ -9,7 +9,7 @@ interface ReportedTool {
 }
 
 /// The coding agents Beep can drive, in the order their columns show.
-const CODERS = ["claude", "codex", "opencode", "gemini", "pi", "flsh", "cursor-agent", "amp", "aider"];
+const CODERS = ["claude", "codex", "opencode", "agy", "pi", "flsh", "cursor-agent", "amp", "aider"];
 const IS_CODER = new Set(CODERS);
 export const isCoder = (name: string) => IS_CODER.has(name);
 

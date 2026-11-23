@@ -118,6 +118,7 @@ impl Desk {
         .await?;
         self.add_import_worktrees(&store, &machines, &imported, job.worktrees)
             .await;
+        self.hosts.sync_statuses().clear();
         Ok(imported)
     }
 

@@ -2,28 +2,26 @@
 // controls and the view of each tab) for dock-view.tsx, and handles the
 // clicks and the menu on its tabs.
 import type { SubagentRow } from "./subagents-view.tsx";
+import { chatAgentsCount } from "./chat-agents.tsx";
 import type { PaneTabItem } from "./tabs-view.tsx";
 import { hasPreview } from "./html-preview-state.ts";
-import { baseName, type Dock, DOCKS, moveTab } from "./media-state.ts";
+import { type Dock, DOCKS } from "./media-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import { artifactCount, artifactsTab, setArtifacts } from "./artifacts.ts";
 import { changesTab } from "./changes.ts";
 import { filesTab } from "./files.ts";
 import { worktreeMenu } from "./worktree.ts";
 import { drag } from "./drag.ts";
-import { readError } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
 import type { IconName } from "../ui/icons.tsx";
-import { invoke } from "../ui/tauri.ts";
 import { runningCount } from "./running.ts";
 import { followFiles } from "./reload.ts";
 import { onShownChange } from "../ui/active.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
-import { type TabKind, ARTS, CHANGES, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
-import { type DockModel, type DockView, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
-import { savedIn } from "../ui/platform.ts";
+import { type TabKind, AGENTS, ARTS, CHANGES, setFolded, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveFile, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
+import { type DockModel, type DockView, chatPane, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
 
 // ----- Tabs -----
 
@@ -120,6 +118,7 @@ function dockModel(d: Dock, ids: string[]): DockModel {
     ...(has(ARTS) ? [{ kind: "artifacts" as const, hidden: on !== ARTS }] : []),
     ...(has(RUNNING) ? [{ kind: "running" as const, hidden: on !== RUNNING }] : []),
     ...(has(SUBS) ? [{ kind: "subagents" as const, hidden: on !== SUBS }] : []),
+    ...(has(AGENTS) ? [{ kind: "agents" as const, hidden: on !== AGENTS }] : []),
     // A folded dock hides the device too, which stops its stream.
     ...(has(DEVICE) ? [{ kind: "device" as const, hidden: on !== DEVICE || P.layout.hidden[d] }] : []),
     ...P.tabs.filter(t => has(t.id)).map(t => ({ kind: "tab" as const, tab: t, rev: t.rev, hidden: t.id !== on })),
@@ -163,9 +162,9 @@ function syncDock(d: Dock, ids: string[]) {
   }
 }
 
-type Fixed = "subagents" | "files" | "changes" | "artifacts" | "running" | "device";
+type Fixed = "subagents" | "agents" | "files" | "changes" | "artifacts" | "running" | "device";
 
-const FIXED_NAMES: Record<Fixed, string> = { device: "Device", running: "Running", subagents: "Subagents", artifacts: "Artifacts", changes: "Changes", files: "Files" };
+const FIXED_NAMES: Record<Fixed, string> = { device: "Device", running: "Running", subagents: "Subagents", agents: "Agents", artifacts: "Artifacts", changes: "Changes", files: "Files" };
 
 function isFixed(id: string): id is Fixed {
   return Object.hasOwn(FIXED_NAMES, id);
@@ -175,12 +174,13 @@ function fixedCount(id: Fixed) {
   if (id === SUBS) return P.subCount;
   if (id === RUNNING) return runningCount();
   if (id === ARTS) return artifactCount();
+  if (id === AGENTS) { const chat = chatPane(); return chat ? chatAgentsCount(chat) : null; }
   return null;
 }
 
 const TAB_ICONS: Record<TabKind | Fixed, IconName> = {
-  files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", image: "paneImage", model: "paneModel",
-  video: "paneVideo", audio: "paneAudio", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents", device: "paneDevice",
+  files: "paneFiles", changes: "paneChanges", text: "paneText", term: "paneTerm", session: "paneSubagents", image: "paneImage", model: "paneModel",
+  video: "paneVideo", audio: "paneAudio", pdf: "panePdf", artifacts: "paneArtifacts", running: "paneRunning", subagents: "paneSubagents", agents: "paneSubagents", device: "paneDevice",
 };
 
 /// Pauses a tab's video or audio and its model's animation, whose frames would
@@ -223,6 +223,15 @@ export function tabMenu(e: MouseEvent, id: string) {
   e.preventDefault();
   const items: MenuItem[] = [];
   const note = (text: string) => noteTab(t, text);
+  if (t.kind === "session" && t.splitSession) {
+    const split = t.splitSession;
+    items.push({ label: "Open in main pane", on: () => {
+      closeTab(t.id);
+      void import("../agents/session.tsx").then(({ openAgent }) => openAgent({
+        ...split, doing: null, started_at: 0, last_activity: 0, question: null, assistant: false, persona: null,
+      }));
+    } });
+  }
   const path = t.kind === "text" ? t.rel : t.path;
   if (t.kind === "text" && t.rel && hasPreview(t.rel) && !t.text?.binary) items.push({ label: t.preview?.active ? "Source" : "Preview", on: () => { focusTab(t.id); if (t.preview?.active) void togglePreview(t); else previewTab(t); } });
   if (path) items.push({ label: "Copy path", on: () => void writeClipboard(path) });
@@ -232,9 +241,7 @@ export function tabMenu(e: MouseEvent, id: string) {
     items.push({ label: "Save", on: () => saveWorkFile(rel, note, t.root) });
   } else if (t.path && P.session) {
     const { machine_id, id: session } = P.session, file = t.path;
-    items.push({ label: "Save", on: () => void invoke<string>("agent_file_save", { machineId: machine_id, path: file, session })
-      .then(to => { note(`Saved to ${savedIn(to)} as ${baseName(to)}`); return invoke("reveal_file", { path: to }); })
-      .catch(err => note(readError(err))) });
+    items.push({ label: "Save", on: () => saveFile("agent_file_save", { machineId: machine_id, path: file, session }, note) });
   }
 
   items.push({ label: "Close", on: () => closeTab(t.id) });
@@ -250,9 +257,11 @@ export function pickTab(d: Dock, id: string) {
 /// This dock's tabs go to the other, which shows the one on screen here.
 export function moveDock(d: Dock) {
   const to: Dock = d === "right" ? "bottom" : "right", on = P.on[d];
-  for (const id of docked()[d]) P.layout = moveTab(P.layout, id, to);
-  for (const id of P.moved.keys()) if (docked()[d].includes(id)) P.moved.set(id, to);
+  // Moving the whole pane also places tabs that only appear in other sessions.
   P.layout.dock = to;
+  P.layout.tabs = {};
+  P.moved.clear();
+  setFolded(to, false);
   P.on[to] = on;
   saveLayout();
   draw();
@@ -260,7 +269,7 @@ export function moveDock(d: Dock) {
 
 /// Folds dock `d` to its strip, or unfolds it.
 export function foldDock(d: Dock, folded: boolean) {
-  P.layout.hidden[d] = folded;
+  setFolded(d, folded);
   saveLayout();
   draw();
 }

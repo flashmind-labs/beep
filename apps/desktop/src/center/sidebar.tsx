@@ -1,6 +1,5 @@
 import { projectName } from "../project/projects-state.ts";
-import { renameProject } from "../project/rename.tsx";
-import { WINDOWS, onPhone } from "../ui/platform.ts";
+import { WINDOWS, isMobile, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, views, projects, machines) and the
 // sheets that add a machine or a project.
 import { onClosing } from "../agents/closing.ts";
@@ -9,11 +8,6 @@ import { invoke } from "../ui/tauri.ts";
 import { openPalette } from "./palette.tsx";
 import { pane } from "../bar/pane.ts";
 import type { PaneNow } from "../bar/core.ts";
-import { openAddMachine as openAddMachineSheet } from "../machines/addmachine.tsx";
-import { openImportProject } from "../addproject/importproject.tsx";
-import { openAddProject, importFound, rescanAll } from "../addproject/addproject.tsx";
-import { openAddFolder } from "../addproject/addfolder.tsx";
-import { openNewProject } from "../addproject/newproject.tsx";
 import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { openInEditor } from "../project/editors.ts";
@@ -24,23 +18,26 @@ import { ALL } from "../terminals/terminals.tsx";
 import { state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
 import { stuck, draw } from "./home.tsx";
 import { allTerms } from "../terminals/view.tsx";
-import { currentLocation, go, drawTop, windowProject } from "./views.tsx";
-import { groupMenu } from "../project/groups.tsx";
+import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./views.tsx";
 import { fsync, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
 import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
-import type { ProjectWindowProps } from "../project/projectwindow.ts";
-import { drawProjects } from "../project/page.tsx";
+import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
+import type { AgentRow } from "../agents/agents.ts";
 import { refresh } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
 import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import { placeWindowParts } from "./window-root.tsx";
-import { setRail, shell } from "./window-shell.tsx";
+import { type Rail, railProject, setRail, shell } from "./window-shell.tsx";
+import { chatRail, chatsAsking } from "../agents/threads-state.ts";
+import { ensureSessions, sessions, sessionsChanged, sessionsRead } from "../agents/sessions.ts";
+import { sessionVisible } from "../agents/closing.ts";
+import { ChatRail } from "../agents/assistant-page.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarProjectRow } from "./sidebar-rows.tsx";
-import { single } from "../ui/active.ts";
+import { AMBIENT_MS, ambient, single } from "../ui/active.ts";
 import { AG } from "../agents/agents.ts";
 import { placeOf } from "../agents/place.ts";
 import { newChatTarget } from "../project/agent.ts";
@@ -97,15 +94,40 @@ shell.subscribe((now, was) => { if (!now.assistant !== !was.assistant) drawSide(
 
 /// Draws a project's sessions in place of the sidebar while one of them shows, or the sidebar again. The project's page opened from them keeps
 /// them beside it. A project window, which has no sidebar, shows its project's sessions on every
-/// page. Their reads redraw only this.
+/// page. The phone layout has no column for them. Their reads redraw only this.
 export function drawRail() {
-  const view = currentLocation()?.view, side = shell.getState().side;
-  const project = windowProject ?? (view === "pane" ? projectHere()?.project ?? null
-    : view === "projects" && side.rail && !side.railHidden && state.picked === side.rail ? side.rail : null);
-  const rail = !onPhone() ? project : null;
+  const view = currentLocation()?.view, side = shell.getState().side, shown = railProject(side.rail);
+  const project = aloneProject() ?? (windowAlone ? null : view === "pane" ? projectHere()?.project ?? null
+    : view === "projects" && shown && !side.railHidden && state.picked === shown ? shown : null);
+  // A chat's window lists its threads even before it has any.
+  const chat = !project && view === "pane" ? chatHere(windowAlone?.kind === "chat") : null;
+  const rail: Rail | null = onPhone() || isMobile() ? null
+    : project ? { kind: "project", project } : chat ? { kind: "chat", chat: runningKey(chat.chat) } : null;
   setRail(rail);
-  placeWindowParts({ rail: rail && projectRail(rail, openKey()) });
+  placeWindowParts({ rail: rail?.kind === "project" ? projectRail(rail.project, openKey()) : chat && rail ? <ChatRail rail={chat} current={openKey()} /> : null });
 }
+
+/// The rail of the assistant chat on screen, or of the chat whose thread is: null when it has
+/// no threads, unless `always`.
+function chatHere(always: boolean) {
+  const open = AG.open;
+  if (!open || AG.draft) return null;
+  const listed = sessions.filter(sessionVisible), session = listed.find(row => row.machine_id === open.machine_id && row.id === open.session) ?? AG.page?.session;
+
+  return session ? chatRail(listed, session, always) : null;
+}
+
+// A chat's threads come and go with the session lists. The rail stands in for the chats list,
+// which reads them again on a change, so while it shows it reads them itself.
+const rereadRail = ambient(() => ensureSessions(), AMBIENT_MS, () => shell.getState().side.rail?.kind === "chat");
+sessionsChanged.add(() => rereadRail());
+let chatsWaiting = 0;
+sessionsRead.add(() => {
+  if (currentLocation()?.view === "pane") drawRail();
+  // The Assistant link counts the chats waiting on an answer.
+  const asking = chatsAsking(sessions.filter(sessionVisible));
+  if (asking !== chatsWaiting) { chatsWaiting = asking; drawSide(); }
+});
 
 /// The running key of the session on screen; null for a draft or none.
 const openKey = () => AG.open && !AG.draft ? runningKey({ machine_id: AG.open.machine_id, id: AG.open.session }) : null;
@@ -114,7 +136,7 @@ const openKey = () => AG.open && !AG.draft ? runningKey({ machine_id: AG.open.ma
 // round to the first; ⌃⇧Tab the one before. A side pane with focus takes it for its tabs first.
 document.addEventListener("keydown", e => {
   if (e.key !== "Tab" || !e.ctrlKey || e.altKey || e.metaKey || e.isComposing || currentLocation()?.view !== "pane") return;
-  const project = projectHere()?.project, running = project ? railSessions(project)?.running ?? [] : [];
+  const project = projectHere()?.project, running = project ? railSessions(project)?.running ?? [] : chatHere(false)?.running ?? [];
   if (!running.length) return;
   e.preventDefault();
   e.stopImmediatePropagation();
@@ -128,7 +150,7 @@ export function drawSide() {
   const links: SideLink[] = [
     { svg: IC.find, label: "Search", count: 0, className: "cc-search", open: openPalette, shortcut: shortcut("Ctrl+K", "⌘K") },
     { svg: IC.home, label: "Home", count: home?.needs_you.length ?? 0, current: location === "home", hot: true, open: () => go("home") },
-    { svg: IC.chat, label: "Assistant", count: 0, current: !!shell.getState().assistant, open: () => go("pane", { assistant: "chats" }) },
+    { svg: IC.chat, label: "Assistant", count: chatsWaiting, hot: true, current: !!shell.getState().assistant, open: () => go("pane", { assistant: "chats" }) },
   ];
   const terms = allTerms.list(ALL);
   if (home?.machines && terms) links.push({ svg: IC.term, label: "Terminals", count: terms.length, current: location === "terminals", open: () => go("terminals") });
@@ -185,7 +207,17 @@ function redrawProjectPins() {
 /// Opens project `name` in a window of its own, or brings up the one it
 /// already has.
 export function openProjectWindow(name: string) {
-  invoke("center_open_project_window", { project: name }).catch(e => console.warn("opening a project window:", e));
+  openWindow({ kind: "project", project: name });
+}
+
+/// Opens assistant chat `chat` with its threads in a window of its own, or brings up the one it
+/// already has.
+export function openChatWindow(chat: Pick<AgentRow, "machine_id" | "id">) {
+  openWindow({ kind: "chat", machine_id: chat.machine_id, session: chat.id });
+}
+
+function openWindow(alone: Alone) {
+  invoke("center_open_window", { alone }).catch(e => console.warn("opening a window:", e));
 }
 
 /// What lets project `name` open in a window of its own: ⌘-click or middle-click on the
@@ -215,7 +247,7 @@ function openProjectMenu(e: MouseEvent, name: string) {
   if (folder && !onPhone()) items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
   const label = p?.url ? openOnLabel(p.url) : null;
   if (p?.url && label) items.push({ label, on: () => openUrl(p.url!) });
-  if (p?.imported) items.push({ label: "Rename…", on: () => renameProject(p) });
+  if (p?.imported) items.push({ label: "Rename", on: () => void import("../project/rename.tsx").then(m => m.renameProject(p)) });
   if (p?.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
   openMenu(e, name, items);
 }
@@ -296,7 +328,7 @@ function foldItem(p: OrgHeading | GroupHeading): MenuItem {
 
 /// Opens the Add a machine sheet; Home refreshes once it closes.
 export function openAddMachine() {
-  openAddMachineSheet({ onClose: refresh });
+  void import("../machines/addmachine.tsx").then(m => m.openAddMachine({ onClose: refresh }));
 }
 
 /// Opens the Projects page, filtered to `name` when given.
@@ -316,34 +348,34 @@ function landed(p: { name: string }) {
 
 /// Opens the Import a project sheet; the project is selected once it is in.
 export function importSheet(repo: string | null = null, machine: string | null = null) {
-  openImportProject({
+  void import("../addproject/importproject.tsx").then(m => m.openImportProject({
     machines: state.home?.machines || [],
     macId: state.mac?.id || null,
     repo,
     machine,
     onDone: landed,
-  });
+  }));
 }
 
 /// Opens the Add a project sheet: found folders, a folder, a clone, or a new project.
 export function addProject() {
-  openAddProject({
-    machines: (state.home?.machines || []).filter(m => m.can_host !== false),
+  void import("../addproject/addproject.tsx").then(m => m.openAddProject({
+    machines: (state.home?.machines || []).filter(mac => mac.can_host !== false),
     onImported: landed,
-    onChoose: () => openAddFolder({
+    onChoose: () => void import("../addproject/addfolder.tsx").then(f => f.openAddFolder({
       machines: state.home?.machines || [],
       macId: state.mac?.id || null,
       onDone: landed,
       onBack: addProject,
-    }),
+    })),
     onClone: repo => importSheet(repo ?? null),
-    onNew: () => openNewProject({
+    onNew: () => void import("../addproject/newproject.tsx").then(n => n.openNewProject({
       machines: state.home?.machines || [],
       onDone: landed,
       onBack: addProject,
       onClone: repo => importSheet(repo),
-    }),
-  });
+    })),
+  }));
 }
 
 /// The checkouts the machines named last, for the Projects page, then each
@@ -357,6 +389,7 @@ export const loadFound = single(async () => {
   }
 
   drawFound();
+  const { rescanAll } = await import("../addproject/addproject.tsx");
   await rescanAll(() => {}, (_, after) => {
     if (!after.rows) return;
     state.found = after.rows;
@@ -375,10 +408,11 @@ export async function importFromPage(row: FoundRow) {
   if (state.importing) return;
   state.importing = row.name;
   state.foundError = null;
-  drawProjects();
+  redrawProjects();
   draw();
 
   try {
+    const { importFound } = await import("../addproject/addproject.tsx");
     const project = await importFound(row);
     state.importing = null;
     landed(project);
@@ -410,7 +444,11 @@ registerSidebarGroup("projects", {
     return <button type="button" className={`cc-org${p.group ? " gp" : ""}`}
       title={p.group ? `${title}\n${p.group.paths.join(", ")} on every machine` : title} aria-label={title}
       aria-expanded={!p.folded} aria-current={currentLocation()?.view === "projects" && state.picked && p.folded?.includes(state.picked) ? "true" : undefined}
-      onClick={() => toggleFold(p)} onContextMenu={(event: React.MouseEvent) => p.group ? groupMenu(event.nativeEvent, p.group, [foldItem(p)]) : openMenu(event.nativeEvent, p.org ?? "", [foldItem(p)])}>
+      onClick={() => toggleFold(p)} onContextMenu={(event: React.MouseEvent) => {
+        const native = event.nativeEvent;
+        if (p.group) { const grp = p.group; void import("../project/groups.tsx").then(m => m.groupMenu(native, grp, [foldItem(p)])); }
+        else openMenu(native, p.org ?? "", [foldItem(p)]);
+      }}>
       <span className={`twist${p.folded ? "" : " open"}`}><Icon name="twist" /></span>{label}<span className="tt">{title}</span>
     </button>;
   },

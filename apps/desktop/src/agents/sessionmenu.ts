@@ -1,11 +1,13 @@
-import { windowHooks } from "../bar/core.ts";
+import { S, windowHooks } from "../bar/core.ts";
 import { forgetView } from "../agentpane/view-memory.ts";
 import { onPhone } from "../ui/platform.ts";
+import { NEW_WINDOW } from "../project/projectwindow.ts";
 // The right-click menu of a coding agent session, shared by every row that shows one.
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
+import { chatFolder } from "./nesting-state.ts";
 import type { AgentRow } from "./agents.ts";
 import { parentSession, loadSessions, sessions } from "./sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
@@ -13,7 +15,7 @@ import { AG, AGENT_ACTIVE, openOf, where } from "./agents.ts";
 import { sameSession } from "./running-state.ts";
 import { workingSubagents } from "./logview.tsx";
 import { runs } from "./tasks.tsx";
-import { drainOutbox, resumeEndedSession, stopAllWork } from "./messages.ts";
+import { draftNewThread, drainOutbox, resumeEndedSession, stopAllWork } from "./messages.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { transcriptKey } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
@@ -60,8 +62,20 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
   const build = (folder: string | null, reachable: boolean) => {
     const offers = sessionOffers(s, reachable);
     const items: MenuItem[] = [{ label: "Open", on: () => open(s) }];
+    if (!onPhone() && S.view === "agent" && AG.open && !sameSession(AG.open, s)) {
+      items.push({ label: "Open beside", on: () => void import("../agentpane/media.ts").then(m => m.openSessionBeside({
+        machine_id: s.machine_id, machine_name: s.machine_name, agent: s.agent, id: s.id,
+        title: s.title ?? null, cwd: s.cwd, status: s.status, external: s.external,
+      })) });
+    }
     const parent = parentSession(s);
     if (parent) items.push({ label: "Open parent", on: () => open(parent) });
+    if (!s.external && s.assistant && !s.reviewer) {
+      if (!onPhone()) items.push({ label: NEW_WINDOW, on: () => void import("../center/sidebar.tsx").then(({ openChatWindow }) => openChatWindow(s)) });
+      items.push({ label: "New thread", on: () => { draftNewThread(s); open(s); } });
+      const folder = chatFolder(s.cwd);
+      if (folder) items.push({ label: "Skills", on: () => void import("../project/project-skills.tsx").then(({ openChatSkills }) => openChatSkills(folder, s.title || "this chat")) });
+    }
     if (offers.stop) {
       items.push({ label: "Stop turn", on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
       items.push({ label: "Stop all", on: () => stopAll(s) });
@@ -78,7 +92,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
 
     if (offers.delete) {
       const targets = windowHooks?.sessionDestinations?.(s) ?? [];
-      if (targets.length) items.push({ label: "Move to project…", on: () => {
+      if (targets.length) items.push({ label: "Move to project", on: () => {
         openMenu(e, "Move to project", targets.map(target => ({ label: target.name, on: () => confirmSheet({
           title: `Move to ${target.name}?`,
           text: "Keeps the conversation and changes its working folder. Files stay where they are. Resume the session after moving it.",
@@ -103,7 +117,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
 
     if (offers.delete) {
       items.push({
-        label: "Delete…",
+        label: "Delete",
         warn: true,
         on: () => confirmSheet({
           title: "Delete this session?",

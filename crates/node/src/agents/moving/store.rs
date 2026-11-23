@@ -1,33 +1,30 @@
 //! Where this machine keeps a session's transcript, and writing one in.
 
-use beep_proto::SessionId;
 use super::{Harness, Stored};
 use crate::agents::{
     Agents, claude,
     found::{self, Agent},
 };
 use anyhow::{Context, Result, ensure};
+use beep_proto::SessionId;
+use beep_proto::node::agent::Status;
 use beep_proto::watched;
 use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
 };
-use beep_proto::node::agent::Status;
 use tokio::task::spawn_blocking;
 
 impl Agents {
     /// The transcript file of session `id` of `harness` here, when there
     /// is one.
-    pub(super) async fn transcript_file(&self, harness: Harness, id: &SessionId) -> Option<PathBuf> {
-        let agent = match harness {
-            Harness::Claude => return self.external.file(id).await.ok().flatten(),
-            Harness::Codex => Agent::Codex,
-            Harness::Pi => Agent::Pi,
-            Harness::Flsh => Agent::Flsh,
-        };
-        let (stores, id) = (self.stores.clone(), id.to_owned());
-        spawn_blocking(move || stores.file(Some(agent), &id))
+    pub(super) async fn transcript_file(
+        &self,
+        harness: Harness,
+        id: &SessionId,
+    ) -> Option<PathBuf> {
+        self.store_file(Some(Into::<Agent>::into(harness)), id)
             .await
             .ok()
             .flatten()
@@ -163,15 +160,7 @@ impl Agents {
             matches!(which, Agent::Claude | Agent::Codex | Agent::Pi),
             "this agent cannot move projects yet"
         );
-        ensure!(
-            !id.is_empty()
-                && id.as_ref().len() <= 128
-                && id
-                    .as_ref()
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_')),
-            "invalid session id"
-        );
+        ensure!(super::saved::valid_id(id.as_ref()), "invalid session id");
         let ours = self.get(id);
         let agent_id = match &ours {
             Some(session) => {
@@ -203,25 +192,12 @@ impl Agents {
             .context("session transcript not found")?;
         let mut owned = self.owned();
         owned.remove(&agent_id);
-        let old: PathBuf = match which {
-            Agent::Claude => self
-                .external
-                .list(1, Some(agent_id.clone()), owned)
+        let old = PathBuf::from(
+            self.find_external(which, &agent_id, owned)
                 .await?
-                .pop()
                 .context("session not found")?
-                .cwd
-                .into(),
-            _ => {
-                let stores = self.stores.clone();
-                let find = agent_id.clone();
-                spawn_blocking(move || stores.find(which, &find))
-                    .await?
-                    .context("session not found")?
-                    .cwd
-                    .into()
-            }
-        };
+                .cwd,
+        );
         ensure!(old.is_absolute(), "session working folder is unknown");
         let new = PathBuf::from(destination);
         ensure!(
@@ -241,10 +217,7 @@ impl Agents {
                 &bytes,
                 &agent_id,
                 name,
-                &super::folder::Folders {
-                    old,
-                    new,
-                },
+                &super::folder::Folders { old, new },
             );
             let target = if harness == Harness::Codex {
                 file.clone()

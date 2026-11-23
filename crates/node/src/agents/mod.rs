@@ -1,4 +1,4 @@
-//! Coding agents (Claude Code, Codex, Gemini CLI, pi, flsh, OpenCode) run
+//! Coding agents (Claude Code, Codex, Antigravity, pi, flsh, OpenCode) run
 //! over ACP (`Agents`) and the streams the caller follows them on; sessions
 //! started outside Beep (`claude`, `found`) and the Beep MCP server (`mcp`).
 
@@ -35,6 +35,7 @@ host! {
     mod alerts;
     mod checkout;
     mod compaction;
+    mod conversation;
     pub(crate) mod custom_agents;
     mod delete;
     mod family;
@@ -206,6 +207,9 @@ host! {
         reviews: reviews::Reviews,
         /// How sessions start the Beep MCP server, once the node serves it.
         mcp: OnceLock<Arc<Launch>>,
+        /// Beep's own skills folder, listed for sessions once the node
+        /// serves: one made without it, as in tests, lists none.
+        skills_dir: OnceLock<PathBuf>,
         /// The search index, once the mesh opened it.
         search: OnceLock<Arc<search::SearchIndex>>,
         /// Set once the node is stopping.

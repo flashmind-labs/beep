@@ -34,7 +34,9 @@ use beep_proto::{
     SecretText,
     node::{
         EnvSecret,
-        mesh_state::{Credential, Place, SessionMove, SkillSync, StateValue, SyncSpec},
+        mesh_state::{
+            ConversationMove, Credential, Place, SessionMove, SkillSync, StateValue, SyncSpec,
+        },
         sync::{PROTOCOL as SYNC, Reply as SyncReply, Request as SyncRequest},
     },
 };
@@ -543,7 +545,7 @@ async fn a_desktop_asks_a_node_about_its_sign_ins() {
     .await;
     assert_eq!(idle, SignInState::Idle {});
     let refused = ask(sign_in::Request::Start {
-        tool: "gemini".into(),
+        tool: "example".into(),
     })
     .await;
     assert!(matches!(refused, SignInState::Failed { .. }), "{refused:?}");
@@ -2812,6 +2814,7 @@ async fn ask_to_move_in(
         at: 1_793_696_400_000,
         worktree: None,
         worktrees,
+        conversation: None,
     };
     desktop
         .mesh
@@ -2880,6 +2883,166 @@ async fn until_progress(
     })
     .await
     .unwrap_or_else(|_| panic!("the move never reached: {what}; last progress: {last:?}"));
+}
+
+/// What the desktop writes to move session `s`, of a chat, from `a` to
+/// `b`: `path` is its folder under `a`'s chats.
+async fn ask_to_move_chat(pair: &Pair, path: &str, ended: bool) {
+    let record = SessionMove {
+        agent: "codex".into(),
+        id: SessionId::from(MOVED_ID),
+        from: pair.a.id,
+        to: pair.b.id,
+        project: String::new(),
+        path: path.to_owned(),
+        mode: None,
+        model: None,
+        stop: false,
+        at: 1_793_696_400_000,
+        worktree: None,
+        worktrees: Vec::new(),
+        conversation: Some(ConversationMove {
+            root: chats_of(&pair.a).display().to_string(),
+            ended,
+        }),
+    };
+    pair.desktop
+        .mesh
+        .set(
+            Key::SessionMove(SessionId::from(MOVED_ID)),
+            Some(record.to_bytes().expect("a record encodes")),
+        )
+        .await
+        .expect("the record is written");
+}
+
+/// The folder `node` keeps its chats in.
+fn chats_of(node: &Node) -> PathBuf {
+    node.home.path().join(".beep/assistant")
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_chat_moves_to_the_other_machine_with_its_folder() {
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    // The chat starts on `a` in a folder of its own.
+    let mut agent = ready(&conn_a, "codex/1").await;
+    agent
+        .tx
+        .send(&AgentRequest::Start {
+            cwd: None,
+            prompt: "go".to_owned(),
+            model: None,
+            effort: None,
+            fast: None,
+            checkout: None,
+            images: Vec::new(),
+            assistant: true,
+        })
+        .await
+        .expect("the start is sent");
+    timeout(LIMIT, async {
+        loop {
+            match agent.rx.recv::<AgentEvent>().await.expect("an event reads") {
+                Some(AgentEvent::TurnDone { .. }) => return,
+                Some(AgentEvent::Ended { reason }) => panic!("the session ended: {reason}"),
+                Some(_) => {}
+                None => panic!("the stream closed"),
+            }
+        }
+    })
+    .await
+    .expect("the turn finished in time");
+    let chat = fs::read_dir(chats_of(&pair.a))
+        .expect("the chats' folder")
+        .next()
+        .expect("the chat's folder")
+        .expect("it reads")
+        .path();
+    let name = chat
+        .file_name()
+        .expect("a name")
+        .to_string_lossy()
+        .into_owned();
+    fs::write(chat.join("notes.md"), "open: pricing").expect("its notes");
+    fs::create_dir(chat.join("ended-thread")).expect("a thread's folder");
+    fs::write(chat.join("ended-thread/found.md"), "found").expect("its findings");
+    rollout_on(&pair.a, &chat);
+
+    ask_to_move_chat(&pair, &name, false).await;
+    pair.a
+        .logged("the move of session s is done on this side")
+        .await;
+    until_progress(&conn_b, "done", |p| p.phase == MovePhase::Done).await;
+
+    // Its folder is under `b`'s chats, with what it held.
+    let there = chats_of(&pair.b).join(&name);
+    assert_eq!(
+        fs::read_to_string(there.join("notes.md")).expect("the notes came"),
+        "open: pricing"
+    );
+    assert_eq!(
+        fs::read_to_string(there.join("ended-thread/found.md")).expect("the findings came"),
+        "found"
+    );
+    // It resumed there, as the assistant.
+    let to = there.display().to_string();
+    let load = line_sent(&pair.work.path().join("sent-b.jsonl"), "session/load").await;
+    assert!(load.contains(&to), "{load}");
+    let mut list = ready(&conn_b, SESSIONS_PROTOCOL).await;
+    list.tx.send(&SessionsRequest::List {}).await.expect("sent");
+
+    match timeout(LIMIT, list.rx.recv::<SessionsReply>())
+        .await
+        .expect("answered")
+        .expect("reads")
+    {
+        Some(SessionsReply::Sessions { sessions }) => {
+            assert!(
+                sessions.iter().any(|s| s.assistant && s.cwd == to),
+                "{sessions:?}"
+            );
+        }
+        other => panic!("not a list: {other:?}"),
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn an_ended_thread_arrives_ended_with_its_folder() {
+    let mut pair = synced_pair_with(Some(MOVE_ADAPTER), Some(MOVE_ADAPTER)).await;
+    let conn_b = pair.desktop.reach(pair.b.id).await;
+    // The thread ended on `a` a while ago: its transcript and folder are left.
+    let thread = chats_of(&pair.a).join("ab12/research");
+    fs::create_dir_all(&thread).expect("the thread's folder");
+    fs::write(thread.join("found.md"), "found").expect("its findings");
+    rollout_on(&pair.a, &thread);
+
+    ask_to_move_chat(&pair, "ab12/research", true).await;
+    pair.a
+        .logged("the move of session s is done on this side")
+        .await;
+    until_progress(&conn_b, "done", |p| p.phase == MovePhase::Done).await;
+
+    let there = chats_of(&pair.b).join("ab12/research");
+    assert_eq!(
+        fs::read_to_string(there.join("found.md")).expect("the findings came"),
+        "found"
+    );
+    let moved = fs::read_to_string(
+        pair.b
+            .home
+            .path()
+            .join(".codex/sessions/2026/11/04")
+            .join(ROLLOUT),
+    )
+    .expect("the transcript is in the store");
+    assert!(moved.contains(&there.display().to_string()), "{moved}");
+    // Nothing was started for it.
+    let sent = fs::read_to_string(pair.work.path().join("sent-b.jsonl")).unwrap_or_default();
+    assert!(!sent.contains("session/load"), "{sent}");
 }
 
 #[cfg(unix)]
@@ -3906,6 +4069,34 @@ mod topic_streams {
     }
 
     #[tokio::test]
+    async fn a_same_size_edit_notifies_folder_listeners() {
+        let root = TempDir::new().unwrap();
+        let site = root.path().join("site");
+        fs::create_dir(&site).unwrap();
+        let page = site.join("index.html");
+        fs::write(&page, "first").unwrap();
+        let desktop = desktop().await;
+        let node = Node::start(Config {
+            files: vec![root.path().to_owned()],
+            ..Config::default()
+        })
+        .await;
+        node.join(&desktop.ticket(DeviceKind::Node).await).await;
+        let conn = desktop.reach(node.id).await;
+        let client = PeerClient::over(conn.mesh, conn.id);
+        let folder = Topic::keyed("files", root.path().to_str().unwrap());
+        let mut stream = subscribe(&client, vec![folder.clone()]).await;
+        let initial = snapshot(&mut stream.rx, &folder).await;
+
+        fs::write(page, "later").unwrap();
+        let updated = timeout(Duration::from_secs(10), snapshot(&mut stream.rx, &folder))
+            .await
+            .expect("the edit should notify the folder subscriber");
+        assert_eq!(updated.value, initial.value);
+        assert!(updated.revision > initial.revision);
+    }
+
+    #[tokio::test]
     async fn pending_project_topics_rebind_and_publish_removal_without_resubscribing() {
         let root = TempDir::new().unwrap();
         let first = root.path().join("first");
@@ -4205,6 +4396,7 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
             skills: tools_skills,
             global: Pick::Only(["notes".to_owned()].into()),
             projects: [("acme/app".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+            chats: Default::default(),
         }),
     )
     .await;
@@ -4216,6 +4408,7 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
             skills: team_skills,
             global: Pick::All,
             projects: Default::default(),
+            chats: Default::default(),
         }),
     )
     .await;
@@ -4275,11 +4468,12 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
     set(
         "tools",
         Some(SkillLibrary {
-            url: tools_url,
-            revision: tools_revision,
-            skills: tools_skills,
+            url: tools_url.clone(),
+            revision: tools_revision.clone(),
+            skills: tools_skills.clone(),
             global: Pick::Only(["notes".to_owned()].into()),
             projects: [("acme/app".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+            chats: Default::default(),
         }),
     )
     .await;
@@ -4291,6 +4485,7 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
             skills: team_skills,
             global: Pick::All,
             projects: Default::default(),
+            chats: Default::default(),
         }),
     )
     .await;
@@ -4308,11 +4503,36 @@ async fn skill_libraries_install_where_picked_and_uninstall_when_removed() {
         );
     }
 
+    // A chat's pick: in its folder, and its own record of what went there.
+    let chat = home.join(".beep/assistant/chat-one");
+    fs::create_dir_all(&chat).expect("the chat's folder");
+    set(
+        "tools",
+        Some(SkillLibrary {
+            url: tools_url,
+            revision: tools_revision,
+            skills: tools_skills,
+            global: Pick::Only(["notes".to_owned()].into()),
+            projects: [("acme/app".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+            chats: [("chat-one".to_owned(), Pick::Only(["pdf".to_owned()].into()))].into(),
+        }),
+    )
+    .await;
+    a.logged("skill libraries: 10 installed, 0 problems").await;
+
+    for rel in [".claude/skills", ".agents/skills"] {
+        assert_eq!(
+            tree(&chat.join(rel).join("pdf")),
+            tree(&tools.join("skills/pdf"))
+        );
+    }
+
     // Removed: its skills go, and so does the exclude block.
     set("tools", None).await;
     a.logged("skill libraries: 4 installed, 0 problems").await;
     assert!(!home.join(".claude/skills/notes").exists());
     assert!(!checkout.join(".claude/skills/pdf").exists());
+    assert!(!chat.join(".claude/skills/pdf").exists());
     assert!(home.join(".claude/skills/style").exists());
     let exclude = fs::read_to_string(checkout.join(".git/info/exclude")).expect("the exclude file");
     assert!(!exclude.contains("/.claude/skills/pdf/"), "{exclude}");

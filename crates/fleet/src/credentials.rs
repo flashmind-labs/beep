@@ -737,21 +737,26 @@ impl Desk {
             .collect()
     }
 
-    /// What `status`'s machine has: what it says now, else what it last said, which a machine
-    /// that is off, slow, or this Mac's own node on its first probe has kept.
+    /// What `status`'s machine has: what its status stream already reported, else a bounded
+    /// probe when it is online and has not reported yet.
     async fn agent_env(&self, status: &DeviceStatus) -> Option<EnvReport> {
         let id = status.device.id;
-        let live = match status.online {
-            true => timeout(ACCOUNTS_PER_MACHINE, async {
-                let client = self.peers.client(id).await.ok()?;
-                probe(&client).await.ok()?.env
-            })
-            .await
-            .ok()
-            .flatten(),
-            false => None,
-        };
-        live.or_else(|| self.peers.last_env(id))
+
+        if let Some(env) = self.peers.last_env(id) {
+            return Some(env);
+        }
+
+        if !status.online {
+            return None;
+        }
+
+        timeout(ACCOUNTS_PER_MACHINE, async {
+            let client = self.peers.client(id).await.ok()?;
+            probe(&client).await.ok()?.env
+        })
+        .await
+        .ok()
+        .flatten()
     }
 
     /// Saves the token `agent` signs in with, for every machine: as its

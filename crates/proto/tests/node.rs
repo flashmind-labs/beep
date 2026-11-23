@@ -438,6 +438,8 @@ mod harness {
                         enabled: true,
                         tokens: Some(120_000),
                     },
+                    inherits_compaction: false,
+                    quantizations: Some(vec![beep_proto::FlshQuantization::Fp4]),
                 }],
                 ..beep_proto::FlshSettings::default()
             }),
@@ -603,6 +605,7 @@ mod mesh_state {
             worktree: Option<MovedWorktree>,
             model: Option<String>,
             worktrees: Vec<String>,
+            conversation: Option<ConversationMove>,
             added_later: u8,
         }
         let (from, to) = (
@@ -622,6 +625,7 @@ mod mesh_state {
             worktree: None,
             model: None,
             worktrees: vec!["/srv/app/.worktrees/fix".into()],
+            conversation: None,
             added_later: 1,
         };
         let record = SessionMove::from_bytes(&rmp_serde::to_vec(&sent).unwrap()).unwrap();
@@ -680,6 +684,47 @@ mod mesh_state {
             u64,
         ) = beep_proto::lenient::from_slice(&moved.to_bytes().unwrap()).unwrap();
         assert_eq!(older.8, 7);
+    }
+
+    #[test]
+    fn a_move_record_from_before_conversations_reads_as_a_project_move() {
+        let record = SessionMove {
+            agent: AgentSlug::CODEX,
+            id: "s1".into(),
+            from: SecretKey::generate().public(),
+            to: SecretKey::generate().public(),
+            project: String::new(),
+            path: "ab12/research".into(),
+            mode: None,
+            stop: false,
+            at: 7,
+            worktree: None,
+            model: None,
+            worktrees: Vec::new(),
+            conversation: Some(ConversationMove {
+                root: "/srv/home/.beep/assistant".into(),
+                ended: true,
+            }),
+        };
+        let bytes = record.to_bytes().unwrap();
+        assert_eq!(SessionMove::from_bytes(&bytes).unwrap(), record);
+        // A record written before conversations moved has none.
+        let before = rmp_serde::to_vec(&(
+            &record.agent,
+            &record.id,
+            record.from,
+            record.to,
+            "org/app",
+            "",
+            &record.mode,
+            record.stop,
+            record.at,
+            &record.worktree,
+            &record.model,
+            &record.worktrees,
+        ))
+        .unwrap();
+        assert_eq!(SessionMove::from_bytes(&before).unwrap().conversation, None);
     }
 
     #[test]
@@ -1036,6 +1081,10 @@ mod usage {
             session: "0f3c2a9e-1111-4222-8333-944455556666".into(),
             cwd: "/srv/project".into(),
             since: 1_789_000_000,
+            historical: vec![HistoricalSpend {
+                cost_usd: 2.5,
+                ..Default::default()
+            }],
             hours: vec![HourSpend {
                 hour: 1_789_995_600,
                 model: "claude-opus-4-1".into(),
@@ -1048,6 +1097,17 @@ mod usage {
                 billing: Billing::Metered,
             }],
         };
+        let legacy = (
+            &spend.agent,
+            &spend.session,
+            &spend.cwd,
+            spend.since,
+            &spend.hours,
+        );
+        let compact = rmp_serde::to_vec(&legacy).unwrap();
+        let old: SessionSpend = beep_proto::lenient::from_slice(&compact).unwrap();
+        assert!(old.historical.is_empty());
+        assert_eq!(old.hours, spend.hours);
         let body = rmp_serde::to_vec_named(&spend).unwrap();
         assert_eq!(rmp_serde::from_slice::<SessionSpend>(&body).unwrap(), spend);
         assert_eq!(spend.hours[0].tokens(), 370);
@@ -1371,7 +1431,7 @@ mod agent {
             assert_eq!(efforts("pi"), [Off, Minimal, Low, Medium, High, Xhigh, Max]);
             assert_eq!(efforts("flsh"), [Off, Low, Medium, High]);
 
-            for agent in ["gemini", "opencode", "other"] {
+            for agent in ["agy", "opencode", "other"] {
                 assert!(efforts(agent).is_empty(), "{agent}");
             }
 
@@ -1707,6 +1767,36 @@ mod agent {
         }
 
         #[test]
+        fn a_sessions_persona_reads_compact_and_a_session_before_it_has_none() {
+            let newer = SessionInfo {
+                id: "t1".into(),
+                agent: "claude".into(),
+                persona: Some(Persona {
+                    name: "researcher".into(),
+                    color: Some("blue".into()),
+                }),
+                ..SessionInfo::default()
+            };
+            let compact = rmp_serde::to_vec(&newer).unwrap();
+            assert_eq!(
+                beep_proto::lenient::from_slice::<SessionInfo>(&compact).unwrap(),
+                newer
+            );
+            // A node from before the field sends the row without it.
+            let before = SessionInfo {
+                persona: None,
+                ..newer.clone()
+            };
+            let mut short = rmp_serde::to_vec(&before).unwrap();
+            short.truncate(short.len() - 1);
+            assert_eq!(short[0], 0xdc);
+            let count = u16::from_be_bytes([short[1], short[2]]) - 1;
+            short[1..3].copy_from_slice(&count.to_be_bytes());
+            let read: SessionInfo = beep_proto::lenient::from_slice(&short).unwrap();
+            assert_eq!(read, before);
+        }
+
+        #[test]
         fn events_round_trip() {
             let event = Event::Question {
                 question: Question {
@@ -1775,6 +1865,8 @@ mod agent {
                     worktree_at: 1,
                     worktrees: 2,
                     edits_left: true,
+                    files_copied: 3,
+                    files_total: 9,
                 }),
             };
             let bytes = rmp_serde::to_vec(&reply).expect("encodes");
@@ -1930,6 +2022,7 @@ mod agent {
                     ports: vec![3000],
                     left_group: true,
                     parent: 7,
+                    pages: vec![3000],
                 }],
             };
             let bytes = rmp_serde::to_vec(&reply).unwrap();
@@ -1967,13 +2060,23 @@ mod agent {
             assert!(process.ports.is_empty());
             assert!(!process.left_group);
             assert_eq!(process.parent, 0);
-            let bytes =
-                rmp_serde::to_vec(&(42, "watch", 1_700_000_000_u64, vec![3000], true, 7, "extra"))
-                    .unwrap();
+            assert!(process.pages.is_empty());
+            let bytes = rmp_serde::to_vec(&(
+                42,
+                "watch",
+                1_700_000_000_u64,
+                vec![3000],
+                true,
+                7,
+                vec![3000],
+                "extra",
+            ))
+            .unwrap();
             let process: RunningProcess = beep_proto::lenient::from_slice(&bytes).unwrap();
             assert_eq!(process.ports, [3000]);
             assert!(process.left_group);
             assert_eq!(process.parent, 7);
+            assert_eq!(process.pages, [3000]);
         }
 
         #[test]

@@ -8,7 +8,7 @@ export function nativeSession(parent: AgentRow, id: string, title: string, statu
   return {
     machine_id: parent.machine_id, machine_name: parent.machine_name, agent: parent.agent,
     id, title, cwd: parent.cwd, external: true, status: status === "pending" || status === "in_progress" ? "working" : "idle",
-    doing: null, question: null, started_at: 0, last_activity: 0, assistant: false,
+    doing: null, question: null, started_at: 0, last_activity: 0, assistant: false, persona: null,
     parent: { machine_id: parent.machine_id, id: parent.id, key: "" },
   };
 }

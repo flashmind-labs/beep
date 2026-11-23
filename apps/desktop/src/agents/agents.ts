@@ -1,4 +1,4 @@
-import { WINDOWS } from "../ui/platform.ts";
+import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { flushSync } from "react-dom";
 import { createStore } from "zustand/vanilla";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
@@ -13,6 +13,7 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // every session. They run in the bar and in the window's pane alike. This
 // file holds their shared types and state, and the Every session list.
 import { type Nested, nest, splitEnded } from "./nesting-state.ts";
+import { chatOf } from "./threads-state.ts";
 import { parentSession, ensureSessions, loadSessions, sessions, sessionsChanged } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import { drawAgentNew, startAgent, togglePicker } from "./agentnew.tsx";
@@ -82,6 +83,18 @@ export interface AgentSession {
   model?: string | null;
   /// The Home assistant.
   assistant: boolean;
+  /// The first line of its last reply, as inline HTML.
+  reply_html?: string | null;
+  /// Started in the background by its parent, which alone shows it.
+  background?: boolean;
+  /// The custom agent it runs as, which its parent started it as.
+  persona: Persona | null;
+}
+
+/// A custom agent a session runs as: its name, and the colour its file gives.
+export interface Persona {
+  name: string;
+  color: string | null;
 }
 
 /// Where the session that started another runs and the ids it is listed
@@ -106,6 +119,8 @@ export interface AgentHost {
   capabilities: string[];
   /// Its node runs the home assistant: this computer's, or one new enough.
   assistant: boolean;
+  /// Its node takes part in moving a chat.
+  moves_chats: boolean;
 }
 
 /// One line of a session's log. Only the agent's own and its thoughts
@@ -378,7 +393,7 @@ interface AgentKind {
 const AGENT_KINDS: Record<string, AgentKind> = {
   claude: { ini: "CC", name: "Claude Code", cls: "claude" },
   codex: { ini: "CX", name: "Codex", cls: "codex" },
-  gemini: { ini: "GE", name: "Gemini CLI", cls: "gemini" },
+  agy: { ini: "AG", name: "Antigravity", cls: "agy" },
   pi: { ini: "PI", name: "pi", cls: "pi" },
   flsh: { ini: "FL", name: "flsh", cls: "flsh" },
   opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
@@ -569,6 +584,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
       if (k === "w" && e.shiftKey && !AG.draft && AG.open) { e.preventDefault(); if (!e.repeat) void closeOpenSession(); return true; }
       if (k === "t" && !e.shiftKey) { e.preventDefault(); newTerminal(undefined, !!AG.draft); return true; }
       if (k === "n" && !e.shiftKey && newTerminalLike()) { e.preventDefault(); return true; }
+      if (k === "n" && e.shiftKey && chatWindowHere()) { e.preventDefault(); return true; }
       if (k === "u" && !e.shiftKey) { e.preventDefault(); toggleThoughts(); return true; }
       if (k === "m" && e.shiftKey) { e.preventDefault(); toggleModelPicker(); return true; }
       if (k === "y") { e.preventDefault(); (e.shiftKey ? toggleLastCommand : toggleCommands)(); return true; }
@@ -654,7 +670,7 @@ export function agentBack(closed = false) {
   // Esc from a child opens its parent; otherwise it returns to the previous page.
   const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;
   if (up) return openAgent(up, { back: AG.back });
-  if (S.view === "agent" && windowHooks && !closed && leavePane()) return;
+  if (S.view === "agent" && windowHooks && !closed && (leavePane() || windowHooks.stepOut?.())) return;
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back, !closed);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "waiting") return renderWaiting();
@@ -666,3 +682,21 @@ export function agentBack(closed = false) {
 
 /// Opens agent session `session` in the window.
 export const openAgentInWindow = (session: AgentRow) => toWindow(mainTarget({ view: "pane", arg: { agent: session } }));
+
+/// ⇧⌘N on an assistant chat or one of its threads: the chat with its threads in a window of
+/// its own.
+function chatWindowHere() {
+  const s = AG.draft ? null : AG.page?.session, chat = s ? chatOf(sessions, s) : null;
+  if (!chat?.assistant || onPhone()) return false;
+  void import("../center/sidebar.tsx").then(({ openChatWindow }) => openChatWindow(chat));
+  return true;
+}
+
+/// ⌘N beside a chat's threads: a new thread of the chat, asked for in the chat's field. False
+/// elsewhere, and for a chat that ended.
+export function newThreadHere() {
+  const s = AG.draft ? null : AG.page?.session, chat = s ? chatOf(sessions, s) : null;
+  if (!chat?.assistant || chat.status === "ended") return false;
+  void import("./assistant-page.tsx").then(({ newThread }) => newThread(chat));
+  return true;
+}

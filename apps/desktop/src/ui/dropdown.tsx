@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
-import { Button, Menu, MenuItem, MenuTrigger, Popover } from "react-aria-components";
+import { Button } from "react-aria-components/Button";
+import { Menu, MenuItem, MenuTrigger } from "react-aria-components/Menu";
+import { Popover } from "react-aria-components/Popover";
 import { useDialogRef } from "./parts.tsx";
 import { Icon } from "./icons.tsx";
 import { spoken } from "./format.ts";

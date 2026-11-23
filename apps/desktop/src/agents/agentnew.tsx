@@ -103,11 +103,14 @@ function loadBranches(project: string) {
 }
 
 const formBranches = () => AG.form.project ? BRANCHES.get(AG.form.project) : null;
+/// What was typed for a new assistant chat and not sent: the form starts from it again.
+let assistantDraft = "";
 
 /// The start form with `prompt`; `from` is where Esc goes back to.
 /// `at` presets the machine and folder, as a project's "Start an agent here" does.
 /// `assistant` starts the Home assistant: no project, the machine's home folder.
 export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: AgentPlace | null = null, assistant = false) {
+  if (assistant) prompt ||= assistantDraft;
   S.view = "agentnew";
   AG.back = from;
   AG.form = assistant
@@ -157,7 +160,11 @@ function drawFrame() {
     ids: true,
     actions: {
       submit: () => void startAgent(), harness: () => { if (!AG.busy) togglePicker(); }, choice: toggleChoice, keyDown: switchMachine, files: files => attachments.take(files), images: files => attachments.add(files), removeLast: () => attachments.removeLast(),
-      input: value => { AG.form.prompt = value; if (AG.error === "prompt") { AG.error = ""; drawParts(); } },
+      input: value => {
+        AG.form.prompt = value;
+        if (AG.form.assistant) assistantDraft = value;
+        if (AG.error === "prompt") { AG.error = ""; drawParts(); }
+      },
     },
     place: () => {
       const f = AG.form;
@@ -322,7 +329,7 @@ function baseMenu(): ChoiceMenu | null {
   const list = formBranches(), picked = baseFor(f.base, list);
   const rows: ChoiceRow[] = baseRows(list).map(name => ({ kind: "button", action: "agb", value: name, selected: picked === name, label: <span className="mono">{name}</span>, detail: name === list?.default_branch ? "default" : "" }));
   const note: ChoiceRow[] = list === undefined ? [{ kind: "button", action: null, value: "loading", disabled: true, label: <span><Spinner /> Reading branches…</span>, detail: "" }] : [];
-  return { style: "base", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agbtype", value: "1", label: "Type a branch or commit…", detail: "" }] };
+  return { style: "base", rows: [...note, ...rows, ...(rows.length || note.length ? [{ kind: "rule" } as const] : []), { kind: "button", action: "agbtype", value: "1", label: "Type a branch or commit", detail: "" }] };
 }
 
 /// The Account menu: the agent's default account, then its named ones.
@@ -381,7 +388,7 @@ function folderMenu(checkout: boolean): ChoiceMenu | null {
       ...trees.map(t => ({ kind: "button", action: "agw", value: t, selected: same({ worktree: t }), label: <span className="mono">{t.split("/").slice(-2).join("/")}</span>, detail: "worktree" } as const))] : []),
     ...(places.length || checkout ? [{ kind: "rule" } as const] : []),
     { kind: "button", action: "agf", value: "", selected: !f.cwd.trim(), label: "Workspace", detail: workspace, mono: true },
-    { kind: "button", action: "agtype", value: "1", label: "Type a folder…", detail: "" },
+    { kind: "button", action: "agtype", value: "1", label: "Type a folder", detail: "" },
   ];
   return { style: "folder", rows };
 }
@@ -637,6 +644,7 @@ export async function startAgent() {
       ? await startAssistant(prompt, { agent: f.agent, model, effort, fast: f.fast ?? null }, AG.hosts ?? [], f.machinePicked ? f.machine : null, images)
       : await start({ machine: f.machine, agent: f.agent, cwd: cwd || null, prompt, images, model, effort, fast: f.agent === "codex" ? f.fast ?? null : null, checkout, assistant: false, account: formAccount() });
     attachments.clear();
+    if (f.assistant) assistantDraft = "";
     AG.busy = false;
     composer?.update({ progress: "" });
     if (S.view !== "agentnew") return;

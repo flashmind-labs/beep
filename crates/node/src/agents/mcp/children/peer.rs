@@ -3,18 +3,18 @@
 //! counting a root's agents, asking about a parent, and reading a child's
 //! state without making a transcript read wait for it.
 
-use beep_proto::SessionId;
 use super::{ChildView, PeerCall};
 use crate::agents::{
     family::{ChildNote, NO_AGENT, Parent, RemoteKid},
     mcp::machines::{Machine, over_the_mesh},
 };
 use beep_mesh::Mesh;
+use beep_proto::SessionId;
 use beep_proto::node::tools::{Reply, Request, Tool};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use std::{
+    borrow::Cow,
     collections::HashMap,
     future::Future,
     sync::{Arc, Mutex},
@@ -49,11 +49,11 @@ pub(super) enum Answer {
 
 /// A call to the node of `machine`, which `name` is to agents.
 pub(super) struct Call<'a> {
-    pub(super) mesh: &'a Mesh,
+    mesh: &'a Mesh,
     /// The calling session's id as the machine knows it.
-    pub(super) session: &'a SessionId,
-    pub(super) machine: EndpointId,
-    pub(super) name: &'a str,
+    session: &'a SessionId,
+    machine: EndpointId,
+    name: Cow<'a, str>,
 }
 
 impl<'a> Call<'a> {
@@ -63,7 +63,7 @@ impl<'a> Call<'a> {
             mesh,
             session,
             machine: kid.machine,
-            name: &kid.name,
+            name: Cow::Borrowed(&kid.name),
         }
     }
 
@@ -73,18 +73,27 @@ impl<'a> Call<'a> {
             mesh,
             session,
             machine: machine.id,
-            name: &machine.name,
+            name: Cow::Borrowed(&machine.name),
         }
     }
 
-    pub(super) async fn ask(&self, tool: Tool, args: &Value, limit: Duration) -> Answer {
+    fn to_peer(mesh: &'a Mesh, session: &'a SessionId, peer: EndpointId) -> Self {
+        Self {
+            mesh,
+            session,
+            machine: peer,
+            name: Cow::Owned(peer.fmt_short().to_string()),
+        }
+    }
+
+    pub(super) async fn ask<T: Serialize>(&self, tool: Tool, args: &T, limit: Duration) -> Answer {
         let request = Request {
             session: self.session.clone(),
             tool,
-            args: args.to_string(),
+            args: serde_json::to_string(args).unwrap_or_default(),
             approved: Default::default(),
         };
-        let name = self.name;
+        let name = &self.name;
         let sent = match timeout(limit, over_the_mesh(self.mesh, self.machine, &request)).await {
             Ok(Ok(reply)) => reply,
             Ok(Err(e)) => return Answer::Silent(format!("Could not reach {name}: {e:#}")),
@@ -100,6 +109,22 @@ impl<'a> Call<'a> {
             other => Answer::Refused(format!("{name} answered {other:?}.")),
         }
     }
+
+    pub(super) async fn ask_ok<T: Serialize>(
+        &self,
+        tool: Tool,
+        args: &T,
+        limit: Duration,
+    ) -> Result<String, String> {
+        match self.ask(tool, args, limit).await {
+            Answer::Text(text) => Ok(text),
+            Answer::Refused(why) | Answer::Silent(why) => Err(why),
+        }
+    }
+}
+
+pub(super) fn parse_view(name: &str, text: &str) -> Result<ChildView, String> {
+    serde_json::from_str(text).map_err(|e| format!("{name} answered something unreadable: {e}"))
 }
 
 /// Stops a child on another machine: its session, or, for a parent's Stop
@@ -111,16 +136,18 @@ pub(crate) async fn stop_remote(
     kid: &RemoteKid,
     turn_only: bool,
 ) -> Result<(), String> {
-    let call = Call::to_kid(mesh, parent, kid);
-    let args = json!(PeerCall {
+    let args = PeerCall {
         id: kid.id.clone(),
         turn_only,
         // Only a parent's Stop all stops a child's turn alone.
         stop_all: turn_only,
         ..Default::default()
-    });
+    };
 
-    match call.ask(Tool::StopAgent, &args, REMOTE_LIMIT).await {
+    match Call::to_kid(mesh, parent, kid)
+        .ask(Tool::StopAgent, &args, REMOTE_LIMIT)
+        .await
+    {
         Answer::Text(_) => Ok(()),
         Answer::Refused(why) if !turn_only && why.starts_with(NO_AGENT) => Ok(()),
         Answer::Refused(why) | Answer::Silent(why) => Err(why),
@@ -180,22 +207,16 @@ pub(crate) async fn count_on(
     root: &SessionId,
     limit: Duration,
 ) -> usize {
-    let name = machine.fmt_short().to_string();
-    let call = Call {
-        mesh,
-        session: root,
-        machine,
-        name: &name,
-    };
-    let args = json!(CountCall {
+    let call = Call::to_peer(mesh, root, machine);
+    let args = CountCall {
         root_machine,
-        root: root.clone()
-    });
+        root: root.clone(),
+    };
 
-    match call.ask(Tool::AgentCount, &args, limit).await {
-        Answer::Text(text) => text.trim().parse().unwrap_or(0),
-        Answer::Refused(why) | Answer::Silent(why) => {
-            log::debug!("{name} did not count the agents under {root}: {why}");
+    match call.ask_ok(Tool::AgentCount, &args, limit).await {
+        Ok(text) => text.trim().parse().unwrap_or(0),
+        Err(why) => {
+            log::debug!("{} did not count the agents under {root}: {why}", call.name);
             0
         }
     }
@@ -210,20 +231,12 @@ pub(crate) async fn ask_parent(
     id: &SessionId,
     key: &SessionId,
 ) -> Parent {
-    let name = peer.fmt_short().to_string();
-    let call = Call {
-        mesh,
-        session: parent,
-        machine: peer,
-        name: &name,
-    };
-    let args = json!(PeerCall {
-        id: id.clone(),
-        text: Some(key.to_string()),
-        ..Default::default()
-    });
+    let args = PeerCall::message(id.clone(), key.to_string());
 
-    match call.ask(Tool::AgentParent, &args, REMOTE_LIMIT).await {
+    match Call::to_peer(mesh, parent, peer)
+        .ask(Tool::AgentParent, &args, REMOTE_LIMIT)
+        .await
+    {
         Answer::Text(text) if text == GONE => Parent::Gone,
         // Anything else that answers is not a no: a node that does not know
         // the question is too old to ask it of.
@@ -240,18 +253,10 @@ pub(crate) async fn note_parent(
     parent: &SessionId,
     note: &ChildNote,
 ) -> Result<(), String> {
-    let name = peer.fmt_short().to_string();
-    let call = Call {
-        mesh,
-        session: parent,
-        machine: peer,
-        name: &name,
-    };
-
-    match call.ask(Tool::AgentNote, &json!(note), REMOTE_LIMIT).await {
-        Answer::Text(_) => Ok(()),
-        Answer::Refused(why) | Answer::Silent(why) => Err(why),
-    }
+    Call::to_peer(mesh, parent, peer)
+        .ask_ok(Tool::AgentNote, note, REMOTE_LIMIT)
+        .await
+        .map(drop)
 }
 
 /// How a child on another machine stands, asked of it now.
@@ -260,17 +265,15 @@ pub(super) async fn fetch_view(
     parent: &SessionId,
     kid: &RemoteKid,
 ) -> Result<ChildView, String> {
-    let call = Call::to_kid(mesh, parent, kid);
-    let args = json!(PeerCall {
-        id: kid.id.clone(),
-        ..Default::default()
-    });
+    let text = Call::to_kid(mesh, parent, kid)
+        .ask_ok(
+            Tool::AgentStatus,
+            &PeerCall::id(kid.id.clone()),
+            REMOTE_LIMIT,
+        )
+        .await?;
 
-    match call.ask(Tool::AgentStatus, &args, REMOTE_LIMIT).await {
-        Answer::Text(text) => serde_json::from_str(&text)
-            .map_err(|e| format!("{} answered something unreadable: {e}", kid.name)),
-        Answer::Refused(why) | Answer::Silent(why) => Err(why),
-    }
+    parse_view(&kid.name, &text)
 }
 
 /// The last state read of each child on another machine, for transcripts: a
@@ -300,6 +303,7 @@ impl Views {
             .reading
             .as_ref()
             .is_some_and(|task| !task.is_finished());
+
         if stale && !reading {
             let (views, mesh) = (self.clone(), mesh.clone());
             let (parent, kid) = (parent.to_owned(), kid.clone());

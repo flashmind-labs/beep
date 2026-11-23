@@ -275,6 +275,34 @@ impl Live {
         self.transcript.get_mut(index)
     }
 
+    /// Older Claude adapters send a compaction summary as ordinary user chunks.
+    /// Wait for all chunks before removing the adapter's context wrapper.
+    pub(crate) fn finish_replay(&mut self) {
+        use crate::agents::compaction::{CLAUDE_CONTINUATION, summary_note};
+        if self.info.agent != "claude" {
+            return;
+        }
+        for entry in &mut self.transcript {
+            if entry.kind != EntryKind::User {
+                continue;
+            }
+
+            if let Some((context, rest)) = entry.text.split_once(CLAUDE_CONTINUATION)
+                && rest.starts_with(" that ran out of context.")
+                && crate::agents::tags::parts(context)
+                    .iter()
+                    .all(|part| matches!(part, crate::agents::tags::Part::Context(_)))
+            {
+                entry.kind = EntryKind::Compacted;
+                entry.text = summary_note(&entry.text[context.len()..]);
+            }
+        }
+    }
+
+    pub(in crate::agents) fn retained_range(&self) -> (u64, usize) {
+        (self.dropped, self.transcript.len())
+    }
+
     /// Copies known dates onto replayed entries in transcript order.
     pub(crate) fn restore_times(&mut self, earlier: &[Entry]) {
         let mut saved = earlier.iter().rev();

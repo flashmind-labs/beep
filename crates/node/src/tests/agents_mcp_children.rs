@@ -5,7 +5,6 @@ use crate::{
 };
 use beep_proto::AgentSlug;
 use beep_proto::node::agent::{Question, State, WorkPlace};
-use beep_proto::node::harness::{AgentSettings, HarnessConfig};
 use serde_json::Value;
 use beep_proto::watched;
 use std::{collections::BTreeMap, time::Duration};
@@ -260,7 +259,8 @@ fn view(text: &str) -> ChildView {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_project_child_uses_its_checkout_and_accepts_followups() {
-    use beep_proto::node::mesh_state::Place;
+    use beep_mesh::Key;
+    use beep_proto::node::mesh_state::{Place, ProjectRecord, StateValue};
     use iroh::{Endpoint, endpoint::presets};
 
     let dir = tempfile::tempdir().unwrap();
@@ -319,17 +319,26 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
         assert!(failed, "{text}");
     }
 
-    // A harness limited to starting its own kind cannot start another.
-    let limited = |spawns: Option<Vec<AgentSlug>>| AgentSettings {
-        harnesses: vec![HarnessConfig {
-            spawns,
-            ..HarnessConfig::new("top")
-        }],
-        flsh: None,
+    // A project limited to one harness refuses a session of another.
+    let limit = |harnesses: Option<Vec<AgentSlug>>| {
+        let mesh = offers.mesh.get().unwrap();
+        async move {
+            mesh.set(
+                Key::Project("example/app".to_owned()),
+                Some(
+                    ProjectRecord {
+                        harnesses,
+                        ..ProjectRecord::default()
+                    }
+                    .to_bytes()
+                    .unwrap(),
+                ),
+            )
+            .await
+            .unwrap();
+        }
     };
-    offers
-        .agents
-        .set_settings(limited(Some(vec![AgentSlug::new("top")])));
+    limit(Some(vec![AgentSlug::new("top")])).await;
     let (failed, text) = tool(
         &offers,
         &parent_id,
@@ -337,10 +346,8 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
         json!({"harness":"kid", "prompt":"work", "project":"example/app"}),
     )
     .await;
-    assert!(failed && text.contains("only top"), "{text}");
-    offers
-        .agents
-        .set_settings(limited(Some(vec![AgentSlug::new("top"), AgentSlug::new("kid")])));
+    assert!(failed && text.contains("allows only top"), "{text}");
+    limit(Some(vec![AgentSlug::new("top"), AgentSlug::new("kid")])).await;
 
     let (failed, text) = tool(
         &offers,
@@ -386,6 +393,131 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     assert_eq!(view(&text).turns, 2);
     offers.agents.shutdown().await;
     endpoint.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let mut offers = Offers::local(&[], Provision::new(dir.path()));
+    offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
+    let cwd = dir.path().to_string_lossy().into_owned();
+    let chat = offers
+        .agents
+        .start(
+            &offers.agents.kinds()[0],
+            Some(&cwd),
+            Begin {
+                prompt: Some("hello".to_owned()),
+                ..Begin::default()
+            },
+        )
+        .expect("the chat starts");
+    let mut live = chat.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        watched::wait_for(&mut live, |live| {
+            live.agent_session.is_some() && live.info.turns == 1
+        }),
+    )
+    .await
+    .expect("the chat settles")
+    .expect("the chat is kept");
+    let chat = Agents::name_of(&chat);
+
+    // `start_thread` calls `start_agent` with what it takes: no harness.
+    let (failed, text) = tool(
+        &offers,
+        &chat,
+        Tool::StartAgent,
+        json!({ "title": "Pricing", "prompt": "work" }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    let thread = view(&text);
+    assert_eq!(
+        (thread.harness.as_ref(), thread.title.as_deref()),
+        ("top", Some("Pricing"))
+    );
+    let (failed, text) = tool(
+        &offers,
+        &chat,
+        Tool::StartAgent,
+        json!({ "title": "Legal", "prompt": "work", "harness": "kid" }),
+    )
+    .await;
+    assert!(!failed, "{text}");
+    assert_eq!(view(&text).harness, "kid");
+    offers.agents.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let write = |rel: &str, text: &str| {
+        let path = dir.path().join(rel);
+        std::fs::create_dir_all(path.parent().expect("a folder")).expect("folder made");
+        std::fs::write(path, text).expect("file written");
+    };
+    write(
+        ".codex/agents/researcher.toml",
+        "name = \"researcher\"\ndeveloper_instructions = \"Cite sources.\"",
+    );
+    write(".claude/agents/writer.md", "---\nname: writer\n---\nWrite plainly.");
+    let mut offers = Offers::local(&[], Provision::new(dir.path()));
+    offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("codex")]));
+    let cwd = dir.path().to_string_lossy().into_owned();
+    let chat = offers
+        .agents
+        .start(
+            &offers.agents.kinds()[0],
+            Some(&cwd),
+            Begin {
+                prompt: Some("hello".to_owned()),
+                ..Begin::default()
+            },
+        )
+        .expect("the chat starts");
+    let mut live = chat.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(20),
+        watched::wait_for(&mut live, |live| {
+            live.agent_session.is_some() && live.info.turns == 1
+        }),
+    )
+    .await
+    .expect("the chat settles")
+    .expect("the chat is kept");
+    let chat = Agents::name_of(&chat);
+    let start = |persona: &str, harness: Option<&str>| {
+        let mut args = json!({ "title": persona, "prompt": "work", "persona": persona });
+        if let Some(harness) = harness {
+            args["harness"] = json!(harness);
+        }
+        tool(&offers, &chat, Tool::StartAgent, args)
+    };
+
+    // Its own harness, which this machine has.
+    let (failed, text) = start("researcher", None).await;
+    assert!(!failed, "{text}");
+    let researcher = view(&text);
+    assert_eq!(researcher.harness, "codex");
+    let session = offers.agents.get(&researcher.key).expect("the thread runs here");
+    assert_eq!(session.info().persona.map(|persona| persona.name).as_deref(), Some("researcher"));
+    // Claude's, which it has not: the chat's.
+    let (failed, text) = start("writer", None).await;
+    assert!(!failed, "{text}");
+    assert_eq!(view(&text).harness, "top");
+    // The one named.
+    let (failed, text) = start("Researcher", Some("top")).await;
+    assert!(!failed, "{text}");
+    assert_eq!(view(&text).harness, "top");
+
+    let (failed, text) = start("nobody", None).await;
+    assert!(failed);
+    assert!(text.starts_with("There is no custom agent called nobody. There are: writer, researcher"), "{text}");
+    offers.agents.shutdown().await;
 }
 
 #[cfg(unix)]
@@ -516,6 +648,24 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     assert_eq!(view(&text).state, "ended");
     let (_, text) = tool(&offers, &mine, Tool::AgentStatus, json!({ "id": done.id })).await;
     assert_ne!(view(&text).state, "ended");
+
+    // A child its parent no longer has shows as ended, not as it started.
+    let machine = busy.id.split_once('@').map_or("", |(_, machine)| machine);
+    let gone = ChildView {
+        id: format!("gone@{machine}"),
+        ..busy
+    };
+    let call = format!(
+        "Beep: Start kid agent: hang about [completed]\n{}",
+        serde_json::to_string(&gone).unwrap()
+    );
+    let mut entries = [Entry::new(EntryKind::Tool, call)];
+    show_children(&offers.agents, &parent, &mut entries);
+    assert!(
+        entries[0].text.contains(&format!("[child] {} ended", gone.id)),
+        "{}",
+        entries[0].text
+    );
     offers.agents.shutdown().await;
 }
 

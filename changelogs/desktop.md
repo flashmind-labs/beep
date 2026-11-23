@@ -7,6 +7,407 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.20] - 2026-11-23
+
+### Added
+
+- Desktop: choose the flsh OpenRouter stream idle timeout in coding-agent settings. The default is 300 seconds.
+- Desktop: Search the current file and enable Vim keybindings in the editor.
+- Desktop: Fold functions in the file editor using gutter controls or keyboard shortcuts.
+- Desktop: Use completion, automatic bracket closing, and multiple cursors in the file editor.
+
+### Fixed
+
+- Desktop: the chat stays full height after pressing Escape twice in a detached assistant window.
+- Desktop: external links in HTML previews open in the system browser.
+- Desktop: Saving a file preserves its Windows line endings.
+- Desktop: agents receive saved instructions in the system prompt. An adapter that cannot apply them reports an error before the chat starts.
+
+### Performance
+
+- Desktop: reduce repeated checks for finished session moves while keeping progress and later moves visible.
+
+## [0.10.19] - 2026-11-23
+
+### Added
+
+- Desktop: Restores open project and chat windows with their layouts and virtual desktops after a restart or update on macOS, Windows and X11. Wayland placement remains controlled by the compositor.
+- Desktop: selected skills from Git libraries update automatically each day.
+
+### Changed
+
+- Desktop: usage has separate date, project, spend and token columns. Session totals with an unknown daily split appear in a historical table.
+- Desktop: Gemini CLI is no longer offered as a harness. Antigravity replaces
+  it in agent pickers, Settings and the sign-in list.
+
+### Fixed
+
+- Desktop: resuming an older flsh conversation no longer counts its lifetime cost as spending today.
+- Desktop: Cmd+K ranks projects with more path matches higher.
+
+### Performance
+
+- Desktop: Session actions, prompts, model switches, cleanup, terminal resizing, device power, and settings hand off in the background instead of stalling the UI on slow or unstable node connections.
+- Desktop: Project sync, Git status, session lists, pickers, devices, reviews, usage, and tool updates serve cached state immediately and isolate slow nodes so healthy machines never wait on degraded links.
+
+## [0.10.18] - 2026-11-23
+
+### Added
+
+- Desktop: select and install root and nested skills independently in Settings > Skills.
+- Desktop: Settings, Agent accounts has an Antigravity card that shows
+  whether each machine is signed in, with a Sign in button for a machine
+  that is not. The sheet shows Google's sign-in link and takes the code the
+  page gives. Antigravity allows one minute for it.
+- Desktop: A machine's Sign-ins list offers Sign in for Antigravity too.
+- Desktop: the machine's MCP servers editor offers Antigravity beside
+  Codex and Claude Code, with add, edit, disable, remove and copy for its
+  stdio and Streamable HTTP servers.
+- Desktop: `Cmd+K` includes quick actions for new sessions, projects, terminals, machines, keyboard shortcuts, problem reporting, and settings including appearance, instructions, and plugins.
+- Desktop: Right-clicking another coding agent session while viewing a session offers `Open beside` to follow, steer, and answer it in a split dock tab.
+
+### Changed
+
+- Desktop: Home's Review deck displays checkout line additions and deletions, a Close button, and an inline quick-reply field to message idle sessions.
+- Desktop: Light skins (`Light`, `Solarized`, `macOS`, `Warm`) use crisp light card fills, subtle top-edge highlights, and softer shadows.
+- Desktop: Session headers arrange in a single aligned row without overlapping tools when resized.
+- Desktop: the usage pill now shows Antigravity's and OpenRouter's icons instead of text labels.
+
+### Fixed
+
+- Desktop: moving the assistant panel to the bottom keeps Changes there when opening a project session.
+- Desktop: assistant usage includes billed OpenRouter costs across models and keeps each machine's share when a chat moves.
+- Desktop: after Esc shows all chats on macOS, the window's buttons no longer
+  cover the page title.
+- Desktop: open HTML previews refresh after an agent edits the file, even when its size stays the same.
+
+### Performance
+
+- Desktop: Faster window startup, smoother conversation scrolling, and GPU-accelerated living paintings.
+
+## [0.10.17] - 2026-11-22
+
+### Changed
+
+- Desktop: In an assistant chat with threads, Esc shows all your chats in
+  place of the thread list, and Esc again brings the sidebar back beside
+  them.
+- Desktop: Cmd+E beside a chat's threads or a project's sessions opens the
+  sidebar on top of that list instead of swapping them. Cmd+E, Esc, a click
+  beside it or opening another page closes it.
+
+## [0.10.16] - 2026-11-22
+
+### Added
+
+- Desktop: a thread started as a persona shows the persona's name, with its
+  colour dot, on its row in the chat's thread list and in the thread's header.
+
+### Fixed
+
+- Desktop: install a skill from a library with a top-level `SKILL.md`.
+
+## [0.10.15] - 2026-11-22
+
+### Added
+
+- Desktop: an assistant chat's menu has a Skills item that picks library skills
+  for the chat, the same way a project's Skills sheet does. Settings > Skills
+  shows how many chats each library is installed in.
+
+### Fixed
+
+- Desktop: Claude conversations retain their scrollback after compaction and restart. Expand a compaction summary to read it.
+- Desktop: a thread that an assistant chat starts shows in the chat's thread
+  list right away instead of minutes later.
+- Desktop: a file link in an assistant chat opens in the pane beside the
+  chat instead of covering the window. HTML pages and Markdown files open
+  in their preview.
+
+## [0.10.14] - 2026-11-22
+
+### Changed
+
+- Desktop: The agent chat scroll-to-bottom button is larger, easier to see, and clearly labeled.
+
+## [0.10.13] - 2026-11-22
+
+### Added
+
+- Desktop: moving an Assistant chat shows its files as they copy, such as
+  "Files 120 MB of 551 MB · 22%". The speed appears once the copy has run
+  for over five seconds. The progress bar along the top of the message field
+  fills with the step that copies.
+- Desktop: assistant chats and their threads get an Agents tab in the
+  right pane. It lists the custom agents defined in the chat's folder,
+  such as .claude/agents, and appears once the folder has some. Click
+  an agent to see its prompt.
+- Desktop: an assistant chat can open in a window of its own, with its
+  threads listed beside it. Use ⇧⌘N in the chat, or "Open in New
+  Window" in a chat's right-click menu. In that window, ⌘N asks the
+  chat for a new thread.
+- Desktop: the Assistant's chats list shows when a thread in a chat
+  needs you and how many of its threads are working. A chat moves up
+  the list while one of its threads is active, and the Assistant link
+  in the sidebar counts the chats waiting on an answer.
+- Desktop: a thread's notification in the bell names the chat it
+  belongs to.
+
+### Changed
+
+- Desktop: ⇧⌘N in a chat opens it in its own window instead of starting
+  a new thread. ⌘N starts a new thread while a chat's threads are
+  listed beside it, and a new chat while the chats list shows.
+
+### Fixed
+
+- Desktop: a move's steps no longer stay on "Waiting for" the target while
+  the move goes on. The window asks the target how far it is every few
+  seconds while the move shows.
+- Desktop: a session or Assistant chat you renamed keeps its name after it
+  moves to another machine, instead of showing the agent's own title again.
+- Desktop: clicking an HTML or Markdown file in the Files tab, or
+  pressing Space on it, opens its preview instead of its source. The
+  Source button still shows the code.
+- Desktop: in an assistant chat on a laptop-width window, the right pane
+  (Files, and a file opened from it) opens beside the conversation
+  instead of covering it. The chats list steps aside while the pane
+  shows and comes back when the pane is hidden.
+- Desktop: notifications for a renamed coding agent session or assistant
+  chat now show the name you gave it, not the title it had before.
+
+## [0.10.12] - 2026-11-22
+
+### Added
+
+- Desktop: on the Assistant page, a chat's threads are listed under it. Each
+  shows its name, whether it is working or needs you, and what it last said
+  or asks. Click a thread to open it and write to it there.
+- Desktop: "New thread" under the open chat, and in an assistant chat's menu,
+  asks the chat's agent to start a thread for whatever you type.
+- Desktop: the Assistant's list keeps a chat and its threads after they
+  ended, also once their machine's Beep restarted. A chat's ended threads
+  sit under an "Ended" fold of its own.
+- Desktop: the machine name in an Assistant chat's header opens the "Move to"
+  menu, as it does for a project session. Picking a machine moves the whole
+  chat: its threads and its folder's files go with it.
+- Desktop: the "Move to" menu lists only machines whose beep-node is new
+  enough and that have every harness the chat and its threads use. A machine
+  missing one says which.
+- Desktop: a chat with a thread on a third machine cannot move, and says so.
+- Desktop: an assistant chat's move steps above the composer say "Files"
+  instead of "checkouts".
+- Desktop: Cancel on a move takes back the chat's move, along with its
+  threads' moves.
+- Desktop: flsh sessions can be moved too.
+- Desktop: an assistant chat with threads replaces the sidebar with its own
+  list, like a project's sessions. It has a way back to the chats, "New
+  thread", a filter, Running (the chat, then its running threads with what
+  each is doing or last said) and Past (its ended threads). Press ⌘E to
+  swap it with the sidebar. A chat without threads keeps the chats list.
+- Desktop: ⌘N on the Assistant page starts a new chat, also from a chat or
+  a thread.
+- Desktop: ⇧⌘N starts a new thread in the open chat.
+- Desktop: ⌃Tab and ⌃⇧Tab move to the next or previous running session of
+  the open chat.
+- Desktop: assistant chats and their threads get the same right pane that
+  project sessions have: Files, file and HTML previews, Artifacts and
+  terminals. There is no Changes tab, since a chat's folder is not a Git
+  checkout, and no threads tab, since the list beside the chat shows them.
+- Desktop: a chat's Files shows the chat's folder without the folders of its
+  threads. A thread's Files shows the thread's own folder.
+- Desktop: Settings > Agent accounts lists Antigravity under Coding agents,
+  with its version, updates, on or off switch, binary path, launch arguments
+  and env vars on each machine.
+
+### Changed
+
+- Desktop: repository owner and visibility now appear in separate labeled groups when creating a project.
+- Desktop: Review cards on Home's Board tab have no Open button, so a click
+  anywhere on the card, or Enter or Space when it is focused, opens the
+  session.
+- Desktop: Antigravity shows its own logo instead of the "AG" letters in
+  the agent picker and wherever coding agents are listed.
+
+### Fixed
+
+- Desktop: a chat or session you ended and then resumed shows in the lists
+  again at once, instead of staying hidden for up to a minute.
+- Desktop: a new assistant chat keeps what you typed when you leave
+  it before sending, and shows it again when you come back.
+- Desktop: reopening a conversation now shows the latest message.
+
+## [0.10.11] - 2026-11-22
+
+### Added
+
+- Desktop: Antigravity is one of the coding agents you can start, pick
+  models for, and set up on each machine.
+- Desktop: when a coding agent starts a web server, a line above the
+  message field offers "Open :<port>" for its page. The Running tab
+  lists that port first and highlighted, and the server's other ports
+  appear only in the expanded row. A port the command names, such as
+  `--port`, is preferred when it serves a page.
+- Desktop: Usage shows Antigravity's weekly limits beside Claude Code's
+  and Codex's.
+
+### Changed
+
+- Desktop: Removed the Close button from the Review card on the Board tab,
+  so sessions are closed from their row menu instead.
+
+### Fixed
+
+- Desktop: a diagram in a chat reply shows once instead of twice after the reply redraws.
+- Desktop: in a window narrow enough for the phone layout, a project's
+  session list no longer sits stacked above the open session and squeezes
+  it; the session takes the whole window again.
+- Desktop: triple-clicking a prompt you sent in a chat selects just
+  that prompt instead of running on into the replies after it (seen
+  on macOS).
+- Desktop: a server that a coding agent starts shows its port in the
+  Running tab within about a second of it listening, instead of up to
+  a minute later, or never when it runs on this desktop's own machine.
+
+## [0.10.10] - 2026-11-21
+
+### Added
+
+- Desktop: a project's menu has "Harnesses...", which picks the coding agent
+  harnesses that may run in that project on every machine. For example, allow
+  only flsh and pi with zero data retention. Every harness may run by default.
+
+### Changed
+
+- Desktop: the per-harness "Can start" setting in Settings is removed. Limit
+  harnesses per project instead.
+- Desktop: Home's board opens on Review. The left side shows the idle
+  session in hand: its project, its last reply, and Open, Close, Back and
+  Next. Running sessions appear as cards under it. The right side lists
+  every idle session, one line each with its project and time, grouped as
+  Last hour, Today and Older.
+- Desktop: in Review, Next and Back, or the left and right arrow keys, walk
+  the idle list. A click picks a row, and a click on the row in hand opens
+  it. The list sorts from the latest or the oldest and can show one
+  project.
+- Desktop: a Review / Lanes switch sits on the row of Home's tabs and shows
+  while a session is open. Lanes is still there. Grouping by project on Home
+  is gone. The Projects page keeps its active projects.
+- Desktop: Home's machines strip no longer has "Add a machine". It stays in
+  the sidebar and on the Machines tab.
+- Desktop: the active projects on the Projects page are calmer. A project
+  has no outline, rows have no lines between them, a row's second line is
+  plain text, and the header shows no session count.
+
+### Fixed
+
+- Desktop: file paths in chat replies now show the hand cursor when they
+  can be clicked to open in the side pane.
+- Desktop: Text in a Markdown preview can now be selected and copied.
+
+## [0.10.9] - 2026-11-21
+
+### Added
+
+- Desktop: on the Coding agents page, each model in flsh's per-model
+  list can have its own quantizations (all, any precision, or a picked
+  list) and its own auto-compact (same as all models, on, or off with a
+  threshold). A model whose only OpenRouter provider serves another
+  precision now works without loosening the list for every model.
+- Desktop: pi's Coding agents page shows the OpenRouter routing settings:
+  zero data retention, quantizations, provider sort, fallbacks, and
+  per-model quantizations. flsh and pi share them.
+- Desktop: when a coding agent's turn fails, its error card offers
+  "Retry with another model". The model picker opens, and the model you
+  pick runs the failed prompt again, without retyping it.
+
+### Changed
+
+- macOS: the download is now two disk images, one for Apple silicon and
+  one for Intel Macs, instead of one universal app, each about half its size.
+- macOS: installed apps update to the build for their own Mac
+  automatically.
+
+### Fixed
+
+- Desktop: opening or stopping a subagent whose session is no longer on
+  its machine now says so under the log, instead of doing nothing.
+
+## [0.10.8] - 2026-11-20
+
+### Added
+
+- Desktop: Home's PRs and issues tab can be kept to This week or to one day. The
+  arrows step back and forward a day at a time.
+
+### Changed
+
+- Desktop: Home's PRs and issues tab shows one card per repository in place of
+  the two long columns: the repository's name, its counts and its button, then
+  its pull requests and issues. A card with many items scrolls them. The sort
+  menu orders the cards and the rows in them.
+- Desktop: The Projects page lists the projects with open sessions on top, a row
+  per session with where it runs and what it does. A project's own card no
+  longer lists its sessions.
+- Desktop: The rows of Home's Projects view no longer have a Close button, so
+  each row's time stays in place.
+
+## [0.10.7] - 2026-11-20
+
+### Added
+
+- Desktop: Settings, then Agent accounts, lets Claude Code and Codex
+  each keep more than one account, such as Work and Personal, under
+  Other accounts in the agent's card. Add one by signing in or pasting
+  a Claude Code token or a ChatGPT personal access token.
+- Desktop: the new agent form and the project bar both show an "as
+  <account>" choice when the agent has named accounts. The pick is
+  kept per project.
+- Desktop: a start on a named account is refused on a machine whose
+  beep-node is too old, instead of running on another account.
+- Desktop: plan usage shows each named account's limits apart, under
+  its name.
+- Desktop: session cards on Home and in projects name the account a
+  session runs as.
+- Desktop: each coding agent harness in Settings has a "Can start" row of
+  chips for the harnesses its sessions may start as other agents. For
+  example, flsh may start only flsh and pi. With all chips on, a session
+  may start any harness, which is the default. The setting applies on
+  every machine.
+- Desktop: a project's card on the Projects page lists its running
+  sessions, up to three. Each shows its title, its state and what it
+  does now: the current step while it works, or the first line of its
+  last reply once it stops. Open a row to open its session.
+- Desktop: Home's Board tab has a Lanes / Projects switch. Projects
+  lists each project that has open sessions, with a row per session
+  saying where it runs and what it does. The choice is remembered.
+
+### Changed
+
+- Desktop: after a machine's connection drops, the app tries to reach it
+  again every 5 seconds instead of waiting longer and longer between
+  tries. Each try gives up after 10 seconds. Terminals, file tabs and
+  session views keep trying while they are on screen instead of giving
+  up after a few tries.
+- Desktop: project cards on the Projects page are a little wider, so
+  session titles fit.
+
+### Fixed
+
+- Desktop: a file tab in a coding agent session's side pane that was
+  open when the machine's link dropped now loads again once the machine
+  is reachable, instead of staying on "connection lost". A text tab also
+  no longer jumps to another copy of the file after a dropped link.
+- Desktop: a question's answers are left aligned when they wrap,
+  instead of centered.
+- Desktop: a question that offers choices, not allow or deny, has a
+  Cancel row (Cmd+.) that stops the turn. Before, nothing could cancel
+  it.
+- Desktop: the first choice of such a question is no longer shown red
+  as a deny, and Cmd+D no longer picks it.
+- Desktop: the tool call a question holds shows as waiting for you,
+  not as running with a ticking clock.
+
 ## [0.10.6] - 2026-11-20
 
 ### Added

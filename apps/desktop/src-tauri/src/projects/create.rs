@@ -7,30 +7,9 @@ use crate::{
     fleet::projects::{FleetState, desk},
 };
 use beep_proto::{
-    CheckoutFailure, CreateProject, CreatedProject, GitHostKind, NewRepository, ProjectFolder,
-    ProjectForge,
+    CheckoutFailure, CreateProject, CreatedProject, NewRepository, ProjectFolder, ProjectForge,
 };
 use serde::Serialize;
-
-/// A git host the sheet offers.
-#[derive(Debug, Serialize)]
-pub struct ForgeRow {
-    host: String,
-    github: bool,
-    owners: Vec<String>,
-    error: Option<String>,
-}
-
-impl From<ProjectForge> for ForgeRow {
-    fn from(f: ProjectForge) -> Self {
-        Self {
-            github: matches!(f.kind, GitHostKind::GitHub {}),
-            host: f.host,
-            owners: f.owners,
-            error: f.error,
-        }
-    }
-}
 
 /// What making a project did, as the sheet shows it.
 #[derive(Debug, Serialize)]
@@ -54,9 +33,8 @@ impl From<CreatedProject> for CreatedRow {
 
 /// The git hosts the user has a token for.
 #[tauri::command]
-pub async fn project_forges(fleet: FleetState<'_>) -> Result<Option<Vec<ForgeRow>>> {
-    let forges = desk(&fleet).await?.forges().await?;
-    Ok(Some(forges.into_iter().map(ForgeRow::from).collect()))
+pub async fn project_forges(fleet: FleetState<'_>) -> Result<Option<Vec<ProjectForge>>> {
+    Ok(Some(desk(&fleet).await?.forges().await?))
 }
 
 /// Makes the project `name`: on `repository` and cloned onto `machine_ids`, or

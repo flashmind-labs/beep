@@ -96,11 +96,14 @@ const NAMES: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
   pi: "pi",
-  gemini: "Gemini CLI",
+  agy: "Antigravity",
   flsh: "flsh",
   opencode: "OpenCode",
   hermes: "Hermes",
 };
+
+/// The harnesses Beep knows, by slug.
+export const HARNESS_SLUGS: readonly string[] = Object.keys(NAMES);
 
 /// What each harness is called on screen.
 export function harnessName(agent: string) { return NAMES[agent] ?? agent; }
@@ -208,7 +211,7 @@ export function joinArgs(args: string[]) {
 }
 
 /// What a harness takes for auto-compact: a percent, only on and off (its
-/// own setting has no threshold), or nothing (flsh and Gemini CLI compact on
+/// own setting has no threshold), or nothing (flsh and Antigravity compact on
 /// their own). The nodes set each one's own mechanism or send /compact.
 const COMPACT_KIND: Record<string, "percent" | "toggle"> = {
   claude: "percent",

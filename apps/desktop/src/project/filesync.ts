@@ -98,22 +98,22 @@ interface ProjectSyncState {
   detail: SyncDetail | undefined;
   error: string;
   busy: string | null;
-  /// A read is under way.
-  loading: boolean;
   /// When the detail was last read, in milliseconds.
   read_at: number;
 }
 
+type CompareEntry =
+  | { kind: "reading"; token: object }
+  | { kind: "note"; text: string }
+  | { kind: "diff"; view: DiffViewHandle };
+
 export function makeFileSync(deps: FileSyncDeps) {
   const { invoke, redraw } = deps;
   const all = new Map<string, ProjectSyncState>();
+  const loads = new Map<string, Promise<void>>();
+  const trailing = new Map<string, ReturnType<typeof setTimeout>>();
+  const compared = new Map<string, CompareEntry>();
   let watched: string | null = null;
-
-  /// The conflicts opened to compare, by project and path: the diff, or the
-  /// line saying why there is none, and null while it is read.
-  const compared = new Map<string, HTMLElement | string | null>();
-  const compareViews = new Map<string, DiffViewHandle>();
-  const compareReads = new Map<string, object>();
 
   const kept = deps.kept ?? new PageCache(null).section<SyncDetail>("filesync");
 
@@ -121,23 +121,20 @@ export function makeFileSync(deps: FileSyncDeps) {
   /// old as the cache says.
   const of = (name: string) => {
     let s = all.get(name);
-    if (!s) all.set(name, s = { detail: kept.get(name), error: "", busy: null, loading: false, read_at: kept.at(name) ?? 0 });
+    if (!s) all.set(name, s = { detail: kept.get(name), error: "", busy: null, read_at: kept.at(name) ?? 0 });
     return s;
   };
 
-  const loads = new Map<string, Promise<void>>();
   function load(name: string): Promise<void> {
     const pending = loads.get(name);
     if (pending) return pending;
-    const read = readList(name).finally(() => loads.delete(name));
+    const read = readList(name);
     loads.set(name, read);
     return read;
   }
 
   async function readList(name: string) {
     const s = of(name);
-    if (s.loading) return;
-    s.loading = true;
     const was = JSON.stringify([s.detail, s.error]);
     const wasDetail = JSON.stringify(s.detail);
 
@@ -152,7 +149,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     } catch (e) {
       s.error = reason(e);
     } finally {
-      s.loading = false;
+      loads.delete(name);
       s.read_at = Date.now();
     }
 
@@ -165,7 +162,7 @@ export function makeFileSync(deps: FileSyncDeps) {
   /// waits on every machine of the project.
   function ensure(name: string, every = TILE_MAX_AGE_MS): Promise<void> | undefined {
     const s = of(name);
-    if (!onPhone() && Date.now() - s.read_at > every && !s.loading) return load(name);
+    if (!onPhone() && Date.now() - s.read_at > every && !loads.has(name)) return load(name);
   }
 
   /// The detail for the board's tile, read again once it is old.
@@ -192,13 +189,10 @@ export function makeFileSync(deps: FileSyncDeps) {
     await Promise.all([...[...changed].map(p => throttled(p, age)), ...due]);
   }
 
-  /// The changed projects whose read waits for their detail to be `age` old.
-  const trailing = new Map<string, ReturnType<typeof setTimeout>>();
-
   function throttled(name: string, age: number): Promise<void> | undefined {
     if (trailing.has(name)) return;
     const s = of(name);
-    const wait = s.loading ? age : s.read_at + age - Date.now();
+    const wait = loads.has(name) ? age : s.read_at + age - Date.now();
     if (wait <= 0) return load(name);
 
     trailing.set(name, setTimeout(() => {
@@ -247,32 +241,33 @@ export function makeFileSync(deps: FileSyncDeps) {
   /// Shows what differs on a file conflict, or hides it again.
   async function compare(name: string, c: Conflict, machines: readonly MachineDetail[]) {
     const key = `${name}\n${c.path}`;
+    const existing = compared.get(key);
 
-    if (compared.has(key)) {
+    if (existing) {
+      if (existing.kind === "diff") existing.view.dispose();
       compared.delete(key);
-      compareReads.delete(key);
-      compareViews.get(key)?.dispose();
-      compareViews.delete(key);
       return redraw();
     }
 
-    const reading = {};
-    compareReads.set(key, reading);
-    compared.set(key, null);
+    const token = {};
+    compared.set(key, { kind: "reading", token });
     redraw();
     const machine = machines.find(m => m.machine_id === c.holder);
     const done = machine ? await compareFiles(invoke, machine, c) : "No machine that has it is online";
-    if (compareReads.get(key) !== reading) return;
-    if (typeof done === "string") compared.set(key, done);
-    else {
+    const reading = compared.get(key);
+    if (reading?.kind !== "reading" || reading.token !== token) return;
+
+    if (typeof done === "string") {
+      compared.set(key, { kind: "note", text: done });
+    } else {
       const { windowDiffOwner } = await import("../review/diff-owner.ts");
-      if (compareReads.get(key) !== reading) return;
+      const after = compared.get(key);
+      if (after?.kind !== "reading" || after.token !== token) return;
       const view = diffView({ owner: windowDiffOwner(), load: async () => done,
         review: { key: "compare", heading: () => "Review", send: async () => "Comments are not sent from here" } });
-      compareViews.set(key, view);
-      compared.set(key, view.el);
+      compared.set(key, { kind: "diff", view });
     }
-    compareReads.delete(key);
+
     redraw();
   }
 
@@ -282,7 +277,10 @@ export function makeFileSync(deps: FileSyncDeps) {
     detail: (name: string) => of(name).detail,
     forTile,
     page: (name: string) => { const s = of(name); if (s.detail === undefined) void load(name); return { detail: s.detail, error: s.error, busy: s.busy }; },
-    compared: (name: string, path: string) => compared.get(`${name}\n${path}`),
+    compared: (name: string, path: string) => {
+      const entry = compared.get(`${name}\n${path}`);
+      return !entry ? undefined : entry.kind === "reading" ? null : entry.kind === "note" ? entry.text : entry.view.el;
+    },
     pause, startOver, resolve, compare, watch,
     fix: deps.fix ? (name: string, conflict: Conflict) => deps.fix?.(name, conflict) : null,
     fixButton: deps.fixButton ?? null,

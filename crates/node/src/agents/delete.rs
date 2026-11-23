@@ -3,9 +3,9 @@
 use beep_proto::SessionId;
 use super::{Agents, found::Agent};
 use anyhow::{Context, Result, bail, ensure};
-use beep_proto::node::agent::Status;
+use beep_proto::node::agent::{SessionInfo, Status};
 use beep_proto::watched;
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 use tokio::{
     task::spawn_blocking,
     time::{sleep, timeout},
@@ -41,6 +41,7 @@ impl Agents {
         }
 
         ensure!(valid_id(id.as_ref()), "{id:?} is not a session id");
+        let conversation = self.conversation_of(id);
         let agent_id = match self.get(id) {
             Some(ours) => {
                 ensure!(ours.agent == agent, "session {id} runs {}", ours.agent);
@@ -85,6 +86,7 @@ impl Agents {
         let attachment_agent = agent.to_owned();
         let attachment_id = agent_id.unwrap_or_else(|| id.clone());
         let indexed = attachment_id.clone();
+        self.forget_saved(&indexed);
         spawn_blocking(move || super::uploads::remove(&attachment_agent, &attachment_id)).await??;
 
         {
@@ -102,7 +104,33 @@ impl Agents {
             index.forget(indexed).await;
         }
 
+        if let (Some(folder), Some(home)) = (conversation, dirs::home_dir()) {
+            let removed =
+                spawn_blocking(move || super::conversation::remove(&home, &folder)).await;
+
+            if let Ok(Err(e)) = removed {
+                log::warn!("the deleted conversation's folder stays: {e}");
+            }
+        }
+
         Ok(())
+    }
+
+    /// The folder session `id` takes with it when it is deleted: its own,
+    /// when it is the main chat of an assistant conversation, as it is here
+    /// or as it was kept from before the node restarted. `delete_session`
+    /// removes it only if it is a conversation's folder.
+    ///
+    /// A chat started in another's folder shares it, so neither takes it
+    /// while the other is still known here: the last of them does.
+    pub(super) fn conversation_of(&self, id: &SessionId) -> Option<PathBuf> {
+        let main = |info: &SessionInfo| info.assistant && info.parent.is_none();
+        let mine = self.saved(id).map(|saved| saved.info).filter(main)?;
+        let shared = self.saved_sessions().iter().any(|other| {
+            other.info.id != mine.id && main(&other.info) && other.info.cwd == mine.cwd
+        });
+
+        (!shared).then(|| PathBuf::from(mine.cwd))
     }
 
     /// Checks that no process has `agent`'s files of its session `id` open.

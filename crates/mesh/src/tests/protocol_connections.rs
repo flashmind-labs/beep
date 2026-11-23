@@ -137,11 +137,10 @@ async fn rejected_protocol_dials_share_a_cooldown_and_retry_after_restart() {
     assert!(mesh.subscription_connection(peer).await.is_err());
     let failed = slot.dialing.lock().await;
     assert_eq!(failed.as_ref().unwrap().peer_session, Some(session));
-    assert_eq!(failed.as_ref().unwrap().pause, FIRST_RETRY);
 }
 
 #[tokio::test]
-async fn rejected_protocol_dials_back_off_until_the_retry_deadline() {
+async fn a_rejected_protocol_dial_is_tried_again_after_retry() {
     let pair = pair().await;
     let mesh = &pair.controller;
     let peer = pair.node.me();
@@ -159,11 +158,11 @@ async fn rejected_protocol_dials_back_off_until_the_retry_deadline() {
         // Expire the first failure without waiting on wall clock time.
         failed.as_mut().unwrap().retry_at = Instant::now();
     }
+    let tried = Instant::now();
     assert!(mesh.subscription_connection(peer).await.is_err());
-    assert_eq!(
-        slot.dialing.lock().await.as_ref().unwrap().pause,
-        FIRST_RETRY * 2
-    );
+    let retry_at = slot.dialing.lock().await.as_ref().unwrap().retry_at;
+    assert!(retry_at >= tried + RETRY);
+    assert!(retry_at <= Instant::now() + RETRY);
 }
 
 #[tokio::test]

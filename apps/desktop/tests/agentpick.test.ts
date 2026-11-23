@@ -3,11 +3,11 @@ import assert from "node:assert/strict";
 import type { AgentModels } from "../src/agents/agentmodels.ts";
 import { harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, startPlace } from "../src/agents/agentpick.ts";
 
-const ORDER = ["claude", "codex", "gemini", "opencode", "pi", "flsh"];
+const ORDER = ["claude", "codex", "agy", "opencode", "pi", "flsh"];
 
 test("the harness stays when the machine has it, else the machine's first by preference", () => {
   assert.equal(harnessFor("codex", ["claude", "codex"], ORDER), "codex");
-  assert.equal(harnessFor("gemini", ["flsh", "codex"], ORDER), "codex");
+  assert.equal(harnessFor("agy", ["flsh", "codex"], ORDER), "codex");
   assert.equal(harnessFor(null, ["pi", "flsh"], ORDER), "pi");
   assert.equal(harnessFor("claude", [], ORDER), null);
 });

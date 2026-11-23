@@ -2,17 +2,19 @@
 //! `<CODEX_HOME>/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, with the titles
 //! the user gave in `<CODEX_HOME>/session_index.jsonl`.
 
-use beep_proto::SessionId;
-use super::{Agent, Memos, Seen, first_line, head_lines, newest_files, prompt_title};
+use super::{Agent, Memos, Seen, header_sessions, prompt_title, unix_secs};
 use crate::agents::claude::unix_seconds;
-use crate::agents::{place::call_folder, subagent::Conversation};
+use crate::agents::{
+    place::call_folder,
+    subagent::Conversation,
+    window::{MAX_HEAD, content_text, head_lines, tail_lines},
+};
+use beep_proto::SessionId;
 use serde_json::Value;
 use std::{
     collections::HashMap,
     convert::Infallible,
     env,
-    fs::File,
-    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -37,7 +39,7 @@ pub(crate) fn configured() -> Option<PathBuf> {
 }
 
 /// Whether `path` is a Codex rollout file.
-pub(super) fn is_rollout(path: &Path) -> bool {
+pub(in crate::agents) fn is_rollout(path: &Path) -> bool {
     path.file_name()
         .and_then(|name| name.to_str())
         .is_some_and(|name| name.starts_with("rollout-") && name.ends_with(".jsonl"))
@@ -57,15 +59,10 @@ fn sessions_in(root: &Path, memos: &Memos, folder: &str, depth: usize) -> Vec<Se
     let Ok(names) = memos
         .names
         .read(&index, || Ok::<_, Infallible>(Arc::new(titles(&index))));
-    newest_files(&root.join(folder), depth, &is_rollout)
-        .into_iter()
-        .filter_map(|(path, at)| {
-            let read = || first_line(&path).map(|line| line.as_deref().and_then(header));
-            let mut seen = memos.heads.read(&path, read).ok()??;
-            seen.last_activity = at;
+    header_sessions(&root.join(folder), depth, &is_rollout, &memos.heads, header)
+        .map(|mut seen| {
             seen.title = names.get(&seen.id).cloned();
-            seen.file = Some(path);
-            Some(seen)
+            seen
         })
         .collect()
 }
@@ -113,7 +110,7 @@ pub(super) fn native(root: &Path, id: &SessionId) -> Option<Seen> {
         return None;
     };
     let file = super::codex_run::rollout(root, thread)?;
-    let line = first_line(&file).ok()??;
+    let line = super::first_line(&file).ok()??;
     let mut seen = header_with_children(&line, true)?;
 
     if seen.id != thread {
@@ -131,13 +128,7 @@ pub(super) fn native(root: &Path, id: &SessionId) -> Option<Seen> {
         .as_str()
         .and_then(|path| path.rsplit('/').next())
         .and_then(prompt_title);
-    seen.last_activity = std::fs::metadata(&file)
-        .ok()?
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_secs();
+    seen.last_activity = unix_secs(std::fs::metadata(&file).ok()?.modified().ok()?);
     seen.file = Some(file);
     Some(seen)
 }
@@ -145,15 +136,12 @@ pub(super) fn native(root: &Path, id: &SessionId) -> Option<Seen> {
 /// The names the user gave sessions, by id, from the index at `index`; a
 /// later line wins.
 fn titles(index: &Path) -> HashMap<SessionId, String> {
-    let Ok(file) = File::open(index) else {
+    let Ok(lines) = head_lines(index, MAX_INDEX) else {
         return HashMap::new();
     };
     let mut names = HashMap::new();
 
-    for line in BufReader::new(file.take(MAX_INDEX))
-        .lines()
-        .map_while(Result::ok)
-    {
+    for line in lines {
         let Ok(value) = serde_json::from_str::<Value>(&line) else {
             continue;
         };
@@ -170,7 +158,9 @@ fn titles(index: &Path) -> HashMap<SessionId, String> {
 
 /// The first prompt in the rollout at `path`.
 pub(super) fn title(path: &Path) -> Option<String> {
-    head_lines(path).ok()?.find_map(|line| prompt(&line))
+    head_lines(path, MAX_HEAD)
+        .ok()?
+        .find_map(|line| prompt(&line))
 }
 
 /// The folder the rollout at `path` last worked in: the `cwd` of its last
@@ -178,20 +168,10 @@ pub(super) fn title(path: &Path) -> Option<String> {
 /// turn folder). Repeated launch contexts preserve the detected folder. `None`
 /// when that stretch names none; the header's `cwd` then holds.
 pub(super) fn latest_folder(path: &Path) -> Option<PathBuf> {
-    let mut file = File::open(path).ok()?;
-    let len = file.metadata().ok()?.len();
-    let cut_at = len.saturating_sub(MAX_TAIL);
-    file.seek(SeekFrom::Start(cut_at)).ok()?;
-    let mut reader = BufReader::new(file.take(MAX_TAIL));
-
-    if cut_at > 0 {
-        reader.read_until(b'\n', &mut Vec::new()).ok()?;
-    }
-
     let mut turn: Option<PathBuf> = None;
     let mut folder: Option<PathBuf> = None;
 
-    for line in reader.lines().map_while(Result::ok) {
+    for line in tail_lines(path, MAX_TAIL).ok()? {
         let is_turn = line.contains("\"turn_context\"");
 
         if !is_turn && !line.contains("workdir") {
@@ -237,12 +217,13 @@ fn prompt(line: &str) -> Option<String> {
     match payload["type"].as_str()? {
         "user_message" => prompt_title(payload["message"].as_str()?),
         "item_completed" if payload["item"]["type"] == "UserMessage" => {
-            let text: Vec<&str> = payload["item"]["content"]
-                .as_array()?
-                .iter()
-                .filter_map(|part| part["text"].as_str())
-                .collect();
-            prompt_title(&text.join("\n"))
+            let content = &payload["item"]["content"];
+            content
+                .is_array()
+                .then(|| content_text(content))
+                .flatten()
+                .as_deref()
+                .and_then(prompt_title)
         }
         _ => None,
     }

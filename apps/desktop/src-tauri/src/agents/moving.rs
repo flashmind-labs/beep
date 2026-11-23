@@ -9,7 +9,7 @@ use crate::{
         projects::{FleetState, desk},
     },
 };
-use beep_fleet::{MoveAsk, MoveState};
+use beep_fleet::{ChatMoveAsk, ChatSession, MoveAsk, MoveState};
 use beep_proto::SessionId;
 use beep_proto::{
     ApiError, ModelId,
@@ -19,7 +19,7 @@ use beep_proto::{
     },
 };
 use iroh::EndpointId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// A move record as the window shows it.
 #[derive(Debug, Serialize, PartialEq)]
@@ -66,6 +66,9 @@ pub struct MoveProgressView {
     pub worktree_at: u32,
     pub worktrees: u32,
     pub edits_left: bool,
+    /// Bytes of a chat's files copied, and what they take on the source.
+    pub files_copied: u64,
+    pub files_total: u64,
 }
 
 impl From<MoveState> for MoveProgressView {
@@ -86,6 +89,8 @@ impl From<MoveState> for MoveProgressView {
             worktree_at: progress.worktree_at,
             worktrees: progress.worktrees,
             edits_left: progress.edits_left,
+            files_copied: progress.files_copied,
+            files_total: progress.files_total,
         }
     }
 }
@@ -128,7 +133,7 @@ pub async fn session_move(
 ) -> Result<MoveView> {
     let from = machine(&machine_id)?;
     // The worktrees it created go along in the record, so the target keeps them.
-    let worktrees = direct::created_worktrees(&machines, from, &agent, &session).await;
+    let worktrees = direct::created_worktrees(&machines, from, &agent, &session).await?;
     let ask = MoveAsk {
         agent: &agent,
         id: &session,
@@ -142,6 +147,56 @@ pub async fn session_move(
         stop,
     };
     Ok(desk(&fleet).await?.move_session(ask).await?.into())
+}
+
+/// A session of a chat to move, as the window lists it.
+#[derive(Debug, Deserialize)]
+pub struct ChatSessionAsk {
+    agent: String,
+    /// The agent's own id.
+    session: SessionId,
+    cwd: String,
+    model: Option<String>,
+    ended: bool,
+}
+
+/// Asks `to` to take over the chat that runs on `machine_id`, with its
+/// threads and its folder: `sessions` is the chat, then its threads. Refused
+/// in plain words when one of them, or one of the two nodes, cannot do it.
+#[tauri::command]
+pub async fn chat_move(
+    fleet: FleetState<'_>,
+    machines: Machines<'_>,
+    machine_id: String,
+    to: String,
+    sessions: Vec<ChatSessionAsk>,
+    stop: bool,
+) -> Result<Vec<MoveView>> {
+    let (from, to) = (machine(&machine_id)?, machine(&to)?);
+
+    if !direct::moves_chats(&machines, from) || !direct::moves_chats(&machines, to) {
+        return Err(DesktopError::from(ApiError::bad_request(
+            "Update beep-node on both machines to move a chat.",
+        )));
+    }
+
+    let ask = ChatMoveAsk {
+        from,
+        to,
+        sessions: sessions
+            .into_iter()
+            .map(|session| ChatSession {
+                agent: session.agent,
+                id: session.session,
+                cwd: session.cwd,
+                model: session.model.map(ModelId::new),
+                ended: session.ended,
+            })
+            .collect(),
+        stop,
+    };
+    let records = desk(&fleet).await?.move_chat(ask).await?;
+    Ok(records.into_iter().map(Into::into).collect())
 }
 
 /// Whether the node of `machine_id` takes part in moves; one from before

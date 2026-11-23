@@ -127,6 +127,7 @@ impl Agents {
 
                 let link = self.link_for(&parent, &who)?;
                 let start = ChildStart {
+                    title: None,
                     harness: order.agent.clone(),
                     prompt,
                     cwd: Some(order.cwd.clone()),
@@ -136,6 +137,7 @@ impl Agents {
                         fast: order.fast,
                     }),
                     account: parent.account.clone(),
+                    persona: None,
                 };
                 let child = self.start_child(link, start).await?;
                 (child, Some(who), Some(parent.id.clone()))

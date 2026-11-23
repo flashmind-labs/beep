@@ -2,186 +2,19 @@
 //! their settings, and installing or updating one there.
 
 use crate::{
-    beep::epoch_ms,
     error::Result,
     fleet::{
         Machines, agents as direct,
+        node_actor::{FAST_JOB_WAIT, JobKind},
         projects::{FleetState, desk},
     },
     settings::credentials::plain,
 };
 use beep_proto::{
-    AgentHarness, AgentHarnesses, HarnessEnv, HarnessSettings, HarnessSignIn,
-    MachineHarnessSettings, SecretText,
+    AgentHarnesses, AgentSlug, HarnessSettings, MachineHarnessSettings, ModelId,
     node::harness::{AutoCompact, HarnessDriver, ModelCompact},
 };
-use beep_proto::{AgentSlug, ModelId};
-use serde::{Deserialize, Serialize};
-
-/// One machine's harnesses as the page shows them.
-#[derive(Debug, Serialize)]
-pub struct HarnessesView {
-    machine_id: String,
-    machine_name: String,
-    /// Milliseconds since the Unix epoch; null when never checked.
-    checked_at: Option<u64>,
-    harnesses: Vec<HarnessView>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct HarnessView {
-    agent: String,
-    installed: bool,
-    runnable: bool,
-    version: Option<String>,
-    latest: Option<String>,
-    program: Option<String>,
-    home_var: Option<String>,
-    home_default: Option<String>,
-    sign_in: SignInView,
-    install: Option<String>,
-    settings: SettingsView,
-}
-
-/// How a harness signs in: `state` is `unknown`, `signed_in`,
-/// `signed_out` or `beep_token`.
-#[derive(Debug, Serialize)]
-pub struct SignInView {
-    state: &'static str,
-    account: Option<String>,
-    plan: Option<String>,
-    last4: Option<String>,
-}
-
-/// The user's settings; `env` holds the names only, never the values.
-#[derive(Debug, Serialize)]
-pub struct SettingsView {
-    enabled: bool,
-    program: String,
-    home: String,
-    args: Vec<String>,
-    env: Vec<String>,
-}
-
-/// The settings the page saves for one harness.
-#[derive(Deserialize)]
-pub struct SettingsInput {
-    enabled: bool,
-    program: String,
-    home: String,
-    args: Vec<String>,
-    env: Vec<EnvInput>,
-}
-
-/// An env var the page saves: `value` null keeps the saved one.
-#[derive(Deserialize)]
-pub struct EnvInput {
-    name: String,
-    value: Option<String>,
-}
-
-/// One machine's settings for a harness, to say which fields differ.
-#[derive(Debug, Serialize)]
-pub struct MachineSettingsView {
-    machine_id: String,
-    machine_name: String,
-    settings: SettingsView,
-}
-
-impl From<HarnessSettings> for SettingsView {
-    fn from(settings: HarnessSettings) -> Self {
-        Self {
-            enabled: settings.enabled,
-            program: settings.program,
-            home: settings.home,
-            args: settings.args,
-            env: settings.env.into_iter().map(|var| var.name).collect(),
-        }
-    }
-}
-
-impl From<MachineHarnessSettings> for MachineSettingsView {
-    fn from(machine: MachineHarnessSettings) -> Self {
-        Self {
-            machine_id: machine.machine_id,
-            machine_name: machine.machine_name,
-            settings: machine.settings.into(),
-        }
-    }
-}
-
-impl From<SettingsInput> for HarnessSettings {
-    fn from(settings: SettingsInput) -> Self {
-        Self {
-            enabled: settings.enabled,
-            program: settings.program,
-            home: settings.home,
-            args: settings.args,
-            env: settings
-                .env
-                .into_iter()
-                .map(|var| HarnessEnv {
-                    name: var.name,
-                    value: var.value.map(SecretText::new),
-                })
-                .collect(),
-        }
-    }
-}
-
-impl From<HarnessSignIn> for SignInView {
-    fn from(sign_in: HarnessSignIn) -> Self {
-        let none = |state| Self {
-            state,
-            account: None,
-            plan: None,
-            last4: None,
-        };
-
-        match sign_in {
-            HarnessSignIn::Unknown {} => none("unknown"),
-            HarnessSignIn::SignedOut {} => none("signed_out"),
-            HarnessSignIn::SignedIn { account, plan } => Self {
-                account,
-                plan,
-                ..none("signed_in")
-            },
-            HarnessSignIn::BeepToken { last4 } => Self {
-                last4: Some(last4),
-                ..none("beep_token")
-            },
-        }
-    }
-}
-
-impl From<AgentHarness> for HarnessView {
-    fn from(harness: AgentHarness) -> Self {
-        Self {
-            agent: harness.agent,
-            installed: harness.installed,
-            runnable: harness.runnable,
-            version: harness.version,
-            latest: harness.latest,
-            program: harness.program,
-            home_var: harness.home_var,
-            home_default: harness.home_default,
-            sign_in: harness.sign_in.into(),
-            install: harness.install,
-            settings: harness.settings.into(),
-        }
-    }
-}
-
-impl From<AgentHarnesses> for HarnessesView {
-    fn from(list: AgentHarnesses) -> Self {
-        Self {
-            machine_id: list.machine_id,
-            machine_name: list.machine_name,
-            checked_at: list.checked_at.map(epoch_ms),
-            harnesses: list.harnesses.into_iter().map(Into::into).collect(),
-        }
-    }
-}
+use tauri::AppHandle;
 
 /// The harnesses on `machine_id`. `refresh` looks the newest versions up
 /// again.
@@ -190,25 +23,29 @@ pub async fn agent_harnesses(
     fleet: Machines<'_>,
     machine_id: String,
     refresh: bool,
-) -> Result<Option<HarnessesView>> {
+) -> Result<Option<AgentHarnesses>> {
     let list = direct::harnesses(&fleet, fleet.machine(&machine_id)?, refresh)
         .await
         .map_err(plain)?;
-    Ok(Some(list.into()))
+    Ok(Some(list))
 }
 
 /// Saves the settings of `agent` on `machine_id`.
 #[tauri::command]
 pub async fn harness_settings_save(
     fleet: FleetState<'_>,
+    machines: Machines<'_>,
     machine_id: String,
     agent: String,
-    settings: SettingsInput,
+    settings: HarnessSettings,
 ) -> Result<()> {
     desk(&fleet)
         .await?
-        .save_harness_settings(&machine_id, &agent, settings.into())
+        .save_harness_settings(&machine_id, &agent, settings)
         .await?;
+    if let Some(machine) = machines.member(&machine_id) {
+        machines.projections().forget_models_on(machine);
+    }
     Ok(())
 }
 
@@ -219,18 +56,33 @@ pub async fn agent_harness_update(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-) -> Result<HarnessesView> {
-    let updated = direct::update_harness(&fleet, fleet.machine(&machine_id)?, &agent)
+) -> Result<AgentHarnesses> {
+    direct::update_harness(&fleet, fleet.machine(&machine_id)?, &agent)
         .await
-        .map_err(plain)?;
-    Ok(updated.into())
+        .map_err(plain)
 }
 
 /// Try again: `machine_id` installs the ACP adapters its agents lack now;
 /// how it goes comes with the machine's next report.
 #[tauri::command]
-pub async fn agent_adapters_install(fleet: Machines<'_>, machine_id: String) -> Result<()> {
-    direct::install_adapters(&fleet, fleet.machine(&machine_id)?).await
+pub async fn agent_adapters_install(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    machine_id: String,
+) -> Result<()> {
+    let machine = fleet.machine(&machine_id)?;
+    let fleet_arc = fleet.inner().clone();
+    fleet
+        .node_ops()
+        .submit(
+            Some(app),
+            fleet_arc,
+            machine,
+            JobKind::InstallAdapters,
+            FAST_JOB_WAIT,
+        )
+        .await
+        .map(|_| ())
 }
 
 /// The settings of `agent` on each of the user's machines.
@@ -238,9 +90,8 @@ pub async fn agent_adapters_install(fleet: Machines<'_>, machine_id: String) -> 
 pub async fn harness_settings_all(
     fleet: FleetState<'_>,
     agent: String,
-) -> Result<Option<Vec<MachineSettingsView>>> {
-    let all = desk(&fleet).await?.harness_settings(&agent)?;
-    Ok(Some(all.into_iter().map(Into::into).collect()))
+) -> Result<Option<Vec<MachineHarnessSettings>>> {
+    Ok(Some(desk(&fleet).await?.harness_settings(&agent)?))
 }
 
 /// Saves the settings of `agent`, as edited on `from_machine`, on every
@@ -251,12 +102,12 @@ pub async fn harness_settings_save_all(
     fleet: FleetState<'_>,
     from_machine: String,
     agent: String,
-    settings: SettingsInput,
+    settings: HarnessSettings,
     include_program: bool,
 ) -> Result<u32> {
     Ok(desk(&fleet)
         .await?
-        .save_harness_settings_all(&from_machine, &agent, settings.into(), include_program)
+        .save_harness_settings_all(&from_machine, &agent, settings, include_program)
         .await?)
 }
 
@@ -320,24 +171,24 @@ pub async fn harness_driver_save(
         .await?)
 }
 
-/// The harnesses `agent`'s sessions may start, on every machine; `None` is any.
+/// The harnesses whose sessions may run in `project`, on every machine; `None` is any.
 #[tauri::command]
-pub async fn harness_spawns(
+pub async fn project_harnesses(
     fleet: FleetState<'_>,
-    agent: String,
+    project: String,
 ) -> Result<Option<Vec<AgentSlug>>> {
-    Ok(desk(&fleet).await?.harness_spawns(&agent)?)
+    Ok(desk(&fleet).await?.project_harnesses(&project)?)
 }
 
 #[tauri::command]
-pub async fn harness_spawns_save(
+pub async fn project_harnesses_save(
     fleet: FleetState<'_>,
-    agent: String,
-    spawns: Option<Vec<AgentSlug>>,
+    project: String,
+    harnesses: Option<Vec<AgentSlug>>,
 ) -> Result<()> {
     Ok(desk(&fleet)
         .await?
-        .save_harness_spawns(&agent, spawns)
+        .save_project_harnesses(&project, harnesses)
         .await?)
 }
 

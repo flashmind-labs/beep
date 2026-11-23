@@ -20,7 +20,7 @@ use beep_proto::{
     node::agent::{ExternalSession, Presence},
 };
 use std::{
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    sync::{Arc, Mutex, MutexGuard},
     time::{Duration, Instant, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
@@ -84,7 +84,7 @@ impl AgentSessions {
     }
 
     fn last(&self) -> MutexGuard<'_, Option<Listed>> {
-        self.last.lock().unwrap_or_else(PoisonError::into_inner)
+        super::lock(&self.last)
     }
 
     /// Changes the last list, for what this app knows before the next read.

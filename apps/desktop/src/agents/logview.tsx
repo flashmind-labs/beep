@@ -34,7 +34,7 @@ import { parentSession, sessions } from "./sessions.ts";
 import { fillAgentPics } from "./images.tsx";
 import { prepareInlineImages } from "./inline-images.ts";
 import { picTile } from "./pic-state.ts";
-import { drawModelPill } from "./modelpill.tsx";
+import { canSwitchModel, drawModelPill } from "./modelpill.tsx";
 import { modelLabel } from "./agentpick.ts";
 import { knownModels, modelsOn } from "./agentpicker.tsx";
 import { drawModes } from "./modepill.tsx";
@@ -43,7 +43,7 @@ import { COMPACTING, waitLine, type BackgroundWork } from "./waiting-state.ts";
 import { drawQueue, questionKey } from "./messages.ts";
 import { olderNote } from "./older-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { showAgentControl, showAgentControlFor, showAgentStop } from "./composer-ui.tsx";
+import { batchComposerUi, showAgentControl, showAgentControlFor, showAgentStop } from "./composer-ui.tsx";
 import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import { sessionBody } from "./session-frame.tsx";
@@ -91,7 +91,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
     questionKey: question ? questionKey(question, openOf(s)) : null,
     answering: !!question && question.id === AG.answering,
-    error: p.error, external: s.external, note, retry };
+    error: p.error, external: s.external, switchModel: !!p.error && canSwitchModel(s), note, retry };
   if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
   // The pane follows the open conversation into its worktree.
   followAgent(p.entries, p.earlier, null);
@@ -99,17 +99,19 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   followDeviceCalls(p.entries, p.earlier);
   const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
   drawPane(subs, arts);
-  drawModelPill();
-  drawModes();
-  drawPlan(p);
-  drawTasks();
-  drawQueue();
-  showAgentControl("state", <AgentStatus status={s.status} stopping={stopping} />);
+  batchComposerUi(() => {
+    drawModelPill();
+    drawModes();
+    drawPlan(p);
+    drawTasks();
+    drawQueue();
+    showAgentControl("state", <AgentStatus status={s.status} stopping={stopping} />);
+    // Only a turn that runs can be stopped; stopped, it says so at once,
+    // while the agent winds the turn down.
+    showAgentStop({ shown: AGENT_ACTIVE.has(s.status), stopping });
+  });
   tickClocks();
   redrawAgentHints();
-  // Only a turn that runs can be stopped; stopped, it says so at once,
-  // while the agent winds the turn down.
-  showAgentStop({ shown: AGENT_ACTIVE.has(s.status), stopping });
 
   // A log goes to its end as `fillLog` draws it, with one layout.
   if (scroll === "bottom" && !units) pinEnd(b);
@@ -191,7 +193,7 @@ export function scrolledLog(b: ChatBody) {
   if (fillLog(b, b.stuck !== false)) drawnRows(b);
 }
 
-/// Shows "Jump to latest" while the log is scrolled up from the bottom.
+/// Shows "Scroll to bottom" while the log is scrolled up from the bottom.
 export function syncJump(b: ChatBody) {
   const jump = b.querySelector<HTMLElement>("#agjump");
   const hidden = b.stuck !== false || atBottom(b);
@@ -454,7 +456,10 @@ function entryRows(en: AgentEntry, at: number): TranscriptRow[] {
   if (en.kind === "user") return userRows(en, at);
   if (en.kind === "agent") return agentReply(en, at);
   if (en.kind === "tool") return toolRows(en, at);
-  if (en.kind === "other" && en.text.trim() === "[conversation compacted]") return [{ kind: "note", id: `compacted:${at}`, at, value: { kind: "compacted" } }];
+  const marker = "[conversation compacted]";
+  if (en.kind === "other" && (en.text.trim() === marker || en.text.startsWith(marker + "\n"))) {
+    return [{ kind: "note", id: `compacted:${at}`, at, value: { kind: "compacted", summary: en.text.slice(marker.length).trim() || null } }];
+  }
   // The files a turn's commands made: one file as "Made x.md", several as a
   // folded "Made 11 files" that opens to their names by kind.
   const files = AG.page ? madeFiles(en.text, AG.page.session.cwd) : null;

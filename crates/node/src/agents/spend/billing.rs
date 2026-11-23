@@ -22,7 +22,6 @@ const SUBSCRIPTION_PROVIDERS: &[&str] = &[
     "claude-code",
     "claude-max",
     "claude-pro",
-    "google-gemini-cli",
     "google-antigravity",
     "kimi-code",
     "kimi-for-coding",
@@ -239,6 +238,8 @@ impl Accounts {
             Agent::Pi => self.provider(&self.pi, provider),
             Agent::OpenCode => self.provider(&self.opencode, provider),
             Agent::Flsh => provider.map_or(Billing::Unknown, provider_by_name),
+            // Antigravity signs in with a Google account, whose plan covers it.
+            Agent::Agy => Billing::Subscription,
         }
     }
 

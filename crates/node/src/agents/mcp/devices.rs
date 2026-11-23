@@ -5,7 +5,6 @@
 //! serves it only while it is lent to other devices. A device the agent
 //! drives keeps one attached stream open until it idles.
 
-use beep_proto::SessionId;
 use super::{
     machines::{self, Machine, command_name},
     server::Called,
@@ -13,22 +12,19 @@ use super::{
 use crate::{link::Offers, run::device};
 use anyhow::{Context, Result, bail};
 use beep_mesh::Mesh;
+use beep_proto::SessionId;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::SessionDevice,
     device::{
-        Button, Device, DeviceId, DeviceState, Element, Frame, Input, Key, MAX_LOG_LINES,
-        MAX_TEXT, Platform, Reply, Request, TouchPhase,
+        Button, Device, DeviceId, DeviceState, Element, Frame, Input, Key, MAX_LOG_LINES, MAX_TEXT,
+        Platform, Reply, Request, TouchPhase,
     },
 };
 use iroh::EndpointId;
 use serde::Deserialize;
 use serde_json::Value;
-use std::{
-    fmt::Write,
-    sync::Mutex,
-    time::Duration,
-};
+use std::{fmt::Write, sync::Mutex, time::Duration};
 use tokio::{
     sync::{mpsc, oneshot},
     time::{Instant, sleep, sleep_until, timeout},
@@ -202,8 +198,9 @@ pub(super) async fn call(
         Ok(action) => action,
         Err(e) => return Called::failed(e),
     };
+    let reach = Reach { offers, mesh };
 
-    let (called, used) = match run(offers, mesh, screens, action).await {
+    let (called, used) = match run(&reach, screens, action).await {
         Ok(ran) => ran,
         Err(e) => return Called::failed(format!("{e:#}")),
     };
@@ -220,123 +217,126 @@ pub(super) async fn call(
 /// What a call answers, and the device it used, if it used one that runs.
 type Ran = (Called, Option<SessionDevice>);
 
-async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) -> Result<Ran> {
+struct Reach<'a> {
+    offers: &'a Offers,
+    mesh: &'a Mesh,
+}
+
+async fn run(reach: &Reach<'_>, screens: &Screens, action: Action) -> Result<Ran> {
     match action {
-        Action::List {} => Ok((Called::ok(list(offers, mesh).await), None)),
+        Action::List {} => Ok((Called::ok(reach.list().await), None)),
         Action::Boot(at) => {
-            let (machine, device) = find(offers, mesh, &at).await?;
+            let (machine, device) = reach.find(&at).await?;
             let used = used(&machine, &device);
             let shown = "It shows in the user's Device tab.";
 
             if device.state != DeviceState::Off {
-                let called = Called::ok(format!(
-                    "{} on {} is already on. {shown}",
-                    device.name, machine.name
-                ));
-                return Ok((called, Some(used)));
+                let text = format!("{} on {} is already on. {shown}", device.name, machine.name);
+                return Ok((Called::ok(text), Some(used)));
             }
 
-            let boot = Request::Boot { id: device.id };
-            done(ask(offers, mesh, &machine, &boot, POWER_LIMIT).await?)?;
-            let called = Called::ok(format!(
+            reach
+                .done(&machine, &Request::Boot { id: device.id }, POWER_LIMIT)
+                .await?;
+            let text = format!(
                 "Booting {} on {}; it can take a minute to start. {shown}",
                 device.name, machine.name
-            ));
-            Ok((called, Some(used)))
+            );
+
+            Ok((Called::ok(text), Some(used)))
         }
         Action::Shutdown(at) => {
-            let (machine, device) = find(offers, mesh, &at).await?;
+            let (machine, device) = reach.find(&at).await?;
 
             if device.phone {
-                bail!("{} on {} is a phone: only the user turns it off.", device.name, machine.name);
+                bail!(
+                    "{} on {} is a phone: only the user turns it off.",
+                    device.name,
+                    machine.name
+                );
             }
 
             screens.close(machine.id, &device.id.0, &at.device);
-            let shutdown = Request::Shutdown {
-                id: device.id.clone(),
-            };
-            done(ask(offers, mesh, &machine, &shutdown, POWER_LIMIT).await?)?;
-            let called = Called::ok(format!("Shut down {} on {}.", device.name, machine.name));
-            Ok((called, None))
+            let req = Request::Shutdown { id: device.id };
+            reach.done(&machine, &req, POWER_LIMIT).await?;
+
+            Ok((
+                Called::ok(format!("Shut down {} on {}.", device.name, machine.name)),
+                None,
+            ))
         }
         Action::Logs { at, lines, filter } => {
-            let (machine, device) = find(offers, mesh, &at).await?;
-            let request = Request::Logs {
+            let (machine, device) = reach.find(&at).await?;
+            let req = Request::Logs {
                 id: device.id.clone(),
                 lines: lines.unwrap_or(LOG_LINES).min(MAX_LOG_LINES),
                 filter: filter.unwrap_or_default(),
             };
-            let text = match ask(offers, mesh, &machine, &request, LOGS_LIMIT).await? {
+            let text = match reach.ask(&machine, &req, LOGS_LIMIT).await? {
                 Reply::Logs { text } if text.is_empty() => "No log lines match.".to_owned(),
                 Reply::Logs { text } => text,
                 Reply::Failed { reason } => bail!("{reason}"),
                 other => bail!("{} answered {other:?}", machine.name),
             };
+
             Ok((Called::ok(text), Some(used(&machine, &device))))
         }
         Action::Ui(at) => {
-            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
+            let (viewer, used) = screens.viewer(reach, &at).await?;
             let shot = viewer.shot().await?;
-            let (machine, device) = find(offers, mesh, &at).await?;
-            let request = Request::Ui { id: device.id };
-            let elements = match ask(offers, mesh, &machine, &request, UI_LIMIT).await? {
+            let (machine, device) = reach.find(&at).await?;
+            let elements = match reach
+                .ask(&machine, &Request::Ui { id: device.id }, UI_LIMIT)
+                .await?
+            {
                 Reply::Ui { elements } => elements,
                 Reply::Failed { reason } => bail!("{reason}"),
                 other => bail!("{} answered {other:?}", machine.name),
             };
-            Ok((Called::ok(placed(&elements, shot.width, shot.height)), Some(used)))
+
+            Ok((
+                Called::ok(placed(&elements, shot.width, shot.height)),
+                Some(used),
+            ))
         }
         Action::Install { at, text } => {
-            let (machine, device) = find(offers, mesh, &at).await?;
-            let request = Request::Install {
-                id: device.id.clone(),
-                path: text.clone(),
-            };
-            done(ask(offers, mesh, &machine, &request, INSTALL_LIMIT).await?)?;
-            let called = Called::ok(format!("Installed {text} on {}.", device.name));
-            Ok((called, Some(used(&machine, &device))))
+            reach
+                .app(&at, INSTALL_LIMIT, "Installed", &text, |id, path| {
+                    Request::Install { id, path }
+                })
+                .await
         }
         Action::Launch { at, text } => {
-            let (machine, device) = find(offers, mesh, &at).await?;
-            let request = Request::Launch {
-                id: device.id.clone(),
-                target: text.clone(),
-            };
-            done(ask(offers, mesh, &machine, &request, LIST_LIMIT).await?)?;
-            let called = Called::ok(format!("Opened {text} on {}.", device.name));
-            Ok((called, Some(used(&machine, &device))))
+            reach
+                .app(&at, LIST_LIMIT, "Opened", &text, |id, target| {
+                    Request::Launch { id, target }
+                })
+                .await
         }
         Action::Reset { at, text } => {
-            let (machine, device) = find(offers, mesh, &at).await?;
-            let request = Request::Reset {
-                id: device.id.clone(),
-                app: text.clone(),
-            };
-            done(ask(offers, mesh, &machine, &request, LIST_LIMIT).await?)?;
-            let called = Called::ok(format!("Cleared {text} on {}.", device.name));
-            Ok((called, Some(used(&machine, &device))))
+            reach
+                .app(&at, LIST_LIMIT, "Cleared", &text, |id, app| {
+                    Request::Reset { id, app }
+                })
+                .await
         }
         Action::Show(at) => {
-            let (machine, device) = find(offers, mesh, &at).await?;
-
-            if device.state == DeviceState::Off {
-                bail!("{} on {} is off: device_boot it.", device.name, machine.name);
-            }
-
-            let called = Called::ok(format!(
+            let (machine, device) = reach.find(&at).await?;
+            ensure_on(&machine, &device)?;
+            let text = format!(
                 "{} on {} shows in the user's Device tab.",
                 device.name, machine.name
-            ));
-            Ok((called, Some(used(&machine, &device))))
+            );
+
+            Ok((Called::ok(text), Some(used(&machine, &device))))
         }
         Action::Screenshot(at) => {
-            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
+            let (viewer, used) = screens.viewer(reach, &at).await?;
             Ok((shown(&at, viewer.shot().await?)?, Some(used)))
         }
         Action::Tap { at, x, y } => {
-            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
-            let last = viewer.shot().await?;
-            let (x, y) = fraction(x, y, &last)?;
+            let (viewer, used) = screens.viewer(reach, &at).await?;
+            let (x, y) = fraction(x, y, &viewer.shot().await?)?;
             let inputs = vec![
                 (touch(TouchPhase::Down, x, y), Duration::from_millis(50)),
                 (touch(TouchPhase::Up, x, y), Duration::ZERO),
@@ -351,30 +351,48 @@ async fn run(offers: &Offers, mesh: &Mesh, screens: &Screens, action: Action) ->
             y2,
             duration_ms,
         } => {
-            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
+            let (viewer, used) = screens.viewer(reach, &at).await?;
             let last = viewer.shot().await?;
-            let from = fraction(x, y, &last)?;
-            let to = fraction(x2, y2, &last)?;
             let length = duration_ms
                 .map_or(SWIPE_DEFAULT, Duration::from_millis)
                 .min(SWIPE_MAX);
-            Ok((drive(&viewer, &at, swipe(from, to, length)).await?, Some(used)))
+            let inputs = swipe(fraction(x, y, &last)?, fraction(x2, y2, &last)?, length);
+            Ok((drive(&viewer, &at, inputs).await?, Some(used)))
         }
         Action::Type { at, text } => {
             if text.is_empty() || text.len() > MAX_TEXT {
-                bail!("Give text of 1 to {} bytes.", MAX_TEXT);
+                bail!("Give text of 1 to {MAX_TEXT} bytes.");
             }
 
-            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
-            let inputs = vec![(Input::Text { text }, Duration::ZERO)];
-            Ok((drive(&viewer, &at, inputs).await?, Some(used)))
+            send_input(screens, reach, &at, Input::Text { text }).await
         }
-        Action::Press { at, key } => {
-            let (viewer, used) = screens.viewer(offers, mesh, &at).await?;
-            let inputs = vec![(key.into(), Duration::ZERO)];
-            Ok((drive(&viewer, &at, inputs).await?, Some(used)))
-        }
+        Action::Press { at, key } => send_input(screens, reach, &at, Input::from(key)).await,
     }
+}
+
+async fn send_input(
+    screens: &Screens,
+    reach: &Reach<'_>,
+    at: &Target,
+    input: Input,
+) -> Result<Ran> {
+    let (viewer, used) = screens.viewer(reach, at).await?;
+    Ok((
+        drive(&viewer, at, vec![(input, Duration::ZERO)]).await?,
+        Some(used),
+    ))
+}
+
+fn ensure_on(machine: &Machine, device: &Device) -> Result<()> {
+    if device.state == DeviceState::Off {
+        bail!(
+            "{} on {} is off: device_boot it.",
+            device.name,
+            machine.name
+        );
+    }
+
+    Ok(())
 }
 
 /// `device` on `machine`, as a session keeps it.
@@ -393,7 +411,6 @@ async fn drive(viewer: &Viewer, at: &Target, inputs: Vec<(Input, Duration)>) -> 
     shown(at, viewer.shot().await?)
 }
 
-/// A screenshot for the agent, with its size.
 /// A line per element, with where to tap it in a `width` by `height`
 /// screenshot.
 fn placed(elements: &[Element], width: u32, height: u32) -> String {
@@ -402,6 +419,7 @@ fn placed(elements: &[Element], width: u32, height: u32) -> String {
     }
 
     let (width, height) = (width as f32, height as f32);
+
     elements
         .iter()
         .take(MAX_ELEMENTS)
@@ -478,39 +496,134 @@ fn swipe(from: (f32, f32), to: (f32, f32), length: Duration) -> Vec<(Input, Dura
 
 // ----- Machines and their devices -----
 
-/// Every device on every machine that is online, each machine asked at
-/// once.
-async fn list(offers: &Offers, mesh: &Mesh) -> String {
-    let me = mesh.me();
-    let online: Vec<Machine> = mesh
-        .code_hosts()
-        .into_iter()
-        .filter(|status| status.online || status.device.id == me)
-        .map(Machine::from)
-        .collect();
-    let listed = futures::future::join_all(online.iter().map(|machine| async move {
-        (machine, devices_on(offers, mesh, machine).await)
-    }))
-    .await;
-    let mut text = String::new();
+impl Reach<'_> {
+    /// Every device on every machine that is online, each machine asked at once.
+    async fn list(&self) -> String {
+        let me = self.mesh.me();
+        let online: Vec<Machine> = self
+            .mesh
+            .code_hosts()
+            .into_iter()
+            .filter(|status| status.online || status.device.id == me)
+            .map(Machine::from)
+            .collect();
+        let listed = futures::future::join_all(
+            online
+                .iter()
+                .map(|m| async move { (m, self.devices_on(m).await) }),
+        )
+        .await;
+        let mut text = String::new();
 
-    for (machine, devices) in listed {
-        let here = if machine.id == me { " (this machine)" } else { "" };
-        // Writing to a string cannot fail.
-        let _ = match devices {
-            Ok(devices) if devices.is_empty() => {
-                writeln!(text, "- {}{here}: no emulators or simulators", machine.name)
+        for (machine, devices) in listed {
+            let here = if machine.id == me {
+                " (this machine)"
+            } else {
+                ""
+            };
+            // Writing to a string cannot fail.
+            let _ = match devices {
+                Ok(devices) if devices.is_empty() => {
+                    writeln!(text, "- {}{here}: no emulators or simulators", machine.name)
+                }
+                Ok(devices) => writeln!(text, "- {}{here}:\n{}", machine.name, lines(&devices)),
+                Err(e) => writeln!(text, "- {}{here}: not listed: {e:#}", machine.name),
+            };
+        }
+
+        if text.is_empty() {
+            return "No machine is online.".to_owned();
+        }
+
+        text.trim_end().to_owned()
+    }
+
+    /// The machine and device `at` names.
+    async fn find(&self, at: &Target) -> Result<(Machine, Device)> {
+        let machine = machine(self.mesh, &at.machine)?;
+        let devices = self
+            .devices_on(&machine)
+            .await
+            .with_context(|| format!("{} did not list its devices", machine.name))?;
+        let device =
+            pick(&devices, &at.device).map_err(|e| anyhow::anyhow!("{e} on {}", machine.name))?;
+
+        Ok((machine, device))
+    }
+
+    async fn devices_on(&self, machine: &Machine) -> Result<Vec<Device>> {
+        match self.ask(machine, &Request::List {}, LIST_LIMIT).await? {
+            Reply::Devices { devices } => Ok(devices),
+            Reply::Failed { reason } => bail!(reason),
+            other => bail!("unexpected reply {other:?}"),
+        }
+    }
+
+    async fn app(
+        &self,
+        at: &Target,
+        limit: Duration,
+        verb: &str,
+        text: &str,
+        make: impl FnOnce(DeviceId, String) -> Request,
+    ) -> Result<Ran> {
+        let (machine, device) = self.find(at).await?;
+        let req = make(device.id.clone(), text.to_owned());
+        self.done(&machine, &req, limit).await?;
+        let said = format!("{verb} {text} on {}.", device.name);
+
+        Ok((Called::ok(said), Some(used(&machine, &device))))
+    }
+
+    async fn done(&self, machine: &Machine, request: &Request, limit: Duration) -> Result<()> {
+        match self.ask(machine, request, limit).await? {
+            Reply::Done {} => Ok(()),
+            Reply::Failed { reason } => bail!(reason),
+            other => bail!("unexpected reply {other:?}"),
+        }
+    }
+
+    /// Sends one request to `machine`'s `device/1` and reads its reply.
+    async fn ask(&self, machine: &Machine, request: &Request, limit: Duration) -> Result<Reply> {
+        let mut link = self.open(machine).await?;
+        link.tx.send(request).await?;
+
+        timeout(limit, link.rx.recv())
+            .await
+            .with_context(|| format!("{} did not answer in time", machine.name))??
+            .with_context(|| format!("{} closed the call", machine.name))
+    }
+
+    /// Opens `device/1` on `machine`: this node's own service in process, or
+    /// another machine's over the mesh, which refuses while it is not lent.
+    async fn open(&self, machine: &Machine) -> Result<Link> {
+        if machine.id != self.mesh.me() {
+            let (tx, rx) = machines::handshake(self.mesh, machine.id, device::PROTOCOL)
+                .await
+                .with_context(|| format!("could not reach {}", machine.name))?;
+            return Ok(Link {
+                tx,
+                rx,
+                _here: None,
+            });
+        }
+
+        let link = beep_proto::node::local_link();
+        let (node_tx, node_rx) = link.node;
+        let agents = self.offers.agents.clone();
+        let task = tokio::spawn(async move {
+            if let Err(e) = device::serve(node_tx, node_rx, agents).await {
+                log::debug!("an agent's device stream ended: {e:#}");
             }
-            Ok(devices) => writeln!(text, "- {}{here}:\n{}", machine.name, lines(&devices)),
-            Err(e) => writeln!(text, "- {}{here}: not listed: {e:#}", machine.name),
-        };
-    }
+        });
+        let (tx, rx) = link.caller;
 
-    if text.is_empty() {
-        return "No machine is online.".to_owned();
+        Ok(Link {
+            tx,
+            rx,
+            _here: Some(AbortOnDropHandle::new(task)),
+        })
     }
-
-    text.trim_end().to_owned()
 }
 
 /// One line per device: its name, id, OS and state, and whether it is a
@@ -529,7 +642,10 @@ fn lines(devices: &[Device]) -> String {
                 DeviceState::On => "on",
             };
             let phone = if device.phone { ", phone" } else { "" };
-            format!("  - {} (id {}): {os}, {state}{phone}", device.name, device.id)
+            format!(
+                "  - {} (id {}): {os}, {state}{phone}",
+                device.name, device.id
+            )
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -541,23 +657,8 @@ fn takes_input(device: &Device) -> bool {
     !(device.phone && device.platform == Platform::Ios)
 }
 
-/// The machine and device `at` names.
-async fn find(offers: &Offers, mesh: &Mesh, at: &Target) -> Result<(Machine, Device)> {
-    let machine = machine(mesh, &at.machine)?;
-    let devices = devices_on(offers, mesh, &machine)
-        .await
-        .with_context(|| format!("{} did not list its devices", machine.name))?;
-    let device = pick(&devices, &at.device).map_err(|e| anyhow::anyhow!("{e} on {}", machine.name))?;
-    Ok((machine, device))
-}
-
 fn machine(mesh: &Mesh, name: &str) -> Result<Machine> {
-    let Some(found) = machines::find_or_id(mesh, name) else {
-        let all = machines::machines(mesh);
-        let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
-        bail!("No machine called {name}. Machines: {}.", names.join(", "));
-    };
-    Ok(found)
+    machines::find_or_id_named(mesh, name).map_err(anyhow::Error::msg)
 }
 
 /// The device `named` by id, else by name; a name several devices share
@@ -582,10 +683,7 @@ fn pick(devices: &[Device], named: &str) -> Result<Device, String> {
                 .iter()
                 .map(|d| format!("{} ({})", d.name, d.id))
                 .collect();
-            Err(format!(
-                "No device {named}; devices: {}",
-                known.join(", ")
-            ))
+            Err(format!("No device {named}; devices: {}", known.join(", ")))
         }
         several => {
             let ids: Vec<String> = several.iter().map(|d| d.id.to_string()).collect();
@@ -597,69 +695,11 @@ fn pick(devices: &[Device], named: &str) -> Result<Device, String> {
     }
 }
 
-async fn devices_on(offers: &Offers, mesh: &Mesh, machine: &Machine) -> Result<Vec<Device>> {
-    match ask(offers, mesh, machine, &Request::List {}, LIST_LIMIT).await? {
-        Reply::Devices { devices } => Ok(devices),
-        Reply::Failed { reason } => bail!(reason),
-        other => bail!("unexpected reply {other:?}"),
-    }
-}
-
-fn done(reply: Reply) -> Result<()> {
-    match reply {
-        Reply::Done {} => Ok(()),
-        Reply::Failed { reason } => bail!(reason),
-        other => bail!("unexpected reply {other:?}"),
-    }
-}
-
-/// Sends one request to `machine`'s `device/1` and reads its reply.
-async fn ask(
-    offers: &Offers,
-    mesh: &Mesh,
-    machine: &Machine,
-    request: &Request,
-    limit: Duration,
-) -> Result<Reply> {
-    let mut link = open(offers, mesh, machine).await?;
-    link.tx.send(request).await?;
-    timeout(limit, link.rx.recv())
-        .await
-        .with_context(|| format!("{} did not answer in time", machine.name))??
-        .with_context(|| format!("{} closed the call", machine.name))
-}
-
 /// A `device/1` stream, and for this machine the task that serves it.
 struct Link {
     tx: LinkTx,
     rx: LinkRx,
     _here: Option<AbortOnDropHandle<()>>,
-}
-
-/// Opens `device/1` on `machine`: this node's own service in process, or
-/// another machine's over the mesh, which refuses while it is not lent.
-async fn open(offers: &Offers, mesh: &Mesh, machine: &Machine) -> Result<Link> {
-    if machine.id != mesh.me() {
-        let (tx, rx) = machines::handshake(mesh, machine.id, device::PROTOCOL)
-            .await
-            .with_context(|| format!("could not reach {}", machine.name))?;
-        return Ok(Link { tx, rx, _here: None });
-    }
-
-    let link = beep_proto::node::local_link();
-    let (node_tx, node_rx) = link.node;
-    let agents = offers.agents.clone();
-    let task = tokio::spawn(async move {
-        if let Err(e) = device::serve(node_tx, node_rx, agents).await {
-            log::debug!("an agent's device stream ended: {e:#}");
-        }
-    });
-    let (tx, rx) = link.caller;
-    Ok(Link {
-        tx,
-        rx,
-        _here: Some(AbortOnDropHandle::new(task)),
-    })
 }
 
 // ----- Attached devices -----
@@ -700,31 +740,24 @@ enum Ask {
 impl Screens {
     /// The attached device `at` names, attached now when it is not, and
     /// the device it is.
-    async fn viewer(
-        &self,
-        offers: &Offers,
-        mesh: &Mesh,
-        at: &Target,
-    ) -> Result<(Viewer, SessionDevice)> {
-        let machine = machine(mesh, &at.machine)?;
+    async fn viewer(&self, reach: &Reach<'_>, at: &Target) -> Result<(Viewer, SessionDevice)> {
+        let machine = machine(reach.mesh, &at.machine)?;
         let called = at.device.trim();
 
         if let Some(seen) = self.touch(machine.id, called) {
             return Ok(seen);
         }
 
-        let (machine, device) = find(offers, mesh, at).await?;
+        let (machine, device) = reach.find(at).await?;
 
         // Attached by id earlier and called by name now: reuse that viewer.
         if let Some(seen) = self.touch(machine.id, &device.id.0) {
             return Ok(seen);
         }
 
-        if device.state == DeviceState::Off {
-            bail!("{} on {} is off: device_boot it.", device.name, machine.name);
-        }
+        ensure_on(&machine, &device)?;
 
-        let mut link = open(offers, mesh, &machine).await?;
+        let mut link = reach.open(&machine).await?;
         link.tx
             .send(&Request::Attach {
                 id: device.id.clone(),
@@ -739,6 +772,7 @@ impl Screens {
             called: called.to_owned(),
             viewer: viewer.clone(),
         });
+
         Ok((viewer, used))
     }
 
@@ -759,6 +793,7 @@ impl Screens {
             },
         );
         open.push(attached);
+
         Some(seen)
     }
 
@@ -791,6 +826,7 @@ impl Viewer {
     fn start(link: Link, idle: Duration, takes_input: bool) -> Self {
         let (asks, taken) = mpsc::channel(8);
         let task = tokio::spawn(view(link, taken, idle));
+
         Self {
             asks,
             takes_input,
@@ -823,9 +859,8 @@ impl Viewer {
             .send(Ask::Input(inputs, sent))
             .await
             .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))?;
-        answer
-            .await
-            .map_err(|_| anyhow::anyhow!(VIEW_STOPPED))
+
+        answer.await.map_err(|_| anyhow::anyhow!(VIEW_STOPPED))
     }
 }
 

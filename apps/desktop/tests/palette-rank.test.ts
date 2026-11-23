@@ -38,6 +38,22 @@ test("each group shows eight", () => {
   assert.equal(rank("tea", index({ projects })).length, 8);
 });
 
+test("repeated matches in a project title rank before siblings and survive the group limit", () => {
+  const siblings = Array.from({ length: 10 }, (_, i) => entry("project", `sample/tool-${i}`));
+  const repeated = entry("project", "Sample/Sample");
+  const hits = rank(" sample ", index({ projects: [...siblings, repeated], machines: [entry("machine", "sample")] }));
+  assert.equal(hits[0].title, repeated.title);
+  assert.equal(hits[0].top, true);
+  assert.deepEqual(titles(hits.slice(1, 8)), titles(siblings.slice(0, 7)));
+});
+
+test("a stronger prefix match wins Top hit across groups, even with duplicate project keys", () => {
+  const project = { ...entry("project", "sample/tool"), keys: ["sample/tool", "sample/tool"] };
+  const hits = rank("sample", index({ projects: [project], machines: [entry("machine", "sample-sample")] }));
+  assert.equal(hits[0].kind, "machine");
+  assert.equal(hits[0].top, true);
+});
+
 test("nothing typed lists every action", () => {
   const actions = [entry("action", "Home"), entry("action", "Settings")];
   const projects = [entry("project", "acme/widget")];

@@ -1,5 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import { openDesktop } from "./harness.ts";
 
 test("only chat and editable fields allow text selection", async ({ page }) => {
   await page.setContent(`<body>
@@ -32,4 +33,25 @@ test("only chat and editable fields allow text selection", async ({ page }) => {
     if (name === "Editor") await expect(field).toHaveText("Updated text");
     else await expect(field).toHaveValue("Updated text");
   }
+});
+
+test("a triple-click selects that prompt and nothing after it", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const value = await invoke<T>(command, args);
+      if (command !== "agent_view" || !value || typeof value !== "object") return value;
+      return { ...value, entries: [
+        { kind: "user", text: "Does it have threads?\n\nOr only sessions?", html: "<p>Does it have threads?</p><p>Or only sessions?</p>", sent_at: 1794579242 },
+        { kind: "tool", text: "Run: cargo build [completed]", sent_at: 1794579244 },
+        { kind: "agent", text: "Not threads.", html: "<p>Not threads.</p>", sent_at: 1794579245 },
+      ] } as T;
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+
+  const prompt = page.locator(".dcoderen.user");
+  await prompt.getByText("Or only sessions?").click({ clickCount: 3 });
+  expect(await page.evaluate(() => getSelection()?.toString().trim())).toMatch(/^Does it have threads\?\n+Or only sessions\?$/);
 });

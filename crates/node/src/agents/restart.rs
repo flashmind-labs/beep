@@ -13,11 +13,10 @@ use anyhow::{Context, Result};
 use beep_proto::watched;
 use beep_proto::{
     ModelId,
-    node::agent::{Effort, Entry, ParentLink, SessionDevice, SessionInfo, Status},
+    node::agent::{Effort, Entry, ParentLink, Persona, SessionDevice, SessionInfo, Status},
 };
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -54,6 +53,9 @@ pub(crate) struct SavedSession {
     /// The named account it ran as; `None` for the default one.
     #[serde(default)]
     pub(crate) account: Option<AccountName>,
+    /// Its parent gave its title, which its agent's own names leave alone.
+    #[serde(default)]
+    pub(crate) named: bool,
 }
 
 /// Why a session is read to start again.
@@ -115,6 +117,12 @@ pub(crate) struct OpenSession {
     /// The named account it ran as; `None` for the default one.
     #[serde(default)]
     account: Option<AccountName>,
+    /// Its parent gave its title.
+    #[serde(default)]
+    named: bool,
+    /// The custom agent it runs as.
+    #[serde(default)]
+    persona: Option<Persona>,
 }
 
 impl From<&OpenSession> for SavedSession {
@@ -135,11 +143,13 @@ impl From<&OpenSession> for SavedSession {
                 worktrees: open.worktrees.clone(),
                 account: open.account.clone(),
                 assistant: open.assistant,
+                persona: open.persona.clone(),
                 ..SessionInfo::default()
             },
             effort: open.effort,
             fast: open.fast,
             account: open.account.clone(),
+            named: open.named,
         }
     }
 }
@@ -226,27 +236,11 @@ impl Agents {
         *crate::lock(&self.saved) = saved;
     }
 
-    /// The sessions, by the agent's own id, that ran here as the home
-    /// assistant: those here now and those kept from before.
-    pub(super) fn assistants(&self) -> HashSet<SessionId> {
-        let here: Vec<Arc<Session>> = self
-            .lock()
-            .values()
-            .filter(|session| session.assistant && !session.reviewer)
-            .cloned()
-            .collect();
-        let mut ids: HashSet<SessionId> = here
-            .iter()
-            .filter_map(|session| watched::read(&session.live, |live| live.agent_session.clone()))
-            .collect();
-
-        ids.extend(
-            crate::lock(&self.saved)
-                .iter()
-                .filter(|kept| kept.info.assistant && !kept.info.reviewer)
-                .map(|kept| kept.info.id.clone()),
-        );
-        ids
+    /// Keeps `saved`, a session that came from another machine ended, as
+    /// one that ended here.
+    pub(crate) fn keep_arrived(&self, saved: SavedSession) {
+        kept_with(&mut crate::lock(&self.saved), vec![saved], |kept| &kept.info.id);
+        crate::link::restart::changed();
     }
 
     /// What session `id`, by the agent's own id, is: from its state when it
@@ -260,6 +254,12 @@ impl Agents {
             .iter()
             .rfind(|kept| kept.info.id == *id)
             .cloned()
+    }
+
+    /// Drops what was kept of session `id`, by the agent's own id, once it
+    /// is deleted.
+    pub(super) fn forget_saved(&self, id: &SessionId) {
+        crate::lock(&self.saved).retain(|kept| kept.info.id != *id);
     }
 
     /// The linked worktrees session `id` created, as `saved` gives them.
@@ -290,11 +290,13 @@ impl Agents {
                     worktrees: info.worktrees.clone(),
                     assistant: session.assistant,
                     account: info.account.clone(),
+                    persona: info.persona.clone(),
                     ..SessionInfo::default()
                 },
                 effort: live.effort,
                 fast: live.fast,
                 account: info.account.clone(),
+                named: live.named,
             })
         })
     }
@@ -345,6 +347,8 @@ impl Agents {
                 effort: live.effort,
                 fast: live.fast,
                 account: session.account.clone(),
+                named: live.named,
+                persona: live.info.persona.clone(),
             })
         })
     }
@@ -417,8 +421,8 @@ impl Agents {
             .named(&open.agent)
             .with_context(|| format!("this node no longer runs {}", open.agent))?;
         self.prepare(&kind).await?;
-        to_project(&kind, &open.session, &open.cwd).await;
-        let cwd = open.cwd.to_string_lossy();
+        let cwd = ready_to_resume(&kind, &open.session, &open.cwd).await;
+        let cwd = cwd.to_string_lossy();
         let follows = open
             .parent
             .as_ref()
@@ -432,6 +436,7 @@ impl Agents {
                 earlier: open.transcript,
                 model: open.model,
                 title: open.title,
+                named: open.named,
                 mode: open.mode,
                 parent: open.parent,
                 follows,
@@ -441,6 +446,7 @@ impl Agents {
                 effort: open.effort,
                 fast: open.fast,
                 account: open.account,
+                persona: open.persona,
                 ..Begin::default()
             },
         )?;
@@ -472,26 +478,32 @@ impl Agents {
     }
 }
 
-/// Readies resumed session `id` of `kind`, kept for `cwd`, to run in its
-/// project folder when `cwd` is in a worktree (`Agents::start`): Claude
-/// Code's transcript goes along. A failure only costs the history.
-pub(super) async fn to_project(kind: &AgentKind, id: &SessionId, cwd: &Path) {
-    if kind.name.parse::<Agent>() != Ok(Agent::Claude) {
-        return;
-    }
+/// The folder resumed session `id` of `kind`, kept for `cwd`, starts in, so
+/// that a session can always go on: `cwd`, which `Agents::start` turns into
+/// the project folder when it is a worktree, even a removed one, or the home
+/// folder when `cwd` is gone and was no worktree. Claude Code's transcript
+/// goes along; a failure there only costs the history.
+pub(super) async fn ready_to_resume(kind: &AgentKind, id: &SessionId, cwd: &Path) -> PathBuf {
+    let claude = kind.name.parse::<Agent>() == Ok(Agent::Claude);
+    let (id, kept) = (id.to_owned(), cwd.to_owned());
+    let ready = spawn_blocking(move || {
+        let project = checkout::project_of(&kept);
+        let home = (project.is_none() && !kept.is_dir())
+            .then(dirs::home_dir)
+            .flatten();
 
-    let (id, cwd) = (id.to_owned(), cwd.to_owned());
-    let moved = spawn_blocking(move || {
-        let Some(project) = checkout::project_of(&cwd) else {
-            return Ok(());
-        };
-        moving::rehome_claude(&id, &cwd, &project)
+        if claude
+            && let Some(to) = project.as_ref().or(home.as_ref())
+            && let Err(e) = moving::rehome_claude(&id, &kept, to)
+        {
+            log::warn!("could not carry a Claude transcript to {}: {e:#}", to.display());
+        }
+
+        home.unwrap_or(kept)
     })
     .await;
 
-    if let Ok(Err(e)) | Err(e) = moved.map_err(anyhow::Error::from) {
-        log::warn!("could not carry a Claude transcript to its project folder: {e:#}");
-    }
+    ready.unwrap_or_else(|_| cwd.to_owned())
 }
 
 #[cfg(all(test, unix))]

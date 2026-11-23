@@ -61,13 +61,13 @@ test("terminal switching reuses screens and stopping requires confirmation", asy
   await expect(screen).toBeVisible();
   await screen.evaluate(element => { element.dataset.identity = "first"; });
   await page.locator(".tm-head").click({ button: "right" });
-  await expect(page.getByRole("menuitem", { name: "Kill…" })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Kill" })).toBeVisible();
   await page.keyboard.press("Escape");
   await list.getByRole("button", { name: /second/ }).click();
   await expect(page.locator(".tm-head")).toContainText("second");
   await list.getByRole("button", { name: /first/ }).click();
   await expect(screen).toHaveAttribute("data-identity", "first");
-  await page.getByRole("button", { name: "Kill…" }).click();
+  await page.getByRole("button", { name: "Kill" }).click();
   const dialog = page.getByRole("dialog").filter({ hasText: "Stop first?" });
   await expect(dialog).toBeVisible();
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminal_close").length)).toBe(0);

@@ -362,7 +362,13 @@ test("the model pill keeps the model that runs", async t => {
   show({});
   const s = page.session;
 
-  await switchSessionModel(s, { model: "opus-x", effort: null, fast: null }, "model");
+  let finishSwitch!: (keys: string[]) => void;
+  answers.agent_steer = new Promise<string[]>(resolve => { finishSwitch = resolve; });
+  const switching = switchSessionModel(s, { model: "opus-x", effort: null, fast: null }, "model");
+  assert.match(pill.innerHTML, /opus-x/, "updates optimistically before a slow node answers");
+  finishSwitch([]);
+  await switching;
+  delete answers.agent_steer;
   assert.match(pill.innerHTML, /opus-x/);
 
   // Default cannot be sent to a running session, so opus-x keeps running.

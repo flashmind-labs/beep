@@ -334,6 +334,7 @@ fn a_move_record_lets_only_its_two_machines_read_and_ask() {
         mode: None,
         model: None,
         worktrees: Vec::new(),
+        conversation: None,
         stop: false,
         at: 1,
         worktree: None,
@@ -584,7 +585,7 @@ impl ProtocolHandler for Project {
         let (tx, rx) = link(send, recv);
         let main = self.1.clone();
         let leaving = move |_: &SessionId| {
-            Some(Leaving {
+            Some(Leaving::Project {
                 folder: main.clone(),
                 worktrees: vec![
                     main.join(".worktrees/feat").to_string_lossy().into_owned(),
@@ -723,7 +724,7 @@ impl ProtocolHandler for Leaves {
         let (tx, rx) = link(send, recv);
         let folder = self.1.clone();
         let leaving = move |_: &SessionId| {
-            Some(Leaving {
+            Some(Leaving::Project {
                 folder: folder.clone(),
                 worktrees: Vec::new(),
             })
@@ -755,6 +756,7 @@ async fn the_source_sends_what_it_saved_of_the_session_with_its_checkout() {
         effort: None,
         fast: None,
         account: None,
+        named: false,
     }]);
     let folder = TempDir::new().expect("a temp folder");
     let server = Router::builder(endpoint().await)
@@ -775,4 +777,124 @@ async fn the_source_sends_what_it_saved_of_the_session_with_its_checkout() {
     let saved = checkout.session.expect("the saved session came along");
     assert_eq!(saved.info.title.as_deref(), Some("Plan the week"));
     assert!(saved.info.assistant);
+}
+
+/// Serves reads to anyone, of a chat's session leaving the folder it holds
+/// while a thread brings its own.
+#[derive(Clone)]
+struct Chat(Arc<Agents>, std::path::PathBuf);
+
+impl std::fmt::Debug for Chat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Chat")
+    }
+}
+
+impl ProtocolHandler for Chat {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        let Ok((send, recv)) = connection.accept_bi().await else {
+            return Ok(());
+        };
+        let (tx, rx) = link(send, recv);
+        let folder = self.1.clone();
+        let leaving = move |_: &SessionId| {
+            Some(Leaving::Chat {
+                folder: folder.clone(),
+                apart: vec![folder.join("research")],
+            })
+        };
+        let access = Access {
+            check: &|_, _| true,
+            updates: None,
+            leaving: &leaving,
+        };
+        let _ = super::read::serve(tx, rx, &self.0, "laptop", access).await;
+        connection.closed().await;
+        Ok(())
+    }
+}
+
+#[tokio::test]
+async fn a_chats_files_come_without_the_folder_its_thread_brings() {
+    let source = source("");
+    let dir = TempDir::new().expect("a temp folder");
+    let chat = dir.path().join("ab12");
+    fs::create_dir_all(chat.join("research")).unwrap();
+    fs::write(chat.join("notes.md"), "open: pricing").unwrap();
+    fs::write(chat.join("research/found.md"), "the thread's").unwrap();
+    // More than one message carries.
+    fs::write(chat.join("big.bin"), vec![7u8; 600 * 1024]).unwrap();
+    let server = Router::builder(endpoint().await)
+        .accept(ALPN, Chat(source.agents.clone(), chat))
+        .spawn();
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+
+    let archive = dir.path().join("files.tar");
+    let mut came = Vec::new();
+    super::read::files(tx, rx, &SessionId::from(ID), &archive, |held| came.push(held))
+        .await
+        .expect("the files came");
+    // The bytes are counted as they come, for the move's progress.
+    assert!(came.len() > 1, "{came:?}");
+    assert_eq!(came.last().copied(), Some(fs::metadata(&archive).unwrap().len()));
+    let there = dir.path().join("there");
+    super::files::unpack(fs::File::open(&archive).unwrap(), &there).expect("it unpacks");
+
+    assert_eq!(fs::read_to_string(there.join("notes.md")).unwrap(), "open: pricing");
+    assert_eq!(fs::read(there.join("big.bin")).unwrap().len(), 600 * 1024);
+    assert!(!there.join("research").exists());
+}
+
+#[tokio::test]
+async fn a_chats_checkout_says_how_much_its_files_take() {
+    let source = source("");
+    let dir = TempDir::new().expect("a temp folder");
+    let chat = dir.path().join("ab12");
+    fs::create_dir_all(chat.join("research")).unwrap();
+    fs::write(chat.join("notes.md"), "open: pricing").unwrap();
+    fs::write(chat.join("research/found.md"), "the thread's").unwrap();
+    let server = Router::builder(endpoint().await)
+        .accept(ALPN, Chat(source.agents.clone(), chat.clone()))
+        .spawn();
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+
+    let checkout = super::read::checkout(tx, rx, &SessionId::from(ID)).await.expect("answered");
+    let size = super::files::packed_size(&chat, &[chat.join("research")]).expect("it measures");
+    assert!(size > 0);
+    assert_eq!(checkout.files, size);
+}
+
+#[tokio::test]
+async fn a_project_sessions_folder_is_not_sent_as_a_chats_files() {
+    let source = source("");
+    let folder = TempDir::new().expect("a temp folder");
+    fs::write(folder.path().join("secret.env"), "TOKEN=example").unwrap();
+    let server = Router::builder(endpoint().await)
+        .accept(ALPN, Leaves(source.agents.clone(), folder.path().to_owned()))
+        .spawn();
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+
+    let archive = folder.path().join("files.tar");
+    let refused = super::read::files(tx, rx, &SessionId::from(ID), &archive, |_| {})
+        .await
+        .expect_err("a project is no chat");
+    assert!(refused.is::<super::read::Refused>(), "{refused:#}");
 }

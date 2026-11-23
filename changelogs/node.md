@@ -2,6 +2,232 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.15] - 2026-11-23
+
+### Added
+
+- Node: apply the synced flsh OpenRouter stream idle timeout. The default is 300 seconds.
+
+### Fixed
+
+- Node: agents receive saved instructions in the system prompt. An adapter that cannot apply them reports an error before the chat starts.
+
+## [0.8.14] - 2026-11-23
+
+### Added
+
+- Node: discover and install root and nested skills independently from the same repository.
+- Node: reports whether Antigravity is signed in on its machine and runs
+  its sign-in for a desktop.
+- Node: the node reads and edits the MCP server list that Antigravity
+  keeps for the desktop.
+- Node: counts what Antigravity sessions spend, read from Antigravity's
+  own conversation history on this machine. Antigravity shows in the
+  Usage view's "By harness" and in per-session spend, as a subscription.
+  Requests from Antigravity's subagents count toward the session
+  that started them.
+
+### Changed
+
+- Node: dated usage and historical session totals are reported separately.
+- Node: Gemini CLI is no longer detected, installed or run as a harness. Use
+  Antigravity instead.
+
+### Fixed
+
+- Node: assistant usage includes billed OpenRouter costs across models and keeps each machine's share when a chat moves.
+- Node: resuming an older flsh conversation no longer counts its lifetime cost as spending today.
+- Node: watched folders report nested file edits, including changes that keep the same file size.
+
+## [0.8.13] - 2026-11-22
+
+### Added
+
+- beep-node: an assistant chat can start a thread as a custom agent, such as
+  a `.claude/agents/researcher.md` file or a Codex, OpenCode, pi or flsh agent
+  file, from the chat's folder or the user's agents on that machine. The
+  thread follows that agent's instructions, runs on its harness unless the
+  chat names another, and keeps the agent across restarts and moves; an
+  unknown name is refused with the names that exist.
+
+### Fixed
+
+- Node: recognize a library with a top-level `SKILL.md` as one installable skill.
+
+## [0.8.12] - 2026-11-22
+
+### Added
+
+- Node: library skills picked for an assistant chat are installed in the
+  chat's folder and in each of its threads' folders, including threads started
+  later. They follow the chat when it moves to another machine.
+
+### Changed
+
+- Node: An assistant chat ends each thread once it has its answer, and reuses
+  a thread that is already working on the same thing instead of starting
+  another.
+
+### Fixed
+
+- Node: Claude conversations retain their scrollback after compaction and restart.
+
+## [0.8.11] - 2026-11-22
+
+### Changed
+
+- Node: assistant chats now hand off work only as threads the user can
+  see and open. The coding agent's own hidden subagent tools are
+  switched off in those chats for Claude Code, Codex and OpenCode, and
+  for flsh once it supports it.
+
+## [0.8.10] - 2026-11-22
+
+### Added
+
+- Node: a machine that takes a chat says how much of its files have come,
+  so the moving machine can show the copy's progress.
+
+### Fixed
+
+- Node: when a chat's files cannot be read yet, both machines log why at
+  warning level instead of retrying silently.
+
+## [0.8.9] - 2026-11-22
+
+### Added
+
+- Node: agents can name the agents they start. The assistant starts each
+  thread of a chat with a summary of the conversation so far.
+- Node: when you write to a session, its agent first hears what the agents
+  it started came to since its last turn. An agent started by another hears
+  what that one last said.
+- Node: each new assistant conversation gets its own folder under
+  `~/.beep/assistant/`, and each of its threads a subfolder named after it,
+  for notes and findings. Deleting the conversation removes its folder.
+- Node: a moved chat arrives with its threads and its folder's files.
+- Node: running threads resume on the new machine, still linked to their
+  chat.
+- Node: ended threads arrive ended and are listed under their chat. They are
+  not started again.
+- Node: a chat that moves away does not stop the threads that move with it.
+- Node: the assistant has its own tools for a chat's threads:
+  `start_thread`, `thread_status`, `send_to_thread`, `stop_thread` and
+  `list_threads`. A thread starts on the chat's machine, in a subfolder of
+  the chat's folder, on the chat's harness unless another is named.
+
+### Changed
+
+- Node: an agent that another agent started no longer makes its idle parent
+  run a turn when you wrote to it or stopped it. The parent hears of it at
+  its next turn instead.
+
+### Fixed
+
+- Node: the assistant no longer uses its harness's hidden subagents in place
+  of threads, so the threads it says it started show under the chat.
+- Node: flsh is installed and updated in `~/.local/bin`, where flsh's own
+  installer puts it, instead of beep-node's own folder. A copy left in
+  beep-node's folder moves there, or is removed when `~/.local/bin` already
+  has flsh. Before, sessions kept running the node's older copy after flsh
+  was updated with its own installer, so assistant chats on flsh could not
+  reach Beep's tools and started no threads.
+- Node: a resumed session keeps its title. Before, flsh could rename it
+  after the resume from Beep's context text, such as the user's standing
+  rules.
+
+## [0.8.8] - 2026-11-22
+
+### Added
+
+- Node: Google's Antigravity CLI (`agy`), a coding agent harness, is
+  supported. The node finds it on the machine and starts it over ACP
+  with every tool approved. When it is missing, the node installs it
+  with Google's install script, and Antigravity updates itself.
+- Node: a session's running commands report which of their ports
+  answer as a web page, so the desktop can offer the right one.
+- Node: the node reads how much of Antigravity's weekly limits is left
+  for each model group: Gemini models, and Claude and GPT models. It
+  reads this from the Antigravity CLI, so checking uses none of your
+  quota.
+
+### Fixed
+
+- Node: after a Claude Code session resumes, for example after the
+  node restarts, its Files and Changes tabs stay on the linked
+  worktree the session works in instead of jumping back to the main
+  checkout.
+- Node: a Claude Code session resumes in the folder it was started in,
+  even after it worked in a worktree that was later removed. If that
+  folder is gone too, it resumes in the home folder. Resuming no longer
+  fails with "Recreate that folder to resume it."
+- Node: a server that a coding agent starts shows its port in the
+  Running tab within about a second of it listening, instead of up to
+  a minute later.
+- Node: in a Claude Code session, when the agent keeps working on its
+  own after a background task finishes, without a new prompt from you,
+  each of its messages now shows as a separate message with its own
+  time. Before, they ran together into the previous message with no
+  space between them.
+
+## [0.8.7] - 2026-11-21
+
+### Added
+
+- beep-node: a session cannot start or resume with a harness that its project
+  does not allow. This applies when you start it, when another agent starts it
+  with start_agent or review, and when a session moves in. The error names the
+  allowed harnesses.
+
+### Changed
+
+- beep-node: the harness "Can start" limit no longer applies to agents that
+  a session starts. Limit harnesses per project instead.
+
+### Fixed
+
+- Node: usage and cost views counted all of a flsh session's spend in
+  the hour of its last message, so a resumed session showed its whole
+  cost as today's. Each flsh turn's spend now counts in the hour it
+  happened, for sessions written by a flsh version that logs turns.
+  Older sessions keep their earlier spend in one lump.
+
+## [0.8.6] - 2026-11-21
+
+### Added
+
+- Node: flsh's config now carries each model's own quantizations.
+- Node: before pi starts, the OpenRouter routing settings are written into
+  pi's models.json, and the user's other entries are kept. A models.json
+  with comments is left alone, and pi does not start. The error says so.
+
+### Fixed
+
+- beep-node: A subagent started with start_agent and then stopped, whose
+  session is no longer on its machine, now shows as ended in its parent's
+  Subagents list instead of working forever.
+
+## [0.8.5] - 2026-11-20
+
+### Added
+
+- Node: beep-node runs a session signed in as the named account it was
+  started with, and keeps that account when the session resumes or the
+  node restarts. Agents and reviewers that a session starts use the
+  account of the same name.
+- Node: beep-node refuses a start on an account it does not have yet.
+- Node: beep-node reads the plan limits of each named account it holds,
+  apart from the default account's.
+- beep-node: refuses a start_agent or review child agent whose harness the
+  parent's harness may not start. The error names the harnesses the parent
+  may start.
+
+### Changed
+
+- beep-node: a node tries to reach another machine, and syncs files with
+  it, again every 5 seconds instead of waiting up to a minute. Each try
+  gives up after 10 seconds.
+
 ## [0.8.4] - 2026-11-20
 
 ### Added

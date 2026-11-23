@@ -1,8 +1,8 @@
-import { Button, Spinner } from "../ui/kit.tsx";
+import { Button, ProgressBar, Spinner } from "../ui/kit.tsx";
 import { createStore, useStore } from "zustand";
 import type { MoveRow } from "./move-state.ts";
 
-export type MoveView = { kind: "none" } | { kind: "warning"; text: string } | { kind: "failed"; text: string } | { kind: "waiting"; to: string } | { kind: "progress"; to: string; cancelable: boolean; rows: MoveRow[] };
+export type MoveView = { kind: "none" } | { kind: "warning"; text: string } | { kind: "failed"; text: string } | { kind: "waiting"; to: string } | { kind: "progress"; to: string; cancelable: boolean; rows: MoveRow[]; pct: number | null };
 
 type MenuProps = Parameters<typeof MoveMenu>[0];
 type StatusProps = Parameters<typeof MoveStatus>[0];
@@ -20,6 +20,13 @@ export function MoveHere({ moveKey, machine }: { moveKey: string; machine: strin
 export function MoveBox({ moveKey }: { moveKey: string }) {
   const { key, status } = useStore(moveViews);
   return <div id="agmovebox">{key === moveKey && status && <MoveStatus {...status} />}</div>;
+}
+
+/// The bar along the top of the message field while the move copies.
+export function MoveBar({ moveKey }: { moveKey: string }) {
+  const { key, status } = useStore(moveViews);
+  const view = key === moveKey ? status?.view : null;
+  return view?.kind === "progress" && view.pct !== null ? <ProgressBar pct={view.pct} label={`Moving to ${view.to}`} /> : null;
 }
 
 export function MoveStatus({ view, cancel, stop }: { view: MoveView; cancel(): void; stop(): void }) {

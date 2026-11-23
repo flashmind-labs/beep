@@ -92,11 +92,7 @@ impl Agents {
             Refused::Request(_) => "this request cannot order an existing session".to_owned(),
         })?;
 
-        if matches!(command, Command::Prompt(_) | Command::Steer(_)) {
-            session.user_wrote();
-        }
-
-        session.order(command).await?;
+        self.order_by_user(&session, command).await?;
 
         if cascade {
             self.cancel_family(&session).await;
@@ -155,7 +151,7 @@ pub async fn serve_session(
             images,
             assistant,
         } => match Prompt::with_images(prompt, images) {
-            Ok(Prompt { text, images }) => {
+            Ok(Prompt { text, images, .. }) => {
                 let begin = Begin {
                     prompt: Some(text),
                     images,
@@ -266,11 +262,7 @@ pub async fn serve_session(
                         continue;
                     }
                 };
-                if matches!(command, Command::Prompt(_) | Command::Steer(_)) {
-                    session.user_wrote();
-                }
-
-                let error = session.order(command).await.err();
+                let error = agents.order_by_user(&session, command).await.err();
 
                 if cascade {
                     // The session keeps the task, so it ends with it; it is

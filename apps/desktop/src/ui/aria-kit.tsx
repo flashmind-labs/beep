@@ -1,4 +1,6 @@
-import { ToggleButton, ToggleButtonGroup, type Key } from "react-aria-components";
+import type { Key } from "react-aria-components";
+import { ToggleButton } from "react-aria-components/ToggleButton";
+import { ToggleButtonGroup } from "react-aria-components/ToggleButtonGroup";
 
 // Kit controls on React Aria, kept apart from kit.tsx because loading React
 // Aria sets up global listeners a bare test DOM cannot take. Segmented draws

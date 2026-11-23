@@ -6,11 +6,9 @@ import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { closeAgentNewMenus } from "../agents/agentnew.tsx";
 import { agentBack, agentKeys } from "../agents/agents.ts";
 import { $, bar, newChat, PANE, S } from "./core.ts";
-import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { closeFilesMenu } from "../agentpane/files.ts";
 import { viewerKeys } from "../chat/media.tsx";
 import { newTerminal } from "../agentpane/media.ts";
-import { renderSettings } from "../settings/settings.tsx";
 import { waitingBack, waitingKeys } from "./waiting.ts";
 import { windowTakes } from "../ui/windowkeys.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -25,7 +23,7 @@ function back() {
   if (closeAgentNewMenus()) return;
   if (S.view === "agent" || S.view === "agentnew" || S.view === "agents") return agentBack();
   if (S.view === "waiting" && waitingBack()) return;
-  if (S.view === "machines") return renderSettings();
+  if (S.view === "machines") return void import("../settings/settings.tsx").then(m => m.renderSettings());
   if (!PANE) invoke("hide_bar");
 }
 
@@ -68,7 +66,7 @@ document.addEventListener("keydown", e => {
 
   if (e.key === "Escape" && closeFilesMenu()) { e.preventDefault(); return; }
   if ($("#viewer")) return viewerKeys(e, cmd);
-  if (cmd && e.key === "/") { e.preventDefault(); return toggleShortcuts(); }
+  if (cmd && e.key === "/") { e.preventDefault(); return void import("../ui/shortcutsheet.tsx").then(m => m.toggleShortcuts()); }
   if (e.key === "Escape") { e.preventDefault(); return back(); }
   if (agentKeys(e, cmd) || waitingKeys(e, cmd)) return;
   const key = e.key.toLowerCase();
@@ -78,7 +76,7 @@ document.addEventListener("keydown", e => {
     return newChat();
   }
 
-  if (cmd && e.key === ",") { e.preventDefault(); return renderSettings(); }
+  if (cmd && e.key === ",") { e.preventDefault(); return void import("../settings/settings.tsx").then(m => m.renderSettings()); }
   if (cmd && key === "q") { e.preventDefault(); return invoke("quit"); }
   // The window picks the agent's start: the project's while one of its sessions shows.
   if (cmd && key === "n") { e.preventDefault(); return newChat(); }

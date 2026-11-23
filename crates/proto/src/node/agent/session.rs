@@ -204,6 +204,27 @@ pub struct SessionInfo {
     /// the agent's default one.
     #[serde(default)]
     pub account: Option<AccountName>,
+    /// The custom agent it runs as, when its parent started it as one.
+    #[serde(default)]
+    pub persona: Option<Persona>,
+}
+
+/// A custom agent a session runs as (`CustomAgent`): its name and the
+/// color its file gives, such as `blue` or `#3b82f6`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Persona {
+    pub name: String,
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+impl From<&crate::CustomAgent> for Persona {
+    fn from(agent: &crate::CustomAgent) -> Self {
+        Self {
+            name: agent.name.clone(),
+            color: agent.color.clone(),
+        }
+    }
 }
 
 /// Lines added and removed in a checkout, as its diff counts them.

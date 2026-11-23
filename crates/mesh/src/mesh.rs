@@ -171,7 +171,7 @@ pub(crate) struct Inner {
     last_seen: Mutex<BTreeMap<EndpointId, SystemTime>>,
     /// Our own address and its counter.
     own_addr: Mutex<AddrNote>,
-    /// Rung when any address changes, for dialers waiting out a backoff.
+    /// Rung when any address changes, for dialers waiting to try again.
     pub addr_wake: Notify,
     /// Rung when a connection, an address or the device list changes.
     pub wake: Notify,

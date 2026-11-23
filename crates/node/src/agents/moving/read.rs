@@ -9,7 +9,7 @@
 
 use beep_proto::SessionId;
 use super::{
-    Harness,
+    Harness, files,
     progress::Target,
     saved::SentTree,
     worktree::{self, Work},
@@ -30,7 +30,7 @@ use std::{
 use tokio::{
     fs::{self, File},
     io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt},
-    sync::watch,
+    sync::{mpsc, watch},
     task::spawn_blocking,
     time::timeout,
 };
@@ -94,6 +94,11 @@ pub(crate) enum Request {
         /// leaves out.
         base: String,
     },
+    /// Asks for what the folder of session `id`, a chat or one of its
+    /// threads, holds, once the session ended: a tar as `Chunk` pieces,
+    /// then `End`. The folders of the chat's threads that move themselves
+    /// are left out.
+    Files { id: SessionId },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -165,6 +170,10 @@ pub(crate) enum Reply {
         /// target. Added after `edits`.
         #[serde(default)]
         session: Option<Box<SavedSession>>,
+        /// The bytes a chat's `Files` answer carries, for the move's
+        /// progress; 0 for a project's session. Added after `session`.
+        #[serde(default)]
+        files: u64,
     },
 }
 
@@ -186,13 +195,20 @@ pub(crate) struct Checkout {
     pub(crate) edits: bool,
     /// `None` from a source from before saved sessions.
     pub(crate) session: Option<SavedSession>,
+    /// The bytes a chat's files take; 0 for a project or an older source.
+    pub(crate) files: u64,
 }
 
-/// What a source keeps of a session that leaves, from its move record: the
-/// project's folder here and the worktrees the session made.
-pub(crate) struct Leaving {
-    pub(crate) folder: PathBuf,
-    pub(crate) worktrees: Vec<String>,
+/// What a source keeps of a session that leaves, from its move record.
+pub(crate) enum Leaving {
+    /// The project's folder here and the worktrees the session made.
+    Project {
+        folder: PathBuf,
+        worktrees: Vec<String>,
+    },
+    /// The folder of a chat or of one of its threads, and the folders in
+    /// it that other moving sessions bring themselves.
+    Chat { folder: PathBuf, apart: Vec<PathBuf> },
 }
 
 /// One worktree as `Worktree` brought it.
@@ -298,19 +314,32 @@ pub(super) async fn serve(
     let refuse = |message: &str| Reply::Refused {
         message: message.to_owned(),
     };
+    let Some(request) = rx.recv::<Request>().await? else {
+        return Ok(());
+    };
+    let auth = match &request {
+        Request::Read { id, .. }
+        | Request::Checkout { id }
+        | Request::Worktree { id, .. }
+        | Request::Files { id } => Some((Asked::Read, id, "no move of that session to you")),
+        Request::State { id, .. } => Some((Asked::State, id, "no move of that session from you")),
+        Request::WorktreeBundle { .. } | Request::List {} | Request::Copy { .. } => None,
+    };
 
-    match rx.recv::<Request>().await? {
-        Some(Request::Read {
+    if let Some((asked, id, message)) = auth
+        && !access.allows(asked, id).await
+    {
+        return tx.send(&refuse(message)).await;
+    }
+
+    match request {
+        Request::Read {
             agent,
             id,
             from,
             prefix_hash,
             worktree: _,
-        }) => {
-            if !access.allows(Asked::Read, &id).await {
-                return tx.send(&refuse("no move of that session to you")).await;
-            }
-
+        } => {
             if let Some(why) = agents.moves.refusal(&id) {
                 return tx.send(&refuse(&why)).await;
             }
@@ -334,25 +363,32 @@ pub(super) async fn serve(
                 }
             }
         }
-        Some(Request::WorktreeBundle { .. }) => {
+        Request::WorktreeBundle { .. } => {
             tx.send(&refuse("this machine no longer moves worktrees"))
                 .await
         }
-        Some(Request::Checkout { id }) => {
-            if !access.allows(Asked::Read, &id).await {
-                return tx.send(&refuse("no move of that session to you")).await;
-            }
-
+        Request::Checkout { id } => {
             let Some(leaving) = (access.leaving)(&id) else {
                 return tx.send(&refuse("this machine does not keep the project")).await;
             };
             let session = agents.saved(&id).map(Box::new);
             let reply = spawn_blocking(move || -> Result<Reply> {
-                Ok(Reply::Checkout {
-                    head: worktree::head(&leaving.folder)?,
-                    worktrees: worktree::moving(&leaving.folder, &leaving.worktrees),
-                    edits: worktree::has_edits(&leaving.folder),
-                    session,
+                Ok(match leaving {
+                    Leaving::Project { folder, worktrees } => Reply::Checkout {
+                        head: worktree::head(&folder)?,
+                        worktrees: worktree::moving(&folder, &worktrees),
+                        edits: worktree::has_edits(&folder),
+                        session,
+                        files: 0,
+                    },
+                    // A chat's folder is no checkout, whatever it is inside.
+                    Leaving::Chat { folder, apart } => Reply::Checkout {
+                        head: None,
+                        worktrees: Vec::new(),
+                        edits: false,
+                        session,
+                        files: files::packed_size(&folder, &apart)?,
+                    },
                 })
             })
             .await?;
@@ -364,16 +400,12 @@ pub(super) async fn serve(
 
             tx.finish().await
         }
-        Some(Request::Worktree {
+        Request::Worktree {
             id,
             path,
             bundle,
             base,
-        }) => {
-            if !access.allows(Asked::Read, &id).await {
-                return tx.send(&refuse("no move of that session to you")).await;
-            }
-
+        } => {
             // While the sessions come back from a restart, or the source
             // ends this one again, the target asks again: no refusal, which
             // would end the move.
@@ -381,13 +413,17 @@ pub(super) async fn serve(
                 return Ok(());
             }
 
-            let Some(leaving) = (access.leaving)(&id) else {
+            let Some(Leaving::Project { folder, worktrees }) = (access.leaving)(&id) else {
                 return tx.send(&refuse("this machine does not keep the project")).await;
             };
 
             let wanted = bundle.then_some(base);
+            let sent = spawn_blocking(move || {
+                send_worktree(&folder, &worktrees, &path, wanted.as_deref())
+            })
+            .await?;
 
-            match spawn_blocking(move || send_worktree(&leaving, &path, wanted.as_deref())).await? {
+            match sent {
                 Ok((dir, work, bytes)) => {
                     let held = work.fingerprint();
                     agents.moves.sent(&id, SentTree { dir, held }).await;
@@ -407,15 +443,38 @@ pub(super) async fn serve(
                 Err(e) => tx.send(&refuse(&format!("{e:#}"))).await,
             }
         }
-        Some(Request::List {} | Request::Copy { .. }) => {
+        Request::Files { id } => {
+            // As for a worktree: the target asks again.
+            if !agents.reopened() || agents.runs(&id) {
+                log::info!("session {id}: its files are asked for, but it still runs here or the sessions are not read yet; the target asks again");
+                return Ok(());
+            }
+
+            let Some(Leaving::Chat { folder, apart }) = (access.leaving)(&id) else {
+                return tx.send(&refuse("that session is in no chat here")).await;
+            };
+            let (pieces, mut packed) = mpsc::channel(2);
+            let packing = spawn_blocking(move || files::pack(&folder, &apart, Pieces(pieces)));
+            let mut size = 0u64;
+
+            while let Some(data) = packed.recv().await {
+                size += data.len() as u64;
+                tx.send(&Reply::Chunk { data }).await?;
+            }
+
+            match packing.await? {
+                Ok(()) => {
+                    tx.send(&Reply::End { size, live: false }).await?;
+                    tx.finish().await
+                }
+                Err(e) => tx.send(&refuse(&format!("{e:#}"))).await,
+            }
+        }
+        Request::List {} | Request::Copy { .. } => {
             tx.send(&refuse("this machine no longer makes background copies"))
                 .await
         }
-        Some(Request::State { id, at }) => {
-            if !access.allows(Asked::State, &id).await {
-                return tx.send(&refuse("no move of that session from you")).await;
-            }
-
+        Request::State { id, at } => {
             let (taken, failed, landed, starting) = match agents.moves.target(&id, at) {
                 Target::Unknown => (false, None, false, false),
                 Target::Taken => (true, None, false, false),
@@ -432,30 +491,49 @@ pub(super) async fn serve(
             .await?;
             tx.finish().await
         }
-        None => Ok(()),
     }
 }
 
-/// The worktree at `path` in `leaving`'s project, if the session made it:
+/// The worktree at `path` in the project's `folder`, if the session made it
+/// (`worktrees`):
 /// its folder, what it holds and, with a `base`, its commits that `base`
 /// lacks. Blocks.
 fn send_worktree(
-    leaving: &Leaving,
+    folder: &Path,
+    worktrees: &[String],
     path: &str,
     base: Option<&str>,
 ) -> Result<(PathBuf, Work, Option<Vec<u8>>)> {
-    let Some(tree) = worktree::moving(&leaving.folder, &leaving.worktrees)
+    let Some(tree) = worktree::moving(folder, worktrees)
         .into_iter()
         .find(|tree| tree.path == path)
     else {
         bail!("{path} is not a worktree of the session");
     };
-    let dir = leaving.folder.join(&tree.path);
+    let dir = folder.join(&tree.path);
     let work = worktree::snapshot(&dir)?;
     let bytes = base
         .map(|base| worktree::bundle(&dir, &work.head, base))
         .transpose()?;
     Ok((dir, work, bytes))
+}
+
+/// Hands an archive, as it is written on a blocking thread, to the stream
+/// in pieces a message carries.
+struct Pieces(mpsc::Sender<Vec<u8>>);
+
+impl std::io::Write for Pieces {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let piece = &buf[..buf.len().min(CHUNK)];
+        self.0
+            .blocking_send(piece.to_vec())
+            .map_err(|_| std::io::Error::other("the reader left"))?;
+        Ok(piece.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 /// A transcript to serve.
@@ -604,10 +682,8 @@ pub(super) async fn pull_within(
         worktree: false,
     };
     tx.send(&request).await?;
-    let (start, file_name) = match next(&mut rx, quiet).await? {
-        Some(Reply::Head { from, file_name }) => (from, file_name),
-        Some(Reply::Refused { message }) => return Err(Refused(message).into()),
-        _ => bail!("the source ended without answering"),
+    let Some(Reply::Head { from: start, file_name }) = next(&mut rx, quiet).await? else {
+        bail!("the source ended without answering");
     };
 
     if !valid_file_name(&file_name) {
@@ -648,7 +724,6 @@ pub(super) async fn pull_within(
                     restarted,
                 });
             }
-            Some(Reply::Refused { message }) => return Err(Refused(message).into()),
             _ => bail!("the source stopped before the end"),
         }
     }
@@ -665,15 +740,44 @@ pub(crate) async fn checkout(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId) -> 
             worktrees,
             edits,
             session,
+            files,
         }) => Ok(Checkout {
             head,
             worktrees,
             edits,
             session: session.map(|session| *session),
+            files,
         }),
-        Some(Reply::Refused { message }) => Err(Refused(message).into()),
         // A node from before worktrees moved again cannot read the request.
         _ => Err(Refused("its beep-node is too old to move this session: update it".into()).into()),
+    }
+}
+
+/// Asks a source for what the folder of session `id` holds, and writes the
+/// archive to `into`, over what a try before left there, telling `came` the
+/// bytes that came so far.
+pub(crate) async fn files(mut tx: LinkTx, mut rx: LinkRx, id: &SessionId, into: &Path, mut came: impl FnMut(u64)) -> Result<()> {
+    tx.send(&Request::Files { id: id.to_owned() }).await?;
+    let mut out = File::create(into).await?;
+    let mut held = 0u64;
+
+    loop {
+        match next(&mut rx, QUIET_FOR).await? {
+            Some(Reply::Chunk { data }) => {
+                held += data.len() as u64;
+
+                if held > files::MAX_FILES {
+                    return Err(Refused("the chat's files are too large to move".into()).into());
+                }
+
+                out.write_all(&data).await?;
+                came(held);
+            }
+            Some(Reply::End { size, .. }) if size == held => return Ok(out.sync_all().await?),
+            Some(Reply::End { size, .. }) => bail!("{held} bytes came, the source said {size}"),
+            // A source that still ends the session answers nothing: asked again.
+            _ => bail!("the source stopped before the end of the files"),
+        }
     }
 }
 
@@ -698,10 +802,8 @@ pub(crate) async fn worktree(mut tx: LinkTx, mut rx: LinkRx, ask: &WorktreeAsk<'
         base: ask.base.to_owned(),
     })
     .await?;
-    let head = match next(&mut rx, QUIET_FOR).await? {
-        Some(Reply::Work { head }) => head,
-        Some(Reply::Refused { message }) => return Err(Refused(message).into()),
-        _ => bail!("the source ended without sending the worktree"),
+    let Some(Reply::Work { head }) = next(&mut rx, QUIET_FOR).await? else {
+        bail!("the source ended without sending the worktree");
     };
     let mut bytes = Vec::new();
     let mut patch = Vec::new();
@@ -711,7 +813,6 @@ pub(crate) async fn worktree(mut tx: LinkTx, mut rx: LinkRx, ask: &WorktreeAsk<'
             Some(Reply::Bundle { data }) => grow(&mut bytes, &data, worktree::MAX_BUNDLE)?,
             Some(Reply::Patch { data }) => grow(&mut patch, &data, worktree::MAX_PATCH)?,
             Some(Reply::BundleEnd {}) => break,
-            Some(Reply::Refused { message }) => return Err(Refused(message).into()),
             _ => bail!("the source stopped before the end of the worktree"),
         }
     }
@@ -732,11 +833,15 @@ fn grow(into: &mut Vec<u8>, data: &[u8], cap: usize) -> Result<()> {
     Ok(())
 }
 
-/// The source's next message, if it sends one within `quiet`.
+/// The source's next message within `quiet`, turning `Refused` into `Err`.
 async fn next(rx: &mut LinkRx, quiet: Duration) -> Result<Option<Reply>> {
-    timeout(quiet, rx.recv::<Reply>())
+    match timeout(quiet, rx.recv::<Reply>())
         .await
-        .with_context(|| format!("the source sent nothing for {}s", quiet.as_secs()))?
+        .with_context(|| format!("the source sent nothing for {}s", quiet.as_secs()))??
+    {
+        Some(Reply::Refused { message }) => Err(Refused(message).into()),
+        other => Ok(other),
+    }
 }
 
 /// The size of `copy` and the hash of what it holds; empty when it does

@@ -52,8 +52,18 @@ export interface HarnessSpend {
   models: NamedTokens[];
 }
 
+export interface UsageTableRow {
+  first: string | null;
+  last: string | null;
+  project: string | null;
+  agent: string | null;
+  tokens: number;
+  cost_usd: number;
+}
+
 /// What was spent in one period, by project and by harness.
 export interface Period {
+  daily: UsageTableRow[];
   total: Spend;
   tokens: number;
   projects: Spend[];
@@ -61,6 +71,7 @@ export interface Period {
 }
 
 export interface UsageView {
+  historical: UsageTableRow[];
   limits: PlanLimits[];
   today: Period;
   week: Period;
@@ -101,20 +112,28 @@ export interface PillPlan {
 }
 
 /// Each plan with windows, as the pill shows it: the plan's binding window,
-/// then each model limit used past 1%.
+/// then each model limit used past 1%. A plan whose windows are all model
+/// groups, such as Antigravity's, shows its most-used group under the
+/// harness's own mark.
 export function pillPlans(limits: PlanLimits[]): PillPlan[] {
+  const mostUsed = (windows: UsageWindow[]) =>
+    windows.reduce<UsageWindow | null>((most, w) => !most || windowUsed(w) > windowUsed(most) ? w : most, null);
+
   return limits.flatMap(plan => {
-    const binding = plan.windows.filter(w => !w.scope)
-      .reduce<UsageWindow | null>((most, w) => !most || windowUsed(w) > windowUsed(most) ? w : most, null);
-    const models = plan.windows.filter(w => w.scope && windowUsed(w) > 1)
-      .map(w => ({ agent: plan.agent, account: plan.account, model: w.scope, used: windowUsed(w), window: windowName(w) }));
+    const unscoped = plan.windows.filter(w => !w.scope);
+    const binding = mostUsed(unscoped.length ? unscoped : plan.windows);
+    const models = unscoped.length
+      ? plan.windows.filter(w => w.scope && windowUsed(w) > 1)
+        .map(w => ({ agent: plan.agent, account: plan.account, model: w.scope, used: windowUsed(w), window: windowName(w) }))
+      : [];
+
     return binding ? [{ agent: plan.agent, account: plan.account, model: null, used: windowUsed(binding), window: windowName(binding) }, ...models] : models;
   });
 }
 
 /// Whether a period's rows show any dollars, so the note on dollars applies.
 export function showsDollars(period: Period) {
-  return period.total.cost_usd > 0 || period.projects.some(p => p.cost_usd > 0) || period.harnesses.some(h => harnessLine(h).includes("$"));
+  return period.total.cost_usd > 0 || period.projects.some(p => p.cost_usd > 0) || period.harnesses.some(h => harnessCost(h) !== "");
 }
 
 /// "Claude" and "Codex" in the pill, where space is short.
@@ -165,20 +184,10 @@ export function harnessName(spend: Pick<HarnessSpend, "agent" | "subscription">)
   return spend.subscription ? `${agentLabel(spend.agent)}, subscription` : agentLabel(spend.agent);
 }
 
-/// What a project row adds after its dollars: its tokens.
-export function projectExtra(spend: Spend) {
-  const tokens = (spend.subscription ?? []).reduce((sum, t) => sum + t.tokens, spend.metered_tokens ?? 0);
-  return tokens ? tokenCount(tokens) : "";
-}
-
-/// One harness's line in a period: its cost when it reports one, then
-/// tokens. Use a subscription covered shows its estimate at API prices
-/// as `~$61`, when there is one.
-export function harnessLine(spend: HarnessSpend) {
-  const tokens = spend.tokens > 0 ? `${tokenCount(spend.tokens)}` : "";
-  if (spend.cost_usd == null || (spend.subscription && spend.cost_usd < 0.5)) return tokens;
-  const cost = spend.subscription ? `~$${Math.round(spend.cost_usd)}` : money(spend.cost_usd);
-  return tokens ? `${cost} · ${tokens}` : cost;
+/// Metered dollars, or the API estimate for usage covered by a plan.
+export function harnessCost(spend: HarnessSpend) {
+  if (spend.cost_usd == null || (spend.subscription && spend.cost_usd < 0.5)) return "";
+  return spend.subscription ? `~$${Math.round(spend.cost_usd)}` : money(spend.cost_usd);
 }
 
 /// Tokens reported for each model across harnesses and billing types.
@@ -204,7 +213,7 @@ export function todayLine(today: { total: Pick<Spend, "cost_usd">; tokens: numbe
 export function hasUsage(view: UsageView | null): view is UsageView {
   if (!view) return false;
   const spent = (p: Period | null) => !!p && (p.total.cost_usd > 0 || p.tokens > 0 || p.projects.length > 0 || p.harnesses.length > 0);
-  return view.limits.some(p => p.windows.length || p.credits?.length) || spent(view.today) || spent(view.week) || spent(view.month);
+  return !!view.historical?.length || view.limits.some(p => p.windows.length || p.credits?.length) || spent(view.today) || spent(view.week) || spent(view.month);
 }
 
 let allProjects = false;

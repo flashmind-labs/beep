@@ -6,7 +6,10 @@
 
 use crate::{
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines},
+    fleet::{
+        Fleet, Machines,
+        node_actor::{JobKind, mark_device_power},
+    },
     machines::{Registry, Unfollow},
 };
 use beep_proto::{
@@ -14,7 +17,8 @@ use beep_proto::{
     node::{
         LinkRx, LinkTx,
         device::{
-            Device, DeviceId, Frame, Input, MAX_SIDE, MAX_TEXT, PROTOCOL, Platform, Reply, Request,
+            Device, DeviceId, DeviceState, Frame, Input, MAX_SIDE, MAX_TEXT, PROTOCOL, Platform,
+            Reply, Request, TouchPhase,
         },
         device_video::{self, Rotation},
     },
@@ -22,27 +26,43 @@ use beep_proto::{
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use serde::Serialize;
-use std::time::{Duration, Instant};
+use std::{
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::{Duration, Instant},
+};
 use tauri::{
-    Manager, State, WebviewWindow,
+    AppHandle, Emitter, Manager, State, WebviewWindow,
     ipc::{Channel, InvokeResponseBody},
 };
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{Notify, mpsc, watch},
     time::timeout,
 };
 use uuid::Uuid;
 
 /// How long a machine has to list its devices.
-const LIST_LIMIT: Duration = Duration::from_secs(10);
+const LIST_LIMIT: Duration = Duration::from_secs(8);
+/// Freshness window while a device on the machine is booting.
+const BOOTING_LIST_FRESH: Duration = Duration::from_secs(1);
+/// Freshness window while all devices on the machine are settled.
+const IDLE_LIST_FRESH: Duration = Duration::from_secs(10);
+/// Fast wait for power commands before handing off to the machine's background actor.
+const POWER_FAST_WAIT: Duration = Duration::from_millis(300);
+/// Bound on queuing discrete input into a stalled device view.
+const INPUT_WAIT: Duration = Duration::from_millis(200);
+/// Bound on writing one input request to a degraded device stream.
+const WRITE_LIMIT: Duration = Duration::from_secs(10);
 /// How long a machine has to look through a checkout for its platforms.
-const PLATFORMS_LIMIT: Duration = Duration::from_secs(20);
-/// How long a machine has to start or stop a device.
-const POWER_LIMIT: Duration = Duration::from_secs(60);
+const PLATFORMS_LIMIT: Duration = Duration::from_secs(8);
 /// Machines asked at once.
 const IN_FLIGHT: usize = 4;
 /// Touches and keys waiting to go up one stream.
 const UP_QUEUE: usize = 64;
+/// Queue slots kept free of `TouchPhase::Move` events so discrete presses and releases fit.
+const RESERVED_DISCRETE: usize = 16;
 /// The smallest frame side asked for.
 const MIN_SIDE: u32 = 160;
 /// How long a frame may stay unacknowledged before the next goes anyway, so
@@ -88,6 +108,7 @@ pub fn device_hosts(fleet: Machines<'_>) -> Vec<DeviceHost> {
 /// asked at once.
 #[tauri::command]
 pub async fn device_list(
+    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: Option<String>,
 ) -> Result<Vec<DeviceMachine>> {
@@ -102,18 +123,61 @@ pub async fn device_list(
         })
         .collect();
 
-    let fleet: &Fleet = &fleet;
+    let fleet_arc = fleet.inner().clone();
+    let fresh_for = |devices: &Vec<Device>| {
+        if devices.iter().any(|d| d.state == DeviceState::Booting) {
+            BOOTING_LIST_FRESH
+        } else {
+            IDLE_LIST_FRESH
+        }
+    };
     let mut listed: Vec<DeviceMachine> = stream::iter(machines)
-        .map(|machine| async move {
-            let (devices, error) = match list(fleet, machine).await {
-                Ok(devices) => (devices, None),
-                Err(e) => (Vec::new(), Some(e.to_string())),
-            };
-            DeviceMachine {
-                machine_id: machine.to_string(),
-                machine_name: fleet.name_of(machine),
-                devices,
-                error,
+        .map(|machine| {
+            let app = app.clone();
+            let fleet_arc = fleet_arc.clone();
+            async move {
+                let notify = move || {
+                    let _ = app.emit("devices-changed", ());
+                };
+                let fleet_fetch = fleet_arc.clone();
+                let outcome = if machine == fleet_arc.id() {
+                    Some(
+                        fleet_arc
+                            .projections()
+                            .devices
+                            .read_with_fresh(
+                                machine,
+                                fresh_for,
+                                PartialEq::eq,
+                                notify,
+                                move || async move { list(&fleet_fetch, machine).await },
+                            )
+                            .await,
+                    )
+                } else {
+                    fleet_arc
+                        .projections()
+                        .devices
+                        .read_fast_with_fresh(
+                            machine,
+                            fresh_for,
+                            PartialEq::eq,
+                            notify,
+                            move || async move { list(&fleet_fetch, machine).await },
+                        )
+                        .await
+                };
+                let (devices, error) = match outcome {
+                    Some(Ok(devices)) => (devices, None),
+                    Some(Err(e)) => (Vec::new(), Some(e.to_string())),
+                    None => (Vec::new(), None),
+                };
+                DeviceMachine {
+                    machine_id: machine.to_string(),
+                    machine_name: fleet_arc.name_of(machine),
+                    devices,
+                    error,
+                }
             }
         })
         .buffer_unordered(IN_FLIGHT)
@@ -166,22 +230,50 @@ pub async fn device_platforms(
 }
 
 #[tauri::command]
-pub async fn device_boot(fleet: Machines<'_>, machine_id: String, id: DeviceId) -> Result<()> {
-    power(&fleet, &machine_id, Request::Boot { id }).await
+pub async fn device_boot(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    machine_id: String,
+    id: DeviceId,
+) -> Result<()> {
+    power(app, fleet.inner().clone(), &machine_id, id, true).await
 }
 
 #[tauri::command]
-pub async fn device_shutdown(fleet: Machines<'_>, machine_id: String, id: DeviceId) -> Result<()> {
-    power(&fleet, &machine_id, Request::Shutdown { id }).await
+pub async fn device_shutdown(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    machine_id: String,
+    id: DeviceId,
+) -> Result<()> {
+    power(app, fleet.inner().clone(), &machine_id, id, false).await
 }
 
-async fn power(fleet: &Fleet, machine_id: &str, request: Request) -> Result<()> {
-    let machine = member(fleet, machine_id)?;
+async fn power(
+    app: AppHandle,
+    fleet: Arc<Fleet>,
+    machine_id: &str,
+    id: DeviceId,
+    boot: bool,
+) -> Result<()> {
+    let machine = member(&fleet, machine_id)?;
+    mark_device_power(&fleet, machine, &id, boot);
+    let submitted = fleet
+        .node_ops()
+        .submit(
+            Some(app),
+            fleet.clone(),
+            machine,
+            JobKind::DevicePower { id, boot },
+            POWER_FAST_WAIT,
+        )
+        .await;
 
-    match ask(fleet, machine, &request, POWER_LIMIT).await? {
-        Reply::Done {} => Ok(()),
-        other => Err(answered(other)),
+    if submitted.is_err() {
+        fleet.projections().devices.forget(&machine);
     }
+
+    submitted.map(|_| ())
 }
 
 fn member(fleet: &Fleet, machine_id: &str) -> Result<EndpointId> {
@@ -323,7 +415,22 @@ impl Screen {
 #[derive(Clone)]
 pub struct DeviceControls {
     input: mpsc::Sender<Input>,
+    touch_down: Arc<AtomicBool>,
+    overflow_up: Arc<Mutex<Option<Input>>>,
+    wake: Arc<Notify>,
     drawn: watch::Sender<()>,
+}
+
+impl DeviceControls {
+    fn new(input: mpsc::Sender<Input>, drawn: watch::Sender<()>) -> Self {
+        Self {
+            input,
+            touch_down: Arc::new(AtomicBool::new(false)),
+            overflow_up: Arc::new(Mutex::new(None)),
+            wake: Arc::new(Notify::new()),
+            drawn,
+        }
+    }
 }
 
 /// The devices the windows follow, by view, each with where its input goes.
@@ -369,7 +476,9 @@ pub async fn device_attach(
 
     let (input, up) = mpsc::channel(UP_QUEUE);
     let (drawn, draws) = watch::channel(());
-    let serial = attached.follow(view, window.label(), DeviceControls { input, drawn });
+    let controls = DeviceControls::new(input, drawn);
+    let reader = InputReader::new(up, controls.overflow_up.clone(), controls.wake.clone());
+    let serial = attached.follow(view, window.label(), controls);
     let _unfollow = Unfollow {
         registry: &attached,
         key: view,
@@ -393,9 +502,107 @@ pub async fn device_attach(
         Ok(())
     };
     if video {
-        follow_video(tx, rx, up, draws, send).await
+        follow_video(tx, rx, reader, draws, send).await
     } else {
-        follow_screen(tx, rx, up, draws, send, &lost).await
+        follow_screen(tx, rx, reader, draws, send, &lost).await
+    }
+}
+
+/// Reads device input, collapsing consecutive queued `TouchPhase::Move` events into the latest
+/// coordinate once a write completes while draining any overflow `TouchPhase::Up` in causal order.
+struct InputReader {
+    rx: mpsc::Receiver<Input>,
+    peeked: Option<Input>,
+    overflow_up: Arc<Mutex<Option<Input>>>,
+    wake: Arc<Notify>,
+}
+
+impl InputReader {
+    fn new(
+        rx: mpsc::Receiver<Input>,
+        overflow_up: Arc<Mutex<Option<Input>>>,
+        wake: Arc<Notify>,
+    ) -> Self {
+        Self {
+            rx,
+            peeked: None,
+            overflow_up,
+            wake,
+        }
+    }
+
+    #[cfg(test)]
+    fn from_channel(rx: mpsc::Receiver<Input>) -> Self {
+        Self::new(rx, Arc::new(Mutex::new(None)), Arc::new(Notify::new()))
+    }
+
+    async fn recv_ordered(&mut self) -> Option<Input> {
+        loop {
+            match self.rx.try_recv() {
+                Ok(item) => return Some(item),
+                Err(mpsc::error::TryRecvError::Empty) => {
+                    if let Some(release) = self
+                        .overflow_up
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .take()
+                    {
+                        return Some(release);
+                    }
+
+                    tokio::select! {
+                        item = self.rx.recv() => {
+                            return item.or_else(|| {
+                                self.overflow_up
+                                    .lock()
+                                    .unwrap_or_else(PoisonError::into_inner)
+                                    .take()
+                            });
+                        }
+                        () = self.wake.notified() => {}
+                    }
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    return self
+                        .overflow_up
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .take();
+                }
+            }
+        }
+    }
+
+    async fn next(&mut self) -> Option<Input> {
+        let mut current = match self.peeked.take() {
+            Some(item) => item,
+            None => self.recv_ordered().await?,
+        };
+
+        if matches!(
+            current,
+            Input::Touch {
+                phase: TouchPhase::Move,
+                ..
+            }
+        ) {
+            while let Ok(next) = self.rx.try_recv() {
+                if matches!(
+                    next,
+                    Input::Touch {
+                        phase: TouchPhase::Move,
+                        ..
+                    }
+                ) {
+                    current = next;
+                } else {
+                    self.peeked = Some(next);
+                    break;
+                }
+            }
+        }
+
+        Some(current)
     }
 }
 
@@ -404,13 +611,26 @@ pub async fn device_attach(
 async fn follow_video(
     mut tx: LinkTx,
     mut rx: LinkRx,
-    mut input: mpsc::Receiver<Input>,
+    mut reader: InputReader,
     mut drawn: watch::Receiver<()>,
     mut send: impl FnMut(ScreenEvent) -> Result<()>,
 ) -> Result<()> {
     let inputs = async move {
-        while let Some(input) = input.recv().await {
-            tx.send(&device_video::Request::Input { input }).await?;
+        while let Some(input) = reader.next().await {
+            match timeout(
+                WRITE_LIMIT,
+                tx.send(&device_video::Request::Input { input }),
+            )
+            .await
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => return Err(err.into()),
+                Err(_) => {
+                    return Err(DesktopError::TimedOut(
+                        "The device connection did not accept input in time.".into(),
+                    ));
+                }
+            }
         }
         Ok(())
     };
@@ -455,7 +675,7 @@ async fn follow_video(
 async fn follow_screen(
     mut tx: LinkTx,
     mut rx: LinkRx,
-    mut input: mpsc::Receiver<Input>,
+    mut reader: InputReader,
     mut drawn: watch::Receiver<()>,
     mut send: impl FnMut(ScreenEvent) -> Result<()>,
     lost: &str,
@@ -463,9 +683,10 @@ async fn follow_screen(
     // Keep a pending input write alive while frames and acknowledgements run.
     // Dropping this future on detach also drops a blocked write and the stream.
     let inputs = async move {
-        while let Some(input) = input.recv().await {
-            if tx.send(&Request::Input { input }).await.is_err() {
-                return false;
+        while let Some(input) = reader.next().await {
+            match timeout(WRITE_LIMIT, tx.send(&Request::Input { input })).await {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(_) => return false,
             }
         }
 
@@ -519,12 +740,106 @@ async fn follow_screen(
 /// Input to the device attached in `view`.
 #[tauri::command]
 pub async fn device_input(attached: State<'_, Attached>, view: Uuid, input: Input) -> Result<()> {
-    let up = attached.get(&view, "device")?.input;
+    let controls = attached.get(&view, "device")?;
+    send_device_input(&controls, input).await
+}
+
+async fn send_device_input(controls: &DeviceControls, input: Input) -> Result<()> {
+    let up = &controls.input;
 
     for input in checked(input) {
-        up.send(input)
-            .await
-            .map_err(|_| DesktopError::BadRequest("The device is no longer attached.".into()))?;
+        if matches!(
+            input,
+            Input::Touch {
+                phase: TouchPhase::Move,
+                ..
+            }
+        ) {
+            if up.is_closed() {
+                return Err(DesktopError::BadRequest(
+                    "The device is no longer attached.".into(),
+                ));
+            }
+            if controls.touch_down.load(Ordering::Acquire) && up.capacity() > RESERVED_DISCRETE {
+                let _ = up.try_send(input);
+            }
+            continue;
+        }
+
+        if matches!(
+            input,
+            Input::Touch {
+                phase: TouchPhase::Up,
+                ..
+            }
+        ) {
+            if !controls.touch_down.swap(false, Ordering::AcqRel) {
+                continue;
+            }
+            match up.try_send(input) {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Full(release)) => {
+                    *controls
+                        .overflow_up
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner) = Some(release);
+                    controls.wake.notify_one();
+                }
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    return Err(DesktopError::BadRequest(
+                        "The device is no longer attached.".into(),
+                    ));
+                }
+            }
+            continue;
+        }
+
+        // Flush any earlier overflow release into a freed slot before sending newer discrete input.
+        let pending_up = controls
+            .overflow_up
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        if let Some(release) = pending_up
+            && let Err(mpsc::error::TrySendError::Full(still_full)) = up.try_send(release)
+        {
+            *controls
+                .overflow_up
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner) = Some(still_full);
+            return Err(DesktopError::TimedOut(
+                "The device connection is congested.".into(),
+            ));
+        }
+
+        let is_down = matches!(
+            input,
+            Input::Touch {
+                phase: TouchPhase::Down,
+                ..
+            }
+        );
+
+        match timeout(INPUT_WAIT, up.send(input)).await {
+            Ok(Ok(())) => {
+                if is_down {
+                    controls.touch_down.store(true, Ordering::Release);
+                }
+            }
+            Ok(Err(_)) => {
+                return Err(DesktopError::BadRequest(
+                    "The device is no longer attached.".into(),
+                ));
+            }
+            Err(_) => {
+                if is_down {
+                    controls.touch_down.store(false, Ordering::Release);
+                }
+                return Err(DesktopError::TimedOut(
+                    "The device connection is congested.".into(),
+                ));
+            }
+        }
     }
 
     Ok(())

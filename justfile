@@ -24,10 +24,6 @@ run-release mode="shared":
     cd apps/desktop && npm install --silent && npm run build
     cd apps/desktop/src-tauri && CARGO_PROFILE_RELEASE_STRIP=false CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo tauri dev --runner ../../../scripts/cargo-plain.sh --release --no-dev-server {{ if mode == "apart" { "--config tauri.dev.conf.json" } else { "" } }}
 
-# Regenerate the checked-in Android emulator and iOS simulator gRPC clients.
-device-proto:
-    cargo run -p beep-device-proto
-
 # Build the desktop DMG.
 desktop-build:
     cd apps/desktop && npm ci --silent

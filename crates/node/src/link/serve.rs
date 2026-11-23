@@ -105,6 +105,7 @@ pub async fn serve(
     let _provision = provision.start();
     let _sccache = provision.start_sccache();
     let mut offers = Offers::local(&state.agents, provision);
+    offers.agents.list_beep_skills();
     let _upkeep = offers.agents.start_upkeep();
     let _uploads = crate::agents::uploads::maintain(offers.agents.clone());
     // The ACP adapters an agent found here lacks, installed in the node's

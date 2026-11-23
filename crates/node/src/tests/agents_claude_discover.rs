@@ -193,7 +193,7 @@ fn a_session_that_moved_into_a_linked_worktree_says_so() {
     let tree = repo.join(".worktrees/fix");
     let line = |cwd: &Path, branch: &str| {
         format!(
-            r#"{{"type":"user","cwd":"{}","gitBranch":"{branch}","timestamp":"2026-11-02T10:00:00.000Z","message":{{"role":"user","content":"hi"}}}}"#,
+            r#"{{"type":"user","cwd":"{}","gitBranch":"{branch}","timestamp":"2026-11-02T10:00:00.000Z","message":{{"role":"user","content":[{{"type":"tool_result","tool_use_id":"t1","content":"ok"}}]}}}}"#,
             cwd.display()
         )
     };
@@ -209,6 +209,8 @@ fn a_session_that_moved_into_a_linked_worktree_says_so() {
     assert!(place.linked);
     assert_eq!(place.branch.as_deref(), Some("fix"));
     assert_eq!(place.main, repo.to_string_lossy());
+    // It resumes where it was started, which outlives the worktree.
+    assert_eq!(sessions[0].cwd, repo.to_string_lossy());
 }
 
 #[test]

@@ -1,6 +1,7 @@
 import { flushSync } from "react-dom";
 import { keepProjectAccount, keepProjectPick, lastProjectPick, type ProjectPick, startAccount } from "../agents/agentmodels.ts";
 import { pickPopover } from "../agents/pick-popover.ts";
+import { reopened } from "../agents/closing.ts";
 import type { AgentButtonItem, AgentState, PickButton } from "../review/feedback-view.tsx";
 import { agentLabel, type SessionRow } from "./projects-state.ts";
 import { syncRepairPrompt } from "./gitsync-state.ts";
@@ -444,10 +445,12 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
         left.push({ entry, skip: held });
         continue;
       }
+      const prompt = issuePrompt(entry);
       await loadAccountNames();
       const account = startAccount(accountsOf(agent), entry.project ?? null, agent);
-      const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt: issuePrompt(entry), model, effort, fast, checkout, account });
+      const session = await invoke<Started>("agent_start", { machineId: machine_id, agent, cwd, prompt, model, effort, fast, checkout, images: [], account });
       if (model || effort || fast !== null) sessionPicks.set(session.session.id, { model: model ?? "", effort, fast });
+      startedWith(session.session, prompt, []);
       nameSession(session.session, task);
     } catch (e) {
       return { started, failed: row, error: reason(e), left };
@@ -880,9 +883,17 @@ async function steer(earlier: TaskSession, prompt: string, images: Image[]) {
 
   if (!session || session.status === "ended") {
     session = (await invoke<Started>("agent_resume", { machineId: earlier.machine_id, agent: earlier.agent, session: earlier.id, prompt: "" })).session;
+    reopened(earlier);
+    reopened(session);
   }
 
-  await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });
+  try {
+    await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: { prompt: { text: prompt, images } } });
+  } catch (e) {
+    const kind = typeof e === "object" && e !== null && "kind" in e ? (e as { kind: unknown }).kind : null;
+    if (kind !== "waiting") throw e;
+  }
+
   go("pane", { agent: session });
   return session;
 }

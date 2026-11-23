@@ -37,13 +37,13 @@ export function SkeletonRows({ widths }: { widths: readonly number[] }) {
 }
 
 /// One row of a section: `lead` (a harness or icon), a title over one muted
-/// line, then `right`. A click anywhere opens it.
-export function LineRow({ lead, title, sub, right, onOpen, onContext, dim = false, rowTitle, textTitle, dataKey, events }: {
+/// line, then `right`. A click anywhere opens it. `current` marks the row in hand.
+export function LineRow({ lead, title, sub, right, onOpen, onContext, dim = false, current = false, rowTitle, textTitle, dataKey, events }: {
   lead: ReactNode; title: string; sub: ReactNode; right?: ReactNode; onOpen(): void; onContext?(event: MouseEvent): void;
   events?: Pick<HTMLAttributes<HTMLDivElement>, "onClickCapture" | "onAuxClick" | "onMouseEnter" | "onMouseLeave" | "onContextMenu">;
-  dim?: boolean; rowTitle?: string; textTitle?: string; dataKey?: string;
+  dim?: boolean; current?: boolean; rowTitle?: string; textTitle?: string; dataKey?: string;
 }) {
-  return <div data-key={dataKey} className={`cc-row cc-line${lead ? "" : " bare"}`} title={rowTitle} style={dim ? { opacity: .55 } : undefined} onClick={onOpen} onContextMenu={onContext ? event => onContext(event.nativeEvent) : undefined} {...events}>
+  return <div data-key={dataKey} className={`cc-row cc-line${lead ? "" : " bare"}`} aria-current={current || undefined} title={rowTitle} style={dim ? { opacity: .55 } : undefined} onClick={onOpen} onContextMenu={onContext ? event => onContext(event.nativeEvent) : undefined} {...events}>
     {lead}<button type="button" className="t" title={textTitle ?? title}><b>{title}</b><span>{sub}</span></button><span className="r">{right}</span>
   </div>;
 }
@@ -112,6 +112,12 @@ export function Switch({ on, flip, label, disabled = false, id, contained = fals
 }) {
   return <button type="button" className="dswitch" role="switch" id={id} aria-checked={on} aria-label={label} disabled={disabled}
     onClick={event => { if (contained) contain(event); flip(); }} onKeyDown={contained ? contain : undefined} />;
+}
+
+/// The thin bar along the top of a message field while something it waits on copies, such as an
+/// upload or a move, filled to `pct`.
+export function ProgressBar({ pct, label }: { pct: number; label: string }) {
+  return <div className="agupbar" role="progressbar" aria-label={label} aria-valuenow={pct} title={`${label}: ${pct}%`}><span style={{ width: `${pct}%` }} /></div>;
 }
 
 /// A spinner: the ring (`dspin`), or with `dot` the small one (`drun`) for

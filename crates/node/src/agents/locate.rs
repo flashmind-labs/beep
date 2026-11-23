@@ -53,10 +53,11 @@ pub(super) fn path_with(programs: &[&Path]) -> Option<OsString> {
     env::join_paths(dirs).ok()
 }
 
-/// The per-user install folders under home: the native installer, then the
+/// The per-user install folders under home: the native installers, then the
 /// usual per-user bins.
 pub(crate) const HOME_BINS: &[&str] = &[
     ".claude/local",
+    "AppData/Local/agy/bin",
     ".local/bin",
     ".npm-global/bin",
     ".bun/bin",

@@ -81,6 +81,11 @@ test("a coding agent's row shows its agent and only when", () => {
   assert.equal(noteAgent(fromNote(note("b", "offline"))), null);
 });
 
+test("a thread's row names its chat", () => {
+  const agent = { machine_id: "m1", machine_name: "build-box", id: "t1", agent: "claude", cwd: "/srv/chat/pricing", status: "asking", external: false };
+  assert.equal(subLine(fromNote(note("a", "asks", { target: { agent } })), "4 min ago", "Plan the launch"), "Plan the launch · 4 min ago");
+});
+
 test("a skill conflict lists its copies and which are on this computer", () => {
   const i = fromNote(note("skill:notes", "skill_conflict", { title: "Skill notes differs on box-a and box-b", text: "box-a ~/.claude/skills\nbox-b ~/.agents/skills", here: ["box-a ~/.claude/skills"] }));
   assert.equal(skillName(i), "notes");

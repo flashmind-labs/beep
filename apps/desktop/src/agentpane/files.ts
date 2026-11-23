@@ -9,11 +9,14 @@ import { createStore } from "zustand";
 import type { FilesMenuProps } from "./files-menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { hasPreview } from "./html-preview-state.ts";
+import { reloadChatAgents } from "./chat-agents.tsx";
 import { type Listing, type TreeRow, isTree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
-import { mediaKind, resolvePath } from "./media-state.ts";
+import { baseName, mediaKind, resolvePath } from "./media-state.ts";
 import { paneRoot, watchRoot, worktreesReady } from "./worktree.ts";
 import { mentioned } from "./worktree-state.ts";
+import { sessions } from "../agents/sessions.ts";
+import { threadFolders } from "../agents/threads-state.ts";
 import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
@@ -30,8 +33,8 @@ export const PATH_TYPE = "application/x-beep-path";
 /// How many folders keep their tree.
 const KEPT = 4;
 
-/// The tree of one folder, kept while another shows.
-interface Kept {
+/// The tree of one folder, owned directly while shown and kept while another shows.
+interface FolderTree {
   key: string;
   listings: Map<string, Listing>;
   roots: Set<string>;
@@ -51,40 +54,30 @@ interface Kept {
   unwatch: () => void;
 }
 
-/// Most recently shown last.
-const kept = new Map<string, Kept>();
+const emptyTree = (key = "", ignored = false): FolderTree => ({
+  key, listings: new Map(), roots: new Set(), flat: false, open: new Set(), filter: "", ignored,
+  picked: null, anchor: null, selected: new Set(), scroll: 0, unread: new Set(), dirty: false, unwatch: () => {},
+});
 
-const F = {
-  /// The session's machine and folder the tree is of, and what is kept of it.
-  key: "",
-  kept: null as Kept | null,
-  listings: new Map<string, Listing>(),
-  /// The folders the tree was read from, read again on refresh.
-  roots: new Set<string>(),
-  /// Folders being read now.
+/// Most recently shown last, plus the currently active tree.
+const kept = new Map<string, FolderTree>();
+let current: FolderTree = emptyTree();
+
+const view = {
   reading: new Set<string>(),
   again: new Set<string>(),
-  /// The node reads one folder at a time (from before trees).
-  flat: false,
-  /// A filter is reading the rest of the tree.
   walking: false,
-  /// That read stopped at `WALK_ENTRIES`.
   capped: false,
-  open: new Set<string>(),
-  filter: "",
   ignored: false,
-  picked: null as string | null,
-  anchor: null as string | null,
-  selected: new Set<string>(),
   clipboard: null as FileClipboard | null,
   busy: false,
   fresh: false,
   generation: 0,
-  /// The tab drew once, so the tree has a key.
   made: false,
-  /// A path to scroll into view once its row is drawn.
   reveal: null as string | null,
 };
+
+const isCurrent = (tree: FolderTree, generation: number) => current === tree && view.generation === generation;
 
 /// What the tree shows: rows, or a message in their place.
 export type TreeView =
@@ -138,9 +131,9 @@ export const WALK_ENTRIES = 50_000;
 /// The pane drew the Files tab: `on` when it is the dock's tab on screen,
 /// `visible` when it can be seen. It shows the tree of the folder the pane reads.
 export function filesTab(on: boolean, visible: boolean) {
-  F.made = true;
+  view.made = true;
   const key = treeKey();
-  if (key !== F.key) showTree(key);
+  if (key !== current.key) showTree(key);
   if (!on) closeFilesMenu();
   revalidateFiles(visible);
 }
@@ -162,7 +155,7 @@ export function closeFilesMenu() {
 /// tabs are not touched.
 export function pointFilesAt() {
   const key = treeKey();
-  if (F.made && key !== F.key) showTree(key);
+  if (view.made && key !== current.key) showTree(key);
 }
 
 const treeKey = () => {
@@ -170,28 +163,29 @@ const treeKey = () => {
   return s?.cwd && paneRoot() ? `${s.machine_id}\n${paneRoot()}` : "";
 };
 
-/// Keeps the tree shown and shows the one of `key`, kept or new.
+/// Saves scroll and unfinished reads on the outgoing tree and switches to `key`.
 function showTree(key: string) {
   closeFilesMenu();
-  keep();
+  if (current.key) {
+    for (const dir of view.reading) current.unread.add(dir);
+    keepScroll();
+  }
+
   const s = paneSession();
   let entry = kept.get(key) ?? null;
 
   if (!entry && key && s) {
-    const made: Kept = { key, listings: new Map(), roots: new Set(), flat: false, open: new Set(), filter: "", ignored: F.ignored, picked: null, anchor: null, selected: new Set(), scroll: 0, unread: new Set(), dirty: false, unwatch: () => {} };
+    const made = emptyTree(key, view.ignored);
     made.unwatch = watchRoot(s.machine_id, paneRoot(), () => {
       made.dirty = true;
-      if (F.kept === made) revalidate();
+      if (current === made) revalidate();
     });
     entry = made;
   }
 
   if (entry) { kept.delete(key); kept.set(key, entry); }
-  Object.assign(F, {
-    key, kept: entry, reading: new Set(), again: new Set(), walking: false, capped: false, busy: false, fresh: false, generation: F.generation + 1, reveal: null,
-    listings: entry?.listings ?? new Map(), roots: entry?.roots ?? new Set(), flat: entry?.flat ?? false, open: entry?.open ?? new Set(),
-    filter: entry?.filter ?? "", picked: entry?.picked ?? null, anchor: entry?.anchor ?? null, selected: entry?.selected ?? new Set(),
-  });
+  current = entry ?? emptyTree("", view.ignored);
+  Object.assign(view, { reading: new Set<string>(), again: new Set<string>(), walking: false, capped: false, busy: false, fresh: false, generation: view.generation + 1, reveal: null });
   restoring = true;
   setModel({ label: "", active: null, status: "" });
   filesOnScreen = false;
@@ -200,26 +194,17 @@ function showTree(key: string) {
   if (!entry) return;
 
   // Read what was never read or stopped, and all of it when it was read with ignored files shown otherwise.
-  if (entry.ignored !== F.ignored) { entry.ignored = F.ignored; entry.dirty = true; }
-  if (!F.listings.get("")?.entries) load("");
+  if (entry.ignored !== view.ignored) { entry.ignored = view.ignored; entry.dirty = true; }
+  if (!entry.listings.get("")?.entries) load("");
   for (const dir of entry.unread) load(dir);
   entry.unread.clear();
-  if (F.filter.trim()) readAll();
-}
-
-/// Puts what the tree shows back in what is kept of it.
-function keep() {
-  const entry = F.kept;
-  if (!entry) return;
-  Object.assign(entry, { listings: F.listings, roots: F.roots, flat: F.flat, open: F.open, filter: F.filter, picked: F.picked, anchor: F.anchor, selected: F.selected });
-  for (const dir of F.reading) entry.unread.add(dir);
-  keepScroll();
+  if (entry.filter.trim()) readAll();
 }
 
 /// What the tree scrolled to is kept, once it is back where it was left.
 export function keepScroll() {
   const tree = treeRef.current;
-  if (F.kept && !restoring && tree?.isConnected && tree.offsetParent) F.kept.scroll = tree.scrollTop;
+  if (current.key && !restoring && tree?.isConnected && tree.offsetParent) current.scroll = tree.scrollTop;
 }
 
 /// The reader scrolls, or a row asked for comes into view: that is where the tree is now.
@@ -233,7 +218,7 @@ export function scrollAgain() {
 }
 
 /// Where the tree shown was left, for its first draw.
-export const keptScroll = () => F.kept?.scroll ?? 0;
+export const keptScroll = () => (current.key ? current.scroll : 0);
 
 /// Puts the tree back where it was left, once it can scroll there. True
 /// when this moved it.
@@ -251,7 +236,7 @@ export function restoreScroll(tree: HTMLElement) {
 function trim() {
   for (const entry of kept.values()) {
     if (kept.size <= KEPT) return;
-    if (entry === F.kept) continue;
+    if (entry === current) continue;
     entry.unwatch();
     kept.delete(entry.key);
   }
@@ -260,7 +245,7 @@ function trim() {
 /// Whether the tree was on screen when last asked.
 let filesOnScreen = false;
 /// A folder that changes while its tree shows is read again at most this often.
-const revalidate = ambient(() => F.kept?.dirty ? refresh() : undefined, AMBIENT_MS, () => filesShown());
+const revalidate = ambient(() => (current.key && current.dirty ? refresh() : undefined), AMBIENT_MS, () => filesShown());
 
 /// The tab drew; `visible` says whether the tree is on screen. A tree that
 /// comes on screen reads its folders again at once when the folder changed
@@ -268,7 +253,7 @@ const revalidate = ambient(() => F.kept?.dirty ? refresh() : undefined, AMBIENT_
 function revalidateFiles(visible: boolean) {
   const now = visible && paneShown(), appeared = now && !filesOnScreen;
   filesOnScreen = now;
-  if (now && F.kept?.dirty) revalidate(appeared);
+  if (now && current.key && current.dirty) revalidate(appeared);
 }
 
 /// Shows `rel`, a file in the session's folder, in the tree: its folders
@@ -281,24 +266,24 @@ export function revealPath(rel: string) {
   const parts = inRoot.split("/").filter(Boolean);
   if (!parts.length) return;
   showFiles();
-
-  F.filter = "";
+  current.filter = "";
 
   for (let i = 1; i < parts.length; i++) {
     const dir = parts.slice(0, i).join("/");
-    F.open.add(dir);
-    if (!F.listings.get(dir)?.entries) load(dir);
+    current.open.add(dir);
+    if (!current.listings.get(dir)?.entries) load(dir);
   }
 
-  F.picked = F.reveal = F.anchor = parts.join("/");
-  F.selected = new Set([F.picked]);
+  const picked = parts.join("/");
+  current.picked = current.anchor = view.reveal = picked;
+  current.selected = new Set([picked]);
   draw();
 }
 
 /// Reads `dir` again from the node when the tree has it, as after an upload into it.
 export function reloadFolder(dir: string) {
   for (let d = dir.replace(/\/+$/, ""); ; d = parentPath(d)) {
-    if (F.listings.has(d)) { load(d, false, true); return; }
+    if (current.listings.has(d)) { load(d, false, true); return; }
     if (!d) return;
   }
 }
@@ -306,32 +291,33 @@ export function reloadFolder(dir: string) {
 /// Reads every folder the tree was read from again, in place, past the
 /// native cache: only for a change, a refresh or an edit.
 async function refresh() {
-  const key = F.key, generation = F.generation;
-  const same = () => F.key === key && F.generation === generation;
-  const entry = F.kept;
-  if (entry) entry.dirty = false;
-  F.fresh = true;
-  const roots = [...new Set([...F.roots, ...F.reading])];
+  const tree = current, generation = view.generation;
+  if (tree.key) tree.dirty = false;
+  view.fresh = true;
+  const roots = [...new Set([...tree.roots, ...view.reading])];
   let read = false;
 
   try {
     for (let offset = 0; offset < roots.length; offset += WALK_AT_ONCE) {
-      if (!same()) return;
+      if (!isCurrent(tree, generation)) return;
       await Promise.all(roots.slice(offset, offset + WALK_AT_ONCE).map(dir => load(dir)));
     }
-    read = same();
+    read = isCurrent(tree, generation);
   } finally {
-    if (same()) F.fresh = false;
+    if (isCurrent(tree, generation)) view.fresh = false;
     // A read that stopped short leaves the tree as stale as before, so the next show reads again.
-    if (!read && entry) entry.dirty = true;
+    if (!read && tree.key) tree.dirty = true;
   }
 
-  if (!same()) return;
-  const error = [...F.listings.values()].find(listing => listing.error)?.error;
+  if (!isCurrent(tree, generation)) return;
+  const error = [...tree.listings.values()].find(listing => listing.error)?.error;
   if (error) {
-    if (entry) entry.dirty = true;
+    if (tree.key) tree.dirty = true;
     throw new Error(error);
   }
+
+  // The chat's agent may have written agents of its own since.
+  reloadChatAgents();
 }
 
 /// Whether the tree can be seen: its tab is picked (a view behind another
@@ -342,22 +328,22 @@ const filesShown = () => !!filesRef.current?.offsetParent && !filesRef.current.h
 /// Reads the rest of the tree while a filter is typed, so it finds what no
 /// folder opened yet shows.
 async function readAll() {
-  if (F.walking) return;
-  const key = F.key, generation = F.generation;
-  F.walking = true;
+  if (view.walking) return;
+  const tree = current, generation = view.generation;
+  view.walking = true;
   draw();
 
-  while (F.key === key && F.generation === generation && F.filter.trim()) {
+  while (isCurrent(tree, generation) && tree.filter.trim()) {
     let entries = 0;
-    for (const listing of F.listings.values()) entries += listing.entries?.length ?? 0;
-    F.capped = entries >= WALK_ENTRIES;
-    const next = unreadFolders(F.listings).slice(0, WALK_AT_ONCE);
-    if (F.capped || !next.length) break;
+    for (const listing of tree.listings.values()) entries += listing.entries?.length ?? 0;
+    view.capped = entries >= WALK_ENTRIES;
+    const next = unreadFolders(tree.listings).slice(0, WALK_AT_ONCE);
+    if (view.capped || !next.length) break;
     await Promise.all(next.map(dir => load(dir, true)));
   }
 
-  if (F.key !== key || F.generation !== generation) return;
-  F.walking = false;
+  if (!isCurrent(tree, generation)) return;
+  view.walking = false;
   draw();
 }
 
@@ -366,95 +352,91 @@ async function readAll() {
 /// asks the node past the copy of the folder this computer may have.
 const reads = new Map<string, Promise<void>>();
 function load(dir: string, deep = false, fresh = false): Promise<void> {
-  const key = F.key, generation = F.generation;
-  const token = JSON.stringify([key, generation, dir]);
+  const tree = current, generation = view.generation;
+  const token = JSON.stringify([tree.key, generation, dir]);
   const pending = reads.get(token);
-  if (pending) { if (!deep) F.again.add(dir); return pending; }
+  if (pending) { if (!deep) view.again.add(dir); return pending; }
   const read = (async () => {
     do {
-      F.again.delete(dir);
-      await readFolder(dir, deep, fresh);
+      view.again.delete(dir);
+      await readFolder(tree, generation, dir, deep, fresh);
       deep = false;
-    } while (F.key === key && F.generation === generation && F.again.has(dir));
+    } while (isCurrent(tree, generation) && view.again.has(dir));
   })().finally(() => reads.delete(token));
   reads.set(token, read);
   return read;
 }
 
-async function readFolder(dir: string, deep: boolean, fresh: boolean) {
-  const key = F.key, generation = F.generation;
+async function readFolder(tree: FolderTree, generation: number, dir: string, deep: boolean, fresh: boolean) {
   await worktreesReady();
-  if (F.key !== key || F.generation !== generation) return;
+  if (!isCurrent(tree, generation)) return;
   const s = paneSession();
-  // A session with no folder yet has nothing to read.
   if (!s?.cwd) return;
-  const had = F.listings.get(dir);
-  F.listings.set(dir, { entries: had?.entries ?? null, more: had?.more ?? 0, error: "" });
-  F.reading.add(dir);
+  const had = tree.listings.get(dir);
+  tree.listings.set(dir, { entries: had?.entries ?? null, more: had?.more ?? 0, error: "" });
+  view.reading.add(dir);
   // A folder shown stays as it is while it is read again.
   if (!had?.entries) draw();
   let changed = true;
 
   try {
-    const got = await invoke<unknown>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: F.ignored, deep, fresh: fresh || F.fresh });
-    if (F.key !== key || F.generation !== generation) return;
+    const got = await invoke<unknown>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: view.ignored, deep, fresh: fresh || view.fresh });
+    if (!isCurrent(tree, generation)) return;
     if (!isTree(got)) throw new Error("The machine sent no file listing.");
-    changed = mergeTree(F.listings, got);
-    if (!deep) F.roots.add(dir);
+    changed = mergeTree(tree.listings, got);
+    if (!deep) tree.roots.add(dir);
     const top = got.folders[0];
-    F.flat ||= got.folders.length === 1 && !got.truncated && !!top?.entries.some(e => e.folder && !e.ignored);
+    tree.flat ||= got.folders.length === 1 && !got.truncated && !!top?.entries.some(e => e.folder && !e.ignored);
   } catch (e) {
-    if (F.key !== key || F.generation !== generation) return;
-    F.listings.set(dir, failedListing(String(e instanceof Error ? e.message : e), had));
+    if (!isCurrent(tree, generation)) return;
+    tree.listings.set(dir, failedListing(String(e instanceof Error ? e.message : e), had));
   } finally {
-    if (F.key === key && F.generation === generation) {
-      F.reading.delete(dir);
-    }
+    if (isCurrent(tree, generation)) view.reading.delete(dir);
   }
 
   if (changed || !had?.entries) draw();
-  if (F.key === key && F.generation === generation && F.filter.trim()) readAll();
+  if (isCurrent(tree, generation) && tree.filter.trim()) readAll();
 }
 
 function draw() {
   if (!paneSession()?.cwd) { showingRows = false; setModel({ tree: null }); return; }
-  const top = F.listings.get("");
-  const rows = treeRows(F.listings, F.open, F.filter);
+  const top = current.listings.get("");
+  const rows = rowsNow();
   const visible = new Set(rows.map(row => row.path));
-  F.selected = new Set([...F.selected].filter(path => visible.has(path)));
-  if (F.picked && !visible.has(F.picked)) F.picked = null;
-  const label = F.busy ? filesModel.getState().label : F.selected.size ? `${F.selected.size} selected` : "";
-  const shell = { root: paneRoot(), filter: F.filter, ignored: F.ignored, busy: F.busy, label, selected: F.selected, active: F.picked ? rowId(F.picked) : null };
+  current.selected = new Set([...current.selected].filter(path => visible.has(path)));
+  if (current.picked && !visible.has(current.picked)) current.picked = null;
+  const label = view.busy ? filesModel.getState().label : current.selected.size ? `${current.selected.size} selected` : "";
+  const shell = { root: paneRoot(), filter: current.filter, ignored: view.ignored, busy: view.busy, label, selected: current.selected, active: current.picked ? rowId(current.picked) : null };
 
   let message: string | null = null, error = false, loading = false;
   if (top?.error && !top.entries) { message = top.error; error = true; }
-  else if (!top?.entries && F.reading.has("") && showingRows) { setModel(shell); return; }
+  else if (!top?.entries && view.reading.has("") && showingRows) { setModel(shell); return; }
   else if (!top?.entries) { message = "Reading the folder…"; loading = true; }
-  else if (!rows.length && F.walking && F.filter.trim()) { message = "Reading folders…"; loading = true; }
-  else if (!rows.length && !F.capped) message = F.filter ? "No files match." : "This folder is empty.";
-  const searching = !!F.filter.trim() && !!top?.entries && !top.error;
+  else if (!rows.length && view.walking && current.filter.trim()) { message = "Reading folders…"; loading = true; }
+  else if (!rows.length && !view.capped) message = current.filter ? "No files match." : "This folder is empty.";
+  const searching = !!current.filter.trim() && !!top?.entries && !top.error;
   showingRows = message === null;
   const tree: TreeView = message !== null ? { kind: "message", text: message, error, loading }
-    : { kind: "rows", rows, more: top?.more ?? 0, walking: searching && F.walking && !!rows.length, capped: searching && !F.walking && F.capped };
-  setModel({ ...shell, tree, reveal: F.reveal });
+    : { kind: "rows", rows, more: top?.more ?? 0, walking: searching && view.walking && !!rows.length, capped: searching && !view.walking && view.capped };
+  setModel({ ...shell, tree, reveal: view.reveal });
 }
 
 /// The element id of the row of `path`.
 export const rowId = (path: string) => `agfile-${encodeURIComponent(path)}`;
 
-/// The tree drew the row `F.reveal` asked for.
+/// The tree drew the row `view.reveal` asked for.
 export function revealed() {
   restoring = false;
-  F.reveal = null;
+  view.reveal = null;
   setModel({ reveal: null });
 }
 
 function toggle(path: string) {
-  if (F.open.has(path)) F.open.delete(path);
+  if (current.open.has(path)) current.open.delete(path);
   else {
-    F.open.add(path);
+    current.open.add(path);
     // Read on from a folder at the edge: shown at once when it was read.
-    if (!F.listings.get(path)?.entries || (!F.flat && atEdge(F.listings, path))) load(path);
+    if (!current.listings.get(path)?.entries || (!current.flat && atEdge(current.listings, path))) load(path);
   }
 
   draw();
@@ -471,21 +453,26 @@ function dropFolder(row: HTMLElement | null) {
 
 /// The filter's field changed.
 export function setFilter(value: string) {
-  F.filter = value;
+  current.filter = value;
   draw();
-  if (F.filter.trim()) readAll();
+  if (current.filter.trim()) readAll();
 }
 
 /// Show ignored was ticked or not.
 export function setIgnored(on: boolean) {
-  F.ignored = on;
-  if (F.kept) F.kept.ignored = F.ignored;
+  view.ignored = on;
+  current.ignored = on;
   setModel({ ignored: on });
   void refresh().catch(e => console.warn("files:", e));
 }
 
 export function refreshFiles() {
   void refresh().catch(e => console.warn("files:", e));
+}
+
+function clearSelection() {
+  current.selected.clear();
+  current.picked = current.anchor = null;
 }
 
 /// What the tree does with the pointer, the keys and drags; a row's path is
@@ -496,12 +483,12 @@ export const treeActions = {
     e.currentTarget.focus();
     const row = rowAt(e.target);
     const path = row?.dataset.fpath;
-    if (!row || !path) { F.selected.clear(); F.picked = F.anchor = null; draw(); return; }
-    Object.assign(F, selectFile(F, visiblePaths(), path, e.metaKey || e.ctrlKey, e.shiftKey));
+    if (!row || !path) { clearSelection(); draw(); return; }
+    Object.assign(current, selectFile(current, visiblePaths(), path, e.metaKey || e.ctrlKey, e.shiftKey));
     if (e.metaKey || e.ctrlKey || e.shiftKey) { draw(); return; }
 
     if (row.dataset.ffolder) toggle(path);
-    else { draw(); openWorkFile(path); }
+    else { draw(); openFile(path); }
   },
   contextMenu(e: MouseEvent<HTMLElement>) {
     e.preventDefault();
@@ -509,8 +496,8 @@ export const treeActions = {
     const row = rowAt(e.target);
     const path = row?.dataset.fpath ?? "";
 
-    if (path && !F.selected.has(path)) Object.assign(F, selectFile(F, visiblePaths(), path));
-    else if (!path) { F.selected.clear(); F.picked = F.anchor = null; }
+    if (path && !current.selected.has(path)) Object.assign(current, selectFile(current, visiblePaths(), path));
+    else if (!path) clearSelection();
 
     draw();
     menu(path, !!row?.dataset.ffolder, e.clientX, e.clientY);
@@ -520,25 +507,25 @@ export const treeActions = {
     const cmd = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
     let handled = true;
 
-    if (cmd && key === "a") { F.selected = new Set(visiblePaths()); draw(); }
+    if (cmd && key === "a") { current.selected = new Set(visiblePaths()); draw(); }
     else if (cmd && (key === "c" || key === "x")) clipboard(key === "x");
     else if (cmd && key === "v") void paste(destination());
     else if ((cmd && (key === "backspace" || key === "delete")) || (!cmd && key === "delete")) deleteItems();
-    else if (key === "escape") { closeFilesMenu(); F.selected.clear(); F.picked = F.anchor = null; draw(); }
+    else if (key === "escape") { closeFilesMenu(); clearSelection(); draw(); }
     else if (key === "enter" || key === "f2") renameItem();
-    else if (key === " " && F.picked) openPicked();
+    else if (key === " " && current.picked) openPicked();
     else if (key === "arrowup" || key === "arrowdown" || key === "home" || key === "end") {
-      const paths = visiblePaths(), at = F.picked ? paths.indexOf(F.picked) : -1;
+      const paths = visiblePaths(), at = current.picked ? paths.indexOf(current.picked) : -1;
       const next = key === "home" ? 0 : key === "end" ? paths.length - 1 : Math.max(0, Math.min(paths.length - 1, at + (key === "arrowup" ? -1 : 1)));
-      if (paths[next]) { Object.assign(F, selectFile(F, paths, paths[next], false, e.shiftKey)); F.reveal = paths[next]; draw(); }
-    } else if ((key === "arrowright" || key === "arrowleft") && F.picked) {
-      const row = rowsNow().find(r => r.path === F.picked);
+      if (paths[next]) { Object.assign(current, selectFile(current, paths, paths[next], false, e.shiftKey)); view.reveal = paths[next]; draw(); }
+    } else if ((key === "arrowright" || key === "arrowleft") && current.picked) {
+      const row = rowsNow().find(r => r.path === current.picked);
       if (row?.folder && row.open === (key === "arrowleft")) toggle(row.path);
-    } else if (key === "contextmenu" || e.shiftKey && key === "f10") {
+    } else if (key === "contextmenu" || (e.shiftKey && key === "f10")) {
       // At the first selected row, or the tree's corner while that row is scrolled away.
-      const first = rowsNow().find(row => F.selected.has(row.path)) ?? null;
+      const first = rowsNow().find(row => current.selected.has(row.path)) ?? null;
       const box = ((first && document.getElementById(rowId(first.path))) ?? e.currentTarget).getBoundingClientRect();
-      menu(F.picked ?? "", !!first?.folder, box.left, box.bottom);
+      menu(current.picked ?? "", !!first?.folder, box.left, box.bottom);
     } else handled = false;
 
     if (handled) { e.preventDefault(); e.stopPropagation(); }
@@ -580,14 +567,15 @@ function menu(path: string, folder: boolean, x: number, y: number) {
   closeFilesMenu();
   const s = paneSession();
   if (!s) return;
-  const paths = selectedPaths(), n = paths.length;
+  const paths = selectedPaths(), n = paths.length, single = n === 1 && current.selected.size === 1;
   const dir = path && folder ? path : parentPath(path);
+  const clip = view.clipboard;
   const items: [string, string][] = [
-    ...(n === 1 && F.selected.size === 1 ? [["open", folder ? "Open folder" : "Open in viewer"]] as [string, string][] : []),
-    ...(n === 1 && F.selected.size === 1 && !folder && (hasPreview(path) || mediaKind(path) === "image") ? [["preview", "Preview"]] as [string, string][] : []),
+    ...(single ? [["open", folder ? "Open folder" : "Open in viewer"]] as [string, string][] : []),
+    ...(single && !folder && (hasPreview(path) || mediaKind(path) === "image") ? [["preview", "Preview"]] as [string, string][] : []),
     ...(n ? [["mention", `Mention ${n > 1 ? `${n} items` : "in message"}`], ["-", ""], ["abs", "Copy path"], ["rel", "Copy relative path"], ["copy", `Copy${n > 1 ? ` ${n} items` : ""}`], ["cut", `Cut${n > 1 ? ` ${n} items` : ""}`]] as [string, string][] : []),
-    ...(canPasteFiles(F.clipboard, F.key, dir) ? [["paste", `Paste ${F.clipboard!.paths.length} items into ${dir || "working folder"}`]] as [string, string][] : []),
-    ...(n === 1 && F.selected.size === 1 ? [["rename", "Rename..."]] as [string, string][] : []),
+    ...(clip && canPasteFiles(clip, current.key, dir) ? [["paste", `Paste ${clip.paths.length} items into ${dir || "working folder"}`]] as [string, string][] : []),
+    ...(single ? [["rename", "Rename..."]] as [string, string][] : []),
     ["-", ""], ["newfile", "New file..."], ["newfolder", "New folder..."], ["refresh", "Refresh"],
     ...(n ? [["-", ""], ["save", `Save ${n > 1 ? `${n} items ` : ""}to this computer`], ["delete", `Delete ${n > 1 ? `${n} items ` : ""}permanently...`]] as [string, string][] : []),
   ];
@@ -611,7 +599,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
   setModel({ menu: selected });
 
   // A file this Mac has can be opened here, in another app, or shown in Finder.
-  if (n === 1 && F.selected.size === 1 && !folder) {
+  if (single && !folder) {
     void localFileItems({ machineId: s.machine_id, root: paneRoot(), path }, { x, y }).then(more => {
       if (!more.length || filesModel.getState().menu !== selected) return;
       setModel({ menu: { ...selected, local: more } });
@@ -619,54 +607,55 @@ function menu(path: string, folder: boolean, x: number, y: number) {
   }
 }
 
-const rowsNow = () => treeRows(F.listings, F.open, F.filter);
+const rowsNow = () => treeRows(current.listings, current.open, current.filter, threadsHere());
+
+/// The folders the session's threads work in, which show with each thread and not here. The
+/// tree shows the session's own folder: a worktree has none of them.
+function threadsHere() {
+  const s = paneSession();
+  return s && paneRoot() === s.cwd ? threadFolders(sessions, s) : new Set<string>();
+}
 const visiblePaths = () => rowsNow().map(r => r.path);
-const selectedPaths = () => selectionRoots(visiblePaths().filter(p => F.selected.has(p)));
+const selectedPaths = () => selectionRoots(visiblePaths().filter(p => current.selected.has(p)));
 function destination() {
-  const row = rowsNow().find(r => r.path === F.picked);
+  const row = rowsNow().find(r => r.path === current.picked);
   return row?.folder ? row.path : parentPath(row?.path ?? "");
 }
-function target() {
-  return { machineId: paneSession()?.machine_id ?? "", root: paneRoot(), key: F.key };
-}
-function note(text: string) {
-  setModel({ status: text });
-}
+const target = () => ({ machineId: paneSession()?.machine_id ?? "", root: paneRoot(), key: current.key });
+const note = (text: string) => setModel({ status: text });
 function openPicked() {
-  if (!F.picked || F.selected.size !== 1) return;
-  const row = rowsNow().find(r => r.path === F.picked);
-  if (row?.folder) toggle(row.path); else openWorkFile(F.picked);
+  if (!current.picked || current.selected.size !== 1) return;
+  const row = rowsNow().find(r => r.path === current.picked);
+  if (row?.folder) toggle(row.path); else openFile(current.picked);
 }
+const openFile = (path: string) => (hasPreview(path) ? previewWorkFile : openWorkFile)(path);
 
 type FileAction = { CreateFile: { path: string } } | { CreateFolder: { path: string } }
   | { Rename: { path: string; to: string } } | { Copy: { paths: string[]; folder: string } }
   | { Move: { paths: string[]; folder: string } } | { Delete: { paths: string[] } };
 
 async function edit(action: FileAction, at = target()) {
-  if (F.busy) throw new Error("Wait for the current file operation to finish.");
-  if (F.key !== at.key) throw new Error("The working folder changed. Open the action again.");
-  F.busy = true;
+  if (view.busy) throw new Error("Wait for the current file operation to finish.");
+  if (current.key !== at.key) throw new Error("The working folder changed. Open the action again.");
+  view.busy = true;
   draw();
   note("Updating files...");
 
   try {
     await invoke("agent_tree_edit", { machineId: at.machineId, root: at.root, action });
-    if (F.key === at.key) note("Files updated.");
+    if (current.key === at.key) note("Files updated.");
   } finally {
-    if (F.key === at.key) {
-      F.busy = false;
-      F.fresh = true;
-      F.generation++;
-      F.walking = false;
-      F.reading.clear();
-      F.listings.clear();
-      F.roots = new Set(["", ...F.open]);
+    if (current.key === at.key) {
+      Object.assign(view, { busy: false, fresh: true, generation: view.generation + 1, walking: false });
+      view.reading.clear();
+      current.listings.clear();
+      current.roots = new Set(["", ...current.open]);
       void refresh().catch(e => console.warn("files:", e));
     }
   }
 }
 function createItem(folder: boolean, dir = destination()) {
-  if (F.busy) return;
+  if (view.busy) return;
   const at = target();
   renameSheet({ title: folder ? "New folder" : "New file", value: "", run: async name => {
     const why = fileNameError(name);
@@ -677,9 +666,9 @@ function createItem(folder: boolean, dir = destination()) {
 }
 function renameItem() {
   const paths = selectedPaths();
-  if (F.busy || F.selected.size !== 1 || paths.length !== 1) return;
+  if (view.busy || current.selected.size !== 1 || paths.length !== 1) return;
   const path = paths[0], at = target();
-  renameSheet({ title: "Rename", value: path.split("/").pop()!, run: async name => {
+  renameSheet({ title: "Rename", value: baseName(path), run: async name => {
     const why = fileNameError(name);
     if (why) throw new Error(why);
     await edit({ Rename: { path, to: joinPath(parentPath(path), name) } }, at);
@@ -687,22 +676,22 @@ function renameItem() {
 }
 function clipboard(cut: boolean) {
   const paths = selectedPaths();
-  if (!paths.length || F.busy) return;
-  F.clipboard = { key: F.key, paths, cut };
+  if (!paths.length || view.busy) return;
+  view.clipboard = { key: current.key, paths, cut };
   note(`${cut ? "Cut" : "Copied"} ${paths.length} items. Select a destination folder and paste.`);
 }
 async function paste(folder: string) {
-  const clip = F.clipboard;
-  if (F.busy || !canPasteFiles(clip, F.key, folder) || !clip) return;
+  const clip = view.clipboard;
+  if (view.busy || !canPasteFiles(clip, current.key, folder) || !clip) return;
 
   try {
     await edit(clip.cut ? { Move: { paths: clip.paths, folder } } : { Copy: { paths: clip.paths, folder } });
-    if (clip.cut && F.clipboard === clip) F.clipboard = null;
+    if (clip.cut && view.clipboard === clip) view.clipboard = null;
   } catch (e) { note(`Could not paste: ${e}`); }
 }
 function deleteItems() {
   const paths = selectedPaths(), at = target();
-  if (!paths.length || F.busy) return;
+  if (!paths.length || view.busy) return;
   const label = paths.length === 1 ? paths[0] : `${paths.length} items`;
   confirmSheet({ title: `Delete ${label} permanently?`, text: paths.join("\n"),
     note: "Folders include everything inside. This cannot be undone.", action: `Delete ${paths.length} ${paths.length === 1 ? "item" : "items"}`,
@@ -711,16 +700,16 @@ function deleteItems() {
 }
 async function saveItems() {
   const paths = selectedPaths(), at = target();
-  if (!paths.length || F.busy) return;
+  if (!paths.length || view.busy) return;
   if (paths.length === 1 && !rowsNow().find(r => r.path === paths[0])?.folder) { saveWorkFile(paths[0], note, at.root); return; }
-  F.busy = true;
+  view.busy = true;
   draw();
   note(`Saving ${paths.length} items...`);
 
   try {
     const to = await invoke<string>("agent_tree_save_many", { machineId: at.machineId, root: at.root, paths });
-    if (F.key === at.key) note(`Saved to ${savedIn(to)}.`);
+    if (current.key === at.key) note(`Saved to ${savedIn(to)}.`);
     await invoke("reveal_file", { path: to });
-  } catch (e) { if (F.key === at.key) note(`Download stopped: ${e}. The save folder may contain incomplete files.`); }
-  finally { if (F.key === at.key) { F.busy = false; draw(); } }
+  } catch (e) { if (current.key === at.key) note(`Download stopped: ${e}. The save folder may contain incomplete files.`); }
+  finally { if (current.key === at.key) { view.busy = false; draw(); } }
 }

@@ -1,7 +1,7 @@
 // The pane: the bar's views drawn inside the command center window, which
 // drives them through `pane`.
 import "./events.ts";
-import { type AgentPlace, renderAgentNew } from "../agents/agentnew.tsx";
+import type { AgentPlace } from "../agents/agentnew.tsx";
 import { type AgentRow, renderAgents } from "../agents/agents.ts";
 import { openAgent } from "../agents/session.tsx";
 import { type AssistantOpen, openAssistantPage, openedChat } from "../agents/assistant-page.tsx";
@@ -11,9 +11,10 @@ import { sessions } from "../agents/sessions.ts";
 import { type BackTo, changeListeners, connectWindow, current, type PaneNow } from "./core.ts";
 import { mountPane } from "./keys.ts";
 import { loadHosts } from "./views.ts";
-import { renderMachines } from "../machines/machines.tsx";
-import { renderSettings, settingsBack } from "../settings/settings.tsx";
 import { setPaneShown } from "../ui/active.ts";
+
+let settingsLoaded: typeof import("../settings/settings.tsx") | null = null;
+const ensureSettings = async () => settingsLoaded ??= await import("../settings/settings.tsx");
 
 /// What the window can open in the pane by name.
 type PanePage = "agents" | "settings" | "machines";
@@ -34,11 +35,11 @@ export const pane = {
   /// is. It opens on `page` when given, else on the page picked last.
   settings(el: HTMLElement, page?: string) {
     loadHosts();
-    return renderSettings(el, page);
+    return ensureSettings().then(m => m.renderSettings(el, page));
   },
   /// Esc in the sheet: back from a subpage to its page. False when the
   /// sheet shows a page, so Esc closes it.
-  settingsBack,
+  settingsBack: () => settingsLoaded ? settingsLoaded.settingsBack() : false,
   /// Shows `target`.
   open(target: PaneTarget) {
     loadHosts();
@@ -67,11 +68,11 @@ export const pane = {
         });
       }
 
-      return renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null, target.agentnew.assistant);
+      return import("../agents/agentnew.tsx").then(m => m.renderAgentNew(target.agentnew.prompt ?? "", target.from ?? "agents", target.agentnew.at ?? null, target.agentnew.assistant));
     }
 
-    if (target === "settings") return renderSettings();
-    if (target === "machines") return renderMachines();
+    if (target === "settings") return ensureSettings().then(m => m.renderSettings());
+    if (target === "machines") return import("../machines/machines.tsx").then(m => m.renderMachines());
     return renderAgents();
   },
   /// The pane goes off screen.

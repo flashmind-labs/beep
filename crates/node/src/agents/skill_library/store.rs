@@ -5,7 +5,7 @@
 
 use crate::agents::{custom_agents::parse::skill_description, skills::disk};
 use anyhow::{Context, Result, bail};
-use beep_proto::node::{mesh_state::LibrarySkill, skills::SkillFile};
+use beep_proto::node::{mesh_state::LibrarySkill, skill_library::library_name, skills::SkillFile};
 use serde_bytes::ByteBuf;
 use sha2::{Digest, Sha256};
 use std::{
@@ -48,8 +48,8 @@ pub(super) fn inspect_git(node_dir: &Path, url: &str) -> Result<(String, Vec<Lib
     let listed = git(&root, &["ls-tree", "-r", "-z", "--name-only", &commit])?;
     let mut skills = Vec::new();
 
-    for (name, rel) in skill_dirs(listed.split('\0').map(str::to_owned)) {
-        let text = git(&root, &["show", &format!("{commit}:{rel}/{SKILL_MD}")])?;
+    for (name, prefix) in skill_dirs(listed.split('\0'), url) {
+        let text = git(&root, &["show", &format!("{commit}:{prefix}{SKILL_MD}")])?;
         skills.push(LibrarySkill {
             name,
             description: skill_description(&text),
@@ -128,15 +128,14 @@ pub(super) fn skill_at(
     }
 
     let listed = git(&root, &["ls-tree", "-r", "-z", "--name-only", revision])?;
-    let paths: Vec<String> = listed.split('\0').map(str::to_owned).collect();
-    let Some(rel) = skill_dirs(paths.iter().cloned()).remove(skill) else {
+    let paths = listed.split_terminator('\0');
+    let Some(prefix) = skill_dirs(paths.clone(), url).remove(skill) else {
         return Ok(None);
     };
-    let prefix = format!("{rel}/");
     let mut files = Vec::new();
     let mut bytes = 0;
 
-    for path in &paths {
+    for path in paths {
         let Some(inner) = path.strip_prefix(&prefix) else {
             continue;
         };
@@ -237,14 +236,16 @@ fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>> {
     Ok(out.stdout)
 }
 
-/// The skills among `paths` (files under a library's root, `/` between parts): each folder with
-/// a `SKILL.md`, by folder name, to its path from the root. Hidden folders other than an agent's
-/// skills folder at the root (such as `.claude/skills`), skills inside other skills and names
-/// taken by a skill nearer the root are left out.
-pub(super) fn skill_dirs(paths: impl IntoIterator<Item = String>) -> BTreeMap<String, String> {
-    let mut dirs: Vec<String> = paths
-        .into_iter()
-        .filter_map(|path| path.strip_suffix(&format!("/{SKILL_MD}")).map(str::to_owned))
+/// Maps each skill name to its path prefix, including the trailing slash for a subfolder.
+/// Hidden folders (except agent skills folders), nested skills and duplicate names are skipped.
+/// A root SKILL.md uses the repository name, with a numeric suffix if a child owns that name.
+fn skill_dirs<'a>(
+    mut paths: impl Iterator<Item = &'a str> + Clone,
+    url: &str,
+) -> BTreeMap<String, String> {
+    let mut dirs: Vec<&str> = paths
+        .clone()
+        .filter_map(|path| path.strip_suffix("/SKILL.md"))
         .filter(|dir| {
             let parts: Vec<&str> = dir.split('/').collect();
             let plain = match parts.as_slice() {
@@ -263,14 +264,27 @@ pub(super) fn skill_dirs(paths: impl IntoIterator<Item = String>) -> BTreeMap<St
     let mut found: BTreeMap<String, String> = BTreeMap::new();
 
     for dir in dirs {
-        let inside = found
-            .values()
-            .any(|skill| dir.starts_with(&format!("{skill}/")));
+        let inside = found.values().any(|prefix| dir.starts_with(prefix));
         let name = dir.rsplit('/').next().unwrap_or_default().to_owned();
 
         if !inside && !found.contains_key(&name) {
-            found.insert(name, dir);
+            found.insert(name, format!("{dir}/"));
         }
+    }
+
+    let base = library_name(url);
+    if paths.any(|path| path == SKILL_MD) && disk::valid_part(&base) {
+        let mut name = base.clone();
+        let mut number = 2;
+
+        while found.keys().any(|child| child.eq_ignore_ascii_case(&name)) {
+            let suffix = format!("-{number}");
+            // library_name returns ASCII, so this keeps the folder within the byte limit.
+            name = format!("{}{suffix}", &base[..base.len().min(255 - suffix.len())]);
+            number += 1;
+        }
+
+        found.insert(name, String::new());
     }
 
     found
@@ -315,13 +329,10 @@ fn skill_files(root: &Path) -> Vec<String> {
 }
 
 /// The skills in the library copy at `root`, by name, to their folders.
-pub(super) fn skills_in(root: &Path) -> BTreeMap<String, PathBuf> {
-    skill_dirs(skill_files(root))
+pub(super) fn skills_in(root: &Path, url: &str) -> BTreeMap<String, PathBuf> {
+    skill_dirs(skill_files(root).iter().map(String::as_str), url)
         .into_iter()
-        .map(|(name, rel)| {
-            let dir = rel.split('/').fold(root.to_path_buf(), |p, part| p.join(part));
-            (name, dir)
-        })
+        .map(|(name, prefix)| (name, root.join(prefix)))
         .collect()
 }
 

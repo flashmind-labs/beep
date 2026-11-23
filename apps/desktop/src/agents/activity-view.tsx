@@ -49,7 +49,7 @@ export type ActivityRow =
   | { kind: "pictures"; id: string; at: number | null; folded: boolean; pictures: string }
   | { kind: "crumb"; id: string; parent: string; title: string }
   | { kind: "older"; id: string; text: string }
-  | { kind: "note"; id: string; at: number; value: { kind: "other"; text: string } | { kind: "compacted" } | { kind: "answers"; items: Answered[] } | { kind: "made"; files: MadeFiles; open: boolean } | { kind: "collapse" } };
+  | { kind: "note"; id: string; at: number; value: { kind: "other"; text: string } | { kind: "compacted"; summary: string | null } | { kind: "answers"; items: Answered[] } | { kind: "made"; files: MadeFiles; open: boolean } | { kind: "collapse" } };
 
 export function ActivityView({ row }: { row: ActivityRow }) {
   switch (row.kind) {
@@ -163,6 +163,7 @@ function Note({ row }: { row: Extract<ActivityRow, { kind: "note" }> }) {
   const note = row.value;
   if (note.kind === "collapse") return <div><button className="dprogress-collapse" data-turn={row.at} data-collapse aria-label="Collapse activity" title="Collapse activity" aria-expanded="true"><Icon name="chev" /></button></div>;
   if (note.kind === "other") return <div className="dcoderen other" data-row={row.at}>{note.text}</div>;
+  if (note.kind === "compacted" && note.summary) return <details className="dcoderen beepctx" data-row={row.at}><summary>Context summarized</summary><pre>{note.summary}</pre></details>;
   if (note.kind === "compacted") return <div className="dcoderen compacted" data-row={row.at}><span>Conversation compacted</span></div>;
   if (note.kind === "answers") return <div className="dcoderen qa" data-row={row.at}>{note.items.map((item, index) => <Fragment key={index}>{item.question && <span className="q">{item.question}</span>}<span className="a">{item.answer}</span></Fragment>)}</div>;
   if (note.files.files.length === 1) return <div className="dcoderen other mf" data-row={row.at}>Made <MadeChip file={note.files.files[0]} cls="mf-name" /></div>;

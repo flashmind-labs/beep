@@ -18,6 +18,7 @@
 // review the changed files under `ui-baseline.spec.ts-snapshots/` with
 // `git diff`, and commit them with the change.
 
+import { EMPTY } from "../../src/settings/flsh-state.ts";
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, openStartForm, projectName } from "./harness.ts";
 import { audit, auditing } from "./ui-audit.ts";
@@ -184,6 +185,16 @@ test("home overview", async ({ page }) => {
   await baseline(page, "home-overview");
 });
 
+test("home review", async ({ page }) => {
+  const widget = [agentRow("notice-three", "Add CSV export to reports", "idle", 1_200_000, "/srv/example/widget"), agentRow("notice-four", "Bump the parser", "working", 60_000, "/srv/example/widget")];
+  const replied = [...running, ...widget].map(row => row.status === "idle" ? { ...row, reply_html: "Done. The changelog lists <code>0.9.0</code>." } : row);
+  await openDesktop(page, false, { center_home: { ...home, running: replied } });
+  await page.getByRole("radio", { name: "Review" }).click();
+  await expect(page.locator(".bd-review .bd-log .cc-line")).toHaveCount(2);
+  await expect(page.locator(".bd-review .bd-card")).toHaveCount(2);
+  await baseline(page, "home-review");
+});
+
 test("assistant page", async ({ page }) => {
   const chat = assistantSessions[0];
   const transcript = [
@@ -195,12 +206,56 @@ test("assistant page", async ({ page }) => {
     assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
     agent_view: { ...agentView, session: { ...chat, question: null }, entries: transcript },
   });
-  await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
+  await page.locator("#side").getByRole("button", { name: /^Assistant/ }).click();
   const list = page.locator(".asst-list");
   await list.getByRole("button", { name: /Set up the widget project/ }).click();
   await expect(page.getByText("Cloned example/widget")).toBeVisible();
   await expect(list.locator('[aria-current="true"]')).toContainText("Set up the widget project");
   await baseline(page, "assistant-page");
+});
+
+test("assistant chat with threads", async ({ page }) => {
+  const chat = { ...assistantSessions[0], title: "Battery chemistries after 2030", cwd: "/srv/.beep/assistant/ab12cd" };
+  const thread = (id: string, title: string, over: object) => ({ ...chat, id, title, status: "idle", assistant: false, parent: { machine_id: machineId, id: chat.id, key: "" }, ...over });
+  const threads = [
+    thread("thread-one", "Sodium-ion cost curve", { status: "working", doing: "Reading the supply reports" }),
+    thread("thread-two", "Solid-state timelines", { reply_html: "Pilot lines in 2027, no volume before 2030" }),
+    thread("thread-three", "Recycling regulation", { status: "asking", question: { id: 1, text: "EU only, or US too?", detail: null, options: [] } }),
+    // One that ended, found in its agent's files once its node started again: no link to its chat but its folder.
+    { ...thread("thread-four", "Cathode prices", { status: "ended", external: true, parent: null }), cwd: `${chat.cwd}/cathode-prices` },
+  ];
+  const view = (row: object, text: string) => ({ ...agentView, session: { ...row, question: null }, entries: [{ kind: "agent", text }] });
+  await openDesktop(page, false, {
+    center_home: assistantHome, agent_sessions: [chat, ...threads, session], agent_hosts: [assistantHost],
+    assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
+    agent_view: view(chat, "Three threads are on it. I will merge what they find."),
+  });
+  await page.locator("#side").getByRole("button", { name: /^Assistant/ }).click();
+  const list = page.locator(".asst-list");
+  await list.getByRole("button", { name: /Battery chemistries/ }).click();
+  // The chat's threads take the sidebar's place; the one that ended is under Past.
+  const rail = page.locator("#rail");
+  await expect(rail.locator(".rail-threads")).toContainText("Solid-state timelines");
+  await expect(rail.locator(".rail-scroll > .pj-li")).toContainText("Cathode prices");
+  await baseline(page, "assistant-threads");
+
+  // New thread starts the message that asks the chat's agent for one.
+  await rail.getByRole("button", { name: "New thread" }).click();
+  await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
+  await expect(page.locator("#agmsg")).toBeFocused();
+
+  // The chat's own menu offers it too, which is how a phone reaches it: its list hides while a chat shows.
+  await page.locator("#agmsg").fill("");
+  await rail.getByRole("button", { name: /Battery chemistries/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "New thread" }).click();
+  await expect(page.locator("#agmsg")).toHaveValue("New thread: ");
+
+  // A thread opens on the page, with its own files and no Changes beside it, as the current item of its chat's rail.
+  await page.evaluate(next => window.__navigation.respond("agent_view", next), view(threads[1], "Pilot lines in 2027, no volume before 2030."));
+  await rail.getByRole("button", { name: /Solid-state timelines/ }).click();
+  await expect(page.getByText("Pilot lines in 2027, no volume before 2030.")).toBeVisible();
+  await expect(rail.locator('[aria-current="true"]')).toContainText("Solid-state timelines");
+  await expect(page.getByRole("tab", { name: "Changes", exact: true })).toHaveCount(0);
 });
 
 test("assistant page empty", async ({ page }, info) => {
@@ -308,13 +363,13 @@ test("home PRs and issues sorted", async ({ page }) => {
   };
   await openDesktop(page, false, { center_home: home, git_items: { items, hosts: [] } });
   await page.getByRole("tab", { name: /PRs and issues/ }).click();
-  await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(6);
+  await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(4);
+  // The sort orders the cards, then each card's items.
   await sortBy("Recent activity");
-  await expect(page.locator("#sec-git .pl-row.repo")).toHaveCount(0);
-  await expect(page.locator("#sec-git .pl-row.it.flat .num")).toHaveText(["#412", "#398", "#88", "#31", "#85", "#14", "#377", "#12"]);
+  await expect(page.locator("#sec-git .pl-row.it .num")).toHaveText(["#412", "#398", "#377", "#88", "#85", "#31", "#14", "#12"]);
   await baseline(page, "home-git-activity");
   await sortBy("Newest");
-  await expect(page.locator("#sec-git .pl-row.it.flat .num")).toHaveText(["#31", "#85", "#88", "#398", "#412", "#12", "#14", "#377"]);
+  await expect(page.locator("#sec-git .pl-row.it .num")).toHaveText(["#12", "#14", "#31", "#85", "#88", "#377", "#398", "#412"]);
 });
 
 test("sidebar groups folded and collapsed", async ({ page }) => {
@@ -485,7 +540,7 @@ test("settings machines", async ({ page }) => {
 
 test("settings machine with WSL", async ({ page }) => {
   const wsl = (name: string, agents: string[]) => ({ name, agents, node: null, machine_id: null, kept: false, problem: null, probed: true });
-  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], gpus: [], wsl: [wsl("Ubuntu", ["claude", "codex"]), wsl("Debian", ["gemini"])] };
+  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], gpus: [], wsl: [wsl("Ubuntu", ["claude", "codex"]), wsl("Debian", ["pi"])] };
   const machines = [{ ...machine("desk-pc", "desk-pc", true, 0), env }];
   const machine_mcp_servers = [
     { name: "build-tools", settings: { enabled: true, codex: null, claude_oauth: null, connection: { stdio: { command: "build-tools", args: [], env: {}, cwd: null } } } },
@@ -536,7 +591,7 @@ test("settings assistant", async ({ page }) => {
   await openDesktop(page, false, { ...settingsResponses, assistant_settings_get: { agent: null, model: null, effort: null, fast: null }, mac_control: { id: "build-box" }, agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["claude", "codex"], workspace: null, home: "/srv", capabilities: [], assistant: true }], agent_models: { pick: "listed", current: null, models: [{ id: "model-a", name: "Example Model A", description: null, provider: null }, { id: "model-b", name: "Example Model B", description: null, provider: null }] } });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
-  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+  await dialog.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: /^Assistant/ }).click();
   await dialog.locator("#assistantSetting").getByRole("button").click();
   await expect(page.getByRole("dialog", { name: "Harness, model and thinking" }).getByText("Example Model B")).toBeVisible();
   await baseline(page, "settings-assistant");
@@ -561,6 +616,19 @@ test("settings claude code", async ({ page }) => {
   await nav.getByRole("button", { name: /^Claude/ }).click();
   await expect(settings.getByRole("button", { name: "Direct", exact: true })).toHaveAttribute("aria-pressed", "true");
   await baseline(page, "settings-claude-code");
+});
+
+test("settings flsh stream idle timeout", async ({ page }) => {
+  await openDesktop(page, false, { ...settingsResponses, flsh_settings_get: EMPTY });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  const nav = settings.getByRole("navigation", { name: "Settings pages" });
+  await nav.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await nav.getByRole("button", { name: "flsh", exact: true }).click();
+  const timeout = settings.getByRole("textbox", { name: "Stream idle timeout (seconds)" });
+  await expect(timeout).toHaveAttribute("placeholder", "300");
+  await timeout.scrollIntoViewIfNeeded();
+  await baseline(page, "settings-flsh");
 });
 
 test("settings codex", async ({ page }) => {
@@ -595,8 +663,8 @@ const agentAccountResponses = {
     { agent: "claude", name: "Work", env_var: "CLAUDE_CODE_OAUTH_TOKEN", token: { last4: "4a2f", created_at: 0, unreadable: false } },
   ] },
   list_machines: [
-    { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }] } },
-    { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }] } },
+    { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }, { tool: "agy", signed_in: true, account: null }] } },
+    { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }, { tool: "agy", signed_in: false, account: null }] } },
   ],
 };
 for (const section of [null, "Agent accounts", "Appearance"] as const) {
@@ -642,8 +710,15 @@ test("narrow window folds the right pane to its tabs, which open it over the con
 });
 
 test("agent session transcript", async ({ page }) => {
-  await openAgent(page);
+  const summary = "The redirect now preserves the query string.";
+  const entries = [{ kind: "other", text: `[conversation compacted]\n${summary}` }, ...transcript];
+  await openAgent(page, { agent_view: { ...agentView, usage: sessionUsage, entries } });
+  const marker = page.getByText("Context summarized", { exact: true });
+  await expect(marker).toBeVisible();
+  await expect(page.getByText(summary, { exact: true })).toBeHidden();
   await baseline(page, "agent-transcript");
+  await marker.click();
+  await expect(page.getByText(summary, { exact: true })).toBeVisible();
 });
 
 test("agent composer with a draft", async ({ page }) => {
@@ -664,6 +739,8 @@ test("agent file being edited", async ({ page }) => {
   await page.evaluate(() => window.__navigation.respond("agent_tree_text", { size: 10000, text: Array.from({ length: 500 }, (_, i) => `const value${i} = ${i};`).join("\n"), cut: false, binary: false, editable: true }));
   await page.getByRole("tab", { name: "Files", exact: true }).click();
   await page.locator('[data-fpath="README.md"]').click();
+  // Markdown opens in its preview; Source shows the text to edit.
+  await page.locator("[data-preview]").click();
   await page.locator("[data-tedit]").click();
   await expect(page.locator(".agcm .cm-content")).toBeFocused();
   await page.keyboard.type("// note");
@@ -785,7 +862,7 @@ test("agent message of several lines stays inside its field", async ({ page }) =
 
 test("agent running", async ({ page }) => {
   await openAgent(page);
-  const process = (pid: number, command: string, parent = 0) => ({ pid, command, started_at: NOW - 600_000, ports: pid === 41 ? [5173] : [], left_group: false, parent });
+  const process = (pid: number, command: string, parent = 0) => ({ pid, command, started_at: NOW - 600_000, ports: pid === 41 ? [5173] : [], left_group: false, parent, pages: pid === 41 ? [5173] : [] });
   const wrapped = "/usr/bin/zsh -c source /srv/home/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval 'npm run test:browser' < /dev/null";
   await page.evaluate(rows => window.__navigation.processes(rows), [process(41, "npm run dev"), process(42, "cargo watch -x check"), process(43, wrapped), process(44, "npm run test:browser", 43), process(45, "node /srv/project/node_modules/.bin/playwright test", 44), process(46, "/srv/cache/ms-playwright/chromium_headless_shell/chrome-headless-shell --headless", 45)]);
   await page.getByRole("tab", { name: /Running/ }).click();
@@ -793,6 +870,7 @@ test("agent running", async ({ page }) => {
   await expect(page.locator(".agrunningrow")).toHaveCount(3);
   await page.locator(".agrunningrow").filter({ hasText: "npm run test:browser" }).locator(".t").click();
   await expect(page.locator(".agrunningrow .child")).toHaveCount(3);
+  await expect(page.locator(".ag-page").getByRole("button", { name: "Open :5173" })).toBeVisible();
   await baseline(page, "agent-running");
 });
 
@@ -997,6 +1075,22 @@ for (const [day, scene] of [[1, "haystacks"], [2, "lilies"], [3, "parliament"]] 
   });
 }
 
+test("new project repository settings", async ({ page }) => {
+  const forge = { host: "github", github: true, owners: ["example"], error: null };
+  await openDesktop(page, false, { center_home: home, project_forges: [forge] });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "New project", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "New project" });
+  const owner = sheet.getByRole("group", { name: "Account or organization" });
+  const visibility = sheet.getByRole("group", { name: "Visibility" });
+  await expect(owner.getByRole("button", { name: "example" })).toBeVisible();
+  await expect(visibility.getByRole("button", { name: "Private" })).toHaveAttribute("aria-pressed", "true");
+  const left = await owner.boundingBox();
+  const right = await visibility.boundingBox();
+  expect(left && right && left.x + left.width < right.x && left.y === right.y).toBe(true);
+  await baseline(page, "new-project", ".np-sheet");
+});
+
 test("add a project", async ({ page }) => {
   const place = (folder: string) => ({ machine_id: machineId, machine_name: machineId, folder });
   const found = [
@@ -1054,7 +1148,7 @@ test("settings codex fast thinking", async ({ page }) => {
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Assistant", exact: true }).click();
+  await settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: /^Assistant/ }).click();
   await settings.locator("#assistantSetting").getByRole("button").click();
   const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
   await expect(picker.getByRole("button", { name: "Ultra", exact: true })).toBeVisible();
@@ -1064,4 +1158,26 @@ test("settings codex fast thinking", async ({ page }) => {
   await baseline(page, "settings-codex-fast-thinking");
   await fast.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "assistant_settings_save").at(-1)?.args.settings)).toMatchObject({ agent: "codex", effort: "ultra", fast: false });
+});
+
+test("agent split session", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const widgetFolder = `/srv/${projectName}`;
+  const first = { ...session, cwd: widgetFolder };
+  const other = { ...agentRow("notice-two", "Update the changelog", "idle", 600_000, widgetFolder), agent: "claude", assistant: false, persona: null };
+  const firstView = { ...agentView, session: { ...first, question: null }, usage: sessionUsage };
+  const otherView = { ...agentView, session: { ...other, question: null }, entries: [{ kind: "agent", text: "Changelog updated for 0.9.0." }] };
+  await openDesktop(page, false, {
+    center_home: { ...home, running: [first, other] },
+    agent_sessions: [first, other],
+    project_sessions: [first, other],
+    agent_views: { "notice-one": firstView, "notice-two": otherView },
+    agent_tree: listing,
+  });
+  await page.evaluate(target => window.__navigation.open({ agent: target }), first);
+  await expect(page.getByText("The query string now survives the redirect.")).toBeVisible();
+  await page.locator("#rail").getByRole("button", { name: /Update the changelog/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Open beside" }).click();
+  await expect(page.locator("#agpane-right .agsplit")).toContainText("Changelog updated for 0.9.0.");
+  await baseline(page, "agent-split-session");
 });

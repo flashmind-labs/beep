@@ -175,6 +175,7 @@ impl Live {
                     }));
                 }
             }
+            v2::SessionUpdate::SessionInfoUpdate(_) if self.named => {}
             v2::SessionUpdate::SessionInfoUpdate(update) => match &update.title {
                 MaybeUndefined::Value(title) => self.info.title = crate::agents::tags::title(title),
                 MaybeUndefined::Null => self.info.title = None,
@@ -191,7 +192,7 @@ impl Live {
                         .as_opt_ref()
                         .flatten()
                         .map(|cost| (cost.amount, cost.currency.as_str())),
-                    update.meta.as_ref(),
+                    update.meta.as_opt_ref().flatten(),
                 );
             }
             v2::SessionUpdate::AvailableCommandsUpdate(update) => {

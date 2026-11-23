@@ -45,11 +45,13 @@ pub const HARNESSES: &[Harness] = &[
         home_default: "~/.pi/agent",
         npm: Some("@earendil-works/pi-coding-agent"),
     },
+    // Its config is under `~/.gemini/antigravity-cli` and nothing but the
+    // home moves it; its sign-in is in the OS keyring.
     Harness {
-        agent: "gemini",
-        home_var: "GEMINI_CLI_HOME",
+        agent: "agy",
+        home_var: "HOME",
         home_default: "~",
-        npm: Some("@google/gemini-cli"),
+        npm: None,
     },
     Harness {
         agent: "flsh",
@@ -163,8 +165,8 @@ pub struct HarnessConfig {
     /// a node that runs neither directly uses ACP.
     #[serde(default)]
     pub driver: HarnessDriver,
-    /// The harnesses its sessions may start as children through
-    /// `start_agent` and `review`. `None` allows every harness.
+    /// No longer read: projects limit their harnesses instead
+    /// (`ProjectRecord::harnesses`). Kept for the positional wire format.
     #[serde(default)]
     pub spawns: Option<Vec<AgentSlug>>,
 }

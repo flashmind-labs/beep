@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HazeArt } from "../ui/painted-art.tsx";
-import { Input, SearchField } from "react-aria-components";
+import { Input } from "react-aria-components/Input";
+import { SearchField } from "react-aria-components/SearchField";
 import { commandKey } from "../ui/platform.ts";
 import { plural } from "../ui/format.ts";
 import { Dropdown } from "../ui/dropdown.tsx";
@@ -25,7 +26,8 @@ let folded = new Set<string>();
 try { folded = parseFolded(localStorage.getItem(FOLDED_KEY)); } catch { /* none kept */ }
 const groupKey = (group: Group) => group.group ? `group:${group.group.id}` : `org:${group.org ?? ""}`;
 
-export function ProjectsOverview({ groups: all, sync, editing, add, sort, changeSort }: { sort: ProjectSort; changeSort(sort: ProjectSort): void; groups: Group[]; sync(name: string): string | null; editing: { id: string; draft: string } | null; add(): void }) {
+/// `active` is the projects with open sessions and what each session does, over every project's card.
+export function ProjectsOverview({ groups: all, active, sync, editing, add, sort, changeSort }: { sort: ProjectSort; changeSort(sort: ProjectSort): void; groups: Group[]; active: ReactNode; sync(name: string): string | null; editing: { id: string; draft: string } | null; add(): void }) {
   const [query, setQuery] = useState(kept);
   const groups = useMemo(() => searchOverview(all, query), [all, query]);
   const field = useRef<HTMLInputElement>(null);
@@ -43,7 +45,7 @@ export function ProjectsOverview({ groups: all, sync, editing, add, sort, change
   // A search shows every match, folded or not.
   const searching = !!query.trim();
 
-  return <><HazeArt /><div className="pj-toolbar"><SearchField className="pj-find" aria-label="Search projects" value={query} onChange={search}><Input ref={field} placeholder="Search projects" spellCheck={false} autoComplete="off"/></SearchField><Dropdown label="Sort projects" options={PROJECT_SORTS} value={sort} onChange={changeSort} icon={<Icon name="sort"/>}/></div>{!groups.length && query.trim() && <div className="cc-panel cc-empty pj-none"><span>No projects match.</span></div>}{groups.slice(0, count).map((group, index) => <section className="pj-org" style={{ flex: "none" }} ref={index === 0 ? first : null} key={groupKey(group)}><OverviewGroupView group={group} editing={group.group && editing?.id === group.group.id ? editing : null} sync={sync} folded={!searching && shut.has(groupKey(group))} fold={() => fold(groupKey(group))}/></section>)}{count < groups.length && <div ref={end} style={{ flex: "none", gridColumn: "1 / -1", height: height ? `${(groups.length - count) * height}px` : undefined }}/>}<div className="cc-panel cc-row pj-add" style={{ flex: "none" }}><span className="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><Button onClick={add}>Add</Button></div></>;
+  return <><HazeArt /><div className="pj-toolbar"><SearchField className="pj-find" aria-label="Search projects" value={query} onChange={search}><Input ref={field} placeholder="Search projects" spellCheck={false} autoComplete="off"/></SearchField><Dropdown label="Sort projects" options={PROJECT_SORTS} value={sort} onChange={changeSort} icon={<Icon name="sort"/>}/></div>{!searching && active}{!groups.length && query.trim() && <div className="cc-panel cc-empty pj-none"><span>No projects match.</span></div>}{groups.slice(0, count).map((group, index) => <section className="pj-org" style={{ flex: "none" }} ref={index === 0 ? first : null} key={groupKey(group)}><OverviewGroupView group={group} editing={group.group && editing?.id === group.group.id ? editing : null} sync={sync} folded={!searching && shut.has(groupKey(group))} fold={() => fold(groupKey(group))}/></section>)}{count < groups.length && <div ref={end} style={{ flex: "none", gridColumn: "1 / -1", height: height ? `${(groups.length - count) * height}px` : undefined }}/>}<div className="cc-panel cc-row pj-add" style={{ flex: "none" }}><span className="t"><b>Add a project</b><span>A folder or a repository to clone.</span></span><Button onClick={add}>Add</Button></div></>;
 }
 /// `/` or Cmd/Ctrl+F focuses the search while the overview shows and no
 /// field, dialog or other handler has the key.

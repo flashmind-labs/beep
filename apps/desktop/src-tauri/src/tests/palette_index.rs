@@ -43,6 +43,7 @@ fn agent_session(
         model: None,
         assistant: false,
         account: None,
+        persona: None,
     }
 }
 
@@ -64,7 +65,18 @@ fn the_assistants_pages_are_not_found() {
     ] {
         assert!(!actions.contains(&gone), "{gone}");
     }
-    for kept in ["Home", "Settings", "Coding agents"] {
+    for kept in [
+        "New session",
+        "Home",
+        "Projects",
+        "Terminals",
+        "Add project",
+        "Add machine",
+        "Settings",
+        "Coding agents",
+        "Keyboard shortcuts",
+        "Report a problem",
+    ] {
         assert!(actions.contains(&kept), "{kept}");
     }
 
@@ -78,7 +90,14 @@ fn the_assistants_pages_are_not_found() {
     ] {
         assert!(!settings.contains(&gone), "{gone}");
     }
-    for kept in ["Machines", "GitHub token", "Launch at login"] {
+    for kept in [
+        "Machines",
+        "Appearance and skin",
+        "Instructions",
+        "Plugins",
+        "GitHub token",
+        "Launch at login",
+    ] {
         assert!(settings.contains(&kept), "{kept}");
     }
 }

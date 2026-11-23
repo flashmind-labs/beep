@@ -6,9 +6,9 @@ import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { errorText } from "./machines-state.ts";
 
-type Harness = "codex" | "claude";
+type Harness = "codex" | "claude" | "agy";
 const HarnessPicker = lazy(() => import("../ui/dropdown.tsx").then(({ Dropdown }) => ({ default: Dropdown<Harness> })));
-const HARNESS = { codex: "Codex", claude: "Claude Code" } satisfies Record<Harness, string>;
+const HARNESS = { codex: "Codex", claude: "Claude Code", agy: "Antigravity" } satisfies Record<Harness, string>;
 const TRANSPORT = { stdio: "Stdio", http: "Streamable HTTP", sse: "SSE", ws: "WebSocket" };
 type Transport = keyof typeof TRANSPORT;
 type RemoteTransport = Exclude<Transport, "stdio">;
@@ -116,15 +116,15 @@ function McpServers({ machineId, harness, invoke }: MachineProps & { harness: Ha
     const { name } = server;
     const args = { machineId, harness, name };
     openMenu(event, name, [
-      { label: "Edit…", on: () => edit(server) },
-      { label: "Apply to all…", on: () => confirmSheet({
+      { label: "Edit", on: () => edit(server) },
+      { label: "Apply to all", on: () => confirmSheet({
         title: `Apply ${name} to all machines?`,
         text: `Copies this entry, including any credentials in it, to ${title} on other linked machines. A server with the same name is replaced.`,
         action: "Apply to all machines",
         run: async () => { setApplied(await invoke<Applied[]>("apply_machine_mcp_server", args)); },
       }) },
       { kind: "separator" },
-      { label: "Remove…", warn: true, on: () => confirmSheet({
+      { label: "Remove", warn: true, on: () => confirmSheet({
         title: `Remove ${name} from ${title}?`,
         text: `Removes this server from ${title}’s user configuration on this machine.`,
         action: "Remove server",
@@ -215,7 +215,7 @@ function ServerEditor({ title, harness, server, save, pending, close }: {
   const [busy, setBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [error, setError] = useState("");
-  const claudeHttp = !codex && (transport === "http" || transport === "sse");
+  const claudeHttp = harness === "claude" && (transport === "http" || transport === "sse");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -260,7 +260,7 @@ function ServerEditor({ title, harness, server, save, pending, close }: {
     }
   }
 
-  const transports: Transport[] = codex ? ["stdio", "http"] : ["stdio", "http", "sse", "ws"];
+  const transports: Transport[] = harness === "claude" ? ["stdio", "http", "sse", "ws"] : ["stdio", "http"];
   return <>
     <SheetHead title={<>{title}<small>{HARNESS[harness]} user configuration</small></>} />
     <form className="dform mcp-editor" onSubmit={event => void submit(event)} autoComplete="off">
@@ -284,7 +284,7 @@ function ServerEditor({ title, harness, server, save, pending, close }: {
           <FieldRows label="Headers from environment variables" item="header variable" nameLabel="Header name" valueLabel="Variable name" rows={envHeaders} change={setEnvHeaders} busy={busy} />
         </>}
       </>}
-      {codex && <label className="dline"><Checkbox checked={enabled} change={setEnabled} disabled={busy} /> Enabled</label>}
+      {harness !== "claude" && <label className="dline"><Checkbox checked={enabled} change={setEnabled} disabled={busy} /> Enabled</label>}
       {codex && <details className="mcp-options">
         <summary>Startup and tool settings</summary>
         <div className="dform">

@@ -7,7 +7,8 @@ mod install;
 use super::{
     Adapter, AgentKind, KNOWN, flsh_config,
     kinds::{direct, in_wsl},
-    models::flsh_dir_of, unix_now,
+    models::{flsh_dir_of, pi_dir_of},
+    unix_now,
 };
 use crate::{
     AsyncMutex, lock,
@@ -89,23 +90,31 @@ impl Settings {
     }
 
     /// Writes the user's flsh settings into the config `kind` (as
-    /// `configured` gives it) reads, before it starts. Nothing for another
-    /// agent, or while the user has none. An error when they cannot be
-    /// written: flsh must not start without a setting such as zero data
-    /// retention.
+    /// `configured` gives it) reads, before it starts: all of them for
+    /// flsh, the routing for pi. flsh gets its default stream timeout on
+    /// hosts without saved settings.
     pub(super) async fn prepare(&self, kind: &AgentKind) -> Result<()> {
-        if AgentSlug::FLSH != kind.name.as_str() {
-            return Ok(());
-        }
-
-        let Some(flsh) = lock(&self.0).flsh.clone() else {
+        let name = &kind.name;
+        let config_dir = |dir: Option<PathBuf>| {
+            dir.with_context(|| format!("{name}'s config folder is not known"))
+        };
+        let settings = lock(&self.0).flsh.clone();
+        let write = if AgentSlug::FLSH == name.as_str() {
+            let dir = config_dir(flsh_dir_of(kind))?;
+            tokio::task::spawn_blocking(move || flsh_config::apply(&dir, settings.as_ref()))
+        } else if AgentSlug::PI == name.as_str()
+            && let Some(settings) = settings
+        {
+            let dir = config_dir(pi_dir_of(kind))?;
+            tokio::task::spawn_blocking(move || flsh_config::pi::apply(&dir, &settings))
+        } else {
             return Ok(());
         };
-        let dir = flsh_dir_of(kind).context("flsh's config folder is not known")?;
-        tokio::task::spawn_blocking(move || flsh_config::apply(&dir, &flsh))
+
+        write
             .await
-            .context("writing flsh's settings stopped")?
-            .context("Beep's flsh settings could not be written to flsh's config")
+            .context("writing the agent's settings stopped")?
+            .with_context(|| format!("Beep's settings could not be written to {name}'s config"))
     }
 
     /// How `kind` starts with the user's settings; an error when they
@@ -122,32 +131,6 @@ impl Settings {
             }
             None => Ok(kind.clone()),
         }
-    }
-
-    /// Refuses a child of `child` harness under a session of `parent` harness when the user
-    /// limited what `parent` may start.
-    pub(super) fn may_start(&self, parent: &str, child: &str) -> Result<(), String> {
-        let saved = lock(&self.0);
-        let Some(spawns) = saved
-            .harnesses
-            .get(parent)
-            .and_then(|config| config.spawns.as_ref())
-        else {
-            return Ok(());
-        };
-
-        if spawns.iter().any(|spawn| spawn.as_ref() == child) {
-            return Ok(());
-        }
-
-        let allowed: Vec<&str> = spawns.iter().map(AsRef::as_ref).collect();
-        Err(match allowed.as_slice() {
-            [] => format!("{parent} sessions may not start other agents, as set in Settings."),
-            _ => format!(
-                "{parent} sessions may start only {} agents, as set in Settings. Use one of those as `harness`.",
-                allowed.join(", ")
-            ),
-        })
     }
 
     fn get(&self, agent: &str) -> Option<HarnessConfig> {
@@ -522,6 +505,7 @@ async fn sign_in(agent: &str, cli: &std::path::Path, kind: &AgentKind) -> SignIn
         "claude" => &["auth", "status"],
         "codex" => &["login", "status"],
         "opencode" => &["auth", "list"],
+        "agy" => &["models"],
         _ => return SignIn::default(),
     };
     let mut command = crate::run::process::probe(cli);
@@ -558,6 +542,10 @@ fn read_sign_in(agent: &str, ok: bool, text: &str) -> SignIn {
         }
         "codex" => SignIn {
             signed_in: Some(ok && !text.contains("Not logged in")),
+            ..SignIn::default()
+        },
+        "agy" => SignIn {
+            signed_in: Some(ok),
             ..SignIn::default()
         },
         "opencode" => SignIn {

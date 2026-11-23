@@ -35,10 +35,16 @@ export async function closeSession(s: Ref & { agent: string }) {
     forgetView(s.machine_id, s.id);
     void invoke("agent_files_forget", { session: s.id }).catch(() => {});
   } catch (e) {
-    closings.refused(s);
+    closings.clear(s);
     changed();
     throw e;
   }
+}
+
+/// Session `s` was resumed: its row shows again, whatever its close said.
+export function reopened(s: Ref) {
+  closings.clear(s);
+  changed();
 }
 
 listen<string>("sessions-changed", e => { if (closings.ended(e.payload, Date.now())) changed(); });

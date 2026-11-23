@@ -3,6 +3,7 @@ import { plural } from "../ui/format.ts";
 import { syncedBySyncthing } from "./filesync.ts";
 import type { AgentQuestion, RunningAgent } from "../agents/running-state.ts";
 import type { HostRow } from "./runs.tsx";
+import type { Persona } from "../agents/agents.ts";
 // Projects as the window lists them, their sessions, machines and groups,
 // as pure functions so they can be tested without Tauri.
 
@@ -118,6 +119,8 @@ export interface SessionRow {
   question: AgentQuestion | null;
   /// The Home assistant.
   assistant: boolean;
+  /// The custom agent it runs as.
+  persona: Persona | null;
 }
 
 /// Whether `cwd` is `folder` or inside it.
@@ -168,7 +171,7 @@ export function filterProjects<T extends { name: string }>(rows: T[], name: stri
 // ---------- Add a project, and one project's view ----------
 
 /// What each coding agent is called on screen.
-const AGENT_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "pi", flsh: "flsh", gemini: "Gemini CLI", opencode: "OpenCode" };
+const AGENT_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "pi", flsh: "flsh", agy: "Antigravity", opencode: "OpenCode" };
 
 /// "Claude Code" for `claude`; an agent Beep does not know reads as named.
 export function agentLabel(agent: string | null | undefined) { return AGENT_NAMES[agent ?? ""] || String(agent || ""); }
@@ -269,7 +272,7 @@ export function forgeLinks(url: string | null | undefined, hosts: readonly Pick<
 }
 
 /// The menu line and button that remove a project from Beep.
-export const REMOVE_PROJECT = "Remove project…";
+export const REMOVE_PROJECT = "Remove project";
 
 /// What the sheet that asks before removing project `name` says.
 export function removeProjectSheet(name: string) {

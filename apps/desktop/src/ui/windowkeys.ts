@@ -10,7 +10,8 @@ type WindowCommand =
 export interface WindowKeyContext {
   page: ViewName | null;
   project: string | null;
-  projectWindow: boolean;
+  /// The window shows a project or a chat alone.
+  alone: boolean;
 }
 
 type WindowKeyEvent = Pick<KeyboardEvent, "key" | "metaKey" | "ctrlKey" | "shiftKey" | "altKey" | "defaultPrevented">;
@@ -21,13 +22,13 @@ export function windowCommand(event: WindowKeyEvent, at: WindowKeyContext, windo
   const key = event.key.toLowerCase();
   if ((key === "[" || key === "]") && !event.shiftKey) return { kind: "history", forward: key === "]" };
   if (key === "w" && !event.shiftKey) return { kind: "close" };
-  if (key === "n" && event.shiftKey && at.page === "projects" && at.project && !at.projectWindow) return { kind: "project-window", project: at.project };
+  if (key === "n" && event.shiftKey && at.page === "projects" && at.project && !at.alone) return { kind: "project-window", project: at.project };
 
   if (key === "k") return { kind: "palette" };
   if (key === ",") return { kind: "settings" };
   if (key === "/") return { kind: "shortcuts" };
   if (key === "e" && !event.shiftKey) return { kind: "sidebar" };
-  if (key === "l" && !event.shiftKey && !at.projectWindow) return { kind: "assistant" };
+  if (key === "l" && !event.shiftKey && !at.alone) return { kind: "assistant" };
   if (key === "n" && at.page !== "pane") return { kind: "new-agent" };
   if (key === "t" && !event.shiftKey && !event.altKey && (!event.ctrlKey || windows) && !event.defaultPrevented) return { kind: "project-terminal" };
   return null;

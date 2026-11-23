@@ -4,7 +4,7 @@
 
 use super::{procs::Process, transcript};
 use crate::agents::{
-    found::{Agent, Memo, Seen as Sighting},
+    found::{Agent, Memo, Seen as Sighting, is_jsonl, quiet_presence, unix_secs},
     place::of_folder,
 };
 use beep_proto::SessionId;
@@ -19,9 +19,6 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-/// A transcript written this recently counts as active even when no
-/// process is found for it.
-const RECENT: Duration = Duration::from_secs(3 * 60);
 /// The longest a pid file may be.
 const MAX_PID_FILE: u64 = 64 * 1024;
 /// The project folder count used to size bounded metadata caches.
@@ -42,7 +39,7 @@ pub(crate) struct Store {
 /// What transcripts said, kept while they are unchanged.
 #[derive(Debug)]
 struct Memos {
-    /// The folder each transcript's head names.
+    /// The folder each transcript was started in, as its head says.
     cwds: Memo<Option<String>>,
     summaries: Memo<Summary>,
     /// The newest transcript of each project folder, by its id and time,
@@ -323,7 +320,7 @@ fn transcript_with(
     path: &Path,
     metadata: impl FnOnce() -> io::Result<fs::Metadata>,
 ) -> Option<Transcript> {
-    if path.extension().is_none_or(|ext| ext != "jsonl") {
+    if !is_jsonl(path) {
         return None;
     }
 
@@ -395,19 +392,18 @@ pub(super) fn sightings(store: &Store) -> io::Result<Vec<Sighting>> {
 
     for transcripts in folders {
         let Some(cwd) = transcripts.iter().take(HEADS_PER_FOLDER).find_map(|t| {
-            let read = || transcript::head(&t.path).map(|head| head.said.cwd);
-            store.memos.cwds.read(&t.path, read).ok()?
+            launched(store, &t.path).ok()?
         }) else {
             continue;
         };
 
         for transcript in transcripts {
-            let modified = unix(transcript.modified);
+            let modified = unix_secs(transcript.modified);
             out.push(Sighting {
                 agent: Agent::Claude,
                 id: transcript.id.clone(),
                 cwd: PathBuf::from(&cwd),
-                started_at: transcript.created.map_or(modified, unix),
+                started_at: transcript.created.map_or(modified, unix_secs),
                 last_activity: modified,
                 title: None,
                 file: Some(transcript.path.clone()),
@@ -453,11 +449,17 @@ fn summary(transcript: &Transcript, before: Option<Summary>) -> io::Result<Summa
     let gist = transcript::Gist::read(&transcript.path)?;
     let started_at = transcript
         .created
-        .map(unix)
+        .map(unix_secs)
         .filter(|at| *at > 0)
-        .or(transcript::started_at(&transcript.path)?)
+        .or(transcript::head(&transcript.path)?.first_at)
         .unwrap_or(0);
     Ok(Summary { gist, started_at })
+}
+
+/// The folder the transcript at `path` was started in.
+fn launched(store: &Store, path: &Path) -> io::Result<Option<String>> {
+    let read = || transcript::head(path).map(|head| head.said.launched);
+    store.memos.cwds.read(path, read)
 }
 
 fn describe(
@@ -494,14 +496,17 @@ fn describe(
             .and_then(|cwd| of_folder(Path::new(cwd))),
         title: gist.said.title(),
         started_at,
-        last_activity: unix(active),
+        last_activity: unix_secs(active),
         presence: found.presence,
         pid: found.pid,
         last_prompt: gist.said.prompt().unwrap_or("").to_owned(),
         last_message: gist.said.last_message.unwrap_or_default(),
-        cwd: gist.said.cwd.unwrap_or_default(),
+        cwd: launched(store, &transcript.path)?
+            .or(gist.said.cwd)
+            .unwrap_or_default(),
         taken_over: snapshot.owned.get(&transcript.id).cloned(),
         assistant: false,
+        persona: None,
     })
 }
 
@@ -546,52 +551,36 @@ pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot) -> Found {
             .iter()
             .any(|file| file.pid == pid && running(file.pid))
     };
-    // A process whose arguments name the session, one the daemon runs in
-    // the background (it writes no pid file), while that is the newest in
-    // its folder: after `/clear` the arguments still name the one before.
-    if seen.newest_in_folder
-        && let Some(process) = snapshot
+    // For the folder's newest session (after `/clear` arguments still name
+    // the one before): a background process naming the session, else an
+    // unclaimed `claude` in the session's folder.
+    if seen.newest_in_folder {
+        let free = |process: &&Process| !claimed(process.pid);
+        let named = snapshot
             .processes
             .iter()
-            .find(|process| process.session.as_ref() == Some(seen.id) && !claimed(process.pid))
-    {
-        return Found {
-            presence: Presence::Running,
-            pid: Some(process.pid),
-        };
-    }
-    // A `claude` without a pid file in this session's folder, whatever its
-    // arguments name, runs the folder's newest session.
-    if seen.newest_in_folder
-        && let Some(process) = snapshot.processes.iter().find(|process| {
-            !claimed(process.pid)
-                && process
+            .filter(free)
+            .find(|process| process.session.as_ref() == Some(seen.id));
+        let in_folder = || {
+            snapshot.processes.iter().filter(free).find(|process| {
+                process
                     .cwd
                     .as_deref()
                     .is_some_and(|cwd| slug(cwd) == seen.folder)
-        })
-    {
-        return Found {
-            presence: Presence::Running,
-            pid: Some(process.pid),
+            })
         };
+        if let Some(process) = named.or_else(in_folder) {
+            return Found {
+                presence: Presence::Running,
+                pid: Some(process.pid),
+            };
+        }
     }
 
-    let now = snapshot.now.unwrap_or_else(SystemTime::now);
-    let quiet = now.duration_since(seen.modified).unwrap_or_default();
     Found {
-        presence: if quiet < RECENT {
-            Presence::Recent
-        } else {
-            Presence::Stopped
-        },
+        presence: quiet_presence(seen.modified, snapshot.now.unwrap_or_else(SystemTime::now)),
         pid: None,
     }
-}
-
-fn unix(at: SystemTime) -> u64 {
-    at.duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_secs())
 }
 
 #[cfg(test)]

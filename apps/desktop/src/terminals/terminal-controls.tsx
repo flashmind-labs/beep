@@ -11,7 +11,7 @@ export function TerminalHeader({ terminal, state, link, watching, focus, toggle,
     <Button small title="Focus terminal (Shift+Esc)" onClick={focus}>Focus</Button>
     {following && <><Button small title={watching ? "Type into the terminal again" : "Stop typing into it, keep watching"} onClick={toggle}>{watching ? "Take control" : "View only"}</Button><Button small title="Stop following it here; it keeps running" onClick={detach}>Detach</Button></>}
     {canAttach && <Button look="primary" small onClick={attach}>Attach</Button>}
-    <Button danger small onClick={stop}>{terminal.state === "running" ? "Kill…" : "Close"}</Button></>;
+    <Button danger small onClick={stop}>{terminal.state === "running" ? "Kill" : "Close"}</Button></>;
 }
 
 export function TerminalFooter({ active, label, started }: { active: boolean; label: string; started: string }) {

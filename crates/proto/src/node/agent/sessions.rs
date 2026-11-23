@@ -967,6 +967,10 @@ pub struct MoveProgress {
     pub worktrees: u32,
     /// The source's checkout has uncommitted edits, which stay there.
     pub edits_left: bool,
+    /// Bytes of a chat's files copied, and what they take on the source.
+    /// Added after `edits_left`.
+    pub files_copied: u64,
+    pub files_total: u64,
 }
 
 /// A session of another machine that this node keeps a copy of
@@ -1005,6 +1009,9 @@ pub struct RunningProcess {
     /// The process that started it; 0 from nodes that predate it.
     #[serde(default)]
     pub parent: u32,
+    /// The `ports` that answer `GET /` on loopback with a page or a redirect.
+    #[serde(default)]
+    pub pages: Vec<u16>,
 }
 
 #[cfg(test)]

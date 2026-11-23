@@ -40,6 +40,7 @@ const stubs = new Map(Object.entries({
   "project/page.tsx": page("export const projectsView = v('projects'); export const ProjectsPage = () => null;"),
   "terminals/view.tsx": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
   "bar/core.ts": "export const S = { view: null };",
+  "agents/sessions.ts": "export const sessions = [];",
   "center/mobile.tsx": "export const syncMobile = () => {}; export const canGoBack = () => false;",
   // The window's tree without the router.
   "center/window-root.tsx": `import { createElement } from "react"; import { flushSync } from "react-dom"; import { createRoot } from "react-dom/client";
@@ -55,13 +56,21 @@ const hooks = registerHooks({
   },
 });
 const { go, goHistory } = await import("../src/center/views.tsx");
+// The router loads the project page on its first visit.
+await import("../src/project/page.tsx");
 hooks.deregister();
 
-test("Back and Forward restore the project section a resumed session came from", () => {
+function projectMounted(page: CenterView<"projects">): Promise<void> {
+  return new Promise(resolve => register("projects", {
+    ...page, mount(el, arg) { const result = page.mount(el, arg); resolve(); return result; },
+  }));
+}
+
+test("Back and Forward restore the project section a resumed session came from", async () => {
   let tile: string | null = null;
   const mounted: { arg: ViewArg } = { arg: null };
   register("home", { mount() {} });
-  register("projects", {
+  const ready = projectMounted({
     currentArg: () => ({ project: state.picked, tile }),
     mount(_el, arg) {
       state.picked = arg?.project ?? null;
@@ -73,6 +82,7 @@ test("Back and Forward restore the project section a resumed session came from",
 
   go("home");
   go("projects", { project: "acme/widget" });
+  await ready;
   tile = "running";
   const session = { agent: { machine_id: "build-box", machine_name: "build-box", id: "session", cwd: "/srv/project", agent: "codex", status: "idle", external: false } };
   go("pane", session);
@@ -99,12 +109,14 @@ test("Back and Forward restore the project section a resumed session came from",
   assert.equal(tile, "running");
 });
 
-test("notifications keep the project return target across conversations", () => {
+test("notifications keep the project return target across conversations", async () => {
   const mounted: { arg: ViewArg } = { arg: null };
   register("pane", { mount(_el, arg) { mounted.arg = arg; } });
   const agent = { machine_id: "build-box", machine_name: "build-box", id: "notice", cwd: "/srv/project", agent: "codex", status: "idle", external: false };
   const project = { project: "acme/widget", tile: "running" };
+  const ready = projectMounted({ currentArg: () => project, mount() {} });
   go("projects", project);
+  await ready;
   go("pane", { agent });
   go("pane", { agent: { ...agent, id: "second-notice" } });
   assert.deepEqual(returnTarget(mounted.arg), { view: "projects", arg: project });

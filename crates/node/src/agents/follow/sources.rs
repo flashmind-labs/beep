@@ -1,9 +1,9 @@
 //! Event sources for sessions on this machine.
 
-use beep_proto::SessionId;
-use super::{STORED_AGENTS, SummaryCache, recent_deadline};
+use super::{SummaryCache, recent_deadline};
 use crate::agents::{Agents, found::Agent};
 use anyhow::{Context, Result};
+use beep_proto::SessionId;
 use std::{
     collections::BTreeSet,
     path::PathBuf,
@@ -204,20 +204,13 @@ impl Agents {
             return Ok(held);
         }
 
-        let roots: Vec<_> = STORED_AGENTS
+        let roots: Vec<_> = Agent::ALL
             .into_iter()
             .flat_map(|agent| {
-                self.stores
-                    .follow_paths(Some(agent))
+                self.follow_roots(agent)
                     .into_iter()
                     .map(move |path| (agent, path))
             })
-            .chain(
-                self.external
-                    .follow_paths()
-                    .into_iter()
-                    .map(|path| (Agent::Claude, path)),
-            )
             .collect();
         let hub = self.events.clone();
         let agents = Arc::downgrade(self);

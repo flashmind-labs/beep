@@ -304,8 +304,7 @@ export function onZoomKey(allowed: () => boolean, toggle: () => void) {
 
 type FrameKey = Required<Pick<KeyboardEventInit, "key" | "shiftKey" | "metaKey" | "ctrlKey" | "repeat">>;
 
-/// A key a focused HTML preview hands to the window (`PANE_KEYS` in
-/// artifacts.rs): ⇧esc, or ⌘ with 1 to 9 or W. Anything else a page posts is null.
+/// Accept only the zoom and tab shortcuts forwarded by a focused HTML preview.
 export function frameKey(data: unknown): FrameKey | null {
   if (typeof data !== "object" || data === null || !("beep" in data && "key" in data && "shiftKey" in data && "metaKey" in data && "ctrlKey" in data && "repeat" in data)) return null;
   const { beep, key, shiftKey, metaKey, ctrlKey, repeat } = data;

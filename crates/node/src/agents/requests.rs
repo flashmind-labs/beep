@@ -89,33 +89,8 @@ impl Agents {
         keep_pictures: bool,
     ) -> anyhow::Result<Option<(Vec<agent::Entry>, u64)>> {
         let last = usize::try_from(last.min(MAX_TRANSCRIPT)).unwrap_or(usize::MAX);
-        match self.get(session) {
-            Some(found) => Ok(Some(self.live_transcript(&found, last, before).await)),
-            // A session started outside Beep: Claude Code's, else another
-            // agent's from its own store.
-            None => match self.external.transcript(session, last, before).await {
-                // Codex's or pi's files, or why another agent's cannot be read.
-                Ok(None) => {
-                    let stores = self.stores.clone();
-                    let id = session.to_owned();
-                    spawn_blocking(move || stores.transcript(&id, last, before))
-                        .await
-                        .map_err(anyhow::Error::from)
-                        .and_then(std::convert::identity)
-                }
-                other => other,
-            }
-            .map(|read| {
-                read.map(|read| {
-                    if keep_pictures {
-                        for picture in read.pictures {
-                            self.images.keep(session, picture);
-                        }
-                    }
-                    (read.entries, read.earlier)
-                })
-            }),
-        }
+        self.transcript_window(session, last, before, None, keep_pictures)
+            .await
     }
 }
 

@@ -1,7 +1,7 @@
 // What Home and the Projects page say about coding agents running or waiting:
 // their rows, lines and keys, apart from the DOM so it can be tested.
 import { base, formatAgo } from "../ui/format.ts";
-import type { OpenAgent } from "./agents.ts";
+import type { OpenAgent, Persona } from "./agents.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
 /// A coding agent's session running now: a Running now row (RunningAgent).
@@ -26,6 +26,8 @@ export interface RunningAgent {
   subagents?: number;
   /// The named account it runs as; null for the agent's default one.
   account?: string | null;
+  /// The custom agent it runs as.
+  persona?: Persona | null;
 }
 
 /// A question a session waits on, such as whether to run a command.
@@ -37,7 +39,7 @@ export interface AgentQuestion {
   options: { id: string; name: string; allow: boolean }[];
 }
 
-const AGENTS: Record<string, string> = { claude: "Claude Code", codex: "Codex", gemini: "Gemini CLI", pi: "pi", flsh: "flsh", opencode: "OpenCode", hermes: "Hermes" };
+const AGENTS: Record<string, string> = { claude: "Claude Code", codex: "Codex", agy: "Antigravity", pi: "pi", flsh: "flsh", opencode: "OpenCode", hermes: "Hermes" };
 
 export function agentName(name: string | null | undefined) {
   return AGENTS[name ?? ""] || name || "Agent";

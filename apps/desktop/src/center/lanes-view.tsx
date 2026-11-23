@@ -138,7 +138,7 @@ const CROWDED_FROM = 4;
 /// Done today its rows.
 const COLUMNS: Record<Lane, number> = { needs: 1, working: 1, review: 2, done: 1 };
 
-function Card({ card, open }: { card: BoardCard; open(): void }) {
+export function Card({ card, open }: { card: BoardCard; open(): void }) {
   const style = { opacity: card.dim ? .55 : undefined, viewTransitionName: heroCard() === card.key ? "board-hero" : undefined };
   const action = card.action;
 

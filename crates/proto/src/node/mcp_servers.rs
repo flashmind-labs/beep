@@ -12,6 +12,8 @@ pub const PROTOCOL: &str = "mcp-servers/1";
 pub enum Harness {
     Codex,
     Claude,
+    /// Antigravity, by its CLI's name.
+    Agy,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -30,7 +32,7 @@ pub struct EditableServer {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Settings {
     pub connection: Connection,
-    /// Codex can disable an entry in its user configuration.
+    /// Codex and Antigravity can disable an entry in their user configuration.
     pub enabled: bool,
     #[serde(default)]
     pub codex: Option<CodexOptions>,

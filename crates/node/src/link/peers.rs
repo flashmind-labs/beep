@@ -627,6 +627,7 @@ impl Peers {
             active.mesh.clone(),
             self.inner.dir.clone(),
             offers.skills.clone(),
+            offers.agents.clone(),
         );
         let team = crate::team::home::follow(active.mesh.clone(), self.inner.team.clone());
         let gateway = crate::team::gateway::run(

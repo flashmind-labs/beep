@@ -43,15 +43,6 @@ wire_structs! {
         pub note: String,
     }
 
-    /// The machine Auto would start a coding agent on, as
-    /// `PreviewAgentMachine` gives it.
-    pub struct MachinePick {
-        pub machine_id: String,
-        pub machine_name: String,
-        /// Why, such as "It has Xcode and runs the fewest sessions."
-        pub why: String,
-    }
-
     /// A command kept running on one of the user's machines, for a project or
     /// on its own.
     pub struct Terminal {
@@ -124,6 +115,16 @@ wire_enum! {
 /// The most one `TerminalInput::Keys` may carry.
 pub const MAX_TERMINAL_INPUT: usize = node::terminal::MAX_INPUT;
 
+/// The apps, graphics cards and abilities of one machine.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MachineDetails {
+    /// The `Machine::id` it describes.
+    pub id: String,
+    pub apps: Vec<MachineApp>,
+    pub gpus: Vec<MachineGpu>,
+    pub capabilities: Vec<MachineCapability>,
+}
+
 wire_structs! {
     /// A folder on one of the user's machines, for choosing where a project goes.
     pub struct MachineFolder {
@@ -144,15 +145,6 @@ wire_structs! {
         /// Those of `folders` that are git checkouts.
         #[serde(default)]
         pub repos: Vec<String>,
-    }
-
-    /// The apps, graphics cards and abilities of one machine.
-    pub struct MachineDetails {
-        /// The `Machine::id` it describes.
-        pub id: String,
-        pub apps: Vec<MachineApp>,
-        pub gpus: Vec<MachineGpu>,
-        pub capabilities: Vec<MachineCapability>,
     }
 
     /// An app installed on a machine.
@@ -213,18 +205,22 @@ wire_structs! {
     }
 }
 
-wire_enum! {
-    /// What a machine can be asked to do.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
-    #[strum(serialize_all = "lowercase")]
-    pub enum MachineCapability {
-        0 Gpu {}
-        1 Cuda {}
-        2 Blender {}
-        3 Unreal {}
-        4 Xcode {}
-        5 Android {}
-        6 Docker {}
+/// What a machine can be asked to do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::IntoStaticStr)]
+#[strum(serialize_all = "lowercase")]
+pub enum MachineCapability {
+    Gpu {},
+    Cuda {},
+    Blender {},
+    Unreal {},
+    Xcode {},
+    Android {},
+    Docker {},
+}
+
+impl serde::Serialize for MachineCapability {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(Into::<&'static str>::into(*self))
     }
 }
 

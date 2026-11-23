@@ -4,14 +4,15 @@
 
 use super::{
     Libraries, find,
-    install::{self, Checkout, Ready, Record},
+    install::{self, Checkout, Place, Ready, Record},
     store,
 };
 use crate::{
     agents::{
-        project_folder,
+        Agents, conversation, project_folder,
         skills::{Skills, disk, online},
     },
+    events::Change,
     files::syncthing::expand,
 };
 use anyhow::{Context, Result, bail};
@@ -27,6 +28,7 @@ use iroh::EndpointId;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 use tokio::{
@@ -47,8 +49,10 @@ const READ_LIMIT: Duration = Duration::from_secs(10);
 const INSPECT_LIMIT: Duration = Duration::from_secs(5 * 60);
 
 /// Installs the libraries' skills now, whenever a library, a project's checkouts or its skill
-/// settings change, a machine comes or goes, and every `EVERY`, until the mesh stops. Nothing when the host keeps Beep out of the skills folders.
-pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
+/// settings change, a session starts in a folder none worked in, a machine comes or goes, and
+/// every `EVERY`, until the mesh stops. Nothing when the host keeps Beep out of the skills
+/// folders.
+pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills, agents: Arc<Agents>) {
     let libraries = skills.libraries().clone();
     // The same folder each time the task starts over.
     let _ = libraries.shared.dir.set(dir.clone());
@@ -57,6 +61,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     };
     let mut changes = mesh.changes();
     let mut updates = mesh.updates();
+    let mut sessions = agents.events.subscribe();
     let file_dir = dir.clone();
     let mut record = match spawn_blocking(move || Record::load(&file_dir)).await {
         Ok(Ok(record)) => record,
@@ -77,10 +82,12 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
 
     loop {
         let now = online(&mesh);
+        let folders = agents.folders();
         let pass = Pass {
             mesh: &mesh,
             dir: &dir,
             home: &home,
+            folders: &folders,
         };
         let problems = pass.run(&mut record, &libraries).await;
         let summary = (record.installs.len(), problems.len());
@@ -112,6 +119,13 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
                         break;
                     }
                 }
+                // A thread of a chat with picks gets them in its folder as it starts.
+                change = sessions.recv() => match change {
+                    Ok(Change { topic, .. }) if topic.name() == "agents" && agents.folders() != folders => break,
+                    Err(RecvError::Lagged(_)) => break,
+                    Err(RecvError::Closed) => sessions = agents.events.subscribe(),
+                    Ok(_) => {}
+                },
             }
         }
 
@@ -154,6 +168,8 @@ struct Pass<'a> {
     mesh: &'a Mesh,
     dir: &'a Path,
     home: &'a Path,
+    /// The folders this node's sessions work in.
+    folders: &'a BTreeSet<PathBuf>,
 }
 
 impl Pass<'_> {
@@ -212,34 +228,54 @@ impl Pass<'_> {
         problems
     }
 
-    /// Each project with a library pick or an install, with its checkout here.
+    /// Each project with a library pick or an install, with its checkout here, and each chat
+    /// with one, with its folder here and its threads' folders.
     fn checkouts(&self, ready: &[Ready], record: &Record) -> Vec<Checkout> {
-        let me = self.mesh.me();
-        let projects: BTreeSet<String> = ready
-            .iter()
-            .flat_map(|lib| lib.library.projects.keys().cloned())
-            .chain(record.installs.values().filter_map(|install| match &install.place {
-                install::Place::Project(project) => Some(project.clone()),
-                install::Place::Global => None,
-            }))
-            .collect();
+        let picked = ready.iter().flat_map(|lib| {
+            let projects = lib.library.projects.keys().cloned().map(Place::Project);
+            let chats = lib.library.chats.keys().cloned().map(Place::Chat);
+            projects.chain(chats)
+        });
+        let installed = record.installs.values().map(|install| install.place.clone());
+        let places: BTreeSet<Place> = picked.chain(installed).collect();
 
-        projects
+        places
             .into_iter()
-            .filter_map(|project| {
-                let folder = project_folder(self.mesh, &project, &me)?;
-                let settings: ProjectSkills = self
-                    .mesh
-                    .get(&Key::ProjectSkills(project.clone()))
-                    .and_then(|bytes| ProjectSkills::from_bytes(&bytes).ok())
-                    .unwrap_or_default();
-                let folder = expand(&folder, Some(self.home));
+            .flat_map(|place| match place {
+                Place::Global => Vec::new(),
+                Place::Project(project) => self.project_checkout(project).into_iter().collect(),
+                Place::Chat(chat) => self.chat_folders(chat),
+            })
+            .collect()
+    }
 
-                folder.is_dir().then_some(Checkout {
-                    project,
-                    folder,
-                    keep_out_of_git: settings.keep_out_of_git,
-                })
+    /// The checkout of `project` here, if there is one.
+    fn project_checkout(&self, project: String) -> Option<Checkout> {
+        let folder = project_folder(self.mesh, &project, &self.mesh.me())?;
+        let settings: ProjectSkills = self
+            .mesh
+            .get(&Key::ProjectSkills(project.clone()))
+            .and_then(|bytes| ProjectSkills::from_bytes(&bytes).ok())
+            .unwrap_or_default();
+        let folder = expand(&folder, Some(self.home));
+
+        folder.is_dir().then_some(Checkout {
+            place: Place::Project(project),
+            folder,
+            keep_out_of_git: settings.keep_out_of_git,
+        })
+    }
+
+    /// The folder of the chat `chat` and each folder its threads work in, or none when the chat
+    /// is on another machine. Its folder is no Git checkout, and each harness reads skills only
+    /// from the folder it works in, so every thread's gets them too.
+    fn chat_folders(&self, chat: String) -> Vec<Checkout> {
+        chat_folders(self.home, &chat, self.folders)
+            .into_iter()
+            .map(|folder| Checkout {
+                place: Place::Chat(chat.clone()),
+                folder,
+                keep_out_of_git: false,
             })
             .collect()
     }
@@ -258,7 +294,7 @@ impl Pass<'_> {
                 let problem = Problem {
                     library: name.clone(),
                     skill: None,
-                    place: install::Place::Global.to_string(),
+                    place: Place::Global.to_string(),
                     message,
                 };
                 (None, Some(problem))
@@ -434,9 +470,27 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, skills: Skills) -> Res
     tx.finish().await
 }
 
+/// The folder of the chat named `chat` under `home`, then those of `folders` under it, which its
+/// threads work in; none when the chat's folder is not here.
+fn chat_folders(home: &Path, chat: &str, folders: &BTreeSet<PathBuf>) -> Vec<PathBuf> {
+    let Some(folder) = disk::valid_part(chat)
+        .then(|| conversation::moved(home, chat))
+        .flatten()
+        .filter(|folder| folder.is_dir())
+    else {
+        return Vec::new();
+    };
+    let threads = folders
+        .iter()
+        .filter(|thread| thread.starts_with(&folder) && **thread != folder && thread.is_dir())
+        .cloned();
+
+    std::iter::once(folder.clone()).chain(threads).collect()
+}
+
 /// Whether any place picks the library's skill `name`.
 fn picked(library: &SkillLibrary, name: &str) -> bool {
-    library.global.has(name) || library.projects.values().any(|pick| pick.has(name))
+    library.global.has(name) || library.projects.values().chain(library.chats.values()).any(|pick| pick.has(name))
 }
 
 /// Fetches the repository at `url` and lists its skills.
@@ -453,3 +507,7 @@ async fn inspect(dir: PathBuf, url: String) -> Reply {
         Err(message) => Reply::Failed { message },
     }
 }
+
+#[cfg(test)]
+#[path = "../../tests/agents_skill_library_follow.rs"]
+mod tests;

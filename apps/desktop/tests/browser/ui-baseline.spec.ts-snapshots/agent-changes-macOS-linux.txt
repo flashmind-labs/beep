@@ -117,7 +117,7 @@ body.cbody
           svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
           span "Machines"
           small "1/1"
-    div#main.cc-main style(--top-w)
+    div#main.cc-main
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -140,12 +140,14 @@ body.cbody
               span.ddot.off
               b "This computer"
               span "Connecting"
-            button.dbtn.quiet.small [type="button"] "Add a machine"
-              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-          div.cc-tabs [role="tablist"]
-            button [aria-selected="true" role="tab" type="button"] "Board"
-            button [aria-selected="false" role="tab" type="button"] "PRs and issues"
-            button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.cc-tabbar
+            div.cc-tabs [role="tablist"]
+              button [aria-selected="true" role="tab" type="button"] "Board"
+              button [aria-selected="false" role="tab" type="button"] "PRs and issues"
+              button [aria-selected="false" role="tab" type="button"] "Machines"
+            div.hv-seg [aria-label="Lay out sessions" aria-orientation="horizontal" data-orientation="horizontal" data-rac role="radiogroup"]
+              button.react-aria-ToggleButton [aria-checked="false" data-rac data-react-aria-pressable="true" role="radio" tabindex="0" type="button"] "Review"
+              button.react-aria-ToggleButton [aria-checked="true" data-rac data-react-aria-pressable="true" data-selected="true" role="radio" tabindex="0" type="button"] "Lanes"
           div#sec-running
             div.bd-lanes.spread
               div.bd-lane style(flex-grow)
@@ -256,7 +258,7 @@ body.cbody
                               div.dlive.dthink.live
                                 span.lb [title="Working"] "Working"
                           div.agspace [hidden] style(height)
-                      button#agjump.dagjump [hidden] "Jump to latest"
+                      button#agjump.dagjump [hidden type="button"] "Scroll to bottom"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     div.agrail.off
                   div#agmovebox

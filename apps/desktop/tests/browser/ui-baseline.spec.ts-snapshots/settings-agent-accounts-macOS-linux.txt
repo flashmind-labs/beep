@@ -68,7 +68,7 @@ body.cbody
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
     div#side-grip.cc-grip [aria-label="Resize the sidebar" aria-orientation="vertical" aria-valuemax="420" aria-valuemin="180" aria-valuenow="300" role="separator" tabindex="0"]
     aside#rail.cc-rail.pj-list [aria-label="Project sessions" hidden inert]
-    div#main.cc-main style(--top-w)
+    div#main.cc-main
       div.cc-top
         button.mb-back [aria-label="Back" hidden type="button"]
           svg [aria-hidden="true" fill="none" height="22" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="22"]
@@ -91,12 +91,14 @@ body.cbody
               span.ddot.off
               b "This computer"
               span "Connecting"
-            button.dbtn.quiet.small [type="button"] "Add a machine"
-              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-          div.cc-tabs [role="tablist"]
-            button [aria-selected="true" role="tab" type="button"] "Board"
-            button [aria-selected="false" role="tab" type="button"] "PRs and issues"
-            button [aria-selected="false" role="tab" type="button"] "Machines"
+          div.cc-tabbar
+            div.cc-tabs [role="tablist"]
+              button [aria-selected="true" role="tab" type="button"] "Board"
+              button [aria-selected="false" role="tab" type="button"] "PRs and issues"
+              button [aria-selected="false" role="tab" type="button"] "Machines"
+            div.hv-seg [aria-label="Lay out sessions" aria-orientation="horizontal" data-orientation="horizontal" data-rac role="radiogroup"]
+              button.react-aria-ToggleButton [aria-checked="false" data-rac data-react-aria-pressable="true" role="radio" tabindex="0" type="button"] "Review"
+              button.react-aria-ToggleButton [aria-checked="true" data-rac data-react-aria-pressable="true" data-selected="true" role="radio" tabindex="0" type="button"] "Lanes"
           div#sec-running
             div.bd-lanes.spread
               div.bd-lane style(flex-grow)
@@ -179,8 +181,8 @@ body.cbody
             span.tt "Claude Code"
           button.cc-si.sub [data-sub="agent:codex"]
             span.tt "Codex"
-          button.cc-si.sub [data-sub="agent:gemini"]
-            span.tt "Gemini CLI"
+          button.cc-si.sub [data-sub="agent:agy"]
+            span.tt "Antigravity"
           button.cc-si.sub [data-sub="agent:pi"]
             span.tt "pi"
           button.cc-si.sub [data-sub="agent:opencode"]
@@ -260,6 +262,23 @@ body.cbody
                     span.dfine "Another login, such as Work or Personal, to pick per project"
                     span.dacts
                       button.dbtn.quiet.small [type="button"] "Add account"
+              div.dbox
+                div.dline
+                  span.agy.cc-ag.mark
+                    svg [aria-hidden="true" viewBox="0 0 24 24"]
+                  span.dstack
+                    b.dtitle "Antigravity"
+                    span.dsub "signs in on each machine"
+                div.dmt6
+                  div.dline.dpy.dsm
+                    span.ddot
+                    span "build-box"
+                    span.dacts.dmut "signed in"
+                  div.dline.dpy.dsm
+                    span.ddot
+                    span "test-box"
+                    span.dacts.dmut "not signed in"
+                      button.dbtn.small [type="button"] "Sign in"
             div#set-agent-overview style(display)
               div.dset-h "Coding agents"
               div.dset-box
@@ -277,11 +296,11 @@ body.cbody
                     b "Codex"
                     small "Version and updates, on or off, binary path, launch arguments and env vars on each machine"
                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                div.dset-row [data-sub="agent:gemini" role="button" tabindex="0"]
-                  span.cc-ag.gemini.mark
+                div.dset-row [data-sub="agent:agy" role="button" tabindex="0"]
+                  span.agy.cc-ag.mark
                     svg [aria-hidden="true" viewBox="0 0 24 24"]
                   span.tt
-                    b "Gemini CLI"
+                    b "Antigravity"
                     small "Version and updates, on or off, binary path, launch arguments and env vars on each machine"
                   svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                 div.dset-row [data-sub="agent:pi" role="button" tabindex="0"]

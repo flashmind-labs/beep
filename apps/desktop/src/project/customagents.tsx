@@ -16,8 +16,10 @@ interface Listed {
 
 interface CustomAgentsDeps {
   redraw: () => void;
-  /// Start: a coding session with agent `a`, read on `place`.
-  start: (a: CustomAgentRow, place: AgentsPlace) => void;
+  /// Start: a coding session with agent `a`, read on `place`; null offers no Start.
+  start: ((a: CustomAgentRow, place: AgentsPlace) => void) | null;
+  /// Only the folder's own agents, not the user's.
+  own: boolean;
 }
 
 export function makeCustomAgents(deps: CustomAgentsDeps) {
@@ -32,7 +34,8 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     s.loading = true;
 
     try {
-      s.rows = await invoke<CustomAgentRow[]>("custom_agents", { machineId: place.id, folder: place.folder });
+      const rows = await invoke<CustomAgentRow[]>("custom_agents", { machineId: place.id, folder: place.folder });
+      s.rows = deps.own ? rows.filter(row => row.scope === "project") : rows;
       s.error = "";
     } catch (e) {
       s.error = reason(e);
@@ -61,15 +64,16 @@ export function makeCustomAgents(deps: CustomAgentsDeps) {
     return <div id="sec-custom-agents"><CustomAgentsView rows={rows} message={message} error={!!s?.error && !rows}
       reload={place ? () => void load(place) : null}
       open={(a: CustomAgentRow) => { if (place) openPrompt(a, place); }}
-      start={(a: CustomAgentRow) => { if (place) deps.start(a, place); }}
+      start={deps.start && place ? (a: CustomAgentRow) => deps.start?.(a, place) : null}
     /></div>;
   }
 
   /// The agent's prompt, read-only, over the window.
   function openPrompt(a: CustomAgentRow, place: AgentsPlace) {
     const { close, render } = openSheet(`Custom agent ${a.name}`, "am-sheet ca-sheet");
-    flushSync(() => render(<CustomAgentPrompt agent={a} close={close} start={() => { close(); deps.start(a, place); }} />));
+    const start = deps.start;
+    flushSync(() => render(<CustomAgentPrompt agent={a} close={close} start={start && (() => { close(); start(a, place); })} />));
   }
 
-  return { count, section };
+  return { count, section, reload: load };
 }

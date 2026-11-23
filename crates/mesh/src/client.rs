@@ -31,6 +31,9 @@ use tracing::Instrument;
 pub const DEADLINE: Duration = Duration::from_secs(3);
 /// How long a network open may take, from the new stream to the node's answer.
 pub const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
+/// The pause before trying to reach a machine again after a link or stream
+/// to it dropped or did not open.
+pub const RETRY: Duration = Duration::from_secs(5);
 
 /// How long `call` waits for a node to reply.
 pub const CALL_TIMEOUT: Duration = Duration::from_secs(30);

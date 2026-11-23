@@ -78,7 +78,7 @@ test("machine MCP servers are loaded, edited and applied for the selected harnes
   await page.keyboard.press("Escape");
   await expect(more).toBeFocused();
   await more.click();
-  await page.getByRole("menuitem", { name: "Apply to all…" }).click();
+  await page.getByRole("menuitem", { name: "Apply to all" }).click();
   const applySheet = page.getByRole("dialog", { name: "Apply docs to all machines?" });
   await expect(applySheet.getByText(/to Codex on other linked machines/)).toBeVisible();
   await applySheet.getByRole("button", { name: "Apply to all machines" }).click();
@@ -114,7 +114,7 @@ test("machine MCP servers are loaded, edited and applied for the selected harnes
   expect((await calls(page, "save_machine_mcp_server")).at(-1)).toEqual({ machineId: buildBox.id, harness: "claude", previous: null, server: claude });
 
   await section.getByRole("button", { name: "More for example" }).click();
-  await page.getByRole("menuitem", { name: "Remove…" }).click();
+  await page.getByRole("menuitem", { name: "Remove" }).click();
   await page.getByRole("dialog", { name: "Remove example from Claude Code?" }).getByRole("button", { name: "Remove server" }).click();
   await expect(section.getByRole("button", { name: /^example/ })).toHaveCount(0);
   expect(await calls(page, "remove_machine_mcp_server")).toEqual([{ machineId: buildBox.id, harness: "claude", name: "example" }]);
@@ -157,4 +157,31 @@ test("settings identify offline hosts and hide MCP management on controller-only
   await page.locator("[data-machine='phone']").click();
   await expect(settings.getByText("Controller", { exact: true })).toBeVisible();
   await expect(section).toHaveCount(0);
+});
+
+test("Antigravity offers its two transports and can disable a server", async ({ page }) => {
+  const remote = { transport: "http", url: "https://tools.example.test/mcp", headers: {}, env_http_headers: {}, bearer_token_env_var: null };
+  const saved = { name: "api", settings: { connection: { remote }, enabled: false, codex: null, claude_oauth: null } };
+  await openMachines(page, {
+    list_machines: [buildBox],
+    machine_mcp_harnesses: ["agy"],
+    machine_mcp_servers: [],
+    save_machine_mcp_server: { status: "saved", servers: [saved] },
+  });
+  await page.locator("[data-machine='build-box']").click();
+  const section = page.getByRole("region", { name: "MCP servers" });
+  await expect(section.getByRole("button", { name: "Harness Antigravity" })).toBeVisible();
+  await section.getByRole("button", { name: "Add server" }).click();
+  const sheet = page.getByRole("dialog", { name: "Add MCP server" });
+  await expect(sheet.getByLabel("Transport").getByRole("option")).toHaveText(["Stdio", "Streamable HTTP"]);
+  await expect(sheet.getByLabel("Working directory")).toHaveCount(0);
+  await sheet.getByLabel("Name", { exact: true }).fill("api");
+  await sheet.getByLabel("Transport").selectOption("http");
+  await sheet.getByLabel("Server URL").fill(remote.url);
+  await expect(sheet.getByLabel("Bearer token variable")).toHaveCount(0);
+  await expect(sheet.getByText("OAuth settings")).toHaveCount(0);
+  await sheet.getByLabel("Enabled").uncheck();
+  await sheet.getByRole("button", { name: "Save server" }).click();
+  await expect(section.getByRole("button", { name: /^api/ })).toContainText("Disabled");
+  expect(await calls(page, "save_machine_mcp_server")).toEqual([{ machineId: buildBox.id, harness: "agy", previous: null, server: saved }]);
 });

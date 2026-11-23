@@ -3,7 +3,10 @@
 //! are kept in the mesh, one key per terminal, so every desktop lists the
 //! same ones and a crash loses none.
 
-use super::Fleet;
+use super::{
+    Fleet,
+    node_actor::{FAST_JOB_WAIT, JobKind},
+};
 use crate::{
     beep::epoch_ms,
     error::{DesktopError, Result},
@@ -28,6 +31,7 @@ use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use std::{
     collections::HashMap,
+    sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::time::timeout;
@@ -91,7 +95,7 @@ async fn save(fleet: &Fleet, row: &Row) -> Result<()> {
     Ok(mesh.set(row.key(), Some(bytes)).await?)
 }
 
-async fn forget(fleet: &Fleet, id: Uuid) -> Result<()> {
+pub(super) async fn forget(fleet: &Fleet, id: Uuid) -> Result<()> {
     let mesh = fleet.ready().await?;
     Ok(mesh.set(Key::Terminal(id.to_string()), None).await?)
 }
@@ -217,11 +221,15 @@ async fn with_states(fleet: &Fleet, rows: Vec<Row>) -> Result<Vec<Terminal>> {
     Ok(out)
 }
 
-/// The terminals the mesh holds that are on this Mac, or on the others.
+/// The terminals the mesh holds that are on this Mac, or on the others,
+/// hiding any whose close is currently queued in `node_ops`.
 fn rows_on(fleet: &Fleet, mine: bool) -> Vec<Row> {
     rows(fleet)
         .into_iter()
-        .filter(|row| (row.record.machine == fleet.id()) == mine)
+        .filter(|row| {
+            (row.record.machine == fleet.id()) == mine
+                && !fleet.node_ops().is_closing_terminal(row.id)
+        })
         .collect()
 }
 
@@ -319,24 +327,29 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
     let Some(machine) = fleet.member(&row.record.machine.to_string()) else {
         return Ok(offline(fleet, &row));
     };
-    let Ok(client) = fleet.client(machine).await else {
+    let Ok(Ok(client)) = timeout(MACHINE_LIMIT, fleet.client(machine)).await else {
         return Ok(offline(fleet, &row));
     };
 
     if row.record.pty {
         // Output streams through attach; this only says how it stands.
-        let state = match terminals::list_ptys_fresh(&client).await {
-            Ok(tasks) => state_of(&row.kept(), &tasks),
-            Err(_) => TerminalState::Offline {},
+        let state = match timeout(MACHINE_LIMIT, terminals::list_ptys_fresh(&client)).await {
+            Ok(Ok(tasks)) => state_of(&row.kept(), &tasks),
+            _ => TerminalState::Offline {},
         };
         return Ok(bare(view(fleet, &row, state)));
     }
 
-    let status = Tasks(&client)
-        .ask(&TaskRequest::Status {
+    let Ok(status) = timeout(
+        MACHINE_LIMIT,
+        Tasks(&client).ask(&TaskRequest::Status {
             id: TaskId(row.record.task),
-        })
-        .await;
+        }),
+    )
+    .await
+    else {
+        return Ok(offline(fleet, &row));
+    };
     Ok(match status {
         Ok(TaskReply::Status {
             task,
@@ -357,21 +370,41 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
     })
 }
 
-/// Stops a terminal and forgets it.
-pub(crate) async fn close(fleet: &Fleet, id: Uuid) -> Result<()> {
+/// Stops a terminal through its machine's actor and removes its mesh record once stopped,
+/// keeping the record persisted across crashes or refusals while hiding it locally while queued.
+#[cfg(test)]
+pub(crate) async fn close(fleet: &Arc<Fleet>, id: Uuid) -> Result<()> {
+    close_with(None, fleet, id).await
+}
+
+pub(crate) async fn close_with(
+    app: Option<tauri::AppHandle>,
+    fleet: &Arc<Fleet>,
+    id: Uuid,
+) -> Result<()> {
     let Some(row) = find(fleet, id) else {
         return Ok(());
     };
+    let Some(machine) = fleet.member(&row.record.machine.to_string()) else {
+        return forget(fleet, id).await;
+    };
 
-    if let Some(machine) = fleet.member(&row.record.machine.to_string())
-        && let Ok(client) = fleet.client(machine).await
-    {
-        terminals::stop(&client, &row.kept())
-            .await
-            .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(machine))))?;
-    }
-
-    forget(fleet, id).await
+    fleet
+        .node_ops()
+        .submit(
+            app,
+            fleet.clone(),
+            machine,
+            JobKind::TerminalStop {
+                id,
+                task: row.record.task,
+                pty: row.record.pty,
+                command: row.record.command,
+            },
+            FAST_JOB_WAIT,
+        )
+        .await?;
+    Ok(())
 }
 
 /// A terminal followed live, or why it cannot be. Held for one attach.
@@ -406,11 +439,11 @@ pub(crate) async fn attach(
     let Some(machine) = fleet.member(&row.record.machine.to_string()) else {
         return ended(TerminalState::Offline {});
     };
-    let Ok(client) = fleet.client(machine).await else {
+    let Ok(Ok(client)) = timeout(MACHINE_LIMIT, fleet.client(machine)).await else {
         return ended(TerminalState::Offline {});
     };
     // A restarted node hands numbers out again.
-    let Ok(listed) = terminals::list_ptys_fresh(&client).await else {
+    let Ok(Ok(listed)) = timeout(MACHINE_LIMIT, terminals::list_ptys_fresh(&client)).await else {
         return ended(TerminalState::Offline {});
     };
     let now = state_of(&row.kept(), &listed);
@@ -420,8 +453,17 @@ pub(crate) async fn attach(
     }
 
     let size = Size::clamped(cols, rows);
-    let (tx, rx) = terminals::attach(&client, TaskId(row.record.task), from, size)
-        .await
-        .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(machine))))?;
+    let (tx, rx) = timeout(
+        MACHINE_LIMIT,
+        terminals::attach(&client, TaskId(row.record.task), from, size),
+    )
+    .await
+    .map_err(|_| {
+        DesktopError::TimedOut(format!(
+            "{} did not answer in time.",
+            fleet.name_of(machine)
+        ))
+    })?
+    .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(machine))))?;
     Ok(Opened::Live { tx, rx })
 }

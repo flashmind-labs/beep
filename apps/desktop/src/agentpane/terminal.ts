@@ -2,14 +2,13 @@
 // in its folder, kept running by the node like any terminal (Home lists it
 // under the machine).
 
-import { describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, retryDelay, sizeChanged, splice, type Screen, type TerminalRow, type TermSize } from "../terminals/terminals.tsx";
+import { describeMessage, endsForGood, inOrderChannel, newView, readTermMessage, Replay, sizeChanged, splice, type Screen, type TerminalRow, type TermSize } from "../terminals/terminals.tsx";
 import { indexedChannel, invoke, logError, logInfo } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
+import { RETRY_MS } from "../agents/reconnect-state.ts";
 
 /// The size a terminal starts at, before its screen is fitted.
 const START_SIZE = { cols: 100, rows: 30 };
-/// Attaches tried in a row before giving up until asked again.
-const MAX_TRIES = 6;
 
 type PaneLink = "attaching" | "attached" | "detached" | "ended";
 
@@ -188,8 +187,8 @@ function retry(t: PaneTerm) {
   logInfo(`terminal ${t.row.id}: stream dropped in a pane, try ${t.tries + 1}`);
   t.tries += 1;
   t.screen.setInput(false);
-  t.link = t.tries > MAX_TRIES ? "detached" : "attaching";
-  if (t.link === "attaching") t.timer = setTimeout(() => attach(t), retryDelay(t.tries));
+  t.link = "attaching";
+  t.timer = setTimeout(() => attach(t), RETRY_MS);
   t.onLink();
 }
 

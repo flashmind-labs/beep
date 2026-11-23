@@ -2,44 +2,41 @@
 import "./window-root.tsx";
 import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.tsx";
-import "../chat/diagrams.tsx";
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
 import "../ui/window-defaults.ts";
 import "../ui/zoom.ts";
 import { initMobile } from "./mobile.tsx";
-import { toggleSide } from "./window-shell.tsx";
+import { shell, stepOutOfRail, toggleSide } from "./window-shell.tsx";
 import { closeFocusedTab } from "../agentpane/media.ts";
 import { isCloseKey, isZoomKey } from "../agentpane/media-state.ts";
 import { isNewKey } from "../terminals/newkey-state.ts";
 import { allTerms } from "../terminals/view.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.tsx";
-import { pane } from "../bar/pane.ts";
 import type { BackTo } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import { startView, windowTitle, type CenterTarget } from "../project/projectwindow.ts";
+import { savedWindowSession, startView, windowTitle, type Alone, type CenterTarget } from "../project/projectwindow.ts";
+import { ensureSessions } from "../agents/sessions.ts";
+import type { AgentRow } from "../agents/agents.ts";
 import { mountUsage, type UsageView } from "./usage.tsx";
 import { mountNotices } from "./notices.tsx";
-import { firstRun } from "./firstrun.tsx";
 import { pairing } from "./pairing.tsx";
 import { windowCommand } from "../ui/windowkeys.ts";
 import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { draw, homeTab, jump } from "./home.tsx";
-import { currentLocation, windowProject, go, goHistory, hasHistory, setWindowProject, goTo } from "./views.tsx";
-import { reloadGroup, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject } from "./sidebar.tsx";
+import { currentLocation, opensHere, windowAlone, aloneProject, go, goHistory, hasHistory, setWindowAlone, goTo } from "./views.tsx";
+import { reloadGroup, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject, openAddMachine } from "./sidebar.tsx";
 import { escUp } from "./escup-state.ts";
 import { nextRunning } from "../project/loads.tsx";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
-import { openTile } from "../project/split.tsx";
 import { pa } from "../project/sections.ts";
-import { AG } from "../agents/agents.ts";
-import { debugWithAgent, readPending, showPending } from "./pane.tsx";
+import { AG, newThreadHere } from "../agents/agents.ts";
+import { pane } from "../bar/pane.ts";
+import { debugWithAgent, initPaneView, readPending, showPending } from "./pane.tsx";
 import { homeCached, refresh } from "./refresh.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
-import { openReport } from "../report/report.tsx";
-import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
 import { guardClicks } from "../ui/clickguard.ts";
 import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
 import { projectOf, repoOf, runningKey } from "../agents/running-state.ts";
@@ -48,7 +45,20 @@ import { dialogOpen } from "../ui/parts.tsx";
 import { startupDrawn, startupStage } from "../ui/perf.ts";
 import { dropKeptFrame, followHomeFrame } from "./home-frame.ts";
 
+const showShortcuts = () => void import("../ui/shortcutsheet.tsx").then(m => m.toggleShortcuts());
+const showReport = () => void import("../report/report.tsx").then(m => m.openReport(document.body, debugWithAgent));
+
+let diagramsLoaded = false;
+const ensureDiagrams = () => {
+  if (diagramsLoaded) return;
+  diagramsLoaded = true;
+  void import("../chat/diagrams.tsx");
+};
+document.addEventListener("animationstart", e => { if (e.animationName === "diagram-found") ensureDiagrams(); });
+if (document.getElementsByClassName("language-mermaid").length) ensureDiagrams();
+
 startupStage("scripts run");
+initPaneView();
 followSkin();
 followHomeFrame();
 guardClicks();
@@ -74,7 +84,12 @@ for (const type of ["mousedown", "mouseup"] as const) document.addEventListener(
 mountUsage(refresh => invoke<UsageView | null>("usage_get", { refresh }));
 mountNotices();
 
-initPalette({ go, jump, scope: () => windowProject, settings: openSettings, providers: () => go("providers"), project: openProjects, addProject, branches: name => { if (openProjects(name)) openTile("branches"); } });
+initPalette({
+  go, jump, scope: aloneProject, settings: openSettings, providers: () => go("providers"),
+  project: openProjects, projects: () => void openProjects(null), terminals: () => void go("terminals"),
+  newSession: newAgentHere, addProject, addMachine: openAddMachine, shortcuts: showShortcuts, report: showReport,
+  branches: name => { if (openProjects(name)) void import("../project/split.tsx").then(m => m.openTile("branches")); },
+});
 
 // Capture before the terminal handles the key, so Shift+Esc never reaches the shell.
 // A development build reloads the window on Cmd+R, as a browser does.
@@ -96,12 +111,12 @@ document.addEventListener("keydown", e => {
 
   // Esc goes up one page: a project's open tile closes, then the Projects page, then Home, then its Overview tab.
   if (e.key === "Escape" && !(currentLocation()?.view === "terminals" && isZoomKey(e)) && !e.defaultPrevented) {
-    const up = escUp({ page: currentLocation()?.view ?? null, picked: state.picked, tile: !!pa.tile, alone: !!windowProject, homeTab: homeTab !== "overview" });
+    const up = escUp({ page: currentLocation()?.view ?? null, picked: state.picked, tile: !!pa.tile, alone: !!windowAlone, homeTab: homeTab !== "overview" });
 
     if (up) {
       e.preventDefault();
       if (up.to === "overview") return jump();
-      if (up.to === "tile") return openTile(null);
+      if (up.to === "tile") return void import("../project/split.tsx").then(m => m.openTile(null));
       return up.to === "home" ? go("home") : void openProjects();
     }
   }
@@ -109,7 +124,7 @@ document.addEventListener("keydown", e => {
   const command = windowCommand(e, {
     page: currentLocation()?.view ?? null,
     project: state.picked,
-    projectWindow: windowProject !== null,
+    alone: windowAlone !== null,
   });
   if (!command) return;
 
@@ -130,9 +145,9 @@ document.addEventListener("keydown", e => {
     case "project-window": return openProjectWindow(command.project);
     case "palette": return openPalette();
     case "settings": return openSettings();
-    case "shortcuts": return toggleShortcuts();
-    // A project window's sessions are its sidebar: there is nothing to swap them for.
-    case "sidebar": return windowProject ? undefined : toggleSide();
+    case "shortcuts": return showShortcuts();
+    // A project's or chat's window has its sessions for a sidebar: there is nothing to swap them for.
+    case "sidebar": return windowAlone ? undefined : toggleSide();
     case "assistant": return void go("pane", { assistant: "new" });
     case "new-agent":
       if (currentLocation()?.view === "terminals" && isNewKey(e) && allTerms.newLikeOpen()) return;
@@ -140,11 +155,14 @@ document.addEventListener("keydown", e => {
   }
 });
 
-/// ⌘N: in a project (its page, or one of its sessions) the agent
-/// view with an empty conversation and the project's start input, focused;
-/// on Home the assistant's start form; elsewhere Projects, to pick the
-/// project to start in.
+/// ⌘N: beside a chat's threads (its window, or its rail in place of the sidebar) a new thread;
+/// in a project (its page, or one of its sessions) the agent view with an empty conversation
+/// and the project's start input, focused; on Home and the Assistant page beside its chats the
+/// assistant's start form; elsewhere Projects, to pick the project to start in.
 function newAgentHere() {
+  const { side, assistant } = shell.getState();
+  if (side.rail?.kind === "chat" && !side.railHidden && newThreadHere()) return;
+  if (assistant) return void go("pane", { assistant: "new" });
   const to = projectHere();
   if (to) return void go("pane", { draft: { project: to.project, machine: to.machine } });
   if (currentLocation()?.view === "home") return void go("pane", { assistant: "new" });
@@ -154,14 +172,15 @@ pane.connect({
   openSettings,
   openShortcuts() {
     closeSettings();
-    toggleShortcuts();
+    showShortcuts();
   },
   openReport() {
     closeSettings();
-    openReport(document.body, debugWithAgent);
+    showReport();
   },
   embedView,
   newAgent: newAgentHere,
+  stepOut: stepOutOfRail,
   // The session shrinks back into its card on the board.
   goBack(from: BackTo, move: boolean) {
     if (!move) return void goTo(from);
@@ -193,29 +212,39 @@ pane.connect({
   },
 });
 
-/// What the window opens on: its project, or for the main window what the bar or tray asked
-/// for. Asked at load, beside the kept views and Home's reads.
+/// What the window opens on: its project or chat, with the chat's row as far as the sessions
+/// know it, or for the main window what the bar or tray asked for. Asked at load, beside the
+/// kept views and Home's reads.
 interface Opening {
-  project: string | null;
+  alone: Alone | null;
+  chat: AgentRow | null;
+  session: AgentRow | null;
   pending: CenterTarget | null;
 }
 
 async function readOpening(): Promise<Opening> {
-  const project = await invoke<string | null>("center_window_project").catch(() => null);
-  return { project, pending: project ? null : await readPending() };
+  const alone = await invoke<Alone | null>("center_window_alone").catch(() => null);
+  if (!alone) return { alone, chat: null, session: null, pending: await readPending() };
+  const saved = savedWindowSession();
+  if (alone.kind === "project" && !saved) return { alone, chat: null, session: null, pending: null };
+
+  const rows = await ensureSessions().catch(() => []);
+  const chat = alone.kind === "chat" ? rows.find(row => row.machine_id === alone.machine_id && row.id === alone.session) ?? null : null;
+  const session = saved ? rows.find(row => row.machine_id === saved.machine_id && row.id === saved.id) ?? null : null;
+  return { alone, chat, session, pending: null };
 }
 
 /// The first view.
-function start({ project, pending }: Opening) {
+function start({ alone, chat, session, pending }: Opening) {
   dropKeptFrame();
-  document.title = windowTitle(project);
-  const first = startView(project);
+  document.title = windowTitle(alone);
+  const first = startView(alone, chat);
   if (!first) return showPending(pending, "home");
-  // A project window: no sidebar, and a button back to the project.
-  const name = first.arg.project;
-  setWindowProject(name);
+  // A project's or chat's window: no sidebar; a project's has a button back to it.
+  setWindowAlone(alone);
   document.body.classList.add("pw");
-  go(first.view, first.arg);
+  const resumed = session ? { view: "pane" as const, arg: { agent: session } } : null;
+  goTo(resumed && opensHere(resumed) ? resumed : first);
 }
 
 /// Shows the views the app kept from its last answers, so the window
@@ -245,7 +274,7 @@ const opening = readOpening();
 void pairing().then(async () => {
   void refresh();
   const [, open] = await Promise.all([showCached(), opening]);
-  if (!onPhone()) void firstRun();
+  if (!onPhone()) void import("./firstrun.tsx").then(m => m.firstRun());
   start(open);
   startupDrawn();
 }).catch(e => {

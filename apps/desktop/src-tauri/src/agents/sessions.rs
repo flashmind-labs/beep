@@ -15,6 +15,7 @@ use crate::{
     fleet::{
         Fleet, Machines, SessionParent, agents as direct,
         asked::{ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT},
+        node_actor::{FAST_JOB_WAIT, JobKind},
     },
     machines::list::MachineLists,
     projects::known,
@@ -22,9 +23,9 @@ use crate::{
 use beep_mesh::Key;
 use beep_node::agents::tags::own_words;
 use beep_proto::SessionId;
-use beep_proto::node::agent::LineChanges;
+use beep_proto::node::agent::{LineChanges, Persona};
 use beep_proto::{
-    AccountName, AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModel, AgentModels,
+    AccountName, AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModels, AgentPlanStep,
     AgentQuestion, AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask,
     AgentToolCall, ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks,
     ListAgentModels, MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
@@ -59,32 +60,12 @@ const RELIST_LAST: Duration = Duration::from_secs(16);
 /// A machine that can run a coding agent.
 #[derive(Debug, Serialize)]
 pub struct HostRow {
-    machine_id: String,
-    machine_name: String,
-    agents: Vec<String>,
-    workspace: Option<String>,
-    home: Option<String>,
-    capabilities: Vec<&'static str>,
+    #[serde(flatten)]
+    host: AgentHost,
     /// Its node runs the home assistant.
     assistant: bool,
-}
-
-impl From<AgentHost> for HostRow {
-    fn from(host: AgentHost) -> Self {
-        Self {
-            machine_id: host.machine_id,
-            machine_name: host.machine_name,
-            agents: host.agents,
-            workspace: host.workspace,
-            home: host.home,
-            capabilities: host
-                .capabilities
-                .into_iter()
-                .map(<&'static str>::from)
-                .collect(),
-            assistant: false,
-        }
-    }
+    /// Its node takes part in moving a chat.
+    moves_chats: bool,
 }
 
 /// One session as the views list it.
@@ -111,6 +92,8 @@ pub struct SessionRow {
     parent: Option<SessionParent>,
     /// A temporary reviewer of its parent's changes.
     reviewer: bool,
+    /// Started in the background by its parent, so no thread of its chat.
+    background: bool,
     /// Its subagents that still run.
     subagents: u32,
     /// The model it runs on, when its node says.
@@ -119,6 +102,8 @@ pub struct SessionRow {
     assistant: bool,
     /// The named account it runs as; `None` for the agent's default one.
     account: Option<AccountName>,
+    /// The custom agent it runs as.
+    persona: Option<Persona>,
 }
 
 impl From<MachineSession> for SessionRow {
@@ -140,20 +125,14 @@ impl From<MachineSession> for SessionRow {
             question: session.question,
             parent: None,
             reviewer: false,
+            background: false,
             subagents: session.subagents,
             model: session.model,
             assistant: session.assistant,
             account: session.account,
+            persona: session.persona,
         }
     }
-}
-
-#[derive(Debug, Serialize)]
-struct StepRow {
-    content: String,
-    status: &'static str,
-    started_at: Option<u64>,
-    ended_at: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -226,7 +205,7 @@ fn without_image_lines(text: &str) -> String {
 pub struct SessionPage {
     model: Option<String>,
     session: SessionRow,
-    plan: Vec<StepRow>,
+    plan: Vec<AgentPlanStep>,
     files: Vec<String>,
     last_message: String,
     error: Option<String>,
@@ -244,17 +223,8 @@ impl From<AgentSessionView> for SessionPage {
     fn from(view: AgentSessionView) -> Self {
         Self {
             model: view.model,
-            session: view.session.into(),
-            plan: view
-                .plan
-                .into_iter()
-                .map(|step| StepRow {
-                    content: step.content,
-                    status: step.status.into(),
-                    started_at: step.started_at,
-                    ended_at: step.ended_at,
-                })
-                .collect(),
+            session: SessionRow::from(view.session),
+            plan: view.plan,
             files: view.files,
             last_message: view.last_message,
             error: view.error,
@@ -290,7 +260,10 @@ pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
         .into_iter()
         .map(|host| HostRow {
             assistant: direct::runs_assistant(&fleet, &host),
-            ..HostRow::from(host)
+            moves_chats: fleet
+                .member(&host.machine_id)
+                .is_some_and(|machine| direct::moves_chats(&fleet, machine)),
+            host,
         })
         .collect())
 }
@@ -302,19 +275,20 @@ pub async fn agent_sessions(
     held: State<'_, MachineLists>,
 ) -> Result<Vec<SessionRow>> {
     let sessions = machine_sessions(&app, &fleet, &held).await;
-    let children = fleet
-        .children()
-        .into_iter()
-        .map(|linked| (linked.session, linked.reviewer));
+    let children = fleet.children().into_iter().map(|linked| {
+        let background = linked.parent.is_some_and(|link| link.background);
+        (linked.session, linked.reviewer, background)
+    });
     Ok(sessions
         .into_iter()
-        .map(|session| (session, false))
+        .map(|session| (session, false, false))
         .chain(children)
-        .map(|(session, reviewer)| {
+        .map(|(session, reviewer, background)| {
             let parent = fleet.parent_of(&session.machine_id, &session.id);
             SessionRow {
                 parent,
                 reviewer,
+                background,
                 ..SessionRow::from(session)
             }
         })
@@ -453,6 +427,7 @@ pub(crate) async fn machine_changed(app: &AppHandle, machine: EndpointId) {
         break;
     }
 
+    fleet.projections().forget_project_sessions_on(machine);
     app.state::<Arc<AgentSessions>>().stale();
     app.state::<crate::palette::lists::PaletteCache>()
         .sessions_changed();
@@ -472,7 +447,10 @@ pub(crate) async fn machine_sessions(
         let f = fleet.clone();
         held.local.refreshed_after(
             app,
-            async move { Ok(direct::local_sessions(&f).await) },
+            move || {
+                let f = f.clone();
+                async move { Ok(direct::local_sessions(&f).await) }
+            },
             same_session,
             SESSIONS_FRESH,
         )
@@ -484,30 +462,33 @@ pub(crate) async fn machine_sessions(
     let (a, f, kept) = (app.clone(), fleet.clone(), held.sessions.clone());
     sessions.extend(held.sessions.refreshed_after(
         app,
-        async move {
-            let peers = direct::peer_sessions(&f).await;
-            let mut sessions = peers.sessions;
-            // A machine that did not say keeps its rows: one being connected
-            // to shows them as connecting, one that did not answer is asked
-            // again.
-            let unsaid: Vec<String> = peers
-                .unanswered
-                .iter()
-                .chain(&peers.connecting)
-                .map(ToString::to_string)
-                .collect();
-            sessions.extend(
-                kept.last()
-                    .into_iter()
-                    .filter(|session| unsaid.contains(&session.machine_id)),
-            );
+        move || {
+            let (a, f, kept) = (a.clone(), f.clone(), kept.clone());
+            async move {
+                let peers = direct::peer_sessions(&f).await;
+                let mut sessions = peers.sessions;
+                // A machine that did not say keeps its rows: one being connected
+                // to shows them as connecting, one that did not answer is asked
+                // again.
+                let unsaid: Vec<String> = peers
+                    .unanswered
+                    .iter()
+                    .chain(&peers.connecting)
+                    .map(ToString::to_string)
+                    .collect();
+                sessions.extend(
+                    kept.last()
+                        .into_iter()
+                        .filter(|session| unsaid.contains(&session.machine_id)),
+                );
 
-            for machine in peers.unanswered {
-                let a = a.clone();
-                tauri::async_runtime::spawn(async move { machine_changed(&a, machine).await });
+                for machine in peers.unanswered {
+                    let a = a.clone();
+                    tauri::async_runtime::spawn(async move { machine_changed(&a, machine).await });
+                }
+
+                Ok(sessions)
             }
-
-            Ok(sessions)
         },
         same_session,
         SESSIONS_FRESH,
@@ -515,11 +496,27 @@ pub(crate) async fn machine_sessions(
     let f = fleet.clone();
     sessions.extend(held.scans.refreshed_after(
         app,
-        async move { Ok(direct::scanned_sessions(&f).await) },
+        move || {
+            let f = f.clone();
+            async move { Ok(direct::scanned_sessions(&f).await) }
+        },
         same_session,
         SCAN_FRESH,
     ));
     fleet.apply_presence(&mut sessions);
+    sessions.retain(|session| {
+        !fleet
+            .node_ops()
+            .is_deleting_session(&session.machine_id, &session.id)
+    });
+    for session in &mut sessions {
+        if let Some(folder) = fleet
+            .node_ops()
+            .relocated_folder(&session.machine_id, &session.id)
+        {
+            session.cwd = folder;
+        }
+    }
 
     if let Some(mesh) = fleet.mesh() {
         for session in &mut sessions {
@@ -583,26 +580,6 @@ pub async fn agent_start(
     })
 }
 
-/// The models an agent can run on a machine, as the start form's Model
-/// field lists them.
-#[derive(Debug, Serialize)]
-pub struct ModelsView {
-    /// "listed", "named" or "fixed".
-    pick: &'static str,
-    current: Option<String>,
-    models: Vec<AgentModel>,
-}
-
-impl From<AgentModels> for ModelsView {
-    fn from(list: AgentModels) -> Self {
-        Self {
-            pick: list.pick.into(),
-            current: list.current,
-            models: list.models,
-        }
-    }
-}
-
 /// The models `agent` can run on `machine_id`; failures retain their context
 /// for the picker and the local log.
 #[tauri::command]
@@ -610,15 +587,27 @@ pub async fn agent_models(
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
-) -> Result<Option<ModelsView>> {
+) -> Result<Option<AgentModels>> {
     let request = ListAgentModels {
         machine_id: machine_id.clone(),
         agent: agent.clone(),
     };
     let machine = fleet.machine(&machine_id)?;
+    let fleet_arc = fleet.inner().clone();
+    let key = (machine, agent.clone());
+    let fetched = fleet
+        .projections()
+        .models
+        .read(
+            key,
+            PartialEq::eq,
+            || {},
+            move || async move { direct::models(&fleet_arc, machine, &request).await },
+        )
+        .await;
 
-    match direct::models(&fleet, machine, &request).await {
-        Ok(list) => Ok(Some(list.into())),
+    match fetched {
+        Ok(list) => Ok(Some(list)),
         Err(e) => {
             log::warn!("model lookup failed: machine={machine_id} harness={agent}: {e:#}");
             Err(e)
@@ -680,6 +669,7 @@ pub fn agent_deletable(fleet: Machines<'_>, machine_id: String) -> bool {
 pub async fn agent_delete(
     app: AppHandle,
     fleet: Machines<'_>,
+    held: State<'_, MachineLists>,
     machine_id: String,
     agent: String,
     session: SessionId,
@@ -687,7 +677,32 @@ pub async fn agent_delete(
     let machine = fleet.member(&machine_id).ok_or_else(|| {
         DesktopError::BadRequest("Only a machine in the mesh can delete sessions.".into())
     })?;
-    direct::delete_session(&fleet, machine, &agent, &session).await?;
+    let fleet_arc = fleet.inner().clone();
+    fleet
+        .node_ops()
+        .submit(
+            Some(app.clone()),
+            fleet_arc,
+            machine,
+            JobKind::DeleteSession {
+                agent,
+                session: session.clone(),
+            },
+            FAST_JOB_WAIT,
+        )
+        .await?;
+
+    held.local.replace(Vec::new(), |s| {
+        s.machine_id == machine_id && s.id == session
+    });
+    held.sessions.replace(Vec::new(), |s| {
+        s.machine_id == machine_id && s.id == session
+    });
+    held.scans.replace(Vec::new(), |s| {
+        s.machine_id == machine_id && s.id == session
+    });
+    fleet.projections().forget_session(machine, &session);
+
     // The windows read their session lists again.
     if let Err(e) = app.emit("sessions-changed", session) {
         log::warn!("could not tell the windows a session was deleted: {e}");
@@ -967,15 +982,22 @@ pub async fn agent_relocate(
     let machine = fleet
         .member(&machine_id)
         .ok_or_else(|| DesktopError::BadRequest("The machine must be in the mesh.".into()))?;
-    let client = fleet.client(machine).await?;
-    let done =
-        beep_mesh::machine::sessions::relocate_session(&client, &agent, &session, &folder).await?;
-    match done {
-        beep_mesh::machine::sessions::NodeWork::Done(()) => {}
-        beep_mesh::machine::sessions::NodeWork::Refused(why) => {
-            return Err(DesktopError::BadRequest(why));
-        }
-    }
+    let fleet_arc = fleet.inner().clone();
+    fleet
+        .node_ops()
+        .submit(
+            Some(app.clone()),
+            fleet_arc,
+            machine,
+            JobKind::RelocateSession {
+                agent,
+                session: session.clone(),
+                folder,
+            },
+            FAST_JOB_WAIT,
+        )
+        .await?;
+    fleet.projections().forget_project_sessions_on(machine);
     app.emit("sessions-changed", session)
         .map_err(anyhow::Error::from)?;
     Ok(())

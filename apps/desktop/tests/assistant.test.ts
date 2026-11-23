@@ -12,7 +12,7 @@ test("a session is the assistant only by its flag, never as a reviewer", () => {
 });
 
 const session = (id: string, cwd: string, status: string, last_activity: number, assistant = false): AgentSession => ({
-  machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: null, cwd, status, doing: null, started_at: 0, last_activity, external: false, question: null, assistant,
+  machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: null, cwd, status, doing: null, started_at: 0, last_activity, external: false, question: null, assistant, persona: null,
 });
 
 test("the assistant list splits running from ended, the latest first, and leaves out home folder sessions without the flag", () => {
@@ -32,11 +32,11 @@ test("the assistant's harness is the one picked when offered, else the first off
   const agent = (picked: string | null, on: typeof hosts) => resolveAssistant({ agent: picked, model: null, effort: null, fast: null }, on).agent;
   assert.equal(agent("flsh", hosts), "flsh");
   assert.equal(agent(null, hosts), "codex");
-  assert.equal(agent("gemini", hosts), "codex");
+  assert.equal(agent("agy", hosts), "codex");
   assert.equal(agent(null, []), null);
   assert.equal(assistantHost(hosts, "mac", "pi")?.machine_id, "mac");
   assert.equal(assistantHost(hosts, "mac", "codex")?.machine_id, "build-box");
-  assert.equal(assistantHost(hosts, null, "gemini"), null);
+  assert.equal(assistantHost(hosts, null, "agy"), null);
 });
 
 test("only machines whose node runs the assistant count for its harness and machine", () => {

@@ -45,7 +45,7 @@ fn the_probe_finds_the_home_linux_agents_and_adapters() {
 home /home/sam
 agent codex /home/sam/.npm-global/bin/codex
 agent claude /home/sam/.local/bin/claude
-agent gemini /mnt/c/Users/sam/AppData/Roaming/npm/gemini
+agent pi /mnt/c/Users/sam/AppData/Roaming/npm/pi
 agent claude /usr/bin/claude
 tool codex-acp /home/sam/.npm-global/bin/codex-acp
 tool npx /mnt/c/Program Files/nodejs/npx

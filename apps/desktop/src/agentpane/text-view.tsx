@@ -1,4 +1,5 @@
 import { lazy, Suspense, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { create } from "zustand";
 import { addMention } from "../agents/workdrop.ts";
 import { invoke } from "../ui/tauri.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
@@ -8,16 +9,26 @@ import { noteTab, touchTab } from "./media-draw.ts";
 import { fileError, readError } from "./read.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
-import { Button } from "../ui/kit.tsx";
+import { Button, ChipToggle } from "../ui/kit.tsx";
 import { onPhone } from "../ui/platform.ts";
 
+const vimPreference = "beep.editor.vim";
+const useVimKeys = create<boolean>(() => {
+  try { return localStorage.getItem(vimPreference) === "true"; } catch { return false; }
+});
+
+window.addEventListener("storage", event => {
+  if (event.key === vimPreference || event.key === null) useVimKeys.setState(event.newValue === "true");
+});
 const CodeEditor = lazy(() => import("./code-editor.tsx"));
+const SourceSearch = lazy(() => import("./code-editor.tsx").then(module => ({ default: module.SourceSearch })));
 
 /// Shows an HTML or Markdown file's preview in its tab, reading it the first time, or its source again.
 export async function togglePreview(tab: MediaTab) {
   const session = P.session;
   if (!session || !tab.rel) return;
   const preview = tab.preview ??= { active: false, loading: false, src: "", html: "", error: "" };
+  tab.findRequest = 0;
   preview.active = !preview.active;
   if (!preview.active || preview.src || preview.html || preview.loading) { touchTab(tab); return; }
   preview.loading = true; preview.error = ""; touchTab(tab);
@@ -36,18 +47,20 @@ export async function togglePreview(tab: MediaTab) {
 /// when it next shows.
 export async function refreshPreview(tab: MediaTab) {
   const session = P.session, preview = tab.preview;
-  if (!session || !tab.rel || !preview) return;
+  if (!session || !tab.rel || !preview) return true;
 
   if (!preview.active) {
     Object.assign(preview, { src: "", html: "" });
-    return;
+    return true;
   }
 
   try {
     Object.assign(preview, await readPreview(session, tab.root ?? session.cwd, tab.rel), { error: "" });
     touchTab(tab);
+    return true;
   } catch {
-    // The preview shown stays.
+    // Keep the old stamp so the next check retries the preview.
+    return false;
   }
 }
 
@@ -71,8 +84,10 @@ export function takeText(tab: MediaTab, now: TreeText) {
 }
 
 /// Starts editing a text tab's file, from the text it shows, with the cursor `at` a place.
-function startEdit(tab: MediaTab, at: TextPlace | null = null) {
+function startEdit(tab: MediaTab, source: HTMLElement, at: TextPlace | null = null) {
   if (!tab.text?.editable) return;
+  source.closest<HTMLElement>(".agpane")?.focus({ preventScroll: true });
+  tab.findRequest = 0;
   tab.edit = { base: tab.text.text, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at };
   touchTab(tab);
 }
@@ -92,7 +107,7 @@ function selectedPlace(pre: HTMLPreElement): TextPlace | null {
 
 /// Stops editing, asking first when there are unsaved changes.
 function endEdit(tab: MediaTab) {
-  const stop = () => { tab.edit = null; tab.note = null; touchTab(tab); };
+  const stop = () => { tab.findRequest = 0; tab.edit = null; tab.note = null; touchTab(tab); };
   if (tab.edit?.dirty) discardSheet(tab, stop); else stop();
 }
 
@@ -102,7 +117,7 @@ async function saveEdit(tab: MediaTab, overwrite = false) {
   const s = P.session, edit = tab.edit;
   if (!s || !edit || !tab.rel || edit.saving) return;
   const at = { machineId: s.machine_id, root: tab.root ?? s.cwd, path: tab.rel };
-  const text = (edit.view?.state ?? edit.state)?.doc.toString() ?? edit.base;
+  const text = (edit.view?.state ?? edit.state)?.sliceDoc() ?? edit.base;
   edit.saving = true;
   noteTab(tab, `Saving ${tab.name}…`);
 
@@ -119,7 +134,7 @@ async function saveEdit(tab: MediaTab, overwrite = false) {
     await invoke("agent_tree_edit", { machineId: at.machineId, root: at.root, action: { Write: { path: at.path, text } } });
     edit.base = text;
     edit.conflict = false;
-    edit.dirty = (edit.view?.state ?? edit.state)?.doc.toString() !== text;
+    edit.dirty = (edit.view?.state ?? edit.state)?.sliceDoc() !== text;
     tab.text = { size: new TextEncoder().encode(text).length, text, cut: false, binary: false, editable: true };
     noteTab(tab, `Saved ${tab.name}`);
   } catch (error) {
@@ -153,6 +168,9 @@ const readScrolled = (key: string): Scrolled | null => {
 
 export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   const code = useRef<HTMLDivElement>(null), pre = useRef<HTMLPreElement>(null);
+  const findRequest = tab.findRequest ?? 0, finding = findRequest > 0;
+  const foundLine = useRef<number | null>(null);
+  const vimKeys = useVimKeys();
   const rel = tab.rel ?? "", lang = languageOf(rel);
   const scrollKey = P.session ? `${viewKey(P.session.machine_id, P.session.id)}:file:${tab.id}` : null;
   const { about, style, html } = useMemo(() => {
@@ -169,13 +187,25 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   const source = !preview?.active && !text.binary;
   const editable = text.editable && !onPhone();
 
+  const closeSearch = (line: number | null) => {
+    foundLine.current = line;
+    tab.findRequest = 0;
+    touchTab(tab);
+  };
+
   // The code scrolls back to where it was the last time the file showed.
   useLayoutEffect(() => {
     const saved = scrollKey && source ? readScrolled(scrollKey) : null;
+    if (!code.current) return;
+    if (foundLine.current !== null) {
+      const line = pre.current?.querySelectorAll(".ln")[foundLine.current - 1];
+      foundLine.current = null;
+      if (line) { line.scrollIntoView({ block: "center" }); return; }
+    }
     if (!saved) return;
     const frame = requestAnimationFrame(() => { if (code.current) { code.current.scrollTop = saved.top; code.current.scrollLeft = saved.left; } });
     return () => cancelAnimationFrame(frame);
-  }, [scrollKey, source]);
+  }, [scrollKey, source, finding]);
 
   // A link to a line shows that line.
   useLayoutEffect(() => {
@@ -188,9 +218,14 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   const edit = tab.edit;
   if (edit) return <>
     <Suspense fallback={<div className="agpmsg">Loading the editor…</div>}>
-      <CodeEditor key={edit.generation} edit={edit} rel={rel} save={() => void saveEdit(tab)} changed={() => { if (!edit.dirty) { edit.dirty = true; tab.note = null; touchTab(tab); } }} />
+      <CodeEditor key={edit.generation} edit={edit} rel={rel} vimKeys={vimKeys} findRequest={findRequest} closeSearch={() => closeSearch(null)} save={() => void saveEdit(tab)} changed={() => { if (!edit.dirty) { edit.dirty = true; tab.note = null; touchTab(tab); } }} />
     </Suspense>
     <div className="agpacts"><span className="meta mono" title={rel}>{tab.note ?? (edit.dirty ? `${rel} · edited` : rel)}</span><span className="sp" />
+      <ChipToggle label="Vim" selected={vimKeys} onToggle={() => {
+        try { localStorage.setItem(vimPreference, String(!vimKeys)); } catch { /* Keep it for this window. */ }
+        useVimKeys.setState(!vimKeys);
+        edit.view?.focus();
+      }} />
       {edit.conflict ? <>
         <Button data-treload="1" onClick={() => void reloadEdit(tab)}>Reload</Button>
         <Button data-toverwrite="1" look="primary" disabled={edit.saving} onClick={() => void saveEdit(tab, true)}>Overwrite</Button>
@@ -203,10 +238,13 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
     : preview.html ? <div className="agartmd" dangerouslySetInnerHTML={{ __html: preview.html }} />
     : <div className="agartframe-box"><iframe className="agartframe" sandbox="allow-scripts" referrerPolicy="no-referrer" title={`Preview of ${tab.name}`} src={preview.src || undefined} /></div>
     : text.binary ? <div className="agpmsg">{tab.name} is not text ({shortSize(text.size)}). Save it to open it on this computer.</div>
-    : <div className="agcode" style={style} ref={code} onScroll={scrolled} onDoubleClick={() => { if (editable && pre.current) startEdit(tab, selectedPlace(pre.current)); }}><pre ref={pre} dangerouslySetInnerHTML={{ __html: html }} /></div>}
+    : finding ? <Suspense fallback={<div className="agpmsg">Opening file search…</div>}>
+      <SourceSearch text={text.text} findRequest={findRequest} close={closeSearch} />
+    </Suspense>
+    : <div className="agcode" style={style} ref={code} onScroll={scrolled} onDoubleClick={event => { if (editable && pre.current) startEdit(tab, event.currentTarget, selectedPlace(pre.current)); }}><pre ref={pre} dangerouslySetInnerHTML={{ __html: html }} /></div>}
     <div className="agpacts"><span className="meta mono" title={rel}>{tab.note ?? about}</span><span className="sp" />
       {!text.binary && hasPreview(rel) && <Button data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</Button>}
-      {editable && !preview?.active && <Button data-tedit="1" onClick={() => startEdit(tab)}>Edit</Button>}
+      {editable && !preview?.active && <Button data-tedit="1" onClick={event => startEdit(tab, event.currentTarget)}>Edit</Button>}
       <Button data-tment="1" onClick={() => addMention(mentioned(tab.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel))}>Mention</Button>
       <Button data-tdownload="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root)}>Download</Button>
     </div></>;

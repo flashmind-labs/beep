@@ -51,8 +51,8 @@ export function showMachineMenu(m: Removable, first: () => MenuItem[], e: MouseE
   if (!m.id) return;
   const items: MenuItem[] = [...first()];
   if (m.online !== false && m.can_host !== false) items.push({ label: "New terminal", on: () => openTerminals({ newOn: m.id }) });
-  items.push({ label: "Rename…", on: () => renameMachine(m) });
-  if (m.id !== state.mac?.id) items.push({ label: "Remove…", warn: true, on: () => removeMachine(m) });
+  items.push({ label: "Rename", on: () => renameMachine(m) });
+  if (m.id !== state.mac?.id) items.push({ label: "Remove", warn: true, on: () => removeMachine(m) });
   if (items.length) openMenu(e, m.name, items);
 }
 

@@ -11,23 +11,25 @@
 use beep_proto::SessionId;
 use super::{Agents, Begin, Command, Session, known, live::Live, mcp::children};
 use crate::{AsyncMutex, link::Membership};
-use beep_proto::{AccountName, AgentAccount, ModelId};
-use beep_proto::node::agent::{Effort, ParentLink, SessionInfo, Status};
+use beep_proto::{AccountName, AgentAccount, CustomAgent, ModelId};
+use beep_proto::node::agent::{Effort, ParentLink, Persona, SessionInfo, Status};
 use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, atomic::Ordering},
     time::Duration,
 };
 use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
 
+mod changes;
 mod notes;
 mod orphans;
 mod remote;
 
+pub(in crate::agents) use changes::Mark;
 pub(crate) use notes::{ChildNote, Waits};
 pub(crate) use orphans::Parent;
 pub(crate) use remote::RemoteKid;
@@ -83,6 +85,10 @@ pub(crate) struct ChildStart {
     /// The named account its parent runs as. A child of an agent that keeps
     /// accounts runs as that agent's account of the same name, or not at all.
     pub(crate) account: Option<AccountName>,
+    /// The name its parent gives it, which its chat lists it under.
+    pub(crate) title: Option<String>,
+    /// The custom agent it runs as, whose instructions it is told.
+    pub(crate) persona: Option<CustomAgent>,
 }
 
 /// What a reviewer child starts with besides `ChildStart`'s.
@@ -272,6 +278,14 @@ impl Agents {
         session.order(Command::Steer(text.into())).await
     }
 
+    /// Hands `text`, from its parent, to the child `child` here. What the
+    /// child does with it is the parent's to hear the end of, whoever began
+    /// the turn it joins.
+    pub(super) async fn tell_child(child: &Session, text: String) -> Result<(), String> {
+        child.user_turn.store(false, Ordering::Relaxed);
+        child.order(Command::Steer(text.into())).await
+    }
+
     /// Starts the child `link` describes, here. The node that starts it
     /// checks the limits, whichever machine the parent is on.
     pub(super) async fn start_child(
@@ -284,15 +298,20 @@ impl Agents {
         }
 
         let kind = self.kind_or_refusal(&start.harness)?;
-        self.settings.may_start(&link.agent, &kind.name)?;
         let mode = match &start.review {
             Some(_) => review_mode(&link, &kind.name)?,
             None => child_mode(&link, &kind.name)?,
         };
         let follows = self.parent_live_of(&link);
+        let parent = (link.machine == self.me())
+            .then(|| self.get(&link.session))
+            .flatten();
         let root = (link.root_machine, link.root.clone());
+        let title = start.title.filter(|title| !title.trim().is_empty());
         let begin = Begin {
             prompt: Some(start.prompt),
+            named: title.is_some(),
+            title,
             model: start.model,
             effort: start.review.as_ref().and_then(|review| review.effort),
             fast: start.review.as_ref().and_then(|review| review.fast),
@@ -303,6 +322,8 @@ impl Agents {
             account: start
                 .account
                 .filter(|_| AgentAccount::from_str(&kind.name).is_ok()),
+            persona: start.persona.as_ref().map(Into::<Persona>::into),
+            instructions: start.persona.as_ref().map(super::custom_agents::persona_brief),
             ..Begin::default()
         };
         let session = {
@@ -320,6 +341,15 @@ impl Agents {
                 .map_err(|e| format!("{e:#}"))?
         };
         self.watch_parent(&session);
+
+        // Its prompt says what the parent knew: it has seen the parent so far.
+        if let Some(parent) = parent {
+            session.see(
+                &parent.id,
+                watched::read(&parent.live, |live| Into::<Mark>::into(live)),
+            );
+        }
+
         session.named_info().await?;
         Ok(session)
     }
@@ -354,6 +384,18 @@ impl Agents {
         }
 
         crate::link::restart::changed();
+    }
+
+    /// Puts `session`, which came from another machine, in its family
+    /// here: it tells its parent how it stands, and its children that came
+    /// before it tell it and end with it, as those started after it do.
+    pub(in crate::agents) fn join_family(&self, session: &Arc<Session>) {
+        self.watch_parent(session);
+
+        for child in self.children_of(&self.who_of(session)) {
+            self.watch_parent(&child);
+            child.follow(session.live.clone());
+        }
     }
 
     /// The parent's state, when it runs here: the child ends with it.

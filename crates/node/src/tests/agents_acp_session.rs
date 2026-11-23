@@ -99,9 +99,9 @@ fn an_agent_without_models_offers_none() {
 fn every_session_start_lets_a_stop_spare_background_subagents() {
     let cwd = std::path::Path::new("/srv/project");
     let requests = [
-        new_session(cwd, Vec::new(), None).unwrap(),
-        resume_session(ResumeMethod::Load, SessionId::new("s1"), cwd, Vec::new(), None).unwrap(),
-        resume_session(ResumeMethod::Resume, SessionId::new("s1"), cwd, Vec::new(), None).unwrap(),
+        new_session(cwd, Vec::new(), None, true).unwrap(),
+        resume_session(ResumeMethod::Load, SessionId::new("s1"), cwd, Vec::new(), None, true).unwrap(),
+        resume_session(ResumeMethod::Resume, SessionId::new("s1"), cwd, Vec::new(), None, true).unwrap(),
     ];
 
     for request in requests {
@@ -111,5 +111,25 @@ fn every_session_start_lets_a_stop_spare_background_subagents() {
             "{}",
             request.method()
         );
+        assert!(request.params()["_meta"].get("flsh").is_none());
+    }
+}
+
+/// The home assistant starts threads, which the user sees, so every way its
+/// session starts switches off the harness's own subagents (#1127).
+#[test]
+fn the_assistant_starts_without_its_harness_subagents() {
+    let cwd = std::path::Path::new("/srv/project");
+    let requests = [
+        new_session(cwd, Vec::new(), None, false).unwrap(),
+        resume_session(ResumeMethod::Load, SessionId::new("s1"), cwd, Vec::new(), None, false).unwrap(),
+        resume_session(ResumeMethod::Resume, SessionId::new("s1"), cwd, Vec::new(), None, false).unwrap(),
+    ];
+
+    for request in requests {
+        let meta = &request.params()["_meta"];
+        assert_eq!(meta["claudeCode"]["options"]["disallowedTools"], serde_json::json!(["Agent", "Task"]));
+        assert_eq!(meta["claudeCode"]["options"]["perTaskStopAffordance"], true);
+        assert_eq!(meta["flsh"]["subagents"], false, "{}", request.method());
     }
 }

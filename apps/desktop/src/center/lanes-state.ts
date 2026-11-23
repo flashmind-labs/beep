@@ -22,6 +22,16 @@ export function laneOf(status: string): Lane {
   }
 }
 
+/// How long ago an idle session's turn finished, as Home's review groups its list.
+export const STRETCHES = [{ stretch: "hour", title: "Last hour" }, { stretch: "today", title: "Today" }, { stretch: "older", title: "Older" }] as const;
+export type Stretch = typeof STRETCHES[number]["stretch"];
+
+/// The stretch of a turn that finished at `at`: within the hour, since local midnight, or before.
+export function stretchOf(at: number, now: number): Stretch {
+  if (now - at < 3_600_000) return "hour";
+  return at >= new Date(now).setHours(0, 0, 0, 0) ? "today" : "older";
+}
+
 /// `cards` by lane, in the order given, every lane present.
 export function byLane<T extends { lane: Lane }>(cards: readonly T[]): Record<Lane, T[]> {
   const lanes: Record<Lane, T[]> = { needs: [], working: [], review: [], done: [] };

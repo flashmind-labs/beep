@@ -1,4 +1,4 @@
-use super::{ask, updates};
+use super::{ask, cli, updates};
 use agent_client_protocol::v1::schema::{
     CreateElicitationResponse, ElicitationAction, SessionId, SessionUpdate, StopReason,
 };
@@ -114,3 +114,30 @@ fn a_transcript_replays_what_was_said_and_done() {
     assert_eq!(call.content.len(), 1, "the edit carries its diff");
 }
 
+
+#[test]
+fn replay_marks_a_compaction_summary_from_its_record() {
+    let record = json!({"type": "user", "isCompactSummary": true, "isMeta": true,
+        "message": {"content": "Saved context in another language"}});
+    let replay = updates::message(&record, true);
+    let [SessionUpdate::UserMessageChunk(chunk)] = replay.as_slice() else {
+        panic!("expected the summary");
+    };
+    assert_eq!(chunk.meta.as_ref().unwrap()["isCompactSummary"], true);
+    assert!(updates::message(&record, false).is_empty());
+}
+
+/// The home assistant's session switches off Claude Code's subagent tools
+/// in its `_meta`, which the direct bridge passes as one flag (#1127).
+#[test]
+fn a_session_meta_switches_off_tools_in_one_flag() {
+    let meta = json!({"claudeCode": {"options": {"disallowedTools": ["Agent", "Task"], "perTaskStopAffordance": true}}});
+    let disallowed = cli::disallowed_tools(meta.as_object());
+
+    assert_eq!(disallowed, ["Agent", "Task"]);
+    assert_eq!(cli::off_tools(false, &disallowed).as_deref(), Some("Agent,Task,AskUserQuestion"));
+    assert_eq!(cli::off_tools(true, &disallowed).as_deref(), Some("Agent,Task"));
+    assert_eq!(cli::off_tools(true, &[]), None);
+    assert!(cli::disallowed_tools(json!({"claudeCode": {"options": {"disallowedTools": "Agent"}}}).as_object()).is_empty());
+    assert!(cli::disallowed_tools(None).is_empty());
+}

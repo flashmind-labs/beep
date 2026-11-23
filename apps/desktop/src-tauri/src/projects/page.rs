@@ -2,22 +2,26 @@
 
 use crate::{
     agents::sessions::SessionRow,
-    beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Machines, files as direct,
         projects::{FleetState, desk},
     },
+    machines::list::MachineLists,
 };
-use beep_proto::{AgentStatus, ProjectMachine, SyncthingPlace};
+use beep_proto::{ProjectMachine, SyncthingPlace};
 use serde::Serialize;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Manager, State};
 
 /// The sessions coding agents ran in `project`'s folders, newest first.
 #[tauri::command]
-pub async fn project_sessions(fleet: Machines<'_>, project: String) -> Result<Vec<SessionRow>> {
+pub async fn project_sessions(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    project: String,
+) -> Result<Vec<SessionRow>> {
     let places = super::branches::placed(&fleet, &project)?;
-    let mut sessions = direct::project_sessions(&fleet, &places).await;
+    let mut sessions = direct::project_sessions_with(Some(&app), &fleet, &places).await;
 
     if let Some(mesh) = fleet.mesh() {
         for session in &mut sessions {
@@ -31,7 +35,7 @@ pub async fn project_sessions(fleet: Machines<'_>, project: String) -> Result<Ve
 /// The sessions coding agents ran in every project of the mesh on the
 /// machines online, newest first, each machine asked once: Home's Done today.
 #[tauri::command]
-pub async fn projects_sessions(fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
+pub async fn projects_sessions(app: AppHandle, fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
     let Some(mesh) = fleet.mesh() else {
         return Ok(Vec::new());
     };
@@ -42,7 +46,7 @@ pub async fn projects_sessions(fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
         .filter(|(machine, _)| online.contains(machine))
         .map(|(machine, folder)| direct::Place { machine, folder })
         .collect();
-    let mut sessions = direct::project_sessions(&fleet, &places).await;
+    let mut sessions = direct::project_sessions_with(Some(&app), &fleet, &places).await;
 
     for session in &mut sessions {
         beep_fleet::session_titles::apply(&mesh, session);
@@ -54,28 +58,16 @@ pub async fn projects_sessions(fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
 /// One of the user's machines as a project's page lists it.
 #[derive(Debug, Serialize)]
 pub struct ProjectMachineRow {
-    id: String,
-    name: String,
-    online: bool,
-    /// The project's folder there; `None` without a checkout.
-    folder: Option<String>,
-    /// The machine is looking through it for a checkout now.
-    checking: bool,
-    /// In milliseconds since the Unix epoch.
-    checked_at: Option<u64>,
+    #[serde(flatten)]
+    machine: ProjectMachine,
     /// The mesh holds the project, so Add reaches this machine.
     mesh: bool,
 }
 
 impl From<ProjectMachine> for ProjectMachineRow {
-    fn from(m: ProjectMachine) -> Self {
+    fn from(machine: ProjectMachine) -> Self {
         Self {
-            id: m.machine_id,
-            name: m.machine_name,
-            online: m.online,
-            folder: m.folder,
-            checking: m.checking,
-            checked_at: m.checked_at.map(epoch_ms),
+            machine,
             mesh: true,
         }
     }
@@ -137,6 +129,7 @@ pub async fn project_remove_from_machine(
     app: AppHandle,
     fleet: FleetState<'_>,
     machines: Machines<'_>,
+    held: State<'_, MachineLists>,
     project: String,
     machine_id: String,
     delete_folder: Option<bool>,
@@ -144,18 +137,15 @@ pub async fn project_remove_from_machine(
     let id = machines
         .member(&machine_id)
         .ok_or_else(|| DesktopError::BadRequest("That machine is not known.".into()))?;
-    let places: Vec<direct::Place> = machines
+    let folders: Vec<String> = machines
         .mesh()
         .map(|mesh| beep_fleet::places(&mesh, &project))
         .unwrap_or_default()
         .into_iter()
         .filter(|(machine, _)| *machine == id)
-        .map(|(machine, folder)| direct::Place { machine, folder })
+        .map(|(_, folder)| folder)
         .collect();
-    let open = direct::project_sessions(&machines, &places)
-        .await
-        .into_iter()
-        .any(|session| !matches!(session.status, AgentStatus::Ended {}));
+    let open = direct::has_open_project_session(&machines, id, &folders, &held).await?;
     if open {
         return Err(DesktopError::BadRequest(format!(
             "An agent is working in {project} on {}. Stop it first.",

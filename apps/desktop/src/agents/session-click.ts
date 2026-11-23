@@ -3,7 +3,7 @@ import { S } from "../bar/core.ts";
 import { shell } from "../center/window-shell.tsx";
 import { openFileViewer, openViewer } from "../chat/media.tsx";
 import { linkedPath, resolvePath } from "../agentpane/media-state.ts";
-import { openLinked, openPath, openPicture, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
+import { openLinked, openPath, openPicture, paneSession, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode } from "./turnrows.ts";
 import { AG, openOf, where } from "./agents.ts";
@@ -11,7 +11,7 @@ import { fullPic } from "./images.tsx";
 import { childRow } from "./nesting-state.ts";
 import { parentSession, keepNativeSession, loadSessions, sessions } from "./sessions.ts";
 import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.tsx";
-import { toggleModelPicker, closeModelPicker } from "./modelpill.tsx";
+import { toggleModelPicker, closeModelPicker, retryWithModel } from "./modelpill.tsx";
 import { cycleMode } from "./modepill.tsx";
 import { answerAgentQuestion, interruptAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -21,11 +21,11 @@ import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent } from "./session.tsx";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 
-/// A chat on the Assistant page has no pane beside it: its files open over
-/// the window, read from its machine. False elsewhere.
+/// A chat on the Assistant page without a pane beside it opens its files over
+/// the window, read from its machine. False elsewhere: the pane shows them.
 function openOver(path: string) {
   const s = AG.page?.session;
-  if (!s || !shell.getState().assistant) return false;
+  if (!s || !shell.getState().assistant || paneSession()?.id === s.id) return false;
   openFileViewer(s.machine_id, s.id, s.cwd, resolvePath(s.cwd, path));
   return true;
 }
@@ -55,6 +55,7 @@ export function agentClick(e: MouseEvent) {
   if (opt) return answerAgentQuestion(Number(opt.dataset.agopt), opt.dataset.agquestion ?? "");
   if (target.closest("[data-agcancel]")) return void interruptAgent();
   if (target.closest("#agmodelb")) return toggleModelPicker();
+  if (target.closest("[data-agretrymodel]")) return retryWithModel();
   if (target.closest("#agmodeb")) { cycleMode(); agentMessage.current?.focus(); return; }
   if (AG.modelOpen && !target.closest(".agc-pick, [data-agtask]")) closeModelPicker();
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
@@ -217,12 +218,15 @@ function toggleRow(opened: Set<number>, at: number) {
   drawAgentBody(`[data-row="${at}"]`);
 }
 
-/// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again.
+/// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again;
+/// one still missing is gone, which the log says.
 async function kidSession(id: string, key?: string) {
   const row = childRow(sessions, id, key);
   if (row) return row;
-  try { await loadSessions(); } catch { return null; }
-  return childRow(sessions, id, key);
+  try { await loadSessions(); } catch { /* the note says it */ }
+  const found = childRow(sessions, id, key);
+  if (!found) { AG.note = "That agent's session is no longer on its machine."; drawAgentBody(); }
+  return found;
 }
 
 async function openKid(id: string, key?: string) {

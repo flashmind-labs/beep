@@ -248,3 +248,71 @@ async fn history_continues_after_filtered_pages_and_rejects_stuck_cursors() {
             .is_err()
     );
 }
+
+#[tokio::test]
+async fn ended_conversations_are_what_no_longer_runs_in_the_conversations_folder() {
+    use crate::MeshError;
+    use crate::machine::sessions::Reading;
+    use beep_proto::node::agent::{SessionsReply, SessionsRequest};
+
+    struct Node;
+
+    impl Sessions for Node {
+        async fn sessions(
+            &self,
+            request: SessionsRequest,
+            _: Reading,
+            _: Duration,
+        ) -> Result<SessionsReply, MeshError> {
+            let SessionsRequest::InFolders { folders, .. } = request else {
+                panic!("unexpected request: {request:?}");
+            };
+            assert_eq!(folders, ["/srv/.beep/assistant"]);
+            let found = |id: &str, cwd: &str| ExternalSession {
+                id: id.into(),
+                agent: "flsh".into(),
+                cwd: cwd.into(),
+                ..ExternalSession::default()
+            };
+            Ok(SessionsReply::External {
+                sessions: vec![
+                    ExternalSession {
+                        assistant: true,
+                        ..found("chat", "/srv/.beep/assistant/ab12cd")
+                    },
+                    found("thread", "/srv/.beep/assistant/ab12cd/prices"),
+                    // The node's own list has the one it runs, and the scan
+                    // the one that runs outside Beep.
+                    ExternalSession {
+                        taken_over: Some("node-1".into()),
+                        ..found("ours", "/srv/.beep/assistant/ef34ab")
+                    },
+                    ExternalSession {
+                        presence: Presence::Working,
+                        ..found("outside", "/srv/.beep/assistant/ef34ab/prices")
+                    },
+                ],
+            })
+        }
+    }
+
+    let host = Host {
+        id: "machine-a".into(),
+        name: "build-box".into(),
+    };
+    let listed = ended_conversations(&Node, &host, "/srv").await;
+    let ids: Vec<&str> = listed.iter().map(|session| session.id.as_ref()).collect();
+    assert_eq!(ids, ["chat", "thread"]);
+    assert!(
+        listed
+            .iter()
+            .all(|s| s.status == AgentStatus::Ended {} && s.external)
+    );
+    assert!(listed[0].assistant && !listed[1].assistant);
+
+    // A Windows machine's folders keep its separator.
+    assert_eq!(
+        conversations_folder("C:\\Users\\user"),
+        "C:\\Users\\user\\.beep\\assistant"
+    );
+}

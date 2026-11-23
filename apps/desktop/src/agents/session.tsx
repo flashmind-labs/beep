@@ -38,7 +38,7 @@ import { onPhone } from "../ui/platform.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder } from "./older.ts";
 import { joinRuns, newestRead } from "./older-state.ts";
-import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, retryDelay, viewError } from "./reconnect-state.ts";
+import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, RETRY_MS, viewError } from "./reconnect-state.ts";
 import { drawMove } from "./move.ts";
 import { moveStore, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
@@ -91,7 +91,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   conversationHistory.visit(s);
   traceSession("opening", openOf(s), { status: s.status, adopt });
 
-  // Already open: keep its log, draft, queue and scroll, and only ask for news.
+  // Already open: keep its log, draft and queue.
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
     if (AG.page.session.status === "ended" && s.status !== "ended") {
       clearTimeout(AG.timer);
@@ -104,22 +104,18 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     }
     if (AG.open) firstRead = { open: AG.open, at: performance.now() };
     if (from !== undefined) AG.back = from;
-    // Its log may come back from a hidden page, which WebKit shows scrolled
-    // to the top: it goes back to its end, or where the reader left it,
-    // before its scroll handler takes that for the reader's move.
     const shown = sessionBody();
 
     if (S.view === "agent" && shown) {
       restorePane();
-      shown.scrollTop = returnScroll(shown, shown.top ?? 0);
+      restoreAgentScroll(followLatest(shown));
       return void pollAgent(true);
     }
 
     if (from === undefined) AG.back = S.view === "agents" ? "agents" : "hide";
     S.view = "agent";
     Object.assign(AG, { sig: "", rest: "" });
-    // Its log goes back where the reader left it, or to its end.
-    drawAgentFrame(false, keptLogs.get(sessionKey(s))?.body ?? null);
+    drawAgentFrame(false, followLatest(keptLogs.get(sessionKey(s))?.body ?? null));
     watchRead(AG.open!);
     return void pollAgent(true);
   }
@@ -156,7 +152,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   }
 
   firstRead = { open, at: performance.now() };
-  drawAgentFrame(inPlace, held && log && held.earlier <= log.page.earlier ? log.body : null);
+  drawAgentFrame(inPlace, followLatest(held && log && held.earlier <= log.page.earlier ? log.body : null));
   watchRead(open);
   // A start has no outbox and no kept page.
   if (isStarting(s.id)) return void pollAgent(true);
@@ -357,7 +353,7 @@ export async function pollAgent(readNow = false) {
     return;
   }
 
-  const delay = AG.link.lost ? retryDelay(AG.link.lost) : agentDelay();
+  const delay = AG.link.lost ? RETRY_MS : agentDelay();
   if (!feed.live(o)) AG.timer = setTimeout(pollAgent, delay);
 }
 
@@ -533,10 +529,21 @@ export function resumeAgent() {
   pollAgent();
 }
 
+// A conversation opened again starts at its latest message. Gestures on
+// its previous visit no longer control the scroll.
+function followLatest(body: ChatBody | null) {
+  if (body) {
+    body.stuck = true;
+    delete body.wheel;
+    delete body.touching;
+  }
+
+  return body;
+}
+
 // Put a shown log back before a read or a scroll event can mistake a
 // hidden view's reset for the reader scrolling up.
-function restoreAgentScroll() {
-  const b = sessionBody();
+function restoreAgentScroll(b = sessionBody()) {
   if (!b) return;
   b.scrollTop = returnScroll(b, b.top ?? 0);
   scrolledLog(b);
@@ -546,6 +553,10 @@ function restoreAgentScroll() {
 // A pane shown again resumes its subscription.
 window.addEventListener("agent-pane-shown", () => {
   if (S.view === "agent") resumeAgent();
+});
+
+void window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("center-reopened", () => {
+  if (S.view === "agent" && AG.open) restoreAgentScroll(followLatest(sessionBody()));
 });
 
 onShownChange(shown => {
@@ -636,7 +647,7 @@ export const stoppingNow = () => {
 };
 
 /// The harnesses that switch models in a running session.
-export const SWITCHES = new Set(["claude", "codex", "opencode", "pi", "flsh", "hermes"]);
+export const SWITCHES = new Set(["claude", "codex", "agy", "opencode", "pi", "flsh", "hermes"]);
 /// The model and thinking switched to in each session from here, by session.
 export const sessionPicks = new SessionPicks();
 

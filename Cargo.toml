@@ -10,7 +10,6 @@ members = [
     "crates/proto",
     "crates/report",
     "crates/server",
-    "tools/device-proto",
 ]
 # A bare `cargo build`, `clippy` or `test` leaves the Tauri app out: it needs
 # the platform's web view libraries. Name it with `-p beep-desktop`.
@@ -43,7 +42,7 @@ beep-projects = { path = "crates/projects" }
 beep-proto = { path = "crates/proto" }
 beep-report = { path = "crates/report" }
 
-agent-client-protocol = "5.2"
+agent-client-protocol = "5.5"
 ammonia = "4"
 anyhow = "1"
 arboard = "3.7"
@@ -55,6 +54,7 @@ battery = "0.7"
 blake3 = "1"
 block2 = "0.6"
 bytes = "1"
+cc = "1"
 chrono = "0.4"
 clap = "4"
 cpu-time = "1.0.0"
@@ -67,6 +67,8 @@ flashmind-tools = { version = "0.3.8", default-features = false }
 flashmind-types = "0.3.3"
 flate2 = "1"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+gdkx11 = "0.18"
+gtk = "0.18"
 gix = { version = "0.90", default-features = false }
 gix-revision = { version = "0.52", default-features = false, features = ["merge_base"] }
 hex = "0.4"
@@ -75,8 +77,8 @@ hyper-util = "0.1"
 ignore = "0.4"
 image = { version = "0.25", default-features = false }
 # Lean for the phone; a node turns on the defaults.
-iroh = { version = "1.4.1", default-features = false, features = ["tls-ring", "fast-apple-datapath", "metrics", "unstable-net-report"] }
-iroh-base = { version = "1.4.1", default-features = false }
+iroh = { version = "1.5.0", default-features = false, features = ["tls-ring", "fast-apple-datapath", "metrics", "unstable-net-report"] }
+iroh-base = { version = "1.5.0", default-features = false }
 iroh-blobs = { version = "0.105", default-features = false, features = ["fs-store"] }
 iroh-metrics = "1"
 iroh-tickets = "1"
@@ -166,6 +168,8 @@ uuid = "1"
 webpki-roots = "1"
 webview2-com = "0.39"
 which = "8"
+windows = "0.62"
+winreg = "0.56"
 windows-sys = "0.61"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
@@ -205,10 +209,3 @@ opt-level = 3
 
 [profile.dev.package.zlib-rs]
 opt-level = 3
-
-# iOS build fixes not released yet. Drop each once iroh pulls a release with it:
-# netdev 0.47.0 (macOS-only IPv6 flag code) and netwatch with n0-computer/net-tools#267
-# (route constants libc 0.2.190 removed on iOS).
-[patch.crates-io]
-netdev = { path = "patches/netdev" }
-netwatch = { path = "patches/netwatch" }

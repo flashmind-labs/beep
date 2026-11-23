@@ -6,6 +6,7 @@ use beep_proto::{
     AgentHost, ApiError, MachineCapability, StartAgentSession, agent_name, node::agent::Status,
 };
 use futures::{StreamExt, stream};
+use std::time::Duration;
 use tokio::time::timeout;
 
 /// Nodes asked at once.
@@ -256,6 +257,17 @@ pub async fn pick(
     start: &StartAgentSession,
     prompt: &str,
 ) -> Result<Choice, ApiError> {
+    pick_within(hosts, start, prompt, NODE_LIMIT).await
+}
+
+/// Like [`pick`], waiting at most `limit` on each machine's folder or session check so a
+/// degraded link cannot stall interactive starts.
+pub async fn pick_within(
+    hosts: &[AutoHost],
+    start: &StartAgentSession,
+    prompt: &str,
+    limit: Duration,
+) -> Result<Choice, ApiError> {
     let mut text = prompt.to_owned();
     if let Some(cwd) = &start.cwd {
         text.push('\n');
@@ -287,7 +299,7 @@ pub async fn pick(
     if let Some(folder) = folder {
         let asks: Vec<_> = (0..hosts.len())
             .filter(|&at| candidates[at].offers && candidates[at].has(&start.needs))
-            .map(|at| has_folder(at, &hosts[at], folder))
+            .map(|at| has_folder(at, &hosts[at], folder, limit))
             .collect();
         let found: Vec<(usize, bool)> = stream::iter(asks)
             .buffer_unordered(IN_FLIGHT)
@@ -311,7 +323,7 @@ pub async fn pick(
         let asks: Vec<_> = chosen
             .at
             .iter()
-            .map(|&at| counted(at, &hosts[at].client))
+            .map(|&at| counted(at, &hosts[at].client, limit))
             .collect();
         let counts: Vec<(usize, u32)> = stream::iter(asks)
             .buffer_unordered(IN_FLIGHT)
@@ -326,7 +338,7 @@ pub async fn pick(
 }
 
 /// Whether `folder` is on the machine. Unasked, a folder under another system's home root is missing.
-async fn has_folder(at: usize, auto: &AutoHost, folder: &str) -> (usize, bool) {
+async fn has_folder(at: usize, auto: &AutoHost, folder: &str, limit: Duration) -> (usize, bool) {
     let home = auto.host.home.as_deref();
     let command = if home.is_some_and(windows_home) {
         Some(windows_folder_test(folder))
@@ -336,7 +348,7 @@ async fn has_folder(at: usize, auto: &AutoHost, folder: &str) -> (usize, bool) {
     let Some(command) = command else {
         return (at, plausible(folder, home));
     };
-    let asked = timeout(NODE_LIMIT, exec(&auto.client, &command, NODE_LIMIT)).await;
+    let asked = timeout(limit, exec(&auto.client, &command, limit)).await;
     let there = match asked {
         Ok(Ok(Exec {
             exit_code: Some(code),
@@ -409,8 +421,8 @@ fn plausible(folder: &str, home: Option<&str>) -> bool {
 }
 
 /// Sessions running on a machine; one that does not answer counts as busy.
-async fn counted(at: usize, client: &PeerClient) -> (usize, u32) {
-    let listed = timeout(NODE_LIMIT, sessions::list(client)).await;
+async fn counted(at: usize, client: &PeerClient, limit: Duration) -> (usize, u32) {
+    let listed = timeout(limit, sessions::list(client)).await;
     let running = match listed {
         Ok(Ok(sessions)) => {
             let live = sessions

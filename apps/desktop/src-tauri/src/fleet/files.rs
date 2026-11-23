@@ -6,7 +6,10 @@ use super::{
     Fleet,
     agents::{chunk, work},
 };
-use crate::error::{DesktopError, Result};
+use crate::{
+    center::home_sessions::HOME_CHANGED,
+    error::{DesktopError, Result},
+};
 use async_trait::async_trait;
 use beep_mesh::{
     PeerClient,
@@ -40,7 +43,8 @@ use beep_proto::{
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use std::str::FromStr;
-use std::{collections::HashSet, time::Duration};
+use std::{collections::HashSet, sync::Arc, time::Duration};
+use tauri::{AppHandle, Emitter};
 use tokio::time::timeout;
 
 /// Machines asked at once.
@@ -322,21 +326,72 @@ pub(crate) async fn found_on(
 }
 
 /// The sessions coding agents ran in a project's checkouts, newest first.
-pub(crate) async fn project_sessions(fleet: &Fleet, places: &[Place]) -> Vec<MachineSession> {
+/// Remote machines use per-machine projection caching so a degraded node never holds up Home or
+/// a project page, and pushes a refresh event once its late response arrives.
+pub(crate) async fn project_sessions_with(
+    app: Option<&AppHandle>,
+    fleet: &Arc<Fleet>,
+    places: &[Place],
+) -> Vec<MachineSession> {
     let machines: HashSet<EndpointId> = places.iter().map(|place| place.machine).collect();
     let asks: Vec<_> = machines
         .into_iter()
-        .map(|machine| async move {
-            let folders: Vec<String> = places
+        .map(|machine| {
+            let mut folders: Vec<String> = places
                 .iter()
                 .filter(|place| place.machine == machine)
                 .map(|place| place.folder.clone())
                 .collect();
-            match fleet.client(machine).await {
-                Ok(client) => {
-                    listing::project_sessions(&client, &fleet.host_of(machine), folders).await
+            folders.sort();
+            folders.dedup();
+            let app = app.cloned();
+
+            async move {
+                if machine == fleet.id() {
+                    return match fleet.client(machine).await {
+                        Ok(client) => {
+                            listing::project_sessions(&client, &fleet.host_of(machine), folders)
+                                .await
+                        }
+                        Err(_) => Vec::new(),
+                    };
                 }
-                Err(_) => Vec::new(),
+
+                let fleet_arc = fleet.clone();
+                let key = (machine, folders.clone());
+                let notify = move || {
+                    if let Some(app) = app {
+                        let _ = app.emit("sessions-changed", "");
+                        let _ = app.emit(HOME_CHANGED, ());
+                    }
+                };
+                fleet
+                    .projections()
+                    .project_sessions
+                    .read_or_default(
+                        key,
+                        Vec::new,
+                        |old, new| {
+                            old.len() == new.len()
+                                && old.iter().zip(new).all(|(a, b)| {
+                                    a.id == b.id
+                                        && a.status == b.status
+                                        && a.title == b.title
+                                        && a.cwd == b.cwd
+                                })
+                        },
+                        notify,
+                        move || async move {
+                            let client = fleet_arc.client(machine).await?;
+                            Ok(listing::project_sessions(
+                                &client,
+                                &fleet_arc.host_of(machine),
+                                folders,
+                            )
+                            .await)
+                        },
+                    )
+                    .await
             }
         })
         .collect();
@@ -345,8 +400,108 @@ pub(crate) async fn project_sessions(fleet: &Fleet, places: &[Place]) -> Vec<Mac
         .collect::<Vec<_>>()
         .await
         .into_iter()
-        .flatten();
+        .flatten()
+        .filter(|session| {
+            !fleet
+                .node_ops()
+                .is_deleting_session(&session.machine_id, &session.id)
+        })
+        .map(|mut session| {
+            if let Some(folder) = fleet
+                .node_ops()
+                .relocated_folder(&session.machine_id, &session.id)
+            {
+                session.cwd = folder;
+            }
+            session
+        });
     listing::project_history(sessions)
+}
+
+fn in_any_folder(cwd: &str, folders: &[String]) -> bool {
+    folders.iter().any(|folder| {
+        let base = folder.trim_end_matches(['/', '\\']);
+        cwd == folder
+            || cwd == base
+            || cwd
+                .strip_prefix(base)
+                .is_some_and(|rest| rest.starts_with('/') || rest.starts_with('\\'))
+    })
+}
+
+/// Strictly checks whether any session is currently open in `folders` on `machine` before
+/// removing or deleting a checkout. Refuses with an error if an online machine fails or times out
+/// instead of silently treating a slow node as having no active sessions.
+pub(crate) async fn has_open_project_session(
+    fleet: &Fleet,
+    machine: EndpointId,
+    folders: &[String],
+    held: &crate::machines::list::MachineLists,
+) -> Result<bool> {
+    if folders.is_empty() {
+        return Ok(false);
+    }
+
+    let machine_id = machine.to_string();
+    let cached_open = |rows: Vec<MachineSession>| {
+        rows.into_iter().any(|s| {
+            s.machine_id == machine_id
+                && !matches!(s.status, beep_proto::AgentStatus::Ended {})
+                && !fleet.node_ops().is_deleting_session_on(machine, &s.id)
+                && in_any_folder(&s.cwd, folders)
+        })
+    };
+
+    let client = match timeout(Duration::from_secs(10), fleet.client(machine)).await {
+        Ok(Ok(client)) => client,
+        Ok(Err(DesktopError::Offline(_))) => {
+            return Ok(cached_open(held.local.last())
+                || cached_open(held.sessions.last())
+                || cached_open(held.scans.last()));
+        }
+        Ok(Err(err)) => return Err(err),
+        Err(_) => {
+            return Err(DesktopError::TimedOut(format!(
+                "Could not verify whether an agent is working on {}; try again once it answers.",
+                fleet.name_of(machine)
+            )));
+        }
+    };
+
+    let host = fleet.host_of(machine);
+    let (listed, mut outside) = timeout(Duration::from_secs(10), async {
+        tokio::join!(
+            listing::listed_sessions(&client, &host, false),
+            listing::outside_sessions(&client, &host),
+        )
+    })
+    .await
+    .map_err(|_| {
+        DesktopError::TimedOut(format!(
+            "Could not verify whether an agent is working on {}; try again once it answers.",
+            fleet.name_of(machine)
+        ))
+    })?;
+    let Some(linked) = listed else {
+        return Err(DesktopError::TimedOut(format!(
+            "Could not verify whether an agent is working on {}; try again once it answers.",
+            fleet.name_of(machine)
+        )));
+    };
+
+    let live_beep_open = linked.into_iter().any(|item| {
+        !matches!(item.session.status, beep_proto::AgentStatus::Ended {})
+            && !fleet
+                .node_ops()
+                .is_deleting_session_on(machine, &item.session.id)
+            && in_any_folder(&item.session.cwd, folders)
+    });
+    if live_beep_open {
+        return Ok(true);
+    }
+
+    fleet.apply_presence(&mut outside);
+    Ok(cached_open(outside) || cached_open(held.scans.last()))
 }
 
 /// A folder of a machine for the folder picker, `path` else its home, then the folders two
@@ -418,16 +573,6 @@ pub(crate) async fn update_machine(
 pub(crate) async fn machine_search(fleet: &Fleet, machine: EndpointId) -> Result<String> {
     let client = fleet.client(machine).await?;
     Ok(machine::search(&client).await?)
-}
-
-/// Has a machine look for checkouts in `folder` (empty for home) and walk it again.
-pub(crate) async fn set_machine_search(
-    fleet: &Fleet,
-    machine: EndpointId,
-    folder: &str,
-) -> Result<String> {
-    let client = fleet.client(machine).await?;
-    Ok(machine::set_search(&client, folder.trim()).await?)
 }
 
 /// Installs release `latest` of `tool` on a machine.

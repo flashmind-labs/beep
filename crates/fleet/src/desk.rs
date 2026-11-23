@@ -4,16 +4,24 @@
 use crate::{
     AsyncMutex,
     error::{FleetError, Result},
-    peer::{PeerFound, PeerShell, Peers, probe},
+    peer::{PeerFound, PeerShell, Peers, Probe, probe},
+    session::Changed,
+    sync::SyncStatuses,
 };
-use beep_mesh::{DeviceStatus, Mesh, machine::search};
+use beep_mesh::{
+    DeviceStatus, Mesh,
+    machine::{search, sessions::MoveState},
+};
 use beep_projects::{
     imports::{hosts::Hosts, machine::Machine},
     is_windows,
     issues::HostGates,
     repo_watch::http::HostCalls,
 };
-use beep_proto::node::{EnvReport, agent::SESSIONS_PROTOCOL, shell};
+use beep_proto::{
+    SessionId,
+    node::{EnvReport, agent::SESSIONS_PROTOCOL, shell},
+};
 use futures::future::join_all;
 use iroh::EndpointId;
 use reqwest::{Client, redirect::Policy};
@@ -148,6 +156,16 @@ impl Desk {
         join_all(statuses.into_iter().map(|status| self.look(status))).await
     }
 
+    pub(crate) async fn seen_among(&self, ids: &[EndpointId]) -> Vec<Seen> {
+        let wanted = self
+            .mesh
+            .code_hosts()
+            .into_iter()
+            .filter(|status| ids.contains(&status.device.id))
+            .collect();
+        self.look_all(wanted).await
+    }
+
     async fn look(&self, status: DeviceStatus) -> Seen {
         let id: EndpointId = status.device.id;
         let mut machine = Machine {
@@ -165,11 +183,41 @@ impl Desk {
             return Seen { machine, env: None };
         }
 
-        let ask = async {
-            let client = self.peers.client(id).await?;
-            probe(&client).await.map(|said| (client, said))
+        let cached_offers = self.peers.last_offers(id);
+        let cached_env = self.peers.last_env(id);
+        let said = match (cached_offers, cached_env) {
+            (Some(offers), Some(env)) => {
+                within_look(async {
+                    let client = self.peers.client(id).await?;
+                    Ok((
+                        client,
+                        Probe {
+                            offers,
+                            env: Some(env),
+                        },
+                    ))
+                })
+                .await
+            }
+            (offers, env) => {
+                let ask = async {
+                    let client = self.peers.client(id).await?;
+                    let mut probed = probe(&client).await?;
+
+                    if probed.offers.is_empty()
+                        && let Some(offers) = offers
+                    {
+                        probed.offers = offers;
+                    }
+                    if probed.env.is_none() {
+                        probed.env = env;
+                    }
+
+                    Ok((client, probed))
+                };
+                within_look(ask).await
+            }
         };
-        let said = within_look(ask).await;
         let mut env = None;
 
         match said {
@@ -213,10 +261,20 @@ pub(crate) struct DesktopHosts {
     gates: Arc<HostGates>,
     /// Held by the run reading Home's pull requests and issues.
     board_run: Arc<AsyncMutex<()>>,
+    /// Per-machine sync status actor/cache, so a degraded node never blocks other machines' sync.
+    sync: Arc<SyncStatuses>,
+    /// Per-machine spend cache, so a degraded node keeps its last spend instead of dropping to 0.
+    usage: Arc<crate::usage::UsageCache>,
+    /// Last move state reported by each target machine, used when a link glitches momentarily.
+    moves: Arc<Mutex<HashMap<SessionId, MoveState>>>,
 }
 
 impl DesktopHosts {
     pub(crate) fn new() -> Result<Self> {
+        Self::new_with(None)
+    }
+
+    pub(crate) fn new_with(changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>) -> Result<Self> {
         let client = beep_proto::https::client()
             .connect_timeout(Duration::from_secs(3))
             .timeout(HOST_TIMEOUT)
@@ -232,7 +290,22 @@ impl DesktopHosts {
             remotes: Arc::default(),
             gates: Arc::default(),
             board_run: Arc::default(),
+            sync: Arc::new(SyncStatuses::new(changed)),
+            usage: Arc::default(),
+            moves: Arc::default(),
         })
+    }
+
+    pub(crate) fn sync_statuses(&self) -> &Arc<SyncStatuses> {
+        &self.sync
+    }
+
+    pub(crate) fn usage(&self) -> &Arc<crate::usage::UsageCache> {
+        &self.usage
+    }
+
+    pub(crate) fn move_states(&self) -> &Arc<Mutex<HashMap<SessionId, MoveState>>> {
+        &self.moves
     }
 
     pub(crate) fn client(&self) -> &Client {

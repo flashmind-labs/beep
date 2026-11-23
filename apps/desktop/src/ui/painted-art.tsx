@@ -73,25 +73,39 @@ function PaintedArt({ scene }: { scene: Scene }) {
     // `life` is the finished painting, kept to move it; it is dropped when the strokes are laid again.
     // A finished painting beats on a timer, so the page wakes once a beat instead of on every display frame.
     // `picture` is the scene's SVG drawn at the canvas's size; nothing is painted before it.
-    let frame = 0, timer = 0, strokes: Stroke[] = [], last = 0, seen = false, life: Life | null = null, picture: Picture | null = null, gone = false;
+    let frame = 0, timer = 0, strokes: Stroke[] = [], last = 0, seen = false, life: Life | null = null, glLife: GlLife | null = null, picture: Picture | null = null, gone = false;
     const still = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     const alive = !still && scene !== "haze";
+    const glView = alive ? initGl(target) : null;
+    const stage = glView ? document.createElement("canvas") : target;
     const paint = (now: number) => {
       frame = 0;
       if (!picture) return;
       if (!began.has(scene)) began.set(scene, now);
       const done = still ? 1 : Math.min(1, (now - (began.get(scene) ?? now)) / PLAY_MS[scene]);
 
-      if (life) {
+      if (glLife) {
+        beatGl(glLife, now);
+      } else if (life) {
         beat(target, life, now);
       } else if (done === 1 || now - last >= FRAME_MS) {
         last = now;
-        draw(target, strokes, done, picture);
-        if (done === 1 && alive) life = hold(target, scene, picture);
+        draw(stage, strokes, done, picture, target.clientWidth, target.clientHeight);
+        if (glView) {
+          if (done === 1) {
+            glLife = holdGl(glView, stage, scene, picture);
+            if (glLife) beatGl(glLife, now);
+            else presentGl(glView, stage);
+          } else {
+            presentGl(glView, stage);
+          }
+        } else if (done === 1 && alive) {
+          life = hold(target, scene, picture);
+        }
       }
 
       if (done < 1) frame = requestAnimationFrame(paint);
-      else if (life && seen && !document.hidden) timer = window.setTimeout(wake, BEAT_MS);
+      else if ((glLife || life) && seen && !document.hidden) timer = window.setTimeout(wake, BEAT_MS);
     };
     function wake() {
       window.clearTimeout(timer);
@@ -102,6 +116,7 @@ function PaintedArt({ scene }: { scene: Scene }) {
     const resized = new ResizeObserver(() => {
       const width = target.clientWidth, height = target.clientHeight;
       life = null;
+      glLife = null;
       picture = null;
       void load(scene).then(layers => {
         if (gone || !layers || width !== target.clientWidth || height !== target.clientHeight) return;
@@ -131,6 +146,7 @@ function PaintedArt({ scene }: { scene: Scene }) {
       document.removeEventListener("visibilitychange", shown);
       if (frame) cancelAnimationFrame(frame);
       window.clearTimeout(timer);
+      glView?.dispose();
     };
   }, [scene]);
 
@@ -271,9 +287,8 @@ function at(data: ImageData, u: number, v: number): number {
   return (y * data.width + x) * 4;
 }
 
-function draw(target: HTMLCanvasElement, strokes: Stroke[], done: number, picture: Picture) {
+function draw(target: HTMLCanvasElement, strokes: Stroke[], done: number, picture: Picture, width = target.clientWidth, height = target.clientHeight) {
   const context = target.getContext("2d");
-  const width = target.clientWidth, height = target.clientHeight;
   if (!context || !width || !height) return;
 
   const scale = 1 / PIXEL;
@@ -355,4 +370,166 @@ function beat(target: HTMLCanvasElement, { base, live, glow, reach }: Life, now:
   }
 
   target.getContext("2d")?.putImageData(live, 0, 0);
+}
+
+interface GlView {
+  canvas: HTMLCanvasElement;
+  gl: WebGLRenderingContext;
+  program: WebGLProgram;
+  texture: WebGLTexture;
+  buffer: WebGLBuffer;
+  uSize: WebGLUniformLocation | null;
+  uShore: WebGLUniformLocation | null;
+  uTime: WebGLUniformLocation | null;
+  uLive: WebGLUniformLocation | null;
+  dispose(): void;
+}
+
+interface GlLife {
+  view: GlView;
+  width: number;
+  height: number;
+  shore: number;
+}
+
+const VERT_SRC = `
+attribute vec2 a_pos;
+varying vec2 v_uv;
+void main() {
+  v_uv = vec2((a_pos.x + 1.0) * 0.5, (1.0 - a_pos.y) * 0.5);
+  gl_Position = vec4(a_pos, 0.0, 1.0);
+}`;
+
+const FRAG_SRC = `
+precision mediump float;
+varying vec2 v_uv;
+uniform sampler2D u_tex;
+uniform vec2 u_size;
+uniform float u_shore;
+uniform float u_time;
+uniform float u_live;
+
+float hash(vec2 p) {
+  return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453);
+}
+
+void main() {
+  if (u_live < 0.5) {
+    gl_FragColor = texture2D(u_tex, v_uv);
+    return;
+  }
+  float y = floor(v_uv.y * u_size.y);
+  float reach = y < u_shore ? ${SWAY.toFixed(1)} : ${SWAY.toFixed(1)} + ${(SWAY_NEAR - SWAY).toFixed(1)} * clamp((y - u_shore) / (u_size.y * 0.3), 0.0, 1.0);
+  float shift = floor((reach - ${SWAY.toFixed(1)}) * sin(y * 0.6 + u_time * 2.6) + ${SWAY.toFixed(1)} * sin(y * 0.11 - u_time * 0.9) + 0.5);
+  float u = clamp((floor(v_uv.x * u_size.x) + shift + 0.5) / u_size.x, 0.0, 1.0);
+  vec4 base = texture2D(u_tex, vec2(u, (y + 0.5) / u_size.y));
+  vec2 run = vec2(floor(v_uv.x * u_size.x / 3.0), y);
+  float seed = hash(run);
+  float stepT = floor(u_time * 3.0 + seed * 16.0);
+  float light = 1.0 + (hash(run + stepT * 0.17) * 2.0 - 1.0) * ${SWING};
+  gl_FragColor = vec4(clamp(base.rgb * light, 0.0, 1.0), base.a);
+}`;
+
+/// GPU quad for living paintings; null when WebGL is unavailable (e.g. headless DOM tests).
+function initGl(canvas: HTMLCanvasElement): GlView | null {
+  let gl: WebGLRenderingContext | null = null;
+  try {
+    gl = canvas.getContext("webgl", { alpha: true, antialias: false, depth: false, stencil: false, premultipliedAlpha: false });
+  } catch {
+    return null;
+  }
+  if (!gl) return null;
+
+  const compile = (type: number, source: string) => {
+    const shader = gl.createShader(type);
+    if (!shader) return null;
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (gl.getShaderParameter(shader, gl.COMPILE_STATUS)) return shader;
+    gl.deleteShader(shader);
+    return null;
+  };
+  const vert = compile(gl.VERTEX_SHADER, VERT_SRC), frag = compile(gl.FRAGMENT_SHADER, FRAG_SRC);
+  const program = vert && frag ? gl.createProgram() : null;
+  if (!vert || !frag || !program) return null;
+  gl.attachShader(program, vert);
+  gl.attachShader(program, frag);
+  gl.linkProgram(program);
+  gl.deleteShader(vert);
+  gl.deleteShader(frag);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    gl.deleteProgram(program);
+    return null;
+  }
+
+  const buffer = gl.createBuffer(), texture = gl.createTexture();
+  if (!buffer || !texture) {
+    gl.deleteProgram(program);
+    return null;
+  }
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
+  gl.useProgram(program);
+  const pos = gl.getAttribLocation(program, "a_pos");
+  gl.enableVertexAttribArray(pos);
+  gl.vertexAttribPointer(pos, 2, gl.FLOAT, false, 0, 0);
+
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+
+  return {
+    canvas, gl, program, texture, buffer,
+    uSize: gl.getUniformLocation(program, "u_size"),
+    uShore: gl.getUniformLocation(program, "u_shore"),
+    uTime: gl.getUniformLocation(program, "u_time"),
+    uLive: gl.getUniformLocation(program, "u_live"),
+    dispose() {
+      gl.deleteTexture(texture);
+      gl.deleteBuffer(buffer);
+      gl.deleteProgram(program);
+    },
+  };
+}
+
+function uploadStage(view: GlView, stage: HTMLCanvasElement) {
+  const { canvas, gl, texture } = view;
+  if (canvas.width !== stage.width || canvas.height !== stage.height) {
+    canvas.width = stage.width;
+    canvas.height = stage.height;
+  }
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, stage);
+}
+
+function presentGl(view: GlView, stage: HTMLCanvasElement) {
+  if (!stage.width || !stage.height) return;
+  uploadStage(view, stage);
+  view.gl.useProgram(view.program);
+  view.gl.uniform1f(view.uLive, 0);
+  view.gl.drawArrays(view.gl.TRIANGLES, 0, 3);
+}
+
+function holdGl(view: GlView, stage: HTMLCanvasElement, scene: Scene, picture: Picture): GlLife | null {
+  const width = stage.width, height = stage.height;
+  if (!width || !height) return null;
+  uploadStage(view, stage);
+  let shore = height;
+  if (scene !== "wanderer") for (let y = height - 1; y >= 0 && y / height > picture.level; y--) shore = y;
+  return { view, width, height, shore };
+}
+
+function beatGl({ view, width, height, shore }: GlLife, now: number) {
+  const { gl, program, uSize, uShore, uTime, uLive } = view;
+  if (gl.isContextLost()) return;
+  gl.useProgram(program);
+  gl.uniform2f(uSize, width, height);
+  gl.uniform1f(uShore, shore);
+  gl.uniform1f(uTime, now / 1000);
+  gl.uniform1f(uLive, 1);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
 }

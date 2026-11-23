@@ -21,6 +21,9 @@ pub enum Tool {
     /// `opencode auth login` with ChatGPT's headless method: a link and a
     /// one-time code, as Codex.
     Opencode,
+    /// `agy` in print mode: a Google link, then a code the page shows to
+    /// paste, within the minute it waits.
+    Agy,
 }
 
 /// What the desktop sends. `tool` is a `Tool` by name.

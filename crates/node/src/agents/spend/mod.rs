@@ -7,6 +7,7 @@ use beep_proto::node::usage::{Billing, SessionSpend};
 use ledger::{Ledger, SessionKey};
 use std::{path::PathBuf, sync::Mutex};
 
+mod agy;
 mod billing;
 mod claude;
 mod codex;

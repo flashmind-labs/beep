@@ -49,7 +49,7 @@ export function cycleMode() {
 }
 
 /// The agents' full access modes, the one Beep runs them in: no pill for it.
-const FULL_MODES = new Set(["bypassPermissions", "agent-full-access", "yolo"]);
+const FULL_MODES = new Set(["bypassPermissions", "agent-full-access"]);
 
 export function drawModes() {
   const m = AG.modes, s = AG.page?.session, q = s?.question;

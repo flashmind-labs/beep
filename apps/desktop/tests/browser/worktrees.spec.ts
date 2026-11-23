@@ -69,7 +69,7 @@ test("a link from a subfolder session opens a file in a worktree at the checkout
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "agent_worktrees"))).toBe(true);
 
   // Not in the session's folder: the node finds no such file there.
-  await page.evaluate(() => window.__navigation.rejectOnce("agent_tree_text"));
+  await page.evaluate(() => window.__navigation.rejectOnce("agent_tree_text", "file not found"));
   await page.getByRole("link", { name: "Notes", exact: true }).click();
   await expect(page.locator(".agcode")).toContainText("hello");
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree_text").map(call => call.args));

@@ -4,6 +4,7 @@ use super::{
     AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
     MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, SavedSession, Session, Sighted,
     holders::{self, Holding},
+    window::clamp_limit,
 };
 use crate::{
     agents::claude::{self, External},
@@ -12,8 +13,8 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_proto::node::{
     agent::{
-        ExternalAsk, ExternalSession, HistoryCursor, MAX_EXTERNAL_NAMED, Presence, SessionFolder,
-        SessionPage, Status,
+        Entry, ExternalAsk, ExternalSession, HistoryCursor, MAX_EXTERNAL_NAMED, Presence,
+        SessionFolder, SessionPage, Status,
     },
     events::Topic,
 };
@@ -42,11 +43,13 @@ pub(super) struct Listed {
     folders: Arc<Vec<SessionFolder>>,
 }
 
-/// How many of a store's sessions one listing keeps.
-fn store_limit(limit: u32) -> usize {
-    usize::try_from(limit)
-        .unwrap_or(MAX_IN_FOLDERS)
-        .clamp(1, MAX_IN_FOLDERS)
+fn asked_folders(folders: Vec<String>) -> Vec<PathBuf> {
+    folders
+        .into_iter()
+        .take(MAX_ASKED_FOLDERS)
+        .map(PathBuf::from)
+        .filter(|folder| folder.is_absolute())
+        .collect()
 }
 
 impl Agents {
@@ -164,9 +167,10 @@ impl Agents {
 
     /// The Claude Code sessions started outside Beep, newest first.
     pub async fn external_sessions(&self, limit: u32) -> Result<Vec<ExternalSession>> {
-        let mut sessions = self.external.list(limit, None, self.owned()).await?;
+        let sessions = self
+            .external_of(Agent::Claude.as_ref(), limit, None)
+            .await?;
         self.observe_external(&sessions);
-        self.mark_assistants(&mut sessions);
         Ok(sessions)
     }
 
@@ -207,10 +211,7 @@ impl Agents {
     /// found on disk, newest session or commit first. One listing runs at a
     /// time: an ask that came while one ran takes what it found.
     pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
-        let limit = match usize::try_from(limit).unwrap_or(MAX_FOLDERS) {
-            0 => DEFAULT_FOLDERS,
-            limit => limit.min(MAX_FOLDERS),
-        };
+        let limit = clamp_limit(limit, DEFAULT_FOLDERS, MAX_FOLDERS);
         let asked = Instant::now();
         let mut listed = self.listed.lock().await;
 
@@ -246,16 +247,8 @@ impl Agents {
         folders: Vec<String>,
         limit: u32,
     ) -> Result<Vec<ExternalSession>> {
-        let limit = match usize::try_from(limit).unwrap_or(MAX_IN_FOLDERS) {
-            0 => DEFAULT_IN_FOLDERS,
-            limit => limit.min(MAX_IN_FOLDERS),
-        };
-        let folders: Vec<PathBuf> = folders
-            .into_iter()
-            .take(MAX_ASKED_FOLDERS)
-            .map(PathBuf::from)
-            .filter(|folder| folder.is_absolute())
-            .collect();
+        let limit = clamp_limit(limit, DEFAULT_IN_FOLDERS, MAX_IN_FOLDERS);
+        let folders = asked_folders(folders);
         let picked = found::in_folders(self.sightings().await?, &folders, limit);
         let mut sessions = self.describe_history(picked, &folders).await?;
         sessions.truncate(limit);
@@ -270,16 +263,8 @@ impl Agents {
         limit: u32,
         before: Option<HistoryCursor>,
     ) -> Result<SessionPage> {
-        let limit = match usize::try_from(limit).unwrap_or(MAX_IN_FOLDERS) {
-            0 => DEFAULT_IN_FOLDERS,
-            limit => limit.min(MAX_IN_FOLDERS),
-        };
-        let folders: Vec<PathBuf> = folders
-            .into_iter()
-            .take(MAX_ASKED_FOLDERS)
-            .map(PathBuf::from)
-            .filter(|folder| folder.is_absolute())
-            .collect();
+        let limit = clamp_limit(limit, DEFAULT_IN_FOLDERS, MAX_IN_FOLDERS);
+        let folders = asked_folders(folders);
         let (picked, next) =
             found::history_page(self.sightings().await?, &folders, limit, before.as_ref());
         let selected: HashSet<_> = picked
@@ -337,6 +322,7 @@ impl Agents {
                 .is_some_and(|id| self.is_reviewer(id))
         });
 
+        self.mark_kept(&mut sessions);
         sessions.sort_by_key(|session| Reverse(session.last_activity));
         Ok(sessions)
     }
@@ -349,23 +335,82 @@ impl Agents {
         limit: u32,
         session: Option<SessionId>,
     ) -> Result<Vec<ExternalSession>> {
-        let mut sessions = if agent == Agent::Claude.as_ref() {
-            self.external.list(limit, session, self.owned()).await?
-        } else {
-            self.stores_external(agent, limit, session).await?
-        };
-
-        self.mark_assistants(&mut sessions);
+        let mut sessions = self.raw_external_of(agent, limit, session).await?;
+        self.mark_kept(&mut sessions);
         Ok(sessions)
     }
 
-    /// Marks those of `sessions` that ran here as the home assistant, so
-    /// they stay with its chats once they ended.
-    fn mark_assistants(&self, sessions: &mut [ExternalSession]) {
-        let assistants = self.assistants();
+    pub(super) async fn raw_external_of(
+        &self,
+        agent: &str,
+        limit: u32,
+        session: Option<SessionId>,
+    ) -> Result<Vec<ExternalSession>> {
+        if agent == Agent::Claude.as_ref() {
+            self.external.list(limit, session, self.owned()).await
+        } else {
+            self.stores_external(agent, limit, session).await
+        }
+    }
+
+    pub(super) fn follow_roots(&self, agent: Agent) -> Vec<PathBuf> {
+        match agent {
+            Agent::Claude => self.external.follow_paths(),
+            other => self.stores.follow_paths(Some(other)),
+        }
+    }
+
+    pub(super) async fn transcript_window(
+        &self,
+        session: &SessionId,
+        last: usize,
+        before: Option<u64>,
+        followed: Option<(&claude::Followed, Option<u64>)>,
+        keep_pictures: bool,
+    ) -> Result<Option<(Vec<Entry>, u64)>> {
+        if let Some(found) = self.get(session) {
+            return Ok(Some(self.live_transcript(&found, last, before).await));
+        }
+
+        let read = match followed {
+            Some((f, from)) => Some(self.external.followed_transcript(f, last, from).await?),
+            None => match self.external.transcript(session, last, before).await? {
+                Some(read) => Some(read),
+                None => {
+                    let (stores, id) = (self.stores.clone(), session.to_owned());
+                    spawn_blocking(move || stores.transcript(&id, last, before)).await??
+                }
+            },
+        };
+        Ok(read.map(|read| {
+            if keep_pictures {
+                for picture in read.pictures {
+                    self.images.keep(session, picture);
+                }
+            }
+            (read.entries, read.earlier)
+        }))
+    }
+
+    /// Gives those of `sessions` that ran here what this node kept of them:
+    /// that one was the home assistant, so it stays with its chats once it
+    /// ended, and the name its parent gave it and the custom agent it ran
+    /// as, which its agent's files lack.
+    pub(super) fn mark_kept(&self, sessions: &mut [ExternalSession]) {
+        let kept: HashMap<SessionId, SavedSession> = self
+            .saved_sessions()
+            .into_iter()
+            .map(|saved| (saved.info.id.clone(), saved))
+            .collect();
 
         for session in sessions {
-            session.assistant = assistants.contains(&session.id);
+            let kept = kept.get(&session.id);
+            session.assistant = kept.is_some_and(|kept| kept.info.assistant && !kept.info.reviewer);
+            session.persona = kept.and_then(|kept| kept.info.persona.clone());
+
+            if let Some(kept) = kept.filter(|kept| kept.named) {
+                session.title.clone_from(&kept.info.title);
+            }
         }
     }
 
@@ -405,22 +450,21 @@ impl Agents {
             .ok()
             .filter(|agent| *agent != Agent::Claude)
             .with_context(|| format!("this node lists no {agent} sessions started outside Beep"))?;
+        let limit = clamp_limit(limit, 1, MAX_IN_FOLDERS);
         let owned = self.owned();
         let stores = self.stores.clone();
         let only = session.clone();
         let mut sessions = spawn_blocking(move || {
             let now = SystemTime::now();
-            let mut seen = match session.as_ref() {
+            let seen: Vec<_> = match session.as_ref() {
                 Some(id) => stores.seen(Some(agent), id).into_iter().collect(),
-                None => stores.sessions(Some(agent)),
+                None => {
+                    let mut seen = stores.sessions(Some(agent));
+                    seen.sort_by_key(|seen| Reverse(seen.last_activity));
+                    seen.truncate(limit);
+                    seen
+                }
             };
-            seen.sort_by_key(|seen| Reverse(seen.last_activity));
-
-            match session {
-                Some(id) => seen.retain(|seen| seen.id == id),
-                None => seen.truncate(store_limit(limit)),
-            }
-
             seen.into_iter()
                 .map(|seen| stores.describe(seen, now))
                 .collect::<Vec<_>>()
@@ -450,7 +494,7 @@ impl Agents {
         sessions.sort_by_key(|session| Reverse(session.last_activity));
 
         if only.is_none() {
-            sessions.truncate(store_limit(limit));
+            sessions.truncate(limit);
         }
 
         for found in &mut sessions {
@@ -598,14 +642,7 @@ impl Agents {
             && session.agent == kind.name
             && watched::read(&session.live, |live| live.status() != Status::Ended)
         {
-            if let Some(text) = prompt {
-                session
-                    .order(Command::Prompt(text.into()))
-                    .await
-                    .map_err(anyhow::Error::msg)?;
-            }
-
-            return Ok(session);
+            return self.said_on_resume(session, prompt).await;
         }
         // ACP can reload a session this node ran without a reader for the
         // harness's private store. Outside sessions still need that reader.
@@ -640,38 +677,58 @@ impl Agents {
         };
 
         self.prepare(kind).await?;
-        super::restart::to_project(kind, id, Path::new(&cwd)).await;
+        let cwd = super::restart::ready_to_resume(kind, id, Path::new(&cwd)).await;
+        let cwd = cwd.to_string_lossy();
         // Never seen here, as one found outside Beep: never the assistant.
-        let mut begin = self.resumed_begin(prompt, id, before.unwrap_or_default());
+        let mut begin = self.resumed_begin(id, before.unwrap_or_default());
         begin.model = model.or(begin.model);
         let session = self.start(kind, Some(&cwd), begin)?;
         self.watch_parent(&session);
+
+        // Its first turn here is the user's, whose words begin it.
+        if prompt.is_some() {
+            session.user_turn.store(true, Ordering::Relaxed);
+        }
+
+        self.said_on_resume(session, prompt).await
+    }
+
+    /// Gives `session`, resumed, the words the user resumed it with: they
+    /// are the user's like any other message, so a thread hears what its
+    /// relatives came to and its turn wakes no idle parent.
+    async fn said_on_resume(
+        &self,
+        session: Arc<Session>,
+        prompt: Option<String>,
+    ) -> Result<Arc<Session>> {
+        if let Some(text) = prompt {
+            self.order_by_user(&session, Command::Prompt(text.into()))
+                .await
+                .map_err(anyhow::Error::msg)?;
+        }
+
         Ok(session)
     }
 
     /// How a session of this node that ended begins again, as `before` it
     /// was: with the link to its parent and the mode it was in, and
     /// following the parent when that runs here.
-    pub(super) fn resumed_begin(
-        &self,
-        prompt: Option<String>,
-        id: &SessionId,
-        before: SavedSession,
-    ) -> Begin {
+    pub(super) fn resumed_begin(&self, id: &SessionId, before: SavedSession) -> Begin {
         let SavedSession {
             info,
             effort,
             fast,
             account,
+            named,
         } = before;
         let follows = info
             .parent
             .as_ref()
             .and_then(|link| self.parent_live_of(link));
         Begin {
-            prompt,
             resume: Some(id.clone()),
             title: info.title,
+            named,
             mode: info.mode,
             model: info.model,
             effort,
@@ -681,6 +738,7 @@ impl Agents {
             worktrees: info.worktrees,
             assistant: info.assistant && !info.reviewer,
             account,
+            persona: info.persona,
             ..Begin::default()
         }
     }
@@ -783,9 +841,16 @@ impl Agents {
             }
             None => (None, session.to_owned()),
         };
+        self.store_file(agent, &id).await
+    }
 
+    pub(in crate::agents) async fn store_file(
+        &self,
+        agent: Option<Agent>,
+        id: &SessionId,
+    ) -> Result<Option<PathBuf>> {
         if agent.is_none_or(|agent| agent == Agent::Claude)
-            && let Some(file) = self.external.file(&id).await?
+            && let Some(file) = self.external.file(id).await?
         {
             return Ok(Some(file));
         }
@@ -794,7 +859,7 @@ impl Agents {
             return Ok(None);
         }
 
-        let stores = self.stores.clone();
+        let (stores, id) = (self.stores.clone(), id.to_owned());
         Ok(spawn_blocking(move || stores.file(agent, &id)).await?)
     }
 }

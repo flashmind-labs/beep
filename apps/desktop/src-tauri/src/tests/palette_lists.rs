@@ -32,6 +32,7 @@ fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
         last_activity: SystemTime::UNIX_EPOCH,
         assistant: false,
         account: None,
+        persona: None,
     };
     let mut lists = PaletteLists {
         projects: Some(vec![project.clone()]),

@@ -107,25 +107,27 @@ body:not(.mobile) .dcoder .q .dups .dbtn.pri { box-shadow: none }
 body:not(.mobile) .dcoder .q .dups .dbtn.warn { color: var(--err) }
 body:not(.mobile) .dcoder .q .dups kbd { border: 0; background: color-mix(in srgb, var(--fg) 8%, transparent); color: var(--muted) }
 
-/* ----- Session screen: one slim title row. A session's parts stay in the page while another
-   screen shows, so the rules ask for the open pane in its agent view, not for the parts.
-   The window's top bar gives up its title here and
-   lays its tools over the row's end; the session's own head is the row, and drags the window. ----- */
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top { position: absolute; top: 0; right: 0; z-index: 3; height: 40px; min-height: 0; padding: 0 10px; border: 0; pointer-events: none }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > * { pointer-events: auto }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell, #pw-back) { display: none }
+/* ----- Session screen: one slim title row laid out in CSS subgrid.
+   `.ag-head` and `.cc-top` share row 1 without overlapping or measuring widths in JS,
+   while `.agshell` spans the full width in row 2. ----- */
+body:not(.mobile) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); align-items: center }
+body:not(.mobile) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) > #pw-back { grid-area: 1 / 1; margin-right: 4px }
+body:not(.mobile).pw .cwin:not(.rail-on) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) > #pw-back { margin-left: 84px }
+body:not(.mobile).pw .cwin:not(.rail-on) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) > .cc-top { padding-left: 4px }
+body:not(.mobile) .cc-main:has(> #pw-back:not([hidden])):not(:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"])) > .cc-box:not([hidden]) { grid-area: 2 / 1 / 3 / 3 }
+
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: 42px minmax(0, 1fr); align-items: center; border-color: transparent; background: transparent; overflow: visible }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > #pw-back:not([hidden]) { grid-area: 1 / 1; margin-right: 4px }
+body:not(.mobile) .cwin:not(.rail-on) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > #pw-back:not([hidden]) { margin-left: 84px }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > #pane-box { grid-area: 1 / 1 / 3 / 4; display: grid; grid-template-columns: subgrid; grid-template-rows: subgrid; align-items: center }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > #pane-box > .dbar[data-view="agent"] { grid-area: 1 / 1 / 3 / 4; display: grid; grid-template-columns: subgrid; grid-template-rows: subgrid; align-items: center }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top { grid-area: 1 / 3; z-index: 3; height: 42px; min-height: 0; padding: 0 4px 0 2px; border: 0 }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > :not(#tools, #usage, #bell) { display: none }
 /* The plan usage pill is wide: in a narrow session it would leave the title no room. Home keeps it. */
 @container (max-width: 1100px) { body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > #usage { display: none } }
-/* A project window's Back stays, at the row's start: the bar ends at the window's edge, so its
-   start is the bar's own width short of the window's (cqw is of .cc-main). */
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top > #pw-back:not([hidden]) { position: absolute; top: 6px; left: calc(var(--top-w, 0px) - 100cqw + 84px) }
-body:not(.mobile) .cwin:not(.rail-on) .cc-main:has(#pw-back:not([hidden])) .dhead.ag-head { padding-left: 148px }
 body:not(.mobile) .nt-bell { border: 0 }
-/* The row keeps clear of the tools laid over its end, whatever their width (--top-w is kept by src/center/window-shell.tsx). */
-body:not(.mobile) .dhead.ag-head { height: 42px; padding: 0 calc(var(--top-w, 104px) + 8px) 0 6px; gap: 8px; border-bottom: 0 }
-/* The quick window and the Assistant page (its header sits above) have no tools over the row,
-   only a round corner to clear. */
-.dbar:not([data-mode="window"]), #pane-box.pj-split > .dbar { --top-w: 4px }
+body:not(.mobile) .dhead.ag-head { grid-area: 1 / 2; min-width: 0; height: 42px; padding: 0 6px; gap: 8px; border-bottom: 0 }
+body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) .agshell { grid-area: 2 / 1 / 3 / 4; align-self: stretch; min-height: 0 }
 body:not(.mobile) :is(.ag-head, .dchat) .dcoderav { width: 18px; height: 18px; border: 0; background: none }
 /* The title, with where the session runs on a line of its own under it, so neither is cut short. */
 body:not(.mobile) .ag-head .tt { display: grid; min-width: 10em; line-height: 16px }
@@ -145,15 +147,13 @@ body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
    are two cards set into it with the divider in the gap between them ----- */
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) { border-color: transparent; background: transparent; overflow: visible }
-body:not(.mobile) .cc-main:has(> #pane-box:not([hidden], .pj-split) > .dbar[data-view="agent"]) > .cc-top { height: 34px; padding-right: 4px }
 body:not(.mobile) .agshell > :is(.agmain, .agpane) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .agshell > .agdiv { width: 6px; margin: 0 }
 body:not(.mobile) .agshell > .agdiv::after { inset: 20% 2px; border-radius: 1px; background: transparent }
 
 /* ----- Every screen: the title row lies on the window and the screen below it is a card ----- */
 body:not(.mobile) .cc-top { min-height: 34px; padding: 0 4px 0 6px; border-bottom: 0 }
-body:not(.mobile).pw .cwin:not(.rail-on) .cc-top { padding-left: 84px }
+body:not(.mobile).pw .cwin:not(.rail-on) .cc-top, body:not(.mobile) .cwin.side-away .cc-top { padding-left: 84px }
 body:not(.mobile) .cc-top h2 { font-size: 14px; font-weight: 600; letter-spacing: -.01em }
 body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }
@@ -185,6 +185,8 @@ body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .dskin, .agpbtn, .nt-bell, .mvb, .
 
 /* Tabs: words in a row, the open one filled, wherever they are. */
 body:not(.mobile) .cc-tabs { gap: 2px; padding-block: 6px; border-bottom: 0 }
+body:not(.mobile) .cc-tabbar { position: sticky; top: -14px; z-index: 2; display: flex; align-items: center; margin: 0 -16px; padding-right: 16px; background: var(--ink) }
+body:not(.mobile) .cc-tabbar > .cc-tabs { position: static; margin: 0 }
 body:not(.mobile) .cc-tabs button { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); font-weight: 500 }
 body:not(.mobile) .cc-tabs button:hover { background: var(--ctl-fill) }
 body:not(.mobile) .cc-tabs button[aria-selected="true"] { background: var(--ctl-fill-hi); font-weight: 500 }
@@ -219,14 +221,14 @@ html[data-material="vibrant"] body:not(.mobile) .cc-si { color: var(--fg) }
    corners are nearly square; glass is kept for layers that float; one soft glow of the accent
    marks what matters now. ===== */
 body:not(.mobile) { --radius: 4px; --radius-sm: 3px; --label-size: 10.5px; --label-track: .08em; --label-case: uppercase;
-  --lit: linear-gradient(90deg, transparent, color-mix(in srgb, var(--fg) 16%, transparent) 30%, color-mix(in srgb, var(--accent) 60%, var(--fg)) 50%, color-mix(in srgb, var(--fg) 16%, transparent) 70%, transparent) top / 100% 1px no-repeat }
+  --lit: linear-gradient(90deg, transparent, var(--lit-edge) 30%, var(--lit-peak) 50%, var(--lit-edge) 70%, transparent) top / 100% 1px no-repeat }
 
 /* A glow behind the title row, the one light in the window. */
 body:not(.mobile) .cwin::after { content: ""; position: absolute; z-index: -1; left: 32%; top: -300px; width: 760px; height: 440px; border-radius: 50%; pointer-events: none;
   background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 26%, transparent), transparent); filter: blur(30px) }
 
 /* Mono chrome. */
-body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-pal h5, .cc-set .dset-h, .agc-think h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+body:not(.mobile) :is(.pj-list h4, .cc-sec h4, .cc-pal h5, .cc-set .dset-h, .agc-think h5, .bd-log > h5) { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
 body:not(.mobile) :is(.dbtn, .dv-btn, .dchip, .cc-tabs button, .agtab, .hv-seg button, .us-pill, .mvb, .agc-pill) { font-family: var(--mono); font-size: 11.5px; letter-spacing: 0 }
 body:not(.mobile) :is(.cc-tabs button, .agtab) { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) .agtab span { font: inherit }
@@ -269,6 +271,8 @@ body:not(.mobile) .cc-side > .painted-art { display: var(--paintings); position:
    so its mask fades out before the edges instead of being cut. ----- */
 .painted-art { display: none; image-rendering: pixelated }
 .cc-pjc.centered { position: relative; isolation: isolate }
+/* Narrower than its width, the composer keeps a margin from the panel's edges. */
+body:not(.mobile) .cc-pjc.centered { max-width: 800px; padding-inline: 20px }
 .agc-intro > .painted-art { display: var(--paintings); position: absolute; z-index: -1; left: 50%; top: -290px; width: min(1500px, 100cqw); height: 640px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
 .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
 .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; color: color-mix(in srgb, var(--fg) 78%, transparent); text-shadow: 0 1px 12px var(--ink) }
@@ -349,12 +353,12 @@ body:not(.mobile) .agpstrip[data-dock="right"] .agtab { width: var(--ctl-h); hei
 /* ----- Boards, the projects page and lists: lit cards without rules, mono labels and details ----- */
 body:not(.mobile) .cc-mstrip { gap: 4px; border: 0; background: none; overflow: visible }
 body:not(.mobile) .cc-mstrip > .m { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); background: var(--ctl-fill) }
-body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p, .bd-who, .tm-owners, .tm-note, .tm-step) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p, .bd-tag, .bd-deck > .meta, .bd-who, .tm-owners, .tm-note, .tm-step) { font-family: var(--mono); font-size: 11px }
 body:not(.mobile) .cc-mstrip > button.m:hover { background: var(--ctl-fill-hi) }
 body:not(.mobile) .bd-lane > h4 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) :is(.bd-card, .pj-card) { border-color: transparent }
-body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) .cc-panel.fs-list { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
-body:not(.mobile) :is(.bd-card, .pj-card):hover, body:not(.mobile) .bd-card:focus-visible { border-color: transparent; background: var(--lit), color-mix(in srgb, var(--fg) 7%, transparent) }
+body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-review .cc-panel) { background: var(--lit), var(--card-fill) }
+body:not(.mobile) :is(.bd-card, .pj-card, .bd-deck):hover, body:not(.mobile) :is(.bd-card, .bd-deck):focus-visible { border-color: transparent; background: var(--lit), var(--card-fill-hi) }
 body:not(.mobile) .bd-card.theirs:not(:hover, :focus-visible) { background: var(--lit), color-mix(in srgb, var(--fg) 2.5%, transparent) }
 body:not(.mobile) :is(.pj-list, .tl-list) { border-right-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .pj-list hr { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
@@ -378,8 +382,24 @@ body:not(.mobile) .pm-head > .pm-actions .dbtn.danger:hover:not(:disabled) { col
 body:not(.mobile) .pm-body { padding: 0 12px 10px 30px }
 body:not(.mobile) .pm-body .pm-sync { gap: 5px }
 body:not(.mobile) .pm-body hr { margin: 8px 0; background: color-mix(in srgb, var(--fg) 6%, transparent) }
-body:not(.mobile) .cc-panel.fs-list { border: 0; border-radius: var(--radius) }
-body:not(.mobile) .pl { border: 0; border-radius: var(--radius); background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-review .cc-panel) { border: 0; border-radius: var(--radius) }
+/* Home's rows: no rules between them, and a harness mark without its tile. */
+body:not(.mobile) :is(.bd-projects, #sec-needs) .cc-row + .cc-row { border-top: 0 }
+body:not(.mobile) :is(.bd-projects, .bd-review) .cc-ag { border: 0; background: none }
+/* The list's rows keep their projects and their times in two columns. */
+body:not(.mobile) .bd-review .cc-row .r { grid-template-columns: 200px 72px }
+body:not(.mobile) .bd-tag { max-width: none; justify-self: start }
+/* The review's two columns: the side stays while the list scrolls, and scrolls in itself when it is taller than the window. */
+body:not(.mobile) .bd-review { grid-template-columns: 400px minmax(0, 1fr); gap: 22px; align-items: start }
+body:not(.mobile) .bd-side { position: sticky; top: 38px; max-height: calc(100vh - 120px); overflow-y: auto; scrollbar-width: none }
+body:not(.mobile) .bd-deck { border: 0; background: var(--lit), var(--card-fill) }
+@media (max-width: 1040px) {
+  body:not(.mobile) .bd-review { grid-template-columns: minmax(0, 1fr) }
+  body:not(.mobile) .bd-side { position: static; max-height: none }
+}
+body:not(.mobile) .pl { border: 0; border-radius: var(--radius); background: var(--lit), var(--card-fill) }
+:root:is([data-skin="paper"], [data-skin="solarized"], [data-skin="macos"], [data-skin="warm"]) body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine:has(> .pm-body), .mcard, .bd-deck, .pl, .cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-review .cc-panel, .cc-set .dset-box) { box-shadow: 0 1px 2px color-mix(in srgb, var(--fg) 5%, transparent), inset 0 0 0 1px var(--border) }
+:root:is([data-skin="paper"], [data-skin="solarized"], [data-skin="macos"], [data-skin="warm"]) body:not(.mobile) .cwin::after { opacity: .45 }
 body:not(.mobile) .pl-row.it .t .pj-tag { flex: none }
 body:not(.mobile) .pl-row.it .t { overflow: hidden }
 body:not(.mobile) :is(.fs-row + .fs-row, .fs-conflict + .fs-conflict, .fs-wait + .fs-wait) { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
@@ -441,15 +461,28 @@ body:not(.mobile) .bd-answers .dbtn { max-width: 14em; overflow: hidden; text-ov
 body:not(.mobile) .bd-lanes.spread > .bd-lane { flex: 1 1 0; max-width: none }
 body:not(.mobile) .bd-lanes.spread > .bd-lane.empty { flex: 0 0 180px }
 body:not(.mobile) .pj-org { gap: 6px; margin-bottom: 18px }
-body:not(.mobile) .pj-org h3 { font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--muted) }
+body:not(.mobile) :is(.pj-org h3, .bd-projects .cc-sec h4) { font-family: var(--mono); font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--muted) }
 body:not(.mobile) .pj-org h3 small { color: var(--dim) }
 body:not(.mobile) .pj-org ~ .pj-add { display: none }
 /* A machine card's actions show when it is pointed at or focused. */
 body:not(.mobile) .mcard .act:not(.keep) { opacity: 0; transition: opacity .12s }
 body:not(.mobile) .mcard:is(:hover, :focus-within) .act { opacity: 1 }
 
+/* A found folder's machines and activity give way to each other on one line, never overlap. */
+body:not(.mobile) .pl-row.found .where { flex-wrap: nowrap; overflow: hidden }
+body:not(.mobile) .pl-row.found .where .chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+body:not(.mobile) .pl-row.found .r .dim { min-width: 0; overflow: hidden; text-overflow: ellipsis }
+/* A found folder in a narrow window: its name and Import, then where it is and its activity. */
+@container (max-width: 640px) {
+  body:not(.mobile) .pl-row.found { grid-template-columns: minmax(0, 1fr) minmax(0, max-content); row-gap: 2px; padding-block: 6px }
+  body:not(.mobile) .pl-row.found .r { display: contents }
+  body:not(.mobile) .pl-row.found .acts { grid-area: 1 / 2 }
+  body:not(.mobile) .pl-row.found .where { grid-area: 2 / 1 }
+  body:not(.mobile) .pl-row.found .r .dim { grid-area: 2 / 2; text-align: right }
+}
+
 /* A project's team: the board's filter chips, the Team page and the join sheet. */
 body:not(.mobile) .tm-filter .dchip { min-height: 22px; padding: 0 8px; font-family: var(--mono); font-size: 11px; color: var(--muted) }
 body:not(.mobile) .tm-filter .dchip[aria-pressed="true"] { color: var(--fg); box-shadow: none }
-body:not(.mobile) :is(.tm-invite, .tm-code) { background: var(--lit), color-mix(in srgb, var(--fg) 4%, transparent) }
+body:not(.mobile) :is(.tm-invite, .tm-code) { background: var(--lit), var(--card-fill) }
 body:not(.mobile) .tm-code { background: color-mix(in srgb, var(--ink) 60%, transparent) }

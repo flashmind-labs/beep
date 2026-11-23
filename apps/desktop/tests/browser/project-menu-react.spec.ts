@@ -16,10 +16,10 @@ test("the project menu groups sync toggles under a label with Remove last", asyn
   await expect(menu.getByRole("menuitem", { name: "Use Beep sync instead of Syncthing" })).toBeVisible();
 
   const lines = await menu.locator('[role="menuitem"], [role="menuitemcheckbox"], [role="separator"], header').evaluateAll(nodes => nodes.map(node => node.getAttribute("role") === "separator" ? "-" : node.tagName === "HEADER" ? `# ${node.textContent}` : node.textContent));
-  expect(lines).toEqual(["Pin", "Open in New Window", "Rename…", "Skills…", "-", "# Sync on all machines", "Preserve edits before Git sync", "Sync ignored folders", "Choose ignored folders…", "Use Beep sync instead of Syncthing", "-", "Remove project…"]);
+  expect(lines).toEqual(["Pin", "Open in New Window", "Rename", "Skills", "Harnesses", "-", "# Sync on all machines", "Preserve edits before Git sync", "Sync ignored folders", "Choose ignored folders", "Sync rules", "Use Beep sync instead of Syncthing", "-", "Remove project"]);
   await expect(menu.getByRole("menuitemcheckbox", { name: "Preserve edits before Git sync" })).toHaveAttribute("aria-checked", "false");
   await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toHaveAttribute("aria-checked", "true");
-  await expect(menu.getByRole("menuitem", { name: "Remove project…" })).toHaveClass(/warn/);
+  await expect(menu.getByRole("menuitem", { name: "Remove project" })).toHaveClass(/warn/);
   await expect(menu.getByRole("menuitem", { name: "All projects" })).toHaveCount(0);
 
   await menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" }).click();
@@ -35,7 +35,7 @@ test("the project menu hides the folder choice while ignored sync is off and off
   await expect(menu.getByRole("menuitem", { name: "Use Syncthing instead of Beep sync" })).toBeVisible();
   await expect(menu.getByRole("menuitemcheckbox", { name: "Preserve edits before Git sync" })).toHaveAttribute("aria-checked", "true");
   await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toHaveAttribute("aria-checked", "false");
-  await expect(menu.getByRole("menuitem", { name: "Choose ignored folders…" })).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: "Choose ignored folders" })).toHaveCount(0);
   await expect(menu.getByRole("menuitem", { name: "Use Beep sync instead of Syncthing" })).toHaveCount(0);
 
   await menu.getByRole("menuitem", { name: "Use Syncthing instead of Beep sync" }).click();
@@ -56,21 +56,23 @@ test("in the phone layout the project menu stays open after More scrolls the hea
   await openDesktop(page, false, { project_ignored_sync: { enabled: false, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null });
   const menu = await openMenu(page);
   await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toBeVisible();
-  await expect(menu.getByRole("menuitem", { name: "Remove project…" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Remove project" })).toBeVisible();
 });
 
 test("the project menu moves by keyboard across its sections and a toggle asks before turning on", async ({ page }) => {
   await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: ["assets"] }, project_git_auto_recovery: false, project_syncthing_mode: null , project_syncthing_files: { available: true, enabled: true, label: "work" } });
   const menu = await openMenu(page);
-  const remove = menu.getByRole("menuitem", { name: "Remove project…" });
+  const remove = menu.getByRole("menuitem", { name: "Remove project" });
   await expect(remove).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "Pin", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(menu.getByRole("menuitem", { name: "Open in New Window" })).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(menu.getByRole("menuitem", { name: "Rename…", exact: true })).toBeFocused();
+  await expect(menu.getByRole("menuitem", { name: "Rename", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(menu.getByRole("menuitem", { name: "Skills…" })).toBeFocused();
+  await expect(menu.getByRole("menuitem", { name: "Skills" })).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(menu.getByRole("menuitem", { name: "Harnesses" })).toBeFocused();
   await page.keyboard.press("ArrowDown");
   const preserve = menu.getByRole("menuitemcheckbox", { name: "Preserve edits before Git sync" });
   await expect(preserve).toBeFocused();
@@ -79,10 +81,7 @@ test("the project menu moves by keyboard across its sections and a toggle asks b
   await page.keyboard.press("ArrowUp");
   await expect(menu.getByRole("menuitem", { name: "Use Beep sync instead of Syncthing" })).toBeFocused();
   await page.keyboard.press("Home");
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("ArrowDown");
+  for (let press = 0; press < 5; press++) await page.keyboard.press("ArrowDown");
   await expect(preserve).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(menu).toHaveCount(0);
@@ -92,7 +91,7 @@ test("the project menu moves by keyboard across its sections and a toggle asks b
 test("project rename keeps its identity and only renames the repository when selected", async ({ page }) => {
   await openDesktop(page, false);
   const menu = await openMenu(page);
-  await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "Rename", exact: true }).click();
   await expect(page.getByLabel("Project name", { exact: true })).toHaveValue(projectName);
   await expect(page.getByLabel("Repository name on GitHub", { exact: true })).toHaveCount(0);
   await page.getByLabel("Project name", { exact: true }).fill("New name");
@@ -109,7 +108,7 @@ test("repository rename sends its own name and shows errors without discarding t
   await openDesktop(page, false);
   await page.evaluate(() => window.__navigation.rejectOnce("rename_project"));
   const menu = await openMenu(page);
-  await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "Rename", exact: true }).click();
   await page.getByLabel("Project name", { exact: true }).fill("New name");
   await page.getByRole("checkbox", { name: /GitHub/ }).check();
   await page.getByLabel("Repository name on GitHub", { exact: true }).fill("new-repo");
@@ -125,7 +124,7 @@ test("the rename sheet fits a phone and hides window-only actions", async ({ pag
   await page.evaluate(() => Object.defineProperty(window, "__BEEP_PHONE__", { value: true }));
   const menu = await openMenu(page);
   await expect(menu.getByRole("menuitem", { name: "Open in New Window" })).toHaveCount(0);
-  await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "Rename", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Rename project", exact: true });
   await expect(dialog.getByLabel("Project name", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Rename", exact: true })).toBeVisible();
@@ -142,7 +141,7 @@ test("GitHub and Forgejo rename independently and retry sends only the failed re
     rename_project: [{ kind: "renamed", from: github, to: "https://github.com/example/new" }, { kind: "failed", url: forgejo, message: "Repository administration access is required." }],
   });
   const menu = await openMenu(page);
-  await menu.getByRole("menuitem", { name: "Rename…", exact: true }).click();
+  await menu.getByRole("menuitem", { name: "Rename", exact: true }).click();
   await page.getByRole("checkbox", { name: /GitHub/ }).check();
   await page.getByRole("checkbox", { name: /Forgejo/ }).check();
   await page.getByLabel("Repository name on GitHub").fill("new");
@@ -166,7 +165,7 @@ test("the ignored folder sheet suggests the folders and files the project's .git
   const gitignore = "/assets/models/\ndata/captures\n*.log\ndist/\n.env\n";
   await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null, agent_file: { size: gitignore.length, mime: "text/plain", data: Buffer.from(gitignore).toString("base64") } });
   const menu = await openMenu(page);
-  await menu.getByRole("menuitem", { name: "Choose ignored folders…" }).click();
+  await menu.getByRole("menuitem", { name: "Choose ignored folders" }).click();
 
   const folders = page.getByRole("textbox", { name: "Folders relative to the project, one per line" });
   await expect(folders).toHaveAttribute("placeholder", "assets/models\ndata/captures");
@@ -181,7 +180,7 @@ test("a long .gitignore shows eight folder chips until more is asked for", async
   const gitignore = Array.from({ length: 20 }, (_, i) => `data${i}`).join("\n");
   await openDesktop(page, false, { project_ignored_sync: { enabled: true, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null, agent_file: { size: gitignore.length, mime: "text/plain", data: Buffer.from(gitignore).toString("base64") } });
   const menu = await openMenu(page);
-  await menu.getByRole("menuitem", { name: "Choose ignored folders…" }).click();
+  await menu.getByRole("menuitem", { name: "Choose ignored folders" }).click();
 
   const chips = page.getByRole("group", { name: "Folders in .gitignore" }).getByRole("button");
   await expect(page.getByRole("textbox", { name: "Folders relative to the project, one per line" })).toHaveAttribute("placeholder", "data0\ndata1\ndata2");

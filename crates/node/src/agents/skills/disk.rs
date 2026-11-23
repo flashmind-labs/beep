@@ -15,7 +15,7 @@ use std::{
 };
 
 /// The skills folders the agents Beep runs read, under the home folder:
-/// Claude Code's, the shared `~/.agents/skills` (Codex, pi, Gemini CLI and
+/// Claude Code's, the shared `~/.agents/skills` (Codex, pi, Antigravity and
 /// OpenCode read it), and each agent's own.
 const READ: [&str; 7] = [
     ".claude/skills",

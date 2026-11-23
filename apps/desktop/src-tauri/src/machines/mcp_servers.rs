@@ -1,11 +1,21 @@
 use crate::{
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines},
+    fleet::{
+        Fleet, Machines,
+        node_actor::{JobKind, JobOutcome},
+    },
 };
 use beep_proto::node::mcp_servers::{EditableServer, Harness, PROTOCOL, Reply, Request, Server};
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use serde::Serialize;
+use std::time::Duration;
+use tauri::AppHandle;
+use tokio::time::timeout;
+
+const MCP_CALL_LIMIT: Duration = Duration::from_secs(6);
+const APPLY_FAST_WAIT: Duration = Duration::from_millis(600);
+const QUEUED_NOTE: &str = "Queued — will apply when online.";
 
 #[tauri::command]
 pub async fn machine_mcp_harnesses(
@@ -92,6 +102,7 @@ pub struct Applied {
 /// Copies the selected server into the same harness on each other session host.
 #[tauri::command]
 pub async fn apply_machine_mcp_server(
+    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: String,
     harness: Harness,
@@ -106,28 +117,35 @@ pub async fn apply_machine_mcp_server(
         ));
     };
     let hosts = fleet.ready().await?.code_hosts();
+    let fleet_arc = fleet.inner().clone();
     let mut results = stream::iter(hosts.into_iter().filter(|host| host.device.id != source))
         .map(|host| {
-            let fleet = &*fleet;
-            let request = Request::Apply {
-                harness,
-                server: server.clone(),
-            };
+            let app = app.clone();
+            let fleet_arc = fleet_arc.clone();
+            let server = server.clone();
 
             async move {
-                let result =
-                    call(fleet, host.device.id, request)
-                        .await
-                        .and_then(|reply| match reply {
-                            Reply::Applied => Ok(()),
-                            _ => Err(DesktopError::BadRequest(
-                                "Unexpected MCP server reply.".into(),
-                            )),
-                        });
+                let target = host.device.id;
+                let host_name = host.device.name;
+                let outcome = fleet_arc
+                    .node_ops()
+                    .submit(
+                        Some(app),
+                        fleet_arc.clone(),
+                        target,
+                        JobKind::ApplyMcpServer { harness, server },
+                        APPLY_FAST_WAIT,
+                    )
+                    .await;
+                let error = match outcome {
+                    Ok(JobOutcome::Delivered) => None,
+                    Ok(JobOutcome::Queued) => Some(QUEUED_NOTE.into()),
+                    Err(err) => Some(err.to_string()),
+                };
 
                 Applied {
-                    name: host.device.name,
-                    error: result.err().map(|error| error.to_string()),
+                    name: host_name,
+                    error,
                 }
             }
         })
@@ -149,8 +167,15 @@ async fn servers(fleet: &Fleet, machine: EndpointId, request: Request) -> Result
 }
 
 async fn call(fleet: &Fleet, machine: EndpointId, request: Request) -> Result<Reply> {
-    let client = fleet.client(machine).await?;
-    match client.call(PROTOCOL, &request).await {
+    let client = timeout(MCP_CALL_LIMIT, fleet.client(machine))
+        .await
+        .map_err(|_| {
+            DesktopError::TimedOut(format!(
+                "{} did not answer in time.",
+                fleet.name_of(machine)
+            ))
+        })??;
+    match client.call_within(MCP_CALL_LIMIT, PROTOCOL, &request).await {
         Ok(Reply::Refused(error)) => Err(DesktopError::BadRequest(error)),
         Ok(reply) => Ok(reply),
         Err(beep_mesh::MeshError::Declined { reason, .. })
