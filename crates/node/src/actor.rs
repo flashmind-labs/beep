@@ -98,8 +98,9 @@ impl<M> Sender<M> {
         self.mailbox.is_closed()
     }
 
-    pub fn actor(&self) -> &'static str {
-        self.actor
+    /// How many senders there are, this one included.
+    pub fn strong_count(&self) -> usize {
+        self.mailbox.strong_count()
     }
 }
 

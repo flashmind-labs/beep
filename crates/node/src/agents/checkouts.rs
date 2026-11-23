@@ -2,7 +2,7 @@
 //! peers that read a folder share one git run for each change to it.
 
 use super::{work_diff, work_folder::{GitStatus, git_status}};
-use crate::events::paths::Paths;
+use crate::{actor, events::paths::Paths};
 use anyhow::{Result, anyhow};
 use beep_proto::{
     WorkDiff,
@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{
-    sync::{Notify, mpsc, oneshot},
+    sync::{Notify, oneshot},
     task::{JoinSet, spawn_blocking},
     time::interval,
 };
@@ -46,17 +46,24 @@ pub(crate) struct Checkouts {
 }
 
 struct Started {
-    opens: mpsc::Sender<Open>,
+    opens: actor::Sender<Open>,
     _task: AbortOnDropHandle<()>,
 }
 
 /// Asks for the task of the checkout at `root`, started when it has none.
 struct Open {
     root: PathBuf,
-    reply: oneshot::Sender<mpsc::Sender<Ask>>,
+    reply: oneshot::Sender<actor::Sender<Ask>>,
+}
+
+impl From<&Open> for &'static str {
+    fn from(_: &Open) -> Self {
+        "Open"
+    }
 }
 
 /// Asks one checkout for what git says of it.
+#[derive(strum::IntoStaticStr)]
 enum Ask {
     Diff {
         ask: DiffAsk,
@@ -121,9 +128,9 @@ impl Checkouts {
         })
     }
 
-    async fn open(&self, root: PathBuf) -> Result<mpsc::Sender<Ask>> {
+    async fn open(&self, root: PathBuf) -> Result<actor::Sender<Ask>> {
         let started = self.started.get_or_init(|| {
-            let (opens, opened) = mpsc::channel(WAITING);
+            let (opens, opened) = actor::channel("checkouts", WAITING);
             Started {
                 opens,
                 _task: AbortOnDropHandle::new(tokio::spawn(supervise(opened))),
@@ -142,14 +149,14 @@ impl Checkouts {
 
 /// A checkout's task as the supervisor holds it.
 struct Held {
-    asks: mpsc::Sender<Ask>,
+    asks: actor::Sender<Ask>,
     /// Opened since the last sweep.
     used: bool,
 }
 
 /// Owns the checkouts' tasks: hands each reader the one for its folder and
 /// ends those nobody reads.
-async fn supervise(mut opens: mpsc::Receiver<Open>) {
+async fn supervise(mut opens: actor::Receiver<Open>) {
     let mut held = HashMap::<PathBuf, Held>::new();
     let mut tasks = JoinSet::new();
     let mut sweep = interval(SWEEP);
@@ -165,7 +172,7 @@ async fn supervise(mut opens: mpsc::Receiver<Open>) {
             }
             Some(_) = tasks.join_next() => {}
             open = opens.recv() => {
-                let Some(Open { root, reply }) = open else {
+                let Some((Open { root, reply }, _timing)) = open else {
                     return;
                 };
                 let asks = match held.get_mut(&root) {
@@ -174,7 +181,7 @@ async fn supervise(mut opens: mpsc::Receiver<Open>) {
                         held.asks.clone()
                     }
                     _ => {
-                        let (asks, asked) = mpsc::channel(WAITING);
+                        let (asks, asked) = actor::channel("checkout", WAITING);
                         tasks.spawn(Checkout::new(root.clone()).run(asked));
                         held.insert(root, Held { asks: asks.clone(), used: true });
                         asks
@@ -324,7 +331,7 @@ impl Checkout {
         }
     }
 
-    async fn run(mut self, mut asks: mpsc::Receiver<Ask>) {
+    async fn run(mut self, mut asks: actor::Receiver<Ask>) {
         let changed = self.changed.clone();
         self.start_watch();
 
@@ -335,7 +342,7 @@ impl Checkout {
                 biased;
                 () = changed.notified() => self.forget(),
                 ask = asks.recv() => match ask {
-                    Some(ask) => self.asked(ask),
+                    Some((ask, _timing)) => self.asked(ask),
                     None => return,
                 },
                 Some(Ok(job)) = self.jobs.join_next() => self.done(job),
@@ -382,10 +389,10 @@ impl Checkout {
     fn read_diff(&mut self, ask: DiffAsk, waiting: Vec<Reply<WorkDiff>>) {
         let (root, asked) = (self.root.clone(), ask.clone());
         self.jobs.spawn(async move {
-            let read = spawn_blocking({
+            let read = actor::job("checkout", "diff", spawn_blocking({
                 let asked = asked.clone();
                 move || work_diff::read(&root, &asked)
-            })
+            }))
             .await
             .unwrap_or_else(|e| Err(anyhow!("reading the diff stopped: {e}")));
 
@@ -397,9 +404,9 @@ impl Checkout {
     fn read_status(&mut self, waiting: Vec<Reply<GitStatus>>) {
         let root = self.root.clone();
         self.jobs.spawn(async move {
-            let read = spawn_blocking(move || {
+            let read = actor::job("checkout", "status", spawn_blocking(move || {
                 git_status(&root).ok_or_else(|| anyhow!("{} is not a git checkout", root.display()))
-            })
+            }))
             .await
             .unwrap_or_else(|e| Err(anyhow!("reading the status stopped: {e}")));
 
@@ -464,7 +471,7 @@ impl Checkout {
                 anyhow::Ok(Some(watch))
             };
 
-            Job::Watched(watch.await.unwrap_or_else(|e| {
+            Job::Watched(actor::job("checkout", "watch", watch).await.unwrap_or_else(|e| {
                 log::debug!("a checkout is not watched: {e:#}");
                 None
             }))
