@@ -7,6 +7,19 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.24] - 2026-11-23
+
+### Changed
+
+- Desktop: the right pane in Assistant appears when the chat has files or active threads.
+- Desktop: assistant chats stay in creation order when chats or threads receive updates.
+
+### Performance
+
+- Desktop: the Running tab of a conversation shows its last list of commands
+  and ports as soon as you switch back to it, and then keeps up to date
+  from changes the machine reports instead of reloading after every change.
+
 ## [0.10.23] - 2026-11-23
 
 ### Fixed

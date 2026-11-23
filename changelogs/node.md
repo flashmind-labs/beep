@@ -2,6 +2,35 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.18] - 2026-11-23
+
+### Fixed
+
+- Node: if the desktop or phone disconnected while a project's file sync was
+  starting over, the project stayed off until the node restarted. The start
+  over now finishes.
+- Node: a project no longer disappears from the sync status for a moment
+  while its sync is stopped and started again.
+- Node: a terminal that exits stays in the list for 30 seconds, so every
+  connected desktop and phone sees that it ended. Before, only the first
+  one to look saw it, and it vanished for the others.
+- Node: a background command that was still starting when the desktop app
+  quit is now stopped with the others instead of running on.
+- Node: a port that a session's command opens after one desktop or phone
+  already looked is now shown to the others too.
+
+### Performance
+
+- Node: sessions in one folder and every connected desktop or phone now
+  share a single git read of its changes, instead of each running git for
+  the same diff. Opening Changes again answers without running git until
+  the folder changes.
+- Node: refreshing a conversation's Files tree no longer runs git once per
+  open folder for each connected desktop or phone. Git's status is read once
+  per change of the checkout and shared.
+- Node: a change in one session's running commands no longer makes the
+  other sessions' Running lists read again.
+
 ## [0.8.17] - 2026-11-23
 
 ### Fixed
