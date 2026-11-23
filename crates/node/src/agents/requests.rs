@@ -220,29 +220,33 @@ pub async fn serve_sessions(
             live_reply(&agents, &session, Some(steer)).await
         }
         SessionsRequest::Watch { sessions } => {
-            return agents.external.watch(tx, rx, sessions).await;
+            return trace.stream(agents.external.watch(tx, rx, sessions)).await;
         }
         SessionsRequest::FollowImages {} => failed("this node does not send pictures"),
         SessionsRequest::FollowPresence {} => {
-            return super::presence::follow(tx, rx, &agents).await;
+            return trace.stream(super::presence::follow(tx, rx, &agents)).await;
         }
         SessionsRequest::FollowAlerts {} => {
-            return send_alerts(tx, rx, &agents.alerts, caller, |alert| {
-                SessionsReply::Alert { alert }
-            })
-            .await;
+            return trace
+                .stream(send_alerts(tx, rx, &agents.alerts, caller, |alert| {
+                    SessionsReply::Alert { alert }
+                }))
+                .await;
         }
         SessionsRequest::FollowRuns {} => {
-            return send_alerts(tx, rx, &agents.ci.runs, caller, |news| SessionsReply::Run {
-                news,
-            })
-            .await;
+            return trace
+                .stream(send_alerts(tx, rx, &agents.ci.runs, caller, |news| {
+                    SessionsReply::Run { news }
+                }))
+                .await;
         }
         SessionsRequest::FollowUsage { history } => {
-            return send_usage(tx, rx, &agents, history).await;
+            return trace.stream(send_usage(tx, rx, &agents, history)).await;
         }
         SessionsRequest::FollowIndex { epoch, after } => {
-            return send_index(tx, rx, &agents, &epoch, after).await;
+            return trace
+                .stream(send_index(tx, rx, &agents, &epoch, after))
+                .await;
         }
         SessionsRequest::Search { query, sessions } => match agents.search.get().cloned() {
             Some(index) => index
@@ -530,11 +534,10 @@ pub async fn serve_sessions(
     let computed = started.elapsed();
     trace.phase("sending");
     let result = tx.send(&reply).await;
-    trace.finish(result.is_ok() && !matches!(reply, SessionsReply::Error { .. }));
+    let outcome = end_trace(&mut trace, &result, &reply);
 
     if let Some(operation) = operation {
         let elapsed = started.elapsed();
-        let outcome = if result.is_ok() { "ok" } else { "error" };
         metrics::counter!("beep_agent_requests_total", "operation" => operation, "outcome" => outcome).increment(1);
         metrics::histogram!("beep_agent_request_seconds", "operation" => operation)
             .record(elapsed.as_secs_f64());
@@ -550,6 +553,29 @@ pub async fn serve_sessions(
     }
 
     result
+}
+
+/// Records how the request ended and returns its metric label: `error` when
+/// the answer could not be sent, `refused` when the handler answered an error.
+fn end_trace(
+    trace: &mut beep_proto::logging::RequestTrace,
+    sent: &Result<()>,
+    reply: &SessionsReply,
+) -> &'static str {
+    match (sent, reply) {
+        (Err(e), _) => {
+            trace.fail(format!("{e:#}"));
+            "error"
+        }
+        (Ok(()), SessionsReply::Error { message }) => {
+            trace.refuse(message);
+            "refused"
+        }
+        (Ok(()), _) => {
+            trace.finish(true);
+            "ok"
+        }
+    }
 }
 
 async fn live_reply(agents: &Agents, session: &SessionId, steer: Option<agent::Steer>) -> SessionsReply {

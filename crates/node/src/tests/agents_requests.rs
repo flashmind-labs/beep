@@ -310,3 +310,18 @@ async fn a_folder_listing_shows_an_edit_made_after_the_status_was_kept() {
     .await
     .expect("the edit shows");
 }
+
+#[test]
+fn a_refused_request_and_one_whose_caller_left_end_differently() {
+    let mut trace = beep_proto::logging::RequestTrace::new("test");
+    let refused = SessionsReply::Error {
+        message: "no such session".into(),
+    };
+    let fine = SessionsReply::NoFile {};
+    let left = Err(anyhow::anyhow!("the caller left"));
+
+    assert_eq!(end_trace(&mut trace, &Ok(()), &refused), "refused");
+    assert_eq!(end_trace(&mut trace, &left, &refused), "error");
+    assert_eq!(end_trace(&mut trace, &left, &fine), "error");
+    assert_eq!(end_trace(&mut trace, &Ok(()), &fine), "ok");
+}

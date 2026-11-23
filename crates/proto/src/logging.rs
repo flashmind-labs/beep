@@ -171,13 +171,17 @@ impl RequestTrace {
     ) -> Result<T, E> {
         self.long_lived();
         let result = stream.await;
+        self.end(&result);
 
-        match &result {
+        result
+    }
+
+    /// Ends the request as `ok`, or as `error` with the reason.
+    pub fn end<T, E: fmt::Display>(&mut self, result: &Result<T, E>) {
+        match result {
             Ok(_) => self.finish(true),
             Err(e) => self.fail(format!("{e:#}")),
         }
-
-        result
     }
 
     /// Whether the end is quiet: a request that went well and was quick, or
