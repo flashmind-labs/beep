@@ -180,7 +180,13 @@ export function placeDrafts(list: DOMNode[], drafts: readonly ReviewComment[]) {
 }
 
 /// `list` drawn with the drafts `at` puts under its blocks and list items.
+/// Each time it is drawn the marks are painted again, as a redrawn reply's
+/// text is new and the old marks are gone with it.
 export function WithDrafts({ list, at }: { list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly ReviewComment[]> }) {
+  useEffect(() => {
+    const frame = requestAnimationFrame(paintReviewMarks);
+    return () => cancelAnimationFrame(frame);
+  });
   const options: HTMLReactParserOptions = {
     replace: node => {
       const drafts = at.get(node);
