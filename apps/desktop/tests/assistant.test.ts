@@ -32,11 +32,11 @@ test("the assistant's harness is the one picked when offered, else the first off
   const agent = (picked: string | null, on: typeof hosts) => resolveAssistant({ agent: picked, model: null, effort: null, fast: null }, on).agent;
   assert.equal(agent("flsh", hosts), "flsh");
   assert.equal(agent(null, hosts), "codex");
-  assert.equal(agent("gemini", hosts), "codex");
+  assert.equal(agent("agy", hosts), "codex");
   assert.equal(agent(null, []), null);
   assert.equal(assistantHost(hosts, "mac", "pi")?.machine_id, "mac");
   assert.equal(assistantHost(hosts, "mac", "codex")?.machine_id, "build-box");
-  assert.equal(assistantHost(hosts, null, "gemini"), null);
+  assert.equal(assistantHost(hosts, null, "agy"), null);
 });
 
 test("only machines whose node runs the assistant count for its harness and machine", () => {

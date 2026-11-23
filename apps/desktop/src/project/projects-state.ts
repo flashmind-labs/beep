@@ -171,7 +171,7 @@ export function filterProjects<T extends { name: string }>(rows: T[], name: stri
 // ---------- Add a project, and one project's view ----------
 
 /// What each coding agent is called on screen.
-const AGENT_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "pi", flsh: "flsh", gemini: "Gemini CLI", agy: "Antigravity", opencode: "OpenCode" };
+const AGENT_NAMES: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "pi", flsh: "flsh", agy: "Antigravity", opencode: "OpenCode" };
 
 /// "Claude Code" for `claude`; an agent Beep does not know reads as named.
 export function agentLabel(agent: string | null | undefined) { return AGENT_NAMES[agent ?? ""] || String(agent || ""); }

@@ -6,7 +6,7 @@
 //! A token count instead of a percent goes to Codex as its own limit, and to
 //! Claude Code and pi as the node's `/compact` (Claude Code's own trigger is
 //! then turned off).
-//! Agents that compact on their own with no setting (Gemini CLI, flsh) are
+//! Agents that compact on their own with no setting (Antigravity, flsh) are
 //! left to it.
 
 use beep_proto::{

@@ -144,15 +144,9 @@ pub(super) async fn table() -> anyhow::Result<Arc<HashMap<u32, Process>>> {
 }
 
 /// The coding agents' own programs, never a command they ran.
-const HARNESSES: [&str; 8] = [
-    "claude", "codex", "gemini", "agy", "opencode", "pi", "flsh", "hermes",
-];
+const HARNESSES: [&str; 7] = ["claude", "codex", "agy", "opencode", "pi", "flsh", "hermes"];
 /// The npm packages an agent's CLI runs from, as Node starts it.
-const HARNESS_PACKAGES: [&str; 3] = [
-    "@openai/codex",
-    "@anthropic-ai/claude-code",
-    "@google/gemini-cli",
-];
+const HARNESS_PACKAGES: [&str; 2] = ["@openai/codex", "@anthropic-ai/claude-code"];
 
 impl Process {
     fn helper(&self) -> bool {

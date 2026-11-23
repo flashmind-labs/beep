@@ -1367,7 +1367,7 @@ mod agent {
             assert_eq!(efforts("pi"), [Off, Minimal, Low, Medium, High, Xhigh, Max]);
             assert_eq!(efforts("flsh"), [Off, Low, Medium, High]);
 
-            for agent in ["gemini", "opencode", "other"] {
+            for agent in ["agy", "opencode", "other"] {
                 assert!(efforts(agent).is_empty(), "{agent}");
             }
 

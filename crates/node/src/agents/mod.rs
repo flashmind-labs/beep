@@ -1,4 +1,4 @@
-//! Coding agents (Claude Code, Codex, Gemini CLI, pi, flsh, OpenCode) run
+//! Coding agents (Claude Code, Codex, Antigravity, pi, flsh, OpenCode) run
 //! over ACP (`Agents`) and the streams the caller follows them on; sessions
 //! started outside Beep (`claude`, `found`) and the Beep MCP server (`mcp`).
 

@@ -16,7 +16,7 @@ test("a project's Harnesses sheet limits it to the harnesses picked", async ({ p
   const chips = sheet.getByRole("group", { name: "Harnesses" });
   await expect(sheet).toContainText("Every harness may run in this project.");
 
-  for (const name of ["Claude Code", "Codex", "Gemini CLI", "Antigravity", "OpenCode", "Hermes"]) await chips.getByRole("button", { name, exact: true }).click();
+  for (const name of ["Claude Code", "Codex", "Antigravity", "OpenCode", "Hermes"]) await chips.getByRole("button", { name, exact: true }).click();
   await expect(chips.getByRole("button", { name: "flsh", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(chips.getByRole("button", { name: "Codex", exact: true })).toHaveAttribute("aria-pressed", "false");
   await sheet.getByRole("button", { name: "Save" }).click();

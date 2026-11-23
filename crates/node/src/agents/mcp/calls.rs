@@ -128,9 +128,8 @@ impl Tool {
     }
 
     /// The tool an ACP tool call runs, from Claude Code's `_meta`, its
-    /// title (`mcp__beep__remote_run`, Codex's `beep/remote_run`, Gemini's
-    /// `remote_run (beep MCP Server)`) or an input that names the server, as
-    /// Codex's does.
+    /// title (`mcp__beep__remote_run`, Codex's `beep/remote_run`) or an
+    /// input that names the server, as Codex's does.
     pub(crate) fn of_call(
         title: &str,
         meta: Option<&Map<String, Value>>,
@@ -154,16 +153,10 @@ impl Tool {
 
         let bare = title.strip_prefix("Tool: ").unwrap_or(title);
 
-        if let Some(rest) = bare.strip_prefix(SERVER_NAME)
-            && let Some(tool) = rest.strip_prefix('/').or_else(|| rest.strip_prefix('.'))
-        {
-            return tool.parse().ok();
-        }
+        let rest = bare.strip_prefix(SERVER_NAME)?;
+        let tool = rest.strip_prefix('/').or_else(|| rest.strip_prefix('.'))?;
 
-        let (tool, server) = title.split_once(" (")?;
-        let server = server.strip_suffix(" MCP Server)")?;
-
-        (server == SERVER_NAME).then(|| tool.parse().ok()).flatten()
+        tool.parse().ok()
     }
 
     /// The tool a grouped tool's `action` calls, from its arguments as far

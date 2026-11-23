@@ -179,7 +179,6 @@ fn recent_metrics(path: &Path, since: i64, max_bytes: usize) -> String {
 const PROGRAMS: &[&str] = &[
     "claude",
     "codex",
-    "gemini",
     "pi",
     "flsh",
     "opencode",

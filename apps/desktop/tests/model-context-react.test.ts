@@ -82,7 +82,7 @@ test("model context keeps focus and drafts through updates and saves overrides",
 
     contextWindow = null;
     maxContextWindow = null;
-    const unsupported = render(createElement(ModelContextView, { panel: modelContextPanel(invoke), machine: "one", agent: "gemini" }));
+    const unsupported = render(createElement(ModelContextView, { panel: modelContextPanel(invoke), machine: "one", agent: "agy" }));
     await unsupported.findByLabelText("Default model");
     assert.equal(unsupported.queryAllByRole("columnheader").length, 1);
     assert.equal(unsupported.queryByText("Compact at"), null);

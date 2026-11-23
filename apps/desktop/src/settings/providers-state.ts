@@ -96,7 +96,6 @@ const NAMES: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
   pi: "pi",
-  gemini: "Gemini CLI",
   agy: "Antigravity",
   flsh: "flsh",
   opencode: "OpenCode",
@@ -212,7 +211,7 @@ export function joinArgs(args: string[]) {
 }
 
 /// What a harness takes for auto-compact: a percent, only on and off (its
-/// own setting has no threshold), or nothing (flsh and Gemini CLI compact on
+/// own setting has no threshold), or nothing (flsh and Antigravity compact on
 /// their own). The nodes set each one's own mechanism or send /compact.
 const COMPACT_KIND: Record<string, "percent" | "toggle"> = {
   claude: "percent",

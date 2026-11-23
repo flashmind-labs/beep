@@ -232,25 +232,8 @@ pub(super) const KNOWN: &[Known] = &[
         },
         async_tasks: false,
     },
-    // YOLO approves every tool. Gemini CLI drops back to `default` in a
-    // folder it does not trust, so the folder is trusted too.
-    Known {
-        name: "gemini",
-        title: "Gemini CLI",
-        cli: "gemini",
-        adapter: Adapter::Flags(&["--acp", "--approval-mode", "yolo"]),
-        env: &[("GEMINI_CLI_TRUST_WORKSPACE", "true")],
-        thinking_env: &[],
-        bypass_mode: None,
-        full_mode: Some("yolo"),
-        read_only_mode: None,
-        model_flag: true,
-        compact: Route::OwnTrigger,
-        async_tasks: false,
-    },
-    // Google's Antigravity CLI, which replaces Gemini CLI. It has no
-    // session modes; the flag approves every tool. Model and thinking are
-    // its ACP config options.
+    // Google's Antigravity CLI. It has no session modes; the flag approves
+    // every tool. Model and thinking are its ACP config options.
     Known {
         name: "agy",
         title: "Antigravity",

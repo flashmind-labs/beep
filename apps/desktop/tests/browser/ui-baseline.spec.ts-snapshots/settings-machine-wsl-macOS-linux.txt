@@ -234,7 +234,7 @@ body.cbody
                     div.am-line
                       span.am-mac-text
                         b "Debian"
-                        span.dmono.dmuted "Gemini CLI"
+                        span.dmono.dmuted "pi"
               section.mcp-servers [aria-label="MCP servers"]
                 div.cc-sec
                   h4 "MCP servers"

@@ -109,7 +109,7 @@ fn the_direct_driver_runs_claude_code_and_codex_on_the_nodes_own_bridges() {
         harnesses: vec![
             config.clone(),
             HarnessConfig { agent: "codex".into(), ..config.clone() },
-            HarnessConfig { agent: "gemini".into(), ..config },
+            HarnessConfig { agent: "agy".into(), ..config },
         ],
         ..AgentSettings::default()
     });
@@ -127,8 +127,8 @@ fn the_direct_driver_runs_claude_code_and_codex_on_the_nodes_own_bridges() {
     assert!(codex.args.is_empty());
     assert_eq!(codex.env["INITIAL_AGENT_MODE"], "agent-full-access");
     // Only Claude Code and Codex have a direct driver.
-    let gemini = settings.configured(&kind("gemini")).unwrap();
-    assert_eq!((gemini.program.as_str(), gemini.bridge), ("/opt/claude/bin/claude", None));
+    let agy = settings.configured(&kind("agy")).unwrap();
+    assert_eq!((agy.program.as_str(), agy.bridge), ("/opt/claude/bin/claude", None));
 }
 
 #[test]

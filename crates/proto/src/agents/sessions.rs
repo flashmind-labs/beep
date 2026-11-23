@@ -104,7 +104,7 @@ wire_structs! {
         /// Every token its finished turns used.
         pub tokens: u64,
         /// What it cost so far at API prices, in US dollars; `None`
-        /// for an agent that reports no cost, as Codex and Gemini do.
+        /// for an agent that reports no cost, as Codex does.
         pub cost_usd: Option<f64>,
         /// Provider balances as this session last reported them.
         #[serde(default)]

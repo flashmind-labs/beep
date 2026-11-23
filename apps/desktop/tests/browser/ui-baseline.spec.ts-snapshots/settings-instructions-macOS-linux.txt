@@ -224,7 +224,7 @@ body.cbody
                         ol.in-layers
                           li
                             b "The agent's own rules"
-                            small "Built into Claude Code, Codex, Gemini CLI or pi"
+                            small "Built into Claude Code, Codex or pi"
                           li
                             b "Your text in its file"
                             small "Your local CLAUDE.md or AGENTS.md, kept as is"

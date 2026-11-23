@@ -25,7 +25,7 @@ pub struct TurnUsage {
     pub at: u64,
     /// What the turn cost at API prices, in US dollars, when the agent
     /// reports a cost (an ACP `usage_update`'s running `cost`, counted per
-    /// turn). Codex and Gemini report none.
+    /// turn). Codex reports none.
     pub cost_usd: Option<f64>,
     /// Every token the turn used: input, cached input, output.
     pub tokens: u64,

@@ -316,13 +316,6 @@ fn every_known_agent_starts_without_permission_prompts() {
         )
     );
     assert_eq!(
-        launched("gemini"),
-        (
-            vec!["--acp".into(), "--approval-mode".into(), "yolo".into()],
-            vec![pair("GEMINI_CLI_TRUST_WORKSPACE", "true")]
-        )
-    );
-    assert_eq!(
         launched("opencode"),
         (
             vec!["acp".into()],

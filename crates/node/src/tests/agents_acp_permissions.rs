@@ -15,7 +15,7 @@ fn allowed(options: &[AnswerOption]) -> Option<&str> {
 #[test]
 fn a_permission_request_is_allowed_for_good_when_it_can_be() {
     use OptionKind::*;
-    // Codex, OpenCode and Gemini CLI: once, always, reject.
+    // Codex and OpenCode: once, always, reject.
     let request = [
         option("approved", AllowOnce),
         option("approved-for-session", AllowAlways),

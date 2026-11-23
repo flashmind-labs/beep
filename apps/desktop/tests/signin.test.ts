@@ -10,7 +10,6 @@ test("another machine offers Sign in for the agents it signs in itself", () => {
 });
 
 test("an agent with no sign-in link says how to sign in there", () => {
-  assert.deepEqual(signInOffer("gemini", "build-box", true, false), { how: "Run gemini on build-box once, or add a Gemini API key in Credentials" });
   assert.deepEqual(signInOffer("pi", "build-box", false, false), { how: "Run pi on build-box and use /login" });
   assert.equal(signInOffer("unknown-tool", "build-box", true, false), null);
 });

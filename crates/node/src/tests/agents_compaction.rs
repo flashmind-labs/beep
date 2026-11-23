@@ -53,7 +53,7 @@ fn not_while_a_question_waits() {
 
 #[test]
 fn a_harness_without_the_command_never_gets_it() {
-    for agent in ["gemini", "flsh"] {
+    for agent in ["agy", "flsh"] {
         let mut compactor = Compactor::new(route(agent), Policy::default());
         ended(&mut compactor, usage(99, 100), &commands(&["compact"]));
         assert!(!compactor.start(false), "{agent} compacts on its own");
@@ -231,7 +231,7 @@ fn opencode_only_turns_off() {
 
 #[test]
 fn the_slash_command_fallback_sets_no_variable() {
-    for agent in ["codex", "pi", "gemini", "flsh", "unknown"] {
+    for agent in ["codex", "pi", "agy", "flsh", "unknown"] {
         assert_eq!(Policy::Off.env(route(agent), &env(&[])), None);
         assert_eq!(Policy::At(70).env(route(agent), &env(&[])), None);
     }

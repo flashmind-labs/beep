@@ -181,8 +181,6 @@ body.cbody
             span.tt "Claude Code"
           button.cc-si.sub [aria-current="true" data-sub="agent:codex"] (focused)
             span.tt "Codex"
-          button.cc-si.sub [data-sub="agent:gemini"]
-            span.tt "Gemini CLI"
           button.cc-si.sub [data-sub="agent:agy"]
             span.tt "Antigravity"
           button.cc-si.sub [data-sub="agent:pi"]

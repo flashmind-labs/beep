@@ -45,7 +45,7 @@ pub enum Effort {
 /// - `pi`: `pi --thinking` (off, minimal, low, medium, high, xhigh, max).
 /// - `flsh`: ACP `thought_level` (off, low, medium, high), from 0.2.7.
 ///
-/// Gemini CLI and OpenCode have no such setting.
+/// OpenCode has no such setting.
 pub fn efforts(agent: &str) -> &'static [Effort] {
     use Effort::*;
 

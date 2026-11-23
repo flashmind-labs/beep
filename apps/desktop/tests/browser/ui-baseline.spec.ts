@@ -509,7 +509,7 @@ test("settings machines", async ({ page }) => {
 
 test("settings machine with WSL", async ({ page }) => {
   const wsl = (name: string, agents: string[]) => ({ name, agents, node: null, machine_id: null, kept: false, problem: null, probed: true });
-  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], gpus: [], wsl: [wsl("Ubuntu", ["claude", "codex"]), wsl("Debian", ["gemini"])] };
+  const env = { os: "windows", os_version: "Windows", arch: "x86_64", hostname: "desk-pc", cpus: 16, memory_mb: 32768, home: "C:\\Users\\user", tools: [], logins: [], avds: [], gpus: [], wsl: [wsl("Ubuntu", ["claude", "codex"]), wsl("Debian", ["pi"])] };
   const machines = [{ ...machine("desk-pc", "desk-pc", true, 0), env }];
   const machine_mcp_servers = [
     { name: "build-tools", settings: { enabled: true, codex: null, claude_oauth: null, connection: { stdio: { command: "build-tools", args: [], env: {}, cwd: null } } } },

@@ -43,7 +43,7 @@ export type SettingsSub =
 
 /// The coding agents Settings lists under Agent accounts, in order. Each
 /// opens its own subpage, nested in the left pane like Machines.
-export const CODING_AGENTS = ["claude", "codex", "gemini", "agy", "pi", "opencode", "flsh"] as const;
+export const CODING_AGENTS = ["claude", "codex", "agy", "pi", "opencode", "flsh"] as const;
 
 /// Which page each kind of subpage sits under.
 const SUB_PAGE: Record<SettingsSub["kind"], SettingsPage> = { machine: "machines", agent: "agents" };

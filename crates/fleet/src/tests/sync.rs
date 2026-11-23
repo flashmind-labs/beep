@@ -170,7 +170,7 @@ async fn two_harness_saves_at_once_keep_both_fields() {
     // Only Claude Code and Codex run directly; the choice keeps the other
     // settings.
     assert!(
-        desk.save_harness_driver("gemini", HarnessDriver::Direct)
+        desk.save_harness_driver("agy", HarnessDriver::Direct)
             .await
             .is_err()
     );

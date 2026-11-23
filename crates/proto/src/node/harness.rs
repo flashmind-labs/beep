@@ -45,12 +45,6 @@ pub const HARNESSES: &[Harness] = &[
         home_default: "~/.pi/agent",
         npm: Some("@earendil-works/pi-coding-agent"),
     },
-    Harness {
-        agent: "gemini",
-        home_var: "GEMINI_CLI_HOME",
-        home_default: "~",
-        npm: Some("@google/gemini-cli"),
-    },
     // Its config is under `~/.gemini/antigravity-cli` and nothing but the
     // home moves it; its sign-in is in the OS keyring.
     Harness {

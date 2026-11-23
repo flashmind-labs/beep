@@ -19,10 +19,6 @@ fn calls_are_found_however_the_agent_names_them() {
         Tool::of_call("Tool: beep/job_status", None, None),
         Some(Tool::JobStatus)
     );
-    assert_eq!(
-        Tool::of_call("cancel (beep MCP Server)", None, None),
-        Some(Tool::Cancel)
-    );
     let codex = json!({"server": "beep", "tool": "ask_user", "arguments": {"question": "Go?"}});
     assert_eq!(
         Tool::of_call("Working", None, Some(&codex)),

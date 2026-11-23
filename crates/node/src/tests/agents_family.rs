@@ -976,7 +976,6 @@ fn every_harness_is_held_to_any_mode_but_its_own_full_access() {
     for (agent, full) in [
         ("claude", "bypassPermissions"),
         ("codex", "agent-full-access"),
-        ("gemini", "yolo"),
     ] {
         let offers = [full, "plan", "read-only"];
         assert_eq!(

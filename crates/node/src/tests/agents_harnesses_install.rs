@@ -186,15 +186,15 @@ fn a_command_in_npms_bin_folder_is_from_npm() {
     // npm on Windows writes a shim into the prefix, not a link.
     let prefix = tempfile::tempdir().unwrap();
     let global = NpmGlobal::from(prefix.path());
-    let cli = file(&global.bin, "gemini");
+    let cli = file(&global.bin, "pi");
     let npm = Npm {
         found: true,
         global: Some(global.clone()),
     };
     // Without the package there, it is not npm's.
-    assert_eq!(method("gemini", &cli, &npm), None);
-    std::fs::create_dir_all(global.modules.join("@google/gemini-cli")).unwrap();
-    assert_eq!(method("gemini", &cli, &npm), Some(Method::Npm));
+    assert_eq!(method("pi", &cli, &npm), None);
+    std::fs::create_dir_all(global.modules.join("@earendil-works/pi-coding-agent")).unwrap();
+    assert_eq!(method("pi", &cli, &npm), Some(Method::Npm));
 }
 
 #[cfg(unix)]
@@ -205,7 +205,7 @@ fn no_step_runs_with_sudo() {
     let cli = prefix.path().join("bin/opencode");
     link(&real, &cli);
 
-    for agent in ["claude", "codex", "opencode", "pi", "gemini", "flsh"] {
+    for agent in ["claude", "codex", "opencode", "pi", "flsh"] {
         for cli in [None, Some(cli.as_path())] {
             let target = Target {
                 agent,

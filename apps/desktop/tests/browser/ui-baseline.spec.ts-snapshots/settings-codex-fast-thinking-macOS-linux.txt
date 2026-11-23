@@ -216,8 +216,8 @@ body.cbody
                       button [aria-pressed="true" data-agh="codex" title="Codex" type="button"]
                         span.cc-ag.codex.mark
                           svg [aria-hidden="true" viewBox="0 0 24 24"]
-                      button [aria-pressed="false" data-agh="gemini" disabled title="Gemini CLI (not on build-box)" type="button"]
-                        span.cc-ag.gemini.mark
+                      button [aria-pressed="false" data-agh="agy" disabled title="Antigravity (not on build-box)" type="button"]
+                        span.agy.cc-ag.mark
                           svg [aria-hidden="true" viewBox="0 0 24 24"]
                       button [aria-pressed="false" data-agh="pi" disabled title="pi (not on build-box)" type="button"]
                         span.cc-ag.mark.pi

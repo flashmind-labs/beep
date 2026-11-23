@@ -15,7 +15,7 @@ const view: HarnessesView = {
     harness("claude", { version: "2.1.312", latest: "2.1.320", sign_in: { state: "signed_in", account: "you@example.com", plan: "max", last4: null } }),
     harness("codex", { version: "0.166.0", latest: "0.166.0", sign_in: { state: "signed_out", account: null, plan: null, last4: null } }),
     harness("pi", { settings: { ...settings, enabled: false } }),
-    harness("gemini", { installed: false, runnable: false, version: null, latest: null }),
+    harness("agy", { installed: false, runnable: false, version: null, latest: null }),
     harness("flsh", { latest: null }),
     harness("opencode", { installed: false, runnable: false, version: null }),
   ],
@@ -62,7 +62,7 @@ test("auto-compact takes a percent, only on and off, or nothing by agent", () =>
   assert.deepEqual(["claude", "codex", "pi"].map(compactKind), ["percent", "percent", "percent"]);
   assert.equal(compactKind("opencode"), "toggle");
   assert.equal(compactKind("flsh"), null);
-  assert.equal(compactKind("gemini"), null);
+  assert.equal(compactKind("agy"), null);
 });
 
 test("auto-compact reads a percent or a token count", () => {

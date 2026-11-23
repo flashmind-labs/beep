@@ -41,7 +41,7 @@ export function InstructionsView(p: Props) {
         {st.error && <div className="cc-err">{st.error}</div>}
       </div></Section>
       <div className="in-sidecol"><Section title="How agents see it" sub="instruction sources"><div className="cc-panel"><ol className="in-layers">
-        <li><b>The agent's own rules</b><small>Built into Claude Code, Codex, Gemini CLI or pi</small></li>
+        <li><b>The agent's own rules</b><small>Built into Claude Code, Codex or pi</small></li>
         <li><b>Your text in its file</b><small>Your local CLAUDE.md or AGENTS.md, kept as is</small></li>
         <li className="me"><b>Your instructions</b><small>{mineLayer(st.newest)}</small></li>
         <li><b>Beep's rules</b><small>Session setup and tool instructions supplied by Beep</small></li>

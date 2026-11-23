@@ -34,7 +34,7 @@ fn the_report_says_what_waits_on_an_adapter() {
             },
         ]
     );
-    let report = installs.report(&[kind("gemini")]);
+    let report = installs.report(&[kind("agy")]);
     let states: Vec<(&str, &AgentState)> = report
         .iter()
         .map(|agent| (agent.name.as_str(), &agent.state))
@@ -42,7 +42,7 @@ fn the_report_says_what_waits_on_an_adapter() {
     assert_eq!(
         states,
         [
-            ("gemini", &AgentState::Ready),
+            ("agy", &AgentState::Ready),
             (
                 "claude",
                 &AgentState::Failed {

@@ -28,7 +28,7 @@ test("only an ended session of a file-based harness can be deleted", () => {
     assert.equal(sessionOffers({ status: "ended", external: false, agent }).delete, true);
   }
 
-  for (const agent of ["flsh", "opencode", "gemini"]) {
+  for (const agent of ["flsh", "opencode", "agy"]) {
     assert.equal(sessionOffers({ status: "ended", external: false, agent }).delete, false);
   }
 });

@@ -19,7 +19,6 @@ const REMOTE = new Set(["claude", "codex", "opencode", "agy"]);
 export function signInOffer(tool: string, machine: string, online: boolean, thisMac: boolean): { button: true } | { how: string } | null {
   if (thisMac) return null;
   if (REMOTE.has(tool)) return online ? { button: true } : null;
-  if (tool === "gemini") return { how: `Run gemini on ${machine} once, or add a Gemini API key in Credentials` };
   if (tool === "pi") return { how: `Run pi on ${machine} and use /login` };
   if (tool === "gh") return { how: `Run gh auth login on ${machine}, or add a GitHub token in Credentials` };
   return null;
