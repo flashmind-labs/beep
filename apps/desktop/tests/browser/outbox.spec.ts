@@ -7,7 +7,7 @@ const session = {
   started_at: 1, last_activity: 1, external: false,
 } as const;
 
-declare global { interface Window { __outbox: { reconnect(): void; slow(): void; asked: { command: string; seen: unknown }[] } } }
+declare global { interface Window { __outbox: { reconnect(): void; slow(): void; delayRead(): void; finishRead(): void; asked: { command: string; seen: unknown }[] } } }
 
 /// Opens the session with a stand-in for the app's outbox: while the machine
 /// is unreachable, or a message waits before it, a message waits there; on
@@ -19,6 +19,8 @@ async function openUnreachable(page: Page) {
     const invoke = window.__TAURI__.core.invoke;
     const where = { machine_id: "build-box", agent: "codex", session: "notice-one" };
     let rows: Row[] = [], next = 0, online = false, slow = false;
+    let delayRead = false;
+    let finishRead = () => {};
     const asked: { command: string; seen: unknown }[] = [];
     const changed = (sent: Row[]) => window.__navigation.emit("outbox-changed", { ...where, rows, sent });
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
@@ -40,7 +42,14 @@ async function openUnreachable(page: Page) {
         return taken.map(row => ({ text: row.text, images: [] })) as T;
       }
 
-      if (command === "outbox_list") return rows as T;
+      if (command === "outbox_list") {
+        const snapshot = rows;
+        if (delayRead) {
+          delayRead = false;
+          await new Promise<void>(resolve => { finishRead = resolve; });
+        }
+        return snapshot as T;
+      }
 
       if (command === "outbox_take") {
         const taken = rows.find(row => row.id === args?.id);
@@ -53,6 +62,8 @@ async function openUnreachable(page: Page) {
     };
     window.__outbox = {
       asked,
+      delayRead() { delayRead = true; },
+      finishRead() { finishRead(); },
       slow() { slow = true; online = true; },
       reconnect() {
         online = true;
@@ -98,6 +109,40 @@ test("a message whose send got no answer in time stays out of the field and show
   await expect(waiting(page)).toContainText("Slow one");
   await expect(waiting(page)).toContainText("sending");
   await expect(page.locator("#agmsg")).toHaveValue("");
+});
+
+test("a late outbox read cannot put a delivered message back in the queue", async ({ page }) => {
+  await openUnreachable(page);
+  await page.evaluate(() => {
+    window.__outbox.slow();
+    window.__outbox.delayRead();
+  });
+  await send(page, "Check the diagram");
+  await expect(waiting(page)).toContainText("sending");
+  await page.evaluate(() => window.__outbox.reconnect());
+  await expect(waiting(page)).toHaveCount(0);
+  await page.evaluate(() => window.__outbox.finishRead());
+  await expect(waiting(page)).toHaveCount(0);
+});
+
+test("a late sending event cannot put a delivered image prompt back in the queue", async ({ page }) => {
+  await openUnreachable(page);
+  await page.evaluate(row => window.__navigation.respond("agent_view", {
+    session: row, plan: [], files: [], earlier: 0, last_message: "", error: null, turns: 1,
+    queued: 0, queued_messages: [], entries: [
+      { kind: "user", text: "Check the diagram\n[image: diagram.png]" },
+      { kind: "agent", text: "The diagram is ready." },
+    ],
+  }), session);
+  await expect(page.getByText("The diagram is ready.", { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    window.__navigation.emit("outbox-changed", {
+      machine_id: "build-box", agent: "codex", session: "notice-one",
+      rows: [{ id: 0, how: "steer", text: "Check the diagram", images: ["diagram.png"], state: "sending", reason: null }],
+      sent: [],
+    });
+  });
+  await expect(page.locator("#agqueue")).toHaveCount(0);
 });
 
 test("Stop all takes every waiting message back into the field at once, oldest first", async ({ page }) => {

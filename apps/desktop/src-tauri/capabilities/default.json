@@ -1,6 +1,6 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "windows": ["bar", "center", "project-*"],
+  "windows": ["bar", "center", "project-*", "chat-*"],
   "permissions": ["core:default", "core:window:allow-start-dragging", "core:window:allow-close", "core:window:allow-set-theme"]
 }
