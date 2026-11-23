@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, projectName } from "./harness.ts";
 
 const host = { machine_id: "build-box", machine_name: "build-box", agents: ["claude", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true, moves_chats: true };
 const folder = "/srv/.beep/assistant/chat-one";
@@ -47,7 +47,7 @@ test("a chat with threads lists them in place of the sidebar, and ⌘E lays the 
   await expect(page.locator(".asst-list")).toBeHidden();
 });
 
-test("Esc beside a chat's threads shows all the chats, then the sidebar beside them", async ({ page }) => {
+test("Esc beside a chat's threads shows the sidebar and chats together, then goes straight to Home", async ({ page }) => {
   await openChat(page, [chat, research, notes]);
   const win = page.locator(".cwin");
   await expect(win).toHaveClass(/rail-on/);
@@ -55,16 +55,32 @@ test("Esc beside a chat's threads shows all the chats, then the sidebar beside t
 
   await page.keyboard.press("Escape");
   await expect(win).not.toHaveClass(/rail-on/);
+  await expect(page.locator("#side")).toBeVisible();
   await expect(page.locator(".asst-list")).toBeVisible();
-  await expect(page.locator("#side")).toBeHidden();
   await expect(page.getByText("On it.")).toBeVisible();
-  // With no sidebar under them, the title row keeps clear of the window's controls.
-  await expect(page.locator(".cc-top")).toHaveCSS("padding-left", "84px");
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#title")).toHaveText("Home");
+  await expect(page.locator("#side").getByRole("button", { name: "Home", exact: true })).toHaveAttribute("aria-current", "true");
+  await expect(page.locator("#agmsg")).toBeHidden();
+});
+
+test("Esc from a threaded chat opened over a project reaches Home in two presses instead of returning to the project", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat, research, notes], agent_view: view(chat) });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  await expect(page.locator("#title")).toContainText(projectName);
+
+  await page.evaluate(row => window.__navigation.open({ agent: { kind: "agent", ...row } }), chat);
+  await expect(page.locator(".cwin")).toHaveClass(/rail-on/);
+  await page.locator("#agmsg").focus();
 
   await page.keyboard.press("Escape");
   await expect(page.locator("#side")).toBeVisible();
   await expect(page.locator(".asst-list")).toBeVisible();
-  await expect(page.getByText("On it.")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#title")).toHaveText("Home");
+  await expect(page.locator("#side").getByRole("button", { name: "Home", exact: true })).toHaveAttribute("aria-current", "true");
 });
 
 test("a detached chat keeps its full height after pressing Escape twice", async ({ page }) => {
@@ -81,6 +97,7 @@ test("a detached chat keeps its full height after pressing Escape twice", async 
     await page.keyboard.press("Escape");
     await expect(page.locator(".asst-list")).toBeVisible();
     await expect(page.getByText("On it.")).toBeVisible();
+    await expect(page.locator(".cc-top")).toHaveCSS("padding-left", "84px");
     await expect.poll(() => main.evaluate(el => el.getBoundingClientRect().height)).toBe(height);
   }
 });

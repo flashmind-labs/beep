@@ -153,7 +153,7 @@ body:not(.mobile) .agshell > .agdiv::after { inset: 20% 2px; border-radius: 1px;
 
 /* ----- Every screen: the title row lies on the window and the screen below it is a card ----- */
 body:not(.mobile) .cc-top { min-height: 34px; padding: 0 4px 0 6px; border-bottom: 0 }
-body:not(.mobile).pw .cwin:not(.rail-on) .cc-top, body:not(.mobile) .cwin.side-away .cc-top { padding-left: 84px }
+body:not(.mobile).pw .cwin:not(.rail-on) .cc-top { padding-left: 84px }
 body:not(.mobile) .cc-top h2 { font-size: 14px; font-weight: 600; letter-spacing: -.01em }
 body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }

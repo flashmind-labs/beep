@@ -70,8 +70,8 @@ export interface WindowHooks {
   /// Esc from an agent view goes back to the view that opened it. A session that
   /// closed leaves at once, with `move` false, so a failed close finds the page it left for.
   goBack(from: BackTo, move: boolean): void;
-  /// Esc in a session, before it goes back: one step of the window's sidebar beside a chat's
-  /// threads (`stepOutOfRail`). False when there is none left.
+  /// Esc in an agent view, before `AG.back`: steps out of a chat's threads rail or leaves the
+  /// Assistant page for Home. False when `AG.back` should handle it.
   stepOut?(): boolean;
   /// The session a start became takes over the page that shows the start, and its navigation
   /// entry. Nothing happens while the window shows another page.

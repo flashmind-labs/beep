@@ -42,7 +42,7 @@ let lastRow: AgentRow | null = null;
 export function openAssistantPage(open: AssistantOpen) {
   listing = open === "chats";
   return import("./agentnew.tsx").then(({ renderAgentNew }) => {
-    renderAgentNew("", isMobile() ? ASSISTANT_CHATS : { view: "home", arg: null }, null, true);
+    renderAgentNew("", isMobile() && !listing ? ASSISTANT_CHATS : { view: "home", arg: null }, null, true);
     syncAssistantPage();
   });
 }
