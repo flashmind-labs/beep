@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { htmlToDOM, type Element, type DOMNode } from "html-react-parser";
-import { checkOf, outcomeOf, readReport, readingTime, summaryAsked, summaryPrompt, toggleOriginal, reportViews } from "../src/agents/report-state.ts";
+import { checkOf, claimWords, outcomeOf, readReport, withHeld, readingTime, summaryAsked, summaryPrompt, toggleOriginal, reportViews } from "../src/agents/report-state.ts";
 
 const text = (nodes: DOMNode[]): string => nodes.map(n => n.type === "text" ? n.data : n.type === "tag" ? text(n.children as DOMNode[]) : "").join("");
 const html = (nodes: DOMNode[]): string => nodes.map(n => n.type === "text" ? n.data : n.type === "tag" ? `<${n.name}${Object.entries(n.attribs).map(([k, v]) => ` ${k}="${v}"`).join("")}>${html(n.children as DOMNode[])}</${n.name}>` : "").join("");
@@ -89,4 +89,29 @@ test("a report may open with one short paragraph of the agent's own before its o
   assert.equal(readReport(htmlToDOM("<p>One.</p><p>Two.</p><p>Done: it works.</p>")), null);
   assert.equal(readReport(htmlToDOM("<h2>Summary</h2><p>Done: it works.</p>")), null);
   assert.equal(readReport(htmlToDOM("<p>Looked around.</p><p>Nothing to report.</p>")), null);
+});
+
+test("a claim is found by its place: the headline, or the nth item of the section it names", () => {
+  const r = readReport(htmlToDOM("<p>Done: the redirect keeps the query. More here.</p>\n<h2>Changed</h2>\n<ul><li><strong>Kept</strong> (<code>a.ts:4</code>): it was dropped. Now it isn't.</li><li>Second.</li></ul>\n<h2>Needs you</h2>\n<ol><li>Old links.</li></ol>"));
+  assert.ok(r);
+  assert.equal(claimWords(r, "Headline"), "The redirect keeps the query.");
+  assert.equal(claimWords(r, "Changed 1"), "Kept (a.ts:4): it was dropped.");
+  assert.equal(claimWords(r, "changed 2"), "Second.");
+  assert.equal(claimWords(r, "Needs you 1"), "Old links.");
+  assert.equal(claimWords(r, "Changed 3"), null);
+  assert.equal(claimWords(r, "Checked 1"), null);
+  assert.equal(claimWords(r, "somewhere"), null);
+});
+
+test("the claims a challenge could not break are marked held", () => {
+  const r = readReport(htmlToDOM("<p>Done: it works.</p>\n<h2>Changed</h2>\n<ul><li>One.</li><li>Two.</li></ul>"));
+  assert.ok(r);
+  const none = withHeld(r, []);
+  assert.equal(none.sections, r.sections);
+  assert.equal(none.headlineHeld, false);
+
+  const held = withHeld(r, ["Headline", "Changed 2", "Checked 9"]);
+  assert.equal(held.headlineHeld, true);
+  assert.equal(html(held.sections[0].nodes).replace(/\n/g, ""), '<ul><li>One.</li><li data-held="">Two.</li></ul>');
+  assert.equal(html(r.sections[0].nodes).replace(/\n/g, ""), "<ul><li>One.</li><li>Two.</li></ul>");
 });

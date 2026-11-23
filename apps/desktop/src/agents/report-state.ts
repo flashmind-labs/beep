@@ -148,6 +148,49 @@ export function readReport(nodes: DOMNode[]): Shaped | null {
   return { outcome: opened.outcome, lead, headline: capitalized(trimStart(headline)), intro, sections };
 }
 
+/// The claim `place` names in `shaped`: `Headline`, or the nth item of the
+/// section whose title starts with the rest (`Changed 2`, `Needs you 1`);
+/// null when there is no such claim.
+export function claimAt(shaped: Shaped, place: string): { kind: "headline" } | { kind: "item"; section: number; item: Element } | null {
+  if (place.trim().toLowerCase() === "headline") return shaped.headline.length ? { kind: "headline" } : null;
+
+  const named = /^(.+?)\s+(\d+)$/.exec(place.trim());
+  if (!named) return null;
+  const title = named[1].toLowerCase(), n = Number(named[2]);
+  const section = shaped.sections.findIndex(s => s.title.toLowerCase().startsWith(title));
+  const item = section < 0 ? undefined : shaped.sections[section].nodes.filter(isList).flatMap(items)[n - 1];
+  return item ? { kind: "item", section, item } : null;
+}
+
+/// The words a note on claim `place` marks when its own quote isn't in the
+/// report: the claim's first sentence, as serpis places a finding.
+export function claimWords(shaped: Shaped, place: string): string | null {
+  const claim = claimAt(shaped, place);
+  if (!claim) return null;
+
+  const text = (claim.kind === "headline" ? shaped.headline.map(textOf).join("") : textOf(claim.item)).replace(/\s+/g, " ").trim();
+  const stop = text.indexOf(". ");
+  return stop < 0 ? text : text.slice(0, stop + 1);
+}
+
+/// `shaped` with the claims `held` names marked `data-held` (the headline
+/// as `headlineHeld`), for a challenge that could not break them.
+export function withHeld(shaped: Shaped, held: readonly string[]): { sections: ReportSection[]; headlineHeld: boolean } {
+  const claims = held.map(place => claimAt(shaped, place));
+  const marked = new Set(claims.flatMap(c => c?.kind === "item" ? [c.item] : []));
+  const mark = (node: DOMNode): DOMNode => {
+    if (!isTag(node)) return node;
+    if (marked.has(node)) return new Element(node.name, { ...node.attribs, "data-held": "" }, node.children);
+    const children = (node.children as DOMNode[]).map(mark);
+    return children.every((child, i) => child === node.children[i]) ? node : new Element(node.name, { ...node.attribs }, children as Element["children"]);
+  };
+
+  return {
+    sections: marked.size ? shaped.sections.map(s => ({ ...s, nodes: s.nodes.map(mark) })) : shaped.sections,
+    headlineHeld: claims.some(c => c?.kind === "headline"),
+  };
+}
+
 /// A check's result, from its text: "**`cargo test`:** passes (214 tests)".
 export function checkOf(text: string): Check | null {
   const lower = text.trim().toLowerCase();

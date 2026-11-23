@@ -183,12 +183,12 @@ const norm = (text: string) => text.replace(/\s+/g, " ").trim();
 /// A note under the passage it quotes: a draft, or a comment already sent.
 export type Note = { kind: "draft"; comment: ReviewComment } | { kind: "sent"; sent: SentNote };
 
-const quoteOf = (note: Note) => note.kind === "draft" ? note.comment.quote : note.sent.item.quote;
-
 /// The parts of the reply at `entry` with the comments on it marked: those
 /// `sent` on it, the open session's drafts, and the one being written; and
 /// where each one's card goes.
-export function useReviewed(entry: string, parts: readonly DOMNode[][], sent: readonly SentNote[]) {
+/// `claim` gives the words of a claim a note names by its place (`Changed
+/// 2`), marked instead when the note's own quote isn't in the reply.
+export function useReviewed(entry: string, parts: readonly DOMNode[][], sent: readonly SentNote[], claim: ((place: string) => string | null) | null = null) {
   const drafts = useStore(reviews, useShallow(state => (state.open ? state.by[state.open]?.comments ?? [] : []).filter(c => String(c.entry) === entry)));
   const writing = useStore(reviews, useShallow(state => {
     const w = state.open ? state.by[state.open]?.writing : null;
@@ -196,12 +196,20 @@ export function useReviewed(entry: string, parts: readonly DOMNode[][], sent: re
   }));
 
   return useMemo(() => {
+    // A quote the reply doesn't hold (a challenger's paraphrase) goes on the claim its place names.
+    const said = norm(parts.flat().map(textOf).join(" "));
+    const where = (quote: string, place: string) => !claim || said.includes(norm(quote)) ? quote : claim(place) ?? quote;
+
     // Sent first, so a draft on the same words shows over it.
-    const quotes = [...sent.map(n => ({ ask: n.item.ask, quote: n.item.quote, sent: true })), ...[...drafts, ...writing ? [writing] : []].map(c => ({ ask: c.ask, quote: c.quote, sent: false }))];
+    const quotes = [
+      ...sent.map(n => ({ ask: n.item.ask, quote: where(n.item.quote, n.item.place), sent: true })),
+      ...drafts.map(c => ({ ask: c.ask, quote: where(c.quote, c.place), sent: false })),
+      ...writing ? [{ ask: writing.ask, quote: writing.quote, sent: false }] : [],
+    ];
     const marked = markQuotes(parts, quotes);
     const notes: Note[] = [...sent.map(n => ({ kind: "sent" as const, sent: n })), ...drafts.map(c => ({ kind: "draft" as const, comment: c }))];
-    return { parts: marked, ...placeNotes(marked.flat(), notes) };
-  }, [parts, drafts, writing, sent]);
+    return { parts: marked, ...placeNotes(marked.flat(), notes, note => note.kind === "draft" ? where(note.comment.quote, note.comment.place) : where(note.sent.item.quote, note.sent.item.place)) };
+  }, [parts, drafts, writing, sent, claim]);
 }
 
 /// `parts` with each quote's words in a `mark` of its kind, a sent one's
@@ -265,7 +273,7 @@ function markQuotes(parts: readonly DOMNode[][], quotes: readonly { ask: Ask; qu
 
 /// Where each note goes: under the list item or top-level block that holds
 /// its quote whole, the innermost item first. Notes no block holds go last.
-function placeNotes(list: DOMNode[], notes: readonly Note[]) {
+function placeNotes(list: DOMNode[], notes: readonly Note[], quoteOf: (note: Note) => string) {
   const at = new Map<DOMNode, Note[]>(), rest: Note[] = [];
   const place = (note: Note, nodes: DOMNode[], top: boolean): boolean => {
     const node = nodes.find(n => isTag(n) && norm(textOf(n)).includes(norm(quoteOf(note))));
@@ -285,9 +293,12 @@ function placeNotes(list: DOMNode[], notes: readonly Note[]) {
 export function WithNotes({ list, at }: { list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly Note[]> }) {
   const options: HTMLReactParserOptions = {
     replace: node => {
-      const notes = at.get(node);
-      if (!notes || !isTag(node) || node.name !== "li") return;
-      return <li {...attributesToProps(node.attribs)}>{domToReact(node.children as DOMNode[], options)}<Notes notes={notes} /></li>;
+      if (!isTag(node)) return;
+      const notes = node.name === "li" ? at.get(node) ?? [] : [], held = "data-held" in node.attribs;
+      if (!notes.length && !held) return;
+
+      const Tag = node.name as "li" | "p";
+      return <Tag {...attributesToProps(node.attribs)}>{domToReact(node.children as DOMNode[], options)}{held && <HeldChip />}<Notes notes={notes} /></Tag>;
     },
   };
 
@@ -296,6 +307,10 @@ export function WithNotes({ list, at }: { list: DOMNode[]; at: ReadonlyMap<DOMNo
     {!(isTag(node) && node.name === "li") && <Notes notes={at.get(node) ?? []} />}
   </Fragment>)}</>;
 }
+
+/// Marks a claim a challenge could not break. Its word is drawn by the
+/// style, so it stays out of selections and quotes.
+const HeldChip = () => <span className="report-held" title="A challenge could not break this claim" />;
 
 /// Notes under the passage they quote: drafts to change or remove, and sent
 /// comments, one line each until opened.

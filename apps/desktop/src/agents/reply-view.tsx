@@ -4,9 +4,10 @@
 import { conversationBlocked } from "./turnrows.ts";
 import { memo, useMemo, useRef, type MouseEvent } from "react";
 import { Element, htmlToDOM, type DOMNode } from "html-react-parser";
-import { OUTCOME_LABEL, REPORT_MIN_WORDS, isTag, reportOf, reportViews, toggleOriginal, type Report, type ReportSection } from "./report-state.ts";
+import { OUTCOME_LABEL, REPORT_MIN_WORDS, claimWords, isTag, reportOf, reportViews, toggleOriginal, withHeld, type Report, type ReportSection } from "./report-state.ts";
 import { Notes, SentReviewCard, WithNotes, useReviewed, type Note } from "./review-view.tsx";
-import type { SentNote, SentReview } from "./review-state.ts";
+import { reviews, type SentNote, type SentReview } from "./review-state.ts";
+import { challengeOf, challenges } from "./challenge-state.ts";
 import { ChallengeActs, ChallengeNote } from "./challenge-view.tsx";
 import { useStore } from "zustand";
 import { plural } from "../ui/format.ts";
@@ -77,29 +78,40 @@ function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
       </span>
     </div>
     <ChallengeNote entry={reply.row} />
-    <ReportBody key={view} entry={reply.row} sent={reply.sent} report={shown} swapped={swapped} />
+    <ReportBody key={view} entry={reply.row} sent={reply.sent} report={shown} swapped={swapped} challenged={shown === report} />
   </div>;
 }
 
 /// A report's text: its headline, opening and parts, each draft under the
-/// paragraph or item it quotes.
-function ReportBody({ entry, sent, report, swapped }: { entry: string; sent: readonly SentNote[]; report: Report; swapped: boolean }) {
-  const shapedParts = useMemo(() => report.kind === "long" ? [report.nodes] : [
+/// paragraph or item it quotes. On the report a challenge read
+/// (`challenged`, not its summary), a finding whose quote isn't in it goes
+/// on the claim it names, and the claims that held are marked.
+function ReportBody({ entry, sent, report, swapped, challenged }: { entry: string; sent: readonly SentNote[]; report: Report; swapped: boolean; challenged: boolean }) {
+  const key = useStore(reviews, state => state.open);
+  const challenge = useStore(challenges, state => challengeOf(state.by, key, Number(entry)));
+  const held = challenged && challenge?.state === "done" ? challenge.held : NONE;
+  const shaped = report.kind === "shaped" ? report.shaped : null;
+
+  const marked = useMemo(() => shaped && withHeld(shaped, held), [shaped, held]);
+  const shapedParts = useMemo(() => !shaped || !marked ? [report.kind === "long" ? report.nodes : []] : [
     [
-      ...report.shaped.lead.map(node => isTag(node) ? new Element(node.name, { ...node.attribs, class: "report-lead" }, node.children) : node),
-      ...report.shaped.headline.length ? [new Element("p", { class: "report-headline" }, report.shaped.headline as Element["children"])] : [],
-      ...report.shaped.intro,
+      ...shaped.lead.map(node => isTag(node) ? new Element(node.name, { ...node.attribs, class: "report-lead" }, node.children) : node),
+      ...shaped.headline.length ? [new Element("p", { class: "report-headline", ...marked.headlineHeld ? { "data-held": "" } : {} }, shaped.headline as Element["children"])] : [],
+      ...shaped.intro,
     ],
-    ...report.shaped.sections.map(section => section.nodes),
-  ], [report]);
-  const { parts, at, rest } = useReviewed(entry, shapedParts, sent);
+    ...marked.sections.map(section => section.nodes),
+  ], [report, shaped, marked]);
+  const claim = useMemo(() => shaped && challenged ? (place: string) => claimWords(shaped, place) : null, [shaped, challenged]);
+  const { parts, at, rest } = useReviewed(entry, shapedParts, sent, claim);
 
   return <div className={`reply-body${swapped ? " swapped" : ""}`}>
     <WithNotes list={parts[0]} at={at} />
-    {report.kind === "shaped" && report.shaped.sections.map((section, i) => <ReportPart key={i} section={section} list={parts[i + 1]} at={at} />)}
+    {shaped && shaped.sections.map((section, i) => <ReportPart key={i} section={section} list={parts[i + 1]} at={at} />)}
     <Notes notes={rest} />
   </div>;
 }
+
+const NONE: readonly string[] = [];
 
 /// A report's `##` section: its title and item count over its body; Needs you as a callout.
 function ReportPart({ section, list, at }: { section: ReportSection; list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly Note[]> }) {

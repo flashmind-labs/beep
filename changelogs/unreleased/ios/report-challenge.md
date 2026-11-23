@@ -22,6 +22,12 @@
 - iOS: comments and findings sent in a review stay on the claims they are about,
   one line each marked "sent", their words underlined thinly; a click shows the
   whole comment, and "answered ↓" goes to the reply that answered it.
+- iOS: a finding whose quoted words aren't in the report, because the challenger
+  paraphrased them, goes under the claim it names, with that claim's first
+  sentence marked, instead of at the end of the report.
+- iOS: when a challenge finishes, the claims it checked and could not break show
+  a green HELD tag on the report, and the header says how many are held, such as
+  "2 held"; hovering lists them.
 
 ### Fixed
 

@@ -776,6 +776,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .rv-note:is(:hover, :focus-within) .rv-drop { opacity: 1 }
 .rv-tag { margin-left: 6px; padding: 0 5px; border-radius: var(--radius-sm); font: 600 10px/16px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); cursor: help }
 .rv-tag[data-tag="confirmed"] { color: var(--err); background: color-mix(in srgb, var(--err) 16%, transparent) }
+.report-held { user-select: none } .report-held::after { content: "held"; margin-left: 6px; padding: 0 5px; border-radius: var(--radius-sm); font: 600 10px/16px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); cursor: help }
 :is(.rv-note, .rv-sent) .ev { display: block; margin-top: 2px; font-size: 12px; line-height: 18px; color: var(--muted) }
 :is(.rv-note, .rv-sent) :is(.t, .ev) code { padding: 0 4px; border-radius: var(--radius-sm); font: .92em var(--mono); background: color-mix(in srgb, var(--fg) 8%, transparent) }
 .rv-note .k, .rv-item .k, .rv-sent .k { font: 11px/16px var(--mono); color: var(--dim) }

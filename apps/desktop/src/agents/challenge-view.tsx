@@ -91,9 +91,12 @@ export function ChallengeActs({ entry, can }: { entry: string; can: boolean }) {
         {openButton(challenge)}{can && picker("Again")}
       </span>;
     case "done":
-      return challenge.findings
-        ? <Button small look="quiet" onClick={event => showFindings(event.currentTarget)} title="Go to the findings">{plural(challenge.findings, "finding", "findings")}</Button>
-        : <span className="report-done">Nothing broken</span>;
+      return <>
+        {challenge.findings
+          ? <Button small look="quiet" onClick={event => showFindings(event.currentTarget)} title="Go to the findings">{plural(challenge.findings, "finding", "findings")}</Button>
+          : <span className="report-done">Nothing broken</span>}
+        {challenge.held.length > 0 && <span className="report-done" title={`Held: ${challenge.held.join(", ")}`}>{challenge.held.length} held</span>}
+      </>;
     case undefined:
       return can ? picker("Challenge") : null;
   }

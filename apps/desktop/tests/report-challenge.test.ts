@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { challengePrompt, challengeResult, challengeStep, findingDraft, parseFindings } from "../src/agents/challenge-state.ts";
+import { challengePrompt, challengeResult, challengeStep, findingDraft, parseFindings, parseHeld } from "../src/agents/challenge-state.ts";
 import { parseReview, reviewPrompt } from "../src/agents/review-state.ts";
 
 const challenger = `Partly done: one claim broke, two held.
@@ -62,9 +62,9 @@ test("a challenger's session status moves its challenge on", () => {
 });
 
 test("whatever a finished challenger answered is its result; without an answer it failed", () => {
-  assert.deepEqual(challengeResult(challenger, null), { state: "done", findings: parseFindings(challenger) });
-  assert.deepEqual(challengeResult(`Two claims broken. Report:\n\n${challenger}`, null), { state: "done", findings: parseFindings(challenger) });
-  assert.deepEqual(challengeResult("Every claim held.", null), { state: "done", findings: [] });
+  assert.deepEqual(challengeResult(challenger, null), { state: "done", findings: parseFindings(challenger), held: ["Checked 1"] });
+  assert.deepEqual(challengeResult(`Two claims broken. Report:\n\n${challenger}`, null), { state: "done", findings: parseFindings(challenger), held: ["Checked 1"] });
+  assert.deepEqual(challengeResult("Every claim held.", null), { state: "done", findings: [], held: [] });
   assert.deepEqual(challengeResult(null, null), { state: "failed", error: "It stopped without answering." });
   assert.deepEqual(challengeResult("  ", "codex is not signed in "), { state: "failed", error: "codex is not signed in" });
 });
@@ -87,3 +87,9 @@ test("a real challenger's answer, a line of its own before its report, gives its
   ]);
 });
 
+
+test("the claims that held are read from the challenger's Checked, as serpis reads them", () => {
+  const text = "Done: nothing broke.\n\n## Checked\n\n- **Changed 2:** held. Read the backoff.\n- **Headline**: Held, ran it.\n1. Checked 1: held\n- **Changed 3:** broke, see above.\n- Ran `npm test`: passes.\n\n## Not done\n- **Changed 4:** held.";
+  assert.deepEqual(parseHeld(text), ["Changed 2", "Headline", "Checked 1"]);
+  assert.deepEqual(parseHeld("Done: no sections."), []);
+});

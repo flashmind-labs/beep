@@ -898,6 +898,41 @@ test("agent report challenged", async ({ page }) => {
   await expect(page.locator(".rv-bar")).toHaveCount(0);
 });
 
+test("agent report challenge places a paraphrased finding on its claim and marks what held", async ({ page }) => {
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
+  const challenger = { ...agentRow("challenger-two", "Challenge the report", "working", 0), agent: "claude" };
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries }, agent_begin: { session: challenger, why: "" }, agent_hosts: challengeHosts, agent_models: challengeModels });
+  const report = page.locator(".dcoderen.report");
+  await report.getByRole("button", { name: "Challenge" }).click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await picker.locator('[data-agh="claude"]').click();
+  await picker.locator('[data-agmo="beta"]').click();
+  await picker.locator('[data-age=""]').click();
+  await expect(report.locator(".report-busy")).toContainText("Challenging…");
+
+  // Its quote is not the report's words, so the finding goes on the claim it names; two claims held.
+  const found = "Partly done: one claim broke.\n\n## Needs you\n\n1. **[plausible] Changed 2**\n   > A test covers an empty next value.\n   It never runs: the file is not in the suite.\n   Evidence: read `vitest.config.ts`.\n\n## Checked\n\n- **Headline:** held. Signed in from a deep link.\n- **Changed 1:** held. Read `src/login.ts`.";
+  await page.evaluate(([row, text]) => {
+    window.__navigation.respond("agent_sessions", [{ ...row, status: "idle" }]);
+    window.__navigation.respond("agent_views", { [row.id]: { session: { ...row, status: "idle" }, plan: [], files: [], entries: [{ kind: "agent", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1, usage: null } });
+    window.__navigation.emit("sessions-changed", null);
+  }, [challenger, found] as const);
+  await expect(report.getByRole("button", { name: "1 finding" })).toBeVisible();
+  await expect(report.locator(".report-head")).toContainText("2 held");
+
+  const changed = report.locator('.report-part[data-kind="changed"] li');
+  await expect(changed.nth(1).locator('> .rv-note[data-ask="finding"] .t')).toHaveText("It never runs: the file is not in the suite.");
+  await expect(changed.nth(1).locator('.rv-mark[data-ask="finding"]')).toHaveText(["Test for an empty ", "next", " (", "src/login.test.ts:18", ")."]);
+  await expect(report.locator(".reply-body > .rv-note")).toHaveCount(0);
+
+  // The claims that held carry a chip, which stays out of what a selection copies.
+  await expect(report.locator(".report-headline[data-held] .report-held")).toHaveCount(1);
+  await expect(changed.nth(0)).toHaveAttribute("data-held", "");
+  await expect(changed.nth(1)).not.toHaveAttribute("data-held", "");
+  expect(await changed.nth(0).evaluate(li => li.textContent)).toBe("Query string kept (src/login.ts:42): it was dropped when next was read.");
+  await baseline(page, "agent-report-held");
+});
+
 test("agent report challenge picker shows whole model names", async ({ page }) => {
   const name = "openrouter/DeepSeek: DeepSeek V4 Flash";
   const models = { pick: "listed", current: "a", models: ["free", "nitro", "floor", "exacto"].map(tier => ({ id: `deepseek/deepseek-v4-flash:${tier}`, name, description: null, provider: "openrouter" })) };

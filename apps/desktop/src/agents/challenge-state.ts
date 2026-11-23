@@ -29,6 +29,8 @@ export interface Challenge {
   state: ChallengeState;
   /// How many findings it left as drafts, once done.
   findings: number;
+  /// The claims it checked and could not break, by place (`Changed 2`), once done.
+  held: readonly string[];
   /// Why it failed; "" otherwise.
   error: string;
 }
@@ -44,9 +46,10 @@ export function challengeStep(status: string | null, starting: boolean): "runnin
 
 /// How a finished challenger's last reply ends its challenge: whatever it
 /// said is its answer, its findings read from it, none when it broke no
-/// claim. Without a reply it failed, with the session's own error if any.
-export function challengeResult(reply: string | null, error: string | null): { state: "done"; findings: Finding[] } | { state: "failed"; error: string } {
-  if (reply?.trim()) return { state: "done", findings: parseFindings(reply) };
+/// claim, and the claims that held. Without a reply it failed, with the
+/// session's own error if any.
+export function challengeResult(reply: string | null, error: string | null): { state: "done"; findings: Finding[]; held: string[] } | { state: "failed"; error: string } {
+  if (reply?.trim()) return { state: "done", findings: parseFindings(reply), held: parseHeld(reply) };
   return { state: "failed", error: error?.trim() || "It stopped without answering." };
 }
 
@@ -63,7 +66,7 @@ export function challengePrompt(report: string, work: string) {
 /// Then come `> quote` lines, the finding's words and `Evidence:`, whose
 /// words run on to the item's end. Untagged items are left out.
 export function parseFindings(text: string): Finding[] {
-  const section = /^##\s+Needs you\s*$([\s\S]*?)(?=^##\s|(?![\s\S]))/im.exec(text)?.[1] ?? "";
+  const section = sectionOf(text, "Needs you");
   const out: Finding[] = [];
   // Where an item's lines go: its words, its evidence, or nowhere (an untagged item).
   let into: "words" | "evidence" | "none" = "none";
@@ -97,6 +100,21 @@ export function parseFindings(text: string): Finding[] {
   return out;
 }
 
+/// The claims a challenger's report says held, under its Checked:
+/// `- **Changed 2:** held. Read the backoff.` Their places, as it wrote them.
+export function parseHeld(text: string): string[] {
+  return sectionOf(text, "Checked").split("\n").flatMap(line => {
+    const item = /^\s*(?:\d+[.)]|[-*])\s+(.*)$/.exec(line)?.[1].replace(/\*\*/g, "");
+    const colon = item?.indexOf(":") ?? -1;
+    if (!item || colon < 0 || !/^held\b/i.test(item.slice(colon + 1).trim())) return [];
+    return [item.slice(0, colon).trim()];
+  });
+}
+
+/// The body of `text`'s `## title` section, or "" when it has none.
+const sectionOf = (text: string, title: string) =>
+  new RegExp(`^##\\s+${title}\\s*$([\\s\\S]*?)(?=^##\\s|(?![\\s\\S]))`, "im").exec(text)?.[1] ?? "";
+
 /// A finding as a review draft on the report at `entry`, which starts `opening`.
 export function findingDraft(finding: Finding, id: number, entry: number, opening: string): ReviewComment {
   return { id, entry, quote: finding.quote, place: finding.place, opening, ask: "finding", text: finding.text, finding: { tag: finding.tag, evidence: finding.evidence } };
@@ -128,11 +146,14 @@ function loadChallenges(): Record<string, readonly Challenge[]> {
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(STORAGE) ?? "{}");
     if (typeof raw !== "object" || raw === null) return {};
-    return Object.fromEntries(Object.entries(raw).map(([key, list]) => [key, Array.isArray(list) ? list.filter(isChallenge) : []]));
+    return Object.fromEntries(Object.entries(raw).map(([key, list]) => [key, Array.isArray(list) ? list.map(heldKept).filter(isChallenge) : []]));
   } catch {
     return {};
   }
 }
+
+/// A challenge kept before it noted the claims that held, with none.
+const heldKept = (value: unknown) => typeof value === "object" && value !== null && !("held" in value) ? { ...value, held: [] } : value;
 
 const STATES: readonly ChallengeState[] = ["running", "asking", "done", "failed"];
 
@@ -141,6 +162,7 @@ function isChallenge(value: unknown): value is Challenge {
   if (!("entry" in value && typeof value.entry === "number" && "opening" in value && typeof value.opening === "string" && "findings" in value && typeof value.findings === "number")) return false;
   if (!("state" in value && STATES.some(state => state === value.state))) return false;
   if (!("error" in value && typeof value.error === "string")) return false;
+  if (!("held" in value && Array.isArray(value.held) && value.held.every(h => typeof h === "string"))) return false;
   if (!("challenger" in value && typeof value.challenger === "object" && value.challenger !== null)) return false;
 
   const c = value.challenger;

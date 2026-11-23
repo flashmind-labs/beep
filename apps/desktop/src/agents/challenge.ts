@@ -34,7 +34,7 @@ export async function challengeReport(at: number, pick: Pick<Picked, "agent" | "
   startedWith(started.session, prompt, []);
 
   const challenger = { machine: started.session.machine_id, agent: started.session.agent, session: started.session.id };
-  updateChallenges(key, list => [...list, { entry: at, opening: openingOf(report.text), challenger, state: "running", findings: 0, error: "" }]);
+  updateChallenges(key, list => [...list, { entry: at, opening: openingOf(report.text), challenger, state: "running", findings: 0, held: [], error: "" }]);
 }
 
 /// Where session `s` did its work: the last worktree it made, else its folder.
@@ -130,7 +130,7 @@ async function collect(key: string, c: Challenge) {
         const first = Math.max(0, ...review.comments.map(d => d.id)) + 1;
         return { ...review, comments: [...review.comments, ...result.findings.map((f, i) => findingDraft(f, first + i, c.entry, c.opening))] };
       });
-      settle(key, c, { state: "done", findings: result.findings.length });
+      settle(key, c, { state: "done", findings: result.findings.length, held: result.held });
     } else {
       settle(key, c, { state: "failed", error: result.error });
     }
