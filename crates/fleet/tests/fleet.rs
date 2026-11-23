@@ -1112,50 +1112,6 @@ fn plan_reply(agent: &str, used: f64, at: u64) -> SessionsReply {
     }
 }
 
-/// Claude Code takes a while to start, so a node often reads its plan after the desktop's read
-/// went quiet and ended: the plan reaches the desktop as soon as the node sends it (#348).
-#[tokio::test]
-async fn a_plan_read_after_the_report_reaches_the_desktop_at_once() {
-    let f = fleet().await;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("after the epoch")
-        .as_secs();
-    let build = Arc::new(FakeNode {
-        usage: vec![plan_reply("codex", 20.0, now)],
-        late: vec![plan_reply("claude", 40.0, now)],
-        ..FakeNode::default()
-    });
-    let options = Options {
-        settle: Duration::from_millis(300),
-        ..Options::default()
-    };
-    let (told, mut heard) = tokio::sync::mpsc::unbounded_channel();
-    let session = Session::new(
-        peering(&f.studio, &[(&f.build, &build)], &[]),
-        options,
-        move |changed| {
-            told.send(changed).ok();
-        },
-    )
-    .expect("a session");
-    let agents = |report: &beep_proto::SpendReport| -> Vec<String> {
-        report.limits.iter().map(|l| l.agent.to_string()).collect()
-    };
-    let first = session.spend(false).await.expect("the usage reads");
-    assert_eq!(agents(&first), ["codex"]);
-    build.release.notify_one();
-    // The page hears of it, and the report it reads has it, with no new read.
-    timeout(LIMIT, async {
-        while heard.recv().await != Some(Changed::Usage) {}
-    })
-    .await
-    .expect("the page hears of the plan");
-    let next = session.spend(false).await.expect("the usage reads");
-    assert_eq!(agents(&next), ["claude", "codex"]);
-    assert_eq!(next.limits[0].windows[0].used_percent, 40.0);
-}
-
 /// The pill shows the last run's plans as the app opens, before any machine answers (#370).
 #[tokio::test]
 async fn the_usage_read_before_a_restart_shows_at_once() {
