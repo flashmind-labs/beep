@@ -2,11 +2,10 @@
 //! read projections (`Projected`), so degraded or offline `beep-node` links never
 //! block UI commands or stall healthy machines.
 
-use super::{Fleet, alerts, session_lists::SessionLists};
+use super::{Fleet, alerts, session_lists::SessionLists, session_mirror::SessionMirror};
 use crate::{
-    center::home_sessions::HOME_CHANGED,
+    center::home::HOME_CHANGED,
     error::{DesktopError, Result},
-    machines::list::MachineLists,
 };
 use beep_mesh::{
     PeerClient, RETRY,
@@ -856,40 +855,23 @@ fn on_settled(
                         lists.stale(machine);
                     }
                 }
-                if let Some(lists) = app.try_state::<MachineLists>() {
-                    let machine_id = machine.to_string();
+                if let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
                     if ok {
-                        lists.local.replace(Vec::new(), |s| {
-                            s.machine_id == machine_id && s.id == *session
-                        });
-                        lists.sessions.replace(Vec::new(), |s| {
-                            s.machine_id == machine_id && s.id == *session
-                        });
-                        lists.scans.replace(Vec::new(), |s| {
-                            s.machine_id == machine_id && s.id == *session
-                        });
+                        mirror.deleted(&machine.to_string(), session);
                     } else {
-                        lists.local.stale();
-                        lists.sessions.stale();
-                        lists.scans.stale();
+                        mirror.delete_failed(machine);
                     }
                 }
-                let _ = app.emit("sessions-changed", session);
-                let _ = app.emit(HOME_CHANGED, ());
             }
         }
-        JobKind::RelocateSession { session, .. } => {
+        JobKind::RelocateSession { .. } => {
             if let Some(app) = app {
                 if let Some(lists) = app.try_state::<SessionLists>() {
                     lists.stale(machine);
                 }
-                if let Some(lists) = app.try_state::<MachineLists>() {
-                    lists.local.stale();
-                    lists.sessions.stale();
-                    lists.scans.stale();
+                if let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
+                    mirror.moved(machine);
                 }
-                let _ = app.emit("sessions-changed", session);
-                let _ = app.emit(HOME_CHANGED, ());
             }
         }
         JobKind::DevicePower { .. } => {
@@ -906,9 +888,6 @@ fn on_settled(
         }
         JobKind::TerminalStop { .. } if !ok => {
             if let Some(app) = app {
-                if let Some(lists) = app.try_state::<MachineLists>() {
-                    lists.terminals.stale();
-                }
                 let _ = app.emit(HOME_CHANGED, ());
             }
         }

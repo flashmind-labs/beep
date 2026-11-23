@@ -3,27 +3,24 @@
 
 use crate::{
     beep::{epoch_ms, state::Prefs},
-    center::{home_sessions::HOME_CHANGED, lock},
+    center::{home::HOME_CHANGED, lock},
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
     fleet::{ClockOff, Fleet, Machines, files as direct},
 };
 use beep_projects::imports::found::MachineFound;
 use beep_proto::{
-    Machine, MachineEnv, MachineSession, MachineTraffic, MachineUpdate, Terminal, TrafficCounter,
-    UpdatableMachine,
+    Machine, MachineEnv, MachineTraffic, MachineUpdate, Terminal, TrafficCounter, UpdatableMachine,
     node::{AdapterInstall, logs::MAX_LINES},
 };
 use futures::future::BoxFuture;
 use iroh::EndpointId;
 use serde::Serialize;
 use std::{
-    collections::HashMap,
     fs,
     future::Future,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
 };
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc::{self, error::TrySendError};
@@ -65,8 +62,6 @@ impl From<Machine> for MachineView {
 
 struct HeldState<T> {
     list: Vec<T>,
-    /// When the list was last read, for `refreshed_after`.
-    read_at: Option<Instant>,
     refresh: Option<mpsc::Sender<BoxFuture<'static, ()>>>,
 }
 
@@ -81,7 +76,6 @@ impl<T> Default for Held<T> {
         Self {
             state: Mutex::new(HeldState {
                 list: Vec::new(),
-                read_at: None,
                 refresh: None,
             }),
         }
@@ -89,13 +83,8 @@ impl<T> Default for Held<T> {
 }
 
 impl<T: Clone + Send + 'static> Held<T> {
-    pub(crate) fn last(&self) -> Vec<T> {
+    fn last(&self) -> Vec<T> {
         lock(&self.state).list.clone()
-    }
-
-    /// Changes the list as held, for what this app knows before the next read.
-    pub(crate) fn edit(&self, change: impl FnOnce(&mut [T])) {
-        change(&mut lock(&self.state).list);
     }
 
     /// The worker runs one refresh at a time. Further requests share the queued pass.
@@ -128,7 +117,6 @@ impl<T: Clone + Send + 'static> Held<T> {
         match listed {
             Ok(listed) => {
                 let mut held = lock(&self.state);
-                held.read_at = Some(Instant::now());
                 let changed = held.list.len() != listed.len()
                     || held
                         .list
@@ -175,25 +163,6 @@ impl<T: Clone + Send + 'static> Held<T> {
         self.last()
     }
 
-    /// As `refreshed`, but `ask` runs only once the last read is `fresh`
-    /// old, so the callers in between share it.
-    pub(crate) fn refreshed_after(
-        self: &Arc<Self>,
-        app: &AppHandle,
-        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
-        same: fn(&T, &T) -> bool,
-        fresh: Duration,
-    ) -> Vec<T> {
-        if lock(&self.state)
-            .read_at
-            .is_none_or(|at| at.elapsed() >= fresh)
-        {
-            self.refresh_with(app, ask, same);
-        }
-
-        self.last()
-    }
-
     /// Replaces the rows `of` picks with `rows`, for a change that one machine
     /// sent; the others stay as held.
     pub(crate) fn replace(&self, rows: Vec<T>, of: impl Fn(&T) -> bool) {
@@ -201,41 +170,16 @@ impl<T: Clone + Send + 'static> Held<T> {
         held.list.retain(|row| !of(row));
         held.list.extend(rows);
     }
-
-    /// Whether the list was read since it started or was last made stale.
-    pub(crate) fn was_read(&self) -> bool {
-        lock(&self.state).read_at.is_some()
-    }
-
-    /// Keeps `listed`, read by the caller.
-    pub(crate) fn keep(&self, listed: Vec<T>) {
-        let mut held = lock(&self.state);
-        held.read_at = Some(Instant::now());
-        held.list = listed;
-    }
-
-    /// The next `refreshed_after` reads again, however recent the last read.
-    pub(crate) fn stale(&self) {
-        lock(&self.state).read_at = None;
-    }
 }
 
-/// What the machines of the mesh last listed, per kind of list.
+/// What the machines of the mesh last listed, per kind of list. Their
+/// sessions are the session mirror's.
 #[derive(Default)]
 pub struct MachineLists {
-    /// Beep's sessions on this Mac, from the node in this process.
-    pub(crate) local: Arc<Held<MachineSession>>,
-    /// Beep's sessions on the other machines of the mesh.
-    pub(crate) sessions: Arc<Held<MachineSession>>,
-    /// The sessions started outside Beep, found by scanning every machine.
-    pub(crate) scans: Arc<Held<MachineSession>>,
     /// The terminals on the other machines of the mesh, as they stand.
     pub(crate) terminals: Arc<Held<Terminal>>,
     /// The checkouts each machine of the mesh named last.
     pub(crate) found: FoundOn,
-    /// The machines whose sessions are listed again now, and whether another
-    /// change came meanwhile.
-    pub(crate) relisting: Mutex<HashMap<String, bool>>,
 }
 
 /// What each machine named last when asked for its checkouts.

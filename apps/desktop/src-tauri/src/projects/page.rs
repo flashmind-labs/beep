@@ -7,11 +7,12 @@ use crate::{
         Machines, files as direct,
         projects::{FleetState, desk},
         session_lists::{ListId, SessionLists},
+        session_mirror::SessionMirror,
     },
-    machines::list::MachineLists,
 };
 use beep_proto::{ProjectMachine, SyncthingPlace};
 use serde::Serialize;
+use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 
 /// The sessions coding agents ran in `project`'s folders, newest first. `None` until every
@@ -121,7 +122,7 @@ pub async fn project_remove_from_machine(
     app: AppHandle,
     fleet: FleetState<'_>,
     machines: Machines<'_>,
-    held: State<'_, MachineLists>,
+    mirror: State<'_, Arc<SessionMirror>>,
     project: String,
     machine_id: String,
     delete_folder: Option<bool>,
@@ -137,7 +138,7 @@ pub async fn project_remove_from_machine(
         .filter(|(machine, _)| *machine == id)
         .map(|(_, folder)| folder)
         .collect();
-    let open = direct::has_open_project_session(&machines, id, &folders, &held).await?;
+    let open = direct::has_open_project_session(&machines, id, &folders, &mirror.rows()).await?;
     if open {
         return Err(DesktopError::BadRequest(format!(
             "An agent is working in {project} on {}. Stop it first.",

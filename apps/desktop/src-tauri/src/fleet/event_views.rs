@@ -121,7 +121,7 @@ impl Pending {
 
 pub(crate) fn listen(app: &AppHandle) {
     for event in [
-        crate::center::home_sessions::HOME_CHANGED,
+        crate::center::home::HOME_CHANGED,
         "sessions-changed",
         "agent-title-changed",
         "reconnected",

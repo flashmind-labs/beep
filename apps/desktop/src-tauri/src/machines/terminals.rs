@@ -4,7 +4,7 @@
 
 use crate::{
     beep::epoch_ms,
-    center::home_sessions::HOME_CHANGED,
+    center::home::HOME_CHANGED,
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,

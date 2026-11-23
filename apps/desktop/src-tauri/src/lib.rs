@@ -671,7 +671,6 @@ fn setup(
         env!("CARGO_PKG_VERSION"),
     ));
 
-    app.manage(Arc::new(center::home_sessions::AgentSessions::new(&views)));
     app.manage(palette::PaletteCache::load(&views)?);
     #[cfg(desktop)]
     app.manage(Arc::new(palette::copies::Copies::load(&dir)));
@@ -793,6 +792,21 @@ fn setup(
     tauri::async_runtime::spawn(async move { opening.run().await });
     app.manage(machine);
     app.manage(machines::list::MachineLists::default());
+    let cache = handle
+        .state::<Arc<center::view_cache::ViewCache>>()
+        .inner()
+        .clone();
+    let mirror = tauri::async_runtime::block_on(async {
+        fleet::session_mirror::SessionMirror::start(
+            fleet::session_mirror::Desk {
+                app: handle.clone(),
+                fleet: fleet.clone(),
+            },
+            fleet::session_mirror::kept(&cache),
+        )
+    });
+    tauri::async_runtime::spawn(fleet::session_mirror::keep(mirror.watch(), cache));
+    app.manage(Arc::new(mirror));
     app.manage(projects::live::Followed::default());
     app.manage(settings::gh_sign_in::GhSignIn::default());
     app.manage(agents::accounts::ClaudeSignIn::default());

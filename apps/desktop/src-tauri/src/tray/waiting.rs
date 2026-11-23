@@ -5,7 +5,6 @@ use crate::{
     agents::sessions::machine_sessions,
     center::{self, AgentTarget, CenterTarget, NeedsYou},
     fleet::Fleet,
-    machines::list::MachineLists,
     notices::history,
 };
 use beep_proto::SessionId;
@@ -185,7 +184,7 @@ pub async fn follow(app: AppHandle) {
 }
 
 async fn fetch(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec<Entry> {
-    let sessions = machine_sessions(app, fleet, &app.state::<MachineLists>()).await;
+    let sessions = machine_sessions(app, fleet).await;
     entries(center::needs_you(sessions.iter()))
 }
 

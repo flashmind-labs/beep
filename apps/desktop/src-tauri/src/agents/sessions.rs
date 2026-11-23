@@ -9,7 +9,7 @@ use crate::{
         work_copy,
     },
     beep::epoch_ms,
-    center::{AgentsShown, home_sessions::AgentSessions},
+    center::AgentsShown,
     chat::markdown,
     error::{DesktopError, Result},
     fleet::{
@@ -17,8 +17,8 @@ use crate::{
         asked::{ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT},
         node_actor::{FAST_JOB_WAIT, JobKind},
         session_lists::SessionLists,
+        session_mirror::{Rows, SessionMirror},
     },
-    machines::list::MachineLists,
     projects::known,
 };
 use beep_mesh::Key;
@@ -27,7 +27,7 @@ use beep_proto::SessionId;
 use beep_proto::node::agent::{LineChanges, Persona};
 use beep_proto::{
     AccountName, AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModels, AgentPlanStep,
-    AgentQuestion, AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentStatus, AgentTask,
+    AgentQuestion, AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentTask,
     AgentToolCall, ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks,
     ListAgentModels, MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
     node::{
@@ -36,27 +36,10 @@ use beep_proto::{
         mesh_state::StateValue,
     },
 };
-use iroh::EndpointId;
 use serde::Serialize;
-use std::{
-    str::FromStr,
-    sync::{Arc, PoisonError},
-    time::{Duration, Instant},
-};
+use std::{str::FromStr, sync::Arc, time::Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::broadcast;
-
-/// How long one scan of the sessions started outside Beep serves every
-/// caller (the tray, Home, the palette) before the next runs: each scan
-/// starts `ps`, `lsof` and git on every machine.
-const SCAN_FRESH: Duration = Duration::from_secs(30);
-/// How long the held session lists stand before a read lists every machine
-/// again. Until then each machine's change replaces only its own rows.
-const SESSIONS_FRESH: Duration = Duration::from_secs(30);
-/// The first wait before a machine that did not list its sessions is asked
-/// again; it doubles up to `RELIST_LAST`.
-const RELIST_FIRST: Duration = Duration::from_secs(1);
-const RELIST_LAST: Duration = Duration::from_secs(16);
 
 /// A machine that can run a coding agent.
 #[derive(Debug, Serialize)]
@@ -270,12 +253,8 @@ pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
 }
 
 #[tauri::command]
-pub async fn agent_sessions(
-    app: AppHandle,
-    fleet: Machines<'_>,
-    held: State<'_, MachineLists>,
-) -> Result<Vec<SessionRow>> {
-    let sessions = machine_sessions(&app, &fleet, &held).await;
+pub async fn agent_sessions(app: AppHandle, fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
+    let sessions = machine_sessions(&app, &fleet).await;
     let children = fleet.children().into_iter().map(|linked| {
         let background = linked.parent.is_some_and(|link| link.background);
         (linked.session, linked.reviewer, background)
@@ -332,7 +311,6 @@ pub(crate) async fn follow_titles(app: AppHandle, fleet: Arc<Fleet>) {
         let Some(retitled) = beep_fleet::session_titles::changed(&mesh, &key) else {
             continue;
         };
-        app.state::<Arc<AgentSessions>>().stale();
 
         if let Err(e) = app.emit("agent-title-changed", retitled) {
             log::warn!("could not tell the windows a session title changed: {e}");
@@ -340,167 +318,42 @@ pub(crate) async fn follow_titles(app: AppHandle, fleet: Arc<Fleet>) {
     }
 }
 
-/// Shows a session its machine said ended as ended in the lists held here, so
+/// Shows a session its machine said ended as ended in the mirror's rows, so
 /// Home and the session lists drop it from Running at once rather than on a
 /// later read, and has the windows read them again.
 pub(crate) fn closed(app: &AppHandle, machine_id: &str, session: &SessionId) {
-    let end = |list: &mut [MachineSession]| {
-        for listed in list
-            .iter_mut()
-            .filter(|listed| listed.machine_id == machine_id && listed.id == *session)
-        {
-            listed.status = AgentStatus::Ended {};
-            listed.doing = None;
-            listed.question = None;
-        }
-    };
-    let held = app.state::<MachineLists>();
-    held.sessions.edit(end);
-    // The scan runs again on the next read, which may find it gone.
-    held.scans.stale();
-    app.state::<Arc<AgentSessions>>().edit(end);
-
-    if let Err(e) = app.emit("sessions-changed", session) {
-        log::warn!("could not tell the windows a session closed: {e}");
-    }
+    app.state::<Arc<SessionMirror>>()
+        .closed(machine_id, session);
 }
 
-/// Whether two listings of a session differ in what the windows draw, which
-/// leaves out what moves on every read.
-fn same_session(old: &MachineSession, new: &MachineSession) -> bool {
-    old.machine_id == new.machine_id
-        && old.id == new.id
-        && old.status == new.status
-        && old.question.as_ref().map(|q| q.id) == new.question.as_ref().map(|q| q.id)
+/// The sessions of every machine, newest activity first, as the mirror
+/// holds them. The first call of a launch waits for this Mac's node to list;
+/// a read asks the machines again for what is older than the mirror allows,
+/// and the windows redraw when an answer changes what they draw.
+pub(crate) async fn machine_sessions(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec<MachineSession> {
+    let rows = app
+        .state::<Arc<SessionMirror>>()
+        .rows_of_launch(fleet)
+        .await;
+    overlaid(app, fleet, &rows)
 }
 
-/// `machine` said its sessions changed: they are listed again, from its
-/// subscription, and replace its rows alone, so the other machines are not
-/// asked. A change that comes while it is listed has it listed once more.
-/// One that does not answer keeps its rows and is asked again while it is
-/// online, waiting longer each time.
-pub(crate) async fn machine_changed(app: &AppHandle, machine: EndpointId) {
-    let held = app.state::<MachineLists>();
-    let id = machine.to_string();
-
-    {
-        let mut relisting = held
-            .relisting
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if let Some(again) = relisting.get_mut(&id) {
-            *again = true;
-            return;
-        }
-        relisting.insert(id.clone(), false);
-    }
-
-    let fleet = app.state::<Arc<Fleet>>().inner().clone();
-    let mut pause = RELIST_FIRST;
-
-    loop {
-        match direct::sessions_of(&fleet, machine).await {
-            Some(rows) => {
-                let list = if machine == fleet.id() {
-                    &held.local
-                } else {
-                    &held.sessions
-                };
-                list.replace(rows, |row| row.machine_id == id);
-            }
-            None if pause <= RELIST_LAST && fleet.online().contains(&machine) => {
-                tokio::time::sleep(pause).await;
-                pause *= 2;
-                continue;
-            }
-            None => log::info!("the sessions of {id} were not listed"),
-        }
-
-        let mut relisting = held
-            .relisting
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if relisting.get(&id) == Some(&true) {
-            relisting.insert(id.clone(), false);
-            continue;
-        }
-        relisting.remove(&id);
-        break;
-    }
-
-    app.state::<SessionLists>().stale(machine);
-    app.state::<Arc<AgentSessions>>().stale();
-    app.state::<crate::palette::lists::PaletteCache>()
-        .sessions_changed();
-}
-
-/// The sessions of every machine, newest activity first, at once: Beep's on
-/// this Mac, read in this process, and the rest as last held. The other
-/// machines of the mesh and the scans of what agents ran outside Beep
-/// refresh in the background, each machine on its own limit,
-/// and the windows redraw when one changes.
-pub(crate) async fn machine_sessions(
-    app: &AppHandle,
-    fleet: &Arc<Fleet>,
-    held: &MachineLists,
-) -> Vec<MachineSession> {
-    let mut sessions = if held.local.was_read() {
-        let f = fleet.clone();
-        held.local.refreshed_after(
-            app,
-            async move { Ok(direct::local_sessions(&f).await) },
-            same_session,
-            SESSIONS_FRESH,
-        )
-    } else {
-        let listed = direct::local_sessions(fleet).await;
-        held.local.keep(listed.clone());
-        listed
-    };
-    let (a, f, kept) = (app.clone(), fleet.clone(), held.sessions.clone());
-    sessions.extend(held.sessions.refreshed_after(
-        app,
-        async move {
-            let peers = direct::peer_sessions(&f).await;
-            let mut sessions = peers.sessions;
-            // A machine that did not say keeps its rows: one being connected
-            // to shows them as connecting, one that did not answer is asked
-            // again.
-            let unsaid: Vec<String> = peers
-                .unanswered
-                .iter()
-                .chain(&peers.connecting)
-                .map(ToString::to_string)
-                .collect();
-            sessions.extend(
-                kept.last()
-                    .into_iter()
-                    .filter(|session| unsaid.contains(&session.machine_id)),
-            );
-
-            for machine in peers.unanswered {
-                let a = a.clone();
-                tauri::async_runtime::spawn(async move { machine_changed(&a, machine).await });
-            }
-
-            Ok(sessions)
-        },
-        same_session,
-        SESSIONS_FRESH,
-    ));
-    let f = fleet.clone();
-    sessions.extend(held.scans.refreshed_after(
-        app,
-        async move { Ok(direct::scanned_sessions(&f).await) },
-        same_session,
-        SCAN_FRESH,
-    ));
+/// `rows` with what this app knows on top: presence, deletes and moves under
+/// way, the user's titles and the starts it holds.
+pub(crate) fn overlaid(app: &AppHandle, fleet: &Fleet, rows: &Rows) -> Vec<MachineSession> {
+    // A machine that left the mesh keeps no sessions.
+    let mut sessions: Vec<MachineSession> = rows
+        .iter()
+        .filter(|session| fleet.mesh().is_none() || fleet.member(&session.machine_id).is_some())
+        .cloned()
+        .collect();
     fleet.apply_presence(&mut sessions);
     sessions.retain(|session| {
         !fleet
             .node_ops()
             .is_deleting_session(&session.machine_id, &session.id)
     });
+
     for session in &mut sessions {
         if let Some(folder) = fleet
             .node_ops()
@@ -661,7 +514,6 @@ pub fn agent_deletable(fleet: Machines<'_>, machine_id: String) -> bool {
 pub async fn agent_delete(
     app: AppHandle,
     fleet: Machines<'_>,
-    held: State<'_, MachineLists>,
     machine_id: String,
     agent: String,
     session: SessionId,
@@ -684,22 +536,10 @@ pub async fn agent_delete(
         )
         .await?;
 
-    held.local.replace(Vec::new(), |s| {
-        s.machine_id == machine_id && s.id == session
-    });
-    held.sessions.replace(Vec::new(), |s| {
-        s.machine_id == machine_id && s.id == session
-    });
-    held.scans.replace(Vec::new(), |s| {
-        s.machine_id == machine_id && s.id == session
-    });
+    app.state::<Arc<SessionMirror>>()
+        .deleted(&machine_id, &session);
     fleet.projections().forget_session(machine, &session);
-    app.state::<SessionLists>().forget(machine, session.clone());
-
-    // The windows read their session lists again.
-    if let Err(e) = app.emit("sessions-changed", session) {
-        log::warn!("could not tell the windows a session was deleted: {e}");
-    }
+    app.state::<SessionLists>().forget(machine, session);
 
     Ok(())
 }

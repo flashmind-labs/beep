@@ -351,28 +351,24 @@ pub(crate) async fn has_open_project_session(
     fleet: &Fleet,
     machine: EndpointId,
     folders: &[String],
-    held: &crate::machines::list::MachineLists,
+    rows: &super::session_mirror::Rows,
 ) -> Result<bool> {
     if folders.is_empty() {
         return Ok(false);
     }
 
     let machine_id = machine.to_string();
-    let cached_open = |rows: Vec<MachineSession>| {
-        rows.into_iter().any(|s| {
-            s.machine_id == machine_id
-                && !matches!(s.status, beep_proto::AgentStatus::Ended {})
-                && !fleet.node_ops().is_deleting_session_on(machine, &s.id)
-                && in_any_folder(&s.cwd, folders)
-        })
+    let open = |s: &MachineSession| {
+        s.machine_id == machine_id
+            && !matches!(s.status, beep_proto::AgentStatus::Ended {})
+            && !fleet.node_ops().is_deleting_session_on(machine, &s.id)
+            && in_any_folder(&s.cwd, folders)
     };
 
     let client = match timeout(Duration::from_secs(10), fleet.client(machine)).await {
         Ok(Ok(client)) => client,
         Ok(Err(DesktopError::Offline(_))) => {
-            return Ok(cached_open(held.local.last())
-                || cached_open(held.sessions.last())
-                || cached_open(held.scans.last()));
+            return Ok(rows.iter().any(open));
         }
         Ok(Err(err)) => return Err(err),
         Err(_) => {
@@ -416,7 +412,7 @@ pub(crate) async fn has_open_project_session(
     }
 
     fleet.apply_presence(&mut outside);
-    Ok(cached_open(outside) || cached_open(held.scans.last()))
+    Ok(outside.iter().any(open) || rows.iter().filter(|s| s.external).any(open))
 }
 
 /// A folder of a machine for the folder picker, `path` else its home, then the folders two

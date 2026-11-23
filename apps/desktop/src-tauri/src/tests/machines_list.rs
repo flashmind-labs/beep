@@ -63,22 +63,3 @@ fn a_live_value_that_moved_is_not_a_change() {
     assert!(held.finish(Ok(vec![("box".to_owned(), 9), ("rig".to_owned(), 1)]), same));
     assert!(held.finish(Ok(vec![("rig".to_owned(), 1)]), same));
 }
-
-#[test]
-fn one_machines_change_replaces_only_its_rows() {
-    let held = Held::<(String, u32)>::default();
-    held.keep(vec![
-        ("laptop".into(), 1),
-        ("studio".into(), 1),
-        ("studio".into(), 2),
-    ]);
-    assert!(held.was_read());
-
-    held.replace(vec![("studio".into(), 3)], |(machine, _)| {
-        machine == "studio"
-    });
-    assert_eq!(held.last(), [("laptop".into(), 1), ("studio".into(), 3)]);
-
-    held.stale();
-    assert!(!held.was_read());
-}

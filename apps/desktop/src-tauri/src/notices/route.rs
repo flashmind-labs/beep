@@ -3,13 +3,8 @@
 
 use super::{history, notify};
 use crate::{
-    bar,
-    beep::state::Prefs,
-    center,
-    center::home_sessions::{AgentSessions, HOME_CHANGED},
-    fleet::Fleet,
-    fleet::alerts::Direct,
-    tray::waiting::WaitingList,
+    bar, beep::state::Prefs, center, center::home::HOME_CHANGED, fleet::Fleet,
+    fleet::alerts::Direct, tray::waiting::WaitingList,
 };
 use beep_fleet::Read;
 use beep_proto::{AgentNoticeKey, Notice};
@@ -39,7 +34,6 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
             }
             Direct::Presence { machine, sessions } => {
                 app.state::<Arc<Fleet>>().note_presence(machine, sessions);
-                app.state::<Arc<AgentSessions>>().stale();
                 let _ = app.emit("sessions-changed", "");
                 let _ = app.emit(HOME_CHANGED, ());
             }

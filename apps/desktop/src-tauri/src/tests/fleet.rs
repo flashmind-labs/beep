@@ -605,15 +605,19 @@ async fn one_peer_that_never_answers_does_not_hold_the_others() {
     })
     .await;
     let started = Instant::now();
-    let found = agents::peer_sessions(&mac.fleet).await;
+    let (quick, slow) = tokio::join!(
+        agents::sessions_of(&mac.fleet, quick_id),
+        agents::sessions_of(&mac.fleet, slow_id),
+    );
     assert!(
         started.elapsed() < Duration::from_secs(8),
         "{:?}",
         started.elapsed()
     );
-    assert_eq!(found.sessions.len(), 1, "{:?}", found.sessions);
-    assert_eq!(found.sessions[0].machine_name, "Quick");
-    assert_eq!(found.unanswered, vec![slow_id]);
+    let quick = quick.expect("the quick peer answers");
+    assert_eq!(quick.len(), 1, "{quick:?}");
+    assert_eq!(quick[0].machine_name, "Quick");
+    assert!(slow.is_none());
 }
 
 #[tokio::test]

@@ -2,17 +2,16 @@
 //! from the mesh in one go. Entry point: `center_home`; `section` and
 //! `is_unsupported` read any list.
 
-use super::{
-    home_sessions::AgentSessions,
-    view_cache::{View, ViewCache, cache_view},
-};
+use super::view_cache::{View, ViewCache, cache_view};
 use crate::chat::markdown::inline_html;
 use crate::{
+    agents::sessions::overlaid,
     beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Fleet,
         projects::{FleetState, desk},
+        session_mirror::SessionMirror,
     },
     projects::ProjectRow,
     tray::waiting::WaitingList,
@@ -33,9 +32,15 @@ use std::{
     cmp::Reverse,
     collections::HashMap,
     sync::{Arc, Mutex, MutexGuard},
+    time::Duration,
 };
 use tauri::{AppHandle, Manager, State, WebviewWindow};
 use tokio::join;
+
+/// How long Home waits for the first machine's rows when it has none.
+const WAIT: Duration = Duration::from_millis(1500);
+/// Tells the windows the rows changed, for Home to load again.
+pub const HOME_CHANGED: &str = "home-changed";
 
 /// Answers a question an agent session asks. Its notice is answered too, as
 /// is one the session no longer asks, and the tray looks again.
@@ -175,7 +180,7 @@ struct HomeParts {
     projects: Result<Vec<ImportedProject>>,
 }
 
-/// Home, from the mesh. The agent sessions wait only as long as `AgentSessions` allows. A call
+/// Home, from the mesh. The agent sessions wait only as long as `WAIT`, and not at all with rows kept. A call
 /// while a read runs shares it.
 #[tauri::command]
 pub async fn center_home(app: AppHandle, reads: State<'_, HomeReads>) -> Result<SharedHome> {
@@ -265,7 +270,6 @@ impl Serialize for SharedHome {
 async fn read_home(app: &AppHandle) -> Result<HomeView> {
     let fleet = app.state::<Arc<Fleet>>();
     let cache = app.state::<Arc<ViewCache>>();
-    let agents = app.state::<Arc<AgentSessions>>();
     let session: FleetState<'_> = app.state();
 
     // The mesh opens from disk in a moment. Reading before it would replace the Home the
@@ -276,10 +280,12 @@ async fn read_home(app: &AppHandle) -> Result<HomeView> {
         log::debug!("Home without the mesh: {e}");
     }
 
-    let (sessions, projects) = join!(
-        agents.list(app, cache.inner()),
+    let (rows, projects) = join!(
+        app.state::<Arc<SessionMirror>>()
+            .rows_when(|rows| !rows.is_empty(), WAIT),
         mesh_imports(&fleet, &session),
     );
+    let sessions = Ok(overlaid(app, &fleet, &rows));
     let status = fleet.status();
     let mut view = home_view(HomeParts {
         machines: Ok(status.machines()),
