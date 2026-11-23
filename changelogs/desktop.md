@@ -7,6 +7,26 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.20] - 2026-11-23
+
+### Added
+
+- Desktop: choose the flsh OpenRouter stream idle timeout in coding-agent settings. The default is 300 seconds.
+- Desktop: Search the current file and enable Vim keybindings in the editor.
+- Desktop: Fold functions in the file editor using gutter controls or keyboard shortcuts.
+- Desktop: Use completion, automatic bracket closing, and multiple cursors in the file editor.
+
+### Fixed
+
+- Desktop: the chat stays full height after pressing Escape twice in a detached assistant window.
+- Desktop: external links in HTML previews open in the system browser.
+- Desktop: Saving a file preserves its Windows line endings.
+- Desktop: agents receive saved instructions in the system prompt. An adapter that cannot apply them reports an error before the chat starts.
+
+### Performance
+
+- Desktop: reduce repeated checks for finished session moves while keeping progress and later moves visible.
+
 ## [0.10.19] - 2026-11-23
 
 ### Added

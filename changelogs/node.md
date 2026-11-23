@@ -2,6 +2,16 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.15] - 2026-11-23
+
+### Added
+
+- Node: apply the synced flsh OpenRouter stream idle timeout. The default is 300 seconds.
+
+### Fixed
+
+- Node: agents receive saved instructions in the system prompt. An adapter that cannot apply them reports an error before the chat starts.
+
 ## [0.8.14] - 2026-11-23
 
 ### Added
