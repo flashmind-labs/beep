@@ -896,7 +896,7 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
    project's sections as tabs. The board's own back row gives way to the tabs. */
 /* With room, the project's sessions take the sidebar's column, under the traffic lights. */
 .pw .cwin:not(.rail-on) { grid-template-columns: minmax(0, 1fr) }
-.pw #side, .pw .cwin:not(.rail-on) > #side-grip, .pw .cc-rail .cc-side-toggle, .pw .cwin.rail-on #pw-back { display: none }
+.pw #side, .pw .cwin:not(.rail-on) > :is(#side-grip, .cc-rail), .pw .cc-rail .cc-side-toggle, .pw .cwin.rail-on #pw-back { display: none }
 .pw .cwin:not(.rail-on) .cc-top, .cwin.side-away .cc-top { padding-left: 84px }
 .pw-back[hidden] { display: none }
 /* A failed action's banner: one line, the output under Details, a dismiss. */

@@ -65,6 +65,24 @@ test("Esc beside a chat's threads shows all the chats, then the sidebar beside t
   await expect(page.getByText("On it.")).toBeVisible();
 });
 
+test("a detached chat keeps its full height after pressing Escape twice", async ({ page }) => {
+  await openDesktop(page, false, {
+    center_window_alone: { kind: "chat", machine_id: chat.machine_id, session: chat.id },
+    agent_hosts: [host], agent_sessions: [chat, research], agent_view: view(chat),
+  }, "chat-sample");
+  await expect(page.locator("#rail")).toBeVisible();
+  await page.locator("#agmsg").focus();
+
+  const main = page.locator("#main");
+  const height = await main.evaluate(el => el.getBoundingClientRect().height);
+  for (let press = 0; press < 2; press++) {
+    await page.keyboard.press("Escape");
+    await expect(page.locator(".asst-list")).toBeVisible();
+    await expect(page.getByText("On it.")).toBeVisible();
+    await expect.poll(() => main.evaluate(el => el.getBoundingClientRect().height)).toBe(height);
+  }
+});
+
 test("the sidebar over a chat's threads goes with Esc, a click beside it or another page", async ({ page }, info) => {
   await openChat(page, [chat, research, notes]);
   const win = page.locator(".cwin");
