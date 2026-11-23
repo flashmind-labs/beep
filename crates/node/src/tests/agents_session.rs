@@ -2595,6 +2595,39 @@ async fn an_explicit_close_refuses_late_uploads_before_the_agent_stops() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_closed_session_takes_its_throwaway_copy_and_leaves_its_other_worktrees() {
+    use crate::agents::checkout::{self, tests::repo};
+    use beep_proto::node::agent::CheckoutPlan;
+    let (_repo, work) = repo("session-copy");
+    let copy = checkout::make(&work, &CheckoutPlan::CopyWorktree, "go").unwrap();
+    let kept = checkout::make(&work, &CheckoutPlan::NewWorktree { base: None }, "keep").unwrap();
+    let trees = [&copy, &kept].map(|made| made.added.clone().unwrap());
+    let temp = tempfile::tempdir().unwrap();
+    let kind = script("codex", PLAIN_ADAPTER, &temp.path().join("sent.jsonl"));
+    let mut start = start_on(&kind, temp.path(), None);
+    start.worktrees = trees.iter().map(|tree| tree.to_str().unwrap().to_owned()).collect();
+    let session = Session::start(start).unwrap();
+    settle(&session).await;
+    assert!(trees[0].exists(), "the copy is there while the session runs");
+
+    session
+        .order(Command::Close { by_user: true })
+        .await
+        .unwrap();
+    until(&session, |live| live.status() == Status::Ended).await;
+    // The copy goes as the session ends, just after its status says so.
+    for _ in 0..50 {
+        if !trees[0].exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(!trees[0].exists(), "the copy goes with the session");
+    assert!(trees[1].exists(), "another worktree it made stays");
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn a_harness_default_model_is_used_unless_the_session_picks_one() {
     for (requested, expected) in [(None, "deep"), (Some("fast"), "fast")] {
         let temp = tempfile::tempdir().unwrap();

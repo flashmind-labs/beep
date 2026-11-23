@@ -30,8 +30,8 @@ pub enum CheckoutPlan {
     BranchWorktree { branch: String },
     /// A throwaway copy of the work in the checkout: a worktree on its
     /// `HEAD`, detached, with its uncommitted changes and untracked files
-    /// copied in. The node removes it when the session is closed or
-    /// deleted. Like `NamedWorktree`, a node from before it does not read
+    /// copied in. The node removes it when the session ends, other than
+    /// with the node, or is deleted. Like `NamedWorktree`, a node from before it does not read
     /// the start.
     CopyWorktree,
 }

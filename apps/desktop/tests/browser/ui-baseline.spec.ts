@@ -859,6 +859,90 @@ test("agent report challenger stopped", async ({ page }) => {
   ]);
 });
 
+/// Opens the report and starts a challenger on Codex, as `challenger`.
+async function startChallenge(page: Page, challenger: ReturnType<typeof agentRow>) {
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries }, agent_begin: { session: challenger, why: "" }, agent_hosts: challengeHosts, agent_models: challengeModels });
+  const report = page.locator(".dcoderen.report");
+  await report.getByRole("button", { name: "Challenge" }).click();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await picker.getByRole("button", { name: "Back" }).click();
+  await picker.locator('[data-agh="codex"]').click();
+  await picker.locator('[data-agmo="alpha"]').click();
+  await picker.locator('[data-age=""]').click();
+  await expect(report.locator(".report-busy")).toContainText("Challenging…");
+  return report;
+}
+
+/// The challenger's session lists as `row` (none when null), its page as `page`.
+async function challengerIs(page: Page, row: ReturnType<typeof agentRow> | null, view: { entries: unknown[]; error: string | null } | null = null) {
+  await page.evaluate(([row, view]) => {
+    window.__navigation.respond("agent_sessions", row ? [row] : []);
+    if (row && view) window.__navigation.respond("agent_views", { [row.id]: { session: row, plan: [], files: [], earlier: 0, last_message: "", queued: 0, queued_messages: [], turns: 1, usage: null, ...view } });
+    window.__navigation.emit("sessions-changed", null);
+  }, [row, view] as const);
+}
+
+const closedChallenger = (page: Page) => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").map(call => call.args));
+
+test("agent report challenge that ends without a report", async ({ page }) => {
+  const challenger = agentRow("challenger-one", "Challenge the report", "working", 0);
+  const report = await startChallenge(page, challenger);
+
+  // A last reply that is no report fails the challenge, says so, and closes the challenger.
+  await challengerIs(page, { ...challenger, status: "idle" }, { entries: [{ kind: "user", text: "Challenge" }, { kind: "agent", text: "Let me run the tests first." }], error: null });
+  const failed = report.locator('.report-busy[data-challenge="failed"]');
+  await expect(failed.locator(".report-err")).toHaveText("Challenge failed");
+  await expect(failed.locator(".report-err")).toHaveAttribute("title", "It stopped before writing its report.");
+  await expect(report.locator(".dspin")).toHaveCount(0);
+  await expect(report.locator(".rv-note")).toHaveCount(0);
+  await expect.poll(() => closedChallenger(page)).toContainEqual(expect.objectContaining({ session: "challenger-one", steer: "close" }));
+  await baseline(page, "agent-report-challenge-failed");
+
+  // Again picks a model for a new challenger.
+  await failed.getByRole("button", { name: "Again" }).click();
+  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
+});
+
+test("agent report challenge that does not start", async ({ page }) => {
+  const challenger = agentRow("start:one", "Challenge the report", "starting", 0);
+  const report = await startChallenge(page, challenger);
+
+  // A start its machine refused lists as idle with the reason on its page.
+  await challengerIs(page, { ...challenger, status: "idle" }, { entries: [{ kind: "user", text: "Challenge" }], error: "Codex is not signed in on build-box." });
+  await expect(report.locator('[data-challenge="failed"] .report-err')).toHaveAttribute("title", "Codex is not signed in on build-box.");
+});
+
+test("agent report challenger that asks, then goes", async ({ page }) => {
+  const challenger = agentRow("challenger-one", "Challenge the report", "working", 0);
+  const report = await startChallenge(page, challenger);
+  const busy = report.locator(".report-busy");
+
+  // A question for the user shows in place of the spinner, with Open and Stop.
+  await challengerIs(page, { ...challenger, status: "asking" });
+  await expect(busy).toHaveAttribute("data-challenge", "asking");
+  await expect(busy).toContainText("Challenger asks you");
+  await expect(busy.locator(".dspin")).toHaveCount(0);
+  await expect(busy.getByRole("button", { name: "Stop" })).toBeVisible();
+  await baseline(page, "agent-report-challenger-asks");
+
+  // Answered, it works again.
+  await challengerIs(page, { ...challenger, status: "working" });
+  await expect(busy).toHaveAttribute("data-challenge", "running");
+  await expect(busy).toContainText("Challenging…");
+
+  // A Stop the machine refuses says so, and the challenger stays.
+  await page.evaluate(() => window.__navigation.rejectOnce("agent_steer", "build-box is offline."));
+  await busy.getByRole("button", { name: "Stop" }).click();
+  await expect(busy.locator(".report-err")).toHaveText("Not stopped");
+  await expect(busy.locator(".report-err")).toHaveAttribute("title", /build-box is offline\./);
+  await expect(busy).toContainText("Challenging…");
+
+  // A session deleted elsewhere fails the challenge.
+  await challengerIs(page, null);
+  await expect(report.locator('[data-challenge="failed"] .report-err')).toHaveAttribute("title", "Its session is gone.");
+});
+
 test("agent report summarized in place", async ({ page }) => {
   const summary = "Done: the redirect keeps the query string.\n\n- Keep `?next=` for one release: the mobile app sends it.";
   const summaryHtml = "<p>Done: the redirect keeps the query string.</p>\n<ul>\n<li>Keep <code>?next=</code> for one release: the mobile app sends it.</li>\n</ul>";

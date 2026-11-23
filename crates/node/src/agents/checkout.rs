@@ -133,7 +133,7 @@ impl Made {
             Start::Copy => format!(
                 "Beep made {folder} for this session: a throwaway copy of the work in {}, \
                 with its uncommitted changes and untracked files. Work only in the copy and \
-                change nothing in {}. Beep removes the copy when this session closes.",
+                change nothing in {}. Beep removes the copy when this session ends.",
                 self.base, self.base
             ),
         }

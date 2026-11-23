@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { challengeDefault, challengePrompt, findingDraft, parseFindings } from "../src/agents/challenge-state.ts";
+import { challengeDefault, challengePrompt, challengeResult, challengeStep, findingDraft, parseFindings } from "../src/agents/challenge-state.ts";
 import { parseReview, reviewPrompt } from "../src/agents/review-state.ts";
 
 const challenger = `Partly done: one claim broke, two held.
@@ -53,4 +53,20 @@ test("a challenge opens on another harness than the session's, then on the last 
   const last = { agent: "claude", model: "opus", effort: "high", fast: null };
   assert.deepEqual(challengeDefault(["claude", "codex"], "claude", last), last);
   assert.equal(challengeDefault(["codex"], "codex", last).agent, "codex", "not offered here");
+});
+
+test("a challenger's session status moves its challenge on", () => {
+  for (const status of ["starting", "working", "running"]) assert.equal(challengeStep(status, false), "running", status);
+  for (const status of ["asking", "waiting"]) assert.equal(challengeStep(status, false), "asking", status);
+  for (const status of ["idle", "ended"]) assert.equal(challengeStep(status, false), "finished", status);
+  assert.equal(challengeStep(null, true), "running", "a start its machine has not named yet");
+  assert.equal(challengeStep(null, false), "gone", "a named session no longer listed");
+});
+
+test("a finished challenger fails its challenge unless its last reply is a report", () => {
+  assert.deepEqual(challengeResult(challenger, null), { state: "done", findings: parseFindings(challenger) });
+  assert.deepEqual(challengeResult("Done: every claim held.\n\n## Checked\n- **Changed 1:** held.", null), { state: "done", findings: [] });
+  assert.deepEqual(challengeResult("Let me run the tests first.", null), { state: "failed", error: "It stopped before writing its report." });
+  assert.deepEqual(challengeResult(null, null), { state: "failed", error: "It stopped before writing its report." });
+  assert.deepEqual(challengeResult(null, "codex is not signed in "), { state: "failed", error: "codex is not signed in" });
 });

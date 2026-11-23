@@ -260,8 +260,9 @@ body.cbody
                                   span.report-label "Report"
                                   span.report-length "83 words, about 1 min"
                                   span.report-acts
-                                    span.report-busy "Challenging…"
+                                    span.report-busy [data-challenge="running"]
                                       span.dspin style(animation-delay)
+                                      span "Challenging…"
                                       button.dbtn.quiet.small [title="Open the challenger's session" type="button"] "Open"
                                       button.dbtn.quiet.small.warn [title="Stop the challenger and remove its session and copy" type="button"] "Stop"
                                     button.dbtn.quiet.small [data-report-summarize="8" title="Ask the agent for a shorter version of this report" type="button"] "Summarize"

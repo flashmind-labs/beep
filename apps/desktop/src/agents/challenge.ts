@@ -1,11 +1,11 @@
 // Starts a challenger on a report, and when it has finished, leaves what
 // it found as drafts in the challenged session's review.
 import { invoke, listen } from "../ui/tauri.ts";
-import type { AgentStarted } from "./starting-state.ts";
+import { isStarting, type AgentStarted } from "./starting-state.ts";
 import { AG, AGENT_READ_WAIT_MS, type AgentPage, type AgentRow, type AgentSession, type Started } from "./agents.ts";
 import type { Tree } from "../agentpane/worktree-state.ts";
 import { closeSession } from "./closing.ts";
-import { challengePrompt, challenges, findingDraft, parseFindings, updateChallenges, type Challenge, type ChallengeModel } from "./challenge-state.ts";
+import { challengePrompt, challengeResult, challengeStep, challenges, findingDraft, updateChallenges, type Challenge, type ChallengeModel } from "./challenge-state.ts";
 import { openingOf } from "./report-state.ts";
 import { reviewKey, updateReview } from "./review-state.ts";
 import { ensureSessions, loadSessions, sessions, sessionsChanged, sessionsRead } from "./sessions.ts";
@@ -26,7 +26,7 @@ export async function challengeReport(at: number, pick: ChallengeModel) {
   startedWith(started.session, prompt, []);
 
   const challenger = { machine: started.session.machine_id, agent: started.session.agent, session: started.session.id };
-  updateChallenges(reviewKey(s.machine_id, s.id), list => [...list, { entry: at, opening: openingOf(report.text), challenger, state: "running", findings: 0 }]);
+  updateChallenges(reviewKey(s.machine_id, s.id), list => [...list, { entry: at, opening: openingOf(report.text), challenger, state: "running", findings: 0, error: "" }]);
 }
 
 /// Where session `s` did its work: the last worktree it made, else its folder.
@@ -40,10 +40,11 @@ async function workFolder(s: AgentRow) {
 export async function stopChallenger(key: string, c: Challenge) {
   const ref = { machine_id: c.challenger.machine, id: c.challenger.session, agent: c.challenger.agent };
   await closeSession(ref);
-  updateChallenges(key, list => list.filter(d => d !== c));
+  updateChallenges(key, list => list.filter(d => !sameChallenger(d, c)));
 
-  // Deleted once the close has ended it; a harness that keeps its sessions in a database keeps it.
-  for (let tries = 0; tries < DELETE_TRIES; tries++) {
+  // Deleted once the close has ended it; a harness that keeps its sessions in
+  // a database keeps it. A start its machine has not named is gone with the close.
+  for (let tries = 0; !isStarting(ref.id) && tries < DELETE_TRIES; tries++) {
     try {
       await invoke("agent_delete", { machineId: ref.machine_id, agent: ref.agent, session: ref.id });
       break;
@@ -75,19 +76,33 @@ listen<AgentStarted>("agent-started", ({ payload: { start, session } }) => {
   }
 });
 
-/// Statuses of a session whose turn is over.
-const FINISHED = new Set(["idle", "ended"]);
+const active = () => Object.entries(challenges.getState().by).flatMap(([key, list]) => list.filter(c => c.state === "running" || c.state === "asking").map(c => ({ key, c })));
 
-const running = () => Object.entries(challenges.getState().by).flatMap(([key, list]) => list.filter(c => c.state === "running").map(c => ({ key, c })));
+/// Reads the sessions again while a challenger runs, as they change, and
+/// moves each challenge on with its challenger's session.
+sessionsChanged.add(() => { if (active().length) void ensureSessions().catch(() => {}); });
+sessionsRead.add(() => {
+  for (const { key, c } of active()) {
+    const step = challengeStep(findSession(c)?.status ?? null, isStarting(c.challenger.session));
+    if (step === "finished") void collect(key, c);
+    else if (step === "gone") settle(key, c, { state: "failed", error: "Its session is gone." });
+    else if (step !== c.state) settle(key, c, { state: step });
+  }
+});
 
-/// Reads the sessions again while a challenger runs, as they change.
-sessionsChanged.add(() => { if (running().length) void ensureSessions().catch(() => {}); });
-sessionsRead.add(() => { for (const { key, c } of running()) if (FINISHED.has(findSession(c)?.status ?? "")) void collect(key, c); });
+/// Sets what `change` says on challenge `c` of `key`, as it is now.
+function settle(key: string, c: Challenge, change: Partial<Challenge>) {
+  updateChallenges(key, list => list.map(d => sameChallenger(d, c) ? { ...d, ...change } : d));
+}
+
+const sameChallenger = (a: Challenge, b: Challenge) => a.challenger.machine === b.challenger.machine && a.challenger.session === b.challenger.session;
 
 const collecting = new Set<string>();
 
-/// Reads the finished challenger's last reply and leaves its findings as
-/// drafts on the report it challenged.
+/// Reads the finished challenger's last reply: a report leaves its findings
+/// as drafts on the report it challenged; anything else fails the challenge,
+/// saying why. Either way the challenger is closed, which removes its copy;
+/// its session stays to read.
 async function collect(key: string, c: Challenge) {
   const id = `${c.challenger.machine}:${c.challenger.session}`;
   if (collecting.has(id)) return;
@@ -95,20 +110,29 @@ async function collect(key: string, c: Challenge) {
 
   try {
     const page = await invoke<AgentPage>("agent_view", { machineId: c.challenger.machine, agent: c.challenger.agent, session: c.challenger.session, last: 20 }, AGENT_READ_WAIT_MS);
-    const reply = [...page.entries].reverse().find(e => e.kind === "agent");
-    if (!reply) return;
+    const result = challengeResult(lastReply(page), page.error);
 
-    const findings = parseFindings(reply.text);
-    updateReview(key, review => {
-      const first = Math.max(0, ...review.comments.map(d => d.id)) + 1;
-      return { ...review, comments: [...review.comments, ...findings.map((f, i) => findingDraft(f, first + i, c.entry, c.opening))] };
-    });
-    updateChallenges(key, list => list.map(d => d === c ? { ...d, state: "done", findings: findings.length } : d));
-    // Its session stays to read; closing it removes the copy it worked in.
-    await closeSession({ machine_id: c.challenger.machine, id: c.challenger.session, agent: c.challenger.agent }).catch(e => console.warn("challenge close:", e));
+    if (result.state === "done") {
+      updateReview(key, review => {
+        const first = Math.max(0, ...review.comments.map(d => d.id)) + 1;
+        return { ...review, comments: [...review.comments, ...result.findings.map((f, i) => findingDraft(f, first + i, c.entry, c.opening))] };
+      });
+      settle(key, c, { state: "done", findings: result.findings.length });
+    } else {
+      settle(key, c, { state: "failed", error: result.error });
+    }
+
+    if (page.session.status !== "ended") await closeSession({ machine_id: c.challenger.machine, id: c.challenger.session, agent: c.challenger.agent }).catch(e => console.warn("challenge close:", e));
   } catch (e) {
+    // Read again with the next change of the sessions.
     console.warn("challenge:", e);
   } finally {
     collecting.delete(id);
   }
+}
+
+/// The agent's reply to the last message it was sent, if it gave one.
+function lastReply(page: AgentPage) {
+  const after = page.entries.findLastIndex(e => e.kind === "user");
+  return page.entries.slice(after + 1).findLast(e => e.kind === "agent")?.text ?? null;
 }

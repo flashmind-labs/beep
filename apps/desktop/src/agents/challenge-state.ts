@@ -2,6 +2,7 @@
 // tries to prove the report's claims wrong. What it finds comes back as
 // review drafts on the claims it disputes, for the user to send or drop.
 import { createStore } from "zustand";
+import { outcomeOf } from "./report-state.ts";
 import type { ReviewComment } from "./review-state.ts";
 
 /// How sure a finding is: shown by running something, or read in the code.
@@ -18,15 +19,37 @@ export interface Finding {
   evidence: string;
 }
 
+/// Where a challenge is: its challenger at work or asking the user, done
+/// with its report, or ended without one.
+export type ChallengeState = "running" | "asking" | "done" | "failed";
+
 /// A challenge of the report at `entry`, by the session `challenger`.
 export interface Challenge {
   entry: number;
   /// How the report starts, so a sent finding names it.
   opening: string;
   challenger: { machine: string; agent: string; session: string };
-  state: "running" | "done";
+  state: ChallengeState;
   /// How many findings it left as drafts, once done.
   findings: number;
+  /// Why it failed; "" otherwise.
+  error: string;
+}
+
+/// What a challenger's session status says of its challenge: still at it,
+/// asking the user, finished (its reply is to be read), or gone. `status` is
+/// null when the session is not listed, which a start not yet named is not.
+export function challengeStep(status: string | null, starting: boolean): "running" | "asking" | "finished" | "gone" {
+  if (status === null) return starting ? "running" : "gone";
+  if (status === "asking" || status === "waiting") return "asking";
+  return status === "idle" || status === "ended" ? "finished" : "running";
+}
+
+/// How a finished challenger's last reply ends its challenge: its findings
+/// when it is a report, else failed, with the session's own error if any.
+export function challengeResult(reply: string | null, error: string | null): { state: "done"; findings: Finding[] } | { state: "failed"; error: string } {
+  if (reply !== null && outcomeOf(reply) !== null) return { state: "done", findings: parseFindings(reply) };
+  return { state: "failed", error: error?.trim() || "It stopped before writing its report." };
 }
 
 /// The message that starts a challenger in its copy of the work in `work`:
@@ -133,10 +156,13 @@ function loadChallenges(): Record<string, readonly Challenge[]> {
   }
 }
 
+const STATES: readonly ChallengeState[] = ["running", "asking", "done", "failed"];
+
 function isChallenge(value: unknown): value is Challenge {
   if (typeof value !== "object" || value === null) return false;
   if (!("entry" in value && typeof value.entry === "number" && "opening" in value && typeof value.opening === "string" && "findings" in value && typeof value.findings === "number")) return false;
-  if (!("state" in value && (value.state === "running" || value.state === "done"))) return false;
+  if (!("state" in value && STATES.some(state => state === value.state))) return false;
+  if (!("error" in value && typeof value.error === "string")) return false;
   if (!("challenger" in value && typeof value.challenger === "object" && value.challenger !== null)) return false;
 
   const c = value.challenger;

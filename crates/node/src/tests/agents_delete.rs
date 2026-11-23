@@ -190,6 +190,35 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
 }
 
 #[tokio::test]
+async fn a_deleted_session_leaves_no_throwaway_copy() {
+    use crate::agents::checkout::{self, tests::repo};
+    use beep_proto::node::agent::CheckoutPlan;
+    let m = Machine::new();
+    let (_repo, work) = repo("delete-copy");
+    let copy = checkout::make(&work, &CheckoutPlan::CopyWorktree, "go")
+        .unwrap()
+        .added
+        .unwrap();
+    let begin = Begin {
+        resume: Some(SessionId::from(CLAUDE_ID)),
+        worktrees: vec![copy.to_str().unwrap().to_owned()],
+        ..Begin::default()
+    };
+    let session = m
+        .agents
+        .start(&kind("claude"), Some("/"), begin)
+        .expect("a session");
+
+    session.close().await;
+    m.agents
+        .delete_session("claude", &session.id)
+        .await
+        .unwrap();
+    assert!(!copy.exists(), "the copy went with the session");
+    assert!(!checkout::tests::run(&work, &["worktree", "list"]).contains("beep-copy"));
+}
+
+#[tokio::test]
 async fn a_session_another_process_has_recently_written_is_refused() {
     let m = Machine::new();
     let file = m

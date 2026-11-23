@@ -13,7 +13,7 @@ its evidence doesn't support.
 
 Beep started you in a throwaway copy of the other agent's work: its commit, with its
 uncommitted changes and untracked files. Run and change what you like there, and nothing
-outside it. Beep removes the copy when your session closes.
+outside it. Beep removes the copy when your session ends.
 
 ## What to check
 

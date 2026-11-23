@@ -746,6 +746,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .report-acts { display: flex; gap: 4px; margin-inline-start: auto }
 .report-busy { display: flex; align-items: center; gap: 6px; color: var(--dim) }
 .report-err { align-self: center; font: 11px var(--mono); color: var(--err) }
+.report-ask-dot { width: 6px; height: 6px; align-self: center; border-radius: 50%; background: var(--warn) }
+.report-busy[data-challenge="asking"] > span:not(.report-ask-dot, .report-err) { color: var(--warn) }
 .report-challenge { position: relative; display: inline-flex; align-items: baseline; gap: 6px }
 .report-challenge > div { white-space: normal }
 @media (prefers-reduced-motion: no-preference) { .dcoderen.report > .reply-body.swapped { animation: report-swap .18s ease-out } }
