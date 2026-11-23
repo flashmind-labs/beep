@@ -269,11 +269,9 @@ pub(super) struct Actor {
     /// Beep's word to the agent from whoever started the session; once
     /// `initialize` is answered, what the first prompt still carries.
     pub(super) brief: Option<String>,
-    /// Saved instructions still to be delivered through ACP.
-    pub(super) instructions: Option<String>,
-    /// What holds for the whole session: the git rule for its folder and
-    /// what the Beep tools are. In the system prompt of an agent that takes
-    /// one; for the others, said again after the agent compacts.
+    /// Saved instructions and Beep guidance for the whole session. Goes in
+    /// the system prompt when supported, or with the first prompt and again
+    /// after the agent compacts.
     pub(super) standing: Option<String>,
     /// The MCP servers the agent's session gets.
     pub(super) mcp_servers: Vec<McpServer>,
@@ -1074,16 +1072,8 @@ impl Actor {
         let system_format = initialized.system_prompt;
         let takes_system = system_format.is_some();
         let append = |text| system_format.map(|format| format.append(text));
-        if self.instructions.is_some() && !takes_system {
-            return Some(End::Failed(format!(
-                "{} cannot apply saved instructions. Use an adapter that supports ACP system prompts.",
-                self.agent
-            )));
-        }
-
-        // Only Beep's built-in guidance can be repeated in user prompts.
         let standing = if takes_system {
-            joined(self.instructions.take(), self.standing.take().as_deref())
+            self.standing.take()
         } else {
             self.standing.clone()
         };

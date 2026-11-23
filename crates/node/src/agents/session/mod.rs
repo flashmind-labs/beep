@@ -45,6 +45,7 @@ use tokio_util::task::AbortOnDropHandle;
 mod actor;
 mod cargo;
 mod orders;
+mod pi;
 mod turns;
 mod v2;
 
@@ -248,7 +249,7 @@ pub(super) struct Start<'a> {
     /// Beep's word to the agent, kept out of the transcript: in its system
     /// prompt when it takes one, else ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
-    /// Saved user instructions, delivered only through a system prompt.
+    /// Saved user instructions, delivered through a system prompt when supported.
     pub(super) instructions: Option<String>,
     /// Beep's checkout rule for the whole session.
     pub(super) rule: Option<String>,
@@ -438,6 +439,10 @@ impl Session {
         }
 
         let in_wsl = super::kinds::in_wsl(kind);
+        let pi_files = pi::instructions(kind, &mut process, cwd, &mut instructions)?;
+        if instructions.is_some() {
+            standing = actor::joined(instructions, standing.as_deref());
+        }
 
         // A WSL agent cannot use a Windows path as its Cargo target.
         if !in_wsl && let Some(target) = cargo::target_dir(cwd, &kind.env) {
@@ -522,7 +527,6 @@ impl Session {
             stop_within,
             running: HashSet::new(),
             brief,
-            instructions,
             standing,
             mcp_servers: mcp.into_iter().collect(),
             subagents: !assistant,
@@ -548,7 +552,11 @@ impl Session {
         let guard = follows.map(|parent| {
             AbortOnDropHandle::new(tokio::spawn(follow_parent(parent, orders.clone())))
         });
-        let task = tokio::spawn(actor.run(agent, orders_rx, processes.clone()));
+        let actor_processes = processes.clone();
+        let task = tokio::spawn(async move {
+            let _pi_files = pi_files;
+            actor.run(agent, orders_rx, actor_processes).await;
+        });
         Ok(Self {
             id,
             agent: kind.name.clone(),

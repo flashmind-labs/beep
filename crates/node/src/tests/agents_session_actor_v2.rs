@@ -52,7 +52,6 @@ fn actor() -> Actor {
         stop_within: Duration::from_secs(1),
         running: HashSet::new(),
         brief: None,
-        instructions: None,
         standing: None,
         mcp_servers: Vec::new(),
         subagents: true,
