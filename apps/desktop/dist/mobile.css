@@ -27,7 +27,7 @@ body.mobile .nt-bell { width: 44px; height: 44px; border: 0 }
 body.mobile :is(.mb-set, .nt-bell) svg { width: 22px; height: 22px; stroke-width: 1.7 }
 body.mobile .nt-n { top: 4px; right: 4px }
 /* The bell's and usage's popovers span the screen under the top bar instead of hanging off its left edge. */
-body.mobile :is(.nt-pop, .us-pop) { position: fixed; left: calc(env(safe-area-inset-left) + 8px); right: calc(env(safe-area-inset-right) + 8px); top: calc(env(safe-area-inset-top) + 54px); width: auto; max-width: none }
+body.mobile:not(.pw) :is(.nt-pop, .us-pop) { position: fixed; left: calc(env(safe-area-inset-left) + 8px); right: calc(env(safe-area-inset-right) + 8px); top: calc(env(safe-area-inset-top) + 54px); width: auto; max-width: none }
 
 /* Bottom tabs. */
 body.mobile .mb-tabs { flex: none; display: grid; grid-template-columns: repeat(5, 1fr); border-top: 1px solid var(--border); background: var(--surface); padding-bottom: env(safe-area-inset-bottom) }
@@ -172,7 +172,8 @@ body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
 body.mobile .pj-ctl .seg { min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none }
 body.mobile .pj-ctl .dbtn { flex: none; white-space: nowrap; padding: 0 8px }
 
-body.mobile:not(.mb-home) #usage { display: none }
+body.mobile.pw #pw-back:not([hidden]) { align-self: flex-start; margin-left: 84px }
+body.mobile:not(.mb-home, .pw) #usage { display: none }
 /* Home's usage pill keeps to plan shares when there are any; the popover has the rest. */
 body.mobile .us-pill.plans > .us-x { display: none }
 body.mobile .us-pill { min-height: 0; height: 32px; border-radius: 999px }

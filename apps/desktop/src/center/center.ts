@@ -81,7 +81,6 @@ for (const type of ["mousedown", "mouseup"] as const) document.addEventListener(
   if (type === "mouseup" && !dialogOpen()) goHistory(e.button === 4);
 }, true);
 mountUsage(refresh => invoke<UsageView | null>("usage_get", { refresh }));
-mountNotices();
 
 initPalette({
   go, jump, scope: aloneProject, settings: openSettings, providers: () => go("providers"),
@@ -103,7 +102,7 @@ document.addEventListener("keydown", e => {
   e.stopPropagation();
 }, true);
 
-document.addEventListener("keydown", e => {
+function onWindowKey(e: KeyboardEvent) {
   // Keys typed into a terminal are the terminal's, Esc and Tab too, but not ⌘W or ⌘N.
   if (WINDOWS && e.ctrlKey && e.target instanceof Element && e.target.closest(".tm-term")) return;
   if (e.target instanceof Element && e.target.closest(".tm-term") && !isCloseKey(e) && !isNewKey(e)) return;
@@ -152,7 +151,7 @@ document.addEventListener("keydown", e => {
       if (currentLocation()?.view === "terminals" && isNewKey(e) && allTerms.newLikeOpen()) return;
       return newAgentHere();
   }
-});
+}
 
 /// ⌘N: beside a chat's threads (its window, or its rail in place of the sidebar) a new thread;
 /// in a project (its page, or one of its sessions) the agent view with an empty conversation
@@ -219,6 +218,9 @@ type Opening = { alone: null; pending: CenterTarget | null }
 
 async function readOpening(): Promise<Opening> {
   const alone = await invoke<Alone | null>("center_window_alone").catch(() => null);
+  if (!alone) mountNotices();
+  document.addEventListener("keydown", onWindowKey);
+
   if (!alone) return { alone, pending: await readPending() };
   const saved = savedWindowSession();
   if (alone.kind === "chat" || saved) await ensureSessions().catch(() => {});

@@ -143,7 +143,7 @@ export function CenterWindow() {
         <small id="date" data-tauri-drag-region="">{parts.date}</small>
         <span className="tools" id="tools">{parts.tools}</span>
         <span id="usage" className="us" hidden={parts.usage == null} ref={refs.usage}>{parts.usage}</span>
-        <span id="bell" className="nt" ref={refs.bell}>{parts.notices}</span>
+        <span id="bell" className="nt" hidden={parts.notices == null} ref={refs.bell}>{parts.notices}</span>
         {parts["mobile-settings"]}
       </div>
       <div className="cc-box" id="home-box" hidden={view !== null && view !== "home"} ref={refs.homeBox}>

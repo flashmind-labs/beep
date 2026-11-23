@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, projectName } from "./harness.ts";
 
 test("usage updates retain the open popover and selected period", async ({ page }) => {
   const spend = { project: "Example", cost_usd: 2, unpriced: [] };
@@ -44,6 +44,39 @@ const subscribed = (() => {
     today: period, week: period, month: period,
   };
 })();
+
+for (const kind of ["project", "chat"] as const) {
+  test(`a detached ${kind} keeps plan usage available beside its conversation @windows`, async ({ page }, info) => {
+    const session = { machine_id: "build-box", machine_name: "Build box", id: "waiting", agent: "codex", title: "Choose a title", cwd: "/srv/project", status: "asking", doing: null, question: null, assistant: kind === "chat", parent: null, last_activity: 1, started_at: 1, external: false };
+    const alone = kind === "project" ? { kind, project: projectName } : { kind, machine_id: session.machine_id, session: session.id };
+    await page.setViewportSize({ width: 1000, height: 700 });
+    await openDesktop(page, false, {
+      center_window_alone: alone, project_sessions: [session], agent_sessions: [session], usage_get: subscribed,
+      agent_view: { session, entries: [], plan: [], files: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+    }, `${kind}-sample`);
+
+    const row = page.locator("#rail").getByRole("button", { name: /Choose a title/ });
+    await expect(row.getByText("needs you")).toBeVisible();
+    if (kind === "project") await row.click();
+    await expect(page.locator("#agmsg")).toBeVisible();
+    await expect(page.locator("#side")).toBeHidden();
+    const modifier = info.project.name === "Windows" ? "Control" : "Meta";
+    await page.keyboard.press(`${modifier}+b`);
+    await expect(page.locator("#bell")).toBeHidden();
+    expect(await page.evaluate(() => window.__navigation.calls().some(call => call.command === "notes_list" || call.command === "notes_read"))).toBe(false);
+
+    for (const width of [1000, 640]) {
+      await page.setViewportSize({ width, height: 700 });
+      const pill = page.getByRole("button", { name: /^Plan usage:/ });
+      await expect(pill.locator(".us-plan").first()).toBeInViewport({ ratio: 1 });
+      await pill.click();
+      const pop = page.getByRole("dialog", { name: "Plan usage and cost" });
+      await expect(pop.getByText("76% used")).toBeVisible();
+      await pill.click();
+      await expect(pop).toBeHidden();
+    }
+  });
+}
 
 for (const [name, size] of [["desktop", { width: 1280, height: 900 }], ["phone", { width: 390, height: 844 }]] as const) {
   test(`the ${name} pill shows each harness's binding share and the popover its values`, async ({ page }) => {
