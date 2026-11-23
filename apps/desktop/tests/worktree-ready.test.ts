@@ -1,7 +1,7 @@
 import { answers } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { paneRoot, startWorktrees, worktreesReady } from "../src/agentpane/worktree.ts";
+import { followAgent, paneRoot, startWorktrees, worktreesReady } from "../src/agentpane/worktree.ts";
 import type { Tree } from "../src/agentpane/worktree-state.ts";
 
 test("initial file reads wait for a removed worktree to resolve to the main checkout", async () => {
@@ -16,4 +16,34 @@ test("initial file reads wait for a removed worktree to resolve to the main chec
   await waiting;
   assert.equal(paneRoot(), "/srv/app");
   delete answers.agent_worktrees;
+});
+
+test("the pane follows a Flashmind worktree from older restored entries", async () => {
+  const cwd = "/srv/app";
+  const path = `${cwd}/.worktrees/fix`;
+  answers.agent_worktrees = [
+    { path: cwd, branch: "main", head: "abc1234", own: true, created: false },
+    { path, branch: "fix", head: "abc1234", own: false, created: false },
+  ] satisfies Tree[];
+  const row = (path: string) => JSON.stringify({ path, current: true, available: true, bare: false });
+  const latest = { kind: "agent", text: "The changes are ready." };
+
+  try {
+    startWorktrees({ id: "resumed", machine_id: "build-box", agent: "flsh", cwd }, () => {});
+    await worktreesReady();
+    followAgent([latest], 2, null);
+    assert.equal(paneRoot(), cwd);
+
+    followAgent([
+      { kind: "other", text: "Resumed after beep-node restarted" },
+      { kind: "tool", text: `worktree [completed]\n${row(path)}` },
+      latest,
+    ], 0, null);
+    assert.equal(paneRoot(), path);
+
+    followAgent([{ kind: "tool", text: `worktree [completed]\n${row(cwd)}` }], 3, null);
+    assert.equal(paneRoot(), cwd);
+  } finally {
+    delete answers.agent_worktrees;
+  }
 });
