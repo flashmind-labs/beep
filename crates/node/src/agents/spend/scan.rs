@@ -3,7 +3,7 @@
 //! pass is bounded in files and bytes; what is left waits for the next.
 
 use super::{
-    Line,
+    Line, agy,
     billing::{AccountFiles, Accounts},
     claude, codex, databases,
     ledger::{Database, Ledger, LogFile, Part, SessionKey, Stamp},
@@ -43,6 +43,8 @@ pub(crate) struct Roots {
     pub(crate) flsh: Option<PathBuf>,
     /// OpenCode's database, or its data folder of them.
     pub(crate) opencode: Option<PathBuf>,
+    /// Antigravity's conversations folder, a database each.
+    pub(crate) agy: Option<PathBuf>,
     /// The files that tell how each agent signs in.
     pub(crate) accounts: AccountFiles,
 }
@@ -69,6 +71,7 @@ impl Roots {
             pi: logs.pi,
             flsh: logs.flsh,
             opencode: logs.opencode,
+            agy: agy::conversations_dir(),
             accounts,
         }
     }
@@ -312,9 +315,10 @@ fn parse(agent: Agent, text: &str) -> Option<Line> {
     }
 }
 
-/// The databases of OpenCode and flsh, and flsh's session files written
-/// since `since`, each read whole like a database. A database flsh has
-/// imported into session files is left out, so nothing counts twice.
+/// The databases of OpenCode and flsh, and flsh's session files and
+/// Antigravity's conversations written since `since`, each read whole like
+/// a database. A database flsh has imported into session files is left
+/// out, so nothing counts twice.
 fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
     let mut out: Vec<(Agent, PathBuf)> = Vec::new();
 
@@ -335,6 +339,12 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
         let mut files = Vec::new();
         collect(Agent::Flsh, root, 1, &is_jsonl, since, &mut files);
         out.extend(files.into_iter().map(|file| (Agent::Flsh, file.path)));
+    }
+
+    if let Some(root) = &roots.agy {
+        let mut files = Vec::new();
+        collect(Agent::Agy, root, 0, &agy::is_conversation, since, &mut files);
+        out.extend(files.into_iter().map(|file| (Agent::Agy, file.path)));
     }
 
     out
@@ -387,6 +397,7 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
             Agent::OpenCode => {
                 databases::opencode(path, since, accounts).map_err(|e| e.to_string())
             }
+            Agent::Agy => agy::conversation(path, since, accounts).map_err(|e| e.to_string()),
             _ if flsh_file => {
                 let counted = previous.and_then(|entry| entry.counted.as_ref());
                 databases::flsh_file(path, counted, accounts).map_err(|e| e.to_string())

@@ -19,7 +19,7 @@ impl Stores {
         let root = match agent {
             Agent::Codex => self.codex.clone(),
             Agent::Pi => self.pi.clone(),
-            Agent::Claude | Agent::Flsh | Agent::OpenCode => {
+            Agent::Claude | Agent::Flsh | Agent::OpenCode | Agent::Agy => {
                 bail!("{} sessions cannot be deleted here", agent.as_ref())
             }
         };

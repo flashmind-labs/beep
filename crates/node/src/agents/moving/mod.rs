@@ -102,15 +102,15 @@ impl From<Harness> for Agent {
 impl TryFrom<Agent> for Harness {
     type Error = Agent;
 
-    /// The harness for `agent`; `None` for those that keep sessions in a
-    /// database.
+    /// The harness for `agent`; `None` for those that keep sessions in
+    /// databases.
     fn try_from(agent: Agent) -> Result<Self, Self::Error> {
         match agent {
             Agent::Claude => Ok(Self::Claude),
             Agent::Codex => Ok(Self::Codex),
             Agent::Pi => Ok(Self::Pi),
             Agent::Flsh => Ok(Self::Flsh),
-            Agent::OpenCode => Err(agent),
+            Agent::OpenCode | Agent::Agy => Err(agent),
         }
     }
 }

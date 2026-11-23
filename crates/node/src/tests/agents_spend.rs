@@ -74,6 +74,7 @@ fn fixture() -> Fixture {
             pi: Some(root.join("pi")),
             flsh: None,
             opencode: Some(root.join("opencode")),
+            agy: None,
             accounts: billing::AccountFiles::default(),
         },
         ledger: root.join("cache/agent-spend.json"),

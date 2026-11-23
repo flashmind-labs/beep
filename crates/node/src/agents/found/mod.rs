@@ -79,6 +79,8 @@ pub(crate) enum Agent {
     Pi,
     Flsh,
     OpenCode,
+    /// Antigravity: only what its sessions spent is read.
+    Agy,
 }
 
 impl Agent {
@@ -686,7 +688,7 @@ fn title(agent: Agent, file: &Path) -> Option<String> {
     match agent {
         Agent::Codex => codex::title(file),
         Agent::Pi => pi::title(file),
-        Agent::Claude | Agent::Flsh | Agent::OpenCode => None,
+        Agent::Claude | Agent::Flsh | Agent::OpenCode | Agent::Agy => None,
     }
 }
 

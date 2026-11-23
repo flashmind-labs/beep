@@ -810,6 +810,7 @@ dependencies = [
  "tonic-prost-build",
  "tower",
  "tracing",
+ "url",
  "uuid",
  "which",
  "windows-sys 0.61.2",

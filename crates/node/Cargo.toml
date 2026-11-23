@@ -14,6 +14,7 @@ default = ["cli"]
 host = [
     "dep:strum",
     "dep:tokio-stream",
+    "dep:url",
     "dep:agent-client-protocol",
     "dep:bao-tree",
     "dep:base64",
@@ -175,6 +176,7 @@ toml_edit = { workspace = true, optional = true }
 tonic = { workspace = true, features = ["channel", "codegen"], optional = true }
 tonic-prost = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
+url = { workspace = true, optional = true }
 uuid = { workspace = true, features = ["v4"], optional = true }
 which = { workspace = true, optional = true }
 zip = { workspace = true, optional = true }
@@ -222,4 +224,4 @@ tonic-prost-build = { workspace = true, optional = true }
 
 # Used only by the generated gRPC clients, and `rust-ini` is imported as `ini`.
 [package.metadata.cargo-machete]
-ignored = ["prost", "tonic-prost", "rust-ini"]
+ignored = ["tonic-prost", "rust-ini"]
