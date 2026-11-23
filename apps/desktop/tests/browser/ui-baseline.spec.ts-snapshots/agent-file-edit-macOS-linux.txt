@@ -450,7 +450,7 @@ body.cbody
                         span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
                     div.agpview
                       div.agcm.agcode
-                        div.cm-editor.cm-focused.ͼ1.ͼ3.ͼ4.ͼo
+                        div.cm-editor.cm-focused.ͼ1.ͼ3.ͼ4.ͼp
                           div.cm-announced [aria-live="polite"]
                           div.cm-scroller [tabindex="-1"]
                             div.cm-gutters.cm-gutters-before [aria-hidden="true"] style(min-height,position)
@@ -614,6 +614,7 @@ body.cbody
                       div.agpacts
                         span.meta.mono [title="README.md"] "README.md · edited"
                         span.sp
+                        button.dbtn.dchip [aria-pressed="false" type="button"] "Vim"
                         button.dbtn.pri [data-tsave="1" type="button"] "Save"
                         button.dbtn [data-tdone="1" type="button"] "Done"
               div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" hidden role="tablist"]

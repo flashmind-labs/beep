@@ -130,6 +130,8 @@ export interface MediaTab {
   previewQueued?: boolean;
   preview?: { active: boolean; loading: boolean; src: string; html: string; error: string };
   edit?: FileEdit | null;
+  /// Positive while file search is open. Each Find shortcut refocuses the field.
+  findRequest?: number;
   /// Reads that failed in a row, and the timer of the next, while its file
   /// may still come.
   tries?: number;

@@ -5,10 +5,11 @@
 import { memo, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
+import { APPLE, onPhone } from "../ui/platform.ts";
 import { dragHandle } from "../ui/drag.ts";
 import type { Dock } from "./media-state.ts";
 import { type DockView, dividerDrag, dividerKey, mainRef, paneModel, paneRefs, resetDivider, shellRef, stripRefs } from "./media-layout.ts";
-import { foldDock, moveDock, pickPhoneTab, pickTab, tabMenu } from "./media-draw.ts";
+import { foldDock, moveDock, pickPhoneTab, pickTab, tabMenu, touchTab } from "./media-draw.ts";
 import { closeTab, newTerminal, P, type MediaTab } from "./media.ts";
 import { ghostRef, tabDown } from "./drag.ts";
 import { PaneTab, PaneTabs, PhonePaneTabs, type PaneTabActions } from "./tabs-view.tsx";
@@ -75,6 +76,17 @@ export function PaneDock({ dock }: { dock: Dock }) {
   return <><div ref={divider} className={`agdiv${resizing ? " active" : ""}`} id={`agdiv-${dock}`} data-dock={dock} role="separator" aria-orientation={oriented.current ? bottom ? "horizontal" : "vertical" : undefined} tabIndex={0} title="Drag to resize, double-click to reset" hidden={hidden}
       onDoubleClick={() => resetDivider(dock)} onKeyDown={event => { if (dividerKey(dock, event.key)) { event.preventDefault(); event.stopPropagation(); } }} />
     <aside ref={paneRefs[dock]} className={`agpane${model?.zoomed ? " zoomed" : ""}`} id={`agpane-${dock}`} data-dock={dock} tabIndex={-1} hidden={hidden} style={model?.size != null ? { flexBasis: `var(--drag-size, ${model.size}px)` } : undefined}
+      onKeyDownCapture={event => {
+        if (event.key.toLowerCase() !== "f" || event.shiftKey || event.altKey || event.nativeEvent.isComposing) return;
+        if (APPLE ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return;
+        const tab = P.tabs.find(tab => tab.id === model?.on);
+        if (!tab?.text || tab.text.binary || (!tab.edit && tab.preview?.active) || onPhone()) return;
+
+        event.preventDefault();
+        event.stopPropagation();
+        tab.findRequest = (tab.findRequest ?? 0) + 1;
+        touchTab(tab);
+      }}
       onPointerDownCapture={event => { const pane = event.currentTarget; if (!pane.contains(document.activeElement)) pane.focus({ preventScroll: true }); }}>
       <div className="agpane-content"><div className="agphead">
         <div className="agtabs" role="tablist">{model && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={ACTIONS[dock]} />}</div>
