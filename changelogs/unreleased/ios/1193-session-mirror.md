@@ -4,5 +4,5 @@
   where it could stay for up to a minute.
 - iOS: after a restart, the sessions of a machine that is still
   connecting stay on Home until it answers, where they used to disappear.
-- iOS: a deleted session leaves every list at once and does not come
-  back while its machine is being listed.
+- iOS: a deleted session does not come back in Home or the session lists
+  while its machine is being listed.
