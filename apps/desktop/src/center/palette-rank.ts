@@ -39,8 +39,7 @@ export interface PaletteIndex<S = unknown> {
 const PER_GROUP = 8;
 
 /// How well a text matches, best first.
-const PREFIX = 0, WORD_START = 1, SUBSTRING = 2, TEXT = 3, TIERS = 4;
-const NO_MATCH = TIERS;
+const PREFIX = 0, WORD_START = 1, SUBSTRING = 2, TEXT = 3, NO_MATCH = 4;
 
 /// Which group's best hit becomes the top hit on a tie: the things a search
 /// most often means first.
@@ -61,32 +60,48 @@ function tier(query: string, text: string): number {
   return SUBSTRING;
 }
 
-/// One group's matches by tier, ties in the group's order.
-function matches<S>(query: string, group: Entry<S>[]): Hit<S>[][] {
-  const tiers: Hit<S>[][] = Array.from({ length: TIERS }, () => []);
+interface Ranked<S> {
+  entry: Entry<S>;
+  tier: number;
+  titleMatches: number;
+}
+
+function titleMatches(query: string, title: string): number {
+  const text = title.toLowerCase();
+  let count = 0;
+
+  for (let at = text.indexOf(query); at >= 0; at = text.indexOf(query, at + query.length)) {
+    count++;
+  }
+
+  return count;
+}
+
+/// Within a tier, prefer more occurrences in the displayed title. Aliases
+/// can qualify a result without counting the same visible match twice.
+function matches<S>(query: string, group: Entry<S>[]): Ranked<S>[] {
+  const hits: Ranked<S>[] = [];
 
   for (const entry of group) {
     let best = NO_MATCH;
     for (const key of entry.keys) best = Math.min(best, tier(query, key));
-    if (best !== NO_MATCH) tiers[best].push(entry);
+    if (best !== NO_MATCH) hits.push({ entry, tier: best, titleMatches: titleMatches(query, entry.title) });
   }
 
-  return tiers;
+  return hits.sort((a, b) => a.tier - b.tier || b.titleMatches - a.titleMatches);
 }
 
 /// A session found by title and prompt is one hit, with its matching excerpt.
-function withText<S>(tiers: Hit<S>[][], text: Entry<S>[]) {
+function withText<S>(sessions: Ranked<S>[], text: Entry<S>[]) {
   for (const found of text) {
-    let known = false;
+    if (found.kind !== "agent_session") continue;
+    const match = sessions.find(hit => hit.entry.id === found.id);
 
-    for (const hits of tiers) {
-      const at = hits.findIndex(hit => hit.id === found.id);
-      if (at < 0) continue;
-      known = true;
-      if (!hits[at].detail || found.kind === "agent_session") hits[at] = { ...hits[at], detail: found.detail, snippet: found.snippet };
+    if (match) {
+      match.entry = { ...match.entry, detail: found.detail, snippet: found.snippet };
+    } else {
+      sessions.push({ entry: found, tier: TEXT, titleMatches: 0 });
     }
-
-    if (!known) tiers[TEXT].push(found);
   }
 }
 
@@ -96,25 +111,27 @@ export function rank<S>(rawQuery: string, index: PaletteIndex<S>, text: Entry<S>
   const query = rawQuery.trim().toLowerCase();
   if (!query) return [...index.actions];
   const sessions = matches(query, index.sessions);
-  withText(sessions, text.filter(entry => entry.kind === "agent_session"));
+  withText(sessions, text);
+
   const find = (group: Entry<S>[]) => matches(query, group);
   const groups = [find(index.projects), find(index.machines), sessions, find(index.code), find(index.settings), find(index.actions)];
-  const shown = groups.map(tiers => tiers.flat().slice(0, PER_GROUP));
-  const top = topGroup(groups, shown);
-  const out: Hit<S>[] = top < 0 ? [] : [{ ...shown[top][0], top: true }];
-  shown.forEach((hits, i) => out.push(...(i === top ? hits.slice(1) : hits)));
+  const top = topHit(groups);
+  const out: Hit<S>[] = top ? [{ ...top.entry, top: true }] : [];
+
+  for (const group of groups) {
+    for (const hit of group.slice(0, PER_GROUP)) {
+      if (hit !== top) out.push(hit.entry);
+    }
+  }
+
   return out;
 }
 
-/// The group of the top hit, -1 for none: the best hit that starts with what
-/// was typed, when hits come from more than one group.
-function topGroup<S>(groups: Hit<S>[][][], shown: Hit<S>[][]): number {
-  if (shown.filter(hits => hits.length).length < 2) return -1;
+/// With several matching groups, promote the strongest prefix match.
+function topHit<S>(groups: Ranked<S>[][]): Ranked<S> | null {
+  if (groups.filter(group => group.length).length < 2) return null;
 
-  for (const kind of TOP_ORDER) {
-    const at = groups.findIndex((tiers, i) => tiers[PREFIX].length && shown[i][0].kind === kind);
-    if (at >= 0) return at;
-  }
-
-  return -1;
+  const candidates = groups.map(group => group[0]).filter(hit => hit?.tier === PREFIX);
+  candidates.sort((a, b) => b.titleMatches - a.titleMatches || TOP_ORDER.indexOf(a.entry.kind) - TOP_ORDER.indexOf(b.entry.kind));
+  return candidates[0] ?? null;
 }
