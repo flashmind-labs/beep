@@ -300,6 +300,7 @@ fn agy_plan(data: &Value, at: u64) -> Option<PlanUsage> {
                 .flatten()
                 .filter_map(move |bucket| {
                     let minutes = match bucket["window"].as_str()? {
+                        "5h" => 5 * 60,
                         "weekly" => WEEK_MINUTES,
                         "daily" => 24 * 60,
                         _ => return None,
