@@ -8,6 +8,7 @@ fn actor() -> Actor {
     Actor {
         live,
         alerts: Arc::default(),
+        checkouts: Arc::default(),
         node_stopping: Arc::default(),
         moving: false,
         agent: "test-agent".into(),

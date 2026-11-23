@@ -6,6 +6,7 @@ use super::{
     AgentKind,
     acp::Prompt,
     alerts::AlertHub,
+    checkouts::Checkouts,
     compaction::{Compactor, Policy, Route},
     family::Mark,
     images::Images,
@@ -270,6 +271,8 @@ pub(super) struct Start<'a> {
     pub(super) usage: Arc<UsageHub>,
     /// Where what the user would want to hear about goes.
     pub(super) alerts: Arc<AlertHub>,
+    /// What git says of the folder it works in.
+    pub(super) checkouts: Arc<Checkouts>,
     /// Set once the node is stopping: an agent that ends then ended with
     /// the node, whatever its exit says.
     pub(super) stopping: Arc<AtomicBool>,
@@ -325,6 +328,7 @@ impl Session {
             images,
             usage,
             alerts,
+            checkouts,
             stopping,
         } = start;
         let protocol = super::acp::Protocol::from_env(&kind.env)?;
@@ -497,6 +501,7 @@ impl Session {
         let actor = Actor {
             live: live_tx,
             alerts,
+            checkouts,
             node_stopping: stopping,
             moving: false,
             agent: kind.name.clone(),

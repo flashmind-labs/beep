@@ -993,6 +993,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         images: Arc::default(),
         usage: Arc::default(),
         alerts: Arc::default(),
+        checkouts: Arc::default(),
         stopping: Arc::default(),
     }
 }

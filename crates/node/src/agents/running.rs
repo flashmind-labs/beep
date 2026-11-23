@@ -880,6 +880,7 @@ impl Agents {
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
+            checkouts: self.checkouts.clone(),
             stopping: self.stopping.clone(),
         })?;
         session.reviewer = begin.review;

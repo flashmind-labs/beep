@@ -7,6 +7,7 @@ use super::{
 use crate::agents::{
     acp::{self, AsyncTask, ModelSwitch, Offered, Prompt},
     alerts::AlertHub,
+    checkouts::Checkouts,
     compaction::{Compactor, TurnEnd},
     images::Picture,
     known,
@@ -183,6 +184,7 @@ impl Waiting {
 pub(super) struct Actor {
     pub(super) live: watch::Sender<Live>,
     pub(super) alerts: Arc<AlertHub>,
+    pub(super) checkouts: Arc<Checkouts>,
     /// Set once the node is stopping.
     pub(super) node_stopping: Arc<AtomicBool>,
     /// A move to another machine waits for the turn: queued prompts wait

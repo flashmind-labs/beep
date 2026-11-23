@@ -9,54 +9,9 @@ use beep_proto::node::{
     local_link, shell,
 };
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
 };
 use tokio_util::task::AbortOnDropHandle;
-
-/// Worktree metadata can live outside the checkout. Avoid watching the object database.
-pub(super) async fn watch_paths(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut repository = false;
-
-    for folder in root.ancestors() {
-        if tokio::fs::symlink_metadata(folder.join(".git"))
-            .await
-            .is_ok()
-        {
-            repository = true;
-            break;
-        }
-    }
-
-    if !repository {
-        return Ok(Vec::new());
-    }
-
-    // Read in process: no git process for each folder the events watch.
-    let root = root.to_owned();
-    let found = tokio::task::spawn_blocking(move || {
-        let repo = crate::agents::found::repository(&root)?;
-        Some((repo.git_dir().to_owned(), repo.common_dir().to_owned()))
-    })
-    .await?;
-    let Some((git, common)) = found else {
-        return Ok(Vec::new());
-    };
-
-    let git = tokio::fs::canonicalize(git).await?;
-    let common = tokio::fs::canonicalize(common).await?;
-    // Everything the Git projections and diffs read besides the working tree:
-    // the branch, index, refs, upstream settings, worktrees and exclusions.
-    Ok(vec![
-        git.join("HEAD"),
-        git.join("index"),
-        git.join("commondir"),
-        common.join("refs"),
-        common.join("packed-refs"),
-        common.join("config"),
-        common.join("worktrees"),
-        common.join("info").join("exclude"),
-    ])
-}
 
 fn script(root: &str, query: GitRead) -> Result<String> {
     Ok(match query {

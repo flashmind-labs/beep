@@ -3,7 +3,7 @@
 use beep_proto::SessionId;
 use super::{
     Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
-    custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder, worktrees,
+    custom_agents, harnesses, media_file, reach, unix_now, work_folder, worktrees,
 };
 use crate::files::transfer::Transfers;
 use anyhow::{Context, Result};
@@ -386,12 +386,17 @@ pub async fn serve_sessions(
             .await
         }
         SessionsRequest::Diff { ask } => {
-            let root = ask.root.clone();
-            work_request(&agents, &root, reach::Access::Diff, move |real| {
-                let diff = work_diff::read(&real, &ask)?;
-                Ok(SessionsReply::Diff { diff })
-            })
-            .await
+            let read = async {
+                let real = agents.reachable(&ask.root, reach::Access::Diff).await?;
+                agents.checkouts.diff(real, ask).await
+            };
+
+            match read.await {
+                Ok(diff) => SessionsReply::Diff {
+                    diff: Arc::unwrap_or_clone(diff),
+                },
+                Err(e) => failed(e),
+            }
         }
         SessionsRequest::Worktrees { folder, session } => {
             let created = session

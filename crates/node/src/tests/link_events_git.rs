@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::checkouts::watch_paths;
 use crate::link::Offers;
 use beep_projects::{Shell, ShellOutput};
 use beep_proto::node::{

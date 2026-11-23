@@ -34,6 +34,7 @@ host! {
     mod adapters;
     mod alerts;
     mod checkout;
+    pub(crate) mod checkouts;
     mod compaction;
     mod conversation;
     pub(crate) mod custom_agents;
@@ -182,6 +183,8 @@ host! {
         usage: Arc<UsageHub>,
         /// What sessions did that the user would want to hear about.
         alerts: Arc<AlertHub>,
+        /// What git says of the folders sessions and peers read.
+        checkouts: Arc<checkouts::Checkouts>,
         /// The CI runs this node tells, and how it reaches the hosts.
         pub(crate) ci: Arc<crate::machine::ci::Ci>,
         /// What sessions spent, from the agents' own logs.
