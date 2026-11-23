@@ -860,6 +860,8 @@ fn on_settled(
                         mirror.deleted(&machine.to_string(), session);
                     } else {
                         mirror.delete_failed(machine);
+                        // The windows read at once; the relist follows.
+                        let _ = app.emit("sessions-changed", session);
                     }
                 }
             }

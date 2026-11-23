@@ -12,6 +12,7 @@ use crate::{
         view_cache::{View, ViewCache},
     },
     palette::lists::PaletteCache,
+    tray::waiting::WaitingList,
 };
 use beep_proto::{
     AgentStatus, MachineSession, SessionId,
@@ -25,15 +26,12 @@ use iroh::EndpointId;
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{
-    sync::{mpsc, watch},
+    sync::{Semaphore, mpsc, watch},
     task::JoinSet,
     time::{Instant, sleep, timeout},
 };
@@ -48,9 +46,10 @@ const RELIST_FIRST: Duration = Duration::from_secs(1);
 const RELIST_LAST: Duration = Duration::from_secs(16);
 /// How long the first read of a launch waits for this Mac's node.
 const LOCAL_WAIT: Duration = Duration::from_secs(6);
-/// How long a changed set of rows waits before the views file takes it, so a
-/// burst of live reports writes once.
-const KEEP_AFTER: Duration = Duration::from_secs(2);
+/// The most machines listed at once, and scanned at once.
+const IN_FLIGHT: usize = 4;
+/// How often at most the views file takes the rows.
+const KEEP_EVERY: Duration = Duration::from_secs(30);
 const WAITING: usize = 256;
 
 /// One machine's rows.
@@ -104,9 +103,18 @@ impl Rows {
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &MachineSession> {
+        self.iter_of(None)
+    }
+
+    /// The rows of `shown` machines only; of every machine when `None`.
+    pub(crate) fn iter_of<'a>(
+        &'a self,
+        shown: Option<&'a HashSet<EndpointId>>,
+    ) -> impl Iterator<Item = &'a MachineSession> {
         self.machines
-            .values()
-            .flat_map(|machine| machine.beep.iter().chain(&machine.scans))
+            .iter()
+            .filter(move |(machine, _)| shown.is_none_or(|shown| shown.contains(machine)))
+            .flat_map(|(_, machine)| machine.beep.iter().chain(&machine.scans))
     }
 
     /// No machine was read or kept yet.
@@ -126,6 +134,8 @@ impl Rows {
 pub(crate) trait Outside: Send + Sync + 'static {
     /// The machines of the mesh that are online now, this Mac among them.
     fn online(&self) -> Vec<EndpointId>;
+    /// The machines of the mesh, this Mac among them; `None` until the mesh opens.
+    fn members(&self) -> Option<HashSet<EndpointId>>;
     /// Beep's sessions on `machine`; `None` when it did not answer.
     fn list(&self, machine: EndpointId)
     -> impl Future<Output = Option<Vec<MachineSession>>> + Send;
@@ -139,8 +149,11 @@ pub(crate) trait Outside: Send + Sync + 'static {
 /// A change in what the windows draw.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Drawn {
-    /// A machine's push was listed again.
+    /// A machine's push was listed again: Home draws.
     Pushed(EndpointId),
+    /// The listings of a machine's pushes ended or changed what is drawn: the
+    /// lists that ask the machine themselves ask again.
+    Machine(EndpointId),
     /// A read listed a machine again and its rows differ.
     Listed,
     /// A local edit of this session.
@@ -192,7 +205,7 @@ enum Message {
 pub(crate) struct SessionMirror {
     inbox: mpsc::Sender<Message>,
     rows: watch::Receiver<Arc<Rows>>,
-    asked: AtomicBool,
+    started: Instant,
     _task: AbortOnDropHandle<()>,
 }
 
@@ -207,14 +220,16 @@ impl SessionMirror {
             rows,
             reads: HashMap::new(),
             relisting: HashMap::new(),
-            scanning: HashSet::new(),
+            scanning: HashMap::new(),
+            list_slots: Arc::new(Semaphore::new(IN_FLIGHT)),
+            scan_slots: Arc::new(Semaphore::new(IN_FLIGHT)),
             tasks: JoinSet::new(),
         };
 
         Self {
             inbox,
             rows: follow,
-            asked: AtomicBool::new(false),
+            started: Instant::now(),
             _task: AbortOnDropHandle::new(tokio::spawn(actor.run(messages))),
         }
     }
@@ -244,10 +259,11 @@ impl SessionMirror {
         self.current()
     }
 
-    /// The rows for a reader that cannot wait long: the first call of a launch
-    /// waits for this Mac's node to list, then they are as they stand.
+    /// The rows for a reader that cannot wait long: until `LOCAL_WAIT` after
+    /// the launch each caller waits for this Mac's node to list, then they
+    /// are as they stand.
     pub(crate) async fn rows_of_launch(&self, fleet: &Fleet) -> Arc<Rows> {
-        if self.asked.swap(true, Ordering::AcqRel) {
+        if self.started.elapsed() >= LOCAL_WAIT {
             return self.rows();
         }
 
@@ -256,10 +272,16 @@ impl SessionMirror {
         let _ = fleet.ready().await;
 
         if fleet.online().contains(&me) {
-            return self.rows_when(|rows| rows.live(me), LOCAL_WAIT).await;
+            return self.rows_live(me).await;
         }
 
         self.rows()
+    }
+
+    /// The rows once `machine` listed, or `LOCAL_WAIT` after the launch.
+    async fn rows_live(&self, machine: EndpointId) -> Arc<Rows> {
+        let left = LOCAL_WAIT.saturating_sub(self.started.elapsed());
+        self.rows_when(|rows| rows.live(machine), left).await
     }
 
     /// A subscription to the rows, for what follows them.
@@ -339,6 +361,20 @@ struct Relist {
     loud: bool,
     /// The wait before the next try, should the machine not answer.
     pause: Duration,
+    /// An edit came meanwhile: the answer may hold what it undid, so it is
+    /// dropped and the machine listed again.
+    edited: bool,
+}
+
+impl Relist {
+    fn new(loud: bool) -> Self {
+        Self {
+            again: false,
+            loud,
+            pause: RELIST_FIRST,
+            edited: false,
+        }
+    }
 }
 
 struct Actor<O> {
@@ -346,7 +382,10 @@ struct Actor<O> {
     rows: watch::Sender<Arc<Rows>>,
     reads: HashMap<EndpointId, Reads>,
     relisting: HashMap<EndpointId, Relist>,
-    scanning: HashSet<EndpointId>,
+    /// The machines scanned now, and whether an edit came meanwhile.
+    scanning: HashMap<EndpointId, bool>,
+    list_slots: Arc<Semaphore>,
+    scan_slots: Arc<Semaphore>,
     tasks: JoinSet<Message>,
 }
 
@@ -389,6 +428,7 @@ impl<O: Outside> Actor<O> {
                 machine_id,
                 session,
             } => {
+                self.edited(&machine_id);
                 self.edit(|rows| {
                     let before = rows.len();
                     rows.retain(|row| !is(row, &machine_id, &session));
@@ -400,6 +440,7 @@ impl<O: Outside> Actor<O> {
                 machine_id,
                 session,
             } => {
+                self.edited(&machine_id);
                 self.edit(|rows| {
                     let mut changed = false;
 
@@ -423,6 +464,7 @@ impl<O: Outside> Actor<O> {
                 session,
                 question,
             } => {
+                self.edited(&machine_id);
                 self.edit(|rows| answer(rows, &machine_id, &session, question));
                 self.outside.drawn(Drawn::Session(session));
             }
@@ -435,6 +477,7 @@ impl<O: Outside> Actor<O> {
     /// Lists and scans each online machine whose rows are older than `FRESH`.
     fn read(&mut self) {
         let now = Instant::now();
+        self.prune();
 
         for machine in self.outside.online() {
             let reads = self.reads.entry(machine).or_default();
@@ -451,6 +494,40 @@ impl<O: Outside> Actor<O> {
         }
     }
 
+    /// Drops the rows of machines that left the mesh.
+    fn prune(&mut self) {
+        let Some(members) = self.outside.members() else {
+            return;
+        };
+
+        if !watched::read_sent(&self.rows, |rows| {
+            rows.machines
+                .keys()
+                .any(|machine| !members.contains(machine))
+        }) {
+            return;
+        }
+
+        self.revise(|rows| {
+            let before = rows.machines.len();
+            rows.machines.retain(|machine, _| members.contains(machine));
+            rows.machines.len() != before
+        });
+        self.reads.retain(|machine, _| members.contains(machine));
+    }
+
+    /// Marks the listings and scans of `machine_id` that run now, which an
+    /// edit came in the middle of.
+    fn edited(&mut self, machine_id: &str) {
+        for (machine, relist) in &mut self.relisting {
+            relist.edited |= machine.to_string() == machine_id;
+        }
+
+        for (machine, edited) in &mut self.scanning {
+            *edited |= machine.to_string() == machine_id;
+        }
+    }
+
     /// Lists `machine`, one listing at a time. A push that comes while it is
     /// listed has it listed once more; a read does not.
     fn relist(&mut self, machine: EndpointId, push: bool) {
@@ -460,25 +537,21 @@ impl<O: Outside> Actor<O> {
                 relist.loud |= push;
             }
             None => {
-                self.relisting.insert(
-                    machine,
-                    Relist {
-                        again: false,
-                        loud: push,
-                        pause: RELIST_FIRST,
-                    },
-                );
+                self.relisting.insert(machine, Relist::new(push));
                 self.list(machine, Duration::ZERO);
             }
         }
     }
 
     fn list(&mut self, machine: EndpointId, after: Duration) {
-        let outside = self.outside.clone();
+        let (outside, slots) = (self.outside.clone(), self.list_slots.clone());
         self.tasks.spawn(async move {
             if !after.is_zero() {
                 sleep(after).await;
             }
+
+            // The semaphore lives as long as the actor, so this holds a slot or the task ends.
+            let _slot = slots.acquire_owned().await;
 
             Message::Listed {
                 machine,
@@ -488,12 +561,14 @@ impl<O: Outside> Actor<O> {
     }
 
     fn scan(&mut self, machine: EndpointId) {
-        if !self.scanning.insert(machine) {
+        if self.scanning.insert(machine, false).is_some() {
             return;
         }
 
-        let outside = self.outside.clone();
+        let (outside, slots) = (self.outside.clone(), self.scan_slots.clone());
         self.tasks.spawn(async move {
+            let _slot = slots.acquire_owned().await;
+
             Message::Scanned {
                 machine,
                 rows: outside.scan(machine).await,
@@ -502,12 +577,18 @@ impl<O: Outside> Actor<O> {
     }
 
     fn listed(&mut self, machine: EndpointId, rows: Option<Vec<MachineSession>>) {
-        let mut relist = self.relisting.remove(&machine).unwrap_or(Relist {
-            again: false,
-            loud: false,
-            pause: RELIST_FIRST,
-        });
+        let mut relist = self
+            .relisting
+            .remove(&machine)
+            .unwrap_or_else(|| Relist::new(false));
         let mut drawn = false;
+
+        if relist.edited {
+            relist.edited = false;
+            self.list(machine, Duration::ZERO);
+            self.relisting.insert(machine, relist);
+            return;
+        }
 
         match rows {
             Some(rows) => drawn = self.replace(machine, rows, false),
@@ -527,6 +608,10 @@ impl<O: Outside> Actor<O> {
         if relist.loud {
             relist.loud = false;
             self.outside.drawn(Drawn::Pushed(machine));
+
+            if drawn || !relist.again {
+                self.outside.drawn(Drawn::Machine(machine));
+            }
         } else if drawn {
             self.outside.drawn(Drawn::Listed);
         }
@@ -541,7 +626,12 @@ impl<O: Outside> Actor<O> {
     }
 
     fn scanned(&mut self, machine: EndpointId, rows: Option<Vec<MachineSession>>) {
-        self.scanning.remove(&machine);
+        if self.scanning.remove(&machine) == Some(true) {
+            // An edit came while it ran: what it found may undo the edit.
+            self.scan(machine);
+            return;
+        }
+
         self.reads.entry(machine).or_default().scans = Some(Instant::now());
 
         if let Some(rows) = rows
@@ -687,6 +777,19 @@ impl Outside for Desk {
         self.fleet.online()
     }
 
+    fn members(&self) -> Option<HashSet<EndpointId>> {
+        self.fleet.mesh()?;
+
+        Some(
+            self.fleet
+                .machines()
+                .into_iter()
+                .map(|machine| machine.device.id)
+                .chain([self.fleet.id()])
+                .collect(),
+        )
+    }
+
     async fn list(&self, machine: EndpointId) -> Option<Vec<MachineSession>> {
         direct::sessions_of(&self.fleet, machine).await
     }
@@ -698,21 +801,45 @@ impl Outside for Desk {
     fn drawn(&self, drawn: Drawn) {
         let app = &self.app;
         let told = match drawn {
-            Drawn::Pushed(machine) => {
-                app.state::<super::session_lists::SessionLists>()
-                    .stale(machine);
-                app.state::<PaletteCache>().sessions_changed();
+            Drawn::Pushed(_) => {
                 event_views::sessions_changed(app.clone(), Topic::new("agents"));
                 Ok(())
             }
+            Drawn::Machine(machine) => {
+                app.state::<super::session_lists::SessionLists>()
+                    .stale(machine);
+                app.state::<PaletteCache>().sessions_changed();
+                Ok(())
+            }
             Drawn::Listed => app.emit(HOME_CHANGED, ()),
-            Drawn::Session(session) => app.emit("sessions-changed", session),
+            Drawn::Session(session) => {
+                // The tray reads again now that the rows hold the edit.
+                app.state::<WaitingList>().poke();
+                app.emit("sessions-changed", session)
+            }
         };
 
         if let Err(e) = told {
             log::warn!("telling the windows the sessions changed: {e}");
         }
     }
+}
+
+/// The machines whose rows show: those online, those being connected to
+/// (their rows are kept while they connect or have not answered yet) and
+/// this Mac. A machine that is none of these is off: its rows stay in the
+/// mirror and show again when it is back.
+pub(crate) fn showing(
+    online: &[EndpointId],
+    connecting: &[EndpointId],
+    me: EndpointId,
+) -> HashSet<EndpointId> {
+    online
+        .iter()
+        .chain(connecting)
+        .copied()
+        .chain([me])
+        .collect()
 }
 
 /// The rows the last run kept in `cache`, leaving out the starts the app
@@ -735,14 +862,40 @@ pub(crate) fn kept(cache: &ViewCache) -> Vec<MachineSession> {
     }
 }
 
-/// Keeps the rows in `cache` for the next start, a moment after each change.
+/// Keeps the rows in `cache` for the next start, when what the windows draw
+/// of them changed and `KEEP_EVERY` has passed since the last write.
 pub(crate) async fn keep(mut rows: watch::Receiver<Arc<Rows>>, cache: Arc<ViewCache>) {
+    let all = |rows: &Rows| rows.iter().cloned().collect::<Vec<MachineSession>>();
+    let mut saved = watched::read(&rows, |rows| all(rows));
+    let mut at: Option<Instant> = None;
+
     while rows.changed().await.is_ok() {
-        sleep(KEEP_AFTER).await;
-        let all: Vec<MachineSession> =
-            watched::read_and_update(&mut rows, |rows| rows.iter().cloned().collect());
-        cache_view(&cache, View::AgentSessions, &all);
+        if let Some(at) = at {
+            sleep((at + KEEP_EVERY).saturating_duration_since(Instant::now())).await;
+        }
+
+        let now = watched::read_and_update(&mut rows, |rows| all(rows));
+
+        if drawn_between(&saved, &now) {
+            cache_view(&cache, View::AgentSessions, &now);
+            saved = now;
+            at = Some(Instant::now());
+        }
     }
+}
+
+/// Whether two lists of rows differ in what the windows draw.
+fn drawn_between(old: &[MachineSession], new: &[MachineSession]) -> bool {
+    let old: HashMap<_, _> = old
+        .iter()
+        .map(|row| ((&row.machine_id, &row.id), row))
+        .collect();
+
+    old.len() != new.len()
+        || new.iter().any(|row| {
+            old.get(&(&row.machine_id, &row.id))
+                .is_none_or(|old| !same(old, row))
+        })
 }
 
 #[cfg(test)]

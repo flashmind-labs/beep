@@ -14,7 +14,6 @@ use crate::{
         session_mirror::SessionMirror,
     },
     projects::ProjectRow,
-    tray::waiting::WaitingList,
 };
 use beep_proto::SessionId;
 use beep_proto::node::agent::LineChanges;
@@ -70,7 +69,6 @@ pub async fn center_answer_agent(
         crate::agents::outbox::answered_locally(window.app_handle(), &key);
     }
 
-    window.state::<WaitingList>().poke();
     answered
 }
 

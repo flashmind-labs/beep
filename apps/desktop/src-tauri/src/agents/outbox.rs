@@ -1249,10 +1249,6 @@ pub(crate) fn answered_locally(app: &AppHandle, key: &AgentNoticeKey) {
     if let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
         mirror.answered(&key.machine_id, &key.session, key.question);
     }
-
-    if let Some(waiting) = app.try_state::<crate::tray::waiting::WaitingList>() {
-        waiting.poke();
-    }
 }
 
 /// The part of a session read back after a dropped send.

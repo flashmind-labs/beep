@@ -17,7 +17,7 @@ use crate::{
         asked::{ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT},
         node_actor::{FAST_JOB_WAIT, JobKind},
         session_lists::SessionLists,
-        session_mirror::{Rows, SessionMirror},
+        session_mirror::{Rows, SessionMirror, showing},
     },
     projects::known,
 };
@@ -341,12 +341,13 @@ pub(crate) async fn machine_sessions(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec
 /// `rows` with what this app knows on top: presence, deletes and moves under
 /// way, the user's titles and the starts it holds.
 pub(crate) fn overlaid(app: &AppHandle, fleet: &Fleet, rows: &Rows) -> Vec<MachineSession> {
-    // A machine that left the mesh keeps no sessions.
-    let mut sessions: Vec<MachineSession> = rows
-        .iter()
-        .filter(|session| fleet.mesh().is_none() || fleet.member(&session.machine_id).is_some())
-        .cloned()
-        .collect();
+    let mesh = fleet.mesh();
+    // Once the mesh is open, a machine that is off shows no sessions: the
+    // mirror keeps them for when it is back.
+    let shown = mesh
+        .as_ref()
+        .map(|_| showing(&fleet.online(), &fleet.status().connecting(), fleet.id()));
+    let mut sessions: Vec<MachineSession> = rows.iter_of(shown.as_ref()).cloned().collect();
     fleet.apply_presence(&mut sessions);
     sessions.retain(|session| {
         !fleet
@@ -363,9 +364,9 @@ pub(crate) fn overlaid(app: &AppHandle, fleet: &Fleet, rows: &Rows) -> Vec<Machi
         }
     }
 
-    if let Some(mesh) = fleet.mesh() {
+    if let Some(mesh) = &mesh {
         for session in &mut sessions {
-            beep_fleet::session_titles::apply(&mesh, session);
+            beep_fleet::session_titles::apply(mesh, session);
         }
     }
 
