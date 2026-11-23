@@ -77,6 +77,8 @@ const RESCAN_LIMIT: Duration = Duration::from_secs(120);
 const STALL: Duration = Duration::from_secs(30);
 /// What a change asked for while the node stops is told.
 const STOPPING: &str = "this node is stopping";
+/// What a change that ended without an answer, as by a panic, tells.
+const FAILED: &str = "the change to the synced projects failed";
 /// How long a project that stops may take to save its state.
 const STOP_LIMIT: Duration = Duration::from_secs(10);
 /// The projects the server last named (which, where, with which peers),
@@ -335,12 +337,12 @@ impl Syncs {
             done,
         };
 
-        self.inner.actor.ask(op).await.unwrap_or_else(|| {
+        self.inner.actor.ask(op).await.unwrap_or_else(|why| {
             names
                 .into_iter()
                 .map(|project| Refused {
                     project,
-                    message: STOPPING.to_owned(),
+                    message: why.to_owned(),
                 })
                 .collect()
         })
@@ -360,10 +362,10 @@ impl Syncs {
         for (name, entry) in before.iter() {
             match entry.phase {
                 Phase::Running(_) if !names.contains(&name.as_str()) => {
-                    stopping.extend(actor.take(name).await.map(|running| (name, running)));
+                    stopping.extend(actor.take_dropped(name).await.map(|running| (name, running)));
                 }
                 Phase::Held(_) if !names.contains(&name.as_str()) => forgotten.push(name.clone()),
-                Phase::Stopped(_) => forgotten.push(name.clone()),
+                Phase::Stopped(_) if !names.contains(&name.as_str()) => forgotten.push(name.clone()),
                 _ => {}
             }
         }
@@ -415,7 +417,12 @@ impl Syncs {
             }
 
             log::debug!("sync {}: starting", project.name);
-            actor.put(&project, from, Phase::Starting).await;
+            // One that was held or stopped stays listed as it was until it runs.
+            if !actor.seen().get(&project.name).is_some_and(|entry| {
+                matches!(entry.phase, Phase::Held(_) | Phase::Stopped(_))
+            }) {
+                actor.put(&project, from, Phase::Starting).await;
+            }
 
             match self.run(&project, from).await {
                 Ok(running) => {
@@ -449,6 +456,11 @@ impl Syncs {
             self.forget(&old).await;
         }
 
+        // A node that stops refused the loads: its list stays as it was.
+        if actor.closing() {
+            return refused;
+        }
+
         let config = Config { projects: kept };
         let saved = serde_json::to_vec_pretty(&config)
             .context("encoding the projects")
@@ -461,6 +473,11 @@ impl Syncs {
     }
 
     async fn run(&self, project: &Project, from: Source) -> Result<Running> {
+        // A node that stops loads nothing: a run that halts still saves its state.
+        if self.inner.actor.closing() {
+            bail!(STOPPING);
+        }
+
         let (folders, folder) = (self.inner.folders.clone(), project.folder.clone());
         let ignored = ignored::IgnoredRoot::parse(&project.name, Path::new(&project.folder))?;
         let (root, made) = spawn_blocking(move || {
@@ -540,13 +557,14 @@ impl Syncs {
     /// Forgets the state kept under `key` in `file`, unless a project runs on it.
     async fn forget_key(&self, name: &str, key: Key, file: &Path) {
         // The same folder may have started again under the same key.
-        if self
-            .inner
-            .actor
-            .seen()
-            .values()
-            .filter_map(Entry::running)
-            .any(|other| other.key() == key)
+        if self.inner.actor.closing()
+            || self
+                .inner
+                .actor
+                .seen()
+                .values()
+                .filter_map(Entry::running)
+                .any(|other| other.key() == key)
         {
             return;
         }
@@ -585,7 +603,8 @@ impl Syncs {
         self.inner
             .actor
             .ask(|done| Op::CheckSyncthing { done })
-            .await;
+            .await
+            .ok();
     }
 
     async fn do_check_syncthing(&self) {
@@ -645,7 +664,7 @@ impl Syncs {
     /// from the peers; a project that did not start is tried again, so a folder that is back,
     /// or whose rules can be followed now, syncs.
     pub async fn check_folders(&self) {
-        self.inner.actor.ask(|done| Op::CheckFolders { done }).await;
+        self.inner.actor.ask(|done| Op::CheckFolders { done }).await.ok();
     }
 
     async fn do_check_folders(&self) {
@@ -869,7 +888,7 @@ impl Syncs {
             .actor
             .ask(|done| Op::StartOver { project, done })
             .await
-            .unwrap_or_else(|| bail!(STOPPING))
+            .unwrap_or_else(|why| bail!(why))
     }
 
     async fn do_start_over(&self, project: &str) -> Result<()> {

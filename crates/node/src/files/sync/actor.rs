@@ -6,14 +6,17 @@
 //! one at a time as `Op`s in a task the actor owns, not in the task of whoever
 //! asked. A caller that goes away leaves its change to finish.
 
-use super::{Inner, Running, Shared, Source, Syncs, halt};
+use super::{FAILED, Inner, Running, STOPPING, Shared, Source, Syncs, halt};
 use anyhow::Result;
 use beep_proto::node::sync::{Project, ProjectStatus, Refused, State, SyncthingFiles};
 use futures::future::join_all;
 use std::{
     collections::{BTreeMap, VecDeque},
     path::PathBuf,
-    sync::{Arc, Weak},
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use tokio::{
     sync::{mpsc, oneshot, watch},
@@ -129,14 +132,18 @@ pub(super) enum Op {
 enum Cmd {
     Op(Op),
     /// Sets the project's phase, whatever it was. A run brings its task.
+    /// Refused, and answered `false`, over a project that runs: its task
+    /// would be dropped unsaved.
     Put {
         entry: Entry,
         task: Option<AbortOnDropHandle<()>>,
-        done: oneshot::Sender<()>,
+        done: oneshot::Sender<bool>,
     },
-    /// Moves a running project to `Stopping` and hands its run over to halt.
+    /// Hands a running project's run over to halt. It stays listed as
+    /// `Stopping`, or, when `listed` is false (it left the list), goes at once.
     Take {
         name: String,
+        listed: bool,
         done: oneshot::Sender<Option<Running>>,
     },
     /// Takes `project` as the new description of the run that has its folder
@@ -160,6 +167,9 @@ enum Cmd {
 pub(super) struct Handle {
     cmds: mpsc::Sender<Cmd>,
     seen: watch::Receiver<Seen>,
+    /// Set once the shutdown began. A change in progress starts and
+    /// forgets nothing from then on.
+    closing: Arc<AtomicBool>,
 }
 
 impl Handle {
@@ -168,7 +178,9 @@ impl Handle {
     pub(super) fn start(inner: Weak<Inner>) -> (Self, AbortOnDropHandle<()>) {
         let (cmds, rx) = mpsc::channel(64);
         let (seen_tx, seen) = watch::channel(Seen::default());
+        let closing = Arc::new(AtomicBool::new(false));
         let actor = Actor {
+            closing: closing.clone(),
             map: BTreeMap::new(),
             tasks: BTreeMap::new(),
             seen: seen_tx,
@@ -176,20 +188,35 @@ impl Handle {
             queue: VecDeque::new(),
             ops: JoinSet::new(),
             halts: JoinSet::new(),
-            closing: false,
         };
         let task = AbortOnDropHandle::new(tokio::spawn(actor.run(rx)));
-        (Self { cmds, seen }, task)
+        (
+            Self {
+                cmds,
+                seen,
+                closing,
+            },
+            task,
+        )
+    }
+
+    pub(super) fn closing(&self) -> bool {
+        self.closing.load(Ordering::Acquire)
     }
 
     pub(super) fn seen(&self) -> Seen {
         beep_proto::watched::read(&self.seen, Seen::clone)
     }
 
-    /// Queues a change and waits for its end; `None` when the node is
-    /// stopping and left it undone.
-    pub(super) async fn ask<T>(&self, op: impl FnOnce(oneshot::Sender<T>) -> Op) -> Option<T> {
-        self.call(|done| Cmd::Op(op(done))).await
+    /// Queues a change and waits for its end; says why when it did not
+    /// end: the node is stopping, or the change failed.
+    pub(super) async fn ask<T>(
+        &self,
+        op: impl FnOnce(oneshot::Sender<T>) -> Op,
+    ) -> Result<T, &'static str> {
+        self.call(|done| Cmd::Op(op(done)))
+            .await
+            .ok_or(if self.closing() { STOPPING } else { FAILED })
     }
 
     async fn call<T>(&self, cmd: impl FnOnce(oneshot::Sender<T>) -> Cmd) -> Option<T> {
@@ -204,12 +231,7 @@ impl Handle {
             from,
             phase,
         };
-        self.call(|done| Cmd::Put {
-            entry,
-            task: None,
-            done,
-        })
-        .await;
+        self.put_entry(entry, None).await;
     }
 
     pub(super) async fn start_run(&self, project: &Project, from: Source, running: Running) {
@@ -218,17 +240,31 @@ impl Handle {
             from,
             phase: Phase::Running(running.shared),
         };
-        self.call(|done| Cmd::Put {
-            entry,
-            task: Some(running.task),
-            done,
-        })
-        .await;
+        self.put_entry(entry, Some(running.task)).await;
+    }
+
+    async fn put_entry(&self, entry: Entry, task: Option<AbortOnDropHandle<()>>) {
+        let name = entry.project.name.clone();
+        let put = self.call(|done| Cmd::Put { entry, task, done }).await;
+
+        if put == Some(false) {
+            log::warn!("sync {name}: it runs already, so it is not set again");
+        }
     }
 
     pub(super) async fn take(&self, name: &str) -> Option<Running> {
+        self.take_run(name, true).await
+    }
+
+    /// `take` for a project that left the list: it is not listed meanwhile.
+    pub(super) async fn take_dropped(&self, name: &str) -> Option<Running> {
+        self.take_run(name, false).await
+    }
+
+    async fn take_run(&self, name: &str, listed: bool) -> Option<Running> {
         self.call(|done| Cmd::Take {
             name: name.to_owned(),
+            listed,
             done,
         })
         .await
@@ -265,7 +301,7 @@ struct Actor {
     ops: JoinSet<()>,
     /// The runs halting for a shutdown.
     halts: JoinSet<()>,
-    closing: bool,
+    closing: Arc<AtomicBool>,
 }
 
 impl Actor {
@@ -293,42 +329,44 @@ impl Actor {
         match cmd {
             Cmd::Op(op) => {
                 // A node that stops makes no more changes.
-                if !self.closing {
+                if !self.closing.load(Ordering::Acquire) {
                     self.queue.push_back(op);
                     self.next();
                 }
             }
             Cmd::Put { entry, task, done } => {
                 let name = entry.project.name.clone();
-                self.tasks.remove(&name);
+                let accepted = !self.tasks.contains_key(&name);
 
-                match (&entry.phase, task) {
-                    // A change that ends after the shutdown began halts its
-                    // run at once.
-                    (Phase::Running(shared), Some(task)) if self.closing => {
-                        let running = Running {
-                            shared: shared.clone(),
-                            task,
-                        };
-                        self.map.remove(&name);
+                if !accepted {
+                    // Nothing is set over a run that has its task.
+                } else if self.closing.load(Ordering::Acquire) {
+                    // A change that ends after the shutdown began leaves
+                    // nothing listed, and halts a run it started.
+                    if let (Phase::Running(shared), Some(task)) = (entry.phase, task) {
+                        let running = Running { shared, task };
                         self.halts.spawn(async move {
                             halt(running).await;
                         });
                     }
-                    (_, task) => {
-                        if let Some(task) = task {
-                            self.tasks.insert(name.clone(), task);
-                        }
-
-                        self.map.insert(name, entry);
+                } else {
+                    if let Some(task) = task {
+                        self.tasks.insert(name.clone(), task);
                     }
+
+                    self.map.insert(name, entry);
                 }
 
                 self.publish();
-                done.send(()).ok();
+                done.send(accepted).ok();
             }
-            Cmd::Take { name, done } => {
+            Cmd::Take { name, listed, done } => {
                 let running = self.take(&name);
+
+                if !listed && running.is_some() {
+                    self.map.remove(&name);
+                }
+
                 self.publish();
                 done.send(running).ok();
             }
@@ -363,7 +401,7 @@ impl Actor {
                 done.send(()).ok();
             }
             Cmd::Shutdown { done } => {
-                self.closing = true;
+                self.closing.store(true, Ordering::Release);
                 self.queue.clear();
                 let names: Vec<String> = self
                     .map
@@ -374,11 +412,11 @@ impl Actor {
                 let runs: Vec<Running> = names
                     .iter()
                     .filter_map(|name| {
-                        let running = self.take(name);
-                        self.map.remove(name);
-                        running
+                        self.take(name)
                     })
                     .collect();
+                // Nothing is listed once the node stops, whatever phase it was in.
+                self.map.clear();
                 self.publish();
                 // All at once: one busy project holds up no other's save.
                 self.halts.spawn(async move {
@@ -414,20 +452,20 @@ impl Actor {
         self.ops.spawn(Syncs { inner }.perform(op));
     }
 
-    /// After a change that ended early, leaves no project half way: a load
-    /// that did not finish is a stopped project, which the folder checks try
-    /// again, and a halt that did not finish is over.
+    /// After a change that ended early, leaves no project half way: one
+    /// that did not finish starting or stopping is a stopped project, which
+    /// the folder checks try again.
     fn settle(&mut self) {
-        let before = self.map.len();
-        self.map
-            .retain(|_, entry| !matches!(entry.phase, Phase::Stopping(_)));
-        let mut changed = self.map.len() != before;
+        let mut changed = false;
 
         for entry in self.map.values_mut() {
-            if matches!(entry.phase, Phase::Starting) {
-                entry.phase = Phase::Stopped("it did not finish starting".to_owned());
-                changed = true;
-            }
+            let why = match entry.phase {
+                Phase::Starting => "it did not finish starting",
+                Phase::Stopping(_) => "it did not finish stopping",
+                _ => continue,
+            };
+            entry.phase = Phase::Stopped(why.to_owned());
+            changed = true;
         }
 
         if changed {

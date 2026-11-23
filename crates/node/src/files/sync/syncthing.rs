@@ -1,6 +1,6 @@
 //! Hands one checkout between Beep and Syncthing without pausing its share.
 
-use super::{Op, Phase, STOPPING, Syncs, halt, lock, open_target, spawn_blocking};
+use super::{Op, Phase, Syncs, halt, lock, open_target, spawn_blocking};
 use anyhow::{Result, bail};
 use std::path::Path;
 use beep_proto::node::sync::SyncthingFiles;
@@ -32,7 +32,7 @@ impl Syncs {
                 done,
             })
             .await;
-        done.unwrap_or_else(|| bail!(STOPPING))
+        done.unwrap_or_else(|why| bail!(why))
     }
 
     /// Stops the projects in `root` before Syncthing may write it, lets it,

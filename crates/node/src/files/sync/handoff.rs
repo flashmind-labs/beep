@@ -1,7 +1,7 @@
 //! Explicitly bringing uncommitted edits to another checkout.
 
 use super::{
-    STOPPING, Syncs,
+    Syncs,
     actor::Op,
     gitdir::{self, Checkout, Repo, WriteGuard},
 };
@@ -197,7 +197,7 @@ impl Syncs {
             .actor
             .ask(|done| Op::HandoffSnapshot { project, done })
             .await
-            .unwrap_or_else(|| bail!(STOPPING))
+            .unwrap_or_else(|why| bail!(why))
     }
 
     pub(super) async fn do_handoff_snapshot(&self, project: &str) -> Result<HandoffSnapshot> {
@@ -216,7 +216,7 @@ impl Syncs {
                 done,
             })
             .await
-            .unwrap_or_else(|| bail!(STOPPING))
+            .unwrap_or_else(|why| bail!(why))
     }
 
     pub(super) async fn do_handoff_apply(
