@@ -3,7 +3,7 @@ use super::*;
 fn view() -> FlshView {
     FlshView {
         zdr: Some(true),
-        stream_idle_timeout_secs: NonZeroU32::new(120),
+        stream_idle_timeout_secs: None,
         quantizations: vec!["fp8".into(), "bf16".into()],
         sort: Some("throughput".into()),
         allow_fallbacks: None,
@@ -31,10 +31,17 @@ fn view() -> FlshView {
 }
 
 #[test]
-fn the_page_round_trips() {
-    let settings = FlshSettings::try_from(view()).expect("valid settings");
-    assert_eq!(settings.sort, Some(FlshSort::Throughput));
-    assert_eq!(FlshView::from(settings), view());
+fn the_page_round_trips_with_and_without_a_timeout_override() {
+    for timeout_override in [None, NonZeroU32::new(120)] {
+        let page = || FlshView {
+            stream_idle_timeout_secs: timeout_override,
+            ..view()
+        };
+        let settings = FlshSettings::try_from(page()).expect("valid settings");
+        assert_eq!(settings.sort, Some(FlshSort::Throughput));
+        assert_eq!(settings.stream_idle_timeout_secs, timeout_override);
+        assert_eq!(FlshView::from(settings), page());
+    }
 }
 
 #[test]
