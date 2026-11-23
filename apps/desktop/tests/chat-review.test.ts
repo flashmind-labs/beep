@@ -39,3 +39,25 @@ test("saving a comment adds it, changes it, or drops it when emptied", () => {
   assert.deepEqual(dropped.comments.map(c => c.id), [2]);
   assert.equal(reviewCount(added.comments), "1 question · 1 change");
 });
+
+test("sent comments stay on the reply they are about, answered by the reply after them", async () => {
+  const { splitTurns } = await import("../src/agents/agentturns.ts");
+  const { sentOf } = await import("../src/agents/review-state.ts");
+  const report = "Done: the redirect keeps the query string.\n\n## Changed\n- it was dropped when next was read.";
+  const sent = reviewPrompt([comment(1, "change", "Changed 1", "it was dropped when next was read.", "Also keep the fragment.")], "");
+  const entries = [
+    { kind: "user", text: "Fix the redirect." }, { kind: "agent", text: report },
+    { kind: "user", text: sent }, { kind: "agent", text: "Done: kept the fragment too." },
+    { kind: "user", text: reviewPrompt([comment(2, "question", "", "nowhere", "Why?")].map(c => ({ ...c, opening: "Done: something else" })), "") }, { kind: "agent", text: "No such reply." },
+  ];
+  const turns = splitTurns(entries);
+  const prompt = (t: (typeof turns)[number]) => t.user == null ? null : entries[t.user].text;
+  const entry = (at: number) => ({ ...entries[at] });
+
+  const notes = sentOf(turns, prompt, entry, null);
+  assert.deepEqual([...notes.keys()], [1], "only on the reply it names");
+  assert.deepEqual(notes.get(1)?.map(n => [n.item.ask, n.item.place, n.item.text, n.answer]), [["change", "Changed 1", "Also keep the fragment.", "3"]]);
+
+  // While the turn that sent it runs, it is not answered yet.
+  assert.equal(sentOf(turns, prompt, entry, turns[1]).get(1)?.[0].answer, null);
+});

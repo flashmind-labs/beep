@@ -278,10 +278,16 @@ body.cbody
                                     h2 "Changed"
                                       span.n "2"
                                     ul
-                                      li "( ): it was dropped when was read."
+                                      li "( ): was read."
                                         strong "Query string kept"
                                         code.fref [data-file="src/login.ts:42" role="link" tabindex="0"] "src/login.ts:42"
+                                        mark.rv-mark [data-ask="change" data-sent] "it was dropped when"
                                         code "next"
+                                        div.rv-note.sent [data-ask="change"]
+                                          button.rv-note-open [aria-expanded="false" title="Show the whole comment" type="button"]
+                                            span.k "· sent"
+                                              b "Change"
+                                            span.t "Also keep the fragment."
                                       li "( )."
                                         strong "Test for an empty"
                                           code "next"

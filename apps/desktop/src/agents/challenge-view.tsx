@@ -91,10 +91,17 @@ export function ChallengeActs({ entry, can }: { entry: string; can: boolean }) {
         {openButton(challenge)}{can && picker("Again")}
       </span>;
     case "done":
-      return <Button small look="quiet" onClick={() => void openChallenger(challenge)} title="Open the challenger's session">{challenge.findings ? plural(challenge.findings, "finding", "findings") : "Nothing broken"}</Button>;
+      return challenge.findings
+        ? <Button small look="quiet" onClick={event => showFindings(event.currentTarget)} title="Go to the findings">{plural(challenge.findings, "finding", "findings")}</Button>
+        : <span className="report-done">Nothing broken</span>;
     case undefined:
       return can ? picker("Challenge") : null;
   }
+}
+
+/// Scrolls to the first finding on the report `from` is in.
+function showFindings(from: HTMLElement) {
+  from.closest(".dcoderen.report")?.querySelector(".rv-note[data-ask='finding']")?.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
 /// Why a report's challenge failed, or what the machine refused, in words

@@ -47,7 +47,7 @@ import { batchComposerUi, showAgentControl, showAgentControlFor, showAgentStop }
 import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow, Summary } from "./reply-view.tsx";
 import { openingOf, summaryAsked } from "./report-state.ts";
-import { parseReview } from "./review-state.ts";
+import { finalReplyOf, parseReview, sentOf, type SentNote } from "./review-state.ts";
 import { sessionBody } from "./session-frame.tsx";
 import { glide } from "../ui/motion.ts";
 
@@ -604,7 +604,7 @@ function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
   const html = en.html ?? esc(text);
   const block = blockedReply(text, html);
   const body = block?.html ?? html;
-  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", sentAt: en.sent_at ?? null, row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics, text: (block ? text.slice(0, text.lastIndexOf(block.error)) : text).trim(), copy: false, final: false, idle: false, summary: null }] : [];
+  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", sentAt: en.sent_at ?? null, row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics, text: (block ? text.slice(0, text.lastIndexOf(block.error)) : text).trim(), copy: false, final: false, idle: false, summary: null, sent: [] }] : [];
   if (block) replies.push({ kind: "blocked", id: `${at}:blocked`, message: block.error });
   return replies;
 }
@@ -614,7 +614,7 @@ function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
 /// rather than as turns. A turn that ended without a reply stays a turn.
 function summariesOf(turns: Turn[], prompt: (t: Turn) => string | null, entry: (at: number) => AgentEntry, running: Turn | null | undefined, session: string) {
   const summaries = new Map<number, Summary>(), hidden = new Set<number>();
-  const finalReply = (t: Turn) => { const at = t.answer.at(-1); return at != null && entry(at).kind === "agent" && entry(at).text.trim() ? at : null; };
+  const finalReply = finalReplyOf(entry);
 
   turns.forEach((t, i) => {
     const opening = summaryAsked(prompt(t) ?? "");
@@ -635,9 +635,11 @@ function summariesOf(turns: Turn[], prompt: (t: Turn) => string | null, entry: (
   return { summaries, hidden };
 }
 
-/// A turn's rows with the summary of its report, as copies: kept rows stay as they were drawn.
-function withSummaries(rows: () => readonly TranscriptRow[], summaries: Map<number, Summary>) {
-  return () => rows().map(row => row.kind === "reply" && summaries.has(Number(row.row)) ? { ...row, summary: summaries.get(Number(row.row)) ?? null } : row);
+/// A turn's rows with the summary of its report and the comments sent on
+/// its replies, as copies: kept rows stay as they were drawn.
+function withNotes(rows: () => readonly TranscriptRow[], summaries: Map<number, Summary>, sent: Map<number, SentNote[]>) {
+  return () => rows().map(row => row.kind !== "reply" || !summaries.has(Number(row.row)) && !sent.has(Number(row.row)) ? row
+    : { ...row, summary: summaries.get(Number(row.row)) ?? row.summary, sent: sent.get(Number(row.row)) ?? row.sent });
 }
 
 /// Calls of one kind in a row as one line, the first few targets beside
@@ -697,9 +699,10 @@ function turnUnits(p: AgentPage, news: boolean): Unit[] {
   const m = noteTurns(AG.open?.session ?? s.id, turns, prompt, active && lastTurn ? lastTurn.key : null);
   liveAt = lastTurn ? liveThought(p.entries, lastTurn, active, p.earlier) : null;
   const { summaries, hidden } = summariesOf(turns, prompt, entry, active ? lastTurn : null, s.id);
+  const sent = sentOf(turns, prompt, entry, active ? lastTurn : null);
   return turns.filter(t => !hidden.has(t.key)).map(t => {
     const rows = t === lastTurn ? turnRows(t) : keptTurn(t, turnRows(t));
-    return { key: `t${t.key}`, rows: summaries.size ? withSummaries(rows, summaries) : rows, prompt: prompt(t) };
+    return { key: `t${t.key}`, rows: summaries.size || sent.size ? withNotes(rows, summaries, sent) : rows, prompt: prompt(t) };
   });
 
   /// The rows of a turn before the last: those it had while its entries stay, once none runs.

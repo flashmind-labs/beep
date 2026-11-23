@@ -3,6 +3,9 @@
 // user types next. The message reads back from the transcript as a review,
 // so the chat shows its comments rather than the prompt Beep wrote.
 import { createStore } from "zustand";
+import type { AgentEntry } from "./agents.ts";
+import type { Turn } from "./agentturns.ts";
+import { openingOf } from "./report-state.ts";
 
 /// What a comment asks for: an answer, a change, or a fix for what a
 /// challenge found wrong.
@@ -128,9 +131,16 @@ export function reviewPrompt(comments: readonly ReviewComment[], also: string) {
 
 /// A review as sent, read back from the transcript.
 export interface SentReview {
-  items: { ask: Ask; place: string; opening: string; quote: string; text: string; finding: FindingOf | null }[];
+  items: SentItem[];
   also: string;
 }
+
+/// A comment as sent.
+export interface SentItem { ask: Ask; place: string; opening: string; quote: string; text: string; finding: FindingOf | null }
+
+/// A sent comment on a reply, kept on it: the entry of the turn that sent
+/// it, and the reply that answered it, once there is one.
+export interface SentNote { key: string; item: SentItem; answer: string | null }
 
 /// `text` read as a review Beep sent, or null for any other message.
 export function parseReview(text: string): SentReview | null {
@@ -138,7 +148,7 @@ export function parseReview(text: string): SentReview | null {
 
   const out: SentReview = { items: [], also: "" };
   let ask: Ask | null = null, also: string[] | null = null;
-  let item: SentReview["items"][number] | null = null;
+  let item: SentItem | null = null;
   let quote: string[] = [], words: string[] = [];
   const finish = () => {
     if (item) out.items.push({ ...item, quote: quote.join("\n"), ...sentWords(item.ask, words.join("\n").trim()) });
@@ -203,6 +213,34 @@ function labelOf(words: string) {
   const numbered = /^item (\d+) under "(.+)"$/.exec(words);
   if (numbered) return `${numbered[2]} ${numbered[1]}`;
   return /^under "(.+)"$/.exec(words)?.[1] ?? words;
+}
+
+/// A turn's last reply, when it has text.
+export const finalReplyOf = (entry: (at: number) => AgentEntry) => (t: Turn) => {
+  const at = t.answer.at(-1);
+  return at != null && entry(at).kind === "agent" && entry(at).text.trim() ? at : null;
+};
+
+/// The comments sent in reviews, by the entry of the reply each is on: the
+/// last turn's last reply before the review that starts as the comment
+/// says. Each is answered by the last reply of the turn that sent it, once
+/// that turn is over.
+export function sentOf(turns: readonly Turn[], prompt: (t: Turn) => string | null, entry: (at: number) => AgentEntry, running: Turn | null | undefined) {
+  const sent = new Map<number, SentNote[]>(), finalReply = finalReplyOf(entry);
+
+  turns.forEach((t, i) => {
+    const review = parseReview(prompt(t) ?? "");
+    if (!review) return;
+
+    const answer = t === running ? null : finalReply(t);
+    review.items.forEach((item, n) => {
+      const on = turns.slice(0, i).map(finalReply).findLast(at => at != null && openingOf(entry(at).text) === item.opening);
+      if (on == null) return;
+      sent.set(on, [...sent.get(on) ?? [], { key: `${t.key}:${n}`, item, answer: answer == null ? null : String(answer) }]);
+    });
+  });
+
+  return sent;
 }
 
 // ----- Kept on this machine -----

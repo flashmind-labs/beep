@@ -22,7 +22,8 @@ import { EMPTY } from "../../src/settings/flsh-state.ts";
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop, openStartForm, projectName } from "./harness.ts";
 import { audit, auditing } from "./ui-audit.ts";
-import { summaryPrompt } from "../../src/agents/report-state.ts";
+import { openingOf, summaryPrompt } from "../../src/agents/report-state.ts";
+import { reviewPrompt } from "../../src/agents/review-state.ts";
 
 /// The frozen wall clock every state renders at.
 const NOW = Date.UTC(2026, 0, 15, 12, 0, 0);
@@ -770,6 +771,31 @@ test("agent report reviewed", async ({ page }) => {
   await baseline(page, "agent-report-review-sent");
 });
 
+test("agent report keeps the comments sent on it", async ({ page }) => {
+  const opening = openingOf(reportText);
+  const finding = { id: 1, entry: 0, quote: "it was dropped when next was read.", place: "Changed 1", opening, ask: "finding" as const, text: "It is still dropped after the old sign-on page.", finding: { tag: "confirmed" as const, evidence: "`npm test -- sso` failed 1 of 1." } };
+  const answer = "Done: the fragment is kept too, and the old sign-on page keeps it.";
+  const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml },
+    { kind: "user", text: reviewPrompt([finding], "") }, { kind: "agent", text: answer, html: `<p>${answer}</p>` }];
+  await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries } });
+  const report = page.locator(".dcoderen.report").first();
+
+  // Sent, the finding stays on its claim: one line, marked thinly, answered by the reply after it.
+  const note = report.locator('.report-part[data-kind="changed"] li:first-child > .rv-note.sent');
+  await expect(note.locator(".k")).toContainText("Challenge");
+  await expect(note.locator(".rv-tag")).toHaveText("confirmed");
+  await expect(note.locator(".k")).toContainText("sent");
+  await expect(note.locator(".ev")).toBeHidden();
+  await expect(report.locator('.rv-mark[data-sent][data-ask="finding"]').first()).toBeVisible();
+  await baseline(page, "agent-report-sent-notes");
+
+  // Opened, it shows all of it; answered goes to the reply.
+  await note.getByRole("button", { name: /It is still dropped/ }).click();
+  await expect(note.locator(".ev")).toBeVisible();
+  await note.getByRole("button", { name: "answered ↓" }).click();
+  await expect(page.locator(`.dcoderen.agent[data-row="${entries.length - 1}"]`)).toBeInViewport();
+});
+
 test("agent report draft on a whole item", async ({ page }) => {
   const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text: reportText, html: reportHtml }];
   await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries } });
@@ -853,8 +879,14 @@ test("agent report challenged", async ({ page }) => {
   await expect(note.locator(".ev code")).toHaveText("npm test -- sso");
   await expect(report.locator('.rv-mark[data-ask="finding"]')).toHaveText(["it was dropped when ", "next", " was read."]);
   await expect(page.locator(".rv-bar")).toContainText("1 finding · goes with your next message");
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").map(call => call.args))).toContainEqual(expect.objectContaining({ session: "challenger-one", steer: "close" }));
+  // Its findings in, the challenger goes: closed, which removes its copy, then deleted.
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer" || call.command === "agent_delete").map(call => [call.command, call.args.session, call.args.steer ?? null]))).toEqual([["agent_steer", "challenger-one", "close"], ["agent_delete", "challenger-one", null]]);
   await baseline(page, "agent-report-challenged");
+
+  // Its count goes to the findings.
+  await page.locator("#agbody").evaluate(body => { body.scrollTop = body.scrollHeight; });
+  await report.getByRole("button", { name: "1 finding" }).click();
+  await expect(note).toBeInViewport();
 
   // Send now sends the review alone, and it shows as its findings.
   await page.locator(".rv-bar").getByRole("button", { name: "Send now" }).click();
@@ -944,9 +976,23 @@ test("agent report challenge that ends without answering", async ({ page }) => {
   await expect.poll(() => closedChallenger(page)).toContainEqual(expect.objectContaining({ session: "challenger-one", steer: "close" }));
   await baseline(page, "agent-report-challenge-failed");
 
-  // Again picks a model for a new challenger.
+  // Its session stays to show why: closed, not deleted.
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_delete").length)).toBe(0);
+
+  // Again picks a model for a new challenger, and the failed one's session goes.
+  const next = agentRow("challenger-two", "Challenge the report", "working", 0);
+  await page.evaluate(([row, old]) => {
+    window.__navigation.respond("agent_begin", { session: row, why: "" });
+    window.__navigation.respond("agent_sessions", [row, old]);
+  }, [next, { ...challenger, status: "ended" }] as const);
   await failed.getByRole("button", { name: "Again" }).click();
-  await expect(page.getByRole("dialog", { name: "Harness, model and thinking" })).toBeVisible();
+  const picker = page.getByRole("dialog", { name: "Harness, model and thinking" });
+  await picker.locator('[data-agh="codex"]').click();
+  await picker.locator('[data-agmo="alpha"]').click();
+  await picker.locator('[data-age=""]').click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_delete").map(call => call.args.session))).toEqual(["challenger-one"]);
+  await expect(report.locator(".report-busy")).toContainText("Challenging…");
+  await expect(report.locator(".report-note")).toHaveCount(0);
 });
 
 test("agent report challenge that does not start", async ({ page }) => {

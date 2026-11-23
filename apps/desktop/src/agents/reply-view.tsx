@@ -5,8 +5,8 @@ import { conversationBlocked } from "./turnrows.ts";
 import { memo, useMemo, useRef, type MouseEvent } from "react";
 import { Element, htmlToDOM, type DOMNode } from "html-react-parser";
 import { OUTCOME_LABEL, REPORT_MIN_WORDS, isTag, reportOf, reportViews, toggleOriginal, type Report, type ReportSection } from "./report-state.ts";
-import { DraftNotes, SentReviewCard, WithDrafts, useReviewed } from "./review-view.tsx";
-import type { ReviewComment, SentReview } from "./review-state.ts";
+import { Notes, SentReviewCard, WithNotes, useReviewed, type Note } from "./review-view.tsx";
+import type { SentNote, SentReview } from "./review-state.ts";
 import { ChallengeActs, ChallengeNote } from "./challenge-view.tsx";
 import { useStore } from "zustand";
 import { plural } from "../ui/format.ts";
@@ -21,7 +21,8 @@ import { SubIcon } from "./activity-view.tsx";
 /// `final` marks the last reply of a finished turn, which may be a report;
 /// `idle` that the session takes a message now, as a report's Summarize sends;
 /// `summary` the shorter version Summarize brought, drawn in its place.
-export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; copy: boolean; final: boolean; idle: boolean; summary: Summary | null; sentAt?: number | null }
+/// `sent` the comments sent on it, which stay on it.
+export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; copy: boolean; final: boolean; idle: boolean; summary: Summary | null; sent: readonly SentNote[]; sentAt?: number | null }
 
 /// A report's summary: being written by the session's agent, or its reply,
 /// whose `id` keeps the reader's choice between it and the original.
@@ -41,8 +42,8 @@ export const AgentReply = memo(function AgentReply({ reply }: { reply: ReplyRow 
 /// Reconciled rather than set as HTML, so a streamed chunk leaves finished blocks, and their diagrams, in place.
 function PlainReply({ reply }: { reply: ReplyRow }) {
   const parts = useMemo(() => [htmlToDOM(reply.html)], [reply.html]);
-  const { parts: [list], at, rest } = useReviewed(reply.row, parts);
-  return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} />{reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}<div className="reply-body"><WithDrafts list={list} at={at} /><DraftNotes drafts={rest} /></div></div>;
+  const { parts: [list], at, rest } = useReviewed(reply.row, parts, reply.sent);
+  return <div className={`dcoderen agent${reply.markdown ? " md" : ""}`} data-row={reply.row}><EntryTime at={reply.sentAt ?? null} />{reply.copy && <CopyButton text={reply.text} look="quiet" small icon className="reply-copy" />}<div className="reply-body"><WithNotes list={list} at={at} /><Notes notes={rest} /></div></div>;
 }
 
 /// A report: its outcome, length and reading time over its headline and
@@ -76,13 +77,13 @@ function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
       </span>
     </div>
     <ChallengeNote entry={reply.row} />
-    <ReportBody key={view} entry={reply.row} report={shown} swapped={swapped} />
+    <ReportBody key={view} entry={reply.row} sent={reply.sent} report={shown} swapped={swapped} />
   </div>;
 }
 
 /// A report's text: its headline, opening and parts, each draft under the
 /// paragraph or item it quotes.
-function ReportBody({ entry, report, swapped }: { entry: string; report: Report; swapped: boolean }) {
+function ReportBody({ entry, sent, report, swapped }: { entry: string; sent: readonly SentNote[]; report: Report; swapped: boolean }) {
   const shapedParts = useMemo(() => report.kind === "long" ? [report.nodes] : [
     [
       ...report.shaped.lead.map(node => isTag(node) ? new Element(node.name, { ...node.attribs, class: "report-lead" }, node.children) : node),
@@ -91,20 +92,20 @@ function ReportBody({ entry, report, swapped }: { entry: string; report: Report;
     ],
     ...report.shaped.sections.map(section => section.nodes),
   ], [report]);
-  const { parts, at, rest } = useReviewed(entry, shapedParts);
+  const { parts, at, rest } = useReviewed(entry, shapedParts, sent);
 
   return <div className={`reply-body${swapped ? " swapped" : ""}`}>
-    <WithDrafts list={parts[0]} at={at} />
+    <WithNotes list={parts[0]} at={at} />
     {report.kind === "shaped" && report.shaped.sections.map((section, i) => <ReportPart key={i} section={section} list={parts[i + 1]} at={at} />)}
-    <DraftNotes drafts={rest} />
+    <Notes notes={rest} />
   </div>;
 }
 
 /// A report's `##` section: its title and item count over its body; Needs you as a callout.
-function ReportPart({ section, list, at }: { section: ReportSection; list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly ReviewComment[]> }) {
+function ReportPart({ section, list, at }: { section: ReportSection; list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly Note[]> }) {
   return <section className="report-part" data-kind={section.kind}>
     <h2>{section.title}{section.count > 0 && <span className="n">{section.count}</span>}</h2>
-    <WithDrafts list={list} at={at} />
+    <WithNotes list={list} at={at} />
   </section>;
 }
 

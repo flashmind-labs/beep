@@ -750,6 +750,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .report-note b { font-weight: 500; color: var(--err) }
 .report-ask-dot { width: 6px; height: 6px; align-self: center; border-radius: 50%; background: var(--warn) }
 .report-busy[data-challenge="asking"] > span:not(.report-ask-dot, .report-err) { color: var(--warn) }
+.report-done { align-self: center }
 .report-challenge { position: relative; display: inline-flex; align-items: baseline; gap: 6px }
 .report-challenge > div { white-space: normal }
 @media (prefers-reduced-motion: no-preference) { .dcoderen.report > .reply-body.swapped { animation: report-swap .18s ease-out } }
@@ -761,11 +762,17 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .rv-pop { position: fixed; z-index: 45; display: flex; gap: 2px; padding: 3px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent); background: color-mix(in srgb, var(--elev) 92%, transparent); box-shadow: 0 10px 30px -8px rgb(0 0 0 / .5) }
 :is(.rv-pop, .rv-field) kbd { margin-inline-start: 6px; padding: 0 4px; border-radius: 3px; font: 10.5px var(--mono); color: var(--dim); background: color-mix(in srgb, var(--fg) 6%, transparent) }
 .rv-mark { --mark: var(--accent); color: inherit; background: color-mix(in srgb, var(--mark) 22%, transparent); text-decoration: underline 2px var(--mark); text-underline-offset: 3px; text-decoration-skip-ink: none }
-.rv-mark[data-ask="change"] { --mark: var(--warn) } .rv-mark[data-ask="finding"] { --mark: var(--err) }
+.rv-mark[data-ask="change"] { --mark: var(--warn) }
+.rv-mark[data-sent] { background: none; text-decoration-thickness: 1px; text-decoration-color: color-mix(in srgb, var(--mark) 70%, transparent) } .rv-mark[data-ask="finding"] { --mark: var(--err) }
 .rv-note { position: relative; box-sizing: border-box; width: 100%; max-width: var(--measure, none); margin: 6px 0 10px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 5%, transparent) }
 .rv-note:is(:hover, :focus-within) { background: color-mix(in srgb, var(--fg) 8%, transparent) }
 .rv-note-open { all: unset; display: grid; gap: 2px; box-sizing: border-box; width: 100%; padding: 7px 36px 8px 12px; cursor: default }
 .rv-drop { position: absolute; top: 4px; right: 4px; opacity: 0 }
+.rv-note.sent { background: color-mix(in srgb, var(--fg) 3%, transparent) }
+.rv-note.sent .rv-note-open { padding-right: 96px }
+.rv-note.sent:not([data-open]) .t { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--muted) }
+.rv-note.sent:not([data-open]) .ev { display: none }
+.rv-answer { position: absolute; top: 4px; right: 4px }
 .rv-note:is(:hover, :focus-within) .rv-drop { opacity: 1 }
 .rv-tag { margin-left: 6px; padding: 0 5px; border-radius: var(--radius-sm); font: 600 10px/16px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); cursor: help }
 .rv-tag[data-tag="confirmed"] { color: var(--err); background: color-mix(in srgb, var(--err) 16%, transparent) }

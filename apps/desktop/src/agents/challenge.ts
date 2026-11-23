@@ -20,7 +20,13 @@ export async function challengeReport(at: number, pick: Pick<Picked, "agent" | "
   const page = AG.page, report = page?.entries[at - page.earlier];
   if (!page || report?.kind !== "agent") return;
 
-  const s = page.session, work = await workFolder(s), prompt = challengePrompt(report.text, work);
+  const s = page.session, key = reviewKey(s.machine_id, s.id);
+  // A failed challenge of this report goes with the next: its session too.
+  const failed = (challenges.getState().by[key] ?? []).filter(c => c.entry === at && c.state === "failed");
+  for (const c of failed) void removeChallenger(c).catch(e => console.warn("challenge:", e));
+  updateChallenges(key, list => list.filter(c => !failed.includes(c)));
+
+  const work = await workFolder(s), prompt = challengePrompt(report.text, work);
   const started = await invoke<Started>("agent_begin", {
     machineId: s.machine_id, agent: pick.agent, cwd: work, prompt, images: [], model: pick.model.trim() || null, effort: pick.effort,
     fast: pick.agent === "codex" ? pick.fast : null, checkout: "copy_worktree", assistant: false, account: null,
@@ -28,7 +34,7 @@ export async function challengeReport(at: number, pick: Pick<Picked, "agent" | "
   startedWith(started.session, prompt, []);
 
   const challenger = { machine: started.session.machine_id, agent: started.session.agent, session: started.session.id };
-  updateChallenges(reviewKey(s.machine_id, s.id), list => [...list, { entry: at, opening: openingOf(report.text), challenger, state: "running", findings: 0, error: "" }]);
+  updateChallenges(key, list => [...list, { entry: at, opening: openingOf(report.text), challenger, state: "running", findings: 0, error: "" }]);
 }
 
 /// Where session `s` did its work: the last worktree it made, else its folder.
@@ -37,15 +43,20 @@ async function workFolder(s: AgentRow) {
   return trees?.filter(t => t.created).at(-1)?.path ?? s.cwd;
 }
 
-/// Stops the challenger and removes it: its session, and the copy it
-/// worked in, which goes with the session's close.
+/// Stops the challenger and removes it, and the challenge with it.
 export async function stopChallenger(key: string, c: Challenge) {
-  const row = findSession(c) ?? { machine_id: c.challenger.machine, machine_name: "", id: c.challenger.session, agent: c.challenger.agent, cwd: "", status: "working", external: false };
-  await closeSession(row);
-  updateChallenges(key, list => list.filter(d => !sameChallenger(d, c)));
+  await removeChallenger(c, () => updateChallenges(key, list => list.filter(d => !sameChallenger(d, c))));
+}
 
-  // Deleted once the close has ended it; a harness that keeps its sessions in
-  // a database keeps it. A start its machine has not named is gone with the close.
+/// Closes challenger `c`, which removes the copy it worked in, then deletes
+/// its session, once the close has ended it; `closed` runs between. A
+/// harness that keeps its sessions in a database keeps it, and a start its
+/// machine has not named is gone with the close.
+async function removeChallenger(c: Challenge, closed = () => {}) {
+  const row = findSession(c) ?? { machine_id: c.challenger.machine, machine_name: "", id: c.challenger.session, agent: c.challenger.agent, cwd: "", status: "working", external: false };
+  if (row.status !== "ended") await closeSession(row);
+  closed();
+
   for (let tries = 0; !isStarting(row.id) && tries < DELETE_TRIES; tries++) {
     try {
       await deleteSession(row);
@@ -124,7 +135,10 @@ async function collect(key: string, c: Challenge) {
       settle(key, c, { state: "failed", error: result.error });
     }
 
-    if (page.session.status !== "ended") await closeSession({ machine_id: c.challenger.machine, id: c.challenger.session, agent: c.challenger.agent }).catch(e => console.warn("challenge close:", e));
+    // Done, its findings are on the report and the challenger goes; failed,
+    // its session stays to show why, until the next challenge.
+    if (result.state === "done") await removeChallenger(c).catch(e => console.warn("challenge remove:", e));
+    else if (page.session.status !== "ended") await closeSession({ machine_id: c.challenger.machine, id: c.challenger.session, agent: c.challenger.agent }).catch(e => console.warn("challenge close:", e));
   } catch (e) {
     // Read again with the next change of the sessions.
     console.warn("challenge:", e);

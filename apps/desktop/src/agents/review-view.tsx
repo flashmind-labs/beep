@@ -10,7 +10,7 @@ import { Button } from "../ui/kit.tsx";
 import { AG } from "./agents.ts";
 import { Element as DomElement, Text as TextNode, attributesToProps, domToReact, type DOMNode, type HTMLReactParserOptions } from "html-react-parser";
 import { isTag, isText, openingOf, textOf } from "./report-state.ts";
-import { keepWriting, reviewCount, reviewOf, reviews, updateReview, type FindingOf, type Tag, type Ask, type ReviewComment, type Review, type SentReview } from "./review-state.ts";
+import { keepWriting, reviewCount, reviewOf, reviews, updateReview, type FindingOf, type SentNote, type Tag, type Ask, type ReviewComment, type Review, type SentReview } from "./review-state.ts";
 
 const ASK_LABEL: Record<Ask, string> = { question: "Question", change: "Change", finding: "Challenge" };
 
@@ -180,9 +180,15 @@ function CommentField({ reviewKey, review, sendNow }: { reviewKey: string; revie
 
 const norm = (text: string) => text.replace(/\s+/g, " ").trim();
 
-/// The parts of the reply at `entry` with the open session's drafts on it,
-/// and the one being written, marked; and where each draft's card goes.
-export function useReviewed(entry: string, parts: readonly DOMNode[][]) {
+/// A note under the passage it quotes: a draft, or a comment already sent.
+export type Note = { kind: "draft"; comment: ReviewComment } | { kind: "sent"; sent: SentNote };
+
+const quoteOf = (note: Note) => note.kind === "draft" ? note.comment.quote : note.sent.item.quote;
+
+/// The parts of the reply at `entry` with the comments on it marked: those
+/// `sent` on it, the open session's drafts, and the one being written; and
+/// where each one's card goes.
+export function useReviewed(entry: string, parts: readonly DOMNode[][], sent: readonly SentNote[]) {
   const drafts = useStore(reviews, useShallow(state => (state.open ? state.by[state.open]?.comments ?? [] : []).filter(c => String(c.entry) === entry)));
   const writing = useStore(reviews, useShallow(state => {
     const w = state.open ? state.by[state.open]?.writing : null;
@@ -190,14 +196,18 @@ export function useReviewed(entry: string, parts: readonly DOMNode[][]) {
   }));
 
   return useMemo(() => {
-    const marked = markQuotes(parts, [...drafts, ...writing ? [writing] : []]);
-    return { parts: marked, ...placeDrafts(marked.flat(), drafts) };
-  }, [parts, drafts, writing]);
+    // Sent first, so a draft on the same words shows over it.
+    const quotes = [...sent.map(n => ({ ask: n.item.ask, quote: n.item.quote, sent: true })), ...[...drafts, ...writing ? [writing] : []].map(c => ({ ask: c.ask, quote: c.quote, sent: false }))];
+    const marked = markQuotes(parts, quotes);
+    const notes: Note[] = [...sent.map(n => ({ kind: "sent" as const, sent: n })), ...drafts.map(c => ({ kind: "draft" as const, comment: c }))];
+    return { parts: marked, ...placeNotes(marked.flat(), notes) };
+  }, [parts, drafts, writing, sent]);
 }
 
-/// `parts` with each quote's words in a `mark` of its kind, found with
-/// spaces and line breaks counted as one space; quotes not found are left out.
-function markQuotes(parts: readonly DOMNode[][], quotes: readonly { ask: Ask; quote: string }[]): DOMNode[][] {
+/// `parts` with each quote's words in a `mark` of its kind, a sent one's
+/// marked as sent, found with spaces and line breaks counted as one space;
+/// quotes not found are left out.
+function markQuotes(parts: readonly DOMNode[][], quotes: readonly { ask: Ask; quote: string; sent: boolean }[]): DOMNode[][] {
   if (!quotes.length) return [...parts];
 
   let flat = "", space = true;
@@ -218,18 +228,19 @@ function markQuotes(parts: readonly DOMNode[][], quotes: readonly { ask: Ask; qu
   };
   parts.forEach(walk);
 
-  // Each text node's characters, by the kind of quote they are in.
-  const asks = new Map<TextNode, (Ask | null)[]>();
-  for (const { ask, quote } of quotes) {
+  // Each text node's characters, by the quote they are in, last one first.
+  type Kind = { ask: Ask; sent: boolean };
+  const kinds = new Map<TextNode, (Kind | null)[]>();
+  for (const { ask, quote, sent } of quotes) {
     const wanted = norm(quote), from = wanted ? flat.indexOf(wanted) : -1;
     if (from < 0) continue;
 
     const spans = new Map<TextNode, [number, number]>();
     for (const [node, i] of at.slice(from, from + wanted.length)) spans.set(node, [spans.get(node)?.[0] ?? i, i + 1]);
     for (const [node, [start, end]] of spans) {
-      const kinds = asks.get(node) ?? Array<Ask | null>(node.data.length).fill(null);
-      kinds.fill(ask, start, end);
-      asks.set(node, kinds);
+      const list = kinds.get(node) ?? Array<Kind | null>(node.data.length).fill(null);
+      list.fill({ ask, sent }, start, end);
+      kinds.set(node, list);
     }
   }
 
@@ -238,69 +249,89 @@ function markQuotes(parts: readonly DOMNode[][], quotes: readonly { ask: Ask; qu
       const children = rebuild(node.children as DOMNode[]);
       return children.every((child, i) => child === node.children[i]) ? [node] : [new DomElement(node.name, { ...node.attribs }, children as DomElement["children"])];
     }
-    const kinds = isText(node) ? asks.get(node) : undefined;
-    if (!kinds || !isText(node)) return [node];
+    const list = isText(node) ? kinds.get(node) : undefined;
+    if (!list || !isText(node)) return [node];
 
     const runs: DOMNode[] = [];
-    for (let start = 0, end = 1; start < kinds.length; start = end, end = start + 1) {
-      while (end < kinds.length && kinds[end] === kinds[start]) end++;
-      const text = new TextNode(node.data.slice(start, end)), ask = kinds[start];
-      runs.push(ask ? new DomElement("mark", { class: "rv-mark", "data-ask": ask }, [text]) : text);
+    for (let start = 0, end = 1; start < list.length; start = end, end = start + 1) {
+      while (end < list.length && list[end] === list[start]) end++;
+      const text = new TextNode(node.data.slice(start, end)), kind = list[start];
+      runs.push(kind ? new DomElement("mark", { class: "rv-mark", "data-ask": kind.ask, ...kind.sent ? { "data-sent": "" } : {} }, [text]) : text);
     }
     return runs;
   });
   return parts.map(rebuild);
 }
 
-/// Where each draft goes: under the list item or top-level block that holds
-/// its quote whole, the innermost item first. Drafts no block holds go last.
-function placeDrafts(list: DOMNode[], drafts: readonly ReviewComment[]) {
-  const at = new Map<DOMNode, ReviewComment[]>(), rest: ReviewComment[] = [];
-  const place = (c: ReviewComment, nodes: DOMNode[], top: boolean): boolean => {
-    const node = nodes.find(n => isTag(n) && norm(textOf(n)).includes(norm(c.quote)));
+/// Where each note goes: under the list item or top-level block that holds
+/// its quote whole, the innermost item first. Notes no block holds go last.
+function placeNotes(list: DOMNode[], notes: readonly Note[]) {
+  const at = new Map<DOMNode, Note[]>(), rest: Note[] = [];
+  const place = (note: Note, nodes: DOMNode[], top: boolean): boolean => {
+    const node = nodes.find(n => isTag(n) && norm(textOf(n)).includes(norm(quoteOf(note))));
     if (!node || !isTag(node)) return false;
-    if (place(c, node.children as DOMNode[], false)) return true;
+    if (place(note, node.children as DOMNode[], false)) return true;
     if (!top && node.name !== "li") return false;
 
-    at.set(node, [...at.get(node) ?? [], c]);
+    at.set(node, [...at.get(node) ?? [], note]);
     return true;
   };
 
-  for (const c of drafts) if (!place(c, list, true)) rest.push(c);
+  for (const note of notes) if (!place(note, list, true)) rest.push(note);
   return { at, rest };
 }
 
-/// `list` drawn with the drafts `at` puts under its blocks and list items.
-export function WithDrafts({ list, at }: { list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly ReviewComment[]> }) {
+/// `list` drawn with the notes `at` puts under its blocks and list items.
+export function WithNotes({ list, at }: { list: DOMNode[]; at: ReadonlyMap<DOMNode, readonly Note[]> }) {
   const options: HTMLReactParserOptions = {
     replace: node => {
-      const drafts = at.get(node);
-      if (!drafts || !isTag(node) || node.name !== "li") return;
-      return <li {...attributesToProps(node.attribs)}>{domToReact(node.children as DOMNode[], options)}<DraftNotes drafts={drafts} /></li>;
+      const notes = at.get(node);
+      if (!notes || !isTag(node) || node.name !== "li") return;
+      return <li {...attributesToProps(node.attribs)}>{domToReact(node.children as DOMNode[], options)}<Notes notes={notes} /></li>;
     },
   };
 
   return <>{list.map((node, i) => <Fragment key={i}>
     {domToReact([node], options)}
-    {!(isTag(node) && node.name === "li") && <DraftNotes drafts={at.get(node) ?? []} />}
+    {!(isTag(node) && node.name === "li") && <Notes notes={at.get(node) ?? []} />}
   </Fragment>)}</>;
 }
 
-/// Drafts under the passage they quote: a click opens one in the composer
-/// again, × removes it.
-export function DraftNotes({ drafts }: { drafts: readonly ReviewComment[] }) {
-  if (!drafts.length) return null;
+/// Notes under the passage they quote: drafts to change or remove, and sent
+/// comments, one line each until opened.
+export function Notes({ notes }: { notes: readonly Note[] }) {
+  return <>{notes.map(note => note.kind === "draft" ? <DraftNote key={`d${note.comment.id}`} c={note.comment} /> : <SentNoteCard key={`s${note.sent.key}`} note={note.sent} />)}</>;
+}
 
+/// A draft: a click opens it in the composer again, × removes it.
+function DraftNote({ c }: { c: ReviewComment }) {
   const change = (edit: (review: Review) => Review) => {
     const key = reviews.getState().open;
     if (key && !reviewOf(key).writing) updateReview(key, edit);
   };
-  return <>{drafts.map(c => <div key={c.id} className="rv-note" data-ask={c.ask}>
+  return <div className="rv-note" data-ask={c.ask}>
     <button type="button" className="rv-note-open" onClick={() => change(r => ({ ...r, writing: { ...c } }))} title="Change this comment">
       <CommentHead ask={c.ask} finding={c.finding} rest="draft · click to change" /><CommentWords text={c.text} finding={c.finding} />
     </button>
     <Button small look="quiet" className="rv-drop" aria-label="Remove this comment" title="Remove this comment" onClick={() => change(r => ({ ...r, comments: r.comments.filter(d => d.id !== c.id) }))}>×</Button>
-  </div>)}</>;
+  </div>;
+}
+
+/// A sent comment: one line until opened, and where it was answered.
+function SentNoteCard({ note }: { note: SentNote }) {
+  const [open, setOpen] = useState(false);
+  const { item, answer } = note;
+  return <div className="rv-note sent" data-ask={item.ask} data-open={open || undefined}>
+    <button type="button" className="rv-note-open" aria-expanded={open} onClick={() => setOpen(!open)} title={open ? "Show less" : "Show the whole comment"}>
+      <CommentHead ask={item.ask} finding={item.finding} rest="sent" /><CommentWords text={item.text} finding={item.finding} />
+    </button>
+    {answer && <Button small look="quiet" className="rv-answer" onClick={() => showReply(answer)} title="Go to the reply that answered it">answered ↓</Button>}
+  </div>;
+}
+
+/// Scrolls the log to the reply at entry `row`.
+function showReply(row: string) {
+  document.querySelector(`.dcoderen.agent[data-row="${row}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 /// A review as sent: its comments, and what was typed with them.
