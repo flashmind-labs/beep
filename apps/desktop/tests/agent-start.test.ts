@@ -62,7 +62,7 @@ test("a submitted form keeps its account and cannot finish a later form's start"
   await settle();
   const request = starts()[0]?.args;
   assert.ok(request && typeof request === "object");
-  assert.match(String(Reflect.get(request, "prompt")), /^First prompt[\s\S]*\/srv\/project\/a\/\.beep\/uploads\/first\.txt/);
+  assert.equal(Reflect.get(request, "prompt"), "First prompt\n\n@.beep/uploads/first.txt");
   assert.equal(Reflect.get(request, "account"), "account-a");
   assert.equal(Reflect.get(request, "cwd"), "/srv/project/a");
 
@@ -75,7 +75,7 @@ test("a submitted form keeps its account and cannot finish a later form's start"
   assert.equal(starts().length, 2);
   const anotherRequest = starts()[1]?.args;
   assert.ok(anotherRequest && typeof anotherRequest === "object");
-  assert.match(String(Reflect.get(anotherRequest, "prompt")), /\/srv\/project\/b\/\.beep\/uploads\/second\.txt/);
+  assert.equal(Reflect.get(anotherRequest, "prompt"), "Second prompt\n\n@.beep/uploads/second.txt");
   first.reject(new Error("First start failed"));
   await startingFirst;
   assert.equal(bar.querySelector("#aggo")?.hasAttribute("disabled"), true);
