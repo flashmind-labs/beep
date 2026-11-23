@@ -16,7 +16,7 @@ import { invoke } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.tsx";
 import type { BackTo } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
-import { startView, windowTitle, type Alone, type CenterTarget } from "../project/projectwindow.ts";
+import { savedWindowSession, startView, windowTitle, type Alone, type CenterTarget } from "../project/projectwindow.ts";
 import { ensureSessions } from "../agents/sessions.ts";
 import type { AgentRow } from "../agents/agents.ts";
 import { mountUsage, type UsageView } from "./usage.tsx";
@@ -25,7 +25,7 @@ import { pairing } from "./pairing.tsx";
 import { windowCommand } from "../ui/windowkeys.ts";
 import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { draw, homeTab, jump } from "./home.tsx";
-import { currentLocation, windowAlone, aloneProject, go, goHistory, hasHistory, setWindowAlone, goTo } from "./views.tsx";
+import { currentLocation, opensHere, windowAlone, aloneProject, go, goHistory, hasHistory, setWindowAlone, goTo } from "./views.tsx";
 import { reloadGroup, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject, openAddMachine } from "./sidebar.tsx";
 import { escUp } from "./escup-state.ts";
 import { nextRunning } from "../project/loads.tsx";
@@ -218,20 +218,24 @@ pane.connect({
 interface Opening {
   alone: Alone | null;
   chat: AgentRow | null;
+  session: AgentRow | null;
   pending: CenterTarget | null;
 }
 
 async function readOpening(): Promise<Opening> {
   const alone = await invoke<Alone | null>("center_window_alone").catch(() => null);
-  if (!alone) return { alone, chat: null, pending: await readPending() };
-  if (alone.kind === "project") return { alone, chat: null, pending: null };
+  if (!alone) return { alone, chat: null, session: null, pending: await readPending() };
+  const saved = savedWindowSession();
+  if (alone.kind === "project" && !saved) return { alone, chat: null, session: null, pending: null };
 
   const rows = await ensureSessions().catch(() => []);
-  return { alone, chat: rows.find(row => row.machine_id === alone.machine_id && row.id === alone.session) ?? null, pending: null };
+  const chat = alone.kind === "chat" ? rows.find(row => row.machine_id === alone.machine_id && row.id === alone.session) ?? null : null;
+  const session = saved ? rows.find(row => row.machine_id === saved.machine_id && row.id === saved.id) ?? null : null;
+  return { alone, chat, session, pending: null };
 }
 
 /// The first view.
-function start({ alone, chat, pending }: Opening) {
+function start({ alone, chat, session, pending }: Opening) {
   dropKeptFrame();
   document.title = windowTitle(alone);
   const first = startView(alone, chat);
@@ -239,7 +243,8 @@ function start({ alone, chat, pending }: Opening) {
   // A project's or chat's window: no sidebar; a project's has a button back to it.
   setWindowAlone(alone);
   document.body.classList.add("pw");
-  goTo(first);
+  const resumed = session ? { view: "pane" as const, arg: { agent: session } } : null;
+  goTo(resumed && opensHere(resumed) ? resumed : first);
 }
 
 /// Shows the views the app kept from its last answers, so the window

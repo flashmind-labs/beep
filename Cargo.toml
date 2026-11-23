@@ -54,6 +54,7 @@ battery = "0.7"
 blake3 = "1"
 block2 = "0.6"
 bytes = "1"
+cc = "1"
 chrono = "0.4"
 clap = "4"
 cpu-time = "1.0.0"
@@ -66,6 +67,8 @@ flashmind-tools = { version = "0.3.8", default-features = false }
 flashmind-types = "0.3.3"
 flate2 = "1"
 futures = { version = "0.3", default-features = false, features = ["std", "async-await"] }
+gdkx11 = "0.18"
+gtk = "0.18"
 gix = { version = "0.90", default-features = false }
 gix-revision = { version = "0.52", default-features = false, features = ["merge_base"] }
 hex = "0.4"
@@ -165,6 +168,8 @@ uuid = "1"
 webpki-roots = "1"
 webview2-com = "0.39"
 which = "8"
+windows = "0.62"
+winreg = "0.56"
 windows-sys = "0.61"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 

@@ -2,6 +2,7 @@
 import type { MouseEventHandler } from "react";
 import type { PaneTarget } from "../bar/pane.ts";
 import type { AgentRow } from "../agents/agents.ts";
+import { windowPreferenceKey } from "../ui/window-layout.ts";
 import type { Location } from "../center/state.ts";
 
 /// What a click needs to say, as a `MouseEvent` has it.
@@ -27,6 +28,32 @@ export function opensNewWindow(e: ClickLike): boolean {
 
 /// What a window apart from the main one shows alone (`Alone` in window.rs).
 export type Alone = { kind: "project"; project: string } | { kind: "chat"; machine_id: string; session: string };
+
+/// The session or thread showing inside a detached window when the app exited.
+const LAST_SESSION = "beep.windowSession";
+
+export function keepWindowSession(page: Location) {
+  const target = page.view === "pane" ? page.arg : null;
+  const key = windowPreferenceKey(LAST_SESSION);
+  try {
+    if (target && typeof target === "object" && "agent" in target) {
+      localStorage.setItem(key, JSON.stringify([target.agent.machine_id, target.agent.id]));
+    } else {
+      localStorage.removeItem(key);
+    }
+  } catch { /* storage can be unavailable */ }
+}
+
+export function savedWindowSession(): { machine_id: string; id: string } | null {
+  if (!window.__BEEP_RESTORING_WINDOW__) return null;
+  try {
+    const pair: unknown = JSON.parse(localStorage.getItem(windowPreferenceKey(LAST_SESSION)) ?? "null");
+    if (Array.isArray(pair) && typeof pair[0] === "string" && typeof pair[1] === "string") {
+      return { machine_id: pair[0], id: pair[1] };
+    }
+  } catch { /* the window opens on its project or chat */ }
+  return null;
+}
 
 /// The view a window starts on: its project or chat (`chat`, its row as far as it is known)
 /// when it was opened on one, else what the bar or tray left waiting (null).

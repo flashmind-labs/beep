@@ -9,7 +9,7 @@ import { shownChanged } from "../ui/active.ts";
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { perfOpened, perfView, perfViewOf } from "../ui/perf.ts";
 import type { PaneTarget } from "../bar/pane.ts";
-import { mainTarget, route, type Alone, type CenterTarget, type WindowScope } from "../project/projectwindow.ts";
+import { keepWindowSession, mainTarget, route, type Alone, type CenterTarget, type WindowScope } from "../project/projectwindow.ts";
 import { sessions } from "../agents/sessions.ts";
 import { threadsByChat } from "../agents/threads-state.ts";
 import { shortName } from "../project/agent.ts";
@@ -133,6 +133,11 @@ function windowScope(): WindowScope | null {
   return { kind: "project", project: alone.project, folders: p?.machines ?? [] };
 }
 
+/// A session may have moved out of this project or chat since it was saved.
+export function opensHere(page: Location): boolean {
+  return route(windowScope(), page) === "here";
+}
+
 /// Shows `target` in the main window, bringing it up.
 export function toMain(target: CenterTarget) {
   invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
@@ -208,7 +213,7 @@ export function goTo(target: Location): boolean {
   const page = withReturnTarget(target, currentLocation());
   const { view: name, arg } = page;
 
-  if (route(windowScope(), page) === "main") {
+  if (!opensHere(page)) {
     toMain(mainTarget(page));
     return false;
   }
@@ -233,6 +238,7 @@ export function goTo(target: Location): boolean {
   if (!moving) { if (previous) pages.visit(previous, next, replaceSpent); else pages.start(next); }
   if (previous && previous.view !== name) viewOf(previous.view).unmount?.();
   currentPage = page;
+  if (windowAlone) keepWindowSession(page);
   perfView(perfViewOf(pageName(name, arg)));
   show(name);
   const mounted = view.mount(box, arg);

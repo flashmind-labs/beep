@@ -54,7 +54,7 @@ type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
   core: { invoke(command: string, args?: Record<string, unknown>): Promise<unknown>; Channel: new <T>() => { id: number; onmessage(message: T): void } };
   event: { listen(name: string, handler: NativeHandler): Promise<() => void> };
-  webviewWindow: { getCurrentWebviewWindow(): { listen(name: string, handler: NativeHandler): Promise<() => void> } };
+  webviewWindow: { getCurrentWebviewWindow(): { label: string; listen(name: string, handler: NativeHandler): Promise<() => void> } };
 }
 
 declare global { interface Window { __navigation: NavigationHarness } }
@@ -117,7 +117,7 @@ export async function sessionSettled(page: Page): Promise<void> {
   }), { message: "the session's layout settles" }).toBe(true);
 }
 
-export async function openDesktop(page: Page, streaming = false, responses: Record<string, unknown> = {}): Promise<void> {
+export async function openDesktop(page: Page, streaming = false, responses: Record<string, unknown> = {}, windowLabel = "center"): Promise<void> {
   const dist = fileURLToPath(new URL("../../dist/", import.meta.url));
   const contentTypes = new Map([[".html", "text/html"], [".js", "text/javascript"], [".css", "text/css"], [".svg", "image/svg+xml"], [".woff2", "font/woff2"]]);
   await page.route("https://app.test/**", async route => {
@@ -133,12 +133,12 @@ export async function openDesktop(page: Page, streaming = false, responses: Reco
     try { if (localStorage.getItem("beep.home.grouping") === null) localStorage.setItem("beep.home.grouping", "lanes"); }
     catch { /* a blank page has no storage */ }
   });
-  await page.addInitScript(installNativeBoundary, { ...fixture, streaming, responses });
+  await page.addInitScript(installNativeBoundary, { ...fixture, streaming, responses, windowLabel });
   await page.goto("https://app.test/center.html");
   await page.waitForFunction(() => window.__navigation.ready());
 }
 
-function installNativeBoundary(data: Fixture & { responses: Record<string, unknown> }): void {
+function installNativeBoundary(data: Fixture & { responses: Record<string, unknown>; windowLabel: string }): void {
   // The first-run screen was answered, so it stays out of every test's page.
   try { localStorage.setItem("beep.firstRunDone", "1"); } catch { /* the page has no storage */ }
   interface EventChannel { onmessage(event: unknown): void }
@@ -249,7 +249,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       registered.add(handler);
       return () => { registered.delete(handler); };
     } },
-    webviewWindow: { getCurrentWebviewWindow: () => ({ listen: (name, handler) => boundary.event.listen(name, handler) }) },
+    webviewWindow: { getCurrentWebviewWindow: () => ({ label: data.windowLabel, listen: (name, handler) => boundary.event.listen(name, handler) }) },
   };
   Object.defineProperty(window, "__TAURI__", { value: boundary });
   // The callbacks Rust's channel messages call; nothing here sends any.

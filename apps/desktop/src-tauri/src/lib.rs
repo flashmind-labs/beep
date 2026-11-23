@@ -34,6 +34,11 @@ use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 use tauri_plugin_window_state::StateFlags;
 use tokio::time::timeout;
 
+#[cfg(desktop)]
+const WINDOW_GEOMETRY: StateFlags = StateFlags::POSITION
+    .union(StateFlags::SIZE)
+    .union(StateFlags::MAXIMIZED);
+
 /// How long quitting waits for what saves state: the node's sync and
 /// transfer services, and gh being killed. The mesh writes each change to
 /// disk as it happens; goodbyes to peers still going at this point are cut.
@@ -90,7 +95,7 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(
         tauri_plugin_window_state::Builder::new()
-            .with_state_flags(StateFlags::POSITION | StateFlags::SIZE | StateFlags::MAXIMIZED)
+            .with_state_flags(WINDOW_GEOMETRY)
             .with_filter(center::is_center)
             .build(),
     );
@@ -154,6 +159,10 @@ pub fn run() {
             #[cfg(mobile)]
             WindowEvent::Resumed => notices::notify::set_foreground(true),
             WindowEvent::CloseRequested { api, .. } => {
+                #[cfg(desktop)]
+                if !platform::update::relaunching(window.app_handle()) {
+                    center::window_session::closing(window);
+                }
                 if center::hide_on_close(window) {
                     api.prevent_close();
                 }
@@ -497,10 +506,17 @@ pub fn run() {
                 } => {
                     if !platform::update::relaunching(app) {
                         api.prevent_exit();
+                    } else {
+                        #[cfg(desktop)]
+                        center::window_session::checkpoint(app);
                     }
                 }
                 // Quitting: the windows go at once, whatever stopping takes.
-                RunEvent::ExitRequested { code: Some(_), .. } => hide_windows(app),
+                RunEvent::ExitRequested { code: Some(_), .. } => {
+                    #[cfg(desktop)]
+                    center::window_session::checkpoint(app);
+                    hide_windows(app);
+                }
                 RunEvent::Exit => quit(app),
                 // Opening Beep again while it runs shows the window.
                 #[cfg(target_os = "macos")]
@@ -540,6 +556,8 @@ fn hide_windows(app: &AppHandle) {
 
 /// Everything quitting does, within `QUIT_LIMIT` unless an update installs.
 fn quit(app: &AppHandle) {
+    #[cfg(desktop)]
+    center::window_session::checkpoint(app);
     #[cfg(desktop)]
     if let Some(sampling) = app.try_state::<platform::energy::Sampling>() {
         sampling.stop();
@@ -683,6 +701,10 @@ fn setup(
     }
     app.manage(prefs);
     #[cfg(desktop)]
+    app.manage(center::window_session::WindowSession::load(
+        dir.join("windows.json"),
+    ));
+    #[cfg(desktop)]
     app.manage(plugins::Installer::new());
     #[cfg(desktop)]
     match plugins::start(&handle, &dir) {
@@ -805,6 +827,8 @@ fn setup(
         }
     });
 
+    #[cfg(desktop)]
+    center::window::restore_detached(app.handle());
     #[cfg(desktop)]
     refresh_login_item(app.handle());
     platform::startup::stage("setup done");

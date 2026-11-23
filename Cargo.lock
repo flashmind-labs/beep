@@ -608,8 +608,11 @@ dependencies = [
  "beep-proto",
  "beep-report",
  "block2",
+ "cc",
  "dirs 7.0.0",
  "futures",
+ "gdkx11",
+ "gtk",
  "image",
  "iroh",
  "iroh-blobs",
@@ -668,6 +671,8 @@ dependencies = [
  "uuid",
  "webview2-com",
  "which",
+ "windows",
+ "winreg 0.56.0",
 ]
 
 [[package]]

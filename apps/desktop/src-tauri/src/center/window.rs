@@ -91,13 +91,20 @@ pub(crate) fn join_dock<R: Runtime>(_: &AppHandle<R>) {}
 /// right by `offset` from where the main window opens. While it is open
 /// Beep sits in the Dock.
 #[cfg_attr(mobile, allow(dead_code, unused_variables, unused_mut))]
-fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) -> Result<()> {
+fn build<R: Runtime>(
+    app: &AppHandle<R>,
+    label: &str,
+    title: &str,
+    offset: f64,
+    focus: bool,
+) -> Result<()> {
     join_dock(app);
     let mut builder = crate::navigation::guard(WebviewWindowBuilder::new(
         app,
         label,
         WebviewUrl::App("center.html".into()),
     ))
+    .focused(focus)
     .title(title)
     .resizable(true)
     // Files dragged in from Finder reach the page as HTML drops, as in
@@ -109,6 +116,10 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
         builder = builder
             .maximizable(true)
             .min_inner_size(MIN_WIDTH, MIN_HEIGHT);
+    }
+    #[cfg(desktop)]
+    if !focus {
+        builder = builder.initialization_script("window.__BEEP_RESTORING_WINDOW__ = true;");
     }
     // The UI reads this to know it runs on a phone, before its scripts load.
     #[cfg(mobile)]
@@ -167,7 +178,14 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
 
     #[cfg(target_os = "ios")]
     window.with_webview(|webview| crate::platform::ios_keyboard::hide_bar(webview.inner()))?;
-    window.set_focus()?;
+    #[cfg(desktop)]
+    if alone(label) {
+        let window = window.as_ref().window();
+        app.run_on_main_thread(move || super::window_session::opened(&window))?;
+    }
+    if focus {
+        window.set_focus()?;
+    }
     Ok(())
 }
 
@@ -176,7 +194,7 @@ fn build<R: Runtime>(app: &AppHandle<R>, label: &str, title: &str, offset: f64) 
 pub fn open<R: Runtime>(app: &AppHandle<R>) -> Result<()> {
     bar::hide(app);
     let Some(window) = app.get_webview_window(LABEL) else {
-        return build(app, LABEL, "Beep", 0.0);
+        return build(app, LABEL, "Beep", 0.0, true);
     };
 
     if !window.is_visible()? {
@@ -272,7 +290,7 @@ impl Alone {
     }
 
     /// What window `label` shows, `None` for the main one and any other.
-    fn of(label: &str) -> Option<Self> {
+    pub(super) fn of(label: &str) -> Option<Self> {
         if let Some(name) = label.strip_prefix(PROJECT_PREFIX) {
             return Some(Self::Project {
                 project: unhex(name)?,
@@ -297,7 +315,7 @@ impl Alone {
 }
 
 /// Whether `label` is a window showing a project or a chat alone.
-fn alone(label: &str) -> bool {
+pub(super) fn alone(label: &str) -> bool {
     label.starts_with(PROJECT_PREFIX) || label.starts_with(CHAT_PREFIX)
 }
 
@@ -355,7 +373,9 @@ fn pick<'a>(alone: &Alone, open: impl IntoIterator<Item = &'a str>) -> Pick {
 
 /// Opens a project or a chat in a window of its own, or brings up the one
 /// it has. The window keeps its own history, and closing it leaves the rest.
-#[tauri::command]
+// WebView2 must build the new webview outside the calling window's IPC handler.
+#[cfg_attr(windows, tauri::command(async))]
+#[cfg_attr(not(windows), tauri::command)]
 pub fn center_open_window(app: AppHandle, alone: Alone) -> Result<()> {
     bar::hide(&app);
     let labels: Vec<String> = app.webview_windows().into_keys().collect();
@@ -363,12 +383,27 @@ pub fn center_open_window(app: AppHandle, alone: Alone) -> Result<()> {
     match pick(&alone, labels.iter().map(String::as_str)) {
         Pick::Focus(label) => match app.get_webview_window(&label) {
             Some(window) => bring_up(&window),
-            None => build(&app, &label, alone.title(), CASCADE),
+            None => build(&app, &label, alone.title(), CASCADE, true),
         },
         Pick::Open { label, cascade } => {
             // The first step is already one in, off the main window.
             let steps = f64::from(cascade % 8 + 1);
-            build(&app, &label, alone.title(), CASCADE * steps)
+            build(&app, &label, alone.title(), CASCADE * steps, true)
+        }
+    }
+}
+
+#[cfg(desktop)]
+pub(crate) fn restore_detached(app: &AppHandle) {
+    for target in app
+        .state::<super::window_session::WindowSession>()
+        .open_windows()
+    {
+        let label = target.label();
+        if app.get_webview_window(&label).is_none()
+            && let Err(error) = build(app, &label, target.title(), CASCADE, false)
+        {
+            log::warn!("reopening a detached window: {error}");
         }
     }
 }
@@ -532,6 +567,14 @@ pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEven
         note_project_size(window, *size);
     }
 
+    #[cfg(desktop)]
+    if matches!(
+        event,
+        WindowEvent::Focused(_) | WindowEvent::Moved(_) | WindowEvent::Resized(_)
+    ) {
+        super::window_session::changed(window);
+    }
+
     if let Some((shown, when)) = shown_after(event, || on_screen(window)) {
         tell(window.app_handle(), window.label(), shown, when);
     }
@@ -612,6 +655,7 @@ fn watch_occlusion<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
     let watched = window.as_ref().window();
     let label = watched.label().to_owned();
     let block = RcBlock::new(move |_: NonNull<NSNotification>| {
+        super::window_session::changed(&watched);
         tell(
             watched.app_handle(),
             watched.label(),

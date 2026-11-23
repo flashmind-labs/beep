@@ -35,6 +35,12 @@ pub async fn follow(app: AppHandle) {
     updater.set_event_callback(Some(Arc::new(move |event, _| {
         if event == EVENT_WILL_RELAUNCH_APPLICATION {
             handle.state::<Updates>().0.store(true, Ordering::Release);
+            let app = handle.clone();
+            if let Err(error) =
+                handle.run_on_main_thread(move || crate::center::window_session::checkpoint(&app))
+            {
+                log::warn!("saving windows before updating: {error}");
+            }
         }
     })));
 }

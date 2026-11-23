@@ -19,6 +19,8 @@ pub(crate) mod targets;
 pub(crate) mod usage;
 pub(crate) mod view_cache;
 pub(crate) mod window;
+#[cfg(desktop)]
+pub(crate) mod window_session;
 
 pub(crate) use home::{NeedsYou, needs_you, section};
 pub(crate) use shown::AgentsShown;

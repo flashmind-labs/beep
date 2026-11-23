@@ -4,6 +4,7 @@
 // PDFs the agent made or looked at, its files, artifacts, terminals and
 // subagents, each a tab. Drawing the tabs is in media-draw.ts, the docks'
 // layout and dividers in media-layout.ts.
+import { readWindowPreference, writeWindowPreference, windowPreferenceKey } from "../ui/window-layout.ts";
 import { shownMessage } from "../agents/session-frame.tsx";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
@@ -192,13 +193,19 @@ export const P = {
   phoneShown: false,
 };
 
+function savedPane(key: string): unknown {
+  const scoped = windowPreferenceKey(key);
+  return readView(scoped) ?? (scoped === key ? null : readView(key));
+}
+
 /// Starts the pane for session `s`, closing what the last one had open.
 export function startPane(s: PaneSession) {
   closePaneTabs();
   P.session = s;
   paneReleased = true;
   P.on = { right: FILES, bottom: FILES };
-  const saved = readView(viewKey(s.machine_id, s.id));
+  const key = viewKey(s.machine_id, s.id);
+  const saved = savedPane(key);
   P.layout = loadLayout();
   if (saved && typeof saved === "object" && "layout" in saved) P.layout = readLayout(JSON.stringify(saved.layout));
   foldInBar();
@@ -696,7 +703,7 @@ export function rememberPane() {
   const key = viewKey(P.session.machine_id, P.session.id);
   const pending = P.tabs.filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
   if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  writeView(key, { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
+  writeView(windowPreferenceKey(key), { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
 }
 
 function savedTab(t: MediaTab) {
@@ -728,10 +735,10 @@ export function rememberTerminal(key: string, tab: MediaTab, row: TerminalRow) {
   tab.existing = row;
   if (P.tabs.includes(tab)) { rememberPane(); return; }
   if (tab.closed) return;
-  const saved = readView(key);
+  const saved = savedPane(key);
   if (!saved || typeof saved !== "object" || !("tabs" in saved) || !Array.isArray(saved.tabs)) return;
   saved.tabs = saved.tabs.map(item => item && typeof item === "object" && item.id === tab.id ? savedTab(tab) : item);
-  writeView(key, saved);
+  writeView(windowPreferenceKey(key), saved);
 }
 
 window.addEventListener("pagehide", rememberPane);
@@ -748,7 +755,7 @@ function dropTab(t: MediaTab) {
 changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); unfollowFiles(); P.watch?.disconnect(); P.watch = null; watchShell(null); } });
 
 function loadLayout(): PaneLayout {
-  try { return readLayout(localStorage.getItem(KEY)); } catch { return readLayout(null); }
+  try { return readLayout(readWindowPreference(KEY)); } catch { return readLayout(null); }
 }
 
 /// The layout to keep: a narrow window's fold of the right pane is not kept.
@@ -757,6 +764,6 @@ function keptLayout(): PaneLayout {
 }
 
 export function saveLayout() {
-  try { localStorage.setItem(KEY, JSON.stringify(keptLayout())); } catch { /* kept while the window is open */ }
+  try { writeWindowPreference(KEY, JSON.stringify(keptLayout())); } catch { /* kept while the window is open */ }
   rememberPane();
 }

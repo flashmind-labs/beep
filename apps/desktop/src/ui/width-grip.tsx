@@ -1,5 +1,6 @@
 // A resizable column's width: dragged on its grip, moved with the arrow keys
 // there, reset by a double-click, and kept between launches.
+import { readWindowPreference, writeWindowPreference } from "../ui/window-layout.ts";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { dragHandle } from "./drag.ts";
 
@@ -35,10 +36,11 @@ export function WidthGrip({ column, id = null }: { column: Column; id?: string |
     if (!el || !parent) return;
     dragHandle(el, e => {
       const from = e.clientX, start = current.current;
+      let last = start;
       parent.classList.add("resizing");
       return {
-        move: ev => setWidth(clampWidth(column, start + ev.clientX - from)),
-        end: () => { parent.classList.remove("resizing"); save(column, current.current); },
+        move: ev => { last = clampWidth(column, start + ev.clientX - from); setWidth(last); },
+        end: () => { parent.classList.remove("resizing"); save(column, last); },
       };
     });
   }, [column]);
@@ -65,9 +67,9 @@ function clampWidth(column: Column, w: number | string | null): number {
 }
 
 function load(column: Column) {
-  try { return clampWidth(column, localStorage.getItem(column.key)); } catch { return column.initial; }
+  try { return clampWidth(column, readWindowPreference(column.key)); } catch { return column.initial; }
 }
 
 function save(column: Column, w: number) {
-  try { localStorage.setItem(column.key, String(w)); } catch { /* kept for this launch only */ }
+  try { writeWindowPreference(column.key, String(w)); } catch { /* kept for this launch only */ }
 }
