@@ -36,10 +36,12 @@ struct Started {
 }
 
 /// A start that has its id and no session yet. Dropped, it gives the id
-/// back.
+/// back. It also holds a place in the supervisor's queue, so that handing
+/// over the session it started cannot wait or fail.
 pub(super) struct Reservation {
     pub(super) id: SessionId,
-    _held: Arc<()>,
+    held: Arc<()>,
+    place: mpsc::OwnedPermit<Order>,
 }
 
 enum Order {
@@ -47,11 +49,14 @@ enum Order {
     Reserve {
         resume: Option<SessionId>,
         cwd: PathBuf,
-        reply: oneshot::Sender<Result<Reservation, String>>,
+        reply: oneshot::Sender<Result<(SessionId, Arc<()>), String>>,
     },
-    /// Adds the session a reservation was for.
+    /// Adds the session a reservation was for. It carries the reservation's
+    /// hold, so the id stays taken until this is handled, even when the
+    /// caller is gone.
     Insert {
         id: SessionId,
+        _held: Arc<()>,
         resume: Option<SessionId>,
         session: Arc<Session>,
         reply: oneshot::Sender<()>,
@@ -78,34 +83,48 @@ impl Sessions {
         resume: Option<SessionId>,
         cwd: PathBuf,
     ) -> Result<Reservation> {
-        self.ask(|reply| Order::Reserve { resume, cwd, reply })
+        let (id, held) = self
+            .ask(|reply| Order::Reserve { resume, cwd, reply })
             .await?
-            .map_err(anyhow::Error::msg)
+            .map_err(anyhow::Error::msg)?;
+        let place = self
+            .started()
+            .orders
+            .clone()
+            .reserve_owned()
+            .await
+            .map_err(|_| anyhow!(STOPPED))?;
+
+        Ok(Reservation { id, held, place })
     }
 
-    /// Adds `session` for `reservation`. Once this returns, `read` shows
-    /// it. A resumed session replaces the ended runs of it, and a full map
-    /// drops its oldest ended session.
+    /// Adds `session` for `reservation`. The order is queued before this
+    /// first waits, so dropping the call afterwards still adds the session.
+    /// Once this returns, `read` shows it. A resumed session replaces the
+    /// ended runs of it, and a full map drops its oldest ended session.
     pub(super) async fn insert(
         &self,
         reservation: Reservation,
         resume: Option<SessionId>,
         session: Arc<Session>,
     ) -> Result<()> {
-        self.ask(|reply| Order::Insert {
-            id: reservation.id,
+        let Reservation { id, held, place } = reservation;
+        let (reply, answer) = oneshot::channel();
+        place.send(Order::Insert {
+            id,
+            _held: held,
             resume,
             session,
             reply,
-        })
-        .await
+        });
+
+        answer.await.map_err(|_| anyhow!(STOPPED))
     }
 
     /// Takes the sessions `ids` out. Once this returns, `read` shows none.
-    pub(super) async fn remove(&self, ids: Vec<SessionId>) {
-        if self.ask(|reply| Order::Remove { ids, reply }).await.is_err() {
-            log::warn!("{STOPPED}");
-        }
+    /// Fails when the supervisor is gone, which leaves the map as it was.
+    pub(super) async fn remove(&self, ids: Vec<SessionId>) -> Result<()> {
+        self.ask(|reply| Order::Remove { ids, reply }).await
     }
 
     /// The folders of the starts under way.
@@ -114,7 +133,18 @@ impl Sessions {
     }
 
     async fn ask<R>(&self, order: impl FnOnce(oneshot::Sender<R>) -> Order) -> Result<R> {
-        let started = self.started.get_or_init(|| {
+        let (reply, answer) = oneshot::channel();
+        self.started()
+            .orders
+            .send(order(reply))
+            .await
+            .map_err(|_| anyhow!(STOPPED))?;
+
+        answer.await.map_err(|_| anyhow!(STOPPED))
+    }
+
+    fn started(&self) -> &Started {
+        self.started.get_or_init(|| {
             let (orders, ordered) = mpsc::channel(WAITING);
             Started {
                 orders,
@@ -123,15 +153,7 @@ impl Sessions {
                     ordered,
                 ))),
             }
-        });
-        let (reply, answer) = oneshot::channel();
-        started
-            .orders
-            .send(order(reply))
-            .await
-            .map_err(|_| anyhow!(STOPPED))?;
-
-        answer.await.map_err(|_| anyhow!(STOPPED))
+        })
     }
 }
 
@@ -151,16 +173,24 @@ async fn supervise(map: watch::Sender<Arc<Map>>, mut orders: mpsc::Receiver<Orde
 
         match order {
             Order::Reserve { resume, cwd, reply } => {
-                let _ = reply.send(reserve(&map, &mut pending, resume, cwd));
+                let _ = reply.send(reserve(&map, &mut pending, resume, cwd, new_id));
             }
             Order::Insert {
                 id,
                 resume,
                 session,
                 reply,
+                ..
             } => {
                 pending.retain(|start| start.id != id);
-                map.send_modify(|sessions| insert(Arc::make_mut(sessions), id, resume, session));
+                // Chosen from a snapshot: this task is the only writer, and the
+                // watch is locked for the change alone, not for reading sessions.
+                let doomed = doomed(&watched::read_sent(&map, Arc::clone), resume.as_ref());
+                map.send_modify(|sessions| {
+                    let sessions = Arc::make_mut(sessions);
+                    doomed.iter().for_each(|id| drop(sessions.remove(id)));
+                    sessions.insert(id, session);
+                });
                 let _ = reply.send(());
             }
             Order::Remove { ids, reply } => {
@@ -187,7 +217,8 @@ fn reserve(
     pending: &mut Vec<Pending>,
     resume: Option<SessionId>,
     cwd: PathBuf,
-) -> Result<Reservation, String> {
+    mut new_id: impl FnMut() -> SessionId,
+) -> Result<(SessionId, Arc<()>), String> {
     let sessions = watched::read_sent(map, Arc::clone);
     let id = match &resume {
         Some(resume) => {
@@ -221,37 +252,40 @@ fn reserve(
         held: Arc::downgrade(&held),
     });
 
-    Ok(Reservation { id, _held: held })
+    Ok((id, held))
 }
 
-fn insert(
-    sessions: &mut Map,
-    id: SessionId,
-    resume: Option<SessionId>,
-    session: Arc<Session>,
-) {
+/// The sessions a new one pushes out of `sessions`: the oldest ended one
+/// when the map is full, and the ended runs of one taken over, which
+/// listings must not show beside it.
+fn doomed(sessions: &Map, resume: Option<&SessionId>) -> Vec<SessionId> {
+    let mut doomed = Vec::new();
+
     if sessions.len() >= MAX_KEPT {
         let oldest = sessions
             .values()
             .filter(|session| watched::read(&session.live, |live| live.status() == Status::Ended))
-            .min_by_key(|session| watched::read(&session.live, |live| live.info.started_at))
-            .map(|session| session.id.clone());
+            .min_by_key(|session| watched::read(&session.live, |live| live.info.started_at));
 
-        if let Some(oldest) = oldest {
-            sessions.remove(&oldest);
-        }
+        doomed.extend(oldest.map(|session| session.id.clone()));
     }
 
     if let Some(resume) = resume {
         // The ended run may be keyed by its original private handle.
-        // Remove it too, so listings cannot shadow the resumed run.
-        sessions.retain(|handle, session| {
-            *handle != resume
-                && watched::read(&session.live, |live| live.agent_session.as_ref() != Some(&resume))
-        });
+        doomed.extend(
+            sessions
+                .iter()
+                .filter(|(handle, session)| {
+                    *handle == resume
+                        || watched::read(&session.live, |live| {
+                            live.agent_session.as_ref() == Some(resume)
+                        })
+                })
+                .map(|(handle, _)| handle.clone()),
+        );
     }
 
-    sessions.insert(id, session);
+    doomed
 }
 
 #[cfg(test)]

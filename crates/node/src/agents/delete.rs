@@ -91,7 +91,7 @@ impl Agents {
 
         self.sessions
             .remove(records.iter().map(|(key, _)| key.clone()).collect())
-            .await;
+            .await?;
 
         if let Some(index) = self.search.get() {
             for (key, _) in records.into_iter().filter(|(key, _)| *key != indexed) {
