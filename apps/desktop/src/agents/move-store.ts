@@ -1,7 +1,9 @@
 // What the window knows of the moves in the mesh: the records and how each
 // target says it goes. The lists and the session view both read it.
 
-import { type MoveProgress, type MoveRecord, bySession, dedupe, effective, listLabel } from "./move-state.ts";
+import { type MoveProgress, type MoveRecord, awaitingMove, bySession, dedupe, effective, going, listLabel } from "./move-state.ts";
+import { single, SLOW_MS } from "../ui/active.ts";
+import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { invoke } from "../ui/tauri.ts";
 import { createStore } from "zustand/vanilla";
 
@@ -9,6 +11,7 @@ import { createStore } from "zustand/vanilla";
 const RECENT_MS = 24 * 3600 * 1000;
 /// The most progress answers one read asks for.
 const MAX_ASKED = 8;
+const RETRY_MS = 30_000;
 
 /// The move records by session, and how each target says its move goes.
 export const moveStore = createStore(() => ({
@@ -23,29 +26,74 @@ export const onMoves = (f: () => void) => void moveStore.subscribe(() => f());
 
 export const nameOf = (id: string) => machineNames.get(id) ?? id.slice(0, 8);
 
-/// Reads the move records and, for the recent ones, how the target says each goes.
-export async function refreshMoves() {
+// Each record is one move attempt. A later move of the same session gets a new deadline.
+const nextCheck = new WeakMap<MoveRecord, number>();
+
+/// Lists recent moves and shares progress reads across the views that requested them.
+export const refreshMoves = single(async () => {
+  const before = moveStore.getState();
   let records: MoveRecord[];
   try { records = await invoke<MoveRecord[]>("session_moves"); } catch (e) { console.warn("moves not read", e); return; }
-  // A node of the mesh may answer with something else; then there are none.
-  const read = bySession(Array.isArray(records) ? records : []);
-  // Published at once, so a start or cancel made during the reads below stays.
-  moveStore.setState({ records: read });
-  // The latest first: a chat's move writes a record for each of its threads.
-  const recent = [...read.values()].filter(r => Date.now() - r.at < RECENT_MS).sort((a, b) => b.at - a.at).slice(0, MAX_ASKED);
+  if (before.records !== moveStore.getState().records) return;
 
-  if (recent.length && !machineNames.size) {
+  const read = bySession(Array.isArray(records) ? records : []);
+  let changed = read.size !== before.records.size;
+
+  for (const [id, old] of before.records) {
+    const record = read.get(id);
+    if (record && old.at === record.at && old.from === record.from && old.to === record.to
+      && old.agent === record.agent && old.project === record.project) {
+      read.set(id, old);
+    } else {
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    const progress = new Map(before.progress);
+    for (const id of progress.keys()) {
+      if (!read.has(id) || read.get(id) !== before.records.get(id)) progress.delete(id);
+    }
+    moveStore.setState({ records: read, progress });
+  }
+
+  const now = Date.now();
+  const due = (r: MoveRecord) => nextCheck.get(r) ?? 0;
+  const recent = [...read.values()].filter(r => now - r.at < RECENT_MS && due(r) <= now)
+    .sort((a, b) => due(a) - due(b) || b.at - a.at).slice(0, MAX_ASKED);
+  if (!recent.length) return;
+
+  if (!machineNames.size) {
     try { for (const m of await invoke<{ machine_id: string; machine_name: string }[]>("agent_hosts")) machineNames.set(m.machine_id, m.machine_name); }
     catch (e) { console.warn("machine names not read", e); }
   }
 
-  const answers = await Promise.all(recent.map(async r => {
-    try { return [r.session, await invoke<MoveProgress>("session_move_progress", { session: r.session })] as const; }
-    catch (e) { console.warn("move progress not read", e); return null; }
-  }));
-  const progress = new Map(moveStore.getState().progress);
-  for (const answer of answers) if (answer) progress.set(...answer);
-  moveStore.setState({ progress });
+  const answers = await Promise.all(recent.map(readProgress));
+  const current = moveStore.getState();
+  let updated: Map<string, MoveProgress> | null = null;
+  for (const result of answers) {
+    if (!result?.answer || current.records.get(result.record.session) !== result.record) continue;
+    updated ??= new Map(current.progress);
+    updated.set(result.record.session, result.answer);
+  }
+  if (updated) moveStore.setState({ progress: updated });
+});
+
+async function readProgress(record: MoveRecord) {
+  try {
+    const answer = await invoke<MoveProgress>("session_move_progress", { session: record.session });
+    // Released targets answer by session ID. Check fresh records again soon in case
+    // the target still described the previous move, or only just received this one.
+    const now = Date.now();
+    let interval = SLOW_MS;
+    if (!awaitingMove(record, now) && !going(answer)) interval = answer?.answer === "known" ? UNWATCHED_MS : RETRY_MS;
+    nextCheck.set(record, now + interval);
+    return { record, answer };
+  } catch (e) {
+    nextCheck.set(record, Date.now() + RETRY_MS);
+    console.warn("move progress not read", e);
+    return null;
+  }
 }
 
 /// How the move of session `id` stands, read for the window.

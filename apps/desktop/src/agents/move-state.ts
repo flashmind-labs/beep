@@ -173,9 +173,8 @@ function filesLine(p: MoveProgress, timing: FilesTiming | null) {
   return `Files ${fmtBytes(p.files_copied)} of ${fmtBytes(p.files_total)} · ${pct}%${speed ? ` · ${speed}` : ""}`;
 }
 
-/// How long a target may take to see a record in the mesh before the
-/// window stops saying it waits for it.
-const SEEN_WITHIN_MS = 2 * 60_000;
+/// A new move may still be reaching its target through the mesh.
+export const awaitingMove = (record: MoveRecord, now: number) => now - record.at < 2 * 60_000;
 
 /// What the target says of a move, read for the window: a target that has
 /// not heard of a recent move yet still has to take it up, so it waits; one
@@ -184,7 +183,7 @@ const SEEN_WITHIN_MS = 2 * 60_000;
 export function effective(p: MoveProgress | null | undefined, record: MoveRecord | undefined, now: number): MoveProgress | null {
   if (!p || !record) return p ?? null;
   if (p.answer === "update") return { ...p, answer: "known", phase: "failed", reason: "that machine's beep-node is too old to take sessions" };
-  if (p.answer === "unknown") return now - record.at < SEEN_WITHIN_MS ? { ...p, answer: "known", phase: "waiting" } : null;
+  if (p.answer === "unknown") return awaitingMove(record, now) ? { ...p, answer: "known", phase: "waiting" } : null;
   return p;
 }
 
