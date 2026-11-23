@@ -5,6 +5,7 @@ import { createRef, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { createStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
+import { invoke } from "../ui/tauri.ts";
 import { onPhone } from "../ui/platform.ts";
 import { type Box, type Dock, DOCKS, frameKey, onZoomKey, paneSize, SIDE_BY_SIDE_MIN, splitTabs } from "./media-state.ts";
 import type { PaneTabItem } from "./tabs-view.tsx";
@@ -240,11 +241,21 @@ function toggleZoom() {
 // S.view stays "agent" while the center shows another page; only a session on screen zooms.
 onZoomKey(() => S.view === "agent" && !!P.session && shellSize().width > 0, toggleZoom);
 
-// A focused HTML preview keeps its keys, so its page posts the pane's
-// shortcuts (⇧esc, ⌘1 to ⌘9, ⌘W) and they are typed again on its frame.
-window.addEventListener("message", e => {
-  const key = frameKey(e.data);
-  const frame = key && [...document.querySelectorAll<HTMLIFrameElement>("iframe.agartframe")].find(f => f.contentWindow === e.source);
+// Sandboxed previews send links and shortcuts to their owning pane.
+window.addEventListener("message", (event: MessageEvent<unknown>) => {
+  const data = event.data;
+  if (!data || typeof data !== "object" || !("beep" in data)) return;
+
+  if (data.beep === "link") {
+    const frame = document.activeElement;
+    if (!(frame instanceof HTMLIFrameElement) || !frame.matches(".agartframe") || frame.contentWindow !== event.source) return;
+    if (event.origin !== "null" || !navigator.userActivation.isActive || !("url" in data) || typeof data.url !== "string") return;
+    if (/^https?:\/\//.test(data.url)) invoke("open_url", { url: data.url }).catch(e => console.warn("opening a preview link:", e));
+    return;
+  }
+
+  const key = frameKey(data);
+  const frame = key && [...document.querySelectorAll<HTMLIFrameElement>("iframe.agartframe")].find(f => f.contentWindow === event.source);
   if (frame) frame.dispatchEvent(new KeyboardEvent("keydown", { ...key, bubbles: true, cancelable: true }));
 });
 

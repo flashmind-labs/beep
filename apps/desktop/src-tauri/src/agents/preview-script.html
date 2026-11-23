@@ -1,0 +1,38 @@
+<script>
+(() => {
+  addEventListener("keydown", event => {
+    const command = /Windows/.test(navigator.userAgent) ? event.ctrlKey : event.metaKey;
+    const zoom = event.key === "Escape" && event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+    const tab = command && !event.shiftKey && !event.altKey && /^[1-9w]$/i.test(event.key);
+    if (!zoom && !tab) return;
+
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    const { key, shiftKey, metaKey, ctrlKey, repeat } = event;
+    parent.postMessage({ beep: "key", key, shiftKey, metaKey, ctrlKey, repeat }, "*");
+  }, true);
+
+  function openLink(event) {
+    if (!event.isTrusted || event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
+    const link = event.composedPath().find(el => el instanceof Element && el.matches("a[href], area[href]"));
+    if (!link) return;
+
+    const href = link.getAttribute("href").trim();
+    // A protocol-relative web link has no HTTP scheme to inherit from beepview.
+    let url;
+    try {
+      url = new URL(href.startsWith("//") && location.protocol === "beepview:" ? "https:" + href : href, document.baseURI);
+    } catch {
+      return;
+    }
+    if (url.protocol !== "https:" && url.protocol !== "http:") return;
+    if (url.protocol === location.protocol && url.host === location.host) return;
+
+    event.preventDefault();
+    parent.postMessage({ beep: "link", url: url.href }, "*");
+  }
+
+  addEventListener("click", openLink);
+  addEventListener("auxclick", openLink);
+})();
+</script>
