@@ -4,7 +4,7 @@
 import { conversationBlocked } from "./turnrows.ts";
 import { memo, useMemo, useRef, type MouseEvent } from "react";
 import { domToReact, type DOMNode } from "html-react-parser";
-import { OUTCOME_LABEL, reportOf, type Report, type ReportSection } from "./report-state.ts";
+import { OUTCOME_LABEL, REPORT_MIN_WORDS, reportOf, type Report, type ReportSection } from "./report-state.ts";
 import { plural } from "../ui/format.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, CopyButton, useHtml } from "../ui/kit.tsx";
@@ -14,8 +14,9 @@ import { SubIcon } from "./activity-view.tsx";
 
 /// Replies already contain the sanitized Markdown produced by the node.
 /// `text` is the reply as the agent wrote it, which its copy button copies.
-/// `final` marks the last reply of a finished turn, which may be a report.
-export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; copy: boolean; final: boolean; sentAt?: number | null }
+/// `final` marks the last reply of a finished turn, which may be a report;
+/// `idle` that the session takes a message now, as a report's Summarize sends.
+export interface ReplyRow { kind: "reply"; row: string; markdown: boolean; html: string; text: string; copy: boolean; final: boolean; idle: boolean; sentAt?: number | null }
 export interface BlockedRow { kind: "blocked"; id: string; message: string }
 export interface PromptRow { kind: "prompt"; row: string; html: string; files: string[]; pictures: string; sentAt?: number | null }
 export type ContextRow = { kind: "context"; id: string; type: "context"; text: string } | { kind: "context"; id: string; type: "session"; name: string; project: string | null; html: string } | { kind: "context"; id: string; type: "child"; part: Extract<PromptPart, { kind: "child" }>; body: string; agent: string | null; name: string; project: string | null };
@@ -45,6 +46,7 @@ function ReportReply({ reply, report }: { reply: ReplyRow; report: Report }) {
       {outcome && <span className="report-outcome" data-outcome={outcome}>{OUTCOME_LABEL[outcome]}</span>}
       <span className="report-label">Report</span>
       <span className="report-length">{`${plural(report.words, "word", "words")}, about ${report.minutes} min`}</span>
+      {reply.idle && report.words >= REPORT_MIN_WORDS && <span className="report-acts"><Button small look="quiet" data-report-summarize={reply.row} title="Ask the agent for a shorter version of this report">Summarize</Button></span>}
     </div>
     <div className="reply-body">
       {report.kind === "long" ? nodes(report.nodes) : <>

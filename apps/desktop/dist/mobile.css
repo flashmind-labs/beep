@@ -165,7 +165,7 @@ body.mobile .mstats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14p
 body.mobile .mgrid { grid-template-columns: minmax(0, 1fr) }
 body.mobile .mcard .cc-row.tl-row { min-height: 44px }
 body.mobile .dcoderen.agent.md :is(th, td) { min-width: 9em }
-body.mobile .dcoderen.report { margin: 4px 0; padding: 10px 12px 12px; border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, transparent) }
+body.mobile .dcoderen.report { margin: 4px 0; padding: 10px 12px 12px; border-radius: var(--radius); background: color-mix(in srgb, var(--accent) 7%, transparent) }
 body.mobile .pj-add { grid-template-columns: minmax(0, 1fr) }
 :is(body.mobile, html[data-phone] body) :is(kbd, .dhints, .agkeys, .dv-keys, .cc-pal .foot, .agpacts .hint) { display: none }
 :is(body.mobile, html[data-phone] body) .cc-set .dset-close { display: inline-flex; margin-left: auto; flex: none }

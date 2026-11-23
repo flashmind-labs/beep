@@ -13,7 +13,8 @@ import { parentSession, keepNativeSession, loadSessions, sessions } from "./sess
 import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.tsx";
 import { toggleModelPicker, closeModelPicker, retryWithModel } from "./modelpill.tsx";
 import { cycleMode } from "./modepill.tsx";
-import { answerAgentQuestion, interruptAgent } from "./messages.ts";
+import { answerAgentQuestion, interruptAgent, sendPrompt } from "./messages.ts";
+import { summaryPrompt } from "./report-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { readError } from "../agentpane/read.ts";
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
@@ -56,6 +57,8 @@ export function agentClick(e: MouseEvent) {
   if (target.closest("[data-agcancel]")) return void interruptAgent();
   if (target.closest("#agmodelb")) return toggleModelPicker();
   if (target.closest("[data-agretrymodel]")) return retryWithModel();
+  const summarize = target.closest<HTMLElement>("[data-report-summarize]");
+  if (summarize) return void summarizeReport(Number(summarize.dataset.reportSummarize));
   if (target.closest("#agmodeb")) { cycleMode(); agentMessage.current?.focus(); return; }
   if (AG.modelOpen && !target.closest(".agc-pick, [data-agtask]")) closeModelPicker();
   const closing = target.closest<HTMLElement>(".agpane [data-subclose]");
@@ -260,4 +263,14 @@ export function toolKey(event: KeyboardEvent) {
   if (!(target instanceof HTMLElement) || !target.matches('.dcoderen.tool[data-at][role="button"], code.fref[data-file]') || !sessionBody()?.contains(target) || !["Enter", " "].includes(event.key)) return;
   event.preventDefault();
   target.click();
+}
+
+/// Asks the session's agent for a shorter version of the report at entry `at`.
+async function summarizeReport(at: number) {
+  const page = AG.page;
+  const report = page?.entries[at - page.earlier];
+  if (report?.kind !== "agent") return;
+
+  const why = await sendPrompt(summaryPrompt(report.text));
+  if (why) console.warn("summarize:", why);
 }

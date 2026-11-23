@@ -602,7 +602,7 @@ function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
   const html = en.html ?? esc(text);
   const block = blockedReply(text, html);
   const body = block?.html ?? html;
-  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", sentAt: en.sent_at ?? null, row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics, text: (block ? text.slice(0, text.lastIndexOf(block.error)) : text).trim(), copy: false, final: false }] : [];
+  const replies: (ReplyRow | BlockedRow)[] = body || pics ? [{ kind: "reply", sentAt: en.sent_at ?? null, row: String(at), markdown: !!en.html, html: (en.html ? answerHtml(linked(body)) : linked(body)) + pics, text: (block ? text.slice(0, text.lastIndexOf(block.error)) : text).trim(), copy: false, final: false, idle: false }] : [];
   if (block) replies.push({ kind: "blocked", id: `${at}:blocked`, message: block.error });
   return replies;
 }
@@ -735,6 +735,7 @@ function turnUnits(p: AgentPage, news: boolean): Unit[] {
       if (reply?.kind === "reply") {
         reply.copy = true;
         reply.final = !running;
+        reply.idle = !active;
       }
 
       const head = turnHeading({ state, start: start ?? null, ms, stats: "", turn: null, opened: false });

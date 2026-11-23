@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { htmlToDOM, type Element, type DOMNode } from "html-react-parser";
-import { checkOf, outcomeOf, readReport, readingTime } from "../src/agents/report-state.ts";
+import { checkOf, outcomeOf, readReport, readingTime, summaryPrompt } from "../src/agents/report-state.ts";
 
 const text = (nodes: DOMNode[]): string => nodes.map(n => n.type === "text" ? n.data : n.type === "tag" ? text(n.children as DOMNode[]) : "").join("");
 const html = (nodes: DOMNode[]): string => nodes.map(n => n.type === "text" ? n.data : n.type === "tag" ? `<${n.name}${Object.entries(n.attribs).map(([k, v]) => ` ${k}="${v}"`).join("")}>${html(n.children as DOMNode[])}</${n.name}>` : "").join("");
@@ -52,4 +52,10 @@ test("a check reads its result after the colon", () => {
 test("a report says its length and reading time", () => {
   assert.deepEqual(readingTime("a b c"), { words: 3, minutes: 1 });
   assert.deepEqual(readingTime("w ".repeat(460)), { words: 460, minutes: 2 });
+});
+
+test("Summarize names the report by how it starts", () => {
+  const prompt = summaryPrompt("\n**Done:** retries work.\n\n## Changed\n- x");
+  assert.match(prompt, /^Summarize your report that starts "Done: retries work\." even further/);
+  assert.match(summaryPrompt(`Done: ${"word ".repeat(30)}`), /starts "Done: (word ){10}word…"/);
 });

@@ -692,8 +692,8 @@ test("agent session transcript", async ({ page }) => {
 });
 
 test("agent report", async ({ page }) => {
-  const text = "Done: the redirect keeps the query string. Sign-in lands where it started.\n\n## Needs you\n1. **Old links:** keep `?next=` working for a release. The mobile app still sends it.\n\n## Changed\n- **Query string kept** (`src/login.ts:42`): it was dropped when `next` was read.\n- **Test for an empty `next`** (`src/login.test.ts:18`).\n\n## Checked\n- **`npm test`:** passes (48 tests).\n- **Old mobile build:** fails to sign in without `?next=`.\n- **Not checked:** Safari's private mode.";
-  const html = "<p>Done: the redirect keeps the query string. Sign-in lands where it started.</p>\n<h2>Needs you</h2>\n<ol>\n<li><strong>Old links:</strong> keep <code>?next=</code> working for a release. The mobile app still sends it.</li>\n</ol>\n<h2>Changed</h2>\n<ul>\n<li><strong>Query string kept</strong> (<code>src/login.ts:42</code>): it was dropped when <code>next</code> was read.</li>\n<li><strong>Test for an empty <code>next</code></strong> (<code>src/login.test.ts:18</code>).</li>\n</ul>\n<h2>Checked</h2>\n<ul>\n<li><strong><code>npm test</code>:</strong> passes (48 tests).</li>\n<li><strong>Old mobile build:</strong> fails to sign in without <code>?next=</code>.</li>\n<li><strong>Not checked:</strong> Safari's private mode.</li>\n</ul>";
+  const text = "Done: the redirect keeps the query string. Sign-in lands where it started.\n\n## Needs you\n1. **Old links:** keep `?next=` working for a release. The mobile app still sends it.\n\n## Changed\n- **Query string kept** (`src/login.ts:42`): it was dropped when `next` was read.\n- **Test for an empty `next`** (`src/login.test.ts:18`).\n\n## Checked\n- **`npm test`:** passes (48 tests).\n- **Old mobile build:** fails to sign in without `?next=`.\n- **Not checked:** Safari's private mode, and sign-in through the old single sign-on page.";
+  const html = "<p>Done: the redirect keeps the query string. Sign-in lands where it started.</p>\n<h2>Needs you</h2>\n<ol>\n<li><strong>Old links:</strong> keep <code>?next=</code> working for a release. The mobile app still sends it.</li>\n</ol>\n<h2>Changed</h2>\n<ul>\n<li><strong>Query string kept</strong> (<code>src/login.ts:42</code>): it was dropped when <code>next</code> was read.</li>\n<li><strong>Test for an empty <code>next</code></strong> (<code>src/login.test.ts:18</code>).</li>\n</ul>\n<h2>Checked</h2>\n<ul>\n<li><strong><code>npm test</code>:</strong> passes (48 tests).</li>\n<li><strong>Old mobile build:</strong> fails to sign in without <code>?next=</code>.</li>\n<li><strong>Not checked:</strong> Safari's private mode, and sign-in through the old single sign-on page.</li>\n</ul>";
   const entries = [...transcript, { kind: "user", text: "Report on the fix." }, { kind: "agent", text, html }];
   await openAgent(page, { agent_view: { ...agentView, session: { ...session, status: "idle", question: null }, entries } });
   const report = page.locator(".dcoderen.report");
@@ -701,6 +701,10 @@ test("agent report", async ({ page }) => {
   await expect(report.locator(".report-headline")).toHaveText("The redirect keeps the query string.");
   await expect(report.locator('li[data-check="fail"]')).toContainText("Old mobile build");
   await baseline(page, "agent-report");
+
+  // Summarize asks the session's agent for a shorter version, naming the report.
+  await report.getByRole("button", { name: "Summarize" }).click();
+  await expect(page.getByText(/^Summarize your report that starts "Done: the redirect keeps the query string\./)).toBeVisible();
 });
 
 test("agent composer with a draft", async ({ page }) => {

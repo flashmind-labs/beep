@@ -60,6 +60,16 @@ export function reportOf(html: string, text: string): Report | null {
   return words >= REPORT_MIN_WORDS ? { kind: "long", words, minutes, nodes } : null;
 }
 
+/// What Summarize asks the session's agent about its report `text`: the
+/// same report, shorter, naming the report by how it starts.
+export function summaryPrompt(text: string) {
+  const first = text.split("\n").map(line => line.replace(/^#+\s*/, "").replace(/\*\*/g, "").trim()).find(Boolean) ?? "";
+  const opening = first.length > 60 ? `${first.slice(0, 60).trimEnd()}…` : first;
+  return `Summarize your report that starts "${opening}" even further, for a reader with one minute. `
+    + "Keep its first line, the outcome and the result. Then at most three one-line bullets: only what I must decide or know before it ships. "
+    + "No sections, no files you read, nothing already said.";
+}
+
 /// `nodes` read as a report, or null when they don't open with an outcome.
 export function readReport(nodes: DOMNode[]): Shaped | null {
   const start = nodes.findIndex(node => !(isText(node) && !node.data.trim()));

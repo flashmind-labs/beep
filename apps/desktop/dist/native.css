@@ -143,8 +143,8 @@ body:not(.mobile) .agpacts { border-top: 0 }
 body:not(.mobile) .dagmain { gap: 14px; padding-top: 10px }
 body:not(.mobile) .dagmain > :is(.dcoderlog, .dcoder, .dmuted, .derr) { max-width: 720px }
 body:not(.mobile) .dcoderen.agent { font-size: 13.5px; line-height: 21px; color: var(--fg) }
-/* A report reads a size up, on a card of its own. */
-body:not(.mobile) .dcoderen.report { margin: 4px 0; padding: 12px 18px 16px; border-radius: var(--radius); font-size: 14px; line-height: 22px; background: var(--lit), color-mix(in srgb, var(--fg) 3.5%, transparent) }
+/* A report reads a size up, on a card of its own, tinted apart from your messages. */
+body:not(.mobile) .dcoderen.report { margin: 4px 0; padding: 12px 18px 16px; border-radius: var(--radius); font-size: 14px; line-height: 22px; background: var(--lit), color-mix(in srgb, var(--accent) 7%, transparent) }
 body:not(.mobile) .dcard.dcoder:has(> .q:last-child) { padding-bottom: 0 }
 
 /* ----- Session screen: the title row lies on the window, and the conversation and the side pane
