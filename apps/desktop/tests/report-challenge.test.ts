@@ -31,12 +31,19 @@ test("a finding goes to the agent first, as a challenge finding", () => {
   const [finding] = parseFindings(challenger);
   const draft = findingDraft(finding, 3, 7, "Done: the redirect keeps the query string.");
   assert.equal(draft.ask, "finding");
-  assert.equal(draft.text, "Confirmed: It is still dropped on a redirect from the old sign-on page.\nEvidence: `npm test -- login` with an SSO fixture failed 1 of 1.");
+  assert.equal(draft.text, "It is still dropped on a redirect from the old sign-on page.");
+  assert.deepEqual(draft.finding, { tag: "confirmed", evidence: "`npm test -- login` with an SSO fixture failed 1 of 1." });
 
-  const prompt = reviewPrompt([{ ...draft, id: 1, ask: "question", text: "Why?" }, draft], "");
+  const prompt = reviewPrompt([{ ...draft, id: 1, ask: "question", text: "Why?", finding: null }, draft], "");
   assert.ok(prompt.indexOf("## Challenge findings") < prompt.indexOf("## Questions"), prompt);
   assert.match(prompt, /## Challenge findings\nAnother agent tried to prove your report wrong/);
-  assert.deepEqual(parseReview(prompt)?.items.map(i => [i.ask, i.place]), [["finding", "Changed 1"], ["question", "Changed 1"]]);
+  assert.match(prompt, /\n\[confirmed\] It is still dropped on a redirect from the old sign-on page\.\nEvidence: `npm test -- login` with an SSO fixture failed 1 of 1\.\n/);
+  // Sent, a finding reads back with its tag and evidence apart from its words.
+  const sent = parseReview(prompt)?.items;
+  assert.deepEqual(sent?.map(i => [i.ask, i.place, i.text, i.finding]), [
+    ["finding", "Changed 1", "It is still dropped on a redirect from the old sign-on page.", { tag: "confirmed", evidence: "`npm test -- login` with an SSO fixture failed 1 of 1." }],
+    ["question", "Changed 1", "Why?", null],
+  ]);
 });
 
 test("a challenger is told the skill, where the work is and the report", () => {

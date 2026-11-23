@@ -10,10 +10,13 @@
   session is deleted shows "Challenge failed", with the reason on hover, Open,
   and Again to pick a model and challenge once more.
 - iOS: its findings arrive as review drafts under the claims they dispute,
-  marked confirmed (it ran something) or plausible (it read the code), with
-  their evidence. They go with your next message, first, and the agent is asked
+  headed Challenge with a CONFIRMED (it ran something) or PLAUSIBLE (it read the
+  code) badge, their words, and their evidence on a line of its own, with code
+  drawn as code. They go with your next message, first, and the agent is asked
   to fix each or show why it is wrong.
 - iOS: a saved review comment's card has a × to remove it.
+- iOS: the review line over the message field has Send now, which sends the
+  review on its own, without a message.
 
 ### Fixed
 

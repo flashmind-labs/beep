@@ -844,11 +844,26 @@ test("agent report challenged", async ({ page }) => {
   await expect(report.getByRole("button", { name: "1 finding" })).toBeVisible();
   await expect(report.locator(".report-note")).toHaveCount(0);
   const note = report.locator('.report-part[data-kind="changed"] li:first-child > .rv-note[data-ask="finding"]');
-  await expect(note).toContainText("Confirmed: It is still dropped after the old sign-on page.");
+  // Drawn as serpis draws it: Challenge, its tag, its words and evidence apart, code as code.
+  await expect(note.locator(".k")).toContainText("Challenge");
+  await expect(note.locator(".rv-tag")).toHaveText("confirmed");
+  await expect(note.locator(".rv-tag")).toHaveAttribute("title", "The challenger showed this by running something");
+  await expect(note.locator(".t")).toHaveText("It is still dropped after the old sign-on page.");
+  await expect(note.locator(".ev")).toHaveText("Evidence: npm test -- sso failed 1 of 1.");
+  await expect(note.locator(".ev code")).toHaveText("npm test -- sso");
   await expect(report.locator('.rv-mark[data-ask="finding"]')).toHaveText(["it was dropped when ", "next", " was read."]);
   await expect(page.locator(".rv-bar")).toContainText("1 finding · goes with your next message");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").map(call => call.args))).toContainEqual(expect.objectContaining({ session: "challenger-one", steer: "close" }));
   await baseline(page, "agent-report-challenged");
+
+  // Send now sends the review alone, and it shows as its findings.
+  await page.locator(".rv-bar").getByRole("button", { name: "Send now" }).click();
+  const sent = page.locator(".rv-sent");
+  await expect(sent.locator(".it .rv-tag")).toHaveText("confirmed");
+  await expect(sent.locator(".it .t")).toHaveText("It is still dropped after the old sign-on page.");
+  await expect(sent.locator(".it .ev")).toContainText("failed 1 of 1.");
+  await expect(sent.locator(".also")).toHaveCount(0);
+  await expect(page.locator(".rv-bar")).toHaveCount(0);
 });
 
 test("agent report challenge picker shows whole model names", async ({ page }) => {

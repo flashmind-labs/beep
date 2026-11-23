@@ -767,6 +767,10 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .rv-note-open { all: unset; display: grid; gap: 2px; box-sizing: border-box; width: 100%; padding: 7px 36px 8px 12px; cursor: default }
 .rv-drop { position: absolute; top: 4px; right: 4px; opacity: 0 }
 .rv-note:is(:hover, :focus-within) .rv-drop { opacity: 1 }
+.rv-tag { margin-left: 6px; padding: 0 5px; border-radius: var(--radius-sm); font: 600 10px/16px var(--mono); letter-spacing: .04em; text-transform: uppercase; color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); cursor: help }
+.rv-tag[data-tag="confirmed"] { color: var(--err); background: color-mix(in srgb, var(--err) 16%, transparent) }
+:is(.rv-note, .rv-sent) .ev { display: block; margin-top: 2px; font-size: 12px; line-height: 18px; color: var(--muted) }
+:is(.rv-note, .rv-sent) :is(.t, .ev) code { padding: 0 4px; border-radius: var(--radius-sm); font: .92em var(--mono); background: color-mix(in srgb, var(--fg) 8%, transparent) }
 .rv-note .k, .rv-item .k, .rv-sent .k { font: 11px/16px var(--mono); color: var(--dim) }
 .rv-note .k b, .rv-sent .k b, .rv-field .h b { font-weight: 500 }
 :is(.rv-note, .rv-item, .rv-sent .it, .rv-field)[data-ask="question"] :is(.k b, .h b) { color: var(--accent) }

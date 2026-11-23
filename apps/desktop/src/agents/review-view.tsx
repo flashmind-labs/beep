@@ -8,11 +8,34 @@ import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { Button } from "../ui/kit.tsx";
 import { AG } from "./agents.ts";
-import { Element as Tag, Text as TextNode, attributesToProps, domToReact, type DOMNode, type HTMLReactParserOptions } from "html-react-parser";
+import { Element as DomElement, Text as TextNode, attributesToProps, domToReact, type DOMNode, type HTMLReactParserOptions } from "html-react-parser";
 import { isTag, isText, openingOf, textOf } from "./report-state.ts";
-import { keepWriting, reviewCount, reviewOf, reviews, updateReview, type Ask, type ReviewComment, type Review, type SentReview } from "./review-state.ts";
+import { keepWriting, reviewCount, reviewOf, reviews, updateReview, type FindingOf, type Tag, type Ask, type ReviewComment, type Review, type SentReview } from "./review-state.ts";
 
-const ASK_LABEL: Record<Ask, string> = { question: "Question", change: "Change", finding: "Finding" };
+const ASK_LABEL: Record<Ask, string> = { question: "Question", change: "Change", finding: "Challenge" };
+
+const TAG_TITLE: Record<Tag, string> = {
+  confirmed: "The challenger showed this by running something",
+  plausible: "The challenger read this in the code; it did not run anything to show it",
+};
+
+/// A comment's heading: what it asks, a finding's tag, and then `rest`.
+function CommentHead({ ask, finding, rest }: { ask: Ask; finding: FindingOf | null; rest: string }) {
+  return <span className="k"><b>{ASK_LABEL[ask]}</b>{finding && <span className="rv-tag" data-tag={finding.tag} title={TAG_TITLE[finding.tag]}>{finding.tag}</span>}{rest && ` · ${rest}`}</span>;
+}
+
+/// A comment's words and a finding's evidence, with their `code` drawn as code.
+function CommentWords({ text, finding }: { text: string; finding: FindingOf | null }) {
+  return <>
+    <span className="t"><Inline text={text} /></span>
+    {finding?.evidence && <span className="ev">Evidence: <Inline text={finding.evidence} /></span>}
+  </>;
+}
+
+/// `text` with each `code` span as code.
+function Inline({ text }: { text: string }) {
+  return <>{text.split(/`([^`\n]+)`/).map((part, i) => i % 2 ? <code key={i}>{part}</code> : part)}</>;
+}
 
 // ----- Starting a comment -----
 
@@ -51,7 +74,7 @@ export function startComment(ask: Ask) {
   const entry = Number(at.reply.dataset.row), page = AG.page;
   const said = page?.entries[entry - page.earlier];
   const quote = at.range.toString().replace(/[ \t]+\n/g, "\n").trim();
-  updateReview(key, review => ({ ...review, writing: { id: null, entry, quote, place: placeOf(at.range.startContainer), opening: openingOf(said?.text ?? ""), ask, text: "" } }));
+  updateReview(key, review => ({ ...review, writing: { id: null, entry, quote, place: placeOf(at.range.startContainer), opening: openingOf(said?.text ?? ""), ask, text: "", finding: null } }));
   selection?.removeAllRanges();
   return true;
 }
@@ -115,6 +138,7 @@ export function ReviewField({ reviewKey, sendNow }: { reviewKey: string; sendNow
       <Button small look="quiet" aria-label="Drop this comment" onClick={() => set(r => ({ ...r, comments: r.comments.filter(d => d.id !== c.id) }))}>×</Button>
     </div>)}</div>}
     <div className="rv-bar"><b>Review</b><span>{reviewCount(review.comments)} · goes with your next message</span><span className="sp" />
+      <Button small look="quiet" onClick={sendNow} title="Send the review now, without a message">Send now</Button>
       <Button small look="quiet" aria-expanded={review.listed} onClick={() => set(r => ({ ...r, listed: !r.listed }))}>{review.listed ? "Hide" : "Show"}</Button>
       <Button small look="quiet" onClick={() => set(r => ({ ...r, comments: [], listed: false }))}>Discard</Button>
     </div>
@@ -212,7 +236,7 @@ function markQuotes(parts: readonly DOMNode[][], quotes: readonly { ask: Ask; qu
   const rebuild = (nodes: DOMNode[]): DOMNode[] => nodes.flatMap(node => {
     if (isTag(node)) {
       const children = rebuild(node.children as DOMNode[]);
-      return children.every((child, i) => child === node.children[i]) ? [node] : [new Tag(node.name, { ...node.attribs }, children as Tag["children"])];
+      return children.every((child, i) => child === node.children[i]) ? [node] : [new DomElement(node.name, { ...node.attribs }, children as DomElement["children"])];
     }
     const kinds = isText(node) ? asks.get(node) : undefined;
     if (!kinds || !isText(node)) return [node];
@@ -221,7 +245,7 @@ function markQuotes(parts: readonly DOMNode[][], quotes: readonly { ask: Ask; qu
     for (let start = 0, end = 1; start < kinds.length; start = end, end = start + 1) {
       while (end < kinds.length && kinds[end] === kinds[start]) end++;
       const text = new TextNode(node.data.slice(start, end)), ask = kinds[start];
-      runs.push(ask ? new Tag("mark", { class: "rv-mark", "data-ask": ask }, [text]) : text);
+      runs.push(ask ? new DomElement("mark", { class: "rv-mark", "data-ask": ask }, [text]) : text);
     }
     return runs;
   });
@@ -273,7 +297,7 @@ export function DraftNotes({ drafts }: { drafts: readonly ReviewComment[] }) {
   };
   return <>{drafts.map(c => <div key={c.id} className="rv-note" data-ask={c.ask}>
     <button type="button" className="rv-note-open" onClick={() => change(r => ({ ...r, writing: { ...c } }))} title="Change this comment">
-      <span className="k"><b>{ASK_LABEL[c.ask]}</b> · draft · click to change</span><span className="t">{c.text}</span>
+      <CommentHead ask={c.ask} finding={c.finding} rest="draft · click to change" /><CommentWords text={c.text} finding={c.finding} />
     </button>
     <Button small look="quiet" className="rv-drop" aria-label="Remove this comment" title="Remove this comment" onClick={() => change(r => ({ ...r, comments: r.comments.filter(d => d.id !== c.id) }))}>×</Button>
   </div>)}</>;
@@ -285,9 +309,9 @@ export function SentReviewCard({ review }: { review: SentReview }) {
   return <div className="rv-sent">
     <div className="h"><b>Review</b> · {review.items.length === 1 ? "1 comment" : `${review.items.length} comments`}{opening ? <> on “{opening}”</> : null}</div>
     {review.items.map((item, i) => <div key={i} className="it" data-ask={item.ask}>
-      <span className="k"><b>{ASK_LABEL[item.ask]}</b>{item.place ? ` · ${item.place}` : ""}</span>
+      <CommentHead ask={item.ask} finding={item.finding} rest={item.place} />
       <p className="rv-quote">{item.quote}</p>
-      <span className="t">{item.text}</span>
+      <CommentWords text={item.text} finding={item.finding} />
     </div>)}
     {review.also && <div className="also">{review.also}</div>}
   </div>;

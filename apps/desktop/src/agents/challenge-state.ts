@@ -2,10 +2,8 @@
 // tries to prove the report's claims wrong. What it finds comes back as
 // review drafts on the claims it disputes, for the user to send or drop.
 import { createStore } from "zustand";
-import type { ReviewComment } from "./review-state.ts";
+import type { ReviewComment, Tag } from "./review-state.ts";
 
-/// How sure a finding is: shown by running something, or read in the code.
-export type Tag = "confirmed" | "plausible";
 
 /// A claim the challenger broke, as its report puts it under Needs you.
 export interface Finding {
@@ -101,9 +99,7 @@ export function parseFindings(text: string): Finding[] {
 
 /// A finding as a review draft on the report at `entry`, which starts `opening`.
 export function findingDraft(finding: Finding, id: number, entry: number, opening: string): ReviewComment {
-  const tag = finding.tag === "confirmed" ? "Confirmed" : "Plausible";
-  const evidence = finding.evidence ? `\nEvidence: ${finding.evidence}` : "";
-  return { id, entry, quote: finding.quote, place: finding.place, opening, ask: "finding", text: `${tag}: ${finding.text}${evidence}` };
+  return { id, entry, quote: finding.quote, place: finding.place, opening, ask: "finding", text: finding.text, finding: { tag: finding.tag, evidence: finding.evidence } };
 }
 
 /// `text` without Markdown's emphasis and code marks, as the reply shows it.

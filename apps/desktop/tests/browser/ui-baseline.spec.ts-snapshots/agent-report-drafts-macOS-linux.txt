@@ -333,6 +333,7 @@ body.cbody
                       b "Review"
                       span "1 change · goes with your next message"
                       span.sp
+                      button.dbtn.quiet.small [title="Send the review now, without a message" type="button"] "Send now"
                       button.dbtn.quiet.small [aria-expanded="true" type="button"] (focused) "Hide"
                       button.dbtn.quiet.small [type="button"] "Discard"
                   div#agfield.dinput.small style(--field-h)

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { keepWriting, parseReview, placeWords, reviewCount, reviewPrompt, type Review, type ReviewComment } from "../src/agents/review-state.ts";
 
-const comment = (id: number, ask: ReviewComment["ask"], place: string, quote: string, text: string): ReviewComment => ({ id, entry: 4, quote, place, opening: "Done: the redirect keeps the query string.", ask, text });
+const comment = (id: number, ask: ReviewComment["ask"], place: string, quote: string, text: string): ReviewComment => ({ id, entry: 4, quote, place, opening: "Done: the redirect keeps the query string.", ask, text, finding: null });
 
 test("a review's message reads back as its comments", () => {
   const comments = [comment(1, "change", "Changed 1", "it was dropped when next was read.", "Also keep the fragment."), comment(2, "question", "Headline", "keeps the query", "Even on errors?"), comment(3, "question", "", "a\nb", "Why?")];

@@ -286,8 +286,11 @@ body.cbody
                                         div.rv-note [data-ask="finding"]
                                           button.rv-note-open [title="Change this comment" type="button"]
                                             span.k "· draft · click to change"
-                                              b "Finding"
-                                            span.t "Confirmed: It is still dropped after the old sign-on page. Evidence: `npm test -- sso` failed 1 of 1."
+                                              b "Challenge"
+                                              span.rv-tag [data-tag="confirmed" title="The challenger showed this by running something"] "confirmed"
+                                            span.t "It is still dropped after the old sign-on page."
+                                            span.ev "Evidence: failed 1 of 1."
+                                              code "npm test -- sso"
                                           button.dbtn.quiet.rv-drop.small [aria-label="Remove this comment" title="Remove this comment" type="button"] "×"
                                       li "( )."
                                         strong "Test for an empty"
@@ -325,6 +328,7 @@ body.cbody
                       b "Review"
                       span "1 finding · goes with your next message"
                       span.sp
+                      button.dbtn.quiet.small [title="Send the review now, without a message" type="button"] "Send now"
                       button.dbtn.quiet.small [aria-expanded="false" type="button"] "Show"
                       button.dbtn.quiet.small [type="button"] "Discard"
                   div#agfield.dinput.small style(--field-h)

@@ -8,6 +8,12 @@ import { createStore } from "zustand";
 /// challenge found wrong.
 export type Ask = "question" | "change" | "finding";
 
+/// How sure a challenge's finding is: shown by running something, or read in the code.
+export type Tag = "confirmed" | "plausible";
+
+/// What a challenge found beyond its words: how sure it is and what shows it.
+export interface FindingOf { tag: Tag; evidence: string }
+
 /// A draft on part of an agent's reply.
 export interface ReviewComment {
   id: number;
@@ -21,6 +27,8 @@ export interface ReviewComment {
   opening: string;
   ask: Ask;
   text: string;
+  /// A challenge's finding: its tag and evidence; null for the user's own comments.
+  finding: FindingOf | null;
 }
 
 /// A comment being written: a new one (`id` null) or a saved one again.
@@ -110,7 +118,7 @@ export function reviewPrompt(comments: readonly ReviewComment[], also: string) {
       const at = placeWords(c.place);
       out += `\nIn your message that starts "${c.opening}"${at ? `, ${at}` : ""}:\n`;
       out += c.quote.split("\n").map(line => `> ${line.trimEnd()}`).join("\n");
-      out += `\n${c.text.trim()}\n`;
+      out += c.ask === "finding" && c.finding ? `\n[${c.finding.tag}] ${c.text.trim()}\n${c.finding.evidence ? `Evidence: ${c.finding.evidence}\n` : ""}` : `\n${c.text.trim()}\n`;
     }
   }
 
@@ -120,7 +128,7 @@ export function reviewPrompt(comments: readonly ReviewComment[], also: string) {
 
 /// A review as sent, read back from the transcript.
 export interface SentReview {
-  items: { ask: Ask; place: string; opening: string; quote: string; text: string }[];
+  items: { ask: Ask; place: string; opening: string; quote: string; text: string; finding: FindingOf | null }[];
   also: string;
 }
 
@@ -133,7 +141,7 @@ export function parseReview(text: string): SentReview | null {
   let item: SentReview["items"][number] | null = null;
   let quote: string[] = [], words: string[] = [];
   const finish = () => {
-    if (item) out.items.push({ ...item, quote: quote.join("\n"), text: words.join("\n").trim() });
+    if (item) out.items.push({ ...item, quote: quote.join("\n"), ...sentWords(item.ask, words.join("\n").trim()) });
     item = null;
     quote = [];
     words = [];
@@ -155,7 +163,7 @@ export function parseReview(text: string): SentReview | null {
     const start = /^In your message that starts "(.*?)"(?:, (.+))?:$/.exec(line);
     if (start) {
       finish();
-      item = { ask, place: labelOf(start[2] ?? ""), opening: start[1], quote: "", text: "" };
+      item = { ask, place: labelOf(start[2] ?? ""), opening: start[1], quote: "", text: "", finding: null };
       continue;
     }
     if (!item) continue;
@@ -167,6 +175,15 @@ export function parseReview(text: string): SentReview | null {
   finish();
   out.also = also ? also.join("\n").trim() : "";
   return out.items.length ? out : null;
+}
+
+/// A sent comment's words: a finding's tag and evidence read back out of them.
+function sentWords(ask: Ask, words: string): { text: string; finding: FindingOf | null } {
+  const tagged = /^\[(confirmed|plausible)\] ([\s\S]*)$/.exec(words);
+  if (ask !== "finding" || !tagged) return { text: words, finding: null };
+
+  const [text, evidence = ""] = tagged[2].split(/\nEvidence: /);
+  return { text: text.trim(), finding: { tag: tagged[1] === "confirmed" ? "confirmed" : "plausible", evidence: evidence.trim() } };
 }
 
 /// A place in words, so it reads as a place in the last report and not a
@@ -195,7 +212,8 @@ const storageKey = (key: string) => `beep.chatReview.${key}`;
 function loadComments(key: string): ReviewComment[] {
   try {
     const raw: unknown = JSON.parse(localStorage.getItem(storageKey(key)) ?? "[]");
-    return Array.isArray(raw) ? raw.filter(isComment) : [];
+    // Drafts kept before findings had their own fields have none.
+    return Array.isArray(raw) ? raw.filter(isComment).map(c => ({ ...c, finding: isFinding(c.finding) ? c.finding : null })) : [];
   } catch {
     return [];
   }
@@ -208,7 +226,11 @@ function saveComments(key: string, comments: readonly ReviewComment[]) {
   } catch { /* kept for this launch only */ }
 }
 
-function isComment(value: unknown): value is ReviewComment {
+function isFinding(value: unknown): value is FindingOf {
+  return typeof value === "object" && value !== null && "tag" in value && (value.tag === "confirmed" || value.tag === "plausible") && "evidence" in value && typeof value.evidence === "string";
+}
+
+function isComment(value: unknown): value is Omit<ReviewComment, "finding"> & { finding?: unknown } {
   return typeof value === "object" && value !== null
     && "id" in value && typeof value.id === "number" && "entry" in value && typeof value.entry === "number"
     && "quote" in value && typeof value.quote === "string" && "place" in value && typeof value.place === "string"
