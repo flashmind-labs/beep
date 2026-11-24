@@ -1,10 +1,7 @@
 //! Projects and coding-agent sessions for the palette: imported projects and
 //! the folders agents worked in, listed once each.
 
-use super::{
-    index::{Entry, HitKind},
-    lists::PaletteLists,
-};
+use super::index::{Entry, HitKind};
 use crate::agents::sessions::SessionRow;
 use beep_proto::{ImportedProject, MachineSession};
 use std::{cmp::Reverse, collections::HashSet};
@@ -68,7 +65,6 @@ struct FolderRow<'a> {
 /// Projects by name, once each: imported ones, then the folders coding
 /// agents worked in.
 pub(super) fn project_entries(
-    lists: &PaletteLists,
     sessions: &[MachineSession],
     imported: &[ImportedProject],
 ) -> Vec<Entry> {

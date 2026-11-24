@@ -27,7 +27,7 @@ use std::{
     sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter};
 use tokio::{
     sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch},
     task::JoinSet,

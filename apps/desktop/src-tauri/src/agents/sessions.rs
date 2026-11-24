@@ -282,18 +282,6 @@ pub(crate) fn closed(app: &AppHandle, machine_id: &str, session: &SessionId) {
         .closed(machine_id, session);
 }
 
-/// The sessions of every machine, newest activity first, as the mirror
-/// holds them. The first call of a launch waits for this Mac's node to list;
-/// a read asks the machines again for what is older than the mirror allows,
-/// and the windows redraw when an answer changes what they draw.
-pub(crate) async fn machine_sessions(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec<MachineSession> {
-    let rows = app
-        .state::<Arc<SessionMirror>>()
-        .rows_of_launch(fleet)
-        .await;
-    overlaid(app, fleet, &rows)
-}
-
 /// `rows` with what this app knows on top: presence, deletes and moves under
 /// way, the user's titles and the starts it holds.
 pub(crate) fn overlaid(app: &AppHandle, fleet: &Fleet, rows: &Rows) -> Vec<MachineSession> {
@@ -350,7 +338,6 @@ pub(crate) fn overlay(fleet: &Fleet, session: &mut MachineSession) -> bool {
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_start(
-    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: Option<String>,
     agent: Option<String>,
@@ -430,7 +417,6 @@ pub async fn agent_models(
 /// runs as one Beep started.
 #[tauri::command]
 pub async fn agent_resume(
-    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,

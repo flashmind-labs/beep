@@ -225,7 +225,7 @@ pub(crate) fn build_index(lists: &PaletteLists, sessions: &[MachineSession]) -> 
         actions: PaletteAction::iter().map(action_entry).collect(),
         settings: settings().map(|(t, s)| setting_entry(t, s)).collect(),
         code: branches.collect(),
-        projects: project_entries(lists, sessions, imported),
+        projects: project_entries(sessions, imported),
         sessions: session_entries(sessions, imported),
         machines: machines.collect(),
     }
