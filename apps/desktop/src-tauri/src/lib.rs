@@ -174,6 +174,8 @@ pub fn run() {
                 app.state::<agents::follow::Follows>().clear(label);
                 app.state::<fleet::events::Events>().clear(label);
                 app.state::<projects::live::Followed>().clear(label);
+                app.state::<fleet::session_lists::SessionLists>()
+                    .closed(label);
                 app.state::<machines::terminals::Attached>().clear(label);
                 app.state::<machines::devices::Attached>().clear(label);
                 center::window::forget(app, label);

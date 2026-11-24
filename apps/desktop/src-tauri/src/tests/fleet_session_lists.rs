@@ -51,7 +51,13 @@ fn a_list_holds_until_every_machine_answered_and_keeps_rows_on_failure() {
     let mut lists = Lists::new(me);
     let now = Instant::now();
 
-    let (rows, moved) = lists.want(list.clone(), vec![local.clone(), remote.clone()], now, keep);
+    let (rows, moved) = lists.want(
+        list.clone(),
+        "main",
+        vec![local.clone(), remote.clone()],
+        now,
+        keep,
+    );
     assert!(rows.is_none());
     assert_eq!(keys(&moved.fetch), [local.clone(), remote.clone()]);
     let (mine, theirs) = (moved.fetch[0].clone(), moved.fetch[1].clone());
@@ -70,7 +76,7 @@ fn a_list_holds_until_every_machine_answered_and_keeps_rows_on_failure() {
     assert_eq!(ids(&sent[0].1), ["mine", "theirs"]);
 
     // A read asks this Mac again, not the fresh machine, and gets the whole list.
-    let (rows, moved) = lists.want(list, vec![local.clone(), remote.clone()], now, keep);
+    let (rows, moved) = lists.want(list, "main", vec![local.clone(), remote.clone()], now, keep);
     assert_eq!(keys(&moved.fetch), [local]);
     assert_eq!(ids(&rows.unwrap_or_default()), ["mine", "theirs"]);
 
@@ -99,7 +105,7 @@ fn an_answer_from_before_a_delete_is_asked_again() {
     let mut lists = Lists::new(me);
     let now = Instant::now();
 
-    let (_, moved) = lists.want(ListId::Home, vec![remote.clone()], now, keep);
+    let (_, moved) = lists.want(ListId::Home, "main", vec![remote.clone()], now, keep);
     let first = moved.fetch[0].clone();
     let sent = lists
         .answered(
@@ -141,7 +147,7 @@ fn a_move_asks_only_the_answers_it_can_change() {
     let now = Instant::now();
 
     for key in [&holds, &target, &apart] {
-        let (_, moved) = lists.want(ListId::Home, vec![key.clone()], now, keep);
+        let (_, moved) = lists.want(ListId::Home, "main", vec![key.clone()], now, keep);
         lists.answered(
             moved.fetch[0].clone(),
             Some(if *key == holds {
@@ -156,6 +162,7 @@ fn a_move_asks_only_the_answers_it_can_change() {
     // Home holds one list at a time here: list all three.
     lists.want(
         ListId::Home,
+        "main",
         vec![holds.clone(), target.clone(), apart],
         now,
         keep,
@@ -167,9 +174,10 @@ fn a_move_asks_only_the_answers_it_can_change() {
     assert!(asked.contains(&holds) && asked.contains(&target));
 }
 
-/// A list whose page went away, or nobody asked for in a while, is no longer rebuilt.
+/// A list is dropped when the last window showing it lets go, never while one still shows it,
+/// however long that is. Home stays.
 #[test]
-fn a_dropped_or_idle_list_is_not_kept_or_sent_again() {
+fn a_list_goes_with_its_last_window_and_never_while_one_shows_it() {
     let me = machine(1);
     let other = machine(2);
     let key = |folder: &str| (other, vec![folder.to_owned()]);
@@ -178,19 +186,32 @@ fn a_dropped_or_idle_list_is_not_kept_or_sent_again() {
     let now = Instant::now();
     let page = ListId::Project("acme/widget".into());
 
-    let (_, moved) = lists.want(page.clone(), vec![key("/srv/a")], now, keep);
+    let (_, moved) = lists.want(page.clone(), "main", vec![key("/srv/a")], now, keep);
     let asked = moved.fetch[0].clone();
-    lists.drop_list(&page);
+    lists.drop_list(&page, "main");
     assert!(lists.answers.is_empty());
     // The answer that was out comes back to nothing.
     let moved = lists.answered(asked, Some(vec![session("late")]), now, keep);
     assert!(moved.sent.is_empty() && moved.fetch.is_empty());
     assert!(lists.answers.is_empty());
 
-    // An idle project list goes at the next ask, Home stays.
-    lists.want(page, vec![key("/srv/a")], now, keep);
-    lists.want(ListId::Home, vec![key("/srv/b")], now, keep);
-    lists.want(ListId::Home, vec![key("/srv/b")], now + LIST_IDLE, keep);
+    // Two windows show it: one letting go, or closing, leaves the list to the other.
+    lists.want(page.clone(), "main", vec![key("/srv/a")], now, keep);
+    lists.want(page.clone(), "second", vec![key("/srv/a")], now, keep);
+    lists.drop_list(&page, "main");
+    assert_eq!(lists.lists.len(), 1);
+    lists.closed("main");
+    assert_eq!(lists.lists.len(), 1);
+    lists.closed("second");
+    assert!(lists.lists.is_empty() && lists.answers.is_empty());
+
+    // An open page keeps its list without asking again, and so does Home.
+    lists.want(page, "main", vec![key("/srv/a")], now, keep);
+    lists.want(ListId::Home, "main", vec![key("/srv/b")], now, keep);
+    let later = now + Duration::from_secs(24 * 3600);
+    lists.want(ListId::Home, "main", vec![key("/srv/b")], later, keep);
+    assert_eq!(lists.lists.len(), 2);
+    lists.closed("main");
     assert_eq!(lists.lists.len(), 1);
     assert_eq!(lists.answers.len(), 1);
 }

@@ -31,8 +31,6 @@ pub(crate) const SESSION_LIST: &str = "session-list";
 const FRESH: Duration = Duration::from_secs(15);
 /// The least time between two redraws for the mirror's changes.
 const REDRAW_GAP: Duration = Duration::from_secs(1);
-/// How long a project's list stays when nobody asked for it, in case its page is still shown.
-const LIST_IDLE: Duration = Duration::from_secs(30 * 60);
 /// How long one machine gets to answer.
 const ANSWER_LIMIT: Duration = Duration::from_secs(6);
 
@@ -62,6 +60,8 @@ pub(crate) struct SessionLists {
 enum Ask {
     Want {
         list: ListId,
+        /// The label of the window that shows the list.
+        holder: String,
         places: Vec<Place>,
         reply: oneshot::Sender<Option<Vec<SessionRow>>>,
     },
@@ -76,8 +76,13 @@ enum Ask {
     Stale {
         machine: EndpointId,
     },
-    /// The page of `list` went away.
-    Drop(ListId),
+    /// The page of `list` in `holder`'s window went away.
+    Drop {
+        list: ListId,
+        holder: String,
+    },
+    /// A window closed: it shows no list.
+    Closed(String),
     /// A move of `session` to `folder` went through.
     Relocated {
         machine: EndpointId,
@@ -97,11 +102,17 @@ impl SessionLists {
 
     /// `list` as it stands, with `places` its checkouts now, and asks the machines whose answer
     /// is old. `None` until every machine in it answered once: its update follows.
-    pub(crate) async fn want(&self, list: ListId, places: Vec<Place>) -> Option<Vec<SessionRow>> {
+    pub(crate) async fn want(
+        &self,
+        list: ListId,
+        holder: &str,
+        places: Vec<Place>,
+    ) -> Option<Vec<SessionRow>> {
         let (reply, answer) = oneshot::channel();
         self.asks
             .send(Ask::Want {
                 list,
+                holder: holder.to_owned(),
                 places,
                 reply,
             })
@@ -135,9 +146,18 @@ impl SessionLists {
         let _ = self.asks.send(Ask::Stale { machine });
     }
 
-    /// `list` is no longer shown: it is not rebuilt or sent again until asked for.
-    pub(crate) fn drop_list(&self, list: ListId) {
-        let _ = self.asks.send(Ask::Drop(list));
+    /// `holder`'s window no longer shows `list`: once no window does, it is not rebuilt or sent
+    /// again until asked for.
+    pub(crate) fn drop_list(&self, list: ListId, holder: &str) {
+        let _ = self.asks.send(Ask::Drop {
+            list,
+            holder: holder.to_owned(),
+        });
+    }
+
+    /// The window `holder` closed.
+    pub(crate) fn closed(&self, holder: &str) {
+        let _ = self.asks.send(Ask::Closed(holder.to_owned()));
     }
 
     /// `session` on `machine` moved to `folder`: ask again only the answers that hold it or
@@ -173,18 +193,23 @@ async fn serve(
         let moved = match ask {
             Ask::Want {
                 list,
+                holder,
                 places,
                 reply,
             } => {
-                let (rows, moved) = lists.want(list, keys(&places), now, shown);
+                let (rows, moved) = lists.want(list, &holder, keys(&places), now, shown);
                 let _ = reply.send(rows.map(session_rows));
                 moved
             }
             Ask::Answered { asked, rows } => lists.answered(asked, rows, now, shown),
             Ask::Forget { machine, session } => lists.forget(machine, &session, shown),
             Ask::Stale { machine } => lists.stale(machine),
-            Ask::Drop(list) => {
-                lists.drop_list(&list);
+            Ask::Drop { list, holder } => {
+                lists.drop_list(&list, &holder);
+                Moved::default()
+            }
+            Ask::Closed(holder) => {
+                lists.closed(&holder);
                 Moved::default()
             }
             Ask::Relocated {
@@ -314,8 +339,8 @@ struct Listed {
     keys: Vec<MachineFolders>,
     /// A fingerprint of the rows last sent, so a list is not kept twice.
     sent: Option<u64>,
-    /// When a window last asked for it.
-    wanted: Instant,
+    /// The windows showing it, by label.
+    holders: HashSet<String>,
 }
 
 /// A machine asked for its sessions, and the generation of its answer then.
@@ -344,17 +369,17 @@ impl Lists {
         }
     }
 
-    /// `list` with `keys` its machines now: its rows once every machine answered, and the
-    /// machines whose answer is old to ask. This Mac's is always old.
+    /// `list` shown by `holder`, with `keys` its machines now: its rows once every machine
+    /// answered, and the machines whose answer is old to ask. This Mac's is always old.
     pub(crate) fn want(
         &mut self,
         list: ListId,
+        holder: &str,
         keys: Vec<MachineFolders>,
         now: Instant,
         finish: impl Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>,
     ) -> (Option<Vec<MachineSession>>, Moved) {
         let mut moved = Moved::default();
-        self.prune(now);
 
         for key in &keys {
             let mine = key.0 == self.me;
@@ -365,14 +390,21 @@ impl Lists {
         }
 
         let rows = self.merged(&keys).map(|rows| finish(&keys, rows));
+        let mut holders = self
+            .lists
+            .remove(&list)
+            .map(|listed| listed.holders)
+            .unwrap_or_default();
+        holders.insert(holder.to_owned());
         self.lists.insert(
             list,
             Listed {
                 sent: rows.as_deref().map(fingerprint),
                 keys,
-                wanted: now,
+                holders,
             },
         );
+        self.keep_answers();
 
         (rows, moved)
     }
@@ -502,25 +534,35 @@ impl Lists {
         moved
     }
 
-    /// Drops `list` and the answers no other list holds.
-    fn drop_list(&mut self, list: &ListId) {
-        self.lists.remove(list);
-        self.answers
-            .retain(|key, _| self.lists.values().any(|listed| listed.keys.contains(key)));
+    /// `holder` no longer shows `list`: with no window left on it, the list goes.
+    pub(crate) fn drop_list(&mut self, list: &ListId, holder: &str) {
+        if let Some(listed) = self.lists.get_mut(list) {
+            listed.holders.remove(holder);
+        }
+
+        self.drop_unheld();
     }
 
-    /// Drops the project lists nobody asked for since `LIST_IDLE`.
-    fn prune(&mut self, now: Instant) {
-        let idle: Vec<ListId> = self
-            .lists
-            .iter()
-            .filter(|(id, listed)| **id != ListId::Home && now - listed.wanted >= LIST_IDLE)
-            .map(|(id, _)| id.clone())
-            .collect();
-
-        for id in idle {
-            self.drop_list(&id);
+    /// The window `holder` closed shows no list.
+    pub(crate) fn closed(&mut self, holder: &str) {
+        for listed in self.lists.values_mut() {
+            listed.holders.remove(holder);
         }
+
+        self.drop_unheld();
+    }
+
+    /// Drops the project lists no window shows, and the answers no list holds. Home stays.
+    fn drop_unheld(&mut self) {
+        self.lists
+            .retain(|id, listed| *id == ListId::Home || !listed.holders.is_empty());
+        self.keep_answers();
+    }
+
+    /// Drops the answers no list holds.
+    fn keep_answers(&mut self) {
+        self.answers
+            .retain(|key, _| self.lists.values().any(|listed| listed.keys.contains(key)));
     }
 
     fn listed(&self, key: &MachineFolders) -> bool {

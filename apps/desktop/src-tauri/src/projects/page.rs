@@ -13,7 +13,7 @@ use crate::{
 use beep_proto::{ProjectMachine, SyncthingPlace};
 use serde::Serialize;
 use std::sync::Arc;
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, Window};
 
 /// The sessions coding agents ran in `project`'s folders, newest first. `None` until every
 /// machine with a checkout answered once; the list then comes as a `session-list` event.
@@ -21,17 +21,20 @@ use tauri::{AppHandle, Manager, State};
 pub async fn project_sessions(
     lists: State<'_, SessionLists>,
     fleet: Machines<'_>,
+    window: Window,
     project: String,
 ) -> Result<Option<Vec<SessionRow>>> {
     let places = super::branches::placed(&fleet, &project)?;
-    Ok(lists.want(ListId::Project(project), places).await)
+    Ok(lists
+        .want(ListId::Project(project), window.label(), places)
+        .await)
 }
 
-/// The page of `project` went away: its list is not rebuilt or sent until `project_sessions`
-/// asks again.
+/// This window no longer shows `project`'s sessions: once no window does, the list is not
+/// rebuilt or sent until `project_sessions` asks again. A window that closes lets go the same way.
 #[tauri::command]
-pub fn project_sessions_forget(lists: State<'_, SessionLists>, project: String) {
-    lists.drop_list(ListId::Project(project));
+pub fn project_sessions_forget(lists: State<'_, SessionLists>, window: Window, project: String) {
+    lists.drop_list(ListId::Project(project), window.label());
 }
 
 /// The sessions coding agents ran in every project of the mesh on the
@@ -40,6 +43,7 @@ pub fn project_sessions_forget(lists: State<'_, SessionLists>, project: String) 
 pub async fn projects_sessions(
     lists: State<'_, SessionLists>,
     fleet: Machines<'_>,
+    window: Window,
 ) -> Result<Option<Vec<SessionRow>>> {
     let Some(mesh) = fleet.mesh() else {
         return Ok(Some(Vec::new()));
@@ -52,7 +56,7 @@ pub async fn projects_sessions(
         .map(|(machine, folder)| direct::Place { machine, folder })
         .collect();
 
-    Ok(lists.want(ListId::Home, places).await)
+    Ok(lists.want(ListId::Home, window.label(), places).await)
 }
 
 /// One of the user's machines as a project's page lists it.
