@@ -245,7 +245,8 @@ fn a_session_in_a_place_that_left_is_not_kept_as_opened() {
         display_name: None,
     };
     let mut lists = PaletteLists {
-        projects: Some(vec![place.clone()]),
+        // Listed too, it would be a place imported again, which is not retired.
+        projects: Some(Vec::new()),
         retired_places: vec![Place::from(&place)],
         ..PaletteLists::default()
     };
