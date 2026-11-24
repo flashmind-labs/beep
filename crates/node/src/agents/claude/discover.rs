@@ -15,7 +15,7 @@ use std::{
     collections::{HashMap, HashSet},
     fs, io,
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
@@ -45,6 +45,8 @@ struct Memos {
     /// The newest transcript of each project folder, by its id and time,
     /// kept while the folder itself is unchanged: no file came or went.
     newest: Memo<Option<(SessionId, SystemTime)>>,
+    /// Where each session's transcript was last found.
+    found: Mutex<HashMap<SessionId, PathBuf>>,
 }
 
 impl Default for Memos {
@@ -53,6 +55,7 @@ impl Default for Memos {
             cwds: Memo::new(MAX_FOLDERS * HEADS_PER_FOLDER * 2),
             summaries: Memo::new(MAX_SUMMARIES),
             newest: Memo::new(MAX_FOLDERS),
+            found: Mutex::default(),
         }
     }
 }
@@ -183,12 +186,22 @@ impl Store {
             return None;
         }
 
+        // Looked for where it was last: a listing asks for every session
+        // the node runs, and each would check every project folder.
+        let known = crate::lock(&self.memos.found).get(id).cloned();
+
+        if let Some(path) = known.filter(|path| path.is_file()) {
+            return Some(path);
+        }
+
         let name = format!("{id}.jsonl");
-        fs::read_dir(self.projects())
+        let path = fs::read_dir(self.projects())
             .ok()?
             .flatten()
             .map(|project| project.path().join(&name))
-            .find(|path| path.is_file())
+            .find(|path| path.is_file())?;
+        crate::lock(&self.memos.found).insert(id.clone(), path.clone());
+        Some(path)
     }
 
     /// The processes Claude Code says it runs, live or not.

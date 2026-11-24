@@ -139,6 +139,9 @@ host! {
     const SPEND_EVERY: Duration = Duration::from_secs(60);
     /// How long the folders found in the agents' logs are kept.
     const SIGHTED_FOR: Duration = Duration::from_secs(60);
+    /// How long one read of the agents' logs answers every session listing,
+    /// while the logs are watched.
+    const SEEN_FOR: Duration = Duration::from_secs(2);
     /// How long a file request may wait for a look in the agents' logs.
     const SIGHTING_WAIT: Duration = Duration::from_secs(5);
 
@@ -227,9 +230,11 @@ host! {
         /// Set once the sessions open before the last stop have been resumed, or
         /// there were none.
         reopened: watch::Sender<bool>,
-        /// The folders sessions started outside Beep worked in, from the
-        /// agents' logs, with when they were read; one read at a time.
+        /// The sessions in the agents' logs and the folders they worked in,
+        /// with when they were read; one read at a time.
         sighted: AsyncMutex<Option<Sighted>>,
+        /// The logs changed what listings show since `sighted` was read.
+        seen_stale: AtomicBool,
         /// The checkouts found on disk under home, once `warm` read them;
         /// held while it does.
         on_disk: AsyncMutex<Option<Arc<Vec<found::Checkout>>>>,
@@ -247,9 +252,11 @@ host! {
         saved: Mutex<Vec<restart::SavedSession>>,
     }
 
-    /// The folders found in the agents' logs, and when.
+    /// What the agents' logs hold, and when it was read.
+    #[derive(Clone)]
     struct Sighted {
         at: Instant,
+        seen: Arc<Vec<found::Seen>>,
         folders: Arc<Vec<PathBuf>>,
     }
 

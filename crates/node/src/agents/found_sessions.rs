@@ -2,7 +2,7 @@
 
 use super::{
     AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
-    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, SavedSession, Session, Sighted,
+    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SEEN_FOR, SIGHTED_FOR, SavedSession, Session, Sighted,
     holders::{self, Holding},
     window::clamp_limit,
 };
@@ -135,29 +135,49 @@ impl Agents {
     }
 
     /// The folders sessions started outside Beep worked in, read from the
-    /// agents' logs at most `SIGHTED_FOR` ago. Requests that come during a
-    /// read wait for it rather than read again.
+    /// agents' logs at most `SIGHTED_FOR` ago.
     pub(super) async fn sighted_folders(&self) -> Result<Arc<Vec<PathBuf>>> {
+        let sighted = self.sighted(|kept| kept.at.elapsed() < SIGHTED_FOR).await?;
+
+        Ok(sighted.folders)
+    }
+
+    /// The agents' logs as last read, read again unless `usable` takes what
+    /// is kept. Requests that come during a read wait for it rather than
+    /// read again.
+    async fn sighted(&self, usable: impl Fn(&Sighted) -> bool) -> Result<Sighted> {
         let mut sighted = self.sighted.lock().await;
 
-        if let Some(fresh) = sighted.as_ref().filter(|s| s.at.elapsed() < SIGHTED_FOR) {
-            return Ok(fresh.folders.clone());
+        if let Some(kept) = sighted.as_ref().filter(|kept| usable(kept)) {
+            return Ok(kept.clone());
         }
 
-        let mut folders: Vec<PathBuf> = self
-            .sightings()
-            .await?
-            .into_iter()
-            .map(|seen| seen.cwd)
+        // Cleared first: a change during the read marks it stale again.
+        self.seen_stale.store(false, Ordering::Relaxed);
+        metrics::counter!("beep_store_reads_total").increment(1);
+        let stores = self.stores.clone();
+        let others = spawn_blocking(move || stores.sessions(None));
+        let (claude, others) = tokio::join!(self.external.sightings(), others);
+        let mut seen = claude.unwrap_or_else(|e| {
+            log::warn!("Claude Code sessions not read: {e:#}");
+            Vec::new()
+        });
+        seen.extend(others.context("reading the agents' sessions")?);
+        let present = self.presence.snapshot();
+        let mut folders: Vec<PathBuf> = seen
+            .iter()
+            .map(|seen| seen.cwd.clone())
+            .chain(present.into_iter().map(|native| PathBuf::from(native.cwd)))
             .collect();
         folders.sort();
         folders.dedup();
-        let folders = Arc::new(folders);
-        *sighted = Some(Sighted {
+        let read = Sighted {
             at: Instant::now(),
-            folders: folders.clone(),
-        });
-        Ok(folders)
+            seen: Arc::new(seen),
+            folders: Arc::new(folders),
+        };
+        *sighted = Some(read.clone());
+        Ok(read)
     }
 
     /// The Claude Code sessions started outside Beep.
@@ -175,16 +195,24 @@ impl Agents {
     }
 
     /// Every session the agents' stores hold, with the folder it ran in.
+    /// While the stores are watched one read answers every listing for
+    /// `SEEN_FOR`, unless the watcher saw them change what listings show.
+    /// Unwatched, each call reads them.
     pub(super) async fn sightings(&self) -> Result<Vec<found::Seen>> {
-        let stores = self.stores.clone();
-        let others = spawn_blocking(move || stores.sessions(None));
-        let (claude, others) = tokio::join!(self.external.sightings(), others);
-        let mut seen = claude.unwrap_or_else(|e| {
-            log::warn!("Claude Code sessions not read: {e:#}");
-            Vec::new()
-        });
-        seen.extend(others.context("reading the agents' sessions")?);
+        let watched = crate::lock(&self.event_watcher).upgrade().is_some();
+        let sighted = self
+            .sighted(|kept| {
+                watched
+                    && !self.seen_stale.load(Ordering::Relaxed)
+                    && kept.at.elapsed() < SEEN_FOR
+            })
+            .await?;
 
+        Ok(self.with_present(sighted.seen.as_ref().clone()))
+    }
+
+    /// `seen` with the sessions known only from a live connection.
+    fn with_present(&self, mut seen: Vec<found::Seen>) -> Vec<found::Seen> {
         for native in self.presence.snapshot() {
             if seen
                 .iter()
@@ -204,7 +232,7 @@ impl Agents {
             });
         }
 
-        Ok(seen)
+        seen
     }
 
     /// The checkouts coding agents worked in, then the other checkouts

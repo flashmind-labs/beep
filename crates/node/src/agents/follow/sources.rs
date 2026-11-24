@@ -7,7 +7,7 @@ use beep_proto::SessionId;
 use std::{
     collections::BTreeSet,
     path::PathBuf,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, atomic::Ordering},
     time::Duration,
 };
 use tokio::{
@@ -241,16 +241,22 @@ impl Agents {
                         *agents.sighted.lock().await = None;
                     }
 
-                    match cache.read(&agents, &pending.agents).await {
+                    let changed = match cache.read(&agents, &pending.agents).await {
                         Ok(summary) if previous.as_ref() != Some(&summary) => {
                             previous = Some(summary);
-                            summary_hub.changed(beep_proto::node::events::Topic::new("agents"));
+                            true
                         }
-                        Ok(_) => {}
+                        Ok(_) => false,
                         Err(error) => {
                             log::debug!("agent summary could not be reconciled: {error}");
-                            summary_hub.changed(beep_proto::node::events::Topic::new("agents"));
+                            true
                         }
+                    };
+
+                    if changed {
+                        // Before the ping, so whoever it wakes reads the stores again.
+                        agents.seen_stale.store(true, Ordering::Relaxed);
+                        summary_hub.changed(beep_proto::node::events::Topic::new("agents"));
                     }
                 }
             }));

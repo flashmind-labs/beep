@@ -257,6 +257,12 @@ fn a_store_lists_sessions_newest_first_with_what_they_say() {
     assert_eq!(list(&store, &snapshot, 10, Some(&SessionId::from(OTHER))).unwrap().len(), 1);
     assert!(store.find(&SessionId::from(ID)).is_some());
     assert!(store.find(&SessionId::from("../x")).is_none());
+    // A transcript filed under another project is found where it went.
+    let moved = root.join("projects").join("-srv-other");
+    fs::create_dir_all(&moved).unwrap();
+    let file = moved.join(format!("{ID}.jsonl"));
+    fs::rename(project.join(format!("{ID}.jsonl")), &file).unwrap();
+    assert_eq!(store.find(&SessionId::from(ID)), Some(file));
     fs::remove_dir_all(&root).unwrap();
 }
 

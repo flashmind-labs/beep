@@ -187,6 +187,35 @@ async fn cached_source_notifications_follow_file_creation_title_changes_and_remo
 }
 
 #[tokio::test]
+async fn listings_read_the_stores_again_once_the_watcher_says_they_changed() {
+    let root = tempfile::tempdir().unwrap();
+    let sessions = root.path().join("sessions/2026/11/01");
+    std::fs::create_dir_all(&sessions).unwrap();
+    let write = |id: &str| {
+        std::fs::write(
+            sessions.join(format!("rollout-{id}.jsonl")),
+            format!("{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"{id}\",\"cwd\":\"/srv/project\",\"source\":\"cli\"}}}}\n"),
+        )
+        .unwrap();
+    };
+    let agents = Arc::new(Agents {
+        stores: super::super::found::Stores::at(Some(root.path()), None, None),
+        external: super::super::claude::External::locate_in(root.path()),
+        ..Agents::default()
+    });
+    write("first");
+    assert_eq!(agents.sightings().await.unwrap().len(), 1);
+    // Unwatched, nothing says when the stores change: each listing reads them.
+    write("second");
+    assert_eq!(agents.sightings().await.unwrap().len(), 2);
+
+    let _source = agents.watch_event_sources().await.unwrap();
+    write("third");
+    agents.seen_stale.store(true, std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(agents.sightings().await.unwrap().len(), 3);
+}
+
+#[tokio::test]
 async fn source_summaries_ignore_transcript_appends_but_notice_title_changes() {
     use std::{fs::OpenOptions, io::Write};
     let root = tempfile::tempdir().unwrap();
