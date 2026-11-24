@@ -33,12 +33,6 @@ const CHECKOUT_LOOK: Duration = Duration::from_secs(2);
 /// The longest a chat's files go untold while they come in.
 const TELL_EVERY: Duration = Duration::from_millis(250);
 
-/// The conversation is all here, and the name the source keeps the
-/// transcript under.
-struct Copied {
-    file_name: String,
-}
-
 pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
     let saved = env.state.load(&record.id);
 
@@ -121,7 +115,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         record.id
     );
     let copy = env.state.copy(&record.id);
-    let copied = conversation(env, record, tracker, &copy).await?;
+    let file_name = conversation(env, record, tracker, &copy).await?;
     let (saved, moved, archive) = match chat {
         Some(_) => {
             log::info!(
@@ -168,7 +162,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         saved,
         chat: chat.is_some(),
     };
-    store(env, &record.id, &kind, &folders, copied.file_name, copy).await?;
+    store(env, &record.id, &kind, &folders, file_name, copy).await?;
 
     if chat.is_some_and(|chat| chat.ended) {
         // It lists as ended from the store; what the source saved of it
@@ -230,13 +224,13 @@ fn folders(env: &Env, record: &SessionMove) -> Result<(Folders, Folders)> {
 }
 
 /// Copies the conversation until the source says the session ended, and
-/// answers when that was.
+/// answers the name the source keeps the transcript under.
 async fn conversation(
     env: &Env,
     record: &SessionMove,
     tracker: &Tracker,
     copy: &Path,
-) -> Result<Copied> {
+) -> Result<String> {
     if let Some(dir) = copy.parent() {
         tokio::fs::create_dir_all(dir).await?;
     }
@@ -282,9 +276,7 @@ async fn conversation(
                 });
 
                 if !pulled.live {
-                    return Ok(Copied {
-                        file_name: pulled.file_name,
-                    });
+                    return Ok(pulled.file_name);
                 }
             }
             // The source will not serve it, as it is: waiting changes nothing.
