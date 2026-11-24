@@ -128,6 +128,45 @@ fn an_answer_from_before_a_delete_is_asked_again() {
     assert_eq!(keys(&moved.fetch), [remote]);
 }
 
+/// A move asks again only the answers that hold the session or cover its new folder.
+#[test]
+fn a_move_asks_only_the_answers_it_can_change() {
+    let me = machine(1);
+    let other = machine(2);
+    let holds = (other, vec!["/srv/old".to_owned()]);
+    let target = (other, vec!["/srv/new".to_owned()]);
+    let apart = (other, vec!["/srv/apart".to_owned()]);
+    let keep = |_: &[MachineFolders], rows: Vec<MachineSession>| rows;
+    let mut lists = Lists::new(me);
+    let now = Instant::now();
+
+    for key in [&holds, &target, &apart] {
+        let (_, moved) = lists.want(ListId::Home, vec![key.clone()], now, keep);
+        lists.answered(
+            moved.fetch[0].clone(),
+            Some(if *key == holds {
+                vec![session("moving")]
+            } else {
+                Vec::new()
+            }),
+            now,
+            keep,
+        );
+    }
+    // Home holds one list at a time here: list all three.
+    lists.want(
+        ListId::Home,
+        vec![holds.clone(), target.clone(), apart],
+        now,
+        keep,
+    );
+
+    let moved = lists.relocated(other, &"moving".into(), "/srv/new");
+    let asked = keys(&moved.fetch);
+    assert_eq!(asked.len(), 2);
+    assert!(asked.contains(&holds) && asked.contains(&target));
+}
+
 /// A project's Beep rows are the mirror's: its status now, and the sessions only it has.
 #[test]
 fn beep_rows_come_from_the_mirror_over_the_answers() {

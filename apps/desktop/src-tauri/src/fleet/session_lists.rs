@@ -73,6 +73,12 @@ enum Ask {
     Stale {
         machine: EndpointId,
     },
+    /// A move of `session` to `folder` went through.
+    Relocated {
+        machine: EndpointId,
+        session: SessionId,
+        folder: String,
+    },
     /// The mirror's rows changed: the lists send again what differs.
     Mirrored,
 }
@@ -123,6 +129,16 @@ impl SessionLists {
     pub(crate) fn stale(&self, machine: EndpointId) {
         let _ = self.asks.send(Ask::Stale { machine });
     }
+
+    /// `session` on `machine` moved to `folder`: ask again only the answers that hold it or
+    /// cover its new folder.
+    pub(crate) fn relocated(&self, machine: EndpointId, session: SessionId, folder: String) {
+        let _ = self.asks.send(Ask::Relocated {
+            machine,
+            session,
+            folder,
+        });
+    }
 }
 
 async fn serve(
@@ -157,6 +173,11 @@ async fn serve(
             Ask::Answered { asked, rows } => lists.answered(asked, rows, now, shown),
             Ask::Forget { machine, session } => lists.forget(machine, &session, shown),
             Ask::Stale { machine } => lists.stale(machine),
+            Ask::Relocated {
+                machine,
+                session,
+                folder,
+            } => lists.relocated(machine, &session, &folder),
             Ask::Mirrored => {
                 let changed = mirrored.changed_since(&seen);
                 seen = mirrored.clone();
@@ -412,6 +433,31 @@ impl Lists {
 
     /// Asks `machine` again for its lists; what it said stays until it answers.
     pub(crate) fn stale(&mut self, machine: EndpointId) -> Moved {
+        self.stale_where(machine, |_| true)
+    }
+
+    /// Asks `machine` again for the lists whose answer holds `session`, which has the old
+    /// folder, or covers `folder`, which holds it now. The others cannot have changed.
+    pub(crate) fn relocated(
+        &mut self,
+        machine: EndpointId,
+        session: &SessionId,
+        folder: &str,
+    ) -> Moved {
+        self.stale_where(machine, |(key, answer)| {
+            in_any_folder(folder, &key.1)
+                || answer
+                    .rows
+                    .as_ref()
+                    .is_some_and(|rows| rows.iter().any(|row| row.id == *session))
+        })
+    }
+
+    fn stale_where(
+        &mut self,
+        machine: EndpointId,
+        stale: impl Fn((&MachineFolders, &Answer)) -> bool,
+    ) -> Moved {
         let listed: Vec<MachineFolders> = self
             .lists
             .values()
@@ -422,6 +468,10 @@ impl Lists {
         let mut moved = Moved::default();
 
         for (key, answer) in self.answers.iter_mut().filter(|(key, _)| key.0 == machine) {
+            if !stale((key, answer)) {
+                continue;
+            }
+
             answer.generation += 1;
             answer.at = None;
             if listed.contains(key) {

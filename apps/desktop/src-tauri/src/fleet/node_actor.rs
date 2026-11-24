@@ -948,10 +948,12 @@ fn on_settled(
         }
         // The node pushes a move that went through, but a past session is only in the lists'
         // history answer, which still has its old folder. Only a refusal needs the mirror read.
-        JobKind::RelocateSession { .. } => {
+        JobKind::RelocateSession {
+            session, folder, ..
+        } => {
             if let Some(app) = app {
-                if let Some(lists) = app.try_state::<SessionLists>() {
-                    lists.stale(machine);
+                if ok && let Some(lists) = app.try_state::<SessionLists>() {
+                    lists.relocated(machine, session.clone(), folder.clone());
                 }
                 if !ok && let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
                     mirror.moved(machine);
