@@ -82,12 +82,7 @@ pub(crate) enum SandboxError {
 /// own: the caller passes the current time to `load` and `fire_due`.
 pub(crate) struct Sandbox {
     // Drop order matters: persistent handles, then the context, then the runtime.
-    fire: Persistent<Function<'static>>,
-    tool: Persistent<Function<'static>>,
-    emit: Persistent<Function<'static>>,
-    instances: Persistent<Function<'static>>,
-    invoke: Persistent<Function<'static>>,
-    render: Persistent<Function<'static>>,
+    api: Api,
     context: Context,
     runtime: Runtime,
     id: PluginId,
@@ -100,6 +95,34 @@ pub(crate) struct Sandbox {
     /// The images the last render used.
     shown_assets: Vec<Asset>,
     store: Arc<Mutex<Store>>,
+}
+
+/// The functions the prelude hands back, kept to call into the script.
+struct Api {
+    fire: Persistent<Function<'static>>,
+    tool: Persistent<Function<'static>>,
+    emit: Persistent<Function<'static>>,
+    instances: Persistent<Function<'static>>,
+    invoke: Persistent<Function<'static>>,
+    render: Persistent<Function<'static>>,
+}
+
+impl Api {
+    fn save<'js>(ctx: &Ctx<'js>, api: &Object<'js>) -> Result<Self, SandboxError> {
+        let get = |name: &str| -> Result<Persistent<Function<'static>>, SandboxError> {
+            let function: Function = caught(ctx, api.get(name))?;
+            Ok(Persistent::save(ctx, function))
+        };
+
+        Ok(Self {
+            fire: get("fire")?,
+            tool: get("tool")?,
+            emit: get("emit")?,
+            instances: get("instances")?,
+            invoke: get("invoke")?,
+            render: get("render")?,
+        })
+    }
 }
 
 struct Timers {
@@ -205,30 +228,18 @@ impl Sandbox {
                 &ctx,
                 factory.call((schedule, can_place, listen, unlisten, check_place, native)),
             )?;
-            let fire: Function = caught(&ctx, api.get("fire"))?;
-            let tool: Function = caught(&ctx, api.get("tool"))?;
-            let emit: Function = caught(&ctx, api.get("emit"))?;
-            let instances: Function = caught(&ctx, api.get("instances"))?;
-            let invoke: Function = caught(&ctx, api.get("invoke"))?;
-            let render: Function = caught(&ctx, api.get("render"))?;
+            let api = Api::save(&ctx, &api)?;
 
             // The entry and what it imports run now, before the first render.
             let imported = caught(&ctx, Module::import(&ctx, entry))?;
             caught(&ctx, imported.finish::<Value>())?;
 
-            Ok::<_, SandboxError>((
-                Persistent::save(&ctx, fire),
-                Persistent::save(&ctx, tool),
-                Persistent::save(&ctx, emit),
-                Persistent::save(&ctx, instances),
-                Persistent::save(&ctx, invoke),
-                Persistent::save(&ctx, render),
-            ))
+            Ok::<_, SandboxError>(api)
         });
         let drained = drain_jobs(&runtime);
         budget.stop();
         meter.record(Instant::now(), started.spent());
-        let (fire, tool, emit, instances, invoke, render) = loaded?;
+        let api = loaded?;
         drained?;
         check_meter(&meter)?;
         meter.set_timers(locked(&timers).pending.len());
@@ -237,12 +248,7 @@ impl Sandbox {
         }
 
         Ok(Self {
-            fire,
-            tool,
-            emit,
-            instances,
-            invoke,
-            render,
+            api,
             context,
             runtime,
             id: manifest.id,
@@ -299,7 +305,7 @@ impl Sandbox {
 
         for (id, _) in due {
             self.enter(|ctx| {
-                let fire = self.fire.clone().restore(ctx)?;
+                let fire = self.api.fire.clone().restore(ctx)?;
                 caught(ctx, fire.call::<_, ()>((id,)))
             })?;
         }
@@ -315,7 +321,7 @@ impl Sandbox {
         let id = locked(&self.tools).start(call, now);
 
         self.enter(|ctx| {
-            let run = self.tool.clone().restore(ctx)?;
+            let run = self.api.tool.clone().restore(ctx)?;
             caught(ctx, run.call::<_, ()>((id, name, input)))
         })
     }
@@ -323,7 +329,7 @@ impl Sandbox {
     /// Hands an update to the callbacks subscribed to its topic.
     pub(crate) fn deliver(&mut self, delivery: &Delivery) -> Result<(), SandboxError> {
         self.enter(|ctx| {
-            let emit = self.emit.clone().restore(ctx)?;
+            let emit = self.api.emit.clone().restore(ctx)?;
             caught(ctx, emit.call::<_, ()>((delivery.json(),)))
         })
     }
@@ -338,7 +344,7 @@ impl Sandbox {
         let json = serde_json::to_string(instances)?;
 
         self.enter(|ctx| {
-            let set = self.instances.clone().restore(ctx)?;
+            let set = self.api.instances.clone().restore(ctx)?;
             caught(ctx, set.call::<_, ()>((json,)))
         })
     }
@@ -350,7 +356,7 @@ impl Sandbox {
         let argument = event.action.argument();
 
         self.enter(|ctx| {
-            let invoke = self.invoke.clone().restore(ctx)?;
+            let invoke = self.api.invoke.clone().restore(ctx)?;
             caught(ctx, invoke.call::<_, bool>((id, argument)))
         })?;
 
@@ -360,7 +366,7 @@ impl Sandbox {
     /// The placements to show, or `None` when nothing changed since the last call.
     pub(crate) fn render(&mut self) -> Result<Option<Vec<Placement>>, SandboxError> {
         let entries = self.enter(|ctx| {
-            let render = self.render.clone().restore(ctx)?;
+            let render = self.api.render.clone().restore(ctx)?;
             caught(ctx, render.call::<_, Option<Vec<String>>>(()))
         })?;
         let Some(entries) = entries else {
