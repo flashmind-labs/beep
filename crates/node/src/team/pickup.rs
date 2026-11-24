@@ -208,6 +208,24 @@ fn issue_of_title(title: &str) -> Option<u64> {
     }
 }
 
+/// The open issues of `team`'s repository assigned to this mesh's person;
+/// `None`, logged, when they did not read.
+pub(super) async fn read_assigned(link: &TeamLink, team: &Team) -> Option<Vec<OpenIssue>> {
+    let (repo, login) = (&team.repo, &team.mine.login);
+
+    match timeout(FORGE_LIMIT, link.forge().assigned_issues(repo, login)).await {
+        Ok(Ok(assigned)) => Some(assigned),
+        Ok(Err(e)) => {
+            log::info!("the issues assigned on {repo} did not read: {e}");
+            None
+        }
+        Err(_) => {
+            log::info!("the issues assigned on {repo} took too long to read");
+            None
+        }
+    }
+}
+
 /// The pickup of every team the gateway holds.
 pub(super) struct Pickups {
     dir: PathBuf,
@@ -345,15 +363,14 @@ impl Pickups {
     /// Starts sessions on the issues newly assigned to this mesh's person,
     /// and turns the automatic sessions that ended without a pull request
     /// into Needs you cards.
-    pub(super) async fn round(&mut self, round: Round<'_>, limit: Option<u32>) {
+    pub(super) async fn round(
+        &mut self,
+        round: Round<'_>,
+        assigned: Vec<OpenIssue>,
+        limit: Option<u32>,
+    ) {
         let repo = &round.team.repo;
         let login = &round.team.mine.login;
-        let read = timeout(FORGE_LIMIT, round.link.forge().assigned_issues(repo, login)).await;
-        let assigned = match read {
-            Ok(Ok(assigned)) => assigned,
-            Ok(Err(e)) => return log::info!("the issues assigned on {repo} did not read: {e}"),
-            Err(_) => return log::info!("the issues assigned on {repo} took too long to read"),
-        };
         let mut state = self.take(repo);
         let before = state.clone();
 

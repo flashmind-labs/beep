@@ -8,10 +8,10 @@
 use super::{
     board::{CHANGES, Followed, Heard, follow},
     cards::{Facts, IssueTitles, card_of, midnight, settle},
-    home::Project,
+    home::{Home, Project},
     link::TeamLink,
     membership::{self, Membership, Team},
-    pickup::{Pickups, Round},
+    pickup::{Pickups, Round, read_assigned},
 };
 use crate::{
     agents::mcp::children::{Listed, in_the_mesh},
@@ -22,6 +22,7 @@ use crate::{
     },
 };
 use beep_mesh::Mesh;
+use beep_projects::commands::OpenIssue;
 use beep_proto::{
     SessionId,
     node::tools::ForgeReach,
@@ -37,6 +38,7 @@ use std::{
 use tokio::{
     select,
     sync::mpsc,
+    task::{JoinError, JoinSet},
     time::{Instant, MissedTickBehavior, interval, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -79,35 +81,11 @@ pub(crate) fn elected(
 /// Acts for the team projects this node is elected for, until the mesh is gone.
 /// Pickup keeps what it remembers in `dir`, the node's folder.
 pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offers, dir: PathBuf) {
-    let (heard, mut hearing) = mpsc::channel(CHANGES);
-    let mut updates = mesh.updates();
-    let mut tick = interval(TICK);
-    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    let mut gateway = Gateway {
-        mesh,
-        me,
-        link,
-        offers,
-        heard,
-        peers: BTreeMap::new(),
-        asked: None,
-        held: BTreeSet::new(),
-        titles: BTreeMap::new(),
-        branches: HashMap::new(),
-        membership: Membership::default(),
-        follows: BTreeMap::new(),
-        pickups: Pickups::new(dir),
-    };
+    let (heard, hearing) = mpsc::channel(CHANGES);
 
-    loop {
-        select! {
-            _ = tick.tick() => gateway.step().await,
-            Some(followed) = hearing.recv() => gateway.heard(followed),
-            changed = updates.changed() => if changed.is_err() {
-                return;
-            },
-        }
-    }
+    Gateway::new(mesh, me, link, offers, heard, dir)
+        .drive(hearing)
+        .await;
 }
 
 struct Gateway {
@@ -116,31 +94,144 @@ struct Gateway {
     link: TeamLink,
     offers: Offers,
     heard: mpsc::Sender<Followed>,
+    dir: PathBuf,
     /// What the online machines said of their reach, and when they were
     /// asked and which were asked then.
     peers: BTreeMap<EndpointId, ForgeReach>,
     asked: Option<(Instant, BTreeSet<EndpointId>)>,
+    /// The machines being asked now: at most one gather, a newer one
+    /// replaces it.
+    asking: JoinSet<BTreeMap<EndpointId, ForgeReach>>,
+    /// Whether the machines have answered once, so that an election has their
+    /// reach to go on.
+    answered: bool,
     held: BTreeSet<TeamRepo>,
+    /// The queues other machines' gateways handed this one, for pickup to keep.
+    handed: BTreeMap<TeamRepo, Vec<u64>>,
+    /// What the cards are made from; away in `serving` while they are made.
+    cards: Option<Cards>,
+    serving: JoinSet<(Cards, Vec<Made>)>,
+    /// This mesh's place on the held teams.
+    membership: Membership,
+    /// The checks of the members on the forge under way.
+    checking: JoinSet<()>,
+    /// The follow of each teammate's board, by repository and their mesh.
+    follows: BTreeMap<(TeamRepo, EndpointId), (Member, AbortOnDropHandle<()>)>,
+}
+
+/// What the cards of the held teams are made from, kept between rounds.
+struct Cards {
     /// Each held repository's open issue titles, and when they were read.
     titles: BTreeMap<TeamRepo, (IssueTitles, Instant)>,
     /// The branch of each session here in a held team's project.
     branches: HashMap<String, Option<String>>,
-    /// This mesh's place on the held teams.
-    membership: Membership,
-    /// The follow of each teammate's board, by repository and their mesh.
-    follows: BTreeMap<(TeamRepo, EndpointId), (Member, AbortOnDropHandle<()>)>,
     /// The sessions started on the issues assigned to this mesh's person.
     pickups: Pickups,
 }
 
+/// What a round of cards works from, as the gateway saw it when it began.
+struct Job {
+    mesh: Mesh,
+    me: EndpointId,
+    link: TeamLink,
+    offers: Offers,
+    teams: Vec<Team>,
+    projects: BTreeMap<TeamRepo, Project>,
+    peers: BTreeMap<EndpointId, ForgeReach>,
+}
+
+/// The cards a round made for a team's board.
+struct Made {
+    repo: TeamRepo,
+    cards: Vec<Card>,
+    now: SystemTime,
+}
+
 impl Gateway {
-    async fn step(&mut self) {
-        let (teams, home) = self
-            .link
-            .with(|link| (membership::teams(link), link.home.clone()));
+    fn new(
+        mesh: Mesh,
+        me: EndpointId,
+        link: TeamLink,
+        offers: Offers,
+        heard: mpsc::Sender<Followed>,
+        dir: PathBuf,
+    ) -> Self {
+        Self {
+            mesh,
+            me,
+            link,
+            offers,
+            heard,
+            peers: BTreeMap::new(),
+            asked: None,
+            asking: JoinSet::new(),
+            answered: false,
+            held: BTreeSet::new(),
+            handed: BTreeMap::new(),
+            cards: Some(Cards::new(dir.clone())),
+            serving: JoinSet::new(),
+            membership: Membership::default(),
+            checking: JoinSet::new(),
+            follows: BTreeMap::new(),
+            dir,
+        }
+    }
 
-        self.ask_peers(&teams, &home.projects).await;
+    /// Serves until the mesh is gone. Nothing slow runs in this loop: the
+    /// machines are asked, the cards made and the members checked in
+    /// tasks beside it, and teammates' updates are taken meanwhile.
+    async fn drive(mut self, mut hearing: mpsc::Receiver<Followed>) {
+        let mut updates = self.mesh.updates();
+        let mut tick = interval(TICK);
+        tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
+        loop {
+            select! {
+                _ = tick.tick() => self.step(),
+                Some(followed) = hearing.recv() => self.heard(followed),
+                Some(done) = self.asking.join_next(), if !self.asking.is_empty() => {
+                    // A gather that a newer one replaced ends cancelled.
+                    if let Ok(peers) = done {
+                        self.peers = peers;
+                        self.answered = true;
+                        let (teams, home) = self.snapshot();
+                        self.elect(teams, home);
+                    }
+                }
+                Some(done) = self.serving.join_next(), if !self.serving.is_empty() => {
+                    self.served(done);
+                }
+                Some(_) = self.checking.join_next(), if !self.checking.is_empty() => {}
+                changed = updates.changed() => if changed.is_err() {
+                    return;
+                },
+            }
+        }
+    }
+
+    /// The teams of the mesh's projects and the home they are in.
+    fn snapshot(&self) -> (Vec<Team>, Home) {
+        self.link
+            .with(|link| (membership::teams(link), link.home.clone()))
+    }
+
+    /// Asks the machines when that is due, and elects once they have answered.
+    fn step(&mut self) {
+        let (teams, home) = self.snapshot();
+
+        self.ask_peers(&teams, &home.projects);
+
+        // The first election waits for the first answers: another machine
+        // may be the better one.
+        if self.answered {
+            self.elect(teams, home);
+        }
+    }
+
+    /// Elects the gateway of each team, takes the teams this machine acts
+    /// for and starts what they need: their announcements, the follow of
+    /// their teammates, their cards and the check of their members.
+    fn elect(&mut self, teams: Vec<Team>, home: Home) {
         let online = online(&self.mesh);
         let peers: BTreeMap<EndpointId, ForgeReach> = self
             .peers
@@ -163,11 +254,11 @@ impl Gateway {
             .filter(|team| gateways.get(&team.repo) == Some(&me))
             .collect();
         self.held = teams.iter().map(|team| team.repo.clone()).collect();
-        let held = &self.held;
-        self.titles.retain(|repo, _| held.contains(repo));
-        self.membership.keep(held);
+        self.membership.keep(&self.held);
         let queues = self.link.with(|link| std::mem::take(&mut link.queues));
-        self.pickups.keep(held, queues);
+        self.handed.extend(queues);
+        self.keep_cards();
+        let held = &self.held;
         self.link.with(|link| {
             link.gateways = gateways;
             link.boards.keep(held);
@@ -187,14 +278,15 @@ impl Gateway {
         self.membership
             .announce(&self.link, &machines, member, &teams, &home.projects);
         self.follow_teammates(&teams);
-        self.serve_cards(&teams, &home.projects).await;
-        self.membership.upkeep(&self.link, &teams).await;
+        self.check_members(&teams);
+        self.serve_cards(teams, home.projects);
     }
 
     /// Asks the online machines with a team project how they reach the
     /// hosts, every `QUIET` and when one of them comes or goes, or a team
-    /// brings others.
-    async fn ask_peers(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
+    /// brings others, all at once, in place of an ask still going. The loop
+    /// elects when the answers arrive.
+    fn ask_peers(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
         let online = online(&self.mesh);
         let asked: BTreeSet<EndpointId> = teams
             .iter()
@@ -208,175 +300,80 @@ impl Gateway {
         }
 
         self.asked = Some((Instant::now(), asked.clone()));
-        let mesh = &self.mesh;
-        self.peers = gather(
-            "team gateway",
-            asked.into_iter().map(|peer| (peer, ask_reach(mesh, peer))),
-        ).await;
+        let mesh = self.mesh.clone();
+        self.asking.abort_all();
+        self.asking.spawn(async move {
+            let asks = asked.into_iter().map(|peer| (peer, ask_reach(&mesh, peer)));
+
+            gather("team gateway", asks).await
+        });
     }
 
-    /// Makes the cards of every held team, which teammates and this mesh's
-    /// agents read, and starts sessions on new issues where pickup is due.
-    async fn serve_cards(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
-        let pickup = |team: &Team| {
-            let record = self
-                .link
-                .with(|link| link.rosters.written(&team.repo).cloned());
-            record
-                .filter(|record| record.pickup)
-                .map(|record| record.pickup_limit)
-        };
-        let mut picking = BTreeMap::new();
-        let mut on = BTreeSet::new();
-
-        for team in teams {
-            match pickup(team) {
-                Some(limit) => {
-                    on.insert(&team.repo);
-
-                    if self.titles_due(&team.repo) {
-                        picking.insert(&team.repo, limit);
-                    }
-                }
-                None => self.pickups.off(&team.repo),
-            }
+    /// Hands pickup what is to be kept when it is here to take it.
+    fn keep_cards(&mut self) {
+        if let Some(cards) = &mut self.cards {
+            cards.keep(&self.held, std::mem::take(&mut self.handed));
         }
+    }
 
-        if teams.is_empty() {
+    /// Starts making the cards of every held team, which teammates and this
+    /// mesh's agents read, and starting sessions on new issues where pickup
+    /// is due. A round still going makes this tick's wait for the next.
+    fn serve_cards(&mut self, teams: Vec<Team>, projects: BTreeMap<TeamRepo, Project>) {
+        let Some(mut cards) = self.cards.take() else {
+            return;
+        };
+        let job = Job {
+            mesh: self.mesh.clone(),
+            me: self.me,
+            link: self.link.clone(),
+            offers: self.offers.clone(),
+            teams,
+            projects,
+            peers: self.peers.clone(),
+        };
+        self.serving.spawn(async move {
+            let made = cards.make(&job).await;
+
+            (cards, made)
+        });
+    }
+
+    /// Takes the cards a round made, for this mesh's boards and the teammates.
+    fn served(&mut self, done: Result<(Cards, Vec<Made>), JoinError>) {
+        let (cards, made) = match done {
+            Ok(done) => done,
+            Err(e) => {
+                // What pickup remembers is on disk; the rest is read again.
+                log::warn!("the team cards were not made: {e}");
+                (Cards::new(self.dir.clone()), Vec::new())
+            }
+        };
+        self.cards = Some(cards);
+        self.keep_cards();
+        let held = &self.held;
+
+        self.link.with(|link| {
+            for Made { repo, cards, now } in made.into_iter().filter(|made| held.contains(&made.repo)) {
+                let old = link.boards.cards(&repo).unwrap_or_default();
+                link.boards.set(&repo, settle(&old, cards, now));
+            }
+        });
+    }
+
+    /// Starts the check of the members of each held team on the forge that
+    /// is due, all together.
+    fn check_members(&mut self, teams: &[Team]) {
+        let due = self.membership.due(teams);
+
+        if due.is_empty() {
             return;
         }
 
-        let machines: BTreeSet<EndpointId> = teams
-            .iter()
-            .flat_map(|team| &projects[&team.repo].devices)
-            .map(|device| device.id)
-            .collect();
-        let agents = &self.offers.agents;
-        let listed = in_the_mesh(
-            agents,
-            Some(&self.mesh),
-            &SessionId::default(),
-            Some(&machines),
-            Some(midnight(SystemTime::now())),
-        )
-        .await;
-        self.branches
-            .retain(|id, _| listed.iter().any(|listed| listed.view.id == *id));
-
-        for team in teams {
-            let (titles, read) = self.read_titles(&team.repo).await;
-            self.read_branches(&listed, &team.project, read).await;
-            let now = SystemTime::now();
-            let facts = Facts {
-                project: &team.project,
-                login: &team.mine.login,
-                linked: &titles,
-                now,
-            };
-            let mut fresh: Vec<Card> = listed
-                .iter()
-                .filter_map(|listed| {
-                    let mut view = listed.view.clone();
-                    view.machine = listed.machine.clone();
-                    // Read here only of this machine's sessions; another
-                    // machine lists its sessions' branches.
-                    let read = self.branches.get(&view.id).cloned().flatten();
-                    let branch = read.or_else(|| view.branch.clone());
-                    card_of(&view, &facts, branch.as_deref())
-                })
-                .collect();
-
-            if let Some(limit) = picking.get(&team.repo) {
-                let project = &projects[&team.repo];
-                let round = Round {
-                    link: &self.link,
-                    mesh: &self.mesh,
-                    agents: &self.offers.agents,
-                    team,
-                    project,
-                    cards: &fresh,
-                    elsewhere: self.elsewhere(project, &team.repo),
-                };
-                self.pickups.round(round, *limit).await;
-            }
-
-            let others = starters(&projects[&team.repo], &online(&self.mesh));
-            let on = on.contains(&team.repo);
-            self.pickups.hand(&self.mesh, &team.repo, on, others);
-            fresh.extend(self.pickups.queued(&team.repo));
-            self.link.with(|link| {
-                let old = link.boards.cards(&team.repo).unwrap_or_default();
-                link.boards.set(&team.repo, settle(&old, fresh, now));
-            });
-        }
-    }
-
-    /// The machines of `project` that start its issues' sessions when this
-    /// one runs no agent or refuses: the other online ones with its
-    /// checkout, desktops and nodes, ranked as the gateway is elected.
-    fn elsewhere(&self, project: &Project, repo: &TeamRepo) -> Vec<EndpointId> {
-        let reach = self.offers.agents.ci.reach_of(&repo.host);
-        let machines = starters(project, &online(&self.mesh));
-
-        ranked(&machines, self.me, reach, &self.peers, &repo.host)
-    }
-
-    /// Reads the branch of each session here in `project` not read yet, or
-    /// of all of them `again`.
-    async fn read_branches(&mut self, listed: &[Listed], project: &str, again: bool) {
-        let unread: Vec<(String, String)> = listed
-            .iter()
-            .filter(|listed| listed.view.project.as_deref() == Some(project))
-            .filter(|listed| again || !self.branches.contains_key(&listed.view.id))
-            .filter_map(|listed| Some((listed.view.id.clone(), listed.folder.clone()?)))
-            .collect();
-        let read = join_all(unread.iter().map(|(_, folder)| branch_of(folder))).await;
-
-        self.branches
-            .extend(unread.into_iter().map(|(id, _)| id).zip(read));
-    }
-
-    /// Whether `repo`'s issues are read again: every `BUSY` while a session
-    /// on its board works, every `QUIET` otherwise.
-    fn titles_due(&self, repo: &TeamRepo) -> bool {
-        let working = self.link.with(|link| {
-            let cards = link.boards.cards(repo).unwrap_or_default();
-            cards.iter().any(|card| card.lane == Lane::Working {})
+        let link = self.link.clone();
+        self.checking.spawn(async move {
+            join_all(due.iter().map(|team| membership::check_members(&link, team))).await;
         });
-        let wait = if working { BUSY } else { QUIET };
-
-        self.titles
-            .get(repo)
-            .is_none_or(|(_, at)| at.elapsed() >= wait)
-    }
-
-    /// `repo`'s open issue titles, and whether they were read now, when
-    /// `titles_due`.
-    async fn read_titles(&mut self, repo: &TeamRepo) -> (IssueTitles, bool) {
-        if !self.titles_due(repo)
-            && let Some((titles, _)) = self.titles.get(repo)
-        {
-            return (titles.clone(), false);
-        }
-
-        let read = timeout(FORGE_LIMIT, self.link.forge().open_issues(repo))
-            .await
-            .unwrap_or_else(|_| Err("it took too long".to_owned()))
-            .map(|issues| {
-                let titles = issues.into_iter().map(|issue| (issue.number, issue.title));
-                titles.collect::<IssueTitles>()
-            });
-        let titles = read.unwrap_or_else(|e| {
-            log::info!("the issues of {repo} did not read: {e}");
-            self.titles
-                .get(repo)
-                .map(|(titles, _)| titles.clone())
-                .unwrap_or_default()
-        });
-        self.titles
-            .insert(repo.clone(), (titles.clone(), Instant::now()));
-
-        (titles, true)
     }
 
     /// Follows the board of every teammate of the held teams, and stops
@@ -434,6 +431,218 @@ impl Gateway {
             }
         });
     }
+}
+
+impl Cards {
+    fn new(dir: PathBuf) -> Self {
+        Self {
+            titles: BTreeMap::new(),
+            branches: HashMap::new(),
+            pickups: Pickups::new(dir),
+        }
+    }
+
+    /// Forgets the teams that are not `held` here, and has pickup keep the
+    /// queues `handed` by the gateways of the others.
+    fn keep(&mut self, held: &BTreeSet<TeamRepo>, handed: BTreeMap<TeamRepo, Vec<u64>>) {
+        self.titles.retain(|repo, _| held.contains(repo));
+        self.pickups.keep(held, handed);
+    }
+
+    /// Makes the cards of every team of `job`, and starts sessions on new
+    /// issues where pickup is due. What the forge and the machines say is
+    /// read together.
+    async fn make(&mut self, job: &Job) -> Vec<Made> {
+        let Job {
+            mesh,
+            link,
+            offers,
+            teams,
+            projects,
+            ..
+        } = job;
+        let mut picking = BTreeMap::new();
+        let mut on = BTreeSet::new();
+
+        for team in teams {
+            let record = link.with(|link| link.rosters.written(&team.repo).cloned());
+
+            match record.filter(|record| record.pickup) {
+                Some(record) => {
+                    on.insert(&team.repo);
+
+                    if self.titles_due(link, &team.repo) {
+                        picking.insert(&team.repo, record.pickup_limit);
+                    }
+                }
+                None => self.pickups.off(&team.repo),
+            }
+        }
+
+        if teams.is_empty() {
+            return Vec::new();
+        }
+
+        let machines: BTreeSet<EndpointId> = teams
+            .iter()
+            .flat_map(|team| &projects[&team.repo].devices)
+            .map(|device| device.id)
+            .collect();
+        let due: Vec<&Team> = teams
+            .iter()
+            .filter(|team| self.titles_due(link, &team.repo))
+            .collect();
+        let caller = SessionId::default();
+        let sessions = in_the_mesh(
+            &offers.agents,
+            Some(mesh),
+            &caller,
+            Some(&machines),
+            Some(midnight(SystemTime::now())),
+        );
+        let titles = join_all(due.iter().map(|team| read_titles(link, &team.repo)));
+        let assigned = join_all(
+            teams
+                .iter()
+                .filter(|team| picking.contains_key(&team.repo))
+                .map(|team| async move { (&team.repo, read_assigned(link, team).await) }),
+        );
+        let (listed, titles, assigned) = tokio::join!(sessions, titles, assigned);
+        let mut assigned: BTreeMap<&TeamRepo, Option<Vec<OpenIssue>>> = assigned.into_iter().collect();
+        let read: BTreeMap<&TeamRepo, IssueTitles> = due
+            .iter()
+            .zip(titles)
+            .map(|(team, titles)| (&team.repo, self.keep_titles(&team.repo, titles)))
+            .collect();
+        self.branches
+            .retain(|id, _| listed.iter().any(|listed| listed.view.id == *id));
+        let mut made = Vec::new();
+
+        for team in teams {
+            let (titles, read) = match read.get(&team.repo) {
+                Some(titles) => (titles.clone(), true),
+                None => (self.cached(&team.repo), false),
+            };
+            self.read_branches(&listed, &team.project, read).await;
+            let now = SystemTime::now();
+            let facts = Facts {
+                project: &team.project,
+                login: &team.mine.login,
+                linked: &titles,
+                now,
+            };
+            let mut fresh: Vec<Card> = listed
+                .iter()
+                .filter_map(|listed| {
+                    let mut view = listed.view.clone();
+                    view.machine = listed.machine.clone();
+                    // Read here only of this machine's sessions; another
+                    // machine lists its sessions' branches.
+                    let read = self.branches.get(&view.id).cloned().flatten();
+                    let branch = read.or_else(|| view.branch.clone());
+                    card_of(&view, &facts, branch.as_deref())
+                })
+                .collect();
+
+            if let Some(limit) = picking.get(&team.repo)
+                && let Some(Some(assigned)) = assigned.remove(&team.repo)
+            {
+                let project = &projects[&team.repo];
+                let round = Round {
+                    link,
+                    mesh,
+                    agents: &offers.agents,
+                    team,
+                    project,
+                    cards: &fresh,
+                    elsewhere: elsewhere(job, project, &team.repo),
+                };
+                self.pickups.round(round, assigned, *limit).await;
+            }
+
+            let others = starters(&projects[&team.repo], &online(mesh));
+            let on = on.contains(&team.repo);
+            self.pickups.hand(mesh, &team.repo, on, others);
+            fresh.extend(self.pickups.queued(&team.repo));
+            made.push(Made {
+                repo: team.repo.clone(),
+                cards: fresh,
+                now,
+            });
+        }
+
+        made
+    }
+
+    /// Reads the branch of each session here in `project` not read yet, or
+    /// of all of them `again`.
+    async fn read_branches(&mut self, listed: &[Listed], project: &str, again: bool) {
+        let unread: Vec<(String, String)> = listed
+            .iter()
+            .filter(|listed| listed.view.project.as_deref() == Some(project))
+            .filter(|listed| again || !self.branches.contains_key(&listed.view.id))
+            .filter_map(|listed| Some((listed.view.id.clone(), listed.folder.clone()?)))
+            .collect();
+        let read = join_all(unread.iter().map(|(_, folder)| branch_of(folder))).await;
+
+        self.branches
+            .extend(unread.into_iter().map(|(id, _)| id).zip(read));
+    }
+
+    /// Whether `repo`'s issues are read again: every `BUSY` while a session
+    /// on its board works, every `QUIET` otherwise.
+    fn titles_due(&self, link: &TeamLink, repo: &TeamRepo) -> bool {
+        let working = link.with(|link| {
+            let cards = link.boards.cards(repo).unwrap_or_default();
+            cards.iter().any(|card| card.lane == Lane::Working {})
+        });
+        let wait = if working { BUSY } else { QUIET };
+
+        self.titles
+            .get(repo)
+            .is_none_or(|(_, at)| at.elapsed() >= wait)
+    }
+
+    /// `repo`'s open issue titles as last read.
+    fn cached(&self, repo: &TeamRepo) -> IssueTitles {
+        self.titles
+            .get(repo)
+            .map(|(titles, _)| titles.clone())
+            .unwrap_or_default()
+    }
+
+    /// Keeps what was just `read` of `repo`'s issues, or what was read
+    /// before when it did not read; the titles to make cards from.
+    fn keep_titles(&mut self, repo: &TeamRepo, read: Result<IssueTitles, String>) -> IssueTitles {
+        let titles = read.unwrap_or_else(|e| {
+            log::info!("the issues of {repo} did not read: {e}");
+            self.cached(repo)
+        });
+        self.titles
+            .insert(repo.clone(), (titles.clone(), Instant::now()));
+
+        titles
+    }
+}
+
+/// `repo`'s open issue titles, from the forge.
+async fn read_titles(link: &TeamLink, repo: &TeamRepo) -> Result<IssueTitles, String> {
+    let read = timeout(FORGE_LIMIT, link.forge().open_issues(repo))
+        .await
+        .unwrap_or_else(|_| Err("it took too long".to_owned()))?;
+    let titles = read.into_iter().map(|issue| (issue.number, issue.title));
+
+    Ok(titles.collect())
+}
+
+/// The machines of `project` that start its issues' sessions when this
+/// one runs no agent or refuses: the other online ones with its
+/// checkout, desktops and nodes, ranked as the gateway is elected.
+fn elsewhere(job: &Job, project: &Project, repo: &TeamRepo) -> Vec<EndpointId> {
+    let reach = job.offers.agents.ci.reach_of(&repo.host);
+    let machines = starters(project, &online(&job.mesh));
+
+    ranked(&machines, job.me, reach, &job.peers, &repo.host)
 }
 
 /// Whether the machines are asked of their reach again: every `QUIET`, and

@@ -26,6 +26,7 @@ const ANNOUNCE: Duration = Duration::from_secs(60);
 const RESEND: Duration = Duration::from_secs(10 * 60);
 
 /// A team this machine may act for.
+#[derive(Clone)]
 pub(super) struct Team {
     pub(super) repo: TeamRepo,
     /// The mesh's name for the project.
@@ -219,23 +220,23 @@ impl Membership {
         }
     }
 
-    /// Once a day for each held team, asks the forge whether this mesh's
-    /// login and each member of another mesh may still push: this mesh
-    /// leaves when it may not, and another who may not is removed, here and
-    /// on every other member's side. A failed check waits for the next day.
-    pub(super) async fn upkeep(&mut self, link: &TeamLink, teams: &[Team]) {
-        for team in teams {
-            if self
-                .checked
-                .get(&team.repo)
-                .is_some_and(|at| at.elapsed() < UPKEEP)
-            {
-                continue;
-            }
+    /// The held `teams` whose members are due for the daily check on the
+    /// forge (`check_members`), marked checked now.
+    pub(super) fn due(&mut self, teams: &[Team]) -> Vec<Team> {
+        let due: Vec<Team> = teams
+            .iter()
+            .filter(|team| {
+                let checked = self.checked.get(&team.repo);
+                checked.is_none_or(|at| at.elapsed() >= UPKEEP)
+            })
+            .cloned()
+            .collect();
 
+        for team in &due {
             self.checked.insert(team.repo.clone(), Instant::now());
-            check_members(link, team).await;
         }
+
+        due
     }
 }
 
@@ -321,12 +322,12 @@ fn roster(repo: &TeamRepo, members: Vec<Member>) -> TeamMsg {
     }
 }
 
-/// Asks the forge whether this mesh's own login on `team` may still push,
-/// and leaves the team when not: the forge tells anyone what they may do
+/// Once a day for each held team, asks the forge whether this mesh's own
+/// login on `team` may still push, and leaves the team when not: the forge tells anyone what they may do
 /// themselves, so this catches what a member who is not the repository's
 /// admin cannot see of others. Then asks it of each member of another mesh,
 /// and removes those who may not. Only a definite no takes anyone off.
-async fn check_members(link: &TeamLink, team: &Team) {
+pub(super) async fn check_members(link: &TeamLink, team: &Team) {
     if link.may_push(&team.repo, &team.mine.login).await == Some(false) {
         remove(link, team, &team.mine.login);
         return;

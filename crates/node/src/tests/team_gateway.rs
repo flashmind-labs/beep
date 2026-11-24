@@ -342,3 +342,69 @@ fn a_new_team_asks_its_machines_at_once() {
     assert!(!ask_due(Some(&none), &BTreeSet::new()));
     assert!(ask_due(Some(&none), &[other].into()));
 }
+
+/// A gather that waits on a machine that does not answer holds nothing up:
+/// what a teammate's gateway says is taken meanwhile.
+#[tokio::test]
+async fn teammates_are_heard_while_the_machines_are_asked() {
+    use crate::team::{
+        board::tests::{device, login},
+        cards::Teammates,
+    };
+    use beep_proto::team::Card;
+    use tokio::time::timeout;
+
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let me = mesh.me();
+    let (link, _router) = device().await;
+    let (heard, hearing) = mpsc::channel(8);
+    let mut gateway = Gateway::new(
+        mesh,
+        me,
+        link.clone(),
+        Offers::default(),
+        heard.clone(),
+        dir.path().join("node"),
+    );
+    let bob = member("bob", SecretKey::generate().public());
+    let follow = AbortOnDropHandle::new(tokio::spawn(std::future::pending()));
+    gateway.follows.insert((repo(), bob.mesh), (bob.clone(), follow));
+    // The machines were just asked and one does not answer.
+    gateway.asked = Some((Instant::now(), BTreeSet::new()));
+    gateway.asking.spawn(std::future::pending());
+    let card = Card {
+        id: "s1@build-box".to_owned(),
+        title: "Fix the fee model".to_owned(),
+        lane: Lane::Working {},
+        login: login("bob"),
+        machine: "Build box".to_owned(),
+        issue: None,
+        pr: None,
+        updated_at: SystemTime::now(),
+    };
+    let _running = AbortOnDropHandle::new(tokio::spawn(gateway.drive(hearing)));
+    let board = Followed {
+        repo: repo(),
+        mesh: bob.mesh,
+        heard: Heard::Board(vec![card.clone()]),
+    };
+    heard.send(board).await.unwrap();
+
+    let taken = async {
+        loop {
+            let cards = link.with(|teams| teams.teammates.get(&repo()).map(Teammates::cards));
+
+            if cards == Some(vec![card.clone()]) {
+                return;
+            }
+
+            tokio::task::yield_now().await;
+        }
+    };
+
+    timeout(Duration::from_secs(10), taken).await.unwrap();
+}
