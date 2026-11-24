@@ -24,7 +24,7 @@ import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
 import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
 import type { AgentRow } from "../agents/agents.ts";
-import { dropWhere, forgetProject, refresh, setTop } from "./refresh.ts";
+import { dropWhere, forgetProject, refresh } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
@@ -182,14 +182,14 @@ function pinnedProjects(): Placed<Project>[] {
 /// file sync pin, which keeps a project on the machines it is on.
 export async function setProjectOnTop(name: string, pinned: boolean) {
   const before = state.top;
-  setTop(pinned ? [...before.filter(n => n !== name), name] : before.filter(n => n !== name));
+  state.top = pinned ? [...before.filter(n => n !== name), name] : before.filter(n => n !== name);
   redrawProjectPins();
 
   try {
     await invoke("pin_project_to_top", { project: name, pinned });
   } catch (e) {
     console.warn("pinning a project:", e);
-    setTop(before);
+    state.top = before;
     redrawProjectPins();
   }
 }
@@ -322,9 +322,9 @@ function foldItem(p: OrgHeading | GroupHeading): MenuItem {
   return { label: p.folded ? "Unfold" : "Fold", on: () => toggleFold(p) };
 }
 
-/// Opens the Add a machine sheet; Home refreshes once it closes.
+/// Opens the Add a machine sheet; the machines topic brings the new one.
 export function openAddMachine() {
-  void import("../machines/addmachine.tsx").then(m => m.openAddMachine({ onClose: refresh }));
+  void import("../machines/addmachine.tsx").then(m => m.openAddMachine());
 }
 
 /// Opens the Projects page, filtered to `name` when given.

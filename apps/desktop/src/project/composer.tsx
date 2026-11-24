@@ -50,7 +50,6 @@ import { copyLine, shortName } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
 import { projectsIn } from "../addproject/importproject.tsx";
-import { refresh } from "../center/refresh.ts";
 import { redrawSync } from "./syncpage.ts";
 import { startAttachments } from "../agents/start-attachments.tsx";
 import { heldBy, takeFree, takeIssue } from "./team-view.tsx";
@@ -910,7 +909,6 @@ async function addToMachine(project: string, m: AgentHost) {
   try {
     const folder = projectUnder(await projectsIn(m.machine_id), project);
     await invoke<string>("project_add_to_machine", { project, machineId: m.machine_id, folder });
-    refresh();
     loadWhere(project);
     await new Promise<void>(resolve => {
       let reading = false, again = false, done = false;
@@ -941,7 +939,6 @@ async function addToMachine(project: string, m: AgentHost) {
     if (here()) say(reason(e));
   } finally {
     if (pc.adding === m) pc.adding = null;
-    refresh();
     redrawProjects();
   }
 }

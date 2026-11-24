@@ -17,7 +17,6 @@ import { continueButton, openUrl, reviewButton } from "./openitems.ts";
 import { loadFound, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
-import { refresh } from "./refresh.ts";
 import { go } from "./views.tsx";
 import { formatAgo, reason } from "../ui/format.ts";
 import { conflicted, invoke } from "../ui/tauri.ts";
@@ -230,8 +229,8 @@ function Deck({ card, row, done, open, step }: { card: BoardCard; row: RunningAg
     setSending(true);
     setReplyError("");
     invoke("agent_steer", { machineId: row.machine_id, agent: row.agent, session: row.id, steer: { prompt: { text } }, seen: null })
-      .then(() => { setReply(""); refresh(); })
-      .catch(error => { if (!conflicted(error)) setReplyError(reason(error)); else { setReply(""); refresh(); } })
+      .then(() => setReply(""))
+      .catch(error => { if (!conflicted(error)) setReplyError(reason(error)); else setReply(""); })
       .finally(() => setSending(false));
   };
 

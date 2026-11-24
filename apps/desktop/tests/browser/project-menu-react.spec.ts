@@ -100,6 +100,8 @@ test("project rename keeps its identity and only renames the repository when sel
   }), projectName);
   await page.getByRole("button", { name: "Rename", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repositories: [] }]);
+  // The home topic brings the renamed project.
+  await page.evaluate(() => window.__navigation.notify("home"));
   await expect(page.getByRole("heading", { name: "New name", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "New name", exact: true })).toBeVisible();
 });

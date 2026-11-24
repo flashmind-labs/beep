@@ -28,7 +28,7 @@ import { currentLocation, go, windowAlone } from "../center/views.tsx";
 import { projectRows, importSheet, addProject, importFromPage, loadFound, drawRail, openProjects } from "../center/sidebar.tsx";
 import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButton } from "./sections.ts";
 import { drawProjects } from "./page.tsx";
-import { refresh, onScreen } from "../center/refresh.ts";
+import { onScreen } from "../center/refresh.ts";
 import { openAddToMachine } from "./addmachine.tsx";
 import { runningKey, type RunningAgent } from "../agents/running-state.ts";
 import { agentCanFix, gitLine, movingLabel, moveKey, moveTitle, withRow, type GitMove, type GitRow } from "./gitsync-state.ts";
@@ -240,7 +240,7 @@ export function gitControls(p: Project, m: WhereRow, online: boolean) {
     return { direction, count: n, moving: move?.moving === direction, title: move?.moving === direction ? movingLabel(direction) : moveTitle(direction, n), label: moveTitle(direction, n), disabled: !online || !!move?.moving || !active, run: () => void gitMove(p, m, row, direction) };
   }) : [];
   return { line, buttons, failed: line.buttons ? failed : null,
-    handoff: line.buttons && p.machines.length > 1 && !m.syncthing ? () => openHandoff(p, m.id, () => { loadGit(p.name); refresh(); }) : null,
+    handoff: line.buttons && p.machines.length > 1 && !m.syncthing ? () => openHandoff(p, m.id, () => loadGit(p.name)) : null,
     fix: line.buttons && failed && agentCanFix(failed) ? repairButton(p.name, m.id, failed) : null };
 }
 
@@ -248,7 +248,7 @@ export function missingMachine(p: Project, m: WhereRow) {
   const text = m.text || "", title = m.kind === "none" && m.checked_at ? `Checked ${formatAgo(m.checked_at, "since")}` : "";
   let action: { label: string; disabled: boolean; run(): void } | null = null;
   if (!state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
-    if (m.kind === "none" && m.add) action = { label: "Add", disabled: false, run: () => openAddToMachine({ project: p.name, machine: m, added: () => { refresh(); loadWhere(p.name); } }) };
+    if (m.kind === "none" && m.add) action = { label: "Add", disabled: false, run: () => openAddToMachine({ project: p.name, machine: m, added: () => loadWhere(p.name) }) };
     else if (m.kind === "none" && p.url) { const url = p.url; action = { label: "Clone here", disabled: false, run: () => importSheet(repoFromRemote(url), m.id) }; }
   }
   return { text, title, syncthing: m.kind === "none" ? m.syncthing ?? null : null, action };
@@ -309,7 +309,6 @@ async function readWhere(name: string) {
 
   if (got && before !== undefined && folders(before) !== folders(got)) {
     sessionsDue.add(name);
-    refresh();
   }
 
   // The header's Open in follows this Mac's checkout.

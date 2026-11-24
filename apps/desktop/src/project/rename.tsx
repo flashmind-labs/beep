@@ -2,7 +2,6 @@ import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "re
 import { flushSync } from "react-dom";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
-import { refresh } from "../center/refresh.ts";
 import { closeMenu } from "../ui/menu.tsx";
 import { openSheet } from "../ui/parts.tsx";
 import { projectName, type Project } from "./projects-state.ts";
@@ -69,7 +68,6 @@ function RenameProject({ project, close, pending }: { project: Project; close():
         return result.kind === "renamed" ? { ...row, url: result.to, selected: false, result } : { ...row, result };
       }) } : current);
       saving.current = false; pending(false); setBusy(false);
-      refresh();
       if (results.every(result => result.kind === "renamed")) close();
     } catch (failure) {
       saving.current = false; pending(false); setBusy(false); setError(reason(failure));

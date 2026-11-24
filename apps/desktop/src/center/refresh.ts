@@ -54,12 +54,6 @@ function editHome(edit: (home: HomeView) => HomeView) {
   }
 }
 
-export function setTop(top: string[]) { state.top = top; }
-
-export function setGroups(groups: ProjectGroup[] | null | undefined) { state.groups = groups; }
-
-export function setMac(mac: MacControl | null) { state.mac = mac; }
-
 /// A project the user removed: the topics push the new lists.
 export function forgetProject(name: string) {
   state.top = state.top.filter(n => n !== name);
@@ -168,8 +162,8 @@ const refreshProjects = single(async () => {
     invoke<string[]>("projects_on_top"),
     invoke<ProjectGroup[] | null>("project_groups"),
   ]);
-  setTop(top || []);
-  setGroups(groups);
+  state.top = top || [];
+  state.groups = groups;
   await Promise.all(["projects", "pinned"].map(name => reloadGroup(name, false)));
 
   if (onScreen()) {
@@ -179,7 +173,7 @@ const refreshProjects = single(async () => {
 });
 
 const refreshMac = single(async () => {
-  setMac(await invoke<MacControl>("mac_control"));
+  state.mac = await invoke<MacControl>("mac_control");
   pagesAccount(state.mac);
 });
 

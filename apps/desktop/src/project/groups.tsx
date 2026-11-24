@@ -5,7 +5,6 @@ import { groupMatches, type ProjectGroup } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
-import { setGroups } from "../center/refresh.ts";
 import { currentLocation } from "../center/views.tsx";
 import { registerSidebarGroup, reloadGroup, projectRows, openAddMachine, openProjects } from "../center/sidebar.tsx";
 import { redrawProjects, redrawProjectsPage } from "./sections.ts";
@@ -29,7 +28,7 @@ export function editGroup(g: ProjectGroup | null = null) {
     matches: paths => groupMatches(projectRows(), paths),
     onSaved: saved => {
       const list = state.groups || [];
-      setGroups(list.some(x => x.id === saved.id) ? list.map(x => (x.id === saved.id ? saved : x)) : [...list, saved]);
+      state.groups = list.some(x => x.id === saved.id) ? list.map(x => (x.id === saved.id ? saved : x)) : [...list, saved];
       redrawGroups();
     },
   });
@@ -47,14 +46,14 @@ export async function renameGroup(g: ProjectGroup, name: string) {
   const to = name.trim();
   if (!to || to === g.name) return redrawProjects();
   const before = state.groups;
-  setGroups((before || []).map(x => (x.id === g.id ? { ...x, name: to } : x)));
+  state.groups = (before || []).map(x => (x.id === g.id ? { ...x, name: to } : x));
   redrawGroups();
 
   try {
     await invoke("project_group_save", { id: g.id, name: to, paths: g.paths });
   } catch (e) {
     console.warn("renaming a group:", e);
-    setGroups(before);
+    state.groups = before;
     redrawGroups();
   }
 }
@@ -67,7 +66,7 @@ export function removeGroup(g: ProjectGroup) {
     action: "Remove",
     run: async () => {
       await invoke("project_group_delete", { id: g.id });
-      setGroups((state.groups || []).filter(x => x.id !== g.id));
+      state.groups = (state.groups || []).filter(x => x.id !== g.id);
       redrawGroups();
     },
   });

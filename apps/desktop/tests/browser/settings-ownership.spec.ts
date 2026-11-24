@@ -21,9 +21,9 @@ test("section hosts and focused controls survive answers that redraw the sheet",
   await control.focus();
   await general.evaluate(node => Reflect.set(window, "generalHost", node));
   await control.evaluate(node => Reflect.set(window, "generalControl", node));
-  const reads = await count(page, "list_machines");
+  const reads = await count(page, "settings");
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-  await expect.poll(() => count(page, "list_machines")).toBeGreaterThan(reads);
+  await expect.poll(() => count(page, "settings")).toBeGreaterThan(reads);
   expect(await general.evaluate(node => node === Reflect.get(window, "generalHost"))).toBe(true);
   expect(await control.evaluate(node => node === Reflect.get(window, "generalControl") && node === document.activeElement)).toBe(true);
 });

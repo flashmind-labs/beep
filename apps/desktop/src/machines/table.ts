@@ -8,7 +8,7 @@ import { draw } from "../center/home.tsx";
 import { openTerminals } from "../terminals/view.tsx";
 import { reloadGroup } from "../center/sidebar.tsx";
 import { fsync } from "../project/sections.ts";
-import { forgetMachine, renameMachineHome, setMac } from "../center/refresh.ts";
+import { forgetMachine, renameMachineHome } from "../center/refresh.ts";
 import { type MacControl } from "./machine-state.ts";
 
 /// How old the table lets a moving project's detail get.
@@ -26,7 +26,7 @@ export function readSyncDetails() {
 /// Turns on Let Beep use this Mac, so it joins as a machine.
 export async function useThisMac() {
   try {
-    setMac(await invoke<MacControl>("set_mac_control", { enabled: true }));
+    state.mac = await invoke<MacControl>("set_mac_control", { enabled: true });
   } catch (e) {
     console.warn("turning on this computer:", e);
   }

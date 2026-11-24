@@ -1,7 +1,6 @@
 // "Change folder" on a machine of a project: points the project there at
 // another folder. Nothing is moved, and the folder it had stays on disk as
 // it is.
-import { refresh } from "../center/refresh.ts";
 import type { MenuItem } from "../ui/menu.tsx";
 import { openAddToMachine } from "./addmachine.tsx";
 import { loadWhere } from "./loads.tsx";
@@ -12,7 +11,7 @@ export function changeFolder(project: string, machine: { id: string; name: strin
     project,
     machine,
     from,
-    added: () => { refresh(); loadWhere(project); },
+    added: () => loadWhere(project),
   });
 }
 
