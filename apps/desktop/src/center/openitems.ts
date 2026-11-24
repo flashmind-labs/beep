@@ -14,6 +14,7 @@ import { draw } from "./home.tsx";
 import { currentLocation, go } from "./views.tsx";
 import { loadFound } from "./sidebar.tsx";
 import { single } from "../ui/active.ts";
+import type { Pushed } from "../ui/snapshot-state.ts";
 import { prSession } from "../project/pr-session.ts";
 
 export function openUrl(url: string) {
@@ -125,12 +126,21 @@ function importWithSettings(p: OpenRepo) {
 /// progress events can belong to another read. A failure shows in the tab.
 export const refreshGit = single(async () => {
   try {
-    state.git = await invoke<GitItemsView | null>("git_items");
-    state.gitError = null;
+    takeGit({ value: await invoke<GitItemsView | null>("git_items") });
   } catch (e) {
     console.warn("open PRs and issues:", e);
-    state.gitError = String(e);
+    takeGit({ error: String(e) });
+  }
+});
+
+/// Takes what a read or the forge push gave for the open items.
+export function takeGit(items: Pushed<GitItemsView | null>) {
+  if ("error" in items) {
+    state.gitError = items.error;
+  } else {
+    state.git = items.value;
+    state.gitError = null;
   }
 
   if (currentLocation()?.view === "home") draw();
-});
+}

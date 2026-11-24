@@ -1,5 +1,5 @@
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { pushedView, snapshotView, type Pushed } from "../ui/snapshot-state.ts";
+import { pushedView, type Pushed } from "../ui/snapshot-state.ts";
 // Home reads changed domains; telemetry arrives from the native cache.
 import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
@@ -8,7 +8,8 @@ import { type ProjectGroup } from "../project/projects-state.ts";
 import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pagesAccount } from "./state.ts";
 import { draw } from "./home.tsx";
 import { readAllTerms } from "../terminals/view.tsx";
-import { refreshGit } from "./openitems.ts";
+import { takeGit } from "./openitems.ts";
+import type { GitItemsView } from "./openitems-state.ts";
 import { currentLocation } from "./views.tsx";
 import { reloadGroup, drawRail, drawSide } from "./sidebar.tsx";
 import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
@@ -259,10 +260,12 @@ subscribeChanges(topic("sync"), { deliver: "each", receive: async event => {
   await takeSync(pushed.value);
 } }, { wait: AMBIENT_MS });
 subscribeChanges(topic("terminals"), { deliver: "latest", receive: readAllTerms }, { wait: AMBIENT_MS });
-subscribeChanges(topic("forge"), { deliver: "latest", receive: async () => {
-  if (!snapshotView("git_items")) return;
-  await refreshGit();
-  if (state.gitError) throw new Error(state.gitError);
+subscribeChanges(topic("forge"), { deliver: "each", receive: event => {
+  const pushed = pushedView<GitItemsView | null>(event.data, "git_items");
+  if (!pushed) return;
+  if ("error" in pushed) console.warn("open PRs and issues:", pushed.error);
+
+  takeGit(pushed);
 } }, { when: () => currentLocation()?.view === "home" });
 subscribeChanges(topic("telemetry"), { deliver: "each", receive: event => {
   if (!event.data) return;
