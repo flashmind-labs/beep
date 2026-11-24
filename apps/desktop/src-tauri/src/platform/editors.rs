@@ -28,7 +28,7 @@ struct Spec {
     cli: &'static str,
 }
 
-const EDITORS: [Spec; 3] = [
+static EDITORS: [Spec; 3] = [
     Spec {
         editor: Editor::Zed,
         name: "Zed",
@@ -58,8 +58,7 @@ enum Launch {
 }
 
 struct Found {
-    editor: Editor,
-    name: &'static str,
+    spec: &'static Spec,
     launch: Launch,
 }
 
@@ -80,11 +79,7 @@ fn found() -> &'static [Found] {
                 let launch = app(s.bundles)
                     .map(Launch::App)
                     .or_else(|| on_path(s.cli).map(Launch::Cli))?;
-                Some(Found {
-                    editor: s.editor,
-                    name: s.name,
-                    launch,
-                })
+                Some(Found { spec: s, launch })
             })
             .collect()
     })
@@ -118,8 +113,8 @@ pub fn editors() -> Vec<EditorRow> {
     found()
         .iter()
         .map(|f| EditorRow {
-            id: f.editor,
-            name: f.name,
+            id: f.spec.editor,
+            name: f.spec.name,
         })
         .collect()
 }
@@ -137,7 +132,7 @@ pub async fn open_in_editor(editor: Editor, path: String) -> Result<()> {
 
     let found = found()
         .iter()
-        .find(|f| f.editor == editor)
+        .find(|f| f.spec.editor == editor)
         .ok_or_else(|| DesktopError::BadRequest("that editor is not installed".into()))?;
     match &found.launch {
         Launch::App(bundle) => {
