@@ -946,13 +946,14 @@ fn on_settled(
                 }
             }
         }
-        // The node pushes a move that went through; only a refusal needs a read.
-        JobKind::RelocateSession { .. } if !ok => {
+        // The node pushes a move that went through, but a past session is only in the lists'
+        // history answer, which still has its old folder. Only a refusal needs the mirror read.
+        JobKind::RelocateSession { .. } => {
             if let Some(app) = app {
                 if let Some(lists) = app.try_state::<SessionLists>() {
                     lists.stale(machine);
                 }
-                if let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
+                if !ok && let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
                     mirror.moved(machine);
                 }
             }
@@ -976,7 +977,6 @@ fn on_settled(
             }
         }
         JobKind::DeleteSession { .. }
-        | JobKind::RelocateSession { .. }
         | JobKind::TerminalStop { .. }
         | JobKind::StopProcess { .. }
         | JobKind::SetSearch { .. }
