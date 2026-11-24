@@ -1,6 +1,6 @@
 //! ACP v2 foreground lifecycle, independent of prompt acceptance.
 
-use super::actor::{Actor, Reply};
+use super::actor::{Accepting, Actor, Reply};
 use crate::agents::acp::Protocol;
 use agent_client_protocol::{
     Agent, ConnectionTo, Error, JsonRpcMessage, UntypedMessage,
@@ -53,9 +53,8 @@ impl Actor {
             self.turn = Some(self.sent);
         }
         self.compacting_v2 = compact;
-        self.accepting_v2 = true;
+        self.accepting_v2 = Accepting::Waiting;
         self.foreground = false;
-        self.idle_v2 = None;
         let turn = self.sent;
         let request = request.to_untyped_message().and_then(|request| {
             v2::PromptRequest::parse_message(request.method(), request.params())
@@ -133,10 +132,10 @@ impl Actor {
         match state {
             v2::StateUpdate::Idle(idle) => {
                 if self.foreground {
-                    if self.accepting_v2 {
-                        self.idle_v2 = Some(idle);
-                    } else {
+                    if matches!(self.accepting_v2, Accepting::Done) {
                         self.v2_idle(cx, idle);
+                    } else {
+                        self.accepting_v2 = Accepting::Idle(idle);
                     }
                 }
             }

@@ -50,7 +50,7 @@ mod pi;
 mod turns;
 mod v2;
 
-use actor::{Actor, Opening};
+use actor::{Accepting, Actor, Opening};
 
 pub(super) use actor::joined as standing;
 
@@ -525,8 +525,7 @@ impl Session {
             ready_for_prompts: false,
             initial_v2_state: None,
             compacting_v2: false,
-            accepting_v2: false,
-            idle_v2: None,
+            accepting_v2: Accepting::Done,
             takes_images: None,
             takes_steering: false,
             steering: None,

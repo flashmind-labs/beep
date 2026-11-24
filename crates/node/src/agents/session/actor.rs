@@ -241,8 +241,7 @@ pub(super) struct Actor {
     pub(super) ready_for_prompts: bool,
     pub(super) initial_v2_state: Option<agent_client_protocol::v2::schema::StateUpdate>,
     pub(super) compacting_v2: bool,
-    pub(super) accepting_v2: bool,
-    pub(super) idle_v2: Option<agent_client_protocol::v2::schema::IdleStateUpdate>,
+    pub(super) accepting_v2: Accepting,
     /// Whether the agent takes image blocks, once `initialize` said.
     pub(super) takes_images: Option<bool>,
     pub(super) takes_steering: bool,
@@ -332,6 +331,15 @@ pub(super) enum Stopping {
     /// the steer goes as the next prompt.
     #[strum(serialize = "Taking your message")]
     Steer,
+}
+
+/// Whether the agent has answered the v2 prompt just sent.
+pub(super) enum Accepting {
+    /// It answered, or no prompt was sent.
+    Done,
+    Waiting,
+    /// The agent already went idle: applied once it answers.
+    Idle(agent_client_protocol::v2::schema::IdleStateUpdate),
 }
 
 /// What the session reads besides ACP.
@@ -889,20 +897,22 @@ impl Actor {
                 if self.sent != turn {
                     return Ok(None);
                 }
-                self.accepting_v2 = false;
+                let idle = match std::mem::replace(&mut self.accepting_v2, Accepting::Done) {
+                    Accepting::Idle(idle) => Some(idle),
+                    Accepting::Waiting | Accepting::Done => None,
+                };
                 match result {
                     Ok(accepted) => {
                         if !compact {
                             self.live
                                 .send_modify(|live| live.v2_accepted(accepted.message_id));
                         }
-                        if let Some(idle) = self.idle_v2.take() {
+                        if let Some(idle) = idle {
                             self.v2_idle(cx, idle);
                         }
                     }
                     Err(error) => {
                         self.live.send_modify(|live| live.v2_rejected());
-                        self.idle_v2 = None;
                         if compact {
                             self.turn = None;
                             self.compacting_v2 = false;
