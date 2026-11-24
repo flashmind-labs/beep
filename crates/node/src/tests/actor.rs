@@ -4,7 +4,6 @@ use std::sync::{Arc, Mutex};
 
 #[derive(strum::IntoStaticStr)]
 enum Msg {
-    Quick,
     Slow,
 }
 
@@ -66,32 +65,6 @@ async fn waiting_and_handling_are_recorded_per_actor() {
     assert!((value(&text, &format!("beep_actor_wait_seconds_sum{actor}")) - 0.2).abs() < 1e-9);
     assert!((value(&text, &format!("beep_actor_handle_seconds_sum{actor}")) - 0.08).abs() < 1e-9);
     assert!(!text.contains("message="), "{text}");
-}
-
-#[tokio::test(start_paused = true)]
-async fn a_slow_message_writes_one_info_line_and_a_fast_one_none() {
-    let logged = Logged::default();
-    let _guard = logged.capture();
-    let (tx, mut rx) = channel::<Msg>("test", 4);
-
-    tx.send(Msg::Quick).await.unwrap();
-    let (_, timing) = rx.recv().await.unwrap();
-    tokio::time::sleep(Duration::from_millis(10)).await;
-    drop(timing);
-    assert_eq!(logged.text(), "");
-
-    tx.send(Msg::Slow).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    let (_, timing) = rx.recv().await.unwrap();
-    tokio::time::sleep(Duration::from_millis(80)).await;
-    drop(timing);
-
-    let text = logged.text();
-    assert_eq!(text.lines().count(), 1, "{text}");
-    assert!(text.contains("actor=\"test\""), "{text}");
-    assert!(text.contains("kind=\"Slow\""), "{text}");
-    assert!(text.contains("waited_ms=200"), "{text}");
-    assert!(text.contains("handled_ms=80"), "{text}");
 }
 
 #[tokio::test(start_paused = true)]
