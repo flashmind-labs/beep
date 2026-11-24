@@ -7,6 +7,23 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.26] - 2026-11-24
+
+### Changed
+
+- Desktop: pressing Escape from a threaded Assistant chat now returns to Home in two presses instead of multiple intermediate steps.
+
+### Fixed
+
+- Desktop: a question you answered leaves "Needs you" on Home and the tray
+  at once, where it could stay for up to a minute.
+- Desktop: a session you close on this Mac shows as ended at once in every
+  list.
+- Desktop: after a restart, the sessions of a machine that is still
+  connecting stay on Home until it answers, where they used to disappear.
+- Desktop: a deleted session does not come back in Home or the session lists
+  while its machine is being listed.
+
 ## [0.10.25] - 2026-11-23
 
 ### Added
