@@ -9,7 +9,7 @@ test("settings redraw preserves the agent account input and closes its root", as
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
   await settings.getByRole("button", { name: "Paste a token" }).click();
   const input = settings.getByRole("textbox", { name: "Claude Code token" });
   await input.focus();
@@ -50,7 +50,7 @@ test("a completed save does not discard a newer token draft", async ({ page }) =
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
   await settings.getByRole("button", { name: "Paste a token" }).click();
   await page.evaluate(() => window.__navigation.hold("save_agent_token"));
   await settings.getByRole("textbox", { name: "Claude Code token" }).fill("first-secret");
@@ -82,9 +82,12 @@ test("Claude signs in on the selected machine and refreshes its account", async 
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
   const row = (name: string) => settings.locator(".dline.dsm.dpy").filter({ has: page.getByText(name, { exact: true }) });
   await expect(row("build-box")).toContainText("signed in as one@example.com");
+  await expect(row("build-box").locator(".ddot.ok")).toHaveCount(1);
+  await expect(row("test-box").locator(".ddot.warn")).toHaveCount(1);
+  await expect(row("offline-box").locator(".ddot.off")).toHaveCount(1);
   await expect(row("build-box").getByRole("button")).toHaveCount(0);
   await expect(row("offline-box").getByRole("button")).toHaveCount(0);
   await expect(row("unknown-box").getByRole("button", { name: "Sign in", exact: true })).toBeVisible();
@@ -111,7 +114,7 @@ test("Antigravity signs in on the machine that is signed out", async ({ page }) 
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
   const row = (name: string) => settings.locator(".dline.dsm.dpy").filter({ has: page.getByText(name, { exact: true }) });
   await expect(row("build-box")).toContainText("signed in");
   await expect(row("build-box").getByRole("button")).toHaveCount(0);
@@ -132,7 +135,7 @@ test("a named account is added beside the default one", async ({ page }) => {
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
   const claude = settings.locator(".dbox").filter({ has: page.locator("b.dtitle", { hasText: /^Claude Code$/ }) });
   await claude.getByRole("button", { name: "Add account" }).click();
   await expect(claude.locator("#agNamedSign")).toBeVisible();

@@ -8,7 +8,7 @@ const SETTINGS_PAGES = [
   ["appearance", "Appearance", "skin theme colors paintings motion"],
   ["mac", "This computer", "control screen recording accessibility"],
   ["machines", "Machines", "nodes devices"],
-  ["agents", "Agent accounts", "login sign in models coding agents"],
+  ["agents", "Agents", "accounts login sign in models coding agents"],
   ["assistant", "Assistant", ""],
   ["creds", "Credentials", "tokens keys api github forgejo gitea secrets"],
   ["instr", "Instructions", "agents.md claude.md prompt rules"],
@@ -18,23 +18,25 @@ const SETTINGS_PAGES = [
 
 export type SettingsPage = (typeof SETTINGS_PAGES)[number][0];
 
-export type SettingsGroup = "Workspace" | "Agents";
+export type SettingsGroup = "App" | "Fleet" | "Agents" | "Extensions";
 
 /// Which group each Settings page sits under in the left navigation pane.
 export function pageGroup(page: SettingsPage): SettingsGroup {
   switch (page) {
     case "general":
     case "appearance":
+      return "App";
     case "mac":
     case "machines":
-      return "Workspace";
+      return "Fleet";
     case "agents":
     case "assistant":
     case "creds":
+      return "Agents";
     case "instr":
     case "skills":
     case "plugins":
-      return "Agents";
+      return "Extensions";
   }
 }
 
@@ -200,13 +202,12 @@ export interface NavEntry {
 }
 
 /// The left pane: each page shown, and under the page picked the subpages
-/// `subs` lists for it, such as each coding agent under Agent accounts.
+/// `subs` lists for it, such as each machine under Machines.
 export function navEntries(shown: readonly SettingsPage[], path: SettingsPath, subs: (page: SettingsPage) => readonly SettingsSub[]): NavEntry[] {
   return shown.flatMap(page => {
     const here = path.page === page;
-    const own: NavEntry = { page, sub: null, setting: null, current: here && !path.sub };
-    if (!here) return [own];
-    const kids = subs(page).map(sub => ({ page, sub, setting: null, current: !!path.sub && path.sub.kind === sub.kind && path.sub.id === sub.id }));
+    const kids = here ? subs(page).map(sub => ({ page, sub, setting: null, current: !!path.sub && path.sub.kind === sub.kind && path.sub.id === sub.id })) : [];
+    const own: NavEntry = { page, sub: null, setting: null, current: here && (!path.sub || !kids.length) };
     return [own, ...kids];
   });
 }

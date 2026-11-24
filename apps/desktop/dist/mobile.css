@@ -152,7 +152,7 @@ body.mobile .pj-runrow .rr-head:hover .rr-side { opacity: 1 }
 body.mobile .cc-set-scrim { align-items: stretch }
 body.mobile .cc-set { width: 100%; height: 100%; border: 0; border-radius: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) }
 body.mobile .cc-set .dset-nav { display: flex; flex-direction: row; align-items: center; gap: 4px; padding: calc(env(safe-area-inset-top) + 6px) 8px 6px; border-right: 0; border-bottom: 1px solid var(--border); overflow-x: auto; overflow-y: hidden; scrollbar-width: none }
-body.mobile .cc-set .dset-nav > b, body.mobile .cc-set .dset-nav > .dset-find, body.mobile .cc-set .dset-nav > small.dset-ver, body.mobile .cc-set .dset-pages .cc-si.sub, body.mobile .cc-set .dset-pages .dset-grp { display: none }
+body.mobile .cc-set .dset-nav > b, body.mobile .cc-set .dset-nav > .dset-find-wrap, body.mobile .cc-set .dset-nav > small.dset-ver, body.mobile .cc-set .dset-pages .cc-si.sub, body.mobile .cc-set .dset-pages .dset-grp { display: none }
 body.mobile .cc-set .dset-pages { flex-direction: row; gap: 4px }
 body.mobile .cc-set .dset-pages .cc-si { width: auto; min-height: 32px; font-size: 12px }
 /* A card's actions go under its name when both do not fit on a line. */
@@ -292,7 +292,7 @@ body.mobile .agrail { display: none }
    the lit top edge, small mono section labels, and the dawn band over Home and Projects ----- */
 body.mobile { --radius: 6px; --radius-sm: 4px;
   --lit: linear-gradient(90deg, transparent, var(--lit-edge) 30%, var(--lit-peak) 50%, var(--lit-edge) 70%, transparent) top / 100% 1px no-repeat }
-body.mobile :is(.cc-tabs button, .mb-tabs button, #agmnav button, .cc-set .dset-pages .cc-si, .dbtn, .dchip, .agc-pill, .bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3, .cc-mstrip > .m > span, .cc-tabbar > .hv-seg, .ag-head .tt small, .bd-tag) { font-family: var(--mono); letter-spacing: 0 }
+body.mobile :is(.cc-tabs button, .mb-tabs button, #agmnav button, .cc-set .dset-pages .cc-si, .cc-set .dset-tabs button, .dbtn, .dchip, .agc-pill, .bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3, .cc-mstrip > .m > span, .cc-tabbar > .hv-seg, .ag-head .tt small, .bd-tag) { font-family: var(--mono); letter-spacing: 0 }
 body.mobile :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .cc-mstrip > .m > span, .bd-projects .cc-line .t > span) { font-size: 12px }
 body.mobile .mb-tabs button { font-size: 10.5px }
 body.mobile :is(.bd-lane > h4, .cc-set .dset-h, .cc-set .dsec) { font-family: var(--mono); font-size: 11px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }

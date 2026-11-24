@@ -161,18 +161,22 @@ body.cbody
         span.ic
           svg [aria-hidden="true" fill="none" height="21" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="21"]
   div.cc-set-scrim
-    div.cc-set [aria-label="Settings" aria-modal="true" role="dialog" tabindex="-1"]
+    div.cc-set [aria-label="Settings" aria-modal="true" role="dialog" tabindex="-1"] (focused)
       nav.dset-nav [aria-label="Settings pages"]
         b "Settings"
-        input.dset-find.ip-field [aria-label="Search settings" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
+        div.dset-find-wrap
+          svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+          input.dset-find [aria-label="Search settings" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
+          kbd.dset-find-key "/"
         div.dset-pages
-          div.dset-grp "Workspace"
+          div.dset-grp "App"
           button.cc-si [data-goto="general"]
             svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "General"
           button.cc-si [data-goto="appearance"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Appearance"
+          div.dset-grp "Fleet"
           button.cc-si [data-goto="mac"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "This computer"
@@ -181,27 +185,16 @@ body.cbody
             span.tt "Machines"
             span.n "1"
           div.dset-grp "Agents"
-          button.cc-si [data-goto="agents"]
+          button.cc-si [aria-current="true" data-goto="agents"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-            span.tt "Agent accounts"
-          button.cc-si.sub [aria-current="true" data-sub="agent:claude"] (focused)
-            span.tt "Claude Code"
-          button.cc-si.sub [data-sub="agent:codex"]
-            span.tt "Codex"
-          button.cc-si.sub [data-sub="agent:agy"]
-            span.tt "Antigravity"
-          button.cc-si.sub [data-sub="agent:pi"]
-            span.tt "pi"
-          button.cc-si.sub [data-sub="agent:opencode"]
-            span.tt "OpenCode"
-          button.cc-si.sub [data-sub="agent:flsh"]
-            span.tt "flsh"
+            span.tt "Agents"
           button.cc-si [data-goto="assistant"]
             svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Assistant"
           button.cc-si [data-goto="creds"]
             svg [aria-hidden="true" fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Credentials"
+          div.dset-grp "Extensions"
           button.cc-si [data-goto="instr"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Instructions"
@@ -215,9 +208,9 @@ body.cbody
       div.dset-body
         div.dset-top
           span.dset-crumbs
-            button.dset-back [aria-label="Back to Agent accounts" data-goto="agents"]
+            button.dset-back [aria-label="Back to Agents" data-goto="agents"]
               svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-            button.dset-crumb [data-goto="agents"] "Agent accounts"
+            button.dset-crumb [data-goto="agents"] "Agents"
             svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
             b "Claude Code"
           kbd "esc"

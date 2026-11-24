@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { FIRST_PAGE, fitPath, openSub, parsePath, parseSub, pathKey, recallPath, rememberPath, searchEntries, selectPage, type SettingsPage, type SettingsSub } from "../src/settings/settings-nav.ts";
+import { FIRST_PAGE, fitPath, navEntries, openSub, pageGroup, parsePath, parseSub, pathKey, recallPath, rememberPath, searchEntries, selectPage, type SettingsPage, type SettingsSub } from "../src/settings/settings-nav.ts";
 
 const ALL: SettingsPage[] = ["general", "appearance", "mac", "machines", "agents", "creds", "instr"];
 
@@ -37,5 +37,15 @@ test("search finds pages by name or search word, and subpages by name", () => {
   // A row's title comes before a page found only by its search words.
   assert.deepEqual(find("prompt"), ["Prompt marks", "instr"]);
   assert.deepEqual(find("codex"), ["codex"]);
+  assert.deepEqual(find("accounts"), ["agents"]);
   assert.deepEqual(find("xyz"), []);
+});
+
+test("navigation groups pages into four sections and keeps the parent active when subpages stay out of the rail", () => {
+  assert.equal(pageGroup("general"), "App");
+  assert.equal(pageGroup("machines"), "Fleet");
+  assert.equal(pageGroup("agents"), "Agents");
+  assert.equal(pageGroup("plugins"), "Extensions");
+  const entries = navEntries(["general", "agents"], openSub({ kind: "agent", id: "codex" }), () => []);
+  assert.deepEqual(entries.map(e => [e.page, e.current]), [["general", false], ["agents", true]]);
 });

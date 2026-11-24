@@ -28,9 +28,9 @@ export function SettingRow({ title, note, id, extra = null, children }: { title:
 }
 
 export function CodingAgentOverview({ open }: { open(sub: SettingsSub): void }) {
-  return <><div className="dset-h">Coding agents</div><div className="dset-box">{CODING_AGENTS.map(agent => {
+  return <><div className="dlead">Versions, binary paths, launch arguments and environment variables on each machine.</div><div className="dset-box">{CODING_AGENTS.map(agent => {
     const sub: SettingsSub = { kind: "agent", id: agent };
-    return <div className="dset-row" key={agent} data-sub={subKey(sub)} role="button" tabIndex={0} onClick={() => open(sub)} onKeyDown={onRowKey(() => open(sub))}><HarnessIcon agent={agent} /><span className="tt"><b>{harnessName(agent)}</b><small>Version and updates, on or off, binary path, launch arguments and env vars on each machine</small></span><Icon name="chev" /></div>;
+    return <div className="dset-row" key={agent} data-sub={subKey(sub)} role="button" tabIndex={0} onClick={() => open(sub)} onKeyDown={onRowKey(() => open(sub))}><HarnessIcon agent={agent} /><span className="tt"><b>{harnessName(agent)}</b><small>Version and updates, on or off, binary path, launch arguments and env vars</small></span><Icon name="chev" /></div>;
   })}</div></>;
 }
 function Placeholder() { return <SkeletonRows widths={[78]} />; }

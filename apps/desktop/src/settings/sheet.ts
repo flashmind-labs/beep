@@ -51,6 +51,10 @@ export function openSettings(section?: string) {
 
     // Esc on a subpage, such as Apps then Gmail, goes back to its page first.
     if (e.key === "Escape") { e.preventDefault(); if (!pane.settingsBack()) closeSettings(); }
+    else if (e.key === "/" && !e.metaKey && !e.ctrlKey && !e.altKey && !isTypingTarget(e.target)) {
+      const find = sheet.querySelector<HTMLInputElement>(".dset-find");
+      if (find) { e.preventDefault(); find.focus(); find.select(); }
+    }
     else if (commandKey(e) && e.key === ",") e.preventDefault();
     else if (e.key === "Tab") trapTab(e, sheet);
     else if (e.target instanceof Node && sheet.contains(e.target)) return;
@@ -133,6 +137,10 @@ export function closeSettings() {
 }
 
 /// Keeps Tab inside the sheet.
+function isTypingTarget(target: EventTarget | null) {
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.isContentEditable);
+}
+
 function trapTab(e: KeyboardEvent, sheet: HTMLElement) {
   const all = [...sheet.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex='-1'])")];
   if (!all.length) return;

@@ -646,8 +646,9 @@ test("settings claude code", async ({ page }) => {
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   const nav = settings.getByRole("navigation", { name: "Settings pages" });
-  await nav.getByRole("button", { name: "Agent accounts", exact: true }).click();
-  await nav.getByRole("button", { name: /^Claude/ }).click();
+  await nav.getByRole("button", { name: "Agents", exact: true }).click();
+  await settings.getByRole("tab", { name: "Configuration", exact: true }).click();
+  await settings.locator('#set-agent-overview [data-sub="agent:claude"]').click();
   await expect(settings.getByRole("button", { name: "Direct", exact: true })).toHaveAttribute("aria-pressed", "true");
   await baseline(page, "settings-claude-code");
 });
@@ -657,8 +658,9 @@ test("settings flsh stream idle timeout", async ({ page }) => {
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   const nav = settings.getByRole("navigation", { name: "Settings pages" });
-  await nav.getByRole("button", { name: "Agent accounts", exact: true }).click();
-  await nav.getByRole("button", { name: "flsh", exact: true }).click();
+  await nav.getByRole("button", { name: "Agents", exact: true }).click();
+  await settings.getByRole("tab", { name: "Configuration", exact: true }).click();
+  await settings.locator('#set-agent-overview [data-sub="agent:flsh"]').click();
   const timeout = settings.getByRole("textbox", { name: "Stream idle timeout (seconds)" });
   await expect(timeout).toHaveAttribute("placeholder", "300");
   await timeout.scrollIntoViewIfNeeded();
@@ -680,8 +682,9 @@ test("settings codex", async ({ page }) => {
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   const nav = settings.getByRole("navigation", { name: "Settings pages" });
-  await nav.getByRole("button", { name: "Agent accounts", exact: true }).click();
-  await nav.getByRole("button", { name: /^Codex/ }).click();
+  await nav.getByRole("button", { name: "Agents", exact: true }).click();
+  await settings.getByRole("tab", { name: "Configuration", exact: true }).click();
+  await settings.locator('#set-agent-overview [data-sub="agent:codex"]').click();
   await expect(settings.getByRole("button", { name: "Direct", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(settings.getByText("Direct runs the codex CLI without the npm adapter. New sessions use it.")).toBeVisible();
   await baseline(page, "settings-codex");
@@ -701,10 +704,10 @@ const agentAccountResponses = {
     { ...machine("test-box", "test-box", true, 0), env: { logins: [{ tool: "claude", signed_in: false, account: null }, { tool: "agy", signed_in: false, account: null }] } },
   ],
 };
-for (const section of [null, "Agent accounts", "Appearance"] as const) {
-  const name = `settings-${section === null ? "first" : section.toLowerCase().replace(/\s+/g, "-")}`;
+for (const section of [null, "Agents", "Appearance"] as const) {
+  const name = section === null ? "settings-first" : section === "Agents" ? "settings-agent-accounts" : "settings-appearance";
   test(name, async ({ page }) => {
-    await openDesktop(page, false, section === "Agent accounts" ? agentAccountResponses : settingsResponses);
+    await openDesktop(page, false, section === "Agents" ? agentAccountResponses : settingsResponses);
     await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
     const nav = page.getByRole("dialog", { name: "Settings" }).getByRole("navigation", { name: "Settings pages" });
     await expect(nav).toBeVisible();
@@ -1024,8 +1027,8 @@ test("phone settings", async ({ page }) => {
   const settings = page.getByRole("dialog", { name: "Settings" });
   await expect(settings.getByRole("button", { name: "Report…" })).toBeVisible();
   await baseline(page, "phone-settings");
-  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
-  await expect(settings.getByRole("button", { name: "Agent accounts", exact: true })).toHaveAttribute("aria-current", "true");
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
+  await expect(settings.getByRole("button", { name: "Agents", exact: true })).toHaveAttribute("aria-current", "true");
   await baseline(page, "phone-settings-agent-accounts");
   // A phone has no Esc: the sheet closes with its own button.
   await settings.getByRole("button", { name: "Close", exact: true }).click();
@@ -1198,7 +1201,7 @@ test("agent sign-in", async ({ page }) => {
   });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await settings.getByRole("button", { name: "Agent accounts", exact: true }).click();
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
   await settings.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Sign in to Claude Code on test-box", exact: true }).getByRole("button", { name: "Open in browser" })).toBeVisible();
   await baseline(page, "agent-sign-in");

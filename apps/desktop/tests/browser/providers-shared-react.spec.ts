@@ -18,8 +18,9 @@ test("shared compaction retains its draft on refresh and permits retry after fai
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   const navigation = settings.getByRole("navigation", { name: "Settings pages" });
-  await navigation.getByRole("button", { name: "Agent accounts", exact: true }).click();
-  await navigation.getByRole("button", { name: /^Claude/ }).click();
+  await navigation.getByRole("button", { name: "Agents", exact: true }).click();
+  await settings.getByRole("tab", { name: "Configuration", exact: true }).click();
+  await settings.locator('#set-agent-overview [data-sub="agent:claude"]').click();
   const field = settings.getByRole("textbox", { name: "Auto-compact threshold" });
   await field.fill("70%");
   await field.evaluate(element => {

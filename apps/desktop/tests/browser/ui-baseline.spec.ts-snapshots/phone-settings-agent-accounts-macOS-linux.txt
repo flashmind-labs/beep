@@ -191,15 +191,19 @@ body.cbody.mb-home.mobile
     div.cc-set [aria-label="Settings" aria-modal="true" role="dialog" tabindex="-1"]
       nav.dset-nav [aria-label="Settings pages"]
         b "Settings"
-        input.dset-find.ip-field [aria-label="Search settings" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
+        div.dset-find-wrap
+          svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+          input.dset-find [aria-label="Search settings" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
+          kbd.dset-find-key "/"
         div.dset-pages
-          div.dset-grp "Workspace"
+          div.dset-grp "App"
           button.cc-si [data-goto="general"]
             svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "General"
           button.cc-si [data-goto="appearance"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Appearance"
+          div.dset-grp "Fleet"
           button.cc-si [data-goto="machines"]
             svg [aria-hidden="true" fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Machines"
@@ -207,25 +211,14 @@ body.cbody.mb-home.mobile
           div.dset-grp "Agents"
           button.cc-si [aria-current="true" data-goto="agents"] (focused)
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-            span.tt "Agent accounts"
-          button.cc-si.sub [data-sub="agent:claude"]
-            span.tt "Claude Code"
-          button.cc-si.sub [data-sub="agent:codex"]
-            span.tt "Codex"
-          button.cc-si.sub [data-sub="agent:agy"]
-            span.tt "Antigravity"
-          button.cc-si.sub [data-sub="agent:pi"]
-            span.tt "pi"
-          button.cc-si.sub [data-sub="agent:opencode"]
-            span.tt "OpenCode"
-          button.cc-si.sub [data-sub="agent:flsh"]
-            span.tt "flsh"
+            span.tt "Agents"
           button.cc-si [data-goto="assistant"]
             svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Assistant"
           button.cc-si [data-goto="creds"]
             svg [aria-hidden="true" fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Credentials"
+          div.dset-grp "Extensions"
           button.cc-si [data-goto="instr"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Instructions"
@@ -236,30 +229,32 @@ body.cbody.mb-home.mobile
       div.dset-body
         div.dset-top
           span.dset-crumbs
-            b "Agent accounts"
+            b "Agents"
           kbd "esc"
           button.dbtn.dset-close.quiet [type="button"] "Close"
         div.dform.dset-page
           section#set-agents-sec [data-sec="agents"]
-            div.dsec.flat.top "Agent accounts"
+            div.dsec.flat.top "Agents"
+            div.dset-tabs [aria-label="Agents sections" role="tablist"]
+              button [aria-selected="true" data-tab="accounts" role="tab" type="button"] "Accounts"
+              button [aria-selected="false" data-tab="config" role="tab" type="button"] "Configuration"
             div#set-agents
-              div.dlead "How your coding agents sign in on your machines."
+              div.dlead "How your coding agents sign in across your machines."
               div.dbox
                 div.dline
                   span.cc-ag.claude.mark
                     svg [aria-hidden="true" viewBox="0 0 24 24"]
                   span.dstack
                     b.dtitle "Claude Code"
-                    span.dsub "signs in on each machine"
                   span.dacts
                     button.dbtn [type="button"] "Paste a token"
                 div.dmt6
                   div.dline.dpy.dsm
-                    span.ddot
+                    span.ddot.ok
                     span "build-box"
                     span.dacts.dmut "signed in as you@example.com"
                   div.dline.dpy.dsm
-                    span.ddot
+                    span.ddot.warn
                     span "test-box"
                     span.dacts.dmut "not signed in"
                       button.dbtn.small [type="button"] "Sign in"
@@ -273,6 +268,7 @@ body.cbody.mb-home.mobile
                     span.dfine "Other accounts"
                     span.dacts
                       button.dbtn.quiet.small [type="button"] "Add account"
+                        svg [fill="none" height="12" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                   div.dline.dnamed.dpy.dsm
                     span "Work"
                     span.dacts.dmut "· added Jan 1"
@@ -284,75 +280,28 @@ body.cbody.mb-home.mobile
                     svg [aria-hidden="true" viewBox="0 0 24 24"]
                   span.dstack
                     b.dtitle "Codex"
-                    span.dsub "signs in on each machine"
                   span.dacts
                     button.dbtn [type="button"] "Use an API key"
                 div.dmt6
                   div.dfine.dpy "No machine has Codex yet."
                 div.daccounts
-                  div.dline
-                    span.dfine "Another login, such as Work or Personal, to pick per project"
+                  div.daccounts-empty.dline
                     span.dacts
                       button.dbtn.quiet.small [type="button"] "Add account"
+                        svg [fill="none" height="12" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
               div.dbox
                 div.dline
                   span.agy.cc-ag.mark
                     svg [aria-hidden="true" viewBox="0 0 24 24"]
                   span.dstack
                     b.dtitle "Antigravity"
-                    span.dsub "signs in on each machine"
                 div.dmt6
                   div.dline.dpy.dsm
-                    span.ddot
+                    span.ddot.ok
                     span "build-box"
                     span.dacts.dmut "signed in"
                   div.dline.dpy.dsm
-                    span.ddot
+                    span.ddot.warn
                     span "test-box"
                     span.dacts.dmut "not signed in"
                       button.dbtn.small [type="button"] "Sign in"
-            div#set-agent-overview style(display)
-              div.dset-h "Coding agents"
-              div.dset-box
-                div.dset-row [data-sub="agent:claude" role="button" tabindex="0"]
-                  span.cc-ag.claude.mark
-                    svg [aria-hidden="true" viewBox="0 0 24 24"]
-                  span.tt
-                    b "Claude Code"
-                    small "Version and updates, on or off, binary path, launch arguments and env vars on each machine"
-                  svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                div.dset-row [data-sub="agent:codex" role="button" tabindex="0"]
-                  span.cc-ag.codex.mark
-                    svg [aria-hidden="true" viewBox="0 0 24 24"]
-                  span.tt
-                    b "Codex"
-                    small "Version and updates, on or off, binary path, launch arguments and env vars on each machine"
-                  svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                div.dset-row [data-sub="agent:agy" role="button" tabindex="0"]
-                  span.agy.cc-ag.mark
-                    svg [aria-hidden="true" viewBox="0 0 24 24"]
-                  span.tt
-                    b "Antigravity"
-                    small "Version and updates, on or off, binary path, launch arguments and env vars on each machine"
-                  svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                div.dset-row [data-sub="agent:pi" role="button" tabindex="0"]
-                  span.cc-ag.mark.pi
-                    svg [aria-hidden="true" viewBox="0 0 24 24"]
-                  span.tt
-                    b "pi"
-                    small "Version and updates, on or off, binary path, launch arguments and env vars on each machine"
-                  svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                div.dset-row [data-sub="agent:opencode" role="button" tabindex="0"]
-                  span.cc-ag.mark.opencode
-                    svg [aria-hidden="true" viewBox="96 96 320 320"]
-                  span.tt
-                    b "OpenCode"
-                    small "Version and updates, on or off, binary path, launch arguments and env vars on each machine"
-                  svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
-                div.dset-row [data-sub="agent:flsh" role="button" tabindex="0"]
-                  span.cc-ag.flsh.mark
-                    svg [aria-hidden="true" viewBox="0 0 28 28"]
-                  span.tt
-                    b "flsh"
-                    small "Version and updates, on or off, binary path, launch arguments and env vars on each machine"
-                  svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]

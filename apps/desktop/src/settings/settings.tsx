@@ -10,7 +10,7 @@ import { AssistantView } from "./assistant-view.tsx";
 import { PluginsView } from "./plugins-settings-view.tsx";
 import { pluginsSettings } from "./plugins-settings.ts";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading, type AgentsTab } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import { agentAccountsContent, credentialsContent, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.tsx";
 import { bar, S, toWindow, windowHooks } from "../bar/core.ts";
@@ -46,15 +46,19 @@ export const SET: {
   root: HTMLElement | null;
   token: number;
   path: SettingsPath | null;
+  agentsTab: AgentsTab;
   local: { set: MacSettings; mac: MacControl | null } | null;
   unembed: (() => void) | null;
-} = { root: null, token: 0, path: null, local: null, unembed: null };
+} = { root: null, token: 0, path: null, agentsTab: "accounts", local: null, unembed: null };
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
 /// The sheet opens on `page` when given, else on the page picked last.
 export async function renderSettings(root?: HTMLElement, page?: string) {
   // A new sheet starts on `page`, or where the last one was left.
-  if (root !== undefined && root !== SET.root) SET.path = isPage(page) ? selectPage(page) : recallPath(store());
+  if (root !== undefined && root !== SET.root) {
+    SET.path = isPage(page) ? selectPage(page) : recallPath(store());
+    SET.agentsTab = "accounts";
+  }
   if (root !== undefined) SET.root = root;
   else if (SET.root && !SET.root.isConnected) SET.root = null;
   // The window shows Settings as its sheet, never as a page of the pane.
@@ -139,8 +143,12 @@ function showSheet(sheet: HTMLElement, content: ReactNode) {
 }
 function renderShell(sheet: HTMLElement, pages: SettingsPage[], path: SettingsPath, version: string) {
   const openPage = (page: SettingsPage) => goTo(selectPage(page));
+  const openSubPage = (sub: SettingsSub) => {
+    if (sub.kind === "agent") SET.agentsTab = "config";
+    goTo(openSub(sub));
+  };
   showSheet(sheet, <SettingsShell
-    navigation={<SettingsNavigation pages={pages} path={path} version={version} subs={subEntries} pageName={pageLabel} subName={subLabel} count={navCount} openPage={openPage} openSub={(sub: SettingsSub) => goTo(openSub(sub))} />}
+    navigation={<SettingsNavigation pages={pages} path={path} version={version} subs={railSubEntries} searchSubs={searchSubEntries} pageName={pageLabel} subName={subLabel} count={navCount} openPage={openPage} openSub={openSubPage} />}
     breadcrumb={<SettingsBreadcrumb path={path} page={pageLabel(path.page)} sub={path.sub ? subLabel(path.sub) : null} openPage={openPage} />}
     close={() => sheetOwner?.close()}>
     {settingsSections(SET.local?.mac ?? null, true).find(([page]) => page === path.page)?.[1] ?? null}
@@ -208,7 +216,9 @@ export function showSettingsMachine(id: string) {
 
 /// The open sheet shows `page`, such as "machines".
 export function showSettingsPage(page: string) {
-  if (isPage(page)) goTo(selectPage(page));
+  if (!isPage(page)) return;
+  if (page === "agents") SET.agentsTab = "accounts";
+  goTo(selectPage(page));
 }
 
 /// Esc in the sheet: from a subpage back to its page. False when on a page.
@@ -264,7 +274,7 @@ function settingsSections(mac: MacControl | null, sheet: boolean): [SettingsPage
   const host = (page: SettingsPage) => <SettingsHost key={page} page={page} hostRef={pageHost} />;
   const sub = SET.path?.sub;
   const agents = sheet && sub?.kind === "agent" ? host("agents")
-    : <AgentSettingsSection key="agents" bar={sheet ? null : localView("agent-bar")} accounts={agentAccountsContent()} overview={sheet ? localView("agent-overview") : null} />;
+    : <AgentSettingsSection key="agents" bar={sheet ? null : localView("agent-bar")} accounts={agentAccountsContent()} overview={sheet ? localView("agent-overview") : null} tab={SET.agentsTab} onTab={tab => { SET.agentsTab = tab; drawChrome(); }} />;
   return [
     ["general", sec("general", "General")],
     ["appearance", sec("appearance", "Appearance")],
@@ -298,7 +308,13 @@ function subExists(sub: SettingsSub) {
 }
 
 /// The subpages a page lists under it in the left pane, once picked.
-function subEntries(page: SettingsPage): SettingsSub[] {
+function railSubEntries(page: SettingsPage): SettingsSub[] {
+  if (page === "machines") return (MACHINES.list ?? []).map(m => ({ kind: "machine", id: m.id }));
+  return [];
+}
+
+/// Every subpage search can jump to directly.
+function searchSubEntries(page: SettingsPage): SettingsSub[] {
   if (page === "machines") return (MACHINES.list ?? []).map(m => ({ kind: "machine", id: m.id }));
   if (page === "agents") return CODING_AGENTS.map(id => ({ kind: "agent", id }));
   return [];
@@ -348,7 +364,7 @@ function localView(kind: LocalView): ReactNode {
     case "skills": return <SkillsView />;
     case "skills-bar": return <SkillsOverview open={() => windowHooks ? windowHooks.openSettings() : toWindow("settings")} />;
     case "agent-bar": return <AgentsOverview open={() => toWindow("providers")} />;
-    case "agent-overview": return <CodingAgentOverview open={(sub: SettingsSub) => goTo(openSub(sub))} />;
+    case "agent-overview": return <CodingAgentOverview open={(sub: SettingsSub) => { SET.agentsTab = "config"; goTo(openSub(sub)); }} />;
   }
 }
 

@@ -1,7 +1,7 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { Icon, type IconName } from "../ui/icons.tsx";
 import { Button, NO_AUTO } from "../ui/kit.tsx";
-import { Fragment, useLayoutEffect, useState, type ReactNode, type Ref } from "react";
+import { Fragment, useLayoutEffect, useState, type KeyboardEvent, type ReactNode, type Ref } from "react";
 import { onPhone } from "../ui/platform.ts";
 import { pointedSetting } from "./overview-view.tsx";
 import { navEntries, pageGroup, searchEntries, subKey, type NavEntry, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
@@ -21,13 +21,13 @@ const PAGE_ICONS: Record<SettingsPage, IconName> = {
 
 interface NavigationProps {
   pages: SettingsPage[]; path: SettingsPath; version: string;
-  subs(page: SettingsPage): SettingsSub[]; pageName(page: SettingsPage): string; subName(sub: SettingsSub): string; count(page: SettingsPage): number;
+  subs(page: SettingsPage): SettingsSub[]; searchSubs(page: SettingsPage): SettingsSub[]; pageName(page: SettingsPage): string; subName(sub: SettingsSub): string; count(page: SettingsPage): number;
   openPage(page: SettingsPage): void; openSub(sub: SettingsSub): void;
 }
 export function SettingsNavigation(p: NavigationProps) {
   const [query, setQuery] = useState("");
   const searching = query.trim() !== "";
-  const entries = searching ? searchEntries(p.pages, p.path, query, p.subs, p.subName) : navEntries(p.pages, p.path, p.subs);
+  const entries = searching ? searchEntries(p.pages, p.path, query, p.searchSubs, p.subName) : navEntries(p.pages, p.path, p.subs);
   const open = (entry: NavEntry) => {
     setQuery("");
     if (entry.sub) p.openSub(entry.sub);
@@ -36,8 +36,8 @@ export function SettingsNavigation(p: NavigationProps) {
   };
   let lastGroup: string | null = null;
 
-  return <><b>Settings</b><input className="ip-field dset-find" type="search" placeholder="Search settings" aria-label="Search settings" {...NO_AUTO} autoFocus={!onPhone()} value={query}
-    onChange={e => setQuery(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter" && entries[0]) { e.preventDefault(); open(entries[0]); } }} />
+  return <><b>Settings</b><div className="dset-find-wrap"><Icon name="find" size={13} /><input className="dset-find" type="search" placeholder="Search settings" aria-label="Search settings" {...NO_AUTO} autoFocus={!onPhone()} value={query}
+    onChange={e => setQuery(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter" && entries[0]) { e.preventDefault(); open(entries[0]); } }} />{!searching && <kbd className="dset-find-key">/</kbd>}</div>
     <div className="dset-pages">{entries.map(entry => {
       if (entry.setting) {
         return <button className="cc-si" key={`setting:${entry.page}:${entry.setting}`} onClick={() => open(entry)}><Icon name={PAGE_ICONS[entry.page]} size={14} /><span className="tt">{entry.setting}</span><span className="n">{p.pageName(entry.page)}</span></button>;
@@ -75,11 +75,27 @@ export function SettingsHost({ page, hostRef }: { page: SettingsPage; hostRef: R
   return <section id={`set-${page}-sec`} data-sec={page}><div className="dset-host" id={`set-${page}-host`} ref={hostRef} /></section>;
 }
 
-export function AgentSettingsSection({ bar, accounts, overview }: { bar: ReactNode; accounts: ReactNode; overview: ReactNode }) {
-  return <section id="set-agents-sec" data-sec="agents"><div className="dsec flat top">Agent accounts</div>
+export type AgentsTab = "accounts" | "config";
+
+export function AgentSettingsSection({ bar, accounts, overview, tab = "accounts", onTab }: {
+  bar: ReactNode; accounts: ReactNode; overview: ReactNode; tab?: AgentsTab; onTab?(tab: AgentsTab): void;
+}) {
+  const tabbed = bar === null && overview !== null && onTab !== undefined;
+  const flip = (next: AgentsTab) => (event: KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+    event.preventDefault();
+    onTab?.(next);
+    (event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-tab="${next}"]`))?.focus();
+  };
+
+  return <section id="set-agents-sec" data-sec="agents"><div className="dsec flat top">Agents</div>
     {bar !== null && <div id="set-agent-bar" style={{ display: "contents" }}>{bar}</div>}
-    <div id="set-agents">{accounts}</div>
-    {overview !== null && <div id="set-agent-overview" style={{ display: "contents" }}>{overview}</div>}
+    {tabbed && <div className="dset-tabs" role="tablist" aria-label="Agents sections">
+      <button type="button" role="tab" data-tab="accounts" aria-selected={tab === "accounts"} onClick={() => onTab("accounts")} onKeyDown={flip("config")}>Accounts</button>
+      <button type="button" role="tab" data-tab="config" aria-selected={tab === "config"} onClick={() => onTab("config")} onKeyDown={flip("accounts")}>Configuration</button>
+    </div>}
+    {(!tabbed || tab === "accounts") && <div id="set-agents">{accounts}</div>}
+    {overview !== null && (!tabbed || tab === "config") && <div id="set-agent-overview" style={{ display: "contents" }}>{overview}</div>}
   </section>;
 }
 

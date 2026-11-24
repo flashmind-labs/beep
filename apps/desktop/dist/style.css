@@ -51,7 +51,7 @@ button { font: inherit; color: inherit; cursor: default }
 kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 18px; text-align: center; padding: 0 5px; border-radius: var(--radius-sm); background: var(--elev);
   border: 1px solid var(--border); color: var(--fg); display: inline-flex; align-items: center; gap: 2px; justify-content: center }
 .ddot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; flex: none }
-.ddot.off { background: var(--dim) } .ddot.bad { background: var(--err) }
+.ddot.off { background: var(--dim) } .ddot.bad { background: var(--err) } .ddot.ok { background: var(--ok) } .ddot.warn { background: var(--warn) }
 /* Connecting: shown from what the app kept, the machine not reached yet. A static ring. */
 .ddot.dial { background: transparent; box-shadow: inset 0 0 0 1.5px var(--dim) }
 .dchat.wait .t, .dchat.wait .w { opacity: .55 }
@@ -1094,7 +1094,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dlead { font-size: 12.5px; color: var(--muted); margin: 4px 0 8px; max-width: 60ch }
 .dsecret, .dname { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12.5px }
 .dname { flex: 0 1 140px }
-.daccounts { margin-top: 14px }
+.daccounts { margin-top: 12px; padding-top: 10px; border-top: 1px solid color-mix(in srgb, var(--fg) 6%, transparent) }
+.daccounts-empty { justify-content: flex-end }
 .dcred-form { padding: 10px 0; border-bottom: 1px solid var(--border); display: grid; gap: 8px; font-size: 13px }
 .dflow { padding: 8px 10px; margin: 4px 0; border-radius: var(--radius-sm); background: var(--elev); border: 1px solid var(--border); font-size: 12.5px; display: grid; gap: 6px }
 .dflowcode { font-family: var(--mono); font-size: 18px; font-weight: 600; letter-spacing: .1em; cursor: text }

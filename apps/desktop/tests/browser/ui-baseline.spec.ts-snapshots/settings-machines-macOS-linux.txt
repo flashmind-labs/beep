@@ -164,15 +164,19 @@ body.cbody
     div.cc-set [aria-label="Settings" aria-modal="true" role="dialog" tabindex="-1"]
       nav.dset-nav [aria-label="Settings pages"]
         b "Settings"
-        input.dset-find.ip-field [aria-label="Search settings" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
+        div.dset-find-wrap
+          svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+          input.dset-find [aria-label="Search settings" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
+          kbd.dset-find-key "/"
         div.dset-pages
-          div.dset-grp "Workspace"
+          div.dset-grp "App"
           button.cc-si [data-goto="general"]
             svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "General"
           button.cc-si [data-goto="appearance"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Appearance"
+          div.dset-grp "Fleet"
           button.cc-si [data-goto="mac"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "This computer"
@@ -189,13 +193,14 @@ body.cbody
           div.dset-grp "Agents"
           button.cc-si [data-goto="agents"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-            span.tt "Agent accounts"
+            span.tt "Agents"
           button.cc-si [data-goto="assistant"]
             svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Assistant"
           button.cc-si [data-goto="creds"]
             svg [aria-hidden="true" fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Credentials"
+          div.dset-grp "Extensions"
           button.cc-si [data-goto="instr"]
             svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Instructions"
