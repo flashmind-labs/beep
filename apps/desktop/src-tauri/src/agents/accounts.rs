@@ -16,6 +16,7 @@ use crate::{
 };
 use anyhow::Context;
 use beep_fleet::Session;
+use beep_proto::node::events::Topic;
 use beep_proto::{
     AccountName, AgentAccount, AgentAccounts, AgentMachine, AgentToken, CodexLogin,
     CodexLoginState, NamedAgentToken, SecretText, watched,
@@ -28,7 +29,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
-use tauri::State;
+use tauri::{AppHandle, State};
 use tokio::{
     io::AsyncReadExt,
     process::{ChildStdout, Command},
@@ -179,16 +180,27 @@ pub async fn agent_account_names(fleet: FleetState<'_>) -> Result<Vec<NamedView>
 /// `name` or as its default account without one.
 #[tauri::command]
 pub async fn save_agent_token(
+    app: AppHandle,
     fleet: FleetState<'_>,
     agent_slug: String,
     name: Option<String>,
     secret: String,
 ) -> Result<TokenView> {
     let agent = agent(&agent_slug)?;
-    save(&fleet, agent, name.as_deref(), SecretText::new(secret)).await
+    save(
+        &app,
+        &fleet,
+        agent,
+        name.as_deref(),
+        SecretText::new(secret),
+    )
+    .await
 }
 
+/// Saves `secret` and tells the windows the accounts changed: the mesh pushes no accounts
+/// view for a token saved or revoked here.
 async fn save(
+    app: &AppHandle,
     fleet: &Arc<Session>,
     agent: AgentAccount,
     name: Option<&str>,
@@ -198,20 +210,28 @@ async fn save(
         .await?
         .save_agent_token(agent.as_ref(), name, &secret)
         .await?;
+    accounts_changed(app);
     Ok(saved.into())
+}
+
+fn accounts_changed(app: &AppHandle) {
+    crate::fleet::event_views::changed(app.clone(), Topic::new("accounts"));
 }
 
 #[tauri::command]
 pub async fn revoke_agent_token(
+    app: AppHandle,
     fleet: FleetState<'_>,
     agent_slug: String,
     name: Option<String>,
 ) -> Result<()> {
     let agent = agent(&agent_slug)?;
-    Ok(desk(&fleet)
+    desk(&fleet)
         .await?
         .revoke_agent_token(agent.as_ref(), name.as_deref())
-        .await?)
+        .await?;
+    accounts_changed(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -304,6 +324,7 @@ impl ClaudeSignIn {
 /// reaches the page.
 #[tauri::command]
 pub async fn claude_sign_in(
+    app: AppHandle,
     fleet: FleetState<'_>,
     sign_in: State<'_, ClaudeSignIn>,
     name: Option<String>,
@@ -325,7 +346,7 @@ pub async fn claude_sign_in(
     .await
     .map_err(anyhow::Error::from)??;
 
-    save(&fleet, AgentAccount::Claude, name.as_deref(), token).await
+    save(&app, &fleet, AgentAccount::Claude, name.as_deref(), token).await
 }
 
 #[tauri::command]
