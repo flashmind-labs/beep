@@ -83,12 +83,6 @@ pub enum Value {
     /// `Missing` until the node's first check ends. Only a topic that names
     /// it gets it, never `*`.
     ToolUpdates(Vec<tool_update::Available>),
-    /// The newest sessions in the node's agent stores, under
-    /// `session-summaries`: pushed when the node's read of the stores
-    /// changes, so a reader need not ask again after the `agents` ping.
-    /// Only a topic that names it gets it, never `*`. A node from before it
-    /// answers that topic with a snapshot error.
-    Summaries(Vec<agent::SessionSummary>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

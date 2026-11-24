@@ -12,15 +12,10 @@ use crate::{
     agents::found::{self, Agent},
 };
 use anyhow::{Context, Result};
-
-/// The topic that carries `Agents::session_summaries`.
-pub(crate) const SUMMARIES_TOPIC: &str = "session-summaries";
-/// The most sessions it names, newest first.
-const SUMMARIES: usize = 1000;
 use beep_proto::node::{
     agent::{
         Entry, ExternalAsk, ExternalSession, HistoryCursor, MAX_EXTERNAL_NAMED, Presence,
-        SessionFolder, SessionPage, SessionSummary, Status,
+        SessionFolder, SessionPage, Status,
     },
     events::Topic,
 };
@@ -215,25 +210,6 @@ impl Agents {
     /// The Claude Code sessions started outside Beep.
     pub fn external(&self) -> &External {
         &self.external
-    }
-
-    /// The newest sessions the agents' stores hold, as `sightings` has them.
-    pub(crate) async fn session_summaries(&self) -> Result<Vec<SessionSummary>> {
-        let mut seen = self.sightings().await?;
-        seen.sort_by_key(|seen| Reverse(seen.last_activity));
-        seen.truncate(SUMMARIES);
-
-        Ok(seen
-            .into_iter()
-            .map(|seen| SessionSummary {
-                agent: seen.agent.to_string(),
-                id: seen.id,
-                cwd: seen.cwd.to_string_lossy().into_owned(),
-                title: seen.title,
-                started_at: seen.started_at,
-                last_activity: seen.last_activity,
-            })
-            .collect())
     }
 
     /// The Claude Code sessions started outside Beep, newest first.

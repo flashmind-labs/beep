@@ -489,72 +489,17 @@ fn sources(topics: &[Topic]) -> Vec<(Topic, Source)> {
 }
 
 #[test]
-fn one_terminal_is_read_alone_and_the_bare_topic_keeps_the_list() {
-    let one = Topic::keyed("terminal-output", "3");
-
-    assert_eq!(
-        sources(std::slice::from_ref(&one)),
-        vec![(one, Source::Terminal(TaskId(3)))]
-    );
-    assert_eq!(
-        sources(&[Topic::new("terminal-output")]),
-        vec![(Topic::new("terminals"), Source::Read(Read::TerminalList))]
-    );
-}
-
-#[test]
 fn the_wildcard_leaves_out_the_values_released_readers_cannot_decode() {
     let all = sources(&[Topic::new("*")]);
 
-    assert!(all.iter().all(|(topic, _)| !matches!(
-        topic.name(),
-        "devices" | "tool-updates" | "session-summaries"
-    )));
+    assert!(all.iter().all(|(topic, _)| !matches!(topic.name(), "devices" | "tool-updates")));
     assert_eq!(
-        sources(&[
-            Topic::new("devices"),
-            Topic::new("tool-updates"),
-            Topic::new("session-summaries")
-        ])
-        .into_iter()
-        .map(|(_, source)| source)
-        .collect::<Vec<_>>(),
-        vec![Source::Devices, Source::Summaries, Source::ToolUpdates]
+        sources(&[Topic::new("devices"), Topic::new("tool-updates")])
+            .into_iter()
+            .map(|(_, source)| source)
+            .collect::<Vec<_>>(),
+        vec![Source::Devices, Source::ToolUpdates]
     );
-}
-
-#[test]
-fn the_summaries_are_read_again_when_the_agents_ping() {
-    let topic = Topic::new("session-summaries");
-    let mut snapshots = Snapshots::new();
-    snapshots.replace(&Offers::default(), std::slice::from_ref(&topic), &[], &BTreeMap::new());
-    let key = (topic, None);
-    snapshots.entries.get_mut(&key).unwrap().dirty = false;
-
-    snapshots.changed(&Topic::new("moves"), ChangeKind::Any);
-    assert!(!snapshots.entries[&key].dirty);
-
-    snapshots.changed(&Topic::new("agents"), ChangeKind::Any);
-    assert!(snapshots.entries[&key].dirty);
-}
-
-#[test]
-fn one_terminal_refreshes_on_its_own_output_and_on_the_list() {
-    let topic = Topic::keyed("terminal-output", "3");
-    let mut snapshots = Snapshots::new();
-    snapshots.replace(&Offers::default(), std::slice::from_ref(&topic), &[], &BTreeMap::new());
-    let key = (topic, None);
-    snapshots.entries.get_mut(&key).unwrap().dirty = false;
-
-    snapshots.changed(&Topic::keyed("terminal-output", "4"), ChangeKind::Any);
-    assert!(!snapshots.entries[&key].dirty);
-
-    snapshots.changed(&Topic::keyed("terminal-output", "3"), ChangeKind::Any);
-    assert!(snapshots.entries[&key].dirty);
-
-    snapshots.entries.get_mut(&key).unwrap().dirty = false;
-    snapshots.changed(&Topic::new("terminals"), ChangeKind::Any);
-    assert!(snapshots.entries[&key].dirty);
 }
 
 #[tokio::test]

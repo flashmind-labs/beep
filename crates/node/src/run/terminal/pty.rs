@@ -203,7 +203,8 @@ fn read_output(live: &Live, mut reader: Box<dyn Read + Send>, drained: &std_mpsc
             Ok(n) => {
                 lock(&live.screen).push(&buf[..n]);
                 live.changed.send_modify(|n| *n += 1);
-                live.output_changed();
+                crate::events::system()
+                    .changed(beep_proto::node::events::Topic::new("terminal-output"));
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             // Linux says EIO once the other end closed.
@@ -250,7 +251,7 @@ fn wait_exit(
         }
     }
     live.changed.send_modify(|n| *n += 1);
-    live.output_changed();
+    crate::events::system().changed(beep_proto::node::events::Topic::new("terminal-output"));
     live.started_or_ended();
 }
 
