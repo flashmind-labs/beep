@@ -1361,6 +1361,54 @@ async fn a_far_parent_s_stop_all_stops_its_child_here() {
     rig.agents.shutdown().await;
 }
 
+/// A node with no mesh cannot note a settle to its parent, so it must not tell
+/// the parent's wait to skip its recheck (a desktop's own node that serves no
+/// MCP socket is one).
+#[tokio::test]
+async fn a_node_with_no_mesh_does_not_say_it_notes_every_settle() {
+    use beep_proto::node::tools::{Reply, Request as ToolRequest, Tool};
+
+    let rig = Rig::new();
+    let far = SecretKeyFor::id();
+    let link = ParentLink {
+        machine: Some(far),
+        session: "p1".into(),
+        key: "p1".into(),
+        root_machine: Some(far),
+        root: "p0".into(),
+        depth: 1,
+        others: 0,
+        agent: "kid".into(),
+        mode: None,
+        background: false,
+    };
+    let child = rig
+        .agents
+        .start_child(link, start("kid", "hello", rig.dir.path()))
+        .await
+        .expect("the child starts");
+    let reply = crate::agents::mcp::children::answer_peer(
+        &rig.agents,
+        far,
+        ToolRequest {
+            session: "p1".into(),
+            tool: Tool::AgentStatus,
+            args: serde_json::json!({ "id": Agents::name_of(&child) }).to_string(),
+            approved: Default::default(),
+        },
+    )
+    .await;
+    let Reply::Done { text, failed: false } = reply else {
+        panic!("the status is served: {reply:?}");
+    };
+    let view: crate::agents::mcp::children::ChildView =
+        serde_json::from_str(&text).expect("a child view");
+
+    assert!(!view.notes_settles, "{text}");
+    child.close().await;
+    rig.agents.shutdown().await;
+}
+
 #[tokio::test]
 async fn another_machine_s_agent_lists_and_messages_any_agent_until_the_user_speaks() {
     use beep_proto::node::tools::{Reply, Request as ToolRequest, Tool};

@@ -1093,13 +1093,15 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
         machine: Some(peer),
         session: request.session.clone(),
     };
-    let child_view =
-        |child: &Session| {
-            json_of(&ChildView {
-                notes_settles: true,
-                ..ChildView::of(&child.info(), &Agents::name_of(child))
-            })
-        };
+    // A node says it notes every settle only when it can send a note: one
+    // with no mesh has nobody to tell, and its parent must keep reading.
+    let notes_settles = agents.mesh().is_some();
+    let child_view = |child: &Session| {
+        json_of(&ChildView {
+            notes_settles,
+            ..ChildView::of(&child.info(), &Agents::name_of(child))
+        })
+    };
 
     match request.tool {
         Tool::StartAgent => {
