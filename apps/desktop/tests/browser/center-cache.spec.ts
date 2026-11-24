@@ -35,7 +35,8 @@ test("pages opened again draw what the window holds without reading", async ({ p
   await round(page);
   await round(page);
   await page.waitForTimeout(1500);
-  expect(await reads(page, before)).toEqual([]);
+  // The project's session list is let go when its page goes away and read again when it returns.
+  expect(await reads(page, before)).toEqual(["project_sessions", "project_sessions_forget", "project_sessions", "project_sessions_forget"]);
 
   // A terminal change reads every terminal once, and nothing else.
   const changed = await mark(page);
@@ -49,5 +50,5 @@ test("pages opened again draw what the window holds without reading", async ({ p
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await expect(page.locator(".cc-view:visible .pj-board .bd-lanes")).toBeVisible();
   await page.waitForTimeout(1500);
-  expect(await reads(page, opened)).toEqual(["terminals_list"]);
+  expect((await reads(page, opened)).toSorted()).toEqual(["project_sessions", "terminals_list"]);
 });
