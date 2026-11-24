@@ -213,12 +213,14 @@ export function barOn(name: string) {
   return (currentLocation()?.view === "projects" && state.picked === name) || (currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name);
 }
 
+/// The machines that have a coding agent that no host runs yet, from the machines and hosts held now.
+const blockedNow = () => blockedHosts(MACHINES.list ?? [], AG.hosts ?? []);
+
 // The hosts and machines are held from their pushes; the first read fills them. The held values
 // are read after it, so a push that came meanwhile is not undone.
 async function readProjectHosts() {
   try {
     await Promise.all([ensureAgentHosts(), ensureMachines().catch((e: unknown) => console.warn("machines for the bar:", e))]);
-    pc.blocked = blockedHosts(MACHINES.list ?? [], AG.hosts ?? []);
   } catch (error) {
     console.warn("agent hosts:", error);
   }
@@ -289,7 +291,7 @@ export function drawProjectComp(name: string) {
   // The machine last picked, while it still has a checkout and an agent,
   // else the first such machine.
   const place = p && barPlace(p.places, AG.hosts ?? [], pc.machine);
-  const readiness = p ? barReadiness(p.places, AG.hosts, pc.machine, pc.blocked) : { kind: "ready" as const };
+  const readiness = p ? barReadiness(p.places, AG.hosts, pc.machine, blockedNow()) : { kind: "ready" as const };
   // Text set or cleared from code (Work on it, a start) fits once the page places the form.
   requestAnimationFrame(fitField);
   const t = pc.target;
@@ -588,7 +590,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 async function startFromBar() {
   const c = projectComp, p = barProject(), text = composeMessage(c.input.value);
   const place = p && barPlace(p.places, AG.hosts ?? [], pc.machine);
-  if (p && !place && !pc.adding && AG.hosts) { c.update({ error: barPrompt(p.name, barReadiness(p.places, AG.hosts, pc.machine, pc.blocked)) + "." }); return; }
+  if (p && !place && !pc.adding && AG.hosts) { c.update({ error: barPrompt(p.name, barReadiness(p.places, AG.hosts, pc.machine, blockedNow())) + "." }); return; }
   if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
@@ -663,7 +665,7 @@ export interface AgentTask { prompt: string; target: BarTarget | null }
 function threadPlace(name: string, machine: string | null) {
   const p = projectOf(name);
   machine ??= pc.project === name ? pc.machine : lastMachine(name);
-  return p ? { place: barPlace(p.places, AG.hosts ?? [], machine), why: barPrompt(name, barReadiness(p.places, AG.hosts, machine, pc.blocked)) } : null;
+  return p ? { place: barPlace(p.places, AG.hosts ?? [], machine), why: barPrompt(name, barReadiness(p.places, AG.hosts, machine, blockedNow())) } : null;
 }
 
 /// Starts `task` of project `name` at once with `pick`, on `machine` when

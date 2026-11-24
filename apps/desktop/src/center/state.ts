@@ -5,7 +5,6 @@ import { PageCache, freshness, type PageSection, type SectionStore } from "../ui
 import { invoke } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import type { HomeView } from "./home-state.ts";
-import type { MachineTraffic } from "../machines/traffic-state.ts";
 import type { FoundRow, ProjectGroup, ProjectMachineRow, SessionRow } from "../project/projects-state.ts";
 import type { GitItemsView } from "./openitems-state.ts";
 import type { MacControl } from "../machines/machine-state.ts";
@@ -78,7 +77,6 @@ export const state = {
   /// Each project's checkouts' branches, as `project_git_state` read them.
   gitsync: new Map<string, GitRow[]>(),
   sync: [] as SyncRow[],
-  traffic: [] as MachineTraffic[],
   git: null as GitItemsView | null,
   /// Why `git_items` threw, when it did.
   gitError: null as string | null,

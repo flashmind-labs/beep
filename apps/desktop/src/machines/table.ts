@@ -8,7 +8,8 @@ import { draw } from "../center/home.tsx";
 import { openTerminals } from "../terminals/view.tsx";
 import { reloadGroup } from "../center/sidebar.tsx";
 import { fsync } from "../project/sections.ts";
-import { forgetMachine, renameMachineHome } from "../center/refresh.ts";
+import { dropWhere } from "../center/refresh.ts";
+import { removeListed, renameListed } from "./machine-store.ts";
 import { type MacControl } from "./machine-state.ts";
 
 /// How old the table lets a moving project's detail get.
@@ -63,8 +64,7 @@ function renameMachine(m: Removable) {
     value: m.name,
     run: async name => {
       await invoke("rename_machine", { id: m.id, name });
-      renameMachineHome(m.id, name);
-      draw();
+      renameListed(m.id, name);
       reloadGroup("machines");
     },
   });
@@ -79,8 +79,8 @@ function removeMachine(m: Removable) {
     action: "Remove",
     run: async () => {
       await invoke("remove_machine", { id: m.id });
-      forgetMachine(m.id);
-      draw();
+      removeListed(m.id);
+      dropWhere();
       reloadGroup("machines");
     },
   });

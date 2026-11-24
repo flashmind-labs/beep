@@ -11,7 +11,7 @@ import type { CenterView } from "../center/state.ts";
 import { modelContextPanel } from "./model-context.ts";
 import { flshPanel } from "./flsh.ts";
 import { type AdapterInstall, adapterOf } from "../machines/adapters-state.ts";
-import { ensureMachines } from "../machines/machine-store.ts";
+import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 
 /// A machine as `list_machines` gives it; only these fields are read.
 interface MachineRow { id: string; name: string; online: boolean; can_host?: boolean; adapters?: AdapterInstall[] }
@@ -29,7 +29,6 @@ interface ProvidersDeps {
 
 /// The page's state.
 interface ProvidersState {
-  machines: MachineRow[] | null | undefined;
   machine: string | null;
   views: Map<string, HarnessesView | null>;
   errors: Map<string, string>;
@@ -51,12 +50,14 @@ interface ProvidersState {
 
 export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
   const { invoke } = deps;
-  const st: ProvidersState = { machines: undefined, machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, note: "", others: new Map(), compacts: new Map(), includeProgram: false, savedAll: new Map() };
+  const st: ProvidersState = { machine: null, views: new Map(), errors: new Map(), picked: null, drafts: new Map(), updating: new Set(), saving: false, note: "", others: new Map(), compacts: new Map(), includeProgram: false, savedAll: new Map() };
   /// The agents whose machines' settings are being read.
   const reading = new Set<string>();
   const readingCompact = new Set<string>();
   const loading = new Map<string, number>();
   const readVersion = new Map<string, number>();
+  /// The machines that run agents, from the held list: undefined before it is read, null when it could not be.
+  const machines = (): MachineRow[] | null | undefined => MACHINES.list ? MACHINES.list.filter(m => m.can_host !== false) : MACHINES.failed ? null : undefined;
   const isLoading = () => !!st.machine && (loading.get(st.machine) ?? 0) > 0;
   const compactDrafts = new Map<string, AutoCompactDraft>();
   const compactErrors = new Map<string, string>();
@@ -77,18 +78,16 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
   const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
   const view = () => (st.machine ? st.views.get(st.machine) : undefined);
   const key = (agent: string) => `${st.machine} ${agent}`;
-  const machineName = () => st.machines?.find(m => m.id === st.machine)?.name ?? "this machine";
+  const machineName = () => machines()?.find(m => m.id === st.machine)?.name ?? "this machine";
 
   async function loadMachines() {
     changes.read("");
 
     try {
-      const all: MachineRow[] = await ensureMachines();
-      st.machines = all.filter(m => m.can_host !== false);
-      const online = st.machines.filter(m => m.online);
+      await ensureMachines();
+      const online = (machines() ?? []).filter(m => m.online);
       if (!st.machine || !online.some(m => m.id === st.machine)) st.machine = online[0]?.id ?? null;
     } catch (e) {
-      st.machines = null;
       st.note = fail(e);
       changes.changed();
     }
@@ -135,7 +134,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
   }
 
   /// How `agent`'s adapter stands on the machine picked, when it is pending.
-  const adapter = (agent: string) => adapterOf(st.machines?.find(m => m.id === st.machine)?.adapters, agent);
+  const adapter = (agent: string) => adapterOf(machines()?.find(m => m.id === st.machine)?.adapters, agent);
 
   /// Try again: the machine installs the adapters it could not, now.
   async function retryAdapters(agent: string) {
@@ -147,7 +146,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
     try {
       await invoke("agent_adapters_install", { machineId: machine });
       // The node reads them as installing at once; its report follows.
-      for (const a of st.machines?.find(m => m.id === machine)?.adapters ?? []) a.failed = null;
+      for (const a of machines()?.find(m => m.id === machine)?.adapters ?? []) a.failed = null;
       st.errors.delete(machine);
     } catch (e) {
       st.errors.set(machine, fail(e));
@@ -324,10 +323,10 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
     const behind = updatable(current || null);
     const updateCount = [...st.updating].filter(k => k.startsWith(`${machine} `)).length;
     showWindowParts([{ part: "settings-page:providers", host: root, content: <ProvidersView
-      machines={st.machines} machine={machine} machineName={machineName()} view={current} picked={st.picked}
+      machines={machines()} machine={machine} machineName={machineName()} view={current} picked={st.picked}
       draft={draft} others={hv ? st.others.get(hv.agent) : undefined} saving={st.saving}
       updating={hv ? st.updating.has(key(hv.agent)) : false} adapter={hv ? adapter(hv.agent) : null}
-      error={st.machines === null ? st.note : machine ? st.errors.get(machine) ?? "" : st.note} inSettings={inSettings} savedAll={st.savedAll.get(draftKey) ?? ""}
+      error={machines() === null ? st.note : machine ? st.errors.get(machine) ?? "" : st.note} inSettings={inSettings} savedAll={st.savedAll.get(draftKey) ?? ""}
       includeProgram={st.includeProgram} shared={sharedAgent ? sharedSettings(sharedAgent) : null} flsh={flsh} contexts={contexts} invoke={invoke}
       loadOthers={loadOthers} loadCompact={loadCompact} changeCompact={changeCompact} saveCompact={saveSharedCompact} discardCompact={discardCompact}
       loading={isLoading()} checked={checkedLabel(current ? current.checked_at : null, Date.now())} updateCount={updateCount} canUpdate={!!behind.length}
@@ -351,7 +350,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
       return {
         title: "Coding agents", sub: "What each machine can run",
         reactTools: inSettings ? null : <ProviderHeader
-          machines={st.machines} machine={st.machine} loading={isLoading()}
+          machines={machines()} machine={st.machine} loading={isLoading()}
           checked={checkedLabel(current ? current.checked_at : null, Date.now())}
           updateCount={[...st.updating].filter(key => key.startsWith(`${st.machine} `)).length}
           canUpdate={!!updatable(current || null).length}
@@ -368,7 +367,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
       inSettings = want?.settings === true;
       draw();
       // What the page showed last draws at once; it reads only after a change.
-      if (st.machines === undefined || st.machines === null || changes.dirty("")) void loadMachines();
+      if (!machines() || changes.dirty("")) void loadMachines();
       else ensure(st.machine);
     },
     unmount() { removeWindowPart("settings-page:providers"); root = null; },

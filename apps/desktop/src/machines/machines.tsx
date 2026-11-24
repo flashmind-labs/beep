@@ -3,16 +3,15 @@ import { createDocumentScope } from "../ui/document-root.tsx";
 import { MachineList, MachineLoading } from "./list-view.tsx";
 import { MachineDetail, type MachineLog } from "./detail-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { AMBIENT_MS } from "../ui/active.ts";
+import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.tsx";
-import { ensureMachines, MACHINES, setMachines } from "./machine-store.ts";
+import { ensureMachines, MACHINES, removeListed, renameListed, takeTraffic } from "./machine-store.ts";
 import { openJoinTicket } from "./jointicket.tsx";
 import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-state.ts";
 import { S } from "../bar/core.ts";
 import { type BarPage, type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
-import type { MachineTraffic } from "./traffic-state.ts";
 import { hintModel } from "../bar/hints.ts";
 import { notice } from "../chat/media.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -57,11 +56,9 @@ export const MC: {
   toolUps: Map<string, { busy: boolean; error: string }>;
   /// The version each Update installed this session, by "<machine> <tool>".
   installed: Map<string, string>;
-  /// What each machine moved over iroh (ListMachineTraffic).
-  traffic: MachineTraffic[];
   /// Try again on a machine's adapters: asking, or why it failed.
   adapterTries: Map<string, { busy: boolean; error: string }>;
-} = { error: "", mac: null, asking: null, updatable: new Set(), released: null, updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), traffic: [], adapterTries: new Map() };
+} = { error: "", mac: null, asking: null, updatable: new Set(), released: null, updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), adapterTries: new Map() };
 
 /// Where the open machine looks for projects (GetMachineSearch): null until
 /// read, or when its beep-node cannot say; `draft` is the field while
@@ -162,15 +159,13 @@ function readList(): Promise<void> {
     do {
       listAgain = false;
       try {
-        const [, mac, updatable, traffic] = await Promise.all([
+        const [, mac, updatable] = await Promise.all([
           ensureMachines(),
           invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this computer's state:", e); return null; }),
           invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
-          invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return []; }),
           loadClocks(invoke),
         ]);
         if (listAgain) continue;
-        MC.traffic = traffic;
         MC.updatable = new Set(updatable.map(u => u.id));
         MC.mac = mac?.id || null;
         MC.error = "";
@@ -191,6 +186,8 @@ export function followToolUpdates() {
   // Opened before the machines connected: the page follows them as they come.
   listen("reconnected", () => { if (shown()) { void readList(); void loadToolUpdates(); } });
   subscribeChanges(topic("machines"), { deliver: "latest", receive: () => readList() }, { when: shown, wait: AMBIENT_MS });
+  // What each machine moved comes with the telemetry; Home takes it the same way while it shows.
+  subscribeChanges(topic("telemetry"), { deliver: "each", receive: event => { if (takeTraffic(event.data) && shown()) drawMachines(); } }, { when: shown, wait: SLOW_MS });
 }
 
 async function loadNodeRelease() {
@@ -300,7 +297,7 @@ async function retryAdapters(id: string) {
 /// Saves machine `id`'s new name, shown on every machine.
 async function renameMachine(id: string, name: string) {
   await invoke("rename_machine", { id, name });
-  setMachines((MACHINES.list || []).map(m => (m.id === id ? { ...m, name } : m)));
+  renameListed(id, name);
   hosted()?.changed();
   if (shown()) drawMachines();
 }
@@ -315,7 +312,7 @@ async function removeMachine() {
 
   try {
     await invoke("remove_machine", { id: asking.id });
-    setMachines((MACHINES.list || []).filter(m => m.id !== asking.id));
+    removeListed(asking.id);
     MC.asking = null;
     hosted()?.changed();
   } catch (e) {
@@ -443,7 +440,7 @@ function drawDetail(at: MachinesHost | null, machine: Machine) {
   showScreen(at, { view: "machine", props: {
     machine, invoke, error: MC.error, mac: MC.mac, newest: newest(), updatable: MC.updatable.has(machine.id),
     nodeUpdate: MC.updates.get(machine.id) ?? null, search, log, tools: MC.tools, toolUps: MC.toolUps,
-    installed: MC.installed, traffic: MC.traffic.find(t => t.id === machine.id), asking: MC.asking, age: span,
+    installed: MC.installed, traffic: MACHINES.traffic.find(t => t.id === machine.id), asking: MC.asking, age: span,
     searchEdit: () => { if (search) { search.draft = search.folder; drawMachines(); } },
     searchSave: (folder: string) => { void saveSearch(folder); }, searchCancel: stopEditing,
     signIn: (tool: string) => openSignIn(machine, tool, () => { if (shown()) void renderMachines(machine.id).then(() => hosted()?.changed()); }),

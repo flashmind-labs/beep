@@ -3,10 +3,14 @@ import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList } from "../ui/snapshot-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { Machine } from "./machines.tsx";
+import type { MachineTraffic } from "./traffic-state.ts";
 
 /// `list` is null before the first value. `failed` says the last read failed, so a missing list
 /// is not an empty mesh.
-export const MACHINES: { list: Machine[] | null; failed: boolean } = { list: null, failed: false };
+/// `traffic` is what each machine moved, from the `telemetry` topic, whichever screen follows it.
+export const MACHINES: { list: Machine[] | null; failed: boolean; traffic: MachineTraffic[] } = { list: null, failed: false, traffic: [] };
+/// Called after the list changed, from a push or a rename or removal made here.
+export const machinesChanged = new Set<() => void>();
 let first: Promise<Machine[]> | null = null;
 
 /// The machines held; before the first push arrives, one read answers. A pushed list that comes
@@ -15,16 +19,26 @@ export function ensureMachines(): Promise<Machine[]> {
   if (MACHINES.list) return Promise.resolve(MACHINES.list);
 
   first ??= invoke<Machine[]>("list_machines")
-    .then(list => { MACHINES.list ??= list; MACHINES.failed = false; return MACHINES.list; }, (e: unknown) => { MACHINES.failed = true; throw e; })
+    .then(list => { if (!MACHINES.list) take(list); MACHINES.failed = false; return MACHINES.list ?? list; }, (e: unknown) => { MACHINES.failed = true; throw e; })
     .finally(() => { first = null; });
 
   return first;
 }
 
-/// Takes `list` after a change this window made, until the push confirms it.
-export function setMachines(list: Machine[]) {
+function take(list: Machine[]) {
   MACHINES.list = list;
   MACHINES.failed = false;
+  for (const f of machinesChanged) f();
+}
+
+/// Shows machine `id` under `name` after this window renamed it, until the push confirms it.
+export function renameListed(id: string, name: string) {
+  if (MACHINES.list) take(MACHINES.list.map(m => (m.id === id ? { ...m, name } : m)));
+}
+
+/// Drops machine `id` after this window removed it, until the push confirms it.
+export function removeListed(id: string) {
+  if (MACHINES.list) take(MACHINES.list.filter(m => m.id !== id));
 }
 
 subscribeEach(topic("machines"), event => {
@@ -32,6 +46,16 @@ subscribeEach(topic("machines"), event => {
   if (!pushed) return;
   if ("error" in pushed) { MACHINES.failed = true; return; }
 
-  MACHINES.list = pushed.list;
-  MACHINES.failed = false;
+  take(pushed.list);
 });
+
+/// Takes the traffic a `telemetry` update carries; false when it holds none or none changed.
+export function takeTraffic(data: unknown): boolean {
+  if (typeof data !== "object" || data === null || !("traffic" in data) || !Array.isArray(data.traffic)) return false;
+
+  const traffic = data.traffic.filter((t): t is MachineTraffic => typeof t === "object" && t !== null && "id" in t && typeof t.id === "string" && "counters" in t && Array.isArray(t.counters));
+  if (JSON.stringify(traffic) === JSON.stringify(MACHINES.traffic)) return false;
+
+  MACHINES.traffic = traffic;
+  return true;
+}

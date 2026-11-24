@@ -13,7 +13,7 @@ import { invoke, indexedChannel, listen } from "../ui/tauri.ts";
 import { localProjectId } from "./localid.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { followedProject, makeProjectLive, type LiveRow } from "./projectlive.ts";
-import type { BarTarget, BlockedHost, TaskSession } from "./projectbar.ts";
+import type { BarTarget, TaskSession } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
 import type { AgentHost} from "../agents/agents.ts";
@@ -182,8 +182,6 @@ export const pc = {
   /// The machine the project is being added to, until it is ready.
   adding: null as AgentHost | null,
   checkout: DEFAULT_CHECKOUT,
-  /// The machines with a coding agent installed that Beep cannot run yet.
-  blocked: [] as BlockedHost[],
   branches: new Map<string, BaseBranches | null>(),
   /// True while the bar's files upload and its start is handed over.
   starting: false,

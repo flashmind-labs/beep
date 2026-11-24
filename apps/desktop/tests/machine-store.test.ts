@@ -1,7 +1,7 @@
 import { answers } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ensureMachines, MACHINES, setMachines } from "../src/machines/machine-store.ts";
+import { ensureMachines, MACHINES, machinesChanged, removeListed, renameListed, takeTraffic } from "../src/machines/machine-store.ts";
 import type { Machine } from "../src/machines/machines.tsx";
 
 const held = (): Machine[] | null => MACHINES.list;
@@ -22,9 +22,38 @@ test("a list set while the first read is out wins over its answer", async () => 
   answers.list_machines = new Promise<Machine[]>(resolve => { answer = resolve; });
   const reading = ensureMachines();
 
-  setMachines([named("renamed")]);
+  MACHINES.list = [named("renamed")];
   answer([named("old")]);
   await reading;
 
   assert.equal(held()?.[0]?.name, "renamed");
+});
+
+test("a rename or removal changes the one list and tells its readers", () => {
+  const heard: string[][] = [];
+  const hear = () => heard.push((MACHINES.list ?? []).map(m => m.name));
+  machinesChanged.add(hear);
+
+  try {
+    MACHINES.list = [named("one"), { ...named("two"), id: "m2" }];
+    renameListed("m1", "first");
+    removeListed("m2");
+    MACHINES.list = null;
+    renameListed("m1", "ignored");
+  } finally {
+    machinesChanged.delete(hear);
+  }
+
+  assert.deepEqual(heard, [["first", "two"], ["first"]]);
+});
+
+test("traffic is taken from a telemetry update and only when it changed", () => {
+  const traffic = [{ id: "m1", counters: [{ key: "endpoint.relay.rx", bytes: 5 }] }];
+  MACHINES.traffic = [];
+
+  assert.equal(takeTraffic({ stats: [], traffic }), true);
+  assert.deepEqual(MACHINES.traffic, traffic);
+  assert.equal(takeTraffic({ stats: [], traffic: structuredClone(traffic) }), false);
+  assert.equal(takeTraffic({ stats: [] }), false);
+  assert.equal(takeTraffic(null), false);
 });

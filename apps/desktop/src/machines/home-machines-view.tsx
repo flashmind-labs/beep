@@ -5,6 +5,7 @@ import { ALL, byMachine, terminalNote, terminalWhere, type TerminalRow } from ".
 import { allTerms, openTerminals, termMachines } from "../terminals/view.tsx";
 import { openAddMachine, openProjects, projectWindowProps } from "../center/sidebar.tsx";
 import { state } from "../center/state.ts";
+import { MACHINES } from "./machine-store.ts";
 import { fsync } from "../project/sections.ts";
 import { openTile } from "../project/split.tsx";
 import { machineCaps, machineDisk, machineDot, machineMemory, machineNow, machineOs, machineProjects, projectsSummary, thisMacRow, type MacRow, type MachineCard, type MachineProject } from "./machine-state.ts";
@@ -40,7 +41,7 @@ function Folded({ machine, projects }: { machine: MachineCard; projects: Machine
 }
 function Machine({ machine, terminals }: { machine: MachineCard; terminals: TerminalRow[] }) {
   const caps = machine.can_host === false ? ["Controller"] : machineCaps(machine);
-  const disk = machineDisk(machine), memory = machineMemory(machine), moved = trafficSummary(trafficRows(state.traffic.find(row => row.id === machine.id)));
+  const disk = machineDisk(machine), memory = machineMemory(machine), moved = trafficSummary(trafficRows(MACHINES.traffic.find(row => row.id === machine.id)));
   const projects = machine.online ? machineProjects(machine.id, state.sync, fsync.detail) : [], live = projects.filter(project => project.pct != null || project.chip.wait);
   const menu = (event: React.MouseEvent) => showMachineMenu(machine, () => [], event.nativeEvent);
   return <div id={`m-${machine.id}`} className={`mcard${machine.online ? "" : " off"}`} onContextMenu={menu}>

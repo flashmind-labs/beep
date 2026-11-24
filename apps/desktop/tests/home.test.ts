@@ -132,6 +132,22 @@ test("telemetry replaces only its machine stats and preserves samples newer than
   assert.equal(home.machines[0].stats.load, 1, "the prior Home response stays untouched");
 });
 
+test("Home's cards follow the machine list for names and removal", async () => {
+  const { withListedMachines } = await import("../src/center/home-state.ts");
+  const card = (id: string, name: string) => ({ id, name, online: true, seen_at: 0, version: "", env: null, apps: [], gpus: [], capabilities: [], agents: 3, stats: null, connecting: false });
+  const home = { machines: [card("a", "Alpha"), card("b", "Beta")], running: [], needs_you: [], projects: [] };
+
+  assert.equal(withListedMachines(home, [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }]), home);
+  assert.equal(withListedMachines(home, null), home);
+
+  const renamed = withListedMachines(home, [{ id: "a", name: "Alpha" }, { id: "b", name: "Second" }]);
+  assert.equal(renamed.machines?.[0], home.machines[0]);
+  assert.equal(renamed.machines?.[1]?.name, "Second");
+  assert.equal(renamed.machines?.[1]?.agents, 3, "the card keeps what only Home reads");
+
+  assert.deepEqual(withListedMachines(home, [{ id: "b", name: "Beta" }]).machines?.map(m => m.id), ["b"]);
+});
+
 test("an empty list says connecting until a machine that runs agents answers", () => {
   const host = (online: boolean, connecting: boolean) => ({ online, connecting, can_host: true });
   const phone = { online: true, connecting: false, can_host: false };

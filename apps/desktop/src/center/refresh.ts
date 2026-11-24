@@ -3,7 +3,7 @@ import { snapshotView } from "../ui/snapshot-state.ts";
 // Home reads changed domains; telemetry arrives from the native cache.
 import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
-import { applyTelemetry, keepUnchanged, type HomeView, type Telemetry } from "./home-state.ts";
+import { applyTelemetry, keepUnchanged, withListedMachines, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
 import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pagesAccount } from "./state.ts";
 import { draw } from "./home.tsx";
@@ -12,6 +12,7 @@ import { refreshGit } from "./openitems.ts";
 import { currentLocation } from "./views.tsx";
 import { reloadGroup, drawRail, drawSide } from "./sidebar.tsx";
 import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
+import { MACHINES, machinesChanged, takeTraffic } from "../machines/machine-store.ts";
 import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
 import { followSync, readSync } from "../project/syncpage.ts";
@@ -67,14 +68,11 @@ export function dropWhere(name?: string) {
   else state.where.delete(name);
 }
 
-export function forgetMachine(id: string) {
-  editHome(home => ({ ...home, machines: home.machines?.filter(x => x.id !== id) ?? null }));
-  state.where.clear();
-}
-
-export function renameMachineHome(id: string, name: string) {
-  editHome(home => ({ ...home, machines: home.machines?.map(x => (x.id === id ? { ...x, name } : x)) ?? null }));
-}
+// Home's cards take their names, and drop a removed machine, from the machine list.
+machinesChanged.add(() => {
+  editHome(home => withListedMachines(home, MACHINES.list));
+  if (onScreen()) draw();
+});
 
 /// Reads membership, running sessions and Home data without refreshing unrelated panes.
 /// Sections that did not change keep their objects; an unchanged Home draws nothing.
@@ -100,7 +98,7 @@ async function readHome(): Promise<void> {
 
       if (next) {
         lastRead = next;
-        state.home = shown = telemetry ? applyTelemetry(next, telemetry) : next;
+        state.home = shown = withListedMachines(telemetry ? applyTelemetry(next, telemetry) : next, MACHINES.list);
         keepConnecting(next.machines);
       }
 
@@ -234,7 +232,7 @@ subscribeChanges(topic("forge"), { deliver: "latest", receive: async () => {
 subscribeChanges(topic("telemetry"), { deliver: "each", receive: event => {
   if (!event.data) return;
   telemetry = event.data as Telemetry;
-  state.traffic = telemetry.traffic;
+  takeTraffic(telemetry);
   const kept = state.home === shown;
   if (state.home) state.home = applyTelemetry(state.home, telemetry);
   if (kept) shown = state.home;
