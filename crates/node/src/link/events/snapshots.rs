@@ -43,6 +43,7 @@ enum Source {
     Terminal(TaskId),
     Devices,
     ToolUpdates,
+    Summaries,
 }
 
 impl Source {
@@ -276,6 +277,13 @@ impl Snapshots {
         {
             wanted.push((topic.clone(), Source::ToolUpdates));
         }
+
+        for topic in topics
+            .iter()
+            .filter(|topic| topic.name() == crate::agents::SUMMARIES_TOPIC)
+        {
+            wanted.push((topic.clone(), Source::Summaries));
+        }
         if selected("sign-in") {
             for tool in [
                 beep_proto::node::sign_in::Tool::Claude,
@@ -369,6 +377,7 @@ impl Snapshots {
                         | "sign-in"
                         | crate::run::device::TOPIC
                         | crate::machine::provision::UPDATES_TOPIC
+                        | crate::agents::SUMMARIES_TOPIC
                 )
         }) {
             wanted.push((topic.clone(), Source::Plugin));
@@ -502,6 +511,11 @@ impl Snapshots {
                             .as_ref()
                             .and_then(|provision| provision.updatable())
                             .map_or(Value::Missing, Value::ToolUpdates)),
+                        Source::Summaries => offers
+                            .agents
+                            .session_summaries()
+                            .await
+                            .map(Value::Summaries),
                         Source::Plugin => offers
                             .agents
                             .events
@@ -637,6 +651,7 @@ fn affected(read: &Topic, change: &Topic) -> bool {
             (read.name(), change.name()),
             ("agents", "agent" | "moves")
                 | ("agent", "agents")
+                | (crate::agents::SUMMARIES_TOPIC, "agents")
                 | ("processes", "process-output")
                 | ("terminals", "terminal-output")
                 | ("terminal-output", "terminals")

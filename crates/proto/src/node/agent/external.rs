@@ -30,6 +30,23 @@ pub struct AgentSessions {
     pub sessions: u32,
 }
 
+/// One session a node's agent stores hold, as the node last read them: who
+/// ran it, where, and when. Sessions of Beep and outside it are both here.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionSummary {
+    /// Such as `claude` or `codex`.
+    pub agent: String,
+    /// The agent's own id for it.
+    pub id: SessionId,
+    pub cwd: String,
+    /// Its title or first prompt, when the store gave it cheaply.
+    pub title: Option<String>,
+    /// Unix seconds.
+    pub started_at: u64,
+    pub last_activity: u64,
+}
+
 /// A session the user started on the machine outside Beep, such as Claude
 /// Code in a terminal or an IDE.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

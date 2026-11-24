@@ -506,14 +506,36 @@ fn one_terminal_is_read_alone_and_the_bare_topic_keeps_the_list() {
 fn the_wildcard_leaves_out_the_values_released_readers_cannot_decode() {
     let all = sources(&[Topic::new("*")]);
 
-    assert!(all.iter().all(|(topic, _)| !matches!(topic.name(), "devices" | "tool-updates")));
+    assert!(all.iter().all(|(topic, _)| !matches!(
+        topic.name(),
+        "devices" | "tool-updates" | "session-summaries"
+    )));
     assert_eq!(
-        sources(&[Topic::new("devices"), Topic::new("tool-updates")])
-            .into_iter()
-            .map(|(_, source)| source)
-            .collect::<Vec<_>>(),
-        vec![Source::Devices, Source::ToolUpdates]
+        sources(&[
+            Topic::new("devices"),
+            Topic::new("tool-updates"),
+            Topic::new("session-summaries")
+        ])
+        .into_iter()
+        .map(|(_, source)| source)
+        .collect::<Vec<_>>(),
+        vec![Source::Devices, Source::Summaries, Source::ToolUpdates]
     );
+}
+
+#[test]
+fn the_summaries_are_read_again_when_the_agents_ping() {
+    let topic = Topic::new("session-summaries");
+    let mut snapshots = Snapshots::new();
+    snapshots.replace(&Offers::default(), std::slice::from_ref(&topic), &[], &BTreeMap::new());
+    let key = (topic, None);
+    snapshots.entries.get_mut(&key).unwrap().dirty = false;
+
+    snapshots.changed(&Topic::new("moves"), ChangeKind::Any);
+    assert!(!snapshots.entries[&key].dirty);
+
+    snapshots.changed(&Topic::new("agents"), ChangeKind::Any);
+    assert!(snapshots.entries[&key].dirty);
 }
 
 #[test]

@@ -57,7 +57,7 @@ pub(crate) struct Source {
 impl Source {
     async fn new(offers: &Offers, topic: &Topic) -> Result<Self> {
         let agent_sources = if broad_files(std::slice::from_ref(topic))
-            || matches!(topic.name(), "agent" | "agents" | "*")
+            || matches!(topic.name(), "agent" | "agents" | "*" | crate::agents::SUMMARIES_TOPIC)
         {
             Some(offers.agents.watch_event_sources().await?)
         } else {
