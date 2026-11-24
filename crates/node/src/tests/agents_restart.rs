@@ -775,6 +775,27 @@ async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
     agents.shutdown().await;
 }
 
+#[tokio::test]
+async fn a_refiled_session_is_saved_and_reopened_in_its_new_folder() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let kind = adapter(&dir.path().join("log"));
+    let agents = Agents::new(vec![kind.clone()]);
+    let session = agents
+        .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
+        .await
+        .expect("the session starts");
+    let mut live = session.live.clone();
+    until(&mut live, |live| live.info.turns == 1).await;
+
+    session.moved_to("/srv/refiled");
+
+    let saved = agents.saved(&SessionId::from("held-1")).expect("saved");
+    assert_eq!(saved.info.cwd, "/srv/refiled");
+    let open = agents.open_sessions();
+    assert_eq!(open[0].cwd, Path::new("/srv/refiled"));
+    agents.shutdown().await;
+}
+
 #[test]
 fn a_reviewer_taken_over_is_never_the_assistant() {
     let agents = Agents::new(Vec::new());

@@ -682,11 +682,17 @@ impl Session {
     }
 
     fn refiled(&self, mut info: SessionInfo) -> SessionInfo {
-        if let Some(folder) = crate::lock(&self.moved_cwd).as_ref() {
-            info.cwd.clone_from(folder);
-        }
+        info.cwd = self.folder(&info.cwd);
 
         info
+    }
+
+    /// The folder to use for the session: where its conversation was
+    /// refiled to, else `cwd` as its state has it.
+    pub(super) fn folder(&self, cwd: &str) -> String {
+        crate::lock(&self.moved_cwd)
+            .clone()
+            .unwrap_or_else(|| cwd.to_owned())
     }
 
     /// Shows the folder its conversation was refiled in. Only a closed
