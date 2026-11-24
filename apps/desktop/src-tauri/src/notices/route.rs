@@ -84,7 +84,6 @@ fn agent_notice(
     allow_deny: bool,
     settle: Instant,
 ) {
-    let fleet = app.state::<Arc<Fleet>>();
     let rows = app.state::<Arc<SessionMirror>>().current();
     let link = rows.link(&key.machine_id, &key.session);
     let reviewer = link.is_some_and(|link| link.reviewer);

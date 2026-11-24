@@ -356,7 +356,7 @@ async fn children_and_reviewers_stay_out_of_the_rows_and_are_edited_with_them() 
         .link(&machine_id, &"kid".into())
         .and_then(|link| link.parent(&machine_id))
         .unwrap();
-    assert_eq!(parent.id, "parent".into());
+    assert_eq!(parent.id, "parent");
     assert_eq!(parent.machine_id, machine_id);
 
     // A delete takes a child with the rows.

@@ -33,7 +33,6 @@ use beep_mesh::{
 };
 #[cfg(desktop)]
 use beep_node::{files::Folders, link::Offers, link::peers::Peers};
-use beep_proto::SessionId;
 use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 #[cfg(desktop)]
