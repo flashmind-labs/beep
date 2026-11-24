@@ -7,6 +7,7 @@ use crate::{
     desk::Desk,
     error::{FleetError, Result},
     records::{WRITES, find_project, project_key, read, scan, write},
+    session::Changed,
 };
 use beep_mesh::{Key, PeerClient};
 use beep_projects::model::plain_path;
@@ -23,14 +24,19 @@ use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use std::{
     collections::{BTreeSet, HashMap},
+    sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
-use tokio::time::timeout;
+use tokio::time::{Instant, timeout};
 
 /// Machines asked about their sync at once.
 const MACHINES_AT_ONCE: usize = 8;
 /// How long a direct sync status call waits on one node.
 const SYNC_CALL_LIMIT: Duration = Duration::from_secs(2);
+/// How long the first direct read of a node waits for its answer, when nothing is kept yet.
+const SYNC_FIRST_WAIT: Duration = Duration::from_millis(750);
+/// How long a node's last direct answer is used before a background call asks again.
+const SYNC_FRESH: Duration = Duration::from_secs(5);
 /// How long a subscribed sync read waits for the stream before asking the node directly.
 const SNAPSHOT_POLL_WAIT: Duration = Duration::from_millis(50);
 /// How long a Syncthing folder-share check waits on one machine.
@@ -61,6 +67,108 @@ async fn fetch_node_statuses(client: &PeerClient) -> Option<Vec<ProjectStatus>> 
     match reply {
         Reply::Status { projects } => Some(projects),
         _ => None,
+    }
+}
+
+/// The last direct answer of one node that does not push its sync.
+struct Direct {
+    /// When it was asked; `None` for a first wait that gave up, so the next read asks again.
+    at: Option<Instant>,
+    projects: Option<Vec<ProjectStatus>>,
+    refreshing: bool,
+}
+
+/// What nodes that do not offer the `SyncList` topic last said of their sync. A read answers
+/// from it at once and a background call refreshes it. A node that pushes is never put here.
+pub(crate) struct DirectSyncs {
+    held: Mutex<HashMap<EndpointId, Direct>>,
+    changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>,
+}
+
+impl DirectSyncs {
+    pub(crate) fn new(changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>) -> Self {
+        Self {
+            held: Mutex::default(),
+            changed,
+        }
+    }
+
+    fn forget(&self, machine: EndpointId) {
+        self.held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&machine);
+    }
+
+    /// What `machine` last said. With nothing kept, asks and waits a little; a kept answer older
+    /// than `SYNC_FRESH` is used as it is while a background call asks again.
+    async fn read(
+        self: &Arc<Self>,
+        machine: EndpointId,
+        client: Option<PeerClient>,
+    ) -> Option<Vec<ProjectStatus>> {
+        let kept = {
+            let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+            held.get_mut(&machine).map(|direct| {
+                let stale = direct.at.is_none_or(|at| at.elapsed() >= SYNC_FRESH);
+                let refresh = stale && !direct.refreshing && client.is_some();
+                direct.refreshing |= refresh;
+                (direct.projects.clone(), refresh)
+            })
+        };
+
+        let Some((projects, refresh)) = kept else {
+            let said = timeout(SYNC_FIRST_WAIT, fetch_node_statuses(&client?)).await;
+            let at = said.is_ok().then(Instant::now);
+            let projects = said.ok().flatten();
+            self.held
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .insert(
+                    machine,
+                    Direct {
+                        at,
+                        projects: projects.clone(),
+                        refreshing: false,
+                    },
+                );
+
+            return projects;
+        };
+
+        if refresh && let Some(client) = client {
+            let this = self.clone();
+            tokio::spawn(async move {
+                let fetched = fetch_node_statuses(&client).await;
+                this.refreshed(machine, fetched);
+            });
+        }
+
+        projects
+    }
+
+    /// Keeps a background answer, and a failed call keeps what was said before.
+    fn refreshed(&self, machine: EndpointId, fetched: Option<Vec<ProjectStatus>>) {
+        let changed = {
+            let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+            let Some(direct) = held.get_mut(&machine) else {
+                return;
+            };
+            direct.refreshing = false;
+            direct.at = Some(Instant::now());
+
+            match fetched {
+                Some(projects) if direct.projects.as_ref() != Some(&projects) => {
+                    direct.projects = Some(projects);
+                    true
+                }
+                _ => false,
+            }
+        };
+
+        if changed && let Some(changed_fn) = &self.changed {
+            changed_fn(Changed::Sync);
+        }
     }
 }
 
@@ -263,19 +371,22 @@ impl Desk {
     }
 
     /// What `machine` says of every project it syncs; `None` when it is offline or does not
-    /// answer. Read from the machine's subscription, which the node keeps pushing.
+    /// answer. Read from the machine's subscription, which the node keeps pushing. A node that
+    /// does not push is read from its last direct answer.
     pub(crate) async fn node_statuses(&self, machine: EndpointId) -> Option<Vec<ProjectStatus>> {
         if !self.is_online(machine) {
+            self.hosts.direct_syncs().forget(machine);
             return None;
         }
 
-        let client = timeout(SYNC_CALL_LIMIT, self.peers.client(machine))
+        let client = timeout(SNAPSHOT_POLL_WAIT, self.peers.client(machine))
             .await
-            .ok()?
-            .ok()?;
+            .ok()
+            .and_then(Result::ok);
 
-        if let Ok(Some(Ok(Value::Sync(reply)))) =
-            timeout(SNAPSHOT_POLL_WAIT, client.snapshot(Read::SyncList)).await
+        if let Some(client) = &client
+            && let Ok(Some(Ok(Value::Sync(reply)))) =
+                timeout(SNAPSHOT_POLL_WAIT, client.snapshot(Read::SyncList)).await
         {
             return match *reply {
                 Reply::Status { projects } => Some(projects),
@@ -283,7 +394,7 @@ impl Desk {
             };
         }
 
-        fetch_node_statuses(&client).await
+        self.hosts.direct_syncs().read(machine, client).await
     }
 
     pub(crate) fn name_of(&self, machine: EndpointId) -> String {

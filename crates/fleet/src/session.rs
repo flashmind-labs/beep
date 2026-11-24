@@ -82,6 +82,8 @@ pub enum Changed {
         lists: bool,
         runs: bool,
     },
+    /// A node that pushes no sync status said something new of it.
+    Sync,
     /// The plans and spending: `Session::spend` gives more than before.
     Usage,
 }
@@ -275,7 +277,7 @@ impl Session {
         Ok(Arc::new(Self {
             options,
             peers,
-            hosts: DesktopHosts::new()?,
+            hosts: DesktopHosts::new_with(Some(changed.clone()))?,
             changed,
             lists: Cache::default(),
             runs: Cache::default(),

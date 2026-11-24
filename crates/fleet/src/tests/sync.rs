@@ -339,7 +339,7 @@ async fn degraded_node_does_not_stall_sync_and_shows_its_answer_on_the_next_read
     let started = Instant::now();
     let initial = desk.sync().await;
     assert!(
-        started.elapsed() < Duration::from_secs(4),
+        started.elapsed() < Duration::from_millis(500),
         "sync returned without waiting on the stalled node"
     );
     let fast_row = initial[0]
@@ -372,4 +372,111 @@ async fn degraded_node_does_not_stall_sync_and_shows_its_answer_on_the_next_read
     drop(node);
     ep1.close().await;
     ep2.close().await;
+}
+
+/// Answers every direct status call with a file count that grows by one each time.
+struct CountingPeers {
+    mesh: Mesh,
+    calls: Arc<std::sync::atomic::AtomicU64>,
+}
+
+#[async_trait]
+impl Peers for CountingPeers {
+    async fn mesh(&self) -> Result<Mesh> {
+        Ok(self.mesh.clone())
+    }
+
+    fn me(&self) -> EndpointId {
+        self.mesh.me()
+    }
+
+    async fn client(&self, _machine: EndpointId) -> Result<PeerClient> {
+        let calls = self.calls.clone();
+        Ok(PeerClient::local(Arc::new(move |mut tx, mut rx| {
+            let calls = calls.clone();
+            Box::pin(async move {
+                let _ = rx.recv::<beep_proto::node::Open>().await;
+                let _ = tx.send(&beep_proto::node::Opened::Ready {}).await;
+                let _ = rx.recv::<Request>().await;
+                let files = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let _ = tx
+                    .send(&Reply::Status {
+                        projects: vec![ProjectStatus {
+                            name: "acme/widget".into(),
+                            folder: "/srv/widget".into(),
+                            state: State::Idle,
+                            paused: false,
+                            git_only: false,
+                            files,
+                            bytes: 0,
+                            pending: 0,
+                            waiting: Vec::new(),
+                            progress: None,
+                            conflicts: Vec::new(),
+                            rescan_secs: None,
+                            hint: None,
+                            error: None,
+                        }],
+                    })
+                    .await;
+            })
+        })))
+    }
+}
+
+#[tokio::test]
+async fn a_node_without_the_topic_answers_from_its_last_call_and_redraws_when_it_changes() {
+    use crate::session::{Changed, Options, Session};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let dir = TempDir::new().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .unwrap();
+    let mut folders = std::collections::BTreeMap::new();
+    folders.insert(mesh.me(), "/srv/widget".to_owned());
+    mesh.set(
+        Key::Sync("acme/widget".into()),
+        Some(
+            SyncSpec {
+                folders,
+                ..SyncSpec::default()
+            }
+            .to_bytes()
+            .unwrap(),
+        ),
+    )
+    .await
+    .unwrap();
+
+    let calls = Arc::new(AtomicU64::new(0));
+    let peers = Arc::new(CountingPeers {
+        mesh: mesh.clone(),
+        calls: calls.clone(),
+    });
+    let (tx, mut heard) = tokio::sync::mpsc::unbounded_channel();
+    let session = Session::new(peers, Options::default(), move |changed| {
+        let _ = tx.send(changed);
+    })
+    .unwrap();
+    let desk = session.desk().await.unwrap();
+    let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
+
+    assert_eq!(files(&desk.sync().await), 1);
+    assert_eq!(files(&desk.sync().await), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 1, "a fresh answer is kept");
+
+    // Past the freshness, a read still answers at once from the kept copy.
+    tokio::time::pause();
+    tokio::time::advance(SYNC_FRESH + Duration::from_secs(1)).await;
+    assert_eq!(files(&desk.sync().await), 1);
+    assert_eq!(heard.recv().await, Some(Changed::Sync));
+    assert_eq!(files(&desk.sync().await), 2);
+
+    endpoint.close().await;
 }

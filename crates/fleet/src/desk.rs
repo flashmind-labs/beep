@@ -5,6 +5,7 @@ use crate::{
     AsyncMutex,
     error::{FleetError, Result},
     peer::{PeerFound, PeerShell, Peers, Probe, probe},
+    session::Changed,
 };
 use beep_mesh::{
     DeviceStatus, Mesh,
@@ -259,6 +260,8 @@ pub(crate) struct DesktopHosts {
     gates: Arc<HostGates>,
     /// Held by the run reading Home's pull requests and issues.
     board_run: Arc<AsyncMutex<()>>,
+    /// What nodes that push no sync status last said of it.
+    direct_syncs: Arc<crate::sync::DirectSyncs>,
     /// Per-machine spend cache, so a degraded node keeps its last spend instead of dropping to 0.
     usage: Arc<crate::usage::UsageCache>,
     /// Last move state reported by each target machine, used when a link glitches momentarily.
@@ -267,6 +270,10 @@ pub(crate) struct DesktopHosts {
 
 impl DesktopHosts {
     pub(crate) fn new() -> Result<Self> {
+        Self::new_with(None)
+    }
+
+    pub(crate) fn new_with(changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>) -> Result<Self> {
         let client = beep_proto::https::client()
             .connect_timeout(Duration::from_secs(3))
             .timeout(HOST_TIMEOUT)
@@ -282,9 +289,14 @@ impl DesktopHosts {
             remotes: Arc::default(),
             gates: Arc::default(),
             board_run: Arc::default(),
+            direct_syncs: Arc::new(crate::sync::DirectSyncs::new(changed)),
             usage: Arc::default(),
             moves: Arc::default(),
         })
+    }
+
+    pub(crate) fn direct_syncs(&self) -> &Arc<crate::sync::DirectSyncs> {
+        &self.direct_syncs
     }
 
     pub(crate) fn usage(&self) -> &Arc<crate::usage::UsageCache> {
