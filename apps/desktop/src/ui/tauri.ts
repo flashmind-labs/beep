@@ -63,37 +63,30 @@ export const { Channel } = core;
 export interface BuildCapabilities {
   local_host: boolean;
   metrics_recording: boolean;
-  resource_profiling: boolean;
   autostart: boolean;
-  window_state: boolean;
   image_clipboard: boolean;
   desktop_control: boolean;
-  rich_text: boolean;
 }
 
 const NO_CAPABILITIES: BuildCapabilities = {
-  local_host: false, metrics_recording: false, resource_profiling: false, autostart: false,
-  window_state: false, image_clipboard: false, desktop_control: false, rich_text: false,
+  local_host: false, metrics_recording: false, autostart: false,
+  image_clipboard: false, desktop_control: false,
 };
 
 function capabilitiesFrom(value: unknown): BuildCapabilities {
   if (typeof value !== "object" || value === null
     || !("local_host" in value) || typeof value.local_host !== "boolean"
     || !("metrics_recording" in value) || typeof value.metrics_recording !== "boolean"
-    || !("resource_profiling" in value) || typeof value.resource_profiling !== "boolean"
     || !("autostart" in value) || typeof value.autostart !== "boolean"
-    || !("window_state" in value) || typeof value.window_state !== "boolean"
     || !("image_clipboard" in value) || typeof value.image_clipboard !== "boolean"
-    || !("desktop_control" in value) || typeof value.desktop_control !== "boolean"
-    || !("rich_text" in value) || typeof value.rich_text !== "boolean") {
+    || !("desktop_control" in value) || typeof value.desktop_control !== "boolean") {
     throw new Error("The app did not report its available features.");
   }
 
   return {
     local_host: value.local_host, metrics_recording: value.metrics_recording,
-    resource_profiling: value.resource_profiling, autostart: value.autostart,
-    window_state: value.window_state, image_clipboard: value.image_clipboard,
-    desktop_control: value.desktop_control, rich_text: value.rich_text,
+    autostart: value.autostart, image_clipboard: value.image_clipboard,
+    desktop_control: value.desktop_control,
   };
 }
 

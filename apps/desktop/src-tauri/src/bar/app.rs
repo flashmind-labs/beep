@@ -20,12 +20,9 @@ use tauri_plugin_opener::OpenerExt;
 pub struct BuildCapabilities {
     local_host: bool,
     metrics_recording: bool,
-    resource_profiling: bool,
     autostart: bool,
-    window_state: bool,
     image_clipboard: bool,
     desktop_control: bool,
-    rich_text: bool,
 }
 
 #[tauri::command]
@@ -33,12 +30,9 @@ pub fn build_capabilities() -> BuildCapabilities {
     BuildCapabilities {
         local_host: cfg!(desktop),
         metrics_recording: true,
-        resource_profiling: cfg!(desktop),
         autostart: cfg!(desktop),
-        window_state: cfg!(desktop),
         image_clipboard: cfg!(desktop),
         desktop_control: cfg!(target_os = "macos"),
-        rich_text: true,
     }
 }
 
