@@ -20,6 +20,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+pub(crate) mod agy;
 mod codex;
 mod codex_run;
 mod delete;
@@ -79,20 +80,20 @@ pub(crate) enum Agent {
     Pi,
     Flsh,
     OpenCode,
-    /// Antigravity: only what its sessions spent is read.
     Agy,
 }
 
 impl Agent {
-    pub(in crate::agents) const ALL: [Self; 5] = [
+    pub(in crate::agents) const ALL: [Self; 6] = [
         Self::Claude,
         Self::Codex,
         Self::Pi,
         Self::Flsh,
         Self::OpenCode,
+        Self::Agy,
     ];
-    pub(in crate::agents) const STORED: [Self; 4] =
-        [Self::Codex, Self::Pi, Self::Flsh, Self::OpenCode];
+    pub(in crate::agents) const STORED: [Self; 5] =
+        [Self::Codex, Self::Pi, Self::Flsh, Self::OpenCode, Self::Agy];
 }
 
 impl From<Agent> for AgentSlug {
@@ -118,8 +119,8 @@ pub(crate) struct Seen {
     pub(crate) file: Option<PathBuf>,
 }
 
-/// Where Codex, pi, flsh and OpenCode keep their sessions on this machine
-/// (Claude Code's are in `crate::agents::claude`). A session's folder counts
+/// Where Codex, pi, flsh, OpenCode and Antigravity keep their sessions on
+/// this machine (Claude Code's are in `crate::agents::claude`). A session's folder counts
 /// for the checkout that holds it (`git`), so a subfolder or worktree counts
 /// for the main folder. Every read is capped and blocks: run it with
 /// `spawn_blocking`.
@@ -131,6 +132,8 @@ pub(crate) struct Stores {
     /// OpenCode's database, or its data folder of them.
     opencode: Option<PathBuf>,
     opencode_file: bool,
+    /// Antigravity's conversations folder.
+    agy: Option<PathBuf>,
     memos: Arc<Memos>,
     /// These are a WSL distribution's, read beside this machine's own.
     in_wsl: bool,
@@ -179,6 +182,8 @@ struct Memos {
     names: Memo<Arc<HashMap<SessionId, String>>>,
     /// Each flsh or OpenCode database's sessions.
     databases: Memo<Arc<Vec<Seen>>>,
+    /// Antigravity's titles and subagents.
+    agy: Memo<Arc<agy::Summaries>>,
     /// The entries of the few Codex or pi session files read last.
     transcripts: Memo<Arc<Vec<beep_proto::node::agent::Entry>>>,
 }
@@ -196,6 +201,7 @@ impl Default for Memos {
             folders: Memo::new(1_000),
             names: Memo::new(4),
             databases: Memo::new(1_000),
+            agy: Memo::new(4),
             transcripts: Memo::new(TRANSCRIPTS_KEPT),
         }
     }
@@ -210,6 +216,7 @@ impl Stores {
             flsh: flsh::sessions_dir(),
             opencode: opencode::configured(),
             opencode_file: opencode::configured_file(),
+            agy: agy::conversations_dir(),
             memos: Arc::default(),
             in_wsl: false,
         }
@@ -224,6 +231,7 @@ impl Stores {
             flsh: Some(home.join(".local").join("share").join("flashmind").join("sessions")),
             opencode: Some(home.join(".local").join("share").join("opencode")),
             opencode_file: false,
+            agy: Some(home.join(".gemini").join("antigravity-cli").join("conversations")),
             memos: Arc::default(),
             in_wsl: true,
         }
@@ -243,6 +251,7 @@ impl Stores {
             Some(Agent::Pi) => self.pi.as_ref(),
             Some(Agent::Flsh) => self.flsh.as_ref(),
             Some(Agent::OpenCode) => self.opencode.as_ref(),
+            Some(Agent::Agy) => self.agy.as_ref(),
             _ => None,
         };
         root.and_then(|path| {
@@ -285,6 +294,12 @@ impl Stores {
             && wants(Agent::OpenCode)
         {
             seen.extend(opencode::sessions(root, memos));
+        }
+
+        if let Some(root) = self.agy.as_deref()
+            && wants(Agent::Agy)
+        {
+            seen.extend(agy::sessions(root, memos));
         }
 
         self.with_wsl(seen, |stores| stores.sessions(agent))
@@ -355,8 +370,7 @@ impl Stores {
     }
 
     /// The folder `seen` works in now: what its agent last recorded, else
-    /// the folder it started in. Codex's rollout says; pi, flsh and
-    /// OpenCode keep only the folder a session started in.
+    /// the folder it started in. Codex's rollout says; the others keep only the folder a session started in.
     fn working_folder(&self, seen: &Seen) -> PathBuf {
         let recorded = match (seen.agent, seen.file.as_deref()) {
             (Agent::Codex, Some(file)) => {

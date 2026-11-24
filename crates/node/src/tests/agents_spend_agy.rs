@@ -1,6 +1,7 @@
 //! Passes over fabricated Antigravity conversations.
 
 use super::*;
+use crate::agents::found::agy::Workspace;
 use crate::agents::spend::{Heard, Roots, Spend};
 use rusqlite::Connection;
 

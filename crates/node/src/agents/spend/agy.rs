@@ -7,14 +7,18 @@ use super::{
     billing::Accounts,
     ledger::{BucketKey, Part, UNKNOWN_MODEL},
 };
-use crate::agents::found::{Agent, open_database};
+use crate::agents::found::{
+    Agent,
+    agy::{Time, Trajectory},
+    open_database,
+};
 use crate::agents::prices::Tokens;
 use beep_proto::{ModelId, SessionId, node::usage::Billing};
 use prost::Message;
 use rusqlite::OptionalExtension;
 use std::{
     collections::BTreeMap,
-    path::{Path, PathBuf},
+    path::Path,
 };
 
 /// The most model requests one conversation gives in a pass.
@@ -23,21 +27,6 @@ const MAX_ROWS: i64 = 50_000;
 const GENERATIONS: &str = "SELECT data FROM gen_metadata ORDER BY idx LIMIT ?1";
 const STEP: &str = "SELECT metadata FROM steps WHERE idx = ?1";
 const TRAJECTORY: &str = "SELECT data FROM trajectory_metadata_blob LIMIT 1";
-
-/// Where Antigravity keeps its conversations: `~/.gemini/antigravity-cli`,
-/// which nothing but the home moves. It may not exist yet.
-pub(super) fn conversations_dir() -> Option<PathBuf> {
-    Some(
-        dirs::home_dir()?
-            .join(".gemini")
-            .join("antigravity-cli")
-            .join("conversations"),
-    )
-}
-
-pub(super) fn is_conversation(path: &Path) -> bool {
-    path.extension().is_some_and(|ext| ext == "db")
-}
 
 /// What the conversation in `database` spent from `since` (Unix seconds) on,
 /// under its root session: the file's name, or the session that started it.
@@ -191,29 +180,6 @@ struct Label {
 struct Step {
     #[prost(message, optional, tag = "1")]
     created: Option<Time>,
-}
-
-/// The conversation's `trajectory_metadata_blob`.
-#[derive(Clone, PartialEq, Message)]
-struct Trajectory {
-    #[prost(message, repeated, tag = "1")]
-    workspaces: Vec<Workspace>,
-    #[prost(message, optional, tag = "2")]
-    created: Option<Time>,
-}
-
-#[derive(Clone, PartialEq, Message)]
-struct Workspace {
-    /// A `file://` URI.
-    #[prost(string, tag = "1")]
-    uri: String,
-}
-
-/// A protobuf `Timestamp`, to the second.
-#[derive(Clone, PartialEq, Message)]
-struct Time {
-    #[prost(int64, tag = "1")]
-    seconds: i64,
 }
 
 #[cfg(test)]

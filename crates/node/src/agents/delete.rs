@@ -37,7 +37,7 @@ impl Agents {
             .parse::<Agent>()
             .ok()
             .with_context(|| format!("this node has no agent {agent}"))?;
-        if matches!(which, Agent::Flsh | Agent::OpenCode) {
+        if matches!(which, Agent::Flsh | Agent::OpenCode | Agent::Agy) {
             bail!("{agent} keeps its sessions in a database, which Beep does not edit");
         }
 

@@ -71,7 +71,7 @@ impl Roots {
             pi: logs.pi,
             flsh: logs.flsh,
             opencode: logs.opencode,
-            agy: agy::conversations_dir(),
+            agy: found::agy::conversations_dir(),
             accounts,
         }
     }
@@ -341,7 +341,7 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
 
     if let Some(root) = &roots.agy {
         let mut files = Vec::new();
-        collect(Agent::Agy, root, 0, &agy::is_conversation, since, &mut files);
+        collect(Agent::Agy, root, 0, &found::agy::is_conversation, since, &mut files);
         out.extend(files.into_iter().map(|file| (Agent::Agy, file.path)));
     }
 

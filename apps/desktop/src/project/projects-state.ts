@@ -205,7 +205,7 @@ export function importPlan(row: Pick<FoundRow, "remote" | "places"> | null | und
 export function lookingText(machines: readonly { online: boolean }[] | null | undefined) {
   const n = (machines || []).filter(m => m.online).length;
   const on = n === 1 ? "1 machine" : n ? `${n} machines` : "your machines";
-  return `Looking through Claude Code, Codex, pi, flsh and OpenCode sessions on ${on}…`;
+  return `Looking through Claude Code, Codex, pi, flsh, OpenCode and Antigravity sessions on ${on}…`;
 }
 
 /// The project's running sessions, including live rows read from its history

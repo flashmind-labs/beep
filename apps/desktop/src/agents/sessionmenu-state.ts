@@ -15,7 +15,7 @@ interface SessionOffers {
 }
 
 /// The agents whose sessions started outside Beep can be taken over.
-export const TAKEOVER = new Set(["claude", "codex", "pi", "flsh", "opencode"]);
+export const TAKEOVER = new Set(["claude", "codex", "pi", "flsh", "opencode", "agy"]);
 
 /// The items for a session in `status`. A session started outside Beep can
 /// be continued here, and once it ended its conversation can still be deleted.
