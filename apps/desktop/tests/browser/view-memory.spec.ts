@@ -4,7 +4,7 @@ import { openDesktop, projectName } from "./harness.ts";
 test("a project draft keeps its terminal and dock mounted as its start, then as the session its machine names", { tag: "@windows" }, async ({ page }, info) => {
   const session = { machine_id: "build-box", machine_name: "build-box", id: "started", agent: "codex", title: "Started session", cwd: "/srv/project", status: "working", doing: null as string | null, started_at: 1, last_activity: 1, external: false, question: null, assistant: false };
   const start = { ...session, id: "start:one", status: "starting", doing: "Starting Codex on build-box" };
-  const pageOf = (row: typeof session) => ({ session: row, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 });
+  const pageOf = (row: typeof session) => ({ session: row, plan: [], entries: [], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 0 });
   await openDesktop(page, true, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: "/srv/project", home: "/srv", capabilities: [] }],
     agent_begin: { session: start, why: "" },

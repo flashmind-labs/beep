@@ -16,8 +16,8 @@ test("a file is followed in the first watched folder holding it, else in its own
 
 test("a file's size comes from its own folder's listing, not a namesake elsewhere", () => {
   const listing = tree([
-    { path: "out", entries: [entry("chart.png", 120), entry("chart", 0, true)], more: 0, git: true },
-    { path: "out/chart", entries: [entry("chart.png", 999)], more: 0, git: true },
+    { path: "out", entries: [entry("chart.png", 120), entry("chart", 0, true)], more: 0 },
+    { path: "out/chart", entries: [entry("chart.png", 999)], more: 0 },
   ]);
   assert.equal(listedSize(listing, "out", "chart.png"), 120);
   assert.equal(listedSize(listing, "out", "chart"), null);
@@ -27,8 +27,8 @@ test("a file's size comes from its own folder's listing, not a namesake elsewher
 
 test("a page's folder stamp changes with the files under it, not with git's marks", () => {
   const before = tree([
-    { path: "site", entries: [entry("index.html", 40), entry("css", 0, true)], more: 0, git: true },
-    { path: "site/css", entries: [entry("style.css", 300)], more: 0, git: true },
+    { path: "site", entries: [entry("index.html", 40), entry("css", 0, true)], more: 0 },
+    { path: "site/css", entries: [entry("style.css", 300)], more: 0 },
   ]);
   const staged = tree(before.folders.map(f => ({ ...f, entries: f.entries.map(e => ({ ...e, change: "added" as const })) })));
   const edited = tree([before.folders[0], { ...before.folders[1], entries: [entry("style.css", 310)] }]);

@@ -30,7 +30,7 @@ try {
   await page.addStyleTag({ content: '#bar { position: fixed; inset: 0; width: 1300px; height: 850px; max-height: none; max-width: none; display: flex; flex-direction: column } .agconv { overflow: hidden } #agbody { overflow: auto; flex: 1 }' });
   await page.evaluate(stubInit, JSON.stringify({
     agent_hosts: [], agent_sessions: [], agent_reviews: [], editors: [], agent_worktrees: [], agent_tasks: [], session_moves: [],
-    agent_tree: { folders: [{ path: "", entries: [], more: 0, git: true }], truncated: false },
+    agent_tree: { folders: [{ path: "", entries: [], more: 0 }], truncated: false },
     work_diff: { root: "/srv/project", base: "main", merge_base: "", working_tree: true, files, additions: 25000, deletions: 0, more: 0 },
   }));
   await page.evaluate(() => {

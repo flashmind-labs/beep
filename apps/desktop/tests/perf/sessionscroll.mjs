@@ -62,7 +62,7 @@ const sessionStub = ([log, session, delays]) => {
   const later = (ms, v) => new Promise(r => setTimeout(() => r(v), ms));
   const page = (id, last, before) => {
     const end = before ?? log.length, start = Math.max(0, end - last);
-    return { session: { ...session, id }, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, entries: log.slice(start, end), earlier: start };
+    return { session: { ...session, id }, plan: [], error: null, queued: 0, turns: 0, entries: log.slice(start, end), earlier: start };
   };
   // A picture that loads late.
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="600" height="420"><rect width="600" height="420" fill="#7a9"/></svg>`;

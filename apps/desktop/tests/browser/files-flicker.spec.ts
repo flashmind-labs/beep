@@ -3,7 +3,7 @@ import { openDesktop } from "./harness.ts";
 
 type Change = "untracked" | "added" | "modified" | "conflicted" | null;
 const entry = (name: string, folder = false, change: Change = null) => ({ name, folder, size: 1, ignored: false, change });
-const tree = (top: ReturnType<typeof entry>[], src: ReturnType<typeof entry>[]) => ({ folders: [{ path: "", entries: top, more: 0, git: true }, { path: "src", entries: src, more: 0, git: true }], truncated: false });
+const tree = (top: ReturnType<typeof entry>[], src: ReturnType<typeof entry>[]) => ({ folders: [{ path: "", entries: top, more: 0 }, { path: "src", entries: src, more: 0 }], truncated: false });
 const session = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } as const;
 /// The `files` topic of the session's folder.
 const FOLDER = "files.%2Fsrv%2Fproject";
@@ -64,7 +64,7 @@ test("the file tree changes only what changed as the agent works", async ({ page
 
 test("a folder of thousands of files draws only the rows in view and reveals one further down", async ({ page }) => {
   const names = Array.from({ length: 5000 }, (_, i) => `file${String(i).padStart(4, "0")}.txt`);
-  await openDesktop(page, true, { agent_tree: { folders: [{ path: "", entries: names.map(n => entry(n)), more: 0, git: true }], truncated: false } });
+  await openDesktop(page, true, { agent_tree: { folders: [{ path: "", entries: names.map(n => entry(n)), more: 0 }], truncated: false } });
   await page.evaluate(value => window.__navigation.open({ agent: value }), session);
   await page.getByRole("tab", { name: "Files", exact: true }).click();
   const files = page.getByRole("tree", { name: "Working files" });
@@ -98,11 +98,11 @@ test("a session shown again draws its worktree's tree where it was left, from th
       Reflect.set(window, "treeRoots", [...Reflect.get(window, "treeRoots") ?? [], args?.root]);
       const tag = args?.root === "/srv/project" ? "main" : "fix";
       const entries = Array.from({ length: rows }, (_, i) => ({ name: `${tag}${String(i).padStart(2, "0")}.txt`, folder: false, size: 1, ignored: false, change: null }));
-      return structuredClone({ folders: [{ path: "", entries, more: 0, git: true }], truncated: false }) as T;
+      return structuredClone({ folders: [{ path: "", entries, more: 0 }], truncated: false }) as T;
     };
     window.__navigation.worktrees([{ path: "/srv/project", branch: "main", head: "abc1234", own: true, created: false }, { path: "/srv/project/.worktrees/fix", branch: "fix", head: "abc1234", own: false, created: true }]);
     // The agent works in the linked worktree.
-    window.__navigation.respond("agent_view", { session: { ...s, question: null }, plan: [], files: [], entries: [{ kind: "user", text: "Fix the login" }, { kind: "tool", text: "Edit /srv/project/.worktrees/fix/login.ts [completed]" }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 });
+    window.__navigation.respond("agent_view", { session: { ...s, question: null }, plan: [], entries: [{ kind: "user", text: "Fix the login" }, { kind: "tool", text: "Edit /srv/project/.worktrees/fix/login.ts [completed]" }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1 });
     window.__navigation.open({ agent: s });
   }, [session, 80] as const);
   await page.getByRole("tab", { name: "Files", exact: true }).click();

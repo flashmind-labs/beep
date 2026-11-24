@@ -52,7 +52,7 @@ for (const kind of ["project", "chat"] as const) {
     await page.setViewportSize({ width: 1000, height: 700 });
     await openDesktop(page, false, {
       center_window_alone: alone, project_sessions: [session], agent_sessions: [session], usage_get: subscribed,
-      agent_view: { session, entries: [], plan: [], files: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 },
+      agent_view: { session, entries: [], plan: [], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 0 },
     }, `${kind}-sample`);
 
     const row = page.locator("#rail").getByRole("button", { name: /Choose a title/ });

@@ -3,7 +3,7 @@ import { openDesktop } from "./harness.ts";
 
 async function openFile(page: Page, editable: boolean, name = "notes.txt", text = "first match\r\nsecond match\r\n") {
   await openDesktop(page, true, {
-    agent_tree: { folders: [{ path: "", entries: [{ name, folder: false, size: text.length, ignored: false, change: null }], more: 0, git: true }], truncated: false },
+    agent_tree: { folders: [{ path: "", entries: [{ name, folder: false, size: text.length, ignored: false, change: null }], more: 0 }], truncated: false },
     agent_tree_text: { size: text.length, text, cut: false, binary: false, editable },
     agent_tree_edit: null,
   });

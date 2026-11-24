@@ -55,7 +55,7 @@ test("a link from a subfolder session opens a file in a worktree at the checkout
   const session = { kind: "agent" as const, machine_id: "build-box", machine_name: "build-box", id: "web-one", agent: "codex", title: "Mock", cwd: "/srv/project/apps/web", status: "idle", doing: null, started_at: 1, last_activity: 1, external: false, question: null };
   const entries = [{ kind: "agent", text: "[Notes](.worktrees/fix/notes.txt)", html: '<p><a href=".worktrees/fix/notes.txt">Notes</a></p>' }];
   await openDesktop(page, false, {
-    agent_view: { session, model: null, plan: [], files: [], earlier: 0, last_message: "", error: null, turns: 1, queued: 0, queued_messages: [], entries },
+    agent_view: { session, model: null, plan: [], earlier: 0, error: null, turns: 1, queued: 0, queued_messages: [], entries },
     agent_tree_text: { size: 6, text: "hello\n", cut: false, binary: false },
     agent_sessions: [session], project_sessions: [session], projects_sessions: [session],
   });

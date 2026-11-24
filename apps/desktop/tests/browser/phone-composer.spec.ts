@@ -8,7 +8,7 @@ const session = {
 };
 const steers = ["Also log each retry", "Then run clippy", "Keep the old name", "Open a PR when green"];
 const view = {
-  session, model: null, plan: [], files: [], earlier: 0, last_message: "", error: null, turns: 3,
+  session, model: null, plan: [], earlier: 0, error: null, turns: 3,
   entries: Array.from({ length: 30 }, (_, i) => ({ kind: i % 2 ? "assistant" : "user", text: `Message ${i}\n${"Conversation text. ".repeat(20)}` })),
   queued: steers.length, queued_messages: steers,
 };

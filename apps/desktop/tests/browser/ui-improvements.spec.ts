@@ -61,8 +61,8 @@ test("Open beside mounts a second session in the right dock and sends messages",
   await page.setViewportSize({ width: 1440, height: 900 });
   const first = { kind: "agent", machine_id: machineId, machine_name: machineId, id: "sess-a", agent: "codex", title: "Primary session", cwd: project.folder, status: "idle", doing: null, started_at: 1_000, last_activity: 2_000, external: false, question: null, assistant: false, persona: null };
   const second = { ...first, id: "sess-b", title: "Secondary session", agent: "claude" };
-  const viewA = { session: first, plan: [], files: [], entries: [{ kind: "agent", text: "Primary ready." }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1, usage: null };
-  const viewB = { session: second, plan: [], files: [], entries: [{ kind: "agent", text: "Secondary output here." }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1, usage: null };
+  const viewA = { session: first, plan: [], entries: [{ kind: "agent", text: "Primary ready." }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1, usage: null };
+  const viewB = { session: second, plan: [], entries: [{ kind: "agent", text: "Secondary output here." }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1, usage: null };
 
   await openDesktop(page, false, {
     center_home: { machines: [machine], projects: [project], running: [first, second], needs_you: [] },
@@ -99,7 +99,7 @@ test("a split session on a node without the follow stream keeps reading it", asy
   await page.setViewportSize({ width: 1440, height: 900 });
   const first = { kind: "agent", machine_id: machineId, machine_name: machineId, id: "sess-a", agent: "codex", title: "Primary session", cwd: project.folder, status: "idle", doing: null, started_at: 1_000, last_activity: 2_000, external: false, question: null, assistant: false, persona: null };
   const second = { ...first, id: "sess-b", title: "Secondary session", agent: "claude", status: "working" };
-  const view = (session: typeof first, text: string) => ({ session, plan: [], files: [], entries: [{ kind: "agent", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1, usage: null });
+  const view = (session: typeof first, text: string) => ({ session, plan: [], entries: [{ kind: "agent", text }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1, usage: null });
 
   await openDesktop(page, false, {
     center_home: { machines: [machine], projects: [project], running: [first, second], needs_you: [] },

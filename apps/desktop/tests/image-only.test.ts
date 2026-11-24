@@ -21,7 +21,7 @@ function openSession(status: string): AgentPage {
   const previous = bar.querySelector<HTMLElement>("#agbody");
   if (previous) disposeLogShell(previous);
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
-  const page: AgentPage = { session, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, turns: 0, usage: null };
+  const page: AgentPage = { session, plan: [], entries: [], earlier: 0, error: null, queued: 0, turns: 0, usage: null };
   S.view = "agent";
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
   Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], flushing: false, inflight: null, stopping: null, tasks: [] });

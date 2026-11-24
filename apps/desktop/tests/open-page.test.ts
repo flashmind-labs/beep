@@ -4,7 +4,7 @@ import type { AgentPage, AgentRow } from "../src/agents/agents.ts";
 import { appendEntry, clearQuestion, currentPage, dropLastEntry, openPage, removeEntry, setPageSession } from "../src/agents/open-page.ts";
 
 const session = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "codex", cwd: "/srv/project", status: "idle", external: false, question: null } as AgentRow;
-const held: AgentPage = { session, plan: [], files: [], entries: [{ kind: "agent", text: "hello" }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0, usage: null };
+const held: AgentPage = { session, plan: [], entries: [{ kind: "agent", text: "hello" }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 0, usage: null };
 
 test("the open page never changes the page it opened on", () => {
   openPage(session, held);

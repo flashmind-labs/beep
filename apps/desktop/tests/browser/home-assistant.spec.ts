@@ -4,7 +4,7 @@ import { openDesktop } from "./harness.ts";
 const host = { machine_id: "build-box", machine_name: "build-box", agents: ["codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true };
 const session = { machine_id: "build-box", machine_name: "build-box", id: "assistant-one", agent: "flsh", title: null as string | null, cwd: "/srv", status: "working", doing: null as string | null, started_at: 1, last_activity: 1, external: false, question: null, assistant: true };
 
-const view = (row: typeof session, text: string) => ({ session: row, plan: [], files: [], entries: [{ kind: "agent", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 });
+const view = (row: typeof session, text: string) => ({ session: row, plan: [], entries: [{ kind: "agent", text }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1 });
 
 /// The start this device keeps for a chat, and its page: the message alone.
 const start = { ...session, id: "start:one", status: "starting", doing: "Starting flsh on build-box" };

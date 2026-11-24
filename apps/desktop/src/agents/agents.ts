@@ -152,8 +152,6 @@ export interface AgentPage {
   model?: string | null;
   session: AgentRow;
   plan: PlanStep[];
-  files: string[];
-  last_message: string;
   error: string | null;
   queued: number;
   queued_messages?: string[];

@@ -36,7 +36,7 @@ try {
         if (cmd === "agent_view") {
           const end = args.before ?? entries.length, start = Math.max(0, end - (args.last ?? 200));
           window.__history.push({ start, end });
-          return { session, entries: entries.slice(start, end), earlier: start, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 160 };
+          return { session, entries: entries.slice(start, end), earlier: start, plan: [], error: null, queued: 0, turns: 160 };
         }
 
         if (cmd === "agent_sessions") return [session];

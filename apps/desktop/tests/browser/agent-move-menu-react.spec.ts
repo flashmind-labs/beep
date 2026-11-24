@@ -73,7 +73,7 @@ test("an assistant chat moves with its threads to a machine that has their harne
   await openDesktop(page, false, {
     agent_hosts: [host("build-box", "Build box", ["flsh", "claude"]), host("other", "Other box", ["flsh", "claude"]), host("small", "Small box", ["flsh"])],
     agent_sessions: [chat, thread], chat_move: [],
-    agent_view: { session: chat, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 },
+    agent_view: { session: chat, plan: [], entries: [], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1 },
   });
   await page.evaluate(target => window.__navigation.open({ agent: { kind: "agent", ...target } }), chat);
 

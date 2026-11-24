@@ -8,7 +8,7 @@ for (const width of [1280, 390]) test(`large sent and pending batches stay compa
   await page.setViewportSize({ width, height: 900 });
   const text = `Create models.\n\n${paths.map(path => `@${path}`).join(" ")}`;
   await openDesktop(page, false, {
-    agent_view: { session, model: null, plan: [], files: [], earlier: 0, last_message: text, error: null, turns: 1, queued: 0, queued_messages: [], entries: [{ kind: "user", text, html: width === 390 ? null : `<p>Create models.</p><p>${paths.map(path => `@${path}`).join(" ")}</p>` }] },
+    agent_view: { session, model: null, plan: [], earlier: 0, error: null, turns: 1, queued: 0, queued_messages: [], entries: [{ kind: "user", text, html: width === 390 ? null : `<p>Create models.</p><p>${paths.map(path => `@${path}`).join(" ")}</p>` }] },
   });
   await page.evaluate(agent => window.__navigation.open({ agent }), session);
   const sent = page.locator(".dcoderen.user .attachment-batch");

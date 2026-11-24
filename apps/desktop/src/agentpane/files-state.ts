@@ -22,7 +22,6 @@ interface TreeFolder {
   path: string;
   entries: TreeEntry[];
   more: number;
-  git: boolean;
 }
 
 /// A read of the tree as `agent_tree` gives it (Tree): the folder asked

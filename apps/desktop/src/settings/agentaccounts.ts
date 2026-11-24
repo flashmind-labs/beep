@@ -43,7 +43,6 @@ export type AccountAgent = "claude" | "codex";
 export interface NamedAccount {
   agent: AccountAgent;
   name: string;
-  env_var: string;
   token: AgentToken;
 }
 

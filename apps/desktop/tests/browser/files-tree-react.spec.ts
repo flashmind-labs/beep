@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const listing = (names: string[]) => ({ folders: [{ path: "", entries: names.map(name => ({ name, folder: false, size: 1, ignored: false, change: null })), more: 0, git: true }], truncated: false });
+const listing = (names: string[]) => ({ folders: [{ path: "", entries: names.map(name => ({ name, folder: false, size: 1, ignored: false, change: null })), more: 0 }], truncated: false });
 
 test("file menu keeps focus as local actions arrive and ignores late results after closing", async ({ page }) => {
   await openDesktop(page, true, { agent_tree: listing(["a.txt"]), local_file: { apps: [] } });
@@ -107,7 +107,7 @@ test("switching worktrees ignores an older pending tree refresh", async ({ page 
         await new Promise<void>(resolve => window.addEventListener("test-release-tree", () => resolve(), { once: true }));
       }
       const name = root === "/srv/project" ? hold ? "stale.txt" : "main.txt" : "branch.txt";
-      return { folders: [{ path: "", entries: [{ name, folder: false, size: 1, ignored: false, change: null }], more: 0, git: true }], truncated: false } as T;
+      return { folders: [{ path: "", entries: [{ name, folder: false, size: 1, ignored: false, change: null }], more: 0 }], truncated: false } as T;
     };
     window.__navigation.worktrees([{ path: "/srv/project", branch: "main", head: "abc1234", own: true, created: false }, { path: "/srv/project/.worktrees/fix", branch: "fix", head: "abc1234", own: false, created: true }]);
     window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } });
@@ -162,7 +162,7 @@ test("a folder event refreshes the open HTML preview after a same-size agent edi
   const path = ".worktrees/site/index.html";
   const entries = [{ kind: "agent", text: `[Preview](${path})`, html: `<p><a href="${path}">Preview</a></p>` }];
   await openDesktop(page, false, {
-    agent_view: { session, entries, earlier: 0, plan: [], files: [], last_message: "", error: null, turns: 1, queued: 0, queued_messages: [] },
+    agent_view: { session, entries, earlier: 0, plan: [], error: null, turns: 1, queued: 0, queued_messages: [] },
     agent_tree_text: text("first"),
     agent_file_hashes: ["first"],
     agent_page_files: [],

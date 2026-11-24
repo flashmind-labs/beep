@@ -161,7 +161,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   const retained = new Map<string, MeshEvent>();
   let quiet = false;
   let revision = 0;
-  const agentPage = (id: unknown) => ({ session: data.sessions.find(row => row.id === id) ?? data.sessions[0], plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0, usage: null });
+  const agentPage = (id: unknown) => ({ session: data.sessions.find(row => row.id === id) ?? data.sessions[0], plan: [], entries: [], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 0, usage: null });
   const empty = { start: 0, next: 0, fingerprint: "empty" };
   const interests = (value: unknown): { machine: string | null; topic: string }[] => Array.isArray(value) ? value.filter((v: unknown): v is { machine: string | null; topic: string } => v !== null && typeof v === "object" && "machine" in v && (v.machine === null || typeof v.machine === "string") && "topic" in v && typeof v.topic === "string") : [];
   const calls: NativeCall[] = [];

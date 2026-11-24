@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const listing = (names: string[]) => ({ folders: [{ path: "", entries: names.map(name => ({ name, folder: false, size: 1, ignored: false, change: null })), more: 0, git: true }], truncated: false });
+const listing = (names: string[]) => ({ folders: [{ path: "", entries: names.map(name => ({ name, folder: false, size: 1, ignored: false, change: null })), more: 0 }], truncated: false });
 const session = (id: string) => ({ kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: id, cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false });
 /// The `files` topic of the sessions' folder.
 const FOLDER = "files.%2Fsrv%2Fproject";

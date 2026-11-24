@@ -29,7 +29,7 @@ function setup() {
   const page: AgentPage = {
     session: { machine_id: "m1", machine_name: "build-box", id: "steer-render", agent: "claude", cwd: "/srv/project", status: "working", external: false, question: null },
     entries: [{ kind: "user", text: "Check the build" }, { kind: "other", text: "Compacting the conversation" }],
-    earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, usage: null,
+    earlier: 0, plan: [], error: null, queued: 0, turns: 0, usage: null,
   };
   Object.assign(AG, {
     open: { machine_id: "m1", agent: "claude", session: "steer-render" }, page,

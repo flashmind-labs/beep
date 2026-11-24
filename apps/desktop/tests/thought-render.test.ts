@@ -15,7 +15,7 @@ test("grouped live thoughts stay folded beside progress and preserve the reader'
     entries: [{ kind: "user", text: "Check the build" },
       { kind: "thought", text: "Checking results", ms: 42000 },
       { kind: "thought", text: "Waiting for verification", ms: null }],
-    earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, usage: null,
+    earlier: 0, plan: [], error: null, queued: 0, turns: 0, usage: null,
   };
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, child: null });
   showSessionBody();
@@ -71,7 +71,7 @@ test("progress groups collect alternating thoughts and tools and split at visibl
       { kind: "agent", text: "The version matches. Checking the build next." },
       { kind: "thought", text: "Build it", ms: 2000 },
       { kind: "tool", text: "cargo build [in_progress]" }],
-    earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, usage: null,
+    earlier: 0, plan: [], error: null, queued: 0, turns: 0, usage: null,
   };
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, child: null });
   AG.steps.clear();
@@ -116,7 +116,7 @@ test("the latest call stays visible until completion, while manual expansion sur
     entries: [{ kind: "user", text: "Check the build" },
       { kind: "tool", text: "cargo check [completed]" },
       { kind: "tool", text: "cargo test [in_progress]" }],
-    earlier: 40, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, usage: null,
+    earlier: 40, plan: [], error: null, queued: 0, turns: 0, usage: null,
   };
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, child: null });
   AG.steps.clear();
@@ -180,7 +180,7 @@ test("streaming waits while a reply control is focused, then updates the same re
   const page: AgentPage = {
     session: { machine_id: "m1", machine_name: "build-box", id, agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null },
     entries: [{ kind: "user", text: "Question" }, { kind: "agent", text: "First", html: "<p>First</p><pre><code>one</code></pre>" }],
-    earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, usage: null,
+    earlier: 0, plan: [], error: null, queued: 0, turns: 0, usage: null,
   };
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: id }, page, child: null });
   showSessionBody();
@@ -205,7 +205,7 @@ test("a log the node writes again from the start does not take the old log's tur
   const id = "rewritten-log";
   const session = { machine_id: "m1", machine_name: "build-box", id, agent: "claude", cwd: "/srv/project", status: "idle", external: false, question: null };
   const page = (entries: AgentPage["entries"], status: string): AgentPage =>
-    ({ session: { ...session, status }, entries, earlier: 0, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, usage: null });
+    ({ session: { ...session, status }, entries, earlier: 0, plan: [], error: null, queued: 0, turns: 0, usage: null });
   showSessionBody();
   const since = () => Number(bar.querySelector(".dlive [data-since]")?.getAttribute("data-since"));
 

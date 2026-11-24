@@ -9,7 +9,7 @@ function page(earlier: number, count: number): AgentPage {
   return {
     session: { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "codex", cwd: "/srv/project", status: "idle", external: false, question: null },
     entries: Array.from({ length: count }, (_, i) => ({ kind: i === 0 ? "user" : "agent", text: "message" })),
-    earlier, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, usage: null,
+    earlier, plan: [], error: null, queued: 0, turns: 0, usage: null,
   };
 }
 

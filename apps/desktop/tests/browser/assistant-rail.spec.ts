@@ -7,9 +7,9 @@ const chat = { machine_id: "build-box", machine_name: "build-box", id: "chat-one
 const under = { machine_id: "build-box", id: "chat-one", key: "" };
 const research = { ...chat, id: "thread-one", agent: "claude", title: "Pricing research", cwd: `${folder}/pricing`, status: "working", doing: "Reading the price list", started_at: 2, assistant: false, parent: under };
 const notes = { ...chat, id: "thread-two", agent: "claude", title: "Competitor notes", cwd: `${folder}/notes`, status: "ended", started_at: 3, last_activity: 4, assistant: false, parent: under };
-const view = (row: typeof chat) => ({ session: row, plan: [], files: [], entries: [{ kind: "agent", text: "On it." }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 });
+const view = (row: typeof chat) => ({ session: row, plan: [], entries: [{ kind: "agent", text: "On it." }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1 });
 const entry = (name: string, folder = false) => ({ name, folder, size: 1, ignored: false, change: null });
-const tree = (...entries: ReturnType<typeof entry>[]) => ({ folders: [{ path: "", entries, more: 0, git: false }], truncated: false });
+const tree = (...entries: ReturnType<typeof entry>[]) => ({ folders: [{ path: "", entries, more: 0 }], truncated: false });
 
 async function openChat(page: Page, sessions: (typeof chat)[], listing = tree()) {
   await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: sessions, agent_view: view(chat), agent_tree: listing });
@@ -176,7 +176,7 @@ test("a chat's pane has its files without its threads' folders, and no Changes o
   const entry = (name: string, folder: boolean) => ({ name, folder, size: 1, ignored: false, change: null });
   await openDesktop(page, false, {
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat, research, notes], agent_view: view(chat),
-    agent_tree: { folders: [{ path: "", entries: [entry("pricing", true), entry("notes", true), entry("drafts", true), entry("notes.md", false)], more: 0, git: false }], truncated: false },
+    agent_tree: { folders: [{ path: "", entries: [entry("pricing", true), entry("notes", true), entry("drafts", true), entry("notes.md", false)], more: 0 }], truncated: false },
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();

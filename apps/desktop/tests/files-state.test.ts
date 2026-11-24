@@ -36,8 +36,8 @@ test("a tree read merges over what was read and finds its edge", () => {
   assert.ok(atEdge(held, "src/auth"));
   mergeTree(held, {
     folders: [
-      { path: "src", entries: [dir("auth"), file("main.rs")], more: 0, git: true },
-      { path: "src/auth", entries: [file("token.rs", { change: "added" })], more: 0, git: true },
+      { path: "src", entries: [dir("auth"), file("main.rs")], more: 0 },
+      { path: "src/auth", entries: [file("token.rs", { change: "added" })], more: 0 },
     ],
     truncated: false,
   });
@@ -116,7 +116,7 @@ test("mergeTree reports whether a read changed anything", () => {
   const held = new Map<string, Listing>();
   const tree = (names: string[]) => ({
     truncated: false,
-    folders: [{ path: "", more: 0, git: true, entries: names.map(name => ({ name, folder: false, size: 1, ignored: false, change: null })) }],
+    folders: [{ path: "", more: 0, entries: names.map(name => ({ name, folder: false, size: 1, ignored: false, change: null })) }],
   });
   assert.equal(mergeTree(held, tree(["a"])), true);
   assert.equal(mergeTree(held, tree(["a"])), false);

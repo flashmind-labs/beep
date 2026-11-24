@@ -8,8 +8,8 @@ const session = {
   doing: null, question: null, started_at: 1, last_activity: 1,
 };
 const view = (row = session) => ({
-  session: row, model: null, plan: [], files: [], entries: Array.from({ length: 40 }, (_, i) => ({ kind: i % 2 ? "assistant" : "user", text: `Message ${i}\n${"Conversation text. ".repeat(30)}` })),
-  earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 20,
+  session: row, model: null, plan: [], entries: Array.from({ length: 40 }, (_, i) => ({ kind: i % 2 ? "assistant" : "user", text: `Message ${i}\n${"Conversation text. ".repeat(30)}` })),
+  earlier: 0, error: null, queued: 0, queued_messages: [], turns: 20,
 });
 
 test("opening a short transcript page reads all earlier messages without scrolling", async ({ page }) => {

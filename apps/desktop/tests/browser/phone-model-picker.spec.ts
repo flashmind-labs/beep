@@ -9,8 +9,8 @@ const session = {
   doing: null, question: null, started_at: 1, last_activity: 1,
 };
 const view = {
-  session, model: null, plan: [], files: [], entries: [{ kind: "user", text: "Hello" }, { kind: "assistant", text: "Hi" }],
-  earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1,
+  session, model: null, plan: [], entries: [{ kind: "user", text: "Hello" }, { kind: "assistant", text: "Hi" }],
+  earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1,
 };
 
 test("a phone picks a model while typing in an agent conversation", async ({ page }) => {

@@ -41,7 +41,7 @@ function heldPage(held: AgentPage | null, fresh: AgentPage, replace: boolean): A
 
 /// Opens `s` on `held`, or on an empty page.
 export function openPage(s: AgentRow, held: AgentPage | null) {
-  page = withFirstMessage(held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0, usage: null });
+  page = withFirstMessage(held ?? { session: s, plan: [], entries: [], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 0, usage: null });
 }
 
 /// No session is open.

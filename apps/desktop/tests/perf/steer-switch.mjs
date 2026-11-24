@@ -22,7 +22,7 @@ try {
     window.__pages = Object.fromEntries(["first", "second"].map(id => [id, {
       session: { machine_id: "machine", machine_name: "build-box", id, agent: "claude", cwd: "/srv/project", status: "working", external: false, question: null },
       entries: [{ kind: "user", text: "Check the build" }], earlier: 0,
-      plan: [], files: [], last_message: "", error: null, queued: 0, queued_messages: [], turns: 0,
+      plan: [], error: null, queued: 0, queued_messages: [], turns: 0,
     }]));
     window.__sent = 0;
     window.__TAURI__.core.invoke = async (cmd, args) => {

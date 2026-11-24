@@ -15,7 +15,7 @@ const rows = [
   session("gone", "Ended session", "ended", 10_000),
 ];
 const target = (s: (typeof rows)[number]) => ({ agent: { ...s, kind: "agent" } });
-const tree = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1, ignored: false, change: null }], more: 0, git: true }], truncated: false };
+const tree = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1, ignored: false, change: null }], more: 0 }], truncated: false };
 const notes = [{ id: "n1", kind: "finished", title: "Codex finished", text: "Done", source: "build-box", at: now, read: false, done: false, target: target(rows[1]) }];
 
 async function openBar(page: Page, sessions: unknown[]) {
@@ -98,7 +98,7 @@ test("opening again with warm data reads nothing", async ({ page }) => {
 test("a start opened in the bar becomes the session its machine names, and Esc still comes back", async ({ page }) => {
   const start = { ...session("start:one", "Inspect the project", "starting", 1_000), doing: "Waiting for build-box" };
   const named = session("named", "Inspect the project", "working", 0);
-  const pageOf = (row: typeof named, text: string | null) => ({ session: row, plan: [], files: [], entries: text === null ? [] : [{ kind: "user", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 });
+  const pageOf = (row: typeof named, text: string | null) => ({ session: row, plan: [], entries: text === null ? [] : [{ kind: "user", text }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 0 });
   await openBar(page, [start]);
   await page.evaluate(first => window.__navigation.respond("agent_view", first), pageOf(start, "Inspect the project"));
   await shown(page);
@@ -120,7 +120,7 @@ test("a start that went from another window leaves its view", async ({ page }) =
   const start = { ...session("start:one", "Inspect the project", "starting", 1_000), doing: "Starting Codex on build-box" };
   await openBar(page, [start]);
   await page.evaluate(first => window.__navigation.respond("agent_view", first),
-    { session: start, plan: [], files: [], entries: [{ kind: "user", text: "Inspect the project" }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 });
+    { session: start, plan: [], entries: [{ kind: "user", text: "Inspect the project" }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 0 });
   await shown(page);
   await page.keyboard.press("Enter");
   await expect(page.locator("#agconv .dbanner")).toContainText("Starting Codex on build-box");
@@ -136,7 +136,7 @@ test("a start that went from another window leaves its view", async ({ page }) =
 
 test("a session keeps its first message when it is left and opened again before its machine logs it", async ({ page }) => {
   const named = session("named", "Inspect the project", "starting", 0);
-  const empty = (doing: string | null) => ({ session: { ...named, doing }, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0 });
+  const empty = (doing: string | null) => ({ session: { ...named, doing }, plan: [], entries: [], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 0 });
   const update = (kind: string, doing: string | null) => ({ kind, resumed: false, cursor: { start: 0, next: 0, fingerprint: "empty" }, page: empty(doing), modes: null, tasks: [] });
   await openBar(page, [named]);
   // Its stream answers with the empty log, and stays open for what its machine says next.

@@ -7,7 +7,7 @@ const session = {
   doing: null, question: null, started_at: 1, last_activity: 1,
 };
 const view = {
-  session, model: null, plan: [], files: [], earlier: 0, last_message: "", error: null, turns: 2,
+  session, model: null, plan: [], earlier: 0, error: null, turns: 2,
   entries: [...Array.from({ length: 11 }, (_, i) => ({ kind: i % 2 ? "assistant" : "user", text: `Message ${i}` })), { kind: "agent", text: "Read `src/upload.rs` first.", html: "<p>Read <code>src/upload.rs</code> first.</p>" }],
   queued: 0, queued_messages: [],
 };

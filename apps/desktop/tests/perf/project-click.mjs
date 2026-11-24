@@ -36,7 +36,7 @@ try {
         progress: null, waiting: [], can_resolve: false,
       }] };
       if (cmd === "project_sync") return [{ project: project.name, machine_id: session.machine_id, status: window.__revision % 2 ? "scanning" : "in_sync", files: 20, pending: 0, error: null }];
-      if (cmd === "agent_view") return { session: args.session === past.id ? past : session, plan: [], files: [], last_message: "", error: null, queued: 0, turns: 0, entries: [], earlier: 0 };
+      if (cmd === "agent_view") return { session: args.session === past.id ? past : session, plan: [], error: null, queued: 0, turns: 0, entries: [], earlier: 0 };
       if (cmd === "agent_sessions") return [session, past];
       if (cmd === "agent_tasks") return [];
       return inner(cmd, args);

@@ -29,7 +29,6 @@ pub struct TreeFolder {
     path: String,
     entries: Vec<TreeEntry>,
     more: u32,
-    git: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -134,7 +133,6 @@ pub async fn agent_tree(
                 })
                 .collect(),
             more: folder.more,
-            git: folder.git,
         })
         .collect();
     Ok(Tree {

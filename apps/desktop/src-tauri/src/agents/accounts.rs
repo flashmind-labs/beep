@@ -104,7 +104,6 @@ pub struct AccountsView {
 pub struct NamedView {
     agent: AgentAccount,
     name: AccountName,
-    env_var: String,
     token: TokenView,
 }
 
@@ -113,7 +112,6 @@ impl From<NamedAgentToken> for NamedView {
         Self {
             agent: named.agent,
             name: named.name,
-            env_var: named.env_var,
             token: named.token.into(),
         }
     }

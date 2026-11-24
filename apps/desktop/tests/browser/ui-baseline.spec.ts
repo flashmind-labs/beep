@@ -59,9 +59,9 @@ const transcript = [
   { kind: "user", text: "Also keep the query string." },
   { kind: "agent", text: "Done. The query string now survives the redirect." },
 ];
-const agentView = { session: { ...session, question: null }, plan: [], files: [], entries: transcript, earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 2, usage: null };
+const agentView = { session: { ...session, question: null }, plan: [], entries: transcript, earlier: 0, error: null, queued: 0, queued_messages: [], turns: 2, usage: null };
 const sessionUsage = { context: { used: 250_000, size: 1_000_000 }, tokens: 54_200_000, cost_usd: 34.9 };
-const listing = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1200, ignored: false, change: null }, { name: "package.json", folder: false, size: 640, ignored: false, change: "modified" }, { name: "sample.ts", folder: false, size: 300, ignored: false, change: "modified" }], more: 0, git: true }], truncated: false };
+const listing = { folders: [{ path: "", entries: [{ name: "src", folder: true, size: 0, ignored: false, change: null }, { name: "README.md", folder: false, size: 1200, ignored: false, change: null }, { name: "package.json", folder: false, size: 640, ignored: false, change: "modified" }, { name: "sample.ts", folder: false, size: 300, ignored: false, change: "modified" }], more: 0 }], truncated: false };
 
 const commits = [
   { id: "c3d4e5f6a7b8", parents: ["b2c3d4e5f6a7"], author: "Example", committed_at: NOW - 3_600_000, subject: "Keep the query string on redirect" },
@@ -225,7 +225,7 @@ test("assistant page", async ({ page }) => {
     center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost],
     assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
     agent_view: { ...agentView, session: { ...chat, question: null }, entries: transcript },
-    agent_tree: { folders: [{ path: "", entries: [], more: 0, git: false }], truncated: false },
+    agent_tree: { folders: [{ path: "", entries: [], more: 0 }], truncated: false },
   });
   await page.locator("#side").getByRole("button", { name: /^Assistant/ }).click();
   const list = page.locator(".asst-list");
@@ -694,7 +694,7 @@ const agentAccountResponses = {
     { id: "test-box", name: "test-box", online: true, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
     { id: "offline-box", name: "offline-box", online: false, claude: true, codex: false, claude_sessions: 0, codex_signed_in: null },
   ], named: [
-    { agent: "claude", name: "Work", env_var: "CLAUDE_CODE_OAUTH_TOKEN", token: { last4: "4a2f", created_at: 0, unreadable: false } },
+    { agent: "claude", name: "Work", token: { last4: "4a2f", created_at: 0, unreadable: false } },
   ] },
   list_machines: [
     { ...machine("build-box", "build-box", true, 0), env: { logins: [{ tool: "claude", signed_in: true, account: "you@example.com" }, { tool: "agy", signed_in: true, account: null }] } },

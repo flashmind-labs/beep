@@ -5,7 +5,7 @@ import { openDesktop, projectName } from "./harness.ts";
 const kept = { machine_id: "build-box", machine_name: "build-box", agent: "codex", cwd: "/srv/project", external: false, question: null, started_at: 1, last_activity: 1, assistant: false };
 const start = { ...kept, id: "start:one", title: "Inspect the project", status: "starting", doing: "Waiting for build-box" };
 const named = { ...kept, id: "started", title: null, status: "starting", doing: null };
-const pageOf = (session: Omit<typeof start, "title" | "doing"> & { title: string | null; doing: string | null }, text: string | null, error: string | null) => ({ session, plan: [], files: [], entries: text === null ? [] : [{ kind: "user", text }], earlier: 0, last_message: "", error, queued: 0, queued_messages: [], turns: 0 });
+const pageOf = (session: Omit<typeof start, "title" | "doing"> & { title: string | null; doing: string | null }, text: string | null, error: string | null) => ({ session, plan: [], entries: text === null ? [] : [{ kind: "user", text }], earlier: 0, error, queued: 0, queued_messages: [], turns: 0 });
 const calls = (page: Page, command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).map(call => call.args), command);
 
 test("opening and revisiting a project focuses its composer without stealing focus on refresh", async ({ page }) => {
@@ -303,7 +303,7 @@ test("⇧⌘M and the pill open the model picker in a project's new conversation
 test("the project bar starts as the account picked for the project", async ({ page }) => {
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
-    agent_account_names: [{ agent: "codex", name: "Work", env_var: "CODEX_ACCESS_TOKEN", token: { last4: "4a2f", created_at: 0, unreadable: false } }],
+    agent_account_names: [{ agent: "codex", name: "Work", token: { last4: "4a2f", created_at: 0, unreadable: false } }],
     agent_begin: { session: start, why: "" },
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);

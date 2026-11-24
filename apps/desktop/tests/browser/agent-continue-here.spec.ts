@@ -7,8 +7,8 @@ const outside = {
   doing: null, question: null, started_at: 1, last_activity: 1,
 };
 const view = (status: string) => ({
-  session: { ...outside, status }, model: null, plan: [], files: [], entries: [{ kind: "user", text: "Fix the parser" }],
-  earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1,
+  session: { ...outside, status }, model: null, plan: [], entries: [{ kind: "user", text: "Fix the parser" }],
+  earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1,
 });
 const closes = (page: import("@playwright/test").Page) => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_close_external"));
 

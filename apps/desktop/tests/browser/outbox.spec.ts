@@ -69,7 +69,7 @@ async function openUnreachable(page: Page) {
         online = true;
         const sent = rows;
         rows = [];
-        const view = { session: { ...where, id: "notice-one", machine_name: "build-box", title: "First notification", cwd: "/srv/project", status: "working", doing: null, question: null, started_at: 1, last_activity: 1, external: false, kind: "agent" }, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, turns: 0, queued: sent.length, queued_messages: sent.map(row => row.text) };
+        const view = { session: { ...where, id: "notice-one", machine_name: "build-box", title: "First notification", cwd: "/srv/project", status: "working", doing: null, question: null, started_at: 1, last_activity: 1, external: false, kind: "agent" }, plan: [], entries: [], earlier: 0, error: null, turns: 0, queued: sent.length, queued_messages: sent.map(row => row.text) };
         window.__navigation.respond("agent_view", view);
         changed(sent);
       },
@@ -128,7 +128,7 @@ test("a late outbox read cannot put a delivered message back in the queue", asyn
 test("a late sending event cannot put a delivered image prompt back in the queue", async ({ page }) => {
   await openUnreachable(page);
   await page.evaluate(row => window.__navigation.respond("agent_view", {
-    session: row, plan: [], files: [], earlier: 0, last_message: "", error: null, turns: 1,
+    session: row, plan: [], earlier: 0, error: null, turns: 1,
     queued: 0, queued_messages: [], entries: [
       { kind: "user", text: "Check the diagram\n[image: diagram.png]" },
       { kind: "agent", text: "The diagram is ready." },

@@ -53,7 +53,7 @@ async function screenshot(page: Page) {
 
 async function openSession(page: Page, entries: { kind: string; text: string }[] = [], responses: Record<string, unknown> = {}) {
   await openDesktop(page, false, {
-    agent_view: { session, model: null, plan: [], files: [], earlier: 0, last_message: "", error: null, turns: entries.length, queued: 0, queued_messages: [], entries },
+    agent_view: { session, model: null, plan: [], earlier: 0, error: null, turns: entries.length, queued: 0, queued_messages: [], entries },
     agent_steer: [], agent_tree_upload: path, ...responses,
   });
   await page.evaluate(agent => window.__navigation.open({ agent }), session);
@@ -155,7 +155,7 @@ for (const entry of ["link", "files", "preview"]) {
     const message = { kind: "agent", text: `[Diagram](${name})`, html: `<p><a href="${name}">Diagram</a></p>` };
     await openSession(page, [message], {
       agent_file: { size: Buffer.byteLength(svg), mime: "image/svg+xml", data: Buffer.from(svg).toString("base64") },
-      agent_tree: { folders: [{ path: "", entries: [{ name, folder: false, size: svg.length, ignored: false, change: null }], more: 0, git: true }], truncated: false },
+      agent_tree: { folders: [{ path: "", entries: [{ name, folder: false, size: svg.length, ignored: false, change: null }], more: 0 }], truncated: false },
     });
     if (entry === "link") {
       await page.getByRole("link", { name: "Diagram", exact: true }).click();
