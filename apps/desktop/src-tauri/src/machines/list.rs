@@ -13,7 +13,7 @@ use beep_projects::imports::found::MachineFound;
 use beep_proto::{
     AgentHost, Machine, MachineEnv, MachineTraffic, MachineUpdate, Terminal, TrafficCounter,
     UpdatableMachine,
-    node::{AdapterInstall, harness::HarnessConfig, logs::MAX_LINES},
+    node::{AdapterInstall, harness::HarnessConfig, logs::MAX_LINES, mesh_state::StateValue},
 };
 use futures::future::BoxFuture;
 use iroh::EndpointId;

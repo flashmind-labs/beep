@@ -29,10 +29,7 @@ use beep_proto::{
     AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentTask, AgentToolCall, ApiError,
     GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, ListAgentModels, MachineSession,
     ModelId, ResumeAgentSession, StartAgentSession,
-    node::{
-        agent::{CheckoutPlan, Effort, StopReason},
-        mesh_state::StateValue,
-    },
+    node::agent::{CheckoutPlan, Effort, StopReason},
 };
 use iroh::EndpointId;
 use serde::Serialize;
