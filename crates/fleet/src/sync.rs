@@ -19,7 +19,7 @@ use beep_proto::{
         sync::{Keep, PROTOCOL, ProjectStatus, Reply, Request, State},
     },
 };
-use futures::{StreamExt, stream};
+use futures::{StreamExt, future::join_all, stream};
 use iroh::EndpointId;
 use std::{
     collections::{BTreeSet, HashMap},
@@ -660,36 +660,33 @@ impl Desk {
             return Vec::new();
         };
         let ids: Vec<EndpointId> = record.places.keys().copied().collect();
-        let mut out = Vec::new();
+        let seen = self.seen_among(&ids).await;
 
-        for seen in self.seen_among(&ids).await {
-            let Ok(id) = seen.machine.id.parse::<EndpointId>() else {
-                continue;
-            };
-            let (Some(place), Some(env)) = (record.places.get(&id), seen.env) else {
-                continue;
-            };
+        // Each machine is asked at once: a slow one costs one limit, not one per machine.
+        join_all(seen.into_iter().map(|seen| async {
+            let id = seen.machine.id.parse::<EndpointId>().ok()?;
+            let (place, env) = (record.places.get(&id)?, seen.env?);
+            let synced = env.syncthing_folder(&place.folder)?;
+            let files = timeout(
+                SYNCTHING_CALL_LIMIT,
+                self.syncthing_files(&seen.machine.id, &place.folder, None),
+            )
+            .await;
 
-            if let Some(synced) = env.syncthing_folder(&place.folder) {
-                if timeout(
-                    SYNCTHING_CALL_LIMIT,
-                    self.syncthing_files(&seen.machine.id, &place.folder, None),
-                )
-                .await
-                .is_ok_and(|res| res.is_ok_and(|files| !files.enabled))
-                {
-                    continue;
-                }
-
-                out.push(SyncthingPlace {
-                    machine_id: seen.machine.id,
-                    folder: place.folder.clone(),
-                    label: synced.name().to_owned(),
-                });
+            if files.is_ok_and(|res| res.is_ok_and(|files| !files.enabled)) {
+                return None;
             }
-        }
 
-        out
+            Some(SyncthingPlace {
+                machine_id: seen.machine.id,
+                folder: place.folder.clone(),
+                label: synced.name().to_owned(),
+            })
+        }))
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
     }
 
     /// Every machine as `project`'s page lists it, with its checkout when it has one.
