@@ -7,7 +7,6 @@ use crate::{
     desk::Desk,
     error::{FleetError, Result},
     records::{WRITES, find_project, project_key, read, scan, write},
-    session::Changed,
 };
 use beep_mesh::{Key, PeerClient};
 use beep_projects::model::plain_path;
@@ -82,11 +81,11 @@ struct Direct {
 /// from it at once and a background call refreshes it. A node that pushes is never put here.
 pub(crate) struct DirectSyncs {
     held: Mutex<HashMap<EndpointId, Direct>>,
-    changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>,
+    changed: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl DirectSyncs {
-    pub(crate) fn new(changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>) -> Self {
+    pub(crate) fn new(changed: Option<Arc<dyn Fn() + Send + Sync>>) -> Self {
         Self {
             held: Mutex::default(),
             changed,
@@ -167,7 +166,7 @@ impl DirectSyncs {
         };
 
         if changed && let Some(changed_fn) = &self.changed {
-            changed_fn(Changed::Sync);
+            changed_fn();
         }
     }
 }

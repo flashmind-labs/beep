@@ -5,7 +5,6 @@ use crate::{
     AsyncMutex,
     error::{FleetError, Result},
     peer::{PeerFound, PeerShell, Peers, Probe, probe},
-    session::Changed,
 };
 use beep_mesh::{
     DeviceStatus, Mesh,
@@ -273,7 +272,8 @@ impl DesktopHosts {
         Self::new_with(None)
     }
 
-    pub(crate) fn new_with(changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>) -> Result<Self> {
+    /// `changed` hears when a node that pushes no sync status said something new of it.
+    pub(crate) fn new_with(changed: Option<Arc<dyn Fn() + Send + Sync>>) -> Result<Self> {
         let client = beep_proto::https::client()
             .connect_timeout(Duration::from_secs(3))
             .timeout(HOST_TIMEOUT)

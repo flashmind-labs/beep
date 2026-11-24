@@ -274,10 +274,11 @@ impl Session {
         }
 
         let changed: Arc<dyn Fn(Changed) + Send + Sync> = Arc::new(changed);
+        let sync_changed = changed.clone();
         Ok(Arc::new(Self {
             options,
             peers,
-            hosts: DesktopHosts::new_with(Some(changed.clone()))?,
+            hosts: DesktopHosts::new_with(Some(Arc::new(move || sync_changed(Changed::Sync))))?,
             changed,
             lists: Cache::default(),
             runs: Cache::default(),
