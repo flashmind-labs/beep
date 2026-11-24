@@ -185,3 +185,70 @@ fn a_read_older_than_the_one_held_is_dropped() {
     assert!(!lists.read_projects(4, vec![project("acme/widget")]));
     assert!(lists.projects.as_deref().unwrap().is_empty());
 }
+
+fn opened_session(id: &str, cwd: &str) -> MachineSession {
+    MachineSession {
+        reply: None,
+        changes: None,
+        id: id.into(),
+        machine_id: "build-box".into(),
+        machine_name: "build-box".into(),
+        agent: "codex".into(),
+        title: Some(format!("Session {id}")),
+        cwd: cwd.into(),
+        status: beep_proto::AgentStatus::Ended {},
+        doing: None,
+        question: None,
+        subagents: 0,
+        model: None,
+        external: false,
+        started_at: SystemTime::UNIX_EPOCH,
+        last_activity: SystemTime::UNIX_EPOCH,
+        assistant: false,
+        account: None,
+        persona: None,
+    }
+}
+
+#[test]
+fn a_session_the_user_opened_is_kept_once_few_and_across_launches() {
+    let mut lists = PaletteLists::default();
+    lists.open(opened_session("a", "/srv/one"));
+    lists.open(opened_session("a", "/srv/two"));
+    assert_eq!(lists.opened.len(), 1, "one row for a session");
+    assert_eq!(lists.opened[0].cwd, "/srv/two");
+
+    for n in 0..OPENED_MOST {
+        lists.open(opened_session(&format!("s{n}"), "/srv/one"));
+    }
+    assert_eq!(lists.opened.len(), OPENED_MOST);
+    assert!(
+        lists.opened.iter().all(|s| s.id.as_ref() != "a"),
+        "the oldest goes"
+    );
+
+    let saved = serde_json::to_value(&lists).expect("the lists are plain data");
+    let back: PaletteLists = serde_json::from_value(saved).expect("they read back");
+    assert_eq!(back.opened.len(), OPENED_MOST);
+}
+
+#[test]
+fn a_session_in_a_place_that_left_is_not_kept_as_opened() {
+    let place = ImportedProject {
+        project: "acme/widget".into(),
+        machine_id: "build-box".into(),
+        machine_name: "build-box".into(),
+        folder: "/srv/project".into(),
+        url: "https://example.com/acme/widget".into(),
+        cloned: false,
+        imported_at: SystemTime::UNIX_EPOCH,
+        display_name: None,
+    };
+    let mut lists = PaletteLists {
+        projects: Some(vec![place.clone()]),
+        retired_places: vec![Place::from(&place)],
+        ..PaletteLists::default()
+    };
+    lists.open(opened_session("a", "/srv/project"));
+    assert!(lists.opened.is_empty());
+}

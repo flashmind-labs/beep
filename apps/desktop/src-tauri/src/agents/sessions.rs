@@ -579,6 +579,8 @@ pub async fn agent_view(
         beep_fleet::session_titles::apply(&mesh, &mut view.session);
     }
 
+    app.state::<crate::palette::PaletteCache>()
+        .found_session(&app, view.session.clone());
     Ok(view.into())
 }
 

@@ -2,7 +2,8 @@
 //! each source apart so a slow one holds up none of the rest, and rebuilds
 //! the index on each answer. The lists are saved in the views file, so a new
 //! launch finds them before the machines answer. The sessions are not kept
-//! here: the index takes them from the session mirror each time it is built.
+//! here: the index takes them from the session mirror each time it is built,
+//! and adds the few the user opened that the mirror does not hold.
 
 use super::{
     index::build_index,
@@ -44,6 +45,8 @@ const LOCAL_GAP: Duration = Duration::from_secs(2);
 const SESSIONS_GAP: Duration = Duration::from_secs(5);
 /// The most projects whose branches are read.
 const BRANCH_PROJECTS: usize = 8;
+/// The most sessions kept that the user opened and the mirror does not hold.
+const OPENED_MOST: usize = 50;
 
 /// The lists the index is built from. A list stays `None` until it was read
 /// once; after that the last answer stays when a read fails.
@@ -56,6 +59,10 @@ pub(crate) struct PaletteLists {
     #[serde(default)]
     pub(super) forgotten_projects: HashSet<String>,
     pub(super) branches: Option<Vec<BranchRow>>,
+    /// Sessions the user opened that the mirror did not hold, such as one only in a project's
+    /// history, newest last.
+    #[serde(default)]
+    pub(super) opened: Vec<MachineSession>,
     /// The ticket of the last removal: a read of the projects taken before it is out of date.
     #[serde(skip)]
     pub(super) removed_at: u64,
@@ -123,6 +130,20 @@ impl PaletteLists {
     fn without_retired(&self, sessions: &mut Vec<MachineSession>) {
         let projects = self.projects.as_deref().unwrap_or_default();
         sessions.retain(|s| !retired(s, projects, &self.retired_places));
+    }
+
+    /// Keeps `session`, which the user opened, unless its place left.
+    fn open(&mut self, session: MachineSession) {
+        let projects = self.projects.as_deref().unwrap_or_default();
+        if retired(&session, projects, &self.retired_places) {
+            return;
+        }
+
+        self.opened
+            .retain(|old| old.machine_id != session.machine_id || old.id != session.id);
+        self.opened.push(session);
+        let extra = self.opened.len().saturating_sub(OPENED_MOST);
+        self.opened.drain(..extra);
     }
 
     fn prune(&mut self) {
@@ -193,14 +214,40 @@ impl PaletteCache {
         self.held().lists.projects.clone().unwrap_or_default()
     }
 
-    /// The mirror's sessions as the windows list them, less those of removed places.
+    /// The mirror's sessions as the windows list them, with the opened ones it lacks, less
+    /// those of removed places.
     pub(super) fn sessions(&self, app: &AppHandle) -> Vec<MachineSession> {
         let fleet = app.state::<Arc<Fleet>>();
         let rows = app.state::<Arc<SessionMirror>>().current();
         let mut sessions = overlaid(app, &fleet, &rows);
-        self.held().lists.without_retired(&mut sessions);
+        let held = self.held();
+        let lacking: Vec<_> = held
+            .lists
+            .opened
+            .iter()
+            .filter(|opened| {
+                !sessions
+                    .iter()
+                    .any(|s| s.machine_id == opened.machine_id && s.id == opened.id)
+            })
+            .cloned()
+            .collect();
+        sessions.extend(lacking);
+        held.lists.without_retired(&mut sessions);
 
         sessions
+    }
+
+    /// The user opened `session`: the palette finds it even when the mirror does not hold it.
+    pub(crate) fn found_session(&self, app: &AppHandle, session: MachineSession) {
+        let held = self
+            .sessions(app)
+            .iter()
+            .any(|s| s.machine_id == session.machine_id && s.id == session.id);
+
+        if !held {
+            self.update(app, |lists| lists.open(session));
+        }
     }
 
     pub(super) fn machine_names(&self) -> HashMap<String, String> {
@@ -246,12 +293,17 @@ impl PaletteCache {
     /// Changes the lists and rebuilds the index. The windows hear of it only
     /// when the index came out different.
     fn update(&self, app: &AppHandle, change: impl FnOnce(&mut PaletteLists)) {
-        let sessions = self.sessions(app);
-        let changed = {
+        {
             let mut held = self.held();
             change(&mut held.lists);
             held.lists.prune();
             cache_view(&app.state::<Arc<ViewCache>>(), View::Palette, &held.lists);
+        }
+
+        // The sessions follow the lists as changed: opened ones and removed places count.
+        let sessions = self.sessions(app);
+        let changed = {
+            let mut held = self.held();
 
             match index_json(&held.lists, &sessions) {
                 Ok(index) if index != held.index => {
