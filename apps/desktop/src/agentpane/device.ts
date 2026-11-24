@@ -6,7 +6,7 @@ import type JMuxer from "jmuxer";
 import { createStore } from "zustand";
 import { indexedChannel, invoke, listen } from "../ui/tauri.ts";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
+import { ambient, AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { paneSession, showDevice } from "./media.ts";
 import { draw } from "./media-draw.ts";
 import { sessionKey } from "./running.ts";
@@ -20,6 +20,8 @@ import {
 /// soon, otherwise now and then for what nodes do not announce (iOS
 /// simulators, nodes without adb or older ones). A node announces `devices`
 /// when adb sees a phone or emulator come or go.
+/// How long a change waits for others before the list is read.
+const DEVICES_WAIT_MS = 300;
 const BOOTING_POLL_MS = 2000;
 const IDLE_POLL_MS = 60_000;
 /// How long a platform check that could not reach its machine waits to go again.
@@ -68,7 +70,6 @@ async function readDeviceHosts() {
 }
 
 subscribeChanges(topic("machines"), { deliver: "latest", receive: readDeviceHosts }, { when: paneShown, wait: AMBIENT_MS });
-listen("devices-changed", () => void readDevices());
 if (typeof window !== "undefined") {
   window.addEventListener("agent-pane-shown", () => void readDeviceHosts());
   queueMicrotask(() => void readDeviceHosts());
@@ -154,7 +155,11 @@ export function setDeviceShown(shown: boolean) {
 }
 
 onShownChange(() => shownChanged(), true);
-subscribeChanges(topic("devices"), { deliver: "latest", receive: readDevices }, { when: visible });
+// The node's `devices` topic and the desktop's `devices-changed` say the same thing about the same
+// list: one read follows both.
+const devicesChanged = ambient(readDevices, DEVICES_WAIT_MS, visible);
+subscribeChanges(topic("devices"), { deliver: "latest", receive: () => devicesChanged() }, { when: visible });
+listen("devices-changed", () => devicesChanged());
 
 function shownChanged() {
   if (!visible()) {

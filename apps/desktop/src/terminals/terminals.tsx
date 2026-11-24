@@ -121,15 +121,17 @@ export function makeTerminals(deps: TerminalDeps) {
     polling = name;
     // The Terminals page is `ALL`, the empty name, so only null stops.
     if (name === null) return;
-    const stopList = subscribeChanges(topic("terminals"), { deliver: "latest", receive: async () => {
+    // The window's Home subscription reads the list of every terminal.
+    const stopList = name === ALL ? () => {} : subscribeChanges(topic("terminals"), { deliver: "latest", receive: async () => {
       await loads.get(name);
       await load(name);
       if (of(name).error) throw new Error(of(name).error);
     } });
+    // The node names no terminal in this topic, so the open one reads for any terminal's output.
     const stopOutput = subscribeChanges(topic("terminal-output"), { deliver: "latest", receive: async () => {
       await readOutput(name);
       if (of(name).error) throw new Error(of(name).error);
-    } });
+    } }, { when: () => !!of(name).open });
     unfollow = () => { stopList(); stopOutput(); };
   }
 
