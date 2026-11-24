@@ -17,7 +17,7 @@ use beep_proto::{
         Approved, Reply, Request, TeamAppArgs, TeamAppCall, TeamCards, TeamInviteArgs,
         TeamRosterArgs, Tool,
     },
-    team::{Lane, TeamMsg, TeamRepo},
+    team::{Card, Lane, TeamMsg, TeamRepo},
 };
 use iroh::{EndpointAddr, EndpointId};
 use serde::{Serialize, de::DeserializeOwned};
@@ -67,7 +67,7 @@ async fn roster(mesh: Option<&Mesh>, request: &Request) -> Outcome {
 /// Keeps a contact's invite a node took, for this desktop to show.
 fn keep_invite(link: &TeamLink, request: &Request) -> Outcome {
     let invite: TeamInviteArgs = parse(&request.args)?;
-    link.with(|teams| teams.invites.keep(invite, SystemTime::now()))?;
+    link.invites(|invites| invites.keep(invite, SystemTime::now()))?;
 
     Ok("Kept the invite.".to_owned())
 }
@@ -91,7 +91,9 @@ async fn app(link: &TeamLink, mesh: Option<&Mesh>, request: &Request) -> Reply {
         }
     };
 
-    match link.with(|teams| teams.gateways.get(repo).copied()) {
+    let gateway = link.served(|served| served.gateways.get(repo).copied());
+
+    match gateway {
         Some(gateway) if gateway == link.me() => reply(here(link, args).await),
         _ if forwarded => reply(Err(MOVED.to_owned())),
         Some(gateway) => match mesh {
@@ -141,30 +143,39 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
     let now = SystemTime::now();
 
     match args {
-        TeamAppArgs::Cards { repo } => json(&link.with(|teams| {
-            let teammates = teams.teammates.get(&repo);
-            let followed: Vec<EndpointId> = teammates.into_iter().flat_map(Teammates::meshes).collect();
-            let members = teams.rosters.get(&repo).map(|record| record.members.iter());
-            let online = members
-                .into_iter()
-                .flatten()
-                .filter(|member| followed.contains(&member.mesh))
-                .map(|member| member.login.clone())
-                .collect();
+        TeamAppArgs::Cards { repo } => json(&{
+            let (followed, teammates, own_queued) = link.served(|served| {
+                let teammates = served.teammates.get(&repo);
+                let followed: Vec<EndpointId> =
+                    teammates.into_iter().flat_map(Teammates::meshes).collect();
+                let cards = served.boards.cards(&repo).unwrap_or_default();
+                let queued = |card: &Card| matches!(card.lane, Lane::Queued {});
+
+                (
+                    followed,
+                    teammates.map(Teammates::cards).unwrap_or_default(),
+                    cards.into_iter().filter(queued).collect(),
+                )
+            });
+            let (online, needs_you) = link.with(|teams| {
+                let members = teams.rosters.get(&repo).map(|record| record.members.iter());
+                let online = members
+                    .into_iter()
+                    .flatten()
+                    .filter(|member| followed.contains(&member.mesh))
+                    .map(|member| member.login.clone())
+                    .collect();
+
+                (online, teams.asks.cards(&repo, now))
+            });
 
             TeamCards {
-                needs_you: teams.asks.cards(&repo, now),
-                teammates: teammates.map(Teammates::cards).unwrap_or_default(),
-                own_queued: teams
-                    .boards
-                    .cards(&repo)
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter(|card| matches!(card.lane, Lane::Queued {}))
-                    .collect(),
+                needs_you,
+                teammates,
+                own_queued,
                 online,
             }
-        })),
+        }),
         TeamAppArgs::Dismiss { repo, card } => {
             link.dismiss_card(&repo, &card);
             Ok("Dismissed.".to_owned())
@@ -177,9 +188,9 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
             tell(link, &repo, remove)
         }
         TeamAppArgs::Leave { repo } => {
+            let own = link.home(|home| home.mesh);
             let login = link
                 .with(|teams| {
-                    let own = teams.home.mesh;
                     let mut members = teams.rosters.get(&repo)?.members.iter();
                     members
                         .find(|member| Some(member.mesh) == own)
@@ -198,13 +209,13 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
             devices,
             ..
         } => invite(link, &devices, TeamMsg::Invite { repo, ticket }).await,
-        TeamAppArgs::Invites => json(&link.with(|teams| teams.invites.current(now))),
+        TeamAppArgs::Invites => json(&link.invites(|invites| invites.current(now))),
         TeamAppArgs::DropInvite { invite } => {
-            link.with(|teams| teams.invites.remove(&invite));
+            link.invites(|invites| invites.remove(&invite));
             Ok("Dropped the invite.".to_owned())
         }
         TeamAppArgs::Queued { repo, issues } => {
-            link.with(|teams| teams.queues.insert(repo, issues));
+            link.hand_queue(repo, issues);
             Ok("Kept the queue.".to_owned())
         }
     }
@@ -213,9 +224,9 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
 /// Sends `msg` to every member of `repo`'s team from another mesh, in the
 /// background.
 fn tell(link: &TeamLink, repo: &TeamRepo, msg: TeamMsg) -> Outcome {
+    let own = link.home(|home| home.mesh);
     let others = link
         .with(|teams| {
-            let own = teams.home.mesh;
             let members = teams.rosters.get(repo)?.members.iter();
             let others = members.filter(|member| Some(member.mesh) != own);
             Some(others.cloned().collect())

@@ -98,7 +98,7 @@ pub(crate) async fn answer(
 /// its `Key::Project` can still be replicating or waiting for `home::follow`,
 /// so this checks `mesh` directly and waits briefly for it to arrive.
 async fn checkout_for(link: &TeamLink, mesh: Option<&Mesh>, repo: &TeamRepo) -> Option<Checkout> {
-    if let Some(checkout) = link.with(|teams| teams.home.checkout(repo)) {
+    if let Some(checkout) = link.home(|home| home.checkout(repo)) {
         return Some(checkout);
     }
 
@@ -109,7 +109,7 @@ async fn checkout_for(link: &TeamLink, mesh: Option<&Mesh>, repo: &TeamRepo) -> 
     loop {
         let current = home::read(mesh);
         if let Some(checkout) = current.checkout(repo) {
-            link.with(|teams| teams.home = current);
+            link.set_home(current);
             return Some(checkout);
         }
 
@@ -141,8 +141,7 @@ impl TeamLink {
             .login(&ticket.repo)
             .await
             .map_err(TeamError::Refused)?;
-        let (mesh, devices) =
-            self.with(|teams| (teams.home.mesh, teams.home.devices(&ticket.repo)));
+        let (mesh, devices) = self.home(|home| (home.mesh, home.devices(&ticket.repo)));
         let sent = Sent {
             login,
             mesh: mesh.ok_or(TeamError::NoMesh)?,
@@ -302,10 +301,8 @@ impl TeamLink {
         proof: &mut Option<(Checkout, Nonce)>,
     ) -> Result<TeamRecord, String> {
         let repo = &join.repo;
-        let (team, checkout, own) = self.with(|teams| {
-            let team = teams.rosters.get(repo).cloned();
-            (team, teams.home.checkout(repo), teams.home.mesh)
-        });
+        let team = self.with(|teams| teams.rosters.get(repo).cloned());
+        let (checkout, own) = self.home(|home| (home.checkout(repo), home.mesh));
         let entry = Member {
             login: join.login.clone(),
             mesh: join.mesh,

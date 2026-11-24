@@ -34,6 +34,9 @@ const MAX_FRAME: usize = 1024 * 1024;
 /// Changes kept for a slow subscriber before it gets the whole board again.
 pub(super) const CHANGES: usize = 64;
 
+/// A board's cards, and what changes on it from then on.
+type Watched = (Vec<Card>, broadcast::Receiver<(Card, bool)>);
+
 /// The boards this device serves, for the teammates subscribed to them.
 #[derive(Debug, Default)]
 pub(crate) struct Boards(BTreeMap<TeamRepo, Board>);
@@ -71,6 +74,13 @@ impl Boards {
     pub(crate) fn cards(&self, repo: &TeamRepo) -> Option<Vec<Card>> {
         Some(self.0.get(repo)?.cards.clone())
     }
+
+    /// `repo`'s board now, and what changes on it from now on.
+    fn watch(&self, repo: &TeamRepo) -> Option<Watched> {
+        let board = self.0.get(repo)?;
+
+        Some((board.cards.clone(), board.changes.subscribe()))
+    }
 }
 
 /// Serves `repo`'s board to `peer`, a member's device: the whole board, then
@@ -84,10 +94,7 @@ pub(super) async fn serve(
     mut tx: LinkTx,
     mut rx: LinkRx,
 ) -> Result<(), TeamError> {
-    let watched = link.with(|teams| {
-        let board = teams.boards.0.get(&repo)?;
-        Some((board.cards.clone(), board.changes.subscribe()))
-    });
+    let watched = link.served(|served| served.boards.watch(&repo));
     let Some((cards, mut changes)) = watched else {
         return finish(tx).await;
     };
@@ -103,7 +110,7 @@ pub(super) async fn serve(
                 let msg = match change {
                     _ if !link.with(|teams| teams.rosters.allows(peer, &repo)) => break,
                     Ok((card, gone)) => TeamMsg::BoardChange { repo: repo.clone(), card, gone },
-                    Err(RecvError::Lagged(_)) => match link.with(|teams| teams.boards.cards(&repo)) {
+                    Err(RecvError::Lagged(_)) => match link.served(|served| served.boards.cards(&repo)) {
                         Some(cards) => TeamMsg::Board { repo: repo.clone(), cards },
                         None => break,
                     },

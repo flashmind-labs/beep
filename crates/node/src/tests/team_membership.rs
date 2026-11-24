@@ -47,10 +47,8 @@ fn bob_knows_the_team(pair: &Pair) {
     let record = pair
         .gateway
         .with(|teams| teams.rosters.written(&repo()).unwrap().clone());
-    pair.bob_link.with(|teams| {
-        teams.rosters.refresh([(repo(), record)].into());
-        teams.home.mesh = Some(pair.bob.mesh);
-    });
+    pair.bob_link.with(|teams| teams.rosters.refresh([(repo(), record)].into()));
+    pair.bob_link.edit_home(|home| home.mesh = Some(pair.bob.mesh));
 }
 
 /// Waits for the last send on `repo()` to end, and keeps whom it missed.
@@ -208,10 +206,8 @@ async fn a_teammate_offline_at_the_announcement_gets_it_after_the_gateway_moves(
         .with(|teams| teams.rosters.written(&repo()).unwrap().clone());
     written.members[0] = entry.clone();
     for link in [&pair.gateway, &added_link] {
-        link.with(|teams| {
-            teams.rosters.refresh([(repo(), written.clone())].into());
-            teams.home.mesh = Some(pair.alice.mesh);
-        });
+        link.with(|teams| teams.rosters.refresh([(repo(), written.clone())].into()));
+        link.edit_home(|home| home.mesh = Some(pair.alice.mesh));
     }
     old.announce(&pair.gateway, &BTreeSet::new(), |_| true, &[], &projects);
     let moved = Team {
@@ -294,8 +290,8 @@ async fn a_member_who_may_only_read_leaves() {
     pair.gateway.with(|teams| {
         let record = TeamRecord::new(repo(), vec![pair.bob.clone(), carol.clone()]);
         teams.rosters.refresh([(repo(), record)].into());
-        teams.home.mesh = Some(carol.mesh);
     });
+    pair.gateway.edit_home(|home| home.mesh = Some(carol.mesh));
     let team = Team {
         repo: repo(),
         project: "org/repo".to_owned(),
@@ -322,10 +318,8 @@ async fn a_teammate_offline_at_a_rejoin_takes_the_member_later() {
     let dana = member("dana", SecretKey::generate().public());
     let mut bobs = TeamRecord::new(repo(), vec![pair.alice.clone(), pair.bob.clone(), dana.clone()]);
     bobs.remove(&dana.login);
-    pair.bob_link.with(|teams| {
-        teams.rosters.refresh([(repo(), bobs)].into());
-        teams.home.mesh = Some(pair.bob.mesh);
-    });
+    pair.bob_link.with(|teams| teams.rosters.refresh([(repo(), bobs)].into()));
+    pair.bob_link.edit_home(|home| home.mesh = Some(pair.bob.mesh));
     let again = Member {
         joined_at: dana.joined_at + Duration::from_secs(60),
         admitted_by: Some(pair.alice.mesh),
@@ -407,10 +401,8 @@ async fn a_gateway_not_on_the_entry_takes_the_entry_naming_it() {
     let old = SecretKey::generate().public();
     let mine = member("alice", old);
     let record = TeamRecord::new(repo(), vec![mine.clone(), pair.bob.clone()]);
-    pair.gateway.with(|teams| {
-        teams.rosters.refresh([(repo(), record)].into());
-        teams.home.mesh = Some(mine.mesh);
-    });
+    pair.gateway.with(|teams| teams.rosters.refresh([(repo(), record)].into()));
+    pair.gateway.edit_home(|home| home.mesh = Some(mine.mesh));
     let team = Team {
         repo: repo(),
         project: "org/repo".to_owned(),

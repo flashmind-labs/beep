@@ -144,10 +144,8 @@ impl Pair {
         let team = TeamRecord::new(repo(), vec![alice.clone(), bob.clone()]);
 
         for link in [&gateway, &laptop] {
-            link.with(|teams| {
-                teams.rosters.refresh([(repo(), team.clone())].into());
-                teams.home.mesh = Some(alice.mesh);
-            });
+            link.with(|teams| teams.rosters.refresh([(repo(), team.clone())].into()));
+            link.edit_home(|home| home.mesh = Some(alice.mesh));
         }
 
         Self {
@@ -160,7 +158,7 @@ impl Pair {
     }
 
     fn set(&self, cards: Vec<Card>) {
-        self.gateway.with(|teams| teams.boards.set(&repo(), cards));
+        self.gateway.publish(|served| served.boards.set(&repo(), cards));
     }
 }
 

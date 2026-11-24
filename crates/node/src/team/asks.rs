@@ -5,7 +5,7 @@
 //! answers once, with `team_ask` and the ask's id, and the answer goes back
 //! the same way into the asking session.
 
-use super::link::{TeamError, TeamLink, Teams, finish};
+use super::link::{Seen, TeamError, TeamLink, Teams, finish};
 use beep_proto::{
     SessionId,
     team::{AgentRef, Card, Member, Target, TeamMsg, TeamRepo},
@@ -173,7 +173,13 @@ impl TeamLink {
         }
 
         let now = SystemTime::now();
-        let (member, msg, id, answering) = self.with(|teams| outgoing(teams, ask, now))?;
+        let card = match &ask.to {
+            Some(Target::Agent { card }) => Some(card.as_str()),
+            _ => None,
+        };
+        let seen = self.seen(&ask.repo, card, None);
+        let (member, msg, id, answering) =
+            self.with(|teams| outgoing(teams, &seen, ask, now))?;
 
         if let Err(e) = self.reach(&member, &msg).await {
             // An answer not sent still waits; an ask not sent waits for nothing.
@@ -263,6 +269,7 @@ impl TeamLink {
 /// its id, and the ask it answers, taken off what waits.
 fn outgoing(
     teams: &mut Teams,
+    seen: &Seen,
     ask: Outgoing,
     now: SystemTime,
 ) -> Result<(Member, TeamMsg, String, Option<Taken>), String> {
@@ -274,12 +281,12 @@ fn outgoing(
         reply_to,
     } = ask;
 
-    if !teams.boards.serves(&repo) {
+    if !seen.serves {
         return Err("This machine no longer acts for the team; try again in a minute".to_owned());
     }
 
     teams.asks.expire(now);
-    let own = teams.home.mesh;
+    let own = seen.own;
     let record = teams.rosters.get(&repo).ok_or("This project has no team")?;
     let mut others = record
         .members
@@ -316,16 +323,10 @@ fn outgoing(
             login.to_string(),
             others.find(|member| member.login == *login),
         ),
-        Target::Agent { card } => {
-            let mesh = teams
-                .teammates
-                .get(&repo)
-                .and_then(|cards| cards.mesh_of(card));
-            (
-                card.clone(),
-                others.find(|member| Some(member.mesh) == mesh),
-            )
-        }
+        Target::Agent { card } => (
+            card.clone(),
+            others.find(|member| Some(member.mesh) == seen.teammate_mesh),
+        ),
     };
     let member = member
         .ok_or_else(|| {

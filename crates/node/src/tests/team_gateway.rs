@@ -3,7 +3,7 @@ use crate::{
     machine::ci::projects::pinned,
     team::{
         board::tests::{URL, member, repo},
-        home::{Project, in_team, picks_up, read},
+        home::{Home, Project, in_team, picks_up, read},
         link::Teams,
     },
 };
@@ -140,14 +140,17 @@ fn a_pending_announcement_moves_no_election() {
     let machine = |me: EndpointId| {
         let mut teams = Teams::default();
         teams.rosters.refresh([(repo(), written.clone())].into());
-        teams.home.mesh = Some(alice.mesh);
+        let mut home = Home {
+            mesh: Some(alice.mesh),
+            ..Home::default()
+        };
         let project = Project {
             name: "org/repo".to_owned(),
             checkout: None,
             devices: vec![EndpointAddr::new(added), EndpointAddr::new(old)],
         };
-        teams.home.projects.insert(repo(), project);
-        (me, teams)
+        home.projects.insert(repo(), project);
+        (me, teams, home)
     };
     let (mut on_old, on_added) = (machine(old), machine(added));
     // The old gateway announced the added machine; no desktop wrote it yet.
@@ -167,12 +170,12 @@ fn a_pending_announcement_moves_no_election() {
     let ci = Ci::default();
     let chosen: Vec<Option<EndpointId>> = [&on_old, &on_added]
         .into_iter()
-        .map(|(me, teams)| {
+        .map(|(me, teams, home)| {
             let other = if *me == old { added } else { old };
             let peers = [(other, ForgeReach::default())].into();
-            let team = &membership::teams(teams)[0];
+            let team = &membership::teams(home, teams)[0];
             elected(
-                &teams.home.projects[&repo()],
+                &home.projects[&repo()],
                 &team.mine,
                 &repo(),
                 *me,
@@ -398,6 +401,49 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
     heard.send(board).await.unwrap();
     assert!(futures::poll!(&mut running).is_pending());
 
-    let cards = link.with(|teams| teams.teammates.get(&repo()).map(Teammates::cards));
+    let cards = link.served(|served| served.teammates.get(&repo()).map(Teammates::cards));
     assert_eq!(cards, Some(vec![card]));
+}
+
+/// The gateway acts on the mesh's new teams and projects when the home task
+/// publishes them, not at its next tick.
+#[tokio::test]
+async fn the_gateway_elects_when_the_home_changes() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let me = mesh.me();
+    let (link, _router) = crate::team::board::tests::device().await;
+    let (heard, hearing) = mpsc::channel(8);
+    let mut gateway = Gateway::new(
+        mesh,
+        me,
+        link.clone(),
+        Offers::default(),
+        heard,
+        dir.path().join("node"),
+    );
+    gateway.answered = true;
+    let alice = member("alice", me);
+    let team = TeamRecord::new(repo(), vec![alice.clone()]);
+    link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
+    tokio::time::pause();
+    let mut running = Box::pin(gateway.drive(hearing));
+    assert!(futures::poll!(&mut running).is_pending());
+    assert!(link.served(|served| served.gateways.is_empty()));
+
+    link.edit_home(|home| {
+        home.mesh = Some(alice.mesh);
+        let project = Project {
+            name: "org/repo".to_owned(),
+            checkout: None,
+            devices: vec![EndpointAddr::new(me)],
+        };
+        home.projects.insert(repo(), project);
+    });
+    assert!(futures::poll!(&mut running).is_pending());
+
+    assert_eq!(link.served(|served| served.gateways.get(&repo()).copied()), Some(me));
 }

@@ -196,10 +196,8 @@ fn refresh(mesh: &Mesh, link: &TeamLink) {
         .collect();
     let home = read(mesh);
 
-    link.with(|teams| {
-        teams.rosters.refresh(records);
-        teams.home = home;
-    });
+    link.with(|teams| teams.rosters.refresh(records));
+    link.set_home(home);
 }
 
 /// Whether `record` names this mesh: one a teammate removed it from does
@@ -303,10 +301,8 @@ pub(crate) fn read(mesh: &Mesh) -> Home {
 /// Hands the rosters and invites that wait to a desktop. A desktop writes
 /// its own rosters; a roster already handed is not sent again.
 async fn hand(mesh: &Mesh, link: &TeamLink, handed: &mut Vec<TeamRecord>) {
-    let (records, invites) = link.with(|teams| {
-        let invites = teams.invites.current(SystemTime::now());
-        (teams.rosters.pending(), invites)
-    });
+    let invites = link.invites(|invites| invites.current(SystemTime::now()));
+    let records = link.with(|teams| teams.rosters.pending());
     let desktop_here = desktop_here(mesh);
     handed.retain(|record| records.contains(record));
     let unhanded: Vec<_> = records
@@ -345,7 +341,7 @@ async fn hand(mesh: &Mesh, link: &TeamLink, handed: &mut Vec<TeamRecord>) {
 
     for invite in invites {
         match call(mesh, Tool::TeamInvite, &invite).await {
-            Ok(()) => link.with(|teams| teams.invites.remove(&invite)),
+            Ok(()) => link.invites(|invites| invites.remove(&invite)),
             Err(e) => log::info!("an invite to {} waits for a desktop: {e}", invite.repo),
         }
     }

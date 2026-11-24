@@ -20,7 +20,7 @@ use crate::{
     machine::{env, stats},
     team::{
         home::ForgeCli,
-        link::{TeamAlpn, TeamLink, Teams},
+        link::{TeamAlpn, TeamLink},
     },
 };
 use anyhow::{Context, Result, bail};
@@ -324,7 +324,7 @@ impl Peers {
         }
 
         // The gateway stopped with the follower: no team is served from here.
-        self.inner.team.with(|teams| *teams = Teams::default());
+        self.inner.team.reset();
         crate::lock(&self.inner.active).take();
     }
 

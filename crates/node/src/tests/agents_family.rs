@@ -1543,9 +1543,11 @@ async fn a_teammate_reaches_only_a_team_session_through_its_gateway() {
     let mut record = TeamRecord::new(repo(), Vec::new());
     record.asks = false;
     let folder = rig.dir.path().to_owned();
-    link.with(|teams| {
-        teams.rosters.refresh([(repo(), record)].into());
-        teams.gateways.insert(repo(), elected);
+    link.with(|teams| teams.rosters.refresh([(repo(), record)].into()));
+    link.publish(|served| {
+        served.gateways.insert(repo(), elected);
+    });
+    link.edit_home(|home| {
         let checkout = Some(Checkout {
             folder,
             remote: String::new(),
@@ -1555,7 +1557,7 @@ async fn a_teammate_reaches_only_a_team_session_through_its_gateway() {
             checkout,
             devices: Vec::new(),
         };
-        teams.home.projects.insert(repo(), project);
+        home.projects.insert(repo(), project);
     });
 
     let elsewhere = Some(iroh::SecretKey::generate().public());

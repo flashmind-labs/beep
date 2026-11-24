@@ -99,10 +99,8 @@ struct Handed {
 pub(super) fn team_of(offers: &Offers, session: &SessionId) -> Option<(TeamLink, TeamRepo)> {
     let link = offers.reach.peers()?.team();
     let folder = offers.agents.folder_of(session)?;
-    let repo = link.with(|teams| {
-        let repo = teams.home.team_of(&folder)?;
-        teams.rosters.get(&repo).map(|_| repo)
-    })?;
+    let repo = link.home(|home| home.team_of(&folder))?;
+    link.with(|teams| teams.rosters.get(&repo).is_some()).then_some(())?;
 
     Some((link, repo))
 }
@@ -227,7 +225,8 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
         return fail(e);
     }
 
-    let reply = match link.with(|teams| teams.gateways.get(&repo).copied()) {
+    let gateway = link.served(|served| served.gateways.get(&repo).copied());
+    let reply = match gateway {
         Some(gateway) if gateway == mesh.me() => {
             answer(&link, &offers.agents, None, &request).await
         }
@@ -279,12 +278,12 @@ fn outgoing(
         Agents::name_of(&session).as_ref(),
         &machine_name(Some(mesh)),
     );
+    let own = link.home(|home| home.mesh);
     let (login, to) = link.with(|teams| {
         let record = teams
             .rosters
             .get(&repo)
             .ok_or("This project has no team.")?;
-        let own = teams.home.mesh;
         let mut members = record.members.iter();
         let login = members
             .find(|member| Some(member.mesh) == own)
@@ -384,7 +383,9 @@ fn acts_for(link: &TeamLink, repo: &TeamRepo, from: Option<EndpointId>) -> Resul
         return Ok(());
     };
 
-    match link.with(|teams| teams.gateways.get(repo).copied()) {
+    let gateway = link.served(|served| served.gateways.get(repo).copied());
+
+    match gateway {
         Some(gateway) if gateway == from => Ok(()),
         _ => Err(format!(
             "{} does not act for the team of {repo} here.",
@@ -478,19 +479,21 @@ pub(crate) async fn still_runs(mesh: &Mesh, card: &str) -> Option<bool> {
 /// The team of `repo`: its members, this mesh's and the teammates' cards,
 /// and its open issues with their assignees.
 async fn team(link: &TeamLink, repo: &TeamRepo) -> Reply {
-    let view = link.with(|teams| {
-        let ours = teams.boards.cards(repo)?;
-        let members: Vec<String> = teams
-            .rosters
-            .get(repo)?
-            .members
-            .iter()
-            .map(|member| member.login.to_string())
-            .collect();
-        let theirs = teams.teammates.get(repo).map(Teammates::cards);
-        let cards: Vec<Card> = ours.into_iter().chain(theirs.unwrap_or_default()).collect();
-        Some((members, cards))
-    });
+    let view = link
+        .served(|served| {
+            let ours = served.boards.cards(repo)?;
+            let theirs = served.teammates.get(repo).map(Teammates::cards);
+
+            Some(ours.into_iter().chain(theirs.unwrap_or_default()).collect::<Vec<Card>>())
+        })
+        .and_then(|cards| {
+            let members = link.with(|teams| {
+                let record = teams.rosters.get(repo)?;
+                Some(record.members.iter().map(|member| member.login.to_string()).collect::<Vec<String>>())
+            })?;
+
+            Some((members, cards))
+        });
     let Some((members, cards)) = view else {
         return fail("This machine no longer acts for the team; try again in a minute.");
     };
@@ -588,9 +591,9 @@ async fn handed_here(
         .teammates_session(&session_of(&card))
         .ok_or_else(|| format!("{card} no longer runs"))?;
     let folder = PathBuf::from(session.info().cwd);
-    let team = link.with(|teams| {
-        let repo = teams.home.team_of(&folder)?;
-        let asks = teams.rosters.get(&repo)?.asks;
+    let repo = link.home(|home| home.team_of(&folder));
+    let team = repo.and_then(|repo| {
+        let asks = link.with(|teams| teams.rosters.get(&repo).map(|record| record.asks))?;
         Some((repo, asks))
     });
     let (repo, asks) = team.ok_or_else(|| format!("{card} works on no team's project"))?;

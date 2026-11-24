@@ -9,7 +9,7 @@ use super::{
         ASK_CARD, Delivery, MAX_CARD, MAX_CARDS, MAX_TEXT, MAX_WAITING, NOT_WAITING, Taken,
         is_ask_id, not_served, too_long,
     },
-    link::{TeamLink, Teams},
+    link::{Seen, TeamLink, Teams},
 };
 use crate::agents::tags;
 use beep_proto::team::{Card, Lane, Target, TeamMsg, TeamRepo};
@@ -21,10 +21,23 @@ impl TeamLink {
     /// session on the card it names, or keeps it as a Needs you card for
     /// this mesh's person. The refusal when it is not taken.
     pub(super) async fn asked(&self, peer: EndpointId, ask: &TeamMsg) -> Option<TeamMsg> {
-        let TeamMsg::Ask { id, from, text, .. } = ask else {
+        let TeamMsg::Ask {
+            id,
+            repo,
+            from,
+            to,
+            text,
+            ..
+        } = ask
+        else {
             return None;
         };
-        let taken = self.with(|teams| take(teams, peer, ask, SystemTime::now()));
+        let to_card = match to {
+            Target::Agent { card } => Some(card.as_str()),
+            Target::Person { .. } => None,
+        };
+        let seen = self.seen(repo, Some(&from.card), to_card);
+        let taken = self.with(|teams| take(teams, &seen, peer, ask, SystemTime::now()));
         let (repo, card) = match taken {
             Ok(Some(taken)) => taken,
             Ok(None) => return None,
@@ -91,6 +104,7 @@ impl TeamLink {
 /// session to hand it to, `None` once it is a Needs you card, or the refusal.
 fn take(
     teams: &mut Teams,
+    seen: &Seen,
     peer: EndpointId,
     ask: &TeamMsg,
     now: SystemTime,
@@ -106,11 +120,11 @@ fn take(
     else {
         return Ok(None);
     };
-    let own = teams.home.mesh;
+    let own = seen.own;
     let record = teams
         .rosters
         .get(repo)
-        .filter(|_| teams.boards.serves(repo))
+        .filter(|_| seen.serves)
         .ok_or_else(|| not_served(repo))?;
     let mine = record
         .members
@@ -123,10 +137,7 @@ fn take(
         .find(|member| member.devices.iter().any(|device| device.id == peer))
         .ok_or_else(|| not_served(repo))?;
     // The asking session is one the sender's own board shows.
-    let asker = teams
-        .teammates
-        .get(repo)
-        .and_then(|cards| cards.mesh_of(&from.card));
+    let asker = seen.teammate_mesh;
 
     if from.login != sender.login {
         return Err("An ask comes in its sender's own name".to_owned());
@@ -158,10 +169,7 @@ fn take(
         Target::Person { login: person } if *person == login => format!("{ASK_CARD}{id}"),
         Target::Person { login: person } => return Err(format!("{person} is not on this mesh")),
         Target::Agent { card } => {
-            let cards = teams.boards.cards(repo).unwrap_or_default();
-            let on_board = cards.iter().any(|on| on.id == *card);
-
-            if !on_board {
+            if !seen.on_board {
                 return Err(format!("No session {card} on {login}'s board"));
             }
             card.clone()

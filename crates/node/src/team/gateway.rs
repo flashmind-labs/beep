@@ -182,6 +182,7 @@ impl Gateway {
     /// tasks beside it, and teammates' updates are taken meanwhile.
     async fn drive(mut self, mut hearing: mpsc::Receiver<Followed>) {
         let mut updates = self.mesh.updates();
+        let mut home = self.link.home_changes();
         let mut tick = interval(TICK);
         tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
@@ -189,6 +190,11 @@ impl Gateway {
             select! {
                 _ = tick.tick() => self.step(),
                 Some(followed) = hearing.recv() => self.heard(followed),
+                // The mesh's teams or projects changed: elect on them now.
+                changed = home.changed() => match changed {
+                    Ok(()) => self.step(),
+                    Err(_) => return,
+                },
                 Some(done) = self.asking.join_next(), if !self.asking.is_empty() => {
                     // A gather that a newer one replaced ends cancelled.
                     if let Ok(peers) = done {
@@ -211,8 +217,10 @@ impl Gateway {
 
     /// The teams of the mesh's projects and the home they are in.
     fn snapshot(&self) -> (Vec<Team>, Home) {
-        self.link
-            .with(|link| (membership::teams(link), link.home.clone()))
+        let home = self.link.home(Home::clone);
+        let teams = self.link.with(|link| membership::teams(&home, link));
+
+        (teams, home)
     }
 
     /// Asks the machines when that is due, and elects once they have answered.
@@ -255,18 +263,17 @@ impl Gateway {
             .collect();
         self.held = teams.iter().map(|team| team.repo.clone()).collect();
         self.membership.keep(&self.held);
-        let queues = self.link.with(|link| std::mem::take(&mut link.queues));
-        self.handed.extend(queues);
+        self.handed.extend(self.link.take_queues());
         self.keep_cards();
         let held = &self.held;
-        self.link.with(|link| {
-            link.gateways = gateways;
-            link.boards.keep(held);
-            link.teammates.retain(|repo, _| held.contains(repo));
+        self.link.publish(|served| {
+            served.gateways = gateways;
+            served.boards.keep(held);
+            served.teammates.retain(|repo, _| held.contains(repo));
 
             for repo in held {
-                if !link.boards.serves(repo) {
-                    link.boards.set(repo, Vec::new());
+                if !served.boards.serves(repo) {
+                    served.boards.set(repo, Vec::new());
                 }
             }
         });
@@ -353,10 +360,10 @@ impl Gateway {
         self.keep_cards();
         let held = &self.held;
 
-        self.link.with(|link| {
+        self.link.publish(|served| {
             for Made { repo, cards, now } in made.into_iter().filter(|made| held.contains(&made.repo)) {
-                let old = link.boards.cards(&repo).unwrap_or_default();
-                link.boards.set(&repo, settle(&old, cards, now));
+                let old = served.boards.cards(&repo).unwrap_or_default();
+                served.boards.set(&repo, settle(&old, cards, now));
             }
         });
     }
@@ -396,7 +403,7 @@ impl Gateway {
         for (repo, mesh) in stopped {
             self.follows.remove(&(repo.clone(), mesh));
             self.link
-                .with(|link| link.teammates.entry(repo.clone()).or_default().gone(mesh));
+                .publish(|served| served.teammates.entry(repo.clone()).or_default().gone(mesh));
         }
 
         for (key, member) in wanted {
@@ -421,8 +428,8 @@ impl Gateway {
         let Some((member, _)) = self.follows.get(&(repo.clone(), mesh)) else {
             return;
         };
-        self.link.with(|link| {
-            let teammates = link.teammates.entry(repo.clone()).or_default();
+        self.link.publish(|served| {
+            let teammates = served.teammates.entry(repo.clone()).or_default();
 
             match heard {
                 Heard::Board(cards) => teammates.board(mesh, &member.login, cards),
@@ -592,10 +599,8 @@ impl Cards {
     /// Whether `repo`'s issues are read again: every `BUSY` while a session
     /// on its board works, every `QUIET` otherwise.
     fn titles_due(&self, link: &TeamLink, repo: &TeamRepo) -> bool {
-        let working = link.with(|link| {
-            let cards = link.boards.cards(repo).unwrap_or_default();
-            cards.iter().any(|card| card.lane == Lane::Working {})
-        });
+        let cards = link.served(|served| served.boards.cards(repo)).unwrap_or_default();
+        let working = cards.iter().any(|card| card.lane == Lane::Working {});
         let wait = if working { BUSY } else { QUIET };
 
         self.titles

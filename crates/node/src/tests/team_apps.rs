@@ -74,10 +74,10 @@ async fn a_forwarded_call_is_answered_on_the_gateway() {
     let link = link().await;
     let me = link.endpoint().id();
     let card = ask_card();
-    link.with(|teams| {
-        teams.gateways.insert(repo(), me);
-        teams.asks.cards.insert(repo(), vec![card.clone()]);
+    link.publish(|served| {
+        served.gateways.insert(repo(), me);
     });
+    link.with(|teams| teams.asks.cards.insert(repo(), vec![card.clone()]));
 
     let (text, failed) = done(answer(&caller(&link, Table::Shared, false), &cards(true)).await);
 
@@ -101,9 +101,9 @@ async fn cards_carry_this_meshs_own_queued_issues() {
         lane: Lane::Working {},
         ..ask_card()
     };
-    link.with(|teams| {
-        teams.gateways.insert(repo(), me);
-        teams.boards.set(&repo(), vec![working, queued.clone()]);
+    link.publish(|served| {
+        served.gateways.insert(repo(), me);
+        served.boards.set(&repo(), vec![working, queued.clone()]);
     });
 
     let (text, failed) = done(answer(&caller(&link, Table::Shared, false), &cards(false)).await);
@@ -120,10 +120,10 @@ async fn a_followed_teammate_with_no_cards_is_online() {
     let device = || SecretKey::generate().public();
     let (bob, carol) = (member("bob", device()), member("carol", device()));
     let team = TeamRecord::new(repo(), vec![bob.clone(), carol]);
-    link.with(|teams| {
-        teams.gateways.insert(repo(), me);
-        teams.rosters.refresh([(repo(), team)].into());
-        let teammates = teams.teammates.entry(repo()).or_default();
+    link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
+    link.publish(|served| {
+        served.gateways.insert(repo(), me);
+        let teammates = served.teammates.entry(repo()).or_default();
         teammates.board(bob.mesh, &bob.login, Vec::new());
     });
 
@@ -139,10 +139,10 @@ async fn a_followed_teammate_with_no_cards_is_online() {
 async fn a_forwarded_call_is_refused_off_the_gateway() {
     let link = link().await;
     let elsewhere = SecretKey::generate().public();
-    link.with(|teams| {
-        teams.gateways.insert(repo(), elsewhere);
-        teams.asks.cards.insert(repo(), vec![ask_card()]);
+    link.publish(|served| {
+        served.gateways.insert(repo(), elsewhere);
     });
+    link.with(|teams| teams.asks.cards.insert(repo(), vec![ask_card()]));
 
     for table in [Table::Shared, Table::Peer(elsewhere)] {
         let (text, failed) = done(answer(&caller(&link, table, false), &cards(true)).await);
@@ -160,7 +160,9 @@ async fn pickup_is_taken_only_from_the_gateway() {
     let dir = tempfile::tempdir().expect("a folder");
     let offers = crate::link::Offers::local(&[], crate::machine::provision::Provision::new(dir.path()));
     let gateway = SecretKey::generate().public();
-    link.with(|teams| teams.gateways.insert(repo(), gateway));
+    link.publish(|served| {
+        served.gateways.insert(repo(), gateway);
+    });
     let order = serde_json::json!({
         "repo": serde_json::to_value(repo()).expect("a repo"),
         "number": 52,
@@ -279,12 +281,13 @@ async fn an_apps_call_goes_on_to_the_gateway_once() {
     let gateway = pair.node.team();
     let node_id = gateway.me();
     let card = ask_card();
-    gateway.with(|teams| {
-        teams.gateways.insert(repo(), node_id);
-        teams.asks.cards.insert(repo(), vec![card.clone()]);
+    gateway.publish(|served| {
+        served.gateways.insert(repo(), node_id);
     });
-    pair.desktop_link
-        .with(|teams| teams.gateways.insert(repo(), node_id));
+    gateway.with(|teams| teams.asks.cards.insert(repo(), vec![card.clone()]));
+    pair.desktop_link.publish(|served| {
+        served.gateways.insert(repo(), node_id);
+    });
     let desktop = Caller {
         mesh: Some(pair.desktop.clone()),
         ..caller(&pair.desktop_link, Table::Shared, false)
@@ -298,7 +301,9 @@ async fn an_apps_call_goes_on_to_the_gateway_once() {
 
     // The node holds the desktop for the gateway: the call stops there.
     let desktop_id = pair.desktop_link.me();
-    gateway.with(|teams| teams.gateways.insert(repo(), desktop_id));
+    gateway.publish(|served| {
+        served.gateways.insert(repo(), desktop_id);
+    });
 
     let (text, failed) = done(answer(&desktop, &cards(false)).await);
 

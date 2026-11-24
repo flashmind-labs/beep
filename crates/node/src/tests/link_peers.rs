@@ -640,15 +640,15 @@ async fn leaving_the_mesh_forgets_the_teams() {
         teams
             .rosters
             .refresh([(repo.clone(), TeamRecord::new(repo.clone(), vec![alice]))].into());
-        teams.boards.set(&repo, Vec::new());
-        teams.gateways.insert(repo.clone(), endpoint.id());
+    });
+    peers.team().publish(|served| {
+        served.boards.set(&repo, Vec::new());
+        served.gateways.insert(repo.clone(), endpoint.id());
     });
 
     peers.leave().await;
 
-    peers.team().with(|teams| {
-        assert!(teams.rosters.get(&repo).is_none());
-        assert!(!teams.boards.serves(&repo));
-        assert!(teams.gateways.is_empty());
-    });
+    peers.team().with(|teams| assert!(teams.rosters.get(&repo).is_none()));
+    assert!(!peers.team().served(|served| served.boards.serves(&repo)));
+    assert!(peers.team().served(|served| served.gateways.is_empty()));
 }

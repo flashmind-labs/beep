@@ -237,10 +237,10 @@ impl Pair {
         });
         let folder = inviter_checkout.clone();
         let place = remote.clone();
-        inviter.with(|teams| {
-            teams.rosters.refresh([(repo(), team)].into());
-            teams.home.mesh = Some(alice_mesh);
-            teams.home.projects.insert(
+        inviter.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
+        inviter.edit_home(|home| {
+            home.mesh = Some(alice_mesh);
+            home.projects.insert(
                 repo(),
                 Project {
                     name: "org/repo".to_owned(),
@@ -326,9 +326,9 @@ async fn joiner_link(inviter: &EndpointAddr, forge: Forge) -> TeamLink {
         .unwrap();
     let id = endpoint.id();
     let link = TeamLink::new(endpoint, Arc::new(forge));
-    link.with(|teams| {
-        teams.home.mesh = Some(mesh_id());
-        teams.home.projects.insert(
+    link.edit_home(|home| {
+        home.mesh = Some(mesh_id());
+        home.projects.insert(
             repo(),
             Project {
                 name: "org/repo".to_owned(),
@@ -400,7 +400,7 @@ fn with_carol(pair: &Pair, carol: EndpointId, device: EndpointId) {
 
 fn invites(pair: &Pair) -> Vec<TeamInviteArgs> {
     pair.inviter
-        .with(|teams| teams.invites.current(SystemTime::now()))
+        .invites(|invites| invites.current(SystemTime::now()))
 }
 
 #[tokio::test]
@@ -584,8 +584,8 @@ async fn invite_from_contact_is_kept() {
     let pair = Pair::new(SystemTime::now() + DAY).await;
     let contact = mesh_id();
     let device = pair.joiner.endpoint().id();
-    pair.inviter.with(|teams| {
-        teams.home.contacts.insert(device, contact);
+    pair.inviter.edit_home(|home| {
+        home.contacts.insert(device, contact);
     });
 
     let (mut tx, mut rx) = pair
@@ -607,8 +607,8 @@ async fn member_invite_to_another_team_is_kept() {
     let pair = Pair::new(SystemTime::now() + DAY).await;
     let (contact, device) = (mesh_id(), mesh_id());
     with_carol(&pair, contact, device);
-    pair.inviter.with(|teams| {
-        teams.home.contacts.insert(device, contact);
+    pair.inviter.edit_home(|home| {
+        home.contacts.insert(device, contact);
     });
     let other: TeamRepo = "github.com/org/other".parse().unwrap();
 
@@ -624,8 +624,8 @@ async fn member_invite_to_another_team_is_kept() {
 async fn contact_invites_are_checked_and_bounded() {
     let pair = Pair::new(SystemTime::now() + DAY).await;
     let (contact, device) = (mesh_id(), mesh_id());
-    pair.inviter.with(|teams| {
-        teams.home.contacts.insert(device, contact);
+    pair.inviter.edit_home(|home| {
+        home.contacts.insert(device, contact);
     });
     let other = |n: usize| -> TeamRepo { format!("github.com/org/r{n}").parse().unwrap() };
 
@@ -684,8 +684,8 @@ async fn join_cannot_claim_a_member() {
 #[tokio::test]
 async fn a_joiner_refuses_a_roster_that_changes_its_own_entry() {
     let pair = Pair::new(SystemTime::now() + DAY).await;
-    let mesh = pair.joiner.with(|teams| teams.home.mesh).unwrap();
-    let device = pair.joiner.with(|teams| teams.home.devices(&repo()))[0].id;
+    let mesh = pair.joiner.home(|home| home.mesh).unwrap();
+    let device = pair.joiner.home(|home| home.devices(&repo()))[0].id;
     let sent = crate::team::join::Sent {
         login: login("bob"),
         mesh,
@@ -763,8 +763,8 @@ async fn forge_failure_says_nothing_of_the_inviter() {
 #[tokio::test]
 async fn git_failure_says_nothing_of_the_inviter() {
     let pair = Pair::new(SystemTime::now() + DAY).await;
-    pair.inviter.with(|teams| {
-        let project = teams.home.projects.get_mut(&repo()).unwrap();
+    pair.inviter.edit_home(|home| {
+        let project = home.projects.get_mut(&repo()).unwrap();
         project.checkout.as_mut().unwrap().remote = "/no/such/remote.git".to_owned();
     });
 

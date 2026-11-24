@@ -4,7 +4,7 @@
 //! mesh may still push.
 
 use super::{
-    home::Project,
+    home::{Home, Project},
     link::{TeamLink, Teams},
     roster::MAX_DEVICES,
 };
@@ -39,12 +39,10 @@ pub(super) struct Team {
 }
 
 /// The teams of this mesh's projects whose record the mesh holds.
-pub(super) fn teams(teams: &Teams) -> Vec<Team> {
-    let own = teams.home.mesh;
+pub(super) fn teams(home: &Home, teams: &Teams) -> Vec<Team> {
+    let own = home.mesh;
 
-    teams
-        .home
-        .projects
+    home.projects
         .iter()
         .filter_map(|(repo, project)| {
             let mine = teams
