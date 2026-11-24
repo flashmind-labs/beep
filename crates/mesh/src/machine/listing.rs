@@ -227,8 +227,8 @@ pub async fn project_history_rows<S: Sessions + ?Sized>(
 }
 
 /// `past`, a node's history rows, with the sessions Beep owns: a row of an owned session is
-/// replaced by the owned one of the same machine, which knows its state now, and background
-/// children and reviewers are left out.
+/// replaced by the owned one of the same machine, which knows its state now; one with none
+/// shows as ended. Background children and reviewers are left out.
 pub fn merge_owned(past: Vec<MachineSession>, owned: Vec<Linked>) -> Vec<MachineSession> {
     // `owned` may hold several machines' sessions, and a moved session keeps its agent id.
     let key = |session: &MachineSession| {
@@ -252,14 +252,18 @@ pub fn merge_owned(past: Vec<MachineSession>, owned: Vec<Linked>) -> Vec<Machine
 
     past.into_iter()
         .filter(|past| !children.contains(&key(past)))
-        .map(|past| {
+        .map(|mut past| {
             // A transcript names the session that took it over, but cannot say
             // whether its turn is working, idle, asking or ended now.
             if past.external {
-                past
-            } else {
-                owned.remove(&key(&past)).unwrap_or(past)
+                return past;
             }
+
+            owned.remove(&key(&past)).unwrap_or_else(|| {
+                // No owned row says it runs, so it does not show as running.
+                past.status = AgentStatus::Ended {};
+                past
+            })
         })
         .collect()
 }

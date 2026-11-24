@@ -366,4 +366,7 @@ fn owned_rows_replace_only_their_own_machines_history() {
     // Machine B's rows of the same ids neither hide nor replace machine A's.
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().all(|row| row.machine_id == "machine-a"));
+
+    // No owned row of machine A says they run, so they show as ended.
+    assert!(rows.iter().all(|row| row.status == AgentStatus::Ended {}));
 }
