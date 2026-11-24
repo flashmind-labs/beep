@@ -14,6 +14,8 @@ import { paneSession } from "../agentpane/media.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { StashFile } from "../chat/stash-state.ts";
+import { bytesOf } from "../agentpane/media-state.ts";
+import { rememberLocalUpload } from "../agentpane/read.ts";
 
 /// A file on its way to the session's machine.
 interface Upload extends Transfer {
@@ -25,6 +27,9 @@ interface Upload extends Transfer {
 interface UploadBatch {
   /// Files only read from the disk, which go with the message: its send waits for them.
   local: boolean;
+  /// What a local batch attached: the keys of its files, and its pictures.
+  paths: string[];
+  images: Attached[];
   ready: Promise<void>;
   size: number;
   done: number;
@@ -148,7 +153,7 @@ let attachments = 0;
 export async function uploadDropped(files: PastedFiles, folder: string | null = null, root = paneSession()?.cwd ?? "", preview = false) {
   const state = current, session = paneSession();
   const pending = state.pending;
-  const batch: UploadBatch = { local: folder === null, ready: Promise.resolve(), size: 0, done: 0 };
+  const batch: UploadBatch = { local: folder === null, paths: [], images: [], ready: Promise.resolve(), size: 0, done: 0 };
   pending.add(batch);
   const attach = (dropped: File[]) => {
     batch.size = dropped.reduce((n, f) => n + f.size, 0);
@@ -161,8 +166,33 @@ export async function uploadDropped(files: PastedFiles, folder: string | null = 
   finally { pending.delete(batch); }
 }
 
-/// The reads of files being attached, which a message sent now waits for.
-export const attachReads = () => [...current.pending].filter(batch => batch.local).map(batch => batch.ready);
+/// What the pictures and files this window sent were, until the machine says where they went.
+const sentFiles = new Map<string, StashFile>();
+const SENT_FILES_KEPT = 16;
+
+/// Keeps `files`, which the outbox uploads for a message from this window.
+export function keepSentFiles(machine: string, files: readonly { file: StashFile }[]) {
+  for (const { file } of files) {
+    const key = JSON.stringify([machine, file.name]);
+    sentFiles.delete(key);
+    sentFiles.set(key, file);
+  }
+
+  while (sentFiles.size > SENT_FILES_KEPT) sentFiles.delete(sentFiles.keys().next().value!);
+}
+
+/// The outbox put `uploaded` on `machine`: what this window sent is read from here, not from there.
+export function uploadedFromHere(machine: string, uploaded: readonly { name: string; path: string }[]) {
+  for (const { name, path } of uploaded) {
+    const key = JSON.stringify([machine, name]), file = sentFiles.get(key);
+    if (!file) continue;
+    sentFiles.delete(key);
+    rememberLocalUpload(machine, path, new File([bytesOf(file.data)], file.name, { type: file.mime }));
+  }
+}
+
+/// The batches of files being read, which a message sent now takes once they are.
+export const attachReads = () => [...current.pending].filter(batch => batch.local);
 
 /// Keeps `files` for the next message. A picture that goes inline as it is
 /// crosses the link once, in the message; the others upload with it.
@@ -172,13 +202,22 @@ async function attachFiles(files: File[], preview: boolean, batch: UploadBatch, 
   for (const f of files) {
     try {
       state.reading++;
-      if (preview && staysInline(f) && await attachPreview(mentionImages(state), f, null)) continue;
+      if (preview && staysInline(f)) {
+        const added = await attachPreview(mentionImages(state), f, null);
+        if (added) { batch.images.push(added); continue; }
+      }
+
       if (!session) continue;
 
       const key = attachmentKey(f.name || "file");
       state.files.set(key, { name: f.name || "file", mime: f.type || "application/octet-stream", size: f.size, data: await fileBase64(f) });
       state.paths.push(key);
-      if (preview && f.type.startsWith("image/")) await attachPreview(mentionImages(state), f, key);
+      batch.paths.push(key);
+
+      if (preview && f.type.startsWith("image/")) {
+        const added = await attachPreview(mentionImages(state), f, key);
+        if (added) batch.images.push(added);
+      }
     } catch {
       const message = `${f.name || "That file"} could not be read; folders do not attach, drop the files in them`;
       state.error = message;

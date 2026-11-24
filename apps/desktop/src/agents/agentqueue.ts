@@ -15,13 +15,9 @@ export interface Attached {
   original: string | File | null;
 }
 
-/// Where a message is: waiting for the messages sent before it, on its way
-/// to the node, held there for the next tool boundary, or delivered to the
-/// agent.
-export type SteerState = "waiting" | "sending" | "sent" | "delivered";
-
-/// Whether the node cannot have the message yet.
-export const heldBack = (state: SteerState | null) => state === "waiting";
+/// Where a message is: on its way to the node, held there for the next tool
+/// boundary, or delivered to the agent.
+export type SteerState = "sending" | "sent" | "delivered";
 
 /// A message typed while the turn runs.
 export interface Waiting {
@@ -48,7 +44,7 @@ export interface OutboxRow {
   text: string;
   /// The names of its images.
   images: string[];
-  state: "waiting" | "uploading" | "sending" | "failed";
+  state: "waiting" | "resuming" | "uploading" | "sending" | "failed";
   /// Why the machine refused a failed one.
   reason: string | null;
 }
@@ -57,6 +53,7 @@ export interface OutboxRow {
 export function outboxNote(row: OutboxRow) {
   switch (row.state) {
     case "waiting": return "waiting for connection";
+    case "resuming": return "resuming";
     case "uploading": return "uploading";
     case "sending": return "sending";
     case "failed": return row.reason || "not sent";
@@ -67,6 +64,13 @@ export function outboxNote(row: OutboxRow) {
 /// the files, which go to the machine behind the row, and the other paths it
 /// mentions. Null when it has no files.
 export interface Attach { root: string; files: { name: string; mime: string; data: string }[]; mentions: string[] }
+
+/// What an ended session needs before a message goes: it resumes, on `model`
+/// for Codex, and then takes `pick`.
+export interface Resume { model: string | null; pick: { model: string | null; effort: string | null; fast: boolean | null } | null }
+
+/// What `agent_steer` takes beside a message: its files, and the resume of an ended session.
+export interface Extras { attach?: Attach | null; resume?: Resume | null }
 
 export function attachOf({ paths, files = [], root = "" }: { paths: readonly string[]; files?: readonly { path: string; file: StashFile }[]; root?: string }): Attach | null {
   if (!files.length) return null;
@@ -109,7 +113,7 @@ export function syncSteers(items: Waiting[], run: Run & { queued: number; queued
   const restored: Waiting[] = [];
 
   for (const text of [...messages].reverse()) {
-    const q = local.find(q => !matched.has(q) && !heldBack(q.state)
+    const q = local.find(q => !matched.has(q)
       && [q.text, ...q.images.map(image => `[Image: ${image.name}]`)].filter(Boolean).join("\n") === text);
     if (q) matched.add(q);
     else restored.unshift({
@@ -132,21 +136,4 @@ export function dropDelivered(items: Waiting[]) {
 /// A stop ends when its turn finishes, even if the next turn starts before a read.
 export function stopPending(stop: { id: string; turns: number } | null, id: string, active: boolean, turns: number) {
   return stop?.id === id && active && turns <= stop.turns ? stop : null;
-}
-
-/// Messages to one conversation go out one at a time, in the order they were
-/// sent: one sent while an earlier one uploads or resumes waits for it.
-export function sendOrder() {
-  const tails = new Map<string, Promise<unknown>>();
-
-  return {
-    busy: (key: string) => tails.has(key),
-    run<T>(key: string, work: () => Promise<T>): Promise<T> {
-      const earlier = tails.get(key);
-      const run = earlier ? earlier.then(work) : work();
-      const tail: Promise<unknown> = run.catch(() => {}).finally(() => { if (tails.get(key) === tail) tails.delete(key); });
-      tails.set(key, tail);
-      return run;
-    },
-  };
 }

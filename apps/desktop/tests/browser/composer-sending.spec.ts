@@ -35,9 +35,9 @@ async function keepFilesInOutbox(page: Page) {
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
       const steer = args?.steer as { steer?: { text: string } } | undefined;
 
-      if (command === "agent_steer" && args?.attach && steer?.steer) {
+      if (command === "agent_steer" && (args?.attach || args?.resume) && steer?.steer) {
         asked.push({ args });
-        rows = [...rows, { id: next++, how: "steer", text: steer.steer.text, images: [], state: "uploading", reason: null }];
+        rows = [...rows, { id: next++, how: "steer", text: steer.steer.text, images: [], state: args.resume ? "resuming" : "uploading", reason: null }];
         changed();
         throw { kind: "waiting", message: "Waiting for the connection" };
       }
@@ -108,23 +108,38 @@ test("a message whose upload failed stays as a failed row, and Edit puts its wor
   expect(await calls(page, "agent_tree_upload")).toEqual([]);
 });
 
-test("an ended session shows the message at once and keeps the field usable while it resumes", async ({ page }) => {
-  const resumed = { ...session, status: "idle" };
-  await open(page, "ended", { agent_resume: { session: resumed, why: "" } });
-  await page.evaluate(() => window.__navigation.hold("agent_resume"));
+test("an ended session hands the message and its resume to the outbox, shows a row, and opens the session that resumed", async ({ page }) => {
+  const resumed = { ...session, id: "send-two", status: "idle" };
+  await open(page, "ended");
+  await keepFilesInOutbox(page);
   await picker(page).setInputFiles([image]);
   await page.locator("#agmsg").fill("Carry on");
   await page.locator("#agmsg").press("Enter");
 
-  await expect(page.locator(".dcoderen.user").first()).toContainText("Carry on");
+  const out = page.locator(".ag-queue .it.out");
+  await expect(out).toHaveCount(1);
+  await expect(out.first()).toContainText("Carry on");
+  await expect(out.first()).toContainText("resuming");
   await expect(page.locator("#agmsg")).toBeEditable();
   await expect(page.locator("#agmsg")).toHaveValue("");
-  expect(await calls(page, "agent_steer")).toEqual([]);
 
-  await page.evaluate(() => window.__navigation.release("agent_resume"));
-  await expect.poll(async () => (await calls(page, "agent_steer")).length).toBe(1);
-  expect(JSON.stringify((await calls(page, "agent_steer"))[0].args)).toContain(tiny);
+  // A second message while it resumes queues behind the first: the window asks to resume again, the app does it once.
+  await page.locator("#agmsg").fill("And this");
+  await page.locator("#agmsg").press("Enter");
+  await expect(out).toHaveCount(2);
+
+  const sent = await page.evaluate(() => (window as unknown as { __asked: { args: { resume?: unknown; steer: unknown } }[] }).__asked);
+  expect(sent).toHaveLength(2);
+  expect(JSON.stringify(sent[0].args.steer)).toContain(tiny);
+  expect(sent[0].args.resume).toEqual({ model: null, pick: null });
+  expect(await calls(page, "agent_resume")).toEqual([]);
+
+  // The app resumed it: the window opens the session that goes on, in the background.
+  await page.evaluate(resumed => window.__navigation.respond("agent_view", { session: resumed, model: null, plan: [], earlier: 0, error: null, turns: 0, queued: 0, queued_messages: [], entries: [] }), resumed);
+  await page.evaluate(({ where, resumed }) => window.__navigation.emit("outbox-changed", { ...where, rows: [], sent: [], resumed, uploaded: [] }), { where, resumed });
+  await expect.poll(async () => (await calls(page, "agent_view")).some(call => (call.args as { session?: string }).session === "send-two")).toBe(true);
 });
+
 test("a pasted image crosses once, with the message, and is not uploaded", async ({ page }) => {
   await open(page);
   await picker(page).setInputFiles([image]);

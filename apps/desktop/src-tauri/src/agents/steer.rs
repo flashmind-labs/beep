@@ -259,6 +259,7 @@ pub async fn agent_steer(
             steer,
             seen,
             attach.unwrap_or_default(),
+            resume,
         )
         .await;
     }

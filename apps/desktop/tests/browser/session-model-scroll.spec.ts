@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
@@ -58,12 +59,13 @@ test("an imported session with an unknown model can choose before continuing", a
   expect(await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer"))).toEqual([]);
   await page.locator("#agmsg").fill("Continue with this model");
   await page.locator("#agmsg").press("Enter");
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").length)).toBe(2);
+  // One call hands the message and the resume to the app; the window resumes nothing itself.
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").length)).toBe(1);
   const calls = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_resume" || c.command === "agent_steer"));
-  expect(calls.map(c => c.command)).toEqual(["agent_resume", "agent_steer", "agent_steer"]);
-  expect(calls[0].args).toMatchObject({ prompt: null, model: "test-model" });
-  expect(calls[1].args).toMatchObject({ session: "resumed-session", steer: { configure: { model: "test-model", effort: null, fast: null } } });
-  expect(calls[2].args).toMatchObject({ session: "resumed-session", steer: { prompt: { text: "Continue with this model" } } });
+  expect(calls.map(c => c.command)).toEqual(["agent_steer"]);
+  expect(calls[0].args).toMatchObject({ session: session.id, steer: { steer: { text: "Continue with this model" } }, resume: { model: "test-model", pick: { model: "test-model", effort: null, fast: null } } });
+  await page.evaluate(({ session, resumed }) => window.__navigation.emit("outbox-changed", { machine_id: session.machine_id, agent: session.agent, session: session.id, rows: [], sent: [], resumed, uploaded: [] }), { session, resumed });
+  await expect(page.locator("#agmodelb")).toContainText("Test model");
 });
 
 test("a failed turn runs its prompt again on the model picked from its error", async ({ page }) => {
@@ -261,6 +263,31 @@ test("sending an image keeps a conversation that was at the bottom following its
 });
 
 
+test("a video this window sent plays from this device, not read back from the machine", async ({ page }) => {
+  const active = { ...session, status: "idle", external: false };
+  const path = "/cache/uploads/recording.webm";
+  await openDesktop(page, false, { agent_view: view(active), agent_steer: [] });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
+  await expect(page.locator("#agbody")).toContainText("Message 39");
+  await page.locator('#agfield input[type="file"]').setInputFiles({ name: "recording.webm", mimeType: "video/webm", buffer: await readFile(new URL("../fixtures/upload-video.webm", import.meta.url)) });
+  await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
+  await page.locator("#agmsg").fill("This video");
+  await page.locator("#agmsg").press("Enter");
+  // The app uploaded it and says where it went; the session then shows the message with that path.
+  const next = { ...view(active), entries: [...view(active).entries, { kind: "user", text: `This video\n\n@"${path}"`, html: `<p>This video</p><p>@&quot;${path}&quot;</p>` }] };
+  await page.evaluate(({ active, path, next }) => {
+    window.__navigation.respond("agent_view", next);
+    window.__navigation.emit("outbox-changed", { machine_id: active.machine_id, agent: active.agent, session: active.id, rows: [], sent: [], resumed: null, uploaded: [{ name: "recording.webm", path }] });
+  }, { active, path, next });
+  await page.locator("#agbody").getByRole("button", { name: "recording.webm", exact: true }).click();
+  const video = page.locator("video");
+  await expect(video).toBeVisible();
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2);
+  await video.evaluate(async (el: HTMLVideoElement) => { el.muted = true; await el.play(); });
+  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file").length)).toBe(0);
+});
+
 test("a pending attachment send finishes in its original conversation after navigation", async ({ page }) => {
   const active = { ...session, status: "idle", external: false };
   const other = { ...active, id: "other-session", title: "Another conversation" };
@@ -294,11 +321,10 @@ test("fast mode alone is applied before continuing an ended session", async ({ p
   await page.locator("#agmsg").click();
   await page.locator("#agmsg").fill("Continue at fast speed");
   await page.locator("#agmsg").press("Enter");
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").length)).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").length)).toBe(1);
   const calls = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_resume" || c.command === "agent_steer"));
-  expect(calls[0].args.prompt).toBeNull();
-  expect(calls[1].args).toMatchObject({ steer: { configure: { fast: true } } });
-  expect(calls[2].args).toMatchObject({ steer: { prompt: { text: "Continue at fast speed" } } });
+  expect(calls.map(c => c.command)).toEqual(["agent_steer"]);
+  expect(calls[0].args).toMatchObject({ steer: { steer: { text: "Continue at fast speed" } }, resume: { pick: { fast: true } } });
 });
 
 test("the model shortcut returns focus to the conversation input after using the picker", async ({ page }) => {

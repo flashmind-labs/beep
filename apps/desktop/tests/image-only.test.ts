@@ -4,15 +4,13 @@ import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { setView } from "../src/bar/core.ts";
 import { sendAgentMessage, steerMessage, stopAllWork } from "../src/agents/messages.ts";
-import { pollAgent } from "../src/agents/session.tsx";
-import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { MN, activateMentions, resetMentions, currentMentions } from "../src/agents/workdrop.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
 import { staysInline } from "../src/agents/images.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
 import { conversationKey } from "../src/agents/conversation-state.ts";
-import type { Waiting } from "../src/agents/agentqueue.ts";
+import type { Attached, Waiting } from "../src/agents/agentqueue.ts";
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null };
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
@@ -38,39 +36,44 @@ const field = () => bar.querySelector<HTMLTextAreaElement>("#agmsg")!;
 const steers = () => calls.filter(c => c.cmd === "agent_steer").map(c => (c.args as { steer: unknown }).steer);
 function refuse(cmd: string, why: string) { Object.defineProperty(answers, cmd, { get() { throw why; }, configurable: true }); }
 
-test("an image continues an ended session with a default prompt", async () => {
-  const page = openSession("ended");
+/// What the app's `agent_steer` answers for a session that ended: the outbox has it, resumes it, and says so.
+function waitsInOutbox() {
+  Object.defineProperty(answers, "agent_steer", { configurable: true, get() { throw { kind: "waiting", message: "Waiting for the connection" }; } });
+}
+
+test("a message to an ended session goes to the outbox with its resume and the window awaits nothing", async () => {
+  openSession("ended");
   const input = field();
   AG.att = [png];
-  answers.agent_resume = { session: { ...page.session, status: "idle" }, why: "" };
-  answers.agent_steer = ["picture-key"];
+  waitsInOutbox();
   await sendAgentMessage();
-  const resume = calls.find(c => c.cmd === "agent_resume")!;
-  assert.equal((resume.args as { prompt: unknown }).prompt, null);
-  assert.deepEqual(steers(), [{ steer: { text: "Check this image.", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
+  assert.equal(calls.filter(c => c.cmd === "agent_resume").length, 0);
+  const sent = calls.filter(c => c.cmd === "agent_steer").map(c => c.args as { steer: unknown; resume: unknown });
+  assert.deepEqual(sent.map(call => call.steer), [{ steer: { text: "Check this image.", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
+  assert.deepEqual(sent[0].resume, { model: null, pick: null });
   assert.deepEqual(AG.att, []);
   assert.equal(input.disabled, false);
   clearTimeout(AG.timer);
 });
 
-test("an image continues a session that was external before resume", async () => {
+test("a session that was external before resume still takes the message", async () => {
   const page = openSession("ended");
   page.session.external = true;
   field().value = "Look at this";
   AG.att = [png];
-  answers.agent_resume = { session: { ...page.session, external: false, status: "starting" }, why: "" };
-  answers.agent_steer = ["picture-key"];
+  waitsInOutbox();
   assert.equal(await sendAgentMessage(), true);
-  assert.deepEqual(steers(), [{ steer: { text: "Look at this", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
-  assert.equal(AG.page?.session.external, false);
+  const sent = calls.filter(c => c.cmd === "agent_steer").map(c => c.args as { steer: unknown; resume: unknown });
+  assert.equal(sent.length, 1);
+  assert.deepEqual(sent[0].steer, { steer: { text: "Look at this", images: [{ name: png.name, mime: png.mime, data: png.data }] } });
+  assert.notEqual(sent[0].resume, undefined);
   clearTimeout(AG.timer);
 });
 
-test("a refused image remains attached when continuing an ended session", async () => {
-  const page = openSession("ended");
+test("a refused message stays in the field with its image when the session ended", async () => {
+  openSession("ended");
   const input = field();
   AG.att = [png];
-  answers.agent_resume = { session: { ...page.session, status: "idle" }, why: "" };
   refuse("agent_steer", "Images unavailable");
   assert.equal(await sendAgentMessage(), false);
   assert.deepEqual(AG.att, [png]);
@@ -78,32 +81,16 @@ test("a refused image remains attached when continuing an ended session", async 
   clearTimeout(AG.timer);
 });
 
-
-test("resuming reconnects a stream that closed before its first snapshot", async t => {
-  const page = openSession("ended");
-  Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
-  answers.agent_follow = null;
-  // The stream ends at once, so the session is read instead, and it still says it ended.
-  answers.agent_view = page;
-  await pollAgent(true);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(calls.filter(c => c.cmd === "agent_follow").length, 1);
-  answers.agent_resume = { session: { ...page.session, status: "starting" }, why: "" };
-  answers.agent_follow = new Promise<void>(() => {});
-  t.after(() => { forgetAgentFollows(); clearTimeout(AG.timer); delete answers.agent_follow; });
-  field().value = "continue";
-  await sendAgentMessage();
-  assert.equal(calls.filter(c => c.cmd === "agent_follow").length, 2);
-});
-
 function pendingRead() {
   let finish = () => {};
   const ready = new Promise<void>(resolve => { finish = resolve; });
-  const batch = { local: true, ready, size: 0, done: 0 };
+  const batch = { local: true, paths: [] as string[], images: [] as Attached[], ready, size: 0, done: 0 };
   MN.pending.add(batch);
   return {
     finish() { MN.pending.delete(batch); finish(); },
+    picture(image: typeof png) { batch.images.push(image); AG.att.push(image); },
     attach(path: string) {
+      batch.paths.push(path);
       MN.paths.push(path);
       MN.files.set(path, { name: "report.txt", mime: "text/plain", size: 5, data: "bm90ZXM=" });
     },
@@ -118,7 +105,7 @@ test("Send waits for files still being read, then hands them to the outbox with 
   const sending = sendAgentMessage();
   assert.deepEqual(steers(), []);
   read.attach("attachment:1:report.txt");
-  AG.att.push(png);
+  read.picture(png);
   read.finish();
   await sending;
   const sent = calls.filter(c => c.cmd === "agent_steer").map(c => c.args as { steer: { steer: { text: string; images: unknown[] } }; attach: unknown });
@@ -134,18 +121,23 @@ test("Send waits for files still being read, then hands them to the outbox with 
   clearTimeout(AG.timer);
 });
 
-test("leaving the conversation while its files are read sends nothing and takes nothing", async () => {
+test("leaving the conversation while its files are read still sends the message there", async () => {
   openSession("idle");
   const read = pendingRead();
   field().value = "Original session";
   const sending = sendAgentMessage();
   read.attach("attachment:2:report.txt");
-  const kept = [...MN.paths];
   AG.open = { machine_id: "m1", agent: "claude", session: "s2" };
+  answers.agent_steer = [];
+  field().value = "Other conversation";
   read.finish();
   await sending;
-  assert.deepEqual(steers(), []);
-  assert.deepEqual(MN.paths, kept);
+  const sends = calls.filter(call => call.cmd === "agent_steer");
+  assert.equal(sends.length, 1);
+  assert.equal((sends[0].args as { session: string }).session, "s1");
+  assert.equal((sends[0].args as { attach: { files: unknown[] } }).attach.files.length, 1);
+  assert.equal(field().value, "Other conversation");
+  assert.deepEqual(MN.paths, []);
 });
 
 test("Stop all returns text and images to its session when navigation interrupts the drain", async t => {
@@ -221,7 +213,7 @@ test("steers wait for the files being read too", async () => {
   const sending = steerMessage(field());
   assert.deepEqual(steers(), []);
   read.attach("attachment:3:report.txt");
-  AG.att.push(png);
+  read.picture(png);
   read.finish();
   await sending;
   assert.equal(steers().length, 1);
