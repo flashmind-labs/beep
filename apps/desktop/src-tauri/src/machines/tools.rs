@@ -21,7 +21,6 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
-use tauri::AppHandle;
 
 /// How long the newest coding agent releases found are kept.
 const RELEASES_FOR: Duration = Duration::from_secs(55 * 60);
@@ -35,7 +34,7 @@ static AGENT_RELEASES: Mutex<Option<(Instant, HashMap<&'static str, String>)>> =
 /// The updates found by each connected node, and its coding agents behind
 /// their newest release. A node that pushes its list is not asked; one that
 /// predates the topic answers the check call.
-pub(crate) async fn tool_updates(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec<ToolUpdate> {
+pub(crate) async fn tool_updates(fleet: &Arc<Fleet>) -> Vec<ToolUpdate> {
     let machines: Vec<Machine> = fleet
         .status()
         .machines()
@@ -43,7 +42,7 @@ pub(crate) async fn tool_updates(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec<Too
         .filter(|machine| machine.online)
         .collect();
     let (tools, coders) = tokio::join!(
-        node_updates(app, fleet, machines.clone()),
+        node_updates(fleet, machines.clone()),
         agent_updates(&machines)
     );
 
@@ -53,11 +52,7 @@ pub(crate) async fn tool_updates(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec<Too
 }
 
 /// The `gh`, `teacli` and `flsh` updates each node found.
-async fn node_updates(
-    app: &AppHandle,
-    fleet: &Arc<Fleet>,
-    machines: Vec<Machine>,
-) -> Vec<ToolUpdate> {
+async fn node_updates(fleet: &Arc<Fleet>, machines: Vec<Machine>) -> Vec<ToolUpdate> {
     stream::iter(machines)
         .map(|machine| async move {
             let id = fleet.member(&machine.id)?;
@@ -66,7 +61,7 @@ async fn node_updates(
                 Some(ToolPush::Pushed(updates)) => Some(updates),
                 // Its first list is on its way.
                 None => None,
-                Some(ToolPush::Refused) => Some(asked_updates(app, fleet, id, machine.id).await),
+                Some(ToolPush::Refused) => Some(asked_updates(fleet, id, machine.id).await),
             }
         })
         .buffer_unordered(4)
@@ -79,14 +74,8 @@ async fn node_updates(
 }
 
 /// The updates a node that does not push them found, from its check call.
-async fn asked_updates(
-    app: &AppHandle,
-    fleet: &Arc<Fleet>,
-    id: EndpointId,
-    machine_id: String,
-) -> Vec<ToolUpdate> {
+async fn asked_updates(fleet: &Arc<Fleet>, id: EndpointId, machine_id: String) -> Vec<ToolUpdate> {
     let fleet_fetch = fleet.clone();
-    let app = app.clone();
 
     fleet
         .projections()
@@ -95,7 +84,7 @@ async fn asked_updates(
             id,
             Vec::new,
             PartialEq::eq,
-            move || changed(app, Topic::new("tools")),
+            move || beep_node::events::system().changed(Topic::new("tools")),
             move || async move {
                 let client = fleet_fetch.client(id).await?;
                 let updates = beep_mesh::machine::tool_updates(&client).await?;
@@ -212,7 +201,6 @@ async fn agent_releases(packages: &BTreeSet<&'static str>) -> HashMap<&'static s
 /// Installs the newest `tool` on `machine_id`; gives the version installed.
 #[tauri::command]
 pub async fn update_machine_tool(
-    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: String,
     tool: String,
@@ -241,7 +229,7 @@ pub async fn update_machine_tool(
     direct::update_tool(&fleet, machine, named, &latest).await?;
     fleet.projections().tool_updates.forget(&machine);
     fleet.projections().tool_pushes.installed(machine, &tool);
-    changed(app, Topic::new("tools"));
+    beep_node::events::system().changed(Topic::new("tools"));
     Ok(latest)
 }
 

@@ -1424,7 +1424,7 @@ async fn run(
                 Ok(change) if change.topic.name() == "sync" => {
                     super::event_views::sync_changed(app.clone(), true);
                 },
-                Ok(change) if matches!(change.topic.name(), "machines" | "projects" | "home" | "usage" | "accounts") => {
+                Ok(change) if matches!(change.topic.name(), "machines" | "tools" | "projects" | "home" | "usage" | "accounts") => {
                     super::event_views::changed(app.clone(), change.topic);
                 },
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {

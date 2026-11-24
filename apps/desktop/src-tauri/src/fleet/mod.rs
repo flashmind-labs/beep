@@ -37,6 +37,7 @@ use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 #[cfg(desktop)]
 use mesh::Serving;
+pub(crate) use node_actor::ToolPush;
 pub(crate) use session_mirror::SessionParent;
 pub use status::{ClockOff, Status};
 #[cfg(mobile)]
