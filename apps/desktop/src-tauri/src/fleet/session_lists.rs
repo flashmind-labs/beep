@@ -8,7 +8,7 @@ use super::{
     files::{Place, in_any_folder},
     session_mirror::{Rows, SessionMirror},
 };
-use crate::agents::sessions::SessionRow;
+use crate::agents::sessions::{SessionRow, overlay};
 use beep_mesh::machine::listing;
 use beep_proto::{MachineSession, SessionId};
 use iroh::EndpointId;
@@ -213,22 +213,9 @@ fn finish(
     keys: &[MachineFolders],
     rows: Vec<MachineSession>,
 ) -> Vec<MachineSession> {
-    let mesh = fleet.mesh();
-    let ops = fleet.node_ops();
-    let rows = with_mirrored(rows, mirrored, keys);
-
-    let rows = rows
+    let rows = with_mirrored(rows, mirrored, keys)
         .into_iter()
-        .filter(|session| !ops.is_deleting_session(&session.machine_id, &session.id))
-        .map(|mut session| {
-            if let Some(folder) = ops.relocated_folder(&session.machine_id, &session.id) {
-                session.cwd = folder;
-            }
-            if let Some(mesh) = &mesh {
-                beep_fleet::session_titles::apply(mesh, &mut session);
-            }
-            session
-        });
+        .filter_map(|mut session| overlay(fleet, &mut session).then_some(session));
 
     listing::project_history(rows)
 }

@@ -942,7 +942,8 @@ fn on_settled(
                 }
             }
         }
-        JobKind::RelocateSession { .. } => {
+        // The node pushes a move that went through; only a refusal needs a read.
+        JobKind::RelocateSession { .. } if !ok => {
             if let Some(app) = app {
                 if let Some(lists) = app.try_state::<SessionLists>() {
                     lists.stale(machine);
@@ -971,6 +972,7 @@ fn on_settled(
             }
         }
         JobKind::DeleteSession { .. }
+        | JobKind::RelocateSession { .. }
         | JobKind::TerminalStop { .. }
         | JobKind::StopProcess { .. }
         | JobKind::SetSearch { .. }

@@ -328,7 +328,7 @@ fn shown(fleet: &Fleet) -> Option<HashSet<EndpointId>> {
 
 /// Puts what this app knows on `session`: its new folder when moved and the
 /// user's title. False when it is being deleted and shows no more.
-fn overlay(fleet: &Fleet, session: &mut MachineSession) -> bool {
+pub(crate) fn overlay(fleet: &Fleet, session: &mut MachineSession) -> bool {
     let ops = fleet.node_ops();
 
     if ops.is_deleting_session(&session.machine_id, &session.id) {
