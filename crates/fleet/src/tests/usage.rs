@@ -101,9 +101,7 @@ fn partial_usage_pass_preserves_cached_sessions_until_complete_pass() {
     initial.insert(
         (machine, AgentSlug::CLAUDE, s1.clone()),
         Session {
-            machine,
             cwd: "/work".into(),
-            agent: AgentSlug::CLAUDE,
             hours: h1,
             historical: Vec::new(),
         },
@@ -119,9 +117,7 @@ fn partial_usage_pass_preserves_cached_sessions_until_complete_pass() {
     partial.insert(
         (machine, AgentSlug::CLAUDE, s2.clone()),
         Session {
-            machine,
             cwd: "/work".into(),
-            agent: AgentSlug::CLAUDE,
             hours: h2,
             historical: Vec::new(),
         },

@@ -127,9 +127,7 @@ impl PlanFollow {
 /// One session's spend on one machine, by hour.
 #[derive(Clone)]
 struct Session {
-    machine: EndpointId,
     cwd: String,
-    agent: AgentSlug,
     hours: BTreeMap<(u64, ModelId), HourSpend>,
     historical: Vec<HistoricalSpend>,
 }
@@ -175,9 +173,7 @@ impl UsageCache {
         let key = (machine, usage.agent.clone(), usage.session.clone());
         absorb(
             entry.sessions.entry(key).or_insert_with(|| Session {
-                machine,
                 cwd: usage.cwd.clone(),
-                agent: usage.agent.clone(),
                 hours: BTreeMap::new(),
                 historical: Vec::new(),
             }),
@@ -312,9 +308,7 @@ impl Desk {
                         let key = (machine, usage.agent.clone(), usage.session.clone());
                         absorb(
                             machine_sessions.entry(key).or_insert_with(|| Session {
-                                machine,
                                 cwd: usage.cwd.clone(),
-                                agent: usage.agent.clone(),
                                 hours: BTreeMap::new(),
                                 historical: Vec::new(),
                             }),
@@ -456,16 +450,16 @@ fn start(day: NaiveDate) -> i64 {
 fn rows_since<'a>(said: &'a Said, imports: &[ImportRow], from: i64) -> Vec<Row<'a>> {
     let from = u64::try_from(from).unwrap_or(0);
     said.sessions
-        .values()
-        .flat_map(|session| {
-            let project = imported_project_of(&session.machine, &session.cwd, imports);
+        .iter()
+        .flat_map(|((machine, agent, _), session)| {
+            let project = imported_project_of(machine, &session.cwd, imports);
             session
                 .hours
                 .values()
                 .filter(move |hour| hour.hour >= from)
                 .map(move |hour| Row {
                     project: project.clone(),
-                    agent: &session.agent,
+                    agent,
                     hour,
                 })
         })
@@ -479,8 +473,8 @@ fn local_date(at: u64) -> Option<NaiveDate> {
 
 fn historical_rows(said: &Said, imports: &[ImportRow]) -> Vec<UsageTableRow> {
     let mut rows = Vec::new();
-    for session in said.sessions.values() {
-        let project = imported_project_of(&session.machine, &session.cwd, imports);
+    for ((machine, agent, _), session) in &said.sessions {
+        let project = imported_project_of(machine, &session.cwd, imports);
         for usage in &session.historical {
             rows.push(UsageTableRow {
                 first: usage
@@ -489,8 +483,8 @@ fn historical_rows(said: &Said, imports: &[ImportRow]) -> Vec<UsageTableRow> {
                     .map(|date| date.to_string()),
                 last: usage.last.and_then(local_date).map(|date| date.to_string()),
                 project: project.clone(),
-                agent: Some(session.agent.clone()),
-                cost_usd: if usage.billing.on_subscription(&session.agent) {
+                agent: Some(agent.clone()),
+                cost_usd: if usage.billing.on_subscription(agent) {
                     0.0
                 } else {
                     usage.cost_usd
