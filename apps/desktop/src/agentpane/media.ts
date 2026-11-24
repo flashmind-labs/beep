@@ -31,7 +31,7 @@ import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { draw, flipTab, noteTab, pickPhoneTab, touchTab } from "./media-draw.ts";
 import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
-import { savedIn } from "../ui/platform.ts";
+import { onPhone, savedIn } from "../ui/platform.ts";
 import { confirmSheet } from "../ui/menu.tsx";
 
 /// What the node gives of a file, a part at a time (`agent_file`).
@@ -67,8 +67,11 @@ export interface FileEdit {
   conflict: boolean;
   /// Where the cursor starts, such as the place double-clicked to edit.
   at: TextPlace | null;
-  /// Increments when navigation moves the cursor inside an already-open editor.
-  jump?: number;
+}
+
+/// Creates a fresh `FileEdit` from `base`, optionally placing the cursor at `at`.
+export function newFileEdit(base: string, at: TextPlace | null = null): FileEdit {
+  return { base, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at };
 }
 
 /// A place in a text by its 0-based line and column.
@@ -131,8 +134,8 @@ export interface MediaTab {
   line?: number | null;
   /// Increments on explicit jumps so jumping to the same line scrolls again.
   lineJump?: number;
-  /// Pending cursor target from go-to-definition, applied once text loads.
-  jump?: { line: number; column: number; edit: boolean } | null;
+  /// Pending edit cursor target from go-to-definition, applied once text loads.
+  editAt?: TextPlace | null;
   /// Where else to look, in order, when the file is not where it was
   /// looked for: the session's folder, then the top of its checkout.
   elsewhere?: WorkFile[];
@@ -479,9 +482,9 @@ export function openLinked(ref: FileRef) {
   // An HTML page or Markdown file shows rendered; Source switches to its code.
   if (tab?.kind === "text" && tab.rel && hasPreview(tab.rel) && !tab.preview) previewTab(tab);
 
-  if (tab && tab.line !== ref.line) {
+  if (tab && (tab.line !== ref.line || ref.line !== null)) {
     tab.line = ref.line;
-    tab.lineJump = (tab.lineJump ?? 0) + 1;
+    if (ref.line !== null) tab.lineJump = (tab.lineJump ?? 0) + 1;
     tab.rev++;
     draw();
   }
@@ -503,22 +506,24 @@ export function openLocation(root: string, location: LspLocation, preferEdit: bo
   const cleanRoot = root.replace(/\/+$/, "");
   const targetFull = resolvePath(cleanRoot, location.path);
   const held = P.tabs.find(t => !t.closed && t.kind === "text" && t.rel && resolvePath(t.root ?? cwd, t.rel) === targetFull);
-  if (held) focusTab(held.id);
   const tab = held ?? openIn(cleanRoot, location.path);
   if (!tab || tab.kind !== "text") return;
 
+  tab.findRequest = 0;
+  if (tab.preview) tab.preview.active = false;
   tab.line = location.line + 1;
   tab.lineJump = (tab.lineJump ?? 0) + 1;
 
+  const at = { line: location.line, column: location.column };
   if (tab.edit) {
-    tab.edit.at = { line: location.line, column: location.column };
-    tab.edit.jump = (tab.edit.jump ?? 0) + 1;
-  } else if (preferEdit) {
-    tab.jump = { line: location.line, column: location.column, edit: true };
+    tab.edit.at = at;
+  } else if (preferEdit && !onPhone()) {
+    if (tab.text?.editable) tab.edit = newFileEdit(tab.text.text, at);
+    else if (!tab.text) tab.editAt = at;
   }
 
   tab.rev++;
-  draw();
+  if (held) focusTab(held.id); else draw();
 }
 
 /// Saves `rel`, a file in the worktree at `root` (the one shown when

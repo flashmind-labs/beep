@@ -59,6 +59,8 @@ pub(crate) const HOME_BINS: &[&str] = &[
     ".claude/local",
     "AppData/Local/agy/bin",
     ".local/bin",
+    ".cargo/bin",
+    "go/bin",
     ".npm-global/bin",
     ".bun/bin",
     ".volta/bin",

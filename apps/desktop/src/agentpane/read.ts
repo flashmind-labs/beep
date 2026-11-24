@@ -4,7 +4,8 @@ import { togglePreview } from "./text-view.tsx";
 // starting a terminal tab.
 import { viewKey } from "./view-memory.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
-import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, rememberTerminal } from "./media.ts";
+import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, newFileEdit, rememberTerminal } from "./media.ts";
+import { onPhone } from "../ui/platform.ts";
 import { draw, touchTab } from "./media-draw.ts";
 import { bytesOf, resolvePath } from "./media-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
@@ -119,6 +120,11 @@ export async function loadText(t: MediaTab) {
   }
 
   if (P.tabs.includes(t)) {
+    if (t.editAt && t.text) {
+      const at = t.editAt;
+      t.editAt = null;
+      if (t.text.editable && !onPhone() && !t.edit) t.edit = newFileEdit(t.text.text, at);
+    }
     touchTab(t);
     if (t.previewQueued && t.text) {
       t.previewQueued = false;

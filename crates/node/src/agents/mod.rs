@@ -188,7 +188,7 @@ host! {
         /// What git says of the folders sessions and peers read.
         checkouts: Arc<checkouts::Checkouts>,
         /// Lazily spawned language servers for editor go-to-definition.
-        lsp: Arc<lsp::Pool>,
+        lsp: lsp::Pool,
         /// The CI runs this node tells, and how it reaches the hosts.
         pub(crate) ci: Arc<crate::machine::ci::Ci>,
         /// What sessions spent, from the agents' own logs.

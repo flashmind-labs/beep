@@ -1,27 +1,27 @@
-import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { create } from "zustand";
 import { addMention } from "../agents/workdrop.ts";
 import { Button, ChipToggle } from "../ui/kit.tsx";
 import { openMenu } from "../ui/menu.tsx";
-import { APPLE, onPhone } from "../ui/platform.ts";
+import { onPhone, primaryModifier } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
 import { hasPreview } from "./html-preview-state.ts";
 import {
   formatLocationLabel,
-  isDefinitionModifier,
   parseEditorSettings,
   parseLspResult,
   resolveVimSync,
   wordSpanAt,
 } from "./lsp-state.ts";
-import { type MediaTab, type TextPlace, type TreeText, discardSheet, openLocation, P, rememberPane, saveWorkFile } from "./media.ts";
+import { type MediaTab, type TextPlace, type TreeText, discardSheet, newFileEdit, openLocation, P, rememberPane, saveWorkFile } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
 import { fileError, readError } from "./read.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
 
 const vimPreference = "beep.editor.vim";
+const BUSY_NOTE = "Looking up definition…";
 
 function readLocalVim(): string | null {
   try { return localStorage.getItem(vimPreference); } catch { return null; }
@@ -37,30 +37,46 @@ window.addEventListener("storage", event => {
   if (event.key === vimPreference || event.key === null) useVimKeys.setState(event.newValue === "true");
 });
 
-let vimSynced = false;
+let vimSyncState: "idle" | "loading" | "done" = "idle";
+let vimTouched = false;
 
 /// Hydrates Vim mode from mesh settings once per window so the choice persists
 /// across restarts and machines, while keeping `localStorage` for instant boot.
 function syncVimPreference() {
-  if (vimSynced || onPhone()) return;
-  vimSynced = true;
+  if (vimSyncState !== "idle" || onPhone()) return;
+  vimSyncState = "loading";
 
   void invoke<unknown>("editor_settings_get").then(raw => {
-    const remote = parseEditorSettings(raw);
-    const local = readLocalVim();
-    const plan = resolveVimSync(local, remote.vim);
+    vimSyncState = "done";
+    if (vimTouched) return;
+    const plan = resolveVimSync(readLocalVim(), parseEditorSettings(raw).vim);
     if (plan.writeLocal) writeLocalVim(plan.enabled);
     if (useVimKeys.getState() !== plan.enabled) useVimKeys.setState(plan.enabled);
     if (plan.writeRemote) void invoke("editor_settings_save", { settings: { vim: plan.enabled } }).catch(() => {});
-  }).catch(() => { /* Keep the local choice when settings are unavailable. */ });
+  }).catch(() => { vimSyncState = "idle"; });
 }
 
 function setVimKeys(enabled: boolean) {
+  vimTouched = true;
   writeLocalVim(enabled);
   useVimKeys.setState(enabled);
   if (!onPhone()) {
     void invoke("editor_settings_save", { settings: { vim: enabled } }).catch(() => {});
   }
+}
+
+let modTracking = false;
+
+/// Toggles `.lsp-mod` on the document root while Cmd/Ctrl is held on desktop,
+/// giving read-only code views a pointer cursor without per-tab listeners.
+function trackDefinitionModifier() {
+  if (modTracking || onPhone()) return;
+  modTracking = true;
+  const set = (on: boolean) => document.documentElement.classList.toggle("lsp-mod", on);
+  const update = (event: KeyboardEvent) => set(primaryModifier(event));
+  window.addEventListener("keydown", update);
+  window.addEventListener("keyup", update);
+  window.addEventListener("blur", () => set(false));
 }
 
 const CodeEditor = lazy(() => import("./code-editor.tsx"));
@@ -128,11 +144,11 @@ export function takeText(tab: MediaTab, now: TreeText) {
 }
 
 /// Starts editing a text tab's file, from the text it shows, with the cursor `at` a place.
-function startEdit(tab: MediaTab, source: HTMLElement | null, at: TextPlace | null = null) {
+function startEdit(tab: MediaTab, source: HTMLElement, at: TextPlace | null = null) {
   if (!tab.text?.editable) return;
-  source?.closest<HTMLElement>(".agpane")?.focus({ preventScroll: true });
+  source.closest<HTMLElement>(".agpane")?.focus({ preventScroll: true });
   tab.findRequest = 0;
-  tab.edit = { base: tab.text.text, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at };
+  tab.edit = newFileEdit(tab.text.text, at);
   touchTab(tab);
 }
 
@@ -172,7 +188,7 @@ function placeFromPoint(pre: HTMLPreElement, clientX: number, clientY: number): 
     const range = doc.caretRangeFromPoint(clientX, clientY);
     if (range) return placeInPre(pre, range.startContainer, range.startOffset);
   }
-  return selectedPlace(pre);
+  return null;
 }
 
 /// Stops editing, asking first when there are unsaved changes.
@@ -229,6 +245,14 @@ async function reloadEdit(tab: MediaTab) {
 }
 
 let definitionSeq = 0;
+let busyTab: MediaTab | null = null;
+
+function clearBusyNote() {
+  if (!busyTab) return;
+  const tab = busyTab;
+  busyTab = null;
+  if (tab.note === BUSY_NOTE) { tab.note = null; touchTab(tab); }
+}
 
 /// Asks the session's node for the definition of the symbol at 0-based `(line, column)`
 /// and jumps directly when one target matches or opens a picker when several do.
@@ -244,13 +268,13 @@ async function lookupDefinition(
   const session = P.session;
   if (!session || !tab.rel) return;
 
+  clearBusyNote();
   const root = tab.root ?? session.cwd;
   const seq = ++definitionSeq;
-  let shownBusy = false;
   const busyTimer = setTimeout(() => {
-    if (definitionSeq !== seq) return;
-    shownBusy = true;
-    noteTab(tab, "Looking up definition…");
+    if (definitionSeq !== seq || P.session !== session || !P.tabs.includes(tab)) return;
+    busyTab = tab;
+    noteTab(tab, BUSY_NOTE);
   }, 250);
 
   try {
@@ -263,17 +287,16 @@ async function lookupDefinition(
       text,
     });
     clearTimeout(busyTimer);
-    if (definitionSeq !== seq) return;
+    if (definitionSeq !== seq || P.session !== session || !P.tabs.includes(tab)) return;
+    clearBusyNote();
 
     const result = parseLspResult(raw);
     if (result.locations.length === 1) {
-      if (shownBusy) { tab.note = null; touchTab(tab); }
       openLocation(root, result.locations[0], preferEdit);
       return;
     }
 
     if (result.locations.length > 1) {
-      if (shownBusy) { tab.note = null; touchTab(tab); }
       openMenu(
         { clientX, clientY },
         "Definitions",
@@ -288,7 +311,8 @@ async function lookupDefinition(
     noteTab(tab, result.note ?? "No definition found.");
   } catch (error) {
     clearTimeout(busyTimer);
-    if (definitionSeq !== seq) return;
+    if (definitionSeq !== seq || P.session !== session || !P.tabs.includes(tab)) return;
+    clearBusyNote();
     noteTab(tab, readError(error));
   }
 }
@@ -306,7 +330,6 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   const findRequest = tab.findRequest ?? 0, finding = findRequest > 0;
   const foundLine = useRef<number | null>(null);
   const vimKeys = useVimKeys();
-  const [modHeld, setModHeld] = useState(false);
   const rel = tab.rel ?? "", lang = languageOf(rel);
   const scrollKey = P.session ? `${viewKey(P.session.machine_id, P.session.id)}:file:${tab.id}` : null;
   const { about, style, html, lines } = useMemo(() => {
@@ -324,32 +347,10 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   const editable = text.editable && !onPhone();
   const edit = tab.edit;
 
-  useEffect(() => { syncVimPreference(); }, []);
-
-  // Show a pointer cursor on source code while holding Cmd/Ctrl for go-to-definition.
   useEffect(() => {
-    if (!source || edit || finding || onPhone()) { setModHeld(false); return; }
-    const update = (event: KeyboardEvent) => setModHeld(isDefinitionModifier(event, APPLE));
-    const clear = () => setModHeld(false);
-    window.addEventListener("keydown", update);
-    window.addEventListener("keyup", update);
-    window.addEventListener("blur", clear);
-    return () => {
-      window.removeEventListener("keydown", update);
-      window.removeEventListener("keyup", update);
-      window.removeEventListener("blur", clear);
-    };
-  }, [source, edit, finding]);
-
-  // A definition jump triggered from edit mode enters edit mode once the target file loads.
-  useLayoutEffect(() => {
-    const jump = tab.jump;
-    if (!jump) return;
-    tab.jump = null;
-    if (jump.edit && editable && !tab.edit) {
-      startEdit(tab, code.current, { line: jump.line, column: jump.column });
-    }
-  }, [tab, tab.jump, editable]);
+    syncVimPreference();
+    trackDefinitionModifier();
+  }, []);
 
   const closeSearch = (line: number | null) => {
     foundLine.current = line;
@@ -415,19 +416,20 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
       <SourceSearch text={text.text} findRequest={findRequest} close={closeSearch} />
     </Suspense>
     : <div
-        className={`agcode${modHeld ? " lsp-mod" : ""}`}
+        className="agcode"
         style={style}
         ref={code}
         onScroll={scrolled}
         onClick={event => {
-          if (onPhone() || !isDefinitionModifier(event, APPLE) || !pre.current) return;
+          if (onPhone() || !primaryModifier(event) || !pre.current) return;
+          if (event.target instanceof Element && event.target.closest(".ln")) return;
           const place = placeFromPoint(pre.current, event.clientX, event.clientY);
           if (!place || !wordSpanAt(lines[place.line] ?? "", place.column)) return;
           event.preventDefault();
           void lookupDefinition(tab, place.line, place.column, null, event.clientX, event.clientY, false);
         }}
         onDoubleClick={event => {
-          if (isDefinitionModifier(event, APPLE)) return;
+          if (primaryModifier(event)) return;
           if (editable && pre.current) startEdit(tab, event.currentTarget, selectedPlace(pre.current));
         }}
       ><pre ref={pre} dangerouslySetInnerHTML={{ __html: html }} /></div>}

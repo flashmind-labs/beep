@@ -1,13 +1,18 @@
-//! One running language server child process speaking LSP over stdio.
+//! One running language server child process speaking JSON-RPC LSP over stdio.
 
-use super::protocol::{encode_frame, file_uri, read_frame, server_request_reply};
-use crate::{AsyncMutex, agents::locate, machine::provision::spawn_env};
+use crate::{
+    AsyncMutex,
+    files::paths,
+    lock,
+    machine::{env, provision::spawn_env},
+    run::process::{GroupLeader, STOP_GRACE, command, own_group},
+};
 use anyhow::{Context, Result, bail};
+use beep_proto::node::agent::LspLocation;
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
-    env,
-    path::{Path, PathBuf},
+    collections::{HashMap, HashSet},
+    path::{Component, Path, PathBuf},
     process::Stdio,
     sync::{
         Arc, Mutex,
@@ -16,25 +21,30 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    process::{Child, Command},
+    io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     sync::{mpsc, oneshot},
+    task::spawn_blocking,
     time::{Instant, timeout},
 };
+use url::Url;
 
 /// How long the initial `initialize` handshake may take.
 const INIT_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long one `textDocument/definition` call may wait.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(12);
+/// Largest JSON-RPC frame we accept from a language server.
+const MAX_FRAME: usize = 16 * 1024 * 1024;
+/// Largest single header line we accept before rejecting a malformed stream.
+const MAX_HEADER_LINE: usize = 8 * 1024;
 /// LSP error codes where retrying once after a brief pause often succeeds.
-pub(crate) const ERR_CONTENT_MODIFIED: i64 = -32801;
-pub(crate) const ERR_SERVER_CANCELLED: i64 = -32802;
+pub(super) const ERR_CONTENT_MODIFIED: i64 = -32801;
+pub(super) const ERR_SERVER_CANCELLED: i64 = -32802;
 
 /// A JSON-RPC error returned by a language server.
 #[derive(Debug, Clone)]
-pub(crate) struct RpcError {
-    pub(crate) code: i64,
-    pub(crate) message: String,
+pub(super) struct RpcError {
+    pub(super) code: i64,
+    pub(super) message: String,
 }
 
 impl std::fmt::Display for RpcError {
@@ -53,7 +63,7 @@ struct OpenDoc {
 }
 
 /// One live language server process bound to a workspace root.
-pub(crate) struct Client {
+pub(super) struct Client {
     root: PathBuf,
     writer: mpsc::UnboundedSender<Vec<u8>>,
     pending: PendingMap,
@@ -61,26 +71,24 @@ pub(crate) struct Client {
     alive: Arc<AtomicBool>,
     open_docs: AsyncMutex<HashMap<PathBuf, OpenDoc>>,
     last_used: Mutex<Instant>,
-    child: AsyncMutex<Option<Child>>,
+    leader: AsyncMutex<Option<GroupLeader>>,
 }
 
 impl Client {
     /// Spawns `binary` with `args` in `root` and completes the LSP `initialize` handshake.
-    pub(crate) async fn spawn(root: &Path, binary: &Path, args: &[&str]) -> Result<Arc<Self>> {
-        let mut command = Command::new(binary);
-        command
-            .args(args)
+    pub(super) async fn spawn(root: &Path, binary: &Path, args: &[&str]) -> Result<Arc<Self>> {
+        let mut cmd = command(binary);
+        cmd.args(args)
             .current_dir(root)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        spawn_env::apply(&mut cmd, spawn_env::Scope::Probe);
+        env::beside(&mut cmd, binary);
+        own_group(&mut cmd);
 
-        if let Some(path) = lsp_path(binary) {
-            command.env("PATH", path);
-        }
-
-        let mut child = command
+        let mut child = cmd
             .spawn()
             .with_context(|| format!("starting language server {}", binary.display()))?;
         let mut stdin = child.stdin.take().context("language server missing stdin")?;
@@ -92,6 +100,7 @@ impl Client {
             .stderr
             .take()
             .context("language server missing stderr")?;
+        let leader = GroupLeader::new(child);
 
         let (writer, mut outgoing) = mpsc::unbounded_channel::<Vec<u8>>();
         let pending: PendingMap = Arc::new(Mutex::new(HashMap::new()));
@@ -130,60 +139,28 @@ impl Client {
         let reader_writer = writer.clone();
         let reader_root_uri = root_uri.clone();
         let reader_root_name = root_name.clone();
+        let reader_label = binary.display().to_string();
         tokio::spawn(async move {
             let mut reader = BufReader::new(stdout);
-            while let Ok(Some(message)) = read_frame(&mut reader).await {
-                let id = message.get("id");
-                let method = message.get("method").and_then(Value::as_str);
-
-                match (id, method) {
-                    // Server-to-client request: answer immediately so the server never deadlocks.
-                    (Some(req_id), Some(method)) => {
-                        let result = server_request_reply(
-                            method,
-                            message.get("params"),
-                            &reader_root_uri,
-                            &reader_root_name,
-                        );
-                        let reply = json!({
-                            "jsonrpc": "2.0",
-                            "id": req_id,
-                            "result": result,
-                        });
-                        let _ = reader_writer.send(encode_frame(&reply));
+            loop {
+                match read_frame(&mut reader).await {
+                    Ok(Some(message)) => dispatch_message(
+                        message,
+                        &reader_pending,
+                        &reader_writer,
+                        &reader_root_uri,
+                        &reader_root_name,
+                    ),
+                    Ok(None) => break,
+                    Err(err) => {
+                        tracing::debug!(server = %reader_label, "lsp stdout ended: {err}");
+                        break;
                     }
-                    // Response to one of our requests.
-                    (Some(res_id), None) => {
-                        if let Some(num) = res_id.as_i64()
-                            && let Some(tx) = reader_pending
-                                .lock()
-                                .ok()
-                                .and_then(|mut map| map.remove(&num))
-                        {
-                            let outcome = if let Some(err) = message.get("error") {
-                                Err(RpcError {
-                                    code: err.get("code").and_then(Value::as_i64).unwrap_or(-1),
-                                    message: err
-                                        .get("message")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("unknown error")
-                                        .to_owned(),
-                                })
-                            } else {
-                                Ok(message.get("result").cloned().unwrap_or(Value::Null))
-                            };
-                            let _ = tx.send(outcome);
-                        }
-                    }
-                    // Notification from server: ignored for basic definition lookup.
-                    _ => {}
                 }
             }
 
             reader_alive.store(false, Ordering::Relaxed);
-            if let Ok(mut map) = reader_pending.lock() {
-                map.clear();
-            }
+            lock(&reader_pending).clear();
         });
 
         let client = Arc::new(Self {
@@ -194,7 +171,7 @@ impl Client {
             alive,
             open_docs: AsyncMutex::new(HashMap::new()),
             last_used: Mutex::new(Instant::now()),
-            child: AsyncMutex::new(Some(child)),
+            leader: AsyncMutex::new(Some(leader)),
         });
 
         let init_params = json!({
@@ -220,29 +197,20 @@ impl Client {
         Ok(client)
     }
 
-    pub(crate) fn is_alive(&self) -> bool {
+    pub(super) fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Relaxed)
     }
 
-    pub(crate) fn idle_for(&self) -> Duration {
-        self.last_used
-            .lock()
-            .map(|at| at.elapsed())
-            .unwrap_or_default()
+    pub(super) fn idle_for(&self) -> Duration {
+        lock(&self.last_used).elapsed()
     }
 
-    pub(crate) fn touch(&self) {
-        if let Ok(mut at) = self.last_used.lock() {
-            *at = Instant::now();
-        }
-    }
-
-    pub(crate) fn root(&self) -> &Path {
-        &self.root
+    pub(super) fn touch(&self) {
+        *lock(&self.last_used) = Instant::now();
     }
 
     /// Sends `textDocument/didOpen` or `textDocument/didChange` when the file is new or changed.
-    pub(crate) async fn sync_document(
+    pub(super) async fn sync_document(
         &self,
         path: &Path,
         language_id: &str,
@@ -289,28 +257,40 @@ impl Client {
     }
 
     /// Runs `textDocument/definition` at 0-based `line` and UTF-16 `column`.
-    pub(crate) async fn definition(&self, path: &Path, line: u32, column: u32) -> Result<Value> {
+    pub(super) async fn definition(
+        &self,
+        path: &Path,
+        line: u32,
+        column: u32,
+    ) -> Result<Vec<LspLocation>> {
         self.touch();
         let uri = file_uri(path)?;
         let params = json!({
             "textDocument": { "uri": uri },
             "position": { "line": line, "character": column },
         });
-        self.request("textDocument/definition", params, REQUEST_TIMEOUT)
+        let value = self
+            .request("textDocument/definition", params, REQUEST_TIMEOUT)
+            .await?;
+        let root = self.root.clone();
+        spawn_blocking(move || parse_locations(&value, &root))
             .await
+            .context("parsing definition locations")
     }
 
-    /// Best-effort graceful shutdown of the language server process.
-    pub(crate) async fn shutdown(&self) {
+    /// Graceful LSP `shutdown` + `exit`, then stops the process group.
+    pub(super) async fn shutdown(&self) {
+        if self.is_alive() {
+            let _ = self
+                .request("shutdown", Value::Null, Duration::from_secs(2))
+                .await;
+            let _ = self.notify("exit", Value::Null);
+        }
         self.alive.store(false, Ordering::Relaxed);
-        let _ = self
-            .request("shutdown", Value::Null, Duration::from_secs(2))
-            .await;
-        let _ = self.notify("exit", Value::Null);
 
-        if let Some(mut child) = self.child.lock().await.take() {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
+        if let Some(mut leader) = self.leader.lock().await.take() {
+            let _ = timeout(Duration::from_millis(500), leader.child_mut().wait()).await;
+            leader.stop(STOP_GRACE).await;
         }
     }
 
@@ -336,13 +316,7 @@ impl Client {
 
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
-        {
-            let mut map = self
-                .pending
-                .lock()
-                .map_err(|_| anyhow::anyhow!("LSP state poisoned"))?;
-            map.insert(id, tx);
-        }
+        lock(&self.pending).insert(id, tx);
 
         let payload = json!({
             "jsonrpc": "2.0",
@@ -352,9 +326,7 @@ impl Client {
         });
 
         if self.writer.send(encode_frame(&payload)).is_err() {
-            if let Ok(mut map) = self.pending.lock() {
-                map.remove(&id);
-            }
+            lock(&self.pending).remove(&id);
             bail!("language server closed stdin");
         }
 
@@ -363,49 +335,223 @@ impl Client {
             Ok(Ok(Err(rpc_err))) => Err(anyhow::Error::new(rpc_err)),
             Ok(Err(_)) => bail!("language server exited while answering {method}"),
             Err(_) => {
-                if let Ok(mut map) = self.pending.lock() {
-                    map.remove(&id);
-                }
+                lock(&self.pending).remove(&id);
                 bail!("language server timed out answering {method}");
             }
         }
     }
 }
 
-/// Builds a `PATH` for the spawned server that includes `binary`'s own folder,
-/// the node's spawn path, and common toolchain folders under home.
-fn lsp_path(binary: &Path) -> Option<std::ffi::OsString> {
-    let mut dirs: Vec<PathBuf> = Vec::new();
-    let mut push = |dir: PathBuf| {
-        if !dirs.iter().any(|existing| existing == &dir) {
-            dirs.push(dir);
-        }
-    };
+fn dispatch_message(
+    message: Value,
+    pending: &PendingMap,
+    writer: &mpsc::UnboundedSender<Vec<u8>>,
+    root_uri: &str,
+    root_name: &str,
+) {
+    let id = message.get("id").filter(|v| !v.is_null());
+    let method = message.get("method").and_then(Value::as_str);
 
-    if let Some(dir) = binary.parent().filter(|p| !p.as_os_str().is_empty()) {
-        push(dir.to_path_buf());
-    }
-
-    if let Some(search) = spawn_env::search_path() {
-        for dir in env::split_paths(&search) {
-            push(dir);
+    match (id, method) {
+        (Some(req_id), Some(method)) => {
+            let result = server_request_reply(method, message.get("params"), root_uri, root_name);
+            let reply = json!({ "jsonrpc": "2.0", "id": req_id, "result": result });
+            let _ = writer.send(encode_frame(&reply));
         }
-    } else if let Some(path) = locate::path_with(&[binary]) {
-        for dir in env::split_paths(&path) {
-            push(dir);
-        }
-    }
-
-    if let Some(home) = dirs::home_dir() {
-        for rel in [".cargo/bin", "go/bin"] {
-            let dir = home.join(rel);
-            if dir.is_dir() {
-                push(dir);
+        (Some(res_id), None) => {
+            if let Some(num) = res_id.as_i64()
+                && let Some(tx) = lock(pending).remove(&num)
+            {
+                let outcome = match message.get("error") {
+                    Some(err) => Err(RpcError {
+                        code: err.get("code").and_then(Value::as_i64).unwrap_or(-1),
+                        message: err
+                            .get("message")
+                            .and_then(Value::as_str)
+                            .unwrap_or("unknown error")
+                            .to_owned(),
+                    }),
+                    None => Ok(message.get("result").cloned().unwrap_or(Value::Null)),
+                };
+                let _ = tx.send(outcome);
             }
         }
+        _ => {}
+    }
+}
+
+/// Encodes a JSON-RPC message with an LSP `Content-Length` header.
+pub(super) fn encode_frame(message: &Value) -> Vec<u8> {
+    let body = serde_json::to_vec(message).unwrap_or_default();
+    let mut frame = format!("Content-Length: {}\r\n\r\n", body.len()).into_bytes();
+    frame.extend_from_slice(&body);
+    frame
+}
+
+/// Reads the next JSON-RPC frame from an LSP stdout stream; `Ok(None)` on clean EOF.
+pub(super) async fn read_frame<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Option<Value>> {
+    let mut content_length: Option<usize> = None;
+    let mut saw_header = false;
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+        let read = reader
+            .take((MAX_HEADER_LINE + 1) as u64)
+            .read_line(&mut line)
+            .await
+            .context("reading LSP header")?;
+
+        if read == 0 {
+            if saw_header {
+                bail!("unexpected EOF in LSP headers");
+            }
+            return Ok(None);
+        }
+
+        if read > MAX_HEADER_LINE {
+            bail!("LSP header line exceeded limit");
+        }
+
+        let trimmed = line.trim_end_matches(['\r', '\n']);
+
+        if trimmed.is_empty() {
+            if saw_header {
+                break;
+            }
+            continue;
+        }
+
+        saw_header = true;
+
+        if let Some((name, value)) = trimmed.split_once(':')
+            && name.trim().eq_ignore_ascii_case("content-length")
+        {
+            content_length = Some(
+                value
+                    .trim()
+                    .parse()
+                    .context("invalid LSP Content-Length header")?,
+            );
+        }
     }
 
-    (!dirs.is_empty())
-        .then(|| env::join_paths(dirs).ok())
-        .flatten()
+    let length = content_length.context("missing LSP Content-Length header")?;
+
+    if length > MAX_FRAME {
+        bail!("LSP frame of {length} bytes exceeds limit");
+    }
+
+    let mut body = vec![0u8; length];
+    reader
+        .read_exact(&mut body)
+        .await
+        .context("reading LSP body")?;
+    serde_json::from_slice(&body).context("parsing LSP JSON body")
+}
+
+/// Converts an absolute filesystem path into a `file://` URI string.
+pub(super) fn file_uri(path: &Path) -> Result<String> {
+    Url::from_file_path(path)
+        .map(Into::into)
+        .map_err(|()| anyhow::anyhow!("cannot convert {} to a file URI", path.display()))
+}
+
+/// Replies to common server-to-client LSP requests so servers never block waiting on us.
+pub(super) fn server_request_reply(
+    method: &str,
+    params: Option<&Value>,
+    root_uri: &str,
+    root_name: &str,
+) -> Value {
+    match method {
+        "workspace/configuration" => {
+            let count = params
+                .and_then(|value| value.get("items"))
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            Value::Array(vec![Value::Null; count])
+        }
+        "workspace/workspaceFolders" => json!([{ "uri": root_uri, "name": root_name }]),
+        _ => Value::Null,
+    }
+}
+
+/// Parses a `textDocument/definition` response (`null`, `Location`, `Location[]`, or
+/// `LocationLink[]`) into deduplicated workspace-normalized [`LspLocation`] values.
+pub(super) fn parse_locations(result: &Value, root: &Path) -> Vec<LspLocation> {
+    let items: &[Value] = match result {
+        Value::Array(array) => array,
+        Value::Object(_) => std::slice::from_ref(result),
+        _ => return Vec::new(),
+    };
+
+    let mut out = Vec::with_capacity(items.len());
+    let mut seen: HashSet<(String, bool, u32, u32)> = HashSet::new();
+
+    for item in items {
+        let Some(location) = parse_one_location(item, root) else {
+            continue;
+        };
+        let key = (
+            location.path.clone(),
+            location.inside_root,
+            location.line,
+            location.column,
+        );
+
+        if seen.insert(key) {
+            out.push(location);
+        }
+    }
+
+    out
+}
+
+fn parse_one_location(item: &Value, root: &Path) -> Option<LspLocation> {
+    let (uri, range) = if let Some(target_uri) = item.get("targetUri").and_then(Value::as_str) {
+        let range = item
+            .get("targetSelectionRange")
+            .or_else(|| item.get("targetRange"))?;
+        (target_uri, range)
+    } else {
+        (item.get("uri").and_then(Value::as_str)?, item.get("range")?)
+    };
+
+    let start = range.get("start")?;
+    let line = u32::try_from(start.get("line")?.as_u64()?).ok()?;
+    let column = u32::try_from(start.get("character")?.as_u64()?).ok()?;
+
+    let url = Url::parse(uri).ok()?;
+    if url.scheme() != "file" {
+        return None;
+    }
+
+    let raw_path = url.to_file_path().ok()?;
+    let resolved = paths::canonicalize(&raw_path).unwrap_or(raw_path);
+    let (path, inside_root) = match resolved.strip_prefix(root) {
+        Ok(rel) => (rel_to_slash(rel)?, true),
+        Err(_) => (resolved.to_string_lossy().into_owned(), false),
+    };
+
+    Some(LspLocation {
+        path,
+        inside_root,
+        line,
+        column,
+    })
+}
+
+fn rel_to_slash(rel: &Path) -> Option<String> {
+    let mut parts = Vec::new();
+
+    for component in rel.components() {
+        match component {
+            Component::Normal(part) => parts.push(part.to_str()?),
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+
+    (!parts.is_empty()).then(|| parts.join("/"))
 }

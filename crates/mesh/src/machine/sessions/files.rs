@@ -6,7 +6,7 @@ use crate::{MeshError, machine::unexpected};
 use beep_proto::SessionId;
 use beep_proto::{
     CustomAgent, ListWorkTree, WorkFolder, WorkTree,
-    node::agent::{LspLocation, RelPath, SessionsReply, SessionsRequest},
+    node::agent::{LspDefinitions, RelPath, SessionsReply, SessionsRequest},
 };
 use std::time::Duration;
 
@@ -284,15 +284,8 @@ pub async fn custom_agents<S: Sessions + ?Sized>(
     }
 }
 
-/// What `lsp_definition` returns from a node.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LspReply {
-    pub locations: Vec<LspLocation>,
-    pub note: Option<String>,
-}
-
 /// How long an LSP definition lookup may wait, including cold server startup.
-const LSP_TIMEOUT: Duration = Duration::from_secs(20);
+const LSP_TIMEOUT: Duration = Duration::from_secs(35);
 
 /// Looks up the definition at 0-based `line` and UTF-16 `column` of `path`
 /// inside `root` on the node.
@@ -303,7 +296,7 @@ pub async fn lsp_definition<S: Sessions + ?Sized>(
     line: u32,
     column: u32,
     text: Option<String>,
-) -> Result<NodeWork<LspReply>, MeshError> {
+) -> Result<NodeWork<LspDefinitions>, MeshError> {
     let request = SessionsRequest::LspDefinition {
         root,
         path,
@@ -313,13 +306,11 @@ pub async fn lsp_definition<S: Sessions + ?Sized>(
     };
     let reply = hinted(
         node.sessions(request, Reading::Once, LSP_TIMEOUT).await,
-        "to look up code definitions",
+        "look up code definitions",
     )?;
 
     match reply {
-        SessionsReply::LspLocations { locations, note } => {
-            Ok(NodeWork::Done(LspReply { locations, note }))
-        }
+        SessionsReply::LspLocations { result } => Ok(NodeWork::Done(result)),
         SessionsReply::Error { message } => Ok(NodeWork::Refused(message)),
         other => Err(unexpected(&other)),
     }

@@ -7,6 +7,16 @@ export function commandKey(e: { metaKey: boolean; ctrlKey?: boolean }, windows =
   return windows ? !!e.ctrlKey : e.metaKey;
 }
 
+/// Exact primary shortcut modifier: Cmd on Apple platforms, Ctrl elsewhere,
+/// with no other modifier keys held.
+export function primaryModifier(
+  e: { metaKey: boolean; ctrlKey: boolean; altKey: boolean; shiftKey: boolean },
+  apple = APPLE,
+): boolean {
+  if (e.altKey || e.shiftKey) return false;
+  return apple ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+}
+
 /// Windows narrower than this show the phone layout.
 const NARROW_PX = 700;
 /// A touch screen up to this wide does too (a tablet keeps the desktop layout).

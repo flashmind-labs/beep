@@ -5,7 +5,7 @@
 import { memo, useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
-import { APPLE, onPhone } from "../ui/platform.ts";
+import { onPhone, primaryModifier } from "../ui/platform.ts";
 import { dragHandle } from "../ui/drag.ts";
 import type { Dock } from "./media-state.ts";
 import { type DockView, dividerDrag, dividerKey, mainRef, paneModel, paneRefs, resetDivider, shellRef, stripRefs } from "./media-layout.ts";
@@ -77,8 +77,7 @@ export function PaneDock({ dock }: { dock: Dock }) {
       onDoubleClick={() => resetDivider(dock)} onKeyDown={event => { if (dividerKey(dock, event.key)) { event.preventDefault(); event.stopPropagation(); } }} />
     <aside ref={paneRefs[dock]} className={`agpane${model?.zoomed ? " zoomed" : ""}`} id={`agpane-${dock}`} data-dock={dock} tabIndex={-1} hidden={hidden} style={model?.size != null ? { flexBasis: `var(--drag-size, ${model.size}px)` } : undefined}
       onKeyDownCapture={event => {
-        if (event.key.toLowerCase() !== "f" || event.shiftKey || event.altKey || event.nativeEvent.isComposing) return;
-        if (APPLE ? !event.metaKey || event.ctrlKey : !event.ctrlKey || event.metaKey) return;
+        if (event.key.toLowerCase() !== "f" || event.nativeEvent.isComposing || !primaryModifier(event)) return;
         const tab = P.tabs.find(tab => tab.id === model?.on);
         if (!tab?.text || tab.text.binary || (!tab.edit && tab.preview?.active) || onPhone()) return;
 

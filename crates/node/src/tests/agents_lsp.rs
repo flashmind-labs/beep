@@ -1,9 +1,7 @@
 use super::{
-    client::Client,
-    protocol::{
-        Language, encode_frame, file_uri, find_server, language_for, parse_locations, read_frame,
-        server_request_reply,
-    },
+    Language,
+    client::{Client, encode_frame, file_uri, parse_locations, read_frame, server_request_reply},
+    find_server, language_for,
 };
 use serde_json::json;
 use std::{fs, io::Cursor};
@@ -42,7 +40,6 @@ async fn frame_round_trip_and_headers() {
     assert_eq!(read_frame(&mut reader).await.unwrap(), Some(payload));
     assert_eq!(read_frame(&mut reader).await.unwrap(), None);
 
-    // Extra headers and lowercase Content-Length are valid per LSP spec.
     let body = br#"{"jsonrpc":"2.0","id":1,"result":null}"#;
     let raw = format!(
         "Content-Type: application/vscode-jsonrpc; charset=utf-8\r\ncontent-length: {}\r\n\r\n{}",
@@ -71,7 +68,6 @@ fn parse_locations_handles_all_lsp_forms_and_deduplicates() {
     let inside_uri = file_uri(&inside).unwrap();
     let outside_uri = file_uri(&outside).unwrap();
 
-    // Single Location.
     let single = json!({
         "uri": inside_uri,
         "range": { "start": { "line": 4, "character": 7 }, "end": { "line": 4, "character": 11 } }
@@ -82,7 +78,6 @@ fn parse_locations_handles_all_lsp_forms_and_deduplicates() {
     assert!(parsed[0].inside_root);
     assert_eq!((parsed[0].line, parsed[0].column), (4, 7));
 
-    // LocationLink[] with duplicate + outside root.
     let links = json!([
         {
             "targetUri": inside_uri,
@@ -106,7 +101,6 @@ fn parse_locations_handles_all_lsp_forms_and_deduplicates() {
     assert!(!parsed[1].inside_root);
     assert_eq!(parsed[1].path, outside.to_string_lossy());
 
-    // Null yields empty.
     assert!(parse_locations(&json!(null), &root).is_empty());
 }
 
@@ -146,7 +140,7 @@ fn find_server_prefers_workspace_local_binary() {
 
 #[cfg(unix)]
 #[tokio::test]
-async fn client_handles_handshake_server_request_did_change_and_definition() {
+async fn client_handles_handshake_server_request_did_change_definition_and_graceful_shutdown() {
     use std::os::unix::fs::PermissionsExt;
 
     if which::which("python3").is_err() {
@@ -156,13 +150,14 @@ async fn client_handles_handshake_server_request_did_change_and_definition() {
     let dir = tempfile::tempdir().unwrap();
     let root = crate::files::paths::canonicalize(dir.path()).unwrap();
     let file = root.join("demo.rs");
+    let marker = root.join("clean-exit");
     fs::write(&file, "fn alpha() {}\n").unwrap();
 
     let server_script = root.join("fake-lsp.py");
     fs::write(
         &server_script,
         r#"#!/usr/bin/env python3
-import json, sys
+import json, pathlib, sys
 
 def read_msg():
     length = None
@@ -183,6 +178,7 @@ def send_msg(obj):
     sys.stdout.buffer.flush()
 
 last_text = ""
+saw_shutdown = False
 while True:
     msg = read_msg()
     if msg is None:
@@ -202,8 +198,11 @@ while True:
         line = 2 if "beta" in last_text else 0
         send_msg({"jsonrpc": "2.0", "id": msg["id"], "result": {"uri": uri, "range": {"start": {"line": line, "character": 3}, "end": {"line": line, "character": 8}}}})
     elif method == "shutdown":
+        saw_shutdown = True
         send_msg({"jsonrpc": "2.0", "id": msg["id"], "result": None})
     elif method == "exit":
+        if saw_shutdown:
+            pathlib.Path("clean-exit").write_text("ok")
         break
 "#,
     )
@@ -218,19 +217,18 @@ while True:
         .await
         .unwrap();
     let first = client.definition(&file, 0, 3).await.unwrap();
-    let first_locs = parse_locations(&first, &root);
-    assert_eq!(first_locs.len(), 1);
-    assert_eq!((first_locs[0].line, first_locs[0].column), (0, 3));
+    assert_eq!(first.len(), 1);
+    assert_eq!((first[0].line, first[0].column), (0, 3));
 
     client
         .sync_document(&file, "rust", "fn alpha() {}\n\nfn beta() {}\n")
         .await
         .unwrap();
     let second = client.definition(&file, 2, 3).await.unwrap();
-    let second_locs = parse_locations(&second, &root);
-    assert_eq!(second_locs.len(), 1);
-    assert_eq!((second_locs[0].line, second_locs[0].column), (2, 3));
+    assert_eq!(second.len(), 1);
+    assert_eq!((second[0].line, second[0].column), (2, 3));
 
     client.shutdown().await;
     assert!(!client.is_alive());
+    assert!(marker.is_file(), "expected graceful LSP shutdown + exit");
 }

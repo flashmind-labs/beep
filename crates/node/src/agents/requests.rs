@@ -129,6 +129,9 @@ fn watch_slow(request: &SessionsRequest, caller: EndpointId) -> Option<AbortOnDr
         SessionsRequest::WriteFile { path, .. } | SessionsRequest::UploadFile { path, .. } => {
             format!("WriteFile {path}")
         }
+        SessionsRequest::LspDefinition {
+            path, line, column, ..
+        } => format!("LspDefinition {path}:{line}:{column}"),
         other => format!("{other:?}").chars().take(300).collect(),
     };
     Some(warn_if_slow_after(
@@ -379,15 +382,12 @@ pub async fn serve_sessions(
             text,
         } => {
             let lookup = async {
-                let real = agents.reachable(&root, reach::Access::Read).await?;
+                let real = agents.reachable(&root, reach::Access::Work).await?;
                 agents.lsp.definition(&real, &path, line, column, text).await
             };
 
             match lookup.await {
-                Ok(outcome) => SessionsReply::LspLocations {
-                    locations: outcome.locations,
-                    note: outcome.note,
-                },
+                Ok(result) => SessionsReply::LspLocations { result },
                 Err(e) => failed(e),
             }
         }

@@ -325,13 +325,6 @@ pub async fn agent_tree_edit(
     direct::edit_files(&fleet, machine, root, action).await
 }
 
-/// Definition targets returned by `agent_lsp_definition`.
-#[derive(Debug, Serialize)]
-pub struct LspDefinitionResult {
-    locations: Vec<beep_proto::node::agent::LspLocation>,
-    note: Option<String>,
-}
-
 /// Resolves code definitions on the owning machine via an installed language server.
 #[tauri::command]
 pub async fn agent_lsp_definition(
@@ -342,18 +335,13 @@ pub async fn agent_lsp_definition(
     line: u32,
     column: u32,
     text: Option<String>,
-) -> Result<LspDefinitionResult> {
+) -> Result<beep_proto::node::agent::LspDefinitions> {
     let rel = beep_proto::node::agent::RelPath::try_from(path)
         .map_err(|e| DesktopError::BadRequest(e.to_string()))?;
     let machine = fleet.member(&machine_id).ok_or_else(|| {
         DesktopError::BadRequest("Connect this machine to the mesh to look up definitions".into())
     })?;
-    let reply = direct::lsp_definition(&fleet, machine, root, rel, line, column, text).await?;
-
-    Ok(LspDefinitionResult {
-        locations: reply.locations,
-        note: reply.note,
-    })
+    direct::lsp_definition(&fleet, machine, root, rel, line, column, text).await
 }
 
 /// Saves a selection, including folders, under one new folder in Downloads.

@@ -2,29 +2,30 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   formatLocationLabel,
-  isDefinitionModifier,
   parseEditorSettings,
   parseLspResult,
   resolveVimSync,
   wordSpanAt,
 } from "../src/agentpane/lsp-state.ts";
+import { primaryModifier } from "../src/ui/platform.ts";
 
-describe("isDefinitionModifier", () => {
+describe("primaryModifier", () => {
   it("uses Cmd on Apple and Ctrl elsewhere without extra modifiers", () => {
-    assert.equal(isDefinitionModifier({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, true), true);
-    assert.equal(isDefinitionModifier({ metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, true), false);
-    assert.equal(isDefinitionModifier({ metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, false), true);
-    assert.equal(isDefinitionModifier({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, false), false);
-    assert.equal(isDefinitionModifier({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }, true), false);
-    assert.equal(isDefinitionModifier({ metaKey: false, ctrlKey: true, altKey: true, shiftKey: false }, false), false);
+    assert.equal(primaryModifier({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, true), true);
+    assert.equal(primaryModifier({ metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, true), false);
+    assert.equal(primaryModifier({ metaKey: false, ctrlKey: true, altKey: false, shiftKey: false }, false), true);
+    assert.equal(primaryModifier({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: false }, false), false);
+    assert.equal(primaryModifier({ metaKey: true, ctrlKey: false, altKey: false, shiftKey: true }, true), false);
+    assert.equal(primaryModifier({ metaKey: false, ctrlKey: true, altKey: true, shiftKey: false }, false), false);
   });
 });
 
 describe("wordSpanAt", () => {
-  it("finds identifier boundaries and ignores punctuation or whitespace", () => {
-    const line = "  const result = compute_sum(alpha, beta);";
+  it("finds identifier boundaries and ignores punctuation, whitespace, and past-end columns", () => {
+    const line = "  const result = compute_sum(alpha, beta)";
     assert.deepEqual(wordSpanAt(line, 19), { from: 17, to: 28 });
-    assert.deepEqual(wordSpanAt(line, 28), { from: 17, to: 28 });
+    assert.equal(wordSpanAt(line, 28), null);
+    assert.equal(wordSpanAt(line, line.length), null);
     assert.equal(wordSpanAt(line, 0), null);
     assert.equal(wordSpanAt(line, 15), null);
     assert.equal(wordSpanAt("", 0), null);
@@ -46,7 +47,7 @@ describe("parseLspResult and parseEditorSettings", () => {
   it("validates IPC responses safely", () => {
     const parsed = parseLspResult({
       locations: [
-        { path: "src/main.rs", inside_root: true, line: 9, column: 4, end_line: 9, end_column: 12 },
+        { path: "src/main.rs", inside_root: true, line: 9, column: 4 },
         { path: 123, line: 1, column: 1 },
       ],
       note: null,

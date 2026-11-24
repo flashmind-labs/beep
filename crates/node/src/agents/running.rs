@@ -501,6 +501,7 @@ impl Agents {
             .cloned()
             .collect();
         futures::future::join_all(running.iter().map(|session| session.close())).await;
+        self.lsp.shutdown().await;
     }
 
     /// Marks the node as stopping: sessions that end from now on ended

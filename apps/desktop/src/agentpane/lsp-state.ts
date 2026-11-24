@@ -6,8 +6,6 @@ export interface LspLocation {
   inside_root: boolean;
   line: number;
   column: number;
-  end_line: number;
-  end_column: number;
 }
 
 export interface LspDefinitionResult {
@@ -19,36 +17,17 @@ export interface EditorSettings {
   vim: boolean | null;
 }
 
-export interface ModifierKeys {
-  metaKey: boolean;
-  ctrlKey: boolean;
-  altKey: boolean;
-  shiftKey: boolean;
-}
-
-/// Cmd on Apple platforms, Ctrl elsewhere, without other modifiers held.
-export function isDefinitionModifier(keys: ModifierKeys, apple: boolean): boolean {
-  if (keys.altKey || keys.shiftKey) return false;
-  return apple ? keys.metaKey && !keys.ctrlKey : keys.ctrlKey && !keys.metaKey;
-}
-
 const IDENT_CHAR = /[A-Za-z0-9_$]/;
 
 /// The identifier span `[from, to)` covering `column` in `line`, or null when
-/// `column` is on punctuation or whitespace.
+/// `column` is past the line end or on punctuation/whitespace.
 export function wordSpanAt(line: string, column: number): { from: number; to: number } | null {
-  if (!line || column < 0 || column > line.length) return null;
+  if (column < 0 || column >= line.length || !IDENT_CHAR.test(line[column] ?? "")) return null;
 
-  let index = column;
-  if (index === line.length || !IDENT_CHAR.test(line[index] ?? "")) {
-    if (index > 0 && IDENT_CHAR.test(line[index - 1] ?? "")) index -= 1;
-    else return null;
-  }
-
-  let from = index;
+  let from = column;
   while (from > 0 && IDENT_CHAR.test(line[from - 1] ?? "")) from -= 1;
 
-  let to = index + 1;
+  let to = column + 1;
   while (to < line.length && IDENT_CHAR.test(line[to] ?? "")) to += 1;
 
   return { from, to };
@@ -97,8 +76,6 @@ export function parseLspResult(raw: unknown): LspDefinitionResult {
       inside_root: "inside_root" in item && typeof item.inside_root === "boolean" ? item.inside_root : false,
       line: item.line,
       column: item.column,
-      end_line: "end_line" in item && typeof item.end_line === "number" ? item.end_line : item.line,
-      end_column: "end_column" in item && typeof item.end_column === "number" ? item.end_column : item.column,
     });
   }
 

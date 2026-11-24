@@ -855,10 +855,16 @@ pub enum SessionsReply {
     /// The answer to `LspDefinition`: definition targets in server order, and
     /// a short note when no language server could answer.
     LspLocations {
-        locations: Vec<LspLocation>,
-        #[serde(default)]
-        note: Option<String>,
+        result: LspDefinitions,
     },
+}
+
+/// What `SessionsRequest::LspDefinition` returns.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LspDefinitions {
+    pub locations: Vec<LspLocation>,
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// One definition target reported by a language server.
@@ -873,12 +879,6 @@ pub struct LspLocation {
     pub line: u32,
     /// 0-based UTF-16 column.
     pub column: u32,
-    /// End 0-based line number.
-    #[serde(default)]
-    pub end_line: u32,
-    /// End 0-based UTF-16 column.
-    #[serde(default)]
-    pub end_column: u32,
 }
 
 /// A CI run the user started (a push or a pull request) that ended, told by

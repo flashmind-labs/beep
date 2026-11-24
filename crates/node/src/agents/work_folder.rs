@@ -57,11 +57,6 @@ impl WorkRoot {
         Ok(Self { root: root_dir })
     }
 
-    /// Canonical path of the working folder.
-    pub(super) fn root(&self) -> &Path {
-        &self.root
-    }
-
     /// What `rel` (already checked by `names`) leads to inside the root,
     /// symlinks resolved; `None` when nothing is there.
     pub(super) fn find(&self, rel: &Path) -> Result<Option<PathBuf>> {

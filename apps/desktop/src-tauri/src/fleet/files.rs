@@ -220,7 +220,7 @@ pub(crate) async fn lsp_definition(
     line: u32,
     column: u32,
     text: Option<String>,
-) -> Result<sessions::LspReply> {
+) -> Result<beep_proto::node::agent::LspDefinitions> {
     let client = fleet.client(machine).await?;
     work(
         fleet,
