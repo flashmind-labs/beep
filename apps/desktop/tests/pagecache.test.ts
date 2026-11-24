@@ -87,6 +87,20 @@ test("saving drops what does not fit from memory too, and using a slot keeps it"
   assert.equal(cache.get("sessions", "p2"), undefined);
 });
 
+test("data held without a read goes from memory with the rest and is never saved", () => {
+  const c = clock();
+  const cache = new PageCache("a", c.tick);
+  for (const id of ["h1", "h2", "h3"]) { cache.hold("sessions", id, []); c.now += 1; }
+  cache.put("sessions", "read", []);
+  c.now += 1;
+
+  const file = cache.toFile(2)!;
+  assert.deepEqual(Object.keys(file.slots), ["sessions\nread"]);
+  assert.equal(cache.size, 2);
+  assert.equal(cache.peek("sessions", "h1"), undefined);
+  assert.deepEqual(cache.peek("sessions", "h3"), []);
+});
+
 test("sign-out and another account clear it", () => {
   // Learning the account of data read before keeps it.
   const early = new PageCache(null);

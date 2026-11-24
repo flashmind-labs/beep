@@ -249,14 +249,13 @@ export class PageCache {
     return was;
   }
 
-  /// The file to save, within the caps; null without an account. What did
-  /// not fit is dropped from memory too.
+  /// The file to save, within the caps; null without an account. What did not fit is dropped
+  /// from memory too, data held without a read included, which the file leaves out.
   toFile(maxSlots = MAX_SLOTS, maxChars = MAX_CHARS): PageCacheFile | null {
     if (!this.account) return null;
-    const read = [...this.slots].filter(([, slot]) => slot.at !== null);
-    const kept = evict(read, maxSlots, maxChars);
-    if (kept.length < read.length) this.slots = new Map([...kept, ...[...this.slots].filter(([, slot]) => slot.at === null)]);
-    return { format: PAGE_CACHE_FORMAT, account: this.account, slots: Object.fromEntries(kept) };
+    const kept = evict([...this.slots], maxSlots, maxChars);
+    if (kept.length < this.slots.size) this.slots = new Map(kept);
+    return { format: PAGE_CACHE_FORMAT, account: this.account, slots: Object.fromEntries(kept.filter(([, slot]) => slot.at !== null)) };
   }
 
   /// `section` as a store of its own.
