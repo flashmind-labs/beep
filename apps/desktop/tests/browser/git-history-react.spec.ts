@@ -887,8 +887,8 @@ test("a pending review picker does not open after its diff closes", async ({ pag
     await page.getByRole("tab", { name: "Changes", exact: true }).click();
     const review = page.getByRole("button", { name: "Review with agent" });
     await expect(review).toBeEnabled();
-    await expect.poll(() => pickerUrl).not.toBe("");
     await review.click();
+    await expect.poll(() => pickerUrl).not.toBe("");
     await page.evaluate(() => document.addEventListener("keydown", event => { if (event.key === "Escape") document.body.dataset.escapeReached = "yes"; }));
     await open("notice-two");
     release();

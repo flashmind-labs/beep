@@ -141,12 +141,15 @@ const readSessions = ambient(() => {
   sessionsStale = false;
   ensureSessions().catch(e => console.warn("sessions:", e));
   // Null until every machine answered once: the list comes as a `session-list` event.
-  return invoke<SessionRow[] | null>("projects_sessions").then(rows => { if (rows) showSessions(rows); }, e => { sessionsStale = true; console.warn("sessions:", e); });
+  const pushes = listsPushed;
+  // A list pushed while the read is out is newer than its answer.
+  return invoke<SessionRow[] | null>("projects_sessions").then(rows => { if (rows && pushes === listsPushed) showSessions(rows); }, e => { sessionsStale = true; console.warn("sessions:", e); });
 }, DONE_REREAD_MS, () => currentLocation()?.view === "home");
-listen<SessionList>("session-list", ({ payload }) => { if (payload.list === "home") showSessions(payload.sessions); });
+let listsPushed = 0;
+listen<SessionList>("session-list", ({ payload }) => { if (payload.list === "home") { listsPushed++; showSessions(payload.sessions); } });
 function showSessions(rows: SessionRow[]) { projectSessions = rows; draw(); }
-// The list itself follows as `session-list` events; these say it may be out of step.
-for (const name of ["sessions-changed", "reconnected"]) listen(name, () => { sessionsStale = true; readSessions(); });
+// The list itself follows as `session-list` events; a reconnect says it may be out of step.
+listen("reconnected", () => { sessionsStale = true; readSessions(); });
 listen<Retitled>("agent-title-changed", ({ payload }) => {
   const next = retitled(projectSessions, payload);
   if (next) showSessions(next);

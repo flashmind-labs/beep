@@ -56,7 +56,8 @@ const sessionChanges = new Changes();
 const termChanges = new Changes();
 const foundChanges = new Changes();
 subscribeEach([topic("projects"), topic("machines"), topic("sync")], () => whereChanges.changed());
-for (const name of ["sessions-changed", "reconnected"]) listen(name, () => sessionChanges.changed());
+// The lists themselves come as `session-list` events; a reconnect says they may be out of step.
+listen("reconnected", () => sessionChanges.changed());
 // A checkout's git state changed in the background and arrives with the event.
 listen<{ project: string; row: GitRow }>("project-git-changed", ({ payload }) => {
   // A project not read yet has no list to amend; its first read has the row.
@@ -179,15 +180,25 @@ export async function loadGit(name: string) {
   }
 }
 
+/// The rows the machines pushed while a read of a project's git state was out, by machine: they
+/// are newer than what the read answers.
+const pushedDuring = new Map<string, Map<string, GitRow>>();
+
 async function readGit(name: string, fetch: boolean) {
+  pushedDuring.set(name, new Map());
+
   try {
-    const rows = await invoke<GitRow[]>("project_git_state", { project: name, fetch });
+    const read = await invoke<GitRow[]>("project_git_state", { project: name, fetch });
+    const newer = pushedDuring.get(name);
+    const rows = read.map(row => newer?.get(row.machine_id) ?? row);
     state.gitsync.set(name, rows);
     keep("gitsync", name, rows);
   } catch (e) {
     console.warn("project git state:", e);
     if (!state.gitsync.has(name)) state.gitsync.set(name, []);
   }
+
+  pushedDuring.delete(name);
 
   if (currentLocation()?.view === "projects" && state.picked === name) redrawProjectsPage();
 }
@@ -196,6 +207,7 @@ async function readGit(name: string, fetch: boolean) {
 const moves = new Map<string, { moving: GitMove | null; failed?: string }>();
 
 export function rememberGitRow(name: string, row: GitRow) {
+  pushedDuring.get(name)?.set(row.machine_id, row);
   const rows = withRow(state.gitsync.get(name), row);
   state.gitsync.set(name, rows);
   keep("gitsync", name, rows);
@@ -391,7 +403,11 @@ export async function loadSessions(name: string): Promise<void> {
   sessionReads.set(name, read);
   return read;
 }
+/// The `session-list` events seen for each project, so a read that was out when one came is dropped.
+const sessionPushes = new Map<string, number>();
+
 async function readSessions(name: string) {
+  const pushes = sessionPushes.get(name) ?? 0;
   readingSessions.add(name);
   sessionsDue.delete(name);
   sessionChanges.read(name);
@@ -408,6 +424,9 @@ async function readSessions(name: string) {
     readingSessions.delete(name);
   }
 
+  // A list pushed while the read was out is newer than its answer.
+  if ((sessionPushes.get(name) ?? 0) !== pushes) return;
+
   if (got || failed) showSessions(name, nextSessions(state.sessions.get(name), got).list, got !== null);
   // The draw drops the Updating note. With no list yet it reads Reading sessions, and a draw
   // would ask again at once.
@@ -415,7 +434,9 @@ async function readSessions(name: string) {
 }
 
 listen<SessionList>("session-list", ({ payload }) => {
-  if (payload.list !== "home") showSessions(payload.list.project, payload.sessions, true);
+  if (payload.list === "home") return;
+  sessionPushes.set(payload.list.project, (sessionPushes.get(payload.list.project) ?? 0) + 1);
+  showSessions(payload.list.project, payload.sessions, true);
 });
 
 /// Project `name`'s sessions are `list` now; `read` when the machines gave it, so it is kept.

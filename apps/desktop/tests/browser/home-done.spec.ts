@@ -65,3 +65,25 @@ test("Appearance picks the board or the list for projects, and Home has no layou
   await expect(page.locator(".pj-split .pj-ov")).toBeVisible();
   await expect(page.locator(".pj-list").getByRole("button", { name: "Overview" })).toHaveAttribute("aria-current", "true");
 });
+
+test("a Done today list pushed while a read is out stays over the read's older answer", async ({ page }) => {
+  const now = Date.now();
+  const session = (id: string) => ({ machine_id: "m1", machine_name: "build-box", id, agent: "claude", title: `Session ${id}`,
+    cwd: "/srv/project", status: "ended", doing: null, started_at: now - 1000, last_activity: now, external: false, reviewer: false, parent: null });
+  const home = { machines: [], projects: [], running: [], needs_you: [] };
+  await openDesktop(page, false, { center_home: home, session_moves: [], session_copies: [], projects_sessions: [session("first")] });
+  await expect(page.locator("#sec-running").getByText("Session first")).toBeVisible();
+
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "projects_sessions").length);
+  const before = await reads();
+  await page.evaluate(() => window.__navigation.hold("projects_sessions"));
+  await page.evaluate(() => window.__navigation.emit("reconnected", null));
+  // Home reads again at most every few seconds.
+  await expect.poll(reads, { timeout: 15_000 }).toBeGreaterThan(before);
+  await page.evaluate(rows => window.__navigation.emit("session-list", { list: "home", sessions: rows }), [session("newer")]);
+  await expect(page.locator("#sec-running").getByText("Session newer")).toBeVisible();
+  await page.evaluate(() => window.__navigation.release("projects_sessions"));
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+  await expect(page.locator("#sec-running").getByText("Session newer")).toBeVisible();
+  await expect(page.locator("#sec-running").getByText("Session first")).toHaveCount(0);
+});
