@@ -1,7 +1,7 @@
 import { answers, calls } from "./steer-env.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { moveStore, refreshMoves, stateOf } from "../src/agents/move-store.ts";
+import { moveStore, refreshMoves, stateOf, takePushedSessions } from "../src/agents/move-store.ts";
 import type { MoveProgress, MoveRecord } from "../src/agents/move-state.ts";
 import { SLOW_MS } from "../src/ui/active.ts";
 
@@ -61,4 +61,28 @@ test("a cancelled move stays gone when its progress request returns", async () =
   finish(progress("files"));
   await read;
   assert.equal(stateOf(move.session), null);
+});
+
+test("a pushed list reads the moves when it shows a move change, not on every push", async () => {
+  const row = (machine_id: string) => ({ machine_id, id: "chat", agent: "codex" });
+  const reads = () => calls.filter(call => call.cmd === "session_moves").length;
+  const settle = () => new Promise<void>(resolve => setImmediate(resolve));
+  answers.session_moves = [];
+
+  takePushedSessions([row("source")]);
+  await settle();
+  assert.equal(reads(), 1, "the first push reads once");
+
+  takePushedSessions([row("source")]);
+  takePushedSessions([row("source"), { ...row("source"), id: "other" }]);
+  await settle();
+  assert.equal(reads(), 1, "the same placement reads nothing");
+
+  takePushedSessions([row("source"), row("target")]);
+  await settle();
+  assert.equal(reads(), 2, "a session on two machines is a move starting");
+
+  takePushedSessions([row("target")]);
+  await settle();
+  assert.equal(reads(), 3, "the source row going is the move ending");
 });

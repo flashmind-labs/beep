@@ -2,7 +2,7 @@ import { retitled, type Retitled } from "../agents/conversation-state.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { retainedHost } from "./page-view.tsx";
-import { refreshMoves, moveStore } from "../agents/move-store.ts";
+import { moveStore } from "../agents/move-store.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 import { AMBIENT_MS } from "../ui/active.ts";
 // Reading a project page: its machines, lists and sessions, kept fresh
@@ -414,7 +414,7 @@ async function readSessions(name: string) {
 
   try {
     // Null until every machine answered once: the list comes as a `session-list` event.
-    [got] = await Promise.all([invoke<SessionRow[] | null>("project_sessions", { project: name }), refreshMoves()]);
+    got = await invoke<SessionRow[] | null>("project_sessions", { project: name });
   } catch (e) {
     failed = true;
     console.warn("project sessions:", e);

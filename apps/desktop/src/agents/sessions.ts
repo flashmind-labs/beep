@@ -5,7 +5,7 @@ import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import type { AgentRow, AgentSession } from "./agents.ts";
 import { retitled, sessionKey, type Retitled } from "./conversation-state.ts";
 import { parentRow } from "./nesting-state.ts";
-import { moveStore, refreshMoves, withoutCopies } from "./move-store.ts";
+import { moveStore, refreshMoves, takePushedSessions, withoutCopies } from "./move-store.ts";
 
 /// Every session on the user's machines, as the last `loadSessions` read it.
 export let sessions: AgentSession[] = [];
@@ -56,7 +56,7 @@ subscribeEach(topic("home"), event => {
   if (!pushed || "error" in pushed) return;
 
   take(pushed.list);
-  void refreshMoves();
+  takePushedSessions(pushed.list);
 });
 
 // A move that ends or starts changes which copy shows.
