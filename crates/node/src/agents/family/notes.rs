@@ -90,9 +90,9 @@ impl ChildNote {
 }
 
 /// The children each parent waits on in `start_agent`, by the parent's name
-/// and the child's id as the parent got it, each with what wakes its wait.
+/// and the child's id as the parent got it, each with what wakes its wait. Parallel waits on one child each have their own.
 #[derive(Clone, Default)]
-pub(crate) struct Waits(Arc<Mutex<HashMap<WaitKey, Arc<Notify>>>>);
+pub(crate) struct Waits(Arc<Mutex<HashMap<WaitKey, Vec<Arc<Notify>>>>>);
 
 /// A parent's name and the child's id as the parent got it.
 type WaitKey = (SessionId, String);
@@ -114,7 +114,15 @@ impl Waiting {
 
 impl Drop for Waiting {
     fn drop(&mut self) {
-        crate::lock(&self.waits.0).remove(&self.key);
+        let mut held = crate::lock(&self.waits.0);
+
+        if let Some(all) = held.get_mut(&self.key) {
+            all.retain(|one| !Arc::ptr_eq(one, &self.woken));
+
+            if all.is_empty() {
+                held.remove(&self.key);
+            }
+        }
     }
 }
 
@@ -122,7 +130,10 @@ impl Waits {
     pub(crate) fn hold(&self, parent: &SessionId, child: &str) -> Waiting {
         let key = (parent.to_owned(), child.to_owned());
         let woken = Arc::new(Notify::new());
-        crate::lock(&self.0).insert(key.clone(), woken.clone());
+        crate::lock(&self.0)
+            .entry(key.clone())
+            .or_default()
+            .push(woken.clone());
         Waiting {
             waits: self.clone(),
             key,
@@ -135,13 +146,15 @@ impl Waits {
     pub(super) fn wake(&self, parent: &SessionId, child: &str) -> bool {
         let held = crate::lock(&self.0);
 
-        match held.get(&(parent.to_owned(), child.to_owned())) {
-            Some(woken) => {
-                woken.notify_one();
-                true
-            }
-            None => false,
+        let Some(all) = held.get(&(parent.to_owned(), child.to_owned())) else {
+            return false;
+        };
+
+        for woken in all {
+            woken.notify_one();
         }
+
+        true
     }
 }
 

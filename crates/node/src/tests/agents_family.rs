@@ -1568,3 +1568,23 @@ async fn a_note_about_a_child_ends_its_parents_wait_and_goes_in_no_prompt() {
     drop(waiting);
     assert!(!waits.wake(&parent, "k0@build-box"), "the wait ended");
 }
+
+#[tokio::test]
+async fn parallel_waits_on_one_child_wake_together_and_end_apart() {
+    let waits = Waits::default();
+    let parent = SessionId::from("p0");
+    let first = waits.hold(&parent, "k0@build-box");
+    let second = waits.hold(&parent, "k0@build-box");
+
+    assert!(waits.wake(&parent, "k0@build-box"));
+    for waiting in [&first, &second] {
+        timeout(Duration::from_secs(20), waiting.woken())
+            .await
+            .expect("the note woke both waits");
+    }
+
+    drop(first);
+    assert!(waits.wake(&parent, "k0@build-box"), "the second still waits");
+    drop(second);
+    assert!(!waits.wake(&parent, "k0@build-box"), "both ended");
+}
