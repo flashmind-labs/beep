@@ -33,10 +33,8 @@ test("project running rows show status, metadata and recent order", async ({ pag
   await expect(lane('Ready to review').locator('.bd-card')).toHaveText(/Idle/);
   await starting.focus();
   await starting.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
-  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'center_home').length);
-  const before = await reads();
   await page.evaluate(() => window.__navigation.notify('home'));
-  await expect.poll(reads).toBeGreaterThan(before);
+  await page.waitForTimeout(1300);
   await expect(starting).toHaveAttribute('data-identity', 'kept');
   await expect(starting).toBeFocused();
   await page.locator('.pj-strip button').filter({ hasText: 'running' }).click();

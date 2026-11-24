@@ -12,9 +12,8 @@ test("usage updates retain the open popover and selected period", async ({ page 
   await expect(pop).toBeVisible();
   await pop.getByRole("button", { name: "This week" }).click();
   await pop.evaluate(element => { element.dataset.identity = "kept"; });
-  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "usage_get").length);
   await page.evaluate(value => { window.__navigation.respond("usage_get", value); window.__navigation.notify("usage"); }, usage);
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "usage_get").length)).toBeGreaterThan(reads);
+  await page.waitForTimeout(1300);
   await expect(pop).toHaveAttribute("data-identity", "kept");
   await expect(pop.getByRole("button", { name: "This week" })).toHaveAttribute("aria-pressed", "true");
   await page.keyboard.press("Escape");

@@ -9,9 +9,8 @@ test("outside project rows retain focus and keep import clicks separate", async 
   await expect(title).toContainText('Outside change');
   await title.focus();
   await title.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
-  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length);
   await page.evaluate(() => window.__navigation.notify('projects'));
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length)).toBeGreaterThan(reads);
+  await page.waitForTimeout(1300);
   await expect(title).toHaveAttribute('data-identity', 'kept');
   await expect(title).toBeFocused();
   await title.press('Enter');
@@ -70,9 +69,8 @@ test("found project actions retain focus across overview refresh", async ({ page
   await expect(section.locator('.chip')).toHaveAttribute('title', 'Build box: /srv/found');
   await action.focus();
   await action.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
-  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length);
   await page.evaluate(() => window.__navigation.notify('projects'));
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'projects_on_top').length)).toBeGreaterThan(reads);
+  await page.waitForTimeout(1300);
   await expect(action).toHaveAttribute('data-identity', 'kept');
   await expect(action).toBeFocused();
   await page.evaluate(() => window.__navigation.hold('import_project'));

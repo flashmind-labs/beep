@@ -113,9 +113,8 @@ test("project header actions retain focus during refresh", async ({ page }) => {
   await expect(more).toBeVisible();
   await more.focus();
   await more.evaluate(element => { (window as any).__headerMore = element; });
-  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length);
   await page.evaluate(() => window.__navigation.notify("home"));
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length)).toBeGreaterThan(reads);
+  await page.waitForTimeout(1300);
   await expect(more).toBeFocused();
   expect(await more.evaluate(element => element === (window as any).__headerMore)).toBe(true);
   await page.evaluate(() => window.__navigation.respond("project_ignored_sync", { enabled: false, folders: [] }));

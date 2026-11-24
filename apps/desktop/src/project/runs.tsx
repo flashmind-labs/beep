@@ -3,7 +3,9 @@ import { RunsView } from "./runs-view.tsx";
 import type { AgentButtonOpts, SessionState } from "./composer.tsx";
 import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
-import type { Pushed } from "../ui/snapshot-state.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { AMBIENT_MS } from "../ui/active.ts";
+import { pushedView, type Pushed } from "../ui/snapshot-state.ts";
 // A project's workflow runs (GitHub Actions or Forgejo Actions) on its page:
 // the Actions section with each run's state and, for a running one, its
 // current job and step; a run opened shows its jobs and steps and, when it
@@ -304,8 +306,9 @@ export function makeRuns(deps: RunDeps) {
   const reading = new Set<string>();
   /// Details read ahead, a few at a time.
   const aheadQueue = new Bounded();
-  /// The project whose opened run the desktop follows.
+  /// The project whose opened run the desktop follows, and the stop of its topic.
   let watching: string | null = null;
+  let unfollow: (() => void) | undefined;
   let hover: ReturnType<typeof setTimeout> | null = null;
 
   /// A project's runs, from the cache until they are read.
@@ -487,12 +490,18 @@ export function makeRuns(deps: RunDeps) {
     })).then(() => {}, error => console.warn("following workflow detail:", error));
   }
 
-  /// The visible section follows its opened run over the project's updates.
+  /// The visible section follows its opened run, and the runs, over the project's forge topic.
   function schedule(id: string) {
     if (watching === id) return;
     if (watching) watchDetail(watching, null);
     watching = id;
+    unfollow?.();
     if (of(id).openRun) watchDetail(id, of(id).openRun);
+    unfollow = subscribeChanges(topic("forge", id), { deliver: "each", receive: event => take(
+      id,
+      pushedView<RunsRow>(event.data, "center_project_runs", { projectId: id }),
+      run => pushedView<RunDetail>(event.data, "center_project_run", { projectId: id, runId: run.id, host: run.host ?? null }),
+    ) }, { wait: AMBIENT_MS });
   }
 
   function openDetail(id: string) {
@@ -539,7 +548,7 @@ export function makeRuns(deps: RunDeps) {
     stop: () => {
       if (hover) { clearTimeout(hover); hover = null; }
       if (watching) watchDetail(watching, null);
-      watching = null;
+      unfollow?.(); unfollow = undefined; watching = null;
     },
     section,
     /// The runs of project `id` and why they could not be read, reading

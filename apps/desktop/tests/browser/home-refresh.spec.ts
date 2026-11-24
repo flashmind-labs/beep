@@ -24,7 +24,7 @@ async function burst(page: Page, needs: unknown[] = []) {
   }
 }
 
-test("a burst of Home changes reads Home and draws the sidebar once", async ({ page }) => {
+test("a burst of Home changes draws the newest pushed Home and the sidebar once, with no read", async ({ page }) => {
   await openDesktop(page, false, { center_home: home(0) });
   await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
   await page.clock.install();
@@ -37,16 +37,15 @@ test("a burst of Home changes reads Home and draws the sidebar once", async ({ p
   await burst(page, [approval]);
   expect(await reads(page)).toBe(before);
   await page.clock.runFor(1000);
-  await expect.poll(() => reads(page)).toBe(before + 1);
   await expect(page.locator("#side")).toContainText("Home 1");
   await expect(page.locator("#sec-running .bd-lane > h4", { hasText: "Working" })).toHaveText("Working1");
   await page.clock.runFor(2000);
-  expect(await reads(page)).toBe(before + 1);
+  expect(await reads(page)).toBe(before);
   expect(await sidebarDraws(page)).toBe(1);
 
   // The same answer again draws nothing.
   await page.evaluate(() => window.__navigation.notify("home"));
   await page.clock.runFor(1200);
-  await expect.poll(() => reads(page)).toBe(before + 2);
+  expect(await reads(page)).toBe(before);
   expect(await sidebarDraws(page)).toBe(1);
 });

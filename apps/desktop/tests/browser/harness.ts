@@ -178,6 +178,13 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       reader.channel.onmessage(structuredClone(event));
     }
   };
+  /// The views each topic's push carries (fleet/event_views.rs).
+  const pushedViews: Record<string, string[]> = {
+    home: ["center_home", "agent_sessions"],
+    machines: ["list_machines", "mac_control", "agent_hosts", "device_hosts"],
+    projects: ["projects_on_top", "project_groups"],
+    sync: ["project_sync"], usage: ["usage_get"], accounts: ["agent_accounts"], forge: ["git_items"],
+  };
   const handlers = new Map<string, Set<NativeHandler>>();
   let pending: CenterTarget | ProjectTileTarget | null = null;
   let pendingReads = 0;
@@ -311,7 +318,9 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     calls: () => calls,
     respond(command, value) { answers[command] = value; },
     notify(topic, views) {
-      const event: MeshEvent = { machine_id: data.project.machine_id, topic: `${topic}.*`, revision: ++revision, initial: false, ...(views ? { data: { views } } : {}) };
+      // Native code always sends the views of a topic, as the commands answer now.
+      const sent = views ?? (pushedViews[topic] ?? []).filter(command => command in answers).map(command => ({ command, args: {}, value: structuredClone(answers[command]) }));
+      const event: MeshEvent = { machine_id: data.project.machine_id, topic: `${topic}.*`, revision: ++revision, initial: false, ...(sent.length ? { data: { views: sent } } : {}) };
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === event.topic)) reader.channel.onmessage(event);
     },
     publish(topic, at) {
