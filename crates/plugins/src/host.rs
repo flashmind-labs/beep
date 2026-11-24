@@ -544,6 +544,12 @@ impl Plan {
     }
 }
 
+/// What a plugin's last render put on the page.
+struct Shown {
+    placements: Vec<Placement>,
+    assets: Vec<Asset>,
+}
+
 /// Owns the running plugins. It is the only caller of the handler.
 struct Supervisor {
     dir: PathBuf,
@@ -551,8 +557,7 @@ struct Supervisor {
     events: Sender<Event>,
     running: HashMap<PluginId, Running>,
     plans: HashMap<PluginId, Plan>,
-    shown: BTreeMap<PluginId, Vec<Placement>>,
-    assets: BTreeMap<PluginId, Vec<Asset>>,
+    shown: BTreeMap<PluginId, Shown>,
     reloads: HashMap<PluginId, Instant>,
     published: Arc<Published>,
     wanted: BTreeMap<PluginId, Wanted>,
@@ -583,7 +588,6 @@ impl Supervisor {
             running: HashMap::new(),
             plans: HashMap::new(),
             shown: BTreeMap::new(),
-            assets: BTreeMap::new(),
             reloads: HashMap::new(),
             published,
             wanted: BTreeMap::new(),
@@ -739,8 +743,7 @@ impl Supervisor {
             return;
         }
 
-        self.shown.insert(id.clone(), placements);
-        self.assets.insert(id, assets);
+        self.shown.insert(id, Shown { placements, assets });
         self.publish();
     }
 
@@ -782,7 +785,6 @@ impl Supervisor {
 
     /// Drops what a plugin showed and followed.
     fn clear(&mut self, id: &PluginId) {
-        self.assets.remove(id);
         if self.shown.remove(id).is_some() {
             self.publish();
         }
@@ -1115,12 +1117,16 @@ impl Supervisor {
     }
 
     fn publish(&self) {
-        let all: Vec<Placement> = self.shown.values().flatten().cloned().collect();
+        let all: Vec<Placement> = self
+            .shown
+            .values()
+            .flat_map(|shown| shown.placements.iter().cloned())
+            .collect();
         // The page asks for an image as soon as it hears of a placement.
         *locked(&self.published.assets) = self
-            .assets
+            .shown
             .values()
-            .flatten()
+            .flat_map(|shown| &shown.assets)
             .map(|asset| (asset.hash().clone(), asset.clone()))
             .collect();
         {
