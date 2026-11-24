@@ -452,8 +452,8 @@ impl<F: Forge, W: World> Watcher<F, W> {
         }
     }
 
-    /// A call ended: its answer is applied here, and the file is written
-    /// once the last call of a batch is in.
+    /// A call ended: its answer is applied here and the file is written
+    /// when it changed. Another project's call can stay in flight for long.
     async fn applied(&mut self, done: Result<(Id, Called), JoinError>) {
         let called = match done {
             Ok((id, called)) => {
@@ -482,10 +482,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
         }
 
         self.resume(&project.name);
-
-        if self.calls.is_empty() {
-            self.save().await;
-        }
+        self.save().await;
     }
 
     fn checked(&mut self, project: &Project, at: Instant, answer: Result<Option<Answer>>) {

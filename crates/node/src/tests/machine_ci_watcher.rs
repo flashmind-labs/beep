@@ -120,6 +120,24 @@ impl Forge for Slow {
             self.active.fetch_sub(1, SeqCst);
         }
 
+        if at.repo == "fast/repo" {
+            return Ok(vec![WorkflowRun {
+                id: 1,
+                number: 1,
+                workflow: "build.yml".into(),
+                title: "Build".into(),
+                branch: "main".into(),
+                event: "push".into(),
+                actor: "someone".into(),
+                state: RunState::Running {},
+                url: String::new(),
+                started_at: None,
+                finished_at: None,
+                progress: None,
+                pull_requests: Vec::new(),
+            }]);
+        }
+
         Ok(Vec::new())
     }
 
@@ -192,4 +210,31 @@ async fn a_slow_host_holds_only_its_own_project() {
     assert!(watcher.calls.is_empty());
     assert_eq!(forge.slow_lists.load(SeqCst), 2, "the two asks became one");
     assert_eq!(forge.most.load(SeqCst), 1, "never two lists at once");
+}
+
+// A host that does not answer keeps a call in flight; what the other
+// projects' calls changed is saved all the same.
+#[tokio::test]
+async fn the_books_are_saved_while_another_projects_call_is_in_flight() {
+    let dir = TempDir::new().expect("a temp dir");
+    let file = dir.path().join("runs.json");
+    let mut watcher = Watcher::start(
+        Slow::default(),
+        Nobody,
+        Arc::new(Ci::default()),
+        file.clone(),
+    )
+    .await;
+    let slow = project("slow", "slow/repo");
+    let fast = project("fast", "fast/repo");
+    watcher.projects = vec![slow.clone(), fast.clone()];
+    watcher.held = ["slow".to_owned(), "fast".to_owned()].into();
+
+    watcher.begin(slow, Todo::List);
+    watcher.begin(fast, Todo::List);
+    let done = watcher.calls.join_next_with_id().await.expect("a call");
+    watcher.applied(done).await;
+
+    assert!(!watcher.calls.is_empty(), "the slow list is still in flight");
+    assert!(file.exists(), "the file holds the running run");
 }
