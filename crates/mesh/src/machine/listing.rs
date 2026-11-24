@@ -227,35 +227,38 @@ pub async fn project_history_rows<S: Sessions + ?Sized>(
 }
 
 /// `past`, a node's history rows, with the sessions Beep owns: a row of an owned session is
-/// replaced by the owned one, which knows its state now, and background children and
-/// reviewers are left out.
+/// replaced by the owned one of the same machine, which knows its state now, and background
+/// children and reviewers are left out.
 pub fn merge_owned(past: Vec<MachineSession>, owned: Vec<Linked>) -> Vec<MachineSession> {
+    // `owned` may hold several machines' sessions, and a moved session keeps its agent id.
+    let key = |session: &MachineSession| {
+        (
+            session.machine_id.clone(),
+            session.agent.clone(),
+            session.id.clone(),
+        )
+    };
     let children: HashSet<_> = owned
         .iter()
         .filter(|linked| {
             linked.parent.as_ref().is_some_and(|link| link.background) || linked.reviewer
         })
-        .map(|linked| (linked.session.agent.clone(), linked.session.id.clone()))
+        .map(|linked| key(&linked.session))
         .collect();
     let mut owned: HashMap<_, _> = owned
         .into_iter()
-        .map(|linked| {
-            let session = linked.session;
-            ((session.agent.clone(), session.id.clone()), session)
-        })
+        .map(|linked| (key(&linked.session), linked.session))
         .collect();
 
     past.into_iter()
-        .filter(|past| !children.contains(&(past.agent.clone(), past.id.clone())))
+        .filter(|past| !children.contains(&key(past)))
         .map(|past| {
             // A transcript names the session that took it over, but cannot say
             // whether its turn is working, idle, asking or ended now.
             if past.external {
                 past
             } else {
-                owned
-                    .remove(&(past.agent.clone(), past.id.clone()))
-                    .unwrap_or(past)
+                owned.remove(&key(&past)).unwrap_or(past)
             }
         })
         .collect()

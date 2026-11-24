@@ -316,3 +316,54 @@ async fn ended_conversations_are_what_no_longer_runs_in_the_conversations_folder
         "C:\\Users\\user\\.beep\\assistant"
     );
 }
+
+#[test]
+fn owned_rows_replace_only_their_own_machines_history() {
+    let past = |machine: &str, id: &str| {
+        let host = Host {
+            id: machine.into(),
+            name: machine.into(),
+        };
+        past_session(
+            &host,
+            ExternalSession {
+                id: id.into(),
+                agent: "codex".into(),
+                taken_over: Some(id.into()),
+                ..ExternalSession::default()
+            },
+        )
+    };
+    let linked = |machine: &str, id: &str, background: bool| {
+        let mut session = past(machine, id);
+        session.status = AgentStatus::Working {};
+        Linked {
+            session,
+            parent: background.then(|| ParentLink {
+                machine: None,
+                session: "parent".into(),
+                key: SessionId::default(),
+                root_machine: None,
+                root: "parent".into(),
+                depth: 1,
+                others: 0,
+                agent: "codex".into(),
+                mode: None,
+                background: true,
+            }),
+            reviewer: false,
+        }
+    };
+
+    let rows = merge_owned(
+        vec![past("machine-a", "moved"), past("machine-a", "kept")],
+        vec![
+            linked("machine-b", "moved", true),
+            linked("machine-b", "kept", false),
+        ],
+    );
+
+    // Machine B's rows of the same ids neither hide nor replace machine A's.
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row.machine_id == "machine-a"));
+}
