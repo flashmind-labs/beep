@@ -121,7 +121,7 @@ fn a_flooded_buffer_still_takes_a_legitimate_out_of_order_op() {
         mine.merge(&[stranger_op(a.public())]);
     }
 
-    mine.merge(&[op_c.clone()]);
+    mine.merge(std::slice::from_ref(&op_c));
     assert!(mine.pending.iter().any(|held| held.sig == op_c.sig));
     mine.merge(&[op_b]);
     assert!(mine.is_member(b.public()));
