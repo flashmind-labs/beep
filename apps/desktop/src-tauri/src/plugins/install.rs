@@ -204,9 +204,15 @@ pub(crate) enum UpdateCheck {
 }
 
 struct Stage {
-    folder: PathBuf,
     plugin: PathBuf,
     origin: Origin,
+}
+
+/// Removes the staging folder a staged plugin sits in.
+fn discard(plugin: &Path) {
+    if let Some(folder) = plugin.parent() {
+        let _ = std::fs::remove_dir_all(folder);
+    }
 }
 
 /// The installs waiting for the user's answer.
@@ -318,23 +324,15 @@ impl Installer {
             plugin,
             origin,
         } = fetched;
-        let folder = plugin.parent().map(Path::to_path_buf).unwrap_or_default();
-
         match host.preview_install(&plugin, &origin) {
             Ok(preview) => {
-                self.stages().insert(
-                    stage.clone(),
-                    Stage {
-                        folder,
-                        plugin,
-                        origin,
-                    },
-                );
+                self.stages()
+                    .insert(stage.clone(), Stage { plugin, origin });
 
                 Ok(Staged { stage, preview })
             }
             Err(error) => {
-                let _ = std::fs::remove_dir_all(&folder);
+                discard(&plugin);
 
                 Err(error.into())
             }
@@ -348,7 +346,7 @@ impl Installer {
             .remove(stage)
             .ok_or(PluginsError::UnknownStage)?;
         let installed = host.install(&staged.plugin, staged.origin);
-        let _ = std::fs::remove_dir_all(&staged.folder);
+        discard(&staged.plugin);
 
         Ok(installed?)
     }
@@ -356,7 +354,7 @@ impl Installer {
     /// Throws a staged plugin away.
     pub(crate) fn cancel(&self, stage: &StageId) {
         if let Some(staged) = self.stages().remove(stage) {
-            let _ = std::fs::remove_dir_all(&staged.folder);
+            discard(&staged.plugin);
         }
     }
 
