@@ -227,7 +227,7 @@ body.cbody
                     input [hidden multiple type="file"] value=""
                     div [data-agent-attachment-slot="true"] style(display)
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea#agmsg.cx-field [aria-busy="false" autocapitalize="off" autocomplete="off" autocorrect="off" data-prompt-stash placeholder="Message flsh" rows="1" spellcheck="false"] style(height) value="" (focused)
+                    textarea#agmsg.cx-field [autocapitalize="off" autocomplete="off" autocorrect="off" data-prompt-stash placeholder="Message flsh" rows="1" spellcheck="false"] style(height) value="" (focused)
                     span#agmode
                     span#agmodel
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"]
