@@ -261,6 +261,8 @@ impl Agents {
                         }
                         Err(error) => {
                             log::debug!("agent summary could not be reconciled: {error}");
+                            // Readers fall back to a direct read and see the error.
+                            sighted_tx.send_replace(None);
                             true
                         }
                     };

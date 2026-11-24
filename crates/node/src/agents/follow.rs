@@ -114,12 +114,10 @@ impl SummaryCache {
                     agents.external.list(512, None, agents.owned()),
                     agents.external.sightings()
                 );
-                let seen = seen.unwrap_or_else(|e| {
-                    log::warn!("Claude Code sessions not read: {e:#}");
-                    Vec::new()
-                });
 
-                listed.map(|listed| Some((listed, seen)))
+                // Either failing fails the read, so readers do not keep an
+                // older list of Claude's folders.
+                listed.and_then(|listed| Ok(Some((listed, seen?))))
             } else {
                 Ok(None)
             }
