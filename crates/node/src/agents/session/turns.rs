@@ -6,7 +6,7 @@ use super::{
 };
 use crate::agents::{
     acp::{self, Prompt},
-    compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd},
+    compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd, summary_note},
     image_files,
     live::{TurnFiles, TurnMade, TurnTokens, TurnWorktrees, cut},
     made_files, worktrees,
@@ -488,7 +488,7 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         result: Result<PromptResponse, agent_client_protocol::Error>,
     ) {
-        self.compactor.finished();
+        let reply = self.compactor.finished();
         let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
         self.live.send_modify(|live| live.spent(tokens));
         let entry = match result {
@@ -497,8 +497,12 @@ impl Actor {
                 if stop == StopReason::EndTurn {
                     self.restate();
                 }
-                (stop == StopReason::EndTurn)
-                    .then(|| (EntryKind::Compacted, COMPACTED_ENTRY.to_owned()))
+                let note = if reply.trim().is_empty() {
+                    COMPACTED_ENTRY.to_owned()
+                } else {
+                    summary_note(&reply)
+                };
+                (stop == StopReason::EndTurn).then_some((EntryKind::Compacted, note))
             }
             Err(e) => {
                 log::warn!("the agent did not compact: {e}");

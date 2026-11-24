@@ -1342,6 +1342,48 @@ async fn a_full_window_is_compacted_as_soon_as_its_turn_ends() {
     );
 }
 
+/// An adapter that answers the node's `/compact` as pi-acp does: one
+/// agent message with a header and the summary.
+const PI_COMPACTING_ADAPTER: &str = r#"
+handshake "$1"
+update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":%s}}\n' "$1"; }
+read -r line; log "$1"
+update '{"sessionUpdate":"available_commands_update","availableCommands":[{"name":"compact","description":"Compact"}]}'
+update '{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Buckets are ready."}}'
+update '{"sessionUpdate":"usage_update","used":85000,"size":100000}'
+reply '{"stopReason":"end_turn"}'
+read -r line; log "$1"
+update '{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Compaction completed.\nTokens before: 85000\n\n## Goal\nShip the buckets."}}'
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_compaction_summary_shows_as_the_compaction_not_the_last_reply() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let kind = script("codex", PI_COMPACTING_ADAPTER, &log);
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+    until(&session, |live| {
+        live.transcript(10)
+            .0
+            .iter()
+            .any(|entry| entry.kind == EntryKind::Compacted)
+            && live.status() == Status::Idle
+    })
+    .await;
+    assert_eq!(prompts(&log), ["go", COMPACT_PROMPT]);
+    let (entries, _) = watched::read(&session.live, |live| live.transcript(100));
+    let texts: Vec<_> = entries.iter().map(|entry| (entry.kind, entry.text.as_str())).collect();
+    assert!(texts.contains(&(EntryKind::Agent, "Buckets are ready.")), "{texts:?}");
+    assert!(
+        texts.contains(&(EntryKind::Compacted, "[conversation compacted]\n## Goal\nShip the buckets.")),
+        "{texts:?}"
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_default_model_uses_its_override_instead_of_the_harness_token_limit() {

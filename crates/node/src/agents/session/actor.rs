@@ -737,7 +737,7 @@ impl Actor {
 
                 if let SessionUpdate::AgentMessageChunk(chunk) = &update
                     && let ContentBlock::Text(text) = &chunk.content
-                    && self.is_banner(&text.text)
+                    && (self.is_banner(&text.text) || self.compactor.heard(&text.text))
                 {
                     return Ok(());
                 }

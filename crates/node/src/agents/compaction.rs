@@ -27,10 +27,16 @@ pub(super) const MAX_SUMMARY: usize = 128 * 1024;
 pub(super) const CLAUDE_CONTINUATION: &str =
     "This session is being continued from a previous conversation";
 
+/// pi-acp's first line before the summary it sends for `/compact`.
+const PI_COMPACTED: &str = "Compaction completed.";
+
 pub(super) fn summary_note(text: &str) -> String {
-    let summary = text
-        .split_once("\nSummary:\n")
-        .map_or(text, |(_, summary)| summary);
+    let summary = match text.split_once("\nSummary:\n") {
+        Some((_, summary)) => summary,
+        // pi-acp heads it with the tokens before, then a blank line.
+        None if text.starts_with(PI_COMPACTED) => text.split_once("\n\n").map_or("", |(_, s)| s),
+        None => text,
+    };
     format!(
         "{COMPACTED_ENTRY}\n{}",
         super::text::cut_str(summary.trim(), MAX_SUMMARY)
@@ -196,6 +202,8 @@ pub(super) struct Compactor {
     due: bool,
     /// The node's `/compact` is running.
     running: bool,
+    /// What the agent said while it ran: its summary.
+    reply: String,
     models: Vec<ModelCompact>,
     model: Option<ModelId>,
 }
@@ -214,6 +222,7 @@ impl Compactor {
             route,
             due: false,
             running: false,
+            reply: String::new(),
             models: Vec::new(),
             model: None,
         }
@@ -262,9 +271,21 @@ impl Compactor {
         true
     }
 
-    /// The node's `/compact` finished, however it went.
-    pub(super) fn finished(&mut self) {
+    /// Keeps agent text that answers the node's `/compact`, so it shows as
+    /// the compaction and not as part of the last reply. False when none
+    /// runs.
+    pub(super) fn heard(&mut self, text: &str) -> bool {
+        if self.running {
+            super::text::push_cut(&mut self.reply, text, MAX_SUMMARY);
+        }
+        self.running
+    }
+
+    /// The node's `/compact` finished, however it went. Returns what the
+    /// agent said meanwhile.
+    pub(super) fn finished(&mut self) -> String {
         self.running = false;
+        std::mem::take(&mut self.reply)
     }
 }
 
