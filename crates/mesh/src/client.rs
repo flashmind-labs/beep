@@ -50,6 +50,26 @@ struct CallTiming<'a> {
     outcome: &'static str,
     /// A read served from a subscription: logged only when slow.
     quiet: bool,
+    /// The connection the call ran on and its counters when the call began.
+    link: Option<(Connection, LinkCounts)>,
+}
+
+/// What a connection has sent so far.
+struct LinkCounts {
+    sent: u64,
+    lost: u64,
+    bytes: u64,
+}
+
+impl LinkCounts {
+    fn of(connection: &Connection) -> Self {
+        let stats = connection.stats();
+        Self {
+            sent: stats.sent_packets,
+            lost: stats.lost_packets,
+            bytes: stats.udp_tx.bytes,
+        }
+    }
 }
 
 fn next_call() -> u64 {
@@ -69,6 +89,7 @@ impl<'a> CallTiming<'a> {
             phase: "open",
             outcome: "cancelled",
             quiet: false,
+            link: None,
         };
         tracing::debug!(call = timing.id, protocol, ?peer, "peer call started");
         timing
@@ -86,7 +107,40 @@ impl<'a> CallTiming<'a> {
             phase: "snapshot",
             outcome: "cancelled",
             quiet: true,
+            link: None,
         }
+    }
+
+    /// Notes the connection the call runs on, so a slow call can say how it was.
+    fn on(&mut self, connection: &Connection) {
+        self.link = Some((connection.clone(), LinkCounts::of(connection)));
+    }
+
+    /// One line on the connection for a phase that took a second or more.
+    fn log_link(&self) {
+        let Some((connection, before)) = &self.link else {
+            return;
+        };
+        let paths = connection.paths();
+        let Some(path) = paths.iter().find(|path| path.is_selected()) else {
+            return;
+        };
+        let stats = path.stats();
+        let now = LinkCounts::of(connection);
+        tracing::info!(
+            call = self.id,
+            protocol = self.protocol,
+            phase = self.phase,
+            secs = self.phase_started.elapsed().as_secs_f64(),
+            path = if path.is_relay() { "relay" } else { "direct" },
+            paths = paths.len(),
+            rtt_ms = stats.rtt.as_millis(),
+            cwnd = stats.cwnd,
+            sent = now.sent.saturating_sub(before.sent),
+            lost = now.lost.saturating_sub(before.lost),
+            bytes = now.bytes.saturating_sub(before.bytes),
+            "slow peer call link"
+        );
     }
 }
 
@@ -101,6 +155,9 @@ impl Drop for CallTiming<'_> {
             tracing::info!(call = self.id, protocol = self.protocol, peer = ?self.peer,
                 phase = self.phase, outcome = self.outcome, elapsed_ms = elapsed.as_millis(),
                 phase_ms = self.phase_started.elapsed().as_millis(), "peer call ended");
+        }
+        if self.phase_started.elapsed() >= Duration::from_secs(1) {
+            self.log_link();
         }
         if elapsed >= Duration::from_secs(1) {
             tracing::warn!(
@@ -534,6 +591,9 @@ impl PeerClient {
         let mut timing = CallTiming::new(protocol, self.peer);
         let result = async {
             let channel = self.channel_for(protocol).await?;
+            if let Some(connection) = &channel {
+                timing.on(connection);
+            }
             let (mut tx, mut rx) = self.begin(protocol, channel.as_ref(), idle).await?;
             tx.set_idle_timeout(idle);
             rx.set_idle_timeout(idle);
