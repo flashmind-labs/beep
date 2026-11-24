@@ -137,7 +137,7 @@ test("the phone Agents list shows a session that starts while it is open", async
   const rows = page.locator("[data-agi]");
   await expect(rows).toHaveCount(2);
 
-  await page.evaluate(list => { window.__navigation.respond("agent_sessions", list); window.__navigation.emit("sessions-changed", null); }, sessions);
+  await page.evaluate(list => { window.__navigation.respond("agent_sessions", list); window.__navigation.notify("home", [{ command: "agent_sessions", value: list }]); }, sessions);
   await expect(rows).toHaveCount(sessions.length);
 });
 

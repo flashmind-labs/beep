@@ -63,9 +63,9 @@ subscribeEach(topic("home"), event => {
 let moves = moveStore.getState().records;
 moveStore.subscribe(state => { if (state.records !== moves) { moves = state.records; show(); } });
 
-// Events with no list in them: the sessions are read again, once a second at most.
+// A reconnect says a push may have been missed: the sessions are read again, once a second at most.
 const reread = ambient(() => loadSessions().catch(e => console.warn("sessions:", e)), AMBIENT_MS);
-for (const name of ["sessions-changed", "reconnected"]) listen(name, () => reread());
+listen("reconnected", () => reread());
 // A title saved comes with its value: the kept rows take it, and only a cleared title reads.
 listen<Retitled>("agent-title-changed", ({ payload }) => {
   const next = retitled(sessions, payload);

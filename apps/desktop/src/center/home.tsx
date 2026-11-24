@@ -17,7 +17,7 @@ import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { ensureAllTerms } from "../terminals/view.tsx";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { onPlaces } from "../agents/place.ts";
-import { ensureSessions, sessionsRead } from "../agents/sessions.ts";
+import { sessionsRead } from "../agents/sessions.ts";
 import type { SessionList, SessionRow } from "../project/projects-state.ts";
 import { ambient } from "../ui/active.ts";
 import { onMoves } from "../agents/move-store.ts";
@@ -139,7 +139,6 @@ let sessionsStale = true;
 export const homeSessions = () => projectSessions;
 const readSessions = ambient(() => {
   sessionsStale = false;
-  ensureSessions().catch(e => console.warn("sessions:", e));
   // Null until every machine answered once: the list comes as a `session-list` event.
   const pushes = listsPushed;
   // A list pushed while the read is out is newer than its answer.

@@ -189,7 +189,7 @@ function readList(): Promise<void> {
 /// Starts the machine updates once per webview, from its entry point.
 export function followToolUpdates() {
   // Opened before the machines connected: the page follows them as they come.
-  for (const name of ["home-changed", "reconnected"]) listen(name, () => { if (shown()) { void readList(); void loadToolUpdates(); } });
+  listen("reconnected", () => { if (shown()) { void readList(); void loadToolUpdates(); } });
   subscribeChanges(topic("machines"), { deliver: "latest", receive: () => readList() }, { when: shown, wait: AMBIENT_MS });
 }
 

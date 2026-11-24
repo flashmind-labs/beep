@@ -115,7 +115,7 @@ test("closed sessions appear in project history as soon as the machine reports e
 
   await page.evaluate(({ ended, project }) => {
     window.__navigation.respond("agent_sessions", [ended]);
-    window.__navigation.emit("sessions-changed", ended.id);
+    window.__navigation.notify("home", [{ command: "agent_sessions", value: [ended] }]);
     window.__navigation.emit("session-list", { list: { project }, sessions: [ended] });
   }, { ended: { ...session, status: "ended" }, project: projectName });
   await page.locator('.pj-list .pj-li[title="Sessions"]').click();

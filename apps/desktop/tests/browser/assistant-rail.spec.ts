@@ -277,7 +277,7 @@ test("chat and thread activity updates badges without reordering chats", async (
 
   await page.evaluate(rows => {
     window.__navigation.respond("agent_sessions", rows);
-    window.__navigation.emit("sessions-changed", null);
+    window.__navigation.notify("home", [{ command: "agent_sessions", value: rows }]);
   }, [other, { ...chat, last_activity: 25 }, research, asks]);
   await expect(link).toContainText("1");
   await expect(chats).toHaveText([/Write the post/, /Plan the launch.*1 thread working.*thread needs you/]);
