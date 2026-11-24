@@ -1,6 +1,8 @@
 use super::*;
 use beep_proto::watched;
 use serde_json::json;
+use std::time::Duration;
+use tokio::time::timeout;
 
 #[test]
 fn a_rate_limit_event_updates_its_windows_only() {
@@ -96,7 +98,10 @@ async fn every_follower_gets_every_finished_turn() {
 
     for follow in [&a, &b] {
         for tokens in [1, 2] {
-            assert_eq!(follow.next().await.tokens, tokens);
+            let turn = timeout(Duration::from_secs(10), follow.next())
+                .await
+                .expect("every follower gets the turn");
+            assert_eq!(turn.tokens, tokens);
             follow.sent();
         }
     }

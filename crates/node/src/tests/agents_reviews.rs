@@ -315,6 +315,9 @@ async fn a_wait_on_a_review_ends_when_the_review_does() {
         async move { crate::agents::mcp::review::waited(&agents, &who, run).await }
     });
 
+    // The wait is parked on the running review before it ends.
+    tokio::task::yield_now().await;
+    assert!(!wait.is_finished());
     rig.agents
         .submit_review(&run.id, found())
         .expect("the reviewer hands in");
