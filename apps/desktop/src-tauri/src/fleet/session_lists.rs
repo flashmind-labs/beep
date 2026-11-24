@@ -404,7 +404,6 @@ impl Lists {
                 holders,
             },
         );
-        self.keep_answers();
 
         (rows, moved)
     }
