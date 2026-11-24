@@ -72,7 +72,6 @@ export const liveMode = makeProjectLive({
   reload: (id, update) => {
     const lists = update.lists && update.view<ListsRow | null>("center_project_lists", { projectId: id });
     if (lists) thr.take(id, lists);
-    else if (update.lists) void thr.load(id);
 
     if (update.runs) runs.take(id, update.view<RunsRow>("center_project_runs", { projectId: id }),
       run => update.view<RunDetail>("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null }));

@@ -133,9 +133,13 @@ test("data held without a read keeps the read time, is not saved alone and survi
   assert.equal(cache.due("where", "q"), true);
   assert.deepEqual(Object.keys(cache.toFile()!.slots), ["where\np"], "what was never read is not saved");
 
-  // A file read later does not replace data held in this window.
-  cache.restore({ format: PAGE_CACHE_FORMAT, account: "a", slots: { "where\nq": { data: ["old"], at: c.now - 1000, used: c.now - 1000 } } }, "a");
-  assert.equal(cache.get("where", "q"), null);
+  // A file read later fills what was held without a read, but not what was read since.
+  cache.restore({ format: PAGE_CACHE_FORMAT, account: "a", slots: {
+    "where\nq": { data: ["old"], at: c.now - 1000, used: c.now - 1000 },
+    "where\np": { data: ["older"], at: at - 1000, used: at - 1000 },
+  } }, "a");
+  assert.deepEqual(cache.get("where", "q"), ["old"]);
+  assert.deepEqual(cache.get("where", "p"), ["amended"]);
 });
 
 test("a project's section, or a whole section, can be forgotten, and the ids come back", () => {

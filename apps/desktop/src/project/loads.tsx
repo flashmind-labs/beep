@@ -22,7 +22,7 @@ import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { localProjectId, projectRef } from "./localid.ts";
 import { machineTile } from "./board.ts";
-import { state, pages, keep, pageFresh, whereOf, sessionsOf, gitOf } from "../center/state.ts";
+import { state, pages, keep, pageFresh, whereOf, sessionsOf, peekSessions, gitOf } from "../center/state.ts";
 import { openUrl, refreshGit } from "../center/openitems.ts";
 import { currentLocation, go, windowAlone } from "../center/views.tsx";
 import { projectRows, importSheet, addProject, importFromPage, loadFound, drawRail, openProjects } from "../center/sidebar.tsx";
@@ -496,7 +496,7 @@ listen<Retitled>("agent-title-changed", ({ payload }) => {
   }
 
   for (const name of pages.ids("sessions")) {
-    const next = retitled(sessionsOf(name) ?? [], payload);
+    const next = retitled(peekSessions(name) ?? [], payload);
     if (next) showSessions(name, next, true);
   }
 });

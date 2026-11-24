@@ -168,7 +168,7 @@ export class PageCache {
     for (const [key, slot] of Object.entries(f.slots)) {
       if (!knownKey(key) || !isSlot(slot) || now - slot.at >= MAX_AGE_MS) continue;
       const had = this.slots.get(key);
-      if (!had || (had.at !== null && had.at < slot.at)) this.slots.set(key, slot);
+      if (!had || had.at === null || had.at < slot.at) this.slots.set(key, slot);
     }
   }
 
