@@ -469,11 +469,8 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
     match name {
         "home" => {
             let reads = app.state::<crate::center::home::HomeReads>();
-            let (home, sessions, moves) = tokio::join!(
-                reads.read(app),
-                reads.sessions(app),
-                crate::agents::moving::session_moves(app.state())
-            );
+            let (home, sessions, moves) =
+                tokio::join!(reads.read(app), reads.sessions(app), reads.moves(app));
             append(&mut views, "center_home", home);
             append(&mut views, "agent_sessions", sessions);
             append(&mut views, "session_moves", moves);

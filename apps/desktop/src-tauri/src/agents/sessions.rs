@@ -16,6 +16,7 @@ use crate::{
         Fleet, Machines, SessionParent, agents as direct,
         asked::{ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT},
         node_actor::{FAST_JOB_WAIT, JobKind},
+        projects::{FleetState, desk},
         session_lists::SessionLists,
         session_mirror::{Link, Rows, SessionMirror, showing},
     },
@@ -24,6 +25,7 @@ use crate::{
 use beep_node::agents::tags::own_words;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{LineChanges, Persona};
+use beep_proto::node::mesh_state::SessionMove;
 use beep_proto::{
     AccountName, AgentEntry, AgentEntryKind, AgentMode, AgentModels, AgentPlanStep, AgentQuestion,
     AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentTask, AgentToolCall, ApiError,
@@ -745,10 +747,6 @@ pub async fn agent_tasks(
     Ok(tasks.map(|tasks| tasks.tasks).unwrap_or_default())
 }
 
-#[cfg(test)]
-#[path = "../tests/agents_sessions.rs"]
-mod tests;
-
 /// Moves a closed conversation to a project folder on its current machine.
 #[tauri::command]
 pub async fn agent_relocate(
@@ -781,3 +779,44 @@ pub async fn agent_relocate(
     crate::fleet::home_signal::poke(&app);
     Ok(())
 }
+
+/// A move record as the window shows it.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct MoveView {
+    /// The agent's own id for the session.
+    pub session: SessionId,
+    pub agent: String,
+    /// The machine that ran it, and the one that takes it over.
+    pub from: String,
+    pub to: String,
+    pub project: String,
+    /// Milliseconds since the Unix epoch.
+    pub at: u64,
+}
+
+impl From<SessionMove> for MoveView {
+    fn from(record: SessionMove) -> Self {
+        Self {
+            session: record.id,
+            agent: record.agent.to_string(),
+            from: record.from.to_string(),
+            to: record.to.to_string(),
+            project: record.project,
+            at: record.at,
+        }
+    }
+}
+
+/// The moves in the mesh: the latest record of each session.
+pub(crate) async fn moves(fleet: FleetState<'_>) -> Result<Vec<MoveView>> {
+    Ok(desk(&fleet)
+        .await?
+        .moves()
+        .into_iter()
+        .map(Into::into)
+        .collect())
+}
+
+#[cfg(test)]
+#[path = "../tests/agents_sessions.rs"]
+mod tests;

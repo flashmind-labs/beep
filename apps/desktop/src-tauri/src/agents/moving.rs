@@ -2,6 +2,7 @@
 //! mesh's move record, takes it back, lists the records and asks the target
 //! how the move goes. `move-state.ts` shows the answers.
 
+use super::sessions::{MoveView, moves};
 use crate::{
     error::{DesktopError, Result},
     fleet::{
@@ -20,33 +21,6 @@ use beep_proto::{
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-
-/// A move record as the window shows it.
-#[derive(Debug, Serialize, PartialEq)]
-pub struct MoveView {
-    /// The agent's own id for the session.
-    pub session: SessionId,
-    pub agent: String,
-    /// The machine that ran it, and the one that takes it over.
-    pub from: String,
-    pub to: String,
-    pub project: String,
-    /// Milliseconds since the Unix epoch.
-    pub at: u64,
-}
-
-impl From<SessionMove> for MoveView {
-    fn from(record: SessionMove) -> Self {
-        Self {
-            session: record.id,
-            agent: record.agent.to_string(),
-            from: record.from.to_string(),
-            to: record.to.to_string(),
-            project: record.project,
-            at: record.at,
-        }
-    }
-}
 
 /// How the target says a move stands.
 #[derive(Debug, Serialize, PartialEq)]
@@ -216,12 +190,7 @@ pub async fn session_move_cancel(fleet: FleetState<'_>, session: SessionId) -> R
 /// The moves in the mesh: the latest record of each session.
 #[tauri::command]
 pub async fn session_moves(fleet: FleetState<'_>) -> Result<Vec<MoveView>> {
-    Ok(desk(&fleet)
-        .await?
-        .moves()
-        .into_iter()
-        .map(Into::into)
-        .collect())
+    moves(fleet).await
 }
 
 /// How the move of `session` stands, as its target says.

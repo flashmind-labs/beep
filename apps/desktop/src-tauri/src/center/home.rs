@@ -5,7 +5,7 @@
 use super::view_cache::{View, ViewCache, cache_view};
 use crate::chat::markdown::inline_html;
 use crate::{
-    agents::sessions::{SessionRow, agent_sessions, overlaid},
+    agents::sessions::{MoveView, SessionRow, agent_sessions, moves, overlaid},
     beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
@@ -199,6 +199,11 @@ impl HomeReads {
     /// reaches the session code only through Home, which already imports it.
     pub(crate) async fn sessions(&self, app: &AppHandle) -> Result<Vec<SessionRow>> {
         agent_sessions(app.clone(), app.state()).await
+    }
+
+    /// The moves in the mesh, pushed beside the sessions.
+    pub(crate) async fn moves(&self, app: &AppHandle) -> Result<Vec<MoveView>> {
+        moves(app.state()).await
     }
 
     /// Home, from the read under way or a new one.
