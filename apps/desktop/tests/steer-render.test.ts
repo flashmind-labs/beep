@@ -2,7 +2,7 @@ import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
-import { AG, type AgentModes, type AgentPage, type AgentTask } from "../src/agents/agents.ts";
+import { AG, type AgentModes, type AgentPage, type AgentTask, type OpenAgent } from "../src/agents/agents.ts";
 import { drawAgentBody } from "../src/agents/logview.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { answerAgentQuestion, answerFirst, questionKey, disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
@@ -46,8 +46,13 @@ function setup() {
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 
-const setTasks = (tasks: AgentTask[]) => transcripts.setTasks(transcriptKey(AG.open!), tasks);
-const setModes = (modes: AgentModes | null) => transcripts.setModes(transcriptKey(AG.open!), modes);
+function opened(): OpenAgent {
+  assert.ok(AG.open);
+  return AG.open;
+}
+
+const setTasks = (tasks: AgentTask[]) => transcripts.setTasks(transcriptKey(opened()), tasks);
+const setModes = (modes: AgentModes | null) => transcripts.setModes(transcriptKey(opened()), modes);
 
 test("agent prompt keeps context before the user and retains its element", t => {
   const { page } = setup();
@@ -451,7 +456,7 @@ test("plan approval shortcuts validate the displayed question", t => {
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
   const first = { id: 4, text: "Approve plan?", detail: null, options: [{ id: "allow", name: "Allow", allow: true }] };
   page.session.question = first;
-  showAgentControl("plan", createElement(AgentPlan, { harness: "Agent", plan: "Plan", question: first, approvalKey: questionKey(first, AG.open!), answering: null }));
+  showAgentControl("plan", createElement(AgentPlan, { harness: "Agent", plan: "Plan", question: first, approvalKey: questionKey(first, opened()), answering: null }));
   page.session.question = { ...first, id: 5 };
   assert.equal(answerFirst(true), true);
   assert.equal(calls.filter(call => call.cmd === "center_answer_agent").length, 0);
