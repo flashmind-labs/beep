@@ -154,11 +154,9 @@ pub async fn follow(app: AppHandle) {
             machine: None,
             topic: beep_proto::node::events::Topic::new("agents"),
         }])
-        .inspect_err(|error| log::warn!("the tray cannot follow the sessions: {error}"))
-        .map(|standing| {
-            events.start(app.clone(), fleet.clone());
-            standing
-        });
+        .inspect_err(|error| log::warn!("the tray cannot follow the sessions: {error}"));
+    #[cfg(desktop)]
+    events.start(app.clone(), fleet.clone());
 
     loop {
         let sessions = overlaid(&app, &fleet, &mirror.current());
