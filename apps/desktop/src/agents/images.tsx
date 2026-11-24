@@ -3,7 +3,7 @@ import type { Attached } from "./agentqueue.ts";
 import { AGENT_IMAGE_BYTES, AGENT_IMAGES_BYTES, fileBase64, picPreview } from "../chat/attach.tsx";
 import { S } from "../bar/core.ts";
 import { GONE } from "../chat/media.tsx";
-import { MN } from "./workdrop.ts";
+import { MN, setAttachError } from "./workdrop.ts";
 import { AgentAttachments } from "./attachments-view.tsx";
 import { showAgentAttachments } from "./composer-ui.tsx";
 import { type OpenAgent, AG, AGENT_MAX_IMAGES, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
@@ -29,10 +29,10 @@ function agentImageName(f: File, list: Attached[]) {
 }
 
 export function agentAttachError(text: string) {
-  AG.attError = text;
+  setAttachError(text);
   drawAgentAttached();
   clearTimeout(AG.attTimer);
-  AG.attTimer = setTimeout(() => { AG.attError = ""; drawAgentAttached(); }, 5000);
+  AG.attTimer = setTimeout(() => { setAttachError(""); drawAgentAttached(); }, 5000);
 }
 
 const attachmentWork = new WeakMap<Attached[], Promise<void>>();

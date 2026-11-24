@@ -9,7 +9,7 @@ import { disposeQueue } from "./messages.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { joinRuns, viewRead } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
-import { applyAgentPage, heldPage, isOpen, pollAgent } from "./session.tsx";
+import { applyAgentPage, heldPage, isOpen, pollAgent, setReadNote } from "./session.tsx";
 import { paneShown } from "../ui/active.ts";
 import { publishTurn } from "../plugins/plugins-state.ts";
 
@@ -77,7 +77,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     console.warn("session stream disconnected:", error);
     const failed = readFailed(AG.link, { kind: "lost" }, AG.page?.session.machine_name || "the machine");
     AG.link = failed.link;
-    AG.readError = AG.note = failed.note;
+    setReadNote(failed.note);
     drawAgentBody();
     void pollAgent();
   },

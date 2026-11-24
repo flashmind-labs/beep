@@ -10,11 +10,11 @@ import { NEW_THREAD } from "./threads-state.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
-import { MN, currentMentions, mentionImages, mentionsOf, setMentionImages, type MentionState } from "./workdrop.ts";
+import { MN, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue, showUploadPending } from "./composer-ui.tsx";
 import { type AgentQuestion, type AgentRow, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
-import { openAgent, isOpen, resumeAgent, turnRuns } from "./session.tsx";
+import { openAgent, isOpen, resumeAgent, setNote, turnRuns } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";
 import { drawAgentAttached, fitAttachedImages, keepSentImages, keepAgentPics } from "./images.tsx";
 import { drawAgentBody } from "./logview.tsx";
@@ -56,7 +56,7 @@ function takeMessage(input: HTMLTextAreaElement | null, uploading = false, reser
   for (const path of paths) MN.files.delete(path);
   MN.redraw();
   if (input) input.value = "";
-  if (images.length) { AG.att = AG.att.filter(image => !images.includes(image)); drawAgentAttached(); }
+  if (images.length) { setAttached(AG.att.filter(image => !images.includes(image))); drawAgentAttached(); }
   return { typed, text, paths, images, files, state: null, after: 0 };
 }
 
@@ -129,7 +129,7 @@ function backInField(q: Draft, sep = "\n") {
   if (input && q.typed) input.value = input.value ? `${q.typed}${sep}${input.value}` : q.typed;
   MN.paths = [...q.paths, ...MN.paths.filter(p => !q.paths.includes(p))];
   for (const { path, file } of q.files ?? []) MN.files.set(path, file);
-  AG.att = [...q.images, ...AG.att];
+  setAttached([...q.images, ...AG.att]);
   drawAgentAttached();
   input?.focus();
 }
@@ -137,7 +137,7 @@ function backInField(q: Draft, sep = "\n") {
 function restoreDraft(draft: Draft, state: MentionState, session: OpenAgent | null) {
   const target = session ? { ...session, id: session.session } : null;
   if ((!target || sameSession(AG.open, target)) && currentMentions() === state && S.view === "agent" && agentMessage.current?.isConnected) {
-    AG.attError = state.error;
+    setAttachError(state.error);
     backInField(draft);
     return;
   }
@@ -293,7 +293,7 @@ export async function stopAllWork(target: Pick<AgentRow, "machine_id" | "agent" 
 
     if (showing()) {
       if (failed && AG.stopping === stopping) AG.stopping = null;
-      AG.note = failed?.message ?? "";
+      setNote(failed?.message ?? "");
     } else if (failed) {
       throw new Error(failed.message);
     }
@@ -353,7 +353,7 @@ export async function answerAgentQuestion(i: number, shown: string) {
     // A conflict means it was answered already, so it stays answered.
     const conflict = conflicted(failed.error);
     if (!conflict && AG.answering === q.id) AG.answering = null;
-    if (isOpen(o)) AG.note = conflict ? "" : String(failed.error);
+    if (isOpen(o)) setNote(conflict ? "" : String(failed.error));
   }
 
   if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
@@ -376,7 +376,7 @@ export async function steerAgent(steer: Steer) {
   const o = AG.open;
   if (!o || AG.page?.session.external) return false;
   const failed = await sendOnce(o, steer, null);
-  if (isOpen(o)) { AG.note = failed?.message ?? ""; drawAgentBody(); resumeAgent(); }
+  if (isOpen(o)) { setNote(failed?.message ?? ""); drawAgentBody(); resumeAgent(); }
   return !failed;
 }
 
@@ -396,7 +396,7 @@ async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen:
   const sent = !failed ? "sent" : failed.kind === "waiting" || failed.kind === "timeout" ? "waiting" : "failed";
 
   if (isOpen(o)) {
-    AG.note = failed && sent === "failed" ? failed.message : "";
+    setNote(failed && sent === "failed" ? failed.message : "");
     if (sent === "waiting") void readOutbox(o);
     drawAgentBody();
     resumeAgent();
@@ -434,7 +434,7 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   if (!draft) input.value = "";
 
   if (images.length) {
-    if (!draft) AG.att = [];
+    if (!draft) setAttached([]);
     drawAgentAttached();
     keepAgentPics(o, images);
   }
@@ -539,7 +539,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
   const o = AG.open!;
   if (!draft) input.value = "";
   input.disabled = true;
-  AG.note = "";
+  setNote("");
   if (!images.length) AG.page!.entries.push({ kind: "user", text });
   drawAgentBody();
 
@@ -557,7 +557,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
     if (!images.length) AG.page!.entries.pop();
     input.disabled = false;
     backInField(draft ?? { typed: text, paths: [], images });
-    AG.note = sendError(e).message.replace(/^error:\s*/i, "");
+    setNote(sendError(e).message.replace(/^error:\s*/i, ""));
     drawAgentBody();
     return false;
   }
@@ -611,7 +611,7 @@ async function takeOutbox(id: number): Promise<Draft | null> {
   try {
     return draftOf(await invoke<Taken>("outbox_take", { id }));
   } catch (e) {
-    AG.note = String(e);
+    setNote(String(e));
     drawAgentBody();
     return null;
   }

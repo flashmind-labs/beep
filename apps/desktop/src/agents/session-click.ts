@@ -18,7 +18,7 @@ import { invoke } from "../ui/tauri.ts";
 import { readError } from "../agentpane/read.ts";
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { nativeSession } from "./native-session-state.ts";
-import { isOpen, openAgent, resumeAgent } from "./session.tsx";
+import { isOpen, openAgent, resumeAgent, setNote } from "./session.tsx";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 
 /// A chat on the Assistant page without a pane beside it opens its files over
@@ -168,7 +168,7 @@ export function agentClick(e: MouseEvent) {
     const o = AG.open;
     if (!o || !pic.getAttribute("src")) return;
     const name = (link ? link.textContent : null) || pic.dataset.name || pic.alt;
-    const unread = () => { AG.note = "Could not read the whole picture."; drawAgentBody(); };
+    const unread = () => { setNote("Could not read the whole picture."); drawAgentBody(); };
 
     if (!pic.closest(".dcoderen.user")) {
       fullPic(o, pic).then(url => { if (isOpen(o)) url ? openPicture(url, name) : unread(); }).catch(() => { if (isOpen(o)) unread(); });
@@ -225,7 +225,7 @@ async function kidSession(id: string, key?: string) {
   if (row) return row;
   try { await loadSessions(); } catch { /* the note says it */ }
   const found = childRow(sessions, id, key);
-  if (!found) { AG.note = "That agent's session is no longer on its machine."; drawAgentBody(); }
+  if (!found) { setNote("That agent's session is no longer on its machine."); drawAgentBody(); }
   return found;
 }
 
@@ -243,7 +243,7 @@ async function stopKid(x: HTMLElement) {
   try {
     await invoke("agent_steer", { ...where(openOf(row)), steer: "cancel" });
   } catch (e) {
-    AG.note = readError(e);
+    setNote(readError(e));
     drawAgentBody();
   }
 }

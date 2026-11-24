@@ -8,7 +8,7 @@ import { paneSession } from "../agentpane/media.ts";
 import { Icon } from "../ui/icons.tsx";
 import { AG, folderName } from "./agents.ts";
 import { drawAgentAttached, previewsOf } from "./images.tsx";
-import { answerUpload, MN, removeMention } from "./workdrop.ts";
+import { answerUpload, MN, removeAttached, removeMention } from "./workdrop.ts";
 
 /// " · 4.2 MB/s" after a slow transfer's percentage, or nothing.
 export const speedNote = (transfer: Transfer) => {
@@ -18,7 +18,7 @@ export const speedNote = (transfer: Transfer) => {
 
 /// Takes image `i` off the message, with the file it is a preview of.
 function removeImage(i: number) {
-  const [image] = AG.att.splice(i, 1);
+  const image = removeAttached(i);
   if (typeof image.original === "string") removeMention(MN.paths.indexOf(image.original));
   drawAgentAttached();
   agentMessage.current?.focus();

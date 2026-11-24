@@ -7,7 +7,7 @@ import { isNativeSession } from "./native-session-state.ts";
 import { modelId } from "./agentpick.ts";
 import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
 import { type AgentRow, AG, agentKind, canTakeOver } from "./agents.ts";
-import { SWITCHES, sessionPicks } from "./session.tsx";
+import { SWITCHES, sessionPicks, setNote } from "./session.tsx";
 import { drawAgentBody } from "./logview.tsx";
 import { resendPrompt, steerAgent } from "./messages.ts";
 import { perfLayer, perfOpen } from "../ui/perf.ts";
@@ -139,7 +139,7 @@ export async function switchSessionModel(s: AgentRow, next: SessionPick, what: "
       else sessionPicks.delete(s.id);
     }
   } else if (what === "effort" ? was.effort : was.model) {
-    AG.note = `A running session cannot go back to Default; pick ${what === "effort" ? "a level" : "a model"} by name.`;
+    setNote(`A running session cannot go back to Default; pick ${what === "effort" ? "a level" : "a model"} by name.`);
     drawAgentBody();
   }
 

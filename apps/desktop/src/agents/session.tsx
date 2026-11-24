@@ -17,7 +17,7 @@ import { showFailure } from "../ui/failbanner-view.tsx";
 import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
-import { MN, activateMentions, currentMentions, rememberMentionImages } from "./workdrop.ts";
+import { MN, activateMentions, currentMentions, rememberMentionImages, setAttachError } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, drawAgents, sessionUsage, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
 import { agentAttachError, drawAgentAttached } from "./images.tsx";
 import { removeLastAttachment } from "./attachments-view.tsx";
@@ -137,11 +137,12 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     open,
     page: withFirstMessage(held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0, usage: null }),
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
-    attError: "", opened: new Set(), steps: new Map(), all: new Set(),
+    opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey(open)) ?? [],
     outbox: [], stopping: null, modelOpen: false,
     older: { stop: "", reading: null },
   });
+  setAttachError("");
   firstRead = { open, at: performance.now() };
   drawAgentFrame(inPlace, followLatest(held && log && held.earlier <= log.page.earlier ? log.body : null));
   watchRead(open);
@@ -325,7 +326,7 @@ export async function pollAgent(readNow = false) {
       // came back without has ended, and no turn runs on.
       const failed = readFailed(AG.link, e, AG.page?.session.machine_name || "the machine");
       AG.link = failed.link;
-      AG.readError = AG.note = failed.note;
+      setReadNote(failed.note);
       if (failed.link.ended && AG.page) AG.page = endedPage(AG.page);
       drawAgentBody();
       finishFirstRead(o, "error");
@@ -428,6 +429,12 @@ export function forgetLog(s: { machine_id: string; id: string }) {
   disposeLogShell(log.body);
 }
 
+/// The note under the log: the one place that sets `AG.note`.
+export function setNote(text: string) { AG.note = text; }
+
+/// What a failed read said, which the note repeats until a read succeeds.
+export function setReadNote(text: string) { AG.readError = AG.note = text; }
+
 export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 
 /// A `pushed` update always holds something new; a polled one is compared
@@ -461,7 +468,7 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
   if (placed) drawAgentFrame(false, sessionBody());
   else if (field && $("#agconv")) drawAgentFrame(true, sessionBody());
   // Back after a lost link, or something new came: earlier errors no longer hold.
-  AG.note = noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news });
+  setNote(noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news }));
   AG.readError = "";
   AG.link = LINKED;
   AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
@@ -661,7 +668,7 @@ export async function closeAgentSession(s: AgentRow) {
     await closing;
   } catch (e) {
     if (open && isOpen(open) && paneShown()) {
-      AG.note = readError(e);
+      setNote(readError(e));
       drawAgentBody();
     } else {
       showFailure(`Could not close session: ${readError(e)}`);
@@ -677,7 +684,7 @@ async function retryStart() {
   try {
     await invoke("agent_begin_retry", { session: o.session });
   } catch (e) {
-    if (isOpen(o)) AG.note = readError(e);
+    if (isOpen(o)) setNote(readError(e));
   }
 
   if (isOpen(o)) void pollAgent(true);

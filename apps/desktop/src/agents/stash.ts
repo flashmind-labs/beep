@@ -5,7 +5,7 @@ import { windowHooks } from "../bar/core.ts";
 import { AG } from "./agents.ts";
 import type { Attached } from "./agentqueue.ts";
 import { attachPreview, drawAgentAttached } from "./images.tsx";
-import { MN, prepareStashFiles } from "./workdrop.ts";
+import { MN, prepareStashFiles, setAttached } from "./workdrop.ts";
 
 export function bindSessionStash(field: HTMLTextAreaElement) {
   const open = AG.open;
@@ -22,7 +22,7 @@ export function bindSessionStash(field: HTMLTextAreaElement) {
       };
     },
     clear: () => {
-      field.value = ""; AG.att = []; MN.paths = []; MN.files.clear();
+      field.value = ""; setAttached([]); MN.paths = []; MN.files.clear();
       drawAgentAttached();
     },
     prepare: async message => {
@@ -33,7 +33,7 @@ export function bindSessionStash(field: HTMLTextAreaElement) {
 
       return () => {
         field.value = message.text;
-        AG.att = images;
+        setAttached(images);
         MN.paths = [...message.paths, ...files.keys()];
         MN.files = files;
         drawAgentAttached();

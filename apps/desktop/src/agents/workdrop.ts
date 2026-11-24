@@ -59,8 +59,17 @@ export const currentMentions = () => current;
 export const mentionImages = (state: MentionState) => state === current ? AG.att : state.images;
 export function setMentionImages(state: MentionState, images: Attached[]) {
   state.images = images;
-  if (state === current) AG.att = images;
+  if (state === current) setAttached(images);
 }
+
+/// Replaces the images attached to the open conversation's message: the one place `AG.att` is set.
+export function setAttached(images: Attached[]) { AG.att = images; }
+
+/// Takes image `i` off the open message, in place.
+export function removeAttached(i: number) { return AG.att.splice(i, 1)[0]; }
+
+/// What went wrong attaching, under the field: the one place `AG.attError` is set.
+export function setAttachError(text: string) { AG.attError = text; }
 export function rememberMentionImages() { current.images = AG.att; }
 
 export function mentionsOf(session: { machine_id: string; agent: string; id: string }) {
@@ -72,10 +81,10 @@ export function mentionsOf(session: { machine_id: string; agent: string; id: str
 
 export function activateMentions(session: { machine_id: string; agent: string; id: string }) {
   const state = mentionsOf(session);
-  if (state === current) { AG.attError = state.error; return; }
+  if (state === current) { setAttachError(state.error); return; }
   current = state;
-  AG.att = state.images;
-  AG.attError = state.error;
+  setAttached(state.images);
+  setAttachError(state.error);
 }
 
 export const MN = {
