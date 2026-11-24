@@ -187,9 +187,8 @@ async function attachFiles(files: File[], preview: boolean, batch: UploadBatch, 
     } finally {
       state.reading--;
       batch.done += f.size;
+      redrawUploads(state);
     }
-
-    redrawUploads(state);
   }
 }
 

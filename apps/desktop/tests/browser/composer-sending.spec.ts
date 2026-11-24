@@ -19,51 +19,94 @@ const calls = (page: Page, command: string) => page.evaluate(name => window.__na
 const picker = (page: Page) => page.locator('#agfield input[type="file"]');
 const rows = (page: Page) => page.locator(".ag-queue .it.steer");
 
-test("a message with an upload in progress shows at once and the field stays usable", async ({ page }) => {
+const where = { machine_id: "build-box", agent: "codex", session: "send-one" };
+const notes = { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("notes") };
+
+/// Stands in for the app's outbox: a message with files is kept as a row that
+/// says "uploading", and `agent_steer` answers "waiting" at once, as the app does.
+async function keepFilesInOutbox(page: Page) {
+  await page.evaluate(where => {
+    type Row = { id: number; how: string; text: string; images: string[]; state: string; reason: string | null };
+    const invoke = window.__TAURI__.core.invoke;
+    let rows: Row[] = [], next = 0;
+    const asked: { args: unknown }[] = [];
+    Object.assign(window, { __asked: asked });
+    const changed = () => window.__navigation.emit("outbox-changed", { ...where, rows, sent: [] });
+    Object.assign(window, { __rows: { set(update: (rows: Row[]) => Row[]) { rows = update(rows); changed(); } } });
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const steer = args?.steer as { steer?: { text: string } } | undefined;
+
+      if (command === "agent_steer" && args?.attach && steer?.steer) {
+        asked.push({ args });
+        rows = [...rows, { id: next++, how: "steer", text: steer.steer.text, images: [], state: "uploading", reason: null }];
+        changed();
+        throw { kind: "waiting", message: "Waiting for the connection" };
+      }
+
+      if (command === "outbox_list") return rows as T;
+
+      if (command === "outbox_take") {
+        const taken = rows.find(row => row.id === args?.id);
+        rows = rows.filter(row => row !== taken);
+        changed();
+        return { text: taken?.text ?? "", images: [], files: [{ name: "notes.txt", mime: "text/plain", data: "bm90ZXM=" }], mentions: [] } as T;
+      }
+
+      return invoke<T>(command, args);
+    };
+  }, where);
+}
+
+declare global { interface Window { __rows: { set(update: (rows: { id: number; how: string; text: string; images: string[]; state: string; reason: string | null }[]) => { id: number; how: string; text: string; images: string[]; state: string; reason: string | null }[]): void } } }
+
+test("a message with files shows at once as uploading and the field stays usable", async ({ page }) => {
   await open(page);
-  await page.evaluate(() => window.__navigation.hold("agent_tree_upload"));
-  await picker(page).setInputFiles([{ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("notes") }]);
+  await keepFilesInOutbox(page);
+  await picker(page).setInputFiles([notes]);
+  await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
   await page.locator("#agmsg").fill("Read the notes");
   await page.locator("#agmsg").press("Enter");
 
-  await expect(rows(page)).toHaveCount(1);
-  await expect(rows(page).first()).toContainText("Read the notes");
-  await expect(rows(page).first()).toContainText("uploading");
-  await expect(rows(page).first().locator(".dspin")).toBeVisible();
+  const out = page.locator(".ag-queue .it.out");
+  await expect(out).toHaveCount(1);
+  await expect(out.first()).toContainText("Read the notes");
+  await expect(out.first()).toContainText("uploading");
+  await expect(out.first().locator(".dspin")).toBeVisible();
+  await expect(out.first().locator('[data-act="edit"]')).toBeDisabled();
   await expect(page.locator("#agmsg")).toHaveValue("");
   await expect(page.locator("#agmsg")).toBeEditable();
   await expect(page.locator("#agsend")).toBeEnabled();
-  expect(await calls(page, "agent_steer")).toEqual([]);
 
-  // A follow-up typed meanwhile goes behind the first.
-  await page.locator("#agmsg").fill("Then this");
-  await page.locator("#agmsg").press("Enter");
-  await expect(rows(page)).toHaveCount(2);
-  await expect(rows(page).nth(1)).toContainText("waiting");
-  expect(await calls(page, "agent_steer")).toEqual([]);
+  // The window hands over the files with the words, and uploads nothing itself.
+  const sent = await page.evaluate(() => (window as unknown as { __asked: { args: unknown }[] }).__asked);
+  expect(sent).toHaveLength(1);
+  expect(sent[0].args).toMatchObject({ steer: { steer: { text: "Read the notes" } }, attach: { files: [{ name: "notes.txt", mime: "text/plain", data: "bm90ZXM=" }], mentions: [] } });
+  expect(await calls(page, "agent_tree_upload")).toEqual([]);
 
-  await page.evaluate(() => window.__navigation.release("agent_tree_upload"));
-  await expect.poll(async () => (await calls(page, "agent_steer")).length).toBe(2);
-  const sent = (await calls(page, "agent_steer")).map(call => JSON.stringify(call.args.steer));
-  expect(sent[0]).toContain("Read the notes");
-  expect(sent[0]).toContain(uploaded);
-  expect(sent[1]).toContain("Then this");
-  await expect(rows(page)).toHaveCount(0);
+  // The outbox moves it on: its row says sending, then it is gone.
+  await page.evaluate(() => window.__rows.set(rows => rows.map(row => ({ ...row, state: "sending" }))));
+  await expect(out.first()).toContainText("sending");
+  await page.evaluate(() => window.__rows.set(() => []));
+  await expect(out).toHaveCount(0);
 });
 
-test("a failed upload puts the message back in the field with the error", async ({ page }) => {
+test("a message whose upload failed stays as a failed row, and Edit puts its words and files back", async ({ page }) => {
   await open(page);
-  await page.evaluate(() => window.__navigation.hold("agent_tree_upload"));
-  await picker(page).setInputFiles([{ name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("notes") }]);
+  await keepFilesInOutbox(page);
+  await picker(page).setInputFiles([notes]);
   await page.locator("#agmsg").fill("Read the notes");
   await page.locator("#agmsg").press("Enter");
-  await expect(rows(page)).toHaveCount(1);
+  const out = page.locator(".ag-queue .it.out");
+  await expect(out).toHaveCount(1);
 
-  await page.evaluate(() => { window.__navigation.rejectOnce("agent_tree_upload", "no space left"); window.__navigation.release("agent_tree_upload"); });
-  await expect(rows(page)).toHaveCount(0);
+  await page.evaluate(() => window.__rows.set(rows => rows.map(row => ({ ...row, state: "failed", reason: "no space left" }))));
+  await expect(out.first()).toContainText("no space left");
+  await out.first().locator('[data-act="edit"]').click();
+
+  await expect(out).toHaveCount(0);
   await expect(page.locator("#agmsg")).toHaveValue("Read the notes");
-  await expect(page.locator("span.derr")).toContainText("no space left");
-  expect(await calls(page, "agent_steer")).toEqual([]);
+  await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
+  expect(await calls(page, "agent_tree_upload")).toEqual([]);
 });
 
 test("an ended session shows the message at once and keeps the field usable while it resumes", async ({ page }) => {

@@ -39,7 +39,7 @@ async function openUnreachable(page: Page) {
         const taken = rows.filter(row => row.state !== "sending");
         rows = rows.filter(row => row.state === "sending");
         changed([]);
-        return taken.map(row => ({ text: row.text, images: [] })) as T;
+        return taken.map(row => ({ text: row.text, images: [], files: [], mentions: [] })) as T;
       }
 
       if (command === "outbox_list") {
@@ -55,7 +55,7 @@ async function openUnreachable(page: Page) {
         const taken = rows.find(row => row.id === args?.id);
         rows = rows.filter(row => row !== taken);
         changed([]);
-        return { text: taken?.text ?? "", images: [] } as T;
+        return { text: taken?.text ?? "", images: [], files: [], mentions: [] } as T;
       }
 
       return invoke<T>(command, args);

@@ -117,6 +117,8 @@ for (const mode of ["original", "oversized", "aggregate", "separate batches"] as
     }, image);
     expect(dimensions).toEqual([1800, 1200]);
   }
+  // A picture sent as it is opens whole from this device; a larger one's original is on the machine.
+  if (mode !== "original") return;
   await page.locator(".dcoderen.user img.pic").first().click();
   await expect(page.locator("#viewer .vi img")).toHaveAttribute("src", `data:image/png;base64,${buffer.toString("base64")}`);
 });
