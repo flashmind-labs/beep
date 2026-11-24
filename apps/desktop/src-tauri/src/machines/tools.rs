@@ -3,7 +3,7 @@
 
 use crate::{
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines, agents, event_views::changed, files as direct, node_actor::ToolPush},
+    fleet::{Fleet, Machines, ToolPush, agents, files as direct},
 };
 use beep_proto::{
     Machine, ToolUpdate,
