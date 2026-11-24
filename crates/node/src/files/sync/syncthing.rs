@@ -1,6 +1,7 @@
 //! Hands one checkout between Beep and Syncthing without pausing its share.
 
-use super::{Op, Phase, Syncs, halt, open_target, spawn_blocking};
+use super::{Phase, Syncs, halt, open_target, spawn_blocking};
+use futures::future::join_all;
 use anyhow::{Result, bail};
 use std::path::Path;
 use beep_proto::node::sync::SyncthingFiles;
@@ -23,16 +24,14 @@ impl Syncs {
             return self.inner.syncthing.project_files(root.path(), None).await;
         }
 
-        let done = self
-            .inner
-            .actor
-            .ask(|done| Op::SyncthingFiles {
-                root: root.path().to_owned(),
-                enabled: enabled == Some(true),
-                done,
-            })
-            .await;
-        done.unwrap_or_else(|why| bail!(why))
+        let root = root.path().to_owned();
+        let enabled = enabled == Some(true);
+
+        self.change("syncthing_files", move |syncs| async move {
+            syncs.do_syncthing_files(&root, enabled).await
+        })
+        .await
+        .unwrap_or_else(|why| bail!(why))
     }
 
     /// Stops the projects in `root` before Syncthing may write it, lets it,
@@ -42,62 +41,71 @@ impl Syncs {
         root: &Path,
         enabled: bool,
     ) -> Result<SyncthingFiles> {
-        let actor = &self.inner.actor;
-        // Stop Beep before allowing Syncthing to write this checkout again.
-        let names: Vec<_> = if enabled {
-            actor
-                .seen()
-                .iter()
-                .filter(|(_, entry)| {
-                    entry
-                        .running()
-                        .is_some_and(|shared| shared.root().starts_with(root))
-                })
-                .map(|(name, _)| name.clone())
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let mut stopped = Vec::new();
-
-        for name in names {
-            let entry = actor.seen().get(&name).cloned();
-
-            if let (Some(running), Some(entry)) = (actor.take(&name).await, entry) {
-                let shared = halt(running).await;
-                stopped.push((entry.project, entry.from, shared));
-            }
-        }
-
-        let result = self
-            .inner
-            .syncthing
-            .project_files(root, Some(enabled))
-            .await;
-
-        for (project, from, shared) in stopped {
-            if let Some(managed) = self
-                .inner
-                .syncthing
-                .check(Path::new(&project.folder))
-                .await
-            {
-                // Syncthing writes the folder now: start from a fresh scan.
-                self.forget(&shared).await;
-                actor
-                    .put(&project, from, Phase::Held(managed.reason()))
-                    .await;
+        let state = &self.inner.projects;
+        let result = {
+            // One change at a time on a folder, then on each project in it.
+            let _root = state.gate(&format!("syncthing {}", root.display())).await;
+            // Stop Beep before allowing Syncthing to write this checkout again.
+            let names: Vec<String> = if enabled {
+                state
+                    .seen()
+                    .iter()
+                    .filter(|(_, entry)| {
+                        entry
+                            .running()
+                            .is_some_and(|shared| shared.root().starts_with(root))
+                    })
+                    .map(|(name, _)| name.clone())
+                    .collect()
             } else {
-                match self.run(&project, from).await {
-                    Ok(running) => actor.start_run(&project, from, running).await,
-                    Err(e) => {
-                        let message = format!("{e:#}");
-                        log::warn!("could not resume project sync: {message}");
-                        actor.put(&project, from, Phase::Stopped(message)).await;
-                    }
+                Vec::new()
+            };
+            let _gates = state.gates(names.clone()).await;
+            let mut taken = Vec::new();
+
+            for name in names {
+                let entry = state.seen().get(&name).cloned();
+
+                if let (Some(running), Some(entry)) = (state.take(&name), entry) {
+                    taken.push((entry, running));
                 }
             }
-        }
+
+            let stopped = join_all(taken.into_iter().map(|(entry, running)| async move {
+                (entry.project, entry.from, halt(running).await)
+            }))
+            .await;
+            let result = self
+                .inner
+                .syncthing
+                .project_files(root, Some(enabled))
+                .await;
+
+            join_all(stopped.into_iter().map(|(project, from, shared)| async move {
+                if let Some(managed) = self
+                    .inner
+                    .syncthing
+                    .check(Path::new(&project.folder))
+                    .await
+                {
+                    // Syncthing writes the folder now: start from a fresh scan.
+                    self.forget(&shared).await;
+                    state.put(&project, from, Phase::Held(managed.reason()));
+                } else {
+                    match self.run(&project, from).await {
+                        Ok(running) => self.started(&project, from, running),
+                        Err(e) => {
+                            let message = format!("{e:#}");
+                            log::warn!("could not resume project sync: {message}");
+                            state.put(&project, from, Phase::Stopped(message));
+                        }
+                    }
+                }
+            }))
+            .await;
+
+            result
+        };
 
         self.do_check_syncthing().await;
         result

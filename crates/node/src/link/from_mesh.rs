@@ -8,6 +8,7 @@
 //! the device list applies what differs from what was applied before.
 
 use crate::{
+    files::sync::Syncs,
     link::Offers,
     link::watchdog::{self, Step},
 };
@@ -29,6 +30,7 @@ use iroh::{EndpointAddr, EndpointId};
 use std::time::Duration;
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
 use tokio::sync::{broadcast::error::RecvError, watch};
+use tokio_util::task::AbortOnDropHandle;
 
 /// How often the state is applied again with no change to wake it, for what
 /// sends no news, such as Syncthing coming back.
@@ -145,21 +147,24 @@ async fn apply_syncthing(mesh: &Mesh, me: EndpointId, offers: &Offers) {
         .and_then(|bytes| ProjectSyncSettings::from_bytes(&bytes).ok())
         .unwrap_or_default();
 
-    for (_, record, place) in placed_projects(mesh, me) {
-        let Some(enabled) = record.syncthing_choice(&sync) else {
-            continue;
-        };
+    // Each folder's check and change run on their own, all together.
+    let preferences = placed_projects(mesh, me).filter_map(|(_, record, place)| {
+        let enabled = record.syncthing_choice(&sync)?;
+        let syncs = &syncs;
 
-        match syncs.syncthing_files(&place.folder, None).await {
-            Ok(files) if !files.available || files.enabled == enabled => {}
-            Ok(_) => {
-                if let Err(e) = syncs.syncthing_files(&place.folder, Some(enabled)).await {
-                    log::warn!("project Syncthing preference is pending: {e:#}");
+        Some(async move {
+            match syncs.syncthing_files(&place.folder, None).await {
+                Ok(files) if !files.available || files.enabled == enabled => {}
+                Ok(_) => {
+                    if let Err(e) = syncs.syncthing_files(&place.folder, Some(enabled)).await {
+                        log::warn!("project Syncthing preference is pending: {e:#}");
+                    }
                 }
+                Err(e) => log::debug!("project Syncthing preference could not be checked: {e:#}"),
             }
-            Err(e) => log::debug!("project Syncthing preference could not be checked: {e:#}"),
-        }
-    }
+        })
+    });
+    futures::future::join_all(preferences).await;
 }
 
 /// Match the desktop's newest-version ordering, including concurrent saves.
@@ -180,6 +185,8 @@ struct Applied {
     credentials: Option<MachineCredentials>,
     settings: Option<AgentSettings>,
     projects: Option<Vec<Project>>,
+    /// Applies the sync set on its own task, once the node's transfers run.
+    sync_set: Option<SyncSet>,
     /// The last spec of each project that read, for a key that stops reading.
     specs: BTreeMap<Key, SyncSpec>,
 }
@@ -217,35 +224,12 @@ impl Applied {
             let projects = projects(mesh, me, &mut self.specs);
 
             if self.projects.as_ref() != Some(&projects) {
-                let started = Instant::now();
-                log::info!(
-                    "from the mesh: applying the sync set, {} projects",
-                    projects.len(),
-                );
-                let applying = watchdog::enter(Step::SyncApply);
-                let refused = transfers
-                    .syncs()
-                    .configure_from_mesh(projects.clone())
-                    .await;
-                drop(applying);
-
-                for refused in &refused {
-                    log::warn!("not syncing {}: {}", refused.project, refused.message);
-                }
-
-                for project in &projects {
-                    log::info!(
-                        "from the mesh: sync {} with {} peers",
-                        project.name,
-                        project.peers.len()
-                    );
-                }
-
-                log::info!(
-                    "from the mesh: applied the sync set in {} ms, {} refused",
-                    started.elapsed().as_millis(),
-                    refused.len()
-                );
+                // The set applies on its own task: credentials and settings
+                // do not wait for projects to halt and load.
+                let sync_set = self
+                    .sync_set
+                    .get_or_insert_with(|| SyncSet::start(transfers.syncs()));
+                sync_set.set(projects.clone());
                 self.projects = Some(projects);
             }
 
@@ -270,6 +254,60 @@ impl Applied {
                     .collect(),
             );
         }
+    }
+}
+
+/// The task that applies the mesh's sync set. A set that arrives while one
+/// applies replaces any set still waiting: only the newest applies next.
+struct SyncSet {
+    sets: watch::Sender<Option<Vec<Project>>>,
+    _task: AbortOnDropHandle<()>,
+}
+
+impl SyncSet {
+    fn start(syncs: Syncs) -> Self {
+        let (sets, rx) = watch::channel(None);
+        let task = AbortOnDropHandle::new(tokio::spawn(apply_sync_sets(syncs, rx)));
+
+        Self { sets, _task: task }
+    }
+
+    fn set(&self, projects: Vec<Project>) {
+        self.sets.send_replace(Some(projects));
+    }
+}
+
+async fn apply_sync_sets(syncs: Syncs, mut sets: watch::Receiver<Option<Vec<Project>>>) {
+    while sets.changed().await.is_ok() {
+        let Some(projects) = watched::read_and_update(&mut sets, Clone::clone) else {
+            continue;
+        };
+        let started = Instant::now();
+        log::info!(
+            "from the mesh: applying the sync set, {} projects",
+            projects.len(),
+        );
+        let applying = watchdog::enter(Step::SyncApply);
+        let refused = syncs.configure_from_mesh(projects.clone()).await;
+        drop(applying);
+
+        for refused in &refused {
+            log::warn!("not syncing {}: {}", refused.project, refused.message);
+        }
+
+        for project in &projects {
+            log::info!(
+                "from the mesh: sync {} with {} peers",
+                project.name,
+                project.peers.len()
+            );
+        }
+
+        log::info!(
+            "from the mesh: applied the sync set in {} ms, {} refused",
+            started.elapsed().as_millis(),
+            refused.len()
+        );
     }
 }
 

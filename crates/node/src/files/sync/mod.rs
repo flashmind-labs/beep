@@ -3,7 +3,7 @@
 
 use crate::{
     files::Folders,
-    files::syncthing::Syncthing,
+    files::syncthing::{Managed, Syncthing},
     files::transfer::{
         grants::Access,
         place::{Journal, Room, open_target},
@@ -60,7 +60,7 @@ pub(super) mod stignore;
 mod syncthing;
 mod watch;
 
-use actor::{Entry, Handle, Op, Phase};
+use actor::{Entry, Phase, Projects};
 pub(crate) use peer::{ALPN, PeerHandler};
 use project::{Shared, Start};
 pub(crate) use rules::Rules;
@@ -124,9 +124,7 @@ struct Inner {
     dir: PathBuf,
     watcher: Watcher,
     /// Every project's state.
-    actor: Handle,
-    /// Ends the actor with the syncs.
-    _actor: AbortOnDropHandle<()>,
+    projects: Projects,
     syncthing: Syncthing,
     /// Checks the folders against Syncthing's every so often.
     checking: Mutex<Option<AbortOnDropHandle<()>>>,
@@ -184,7 +182,7 @@ impl Access for Inner {
     fn may_connect(&self, peer: &EndpointId) -> bool {
         self.allows(peer)
             && self
-                .actor
+                .projects
                 .seen()
                 .values()
                 .filter_map(Entry::running)
@@ -194,7 +192,7 @@ impl Access for Inner {
     fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
         self.allows(peer)
             && self
-                .actor
+                .projects
                 .seen()
                 .values()
                 .filter_map(Entry::running)
@@ -235,21 +233,17 @@ impl Syncs {
         // Reading the watch budget walks `/proc`.
         let watcher = spawn_blocking(Watcher::new).await?;
         let syncs = Self {
-            inner: Arc::new_cyclic(|inner| {
-                let (actor, owner) = Handle::start(inner.clone());
-                Inner {
-                    parts,
-                    recoveries: Mutex::default(),
-                    folders,
-                    dir,
-                    watcher,
-                    actor,
-                    _actor: owner,
-                    syncthing,
-                    checking: Mutex::default(),
-                    serving: Arc::default(),
-                    mesh,
-                }
+            inner: Arc::new(Inner {
+                parts,
+                recoveries: Mutex::default(),
+                folders,
+                dir,
+                watcher,
+                projects: Projects::default(),
+                syncthing,
+                checking: Mutex::default(),
+                serving: Arc::default(),
+                mesh,
             }),
         };
 
@@ -290,7 +284,7 @@ impl Syncs {
             .collect();
         *lock(&self.inner.recoveries) = recoveries.clone();
 
-        for (name, entry) in self.inner.actor.seen().iter() {
+        for (name, entry) in self.inner.projects.seen().iter() {
             if let Some(shared) = entry.running() {
                 shared.set_recovery(recoveries.get(name).cloned());
             }
@@ -307,7 +301,7 @@ impl Syncs {
     pub(crate) fn forget_recoveries(&self) {
         lock(&self.inner.recoveries).clear();
 
-        for shared in self.inner.actor.seen().values().filter_map(Entry::running) {
+        for shared in self.inner.projects.seen().values().filter_map(Entry::running) {
             shared.set_recovery(None);
         }
     }
@@ -324,14 +318,12 @@ impl Syncs {
         keep: bool,
     ) -> Vec<Refused> {
         let names: Vec<String> = projects.iter().map(|p| p.name.clone()).collect();
-        let op = |done| Op::Configure {
-            projects,
-            from,
-            keep,
-            done,
-        };
 
-        self.inner.actor.ask(op).await.unwrap_or_else(|why| {
+        self.change("configure", move |syncs| async move {
+            syncs.do_configure(projects, from, keep).await
+        })
+        .await
+        .unwrap_or_else(|why| {
             names
                 .into_iter()
                 .map(|project| Refused {
@@ -343,115 +335,36 @@ impl Syncs {
     }
 
     async fn do_configure(&self, projects: Vec<Project>, from: Source, keep: bool) -> Vec<Refused> {
-        let actor = &self.inner.actor;
+        let state = &self.inner.projects;
+        let _list = state.list.lock().await;
         let me = self.inner.parts.endpoint.id();
-        let mut refused = Vec::new();
-        let mut kept = Vec::new();
-        let mut stopping = Vec::new();
-        let mut replaced = Vec::new();
-        let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
-        let before = actor.seen();
-        let mut forgotten = Vec::new();
-
-        for (name, entry) in before.iter() {
-            match entry.phase {
-                Phase::Running(_) if !names.contains(&name.as_str()) => {
-                    stopping.extend(actor.take_dropped(name).await.map(|running| (name, running)));
-                }
-                Phase::Held(_) if !names.contains(&name.as_str()) => forgotten.push(name.clone()),
-                Phase::Stopped(_) if !names.contains(&name.as_str()) => forgotten.push(name.clone()),
-                _ => {}
-            }
-        }
-
-        actor.remove(forgotten).await;
+        let dropped: Vec<String> = state
+            .seen()
+            .keys()
+            .filter(|name| !projects.iter().any(|project| project.name == **name))
+            .cloned()
+            .collect();
         let folders: Vec<PathBuf> = projects.iter().map(|p| PathBuf::from(&p.folder)).collect();
         let managed = self.inner.syncthing.check_all(&folders).await;
+        // Each project halts and loads on its own, all together.
+        let dropping = join_all(dropped.iter().map(|name| self.drop_project(name)));
+        let loading = join_all(projects.into_iter().zip(managed).map(
+            |(mut project, managed)| {
+                project.peers.retain(|peer| peer.id != me);
+                self.load_project(project, managed, from, keep)
+            },
+        ));
+        let (_, loaded) = futures::join!(dropping, loading);
+        let mut refused = Vec::new();
+        let mut kept = Vec::new();
 
-        for (mut project, managed) in projects.into_iter().zip(managed) {
-            project.peers.retain(|peer| peer.id != me);
-
-            if let Some(shared) = actor.keep(&project, from).await {
-                log::debug!("sync {}: keeps running, peers and pause set", project.name);
-                shared.set_peers(project.peers.clone());
-                shared.set_paused(project.paused);
-                kept.push(project);
-                continue;
-            }
-            // Stopped before its replacement starts: the same folder named
-            // another way has the same key, watches and state file.
-            if let Some(old) = actor.take(&project.name).await {
-                log::debug!("sync {}: stopping the run it replaces", project.name);
-                replaced.push(halt(old).await);
-            }
-            log::debug!(
-                "sync {}: asking Syncthing about {}",
-                project.name,
-                project.folder
-            );
-            let was_held = actor.seen().get(&project.name).is_some_and(|entry| {
-                matches!(entry.phase, Phase::Held(_)) && entry.project.folder == project.folder
-            });
-
-            if let Some(managed) = managed {
-                if was_held || keep {
-                    log::info!("not syncing {}: {}", project.name, managed.reason());
-                    actor
-                        .put(&project, from, Phase::Held(managed.reason()))
-                        .await;
-                    kept.push(project);
-                } else {
-                    actor.remove(vec![project.name.clone()]).await;
-                    refused.push(Refused {
-                        project: project.name.clone(),
-                        message: managed.reason(),
-                    });
-                }
-                continue;
-            }
-
-            log::debug!("sync {}: starting", project.name);
-            // One that was held or stopped stays listed as it was until it runs.
-            if !actor.seen().get(&project.name).is_some_and(|entry| {
-                matches!(entry.phase, Phase::Held(_) | Phase::Stopped(_))
-            }) {
-                actor.put(&project, from, Phase::Starting).await;
-            }
-
-            match self.run(&project, from).await {
-                Ok(running) => {
-                    actor.start_run(&project, from, running).await;
-                    kept.push(project);
-                }
-                Err(e) => {
-                    let message = format!("{e:#}");
-                    refused.push(Refused {
-                        project: project.name.clone(),
-                        message: message.clone(),
-                    });
-
-                    if keep {
-                        actor.put(&project, from, Phase::Stopped(message)).await;
-                        kept.push(project);
-                    } else {
-                        actor.remove(vec![project.name.clone()]).await;
-                    }
-                }
-            }
-        }
-
-        for (name, running) in stopping {
-            log::debug!("sync {name}: stopping");
-            self.stop(running).await;
-            actor.remove(vec![name.clone()]).await;
-        }
-
-        for old in replaced {
-            self.forget(&old).await;
+        for (project, no) in loaded {
+            kept.extend(project);
+            refused.extend(no);
         }
 
         // A node that stops refused the loads: its list stays as it was.
-        if actor.closing() {
+        if state.closing() {
             return refused;
         }
 
@@ -466,9 +379,136 @@ impl Syncs {
         refused
     }
 
+    /// Stops a project the list no longer names, and forgets it.
+    async fn drop_project(&self, name: &str) {
+        let state = &self.inner.projects;
+        let _gate = state.gate(name).await;
+
+        match state.take_dropped(name) {
+            Some(running) => {
+                log::debug!("sync {name}: stopping");
+                self.stop(running).await;
+            }
+            None => state.remove(&[name.to_owned()]),
+        }
+    }
+
+    /// Brings one project of the list to what the list says: the project
+    /// when it stays listed, and why it is refused, if it is.
+    async fn load_project(
+        &self,
+        project: Project,
+        managed: Option<Managed>,
+        from: Source,
+        keep: bool,
+    ) -> (Option<Project>, Option<Refused>) {
+        let state = &self.inner.projects;
+        let _gate = state.gate(&project.name).await;
+
+        if let Some(shared) = state.keep(&project, from) {
+            log::debug!("sync {}: keeps running, peers and pause set", project.name);
+            shared.set_peers(project.peers.clone());
+            shared.set_paused(project.paused);
+
+            return (Some(project), None);
+        }
+
+        // Stopped before its replacement starts: the same folder named
+        // another way has the same key, watches and state file.
+        let replaced = match state.take(&project.name) {
+            Some(old) => {
+                log::debug!("sync {}: stopping the run it replaces", project.name);
+                Some(halt(old).await)
+            }
+            None => None,
+        };
+        let loaded = self.start_listed(project, managed, from, keep).await;
+
+        if let Some(old) = replaced {
+            self.forget(&old).await;
+        }
+
+        loaded
+    }
+
+    async fn start_listed(
+        &self,
+        project: Project,
+        managed: Option<Managed>,
+        from: Source,
+        keep: bool,
+    ) -> (Option<Project>, Option<Refused>) {
+        let state = &self.inner.projects;
+        log::debug!(
+            "sync {}: asking Syncthing about {}",
+            project.name,
+            project.folder
+        );
+        let was_held = state.is(&project, Phase::is_held);
+
+        if let Some(managed) = managed {
+            if was_held || keep {
+                log::info!("not syncing {}: {}", project.name, managed.reason());
+                state.put(&project, from, Phase::Held(managed.reason()));
+
+                return (Some(project), None);
+            }
+
+            state.remove(std::slice::from_ref(&project.name));
+            let refused = Refused {
+                project: project.name.clone(),
+                message: managed.reason(),
+            };
+
+            return (None, Some(refused));
+        }
+
+        log::debug!("sync {}: starting", project.name);
+        // One that was held or stopped stays listed as it was until it runs.
+        if !state.seen().get(&project.name).is_some_and(|entry| {
+            matches!(entry.phase, Phase::Held(_) | Phase::Stopped(_))
+        }) {
+            state.put(&project, from, Phase::Starting);
+        }
+
+        match self.run(&project, from).await {
+            Ok(running) => {
+                self.started(&project, from, running);
+
+                (Some(project), None)
+            }
+            Err(e) => {
+                let message = format!("{e:#}");
+                let refused = Refused {
+                    project: project.name.clone(),
+                    message: message.clone(),
+                };
+
+                if keep {
+                    state.put(&project, from, Phase::Stopped(message));
+
+                    (Some(project), Some(refused))
+                } else {
+                    state.remove(std::slice::from_ref(&project.name));
+
+                    (None, Some(refused))
+                }
+            }
+        }
+    }
+
+    /// Lists a run that loaded as running.
+    fn started(&self, project: &Project, from: Source, running: Running) {
+        let shared = running.shared.clone();
+        self.inner.projects.start_run(project, from, running);
+        // Again now it is listed: opt-ins that changed while it loaded
+        // find a run listed as running, or are read here.
+        shared.set_recovery(lock(&self.inner.recoveries).get(&project.name).cloned());
+    }
+
     async fn run(&self, project: &Project, from: Source) -> Result<Running> {
         // A node that stops loads nothing: a run that halts still saves its state.
-        if self.inner.actor.closing() {
+        if self.inner.projects.closing() {
             bail!(STOPPING);
         }
 
@@ -551,10 +591,10 @@ impl Syncs {
     /// Forgets the state kept under `key` in `file`, unless a project runs on it.
     async fn forget_key(&self, name: &str, key: Key, file: &Path) {
         // The same folder may have started again under the same key.
-        if self.inner.actor.closing()
+        if self.inner.projects.closing()
             || self
                 .inner
-                .actor
+                .projects
                 .seen()
                 .values()
                 .filter_map(Entry::running)
@@ -594,37 +634,27 @@ impl Syncs {
     /// deletes nothing anywhere, and is held; a held one whose folder
     /// Syncthing let go of or paused starts again, from a fresh scan.
     pub async fn check_syncthing(&self) {
-        self.inner
-            .actor
-            .ask(|done| Op::CheckSyncthing { done })
-            .await
-            .ok();
+        self.change("check_syncthing", |syncs| async move {
+            syncs.do_check_syncthing().await;
+        })
+        .await
+        .ok();
     }
 
     async fn do_check_syncthing(&self) {
-        let actor = &self.inner.actor;
         let running = self.entries(Phase::is_running);
         let folders: Vec<PathBuf> = running
             .iter()
             .map(|entry| PathBuf::from(&entry.project.folder))
             .collect();
         let managed = self.inner.syncthing.check_all(&folders).await;
-
-        for (entry, managed) in running.into_iter().zip(managed) {
-            let Some(managed) = managed else {
-                continue;
-            };
-            let Entry { project, from, .. } = entry;
-            log::info!("stopped syncing {}: {}", project.name, managed.reason());
-
-            if let Some(stopped) = actor.take(&project.name).await {
-                self.stop(stopped).await;
-            }
-
-            actor
-                .put(&project, from, Phase::Held(managed.reason()))
-                .await;
-        }
+        join_all(
+            running
+                .into_iter()
+                .zip(managed)
+                .filter_map(|(entry, managed)| Some(self.hold(entry, managed?))),
+        )
+        .await;
 
         let held = self.entries(Phase::is_held);
         let folders: Vec<PathBuf> = held
@@ -632,24 +662,53 @@ impl Syncs {
             .map(|entry| PathBuf::from(&entry.project.folder))
             .collect();
         let managed = self.inner.syncthing.check_all(&folders).await;
+        join_all(
+            held.into_iter()
+                .zip(managed)
+                .filter(|(_, managed)| managed.is_none())
+                .map(|(entry, _)| self.resume(entry)),
+        )
+        .await;
+    }
 
-        for (entry, managed) in held.into_iter().zip(managed) {
-            if managed.is_some() {
-                continue;
-            }
+    /// Stops a running project whose folder Syncthing keeps in step.
+    async fn hold(&self, entry: Entry, managed: Managed) {
+        let state = &self.inner.projects;
+        let Entry { project, from, .. } = entry;
+        let _gate = state.gate(&project.name).await;
 
-            match self.run(&entry.project, entry.from).await {
-                Ok(running) => {
-                    log::info!(
-                        "syncing {}: Syncthing let go of it or paused it",
-                        entry.project.name
-                    );
-                    actor
-                        .start_run(&entry.project, entry.from, running)
-                        .await;
-                }
-                Err(e) => log::warn!("{} does not sync yet: {e:#}", entry.project.name),
+        // Another change took it while this one waited.
+        if !state.is(&project, Phase::is_running) {
+            return;
+        }
+
+        log::info!("stopped syncing {}: {}", project.name, managed.reason());
+
+        if let Some(stopped) = state.take(&project.name) {
+            self.stop(stopped).await;
+        }
+
+        state.put(&project, from, Phase::Held(managed.reason()));
+    }
+
+    /// Starts a held project whose folder Syncthing let go of or paused.
+    async fn resume(&self, entry: Entry) {
+        let state = &self.inner.projects;
+        let _gate = state.gate(&entry.project.name).await;
+
+        if !state.is(&entry.project, Phase::is_held) {
+            return;
+        }
+
+        match self.run(&entry.project, entry.from).await {
+            Ok(running) => {
+                log::info!(
+                    "syncing {}: Syncthing let go of it or paused it",
+                    entry.project.name
+                );
+                self.started(&entry.project, entry.from, running);
             }
+            Err(e) => log::warn!("{} does not sync yet: {e:#}", entry.project.name),
         }
     }
 
@@ -658,58 +717,71 @@ impl Syncs {
     /// from the peers; a project that did not start is tried again, so a folder that is back,
     /// or whose rules can be followed now, syncs.
     pub async fn check_folders(&self) {
-        self.inner.actor.ask(|done| Op::CheckFolders { done }).await.ok();
+        self.change("check_folders", |syncs| async move {
+            syncs.do_check_folders().await;
+        })
+        .await
+        .ok();
     }
 
     async fn do_check_folders(&self) {
-        let actor = &self.inner.actor;
-        let mut again: Vec<(Project, Source)> = Vec::new();
+        let names: Vec<String> = self
+            .inner
+            .projects
+            .seen()
+            .iter()
+            .filter(|(_, entry)| entry.phase.is_running() || entry.phase.is_stopped())
+            .map(|(name, _)| name.clone())
+            .collect();
+        join_all(names.iter().map(|name| self.check_folder(name))).await;
+    }
 
-        for entry in self.entries(Phase::is_running) {
-            let folder = PathBuf::from(&entry.project.folder);
+    async fn check_folder(&self, name: &str) {
+        let state = &self.inner.projects;
+        let _gate = state.gate(name).await;
+        // Read under the gate: the project may have changed while it waited.
+        let Some(entry) = state.seen().get(name).cloned() else {
+            return;
+        };
+        let Entry { project, from, phase } = entry;
+
+        if phase.is_running() {
+            let folder = PathBuf::from(&project.folder);
 
             if spawn_blocking(move || folder.exists())
                 .await
                 .unwrap_or(true)
             {
-                continue;
+                return;
             }
 
-            let Entry { project, from, .. } = entry;
             log::info!("{}: its folder {} is gone", project.name, project.folder);
 
-            if let Some(stopped) = actor.take(&project.name).await {
+            if let Some(stopped) = state.take(&project.name) {
                 self.stop(stopped).await;
             }
 
-            actor.put(&project, from, Phase::Starting).await;
-            again.push((project, from));
+            state.put(&project, from, Phase::Starting);
+        } else if !phase.is_stopped() {
+            return;
         }
 
-        again.extend(
-            self.entries(Phase::is_stopped)
-                .into_iter()
-                .map(|entry| (entry.project, entry.from)),
-        );
+        match self.run(&project, from).await {
+            Ok(running) => {
+                log::info!("syncing {} again", project.name);
+                self.started(&project, from, running);
+            }
+            Err(e) => {
+                let message = format!("{e:#}");
+                let same = state.seen().get(&project.name).is_some_and(
+                    |entry| matches!(&entry.phase, Phase::Stopped(last) if *last == message),
+                );
 
-        for (project, from) in again {
-            match self.run(&project, from).await {
-                Ok(running) => {
-                    log::info!("syncing {} again", project.name);
-                    actor.start_run(&project, from, running).await;
+                if !same {
+                    log::warn!("not syncing {}: {message}", project.name);
                 }
-                Err(e) => {
-                    let message = format!("{e:#}");
-                    let same = actor.seen().get(&project.name).is_some_and(
-                        |entry| matches!(&entry.phase, Phase::Stopped(last) if *last == message),
-                    );
 
-                    if !same {
-                        log::warn!("not syncing {}: {message}", project.name);
-                    }
-
-                    actor.put(&project, from, Phase::Stopped(message)).await;
-                }
+                state.put(&project, from, Phase::Stopped(message));
             }
         }
     }
@@ -717,7 +789,7 @@ impl Syncs {
     /// The projects now in a phase `of` names, by name.
     fn entries(&self, of: fn(&Phase) -> bool) -> Vec<Entry> {
         self.inner
-            .actor
+            .projects
             .seen()
             .values()
             .filter(|entry| of(&entry.phase))
@@ -730,14 +802,14 @@ impl Syncs {
     pub(crate) async fn shutdown(&self) {
         let checking = lock(&self.inner.checking).take();
         drop(checking);
-        self.inner.actor.shutdown().await;
+        self.inner.projects.shutdown().await;
     }
 
     /// How each project stands. A project in the middle of a change is
     /// still listed.
     pub fn status(&self) -> Vec<ProjectStatus> {
         self.inner
-            .actor
+            .projects
             .seen()
             .values()
             .map(Entry::status)
@@ -767,7 +839,7 @@ impl Syncs {
     /// The projects waiting for Syncthing to let go of their folder.
     pub(crate) fn held(&self) -> BTreeSet<String> {
         self.inner
-            .actor
+            .projects
             .seen()
             .iter()
             .filter(|(_, entry)| matches!(entry.phase, Phase::Held(_)))
@@ -858,7 +930,7 @@ impl Syncs {
             bail!("{project} is not synced on this machine");
         };
         let mut datasets = vec![shared];
-        datasets.extend(self.inner.actor.seen().values().filter_map(|entry| {
+        datasets.extend(self.inner.projects.seen().values().filter_map(|entry| {
             let (owner, _) = beep_proto::node::sync::ignored_folder(&entry.project.name)?;
             (owner == project).then(|| entry.running().cloned())?
         }));
@@ -878,66 +950,70 @@ impl Syncs {
     /// replaced, which sync otherwise refuses until the old one is back.
     pub async fn start_over(&self, project: &str) -> Result<()> {
         let project = project.to_owned();
-        self.inner
-            .actor
-            .ask(|done| Op::StartOver { project, done })
-            .await
-            .unwrap_or_else(|why| bail!(why))
+        self.change("start_over", move |syncs| async move {
+            syncs.do_start_over(&project).await
+        })
+        .await
+        .unwrap_or_else(|why| bail!(why))
     }
 
     async fn do_start_over(&self, project: &str) -> Result<()> {
-        let actor = &self.inner.actor;
-        let names: Vec<String> = actor
+        let state = &self.inner.projects;
+        // Listed in any phase: a change that waits may have stopped one.
+        let names: Vec<String> = state
             .seen()
-            .iter()
-            .filter(|(name, entry)| {
-                entry.running().is_some()
-                    && (name.as_str() == project
-                        || beep_proto::node::sync::ignored_folder(name)
-                            .is_some_and(|(owner, _)| owner == project))
+            .keys()
+            .filter(|name| {
+                name.as_str() == project
+                    || beep_proto::node::sync::ignored_folder(name)
+                        .is_some_and(|(owner, _)| owner == project)
             })
-            .map(|(name, _)| name.clone())
+            .cloned()
+            .collect();
+        let _gates = state.gates(names.clone()).await;
+        let running: Vec<String> = names
+            .into_iter()
+            .filter(|name| state.seen().get(name).is_some_and(|entry| entry.phase.is_running()))
             .collect();
 
-        if !names.iter().any(|name| name == project) {
+        if !running.iter().any(|name| name == project) {
             bail!("{project} is not synced on this machine");
         }
 
         let mut again: Vec<(Project, Source)> = Vec::new();
         let mut stopped = Vec::new();
 
-        for name in &names {
-            if let Some(entry) = actor.seen().get(name) {
+        for name in &running {
+            if let Some(entry) = state.seen().get(name) {
                 again.push((entry.project.clone(), entry.from));
             }
 
-            stopped.extend(actor.take(name).await);
+            stopped.extend(state.take(name));
         }
 
-        for running in stopped {
-            self.stop(running).await;
-        }
-
-        let mut failed = None;
-
-        for (project, from) in again {
-            actor.put(&project, from, Phase::Starting).await;
+        join_all(stopped.into_iter().map(|running| self.stop(running))).await;
+        let started = join_all(again.into_iter().map(|(project, from)| async move {
+            state.put(&project, from, Phase::Starting);
 
             match self.run(&project, from).await {
                 Ok(running) => {
                     log::info!("{}: started over in {}", project.name, project.folder);
-                    actor.start_run(&project, from, running).await;
+                    self.started(&project, from, running);
+
+                    None
                 }
                 Err(e) => {
                     let message = format!("{e:#}");
                     log::warn!("{} does not start over: {message}", project.name);
-                    failed.get_or_insert_with(|| message.clone());
-                    actor.put(&project, from, Phase::Stopped(message)).await;
+                    state.put(&project, from, Phase::Stopped(message.clone()));
+
+                    Some(message)
                 }
             }
-        }
+        }))
+        .await;
 
-        match failed {
+        match started.into_iter().flatten().next() {
             Some(message) => bail!(message),
             None => Ok(()),
         }
@@ -966,7 +1042,7 @@ impl Syncs {
 
     fn project(&self, name: &str) -> Option<Arc<Shared>> {
         self.inner
-            .actor
+            .projects
             .seen()
             .get(name)
             .and_then(Entry::running)

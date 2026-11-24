@@ -2,7 +2,6 @@
 
 use super::{
     Syncs,
-    actor::Op,
     gitdir::{self, Checkout, Repo, WriteGuard},
 };
 use anyhow::{Context, Result, bail, ensure};
@@ -193,14 +192,15 @@ impl Syncs {
     /// Captures an explicit handoff without changing the source checkout.
     pub async fn handoff_snapshot(&self, project: &str) -> Result<HandoffSnapshot> {
         let project = project.to_owned();
-        self.inner
-            .actor
-            .ask(|done| Op::HandoffSnapshot { project, done })
-            .await
-            .unwrap_or_else(|why| bail!(why))
+        self.change("handoff_snapshot", move |syncs| async move {
+            syncs.do_handoff_snapshot(&project).await
+        })
+        .await
+        .unwrap_or_else(|why| bail!(why))
     }
 
     pub(super) async fn do_handoff_snapshot(&self, project: &str) -> Result<HandoffSnapshot> {
+        let _gate = self.inner.projects.gate(project).await;
         let root = self.handoff_root(project).await?;
         spawn_blocking(move || snapshot(&root)).await?
     }
@@ -208,15 +208,11 @@ impl Syncs {
     /// Applies a handoff only to a clean checkout at its exact base commit.
     pub async fn handoff_apply(&self, project: &str, snapshot: HandoffSnapshot) -> Result<()> {
         let project = project.to_owned();
-        self.inner
-            .actor
-            .ask(|done| Op::HandoffApply {
-                project,
-                snapshot,
-                done,
-            })
-            .await
-            .unwrap_or_else(|why| bail!(why))
+        self.change("handoff_apply", move |syncs| async move {
+            syncs.do_handoff_apply(&project, snapshot).await
+        })
+        .await
+        .unwrap_or_else(|why| bail!(why))
     }
 
     pub(super) async fn do_handoff_apply(
@@ -224,6 +220,7 @@ impl Syncs {
         project: &str,
         snapshot: HandoffSnapshot,
     ) -> Result<()> {
+        let _gate = self.inner.projects.gate(project).await;
         let root = self.handoff_root(project).await?;
         spawn_blocking(move || apply(&root, snapshot)).await??;
         Ok(())
