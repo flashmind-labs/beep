@@ -1,5 +1,4 @@
 use super::*;
-use std::sync::atomic::Ordering;
 
 #[tokio::test]
 async fn the_walk_publishes_after_it_ends_and_lets_a_rescan_run() {
@@ -13,7 +12,7 @@ async fn the_walk_publishes_after_it_ends_and_lets_a_rescan_run() {
         .warm(Some(home.path().to_path_buf()), dir.path().to_path_buf())
         .await;
 
-    assert!(!agents.rescanning.load(Ordering::Relaxed));
+    assert!(agents.rescanning.try_lock().is_ok());
     let found = agents.disk_checkouts().expect("the walk published its list");
     assert!(found.iter().any(|checkout| checkout.root.ends_with("work/app")));
 
@@ -71,4 +70,23 @@ async fn stored_sessions_lock_one_at_a_time_each_and_the_lock_is_forgotten_after
     drop(first);
     let _other = agents.store_of(&other);
     assert_eq!(crate::lock(&agents.session_store).len(), 1);
+}
+
+#[tokio::test]
+async fn the_warm_walk_waits_for_a_rescan_that_runs() {
+    let agents = Arc::new(Agents::new(Vec::new()));
+    let rescan = agents.rescanning.lock().await;
+    let warm = tokio::spawn({
+        let agents = agents.clone();
+        async move { agents.warm(None, std::path::PathBuf::new()).await }
+    });
+
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(agents.disk_checkouts().is_err(), "warm walked beside the rescan");
+
+    drop(rescan);
+    warm.await.expect("warm ended");
+    assert!(agents.disk_checkouts().is_ok());
 }

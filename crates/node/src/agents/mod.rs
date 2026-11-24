@@ -242,8 +242,9 @@ host! {
         /// The checkouts found on disk under home, once `warm` read them.
         /// Written after a walk, by the one walk running.
         on_disk: Mutex<Option<Arc<Vec<found::Checkout>>>>,
-        /// A walk for checkouts runs, deep or quick; one at a time.
-        rescanning: AtomicBool,
+        /// Held while a walk for checkouts runs, deep or quick; one at a
+        /// time. `warm` waits for it, a rescan does not.
+        rescanning: AsyncMutex<()>,
         /// The last folder listing for each limit; held while one runs, so
         /// asks for that limit that come meanwhile share it instead of each
         /// running git for every folder.

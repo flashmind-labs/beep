@@ -25,10 +25,7 @@ use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, atomic::Ordering},
     time::{Duration, SystemTime},
 };
 use tokio::{task::spawn_blocking, time::Instant};
@@ -44,16 +41,6 @@ pub(super) struct Listed {
     /// When it ended.
     at: Instant,
     folders: Arc<Vec<SessionFolder>>,
-}
-
-/// Holds `Agents.rescanning` for as long as a walk for checkouts runs, also
-/// when the walk is dropped.
-struct Walking<'a>(&'a AtomicBool);
-
-impl Drop for Walking<'_> {
-    fn drop(&mut self) {
-        self.0.store(false, Ordering::Relaxed);
-    }
 }
 
 fn asked_folders(folders: Vec<String>) -> Vec<PathBuf> {
@@ -72,8 +59,7 @@ impl Agents {
     /// none saved, `disk_checkouts` refuses until it ends. No rescan runs
     /// meanwhile, so the walk is the only writer of the list.
     pub async fn warm(&self, root: Option<PathBuf>, dir: PathBuf) {
-        self.rescanning.store(true, Ordering::Relaxed);
-        let _walking = Walking(&self.rescanning);
+        let _walking = self.rescanning.lock().await;
         let Some(root) = root else {
             self.publish_checkouts(Some(Arc::default()));
             self.read_logs_ahead().await;
@@ -108,11 +94,10 @@ impl Agents {
     /// counts, and saves the list in `dir`. Nothing while a walk runs or another
     /// rescan does: what that one finds serves this one too.
     pub async fn rescan(&self, root: PathBuf, dir: PathBuf) -> Result<()> {
-        if self.rescanning.swap(true, Ordering::Relaxed) {
+        let Ok(_walking) = self.rescanning.try_lock() else {
             return Ok(());
-        }
+        };
 
-        let _walking = Walking(&self.rescanning);
         let known = self.disk_checkouts()?;
         let all = spawn_blocking(move || found::rescan(&root, &dir, &known))
             .await
