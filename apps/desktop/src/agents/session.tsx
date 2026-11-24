@@ -1,7 +1,6 @@
 // One coding agent session in the bar: opening it, drawing its frame and
 // reading it while it shows. Following it is in session-follow.ts, its head
 // in session-head.ts and what a click in it does in session-click.ts.
-import { showUploadPending } from "./composer-ui.tsx";
 import { SessionPicks } from "./agentmodels.ts";
 import { sentText } from "./agentlog.ts";
 import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
@@ -17,7 +16,7 @@ import { showFailure } from "../ui/failbanner-view.tsx";
 import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
-import { MN, activateMentions, currentMentions, rememberMentionImages, setAttachError } from "./workdrop.ts";
+import { MN, activateMentions, rememberMentionImages, setAttachError } from "./workdrop.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, drawAgents, sessionUsage, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
 import { agentAttachError, drawAgentAttached } from "./images.tsx";
 import { removeLastAttachment } from "./attachments-view.tsx";
@@ -185,7 +184,6 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   if (msg) {
     bindMentionMenu(msg);
     bindSessionStash(msg);
-    showUploadPending(currentMentions().sending);
   }
 
   drawAgentAttached();
@@ -610,7 +608,6 @@ export const turnRuns = () => {
 
 /// Sends what the field holds: while the turn runs it steers it after its current tool call.
 export function submitAgentMessage(input: HTMLTextAreaElement) {
-  if (input.readOnly) return;
   if (turnRuns()) steerMessage(input);
   else void sendAgentMessage();
 }

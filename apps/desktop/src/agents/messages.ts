@@ -1,7 +1,7 @@
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
 import { appendEntry, clearQuestion, dropLastEntry, removeEntry } from "./open-page.ts";
-import { type Attached, dropDelivered, type OutboxRow, sentFromOutbox, type Waiting } from "./agentqueue.ts";
+import { type Attached, dropDelivered, heldBack, type OutboxRow, sendOrder, sentFromOutbox, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.tsx";
 import { sessionPicks } from "./session.tsx";
 import { imageLines, sentText } from "./agentlog.ts";
@@ -12,7 +12,7 @@ import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { MN, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./workdrop.ts";
-import { disposeComposerUi, showAgentQueue, showUploadPending } from "./composer-ui.tsx";
+import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentQuestion, type AgentRow, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, setNote, turnRuns } from "./session.tsx";
@@ -64,32 +64,22 @@ function takeMessage(input: HTMLTextAreaElement | null, uploading = false, reser
 // Each batch belongs to at most one send, even if Enter is pressed twice.
 const claimedUploads = new WeakSet<object>();
 
-function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Promise<Waiting | null> {
-  if (input?.readOnly) return null;
-  const typed = input?.value ?? "", state = currentMentions();
+/// What Enter took from the field: the message, and while its uploads run the
+/// promise of it complete, null once it went back to the field.
+type Prepared = { draft: Waiting; ready: Promise<Waiting | null> | null };
+
+function prepareMessage(input: HTMLTextAreaElement | null): Prepared | null {
+  const state = currentMentions();
   const batches = [...MN.pending].filter(batch => !claimedUploads.has(batch));
   // Keep pending batches together until all their images fit the prompt budget.
   const reserved = new Set([...MN.pending].flatMap(batch => batch.paths));
   for (const batch of batches) claimedUploads.add(batch);
   const draft = takeMessage(input, batches.length > 0, reserved), session = AG.open;
-  if (!draft || !batches.length) return draft;
-  if (input) input.value = typed;
-  state.sending = true;
-  showUploadPending(true);
-  return finishMessage(draft);
+  if (!draft) return null;
+  return { draft, ready: batches.length ? finishMessage(draft) : null };
 
   async function finishMessage(draft: Waiting) {
-    try {
-      await Promise.all(batches.map(batch => batch.ready));
-    } finally {
-      state.sending = false;
-      if (input) input.value = "";
-      if (currentMentions() === state) {
-        if (agentMessage.current) agentMessage.current.value = "";
-        showUploadPending(false);
-      }
-    }
-
+    await Promise.all(batches.map(batch => batch.ready.catch(() => { batch.failed = true; })));
     const paths = new Set(batches.flatMap(batch => batch.paths));
     const images = mentionImages(state).filter(image => typeof image.original !== "string" || paths.has(image.original) || draft.paths.includes(image.original));
     for (const path of paths) {
@@ -193,12 +183,47 @@ export async function editQueued(i: number, edit: boolean) {
 /// Enter while the turn runs: steers it.
 export function steerMessage(input: HTMLTextAreaElement) {
   const session = AG.open, state = currentMentions(), ended = AG.page?.session.status === "ended";
-  const draft = prepareMessage(input);
-  if (draft instanceof Promise) return draft.then(q => {
-    if (q && session && AG.open !== session) return sendBackground(session, q, state, ended);
+  return submit(input, q => {
+    if (session && AG.open !== session) return sendBackground(session, q, state, ended);
     queueSteer(q);
   });
-  queueSteer(draft);
+}
+
+const order = sendOrder();
+const orderKey = (o: OpenAgent | null) => o ? conversationKey({ ...o, id: o.session }) : "";
+
+/// Takes what the field holds and runs `send` with it once it can go. Until
+/// then it shows above the field: "uploading" while its files go to the
+/// machine, "waiting" behind the messages sent before it. The field is free
+/// at once; a message sent meanwhile goes after this one.
+function submit(input: HTMLTextAreaElement | null, send: (draft: Waiting) => unknown) {
+  const o = AG.open, queue = AG.queue, key = orderKey(o), behind = order.busy(key);
+  const prepared = prepareMessage(input);
+  if (!prepared) return;
+  const { draft } = prepared;
+  const hold = (state: Waiting["state"]) => { draft.state = state; drawAgentBody(); };
+
+  if (prepared.ready || behind) {
+    queue.push(draft);
+    hold(prepared.ready ? "uploading" : "waiting");
+  }
+
+  // A failed upload put the message back in the field.
+  const ready = prepared.ready?.then(q => {
+    const at = queue.indexOf(draft);
+    if (q && at >= 0) hold("waiting");
+    else if (!q && at >= 0) { queue.splice(at, 1); drawAgentBody(); }
+    return q;
+  });
+
+  return order.run(key, async () => {
+    const q = ready ? await ready : draft, at = queue.indexOf(draft);
+    // Taken back into the field while it waited.
+    if (!q || (at < 0 && heldBack(draft.state))) return;
+    if (at >= 0) queue.splice(at, 1);
+    draft.state = null;
+    return send(q);
+  });
 }
 
 function queueSteer(q: Waiting | null) {
@@ -415,15 +440,17 @@ export async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null): P
   }
 }
 
-export async function sendAgentMessage() {
-  const input = agentMessage.current, session = AG.open, state = currentMentions(), ended = AG.page?.session.status === "ended", prepared = prepareMessage(input);
-  const draft = prepared instanceof Promise ? await prepared : prepared;
-  if (!draft || !session) return;
-  if (AG.open !== session) return sendBackground(session, draft, state, ended);
-  const page = AG.page!;
-  return page.session.status === "ended"
-    ? continueAgent(input!, draft.text, draft.images, draft)
-    : sendMessage(input!, draft.text, draft.images, draft);
+export function sendAgentMessage() {
+  const input = agentMessage.current, session = AG.open, state = currentMentions(), ended = AG.page?.session.status === "ended";
+  if (!session) return;
+  return submit(input, draft => {
+    if (AG.open !== session) return sendBackground(session, draft, state, ended);
+    const field = agentMessage.current ?? input;
+    if (!field) return;
+    return AG.page?.session.status === "ended"
+      ? continueAgent(field, draft.text, draft.images, draft)
+      : sendMessage(field, draft.text, draft.images, draft);
+  });
 }
 
 /// Sends a prepared message, preserving it in the field if refused.
@@ -534,24 +561,22 @@ export async function resumeEndedSession(session: OpenAgent, prompt: string | nu
 async function continueAgent(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
   const o = AG.open!;
   if (!draft) input.value = "";
-  input.disabled = true;
   setNote("");
-  if (!images.length) appendEntry({ kind: "user", text });
+  appendEntry({ kind: "user", text: sentText(text, images) });
   drawAgentBody();
 
   try {
     const started = await resumeEndedSession(o, images.length ? null : text);
     if (!isOpen(o)) return true;
-    // The same session goes on in the same field.
-    input.disabled = false;
-    input.focus();
+    // The same session goes on in the same field. With images the message
+    // goes after the resume, and shows again as it is sent.
+    if (images.length) dropLastEntry();
     openAgent(started.session, { back: AG.back });
     if (images.length) return sendMessage(agentMessage.current ?? input, text, images, draft);
     return true;
   } catch (e) {
     if (!isOpen(o)) return false;
-    if (!images.length) dropLastEntry();
-    input.disabled = false;
+    dropLastEntry();
     backInField(draft ?? { typed: text, paths: [], images });
     setNote(sendError(e).message.replace(/^error:\s*/i, ""));
     drawAgentBody();

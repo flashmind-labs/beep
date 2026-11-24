@@ -43,10 +43,9 @@ interface FieldUi {
   stop: Stop;
   /// A path from the Files tab is dragged over the conversation.
   dropping: boolean;
-  uploading: boolean;
 }
 
-const EMPTY: FieldUi = { slots: {}, signatures: {}, queue: null, attachments: null, menu: null, work: { queued: 0, open: false }, stop: { shown: false, stopping: false }, dropping: false, uploading: false };
+const EMPTY: FieldUi = { slots: {}, signatures: {}, queue: null, attachments: null, menu: null, work: { queued: 0, open: false }, stop: { shown: false, stopping: false }, dropping: false };
 const fieldUi = createStore<FieldUi>(() => EMPTY);
 let batching = 0;
 let dirtyBatch = false;
@@ -125,8 +124,6 @@ export function showFieldDrop(dropping: boolean) {
 }
 
 /// Whether the field shows a path drop.
-export const showUploadPending = (uploading: boolean) => set({ uploading });
-export const useUploadPending = () => useStore(fieldUi, state => state.uploading);
 
 export const useFieldDrop = () => useStore(fieldUi, state => state.dropping);
 

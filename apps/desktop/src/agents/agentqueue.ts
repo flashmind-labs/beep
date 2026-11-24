@@ -15,9 +15,13 @@ export interface Attached {
   original: string | File | null;
 }
 
-/// Where a steer is: on its way to the node, held there for the next tool
-/// boundary, or delivered to the agent.
-type SteerState = "sending" | "sent" | "delivered";
+/// Where a message is: waiting for its upload, waiting for the messages sent
+/// before it, on its way to the node, held there for the next tool boundary,
+/// or delivered to the agent.
+export type SteerState = "uploading" | "waiting" | "sending" | "sent" | "delivered";
+
+/// Whether the node cannot have the message yet.
+export const heldBack = (state: SteerState | null) => state === "uploading" || state === "waiting";
 
 /// A message typed while the turn runs.
 export interface Waiting {
@@ -90,7 +94,7 @@ export function syncSteers(items: Waiting[], run: Run & { queued: number; queued
   const restored: Waiting[] = [];
 
   for (const text of [...messages].reverse()) {
-    const q = local.find(q => !matched.has(q)
+    const q = local.find(q => !matched.has(q) && !heldBack(q.state)
       && [q.text, ...q.images.map(image => `[Image: ${image.name}]`)].filter(Boolean).join("\n") === text);
     if (q) matched.add(q);
     else restored.unshift({
@@ -113,4 +117,21 @@ export function dropDelivered(items: Waiting[]) {
 /// A stop ends when its turn finishes, even if the next turn starts before a read.
 export function stopPending(stop: { id: string; turns: number } | null, id: string, active: boolean, turns: number) {
   return stop?.id === id && active && turns <= stop.turns ? stop : null;
+}
+
+/// Messages to one conversation go out one at a time, in the order they were
+/// sent: one sent while an earlier one uploads or resumes waits for it.
+export function sendOrder() {
+  const tails = new Map<string, Promise<unknown>>();
+
+  return {
+    busy: (key: string) => tails.has(key),
+    run<T>(key: string, work: () => Promise<T>): Promise<T> {
+      const earlier = tails.get(key);
+      const run = earlier ? earlier.then(work) : work();
+      const tail: Promise<unknown> = run.catch(() => {}).finally(() => { if (tails.get(key) === tail) tails.delete(key); });
+      tails.set(key, tail);
+      return run;
+    },
+  };
 }

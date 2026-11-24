@@ -46,13 +46,12 @@ export interface MentionState {
   files: Map<string, StashFile>;
   reading: number;
   images: Attached[];
-  sending: boolean;
   error: string;
 }
 
 /// How long a failed upload stays said, as the field shows it (agentAttachError).
 const ERROR_SHOWN_MS = 5000;
-const freshMentions = (): MentionState => ({ paths: [], uploads: [], pending: new Set(), ask: null, files: new Map(), reading: 0, images: [], sending: false, error: "" });
+const freshMentions = (): MentionState => ({ paths: [], uploads: [], pending: new Set(), ask: null, files: new Map(), reading: 0, images: [], error: "" });
 const conversations = new Map<string, MentionState>();
 let current = freshMentions();
 export const currentMentions = () => current;

@@ -39,7 +39,7 @@ export function AgentAttachments() {
   const uploading = MN.pending.size ? [...MN.pending] : MN.uploads;
   const size = uploading.reduce((n, u) => n + u.size, 0), done = uploading.reduce((n, u) => n + u.done, 0);
   const uploaded = size ? Math.round(done / size * 100) : 0;
-  return <>{uploading.length > 0 && <ProgressBar pct={uploaded} label={`Uploading to ${machine}`} />}
+  return <>{uploaded > 0 && <ProgressBar pct={uploaded} label={`Uploading to ${machine}`} />}
     <AttachmentBatch count={AG.att.length + loose.length + MN.uploads.length}>{AG.att.map((image, i) => <span className="att" key={identity(image)}><ImagePreview images={previewsOf(AG.att)} index={i} listed /><RemoveChip name={image.name} data="data-agatt" index={i} remove={() => removeImage(i)} /></span>)}
     {MN.paths.map((path, i) => {
       if (AG.att.some(image => image.original === path)) return null;
@@ -52,7 +52,7 @@ export function AgentAttachments() {
         <RemoveChip name={name} data="data-agment" index={i} remove={() => removeMention(i)} />
       </span>;
     })}
-    {MN.uploads.map(upload => <span className="agment up" key={identity(upload)} title={`Uploading to ${machine}`}><Spinner /><span className="nm">{upload.name}</span><small>{upload.size ? Math.round(upload.done / upload.size * 100) : 0}%{speedNote(upload)}</small></span>)}
+    {MN.uploads.map(upload => <span className="agment up" key={identity(upload)} title={`Uploading to ${machine}`}><Spinner /><span className="nm">{upload.name}</span><small>{upload.done ? `${Math.round(upload.done / upload.size * 100)}%${speedNote(upload)}` : "uploading"}</small></span>)}
     </AttachmentBatch>
     {ask && <div className="agupask"><span>Upload {ask.files.length === 1 ? <b>{ask.files[0].name}</b> : `${ask.files.length} files`} ({shortSize(ask.files.reduce((n, f) => n + f.size, 0))}) to {machine}:</span><Button ref={there} look="primary" data-agup="there" onClick={() => answerUpload("there")}>Into {ask.folder ? `${ask.folder}/` : "the session's folder"}</Button><Button data-agup="default" title="Outside the project. Deleted when this session is closed." onClick={() => answerUpload("default")}>Temporary attachments</Button><Button look="quiet" data-agup="cancel" onClick={() => answerUpload("cancel")}>Cancel</Button></div>}
     {AG.attError && <span className="derr">{AG.attError}</span>}</>;

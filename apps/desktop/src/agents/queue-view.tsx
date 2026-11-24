@@ -1,8 +1,19 @@
 import { Icon } from "../ui/icons.tsx";
 import { identity } from "../ui/parts.tsx";
 import { type OutboxRow, outboxNote, type Waiting } from "./agentqueue.ts";
+import { Spinner } from "../ui/kit.tsx";
 import { promptParts, sessionMessageTitle } from "./promptparts-state.ts";
 
+
+/// What a waiting row says after its text.
+function queueNote(state: Waiting["state"]) {
+  switch (state) {
+    case "uploading": return "uploading";
+    case "waiting": return "waiting";
+    case "sending": return "sending";
+    default: return "after the current step";
+  }
+}
 
 /// The steers waiting for the turn, then the messages waiting on this device
 /// for the machine; `edit` takes one back into the field, or drops it. A
@@ -19,8 +30,8 @@ export function AgentQueue({ items, edit, outbox, editOutbox }: {
     const text = from ? from.text : item.typed || (item.images.length || item.paths.length ? "" : item.text);
     return <div key={identity(item)} className={from ? "it steer from" : "it steer"}><span className="lbl" title={label}>{label}</span><span className="t" title={from ? from.text : item.text}>{text}</span>
       {[...item.images.map(image => image.name), ...item.paths].map((name, i) => <span className="qatt" title={name} key={i}>{name}</span>)}
-      <span className="w">{item.state === "sending" ? "sending" : "after the current step"}</span>
-      <button data-agq={index} data-act="edit" onClick={() => edit(index, true)}>Edit</button><button data-agq={index} aria-label="Remove" onClick={() => edit(index, false)}><Icon name="x" /></button>
+      <span className="w">{item.state === "uploading" && <Spinner />}{queueNote(item.state)}</span>
+      <button data-agq={index} data-act="edit" disabled={item.state === "uploading"} onClick={() => edit(index, true)}>Edit</button><button data-agq={index} aria-label="Remove" disabled={item.state === "uploading"} onClick={() => edit(index, false)}><Icon name="x" /></button>
     </div>;
   })}{outbox.map(row => {
     const busy = row.state === "sending";

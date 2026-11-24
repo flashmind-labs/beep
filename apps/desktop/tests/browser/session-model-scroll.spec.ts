@@ -295,9 +295,8 @@ test("a pending attachment send finishes in its original conversation after navi
   await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
   await page.locator("#agmsg").fill("Use these notes");
   await page.locator("#agmsg").press("Enter");
-  await expect(page.locator("#agmsg")).toHaveJSProperty("readOnly", true);
+  await expect(page.locator("#agmsg")).toHaveValue("");
   await page.evaluate(({ other, next }) => { window.__navigation.respond("agent_view", next); window.__navigation.open({ agent: { ...other, kind: "agent" } }); }, { other, next: view(other) });
-  await expect(page.locator("#agmsg")).toHaveJSProperty("readOnly", false);
   await page.locator("#agmsg").fill("Draft for the other conversation");
   await page.evaluate(() => window.__navigation.release("agent_tree_upload"));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").length)).toBe(1);
@@ -318,14 +317,14 @@ test("a failed background upload restores the prompt when returning to its conve
   await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
   await page.locator("#agmsg").fill("Keep this prompt if uploading fails");
   await page.locator("#agmsg").press("Enter");
-  await expect(page.locator("#agmsg")).toHaveJSProperty("readOnly", true);
+  await expect(page.locator("#agmsg")).toHaveValue("");
   await page.evaluate(({ other, next }) => { window.__navigation.respond("agent_view", next); window.__navigation.open({ agent: { ...other, kind: "agent" } }); }, { other, next: view(other) });
   await page.locator("#agmsg").fill("Another draft");
   await page.evaluate(() => { window.__navigation.rejectOnce("agent_tree_upload"); window.__navigation.release("agent_tree_upload"); });
   await expect(page.locator("#agmsg")).toHaveValue("Another draft");
   await page.evaluate(({ active, next }) => { window.__navigation.respond("agent_view", next); window.__navigation.open({ agent: { ...active, kind: "agent" } }); }, { active, next: view(active) });
   await expect(page.locator("#agmsg")).toHaveValue("Keep this prompt if uploading fails");
-  await expect(page.locator("#agmsg")).toHaveJSProperty("readOnly", false);
+  await expect(page.locator("#agmsg")).toBeEditable();
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").length)).toBe(0);
 });
 

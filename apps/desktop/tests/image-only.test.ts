@@ -112,17 +112,17 @@ function pendingUpload() {
   };
 }
 
-test("Send keeps the prompt visible and locked until uploads and previews finish", async () => {
+test("Send clears the field at once and sends after uploads and previews finish", async () => {
   openSession("idle");
   answers.agent_steer = ["uploaded-image"];
   const upload = pendingUpload(), input = field();
   input.value = "Describe this";
   const sending = sendAgentMessage();
   assert.deepEqual(steers(), []);
-  assert.equal(input.value, "Describe this");
-  assert.equal(input.readOnly, true);
-  assert.equal(input.getAttribute("aria-busy"), "true");
-  assert.equal(bar.querySelector<HTMLButtonElement>("#agsend")?.disabled, true);
+  assert.equal(input.value, "");
+  assert.equal(input.readOnly, false);
+  assert.equal(bar.querySelector<HTMLButtonElement>("#agsend")?.disabled, false);
+  assert.equal(AG.queue[0]?.state, "uploading");
   upload.attach("/cache/shot.png");
   await sendAgentMessage();
   assert.deepEqual(steers(), []);
@@ -134,8 +134,7 @@ test("Send keeps the prompt visible and locked until uploads and previews finish
   assert.match(sent.steer.text, /shot.png/);
   assert.equal(sent.steer.images.length, 1);
   assert.equal(input.value, "");
-  assert.equal(input.readOnly, false);
-  assert.equal(bar.querySelector<HTMLButtonElement>("#agsend")?.disabled, false);
+  assert.deepEqual(AG.queue, []);
   assert.deepEqual(MN.paths, []);
   assert.deepEqual(AG.att, []);
   clearTimeout(AG.timer);
@@ -148,7 +147,7 @@ test("failed uploads restore the captured draft and do not send partial attachme
   const sending = sendAgentMessage();
   upload.attach("/cache/shot.png");
   upload.batch.failed = true;
-  assert.equal(field().readOnly, true);
+  assert.equal(field().value, "");
   upload.finish();
   await sending;
   assert.deepEqual(steers(), []);
