@@ -1,5 +1,6 @@
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
+import { appendEntry, clearQuestion, dropLastEntry, removeEntry } from "./open-page.ts";
 import { type Attached, dropDelivered, type OutboxRow, sentFromOutbox, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.tsx";
 import { sessionPicks } from "./session.tsx";
@@ -345,10 +346,7 @@ export async function answerAgentQuestion(i: number, shown: string) {
   const failed = await replyToQuestion(o, q.id, opt.id);
 
   if (!failed) {
-    if (isOpen(o) && AG.page!.session.question?.id === q.id) {
-      AG.page!.session.question = null;
-      AG.page!.session.status = "working";
-    }
+    if (isOpen(o) && AG.page?.session.question?.id === q.id) clearQuestion();
   } else {
     // A conflict means it was answered already, so it stays answered.
     const conflict = conflicted(failed.error);
@@ -441,13 +439,12 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
 
   const mine = { kind: "user", text: sentText(text, images) };
   const seen = seenNow();
-  page.entries.push(mine);
+  appendEntry(page, mine);
   drawAgentBody();
   const sent = await sendText({ steer: outgoing(text, images) }, seen);
   if (sent === "sent" || !isOpen(o)) return sent !== "failed";
   // A poll may have drawn more since: take out this message, not the last.
-  const at = page.entries.indexOf(mine);
-  if (at >= 0) page.entries.splice(at, 1);
+  removeEntry(page, mine);
 
   if (sent === "waiting") {
     // It shows in the queue, waiting for the connection; the field stays as it is.
@@ -491,14 +488,13 @@ export async function sendPrompt(text: string) {
     ok = await sendSteer(q, false);
   } else {
     const mine = { kind: "user", text }, seen = seenNow();
-    page.entries.push(mine);
+    appendEntry(page, mine);
     drawAgentBody();
     const sent = await sendText({ prompt: outgoing(text, []) }, seen);
     ok = sent !== "failed";
 
     if (sent !== "sent") {
-      const at = page.entries.indexOf(mine);
-      if (at >= 0) page.entries.splice(at, 1);
+      removeEntry(page, mine);
       drawAgentBody();
     }
   }
@@ -540,7 +536,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
   if (!draft) input.value = "";
   input.disabled = true;
   setNote("");
-  if (!images.length) AG.page!.entries.push({ kind: "user", text });
+  if (!images.length && AG.page) appendEntry(AG.page, { kind: "user", text });
   drawAgentBody();
 
   try {
@@ -554,7 +550,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
     return true;
   } catch (e) {
     if (!isOpen(o)) return false;
-    if (!images.length) AG.page!.entries.pop();
+    if (!images.length && AG.page) dropLastEntry(AG.page);
     input.disabled = false;
     backInField(draft ?? { typed: text, paths: [], images });
     setNote(sendError(e).message.replace(/^error:\s*/i, ""));
