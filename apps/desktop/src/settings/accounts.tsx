@@ -179,7 +179,8 @@ function takeAccounts(data: AgentAccounts, machines: readonly Machine[]) {
   });
 }
 
-/// Reads the accounts, for a change this window made: the push comes for other changes.
+/// Reads the accounts, for the first draw and after a sign-in on a machine. Tokens saved or revoked here
+/// come back as a push.
 export async function loadAgentAccounts() {
   try {
     const [data, machines] = await Promise.all([
@@ -288,7 +289,7 @@ const agentActions: AgentAccountActions = {
     ACC.busy = "add"; add.error = ""; renderAgents();
     try { await invoke("save_agent_token", { agentSlug: draft.agent, name: named.name, secret: draft.secret }); if (ACC.add === add) ACC.add = null; }
     catch (error) { add.error = String(error); }
-    ACC.busy = ""; await loadAgentAccounts();
+    ACC.busy = ""; redrawAgents();
   },
   async addSign(name) {
     const add = ACC.add;
@@ -297,14 +298,14 @@ const agentActions: AgentAccountActions = {
     if (named.name === null) { add.error = named.error; renderAgents(); return; }
     ACC.claudeFlow = true; add.error = ""; renderAgents();
     try { await invoke("claude_sign_in", { name: named.name }); if (ACC.add === add) ACC.add = null; } catch (error) { add.error = String(error); }
-    ACC.claudeFlow = false; await loadAgentAccounts();
+    ACC.claudeFlow = false; redrawAgents();
   },
   async removeNamed(agent, name) {
     ACC.busy = `remove:${agent}/${name}`; renderAgents();
     ACC.namedError = null;
     try { await invoke("revoke_agent_token", { agentSlug: agent, name }); }
     catch (error) { ACC.namedError = { agent, text: String(error) }; }
-    ACC.busy = ""; await loadAgentAccounts();
+    ACC.busy = ""; redrawAgents();
   },
   edit(agent) { agentEditVersion++; ACC.edit = agent; ACC.add = null; ACC.error = ""; renderAgents(); },
   cancel() { agentEditVersion++; ACC.edit = null; ACC.error = ""; renderAgents(); },
@@ -318,19 +319,19 @@ const agentActions: AgentAccountActions = {
     catch (error) { if (version === agentEditVersion) ACC.error = String(error); }
     ACC.busy = "";
     if (version === agentEditVersion) clear();
-    await loadAgentAccounts();
+    redrawAgents();
   },
   async revoke(agent) {
     ACC.busy = `revoke:${agent}`; renderAgents();
     try { await invoke("revoke_agent_token", { agentSlug: agent }); }
     catch (error) { if (agent === "claude") ACC.claudeError = String(error); else ACC.error = String(error); }
-    ACC.busy = ""; await loadAgentAccounts();
+    ACC.busy = ""; redrawAgents();
   },
   async claudeSign() {
     if (ACC.claudeFlow) return;
     agentEditVersion++; ACC.claudeFlow = true; ACC.claudeError = ""; ACC.edit = null; ACC.add = null; renderAgents();
     try { await invoke("claude_sign_in"); } catch (error) { ACC.claudeError = String(error); }
-    ACC.claudeFlow = false; await loadAgentAccounts();
+    ACC.claudeFlow = false; redrawAgents();
   },
   claudeCancel() { invoke("cancel_claude_sign_in").catch(console.warn); },
   machineSign(tool, machine) {

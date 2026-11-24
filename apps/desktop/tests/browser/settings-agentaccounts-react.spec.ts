@@ -152,3 +152,29 @@ test("a named account is added beside the default one", async ({ page }) => {
   await settings.locator("#agNamedSave").click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "save_agent_token").map(call => call.args))).toEqual([{ agentSlug: "codex", name: "Work", secret: "example-token" }]);
 });
+
+test("a token saved here shows from the accounts push, without reading the accounts again", async ({ page }) => {
+  await openDesktop(page, false, {
+    settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
+    agent_accounts: { claude: null, codex_key: null, machines: [], named: [] },
+    list_machines: [], list_credentials: [], list_github_accounts: [], save_agent_token: null,
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
+  await settings.getByRole("button", { name: "Paste a token" }).click();
+  await settings.getByRole("textbox", { name: "Claude Code token" }).fill("example-secret");
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_accounts").length);
+  await expect.poll(reads).toBeGreaterThan(0);
+  const before = await reads();
+
+  await settings.getByRole("textbox", { name: "Claude Code token" }).press("Enter");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "save_agent_token"))).toBe(true);
+  await expect(settings.getByRole("textbox", { name: "Claude Code token" })).toHaveCount(0);
+  expect(await reads()).toBe(before);
+
+  const token = { last4: "cret", created_at: 1, unreadable: false };
+  await page.evaluate(token => window.__navigation.notify("accounts", [{ command: "agent_accounts", value: { claude: token, codex_key: null, machines: [], named: [] } }]), token);
+  await expect(settings.getByText("…cret")).toBeVisible();
+  expect(await reads()).toBe(before);
+});
