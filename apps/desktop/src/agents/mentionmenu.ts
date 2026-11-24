@@ -14,7 +14,7 @@ import { AG, type AgentSession } from "./agents.ts";
 import { sessions } from "./sessions.ts";
 import {
   type AgentCommand, type FileIndex, type Row, type Trigger,
-  filePaths, filterCommands, filterFiles, indexFiles, menuKey, picked, triggerAt,
+  filePaths, filterCommands, filterFiles, indexFiles, menuKey, parseRemembered, picked, triggerAt,
 } from "./mention-state.ts";
 
 /// A list of commands this old is asked for again when a menu opens.
@@ -34,17 +34,35 @@ interface Cached<T> {
 let commands: Cached<AgentCommand[]> | null = null;
 let askedCommands = "";
 let files: Cached<FileIndex> | null = null;
+/// Where the last commands each harness reported are kept between launches.
+const REMEMBERED_KEY = "beep.agentCommands";
+let remembered: Map<string, AgentCommand[]> | null = null;
+
+/// The last commands `agent` reported, on any machine.
+function rememberedOf(agent: string): AgentCommand[] {
+  if (!remembered) {
+    try { remembered = parseRemembered(localStorage.getItem(REMEMBERED_KEY)); } catch { remembered = new Map(); }
+  }
+  return remembered.get(agent) ?? [];
+}
+
+function remember(agent: string, value: AgentCommand[]) {
+  rememberedOf(agent);
+  remembered?.set(agent, value);
+  try { localStorage.setItem(REMEMBERED_KEY, JSON.stringify(Object.fromEntries(remembered ?? []))); } catch { /* kept for this launch only */ }
+}
 let walking = "";
 
 /// Asks the session's machine for its commands, then `again`. A machine
 /// that cannot say (an older node, a failed read) offers none.
-async function readCommands(key: string, machine: string, session: string, again: () => void) {
+async function readCommands(key: string, from: MenuCommands & { session: string }, again: () => void) {
   if (askedCommands === key) return;
   askedCommands = key;
   let value: AgentCommand[] = [];
 
   try {
-    value = await invoke<AgentCommand[]>("agent_commands", { machineId: machine, session });
+    value = await invoke<AgentCommand[]>("agent_commands", { machineId: from.machine, session: from.session });
+    if (value.length) remember(from.agent, value);
   } catch {
     // No commands: the menu does not open.
   }
@@ -85,28 +103,36 @@ export interface MenuPlace {
   machine: string;
   root: string;
   cwd: string;
-  commands: { machine: string; session: string } | null;
+  commands: MenuCommands | null;
+}
+
+/// Whose commands a menu offers: the running session `session` of harness
+/// `agent`, or, while it is null or not read yet, what `agent` last reported.
+export interface MenuCommands {
+  agent: string;
+  machine: string;
+  session: string | null;
 }
 
 /// The open session page's place, while its pane shows.
 function sessionPlace(): MenuPlace | null {
   if (S.view !== "agent" || !paneShown()) return null;
   const s = AG.page?.session;
-  return s && !s.external ? { machine: s.machine_id, root: paneRoot() || s.cwd, cwd: s.cwd, commands: { machine: s.machine_id, session: s.id } } : null;
+  return s && !s.external ? { machine: s.machine_id, root: paneRoot() || s.cwd, cwd: s.cwd, commands: { agent: s.agent, machine: s.machine_id, session: s.id } } : null;
 }
 
 /// The menus for an agent `agent` about to start in `cwd` on `machine`. A
 /// harness reports its commands only while a session runs, and a node
 /// answers only for the sessions it runs, so the commands are those of the
 /// latest running Beep session of that harness: in `cwd`, else on `machine`,
-/// else on any machine. Another machine's list is a best effort: the
-/// built-in commands match, its skills may not.
+/// else on any machine, else the last ones it reported. Another machine's
+/// list is a best effort: the built-in commands match, its skills may not.
 export function menuPlaceFor(machine: string, agent: string, cwd: string): MenuPlace {
   const latest = (rows: AgentSession[]) => rows.reduce<AgentSession | null>((best, s) => !best || s.last_activity > best.last_activity ? s : best, null);
   const running = sessions.filter(s => s.agent === agent && !s.external && s.status !== "ended" && s.status !== "closing");
   const here = running.filter(s => s.machine_id === machine);
   const session = latest(here.filter(s => s.cwd === cwd)) ?? latest(here) ?? latest(running);
-  return { machine, root: cwd, cwd, commands: session && { machine: session.machine_id, session: session.id } };
+  return { machine, root: cwd, cwd, commands: { agent, machine: session?.machine_id ?? machine, session: session?.id ?? null } };
 }
 
 /// Makes `field` offer commands and files as it is typed in, for the place
@@ -141,9 +167,11 @@ export function bindMentionMenu(field: HTMLTextAreaElement, place: () => MenuPla
     if (t.kind === "command") {
       const from = at.commands;
       if (!from) return close();
-      const key = `${from.machine}\n${from.session}`;
-      if (opening && (commands?.key !== key || Date.now() - commands.at > COMMANDS_FRESH_MS)) void readCommands(key, from.machine, from.session, update);
-      const list = commands?.key === key ? commands.value : [];
+      const { session } = from;
+      const key = `${from.machine}\n${session}`;
+      if (session && opening && (commands?.key !== key || Date.now() - commands.at > COMMANDS_FRESH_MS)) void readCommands(key, { ...from, session }, update);
+      const read = session && commands?.key === key ? commands.value : [];
+      const list = read.length ? read : rememberedOf(from.agent);
       const found = filterCommands(list, t.query);
       return found.length ? draw(found, t) : close();
     }

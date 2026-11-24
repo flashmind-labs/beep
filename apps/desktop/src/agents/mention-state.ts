@@ -11,6 +11,24 @@ export interface AgentCommand {
   hint: string;
 }
 
+/// The last commands each harness reported, by harness, as stored: what
+/// does not read as a list of commands is dropped.
+export function parseRemembered(text: string | null): Map<string, AgentCommand[]> {
+  const kept = new Map<string, AgentCommand[]>();
+  let value: unknown;
+  try { value = JSON.parse(text || "{}"); } catch { return kept; }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return kept;
+
+  for (const [agent, list] of Object.entries(value)) {
+    if (!Array.isArray(list)) continue;
+    const commands = list.filter((c): c is AgentCommand => typeof c === "object" && c !== null
+      && typeof c.name === "string" && typeof c.description === "string" && typeof c.hint === "string");
+    if (commands.length) kept.set(agent, commands);
+  }
+
+  return kept;
+}
+
 /// The most rows the menus draw: a command list scrolls, a file list is
 /// cut to its best matches.
 const MAX_COMMAND_ROWS = 40;
