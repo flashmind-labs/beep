@@ -36,7 +36,7 @@ export function AgentAttachments() {
   useLayoutEffect(() => { if (ask) queueMicrotask(() => { if (MN.ask === ask) there.current?.focus(); }); }, [ask]);
   const machine = paneSession()?.machine_name ?? "the machine";
   const loose = MN.paths.filter(path => !AG.att.some(image => image.original === path));
-  const uploading = MN.pending.size ? [...MN.pending] : MN.uploads;
+  const batches = [...MN.pending].filter(batch => !batch.local), uploading = batches.length ? batches : MN.uploads;
   const size = uploading.reduce((n, u) => n + u.size, 0), done = uploading.reduce((n, u) => n + u.done, 0);
   const uploaded = size ? Math.round(done / size * 100) : 0;
   return <>{uploaded > 0 && <ProgressBar pct={uploaded} label={`Uploading to ${machine}`} />}
@@ -47,7 +47,7 @@ export function AgentAttachments() {
       const url = file?.mime.startsWith("image/") ? `data:${file.mime};base64,${file.data}` : null;
       const name = file?.name ?? folderName(path);
 
-      return <span className={url ? "att" : "agment"} key={path} title={path}>
+      return <span className={url ? "att" : "agment"} key={path} title={file ? name : path}>
         {url ? <ImagePreview images={[{ url, name, full: null }]} index={0} listed={false} /> : <><Icon name="doc" /><span className="nm">{name}</span></>}
         <RemoveChip name={name} data="data-agment" index={i} remove={() => removeMention(i)} />
       </span>;

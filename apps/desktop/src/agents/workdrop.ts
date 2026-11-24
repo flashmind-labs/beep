@@ -1,6 +1,6 @@
 // Paths mentioned in a coding agent session's next message, and files dropped
-// or pasted on the session: they upload into its host's temporary cache and
-// are mentioned by absolute path.
+// or pasted on the session: they go with the next message, which uploads them
+// into its host's temporary cache and mentions them by absolute path.
 
 import { attachPreview, staysInline } from "./images.tsx";
 import { AG } from "./agents.ts";
@@ -9,25 +9,22 @@ import { conversationKey } from "./conversation-state.ts";
 import { agentMessage } from "./session-frame.tsx";
 import { joinPath, uploadParts, type Transfer } from "../agentpane/files-state.ts";
 import { fileBase64, type PastedFiles } from "../chat/attach.tsx";
-import { rememberLocalUpload } from "../agentpane/read.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
 import { invoke } from "../ui/tauri.ts";
-import { stashFile, type StashFile } from "../chat/stash-state.ts";
+import type { StashFile } from "../chat/stash-state.ts";
 
 /// A file on its way to the session's machine.
 interface Upload extends Transfer {
   name: string;
 }
 
-/// One attachment batch, including its image previews; `size` and `done`
-/// count the bytes of all its files.
+/// One attachment batch: files being read, or uploaded to a folder; `size`
+/// and `done` count the bytes of all its files.
 interface UploadBatch {
-  paths: string[];
-  failed: boolean;
-  /// The images it attached without uploading them.
-  images: Attached[];
+  /// Files only read from the disk, which go with the message: its send waits for them.
+  local: boolean;
   ready: Promise<void>;
   size: number;
   done: number;
@@ -140,26 +137,63 @@ export function askUpload(files: File[], folder: string, root = paneSession()?.c
   MN.redraw();
 }
 
-/// Files dropped or pasted on the session: temporary attachments by default,
-/// permanent when `folder` is chosen. Gives those that uploaded and where.
+/// The key of a file attached to the next message and not uploaded yet: its
+/// path in `MN.paths`, and its entry in `MN.files`.
+export const attachmentKey = (name: string) => `attachment:${++attachments}:${name}`;
+let attachments = 0;
+
+/// Files dropped or pasted on the session: attached to the next message,
+/// which uploads them behind its row, or uploaded to `folder` at once when
+/// that is chosen.
 export async function uploadDropped(files: PastedFiles, folder: string | null = null, root = paneSession()?.cwd ?? "", preview = false) {
   const state = current, session = paneSession();
   const pending = state.pending;
-  const batch: UploadBatch = { paths: [], failed: false, images: [], ready: Promise.resolve(), size: 0, done: 0 };
+  const batch: UploadBatch = { local: folder === null, ready: Promise.resolve(), size: 0, done: 0 };
   pending.add(batch);
-  const upload = (dropped: File[]) => {
+  const attach = (dropped: File[]) => {
     batch.size = dropped.reduce((n, f) => n + f.size, 0);
-    return uploadFiles(dropped, folder, root, preview, batch, state, session);
+    return folder === null ? attachFiles(dropped, preview, batch, state, session) : uploadFiles(dropped, folder, root, batch, state, session);
   };
-  const work = Array.isArray(files) ? upload(files) : files.then(upload);
+  const work = Array.isArray(files) ? attach(files) : files.then(attach);
   batch.ready = work.then(() => {});
 
-  try { return await work; }
+  try { await work; }
   finally { pending.delete(batch); }
 }
 
-async function uploadFiles(files: File[], folder: string | null, root: string, preview: boolean, batch: UploadBatch, state: MentionState, session: ReturnType<typeof paneSession>) {
-  const uploaded: { file: File; path: string }[] = [];
+/// The reads of files being attached, which a message sent now waits for.
+export const attachReads = () => [...current.pending].filter(batch => batch.local).map(batch => batch.ready);
+
+/// Keeps `files` for the next message. A picture that goes inline as it is
+/// crosses the link once, in the message; the others upload with it.
+async function attachFiles(files: File[], preview: boolean, batch: UploadBatch, state: MentionState, session: ReturnType<typeof paneSession>) {
+  state.error = "";
+
+  for (const f of files) {
+    try {
+      state.reading++;
+      if (preview && staysInline(f) && await attachPreview(mentionImages(state), f, null)) continue;
+      if (!session) continue;
+
+      const key = attachmentKey(f.name || "file");
+      state.files.set(key, { name: f.name || "file", mime: f.type || "application/octet-stream", size: f.size, data: await fileBase64(f) });
+      state.paths.push(key);
+      if (preview && f.type.startsWith("image/")) await attachPreview(mentionImages(state), f, key);
+    } catch {
+      const message = `${f.name || "That file"} could not be read; folders do not attach, drop the files in them`;
+      state.error = message;
+      if (state === current) MN.error(message);
+      setTimeout(() => { if (state.error === message) state.error = ""; }, ERROR_SHOWN_MS);
+    } finally {
+      state.reading--;
+      batch.done += f.size;
+    }
+
+    redrawUploads(state);
+  }
+}
+
+async function uploadFiles(files: File[], folder: string, root: string, batch: UploadBatch, state: MentionState, session: ReturnType<typeof paneSession>) {
   state.error = "";
 
   for (const f of files) {
@@ -167,27 +201,9 @@ async function uploadFiles(files: File[], folder: string | null, root: string, p
 
     try {
       state.reading++;
-
-      // A picture that goes inline as it is crosses the link once, in the
-      // message: no file copy on the machine, so no path to mention.
-      if (preview && folder === null && staysInline(f)) {
-        const added = await attachPreview(mentionImages(state), f, null);
-        if (added) { batch.images.push(added); batch.done = start + f.size; redrawUploads(state); continue; }
-      }
-
       const path = await uploadOne(f, folder, root, session, state, batch);
-      const data = path ? await fileBase64(f) : "";
-
-      if (path) {
-        if (session) rememberLocalUpload(session.machine_id, path, f);
-        state.files.set(path, { name: f.name, mime: f.type || "application/octet-stream", size: f.size, data });
-        if (!state.paths.includes(path)) state.paths.push(path);
-        uploaded.push({ file: f, path });
-        batch.paths.push(path);
-        if (preview && f.type.startsWith("image/")) await attachPreview(mentionImages(state), f, path);
-      }
+      if (path && !state.paths.includes(path)) state.paths.push(path);
     } catch (e) {
-      batch.failed = true;
       const message = `${f.name || "That file"} did not upload: ${String(e instanceof Error ? e.message : e).replace(/^bad request: /, "")}`;
       state.error = message;
       if (state === current) MN.error(message);
@@ -201,35 +217,19 @@ async function uploadFiles(files: File[], folder: string | null, root: string, p
     redrawUploads(state);
   }
 
-  if (folder !== null && state === current) reloadFolder(folder);
-  return uploaded;
-}
-
-/// Copies stashed files to this session before its stash entry is consumed.
-export async function prepareStashFiles(files: StashFile[]) {
-  const session = paneSession();
-  if (!session && files.length) throw new Error("Open a session before restoring files");
-  const restored = new Map<string, StashFile>();
-
-  for (const file of files) {
-    const path = await uploadOne(stashFile(file), null, session!.cwd);
-    if (!path || paneSession() !== session) throw new Error("The session changed while restoring files");
-    restored.set(path, file);
-  }
-
-  return restored;
+  if (state === current) reloadFolder(folder);
 }
 
 /// Uploads `file` into `folder` of the session's folder, a part at a time;
 /// the path it took there, or "" when the session went away.
-async function uploadOne(file: File, folder: string | null, root: string, s = paneSession(), state = current, batch: UploadBatch | null = null) {
+async function uploadOne(file: File, folder: string, root: string, s = paneSession(), state = current, batch: UploadBatch | null = null) {
   if (!s) return "";
   const up: Upload = { name: file.name || "file", started: Date.now(), size: file.size, done: 0 };
   state.uploads.push(up);
   redrawUploads(state);
 
   try {
-    let path = folder === null ? up.name : joinPath(folder, up.name);
+    let path = joinPath(folder, up.name);
 
     for (const part of uploadParts(file.size)) {
       // A folder dropped from Finder fails to read here.
@@ -240,14 +240,14 @@ async function uploadOne(file: File, folder: string | null, root: string, s = pa
 
       path = await invoke<string>("agent_tree_upload", {
         machineId: s.machine_id, root, path, offset: part.offset, size: file.size, data,
-        attachment: folder === null ? { agent: s.agent, session: s.id } : null,
+        attachment: null,
       });
       up.done = part.offset + part.len;
       if (batch) batch.done += part.len;
       redrawUploads(state);
     }
 
-    return folder === null ? path : mentioned(root, s.cwd, path);
+    return mentioned(root, s.cwd, path);
   } finally {
     state.uploads = state.uploads.filter(u => u !== up);
   }

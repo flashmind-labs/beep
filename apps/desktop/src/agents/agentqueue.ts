@@ -15,13 +15,13 @@ export interface Attached {
   original: string | File | null;
 }
 
-/// Where a message is: waiting for its upload, waiting for the messages sent
-/// before it, on its way to the node, held there for the next tool boundary,
-/// or delivered to the agent.
-export type SteerState = "uploading" | "waiting" | "sending" | "sent" | "delivered";
+/// Where a message is: waiting for the messages sent before it, on its way
+/// to the node, held there for the next tool boundary, or delivered to the
+/// agent.
+export type SteerState = "waiting" | "sending" | "sent" | "delivered";
 
 /// Whether the node cannot have the message yet.
-export const heldBack = (state: SteerState | null) => state === "uploading" || state === "waiting";
+export const heldBack = (state: SteerState | null) => state === "waiting";
 
 /// A message typed while the turn runs.
 export interface Waiting {
@@ -32,6 +32,8 @@ export interface Waiting {
   paths: string[];
   images: Attached[];
   files?: { path: string; file: StashFile }[];
+  /// The session's folder, where its files upload to.
+  root?: string;
   /// A steer's progress; null before sending.
   state: SteerState | null;
   /// For a sent steer: the session read after which the node holds it.
@@ -46,7 +48,7 @@ export interface OutboxRow {
   text: string;
   /// The names of its images.
   images: string[];
-  state: "waiting" | "sending" | "failed";
+  state: "waiting" | "uploading" | "sending" | "failed";
   /// Why the machine refused a failed one.
   reason: string | null;
 }
@@ -55,9 +57,22 @@ export interface OutboxRow {
 export function outboxNote(row: OutboxRow) {
   switch (row.state) {
     case "waiting": return "waiting for connection";
+    case "uploading": return "uploading";
     case "sending": return "sending";
     case "failed": return row.reason || "not sent";
   }
+}
+
+/// What `agent_steer` takes for the files a message uploads before it goes:
+/// the files, which go to the machine behind the row, and the other paths it
+/// mentions. Null when it has no files.
+export interface Attach { root: string; files: { name: string; mime: string; data: string }[]; mentions: string[] }
+
+export function attachOf({ paths, files = [], root = "" }: { paths: readonly string[]; files?: readonly { path: string; file: StashFile }[]; root?: string }): Attach | null {
+  if (!files.length) return null;
+  const uploaded = new Set(files.map(({ path }) => path));
+
+  return { root, files: files.map(({ file: { name, mime, data } }) => ({ name, mime, data })), mentions: paths.filter(path => !uploaded.has(path)) };
 }
 
 /// The row to show for a message the outbox just handed to the node, or null.

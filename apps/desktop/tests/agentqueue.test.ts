@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Attached, dropDelivered, heldBack, markDelivered, type OutboxRow, sendOrder, sentFromOutbox, stopPending, syncSteers, type Waiting } from "../src/agents/agentqueue.ts";
+import { type Attached, attachOf, dropDelivered, heldBack, markDelivered, type OutboxRow, outboxNote, sendOrder, sentFromOutbox, stopPending, syncSteers, type Waiting } from "../src/agents/agentqueue.ts";
 
 const img = (name: string, size = 10): Attached => ({ name, mime: "image/png", size, data: "", url: "", original: null });
 const item = (text: string, images: Attached[] = []): Waiting => ({ typed: text, text, paths: [], images, state: null, after: 0 });
@@ -156,12 +156,24 @@ test("a failed send does not stop the one behind it", async () => {
 });
 
 test("rows held back are not matched against what the node holds", () => {
-  const held: Waiting = { ...item("same"), state: "uploading" };
+  const held: Waiting = { ...item("same"), state: "waiting" };
   const sent = steer("same", 1);
   assert.equal(heldBack(held.state), true);
   assert.equal(heldBack(sent.state), false);
   const q = [sent, held];
   syncSteers(q, { queued: 1, queued_messages: ["same"] } as never, 3);
   assert.equal(sent.state, "sent");
-  assert.equal(held.state, "uploading");
+  assert.equal(held.state, "waiting");
+});
+
+test("files go to the outbox with the paths the message mentions beside them", () => {
+  const file = { name: "a.txt", mime: "text/plain", size: 1, data: "YQ==" };
+  assert.equal(attachOf({ paths: ["src/lib.rs"], files: [] }), null);
+  assert.deepEqual(attachOf({ paths: ["src/lib.rs", "attachment:1:a.txt"], files: [{ path: "attachment:1:a.txt", file }], root: "/srv/project" }), {
+    root: "/srv/project", files: [{ name: "a.txt", mime: "text/plain", data: "YQ==" }], mentions: ["src/lib.rs"],
+  });
+});
+
+test("an outbox row that uploads says so", () => {
+  assert.equal(outboxNote({ id: 1, how: "prompt", text: "t", images: [], state: "uploading", reason: null }), "uploading");
 });

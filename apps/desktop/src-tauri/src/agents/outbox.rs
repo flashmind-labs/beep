@@ -170,7 +170,12 @@ impl Message {
             id: self.id,
             how: self.how,
             text: self.text.clone(),
-            images: self.images.iter().map(|image| image.name.clone()).collect(),
+            images: self
+                .images
+                .iter()
+                .chain(&self.files)
+                .map(|image| image.name.clone())
+                .collect(),
             state,
             reason,
         }
@@ -1183,7 +1188,7 @@ impl Link for MeshLink {
                     data: part.to_vec(),
                 };
                 offset += u64::try_from(part.len()).map_err(anyhow::Error::from)?;
-                path = direct::upload(
+                path = crate::fleet::files::upload(
                     &fleet,
                     self.machine,
                     message.agent.clone(),

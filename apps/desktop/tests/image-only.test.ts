@@ -6,7 +6,7 @@ import { setView } from "../src/bar/core.ts";
 import { sendAgentMessage, steerMessage, stopAllWork } from "../src/agents/messages.ts";
 import { pollAgent } from "../src/agents/session.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
-import { MN, activateMentions, resetMentions, currentMentions, rememberMentionImages } from "../src/agents/workdrop.ts";
+import { MN, activateMentions, resetMentions, currentMentions } from "../src/agents/workdrop.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
 import { staysInline } from "../src/agents/images.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
@@ -96,90 +96,56 @@ test("resuming reconnects a stream that closed before its first snapshot", async
   assert.equal(calls.filter(c => c.cmd === "agent_follow").length, 2);
 });
 
-function pendingUpload() {
+function pendingRead() {
   let finish = () => {};
   const ready = new Promise<void>(resolve => { finish = resolve; });
-  const batch = { paths: [] as string[], failed: false, images: [], ready, size: 0, done: 0 };
+  const batch = { local: true, ready, size: 0, done: 0 };
   MN.pending.add(batch);
   return {
-    batch,
     finish() { MN.pending.delete(batch); finish(); },
     attach(path: string) {
-      batch.paths.push(path);
       MN.paths.push(path);
-      MN.files.set(path, { name: "shot.png", mime: png.mime, size: png.size, data: png.data });
-      AG.att.push({ ...png, original: path });
+      MN.files.set(path, { name: "report.txt", mime: "text/plain", size: 5, data: "bm90ZXM=" });
     },
   };
 }
 
-test("Send clears the field at once and sends after uploads and previews finish", async () => {
+test("Send waits for files still being read, then hands them to the outbox with the words", async () => {
   openSession("idle");
   answers.agent_steer = ["uploaded-image"];
-  const upload = pendingUpload(), input = field();
+  const read = pendingRead(), input = field();
   input.value = "Describe this";
   const sending = sendAgentMessage();
   assert.deepEqual(steers(), []);
-  assert.equal(input.value, "");
-  assert.equal(input.readOnly, false);
-  assert.equal(bar.querySelector<HTMLButtonElement>("#agsend")?.disabled, false);
-  assert.equal(AG.queue[0]?.state, "uploading");
-  upload.attach("/cache/shot.png");
-  await sendAgentMessage();
-  assert.deepEqual(steers(), []);
-  upload.finish();
+  read.attach("attachment:1:report.txt");
+  AG.att.push(png);
+  read.finish();
   await sending;
-  assert.equal(steers().length, 1);
-  const sent = steers()[0] as { steer: { text: string; images: unknown[] } };
-  assert.match(sent.steer.text, /Describe this/);
-  assert.match(sent.steer.text, /shot.png/);
-  assert.equal(sent.steer.images.length, 1);
+  const sent = calls.filter(c => c.cmd === "agent_steer").map(c => c.args as { steer: { steer: { text: string; images: unknown[] } }; attach: unknown });
+  assert.equal(sent.length, 1);
+  // The words alone: the outbox adds the mention once the file is on the machine.
+  assert.equal(sent[0].steer.steer.text, "Describe this");
+  assert.equal(sent[0].steer.steer.images.length, 1);
+  assert.deepEqual(sent[0].attach, { root: "", files: [{ name: "report.txt", mime: "text/plain", data: "bm90ZXM=" }], mentions: [] });
   assert.equal(input.value, "");
-  assert.deepEqual(AG.queue, []);
   assert.deepEqual(MN.paths, []);
   assert.deepEqual(AG.att, []);
+  assert.equal(calls.filter(c => c.cmd === "agent_tree_upload").length, 0);
   clearTimeout(AG.timer);
 });
 
-test("failed uploads restore the captured draft and do not send partial attachments", async () => {
+test("leaving the conversation while its files are read sends nothing and takes nothing", async () => {
   openSession("idle");
-  const upload = pendingUpload();
-  field().value = "Describe this";
-  const sending = sendAgentMessage();
-  upload.attach("/cache/shot.png");
-  upload.batch.failed = true;
-  assert.equal(field().value, "");
-  upload.finish();
-  await sending;
-  assert.deepEqual(steers(), []);
-  assert.equal(field().value, "Describe this");
-  assert.equal(field().readOnly, false);
-  assert.deepEqual(MN.paths, ["/cache/shot.png"]);
-  assert.equal(AG.att.length, 1);
-});
-
-test("switching sessions sends uploaded attachments to the original conversation", async () => {
-  openSession("idle");
-  const original = currentMentions();
-  const upload = pendingUpload();
+  const read = pendingRead();
   field().value = "Original session";
   const sending = sendAgentMessage();
-  upload.attach("/cache/shot.png");
-  rememberMentionImages();
-  openSession("idle");
+  read.attach("attachment:2:report.txt");
+  const kept = [...MN.paths];
   AG.open = { machine_id: "m1", agent: "claude", session: "s2" };
-  answers.agent_steer = ["uploaded-image"];
-  field().value = "Other conversation";
-  upload.finish();
+  read.finish();
   await sending;
-  const sends = calls.filter(call => call.cmd === "agent_steer");
-  assert.equal(sends.length, 1);
-  assert.equal((sends[0].args as { session: string }).session, "s1");
-  assert.equal((sends[0].args as { steer: { steer: { images: unknown[] } } }).steer.steer.images.length, 1);
-  assert.equal(field().value, "Other conversation");
-  assert.deepEqual(MN.paths, []);
-  assert.deepEqual(AG.att, []);
-  assert.deepEqual(original.paths, []);
+  assert.deepEqual(steers(), []);
+  assert.deepEqual(MN.paths, kept);
 });
 
 test("Stop all returns text and images to its session when navigation interrupts the drain", async t => {
@@ -193,7 +159,7 @@ test("Stop all returns text and images to its session when navigation interrupts
   const { session } = openSession("working");
   activateMentions(session);
   const original = currentMentions();
-  const drafts = [{ text: "Recover this draft", images: [png] }];
+  const drafts = [{ text: "Recover this draft", images: [png], files: [], mentions: [] }];
   let finish = (_drafts: typeof drafts) => {};
   answers.outbox_drain = new Promise<typeof drafts>(resolve => { finish = resolve; });
   const stopped = stopAllWork(session);
@@ -216,7 +182,7 @@ test("Stop all preserves the outbox draft when the node refuses the stop", async
   const { session } = openSession("working");
   const input = field();
   input.value = "Next draft";
-  answers.outbox_drain = [{ text: "Recover this draft", images: [png] }];
+  answers.outbox_drain = [{ text: "Recover this draft", images: [png], files: [], mentions: [] }];
   refuse("agent_steer", "The stop was refused");
   t.after(() => { delete answers.outbox_drain; delete answers.agent_steer; clearTimeout(AG.timer); });
 
@@ -248,14 +214,15 @@ test("Stop all does not restore a steer delivered while the stop was pending", a
   assert.deepEqual(AG.queue, []);
 });
 
-test("steers wait for attachment uploads too", async () => {
+test("steers wait for the files being read too", async () => {
   openSession("working");
   answers.agent_steer = ["uploaded-image"];
-  const upload = pendingUpload();
+  const read = pendingRead();
   const sending = steerMessage(field());
   assert.deepEqual(steers(), []);
-  upload.attach("/cache/shot.png");
-  upload.finish();
+  read.attach("attachment:3:report.txt");
+  AG.att.push(png);
+  read.finish();
   await sending;
   assert.equal(steers().length, 1);
   const sent = steers()[0] as { steer: { images: unknown[] } };

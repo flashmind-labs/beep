@@ -1,7 +1,7 @@
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
 import { appendEntry, clearQuestion, dropLastEntry, removeEntry } from "./open-page.ts";
-import { type Attached, dropDelivered, heldBack, type OutboxRow, sendOrder, sentFromOutbox, type Waiting } from "./agentqueue.ts";
+import { type Attach, type Attached, attachOf, dropDelivered, heldBack, type OutboxRow, sendOrder, sentFromOutbox, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.tsx";
 import { sessionPicks } from "./session.tsx";
 import { imageLines, sentText } from "./agentlog.ts";
@@ -11,13 +11,14 @@ import { NEW_THREAD } from "./threads-state.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
-import { MN, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./workdrop.ts";
+import { paneSession } from "../agentpane/media.ts";
+import { MN, attachReads, attachmentKey, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentQuestion, type AgentRow, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, setNote, turnRuns } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";
-import { drawAgentAttached, fitAttachedImages, keepSentImages, keepAgentPics } from "./images.tsx";
+import { drawAgentAttached, keepSentImages, keepAgentPics } from "./images.tsx";
 import { drawAgentBody } from "./logview.tsx";
 import { sameSession } from "./running-state.ts";
 import { conflicted, invoke, listen } from "../ui/tauri.ts";
@@ -43,77 +44,22 @@ type Outgoing = { text: string; images?: SentImage[] };
 const outgoing = (text: string, images: Attached[]): Outgoing => images.length ? { text: withMentions(text, [], images.length), images: images.map(sentImage) } : { text };
 
 /// Takes what waits in the field for a message: the words, the paths it
-/// mentions and the images.
-function takeMessage(input: HTMLTextAreaElement | null, uploading = false, reserved = new Set<string>()): Waiting | null {
-
+/// mentions, the files that go with it and the images. Files keep their words
+/// alone: the outbox adds their paths once they are uploaded.
+function takeMessage(input: HTMLTextAreaElement | null): Waiting | null {
   // Copies: what is attached next must not join this message.
   const typed = composeMessage(input?.value ?? "");
-  const images = uploading ? [] : AG.att.filter(image => typeof image.original !== "string" || !reserved.has(image.original));
-  const paths = MN.paths.filter(path => !reserved.has(path));
-  if (!typed && !images.length && !paths.length && !uploading) return null;
+  const images = [...AG.att], paths = [...MN.paths];
+  if (!typed && !images.length && !paths.length) return null;
   const files = paths.flatMap(path => { const file = MN.files.get(path); return file ? [{ path, file }] : []; });
-  const text = withMentions(typed, paths, images.length);
-  MN.paths = MN.paths.filter(path => reserved.has(path));
-  for (const path of paths) MN.files.delete(path);
+  const text = files.length ? typed : withMentions(typed, paths, images.length);
+  const root = paneSession()?.cwd ?? "";
+  MN.paths = [];
+  MN.files.clear();
   MN.redraw();
   if (input) input.value = "";
-  if (images.length) { setAttached(AG.att.filter(image => !images.includes(image))); drawAgentAttached(); }
-  return { typed, text, paths, images, files, state: null, after: 0 };
-}
-
-// Each batch belongs to at most one send, even if Enter is pressed twice.
-const claimedUploads = new WeakSet<object>();
-
-/// What Enter took from the field: the message, and while its uploads run the
-/// promise of it complete, null once it went back to the field.
-type Prepared = { draft: Waiting; ready: Promise<Waiting | null> | null };
-
-function prepareMessage(input: HTMLTextAreaElement | null): Prepared | null {
-  const state = currentMentions();
-  const batches = [...MN.pending].filter(batch => !claimedUploads.has(batch));
-  // Keep pending batches together until all their images fit the prompt budget.
-  const reserved = new Set([...MN.pending].flatMap(batch => batch.paths));
-  // Pictures waiting now go with it; those a batch is still attaching go with that batch.
-  const inBatches = new Set([...MN.pending].flatMap(batch => batch.images));
-  const earlier = new Set(mentionImages(state).filter(image => typeof image.original !== "string" && !inBatches.has(image)));
-  for (const batch of batches) claimedUploads.add(batch);
-  const draft = takeMessage(input, batches.length > 0, reserved), session = AG.open;
-  if (!draft) return null;
-  return { draft, ready: batches.length ? finishMessage(draft) : null };
-
-  async function finishMessage(draft: Waiting) {
-    await Promise.all(batches.map(batch => batch.ready.catch(() => { batch.failed = true; })));
-    const paths = new Set(batches.flatMap(batch => batch.paths));
-    const own = new Set(batches.flatMap(batch => batch.images));
-    const images = mentionImages(state).filter(image => own.has(image) || earlier.has(image) || (typeof image.original === "string" && (paths.has(image.original) || draft.paths.includes(image.original))));
-    for (const path of paths) {
-      if (!draft.paths.includes(path)) draft.paths.push(path);
-      const file = state.files.get(path);
-      if (file) (draft.files ??= []).push({ path, file });
-      state.files.delete(path);
-    }
-
-    draft.images.push(...images);
-    draft.text = withMentions(draft.typed, draft.paths, draft.images.length);
-    state.paths = state.paths.filter(path => !paths.has(path));
-    setMentionImages(state, mentionImages(state).filter(image => !images.includes(image)));
-    if (currentMentions() === state) drawAgentAttached();
-
-    if (batches.some(batch => batch.failed)) {
-      restoreDraft(draft, state, session);
-      return null;
-    }
-
-    try {
-      draft.images = await fitAttachedImages(draft.images);
-    } catch (e) {
-      restoreDraft(draft, state, session);
-      if (currentMentions() === state) MN.error(String(e));
-      return null;
-    }
-
-    return draft;
-  }
+  if (images.length) { setAttached([]); drawAgentAttached(); }
+  return { typed, text, paths, images, files, root, state: null, after: 0 };
 }
 
 /// Puts `q` back in the field, before what is typed there.
@@ -151,7 +97,7 @@ async function sendBackground(session: OpenAgent, draft: Waiting, state: Mention
     }
 
     keepAgentPics(target, draft.images);
-    const error = await sendOnce(target, { steer: outgoing(draft.text, draft.images) }, null);
+    const error = await sendOnce(target, { steer: outgoing(draft.text, draft.images) }, null, attachOf(draft));
     if (error && error.kind !== "waiting" && error.kind !== "timeout") {
       state.error = error.message;
       restoreDraft(draft, state, session);
@@ -196,38 +142,35 @@ export function steerMessage(input: HTMLTextAreaElement) {
 const order = sendOrder();
 const orderKey = (o: OpenAgent | null) => o ? conversationKey({ ...o, id: o.session }) : "";
 
-/// Takes what the field holds and runs `send` with it once it can go. Until
-/// then it shows above the field: "uploading" while its files go to the
-/// machine, "waiting" behind the messages sent before it. The field is free
-/// at once; a message sent meanwhile goes after this one.
+/// Takes what the field holds and runs `send` with it, once the files being
+/// attached are read from the disk. The field is free at once; the message
+/// goes after the ones sent before it, and its files upload behind its row
+/// in the outbox.
 function submit(input: HTMLTextAreaElement | null, send: (draft: Waiting) => unknown) {
   const o = AG.open, queue = AG.queue, key = orderKey(o), behind = order.busy(key);
-  const prepared = prepareMessage(input);
-  if (!prepared) return;
-  const { draft } = prepared;
-  const hold = (state: Waiting["state"]) => { draft.state = state; drawAgentBody(); };
+  const reads = attachReads();
+  const take = () => {
+    // Gone to another conversation while its files were read: the words stay in its field.
+    if (AG.open !== o) return;
+    const draft = takeMessage(input);
+    if (!draft) return;
+    if (behind) {
+      queue.push(draft);
+      draft.state = "waiting";
+      drawAgentBody();
+    }
 
-  if (prepared.ready || behind) {
-    queue.push(draft);
-    hold(prepared.ready ? "uploading" : "waiting");
-  }
+    return order.run(key, async () => {
+      const at = queue.indexOf(draft);
+      // Taken back into the field while it waited.
+      if (at < 0 && heldBack(draft.state)) return;
+      if (at >= 0) queue.splice(at, 1);
+      draft.state = null;
+      return send(draft);
+    });
+  };
 
-  // A failed upload put the message back in the field.
-  const ready = prepared.ready?.then(q => {
-    const at = queue.indexOf(draft);
-    if (q && at >= 0) hold("waiting");
-    else if (!q && at >= 0) { queue.splice(at, 1); drawAgentBody(); }
-    return q;
-  });
-
-  return order.run(key, async () => {
-    const q = ready ? await ready : draft, at = queue.indexOf(draft);
-    // Taken back into the field while it waited.
-    if (!q || (at < 0 && heldBack(draft.state))) return;
-    if (at >= 0) queue.splice(at, 1);
-    draft.state = null;
-    return send(q);
-  });
+  return reads.length ? Promise.all(reads).then(take) : take();
 }
 
 function queueSteer(q: Waiting | null) {
@@ -242,7 +185,7 @@ async function sendSteer(q: Waiting, back = true) {
   q.state = "sending";
   drawAgentBody();
   if (q.images.length) keepAgentPics(o, q.images);
-  const sent = await sendText({ steer: outgoing(q.text, q.images) }, seenNow());
+  const sent = await sendText({ steer: outgoing(q.text, q.images) }, seenNow(), attachOf(q));
 
   if (sent === "sent") {
     q.state = "sent";
@@ -416,10 +359,10 @@ const seenNow = (): Seen | null => AG.page ? { entries: AG.page.earlier + AG.pag
 /// "waiting" when it waits on this device until the machine can be reached,
 /// else "failed", with the note saying why. The outbox owns a message once
 /// it has it, so one whose send got no answer in time waits there too.
-async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen: Seen | null): Promise<"sent" | "waiting" | "failed"> {
+async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen: Seen | null, attach: Attach | null = null): Promise<"sent" | "waiting" | "failed"> {
   const o = AG.open;
   if (!o || AG.page?.session.external) return "failed";
-  const failed = await sendOnce(o, steer, seen);
+  const failed = await sendOnce(o, steer, seen, attach);
   const sent = !failed ? "sent" : failed.kind === "waiting" || failed.kind === "timeout" ? "waiting" : "failed";
 
   if (isOpen(o)) {
@@ -433,9 +376,9 @@ async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen:
 }
 
 /// One `agent_steer` call: null when the node took it, else why not.
-export async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null): Promise<SendError | null> {
+export async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null, attach: Attach | null = null): Promise<SendError | null> {
   try {
-    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0], seen }, AGENT_SEND_WAIT_MS);
+    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0], seen, ...(attach ? { attach } : {}) }, AGENT_SEND_WAIT_MS);
     const sent = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
     if (sent?.images) keepSentImages(keys, sent.images);
     return null;
@@ -472,7 +415,7 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   const seen = seenNow();
   appendEntry(mine);
   drawAgentBody();
-  const sent = await sendText({ steer: outgoing(text, images) }, seen);
+  const sent = await sendText({ steer: outgoing(text, images) }, seen, draft ? attachOf(draft) : null);
   if (sent === "sent" || !isOpen(o)) return sent !== "failed";
   // A poll may have drawn more since: take out this message, not the last.
   removeEntry(mine);
@@ -570,13 +513,14 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
   drawAgentBody();
 
   try {
-    const started = await resumeEndedSession(o, images.length ? null : text);
+    const later = images.length > 0 || !!draft?.files?.length;
+    const started = await resumeEndedSession(o, later ? null : text);
     if (!isOpen(o)) return true;
-    // The same session goes on in the same field. With images the message
-    // goes after the resume, and shows again as it is sent.
-    if (images.length) dropLastEntry();
+    // The same session goes on in the same field. With images or files the
+    // message goes after the resume, and shows again as it is sent.
+    if (later) dropLastEntry();
     openAgent(started.session, { back: AG.back });
-    if (images.length) return sendMessage(agentMessage.current ?? input, text, images, draft);
+    if (later) return sendMessage(agentMessage.current ?? input, text, images, draft);
     return true;
   } catch (e) {
     if (!isOpen(o)) return false;
@@ -591,7 +535,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
 // ----- The outbox: messages waiting on this device for their machine -----
 
 /// A waiting message as `outbox_take` gives it back.
-interface Taken { text: string; images: SentImage[] }
+interface Taken { text: string; images: SentImage[]; files: SentImage[]; mentions: string[] }
 
 /// What `outbox-changed` tells every window.
 interface OutboxChanged extends OpenAgent { sent: OutboxRow[] }
@@ -656,10 +600,18 @@ async function drainOutbox(o: OpenAgent): Promise<Draft[]> {
   }
 }
 
-const draftOf = ({ text, images }: Taken): Draft => ({
-  typed: text, paths: [],
-  images: images.map(({ name, mime, data }) => ({ name, mime, data, size: Math.floor(data.length * 3 / 4), url: `data:${mime};base64,${data}`, original: null })),
-});
+const draftOf = ({ text, images, files, mentions }: Taken): Draft => {
+  const kept = files.map(({ name, mime, data }) => ({ path: attachmentKey(name), file: { name, mime, size: base64Size(data), data } }));
+  return {
+    typed: text, paths: [...mentions, ...kept.map(({ path }) => path)], files: kept, images: imagesOf(images),
+  };
+};
+
+const imagesOf = (images: SentImage[]): Attached[] =>
+  images.map(({ name, mime, data }) => ({ name, mime, data, size: Math.floor(data.length * 3 / 4), url: `data:${mime};base64,${data}`, original: null }));
+
+/// The bytes a base64 text holds.
+const base64Size = (data: string) => Math.floor(data.length * 3 / 4) - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
 
 /// Starts the message that asks the chat `s` for a thread, for the user to say what it is for:
 /// in its field when it is open, else in its kept draft, which shows once it opens.

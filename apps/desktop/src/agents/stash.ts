@@ -5,7 +5,7 @@ import { windowHooks } from "../bar/core.ts";
 import { AG } from "./agents.ts";
 import type { Attached } from "./agentqueue.ts";
 import { attachPreview, drawAgentAttached } from "./images.tsx";
-import { MN, prepareStashFiles, setAttached } from "./workdrop.ts";
+import { MN, attachmentKey, setAttached } from "./workdrop.ts";
 
 export function bindSessionStash(field: HTMLTextAreaElement) {
   const open = AG.open;
@@ -27,7 +27,8 @@ export function bindSessionStash(field: HTMLTextAreaElement) {
     },
     prepare: async message => {
       message.images.forEach(stashFile);
-      const files = await prepareStashFiles(message.files);
+      message.files.forEach(stashFile);
+      const files = new Map(message.files.map(file => [attachmentKey(file.name), file]));
       const images: Attached[] = message.images.map(file => ({ ...file, url: `data:${file.mime};base64,${file.data}`, original: null }));
       for (const [path, file] of files) if (file.mime.startsWith("image/")) await attachPreview(images, stashFile(file), path);
 

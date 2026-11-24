@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "../src/agentpane/read.ts";
 import { type FilePart, P } from "../src/agentpane/media.ts";
 import { UPLOAD_PART } from "../src/agentpane/files-state.ts";
-import { MN, uploadDropped, activateMentions, rememberMentionImages, resetMentions, currentMentions } from "../src/agents/workdrop.ts";
+import { MN, attachReads, uploadDropped, activateMentions, rememberMentionImages, resetMentions, currentMentions } from "../src/agents/workdrop.ts";
 
 globalThis.FileReader = class {
   result = "";
@@ -29,20 +29,18 @@ function setup(result: string) {
   answers.agent_tree_upload = result;
 }
 
-test("default uploads use the session cache and continue with the returned host path", async () => {
-  const path = "/cache/attachments/session-one/upload/clip.mp4";
-  setup(path);
-  await uploadDropped([new File([new Uint8Array(UPLOAD_PART + 1)], "clip.mp4")]);
-  const parts = uploads();
-  assert.equal(parts.length, 2);
-  assert.equal(parts[0].path, "clip.mp4");
-  assert.equal(parts[1].path, path);
-  assert.equal(parts[1].offset, UPLOAD_PART);
-  assert.deepEqual(parts[0].attachment, { agent: "codex", session: "session-one" });
-  assert.deepEqual(MN.paths, [path]);
+test("a dropped file is kept for the next message and nothing is uploaded", async () => {
+  setup("/cache/never");
+  await uploadDropped([new File([new Uint8Array(UPLOAD_PART + 1)], "clip.mp4", { type: "video/mp4" })]);
+  assert.deepEqual(uploads(), []);
+  const [key] = MN.paths;
+  assert.match(key, /^attachment:\d+:clip\.mp4$/);
+  const file = MN.files.get(key);
+  assert.deepEqual([file?.name, file?.mime, file?.size], ["clip.mp4", "video/mp4", UPLOAD_PART + 1]);
+  assert.equal(file?.data.length, Math.ceil((UPLOAD_PART + 1) / 3) * 4);
 });
 
-test("choosing the project root or another folder keeps uploads permanent", async () => {
+test("choosing the project root or another folder uploads at once and keeps it permanent", async () => {
   for (const folder of ["", "src"]) {
     const path = folder ? `${folder}/notes.txt` : "notes.txt";
     setup(path);
@@ -50,83 +48,40 @@ test("choosing the project root or another folder keeps uploads permanent", asyn
     assert.equal(uploads()[0].path, path);
     assert.equal(uploads()[0].attachment, null);
     assert.deepEqual(MN.paths, [path]);
+    assert.equal(MN.files.size, 0);
   }
 });
 
-test("a temporary attachment keeps its absolute path while browsing another worktree", async () => {
-  const path = "/cache/attachments/session-one/upload/notes.txt";
-  setup(path);
-  await uploadDropped([new File(["notes"], "notes.txt")], null, "/srv/project/.worktrees/fix");
-  assert.deepEqual(MN.paths, [path]);
-});
-
-test("a batch stays pending through every file until its attachments are ready", async () => {
-  setup("/cache/first.txt");
-  const gate = new Promise<string>(resolve => {
-    Object.defineProperty(answers, "agent_tree_upload", { configurable: true, get() {
-      return gate;
-    } });
-    queueMicrotask(() => resolve("/cache/first.txt"));
-  });
-  const errors: string[] = [];
-  MN.error = text => { errors.push(text); };
-  const work = uploadDropped([
-    new File(["first"], "first.txt"),
-    new File(["second"], "second.txt"),
-  ]);
+test("a batch of attachments stays pending until every file is read", async () => {
+  setup("/cache/never");
+  const work = uploadDropped([new File(["first"], "first.txt"), new File(["second"], "second.txt")]);
   const [batch] = MN.pending;
-  assert.ok(batch);
-  const path = await gate;
-  assert.equal(path, "/cache/first.txt");
-  assert.equal(MN.pending.size, 1);
+  assert.ok(batch.local);
+  assert.equal(attachReads().length, 1);
   await work;
   await batch.ready;
   assert.equal(MN.pending.size, 0);
-  assert.equal(batch.failed, false);
-  assert.equal(errors.length, 0);
-  Object.defineProperty(answers, "agent_tree_upload", { configurable: true, value: null, writable: true });
+  assert.equal(attachReads().length, 0);
+  assert.equal(MN.paths.length, 2);
 });
 
-
-test("multipart uploads continue to their original session after navigation", async () => {
-  const path = "/cache/attachments/session-one/upload/clip.mp4";
-  setup(path);
+test("files read after navigation stay with their original session", async () => {
+  setup("/cache/never");
   activateMentions(session);
   const owner = currentMentions();
-  let release = (_path: string) => {};
-  const gate = new Promise<string>(resolve => { release = resolve; });
-  answers.agent_tree_upload = gate;
-  const work = uploadDropped([new File([new Uint8Array(UPLOAD_PART + 1)], "clip.mp4"), new File(["notes"], "notes.txt")]);
+  const work = uploadDropped([new File(["notes"], "notes.txt")]);
   rememberMentionImages();
   const other = { ...session, id: "session-two", machine_id: "machine-two" };
   P.session = other;
   activateMentions(other);
-  release(path);
-  const uploaded = await work;
-  assert.equal(uploaded.length, 2);
-  assert.equal(uploads().length, 3);
-  assert.ok(uploads().every(part => part.machineId === session.machine_id));
-  assert.ok(uploads().every(part => (part.attachment as { session: string }).session === session.id));
+  await work;
   assert.deepEqual(MN.paths, []);
   assert.equal(MN.pending.size, 0);
-  assert.equal(owner.uploads.length, 0);
   assert.equal(owner.reading, 0);
-  assert.ok(owner.files.has(path));
+  assert.equal(owner.files.size, 1);
   P.session = session;
   activateMentions(session);
-  assert.deepEqual(MN.paths, [path]);
-});
-
-
-test("the uploading device plays its local video without reading it back from the node", async () => {
-  const path = "/cache/attachments/session-one/upload/local-video.mov";
-  setup(path);
-  await uploadDropped([new File(["video bytes"], "local-video.mov", { type: "video/quicktime" })]);
-  calls.length = 0;
-  const result = await readFile(session.machine_id, path, session.id, () => {});
-  assert.equal(new TextDecoder().decode(result.bytes), "video bytes");
-  assert.equal(result.mime, "video/quicktime");
-  assert.equal(calls.filter(call => call.cmd === "agent_file").length, 0);
+  assert.equal(MN.paths.length, 1);
 });
 
 function remoteParts(parts: FilePart[]) {
