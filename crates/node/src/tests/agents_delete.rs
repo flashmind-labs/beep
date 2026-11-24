@@ -120,6 +120,25 @@ impl Machine {
 }
 
 #[tokio::test]
+async fn a_deleted_session_leaves_the_listing_kept_from_before() {
+    let m = Machine::new();
+    let listed = || async {
+        m.agents
+            .sightings()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|seen| seen.id.to_string())
+            .collect::<Vec<_>>()
+    };
+
+    assert!(listed().await.contains(&CODEX_ID.to_owned()));
+    m.agents.delete_session("codex", &SessionId::from(CODEX_ID)).await.unwrap();
+
+    assert!(!listed().await.contains(&CODEX_ID.to_owned()));
+}
+
+#[tokio::test]
 async fn each_harness_deletes_only_its_own_session() {
     let m = Machine::new();
     m.agents.delete_session("claude", &SessionId::from(CLAUDE_ID)).await.unwrap();
