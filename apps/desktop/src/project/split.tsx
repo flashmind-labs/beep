@@ -248,13 +248,13 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const mine = myIssues(p.name, issues || []);
   const cells = [
     { label: projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
-    { label: "Actions", text: runs.tile(pid).count || "", key: "actions", bad: runs.tile(pid).rows[0]?.chip?.text === "failed" },
+    { label: "Actions", text: runs.tile(pid).count || null, key: "actions", bad: runs.tile(pid).rows[0]?.chip?.text === "failed" },
     { label: plural(running.length, "agent", "agents"), text: "running", key: "running" },
-    { label: "Team", text: team ?? "", key: "team" },
-    { label: "Machines", text: machineTile(rows, sync).count || "", key: "machines" },
+    { label: "Team", text: team, key: "team" },
+    { label: "Machines", text: machineTile(rows, sync).count || null, key: "machines" },
     { label: plural(prItems.length, "PR", "PRs"), text: "open", key: "prs" },
     { label: plural(issues?.length ?? 0, "issue", "issues"), text: mine ? `open, ${mine} yours` : "open", key: "issues" },
-    { label: "Sessions", text: past.length ? `${past.length} past` : "", key: "agents" },
+    { label: "Sessions", text: past.length ? `${past.length} past` : null, key: "agents" },
   ];
   renderProjectShell(currentShell);
   const strip = <div className="cc-mstrip pj-strip"><ProjectStatus cells={cells} openTile={openTile} /><TeamFollow project={p.name}/></div>;

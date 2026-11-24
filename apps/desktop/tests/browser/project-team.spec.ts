@@ -162,6 +162,17 @@ test("a project whose team cannot be read asks again only after a while", async 
   await page.waitForTimeout(2000);
   expect((await called(page, "team_record")).length).toBe(1);
   await expect(page.locator('.pj-list .pj-li[title="Team"]')).toHaveCount(0);
+  await expect(page.locator(".pj-strip button").filter({ hasText: "Team" })).toHaveCount(0);
+});
+
+test("a project without a team still shows Team in the strip", async ({ page }) => {
+  await openProject(page, null, { team_record: null });
+
+  const pill = page.locator(".pj-strip button").filter({ hasText: "Team" });
+  await expect(pill).toHaveText("Team");
+  await pill.click();
+  await expect(page.locator('.pj-list .pj-li[title="Team"]')).toHaveAttribute("aria-current", "true");
+  await expect(page.locator(".pj-split > .pj-det")).toContainText("No team yet");
 });
 
 test("a contact is invited or removed from the team page", async ({ page }) => {

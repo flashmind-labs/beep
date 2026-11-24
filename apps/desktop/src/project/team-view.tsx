@@ -59,9 +59,12 @@ export function teamOf(name: string): TeamView | null {
 
   const saved = kept.get(localProjectId(name));
   if (saved) {
+    const savedCards = { ...NO_CARDS, ...saved.cards };
+    answers.set(name, JSON.stringify({ record: saved.record, cards: savedCards }));
     views.set(name, teamView(saved.record));
-    cards.set(name, { ...NO_CARDS, ...saved.cards });
-  } else if (!reading.has(name) && due(name)) void readTeam(name);
+    cards.set(name, savedCards);
+  }
+  if (!reading.has(name) && due(name)) void readTeam(name);
 
   return views.get(name) ?? null;
 }
@@ -118,8 +121,9 @@ export function TeamFollow({ project }: { project: string }) {
   return null;
 }
 
-/// The Team pill and row's note: who is online, empty without a team, which
-/// leaves the pill out; null before the team answered, which leaves the row out too.
+/// The Team pill and row's note: who is online, empty without a team (both
+/// still show so the user can invite or join), or null before the team
+/// answered (which leaves both out).
 export function teamNote(name: string) {
   const view = teamOf(name);
   if (!view) return null;

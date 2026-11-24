@@ -193,6 +193,8 @@ body.cbody
               b "1 agent"
               span "running"
             button.m [type="button"]
+              b "Team"
+            button.m [type="button"]
               b "Machines"
               span "1/1"
             button.m [type="button"]
