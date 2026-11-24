@@ -354,7 +354,7 @@ async fn an_update_shows_the_permission_difference_and_never_runs_on_its_own() {
         }
     );
     assert_eq!(
-        set.host.status()[0].version,
+        set.host.status()[0].info.version,
         semver::Version::new(0, 1, 0),
         "checking does not change anything"
     );
@@ -373,13 +373,16 @@ async fn an_update_shows_the_permission_difference_and_never_runs_on_its_own() {
     assert_eq!(update.preview.removed.len(), 1);
     assert_eq!(commit_of(&update.preview.source), second);
     assert_eq!(
-        set.host.status()[0].version,
+        set.host.status()[0].info.version,
         semver::Version::new(0, 1, 0),
         "a staged update is not installed"
     );
 
     set.installer.confirm(&set.host, &update.stage).unwrap();
-    assert_eq!(set.host.status()[0].version, semver::Version::new(0, 2, 0));
+    assert_eq!(
+        set.host.status()[0].info.version,
+        semver::Version::new(0, 2, 0)
+    );
     assert_eq!(commit_of(&set.host.record(&id()).unwrap().origin), second);
     assert_ne!(first, second);
 }
