@@ -29,6 +29,8 @@ pub(crate) struct Views {
     tasks: Mutex<JoinSet<()>>,
     sync: Mutex<DrawPace>,
     home: Mutex<DrawPace>,
+    /// The hosts the machines and the accounts views both carry.
+    hosts: Mutex<NewestHosts>,
     /// Views that changed while only hidden windows wanted them, drawn once one shows.
     deferred: Mutex<BTreeSet<&'static str>>,
 }
@@ -38,6 +40,36 @@ pub(crate) struct Views {
 struct DrawPace {
     drawn: Option<Instant>,
     waiting: bool,
+}
+
+/// The newest `agent_hosts` any draw built. The machines and the accounts topics draw it on
+/// their own and a window may want only one of them, so each draw publishes the newest one
+/// built so far and an older build never replaces a newer one.
+#[derive(Default)]
+struct NewestHosts {
+    taken: u64,
+    kept: u64,
+    value: Option<Value>,
+}
+
+impl NewestHosts {
+    /// The place of a build that starts now.
+    fn start(&mut self) -> u64 {
+        self.taken += 1;
+        self.taken
+    }
+
+    /// What to publish for the build that started at `place`: its own value unless a build
+    /// that started later has finished.
+    fn settle(&mut self, place: u64, built: Value) -> Value {
+        if place > self.kept {
+            self.kept = place;
+            self.value = Some(built.clone());
+            return built;
+        }
+
+        self.value.clone().unwrap_or(built)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -456,6 +488,27 @@ fn append<T: Serialize>(views: &mut Vec<View>, command: &'static str, result: Re
     }
 }
 
+/// The `agent_hosts` view, never older than one a draw of the other topic already built.
+async fn append_hosts(app: &AppHandle, views: &mut Vec<View>) {
+    let held = app.state::<Views>();
+    let place = held
+        .hosts
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .start();
+    let built = crate::fleet::agents::agent_hosts(app.state())
+        .await
+        .and_then(|hosts| Ok(serde_json::to_value(hosts).map_err(anyhow::Error::from)?));
+
+    let result = built.map(|built| {
+        held.hosts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .settle(place, built)
+    });
+    append(views, "agent_hosts", result);
+}
+
 async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
     let mut views = Vec::new();
     metrics::counter!("beep_view_render_total", "name" => name).increment(1);
@@ -478,11 +531,7 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 json!({}),
                 crate::bar::app::mac_control(app.state(), app.state(), app.state()),
             ));
-            append(
-                &mut views,
-                "agent_hosts",
-                crate::fleet::agents::agent_hosts(app.state()).await,
-            );
+            append_hosts(app, &mut views).await;
             views.extend(View::new(
                 "device_hosts",
                 json!({}),
@@ -522,11 +571,7 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 "agent_accounts",
                 crate::agents::accounts::agent_accounts(app.state()).await,
             );
-            append(
-                &mut views,
-                "agent_hosts",
-                crate::fleet::agents::agent_hosts(app.state()).await,
-            );
+            append_hosts(app, &mut views).await;
         }
         _ => {}
     }

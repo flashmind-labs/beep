@@ -133,3 +133,16 @@ fn the_hosts_are_pushed_again_when_accounts_or_machines_change() {
         );
     }
 }
+
+#[test]
+fn an_older_agent_hosts_build_publishes_the_newer_value() {
+    let mut hosts = NewestHosts::default();
+    let accounts = hosts.start();
+    let machines = hosts.start();
+
+    assert_eq!(hosts.settle(machines, json!(["new"])), json!(["new"]));
+    assert_eq!(hosts.settle(accounts, json!(["old"])), json!(["new"]));
+
+    let later = hosts.start();
+    assert_eq!(hosts.settle(later, json!(["later"])), json!(["later"]));
+}
