@@ -233,6 +233,9 @@ host! {
         /// The sessions in the agents' logs and the folders they worked in,
         /// with when they were read; one read at a time.
         sighted: AsyncMutex<Option<Sighted>>,
+        /// Sessions were added or removed since `sighted` was read: the next
+        /// read starts over.
+        sighted_reset: AtomicBool,
         /// The logs changed what listings show since `sighted` was read.
         seen_stale: AtomicBool,
         /// The checkouts found on disk under home, once `warm` read them.
@@ -240,9 +243,10 @@ host! {
         on_disk: Mutex<Option<Arc<Vec<found::Checkout>>>>,
         /// A walk for checkouts runs, deep or quick; one at a time.
         rescanning: AtomicBool,
-        /// The last folder listing; held while one runs, so asks that come
-        /// meanwhile share it instead of each running git for every folder.
-        listed: AsyncMutex<Option<found_sessions::Listed>>,
+        /// The last folder listing for each limit; held while one runs, so
+        /// asks for that limit that come meanwhile share it instead of each
+        /// running git for every folder.
+        listed: Mutex<HashMap<usize, Arc<AsyncMutex<Option<found_sessions::Listed>>>>>,
         /// Sessions started outside Beep whose process this node ended or
         /// saw exit lately, by id, with when.
         closed: Arc<Mutex<HashMap<SessionId, Instant>>>,

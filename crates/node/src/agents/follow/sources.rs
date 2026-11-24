@@ -238,7 +238,7 @@ impl Agents {
                     let pending = std::mem::take(&mut *crate::lock(&summary_pending));
 
                     if pending.structural {
-                        *agents.sighted.lock().await = None;
+                        agents.reset_sighted();
                     }
 
                     let changed = match cache.read(&agents, &pending.agents).await {

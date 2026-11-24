@@ -25,3 +25,30 @@ async fn the_walk_publishes_after_it_ends_and_lets_a_rescan_run() {
     let found = agents.disk_checkouts().expect("the rescan published its list");
     assert!(found.iter().any(|checkout| checkout.root.ends_with("work/new")));
 }
+
+#[tokio::test]
+async fn a_listing_for_one_limit_does_not_wait_for_another() {
+    let agents = Agents::new(Vec::new());
+    agents.warm(None, std::path::PathBuf::new()).await;
+    let slot = crate::lock(&agents.listed).entry(5).or_default().clone();
+    let _running = slot.lock().await;
+
+    let listed = tokio::time::timeout(std::time::Duration::from_secs(20), agents.found_folders(10))
+        .await
+        .expect("a listing for another limit is not held up");
+
+    assert!(listed.is_ok());
+}
+
+#[tokio::test]
+async fn a_reset_makes_the_next_read_of_the_logs_start_over() {
+    let agents = Agents::new(Vec::new());
+    let first = agents.sighted(|_| true).await.expect("a first read");
+    let kept = agents.sighted(|_| true).await.expect("the kept read");
+    assert!(Arc::ptr_eq(&first.seen, &kept.seen));
+
+    agents.reset_sighted();
+
+    let again = agents.sighted(|_| true).await.expect("a read after the reset");
+    assert!(!Arc::ptr_eq(&first.seen, &again.seen));
+}

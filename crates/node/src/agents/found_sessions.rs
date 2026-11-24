@@ -42,7 +42,6 @@ const CLOSED_FOR: Duration = Duration::from_secs(3 * 60);
 pub(super) struct Listed {
     /// When it ended.
     at: Instant,
-    limit: usize,
     folders: Arc<Vec<SessionFolder>>,
 }
 
@@ -149,13 +148,21 @@ impl Agents {
         Ok(sighted.folders)
     }
 
+    /// Has the next read of the agents' logs start over, for sessions added
+    /// or removed. Never waits for a read that runs.
+    pub(super) fn reset_sighted(&self) {
+        self.sighted_reset.store(true, Ordering::Relaxed);
+    }
+
     /// The agents' logs as last read, read again unless `usable` takes what
     /// is kept. Requests that come during a read wait for it rather than
     /// read again.
     async fn sighted(&self, usable: impl Fn(&Sighted) -> bool) -> Result<Sighted> {
         let mut sighted = self.sighted.lock().await;
+        let reset = self.sighted_reset.swap(false, Ordering::Relaxed);
 
         if let Some(kept) = sighted.as_ref()
+            && !reset
             && usable(kept)
         {
             return Ok(kept.clone());
@@ -250,15 +257,16 @@ impl Agents {
 
     /// The checkouts coding agents worked in, then the other checkouts
     /// found on disk, newest session or commit first. One listing runs at a
-    /// time: an ask that came while one ran takes what it found.
+    /// time for a `limit`: an ask for it that came while one ran takes what
+    /// it found. An ask for another limit does not wait.
     pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
         let limit = clamp_limit(limit, DEFAULT_FOLDERS, MAX_FOLDERS);
         let asked = Instant::now();
-        let mut listed = self.listed.lock().await;
+        let slot = crate::lock(&self.listed).entry(limit).or_default().clone();
+        let mut listed = slot.lock().await;
 
-        if let Some(done) = listed
-            .as_ref()
-            && done.at >= asked && done.limit == limit
+        if let Some(done) = listed.as_ref()
+            && done.at >= asked
         {
             return Ok(done.folders.as_ref().clone());
         }
@@ -276,7 +284,6 @@ impl Agents {
         .context("looking up the folders' checkouts")?;
         *listed = Some(Listed {
             at: Instant::now(),
-            limit,
             folders: Arc::new(folders.clone()),
         });
         Ok(folders)
