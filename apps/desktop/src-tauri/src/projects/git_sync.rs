@@ -39,35 +39,15 @@ struct GitChanged {
 #[derive(Clone, Debug, Serialize)]
 pub struct GitRow {
     machine_id: String,
-    /// `None` on a detached HEAD.
-    branch: Option<String>,
-    /// `None` before the first push.
-    upstream: Option<String>,
-    ahead: u32,
-    behind: u32,
-    /// Why the checkout could not be read.
-    error: Option<String>,
+    #[serde(flatten)]
+    state: GitStateRow,
 }
 
 impl GitRow {
-    fn from_cached(machine: EndpointId, cached: GitStateRow) -> Self {
+    fn new(machine: EndpointId, state: GitStateRow) -> Self {
         Self {
             machine_id: machine.to_string(),
-            branch: cached.branch,
-            upstream: cached.upstream,
-            ahead: cached.ahead,
-            behind: cached.behind,
-            error: cached.error,
-        }
-    }
-
-    fn cached(&self) -> GitStateRow {
-        GitStateRow {
-            branch: self.branch.clone(),
-            upstream: self.upstream.clone(),
-            ahead: self.ahead,
-            behind: self.behind,
-            error: self.error.clone(),
+            state,
         }
     }
 }
@@ -80,9 +60,8 @@ enum ReadFrom {
     Fetched,
 }
 
-async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitRow {
-    let mut row = GitRow {
-        machine_id: place.machine.to_string(),
+async fn row(fleet: &Fleet, place: &Place, from: ReadFrom) -> GitStateRow {
+    let mut row = GitStateRow {
         branch: None,
         upstream: None,
         ahead: 0,
@@ -157,8 +136,8 @@ pub async fn project_git_state(
                     let key = (place.machine, place.folder.clone());
                     let ticket = git_state.begin(&key);
                     let read = row(&fleet_arc, &place, ReadFrom::LocalRefs).await;
-                    git_state.put_begun(key, read.cached(), ticket);
-                    return Some(read);
+                    git_state.put_begun(key, read.clone(), ticket);
+                    return Some(GitRow::new(place.machine, read));
                 }
 
                 let machine = place.machine;
@@ -169,29 +148,28 @@ pub async fn project_git_state(
                     let project = project.clone();
                     move || {
                         if let Some(cached) = fleet.projections().git_state.peek(&key) {
-                            let row = GitRow::from_cached(machine, cached);
+                            let row = GitRow::new(machine, cached);
                             let _ = app.emit(GIT_CHANGED, GitChanged { project, row });
                         }
                     }
                 };
                 let fleet_fetch = fleet_arc.clone();
-                let got = fleet_arc
-                    .projections()
-                    .git_state
-                    .read_fast_with_fresh(
-                        key,
-                        |_| Duration::from_secs(10),
-                        PartialEq::eq,
-                        notify,
-                        move || async move {
-                            Ok(row(&fleet_fetch, &place, ReadFrom::LocalRefs)
-                                .await
-                                .cached())
-                        },
-                    )
-                    .await;
+                let got =
+                    fleet_arc
+                        .projections()
+                        .git_state
+                        .read_fast_with_fresh(
+                            key,
+                            |_| Duration::from_secs(10),
+                            PartialEq::eq,
+                            notify,
+                            move || async move {
+                                Ok(row(&fleet_fetch, &place, ReadFrom::LocalRefs).await)
+                            },
+                        )
+                        .await;
                 match got {
-                    Some(Ok(cached)) => Some(GitRow::from_cached(machine, cached)),
+                    Some(Ok(cached)) => Some(GitRow::new(machine, cached)),
                     Some(Err(_)) | None => None,
                 }
             }
@@ -217,16 +195,16 @@ pub async fn project_git_state(
             let ticket = fleet_arc.projections().git_state.begin(&key);
 
             tauri::async_runtime::spawn(async move {
-                let fetched = row(&fleet_bg, &place_bg, ReadFrom::Fetched).await;
-                let cached = fetched.cached();
+                let cached = row(&fleet_bg, &place_bg, ReadFrom::Fetched).await;
                 let git_state = &fleet_bg.projections().git_state;
                 let changed = git_state.peek(&key_bg).as_ref() != Some(&cached);
                 // A read or write that began after this fetch and was stored first is newer.
                 let stored = git_state.put_begun(key_bg, cached.clone(), ticket);
+                let fetched = GitRow::new(place_bg.machine, cached.clone());
                 let timed_out = tx.send(fetched).is_err();
 
                 if stored && timed_out && changed {
-                    let row = GitRow::from_cached(place_bg.machine, cached);
+                    let row = GitRow::new(place_bg.machine, cached);
                     let _ = app_bg.emit(
                         GIT_CHANGED,
                         GitChanged {
@@ -239,9 +217,7 @@ pub async fn project_git_state(
 
             match timeout(FETCH_FAST_WAIT, rx).await {
                 Ok(Ok(fetched)) => Some(fetched),
-                Ok(Err(_)) | Err(_) => {
-                    prior.map(|cached| GitRow::from_cached(place.machine, cached))
-                }
+                Ok(Err(_)) | Err(_) => prior.map(|cached| GitRow::new(place.machine, cached)),
             }
         }
     }))
@@ -277,8 +253,8 @@ pub async fn project_git_move(
     fleet
         .projections()
         .git_state
-        .put((place.machine, place.folder), updated.cached());
-    Ok(updated)
+        .put((place.machine, place.folder), updated.clone());
+    Ok(GitRow::new(machine, updated))
 }
 
 /// Switches the project's own checkout on the machine shown in Git history.
@@ -319,7 +295,7 @@ pub async fn project_git_switch(
             error: Some(error.to_string()),
         },
     };
-    let updated = GitRow::from_cached(machine, cached.clone());
+    let updated = GitRow::new(machine, cached.clone());
     fleet
         .projections()
         .git_state

@@ -2,7 +2,10 @@
 //! control offered to the other devices while it is lent to the mesh.
 
 use crate::platform::logfile;
-use crate::{beep::state::Prefs, machines::desktop};
+use crate::{
+    beep::state::Prefs,
+    machines::{ThisMacStatus, ThisMacView, desktop},
+};
 use beep_node::{
     agents::{
         mcp::{self, ProjectTools},
@@ -11,36 +14,14 @@ use beep_node::{
     link::{self, Offers, listen_hooks, state::Search},
     machine::{provision::Provision, service::logs::Logs},
 };
-use beep_proto::node::desktop::{Permission, Permissions};
+use beep_proto::node::desktop::Permission;
 use iroh::EndpointId;
-use serde::Serialize;
 use std::{
     future::pending,
     path::{Path, PathBuf},
     sync::{Arc, Mutex, MutexGuard, PoisonError},
 };
 use tauri::async_runtime::{self, JoinHandle};
-
-/// Whether this Mac is lent to the mesh, as Settings shows it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Status {
-    Off,
-    Connected,
-}
-
-/// What Settings shows under This Mac, and what the command center needs
-/// to tell this Mac apart in the machine list.
-#[derive(Debug, Serialize)]
-pub struct View {
-    /// This Mac's key, its id in the mesh.
-    id: String,
-    /// The name this Mac has in the mesh.
-    name: String,
-    enabled: bool,
-    status: Status,
-    permissions: Permissions,
-}
 
 /// This Mac as a machine of the mesh. Owned by the app.
 pub struct Machine {
@@ -176,16 +157,16 @@ impl Machine {
         &self.name
     }
 
-    pub fn view(&self, prefs: &Prefs, id: EndpointId) -> View {
+    pub fn view(&self, prefs: &Prefs, id: EndpointId) -> ThisMacView {
         let enabled = prefs.use_mac();
-        View {
+        ThisMacView {
             id: id.to_string(),
             name: self.name.clone(),
             enabled,
             status: if enabled {
-                Status::Connected
+                ThisMacStatus::Connected
             } else {
-                Status::Off
+                ThisMacStatus::Off
             },
             permissions: desktop::permissions(),
         }

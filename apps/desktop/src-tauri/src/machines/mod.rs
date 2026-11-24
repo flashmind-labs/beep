@@ -21,11 +21,34 @@ pub(crate) mod this_mac;
 pub(crate) mod tools;
 
 use crate::error::{DesktopError, Result};
+use beep_proto::node::desktop::Permissions;
+use serde::Serialize;
 use std::{
     collections::HashMap,
     hash::Hash,
     sync::{Mutex, MutexGuard, PoisonError},
 };
+
+/// Whether this Mac is lent to the mesh, as Settings shows it. A phone is always `Off`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ThisMacStatus {
+    Off,
+    Connected,
+}
+
+/// What Settings shows under This Mac, and what the command center needs
+/// to tell this Mac apart in the machine list.
+#[derive(Debug, Serialize)]
+pub struct ThisMacView {
+    /// This Mac's key, its id in the mesh.
+    id: String,
+    /// The name this Mac has in the mesh.
+    name: String,
+    enabled: bool,
+    status: ThisMacStatus,
+    permissions: Permissions,
+}
 
 /// What the windows follow, by key, each with where its input goes.
 pub(crate) struct Registry<K, S>(Mutex<Following<K, S>>);

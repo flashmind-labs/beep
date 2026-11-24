@@ -35,6 +35,7 @@ use futures::{
     future::{BoxFuture, Shared},
 };
 use iroh::EndpointId;
+use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
@@ -439,12 +440,15 @@ where
 }
 
 /// Cached Git branch and ahead/behind state for one checkout on one machine.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct GitStateRow {
+    /// `None` on a detached HEAD.
     pub(crate) branch: Option<String>,
+    /// `None` before the first push.
     pub(crate) upstream: Option<String>,
     pub(crate) ahead: u32,
     pub(crate) behind: u32,
+    /// Why the checkout could not be read.
     pub(crate) error: Option<String>,
 }
 

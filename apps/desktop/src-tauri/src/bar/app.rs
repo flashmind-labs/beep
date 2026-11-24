@@ -5,7 +5,10 @@ use crate::{
     beep::{identity, state::Prefs},
     error::{DesktopError, Result},
     fleet::Machines,
-    machines::this_mac::{self, Machine},
+    machines::{
+        ThisMacView,
+        this_mac::{self, Machine},
+    },
     platform::logfile,
 };
 use beep_proto::node::desktop::Permission;
@@ -125,7 +128,7 @@ pub fn mac_control(
     prefs: State<'_, Prefs>,
     machine: State<'_, Machine>,
     fleet: Machines<'_>,
-) -> this_mac::View {
+) -> ThisMacView {
     machine.view(&prefs, fleet.id())
 }
 
@@ -135,7 +138,7 @@ pub fn set_mac_control(
     machine: State<'_, Machine>,
     fleet: Machines<'_>,
     enabled: bool,
-) -> Result<this_mac::View> {
+) -> Result<ThisMacView> {
     if !build_capabilities().local_host {
         return Err(DesktopError::BadRequest(
             "A phone does not host local work.".into(),
