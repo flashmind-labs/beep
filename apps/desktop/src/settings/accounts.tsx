@@ -209,26 +209,34 @@ function pollCodex() {
 
     if (!setShown()) return;
 
+    // The machines are asked together: a slow one does not hold the others.
+    const answers = await Promise.all(waiting.map(async ([id, f]): Promise<{ id: string; f: typeof f; st: CodexState } | { id: string; f: typeof f; error: string }> => {
+      try {
+        return { id, f, st: await invoke<CodexState>("codex_login_state", { machineId: id, task: f.task }) };
+      } catch (e) {
+        return { id, f, error: String(e) };
+      }
+    }));
     let done = false;
 
-    for (const [id, f] of waiting) {
-      try {
-        const st = await invoke<CodexState>("codex_login_state", { machineId: id, task: f.task });
-        if (ACC.codex[id] !== f || st.state === "waiting") continue;
+    for (const answer of answers) {
+      const { id, f } = answer;
+      if (ACC.codex[id] !== f) continue;
+
+      if ("error" in answer) {
+        ACC.codex[id] = { error: answer.error };
         done = true;
-        if (st.state === "failed") ACC.codex[id] = { error: st.message || "Codex could not sign in." };
+      } else if (answer.st.state !== "waiting") {
+        done = true;
+        if (answer.st.state === "failed") ACC.codex[id] = { error: answer.st.message || "Codex could not sign in." };
         else delete ACC.codex[id];
-      } catch (e) {
-        if (ACC.codex[id] !== f) continue;
-        ACC.codex[id] = { error: String(e) };
-        done = true;
       }
     }
 
     if (done) await loadAgentAccounts();
     else redrawAgents();
   };
-  ACC.poll = { stop: subscribeChanges([topic("processes"), topic("process-output"), topic("accounts")], { deliver: "latest", receive: () => check() }, { when: setShown }), check };
+  ACC.poll = { stop: subscribeChanges([topic("processes"), topic("accounts")], { deliver: "latest", receive: () => check() }, { when: setShown }), check };
   void check();
 }
 
