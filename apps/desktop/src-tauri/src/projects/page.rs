@@ -27,6 +27,13 @@ pub async fn project_sessions(
     Ok(lists.want(ListId::Project(project), places).await)
 }
 
+/// The page of `project` went away: its list is not rebuilt or sent until `project_sessions`
+/// asks again.
+#[tauri::command]
+pub fn project_sessions_forget(lists: State<'_, SessionLists>, project: String) {
+    lists.drop_list(ListId::Project(project));
+}
+
 /// The sessions coding agents ran in every project of the mesh on the
 /// machines online, newest first: Home's Done today. `None` as for `project_sessions`.
 #[tauri::command]

@@ -452,6 +452,7 @@ pub fn run() {
             projects::page::project_remove_from_machine,
             projects::page::project_machines,
             projects::page::project_sessions,
+            projects::page::project_sessions_forget,
             projects::page::projects_sessions,
             projects::page::project_syncthing,
             projects::branches::project_branches,

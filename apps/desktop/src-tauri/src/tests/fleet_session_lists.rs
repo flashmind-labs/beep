@@ -167,6 +167,34 @@ fn a_move_asks_only_the_answers_it_can_change() {
     assert!(asked.contains(&holds) && asked.contains(&target));
 }
 
+/// A list whose page went away, or nobody asked for in a while, is no longer rebuilt.
+#[test]
+fn a_dropped_or_idle_list_is_not_kept_or_sent_again() {
+    let me = machine(1);
+    let other = machine(2);
+    let key = |folder: &str| (other, vec![folder.to_owned()]);
+    let keep = |_: &[MachineFolders], rows: Vec<MachineSession>| rows;
+    let mut lists = Lists::new(me);
+    let now = Instant::now();
+    let page = ListId::Project("acme/widget".into());
+
+    let (_, moved) = lists.want(page.clone(), vec![key("/srv/a")], now, keep);
+    let asked = moved.fetch[0].clone();
+    lists.drop_list(&page);
+    assert!(lists.answers.is_empty());
+    // The answer that was out comes back to nothing.
+    let moved = lists.answered(asked, Some(vec![session("late")]), now, keep);
+    assert!(moved.sent.is_empty() && moved.fetch.is_empty());
+    assert!(lists.answers.is_empty());
+
+    // An idle project list goes at the next ask, Home stays.
+    lists.want(page, vec![key("/srv/a")], now, keep);
+    lists.want(ListId::Home, vec![key("/srv/b")], now, keep);
+    lists.want(ListId::Home, vec![key("/srv/b")], now + LIST_IDLE, keep);
+    assert_eq!(lists.lists.len(), 1);
+    assert_eq!(lists.answers.len(), 1);
+}
+
 /// A project's Beep rows are the mirror's: its status now, and the sessions only it has.
 #[test]
 fn beep_rows_come_from_the_mirror_over_the_answers() {

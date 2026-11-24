@@ -15,6 +15,7 @@ use iroh::EndpointId;
 use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
+    hash::{DefaultHasher, Hasher},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -30,6 +31,8 @@ pub(crate) const SESSION_LIST: &str = "session-list";
 const FRESH: Duration = Duration::from_secs(15);
 /// The least time between two redraws for the mirror's changes.
 const REDRAW_GAP: Duration = Duration::from_secs(1);
+/// How long a project's list stays when nobody asked for it, in case its page is still shown.
+const LIST_IDLE: Duration = Duration::from_secs(30 * 60);
 /// How long one machine gets to answer.
 const ANSWER_LIMIT: Duration = Duration::from_secs(6);
 
@@ -73,6 +76,8 @@ enum Ask {
     Stale {
         machine: EndpointId,
     },
+    /// The page of `list` went away.
+    Drop(ListId),
     /// A move of `session` to `folder` went through.
     Relocated {
         machine: EndpointId,
@@ -130,6 +135,11 @@ impl SessionLists {
         let _ = self.asks.send(Ask::Stale { machine });
     }
 
+    /// `list` is no longer shown: it is not rebuilt or sent again until asked for.
+    pub(crate) fn drop_list(&self, list: ListId) {
+        let _ = self.asks.send(Ask::Drop(list));
+    }
+
     /// `session` on `machine` moved to `folder`: ask again only the answers that hold it or
     /// cover its new folder.
     pub(crate) fn relocated(&self, machine: EndpointId, session: SessionId, folder: String) {
@@ -173,6 +183,10 @@ async fn serve(
             Ask::Answered { asked, rows } => lists.answered(asked, rows, now, shown),
             Ask::Forget { machine, session } => lists.forget(machine, &session, shown),
             Ask::Stale { machine } => lists.stale(machine),
+            Ask::Drop(list) => {
+                lists.drop_list(&list);
+                Moved::default()
+            }
             Ask::Relocated {
                 machine,
                 session,
@@ -298,7 +312,10 @@ struct Answer {
 
 struct Listed {
     keys: Vec<MachineFolders>,
-    sent: Option<Vec<MachineSession>>,
+    /// A fingerprint of the rows last sent, so a list is not kept twice.
+    sent: Option<u64>,
+    /// When a window last asked for it.
+    wanted: Instant,
 }
 
 /// A machine asked for its sessions, and the generation of its answer then.
@@ -337,6 +354,7 @@ impl Lists {
         finish: impl Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>,
     ) -> (Option<Vec<MachineSession>>, Moved) {
         let mut moved = Moved::default();
+        self.prune(now);
 
         for key in &keys {
             let mine = key.0 == self.me;
@@ -350,8 +368,9 @@ impl Lists {
         self.lists.insert(
             list,
             Listed {
+                sent: rows.as_deref().map(fingerprint),
                 keys,
-                sent: rows.clone(),
+                wanted: now,
             },
         );
 
@@ -367,18 +386,19 @@ impl Lists {
         now: Instant,
         finish: impl Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>,
     ) -> Moved {
-        let listed = self.listed(&asked.key);
+        if !self.listed(&asked.key) {
+            // Its lists went away while it was asked.
+            self.answers.remove(&asked.key);
+            return Moved::default();
+        }
+
         let answer = self.answers.entry(asked.key.clone()).or_default();
         answer.asking = false;
 
         if asked.generation != answer.generation {
             return Moved {
                 sent: Vec::new(),
-                fetch: if listed {
-                    ask(&asked.key, answer).into_iter().collect()
-                } else {
-                    Vec::new()
-                },
+                fetch: ask(&asked.key, answer).into_iter().collect(),
             };
         }
 
@@ -482,6 +502,27 @@ impl Lists {
         moved
     }
 
+    /// Drops `list` and the answers no other list holds.
+    fn drop_list(&mut self, list: &ListId) {
+        self.lists.remove(list);
+        self.answers
+            .retain(|key, _| self.lists.values().any(|listed| listed.keys.contains(key)));
+    }
+
+    /// Drops the project lists nobody asked for since `LIST_IDLE`.
+    fn prune(&mut self, now: Instant) {
+        let idle: Vec<ListId> = self
+            .lists
+            .iter()
+            .filter(|(id, listed)| **id != ListId::Home && now - listed.wanted >= LIST_IDLE)
+            .map(|(id, _)| id.clone())
+            .collect();
+
+        for id in idle {
+            self.drop_list(&id);
+        }
+    }
+
     fn listed(&self, key: &MachineFolders) -> bool {
         self.lists.values().any(|listed| listed.keys.contains(key))
     }
@@ -513,8 +554,9 @@ impl Lists {
             let Some(listed) = self.lists.get_mut(&id) else {
                 continue;
             };
-            if listed.sent.as_ref() != Some(&rows) {
-                listed.sent = Some(rows.clone());
+            let print = fingerprint(&rows);
+            if listed.sent != Some(print) {
+                listed.sent = Some(print);
                 sent.push((id, rows));
             }
         }
@@ -532,6 +574,29 @@ impl Lists {
 
         Some(rows)
     }
+}
+
+/// A hash of the rows as they serialize, which is all a window sees of them.
+fn fingerprint(rows: &[MachineSession]) -> u64 {
+    struct Hashing(DefaultHasher);
+
+    impl std::io::Write for Hashing {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.write(bytes);
+            Ok(bytes.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut hashing = Hashing(DefaultHasher::new());
+    // A row that fails to serialize leaves the print as it was: the rows would still differ
+    // elsewhere, and a missed redraw heals at the next one.
+    let _ = serde_json::to_writer(&mut hashing, rows);
+
+    hashing.0.finish()
 }
 
 /// `key` to ask, unless it is being asked.
