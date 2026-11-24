@@ -168,8 +168,6 @@ async fn recovery_after_a_read_error_resends_identical_state() {
     snapshots.entries.insert(
         key.clone(),
         Projection {
-            topic,
-            query: Some(7),
             source: Source::Plugin,
             previous: Some(value.clone()),
             bytes: 1,
@@ -407,9 +405,7 @@ fn an_unchanged_file_read_backs_off() {
         offset: 0,
         len: 10,
     })));
-    let projection = |query: Option<u64>, idle: u32| Projection {
-        topic: Topic::keyed("files", "/srv/project"),
-        query,
+    let projection = |idle: u32| Projection {
         source: source.clone(),
         previous: None,
         bytes: 0,
@@ -418,13 +414,12 @@ fn an_unchanged_file_read_backs_off() {
         not_before: Instant::now(),
         idle,
     };
-    assert_eq!(projection(Some(1), 0).gap(), READ_GAP);
-    assert_eq!(projection(Some(1), 1).gap(), READ_GAP * 2);
-    assert_eq!(projection(Some(1), 50).gap(), READ_GAP * 8);
-    assert_eq!(projection(None, 50).gap(), READ_GAP * 8);
+    assert_eq!(projection(0).gap(), READ_GAP);
+    assert_eq!(projection(1).gap(), READ_GAP * 2);
+    assert_eq!(projection(50).gap(), READ_GAP * 8);
     let list = Projection {
         source: Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {}))),
-        ..projection(Some(1), 50)
+        ..projection(50)
     };
     assert_eq!(list.gap(), READ_GAP);
 }

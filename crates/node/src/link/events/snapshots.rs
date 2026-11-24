@@ -93,8 +93,6 @@ impl Source {
 
 #[derive(Clone)]
 struct Projection {
-    topic: Topic,
-    query: Option<u64>,
     source: Source,
     previous: Option<Value>,
     bytes: usize,
@@ -106,10 +104,8 @@ struct Projection {
 }
 
 impl Projection {
-    fn new(topic: Topic, query: Option<u64>, source: Source) -> Self {
+    fn new(source: Source) -> Self {
         Self {
-            topic,
-            query,
             source,
             previous: None,
             bytes: 0,
@@ -376,21 +372,18 @@ impl Snapshots {
                     old.running = false;
                     old
                 }
-                None => Projection::new(topic, query, source),
+                None => Projection::new(source),
             };
             next.insert(key, entry);
         }
         // A removed wildcard resource needs one authoritative tombstone too.
         for (key, previous) in &self.entries {
-            if previous.query.is_none()
+            if key.1.is_none()
                 && previous.source != Source::Missing
                 && !next.contains_key(key)
-                && topics.iter().any(|topic| topic.covers(&previous.topic))
+                && topics.iter().any(|topic| topic.covers(&key.0))
             {
-                next.insert(
-                    key.clone(),
-                    Projection::new(previous.topic.clone(), None, Source::Missing),
-                );
+                next.insert(key.clone(), Projection::new(Source::Missing));
             }
         }
 
@@ -398,11 +391,11 @@ impl Snapshots {
     }
 
     pub(super) fn changed(&mut self, topic: &Topic, kind: ChangeKind) {
-        for entry in self.entries.values_mut() {
+        for ((read, _), entry) in &mut self.entries {
             // Git projections read refs, the index and history, never working-tree files.
             let git = matches!(entry.source, Source::Read(Read::Git { .. }));
 
-            if affected(&entry.topic, topic) && !(git && kind == ChangeKind::WorkTree) {
+            if affected(read, topic) && !(git && kind == ChangeKind::WorkTree) {
                 entry.dirty = true;
             }
         }
@@ -543,7 +536,7 @@ impl Snapshots {
                     entry.idle = entry.idle.saturating_add(1);
                     // Folder listeners use the revision to recheck open files. An
                     // edit can leave every entry in the listing unchanged.
-                    let folder_event = entry.query.is_none()
+                    let folder_event = key.1.is_none()
                         && matches!(&entry.source, Source::Read(Read::Sessions(request))
                             if matches!(request.as_ref(), SessionsRequest::Folder { .. }));
 
@@ -558,13 +551,13 @@ impl Snapshots {
                     entry.previous = None;
                     entry.bytes = 0;
                     return Ok(Some(Reply::SnapshotError {
-                        query: entry.query,
-                        topic: entry.topic.clone(),
+                        query: key.1,
+                        topic: key.0.clone(),
                         reason: "snapshot cache budget exceeded; narrow the subscription".into(),
                     }));
                 }
 
-                let topic = entry.topic.name().to_owned();
+                let topic = key.0.name().to_owned();
                 metrics::counter!("beep_snapshot_sent_bytes_total", "topic" => topic.clone())
                     .increment(bytes as u64);
                 metrics::histogram!("beep_snapshot_bytes", "topic" => topic).record(bytes as f64);
@@ -576,8 +569,8 @@ impl Snapshots {
                     .checked_add(1)
                     .context("snapshot revision exhausted")?;
                 Reply::Snapshot(Box::new(Snapshot {
-                    topic: entry.topic.clone(),
-                    query: entry.query,
+                    topic: key.0.clone(),
+                    query: key.1,
                     revision: self.revision,
                     value,
                 }))
@@ -587,8 +580,8 @@ impl Snapshots {
                 entry.bytes = 0;
                 entry.idle = entry.idle.saturating_add(1);
                 Reply::SnapshotError {
-                    query: entry.query,
-                    topic: entry.topic.clone(),
+                    query: key.1,
+                    topic: key.0.clone(),
                     reason: format!("{error:#}"),
                 }
             }
