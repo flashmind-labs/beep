@@ -7,6 +7,12 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.30] - 2026-11-24
+
+### Fixed
+
+- Desktop: Local Pi sessions now expose Beep's MCP tools (`start_agent`, `list_machines`, `list_projects`, and other Beep tools) directly through Beep's Pi extension.
+
 ## [0.10.29] - 2026-11-24
 
 ### Changed
