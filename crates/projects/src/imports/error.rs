@@ -66,18 +66,6 @@ pub enum ImportError {
     Failed { machine: String, detail: String },
     #[error("Could not reach {machine}: {detail}")]
     Link { machine: String, detail: String },
-    #[error("{0} is not imported.")]
-    NotImported(String),
-    #[error("{0} shares no folders.")]
-    NoSharedFolders(String),
-    #[error("{0} is pinned to the machines it is on.")]
-    Pinned(String),
-    #[error("{0} has its sync paused.")]
-    SyncPaused(String),
-    #[error("No online machine can give {0}.")]
-    NoCopyOnline(String),
-    #[error("{machine} cannot sync it: {why}")]
-    CannotSync { machine: String, why: String },
     #[error("A name is letters, digits, '-', '_' and '.', and does not start with '.' or '-'.")]
     BadName,
     #[error("Pick a machine.")]
@@ -86,8 +74,6 @@ pub enum ImportError {
     LocalOnOne,
     #[error("You already have a project called {0}.")]
     ProjectExists(String),
-    #[error("{0} has no git host, so it stays on its machine.")]
-    LocalOnly(String),
     #[error("Add a token for {0} in Settings > Credentials first.")]
     NoToken(String),
     #[error("{repo} already exists on {host}.")]
