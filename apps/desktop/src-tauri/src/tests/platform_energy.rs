@@ -69,12 +69,16 @@ fn sampler_tracks_itself_and_discards_a_resume_gap() {
             .keys()
             .all(|(tracked, _)| sampler.system.process(*tracked).is_some())
     );
-    sampler.sampled_at = SystemTime::now().checked_sub(PERIOD * 3);
+    if let Some(last) = &mut sampler.last
+        && let Some(old) = SystemTime::now().checked_sub(PERIOD * 3)
+    {
+        last.at = old;
+    }
     sampler.sample(Context::Hidden);
     assert!(
         sampler
-            .sampled_at
-            .is_some_and(|at| at.elapsed().is_ok_and(|elapsed| elapsed < PERIOD))
+            .last
+            .is_some_and(|last| last.at.elapsed().is_ok_and(|elapsed| elapsed < PERIOD))
     );
 }
 
@@ -102,8 +106,11 @@ fn sampling_cost() {
 fn transitions_and_clock_gaps_start_a_fresh_baseline() {
     let now = SystemTime::now();
     let sampler = Sampler {
-        sampled_at: now.checked_sub(PERIOD),
-        previous_context: Some((Context::Hidden, PowerSource::Battery)),
+        last: now.checked_sub(PERIOD).map(|at| Last {
+            at,
+            context: Context::Hidden,
+            power: PowerSource::Battery,
+        }),
         ..Sampler::new().expect("sysinfo supports this platform")
     };
     assert!(sampler.continuous(now, Context::Hidden, PowerSource::Battery));

@@ -125,11 +125,17 @@ struct ProcessSample {
     usage: Usage,
 }
 
+/// When the last sample was taken and the state the machine was in.
+struct Last {
+    at: SystemTime,
+    context: Context,
+    power: PowerSource,
+}
+
 struct Sampler {
     system: System,
     previous: HashMap<(Pid, u64), Usage>,
-    sampled_at: Option<SystemTime>,
-    previous_context: Option<(Context, PowerSource)>,
+    last: Option<Last>,
 }
 
 impl Sampler {
@@ -137,16 +143,18 @@ impl Sampler {
         Ok(Self {
             system: System::new()?,
             previous: HashMap::new(),
-            sampled_at: None,
-            previous_context: None,
+            last: None,
         })
     }
 
     fn continuous(&self, now: SystemTime, context: Context, power: PowerSource) -> bool {
-        self.sampled_at.is_some_and(|last| {
-            now.duration_since(last)
-                .is_ok_and(|elapsed| elapsed < PERIOD * 2)
-        }) && self.previous_context == Some((context, power))
+        self.last.as_ref().is_some_and(|last| {
+            last.context == context
+                && last.power == power
+                && now
+                    .duration_since(last.at)
+                    .is_ok_and(|elapsed| elapsed < PERIOD * 2)
+        })
     }
 
     fn sample(&mut self, context: Context) {
@@ -252,8 +260,11 @@ impl Sampler {
         }
 
         self.previous = next;
-        self.sampled_at = Some(now);
-        self.previous_context = Some((context, power));
+        self.last = Some(Last {
+            at: now,
+            context,
+            power,
+        });
         metrics::histogram!("beep_desktop_resource_sample_seconds")
             .record(started.elapsed().as_secs_f64());
     }
