@@ -40,9 +40,10 @@ export function renameListed(id: string, name: string) {
   if (MACHINES.list) take(MACHINES.list.map(m => (m.id === id ? { ...m, name } : m)));
 }
 
-/// Drops machine `id` after this window removed it, until the push confirms it.
+/// Drops machine `id` after this window removed it, until the push confirms it. A push that
+/// already dropped it needs no mark, which only a later push without the id would clear.
 export function removeListed(id: string) {
-  REMOVED.add(id);
+  if (!MACHINES.list || MACHINES.list.some(m => m.id === id)) REMOVED.add(id);
   if (MACHINES.list) take(MACHINES.list.filter(m => m.id !== id));
   else for (const f of machinesChanged) f();
 }
