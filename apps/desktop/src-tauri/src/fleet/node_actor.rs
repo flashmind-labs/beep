@@ -99,8 +99,10 @@ struct HeldProjected<K, V> {
     /// Keys whose initial cold read already waited `first_wait`, so repeat reads return at once
     /// until the in-flight background fetch settles.
     waited: HashSet<K>,
-    /// How many times each key was written: a read that started before a write can be dropped.
-    writes: HashMap<K, u64>,
+    /// The last ticket handed out for each key, in the order reads and writes began.
+    begun: HashMap<K, u64>,
+    /// The ticket of the value each key holds: a read that began earlier is dropped.
+    stored: HashMap<K, u64>,
 }
 
 impl<K, V> Default for HeldProjected<K, V> {
@@ -111,7 +113,8 @@ impl<K, V> Default for HeldProjected<K, V> {
             refresh_ids: HashMap::new(),
             next_refresh: 0,
             waited: HashSet::new(),
-            writes: HashMap::new(),
+            begun: HashMap::new(),
+            stored: HashMap::new(),
         }
     }
 }
@@ -142,27 +145,35 @@ where
 
     pub(crate) fn put(&self, key: K, value: V) {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-        Self::store(&mut held, key, value);
+        let ticket = Self::ticket(&mut held, &key);
+        Self::store(&mut held, key, value, ticket);
     }
 
-    /// How many writes `key` has had; give it to [`Self::put_unless_written`] after a read.
-    pub(crate) fn writes(&self, key: &K) -> u64 {
-        let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-        held.writes.get(key).copied().unwrap_or(0)
-    }
-
-    /// Stores `value` unless `key` was written since `writes` was read. False when dropped.
-    pub(crate) fn put_unless_written(&self, key: K, value: V, writes: u64) -> bool {
+    /// A ticket for a read about to start; give it to [`Self::put_begun`] with its value.
+    pub(crate) fn begin(&self, key: &K) -> u64 {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-        if held.writes.get(&key).copied().unwrap_or(0) != writes {
+        Self::ticket(&mut held, key)
+    }
+
+    /// Stores `value` unless a read or write that began after `ticket` was stored first. False
+    /// when dropped.
+    pub(crate) fn put_begun(&self, key: K, value: V, ticket: u64) -> bool {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        if held.stored.get(&key).copied().unwrap_or(0) >= ticket {
             return false;
         }
-        Self::store(&mut held, key, value);
+        Self::store(&mut held, key, value, ticket);
         true
     }
 
-    fn store(held: &mut HeldProjected<K, V>, key: K, value: V) {
-        *held.writes.entry(key.clone()).or_insert(0) += 1;
+    fn ticket(held: &mut HeldProjected<K, V>, key: &K) -> u64 {
+        let begun = held.begun.entry(key.clone()).or_insert(0);
+        *begun += 1;
+        *begun
+    }
+
+    fn store(held: &mut HeldProjected<K, V>, key: K, value: V, ticket: u64) {
+        held.stored.insert(key.clone(), ticket);
         held.in_flight.remove(&key);
         held.refresh_ids.remove(&key);
         held.waited.remove(&key);

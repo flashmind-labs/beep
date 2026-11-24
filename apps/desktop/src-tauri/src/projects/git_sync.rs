@@ -153,11 +153,11 @@ pub async fn project_git_state(
             let project = project.clone();
             async move {
                 if place.machine == fleet_arc.id() {
+                    let git_state = &fleet_arc.projections().git_state;
+                    let key = (place.machine, place.folder.clone());
+                    let ticket = git_state.begin(&key);
                     let read = row(&fleet_arc, &place, ReadFrom::LocalRefs).await;
-                    fleet_arc
-                        .projections()
-                        .git_state
-                        .put((place.machine, place.folder), read.cached());
+                    git_state.put_begun(key, read.cached(), ticket);
                     return Some(read);
                 }
 
@@ -214,15 +214,15 @@ pub async fn project_git_state(
             let app_bg = app.clone();
             let project_bg = project.clone();
 
-            let writes = fleet_arc.projections().git_state.writes(&key);
+            let ticket = fleet_arc.projections().git_state.begin(&key);
 
             tauri::async_runtime::spawn(async move {
                 let fetched = row(&fleet_bg, &place_bg, ReadFrom::Fetched).await;
                 let cached = fetched.cached();
                 let git_state = &fleet_bg.projections().git_state;
                 let changed = git_state.peek(&key_bg).as_ref() != Some(&cached);
-                // A switch or move that wrote the row while this fetch ran is newer than it.
-                let stored = git_state.put_unless_written(key_bg, cached.clone(), writes);
+                // A read or write that began after this fetch and was stored first is newer.
+                let stored = git_state.put_begun(key_bg, cached.clone(), ticket);
                 let timed_out = tx.send(fetched).is_err();
 
                 if stored && timed_out && changed {

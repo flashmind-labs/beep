@@ -167,23 +167,37 @@ async fn projected_discards_in_flight_refresh_invalidated_by_mutation() {
 }
 
 #[test]
-fn projected_drops_a_read_that_started_before_a_write_of_its_key() {
+fn projected_orders_reads_by_when_they_began() {
     let cache = Projected::<u32, String>::new(
         Duration::from_secs(10),
         Duration::from_millis(20),
         Duration::from_secs(2),
     );
     cache.put(1, "main".into());
-    let started = cache.writes(&1);
-    let other = cache.writes(&2);
+    let before_write = cache.begin(&1);
+    let other = cache.begin(&2);
 
     cache.put(1, "feature".into());
     cache.put(2, "elsewhere".into());
 
-    assert!(!cache.put_unless_written(1, "main".into(), started));
+    assert!(!cache.put_begun(1, "main".into(), before_write));
     assert_eq!(cache.peek(&1), Some("feature".into()));
-    assert!(cache.put_unless_written(3, "new".into(), cache.writes(&3)));
-    assert!(!cache.put_unless_written(2, "stale".into(), other));
+    assert!(cache.put_begun(3, "new".into(), cache.begin(&3)));
+    assert!(!cache.put_begun(2, "stale".into(), other));
+
+    // Of two overlapping reads the later one wins, whichever ends first; the earlier one
+    // ending last is dropped.
+    let first = cache.begin(&4);
+    let second = cache.begin(&4);
+    assert!(cache.put_begun(4, "second".into(), second));
+    assert!(!cache.put_begun(4, "first".into(), first));
+    assert_eq!(cache.peek(&4), Some("second".into()));
+
+    let first = cache.begin(&5);
+    let second = cache.begin(&5);
+    assert!(cache.put_begun(5, "first".into(), first));
+    assert!(cache.put_begun(5, "second".into(), second));
+    assert_eq!(cache.peek(&5), Some("second".into()));
 }
 
 #[test]
