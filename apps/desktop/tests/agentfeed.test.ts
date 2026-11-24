@@ -183,3 +183,36 @@ test("a reader ending for idleness, the cap or a gap says its session is unfollo
   feed.drop("running 1");
   assert.deepEqual(unfollowed, ["idle", "shown", "running 0", "running 1"]);
 });
+
+test("a held session stays followed beside the shown one and never takes the mark", () => {
+  const { feed, readers, closed, shown, advance } = setup();
+  feed.follow("main");
+  const release = feed.hold("side", () => {});
+  readers[1].receive("pushed");
+  feed.activity("side", "running");
+  feed.activity("side", "idle");
+  advance(IDLE_FOLLOW_MS * 2);
+  assert.deepEqual(closed, []);
+  assert.deepEqual(shown, ["0"]);
+  assert.equal(feed.live("side"), true);
+  release();
+  advance(IDLE_FOLLOW_MS);
+  assert.deepEqual(closed, ["1"]);
+});
+
+test("a held session opens again after its link drops, and reports one that never opened", async () => {
+  const { feed, readers, failed, advance } = setup();
+  const reports: string[] = [];
+  feed.hold("side", () => { reports.push("failed"); });
+  readers[0].receive("first");
+  readers[0].fail("dropped");
+  await Promise.resolve();
+  assert.equal(readers.length, 1);
+  assert.deepEqual(reports, []);
+  advance(5000);
+  assert.equal(readers.length, 2);
+  readers[1].end();
+  await Promise.resolve();
+  assert.deepEqual(reports, ["failed"]);
+  assert.deepEqual(failed, []);
+});

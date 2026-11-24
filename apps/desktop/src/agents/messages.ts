@@ -322,6 +322,16 @@ export function questionKey(q: AgentQuestion, session: OpenAgent) {
   return JSON.stringify([session.machine_id, session.agent, session.session, q.id, q.text, q.detail, q.options.map(o => [o.id, o.name, o.allow])]);
 }
 
+/// Sends `reply` to question `id` of `o`: null when the node took it, else what it refused with.
+export async function replyToQuestion(o: OpenAgent, id: number, reply: string): Promise<{ error: unknown } | null> {
+  try {
+    await invoke("center_answer_agent", { ...where(o), question: id, reply });
+    return null;
+  } catch (error) {
+    return { error };
+  }
+}
+
 /// Answers the open question once: its buttons stay disabled, and a poll
 /// that still shows it does not bring them back, until the node moves on.
 export async function answerAgentQuestion(i: number, shown: string) {
@@ -332,17 +342,18 @@ export async function answerAgentQuestion(i: number, shown: string) {
   AG.answering = q.id;
   drawAgentBody();
 
-  try {
-    await invoke("center_answer_agent", { ...where(o), question: q.id, reply: opt.id });
+  const failed = await replyToQuestion(o, q.id, opt.id);
+
+  if (!failed) {
     if (isOpen(o) && AG.page!.session.question?.id === q.id) {
       AG.page!.session.question = null;
       AG.page!.session.status = "working";
     }
-  } catch (e) {
+  } else {
     // A conflict means it was answered already, so it stays answered.
-    const conflict = conflicted(e);
+    const conflict = conflicted(failed.error);
     if (!conflict && AG.answering === q.id) AG.answering = null;
-    if (isOpen(o)) AG.note = conflict ? "" : String(e);
+    if (isOpen(o)) AG.note = conflict ? "" : String(failed.error);
   }
 
   if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
@@ -395,7 +406,7 @@ async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen:
 }
 
 /// One `agent_steer` call: null when the node took it, else why not.
-async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null): Promise<SendError | null> {
+export async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null): Promise<SendError | null> {
   try {
     const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0], seen }, AGENT_SEND_WAIT_MS);
     const sent = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;

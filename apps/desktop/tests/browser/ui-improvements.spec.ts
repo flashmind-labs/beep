@@ -95,6 +95,19 @@ test("Open beside mounts a second session in the right dock and sends messages",
   await expect(page.locator(".ag-head")).toContainText("Secondary session");
 });
 
+test("a split session follows the push stream and never reads the session", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "First notification", cwd: "/srv/example/widget", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.locator("#rail").getByRole("button", { name: /Second notification/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Open beside" }).click();
+
+  const split = page.locator("#agpane-right .agsplit");
+  await expect(split).toContainText("No messages yet.");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_follow").map(c => c.args.session))).toContain("notice-two");
+  expect(await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_view" && c.args.session === "notice-two").length)).toBe(0);
+});
+
 test("light skins render light card surfaces instead of dark foreground tints", async ({ page }) => {
   const running = [{ kind: "agent", machine_id: machineId, machine_name: machineId, id: "one", agent: "codex", title: "Light card check", cwd: project.folder, status: "working", doing: "Building", started_at: 1_000, last_activity: 2_000, external: false, question: null }];
   await page.addInitScript(() => localStorage.setItem("beep.skin", "paper"));

@@ -1,10 +1,14 @@
 // A coding agent session opened as a split tab inside `PaneDock`, beside or
-// under the primary conversation: polls `agent_view` while shown, renders its
-// entries and open question, and lets the user steer, answer or promote it.
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+// under the primary conversation: draws what the app holds of it at once, follows
+// its pushed updates while shown, renders its entries and open question, and lets
+// the user steer, answer or promote it.
+import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 import type { AgentEntry, AgentPage, AgentQuestion, AgentRow } from "../agents/agents.ts";
+import { AGENT_ACTIVE, openOf, where } from "../agents/agents.ts";
 import { parseTool } from "../agents/agentlog.ts";
-import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
+import { replyToQuestion, sendOnce } from "../agents/messages.ts";
+import { feed, keptTranscript, transcripts } from "../agents/session-follow.ts";
+import { transcriptKey } from "../agents/transcript-cache-state.ts";
 import { agentName } from "../agents/running-state.ts";
 import { promptParts } from "../agents/promptparts-state.ts";
 import { AgentStatus } from "../agents/mode-view.tsx";
@@ -14,49 +18,37 @@ import { Button, EmptyPanel, Spinner, useHtml } from "../ui/kit.tsx";
 import { conflicted, invoke } from "../ui/tauri.ts";
 import type { SplitSession } from "./media.ts";
 
-const ACTIVE_POLL_MS = 1500;
-const IDLE_POLL_MS = 5000;
-
 export function SessionTabView({ session, hidden, close }: { session: SplitSession; hidden: boolean; close(): void }) {
-  const [page, setPage] = useState<AgentPage | null>(null);
+  const key = transcriptKey(openOf(session));
+  const held = useSyncExternalStore(transcripts.subscribe, () => transcripts.peek(key));
+  // A page read by other means: the one kept on disk, or the one read when the follow could not open.
+  const [read, setRead] = useState<{ key: string; page: AgentPage } | null>(null);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
   const [sendErr, setSendErr] = useState("");
   const [answering, setAnswering] = useState<number | null>(null);
-  const [tick, setTick] = useState(0);
   const scroller = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
+  const page = held?.page ?? (read?.key === key ? read.page : null);
 
   useEffect(() => {
     if (hidden) return;
-    let cancelled = false;
-    let timer = 0;
+    const o = openOf(session);
+    let shown = true;
+    let release = () => {};
+    const keep = (page: AgentPage) => { if (shown) { setRead({ key, page }); setError(""); } };
 
-    const poll = async () => {
-      try {
-        const next = await invoke<AgentPage>("agent_view", { machineId: session.machine_id, agent: session.agent, session: session.id });
-        if (cancelled) return;
-        setPage(next);
-        setError("");
-        const ms = AGENT_ACTIVE.has(next.session.status) ? ACTIVE_POLL_MS : IDLE_POLL_MS;
-        if (!document.hidden) timer = window.setTimeout(() => { void poll(); }, ms);
-      } catch (e) {
-        if (cancelled) return;
-        setError(reason(e));
-        if (!document.hidden) timer = window.setTimeout(() => { void poll(); }, IDLE_POLL_MS);
-      }
-    };
+    void keptTranscript(o).then(kept => {
+      if (!shown) return;
+      if (kept) keep(kept);
+      release = feed.hold(o, () => {
+        invoke<AgentPage>("agent_view", where(o)).then(keep, e => { if (shown) setError(reason(e)); });
+      });
+    });
 
-    const onVis = () => { if (!document.hidden && !timer) void poll(); };
-    document.addEventListener("visibilitychange", onVis);
-    void poll();
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [session.machine_id, session.agent, session.id, hidden, tick]);
+    return () => { shown = false; release(); };
+  }, [key, hidden]);
 
   useEffect(() => {
     const el = scroller.current;
@@ -85,36 +77,28 @@ export function SessionTabView({ session, hidden, close }: { session: SplitSessi
     if (!text || sending || !writable) return;
     setSending(true);
     setSendErr("");
-    try {
-      const steer = active ? { steer: { text } } : { prompt: { text } };
-      await invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer, seen: null });
+    const failed = await sendOnce(openOf(session), active ? { steer: { text } } : { prompt: { text } }, null);
+
+    // A conflict means the session moved on: the words are dropped, as when sent.
+    if (!failed || conflicted(failed.message)) {
       setDraft("");
       stuck.current = true;
-      setTick(n => n + 1);
-    } catch (e) {
-      if (!conflicted(e)) setSendErr(reason(e));
-      else { setDraft(""); setTick(n => n + 1); }
-    } finally {
-      setSending(false);
+    } else {
+      setSendErr(failed.message);
     }
+
+    setSending(false);
   };
 
   const stop = () => {
-    void invoke("agent_steer", { machineId: session.machine_id, agent: session.agent, session: session.id, steer: "cancel", seen: null })
-      .then(() => setTick(n => n + 1))
-      .catch(err => setSendErr(reason(err)));
+    void sendOnce(openOf(session), { cancel: null }, null).then(failed => { if (failed) setSendErr(failed.message); });
   };
 
   const answer = async (q: AgentQuestion, reply: string) => {
     setAnswering(q.id);
-    try {
-      await invoke("center_answer_agent", { machineId: session.machine_id, agent: session.agent, session: session.id, question: q.id, reply });
-      setTick(n => n + 1);
-    } catch (e) {
-      if (!conflicted(e)) setSendErr(reason(e));
-    } finally {
-      setAnswering(null);
-    }
+    const failed = await replyToQuestion(openOf(session), q.id, reply);
+    if (failed && !conflicted(failed.error)) setSendErr(reason(failed.error));
+    setAnswering(null);
   };
 
   const onKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {

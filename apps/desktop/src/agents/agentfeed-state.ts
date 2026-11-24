@@ -44,6 +44,8 @@ interface Transport<K, T> {
 
 export class AgentFeed<K, T> {
   private readonly readers = new Map<string, Reader<K>>();
+  /// The sessions a view beside the shown one keeps followed, with what it does when one cannot be.
+  private readonly holds = new Map<string, () => void>();
   private shown: string | null = null;
   private shownId: string | null = null;
 
@@ -72,6 +74,34 @@ export class AgentFeed<K, T> {
     const name = this.transport.name(key);
     if (this.shown !== name) this.release();
     this.shown = name;
+    const reader = this.ensure(key, name);
+    reader.key = key;
+    reader.viewed = ++this.views;
+    reader.idle?.();
+    reader.idle = null;
+    this.showReader(reader.id);
+    this.limit();
+  }
+
+  /// Follows `key` for a view shown beside the session on screen, which stays the one marked read.
+  /// It stays followed until the returned release is called, opened again after its link drops;
+  /// `failed` runs when it could not be opened, as on a node without the follow.
+  hold(key: K, failed: () => void) {
+    const name = this.transport.name(key);
+    this.holds.set(name, failed);
+    this.ensure(key, name);
+
+    return () => {
+      if (this.holds.get(name) !== failed) return;
+      this.holds.delete(name);
+      const reader = this.readers.get(name);
+      if (reader && name !== this.shown) this.settle(reader);
+      this.limit();
+    };
+  }
+
+  /// The reader of `name`, opened again when it ended and its time to retry came.
+  private ensure(key: K, name: string) {
     let reader = this.readers.get(name);
 
     if (reader?.ended && this.transport.now() >= reader.retryAt) {
@@ -79,13 +109,7 @@ export class AgentFeed<K, T> {
       reader = undefined;
     }
 
-    reader ??= this.open(key, name);
-    reader.key = key;
-    reader.viewed = ++this.views;
-    reader.idle?.();
-    reader.idle = null;
-    this.showReader(reader.id);
-    this.limit();
+    return reader ?? this.open(key, name);
   }
 
   /// The session on screen leaves it: the window hid or another view opened.
@@ -113,7 +137,9 @@ export class AgentFeed<K, T> {
   /// Stops following `key`, as after a gap in its updates.
   drop(key: K) {
     const reader = this.reader(key);
-    if (reader) this.remove(reader);
+    if (!reader) return;
+    this.remove(reader);
+    if (this.holds.has(reader.name)) this.open(reader.key, reader.name);
   }
 
   private remove(reader: Reader<K>) {
@@ -175,6 +201,13 @@ export class AgentFeed<K, T> {
   /// A session off screen: an idle one is unfollowed `IDLE_FOLLOW_MS` after
   /// it went idle, one that runs or asks stays.
   private settle(reader: Reader<K>) {
+    if (this.holds.has(reader.name)) {
+      reader.idle?.();
+      reader.idle = null;
+      if (reader.ended) this.retryHeld(reader);
+      return;
+    }
+
     if (reader.ended) { this.remove(reader); return; }
 
     if (reader.activity !== "idle") {
@@ -191,7 +224,7 @@ export class AgentFeed<K, T> {
   /// Past `BACKGROUND_FOLLOWS` off screen, the least recently viewed goes,
   /// one that asks only when every other one asks too.
   private limit() {
-    const hidden = [...this.readers.values()].filter(reader => reader.name !== this.shown);
+    const hidden = [...this.readers.values()].filter(reader => reader.name !== this.shown && !this.holds.has(reader.name));
 
     while (hidden.length > BACKGROUND_FOLLOWS) {
       const order = (reader: Reader<K>) => [reader.activity === "asking" ? 1 : 0, reader.viewed];
@@ -201,12 +234,28 @@ export class AgentFeed<K, T> {
     }
   }
 
+  /// Opens a held reader that ended again once its time to retry comes.
+  private retryHeld(reader: Reader<K>) {
+    this.transport.later(Math.max(0, reader.retryAt - this.transport.now()), () => {
+      if (this.readers.get(reader.name) === reader && this.holds.has(reader.name)) this.ensure(reader.key, reader.name);
+    });
+  }
+
   private disconnected(reader: Reader<K>, error: unknown) {
     if (this.readers.get(reader.name) !== reader) return;
     const wasLive = reader.live;
     reader.live = false;
     reader.ended = true;
     reader.retryAt = this.transport.now() + (wasLive ? 5000 : 60_000);
+
+    // Beside the shown one it opens again once its time to retry comes.
+    const failed = this.holds.get(reader.name);
+
+    if (failed && reader.name !== this.shown) {
+      this.retryHeld(reader);
+      if (!wasLive) failed();
+      return;
+    }
 
     // Off screen it reads again from where it was once opened.
     if (reader.name !== this.shown) { this.remove(reader); return; }

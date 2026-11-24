@@ -28,6 +28,7 @@ export class TranscriptCache<T extends Run> {
   private readonly entrySizes = new WeakMap<object, number>();
   /// Each held page's size in characters, by key.
   private readonly sizes = new Map<string, number>();
+  private readonly listeners = new Set<() => void>();
 
   constructor(limit = 8, characters = 8 * 1024 * 1024) {
     this.limit = limit;
@@ -45,17 +46,28 @@ export class TranscriptCache<T extends Run> {
     return held;
   }
 
+  /// `listener` runs after any held page changes; for `useSyncExternalStore`.
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener);
+    return () => { this.listeners.delete(listener); };
+  };
+
+  private changed() { for (const listener of [...this.listeners]) listener(); }
+
   /// What is held for `key`, without making it the most recent.
   peek(key: string): Cached<T> | undefined { return this.sessions.get(key); }
 
   /// Holds a page kept from an earlier run, unless a newer one is held already.
   seed(key: string, kept: Cached<T>) {
-    if (!this.sessions.has(key)) this.sessions.set(key, kept);
+    if (this.sessions.has(key)) return;
+    this.sessions.set(key, kept);
+    this.changed();
   }
 
   delete(key: string) {
     this.sessions.delete(key);
     this.sizes.delete(key);
+    this.changed();
   }
 
   receive(key: string, update: TranscriptUpdate<T>): T | null {
@@ -93,6 +105,8 @@ export class TranscriptCache<T extends Run> {
       if (oldest === undefined || this.sessions.size === 1) break;
       this.delete(oldest);
     }
+
+    this.changed();
 
     return page;
   }
