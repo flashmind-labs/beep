@@ -41,8 +41,11 @@ pub(crate) struct Source {
     stored: AtomicU64,
     /// Topics whose root came or went, announced once the watcher has bound.
     unannounced: Mutex<BTreeSet<Topic>>,
-    /// Held only to compare and swap the bindings.
-    watcher: AsyncMutex<Option<FileWatcher>>,
+    /// Held only to read or swap the watcher.
+    watcher: Mutex<Option<Arc<FileWatcher>>>,
+    /// Held across the walk that installs a binding, so installs of one
+    /// source stay in order. Nothing else waits on it.
+    install: AsyncMutex<()>,
     bare: Mutex<Bare>,
     /// For a test: the next lookup says it is done, then waits to be released.
     #[cfg(test)]
@@ -67,7 +70,8 @@ impl Source {
             issued: AtomicU64::new(0),
             stored: AtomicU64::new(0),
             unannounced: Mutex::default(),
-            watcher: AsyncMutex::default(),
+            watcher: Mutex::default(),
+            install: AsyncMutex::default(),
             bare: Mutex::default(),
             #[cfg(test)]
             after_lookup: Mutex::default(),
@@ -122,8 +126,8 @@ impl Source {
     /// asked outside the lock, which is taken to compare and swap.
     async fn bind(&self, offers: &Offers) -> Result<()> {
         let wanted = crate::lock(&self.roots).clone();
-        let held = held(&*self.watcher.lock().await);
-        let bindings = git_bindings(&wanted, &held).await;
+        let current = held(crate::lock(&self.watcher).as_deref());
+        let bindings = git_bindings(&wanted, &current).await;
         #[cfg(test)]
         {
             let gate = {
@@ -140,28 +144,36 @@ impl Source {
             }
         }
 
-        let mut watcher = self.watcher.lock().await;
+        let _install = self.install.lock().await;
 
         // A newer resolve is followed by its own bind.
         if *crate::lock(&self.roots) != wanted {
             return Ok(());
         }
 
-        if wanted.is_empty() {
-            *watcher = None;
-        } else if bindings != self::held(&watcher) {
-            if watcher.is_none() {
-                *watcher = Some(file_watcher(offers)?);
-            }
+        let watcher = {
+            let mut watcher = crate::lock(&self.watcher);
 
-            if let Some(watcher) = watcher.as_ref() {
-                let paths = bindings.values().flatten().cloned().collect();
-                watcher.paths.replace(paths).await?;
-                *crate::lock(&watcher.bindings) = bindings.clone();
+            if wanted.is_empty() {
+                *watcher = None;
+                None
+            } else if bindings != held(watcher.as_deref()) {
+                if watcher.is_none() {
+                    *watcher = Some(Arc::new(file_watcher(offers)?));
+                }
+
+                watcher.clone()
+            } else {
+                None
             }
+        };
+
+        if let Some(watcher) = watcher {
+            let paths = bindings.values().flatten().cloned().collect();
+            watcher.paths.replace(paths).await?;
+            *crate::lock(&watcher.bindings) = bindings.clone();
         }
 
-        drop(watcher);
         crate::lock(&self.bare).topics = bindings
             .iter()
             .filter(|(_, dependencies)| !has_git(dependencies))
@@ -195,9 +207,8 @@ impl Source {
     }
 }
 
-fn held(watcher: &Option<FileWatcher>) -> FileBindings {
+fn held(watcher: Option<&FileWatcher>) -> FileBindings {
     watcher
-        .as_ref()
         .map(|watcher| crate::lock(&watcher.bindings).clone())
         .unwrap_or_default()
 }
