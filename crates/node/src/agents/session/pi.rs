@@ -1,6 +1,9 @@
 use super::AgentKind;
+use agent_client_protocol::v1::schema::McpServer;
 use anyhow::{Context, Result};
+use serde::Serialize;
 use std::{
+    collections::BTreeMap,
     env,
     ffi::OsString,
     fs,
@@ -10,15 +13,19 @@ use tempfile::TempDir;
 use tokio::process::Command;
 
 const PI_COMMAND: &str = "PI_ACP_PI_COMMAND";
+/// Match Beep's longest MCP tool waits (e.g. `remote_run` and `ask_user`).
+const MCP_TIMEOUT_SECS: u32 = 600;
 
 /// Configure the standalone Pi process used by pi-acp.
-/// Each session gets a private launcher that loads Beep's error-recovery
-/// extension and routes saved instructions through Pi's native flags.
+/// Each session gets a private launcher that loads Beep's session extension
+/// (MCP registration and error recovery) and routes saved instructions through
+/// Pi's native flags.
 pub(super) fn setup(
     kind: &AgentKind,
     process: &mut Command,
     cwd: &Path,
     instructions: &mut Option<String>,
+    mcp: Option<&McpServer>,
 ) -> Result<Option<TempDir>> {
     if !is_pi_acp(kind) {
         return Ok(None);
@@ -47,9 +54,9 @@ pub(super) fn setup(
         None => None,
     };
 
-    let extension = extension_source(inline_instructions)?;
-    fs::write(dir.path().join("beep.ts"), extension)
-        .context("writing Pi's session extension")?;
+    let extension = extension_source(inline_instructions, mcp)?;
+    let ext_path = dir.path().join("beep.ts");
+    write_private(&ext_path, &extension).context("writing Pi's session extension")?;
     flags.push(("--extension", "beep.ts"));
 
     let launcher = if cfg!(windows) { "pi.cmd" } else { "pi" };
@@ -62,17 +69,74 @@ pub(super) fn setup(
     Ok(Some(dir))
 }
 
-fn extension_source(instructions: Option<&str>) -> Result<String> {
+#[derive(Serialize)]
+struct PiMcpServer<'a> {
+    name: &'a str,
+    config: PiMcpConfig<'a>,
+}
+
+#[derive(Serialize)]
+struct PiMcpConfig<'a> {
+    command: String,
+    args: &'a [String],
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    env: BTreeMap<&'a str, &'a str>,
+    exposure: &'static str,
+    timeout: u32,
+}
+
+fn mcp_server_spec(mcp: Option<&McpServer>) -> Option<PiMcpServer<'_>> {
+    let McpServer::Stdio(stdio) = mcp? else {
+        return None;
+    };
+    let env = stdio
+        .env
+        .iter()
+        .map(|var| (var.name.as_str(), var.value.as_str()))
+        .collect();
+
+    Some(PiMcpServer {
+        name: &stdio.name,
+        config: PiMcpConfig {
+            command: stdio.command.to_string_lossy().into_owned(),
+            args: &stdio.args,
+            env,
+            exposure: "direct",
+            timeout: MCP_TIMEOUT_SECS,
+        },
+    })
+}
+
+fn extension_source(instructions: Option<&str>, mcp: Option<&McpServer>) -> Result<String> {
     let instructions_json = match instructions {
         Some(text) => serde_json::to_string(text)?,
+        None => "null".to_owned(),
+    };
+    let mcp_json = match mcp_server_spec(mcp) {
+        Some(spec) => serde_json::to_string(&spec)?,
         None => "null".to_owned(),
     };
 
     Ok(format!(
         r#"const instructions = {instructions_json};
+const mcpServer = {mcp_json};
 const MAX_CONTENT_FILTER_RETRIES = 2;
 
 export default function (pi) {{
+    if (mcpServer !== null && typeof pi.registerMcpServer === 'function') {{
+        const registered =
+            typeof pi.getMcpServers === 'function'
+                ? pi.getMcpServers().some((server) => server?.name === mcpServer.name)
+                : false;
+        if (!registered) {{
+            try {{
+                pi.registerMcpServer(mcpServer.name, mcpServer.config);
+            }} catch {{
+                // Leave Pi running if another extension or config already registered it.
+            }}
+        }}
+    }}
+
     let contentFilterRetries = 0;
     let unrecoveredError = null;
 
@@ -183,6 +247,19 @@ fn is_pi_acp(kind: &AgentKind) -> bool {
         }),
         _ => false,
     }
+}
+
+#[cfg(unix)]
+fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    fs::write(path, contents)?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+}
+
+#[cfg(not(unix))]
+fn write_private(path: &Path, contents: &str) -> std::io::Result<()> {
+    fs::write(path, contents)
 }
 
 #[cfg(unix)]

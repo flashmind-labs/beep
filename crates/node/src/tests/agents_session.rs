@@ -2873,8 +2873,26 @@ cat > /dev/null
     kind.env.insert("PI_CODING_AGENT_DIR".into(), dir.display().to_string());
     std::fs::write(dir.join("APPEND_SYSTEM.md"), "Keep Pi's own instructions.").unwrap();
 
+    let mcp = agent_client_protocol::v1::schema::McpServer::Stdio(
+        agent_client_protocol::v1::schema::McpServerStdio::new("beep", "/usr/local/bin/beep-node")
+            .args(vec![
+                "--dir".into(),
+                "/srv/beep".into(),
+                "mcp".into(),
+                "--session".into(),
+                "s".into(),
+            ])
+            .env(vec![
+                agent_client_protocol::v1::schema::EnvVariable::new("BEEP_MCP_TOKEN", "tok123"),
+                agent_client_protocol::v1::schema::EnvVariable::new(
+                    "BEEP_MCP_SOCKET",
+                    "/srv/beep/mcp.sock",
+                ),
+            ]),
+    );
     let session = Session::start(Start {
         instructions: Some("Keep replies short.".into()),
+        mcp: Some(mcp),
         ..start_on(&kind, dir, None)
     })
     .unwrap();
@@ -2888,12 +2906,32 @@ import register from './captured_ext.mjs';
 const handlers = new Map();
 const sent = [];
 const notifications = [];
+const registeredMcp = [];
 const pi = {
     on(name, fn) { handlers.set(name, fn); },
     sendMessage(msg, opts) { sent.push({ msg, opts }); },
+    getMcpServers() { return registeredMcp; },
+    registerMcpServer(name, config) { registeredMcp.push({ name, config }); },
 };
 const ctx = { ui: { notify(msg, level) { notifications.push({ msg, level }); } } };
 register(pi);
+
+// Beep's stdio MCP server is registered directly with Pi.
+assert.equal(registeredMcp.length, 1);
+assert.equal(registeredMcp[0].name, 'beep');
+assert.equal(registeredMcp[0].config.command, '/usr/local/bin/beep-node');
+assert.deepEqual(registeredMcp[0].config.args, ['--dir', '/srv/beep', 'mcp', '--session', 's']);
+assert.deepEqual(registeredMcp[0].config.env, {
+    BEEP_MCP_SOCKET: '/srv/beep/mcp.sock',
+    BEEP_MCP_TOKEN: 'tok123',
+});
+assert.equal(registeredMcp[0].config.exposure, 'direct');
+assert.equal(registeredMcp[0].config.timeout, 600);
+
+// Re-registering does not duplicate or throw, and older Pi without registerMcpServer works.
+register(pi);
+assert.equal(registeredMcp.length, 1);
+register({ on() {}, sendMessage() {} });
 
 // before_agent_start appends instructions and resets retry state.
 const started = handlers.get('before_agent_start')({ systemPrompt: 'Base' });
