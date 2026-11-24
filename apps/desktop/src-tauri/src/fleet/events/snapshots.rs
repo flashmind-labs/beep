@@ -347,6 +347,8 @@ fn error(message: &str) -> MeshError {
     MeshError::Link(anyhow::anyhow!(message.to_owned()))
 }
 
+/// How long a read waits for the first snapshot of its subscription before the caller reads
+/// the node directly.
 const SNAPSHOT_WAIT: Duration = Duration::from_secs(3);
 
 struct Reader {
@@ -375,7 +377,10 @@ impl SnapshotReader for Reader {
                     },
                     // The read can outlive its view's subscription.
                     Ok(Err(_)) => return None,
-                    Err(_) => Err(error("the node did not provide its subscription snapshot")),
+                    // A busy node can take longer. The caller asks it directly meanwhile, which is
+                    // no failure, and the query stays registered: the snapshot that comes late
+                    // serves the next read at once.
+                    Err(_) => return None,
                 },
             )
         })

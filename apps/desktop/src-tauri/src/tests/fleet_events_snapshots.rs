@@ -42,6 +42,25 @@ async fn subscribed_reads_wait_for_the_first_snapshot_and_then_use_current_state
     assert_eq!(snapshots.queries(id), [query]);
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_snapshot_that_comes_late_is_no_error_and_serves_the_next_read() {
+    let snapshots = Arc::new(Snapshots::default());
+    let (id, generation) = demanded_machine(&snapshots, "terminals");
+    let reader = snapshots.reader(id);
+
+    // The node is busy: the read gives up, so its caller reads the node directly.
+    assert!(reader.snapshot(Read::TerminalList).await.is_none());
+
+    let query = snapshots.queries(id).pop().unwrap();
+    let snapshot = terminal_snapshot(&query);
+    assert_eq!(snapshots.install(id, generation, &snapshot), Some(true));
+
+    assert_eq!(
+        reader.snapshot(Read::TerminalList).await.unwrap().unwrap(),
+        snapshot.value
+    );
+}
+
 #[test]
 fn reconnect_clears_values_and_rejects_late_snapshots_from_the_previous_stream() {
     let snapshots = Snapshots::default();
