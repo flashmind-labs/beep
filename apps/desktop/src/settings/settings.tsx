@@ -12,7 +12,7 @@ import { pluginsSettings } from "./plugins-settings.ts";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
 import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading, type AgentsTab } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
-import { agentAccountsContent, credentialsContent, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.tsx";
+import { agentAccountsContent, credentialsContent, renderCreds, CRED, ensureAgentAccounts, loadCreds } from "./accounts.tsx";
 import { bar, S, toWindow, windowHooks, setView } from "../bar/core.ts";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { hintModel } from "../bar/hints.ts";
@@ -99,7 +99,7 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
       if (CRED.list) renderCreds();
     });
   loadCreds();
-  loadAgentAccounts();
+  ensureAgentAccounts();
 }
 
 function drawLocal() {

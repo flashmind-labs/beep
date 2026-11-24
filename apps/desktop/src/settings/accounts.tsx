@@ -12,7 +12,8 @@ import { openSignIn } from "../machines/signin.tsx";
 import { redrawSettings, setShown } from "./settings.tsx";
 import { Mounted } from "./settings-shell-view.tsx";
 import { Channel, invoke } from "../ui/tauri.ts";
-import { onShownChange } from "../ui/active.ts";
+import { AMBIENT_MS, onShownChange } from "../ui/active.ts";
+import { pushedView } from "../ui/snapshot-state.ts";
 import { formatAgo } from "../ui/format.ts";
 
 /// Settings, Credentials (`credentials.ts` holds its logic).
@@ -163,22 +164,29 @@ function redrawAgents() {
   if (setShown()) renderAgents();
 }
 
+/// Takes `data` as the accounts, with each machine's own sign-in as it last reported it.
+function takeAccounts(data: AgentAccounts, machines: readonly Machine[]) {
+  ACC.data = data;
+  if (!data) return;
+
+  data.claude_logins = new Map(machines.flatMap(m => {
+    const login = m.env?.logins?.find(l => l.tool === "claude");
+    return login ? [[m.id, login] as const] : [];
+  }));
+  data.agy_machines = machines.flatMap(m => {
+    const login = m.env?.logins?.find(l => l.tool === "agy");
+    return login ? [{ id: m.id, name: m.name, online: m.online, signed_in: login.signed_in }] : [];
+  });
+}
+
+/// Reads the accounts, for a change this window made: the push comes for other changes.
 export async function loadAgentAccounts() {
   try {
     const [data, machines] = await Promise.all([
       invoke<AgentAccounts>("agent_accounts"),
       ensureMachines().catch((): Machine[] => []),
     ]);
-    ACC.data = data;
-    // Each machine's own Claude Code sign-in, as it last reported it.
-    if (data) data.claude_logins = new Map(machines.flatMap(m => {
-      const login = m.env?.logins?.find(l => l.tool === "claude");
-      return login ? [[m.id, login] as const] : [];
-    }));
-    if (data) data.agy_machines = machines.flatMap(m => {
-      const login = m.env?.logins?.find(l => l.tool === "agy");
-      return login ? [{ id: m.id, name: m.name, online: m.online, signed_in: login.signed_in }] : [];
-    });
+    takeAccounts(data, machines);
   } catch (e) {
     console.warn(e);
     ACC.data ??= null;
@@ -186,6 +194,23 @@ export async function loadAgentAccounts() {
 
   redrawAgents();
 }
+
+/// The accounts the push last gave, read when none came yet.
+export function ensureAgentAccounts() {
+  if (!ACC.data) void loadAgentAccounts();
+}
+
+// A machines change moves the sign-ins drawn beside the accounts, so it takes them again.
+subscribeChanges([topic("accounts"), topic("machines")], { deliver: "each", receive: event => {
+  const pushed = pushedView<AgentAccounts>(event.data, "agent_accounts");
+
+  if (pushed && "error" in pushed) { console.warn("agent accounts:", pushed.error); return; }
+  if (pushed) takeAccounts(pushed.value, MACHINES.list ?? []);
+  else if (ACC.data) takeAccounts(ACC.data, MACHINES.list ?? []);
+  else return;
+
+  redrawAgents();
+} }, { wait: AMBIENT_MS });
 
 /// How a Codex sign-in stands (CodexStateView).
 interface CodexState {
