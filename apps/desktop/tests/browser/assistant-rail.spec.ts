@@ -333,7 +333,7 @@ test("an empty chat shows its right pane when a thread starts and hides it when 
 
   const sessions = (rows: (typeof chat)[]) => page.evaluate(list => {
     window.__navigation.respond("agent_sessions", list);
-    window.__navigation.emit("sessions-changed", null);
+    window.__navigation.notify("home", [{ command: "agent_sessions", value: list }]);
   }, rows);
   await sessions([chat, notes, research]);
   await expect(rail.locator(".rail-threads .pj-li")).toHaveText([/Pricing research/]);
@@ -449,7 +449,7 @@ test("a restored thread stays selected when the parent chat connects first", asy
   await expect(page.getByRole("button", { name: "Open parent chat" })).toBeVisible();
   await page.evaluate(rows => {
     window.__navigation.respond("agent_sessions", rows);
-    window.__navigation.emit("sessions-changed", "");
+    window.__navigation.notify("home", [{ command: "agent_sessions", value: rows }]);
   }, [chat, research]);
   await expect(page.locator("#agtitle")).toHaveText(research.title);
   await expect(page.locator("#agbody")).toContainText("On it.");
