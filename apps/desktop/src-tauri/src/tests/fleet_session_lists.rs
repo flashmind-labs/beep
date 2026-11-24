@@ -153,11 +153,7 @@ fn beep_rows_come_from_the_mirror_over_the_answers() {
     ];
 
     let rows = with_mirrored(answered, &mirrored, &[key]);
-    let status = |id: &str| {
-        rows.iter()
-            .find(|row| row.id == id)
-            .map(|row| row.status.clone())
-    };
+    let status = |id: &str| rows.iter().find(|row| row.id == id).map(|row| row.status);
 
     assert_eq!(status("busy"), Some(AgentStatus::Working {}));
     assert_eq!(status("outside"), Some(AgentStatus::Ended {}));

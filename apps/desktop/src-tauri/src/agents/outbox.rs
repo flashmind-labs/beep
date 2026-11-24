@@ -1092,9 +1092,8 @@ impl Link for MeshLink {
             return;
         }
 
-        match &order.kind {
-            OrderKind::Close => closed(&self.app, &order.key.machine_id, &order.key.session),
-            _ => {}
+        if matches!(order.kind, OrderKind::Close) {
+            closed(&self.app, &order.key.machine_id, &order.key.session);
         }
     }
 }

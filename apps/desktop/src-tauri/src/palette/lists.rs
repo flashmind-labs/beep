@@ -62,7 +62,7 @@ pub(crate) struct PaletteLists {
     pub(super) branches: Option<Vec<BranchRow>>,
     /// The ticket of the last removal: a read of the projects taken before it is out of date.
     #[serde(skip)]
-    removed_at: u64,
+    pub(super) removed_at: u64,
 }
 
 impl PaletteLists {
