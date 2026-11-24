@@ -14,12 +14,7 @@ use tokio::task::spawn_blocking;
 /// The node's log: the service's, or log files of the host's. Serves
 /// `logs/1`.
 #[derive(Debug, Clone, Default)]
-pub struct Logs {
-    source: Source,
-}
-
-#[derive(Debug, Clone, Default)]
-enum Source {
+pub enum Logs {
     #[default]
     Service,
     Files(Vec<PathBuf>),
@@ -36,12 +31,10 @@ impl From<PathBuf> for Logs {
 impl From<Vec<PathBuf>> for Logs {
     /// The log files at `paths`, oldest first, the last one being written.
     fn from(paths: Vec<PathBuf>) -> Self {
-        Self {
-            source: if paths.is_empty() {
-                Source::Service
-            } else {
-                Source::Files(paths)
-            },
+        if paths.is_empty() {
+            Self::Service
+        } else {
+            Self::Files(paths)
         }
     }
 }
@@ -49,16 +42,14 @@ impl From<Vec<PathBuf>> for Logs {
 impl Logs {
     /// Discovers daily `beep.*.log` files on every query, including legacy logs.
     pub fn in_directory(dir: PathBuf) -> Self {
-        Self {
-            source: Source::Directory(dir),
-        }
+        Self::Directory(dir)
     }
 
     fn files(&self) -> Result<Vec<PathBuf>> {
-        let dir = match &self.source {
-            Source::Service => return Ok(Vec::new()),
-            Source::Files(files) => return Ok(files.clone()),
-            Source::Directory(dir) => dir,
+        let dir = match self {
+            Self::Service => return Ok(Vec::new()),
+            Self::Files(files) => return Ok(files.clone()),
+            Self::Directory(dir) => dir,
         };
         let mut files = Vec::new();
 
@@ -89,7 +80,7 @@ impl Logs {
     fn read(&self, read: impl FnOnce(&[PathBuf]) -> Result<String>) -> Result<String> {
         let files = self.files()?;
 
-        if files.is_empty() && matches!(self.source, Source::Directory(_)) {
+        if files.is_empty() && matches!(self, Self::Directory(_)) {
             return Ok(String::new());
         }
 
