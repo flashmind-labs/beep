@@ -20,6 +20,7 @@ use beep_proto::{
             Device, DeviceId, DeviceState, PROTOCOL as DEVICE_PROTOCOL, Reply as DeviceReply,
             Request as DeviceRequest,
         },
+        events::Value,
         harness::HarnessReport,
         mcp_servers::{
             Harness as McpHarness, NativeServer, PROTOCOL as MCP_PROTOCOL, Reply as McpReply,
@@ -458,7 +459,75 @@ pub(crate) struct Projections {
     pub(crate) devices: Arc<Projected<EndpointId, Vec<Device>>>,
     pub(crate) reviews: Arc<Projected<(EndpointId, SessionId), Vec<ReviewRun>>>,
     pub(crate) search: Arc<Projected<EndpointId, String>>,
+    /// What nodes without the `tool-updates` topic answer to the check call.
     pub(crate) tool_updates: Arc<Projected<EndpointId, Vec<ToolUpdate>>>,
+    pub(crate) tool_pushes: ToolPushes,
+}
+
+/// What a node said on its `tool-updates` topic.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum ToolPush {
+    /// The node pushes its list, so the check call is not made.
+    Pushed(Vec<ToolUpdate>),
+    /// The node answered the topic with an error, as one that predates it does: its list
+    /// comes from the check call.
+    Refused,
+}
+
+/// The `tool-updates` answer of each machine; a machine not here has not answered yet.
+#[derive(Default)]
+pub(crate) struct ToolPushes {
+    held: Mutex<HashMap<EndpointId, ToolPush>>,
+}
+
+impl ToolPushes {
+    /// Takes a node's answer on its `tool-updates` topic: its snapshot, or `None` for the error
+    /// a node that predates the topic answers. True when the machine's state changed.
+    pub(crate) fn heard(&self, machine: EndpointId, answer: Option<&Value>) -> bool {
+        let push = match answer {
+            // The node has not finished its first check, or runs none.
+            Some(Value::Missing) => ToolPush::Pushed(Vec::new()),
+            Some(Value::ToolUpdates(found)) => ToolPush::Pushed(
+                found
+                    .iter()
+                    .map(|update| ToolUpdate {
+                        machine_id: machine.to_string(),
+                        tool: update.tool.to_string(),
+                        version: update.version.clone(),
+                        latest: update.latest.clone(),
+                    })
+                    .collect(),
+            ),
+            _ => ToolPush::Refused,
+        };
+
+        self.held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(machine, push.clone())
+            .is_none_or(|before| before != push)
+    }
+
+    pub(crate) fn get(&self, machine: EndpointId) -> Option<ToolPush> {
+        self.held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&machine)
+            .cloned()
+    }
+
+    /// Drops `tool` from the list `machine` pushed, once it was installed there; the node's
+    /// next list replaces it.
+    pub(crate) fn installed(&self, machine: EndpointId, tool: &str) {
+        if let Some(ToolPush::Pushed(list)) = self
+            .held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get_mut(&machine)
+        {
+            list.retain(|update| update.tool != tool);
+        }
+    }
 }
 
 impl Default for Projections {
@@ -504,6 +573,7 @@ impl Default for Projections {
                 Duration::from_millis(500),
                 Duration::from_secs(8),
             ),
+            tool_pushes: ToolPushes::default(),
         }
     }
 }

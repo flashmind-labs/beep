@@ -3,11 +3,12 @@
 
 use crate::{
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines, agents, files as direct},
+    fleet::{Fleet, Machines, agents, event_views::changed, files as direct, node_actor::ToolPush},
 };
 use beep_proto::{
     Machine, ToolUpdate,
     node::{
+        events::Topic,
         harness::{harness, is_newer, parse_version},
         setup::Need,
         tool_update::Tool,
@@ -20,7 +21,7 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
-use tauri::State;
+use tauri::AppHandle;
 
 /// How long the newest coding agent releases found are kept.
 const RELEASES_FOR: Duration = Duration::from_secs(55 * 60);
@@ -32,60 +33,40 @@ const NPM_TIMEOUT: Duration = Duration::from_secs(15);
 static AGENT_RELEASES: Mutex<Option<(Instant, HashMap<&'static str, String>)>> = Mutex::new(None);
 
 /// The updates found by each connected node, and its coding agents behind
-/// their newest release.
-#[tauri::command]
-pub async fn tool_updates(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<ToolUpdate>> {
+/// their newest release. A node that pushes its list is not asked; one that
+/// predates the topic answers the check call.
+pub(crate) async fn tool_updates(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec<ToolUpdate> {
     let machines: Vec<Machine> = fleet
         .status()
         .machines()
         .into_iter()
         .filter(|machine| machine.online)
         .collect();
-    let fleet_arc = fleet.inner().clone();
     let (tools, coders) = tokio::join!(
-        node_updates(fleet_arc, machines.clone()),
+        node_updates(app, fleet, machines.clone()),
         agent_updates(&machines)
     );
 
     let mut updates: Vec<_> = tools.into_iter().chain(coders).collect();
     updates.sort_by(|a, b| (&a.machine_id, &a.tool).cmp(&(&b.machine_id, &b.tool)));
-    Ok(updates)
+    updates
 }
 
 /// The `gh`, `teacli` and `flsh` updates each node found.
-async fn node_updates(fleet: Arc<Fleet>, machines: Vec<Machine>) -> Vec<ToolUpdate> {
+async fn node_updates(
+    app: &AppHandle,
+    fleet: &Arc<Fleet>,
+    machines: Vec<Machine>,
+) -> Vec<ToolUpdate> {
     stream::iter(machines)
-        .map(|machine| {
-            let fleet = fleet.clone();
-            async move {
-                let Some(id) = fleet.member(&machine.id) else {
-                    return Vec::new();
-                };
-                let machine_id = machine.id;
-                let fleet_fetch = fleet.clone();
-                fleet
-                    .projections()
-                    .tool_updates
-                    .read_or_default(
-                        id,
-                        Vec::new,
-                        PartialEq::eq,
-                        || {},
-                        move || async move {
-                            let client = fleet_fetch.client(id).await?;
-                            let updates = beep_mesh::machine::tool_updates(&client).await?;
-                            Ok(updates
-                                .into_iter()
-                                .map(|update| ToolUpdate {
-                                    machine_id: machine_id.clone(),
-                                    tool: update.tool.to_string(),
-                                    version: update.version,
-                                    latest: update.latest,
-                                })
-                                .collect())
-                        },
-                    )
-                    .await
+        .map(|machine| async move {
+            let id = fleet.member(&machine.id)?;
+
+            match fleet.projections().tool_pushes.get(id) {
+                Some(ToolPush::Pushed(updates)) => Some(updates),
+                // Its first list is on its way.
+                None => None,
+                Some(ToolPush::Refused) => Some(asked_updates(app, fleet, id, machine.id).await),
             }
         })
         .buffer_unordered(4)
@@ -93,7 +74,43 @@ async fn node_updates(fleet: Arc<Fleet>, machines: Vec<Machine>) -> Vec<ToolUpda
         .await
         .into_iter()
         .flatten()
+        .flatten()
         .collect()
+}
+
+/// The updates a node that does not push them found, from its check call.
+async fn asked_updates(
+    app: &AppHandle,
+    fleet: &Arc<Fleet>,
+    id: EndpointId,
+    machine_id: String,
+) -> Vec<ToolUpdate> {
+    let fleet_fetch = fleet.clone();
+    let app = app.clone();
+
+    fleet
+        .projections()
+        .tool_updates
+        .read_or_default(
+            id,
+            Vec::new,
+            PartialEq::eq,
+            move || changed(app, Topic::new("tools")),
+            move || async move {
+                let client = fleet_fetch.client(id).await?;
+                let updates = beep_mesh::machine::tool_updates(&client).await?;
+                Ok(updates
+                    .into_iter()
+                    .map(|update| ToolUpdate {
+                        machine_id: machine_id.clone(),
+                        tool: update.tool.to_string(),
+                        version: update.version,
+                        latest: update.latest,
+                    })
+                    .collect())
+            },
+        )
+        .await
 }
 
 /// A coding agent a machine reported, with its npm package.
@@ -195,6 +212,7 @@ async fn agent_releases(packages: &BTreeSet<&'static str>) -> HashMap<&'static s
 /// Installs the newest `tool` on `machine_id`; gives the version installed.
 #[tauri::command]
 pub async fn update_machine_tool(
+    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: String,
     tool: String,
@@ -203,16 +221,27 @@ pub async fn update_machine_tool(
     let Ok(named) = tool.parse::<Tool>() else {
         return update_agent(&fleet, machine, &tool).await;
     };
-    let client = fleet.client(machine).await?;
-    let latest = beep_mesh::machine::tool_updates(&client)
-        .await
-        .map_err(|e| DesktopError::BadRequest(format!("Could not check {named}: {e:#}")))?
-        .into_iter()
-        .find(|update| update.tool == named)
-        .map(|update| update.latest)
-        .ok_or_else(|| DesktopError::BadRequest(format!("No update found for {named}.")))?;
+    let latest = match fleet.projections().tool_pushes.get(machine) {
+        Some(ToolPush::Pushed(updates)) => updates
+            .into_iter()
+            .find(|update| update.tool == tool)
+            .map(|update| update.latest),
+        // A node that does not push its list is asked.
+        _ => {
+            let client = fleet.client(machine).await?;
+            beep_mesh::machine::tool_updates(&client)
+                .await
+                .map_err(|e| DesktopError::BadRequest(format!("Could not check {named}: {e:#}")))?
+                .into_iter()
+                .find(|update| update.tool == named)
+                .map(|update| update.latest)
+        }
+    }
+    .ok_or_else(|| DesktopError::BadRequest(format!("No update found for {named}.")))?;
     direct::update_tool(&fleet, machine, named, &latest).await?;
     fleet.projections().tool_updates.forget(&machine);
+    fleet.projections().tool_pushes.installed(machine, &tool);
+    changed(app, Topic::new("tools"));
     Ok(latest)
 }
 

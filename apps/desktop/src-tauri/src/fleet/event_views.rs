@@ -295,9 +295,11 @@ fn commands(name: &str) -> &'static [&'static str] {
         "machines" => &[
             "list_machines",
             "mac_control",
+            "updatable_machines",
             "agent_hosts",
             "device_hosts",
         ],
+        "tools" => &["tool_updates"],
         "projects" => &["projects_on_top", "project_groups"],
         "sync" => &["project_sync"],
         "usage" => &["usage_get"],
@@ -353,11 +355,12 @@ fn start(app: &AppHandle, views: &Views, mut pending: std::sync::MutexGuard<'_, 
 fn affected(name: &str) -> &'static [&'static str] {
     match name {
         "*" => &[
-            "home", "machines", "projects", "sync", "usage", "accounts", "forge",
+            "home", "machines", "tools", "projects", "sync", "usage", "accounts", "forge",
         ],
         // Home shows no processes.
         "agents" | "agent" | "moves" | "home" => &["home"],
-        "machines" => &["machines", "home"],
+        "machines" => &["machines", "home", "tools"],
+        "tools" => &["tools"],
         "projects" => &["projects", "home"],
         "sync" => &["sync"],
         "usage" => &["usage"],
@@ -486,6 +489,11 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 json!({}),
                 crate::bar::app::mac_control(app.state(), app.state(), app.state()),
             ));
+            views.extend(View::new(
+                "updatable_machines",
+                json!({}),
+                app.state::<Arc<Fleet>>().status().updatable(),
+            ));
             append(
                 &mut views,
                 "agent_hosts",
@@ -496,6 +504,10 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 json!({}),
                 crate::machines::list::device_hosts(app.state()),
             ));
+        }
+        "tools" => {
+            let found = crate::machines::tools::tool_updates(app, &app.state::<Arc<Fleet>>()).await;
+            views.extend(View::new("tool_updates", json!({}), found));
         }
         "projects" => {
             append(

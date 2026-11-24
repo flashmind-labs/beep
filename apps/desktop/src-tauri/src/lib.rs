@@ -366,7 +366,6 @@ pub fn run() {
             machines::terminals::terminal_resize,
             machines::terminals::terminals_all,
             machines::terminals::terminals_list,
-            machines::tools::tool_updates,
             machines::tools::update_machine_tool,
             machines::tools::machine_set_up,
             machines::sign_in::machine_sign_in,

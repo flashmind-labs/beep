@@ -177,6 +177,10 @@ impl SubscriptionWorker {
                             revision = snapshot.revision;
                             let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };
 
+                            if snapshot.topic.name() == super::TOOL_UPDATES {
+                                tool_updates_heard(app, fleet, machine, Some(&snapshot.value));
+                            }
+
                             if let events::Value::Resources(resources) = &snapshot.value {
                                 app.state::<Events>().resources(machine, &snapshot.topic, resources);
                             }
@@ -199,6 +203,10 @@ impl SubscriptionWorker {
                         Reply::SnapshotError { query, topic, reason } => {
                             log::warn!("node snapshot failed machine={machine} generation={generation} query={query:?} topic={}: {reason}", topic.name());
                             if let Some(query) = query && !fleet.snapshots.failed(machine, generation, query, reason.clone()) { continue; }
+
+                            if topic.name() == super::TOOL_UPDATES {
+                                tool_updates_heard(app, fleet, machine, None);
+                            }
                             invalidate(app, machine, &topic, None);
 
                             if machine == fleet.me || matches!(topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync") {
@@ -217,6 +225,19 @@ impl SubscriptionWorker {
                 }
             }
         }
+    }
+}
+
+/// A node answered on its `tool-updates` topic, with its list or with an error as one that
+/// predates the topic does: the tools view is drawn again when that changes who is asked.
+fn tool_updates_heard(
+    app: &AppHandle,
+    fleet: &Fleet,
+    machine: EndpointId,
+    answer: Option<&events::Value>,
+) {
+    if fleet.projections().tool_pushes.heard(machine, answer) {
+        super::super::event_views::changed(app.clone(), Topic::new("tools"));
     }
 }
 

@@ -1181,7 +1181,7 @@ fn validate(topics: &[Interest]) -> Result<()> {
 fn controller_topic(topic: &Topic) -> bool {
     matches!(
         topic.name(),
-        "machines" | "telemetry" | "projects" | "forge" | "home" | "accounts" | "usage"
+        "machines" | "telemetry" | "projects" | "forge" | "home" | "accounts" | "usage" | "tools"
     )
 }
 
@@ -1224,6 +1224,7 @@ fn topics_for(interests: &[Interest], machine: EndpointId, local: EndpointId) ->
         .filter(|interest| {
             interest.machine.as_ref().is_none_or(|wanted| wanted == &id)
                 && (machine == local || !controller_topic(&interest.topic))
+                && interest.topic.name() != "tools"
         })
         .map(|interest| interest.topic.clone())
         .collect();
@@ -1235,10 +1236,21 @@ fn topics_for(interests: &[Interest], machine: EndpointId, local: EndpointId) ->
         topics.extend(home_sources());
     }
 
+    // The tools view lists what each node found, so every node is asked for it.
+    if interests
+        .iter()
+        .any(|interest| interest.machine.is_none() && interest.topic.name() == "tools")
+    {
+        topics.push(Topic::new(TOOL_UPDATES));
+    }
+
     topics.sort();
     topics.dedup();
     compact_topics(topics)
 }
+
+/// The node topic of the tools it found a newer release of.
+const TOOL_UPDATES: &str = "tool-updates";
 
 fn home_sources() -> [Topic; 3] {
     [

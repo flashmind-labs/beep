@@ -302,3 +302,58 @@ fn node_ops_runs_different_lanes_together_and_settles_a_job_that_expired_unsent(
     assert!(matches!(expired.as_slice(), [JobKind::StopProcess { .. }]));
     assert!(rx.try_recv().expect("heard").is_err());
 }
+
+fn found_gh() -> Value {
+    use beep_proto::node::tool_update::{Available, Tool};
+
+    Value::ToolUpdates(vec![Available {
+        tool: Tool::Gh,
+        version: "2.0.0".into(),
+        latest: "2.1.0".into(),
+    }])
+}
+
+#[test]
+fn a_machine_that_pushes_its_tool_updates_is_not_asked() {
+    let pushes = ToolPushes::default();
+    let machine = sample_machine(1);
+
+    assert_eq!(pushes.get(machine), None);
+    assert!(pushes.heard(machine, Some(&found_gh())));
+
+    let Some(ToolPush::Pushed(updates)) = pushes.get(machine) else {
+        panic!("the list was not kept");
+    };
+    assert_eq!(updates.len(), 1);
+    assert_eq!(updates[0].tool, "gh");
+    assert_eq!(updates[0].machine_id, machine.to_string());
+    // The same list again changes nothing.
+    assert!(!pushes.heard(machine, Some(&found_gh())));
+    // Before its first check ends the node says nothing is found.
+    assert!(pushes.heard(machine, Some(&Value::Missing)));
+    assert_eq!(pushes.get(machine), Some(ToolPush::Pushed(Vec::new())));
+}
+
+#[test]
+fn a_node_that_refuses_the_topic_keeps_the_check_call() {
+    let pushes = ToolPushes::default();
+    let machine = sample_machine(2);
+
+    assert!(pushes.heard(machine, None));
+    assert_eq!(pushes.get(machine), Some(ToolPush::Refused));
+    assert!(!pushes.heard(machine, None));
+    // A node updated since pushes from then on.
+    assert!(pushes.heard(machine, Some(&found_gh())));
+    assert!(matches!(pushes.get(machine), Some(ToolPush::Pushed(_))));
+}
+
+#[test]
+fn an_installed_tool_leaves_the_pushed_list_until_the_node_pushes_again() {
+    let pushes = ToolPushes::default();
+    let machine = sample_machine(3);
+    pushes.heard(machine, Some(&found_gh()));
+
+    pushes.installed(machine, "gh");
+
+    assert_eq!(pushes.get(machine), Some(ToolPush::Pushed(Vec::new())));
+}
