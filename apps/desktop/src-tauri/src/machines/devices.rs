@@ -347,42 +347,40 @@ impl ScreenEvent {
 
 /// The frames on their way to the window: one at a time, the next once the
 /// window drew the last, and of those that came meanwhile only the newest.
-#[derive(Debug)]
-struct Screen {
-    /// When the frame the window is drawing went; `None` when it is free.
-    drawing: Option<Instant>,
-    waiting: Option<Frame>,
+#[derive(Debug, Default)]
+enum Screen {
+    /// Nothing is being drawn.
+    #[default]
+    Free,
+    /// The window is drawing the frame that went at the instant.
+    Drawing(Instant),
+    /// The same, with the newest frame that came since.
+    Waiting(Instant, Frame),
 }
 
 impl Screen {
-    fn new() -> Self {
-        Self {
-            drawing: None,
-            waiting: None,
-        }
-    }
-
     /// Takes a frame from the node, and gives the one that goes now.
     fn arrived(&mut self, frame: Frame, now: Instant) -> Option<Frame> {
-        let free = self
-            .drawing
-            .is_none_or(|since| now.duration_since(since) >= DRAW_STALL);
-
-        if !free {
-            self.waiting = Some(frame);
+        if let Self::Drawing(since) | Self::Waiting(since, _) = *self
+            && now.duration_since(since) < DRAW_STALL
+        {
+            *self = Self::Waiting(since, frame);
             return None;
         }
 
-        self.waiting = None;
-        self.drawing = Some(now);
+        *self = Self::Drawing(now);
         Some(frame)
     }
 
     /// The window drew the last frame: the newest that waits goes now.
     fn drawn(&mut self, now: Instant) -> Option<Frame> {
-        let next = self.waiting.take();
-        self.drawing = next.as_ref().map(|_| now);
-        next
+        match std::mem::replace(self, Self::Free) {
+            Self::Waiting(_, frame) => {
+                *self = Self::Drawing(now);
+                Some(frame)
+            }
+            Self::Free | Self::Drawing(_) => None,
+        }
     }
 }
 
@@ -669,7 +667,7 @@ async fn follow_screen(
         true
     };
     tokio::pin!(inputs);
-    let mut screen = Screen::new();
+    let mut screen = Screen::default();
     let lost = || ScreenEvent::Ended {
         reason: lost.to_owned(),
     };

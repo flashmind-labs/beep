@@ -12,7 +12,7 @@ fn frame(n: u8) -> Frame {
 #[test]
 fn only_the_newest_frame_waits_while_the_window_draws() {
     let start = Instant::now();
-    let mut screen = Screen::new();
+    let mut screen = Screen::default();
 
     assert_eq!(screen.arrived(frame(1), start), Some(frame(1)));
     assert_eq!(screen.arrived(frame(2), start), None);
@@ -25,7 +25,7 @@ fn only_the_newest_frame_waits_while_the_window_draws() {
 #[test]
 fn a_frame_goes_anyway_once_the_window_stalls() {
     let start = Instant::now();
-    let mut screen = Screen::new();
+    let mut screen = Screen::default();
 
     assert!(screen.arrived(frame(1), start).is_some());
     assert_eq!(screen.arrived(frame(2), start + DRAW_STALL), Some(frame(2)));
