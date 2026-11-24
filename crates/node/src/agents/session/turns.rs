@@ -125,6 +125,7 @@ impl Actor {
             self.steering = Some(PendingSteer {
                 prompt,
                 shown: false,
+                dropped: false,
             });
             self.send(cx, request, Reply::Steered);
             return Ok(());
@@ -170,6 +171,8 @@ impl Actor {
 
         match outcome {
             Ok(acp::SteeringOutcome::Injected) => {}
+            Ok(acp::SteeringOutcome::PromptRequired | acp::SteeringOutcome::Failed)
+                if steer.dropped => {}
             Ok(acp::SteeringOutcome::PromptRequired) => {
                 self.steers.push_front(steer.prompt);
                 self.steer_after_turn = self.turn.is_some();
@@ -261,13 +264,17 @@ impl Actor {
 
     /// Prompts and steers waiting, as the state counts them.
     fn waiting(&self) -> u32 {
-        u32::try_from(self.queued.len() + self.steers.len() + usize::from(self.steering.is_some()))
+        u32::try_from(self.queued.len() + self.steers.len() + self.steering_waiting().count())
             .unwrap_or(u32::MAX)
     }
 
+    /// The steer the adapter holds, unless the user took it back.
+    pub(super) fn steering_waiting(&self) -> impl Iterator<Item = &PendingSteer> {
+        self.steering.iter().filter(|steer| !steer.dropped)
+    }
+
     fn waiting_messages(&self) -> Vec<String> {
-        self.steering
-            .iter()
+        self.steering_waiting()
             .map(|steer| &steer.prompt)
             .chain(self.steers.iter())
             .chain(self.queued.iter())

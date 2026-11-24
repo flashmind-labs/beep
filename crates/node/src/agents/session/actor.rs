@@ -157,6 +157,9 @@ pub(super) struct Asked {
 pub(super) struct PendingSteer {
     pub(super) prompt: Prompt,
     pub(super) shown: bool,
+    /// The user took it back while the adapter still held it: it is not
+    /// waiting, and goes nowhere if the adapter hands it back.
+    pub(super) dropped: bool,
 }
 
 /// Who waits for a question's answer.

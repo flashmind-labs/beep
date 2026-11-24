@@ -43,6 +43,11 @@ impl Actor {
             Command::Answer { question, reply } => self.answer(question, &reply),
             Command::DropSteers => {
                 self.steers.clear();
+
+                if let Some(steer) = &mut self.steering {
+                    steer.dropped = true;
+                }
+
                 self.show_queued();
                 Ok(Ok(()))
             }
@@ -154,7 +159,7 @@ impl Actor {
             self.queued
                 .iter()
                 .chain(&self.steers)
-                .chain(self.steering.iter().map(|steer| &steer.prompt)),
+                .chain(self.steering_waiting().map(|steer| &steer.prompt)),
             prompt,
         )
     }
