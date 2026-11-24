@@ -165,3 +165,50 @@ async fn a_task_spawned_after_kill_all_is_killed() {
     };
     assert!(!task.state.is_running());
 }
+
+// A start in flight holds a place: with it, the set is full and the next
+// start is refused, though only MAX_TASKS - 1 tasks are listed.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_start_in_flight_holds_a_place() {
+    let tasks = Tasks::default();
+
+    for _ in 0..MAX_TASKS - 1 {
+        started(tasks.start("sleep 300".to_owned(), None).await);
+    }
+
+    let (reached, reached_rx) = oneshot::channel();
+    let (release_tx, release) = oneshot::channel();
+    *lock(&tasks.gate) = Some(Gate { reached, release });
+    let last = tokio::spawn({
+        let tasks = tasks.clone();
+        async move { tasks.start("sleep 300".to_owned(), None).await }
+    });
+    reached_rx.await.expect("the spawn reports it is held");
+
+    match tasks.start("sleep 300".to_owned(), None).await {
+        Reply::Error { message } => assert!(message.contains("limit reached"), "{message}"),
+        other => panic!("the full set took another start: {other:?}"),
+    }
+
+    release_tx.send(()).expect("the spawn waits");
+    started(last.await.expect("the start ends"));
+    tasks.kill_all();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_full_set_makes_room_from_the_oldest_finished_task() {
+    let tasks = Tasks::default();
+    let first = started(tasks.start("true".to_owned(), None).await);
+    wait_done(&tasks, first).await;
+
+    for _ in 0..MAX_TASKS - 1 {
+        started(tasks.start("sleep 300".to_owned(), None).await);
+    }
+
+    let next = started(tasks.start("sleep 300".to_owned(), None).await);
+    assert!(tasks.entry(first).is_none(), "the finished task made room");
+    assert!(tasks.entry(next).is_some());
+    tasks.kill_all();
+}

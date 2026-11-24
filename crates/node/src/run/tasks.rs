@@ -21,18 +21,19 @@ use std::{
     path::PathBuf,
     process::Stdio,
     sync::{
-        Arc, LazyLock, Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
+        Arc, LazyLock, Mutex,
+        atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::BufReader,
     process::ChildStdout,
-    sync::{oneshot, watch},
-    task::{JoinError, JoinSet},
-    time::{Instant, sleep_until, timeout},
+    sync::watch,
+        time::{Instant, sleep_until, timeout},
 };
+#[cfg(test)]
+use tokio::sync::oneshot;
 use tokio_util::{sync::CancellationToken, task::AbortOnDropHandle};
 
 pub use beep_proto::node::process::PROTOCOL;
@@ -41,8 +42,6 @@ pub use beep_proto::node::process::PROTOCOL;
 const MAX_LINE_BYTES: usize = 1000;
 /// How long a stop waits for the task to end, past the group's grace.
 const STOP_WAIT: Duration = Duration::from_secs(5);
-/// Commands waiting for the actor.
-const MAILBOX: usize = 16;
 
 /// The node's tasks. One per process: a host embedding the node, such as
 /// the Mac app, gets them too without wiring anything.
@@ -132,14 +131,16 @@ pub(crate) async fn run_for(
     tasks.status(id)
 }
 
-/// A set of tasks. An actor owns it and is its only writer; the set is
-/// published as `list`, and everything that only looks reads that. Starting
-/// is a command. The actor starts with the first one, as a set can be made
-/// outside a runtime.
+/// A set of tasks. The list is the one copy: the lock inside it is taken to
+/// reserve a place (evicting the oldest finished task when the set is full)
+/// and again to add the task, and everything that only looks reads it.
+#[derive(Clone)]
 struct Tasks {
-    /// Written by the actor only.
     list: Arc<watch::Sender<Vec<Arc<Entry>>>>,
-    actor: OnceLock<Started>,
+    /// Starts that hold a place and are not in the list yet.
+    starting: Arc<AtomicUsize>,
+    /// The last id given out.
+    last: Arc<AtomicU32>,
     /// Set by `kill_all`: tasks that finish spawning after it are killed.
     killed: Arc<AtomicBool>,
     /// Holds the next spawn, for a test.
@@ -154,16 +155,12 @@ struct Gate {
     release: oneshot::Receiver<()>,
 }
 
-struct Started {
-    commands: actor::Sender<Start>,
-    _task: AbortOnDropHandle<()>,
-}
-
 impl Default for Tasks {
     fn default() -> Self {
         Self {
             list: Arc::new(watch::channel(Vec::new()).0),
-            actor: OnceLock::new(),
+            starting: Arc::default(),
+            last: Arc::new(AtomicU32::new(first_id())),
             killed: Arc::default(),
             #[cfg(test)]
             gate: Arc::default(),
@@ -171,16 +168,12 @@ impl Default for Tasks {
     }
 }
 
-struct Start {
-    command: String,
-    cwd: Option<String>,
-    limit: Option<Duration>,
-    reply: oneshot::Sender<Reply>,
-}
+/// A place in the set for a task that is starting, given back when dropped.
+struct Place(Arc<AtomicUsize>);
 
-impl From<&Start> for &'static str {
-    fn from(_: &Start) -> Self {
-        "Start"
+impl Drop for Place {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
     }
 }
 
@@ -197,7 +190,7 @@ pub(super) fn first_id() -> u32 {
 }
 
 /// What readers of the list share of a task. Its lines are written by the
-/// task itself, so they never pass through the actor.
+/// task itself.
 struct Entry {
     id: TaskId,
     command: String,
@@ -208,12 +201,7 @@ struct Entry {
     done: watch::Receiver<bool>,
     /// The task's process group, for `kill_all` at exit.
     group: Option<Group>,
-}
-
-/// A task as the actor keeps it.
-struct Job {
-    entry: Arc<Entry>,
-    /// Dropping the job ends its task, and the group with it.
+    /// Dropping the entry ends its task, and the group with it.
     _task: AbortOnDropHandle<()>,
 }
 
@@ -221,12 +209,6 @@ struct Shared {
     state: TaskState,
     lines: VecDeque<String>,
     earlier: bool,
-}
-
-/// A command being spawned off the loop.
-struct Spawned {
-    start: Start,
-    process: Result<(GroupLeader, ChildStdout)>,
 }
 
 impl Tasks {
@@ -250,27 +232,142 @@ impl Tasks {
         self.start_limited(command, cwd, None).await
     }
 
+    /// The start runs as its own task: a caller that goes away leaves the
+    /// task running, as a task belongs to the node.
     async fn start_limited(
         &self,
         command: String,
         cwd: Option<String>,
         limit: Option<Duration>,
     ) -> Reply {
-        let (reply, answer) = oneshot::channel();
-        let start = Start {
-            command,
-            cwd,
-            limit,
-            reply,
+        let tasks = self.clone();
+
+        tokio::spawn(async move { tasks.launch(command, cwd, limit).await })
+            .await
+            .unwrap_or_else(|_| Reply::Error {
+                message: "Could not start the background process.".to_owned(),
+            })
+    }
+
+    async fn launch(&self, command: String, cwd: Option<String>, limit: Option<Duration>) -> Reply {
+        let place = match self.reserve() {
+            Ok(place) => place,
+            Err(reply) => return reply,
         };
 
-        match self.commands().send(start).await {
-            Ok(()) => answer.await.unwrap_or_else(|_| Reply::Error {
-                // The reply is dropped when spawning panicked.
-                message: "Could not start the background process.".to_owned(),
-            }),
-            Err(_) => stopped(),
+        // Spawning a process is slow, so it runs off the async workers.
+        #[cfg(test)]
+        let gate = self.gate.clone();
+        let spawned = tokio::task::spawn_blocking(move || {
+            #[cfg(test)]
+            if let Some(gate) = lock(&gate).take() {
+                let _ = gate.reached.send(());
+                let _ = gate.release.blocking_recv();
+            }
+
+            let cwd = cwd.as_ref().map(PathBuf::from).or_else(dirs::home_dir);
+            let process = actor::job_blocking("tasks", "spawn", || spawn(&command, cwd));
+            (command, process)
+        })
+        .await;
+        let (command, process) = match spawned {
+            Ok(spawned) => spawned,
+            Err(e) => {
+                log::warn!("spawning a background task failed: {e}");
+                return Reply::Error {
+                    message: "Could not start the background process.".to_owned(),
+                };
+            }
+        };
+        let (leader, stdout) = match process {
+            Ok(process) => process,
+            Err(e) => {
+                return Reply::Error {
+                    message: format!("{e:#}"),
+                };
+            }
+        };
+
+        let id = TaskId(self.last.fetch_add(1, Ordering::SeqCst).wrapping_add(1));
+        let shared = Arc::new(Mutex::new(Shared {
+            state: TaskState::Running,
+            lines: VecDeque::new(),
+            earlier: false,
+        }));
+        let stop = CancellationToken::new();
+        let (done_tx, done_rx) = watch::channel(false);
+        let group = leader.group();
+        let task = tokio::spawn(follow(
+            leader,
+            stdout,
+            shared.clone(),
+            stop.clone(),
+            done_tx,
+            limit.map(|limit| Instant::now() + limit),
+        ));
+        let entry = Arc::new(Entry {
+            id,
+            command,
+            shared,
+            stop,
+            done: done_rx,
+            group,
+            _task: AbortOnDropHandle::new(task),
+        });
+
+        // The place goes back as the task is listed, so the two never count
+        // together.
+        self.list.send_modify(|list| {
+            list.push(entry.clone());
+            drop(place);
+        });
+
+        // After the list, so `kill_all` either sees the task listed or this
+        // sees its flag.
+        if self.killed.load(Ordering::SeqCst)
+            && let Some(group) = &entry.group
+        {
+            group.kill();
         }
+
+        crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
+
+        Reply::Started { id }
+    }
+
+    /// Takes a place for a start, evicting the oldest finished task when
+    /// the set is full. The count and the eviction happen under the list's
+    /// lock, so two starts never take the last place together.
+    fn reserve(&self) -> Result<Place, Reply> {
+        let mut taken = false;
+        self.list.send_if_modified(|list| {
+            if list.len() + self.starting.load(Ordering::SeqCst) < MAX_TASKS {
+                taken = true;
+                return false;
+            }
+
+            // Room comes from the oldest finished task.
+            let Some(oldest) = list
+                .iter()
+                .position(|entry| watched::read(&entry.done, |done| *done))
+            else {
+                return false;
+            };
+            list.remove(oldest);
+            taken = true;
+
+            true
+        });
+
+        if !taken {
+            let message =
+                format!("Background process limit reached ({MAX_TASKS}). Stop a process first.");
+            return Err(Reply::Error { message });
+        }
+
+        self.starting.fetch_add(1, Ordering::SeqCst);
+
+        Ok(Place(self.starting.clone()))
     }
 
     fn entry(&self, id: TaskId) -> Option<Arc<Entry>> {
@@ -323,170 +420,6 @@ impl Tasks {
         }
 
         self.status(id)
-    }
-
-    /// The actor's mailbox, starting the actor the first time. The actor
-    /// runs on the runtime that sends the first command, which is the only
-    /// one in the node; it stops answering if that runtime ends.
-    fn commands(&self) -> &actor::Sender<Start> {
-        let started = self.actor.get_or_init(|| {
-            let (commands, mailbox) = actor::channel("tasks", MAILBOX);
-            let actor = Actor {
-                last: first_id(),
-                jobs: Vec::new(),
-                spawning: JoinSet::new(),
-                list: self.list.clone(),
-                killed: self.killed.clone(),
-                #[cfg(test)]
-                gate: self.gate.clone(),
-            };
-
-            Started {
-                commands,
-                _task: AbortOnDropHandle::new(tokio::spawn(actor.run(mailbox))),
-            }
-        });
-
-        &started.commands
-    }
-}
-
-fn stopped() -> Reply {
-    Reply::Error {
-        message: "The background processes stopped.".to_owned(),
-    }
-}
-
-/// Owns the set of tasks.
-struct Actor {
-    last: u32,
-    jobs: Vec<Job>,
-    /// Commands being spawned off the loop. Each holds a place.
-    spawning: JoinSet<Spawned>,
-    list: Arc<watch::Sender<Vec<Arc<Entry>>>>,
-    killed: Arc<AtomicBool>,
-    #[cfg(test)]
-    gate: Arc<Mutex<Option<Gate>>>,
-}
-
-impl Actor {
-    async fn run(mut self, mut mailbox: actor::Receiver<Start>) {
-        loop {
-            tokio::select! {
-                start = mailbox.recv() => match start {
-                    Some((start, _timing)) => self.start(start),
-                    None => return,
-                },
-                Some(spawned) = self.spawning.join_next() => self.spawned(spawned),
-            }
-        }
-    }
-
-    fn start(&mut self, start: Start) {
-        if self.jobs.len() + self.spawning.len() >= MAX_TASKS {
-            // Room comes from the oldest finished task.
-            match self
-                .jobs
-                .iter()
-                .position(|job| watched::read(&job.entry.done, |done| *done))
-            {
-                Some(oldest) => {
-                    self.jobs.remove(oldest);
-                    self.publish();
-                }
-                None => {
-                    let message = format!(
-                        "Background process limit reached ({MAX_TASKS}). Stop a process first."
-                    );
-                    let _ = start.reply.send(Reply::Error { message });
-                    return;
-                }
-            }
-        }
-
-        // Spawning a process is slow, so it runs off the loop.
-        #[cfg(test)]
-        let gate = self.gate.clone();
-        self.spawning.spawn_blocking(move || {
-            #[cfg(test)]
-            if let Some(gate) = lock(&gate).take() {
-                let _ = gate.reached.send(());
-                let _ = gate.release.blocking_recv();
-            }
-
-            let cwd = start
-                .cwd
-                .as_ref()
-                .map(PathBuf::from)
-                .or_else(dirs::home_dir);
-            let process = actor::job_blocking("tasks", "spawn", || spawn(&start.command, cwd));
-            Spawned { start, process }
-        });
-    }
-
-    fn spawned(&mut self, joined: Result<Spawned, JoinError>) {
-        let Spawned { start, process } = match joined {
-            Ok(spawned) => spawned,
-            // The caller's reply is dropped with it, which it reports.
-            Err(e) => return log::warn!("spawning a background task failed: {e}"),
-        };
-        let (leader, stdout) = match process {
-            Ok(process) => process,
-            Err(e) => {
-                let _ = start.reply.send(Reply::Error {
-                    message: format!("{e:#}"),
-                });
-                return;
-            }
-        };
-        self.last = self.last.wrapping_add(1);
-        let id = TaskId(self.last);
-        let shared = Arc::new(Mutex::new(Shared {
-            state: TaskState::Running,
-            lines: VecDeque::new(),
-            earlier: false,
-        }));
-        let stop = CancellationToken::new();
-        let (done_tx, done_rx) = watch::channel(false);
-        let entry = Arc::new(Entry {
-            id,
-            command: start.command,
-            shared: shared.clone(),
-            stop: stop.clone(),
-            done: done_rx,
-            group: leader.group(),
-        });
-        let task = tokio::spawn(follow(
-            leader,
-            stdout,
-            shared,
-            stop,
-            done_tx,
-            start.limit.map(|limit| Instant::now() + limit),
-        ));
-        self.jobs.push(Job {
-            entry,
-            _task: AbortOnDropHandle::new(task),
-        });
-        self.publish();
-
-        // After the publish, so `kill_all` either sees the task listed or
-        // this sees its flag.
-        if self.killed.load(Ordering::SeqCst)
-            && let Some(job) = self.jobs.last()
-            && let Some(group) = &job.entry.group
-        {
-            group.kill();
-        }
-
-        crate::events::system().changed(beep_proto::node::events::Topic::new("processes"));
-        // The caller may have gone, which leaves the task running.
-        let _ = start.reply.send(Reply::Started { id });
-    }
-
-    fn publish(&self) {
-        self.list
-            .send_replace(self.jobs.iter().map(|job| job.entry.clone()).collect());
     }
 }
 
