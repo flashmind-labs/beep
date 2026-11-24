@@ -63,7 +63,10 @@ pub(super) enum Reply {
     /// What pi's log says the session spent so far, when it could be read.
     PiCost(Option<f64>),
     /// Capabilities for the protocol selected by the agent.
-    Initialized(Result<acp::Capabilities, agent_client_protocol::Error>),
+    Initialized(
+        Result<acp::Capabilities, agent_client_protocol::Error>,
+        Opening,
+    ),
     Accepted {
         turn: u64,
         compact: bool,
@@ -75,11 +78,15 @@ pub(super) enum Reply {
         reply: Box<Reply>,
     },
     /// The answer to `session/new`, untyped to keep the models it offers.
-    NewSession(Result<serde_json::Value, agent_client_protocol::Error>),
+    NewSession(
+        Result<serde_json::Value, agent_client_protocol::Error>,
+        Opening,
+    ),
     /// The answer to switching the new session to `model`.
     ModelSet {
         model: ModelId,
         result: Result<(), agent_client_protocol::Error>,
+        opening: Opening,
     },
     /// The answer to switching the running session's model or thinking
     /// level, `what` saying which, as the transcript notes it.
@@ -94,16 +101,19 @@ pub(super) enum Reply {
     FastSet {
         fast: bool,
         result: Result<(), agent_client_protocol::Error>,
+        opening: Opening,
     },
     EffortSet {
         effort: Effort,
         result: Result<(), agent_client_protocol::Error>,
+        opening: Opening,
     },
     /// The answer to `session/resume` or `session/load` of this session,
     /// untyped to keep the models it offers.
     Resumed(
         SessionId,
         Result<serde_json::Value, agent_client_protocol::Error>,
+        Opening,
     ),
     /// The answer to `session/set_mode` to the `mode` it starts in.
     FirstMode {
@@ -184,6 +194,30 @@ impl Waiting {
     }
 }
 
+/// What the session starts with, which the steps from `initialize` to the
+/// first prompt each take their part of. The answer to each step carries
+/// what is left to the next.
+pub(super) struct Opening {
+    pub(super) cwd: PathBuf,
+    /// The agent's id of an earlier session to resume.
+    pub(super) resume: Option<beep_proto::SessionId>,
+    /// The transcript the resumed session had before the node restarted,
+    /// shown again when the agent resumes without replaying it.
+    pub(super) earlier: Vec<Entry>,
+    /// The model a new session switches to before its first prompt.
+    pub(super) model: Option<ModelId>,
+    /// How hard a new session thinks, set before its first prompt.
+    pub(super) effort: Option<Effort>,
+    pub(super) fast: Option<bool>,
+    /// The mode to start in instead, for a session the node resumes.
+    pub(super) first_mode: Option<String>,
+    /// The MCP servers the agent's session gets.
+    pub(super) mcp_servers: Vec<McpServer>,
+    /// Whether the agent may start subagents of its own harness; the home
+    /// assistant starts threads instead.
+    pub(super) subagents: bool,
+}
+
 pub(super) struct Actor {
     pub(super) live: watch::Sender<Live>,
     pub(super) alerts: Arc<AlertHub>,
@@ -195,7 +229,6 @@ pub(super) struct Actor {
     pub(super) moving: bool,
     /// The agent, such as `claude`.
     pub(super) agent: String,
-    pub(super) cwd: PathBuf,
     /// The agent's id for the session, once it made one.
     pub(super) acp_session: Option<SessionId>,
     /// What the adapter said it sends as the session's first message, which
@@ -217,16 +250,6 @@ pub(super) struct Actor {
     pub(super) steering: Option<PendingSteer>,
     /// The adapter found no running turn; wait for our prompt's reply.
     pub(super) steer_after_turn: bool,
-    /// The agent's id of an earlier session to resume.
-    pub(super) resume: Option<beep_proto::SessionId>,
-    /// The transcript the resumed session had before the node restarted,
-    /// shown again when the agent resumes without replaying it.
-    pub(super) earlier: Vec<Entry>,
-    /// The model a new session switches to before its first prompt.
-    pub(super) model: Option<ModelId>,
-    /// How hard a new session thinks, set before its first prompt.
-    pub(super) effort: Option<Effort>,
-    pub(super) fast: Option<bool>,
     pub(super) fast_option: Option<SessionConfigId>,
     /// The session's option that sets how hard it thinks, once it said.
     pub(super) thinking: Option<SessionConfigId>,
@@ -239,8 +262,6 @@ pub(super) struct Actor {
     /// agent runs without prompts, and a permission request that comes
     /// anyway is allowed rather than asked.
     pub(super) bypass_mode: Option<&'static str>,
-    /// The mode to start in instead, for a session the node resumes.
-    pub(super) first_mode: Option<String>,
     /// The last mode the session was in other than plan mode.
     pub(super) left_plan_for: Option<String>,
     /// The mode to go back to once the agent left plan mode for an approved
@@ -278,11 +299,6 @@ pub(super) struct Actor {
     /// the system prompt when supported, or with the first prompt and again
     /// after the agent compacts.
     pub(super) standing: Option<String>,
-    /// The MCP servers the agent's session gets.
-    pub(super) mcp_servers: Vec<McpServer>,
-    /// Whether the agent may start subagents of its own harness; the home
-    /// assistant starts threads instead.
-    pub(super) subagents: bool,
     /// Questions waiting, the first one shown.
     pub(super) asked: VecDeque<Asked>,
     pub(super) next_question: u32,
@@ -336,6 +352,7 @@ impl Actor {
         agent: Started,
         mut orders: crate::actor::Receiver<Order>,
         processes: Arc<super::Processes>,
+        opening: Opening,
     ) {
         let _cleanup = super::super::processes::Cleanup(processes.clone());
         let _watch = processes.watch(self.live.subscribe());
@@ -350,7 +367,14 @@ impl Actor {
         // A session the node resumed shows its lines before its next turn.
         self.count_changes();
         let end = self
-            .serve(stdin, stdout, &mut stderr, &mut running, &processes, &mut orders)
+            .serve(
+                (stdin, stdout),
+                &mut stderr,
+                &mut running,
+                &processes,
+                &mut orders,
+                opening,
+            )
             .await;
 
         // A bridge that failed says why as it ends.
@@ -485,12 +509,12 @@ impl Actor {
 
     async fn serve(
         &mut self,
-        stdin: AgentIn,
-        stdout: AgentOut,
+        (stdin, stdout): (AgentIn, AgentOut),
         stderr: &mut mpsc::Receiver<String>,
         running: &mut Running,
         processes: &super::Processes,
         orders: &mut crate::actor::Receiver<Order>,
+        opening: Opening,
     ) -> Result<End> {
         let (events_tx, events) = mpsc::channel(EVENTS);
         let (oversized_tx, oversized) = mpsc::channel(1);
@@ -536,7 +560,7 @@ impl Actor {
             )
             .connect_with(
                 acp::transport(stdin, stdout, oversized_tx),
-                async |cx: ConnectionTo<Agent>| Ok(self.drive(&cx, &mut inputs, orders).await),
+                async |cx: ConnectionTo<Agent>| Ok(self.drive(&cx, &mut inputs, orders, opening).await),
             )
             .await;
         ended.context("the ACP connection failed")?
@@ -547,12 +571,13 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         inputs: &mut Inputs<'_>,
         orders: &mut crate::actor::Receiver<Order>,
+        opening: Opening,
     ) -> Result<End> {
         let async_tasks = known(&self.agent).is_some_and(|known| known.async_tasks);
         let protocol = self.protocol;
         let request = acp::initialize(async_tasks).to_untyped_message()?;
         self.send(cx, request, move |result| {
-            Reply::Initialized(result.and_then(|answer| protocol.initialized(answer)))
+            Reply::Initialized(result.and_then(|answer| protocol.initialized(answer)), opening)
         });
         let mut stderr_open = true;
         self.look_for_place();
@@ -888,19 +913,20 @@ impl Actor {
                     }
                 }
             }
-            Reply::Initialized(Ok(initialized)) => {
+            Reply::Initialized(Ok(initialized), opening) => {
                 self.protocol = initialized.protocol;
                 self.takes_images = Some(initialized.images);
                 self.takes_steering = initialized.steering;
 
-                if let Some(end) = self.initialized(cx, &initialized) {
+                if let Some(end) = self.initialized(cx, &initialized, opening) {
                     return Ok(Some(end));
                 }
             }
-            Reply::NewSession(Ok(answer)) => match acp::session_created(answer.clone()) {
+            Reply::NewSession(Ok(answer), opening) => match acp::session_created(answer.clone()) {
                 Ok((created, _)) => {
                     self.banner = acp::startup_banner(&answer);
-                    return Ok(self.ready(cx, created.session_id, self.protocol.offers(&answer)));
+                    let offered = self.protocol.offers(&answer);
+                    return Ok(self.ready(cx, created.session_id, offered, opening));
                 }
                 Err(e) => {
                     return Ok(Some(End::Failed(format!(
@@ -908,15 +934,17 @@ impl Actor {
                     ))));
                 }
             },
-            Reply::Resumed(session, Ok(answer)) => {
-                return Ok(self.ready(cx, session, self.protocol.offers(&answer)));
+            Reply::Resumed(session, Ok(answer), opening) => {
+                let offered = self.protocol.offers(&answer);
+                return Ok(self.ready(cx, session, offered, opening));
             }
             Reply::ModelSet {
                 model,
                 result: Ok(()),
+                opening,
             } => {
                 self.model_is(Some(model.as_ref()));
-                self.think(cx);
+                self.think(cx, opening);
             }
             Reply::Reconfigured {
                 what,
@@ -941,14 +969,22 @@ impl Actor {
                 }
                 Err(e) => self.note(&format!("Could not switch to {what}: {e}")),
             },
-            Reply::FastSet { fast, result } => {
+            Reply::FastSet {
+                fast,
+                result,
+                opening,
+            } => {
                 match result {
                     Ok(()) => self.live.send_modify(|live| live.fast = Some(fast)),
                     Err(e) => self.note(&format!("Could not set fast mode: {e}")),
                 }
-                self.unprompted(cx);
+                self.unprompted(cx, opening);
             }
-            Reply::EffortSet { effort, result } => {
+            Reply::EffortSet {
+                effort,
+                result,
+                opening,
+            } => {
                 if result.is_ok() {
                     self.thinks_at(effort);
                 }
@@ -961,11 +997,12 @@ impl Actor {
                     ));
                 }
 
-                self.set_fast(cx);
+                self.set_fast(cx, opening);
             }
             Reply::ModelSet {
                 model,
                 result: Err(e),
+                ..
             } => {
                 return Ok(Some(End::Failed(format!(
                     "the agent could not switch to {model}: {e}"
@@ -996,12 +1033,12 @@ impl Actor {
                 Ok(_) => {}
                 Err(e) => self.note(&format!("Could not stop the task {task}: {e}")),
             },
-            Reply::Resumed(_, Err(e)) => {
+            Reply::Resumed(_, Err(e), _) => {
                 return Ok(Some(End::Failed(format!(
                     "the agent could not resume the session: {e}"
                 ))));
             }
-            Reply::Initialized(Err(e)) | Reply::NewSession(Err(e)) => {
+            Reply::Initialized(Err(e), _) | Reply::NewSession(Err(e), _) => {
                 return Ok(Some(End::Failed(format!("the agent did not start: {e}"))));
             }
             Reply::Prompt(result) => {
@@ -1073,6 +1110,7 @@ impl Actor {
         &mut self,
         cx: &ConnectionTo<Agent>,
         initialized: &acp::Capabilities,
+        mut opening: Opening,
     ) -> Option<End> {
         let system_format = initialized.system_prompt;
         let takes_system = system_format.is_some();
@@ -1086,7 +1124,7 @@ impl Actor {
         self.live.send_modify(|live| {
             live.replays = method == Some(acp::ResumeMethod::Load);
         });
-        let Some(session) = self.resume.take() else {
+        let Some(session) = opening.resume.take() else {
             let brief = joined(self.brief.take(), standing.as_deref());
             let system = if takes_system {
                 brief
@@ -1096,12 +1134,12 @@ impl Actor {
             };
 
             match acp::new_session(
-                &self.cwd,
-                self.mcp_servers.clone(),
+                &opening.cwd,
+                std::mem::take(&mut opening.mcp_servers),
                 system.as_deref().and_then(append),
-                self.subagents,
+                opening.subagents,
             ) {
-                Ok(request) => self.send(cx, request, Reply::NewSession),
+                Ok(request) => self.send(cx, request, |result| Reply::NewSession(result, opening)),
                 Err(e) => return Some(End::Failed(format!("the agent did not start: {e}"))),
             }
 
@@ -1120,20 +1158,22 @@ impl Actor {
         let Some(method) = method else {
             return Some(End::Failed("the agent cannot resume a session".into()));
         };
-        if method == acp::ResumeMethod::Resume && !self.earlier.is_empty() {
-            let earlier = std::mem::take(&mut self.earlier);
+        if method == acp::ResumeMethod::Resume && !opening.earlier.is_empty() {
+            let earlier = std::mem::take(&mut opening.earlier);
             self.live.send_modify(|live| live.restore(earlier));
         }
 
         match acp::resume_session(
             method,
             session.clone(),
-            &self.cwd,
-            self.mcp_servers.clone(),
+            &opening.cwd,
+            std::mem::take(&mut opening.mcp_servers),
             system.as_deref().and_then(append),
-            self.subagents,
+            opening.subagents,
         ) {
-            Ok(request) => self.send(cx, request, |result| Reply::Resumed(session, result)),
+            Ok(request) => self.send(cx, request, |result| {
+                Reply::Resumed(session, result, opening)
+            }),
             Err(e) => {
                 return Some(End::Failed(format!(
                     "the agent could not resume the session: {e}"
@@ -1194,8 +1234,9 @@ impl Actor {
         cx: &ConnectionTo<Agent>,
         session: SessionId,
         offered: Offered,
+        mut opening: Opening,
     ) -> Option<End> {
-        let earlier = std::mem::take(&mut self.earlier);
+        let earlier = std::mem::take(&mut opening.earlier);
         self.live.send_modify(|live| {
             live.finish_replay();
             live.restore_times(&earlier);
@@ -1225,8 +1266,8 @@ impl Actor {
             live.info.id = id;
         });
         crate::link::restart::changed();
-        let Some(model) = self.model.take() else {
-            self.think(cx);
+        let Some(model) = opening.model.take() else {
+            self.think(cx, opening);
             return None;
         };
         let Some(switch) = offered.switch else {
@@ -1234,7 +1275,7 @@ impl Actor {
                 "{} here cannot switch models, so it runs its own rather than {model}",
                 agent_title(&self.agent)
             ));
-            self.think(cx);
+            self.think(cx, opening);
             return None;
         };
 
@@ -1244,6 +1285,7 @@ impl Actor {
                 self.send(cx, request, move |result| Reply::ModelSet {
                     model,
                     result: result.map(drop),
+                    opening,
                 });
                 None
             }
@@ -1299,9 +1341,10 @@ impl Actor {
     /// The session runs on its model: sets how hard it thinks when asked,
     /// then turns permission prompts off. An agent that cannot think at
     /// that level runs at its own and says so.
-    fn think(&mut self, cx: &ConnectionTo<Agent>) {
-        let (Some(effort), Some(session)) = (self.effort.take(), self.acp_session.clone()) else {
-            self.set_fast(cx);
+    fn think(&mut self, cx: &ConnectionTo<Agent>, mut opening: Opening) {
+        let (Some(effort), Some(session)) = (opening.effort.take(), self.acp_session.clone())
+        else {
+            self.set_fast(cx, opening);
             return;
         };
         let cannot = |agent: &str| {
@@ -1313,7 +1356,7 @@ impl Actor {
         };
         let Some(id) = self.thinking.clone() else {
             self.note(&cannot(&self.agent));
-            self.set_fast(cx);
+            self.set_fast(cx, opening);
             return;
         };
 
@@ -1322,16 +1365,17 @@ impl Actor {
             Ok(request) => self.send(cx, request, move |result| Reply::EffortSet {
                 effort,
                 result: result.map(drop),
+                opening,
             }),
             Err(e) => {
                 self.note(&format!("{}: {e}", cannot(&self.agent)));
-                self.set_fast(cx);
+                self.set_fast(cx, opening);
             }
         }
     }
 
-    fn set_fast(&mut self, cx: &ConnectionTo<Agent>) {
-        if let Some(fast) = self.fast.take() {
+    fn set_fast(&mut self, cx: &ConnectionTo<Agent>, mut opening: Opening) {
+        if let Some(fast) = opening.fast.take() {
             if let (Some(session), Some(id)) = (&self.acp_session, &self.fast_option) {
                 let request = acp::set_fast(session, id, fast);
                 match request {
@@ -1339,6 +1383,7 @@ impl Actor {
                         self.send(cx, request, move |result| Reply::FastSet {
                             fast,
                             result: result.map(drop),
+                            opening,
                         });
                         return;
                     }
@@ -1348,16 +1393,16 @@ impl Actor {
                 self.note("This model or adapter does not offer fast mode");
             }
         }
-        self.unprompted(cx);
+        self.unprompted(cx, opening);
     }
 
     /// The session runs on its model and thinking level: turns permission
     /// prompts off, then lets prompts go.
-    fn unprompted(&mut self, cx: &ConnectionTo<Agent>) {
+    fn unprompted(&mut self, cx: &ConnectionTo<Agent>, mut opening: Opening) {
         let Some(session) = self.acp_session.clone() else {
             return;
         };
-        let first = self.first_mode.take();
+        let first = opening.first_mode.take();
 
         if let Some(mode) = first.or_else(|| self.bypass_mode.map(str::to_owned)) {
             // The first prompt waits for the mode, so it never asks.

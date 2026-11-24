@@ -50,7 +50,7 @@ mod pi;
 mod turns;
 mod v2;
 
-use actor::Actor;
+use actor::{Actor, Opening};
 
 pub(super) use actor::joined as standing;
 
@@ -517,7 +517,6 @@ impl Session {
             node_stopping: stopping,
             moving: false,
             agent: kind.name.clone(),
-            cwd: cwd.to_path_buf(),
             acp_session: None,
             banner: None,
             reading_cost: false,
@@ -545,19 +544,11 @@ impl Session {
             running: HashSet::new(),
             brief,
             standing,
-            mcp_servers: mcp.into_iter().collect(),
-            subagents: !assistant,
-            resume,
-            earlier,
-            model,
-            effort,
-            fast,
             thinking: None,
             fast_option: None,
             mode_config: None,
             switch: None,
             bypass_mode: known.and_then(|known| known.bypass_mode),
-            first_mode: mode,
             left_plan_for: None,
             returning: None,
             compactor: Compactor::new(route, policy).with_models(kind.compact_models.clone()),
@@ -566,13 +557,24 @@ impl Session {
             stderr: VecDeque::new(),
             replies: FuturesUnordered::new(),
         };
+        let opening = Opening {
+            cwd: cwd.to_path_buf(),
+            resume,
+            earlier,
+            model,
+            effort,
+            fast,
+            first_mode: mode,
+            mcp_servers: mcp.into_iter().collect(),
+            subagents: !assistant,
+        };
         let guard = follows.map(|parent| {
             AbortOnDropHandle::new(tokio::spawn(follow_parent(parent, orders.clone())))
         });
         let actor_processes = processes.clone();
         let task = tokio::spawn(async move {
             let _pi_files = pi_files;
-            actor.run(agent, orders_rx, actor_processes).await;
+            actor.run(agent, orders_rx, actor_processes, opening).await;
         });
         Ok(Self {
             id,
