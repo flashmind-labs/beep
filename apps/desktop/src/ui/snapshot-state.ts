@@ -41,20 +41,31 @@ export function installViews(data: unknown): void {
   if (pending.size > MAX_VIEWS) settle();
 }
 
-/// The list a topic update pushed for `command`, used as it arrives and never cached: the
-/// error text when that view failed, null when the update does not carry the view.
-export function pushedList<T>(data: unknown, command: string): { list: T[] } | { error: string } | null {
+/// What a topic update pushed for `command`: its value, or why that view failed. Null when the
+/// update does not carry the view. With `args`, only the view read with those arguments.
+export type Pushed<T> = { value: T } | { error: string };
+
+export function pushedView<T>(data: unknown, command: string, args?: Record<string, unknown>): Pushed<T> | null {
   if (!record(data) || !Array.isArray(data.views)) return null;
 
   for (const value of data.views) {
     const snapshot = readSnapshot(value);
-    if (snapshot?.command !== command) continue;
-    if (snapshot.result.kind === "error") return { error: snapshot.result.error };
+    if (snapshot?.command !== command || (args && key(command, snapshot.args) !== key(command, args))) continue;
 
-    return Array.isArray(snapshot.result.value) ? { list: snapshot.result.value } : null;
+    return snapshot.result.kind === "error" ? { error: snapshot.result.error } : { value: snapshot.result.value as T };
   }
 
   return null;
+}
+
+/// The list a topic update pushed for `command`, used as it arrives and never cached: the
+/// error text when that view failed, null when the update does not carry the view.
+export function pushedList<T>(data: unknown, command: string): { list: T[] } | { error: string } | null {
+  const pushed = pushedView<unknown>(data, command);
+  if (!pushed) return null;
+  if ("error" in pushed) return pushed;
+
+  return Array.isArray(pushed.value) ? { list: pushed.value as T[] } : null;
 }
 
 /// Moves the pending projections into the bounded cache.

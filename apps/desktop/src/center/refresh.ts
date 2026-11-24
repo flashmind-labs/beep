@@ -1,5 +1,5 @@
-import { type MeshEvent, subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { snapshotView } from "../ui/snapshot-state.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { pushedView, snapshotView, type Pushed } from "../ui/snapshot-state.ts";
 // Home reads changed domains; telemetry arrives from the native cache.
 import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
@@ -27,6 +27,8 @@ let fresh = false;
 let again = false, retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 let telemetry: Telemetry | undefined;
+/// The newest Home the `home` push carried and no read took yet.
+let pushedHome: Pushed<HomeView> | null = null;
 let homeRead: Promise<void> | undefined;
 /// The last answer, before telemetry, and the Home it made: a Home put in
 /// place elsewhere is compared whole.
@@ -74,7 +76,8 @@ machinesChanged.add(() => {
   if (onScreen()) draw();
 });
 
-/// Reads membership, running sessions and Home data without refreshing unrelated panes.
+/// Takes the newest pushed Home, or reads it when none came yet: membership, running sessions
+/// and Home data without refreshing unrelated panes.
 /// Sections that did not change keep their objects; an unchanged Home draws nothing.
 async function readHome(): Promise<void> {
   if (homeRead) { again = true; return homeRead; }
@@ -84,7 +87,7 @@ async function readHome(): Promise<void> {
       let before: HomeView | null = null, next: HomeView | null = null, failed = false;
 
       try {
-        const home = await invoke<HomeView>("center_home");
+        const home = await takeHome();
         before = state.home === shown ? lastRead : null;
         next = keepUnchanged(before, home);
         fresh = true;
@@ -122,6 +125,15 @@ async function readHome(): Promise<void> {
   finally { homeRead = undefined; if (onScreen() && (!state.home || state.error !== null)) draw(); }
 }
 
+async function takeHome(): Promise<HomeView> {
+  const pushed = pushedHome;
+  pushedHome = null;
+  if (!pushed) return invoke<HomeView>("center_home");
+  if ("error" in pushed) throw pushed.error;
+
+  return pushed.value;
+}
+
 /// Home, the projects page while it shows, and the sidebar unless it draws later.
 function drawHome(side = true) {
   draw();
@@ -129,14 +141,9 @@ function drawHome(side = true) {
   if (side) drawSide();
 }
 
-/// Whether a Home snapshot that came with a change asks something new of the
-/// user, or no longer asks it.
-function needsChanged(event: MeshEvent): boolean {
-  const data = event.data;
-  if (!data || typeof data !== "object" || !("views" in data) || !Array.isArray(data.views)) return false;
-  const view: unknown = data.views.find((v: unknown) => v !== null && typeof v === "object" && "command" in v && v.command === "center_home");
-  if (!view || typeof view !== "object" || !("value" in view) || !view.value || typeof view.value !== "object" || !("needs_you" in view.value)) return false;
-  return JSON.stringify(view.value.needs_you) !== JSON.stringify(lastRead?.needs_you ?? []);
+/// Whether a pushed Home asks something new of the user, or no longer asks it.
+function needsChanged(home: HomeView): boolean {
+  return JSON.stringify(home.needs_you) !== JSON.stringify(lastRead?.needs_you ?? []);
 }
 
 /// Agents, processes and moves change Home many times a second during turns.
@@ -170,10 +177,10 @@ const refreshProjects = single(async () => {
   }
 });
 
-const refreshMac = single(async () => {
-  state.mac = await invoke<MacControl>("mac_control");
-  pagesAccount(state.mac);
-});
+function takeMac(mac: MacControl) {
+  state.mac = mac;
+  pagesAccount(mac);
+}
 
 /// Whether a first load ran or runs in this window.
 let started = false;
@@ -195,7 +202,7 @@ export async function refresh() {
     const view = currentLocation()?.view ?? "home";
     const terminals = onScreen() && (view === "home" || view === "terminals");
     // This computer's row in the machines group comes from `mac_control`.
-    await Promise.all([readHome(), refreshMac().then(() => reloadGroup("machines", false)), refreshSync().then(() => onScreen() ? readSync() : undefined), refreshProjects(),
+    await Promise.all([readHome(), invoke<MacControl>("mac_control").then(takeMac).then(() => reloadGroup("machines", false)), refreshSync().then(() => onScreen() ? readSync() : undefined), refreshProjects(),
       terminals ? readAllTerms() : undefined]);
   } catch (error) {
     console.warn("Home:", error);
@@ -218,8 +225,21 @@ onShownChange(visible => {
 });
 
 // These are state changes. Agent tokens and terminal output have their own topics.
-subscribeChanges(topic("home"), { deliver: "each", receive: event => homeChanged(needsChanged(event)) });
-subscribeChanges(topic("machines"), { deliver: "latest", receive: async () => { await refreshMac(); await reloadGroup("machines"); } }, { wait: AMBIENT_MS });
+subscribeChanges(topic("home"), { deliver: "each", receive: event => {
+  const pushed = pushedView<HomeView>(event.data, "center_home");
+  if (!pushed) return;
+
+  pushedHome = pushed;
+  homeChanged("value" in pushed && needsChanged(pushed.value));
+} });
+subscribeChanges(topic("machines"), { deliver: "each", receive: async event => {
+  const pushed = pushedView<MacControl>(event.data, "mac_control");
+  if (!pushed) return;
+  if ("error" in pushed) { console.warn("this computer's state:", pushed.error); return; }
+
+  takeMac(pushed.value);
+  await reloadGroup("machines");
+} }, { wait: AMBIENT_MS });
 subscribeChanges(topic("projects"), { deliver: "latest", receive: refreshProjects }, { wait: AMBIENT_MS });
 // Sync progress changes many times a second during a transfer; the rows follow once a second.
 subscribeChanges(topic("sync"), { deliver: "latest", receive: refreshSync }, { wait: AMBIENT_MS });
