@@ -1157,6 +1157,42 @@ async fn a_parents_node_says_which_remote_children_it_keeps() {
 }
 
 #[tokio::test]
+async fn a_settle_note_wakes_a_wait_and_goes_in_no_prompt() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let name = Agents::name_of(&parent);
+    let there = SecretKeyFor::id();
+    let mut kid = RemoteKid::expected(&name, there, "box");
+    kid.id = "k1".into();
+    rig.agents.adopt_remote(&parent, kid);
+    let note = ChildNote {
+        id: "k1".into(),
+        key: SessionId::default(),
+        name: "kid".to_owned(),
+        state: crate::agents::family::notes::NoteState::Settled,
+        text: String::new(),
+    };
+    let turns = parent.info().turns;
+    // With no wait it is told to nobody.
+    rig.agents
+        .note_from(there, &name, &note)
+        .await
+        .expect("the note is taken");
+    assert_eq!(parent.info().turns, turns);
+
+    let waiting = rig.agents.family.waits.hold(&name, "k1@box");
+    rig.agents
+        .note_from(there, &name, &note)
+        .await
+        .expect("the note is taken");
+    timeout(Duration::from_secs(5), waiting.woken())
+        .await
+        .expect("the wait is woken");
+    assert_eq!(parent.info().turns, turns);
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
 async fn a_start_with_no_answer_holds_its_place_until_it_expires_and_a_refusal_frees_it() {
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;

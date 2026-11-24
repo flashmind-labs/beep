@@ -42,6 +42,11 @@ pub(crate) enum NoteState {
     Stopped,
     /// The user closed its session.
     Closed,
+    /// It settled without news for the parent: its session ended, a turn
+    /// the parent stopped, or its last background work. Only wakes a wait,
+    /// and goes in no prompt. A parent's node that does not know it refuses
+    /// the note.
+    Settled,
 }
 
 /// What a child's node tells the parent's: JSON in an `AgentNote` call.
@@ -83,6 +88,7 @@ impl ChildNote {
                 format!("[child {id} was stopped by the user] {}", self.text),
                 "Its session ended.",
             ),
+            NoteState::Settled => (format!("[child {id} settled] {}", self.text), ""),
         };
         let body = format!("{}\n{tail}", head.trim_end());
         tags::from_child(id, &self.name, self.state.as_ref(), &body)
@@ -298,6 +304,9 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
     // A session counts its turns from its start, so one that ended before
     // this first look is told too.
     let (mut turns, mut asking) = (0, false);
+    // Whether the child looked settled to its parent, which a parent on
+    // another machine waits on; one settling at the first look is not news.
+    let (remote, mut was_settled) = (matches!(to, To::There { .. }), true);
     let mut first = true;
 
     while std::mem::take(&mut first) || live.changed().await.is_ok() {
@@ -343,6 +352,12 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
                     None
                 }
             };
+
+            let settled = children::ChildView::of(&now.info, &SessionId::default()).settled();
+            let note = note.or_else(|| {
+                (remote && settled && !was_settled).then(|| note_of(now, NoteState::Settled))
+            });
+            was_settled = settled;
 
             note.map(|note| Told {
                 note,
@@ -399,7 +414,9 @@ fn note_of(live: &Live, state: NoteState) -> ChildNote {
     let view = children::ChildView::of(&live.info, &SessionId::default());
     let text = match state {
         NoteState::Finished if view.last_message.is_empty() => view.error.unwrap_or_default(),
-        NoteState::Finished | NoteState::Stopped | NoteState::Closed => view.last_message,
+        NoteState::Finished | NoteState::Stopped | NoteState::Closed | NoteState::Settled => {
+            view.last_message
+        }
         NoteState::Asking => view.question.unwrap_or_default(),
     };
     ChildNote {
@@ -445,7 +462,7 @@ async fn deliver(
         return Ok(());
     }
 
-    if waits.wake(&Agents::name_of(parent), id) {
+    if waits.wake(&Agents::name_of(parent), id) || note.state == NoteState::Settled {
         return Ok(());
     }
 

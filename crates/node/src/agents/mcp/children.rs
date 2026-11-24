@@ -77,6 +77,10 @@ pub(crate) struct ChildView {
     /// The branch of the checkout it works in, as its node last read it.
     #[serde(default)]
     pub(crate) branch: Option<String>,
+    /// Said by a node that tells its parent's of every settle (`family::notes`),
+    /// so a wait on it needs no recheck. An older node does not say it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) notes_settles: bool,
 }
 
 impl ChildView {
@@ -110,6 +114,7 @@ impl ChildView {
             note: None,
             project: None,
             branch: info.place.as_ref().and_then(|place| place.branch.clone()),
+            notes_settles: false,
         }
     }
 
@@ -119,7 +124,7 @@ impl ChildView {
         self
     }
 
-    fn settled(&self) -> bool {
+    pub(crate) fn settled(&self) -> bool {
         self.state != "working"
     }
 }
@@ -803,17 +808,17 @@ impl Reach<'_> {
     /// Waits for `view`'s turn to end, at most `WAIT_LIMIT`: an agent's tool
     /// call must come back before its client gives up, so a long job is
     /// checked with agent_status instead. A child here wakes the wait through
-    /// its `live`, one on another machine through its note, and by a read
-    /// every `WAIT_RECHECK` for the turn ends that send no note.
+    /// its `live`, one on another machine through its note; a node too old to
+    /// note every settle is also read every `WAIT_RECHECK`.
     async fn waited(&self, view: ChildView) -> ChildView {
         // What this wait answers goes in no note.
         let waiting = self.agents.family.waits.hold(&self.who.session, &view.id);
-        let (live, recheck) = match self.find(&view.id) {
-            Ok(Found::Here(child)) => (Some(child.live.clone()), None),
-            Ok(Found::There(_)) => (None, Some(WAIT_RECHECK)),
-            Err(_) => (None, None),
+        let (live, remote) = match self.find(&view.id) {
+            Ok(Found::Here(child)) => (Some(child.live.clone()), false),
+            Ok(Found::There(_)) => (None, true),
+            Err(_) => (None, false),
         };
-        let mut view = wait_for_settled(&waiting, live, recheck, view, |id| async move { self.view_of(&id).await }).await;
+        let mut view = wait_for_settled(&waiting, live, remote, view, |id| async move { self.view_of(&id).await }).await;
 
         if view.state == "idle" {
             view.note = Some(
@@ -827,16 +832,18 @@ impl Reach<'_> {
     }
 }
 
-/// How often a wait on a child on another machine reads its view: a turn
-/// that ends without a note (`family::notes`) costs at most this much.
+/// How often a wait on a child on another machine that does not note every
+/// settle reads its view: a turn that ends without a note (`family::notes`)
+/// costs at most this much.
 const WAIT_RECHECK: Duration = Duration::from_secs(5);
 
-/// Reads `view` again with `read` each time `waiting`, `live` or `recheck`
-/// says to, until it is settled or `WAIT_LIMIT` is over.
+/// Reads `view` again with `read` each time `waiting`, `live` or, for a
+/// `remote` child whose node does not note every settle, the recheck says to,
+/// until it is settled or `WAIT_LIMIT` is over.
 async fn wait_for_settled<F>(
     waiting: &Waiting,
     mut live: Option<watch::Receiver<Live>>,
-    recheck: Option<Duration>,
+    remote: bool,
     mut view: ChildView,
     read: impl Fn(String) -> F,
 ) -> ChildView
@@ -860,6 +867,7 @@ where
             break;
         }
 
+        let recheck = (remote && !view.notes_settles).then_some(WAIT_RECHECK);
         let gone = tokio::select! {
             () = waiting.woken() => false,
             changed = async {
@@ -1086,7 +1094,12 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
         session: request.session.clone(),
     };
     let child_view =
-        |child: &Session| json_of(&ChildView::of(&child.info(), &Agents::name_of(child)));
+        |child: &Session| {
+            json_of(&ChildView {
+                notes_settles: true,
+                ..ChildView::of(&child.info(), &Agents::name_of(child))
+            })
+        };
 
     match request.tool {
         Tool::StartAgent => {
