@@ -112,14 +112,21 @@ struct Session {
     id: SessionId,
     server: AppServer,
     settings: Settings,
-    /// The turn Codex runs.
-    turn: Option<String>,
-    prompt: Option<Responder<PromptResponse>>,
-    cancelled: bool,
+    /// The prompt that runs, until its turn ends.
+    running: Option<Running>,
     /// Items whose text came as deltas, which their completion leaves out.
     streamed: HashSet<String>,
-    /// The thread's tokens so far, and when the prompt started.
+    /// The thread's tokens so far.
     tokens: Tokens,
+}
+
+/// A prompt Codex runs, with the turn it started.
+struct Running {
+    prompt: Responder<PromptResponse>,
+    /// The turn Codex runs.
+    turn: Option<String>,
+    cancelled: bool,
+    /// The thread's tokens when the prompt started.
     prompted_at: Tokens,
     /// Why the turn failed, as the last error Codex gave up on says.
     failure: Option<String>,
@@ -244,15 +251,14 @@ impl Bridge {
         else {
             return;
         };
-        let Some(turn) = session
-            .turn
-            .clone()
-            .filter(|_| session.prompt.is_some() && !session.cancelled)
-        else {
+        let Some(running) = session.running.as_mut().filter(|running| !running.cancelled) else {
+            return;
+        };
+        let Some(turn) = running.turn.clone() else {
             return;
         };
 
-        session.cancelled = true;
+        running.cancelled = true;
         let interrupt = json!({"threadId": session.id, "turnId": turn});
 
         if let Err(e) = session.server.call("turn/interrupt", interrupt).await {
@@ -353,13 +359,9 @@ impl Bridge {
             id: SessionId::new(id),
             server,
             settings,
-            turn: None,
-            prompt: None,
-            cancelled: false,
+            running: None,
             streamed: HashSet::new(),
             tokens: Tokens::default(),
-            prompted_at: Tokens::default(),
-            failure: None,
         };
         Ok((session, replayed))
     }
@@ -374,7 +376,7 @@ impl Bridge {
             return Ok(responder.respond_with_error(unknown_session())?);
         };
 
-        if session.prompt.is_some() {
+        if session.running.is_some() {
             return Ok(responder.respond_with_error(acp::bridge::prompt_running())?);
         }
 
@@ -400,14 +402,13 @@ impl Bridge {
 
         match called {
             Ok(started) => {
-                session.turn = started["turn"]["id"]
-                    .as_str()
-                    .map(str::to_owned)
-                    .or(session.turn.take());
-                session.prompt = Some(responder);
-                session.cancelled = false;
-                session.failure = None;
-                session.prompted_at = session.tokens;
+                session.running = Some(Running {
+                    prompt: responder,
+                    turn: started["turn"]["id"].as_str().map(str::to_owned),
+                    cancelled: false,
+                    prompted_at: session.tokens,
+                    failure: None,
+                });
             }
             Err(e) => responder.respond_with_error(
                 agent_client_protocol::Error::internal_error().data(format!("{e:#}")),
@@ -427,7 +428,7 @@ impl Bridge {
         else {
             return "failed";
         };
-        let Some(turn) = session.turn.clone().filter(|_| session.prompt.is_some()) else {
+        let Some(turn) = session.running.as_ref().and_then(|running| running.turn.clone()) else {
             return "promptRequired";
         };
         let Ok(prompt) = Vec::<ContentBlock>::deserialize(&params["prompt"]) else {
@@ -441,8 +442,10 @@ impl Bridge {
             Ok(_) => "injected",
             // The turn ended meanwhile, though its end may not be read yet.
             Err(_)
-                if session.prompt.is_none()
-                    || session.turn.as_ref() != Some(&turn)
+                if session
+                    .running
+                    .as_ref()
+                    .is_none_or(|running| running.turn.as_ref() != Some(&turn))
                     || session.server.sent("turn/completed") =>
             {
                 "promptRequired"
@@ -525,14 +528,19 @@ impl Bridge {
                 &format!("Warning: {}\n\n", text(&params, "message")),
             )),
             "error" => {
-                if params["willRetry"] != true {
-                    session.failure = params["error"]["message"].as_str().map(str::to_owned);
+                if params["willRetry"] != true
+                    && let Some(running) = session.running.as_mut()
+                {
+                    running.failure = params["error"]["message"].as_str().map(str::to_owned);
                 }
 
                 None
             }
             "turn/started" => {
-                session.turn = params["turn"]["id"].as_str().map(str::to_owned);
+                if let Some(running) = session.running.as_mut() {
+                    running.turn = params["turn"]["id"].as_str().map(str::to_owned);
+                }
+
                 None
             }
             "turn/completed" => return ended(session, &params["turn"]),
@@ -577,15 +585,19 @@ impl Bridge {
 
 /// The turn `turn` ended: the prompt it ran is answered.
 fn ended(session: &mut Session, turn: &Value) -> Result<()> {
-    session.turn = None;
     session.streamed.clear();
-    let cancelled = std::mem::take(&mut session.cancelled);
-    let failure = session.failure.take();
-    let Some(responder) = session.prompt.take() else {
+    let Some(Running {
+        prompt: responder,
+        cancelled,
+        prompted_at,
+        failure,
+        ..
+    }) = session.running.take()
+    else {
         return Ok(());
     };
 
-    let used = session.tokens.since(session.prompted_at);
+    let used = session.tokens.since(prompted_at);
     let stop = match turn["status"].as_str() {
         _ if cancelled => StopReason::Cancelled,
         Some("interrupted") => StopReason::Cancelled,
