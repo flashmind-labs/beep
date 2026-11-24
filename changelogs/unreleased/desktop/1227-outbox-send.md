@@ -1,4 +1,0 @@
-### Fixed
-- Desktop: a message with attached files keeps uploading and sending when its window closes or reloads. The files go to the machine behind a row above the field that says "uploading", and a failed upload stays as a row with its reason, where Edit puts the words and files back in the field.
-- Desktop: a message to an ended session keeps sending when its window closes or reloads. The session resumes behind a row that says "resuming", the message goes once it runs, and the window opens the resumed session in the background. A second message sent meanwhile waits behind the first and never resumes the session twice.
-- Desktop: a message sent right after dropping a file is no longer left behind in the field when you switch conversations. It still goes, in the conversation it was written in.
