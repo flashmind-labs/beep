@@ -193,8 +193,11 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, R
             .load(&id)
             && old.at != record.at && old.phase == Phase::Working
         {
-            target::take_back(env, &id, old.at).await;
-            env.state.clear(&id, old.at);
+            let (work, session, at) = (env.clone(), id.clone(), old.at);
+            env.agents.moves.clean(&id, async move {
+                target::take_back(&work, &session, at).await;
+                work.state.clear(&session, at);
+            });
         }
 
         let side = if record.to == env.mesh.me() {
@@ -204,13 +207,25 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, R
             Side::Source { to: record.to }
         };
         let at = record.at;
-        let task = spawn(env.clone(), record, side.clone());
+        let before = env.agents.moves.cleaned(&id);
+        let task = spawn(env.clone(), record, side.clone(), before);
         running.insert(id, Running { at, side, task });
     }
 }
 
-fn spawn(env: Arc<Env>, record: SessionMove, side: Side) -> AbortOnDropHandle<()> {
+/// Runs the move of `record`, once `before`, the take-back of the session's
+/// last move, is done.
+fn spawn(
+    env: Arc<Env>,
+    record: SessionMove,
+    side: Side,
+    before: Option<AbortOnDropHandle<()>>,
+) -> AbortOnDropHandle<()> {
     AbortOnDropHandle::new(tokio::spawn(async move {
+        if let Some(before) = before {
+            let _ = before.await;
+        }
+
         log::info!(
             "taking part in the move of {} session {}, as its {}",
             record.agent,
@@ -241,12 +256,16 @@ fn spawn(env: Arc<Env>, record: SessionMove, side: Side) -> AbortOnDropHandle<()
     }))
 }
 
-async fn cancelled(env: &Env, id: &SessionId, one: &Running) {
+async fn cancelled(env: &Arc<Env>, id: &SessionId, one: &Running) {
     match &one.side {
         Side::Target(tracker) => {
-            target::take_back(env, id, one.at).await;
-            env.state.clear(id, one.at);
-            tracker.finish(MovePhase::Cancelled, None);
+            // Git work: beside the loop, which has other moves to start.
+            let (work, session, at, tracker) = (env.clone(), id.clone(), one.at, tracker.clone());
+            env.agents.moves.clean(id, async move {
+                target::take_back(&work, &session, at).await;
+                work.state.clear(&session, at);
+                tracker.finish(MovePhase::Cancelled, None);
+            });
         }
         Side::Source { to } => match source::cancel(env, id, one.at, *to).await {
             source::Recovery::Released => env.state.clear(id, one.at),

@@ -71,3 +71,47 @@ fn old_background_copies_go_and_versions_that_lost_stay() {
     left.sort();
     assert_eq!(left, ["lost-9.json", "lost-9.jsonl"]);
 }
+
+#[tokio::test]
+async fn one_sessions_worktree_placing_does_not_hold_up_another() {
+    use crate::agents::moving::progress::Moves;
+
+    let moves = Moves::default();
+    let (a, b) = (SessionId::from("a"), SessionId::from("b"));
+    let placing = moves.placing(&a);
+    let _held = placing.lock().await;
+
+    assert!(moves.placing(&b).try_lock().is_ok());
+    assert!(moves.placing(&a).try_lock().is_err());
+}
+
+#[tokio::test]
+async fn a_take_back_runs_beside_the_caller_and_the_next_one_waits_for_it() {
+    use crate::agents::moving::progress::Moves;
+    use tokio::sync::oneshot;
+
+    let moves = Moves::default();
+    let id = SessionId::from("a");
+    let (release, held) = oneshot::channel::<()>();
+    let (first_done, first) = oneshot::channel::<()>();
+    moves.clean(&id, async move {
+        let _ = held.await;
+        let _ = first_done.send(());
+    });
+    let (second_done, mut second) = oneshot::channel::<()>();
+    moves.clean(&id, async move {
+        let _ = second_done.send(());
+    });
+    // The caller went on, and the second take-back waits for the first.
+    tokio::task::yield_now().await;
+    assert!(second.try_recv().is_err());
+
+    release.send(()).expect("the first take-back waits");
+    first.await.expect("the first take-back ended");
+    moves
+        .cleaned(&id)
+        .expect("the take-back is kept")
+        .await
+        .expect("the take-back task ran");
+    assert!(second.try_recv().is_ok());
+}

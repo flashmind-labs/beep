@@ -437,7 +437,7 @@ async fn worktrees(
         let (state, id, at) = (env.state.clone(), record.id.clone(), record.at);
         // Held until the worktree is noted, even if this task is stopped
         // meanwhile: taking the move back waits for it.
-        let placing = env.agents.moves.placing.clone().lock_owned().await;
+        let placing = env.agents.moves.placing(&record.id).lock_owned().await;
         spawn_blocking(move || {
             let _placing = placing;
 
@@ -500,7 +500,8 @@ fn keep_placed(state: &Folder, id: &SessionId, at: u64, placed: PlacedTree) -> R
 /// not happen. One that changed since stays, and is logged.
 pub(super) async fn take_back(env: &Env, id: &SessionId, at: u64) {
     // A worktree being placed is noted first.
-    let _placing = env.agents.moves.placing.lock().await;
+    let placing = env.agents.moves.placing(id);
+    let _placing = placing.lock().await;
     let placed = env
         .state
         .load(id)

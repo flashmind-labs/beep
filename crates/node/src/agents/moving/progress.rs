@@ -14,6 +14,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{sync::Notify, task::spawn_blocking};
+use tokio_util::task::AbortOnDropHandle;
 
 /// Old sources can ask how a move ended after its record was replaced.
 const KEEP_OUTCOMES: Duration = Duration::from_secs(120);
@@ -176,9 +177,12 @@ pub(crate) struct Moves {
     kept: OnceLock<Folder>,
     /// Held while a worktree sent is noted, one at a time.
     noting: Arc<Mutex<()>>,
-    /// Held while a target places a worktree and notes it, so taking the
-    /// move back waits for that to finish.
-    pub(super) placing: Arc<AsyncMutex<()>>,
+    /// Held while a target places a worktree of a session and notes it, so
+    /// taking that session's move back waits for that to finish.
+    placing: Mutex<HashMap<SessionId, Arc<AsyncMutex<()>>>>,
+    /// The take-back of each session's last move that did not happen, which
+    /// the session's next move waits for.
+    cleaning: Mutex<HashMap<SessionId, AbortOnDropHandle<()>>>,
     /// Told each time a move ends on this side, which leaves room for one
     /// that found none: a chat moves as many sessions at once.
     pub(super) ended: Notify,
@@ -219,6 +223,36 @@ impl Moves {
     pub(super) fn forget(&self, id: &SessionId) {
         lock(&self.tracked).archive(id);
         lock(&self.refused).remove(id);
+    }
+
+    /// The lock for placing `id`'s worktrees. Only sessions placing now keep one.
+    pub(super) fn placing(&self, id: &SessionId) -> Arc<AsyncMutex<()>> {
+        let mut all = lock(&self.placing);
+        all.retain(|_, one| Arc::strong_count(one) > 1);
+        all.entry(id.to_owned()).or_default().clone()
+    }
+
+    /// Runs `work`, the take-back of `id`'s move, beside the caller, after
+    /// any earlier one of the session.
+    pub(super) fn clean(&self, id: &SessionId, work: impl Future<Output = ()> + Send + 'static) {
+        let mut all = lock(&self.cleaning);
+        all.retain(|_, one| !one.is_finished());
+        let before = all.remove(id);
+        all.insert(
+            id.to_owned(),
+            AbortOnDropHandle::new(tokio::spawn(async move {
+                if let Some(before) = before {
+                    let _ = before.await;
+                }
+
+                work.await;
+            })),
+        );
+    }
+
+    /// The take-back of `id`'s last move, still going, for its next move to wait for.
+    pub(super) fn cleaned(&self, id: &SessionId) -> Option<AbortOnDropHandle<()>> {
+        lock(&self.cleaning).remove(id)
     }
 
     /// How the move of `id` stands here, when this machine is part of one.
