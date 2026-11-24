@@ -135,3 +135,23 @@ test("a saved title shows in the project's sessions from the event", async ({ pa
   await expect(page.getByText("Renamed session", { exact: true })).toBeVisible();
   expect(await reads()).toBe(before);
 });
+
+test("a project's session list is let go when its page goes away, not while it shows", async ({ page }) => {
+  const row = { machine_id: "build-box", machine_name: "build-box", id: "past-1", agent: "codex", title: "First session", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100, external: false, question: null };
+  await openDesktop(page, false, { project_sessions: [row], project_sessions_forget: null });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  await expect(page.getByText("First session", { exact: true })).toBeVisible();
+  const calls = (command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name), command);
+
+  await page.evaluate(project => window.__navigation.emit("session-list", { list: { project }, sessions: [{ ...{ id: "past-2", title: "Later session" }, machine_id: "build-box", machine_name: "build-box", agent: "codex", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 200, external: false, question: null }] }), projectName);
+  await expect(page.getByText("Later session", { exact: true })).toBeVisible();
+  expect(await calls("project_sessions_forget")).toEqual([]);
+
+  await page.evaluate(() => window.__navigation.open("home"));
+  await expect.poll(() => calls("project_sessions_forget")).toEqual([{ command: "project_sessions_forget", args: { project: projectName } }]);
+
+  const reads = (await calls("project_sessions")).length;
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  await expect.poll(async () => (await calls("project_sessions")).length).toBeGreaterThan(reads);
+  expect(await calls("project_sessions_forget")).toHaveLength(1);
+});

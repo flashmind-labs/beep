@@ -25,7 +25,7 @@ import { NoProjects, Parts, viewPart, type PagePart } from "./page-view.tsx";
 import { splitOn, openTile } from "./split.tsx";
 import { pa, redrawProjectsPage, runs, syncProjectFollow, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.tsx";
-import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, elsewhereSection, disposeSessionPanel } from "./loads.tsx";
+import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, elsewhereSection, disposeSessionPanel, releaseSessions } from "./loads.tsx";
 import { ensureHome } from "../center/refresh.ts";
 import { Icon } from "../ui/icons.tsx";
 import { Button, EmptyPanel } from "../ui/kit.tsx";
@@ -198,8 +198,9 @@ export const projectsView: CenterView<"projects"> = {
     if (state.picked) revalidate(state.picked);
     else revalidateOverview();
 
+    releaseSessions(state.picked);
     ensureHome();
     prefetchRecentSoon();
   },
-  unmount: () => { focusComposer = false; disposeSessionPanel(); disposeOverview(); openTile(null, false); terms.stop(); },
+  unmount: () => { focusComposer = false; releaseSessions(null); disposeSessionPanel(); disposeOverview(); openTile(null, false); terms.stop(); },
 };

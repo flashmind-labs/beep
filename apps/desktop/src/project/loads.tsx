@@ -402,6 +402,30 @@ export async function loadSessions(name: string): Promise<void> {
 /// The `session-list` events seen for each project, so a read that was out when one came is dropped.
 const sessionPushes = new Map<string, number>();
 
+/// The projects whose list native holds and pushes for this window.
+const held = new Set<string>();
+/// The forgets sent and not yet done, so a read after one cannot overtake it.
+const forgetting = new Map<string, Promise<unknown>>();
+
+/// Lets native drop the list of every project that neither the page nor the rail shows. It sends
+/// no more pushes for it, so the project reads again when shown. An open page is never let go,
+/// however long it stays open.
+export function releaseSessions(page: string | null) {
+  const rail = railProject(shell.getState().side.rail);
+
+  for (const name of [...held]) {
+    if (name === page || name === rail) continue;
+
+    held.delete(name);
+    sessionsDue.add(name);
+    const sent = invoke("project_sessions_forget", { project: name }).catch(e => console.warn("project sessions forget:", e))
+      .finally(() => { if (forgetting.get(name) === sent) forgetting.delete(name); });
+    forgetting.set(name, sent);
+  }
+}
+const shownPage = () => currentLocation()?.view === "projects" ? state.picked : null;
+shell.subscribe(() => releaseSessions(shownPage()));
+
 async function readSessions(name: string) {
   const pushes = sessionPushes.get(name) ?? 0;
   readingSessions.add(name);
@@ -410,6 +434,8 @@ async function readSessions(name: string) {
   let got: SessionRow[] | null = null, failed = false;
 
   try {
+    await forgetting.get(name);
+    held.add(name);
     // Null until every machine answered once: the list comes as a `session-list` event.
     got = await invoke<SessionRow[] | null>("project_sessions", { project: name });
   } catch (e) {
@@ -418,6 +444,7 @@ async function readSessions(name: string) {
     sessionChanges.changed();
   } finally {
     readingSessions.delete(name);
+    releaseSessions(shownPage());
   }
 
   // A list pushed while the read was out is newer than its answer.
