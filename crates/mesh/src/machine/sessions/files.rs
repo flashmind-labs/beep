@@ -1,5 +1,5 @@
 use super::{
-    IMAGE_TIMEOUT, NodeFile, NodeImage, NodeShare, NodeWork, READ_TIMEOUT, Reading, SHARE_TIMEOUT,
+    IMAGE_TIMEOUT, NodeFile, NodeShare, NodeWork, Picture, READ_TIMEOUT, Reading, SHARE_TIMEOUT,
     Sessions, WorkRead, WorkWrite, ask, hinted, once,
 };
 use crate::{MeshError, machine::unexpected};
@@ -15,7 +15,7 @@ pub async fn image<S: Sessions + ?Sized>(
     node: &S,
     session: &SessionId,
     key: &str,
-) -> Result<Option<NodeImage>, MeshError> {
+) -> Result<Option<Picture>, MeshError> {
     let request = SessionsRequest::Image {
         session: session.clone(),
         key: key.to_owned(),
@@ -30,7 +30,7 @@ pub async fn thumb<S: Sessions + ?Sized>(
     node: &S,
     session: &SessionId,
     key: &str,
-) -> Result<Option<NodeImage>, MeshError> {
+) -> Result<Option<Picture>, MeshError> {
     let request = SessionsRequest::Thumb {
         session: session.clone(),
         key: key.to_owned(),
@@ -41,9 +41,9 @@ pub async fn thumb<S: Sessions + ?Sized>(
 async fn picture<S: Sessions + ?Sized>(
     node: &S,
     request: SessionsRequest,
-) -> Result<Option<NodeImage>, MeshError> {
+) -> Result<Option<Picture>, MeshError> {
     match node.sessions(request, Reading::Once, IMAGE_TIMEOUT).await? {
-        SessionsReply::Image { mime, data } => Ok(Some(NodeImage { mime, data })),
+        SessionsReply::Image { mime, data } => Ok(Some(Picture { mime, data })),
         SessionsReply::Error { .. } => Ok(None),
         other => Err(unexpected(&other)),
     }

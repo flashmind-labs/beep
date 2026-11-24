@@ -146,7 +146,8 @@ async fn once<S: Sessions + ?Sized>(
 }
 
 /// A picture of a session's transcript, as the node gave it.
-pub struct NodeImage {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picture {
     pub mime: String,
     pub data: Vec<u8>,
 }

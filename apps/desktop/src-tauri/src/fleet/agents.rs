@@ -15,7 +15,7 @@ use beep_mesh::{
         codex_login, ended,
         listing::{self, Linked},
         open_agent, open_agent_staged, order,
-        sessions::{self, NodeFile, NodeImage, NodeWork},
+        sessions::{self, NodeFile, NodeWork, Picture},
     },
 };
 use beep_proto::SessionId;
@@ -894,7 +894,7 @@ pub(crate) async fn image(
     Ok(picture(get, found))
 }
 
-fn picture(get: &GetAgentImage, found: NodeImage) -> AgentImageData {
+fn picture(get: &GetAgentImage, found: Picture) -> AgentImageData {
     AgentImageData {
         key: get.key.clone(),
         mime: found.mime,

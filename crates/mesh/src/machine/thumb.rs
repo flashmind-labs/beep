@@ -7,12 +7,7 @@ use image::{
 use std::{io::Cursor, sync::Arc};
 use tokio::{sync::Semaphore, task::spawn_blocking};
 
-/// A picture as a node gave it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Picture {
-    pub mime: String,
-    pub data: Vec<u8>,
-}
+pub use super::sessions::Picture;
 
 /// The longest edge of a thumbnail. The log draws its largest 160 CSS pixels
 /// high and as wide as they come, so 320 on a 2x display, which keeps a
