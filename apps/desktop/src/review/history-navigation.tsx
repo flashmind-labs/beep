@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { ListBox, ListBoxItem } from "react-aria-components/ListBox";
-import { Button, SheetHead } from "../ui/kit.tsx";
+import { Button, NO_AUTO, SheetHead } from "../ui/kit.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { reason } from "../ui/format.ts";
 import { openSheet } from "../ui/parts.tsx";
@@ -22,7 +22,7 @@ export function HistoryNavigation({ query, back, refresh, collapsed, toggleSecti
     <Button look="plain" className="gh-collapse" onClick={toggleSections}>{collapsed ? "Expand all" : "Collapse all"}</Button>
   </div>
     {checkout}
-    <label className="gh-search"><input type="search" maxLength={256} placeholder="Search commit messages" aria-label="Search commit messages" defaultValue={query} onChange={event => search(event.currentTarget.value)} /></label></>;
+    <label className="gh-search"><input type="search" maxLength={256} {...NO_AUTO} placeholder="Search commit messages" aria-label="Search commit messages" defaultValue={query} onChange={event => search(event.currentTarget.value)} /></label></>;
 }
 
 export function CheckoutBranch({ data, worktree, switchTo }: { data: HistoryPage; worktree: GitWorktree; switchTo(branch: string): Promise<void> }) {
@@ -77,7 +77,7 @@ function BranchPicker({ branches, location, current, close, switchTo, pending }:
     <SheetHead title="Switch branch" />
     <p className="am-sub"><code>{current}</code> · {location}</p>
     <input ref={field} type="search" className="am-code" aria-label="Search local branches" placeholder="Search local branches"
-      value={query} disabled={busy} spellCheck={false} autoCapitalize="off" onChange={event => {
+      value={query} disabled={busy} {...NO_AUTO} onChange={event => {
         setQuery(event.currentTarget.value); setSelected(null); setError(null);
       }} />
     <ListBox className="dropdown-menu gh-branch-list" aria-label="Local branches" selectionMode="single" selectionBehavior="replace"

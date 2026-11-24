@@ -5,19 +5,19 @@ div.am-sheet [aria-label="Edit docs" aria-modal="true" role="dialog"]
     kbd "esc"
   form.dform.mcp-editor [autocomplete="off"]
     label.dfield "Name"
-      input [autocapitalize="none" maxlength="128" name="name" required spellcheck="false" value="docs"] value="docs" (focused)
+      input [autocapitalize="off" autocomplete="off" autocorrect="off" maxlength="128" name="name" required spellcheck="false" value="docs"] value="docs" (focused)
     label.dfield "Transport"
       select [aria-label="Transport"] value="http"
         option [value="stdio"] "Stdio"
         option [value="http"] "Streamable HTTP"
     label.dfield "Server URL"
-      input.url [autocapitalize="none" required spellcheck="false" value="https://tools.example.test/mcp"] value="https://tools.example.test/mcp"
+      input.url [autocapitalize="off" autocomplete="off" autocorrect="off" required spellcheck="false" value="https://tools.example.test/mcp"] value="https://tools.example.test/mcp"
     fieldset.dfield.mcp-fields
       legend "Headers"
       div
         button.dbtn.quiet.small [type="button"] "+ Add header"
     label.dfield "Bearer token variable"
-      input.url [autocapitalize="none" spellcheck="false" value] value=""
+      input.url [autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" value] value=""
     fieldset.dfield.mcp-fields
       legend "Headers from environment variables"
       div

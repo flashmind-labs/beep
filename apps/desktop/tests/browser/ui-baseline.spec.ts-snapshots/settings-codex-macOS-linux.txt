@@ -164,7 +164,7 @@ body.cbody
     div.cc-set [aria-label="Settings" aria-modal="true" role="dialog" tabindex="-1"]
       nav.dset-nav [aria-label="Settings pages"]
         b "Settings"
-        input.dset-find.ip-field [aria-label="Search settings" autocomplete="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
+        input.dset-find.ip-field [aria-label="Search settings" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
         div.dset-pages
           div.dset-grp "Workspace"
           button.cc-si [data-goto="general"]
@@ -235,7 +235,7 @@ body.cbody
                       small "Applies to sessions on every machine."
                     span.fl-row
                       button.dswitch [aria-checked="true" aria-label="Auto-compact for Codex" role="switch" type="button"]
-                      input.hv-in [aria-label="Auto-compact threshold" autocomplete="off" placeholder="80% or 350000" spellcheck="false" value] value=""
+                      input.hv-in [aria-label="Auto-compact threshold" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="80% or 350000" spellcheck="false" value] value=""
                   div.hv-acts
                     button.dbtn.pri [disabled type="button"] "Save auto-compact"
                     button.dbtn.quiet [hidden type="button"] "Discard"
@@ -256,13 +256,13 @@ body.cbody
                       b "Default model"
                       small "Used for new sessions on every machine. Blank uses the harness default."
                     div
-                      input.hv-in [aria-label="Default model" list="harness-default-models" placeholder="Harness default" value] value=""
+                      input.hv-in [aria-label="Default model" autocapitalize="off" autocorrect="off" list="harness-default-models" placeholder="Harness default" spellcheck="false" value] value=""
                       datalist#harness-default-models
                       button.dbtn.pri [disabled type="button"] "Save default model"
                       span.derr
                   div.hv-note "Overrides apply to new or resumed sessions on every machine, between turns. Blank uses Auto-compact above; off disables Beep's trigger. The harness may compact earlier. Enter 80%, 350000, or off."
                   div.hv-note "This harness did not list its models."
-                  input.hv-in [aria-label="Filter models" placeholder="Filter models" value] value=""
+                  input.hv-in [aria-label="Filter models" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Filter models" spellcheck="false" value] value=""
                   div.model-context-scroll
                     table.fl-tbl.model-context
                       thead
@@ -301,25 +301,25 @@ body.cbody
                       span
                         b "Binary path"
                         small "The command Beep starts for Codex on build-box. ACP adapter only: Direct runs the codex CLI found here."
-                      input.hv-in [aria-label="Binary path" autocomplete="off" placeholder="codex-acp" spellcheck="false" type="text" value] value=""
+                      input.hv-in [aria-label="Binary path" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="codex-acp" spellcheck="false" type="text" value] value=""
                     div.hv-f
                       span
                         b "CODEX_HOME"
                         small "Its home and config folder."
-                      input.hv-in [aria-label="CODEX_HOME" autocomplete="off" placeholder="~/.codex" spellcheck="false" type="text" value] value=""
+                      input.hv-in [aria-label="CODEX_HOME" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="~/.codex" spellcheck="false" type="text" value] value=""
                     div.hv-f
                       span
                         b "Launch arguments"
                         small "Added to every session it starts. ACP adapter only: Direct runs the codex CLI found here."
-                      input.hv-in [aria-label="Launch arguments" autocomplete="off" placeholder="none" spellcheck="false" type="text" value] value=""
+                      input.hv-in [aria-label="Launch arguments" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="none" spellcheck="false" type="text" value] value=""
                     div.hv-f
                       span
                         b "Environment"
                         small "Encrypted, never shown again. Put keys in Credentials."
                       div.hv-envs
                         div.hv-env
-                          input.hv-in [aria-label="Variable name" autocomplete="off" placeholder="NAME" spellcheck="false" type="text" value] value=""
-                          input.hv-in [aria-label="Value" autocomplete="off" placeholder="value" spellcheck="false" type="password" value] value=""
+                          input.hv-in [aria-label="Variable name" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="NAME" spellcheck="false" type="text" value] value=""
+                          input.hv-in [aria-label="Value" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="value" spellcheck="false" type="password" value] value=""
                           span
                     div.hv-acts.hv-save
                       button.dbtn.pri [disabled title="Save for build-box only" type="button"] "Save"

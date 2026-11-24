@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { useStore } from "zustand";
 import { Icon } from "../ui/icons.tsx";
-import { Spinner } from "../ui/kit.tsx";
+import { NO_AUTO, Spinner } from "../ui/kit.tsx";
 import { askRemove, showConsentSheets, type PluginsSettings, type PluginsState } from "./plugins-settings.ts";
 import {
   consentAction, consentTitle, consentVersions, isNewPermission, permissionLabel, permissionMeaning, rowOffers, runLine,
@@ -65,11 +65,11 @@ function GitForm({ store, flow }: { store: PluginsSettings; flow: Extract<Flow, 
   return <form className="plg-form" aria-label="Install from Git" onSubmit={event => { event.preventDefault(); void store.submitGit(); }}>
     <div className="dline"><b>Install from Git</b></div>
     <label className={`dfield${failure ? " err" : ""}`}><span>Repository</span>
-      <input ref={first} className="url" value={flow.repository} readOnly={fetching} placeholder="owner/repo or https://github.com/owner/repo.git" autoComplete="off" spellCheck={false} onChange={event => store.editGit("repository", event.currentTarget.value)} />
+      <input ref={first} className="url" value={flow.repository} readOnly={fetching} placeholder="owner/repo or https://github.com/owner/repo.git" {...NO_AUTO} onChange={event => store.editGit("repository", event.currentTarget.value)} />
     </label>
     <div className="plg-two">
-      <label className="dfield"><span>Branch or tag (optional)</span><input value={flow.reference} readOnly={fetching} placeholder="main" autoComplete="off" spellCheck={false} onChange={event => store.editGit("reference", event.currentTarget.value)} /></label>
-      <label className="dfield"><span>Folder in the repository (optional)</span><input value={flow.folder} readOnly={fetching} placeholder="plugins/cat" autoComplete="off" spellCheck={false} onChange={event => store.editGit("folder", event.currentTarget.value)} /></label>
+      <label className="dfield"><span>Branch or tag (optional)</span><input value={flow.reference} readOnly={fetching} placeholder="main" {...NO_AUTO} onChange={event => store.editGit("reference", event.currentTarget.value)} /></label>
+      <label className="dfield"><span>Folder in the repository (optional)</span><input value={flow.folder} readOnly={fetching} placeholder="plugins/cat" {...NO_AUTO} onChange={event => store.editGit("folder", event.currentTarget.value)} /></label>
     </div>
     {failure && <Failure failure={failure} />}
     {fetching && <div className="dmuted" role="status"><Spinner />Fetching the repository. Nothing is installed yet.</div>}

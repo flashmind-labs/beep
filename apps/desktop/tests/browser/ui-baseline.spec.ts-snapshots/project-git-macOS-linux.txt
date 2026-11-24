@@ -203,7 +203,7 @@ body.cbody
                   code [aria-live="polite" title="/srv/project"] "main"
                   button.dbtn.quiet.small [aria-haspopup="dialog" type="button"] "Switch branch"
                 label.gh-search
-                  input [aria-label="Search commit messages" maxlength="256" placeholder="Search commit messages" type="search" value] value=""
+                  input [aria-label="Search commit messages" autocapitalize="off" autocomplete="off" autocorrect="off" maxlength="256" placeholder="Search commit messages" spellcheck="false" type="search" value] value=""
               div.gh-tree [data-started="true"]
                 details.gh-node [data-key="history" open]
                   summary
@@ -273,7 +273,7 @@ body.cbody
                       b "No changes"
                       span.base "vs"
                         code
-                    input.dv-find [aria-label="Filter files and lines" disabled placeholder="Filter files and lines" spellcheck="false" value] value=""
+                    input.dv-find [aria-label="Filter files and lines" autocapitalize="off" autocomplete="off" autocorrect="off" disabled placeholder="Filter files and lines" spellcheck="false" value] value=""
                     span.dv-tools
                       button.dv-btn.dv-filesbtn.icon [aria-label="Hide files" aria-pressed="true" title="Hide files" type="button"]
                         span style(display)
@@ -318,14 +318,14 @@ body.cbody
         form.cc-pjc
           div.box
             div.cx-layer [aria-hidden="true" hidden]
-            textarea.cx-field [aria-label="Task for a coding agent" autocomplete="off" data-prompt-stash placeholder="No machine has a coding agent. Install one in Coding agents" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
+            textarea.cx-field [aria-label="Task for a coding agent" autocapitalize="off" autocomplete="off" autocorrect="off" data-prompt-stash placeholder="No machine has a coding agent. Install one in Coding agents" rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line, Shift+Tab switches machines"] style(height,overflow-y) value=""
             div.row
               span.choices
                 button.pill [data-composer="machine" title="The machine it runs on (Shift+Tab in the task field)" type="button"] "Install a coding agent"
                 button.pill [data-composer="folder" disabled title="The checkout, a new worktree, or an existing worktree" type="button"] "Current checkout"
                   small "as it is"
                 span.choices [data-composer="extra"]
-                input.branch [aria-label="Branch name" autocomplete="off" hidden spellcheck="false" title="The new branch, in a new worktree" type="text" value] value=""
+                input.branch [aria-label="Branch name" autocapitalize="off" autocomplete="off" autocorrect="off" hidden spellcheck="false" title="The new branch, in a new worktree" type="text" value] value=""
                 button.dbtn.quiet.small [hidden title="Back to a plain start" type="button"] "Clear"
               span.sp
               button.pill [aria-expanded="false" disabled title="Harness, model and thinking" type="button"] "Coding agent"

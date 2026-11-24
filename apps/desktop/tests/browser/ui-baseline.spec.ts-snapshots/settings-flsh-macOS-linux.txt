@@ -164,7 +164,7 @@ body.cbody
     div.cc-set [aria-label="Settings" aria-modal="true" role="dialog" tabindex="-1"]
       nav.dset-nav [aria-label="Settings pages"]
         b "Settings"
-        input.dset-find.ip-field [aria-label="Search settings" autocomplete="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
+        input.dset-find.ip-field [aria-label="Search settings" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
         div.dset-pages
           div.dset-grp "Workspace"
           button.cc-si [data-goto="general"]
@@ -272,7 +272,7 @@ body.cbody
                     span
                       b "Stream idle timeout (seconds)"
                       small "How long flsh waits between OpenRouter updates. Leave blank to use the host setting, or 300 seconds on a new host."
-                    input.hv-in [aria-label="Stream idle timeout (seconds)" autocomplete="off" inputmode="numeric" placeholder="300" spellcheck="false" value] value=""
+                    input.hv-in [aria-label="Stream idle timeout (seconds)" autocapitalize="off" autocomplete="off" autocorrect="off" inputmode="numeric" placeholder="300" spellcheck="false" value] value=""
                   h4 "Auto-compact"
                   div.hv-f
                     span
@@ -280,7 +280,7 @@ body.cbody
                       small "Compact once the prompt passes this many tokens. flsh only."
                     span.fl-row
                       button.dswitch [aria-checked="true" aria-label="Auto-compact for all models" role="switch" type="button"]
-                      input.hv-in [aria-label="Auto-compact threshold" autocomplete="off" inputmode="text" placeholder="Model's default trigger" spellcheck="false" value] value=""
+                      input.hv-in [aria-label="Auto-compact threshold" autocapitalize="off" autocomplete="off" autocorrect="off" inputmode="text" placeholder="Model's default trigger" spellcheck="false" value] value=""
                   h4 "Per model"
                   div.hv-note "Settings that replace the ones above for one model."
                   table.fl-tbl

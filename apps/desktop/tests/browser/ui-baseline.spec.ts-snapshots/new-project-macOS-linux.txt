@@ -4,7 +4,7 @@ div.am-sheet.ip-sheet.np-sheet [aria-label="New project" aria-modal="true" role=
     kbd "esc"
   div.am-label "Name"
   div.am-line
-    input.ip-field [aria-label="Name" autocapitalize="off" autocorrect="off" placeholder="my-project" spellcheck="false" type="text" value] value="" (focused)
+    input.ip-field [aria-label="Name" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="my-project" spellcheck="false" type="text" value] value="" (focused)
   div.am-sub "Create with a connected GitHub, Forgejo or Gitea account, or keep it local."
   div.am-label "Repository on"
   div.am-line
@@ -28,7 +28,7 @@ div.am-sheet.ip-sheet.np-sheet [aria-label="New project" aria-modal="true" role=
   div.am-line.np-folder
     span.np-m [title="build-box"] "build-box"
     div.ip-folder
-      input.ip-dir.ip-path [aria-autocomplete="list" aria-controls="<id>" aria-expanded="false" aria-label="Folder on build-box" autocapitalize="off" autocorrect="off" placeholder="The machine's projects folder" role="combobox" spellcheck="false" title type="text" value] value=""
+      input.ip-dir.ip-path [aria-autocomplete="list" aria-controls="<id>" aria-expanded="false" aria-label="Folder on build-box" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="The machine's projects folder" role="combobox" spellcheck="false" title type="text" value] value=""
     button.dbtn.quiet [type="button"] "Choose…"
     span.np-to [title="/my-project"] "/my-project"
   div.am-sub.ip-to "Each machine clones it and keeps it in sync."

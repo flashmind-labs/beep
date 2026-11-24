@@ -54,7 +54,7 @@ function Editor({ v, comment }: { v: Viewer; comment: ReviewComment }) {
   };
 
   return <div className="dv-cmt open">
-    <textarea ref={input} rows={2} defaultValue={comment.text} placeholder={place} aria-label={place}
+    <textarea ref={input} rows={2} autoComplete="off" autoCorrect="off" defaultValue={comment.text} placeholder={place} aria-label={place}
       onKeyDown={event => {
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); cancelComment(v, comment); v.root.focus({ preventScroll: true }); }
         else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); save(); }

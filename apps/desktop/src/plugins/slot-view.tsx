@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { NO_AUTO } from "../ui/kit.tsx";
 import { useStore } from "zustand";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { onShownChange, pageShown } from "../ui/active.ts";
@@ -151,7 +152,7 @@ function PluginInput({ node, plugin }: { node: Extract<PluginNode, { kind: "inpu
     if (event.key === "Enter" && !event.nativeEvent.isComposing && node.onSubmit !== null) send(plugin, node.onSubmit, { kind: "text", value: text });
   };
 
-  return <input type="text" className="pluginin pluginctl" aria-label={node.label} placeholder={node.placeholder} maxLength={MAX_INPUT_CHARS} value={text} spellCheck={false} autoComplete="off"
+  return <input type="text" className="pluginin pluginctl" aria-label={node.label} placeholder={node.placeholder} maxLength={MAX_INPUT_CHARS} value={text} {...NO_AUTO}
     onKeyDown={keys}
     onChange={event => {
       const { value } = event.currentTarget;

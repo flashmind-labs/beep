@@ -4,7 +4,7 @@ import { openSheet } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import { gitignoreSuggestions, ignoredSelection, listedFolders, type GitignoreSuggestions, type IgnoredSync } from "./ignored-sync-state.ts";
-import { Button, Checkbox, ChipToggle, SheetHead } from "../ui/kit.tsx";
+import { Button, Checkbox, ChipToggle, NO_AUTO, SheetHead } from "../ui/kit.tsx";
 import { readFile } from "../agentpane/read.ts";
 import type { ProjectPlace } from "./projects-state.ts";
 
@@ -55,7 +55,7 @@ function IgnoredSyncView({ initial, places, save, cancel }: { initial: IgnoredSy
 
   return <><SheetHead title="Sync gitignored" />
     <label className="am-line"><Checkbox checked={enabled} disabled={busy} change={setEnabled} />Sync selected ignored folders on all machines</label>
-    <div className="am-label">Folders relative to the project, one per line</div><textarea ref={textarea} className="ip-path ip-list" rows={4} value={paths} placeholder={suggestions.folders.length ? suggestions.folders.slice(0, 3).join("\n") : "assets/models\ndata/captures"} aria-label="Folders relative to the project, one per line" disabled={busy} onChange={event => setPaths(event.currentTarget.value)} />
+    <div className="am-label">Folders relative to the project, one per line</div><textarea ref={textarea} className="ip-path ip-list" rows={4} {...NO_AUTO} value={paths} placeholder={suggestions.folders.length ? suggestions.folders.slice(0, 3).join("\n") : "assets/models\ndata/captures"} aria-label="Folders relative to the project, one per line" disabled={busy} onChange={event => setPaths(event.currentTarget.value)} />
     {!!suggestions.folders.length && <div className="dchips ig-picks" role="group" aria-label="Folders in .gitignore">
       {(all ? suggestions.folders : suggestions.folders.slice(0, SHOWN)).map(folder => <ChipToggle key={folder} label={folder} icon={listed.includes(folder) ? "check" : "plus"} selected={listed.includes(folder)} onToggle={() => toggle(folder)} />)}
       {!all && suggestions.folders.length > SHOWN && <Button look="quiet" onClick={() => setAll(true)}>Show {suggestions.folders.length - SHOWN} more</Button>}
@@ -93,7 +93,7 @@ function SyncRulesView({ initial, save, cancel }: { initial: string; save(rules:
   const textarea = useRef<HTMLTextAreaElement>(null);
   useLayoutEffect(() => { textarea.current?.focus(); }, []);
   return <><SheetHead title="Sync rules" />
-    <div className="am-label">Rules in .gitignore syntax, one per line</div><textarea ref={textarea} className="ip-path ip-list" rows={8} value={rules} placeholder={"datasets/\n*.log\n!target/release/app"} aria-label="Rules in .gitignore syntax, one per line" disabled={busy} onChange={event => setRules(event.currentTarget.value)} />
+    <div className="am-label">Rules in .gitignore syntax, one per line</div><textarea ref={textarea} className="ip-path ip-list" rows={8} {...NO_AUTO} value={rules} placeholder={"datasets/\n*.log\n!target/release/app"} aria-label="Rules in .gitignore syntax, one per line" disabled={busy} onChange={event => setRules(event.currentTarget.value)} />
     <div className="am-sub">Every machine leaves out matching paths, after the project's .beepignore. A ! rule keeps a path the defaults leave out, such as build output.</div>
     <div className="am-msg bad" role="status" hidden={!error}>{error}</div><div className="am-line ip-acts"><Button look="quiet" onClick={cancel}>Cancel</Button><Button look="primary" disabled={busy} onClick={() => save(rules, setError, setBusy)}>{busy ? "Saving…" : "Save"}</Button></div></>;
 }

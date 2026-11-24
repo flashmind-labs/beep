@@ -35,7 +35,7 @@ function Body(p: ReportBodyProps) {
       const collecting = state.step === "collecting";
       return <>
         <div className="am-label">What happened?</div>
-        <textarea className="rp-ta" placeholder="What happened?" aria-label="What happened?" value={state.text} disabled={collecting} onChange={e => p.update({ type: "text", text: e.currentTarget.value })} />
+        <textarea className="rp-ta" autoComplete="off" autoCorrect="off" placeholder="What happened?" aria-label="What happened?" value={state.text} disabled={collecting} onChange={e => p.update({ type: "text", text: e.currentTarget.value })} />
         <div className="dchips rp-periods" role="radiogroup" aria-label="Period">{PERIODS.map(({ period, label }) =>
           <button key={period} type="button" className="dchip" role="radio" aria-checked={state.period === period} aria-pressed={state.period === period} disabled={collecting} onClick={() => p.update({ type: "period", period })}>{label}</button>)}</div>
         {collecting && <div className="am-wait rp-wait"><Spinner />Collecting from your machines</div>}

@@ -183,7 +183,7 @@ body.cbody
                       span.ddot.on
                 div#agbox.box
                   div.cx-layer [aria-hidden="true" hidden]
-                  textarea#agprompt.cx-field [aria-label="Message for the assistant" autocomplete="off" data-prompt-stash placeholder="Ask the assistant." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
+                  textarea#agprompt.cx-field [aria-label="Message for the assistant" autocapitalize="off" autocomplete="off" autocorrect="off" data-prompt-stash placeholder="Ask the assistant." rows="3" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] style(height,overflow-y) value="" (focused)
                   div.row
                     span.sp
                     button#agpillb.pill [aria-expanded="false" title="Harness, model and thinking" type="button"]

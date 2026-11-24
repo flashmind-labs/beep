@@ -191,7 +191,7 @@ body.cbody
         div.q
           span style(display)
             svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
-          input [aria-activedescendant="pal-opt-0" aria-controls="pal-list" aria-expanded="true" aria-label="Search" autocomplete="off" placeholder="Search anything: projects, coding agents, machines, settings, PRs…" role="combobox" spellcheck="false" type="text"] value="widget" (focused)
+          input [aria-activedescendant="pal-opt-0" aria-controls="pal-list" aria-expanded="true" aria-label="Search" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search anything: projects, coding agents, machines, settings, PRs…" role="combobox" spellcheck="false" type="text"] value="widget" (focused)
         div#pal-list.res [role="listbox"]
           h5 "Sessions · example/widget"
           button#pal-opt-0.it [aria-selected="true" role="option" tabindex="-1" type="button"]

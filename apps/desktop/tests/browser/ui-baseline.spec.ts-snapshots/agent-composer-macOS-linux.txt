@@ -75,7 +75,7 @@ body.cbody
         button.cc-side-toggle [aria-expanded="true" aria-label="Show the sidebar" title="Show the sidebar" type="button"]
           span
             svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
-      input.ip-field.rail-filter [aria-label="Filter sessions" placeholder="Filter sessions" spellcheck="false" type="search" value] value=""
+      input.ip-field.rail-filter [aria-label="Filter sessions" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Filter sessions" spellcheck="false" type="search" value] value=""
       div.rail-scroll [data-clear="true"]
         h4 "Running"
           span.n "2"
@@ -275,7 +275,7 @@ body.cbody
                     input [hidden multiple type="file"] value=""
                     div [data-agent-attachment-slot="true"] style(display)
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea#agmsg.cx-field [aria-busy="false" autocomplete="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value="Also add a test for the query string" (focused)
+                    textarea#agmsg.cx-field [aria-busy="false" autocapitalize="off" autocomplete="off" autocorrect="off" data-prompt-stash placeholder="Message Codex" rows="1" spellcheck="false"] style(height) value="Also add a test for the query string" (focused)
                     span#agmode
                     span#agmodel
                       button#agmodelb.agc-pill.agm [aria-expanded="false" title="Switch the model or thinking; applies from the next turn"]
@@ -412,7 +412,7 @@ body.cbody
                   div.agpviews
                     div.agpview.files
                       div.agfbar
-                        input.agffind [aria-label="Filter files" placeholder="Filter files" spellcheck="false" value] value=""
+                        input.agffind [aria-label="Filter files" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Filter files" spellcheck="false" value] value=""
                         label.agfign "Show ignored"
                           input.dcheck [type="checkbox"] value="on" unchecked
                         button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"

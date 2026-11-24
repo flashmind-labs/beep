@@ -1,6 +1,6 @@
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { Icon, type IconName } from "../ui/icons.tsx";
-import { Button } from "../ui/kit.tsx";
+import { Button, NO_AUTO } from "../ui/kit.tsx";
 import { Fragment, useLayoutEffect, useState, type ReactNode, type Ref } from "react";
 import { onPhone } from "../ui/platform.ts";
 import { pointedSetting } from "./overview-view.tsx";
@@ -36,7 +36,7 @@ export function SettingsNavigation(p: NavigationProps) {
   };
   let lastGroup: string | null = null;
 
-  return <><b>Settings</b><input className="ip-field dset-find" type="search" placeholder="Search settings" aria-label="Search settings" autoComplete="off" spellCheck={false} autoFocus={!onPhone()} value={query}
+  return <><b>Settings</b><input className="ip-field dset-find" type="search" placeholder="Search settings" aria-label="Search settings" {...NO_AUTO} autoFocus={!onPhone()} value={query}
     onChange={e => setQuery(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter" && entries[0]) { e.preventDefault(); open(entries[0]); } }} />
     <div className="dset-pages">{entries.map(entry => {
       if (entry.setting) {

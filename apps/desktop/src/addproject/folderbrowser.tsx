@@ -5,7 +5,7 @@ import type { FolderOffer } from "../project/addmachine-state.ts";
 import { buildCapabilities, invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
 import { NO_MENU, completed, crumbs, isOpen, matching, menuKey, menuOf, splitTyped, suggest, type FolderMenu } from "./foldercomplete.ts";
-import { Button, SkeletonRows, Spinner } from "../ui/kit.tsx";
+import { Button, NO_AUTO, SkeletonRows, Spinner } from "../ui/kit.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { reason } from "../ui/format.ts";
 import { WINDOWS, commandKey } from "../ui/platform.ts";
@@ -158,7 +158,7 @@ export function FolderPicker(p: PickerProps) {
     {steps.length > 0 && <div className="fp-path">{steps.map((step, i) => i < steps.length - 1
       ? <Button key={step.path} small tabIndex={-1} title={step.path} onClick={() => go(step.path)}>{step.label}</Button>
       : <b key={step.path} title={step.path}>{step.label}</b>)}</div>}
-    <input ref={field} type="text" autoFocus placeholder="Filter, or type a path" autoComplete="off" spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label={p.heading} role="combobox" aria-controls={id} aria-expanded="true" aria-activedescendant={at ? `${id}-${index}` : undefined} value={filter} onChange={e => setFilter(e.currentTarget.value)} onKeyDown={key} />
+    <input ref={field} type="text" autoFocus placeholder="Filter, or type a path" {...NO_AUTO} aria-label={p.heading} role="combobox" aria-controls={id} aria-expanded="true" aria-activedescendant={at ? `${id}-${index}` : undefined} value={filter} onChange={e => setFilter(e.currentTarget.value)} onKeyDown={key} />
     {(reading || p.taking) && <Spinner />}</div>
     <div className="res" role="listbox" id={id}>
       {!listing && !failed && <SkeletonRows widths={[38, 52, 30]} />}
@@ -250,6 +250,6 @@ export function FolderField(p: FieldProps) {
     else put(act.text);
   };
 
-  return <div className="ip-folder"><input ref={field} className="ip-path ip-dir" type="text" spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label={p.label} role="combobox" aria-autocomplete="list" aria-controls={id} aria-expanded={opened} aria-activedescendant={opened ? `${id}-${menu.index}` : undefined} placeholder={p.placeholder} disabled={p.disabled} value={p.value} title={p.value} onChange={e => { p.change(e.currentTarget.value); look(e.currentTarget.value); }} onKeyDown={key} onBlur={() => { ask.current++; if (timer.current) clearTimeout(timer.current); setMenu(NO_MENU); }} />
+  return <div className="ip-folder"><input ref={field} className="ip-path ip-dir" type="text" {...NO_AUTO} aria-label={p.label} role="combobox" aria-autocomplete="list" aria-controls={id} aria-expanded={opened} aria-activedescendant={opened ? `${id}-${menu.index}` : undefined} placeholder={p.placeholder} disabled={p.disabled} value={p.value} title={p.value} onChange={e => { p.change(e.currentTarget.value); look(e.currentTarget.value); }} onKeyDown={key} onBlur={() => { ask.current++; if (timer.current) clearTimeout(timer.current); setMenu(NO_MENU); }} />
     {opened && <div className="ip-menu" id={id} role="listbox">{menu.items.map((name, i) => <div key={name} ref={i === menu.index ? active : null} id={`${id}-${i}`} className={i === menu.index ? "on" : ""} role="option" aria-selected={i === menu.index} onMouseDown={e => e.preventDefault()} onClick={() => put(completed(menu.dir, name))}>{name}</div>)}</div>}</div>;
 }

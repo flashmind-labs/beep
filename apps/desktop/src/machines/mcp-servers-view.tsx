@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
-import { Button, Checkbox, EmptyPanel, LineRow, SectionHead, SheetHead, SkeletonRows } from "../ui/kit.tsx";
+import { Button, Checkbox, EmptyPanel, LineRow, NO_AUTO, SectionHead, SheetHead, SkeletonRows } from "../ui/kit.tsx";
 import { confirmSheet, openMenu } from "../ui/menu.tsx";
 import { openSheet } from "../ui/parts.tsx";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
@@ -264,7 +264,7 @@ function ServerEditor({ title, harness, server, save, pending, close }: {
   return <>
     <SheetHead title={<>{title}<small>{HARNESS[harness]} user configuration</small></>} />
     <form className="dform mcp-editor" onSubmit={event => void submit(event)} autoComplete="off">
-      <label className="dfield">Name<input name="name" defaultValue={server?.name ?? ""} required maxLength={128} disabled={busy} spellCheck={false} autoCapitalize="none" autoFocus /></label>
+      <label className="dfield">Name<input name="name" defaultValue={server?.name ?? ""} required maxLength={128} disabled={busy} {...NO_AUTO} autoFocus /></label>
       <label className="dfield">Transport
         <select aria-label="Transport" value={transport} disabled={busy} onChange={event => {
           const next = transports.find(item => item === event.currentTarget.value);
@@ -342,7 +342,7 @@ function StringField({ label, value, change, busy, required = false }: {
   label: string; value: string; change(value: string): void; busy: boolean; required?: boolean;
 }) {
   return <label className="dfield">{label}<input className="url" value={value} required={required}
-    onChange={event => change(event.currentTarget.value)} disabled={busy} spellCheck={false} autoCapitalize="none" /></label>;
+    onChange={event => change(event.currentTarget.value)} disabled={busy} {...NO_AUTO} /></label>;
 }
 
 function NumberField({ label, value, change, busy, integer = false }: {
@@ -386,9 +386,9 @@ function FieldRows({ label, item, rows, change, busy, nameLabel = null, valueLab
     <legend>{label}</legend>
     {rows.map((row, index) => <div className="dline tight" key={row.id}>
       {nameLabel !== null && <input required aria-label={`${nameLabel} ${index + 1}`} placeholder={nameLabel} value={row.name}
-        onChange={event => update(row.id, "name", event.currentTarget.value)} disabled={busy} spellCheck={false} autoCapitalize="none" />}
+        onChange={event => update(row.id, "name", event.currentTarget.value)} disabled={busy} {...NO_AUTO} />}
       <input type={secret ? "password" : "text"} aria-label={`${valueLabel} ${index + 1}`} placeholder={valueLabel} value={row.value}
-        onChange={event => update(row.id, "value", event.currentTarget.value)} disabled={busy} spellCheck={false} autoCapitalize="none" />
+        onChange={event => update(row.id, "value", event.currentTarget.value)} disabled={busy} {...NO_AUTO} />
       <Button small look="quiet" disabled={busy} aria-label={`Remove ${item} ${index + 1}`}
         onClick={() => change(rows.filter(entry => entry.id !== row.id))}>×</Button>
     </div>)}

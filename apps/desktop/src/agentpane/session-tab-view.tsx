@@ -15,7 +15,7 @@ import { promptParts } from "../agents/promptparts-state.ts";
 import { AgentStatus } from "../agents/mode-view.tsx";
 import { base, linkified, reason } from "../ui/format.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
-import { Button, EmptyPanel, Spinner, useHtml } from "../ui/kit.tsx";
+import { Button, EmptyPanel, NO_AUTO, Spinner, useHtml } from "../ui/kit.tsx";
 import { conflicted, invoke } from "../ui/tauri.ts";
 import type { SplitSession } from "./media.ts";
 
@@ -167,7 +167,7 @@ export function SessionTabView({ session, hidden, close, links }: { session: Spl
     </div>
     {sendErr && <div className="derr agsplit-err">{sendErr}</div>}
     {writable && <form className="dinput small agsplit-field" onSubmit={event => { void submit(event); }}>
-      <textarea rows={1} placeholder={`Message ${agentName(session.agent)}`} aria-label={`Message ${current?.title || agentName(session.agent)}`}
+      <textarea rows={1} {...NO_AUTO} placeholder={`Message ${agentName(session.agent)}`} aria-label={`Message ${current?.title || agentName(session.agent)}`}
         value={draft} disabled={sending} onChange={event => setDraft(event.currentTarget.value)} onKeyDown={onKey} />
       {active && <Button small type="button" onClick={stop}>Stop</Button>}
       <Button look="primary" small type="submit" aria-label="Send" disabled={sending || !draft.trim()}><Icon name="send" /></Button>

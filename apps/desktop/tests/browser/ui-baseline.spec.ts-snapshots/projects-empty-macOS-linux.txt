@@ -109,7 +109,7 @@ body.cbody
                 form.cc-pjc
                   div.box
                     div.cx-layer [aria-hidden="true" hidden]
-                    textarea.cx-field [aria-label="Message for the assistant" autocomplete="off" placeholder="Ask the assistant." rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] value=""
+                    textarea.cx-field [aria-label="Message for the assistant" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Ask the assistant." rows="1" spellcheck="false" title="Enter starts, Shift+Enter adds a line"] value=""
                     div.row
                       span.choices
                       span.sp

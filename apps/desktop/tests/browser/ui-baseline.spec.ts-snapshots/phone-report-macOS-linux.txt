@@ -193,7 +193,7 @@ body.cbody.mb-home.mobile
         b "Report a problem"
         kbd "esc"
       div.am-label "What happened?"
-      textarea.rp-ta [aria-label="What happened?" placeholder="What happened?"] value="" (focused)
+      textarea.rp-ta [aria-label="What happened?" autocomplete="off" autocorrect="off" placeholder="What happened?"] value="" (focused)
       div.dchips.rp-periods [aria-label="Period" role="radiogroup"]
         button.dchip [aria-checked="false" aria-pressed="false" role="radio" type="button"] "Last hour"
         button.dchip [aria-checked="true" aria-pressed="true" role="radio" type="button"] "Today"

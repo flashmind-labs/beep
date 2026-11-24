@@ -151,7 +151,7 @@ body.cbody
                       i.nt-md.rail-reply "Done. The changelog lists ."
                         code "0.9.0"
                     form.bd-reply
-                      input.ip-field [aria-label="Quick reply" placeholder="Reply to Codex…" type="text" value] value=""
+                      input.ip-field [aria-label="Quick reply" autocomplete="off" autocorrect="off" placeholder="Reply to Codex…" type="text" value] value=""
                       button.dbtn.pri.small [disabled type="submit"] "Send"
                 div
                   div.cc-sec

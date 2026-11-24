@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { Button } from "../ui/kit.tsx";
+import { Button, NO_AUTO } from "../ui/kit.tsx";
 
 export interface ComposerChoicesState {
   machine: string;
@@ -38,7 +38,7 @@ export function ComposerChoices({ value, actions }: { value: ComposerChoicesStat
     <button type="button" className="pill" data-composer="folder" title="The checkout, a new worktree, or an existing worktree" disabled={value.folderDisabled} onClick={event => actions.folder(event.nativeEvent)}>{value.folder} <small>{value.folderSub}</small></button>
     {value.account && <button type="button" className="pill" data-composer="account" title="The account the agent signs in as" onClick={event => actions.account(event.nativeEvent)}><small>as</small> {value.account.name ?? "default"}</button>}
     <span className="choices" data-composer="extra"/>
-    <input ref={branch} className="branch" type="text" spellCheck={false} autoComplete="off" aria-label="Branch name" title="The new branch, in a new worktree" hidden={!value.showBranch} defaultValue="" onChange={event => actions.branch(event.currentTarget.value)}/>
+    <input ref={branch} className="branch" type="text" {...NO_AUTO} aria-label="Branch name" title="The new branch, in a new worktree" hidden={!value.showBranch} defaultValue="" onChange={event => actions.branch(event.currentTarget.value)}/>
     <Button look="quiet" small title="Back to a plain start" hidden={!value.showClear} onClick={actions.clear}>Clear</Button>
   </>;
 }

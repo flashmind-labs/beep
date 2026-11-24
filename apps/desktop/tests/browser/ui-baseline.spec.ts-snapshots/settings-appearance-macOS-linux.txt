@@ -164,7 +164,7 @@ body.cbody
     div.cc-set [aria-label="Settings" aria-modal="true" role="dialog" tabindex="-1"]
       nav.dset-nav [aria-label="Settings pages"]
         b "Settings"
-        input.dset-find.ip-field [aria-label="Search settings" autocomplete="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
+        input.dset-find.ip-field [aria-label="Search settings" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
         div.dset-pages
           div.dset-grp "Workspace"
           button.cc-si [data-goto="general"]

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
-import { Button, Spinner } from "../ui/kit.tsx";
+import { Button, NO_AUTO, Spinner } from "../ui/kit.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { skills, type SkillsState } from "./skills.ts";
@@ -65,7 +65,7 @@ function AddForm({ busy, error }: { busy: boolean; error: string | null }) {
   const add = () => void skills.add(text);
   return <div className="dcred-form"><b>Add a library</b>
     <div className={`dfield${error ? " err" : ""}`}><div className="dline">
-      <input ref={input} className="dskill-source" placeholder="Git URL" autoComplete="off" spellCheck={false} aria-label="Git URL" value={text} disabled={busy}
+      <input ref={input} className="dskill-source" placeholder="Git URL" {...NO_AUTO} aria-label="Git URL" value={text} disabled={busy}
         onChange={event => setText(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); add(); } }} />
       <Button look="primary" disabled={busy} onClick={add}>{busy ? "Reading…" : "Add"}</Button><Button look="quiet" onClick={skills.closeAdd}>Cancel</Button>
     </div></div>

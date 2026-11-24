@@ -1,4 +1,4 @@
-import { Button } from "../ui/kit.tsx";
+import { Button, NO_AUTO } from "../ui/kit.tsx";
 import { Fragment, useLayoutEffect, useRef, type ReactNode, type RefObject } from "react";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import type { Hit } from "./palette.tsx";
@@ -30,7 +30,7 @@ export function PaletteView({ input, hits, selected, query, searchIcon, keys, gr
   const active = useRef<HTMLButtonElement>(null), dialog = useDialogRef();
   useLayoutEffect(() => { input.current?.focus(); }, []);
   useLayoutEffect(() => { active.current?.scrollIntoView({ block: "nearest" }); }, [selected, query]);
-  return <div ref={dialog} className="cc-pal" role="dialog" aria-label="Search"><div className="q"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: searchIcon }} /><input ref={input} type="text" placeholder="Search anything: projects, coding agents, machines, settings, PRs…" autoComplete="off" spellCheck={false} aria-label="Search" role="combobox" aria-controls="pal-list" aria-expanded="true" aria-activedescendant={hits[selected] ? `pal-opt-${selected}` : undefined} onChange={e => search(e.currentTarget.value)} /></div>
+  return <div ref={dialog} className="cc-pal" role="dialog" aria-label="Search"><div className="q"><span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: searchIcon }} /><input ref={input} type="text" placeholder="Search anything: projects, coding agents, machines, settings, PRs…" {...NO_AUTO} aria-label="Search" role="combobox" aria-controls="pal-list" aria-expanded="true" aria-activedescendant={hits[selected] ? `pal-opt-${selected}` : undefined} onChange={e => search(e.currentTarget.value)} /></div>
     <div className="res" role="listbox" id="pal-list">{hits.map((hit, i) => {
       const title = group(hit), previous = i ? group(hits[i - 1]) : null;
       const detail = hit.detail && hit.kind !== "action" && hit.kind !== "machine" ? hit.detail : null;

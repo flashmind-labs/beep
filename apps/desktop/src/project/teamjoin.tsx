@@ -9,7 +9,7 @@ import { currentLocation } from "../center/views.tsx";
 import { pageShown } from "../ui/active.ts";
 import { reason } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
-import { Button, SheetHead, Spinner } from "../ui/kit.tsx";
+import { Button, NO_AUTO, SheetHead, Spinner } from "../ui/kit.tsx";
 import { openSheet } from "../ui/parts.tsx";
 import { isMobile } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
@@ -118,7 +118,7 @@ function JoinCode({ code, setCode, submit }: { code: string; setCode(code: strin
 
   return <>
     <div className="am-os">Paste the code a teammate shared. You need the project imported and push access to it.</div>
-    <input ref={input} className="am-code" placeholder="beepteam1…" spellCheck={false} autoComplete="off" aria-label="Team code" value={code}
+    <input ref={input} className="am-code" placeholder="beepteam1…" {...NO_AUTO} aria-label="Team code" value={code}
       onChange={event => setCode(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") submit(); }}/>
   </>;
 }

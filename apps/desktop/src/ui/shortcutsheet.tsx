@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { WINDOWS } from "./platform.ts";
-import { SheetHead } from "./kit.tsx";
+import { NO_AUTO, SheetHead } from "./kit.tsx";
 import { openSheet } from "./parts.tsx";
 import { filterShortcuts, SHORTCUTS, type ShortcutSection } from "./shortcuts.ts";
 
@@ -20,7 +20,7 @@ function ShortcutSheet({ all }: { all: readonly ShortcutSection[] }) {
   return <>
     <SheetHead title="Keyboard shortcuts" />
     <input className="ip-field ks-filter" type="text" placeholder="Filter" aria-label="Filter shortcuts"
-      autoComplete="off" spellCheck={false} autoFocus value={filter} onChange={event => setFilter(event.currentTarget.value)} />
+      {...NO_AUTO} autoFocus value={filter} onChange={event => setFilter(event.currentTarget.value)} />
     <div className="ks-list">{found.length ? found.map(section =>
       <section className="ks-sec" key={section.title}>
         <div className="ks-h">{section.title}</div>

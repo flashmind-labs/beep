@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { Button } from "../ui/kit.tsx";
+import { Button, NO_AUTO } from "../ui/kit.tsx";
 
 export interface PairingCommands {
   checkPermission(): Promise<{ camera: string }>;
@@ -88,7 +88,7 @@ export function PairingScreen({ commands, done }: { commands: PairingCommands; d
       <h1>Pair this phone</h1>
       <p className="pair-sub">On a desktop, open Add machine and pick phone.</p>
       <Button look="primary" disabled={phase !== "idle"} onClick={() => void scan()}>Scan QR code</Button>
-      <textarea className="pair-code" placeholder="Or paste the pairing code" autoCapitalize="off" autoComplete="off" spellCheck={false} disabled={phase !== "idle"} value={code} onChange={e => setCode(e.currentTarget.value)} />
+      <textarea className="pair-code" placeholder="Or paste the pairing code" {...NO_AUTO} disabled={phase !== "idle"} value={code} onChange={e => setCode(e.currentTarget.value)} />
       <Button disabled={phase !== "idle" || !code.trim()} onClick={() => void submit()}>{phase === "pairing" ? "Pairing" : "Pair"}</Button>
       <p className="pair-error" role="alert" hidden={error === null}>{error}</p>
     </div>

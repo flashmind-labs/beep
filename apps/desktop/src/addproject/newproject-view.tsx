@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, type MouseEvent } from "react";
 import { canCreate, creatingText, folderOn, folderTail, goesText, landedLines, shownName, type Created, type Forge, type NewProjectForm } from "./newproject-state.ts";
-import { Button, ChipToggle, SheetHead, Spinner } from "../ui/kit.tsx";
+import { Button, ChipToggle, NO_AUTO, SheetHead, Spinner } from "../ui/kit.tsx";
 import { FolderField, pickFolder } from "./folderbrowser.tsx";
 
 interface Machine { id: string; name: string; online: boolean }
@@ -14,7 +14,7 @@ function Fields(p: Props) {
   const input = useRef<HTMLInputElement>(null), list = p.forges ?? [], owners = list.find(f => f.host === p.form.host)?.owners ?? [];
   const note = goesText(p.form), tail = folderTail(p.form);
   useLayoutEffect(() => { const field = input.current; if (field) { field.focus(); field.setSelectionRange(field.value.length, field.value.length); } }, []);
-  return <><div className="am-label">Name</div><div className="am-line"><input ref={input} className="ip-field" type="text" placeholder="my-project" spellCheck={false} autoCapitalize="off" autoCorrect="off" aria-label="Name" value={p.form.name} onChange={e => p.name(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); p.submit(); } }} /></div>
+  return <><div className="am-label">Name</div><div className="am-line"><input ref={input} className="ip-field" type="text" placeholder="my-project" {...NO_AUTO} aria-label="Name" value={p.form.name} onChange={e => p.name(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); p.submit(); } }} /></div>
     <div className="am-sub">{list.length ? "Create with a connected GitHub, Forgejo or Gitea account, or keep it local." : "Connect GitHub or add a Forgejo/Gitea token in Settings > Credentials to create a remote repository."}</div>
     <div className="am-label">Repository on</div><div className="am-line"><div className="dchips">{list.map(forge => <ChipToggle key={forge.host} label={forge.github ? "GitHub" : forge.host} selected={p.form.host === forge.host} onToggle={() => p.host(forge.host)} />)}<ChipToggle label="Local only" selected={p.form.host === null} onToggle={() => p.host(null)} /></div></div>
     {p.loadError && <div className="am-msg bad">{p.loadError}</div>}{p.hostError && <div className="am-msg bad">{p.hostError}</div>}

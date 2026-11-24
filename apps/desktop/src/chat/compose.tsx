@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Ref, type TextareaHTMLAttributes } from "react";
+import { NO_AUTO } from "../ui/kit.tsx";
 import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
 import { composeMessage as compose, expandPills, fenceSpans, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
@@ -146,7 +147,7 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
 
   return <>
     <div ref={layer} className="cx-layer" aria-hidden="true" hidden={!shown} style={box ?? undefined}>{shown && <ComposeOverlay value={value} pills={pills} fences={fences} pillNode={(id, node) => { if (node) pillNodes.current.set(id, node); else pillNodes.current.delete(id); }} />}</div>
-    <textarea ref={attach} defaultValue={initial} className={className ? `${className} cx-field` : "cx-field"} {...rest}
+    <textarea ref={attach} defaultValue={initial} className={className ? `${className} cx-field` : "cx-field"} {...NO_AUTO} {...rest}
       onInput={event => { changed(event.currentTarget.value); setPop(null); onInput?.(event); }}
       onFocus={event => { setSize(n => n + 1); onFocus?.(event); }}
       onScroll={event => { if (layer.current) layer.current.scrollTop = event.currentTarget.scrollTop; onScroll?.(event); }}

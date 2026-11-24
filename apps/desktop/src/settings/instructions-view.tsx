@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { Ago } from "../ui/format.ts";
 import type { InstructionsTab } from "../center/state.ts";
 import { MAX_BYTES, SUGGESTIONS, bytes, sizeLabel, versionLine, mineLayer, type Suggestion, type VersionRow } from "./instructions-state.ts";
-import { Button, EmptyPanel, SectionHead } from "../ui/kit.tsx";
+import { Button, EmptyPanel, NO_AUTO, SectionHead } from "../ui/kit.tsx";
 
 export interface InstructionsState {
   tab: InstructionsTab;
@@ -36,7 +36,7 @@ export function InstructionsView(p: Props) {
     {st.newest === undefined ? <EmptyPanel title="Loading your instructions…" /> : st.tab === "editor" ? <div className="in-cols">
       <Section title="For all agents" sub={sizeLabel(text)}><div className="cc-panel in-ed">
         <div className="in-ver"><span><b>{versionLine(st.newest && { ...st.newest, note: "" })}</b>{st.newest ? ` · ${p.ago(st.newest.saved_at)}` : ""}{st.note ? ` · ${st.note}` : ""}</span><span className="sp">{st.saving ? "Saving…" : dirty ? "Not saved" : st.newest ? "Saved" : ""}</span></div>
-        <textarea spellCheck={false} aria-label="Your instructions" placeholder={"# How I work\n\n- Write plainly.\n- Ask before deploying anything."} value={text} onChange={e => p.setDraft(e.currentTarget.value)} onKeyDown={e => { if (e.metaKey && e.key === "s") { e.preventDefault(); p.save(); } }} />
+        <textarea {...NO_AUTO} aria-label="Your instructions" placeholder={"# How I work\n\n- Write plainly.\n- Ask before deploying anything."} value={text} onChange={e => p.setDraft(e.currentTarget.value)} onKeyDown={e => { if (e.metaKey && e.key === "s") { e.preventDefault(); p.save(); } }} />
         <div className="in-acts"><Button look="primary" disabled={st.saving || !dirty || bytes(text) > MAX_BYTES} onClick={p.save}>Save</Button>{dirty && <Button look="quiet" onClick={p.discard}>Discard</Button>}<Button onClick={() => p.setTab("history")}>History</Button></div>
         {st.error && <div className="cc-err">{st.error}</div>}
       </div></Section>

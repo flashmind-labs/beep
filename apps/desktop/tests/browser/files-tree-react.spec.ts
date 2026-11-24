@@ -85,12 +85,42 @@ test("file tree keeps keyboard navigation, filtering and drag payloads", async (
   });
   expect(drag).toEqual({ path: "beta.txt", text: "beta.txt" });
   const filter = page.getByRole("textbox", { name: "Filter files" });
+  await expect(filter).toHaveAttribute("autocomplete", "off");
+  await expect(filter).toHaveAttribute("autocorrect", "off");
+  await expect(filter).toHaveAttribute("autocapitalize", "off");
   await filter.fill("beta");
   await expect(tree.locator('[data-fpath="alpha.txt"]')).toHaveCount(0);
   await expect(tree.locator('[data-fpath="beta.txt"]')).toBeVisible();
   await filter.press("Escape");
   await expect(filter).toHaveValue("");
   await expect(tree.locator('[data-fpath="alpha.txt"]')).toBeVisible();
+});
+
+test("file tree filter finds folder/file and lists folder/folder", async ({ page }) => {
+  const nestedTree = {
+    folders: [
+      { path: "", entries: [{ name: "agents", folder: true, size: 0, ignored: false, change: null }], more: 0, git: true },
+      { path: "agents", entries: [{ name: "session", folder: true, size: 0, ignored: false, change: null }, { name: "other", folder: true, size: 0, ignored: false, change: null }], more: 0, git: true },
+      { path: "agents/session", entries: [{ name: "actor.rs", folder: false, size: 1, ignored: false, change: null }, { name: "state.rs", folder: false, size: 1, ignored: false, change: null }], more: 0, git: true },
+      { path: "agents/other", entries: [{ name: "actor.rs", folder: false, size: 1, ignored: false, change: null }], more: 0, git: true },
+    ],
+    truncated: false,
+  };
+  await openDesktop(page, true, { agent_tree: nestedTree });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  const tree = page.getByRole("tree", { name: "Working files" });
+  const filter = page.getByRole("textbox", { name: "Filter files" });
+
+  await filter.fill("session/actor");
+  await expect(tree.locator('[data-fpath="agents/session/actor.rs"]')).toBeVisible();
+  await expect(tree.locator('[data-fpath="agents/session/state.rs"]')).toHaveCount(0);
+  await expect(tree.locator('[data-fpath="agents/other/actor.rs"]')).toHaveCount(0);
+
+  await filter.fill("agents/session");
+  await expect(tree.locator('[data-fpath="agents/session/actor.rs"]')).toBeVisible();
+  await expect(tree.locator('[data-fpath="agents/session/state.rs"]')).toBeVisible();
+  await expect(tree.locator('[data-fpath="agents/other"]')).toHaveCount(0);
 });
 
 test("switching worktrees ignores an older pending tree refresh", async ({ page }) => {

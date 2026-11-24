@@ -3,7 +3,7 @@ import { useStore } from "zustand";
 import { NEW_MODEL, QUANTIZATIONS, SORTS, flshChanged, flshDraft, flshProblem, toggleQuantization, type FlshDraft, type ModelCompact, type ModelDraft, type RoutingAgent, type Sort } from "./flsh-state.ts";
 import type { FlshPanel } from "./flsh.ts";
 import { cap } from "../ui/format.ts";
-import { Button, Switch } from "../ui/kit.tsx";
+import { Button, NO_AUTO, Switch } from "../ui/kit.tsx";
 
 const DEFAULT_TRIGGER = "Model's default trigger";
 const MODEL_COMPACT: [string, ModelCompact][] = [["All models", "all"], ["On", "on"], ["Off", "off"]];
@@ -51,4 +51,4 @@ function ModelRow({ m, n, flsh, change, remove }: { m: ModelDraft; n: number; fl
 
 function Field({ label, help, children }: { label: string; help: string; children: ReactNode }) { return <div className="hv-f"><span><b>{label}</b><small>{help}</small></span>{children}</div>; }
 function Chips<T>({ label, values, selected, onPick, className = "fl-seg" }: { label: string; values: readonly (readonly [string, T])[]; selected: (value: T) => boolean; onPick: (value: T) => void; className?: string }) { return <span className={className} role="group" aria-label={label}>{values.map(([text, value]) => <Button className="dchip" key={text} aria-pressed={selected(value)} onClick={() => onPick(value)}>{text}</Button>)}</span>; }
-function Input({ value, placeholder, label, change, numeric = false }: { value: string; placeholder: string; label: string; numeric?: boolean; change: (value: string) => void }) { return <input className="hv-in" inputMode={numeric ? "numeric" : "text"} value={value} placeholder={placeholder} aria-label={label} spellCheck={false} autoComplete="off" onChange={e => change(e.currentTarget.value)} />; }
+function Input({ value, placeholder, label, change, numeric = false }: { value: string; placeholder: string; label: string; numeric?: boolean; change: (value: string) => void }) { return <input className="hv-in" inputMode={numeric ? "numeric" : "text"} value={value} placeholder={placeholder} aria-label={label} {...NO_AUTO} onChange={e => change(e.currentTarget.value)} />; }

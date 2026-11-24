@@ -9,7 +9,7 @@ aside.gh-nav.pj-list [aria-label="Git navigation"]
       code [aria-live="polite" title="/srv/project"] "main"
       button.dbtn.quiet.small [aria-haspopup="dialog" type="button"] "Switch branch"
     label.gh-search
-      input [aria-label="Search commit messages" maxlength="256" placeholder="Search commit messages" type="search" value] value=""
+      input [aria-label="Search commit messages" autocapitalize="off" autocomplete="off" autocorrect="off" maxlength="256" placeholder="Search commit messages" spellcheck="false" type="search" value] value=""
   div.gh-tree [data-started="true"]
     details.gh-node [data-key="history"]
       summary

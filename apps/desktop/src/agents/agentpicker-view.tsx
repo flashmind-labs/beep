@@ -1,5 +1,5 @@
 import type { ModelInfo } from "./agentmodels.ts";
-import { Button, Spinner, Switch } from "../ui/kit.tsx";
+import { Button, NO_AUTO, Spinner, Switch } from "../ui/kit.tsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { agentKind } from "./agents.ts";
@@ -140,7 +140,7 @@ export function AgentPicker({ picked, model, offered, everywhere, allowed, machi
       return <button key={item.agent} type="button" data-agh={item.agent} aria-pressed={item.agent === picked.agent}
         title={title} disabled={!item.enabled} onClick={() => { setLit(null); onAgent(item.agent); }}><HarnessIcon agent={item.agent}/><span className="agc-rname">{kind.name}</span></button>;
     })}</div>
-    <div className="agc-list"><div className="agc-find"><input ref={search} className="agc-search" spellCheck={false} autoComplete="off"
+    <div className="agc-list"><div className="agc-find"><input ref={search} className="agc-search" {...NO_AUTO}
       placeholder={offered.length > 1 ? "Search models…" : `Search ${name} models…`} value={picked.query} onChange={event => { setLit(null); onQuery(event.currentTarget.value); }}
       onKeyDown={event => {
         if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -220,7 +220,7 @@ export function StepPicker({ picked, model, modelName, offered, everywhere, allo
         </button>)}
       </div>}
       {step === "model" && <>
-        <div className="agc-find"><input ref={search} className="agc-search" spellCheck={false} autoComplete="off"
+        <div className="agc-find"><input ref={search} className="agc-search" {...NO_AUTO}
           placeholder={`Search ${name} models…`} value={picked.query} onChange={event => { setLit(null); onQuery(event.currentTarget.value); }}
           onKeyDown={event => {
             if (event.key === "ArrowDown" || event.key === "ArrowUp") {

@@ -1,4 +1,4 @@
-import { Checkbox } from "../ui/kit.tsx";
+import { Checkbox, NO_AUTO } from "../ui/kit.tsx";
 interface Item { path: string; title: string; name: string; sub: string; visible: boolean }
 export interface WorktreeMenuModel {
   label: string; items: Item[]; shown: string; follow: boolean; open: boolean; search: string;
@@ -14,7 +14,7 @@ export function WorktreeMenu(p: WorktreeMenuModel) {
       <button role="menuitemcheckbox" aria-checked={p.follow} data-wt="follow" onClick={() => p.pick(null)}><b>Follow the agent</b></button>
       <hr />
       <div className="agwt-find">
-        <input type="search" className="agwt-search" autoFocus aria-label="Search worktrees" placeholder="Search worktrees" value={p.search} onInput={e => p.searchChanged(e.currentTarget.value)} onChange={() => {}} />
+        <input type="search" className="agwt-search" autoFocus {...NO_AUTO} aria-label="Search worktrees" placeholder="Search worktrees" value={p.search} onInput={e => p.searchChanged(e.currentTarget.value)} onChange={() => {}} />
         <label className="agwt-all"><Checkbox checked={p.all} change={p.showAll} />Show all</label>
       </div>
       {p.items.map(item => <button key={item.path} hidden={!item.visible} role="menuitemradio" aria-checked={item.path === p.shown} data-wt={item.path} title={item.title} onClick={() => p.pick(item.path)}><code>{item.name}</code><small>{item.sub}</small></button>)}

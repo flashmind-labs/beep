@@ -76,6 +76,9 @@ export function ChipToggle({ label, selected, onToggle, icon = null }: { label: 
   return <button type="button" className="dbtn dchip" aria-pressed={selected} onClick={onToggle}>{icon && <Icon name={icon} size={11} />}{label}</button>;
 }
 
+/// Turns off browser and macOS autofill, autocorrect, auto-capitalization and spellcheck.
+export const NO_AUTO = { autoComplete: "off", autoCorrect: "off", autoCapitalize: "off", spellCheck: false } as const;
+
 /// How much a button stands out. A dialog or form has one `primary`, its main action;
 /// `secondary` is bordered, `quiet` is text until hovered, `plain` keeps a view's own style.
 export type ButtonLook = "primary" | "secondary" | "quiet" | "plain";

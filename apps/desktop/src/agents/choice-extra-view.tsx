@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type KeyboardEvent, type RefObject } from "react";
+import { NO_AUTO } from "../ui/kit.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { isOpen, type FolderMenu } from "../addproject/foldercomplete.ts";
 
@@ -24,12 +25,12 @@ function useTyped(leave: () => void) {
 
 export function FolderInput({ value, menu, change, keyDown, leave, pick }: TypedField & { menu: FolderMenu; pick(index: number): void }) {
   const { input, blur } = useTyped(leave);
-  return <span className="agc-type"><input ref={input} id="agcwd" spellCheck={false} autoComplete="off" role="combobox" aria-label="Folder" aria-expanded={isOpen(menu)} placeholder="/path/to/folder or ~/folder" value={value} onChange={event => change(event.currentTarget.value)} onKeyDown={keyDown} onBlur={blur} /><span id="agcwdmenu">{isOpen(menu) && <div className="agc-menu" role="listbox">{menu.items.map((name, index) => <button type="button" key={name} data-agfi={index} className={index === menu.index ? "on" : ""} role="option" onMouseDown={event => event.preventDefault()} onClick={event => { event.stopPropagation(); pick(index); }}><span /><span className="mono">{name}</span><small /></button>)}</div>}</span></span>;
+  return <span className="agc-type"><input ref={input} id="agcwd" {...NO_AUTO} role="combobox" aria-label="Folder" aria-expanded={isOpen(menu)} placeholder="/path/to/folder or ~/folder" value={value} onChange={event => change(event.currentTarget.value)} onKeyDown={keyDown} onBlur={blur} /><span id="agcwdmenu">{isOpen(menu) && <div className="agc-menu" role="listbox">{menu.items.map((name, index) => <button type="button" key={name} data-agfi={index} className={index === menu.index ? "on" : ""} role="option" onMouseDown={event => event.preventDefault()} onClick={event => { event.stopPropagation(); pick(index); }}><span /><span className="mono">{name}</span><small /></button>)}</div>}</span></span>;
 }
 
 export function BaseInput({ value, placeholder, change, keyDown, leave }: TypedField & { placeholder: string }) {
   const { input, blur } = useTyped(leave);
-  return <span className="agc-type base"><input ref={input} id="agbase" spellCheck={false} autoComplete="off" aria-label="Base branch" placeholder={placeholder} value={value} onChange={event => change(event.currentTarget.value)} onKeyDown={keyDown} onBlur={blur} /></span>;
+  return <span className="agc-type base"><input ref={input} id="agbase" {...NO_AUTO} aria-label="Base branch" placeholder={placeholder} value={value} onChange={event => change(event.currentTarget.value)} onKeyDown={keyDown} onBlur={blur} /></span>;
 }
 
 export function BaseChoice({ base, open, button, toggle }: { base: string; open: boolean; button: RefObject<HTMLButtonElement | null>; toggle(): void }) {

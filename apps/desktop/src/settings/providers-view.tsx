@@ -7,7 +7,7 @@ import { FailBanner } from "../ui/failbanner-view.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
 import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";
-import { Button, Checkbox, ChipToggle, CopyButton, EmptyPanel, onRowKey, Switch } from "../ui/kit.tsx";
+import { Button, Checkbox, ChipToggle, CopyButton, EmptyPanel, NO_AUTO, onRowKey, Switch } from "../ui/kit.tsx";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 
 export interface SharedProviderSettings {
@@ -62,7 +62,7 @@ function SharedSettings({ value, p }: { value: SharedProviderSettings; p: Provid
   return <section className="hv-scope hv-d"><h3>All machines</h3><div className="hv-note">These settings apply on every machine.</div>
     {compact && <><div className="hv-f"><span><b>Auto-compact</b><small>Applies to sessions on every machine.</small></span><span className="fl-row">
       <Switch label={`Auto-compact for ${harnessName(value.agent)}`} on={compact.draft.compactOn} disabled={!compact.loaded || compact.busy} flip={() => p.changeCompact(value.agent, { compactOn: !compact.draft.compactOn })} />
-      {compactKind(value.agent) === "percent" && <input className="hv-in" value={compact.draft.compactPercent} placeholder="80% or 350000" aria-label="Auto-compact threshold" autoComplete="off" spellCheck={false} disabled={!compact.loaded || compact.busy} onChange={event => p.changeCompact(value.agent, { compactPercent: event.currentTarget.value })} />}
+      {compactKind(value.agent) === "percent" && <input className="hv-in" value={compact.draft.compactPercent} placeholder="80% or 350000" aria-label="Auto-compact threshold" {...NO_AUTO} disabled={!compact.loaded || compact.busy} onChange={event => p.changeCompact(value.agent, { compactPercent: event.currentTarget.value })} />}
     </span></div><div className="hv-acts"><Button look="primary" disabled={!compact.canSave} onClick={() => p.saveCompact(value.agent)}>{compact.busy ? "Saving…" : "Save auto-compact"}</Button><Button look="quiet" hidden={!compact.edited} disabled={compact.busy} onClick={() => p.discardCompact(value.agent)}>Discard</Button><span className="derr">{compact.error}</span></div></>}
     {directCli && <DriverField key={value.agent} agent={value.agent} cli={directCli} invoke={p.invoke} />}
     {(value.agent === "flsh" || value.agent === "pi") && <FlshView panel={p.flsh} agent={value.agent} />}
@@ -136,7 +136,7 @@ function Runtime({ hv, p }: { hv: HarnessView; p: ProviderProps }) {
   </div>;
 }
 function TextInput({ value, label, placeholder, change, type = "text" }: { value: string; label: string; placeholder: string; change: (value: string) => void; type?: "text" | "password" }) {
-  return <input type={type} className="hv-in" value={value} placeholder={placeholder} spellCheck={false} autoComplete="off" aria-label={label} onChange={e => change(e.currentTarget.value)} />;
+  return <input type={type} className="hv-in" value={value} placeholder={placeholder} {...NO_AUTO} aria-label={label} onChange={e => change(e.currentTarget.value)} />;
 }
 
 export function ProviderHeader(p: Pick<ProviderProps, "machines" | "machine" | "loading" | "checked" | "updateCount" | "canUpdate" | "pickMachine" | "refresh" | "updateAll">) {

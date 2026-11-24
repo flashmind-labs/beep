@@ -8,7 +8,7 @@ import {
   BUTTON_NAMES, type Device, type DeviceButton, type DeviceMachine, type Rect, type ScreenState, type Size, type TouchPhase,
   buttonsFor, fitRect, keyInput, takesInput, maxSide, missingLine, pickedDevice, pickValue, powerChip, readPickValue, touchPoint, rotatedSize,
 } from "./device-state.ts";
-import { Button, Spinner } from "../ui/kit.tsx";
+import { Button, NO_AUTO, Spinner } from "../ui/kit.tsx";
 
 const BUTTON_ICONS: Record<DeviceButton, IconName> = {
   Home: "devHome", Back: "devBack", AppSwitch: "devRecent", Rotate: "devRotate", Power: "devPower", VolumeDown: "devVolumeDown", VolumeUp: "devVolumeUp",
@@ -200,7 +200,7 @@ function Screen({ device }: { device: Device | null }) {
       hidden={!live || media.kind !== "h264"} onLoadedMetadata={videoSizeChanged} onResize={videoSizeChanged} onPlaying={videoPlaying} onError={videoFailed} />
     <canvas ref={canvas} className="agdevscreen" hidden={!live} title={driven ? "Click to tap, drag to swipe; type while it is focused" : "Use the phone itself to tap and type"}
       onPointerDown={down} onPointerMove={moved} onPointerUp={up} onPointerCancel={up} onContextMenu={event => event.preventDefault()} />
-    <textarea ref={keys} className="agdevtype" aria-label="Type into the device" autoCapitalize="off" autoCorrect="off" spellCheck={false} tabIndex={driven ? 0 : -1}
+    <textarea ref={keys} className="agdevtype" aria-label="Type into the device" {...NO_AUTO} tabIndex={driven ? 0 : -1}
       onKeyDown={key} onInput={typed} onCompositionEnd={typed} onPaste={event => {
         event.preventDefault();
         const text = event.clipboardData.getData("text/plain");

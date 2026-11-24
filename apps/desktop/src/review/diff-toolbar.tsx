@@ -1,7 +1,7 @@
 import type { ReactNode, Ref } from "react";
 import { baseTitle, type DiffView } from "./diff-state.ts";
 import { DiffSummary } from "./diff-summary.tsx";
-import { Button } from "../ui/kit.tsx";
+import { Button, NO_AUTO } from "../ui/kit.tsx";
 import { Icon } from "../ui/icons.tsx";
 
 interface DiffToolbarProps {
@@ -44,7 +44,7 @@ export function DiffToolbar(props: DiffToolbarProps) {
     <span className="dv-sum" title={props.view ? baseTitle(props.view, props.uncommitted) : ""}>
       <DiffSummary view={props.view} loading={props.loading} uncommitted={props.uncommitted} />
     </span>
-    <input ref={props.findRef} className="dv-find" placeholder="Filter files and lines" aria-label="Filter files and lines" spellCheck={false} disabled={none}
+    <input ref={props.findRef} className="dv-find" placeholder="Filter files and lines" aria-label="Filter files and lines" {...NO_AUTO} disabled={none}
       value={props.filter} onChange={event => props.onFilter(event.currentTarget.value)} />
     {props.filter.trim() && <span className="dv-found">
       <span className="dv-found-n">{props.foundAt < 0 ? props.found : `${props.foundAt + 1}/${props.found}`}</span>

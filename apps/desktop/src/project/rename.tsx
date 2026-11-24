@@ -5,7 +5,7 @@ import { reason } from "../ui/format.ts";
 import { closeMenu } from "../ui/menu.tsx";
 import { openSheet } from "../ui/parts.tsx";
 import { projectName, type Project } from "./projects-state.ts";
-import { Button, Checkbox, SheetHead } from "../ui/kit.tsx";
+import { Button, Checkbox, NO_AUTO, SheetHead } from "../ui/kit.tsx";
 
 type RepositoryTarget = { url: string; host: string; name: string };
 type RenameResult =
@@ -77,7 +77,7 @@ function RenameProject({ project, close, pending }: { project: Project; close():
   return <form className="pr-form" onSubmit={event => { void save(event); }}>
     <SheetHead title="Rename project" />
     <label className="pr-label" htmlFor="project-name">Project name</label>
-    <input ref={field} id="project-name" className="gp-field pr-name" value={name} spellCheck={false} maxLength={200} required disabled={busy} onChange={event => setName(event.currentTarget.value)} />
+    <input ref={field} id="project-name" className="gp-field pr-name" value={name} {...NO_AUTO} maxLength={200} required disabled={busy} onChange={event => setName(event.currentTarget.value)} />
     {repositories.kind === "loading" && <p className="pr-loading" role="status">Looking for repository copies…</p>}
     {repositories.kind === "failed" && <div className="pr-host-error" role="alert">{repositories.message} <Button look="quiet" small disabled={busy} onClick={() => setAttempt(attempt + 1)}>Try again</Button></div>}
     {rows.length > 0 && <div className="pr-repositories">
@@ -90,7 +90,7 @@ function RenameProject({ project, close, pending }: { project: Project; close():
         </label>
         {row.selected && row.result?.kind !== "renamed" && <div className="pr-repository-fields">
           <label className="pr-label" htmlFor={`repository-name-${index}`}>Repository name on {row.host}</label>
-          <input id={`repository-name-${index}`} className="gp-field" value={row.name} disabled={busy} required maxLength={100} spellCheck={false} autoCapitalize="off" pattern="[A-Za-z0-9._-]+" onChange={event => update(row.url, { name: event.currentTarget.value })} />
+          <input id={`repository-name-${index}`} className="gp-field" value={row.name} disabled={busy} required maxLength={100} {...NO_AUTO} pattern="[A-Za-z0-9._-]+" onChange={event => update(row.url, { name: event.currentTarget.value })} />
         </div>}
         {row.result?.kind === "failed" && <div className="pr-host-error" role="alert">{row.result.message}</div>}
       </div>)}

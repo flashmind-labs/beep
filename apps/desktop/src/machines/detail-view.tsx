@@ -1,7 +1,7 @@
 import { Fragment, useCallback, useLayoutEffect, useRef } from "react";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import { bytes } from "../ui/format.ts";
-import { Button, CopyButton } from "../ui/kit.tsx";
+import { Button, CopyButton, NO_AUTO } from "../ui/kit.tsx";
 import { gpuLine, machineTag, nodeBehind, coders, isCoder, nodeVersion, removalNote, shownVersion, updatedNotes, updateOffered, type NodeUpdate } from "./machines-state.ts";
 import { signInOffer } from "./signin-state.ts";
 import { relayLine, trafficRows, type MachineTraffic } from "./traffic-state.ts";
@@ -64,7 +64,7 @@ export function MachineDetail(p: DetailProps) {
 function SearchEditor({ draft, busy, save, cancel }: { draft: string; busy: boolean; save: (value: string) => void; cancel: () => void }) {
   const input = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => { input.current?.focus(); }, []);
-  return <span className="dfield dline tight"><input ref={input} className="dmono" defaultValue={draft} aria-label="Search for projects in" spellCheck={false} disabled={busy} onKeyDown={e => { if (e.key === "Enter") save(e.currentTarget.value); if (e.key === "Escape") { e.stopPropagation(); cancel(); } }} /><Button look="primary" disabled={busy} onClick={() => { if (input.current) save(input.current.value); }}>Save</Button><Button look="quiet" onClick={cancel}>Cancel</Button></span>;
+  return <span className="dfield dline tight"><input ref={input} className="dmono" defaultValue={draft} aria-label="Search for projects in" {...NO_AUTO} disabled={busy} onKeyDown={e => { if (e.key === "Enter") save(e.currentTarget.value); if (e.key === "Escape") { e.stopPropagation(); cancel(); } }} /><Button look="primary" disabled={busy} onClick={() => { if (input.current) save(input.current.value); }}>Save</Button><Button look="quiet" onClick={cancel}>Cancel</Button></span>;
 }
 
 function LogSection({ log, read, save }: { log: MachineLog | null; read: () => void; save: () => void }) {

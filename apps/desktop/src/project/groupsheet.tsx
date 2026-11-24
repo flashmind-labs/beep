@@ -4,7 +4,7 @@ import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
 import { addGroupFolder, groupPath, type ProjectGroup } from "./projects-state.ts";
 import { reason } from "../ui/format.ts";
-import { Button, SheetHead } from "../ui/kit.tsx";
+import { Button, NO_AUTO, SheetHead } from "../ui/kit.tsx";
 
 interface GroupSheetOptions {
   group?: ProjectGroup | null;
@@ -67,7 +67,7 @@ export function openGroupSheet(options: GroupSheetOptions) {
 function GroupSheet({ input, title, paths, error, saving, summary, add, remove, close, save }: { input: RefObject<HTMLInputElement | null>; title: string; paths: readonly string[]; error: string | null; saving: boolean; summary: string; add(): boolean; remove(path: string): void; close(): void; save(): void }) {
   useLayoutEffect(() => { input.current?.focus(); }, []);
   return <><SheetHead title={title} /><div className="am-label">Folder</div>
-    <div className="am-line"><input ref={input} className="gp-field" placeholder="~/Projects/work" spellCheck={false} autoCapitalize="off" /><Button onClick={add}>Add</Button></div>
+    <div className="am-line"><input ref={input} className="gp-field" placeholder="~/Projects/work" {...NO_AUTO} /><Button onClick={add}>Add</Button></div>
     <div className="am-sub">Repos in this folder on any machine go in the group. ~/Projects/work and ~/work count as one folder.</div>
     {paths.map(path => <div className="gp-path" key={path}><span>{path}</span><Button look="quiet" danger small onClick={() => remove(path)}>Remove</Button></div>)}
     {error && <div className="am-msg bad">{error}</div>}<div className="am-sub">{summary}</div><div className="gp-foot"><Button look="quiet" onClick={close}>Cancel</Button><Button look="primary" disabled={saving} onClick={save}>{saving ? "Saving…" : "Save group"}</Button></div></>;

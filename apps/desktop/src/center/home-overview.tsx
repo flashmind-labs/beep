@@ -241,7 +241,7 @@ function Deck({ card, row, done, open, step }: { card: BoardCard; row: RunningAg
     <b>{card.title}</b>
     {row && <div className="reply">{workLine(row)}</div>}
     {canManage && <form className="bd-reply" onClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()} onSubmit={submit}>
-      <input className="ip-field" type="text" placeholder={`Reply to ${agentName(row.agent)}…`} aria-label="Quick reply" value={reply} disabled={sending}
+      <input className="ip-field" type="text" autoComplete="off" autoCorrect="off" placeholder={`Reply to ${agentName(row.agent)}…`} aria-label="Quick reply" value={reply} disabled={sending}
         onChange={event => { setReply(event.currentTarget.value); if (replyError) setReplyError(""); }} />
       <Button look="primary" small type="submit" disabled={sending || !reply.trim()}>Send</Button>
       {replyError && <span className="cc-err">{replyError}</span>}

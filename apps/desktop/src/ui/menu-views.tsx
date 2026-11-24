@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { reason } from "./format.ts";
 import type { ConfirmOptions, RenameOptions } from "./menu.tsx";
-import { Button, Checkbox, SheetHead } from "./kit.tsx";
+import { Button, Checkbox, NO_AUTO, SheetHead } from "./kit.tsx";
 import { useDialogRef } from "./parts.tsx";
 
 /// The box of a right-click menu at `at`, kept inside the window. A click
@@ -92,6 +92,6 @@ export function RenameView({ options, close, pending }: { options: RenameOptions
       pending(false); setBusy(false); setError(reason(failure));
     }
   };
-  return <><SheetHead title={options.title} /><div className="am-line"><input ref={field} className="gp-field" value={text} spellCheck={false} onChange={event => setText(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void save(); } }} /></div><div className="am-msg bad" hidden={error === null}>{error}</div><div className="gp-foot"><Button look="quiet" onClick={close}>Cancel</Button><Button look="primary" disabled={busy} onClick={() => { void save(); }}>Save</Button></div></>;
+  return <><SheetHead title={options.title} /><div className="am-line"><input ref={field} className="gp-field" value={text} {...NO_AUTO} onChange={event => setText(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); void save(); } }} /></div><div className="am-msg bad" hidden={error === null}>{error}</div><div className="gp-foot"><Button look="quiet" onClick={close}>Cancel</Button><Button look="primary" disabled={busy} onClick={() => { void save(); }}>Save</Button></div></>;
 }
 

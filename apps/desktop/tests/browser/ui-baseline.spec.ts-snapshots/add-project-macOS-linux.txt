@@ -202,7 +202,7 @@ body.cbody
           b "New project"
           span "Start from nothing"
       div.am-label "On your machines"
-      input.ap-q [aria-label="Filter found folders" autocomplete="off" placeholder="Filter by repo, folder, machine or agent" spellcheck="false" type="search" value] value=""
+      input.ap-q [aria-label="Filter found folders" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Filter by repo, folder, machine or agent" spellcheck="false" type="search" value] value=""
       div.ap-bar
         label "Select all shown"
           input.dcheck [type="checkbox"] value="on" unchecked

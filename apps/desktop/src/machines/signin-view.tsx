@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Button, CopyButton, SheetHead, Spinner } from "../ui/kit.tsx";
+import { Button, CopyButton, NO_AUTO, SheetHead, Spinner } from "../ui/kit.tsx";
 import { stillRunning, type SignInView } from "./signin-state.ts";
 import { harnessName } from "../settings/providers-state.ts";
 
@@ -38,7 +38,7 @@ export function SignInBody({ machineName, tool, view, error, sending, send, retr
     <div className="si-steps">
       {view?.url && <Step title="Open the sign-in page"><div className="si-url" title={view.url}>{shortUrl(view.url)}</div><div className="si-acts"><Button look="primary" onClick={() => openUrl(view.url ?? "")}>Open in browser</Button><CopyButton text={view.url} label="Copy link" look="quiet" /></div></Step>}
       {view?.code && <Step title="Enter this code there"><div className="si-acts"><code className="si-code">{view.code}</code><CopyButton text={view.code} look="quiet" /></div></Step>}
-      {asksCode && <Step title={tool === "agy" ? "Paste the code the page shows, within a minute" : "Paste the code the page shows"}><div className="si-acts"><input ref={field} className="am-code" placeholder="Paste the code" aria-label="Code from the page" spellCheck={false} autoCapitalize="off" value={code} onChange={e => setCode(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void submit(); } }} /><Button look={code.trim() ? "primary" : "secondary"} onClick={() => void submit()}>{sending ? "Sending…" : "Send"}</Button></div></Step>}
+      {asksCode && <Step title={tool === "agy" ? "Paste the code the page shows, within a minute" : "Paste the code the page shows"}><div className="si-acts"><input ref={field} className="am-code" placeholder="Paste the code" aria-label="Code from the page" {...NO_AUTO} value={code} onChange={e => setCode(e.currentTarget.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); void submit(); } }} /><Button look={code.trim() ? "primary" : "secondary"} onClick={() => void submit()}>{sending ? "Sending…" : "Send"}</Button></div></Step>}
     </div>
     {(!view || view.state === "starting") && <div className="am-wait"><Spinner />{`Starting ${name}'s sign-in on ${machineName}…`}</div>}
     {waiting && !view.asks_code && <div className="am-wait"><Spinner />Waiting for you to approve it in the browser</div>}

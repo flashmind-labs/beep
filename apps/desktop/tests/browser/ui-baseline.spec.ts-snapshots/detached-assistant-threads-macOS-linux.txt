@@ -6,7 +6,7 @@ aside#rail.cc-rail.pj-list [aria-label="Chat threads"]
     button.cc-side-toggle [aria-expanded="true" aria-label="Show the sidebar" title="Show the sidebar" type="button"]
       span
         svg [aria-hidden="true" fill="none" stroke-width="1.5" stroke="currentColor" viewBox="0 0 24 24"]
-  input.ip-field.rail-filter [aria-label="Filter threads" placeholder="Filter threads" spellcheck="false" type="search" value] value=""
+  input.ip-field.rail-filter [aria-label="Filter threads" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Filter threads" spellcheck="false" type="search" value] value=""
   div.rail-scroll
     h4 "Running"
       span.n "2"

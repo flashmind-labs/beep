@@ -7,7 +7,7 @@ import { terminalNote, terminalWhere, type TerminalRow } from "../terminals/term
 import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.tsx";
-import { Button, EmptyPanel, LineRow, Section, SectionHead } from "../ui/kit.tsx";
+import { Button, EmptyPanel, LineRow, NO_AUTO, Section, SectionHead } from "../ui/kit.tsx";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { ProjectArt } from "../ui/painted-art.tsx";
 import { SideToggle } from "../center/sidebar-shell.tsx";
@@ -118,7 +118,7 @@ export function RailList({ head = null, running, past, current, more, noun = "se
     session.status === "idle" && sessionOffers(session).close ? () => void closeAgentSession(session) : undefined);
 
   return <>
-    <input className="ip-field rail-filter" type="search" placeholder={`Filter ${noun}`} aria-label={`Filter ${noun}`} spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
+    <input className="ip-field rail-filter" type="search" placeholder={`Filter ${noun}`} aria-label={`Filter ${noun}`} {...NO_AUTO} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
     <div className="rail-scroll" ref={list} data-clear={clear || undefined}>
     {(!!head || !!live.length) && <h4>Running<span className="n">{live.length + (head ? 1 : 0)}</span></h4>}
     {(!!head || !!live.length) && <div className="rail-live">{head && liveRow(head)}{head ? !!live.length && <div className="rail-live rail-threads">{live.map(liveRow)}</div> : live.map(liveRow)}</div>}

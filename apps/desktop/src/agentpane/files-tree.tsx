@@ -1,5 +1,5 @@
 import { Icon } from "../ui/icons.tsx";
-import { Checkbox, Spinner } from "../ui/kit.tsx";
+import { Checkbox, NO_AUTO, Spinner } from "../ui/kit.tsx";
 import { lazy, memo, Suspense, useCallback, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { observeElementRect, useVirtualizer, type Rect, type Virtualizer } from "@tanstack/react-virtual";
 import { useStore } from "zustand";
@@ -20,7 +20,7 @@ export const FilesView = memo(function FilesView({ hidden }: { hidden: boolean }
   useLayoutEffect(() => scrollAgain, []);
 
   return <div className="agpview files" hidden={hidden} ref={filesRef}>
-    <div className="agfbar"><input className="agffind" value={m.filter} placeholder="Filter files" aria-label="Filter files" spellCheck={false}
+    <div className="agfbar"><input className="agffind" value={m.filter} placeholder="Filter files" aria-label="Filter files" {...NO_AUTO}
       onChange={event => setFilter(event.currentTarget.value)}
       onKeyDown={event => { if (event.key === "Escape" && event.currentTarget.value) { event.stopPropagation(); event.preventDefault(); setFilter(""); } }} />
       <label className="agfign"><Checkbox checked={m.ignored} change={setIgnored} /> Show ignored</label>

@@ -125,20 +125,55 @@ export function parentPath(path: string) {
   return at < 0 ? "" : path.slice(0, at);
 }
 
+/// Parsed file filter: `/` separates ordered path segments (a trailing `/`
+/// requires a folder), and a plain term matches a single file or folder name.
+interface TreeFilter {
+  segments: string[];
+  byPath: boolean;
+  dirOnly: boolean;
+}
+
+function parseFilter(filter: string): TreeFilter | null {
+  const raw = filter.trim().toLowerCase().replace(/\\+/g, "/").replace(/\/+/g, "/").replace(/^\.\//, "").replace(/^\//, "");
+  if (!raw) return null;
+  const dirOnly = raw.endsWith("/");
+  const segments = raw.split("/").filter(Boolean);
+  if (!segments.length) return null;
+  return { segments, byPath: raw.includes("/"), dirOnly };
+}
+
 /// The rows the tree shows: open folders' entries under them, depth first, but for the top
 /// folders in `left`, such as a chat's threads' own.
 export function treeRows(listings: ReadonlyMap<string, Listing>, open: ReadonlySet<string>, filter = "", left: ReadonlySet<string> = new Set()): TreeRow[] {
-  const want = filter.trim().toLowerCase();
+  const query = parseFilter(filter);
   const out: TreeRow[] = [];
-  const walk = (dir: string, depth: number, hidden: boolean): boolean => {
+  const walk = (dir: string, depth: number, hidden: boolean, matched: number): boolean => {
     const listing = listings.get(dir);
     let any = false;
 
     for (const e of listing?.entries ?? []) {
       const path = joinPath(dir, e.name);
       if (!dir && e.folder && left.has(e.name)) continue;
-      const isOpen = e.folder && (open.has(path) || (!!want && listings.has(path)));
+      const isOpen = e.folder && (open.has(path) || (!!query && listings.has(path)));
       const sub = listings.get(path);
+      let nextMatched = matched;
+      let selfHit = !query;
+
+      if (query) {
+        const lower = e.name.toLowerCase();
+        if (!query.byPath) {
+          selfHit = lower.includes(query.segments[0]);
+        } else if (matched >= query.segments.length) {
+          selfHit = true;
+        } else {
+          const isLast = matched === query.segments.length - 1;
+          if ((!isLast || !query.dirOnly || e.folder) && lower.includes(query.segments[matched])) {
+            nextMatched = matched + 1;
+            selfHit = nextMatched === query.segments.length;
+          }
+        }
+      }
+
       const row: TreeRow = {
         path, name: e.name, depth, folder: e.folder, open: isOpen, size: e.size,
         ignored: hidden || e.ignored, change: e.change,
@@ -146,15 +181,16 @@ export function treeRows(listings: ReadonlyMap<string, Listing>, open: ReadonlyS
       };
       const at = out.length;
       out.push(row);
-      const under = isOpen ? walk(path, depth + 1, row.ignored) : false;
-      const hit = !want || e.name.toLowerCase().includes(want) || under;
+      const under = isOpen ? walk(path, depth + 1, row.ignored, nextMatched) : false;
+      const hit = selfHit || under;
       if (!hit) out.length = at;
+      else if (query && e.folder && !under && !row.loading && !row.error && !row.more) row.open = false;
       any ||= hit;
     }
 
     return any;
   };
-  walk("", 0, false);
+  walk("", 0, false, 0);
   return out;
 }
 

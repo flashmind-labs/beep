@@ -53,6 +53,59 @@ test("a filter keeps matching names and the folders on the way", () => {
   assert.deepEqual(treeRows(listings, new Set(), "nothing"), []);
 });
 
+test("a path filter finds folder/file and lists folder/folder", () => {
+  const nested = new Map<string, Listing>([
+    ["", read([dir("crates"), file("README.md")])],
+    ["crates", read([dir("node")])],
+    ["crates/node", read([dir("src")])],
+    ["crates/node/src", read([dir("agents"), file("session_store.rs")])],
+    ["crates/node/src/agents", read([dir("session"), dir("other")])],
+    ["crates/node/src/agents/session", read([file("actor.rs"), file("state.rs"), dir("sub")])],
+    ["crates/node/src/agents/session/sub", read([file("helper.rs")])],
+    ["crates/node/src/agents/other", read([file("actor.rs")])],
+  ]);
+
+  assert.deepEqual(
+    treeRows(nested, new Set(), "session/actor").map(r => r.path),
+    ["crates", "crates/node", "crates/node/src", "crates/node/src/agents", "crates/node/src/agents/session", "crates/node/src/agents/session/actor.rs"],
+  );
+  assert.deepEqual(
+    treeRows(nested, new Set(), "ses/act").map(r => r.path),
+    ["crates", "crates/node", "crates/node/src", "crates/node/src/agents", "crates/node/src/agents/session", "crates/node/src/agents/session/actor.rs"],
+  );
+  assert.deepEqual(
+    treeRows(nested, new Set(), "node/actor").map(r => r.path),
+    [
+      "crates", "crates/node", "crates/node/src", "crates/node/src/agents",
+      "crates/node/src/agents/session", "crates/node/src/agents/session/actor.rs",
+      "crates/node/src/agents/other", "crates/node/src/agents/other/actor.rs",
+    ],
+  );
+  assert.deepEqual(
+    treeRows(nested, new Set(), "agents/session").map(r => r.path),
+    [
+      "crates", "crates/node", "crates/node/src", "crates/node/src/agents",
+      "crates/node/src/agents/session", "crates/node/src/agents/session/actor.rs",
+      "crates/node/src/agents/session/state.rs", "crates/node/src/agents/session/sub",
+      "crates/node/src/agents/session/sub/helper.rs",
+    ],
+  );
+  assert.deepEqual(
+    treeRows(nested, new Set(), "session/").map(r => r.path),
+    [
+      "crates", "crates/node", "crates/node/src", "crates/node/src/agents",
+      "crates/node/src/agents/session", "crates/node/src/agents/session/actor.rs",
+      "crates/node/src/agents/session/state.rs", "crates/node/src/agents/session/sub",
+      "crates/node/src/agents/session/sub/helper.rs",
+    ],
+  );
+  assert.deepEqual(
+    treeRows(nested, new Set(), "./crates\\node/src/agents/session/state.rs").map(r => r.path),
+    ["crates", "crates/node", "crates/node/src", "crates/node/src/agents", "crates/node/src/agents/session", "crates/node/src/agents/session/state.rs"],
+  );
+  assert.deepEqual(treeRows(nested, new Set(), "session/missing"), []);
+});
+
 test("a filter reads the folders nothing read yet, not what git ignores", () => {
   const read = new Map<string, Listing>([["", { entries: [dir("src"), dir("target", { ignored: true }), dir("docs")], more: 0, error: "" }], ["docs", { entries: null, more: 0, error: "no" }]]);
   assert.deepEqual(unreadFolders(read), ["src"]);

@@ -10,7 +10,7 @@ import { currentLocation } from "../center/views.tsx";
 import { pageShown } from "../ui/active.ts";
 import { formatAgo, plural, reason } from "../ui/format.ts";
 import { Icon, PROJECT_COLORS } from "../ui/icons.tsx";
-import { Button, ChipToggle, CopyButton, EmptyPanel, LineRow, SectionHead, SheetHead, Switch } from "../ui/kit.tsx";
+import { Button, ChipToggle, CopyButton, EmptyPanel, LineRow, NO_AUTO, SectionHead, SheetHead, Switch } from "../ui/kit.tsx";
 import { confirmSheet } from "../ui/menu.tsx";
 import { openSheet } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
@@ -518,7 +518,7 @@ function Settings({ project, record, machines }: { project: string; record: Team
   return <div className="cc-panel">
     <LineRow lead={null} title="Pick up issues assigned to me" onOpen={() => save({ pickup: !record.pickup })}
       sub={`starts an agent per issue${where}${record.pickup_limit ? `, at most ${record.pickup_limit} at a time` : ""}`}
-      right={<><input className="ip-field tm-limit" inputMode="numeric" placeholder="no limit" aria-label="At most at a time" value={limit} onClick={event => event.stopPropagation()}
+      right={<><input className="ip-field tm-limit" inputMode="numeric" {...NO_AUTO} placeholder="no limit" aria-label="At most at a time" value={limit} onClick={event => event.stopPropagation()}
         onChange={event => setLimit(event.currentTarget.value)} onBlur={saveLimit} onKeyDown={event => { if (event.key === "Enter") saveLimit(); }}/>
         <Switch on={record.pickup} contained label="Pick up issues assigned to me" flip={() => save({ pickup: !record.pickup })}/></>}/>
     <LineRow lead={null} title="Teammates' agents can message mine" sub="replies come from the agent working on that issue" onOpen={() => save({ asks: !record.asks })}

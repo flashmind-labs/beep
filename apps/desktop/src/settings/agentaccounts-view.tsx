@@ -1,4 +1,4 @@
-import { Button, CopyButton, SkeletonRows, Spinner } from "../ui/kit.tsx";
+import { Button, CopyButton, NO_AUTO, SkeletonRows, Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { HarnessIcon } from "../ui/icons.tsx";
@@ -11,7 +11,7 @@ function Row({ name, offline, children }: { name: string; offline: boolean; chil
 function Form({ state, agent, actions }: { state: AgentAccountsState; agent: "claude" | "codex"; actions: Actions }) {
   const input = useRef<HTMLInputElement>(null), clear = () => { if (input.current) input.current.value = ""; };
   useLayoutEffect(() => { input.current?.focus(); }, []);
-  return <div className="dgrid8 dmt6"><div className="dline"><input ref={input} id="agSecret" type="password" autoComplete="off" spellCheck={false} placeholder={agent === "claude" ? "Token from claude setup-token" : "OpenAI API key"} aria-label={agent === "claude" ? "Claude Code token" : "Codex API key"} className="dsecret" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); actions.save(e.currentTarget.value, clear); } }} /><Button look="primary" id="agSave" disabled={!!state.busy} onClick={() => actions.save(input.current?.value ?? "", clear)}>{state.busy === agent ? "Saving…" : "Save"}</Button><Button look="quiet" id="agCancel" onClick={actions.cancel}>Cancel</Button></div><span className="dsub">{agent === "claude" ? <>Run <code>claude setup-token</code> in Terminal and paste the token it prints.</> : "An OpenAI API key. Codex uses it on every machine instead of signing in."}</span><span className="derr" id="agErr">{state.error || ""}</span></div>;
+  return <div className="dgrid8 dmt6"><div className="dline"><input ref={input} id="agSecret" type="password" {...NO_AUTO} placeholder={agent === "claude" ? "Token from claude setup-token" : "OpenAI API key"} aria-label={agent === "claude" ? "Claude Code token" : "Codex API key"} className="dsecret" onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); actions.save(e.currentTarget.value, clear); } }} /><Button look="primary" id="agSave" disabled={!!state.busy} onClick={() => actions.save(input.current?.value ?? "", clear)}>{state.busy === agent ? "Saving…" : "Save"}</Button><Button look="quiet" id="agCancel" onClick={actions.cancel}>Cancel</Button></div><span className="dsub">{agent === "claude" ? <>Run <code>claude setup-token</code> in Terminal and paste the token it prints.</> : "An OpenAI API key. Codex uses it on every machine instead of signing in."}</span><span className="derr" id="agErr">{state.error || ""}</span></div>;
 }
 /// The agent's named accounts, inside its card: one row each and the add form.
 function NamedAccounts({ agent, state, data, ago, actions }: { agent: AccountAgent; state: AgentAccountsState; data: AgentAccounts; ago: (ms: number) => string; actions: Actions }) {
@@ -34,8 +34,8 @@ function AddAccount({ state, agent, error, actions }: { state: AgentAccountsStat
   const busy = !!state.busy || !!state.claudeFlow;
   useLayoutEffect(() => { name.current?.focus(); }, []);
   return <div className="dgrid8 dmt6">
-    <div className="dline"><input ref={name} id="agName" type="text" autoComplete="off" spellCheck={false} placeholder="Name, such as Work" aria-label="Account name" className="dname" disabled={state.claudeFlow} onKeyDown={e => { if (e.key === "Enter" && !paste) { e.preventDefault(); actions.addSign(e.currentTarget.value); } }} />
-      {paste && <input ref={secret} id="agNamedSecret" type="password" autoComplete="off" spellCheck={false} placeholder={agent === "claude" ? "Token from claude setup-token" : "ChatGPT personal access token"} aria-label={agent === "claude" ? "Claude Code token" : "Codex access token"} className="dsecret" disabled={state.claudeFlow} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} />}
+    <div className="dline"><input ref={name} id="agName" type="text" {...NO_AUTO} placeholder="Name, such as Work" aria-label="Account name" className="dname" disabled={state.claudeFlow} onKeyDown={e => { if (e.key === "Enter" && !paste) { e.preventDefault(); actions.addSign(e.currentTarget.value); } }} />
+      {paste && <input ref={secret} id="agNamedSecret" type="password" {...NO_AUTO} placeholder={agent === "claude" ? "Token from claude setup-token" : "ChatGPT personal access token"} aria-label={agent === "claude" ? "Claude Code token" : "Codex access token"} className="dsecret" disabled={state.claudeFlow} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} />}
       {paste ? <Button look="primary" id="agNamedSave" disabled={busy} onClick={save}>{state.busy === "add" ? "Saving…" : "Save"}</Button>
         : <Button look="primary" id="agNamedSign" disabled={busy} onClick={() => actions.addSign(name.current?.value ?? "")}>Sign in</Button>}
       {signs && !paste && <Button look="quiet" id="agNamedPaste" disabled={busy} onClick={() => setPaste(true)}>Paste a token instead</Button>}
