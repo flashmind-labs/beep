@@ -36,7 +36,6 @@ fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
     };
     let mut lists = PaletteLists {
         projects: Some(vec![project.clone()]),
-        sessions: Some(vec![session.clone()]),
         branches: Some(vec![BranchRow {
             project: project.project.clone(),
             name: "fix".into(),
@@ -48,21 +47,13 @@ fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
         ..PaletteLists::default()
     };
     lists.prune();
-    let index = serde_json::to_value(build_index(&lists)).expect("the index serializes");
+    let mut sessions = vec![session];
+    lists.without_retired(&mut sessions);
+    let index = serde_json::to_value(build_index(&lists, &sessions)).expect("the index serializes");
 
     for group in ["projects", "sessions", "code"] {
         assert_eq!(index[group], serde_json::json!([]));
     }
-
-    lists.sessions = Some(vec![session]);
-    lists.prune();
-    let index = serde_json::to_value(build_index(&lists)).expect("the index serializes");
-    assert_eq!(
-        index["projects"],
-        serde_json::json!([]),
-        "a stale session cannot return as an unimported folder"
-    );
-    assert_eq!(index["sessions"], serde_json::json!([]));
 }
 
 #[test]

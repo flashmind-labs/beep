@@ -67,7 +67,11 @@ struct FolderRow<'a> {
 
 /// Projects by name, once each: imported ones, then the folders coding
 /// agents worked in.
-pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]) -> Vec<Entry> {
+pub(super) fn project_entries(
+    lists: &PaletteLists,
+    sessions: &[MachineSession],
+    imported: &[ImportedProject],
+) -> Vec<Entry> {
     let mut entries = Vec::new();
     let mut names: HashSet<&str> = HashSet::new();
 
@@ -94,7 +98,7 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
 
     let mut folders: Vec<FolderRow> = Vec::new();
 
-    for s in lists.sessions.iter().flatten() {
+    for s in sessions {
         let Some(name) = session_project(s, imported) else {
             continue;
         };
@@ -143,8 +147,11 @@ pub(super) fn project_entries(lists: &PaletteLists, imported: &[ImportedProject]
 
 /// Coding-agent sessions, the one that moved last first, found by title,
 /// project, harness or machine.
-pub(super) fn session_entries(lists: &PaletteLists, imported: &[ImportedProject]) -> Vec<Entry> {
-    let mut sessions: Vec<&MachineSession> = lists.sessions.iter().flatten().collect();
+pub(super) fn session_entries(
+    sessions: &[MachineSession],
+    imported: &[ImportedProject],
+) -> Vec<Entry> {
+    let mut sessions: Vec<&MachineSession> = sessions.iter().collect();
     sessions.sort_by_key(|s| Reverse(s.last_activity));
     sessions
         .into_iter()

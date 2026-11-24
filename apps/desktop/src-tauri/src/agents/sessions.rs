@@ -385,8 +385,6 @@ pub async fn agent_start(
         account,
     };
     let started = direct::start(&fleet, request, images).await?;
-    app.state::<crate::palette::PaletteCache>()
-        .remember_session(&app, started.session.clone());
     Ok(Started {
         session: started.session.into(),
         why: started.why,
@@ -459,9 +457,6 @@ pub async fn agent_resume(
             resume,
         )
         .await?;
-
-    app.state::<crate::palette::PaletteCache>()
-        .remember_session(&app, started.session.clone());
 
     Ok(Started {
         session: started.session.into(),
@@ -596,8 +591,6 @@ pub async fn agent_view(
         beep_fleet::session_titles::apply(&mesh, &mut view.session);
     }
 
-    app.state::<crate::palette::PaletteCache>()
-        .found_session(&app, view.session.clone());
     Ok(view.into())
 }
 

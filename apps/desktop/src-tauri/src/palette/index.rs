@@ -7,6 +7,7 @@ use super::{
     projects::{project_entries, session_entries},
 };
 use crate::agents::sessions::SessionRow;
+use beep_proto::MachineSession;
 use serde::Serialize;
 use strum::IntoEnumIterator;
 
@@ -203,8 +204,8 @@ fn setting_entry(title: String, section: SettingsSection) -> Entry {
     Entry::new(HitKind::Setting, id, title.clone(), detail, &keys)
 }
 
-/// The index of `lists`.
-pub(crate) fn build_index(lists: &PaletteLists) -> Index {
+/// The index of `lists` and the `sessions` of the machines.
+pub(crate) fn build_index(lists: &PaletteLists, sessions: &[MachineSession]) -> Index {
     let imported = lists.projects.as_deref().unwrap_or_default();
     let branches = lists.branches.iter().flatten().map(|b| {
         Entry::new(
@@ -224,8 +225,8 @@ pub(crate) fn build_index(lists: &PaletteLists) -> Index {
         actions: PaletteAction::iter().map(action_entry).collect(),
         settings: settings().map(|(t, s)| setting_entry(t, s)).collect(),
         code: branches.collect(),
-        projects: project_entries(lists, imported),
-        sessions: session_entries(lists, imported),
+        projects: project_entries(lists, sessions, imported),
+        sessions: session_entries(sessions, imported),
         machines: machines.collect(),
     }
 }

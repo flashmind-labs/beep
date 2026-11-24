@@ -1,14 +1,15 @@
 //! What the palette searches. `follow` reads it for the app's whole life,
 //! each source apart so a slow one holds up none of the rest, and rebuilds
 //! the index on each answer. The lists are saved in the views file, so a new
-//! launch finds them before the machines answer.
+//! launch finds them before the machines answer. The sessions are not kept
+//! here: the index takes them from the session mirror each time it is built.
 
 use super::{
     index::build_index,
     places::{Place, retired},
 };
 use crate::{
-    agents::sessions::machine_sessions,
+    agents::sessions::overlaid,
     center::{
         home::mesh_imports,
         lock, section,
@@ -39,10 +40,7 @@ const READ_EVERY: Duration = Duration::from_secs(300);
 const READ_GAP: Duration = Duration::from_secs(10);
 /// The least time between two reads of the mesh's projects and machines.
 const LOCAL_GAP: Duration = Duration::from_secs(2);
-/// The sessions are read when a session starts or ends, when the palette
-/// opens, and this often besides.
-const SESSIONS_EVERY: Duration = Duration::from_secs(600);
-/// The least time between two reads of the sessions.
+/// The least time between two builds of the index for the sessions.
 const SESSIONS_GAP: Duration = Duration::from_secs(5);
 /// The most projects whose branches are read.
 const BRANCH_PROJECTS: usize = 8;
@@ -57,8 +55,6 @@ pub(crate) struct PaletteLists {
     pub(super) retired_places: Vec<Place>,
     #[serde(default)]
     pub(super) forgotten_projects: HashSet<String>,
-    /// The machines' coding-agent sessions.
-    pub(super) sessions: Option<Vec<MachineSession>>,
     pub(super) branches: Option<Vec<BranchRow>>,
     /// The ticket of the last removal: a read of the projects taken before it is out of date.
     #[serde(skip)]
@@ -122,16 +118,19 @@ impl PaletteLists {
         self.retired_places = retired.into_iter().collect();
     }
 
+    /// Takes out of `sessions` those in a place that left, which a read from before it left
+    /// may still list.
+    fn without_retired(&self, sessions: &mut Vec<MachineSession>) {
+        let projects = self.projects.as_deref().unwrap_or_default();
+        sessions.retain(|s| !retired(s, projects, &self.retired_places));
+    }
+
     fn prune(&mut self) {
         if let Some(projects) = &mut self.projects {
             projects.retain(|p| !self.forgotten_projects.contains(&p.project));
         }
         if let Some(branches) = &mut self.branches {
             branches.retain(|b| !self.forgotten_projects.contains(&b.project));
-        }
-        if let Some(sessions) = &mut self.sessions {
-            let projects = self.projects.as_deref().unwrap_or_default();
-            sessions.retain(|s| !retired(s, projects, &self.retired_places));
         }
     }
 }
@@ -155,14 +154,13 @@ struct Held {
 pub(crate) struct PaletteCache {
     held: Mutex<Held>,
     read_lists: Notify,
-    read_sessions: Notify,
     /// Counts the reads of the mesh's projects and the removals, so a read
     /// taken before a removal cannot bring the project back.
     tickets: AtomicU64,
 }
 
-fn index_json(lists: &PaletteLists) -> anyhow::Result<String> {
-    Ok(serde_json::to_string(&build_index(lists))?)
+fn index_json(lists: &PaletteLists, sessions: &[MachineSession]) -> anyhow::Result<String> {
+    Ok(serde_json::to_string(&build_index(lists, sessions))?)
 }
 
 impl PaletteCache {
@@ -178,11 +176,11 @@ impl PaletteCache {
             None => PaletteLists::default(),
         };
         lists.prune();
-        let index = index_json(&lists)?;
+        // The sessions join the index once the mirror holds them.
+        let index = index_json(&lists, &[])?;
         Ok(Self {
             held: Mutex::new(Held { lists, index }),
             read_lists: Notify::new(),
-            read_sessions: Notify::new(),
             tickets: AtomicU64::new(0),
         })
     }
@@ -195,8 +193,14 @@ impl PaletteCache {
         self.held().lists.projects.clone().unwrap_or_default()
     }
 
-    pub(super) fn sessions(&self) -> Vec<MachineSession> {
-        self.held().lists.sessions.clone().unwrap_or_default()
+    /// The mirror's sessions as the windows list them, less those of removed places.
+    pub(super) fn sessions(&self, app: &AppHandle) -> Vec<MachineSession> {
+        let fleet = app.state::<Arc<Fleet>>();
+        let rows = app.state::<Arc<SessionMirror>>().current();
+        let mut sessions = overlaid(app, &fleet, &rows);
+        self.held().lists.without_retired(&mut sessions);
+
+        sessions
     }
 
     pub(super) fn machine_names(&self) -> HashMap<String, String> {
@@ -239,46 +243,17 @@ impl PaletteCache {
         let _ = app.emit("palette-text-changed", ());
     }
 
-    /// The session view supplies metadata before the lists have caught up.
-    /// An already listed session stays on the normal refresh schedule.
-    pub(crate) fn found_session(&self, app: &AppHandle, session: MachineSession) {
-        let known = {
-            let held = self.held();
-            held.lists
-                .sessions
-                .iter()
-                .flatten()
-                .any(|s| s.machine_id == session.machine_id && s.id == session.id)
-                || retired(
-                    &session,
-                    held.lists.projects.as_deref().unwrap_or_default(),
-                    &held.lists.retired_places,
-                )
-        };
-
-        if !known {
-            self.remember_session(app, session);
-        }
-    }
-
-    pub(crate) fn remember_session(&self, app: &AppHandle, session: MachineSession) {
-        self.update(app, |lists| {
-            let sessions = lists.sessions.get_or_insert_default();
-            sessions.retain(|old| old.machine_id != session.machine_id || old.id != session.id);
-            sessions.push(session);
-        });
-    }
-
     /// Changes the lists and rebuilds the index. The windows hear of it only
     /// when the index came out different.
     fn update(&self, app: &AppHandle, change: impl FnOnce(&mut PaletteLists)) {
+        let sessions = self.sessions(app);
         let changed = {
             let mut held = self.held();
             change(&mut held.lists);
             held.lists.prune();
             cache_view(&app.state::<Arc<ViewCache>>(), View::Palette, &held.lists);
 
-            match index_json(&held.lists) {
+            match index_json(&held.lists, &sessions) {
                 Ok(index) if index != held.index => {
                     held.index = index.clone();
                     Some(index)
@@ -307,9 +282,10 @@ pub fn center_palette_index(cache: State<'_, PaletteCache>) -> Response {
 
 /// The palette opened: read the lists again, without anyone waiting for it.
 #[tauri::command]
-pub fn center_palette_refresh(cache: State<'_, PaletteCache>) {
+pub fn center_palette_refresh(app: AppHandle, cache: State<'_, PaletteCache>) {
     cache.read_lists.notify_one();
-    cache.read_sessions.notify_one();
+    // Lists what is old; the mirror's rows follow into the index.
+    app.state::<Arc<SessionMirror>>().rows();
 }
 
 /// Keeps the index current for the app's life.
@@ -324,7 +300,6 @@ pub(crate) async fn follow(app: AppHandle) {
         follow_local(&app),
         follow_branches(&app),
         follow_sessions(&app),
-        wake_on_sessions(&app),
         copies
     );
 }
@@ -382,40 +357,20 @@ async fn read_local_lists(app: &AppHandle) {
     });
 }
 
-/// Reads the sessions again when the mirror's rows change, or the signal Home follows says the
-/// starts, deletes or moves changed. The read loop's gap keeps a burst to one read.
-async fn wake_on_sessions(app: &AppHandle) {
+/// Builds the index again when the mirror's rows change, or the signal Home follows says the
+/// starts, deletes or moves changed. `SESSIONS_GAP` keeps a burst to one build.
+async fn follow_sessions(app: &AppHandle) {
     let mut rows = app.state::<Arc<SessionMirror>>().watch();
     let mut pokes = app.state::<Arc<HomeSignal>>().follow();
 
     loop {
+        app.state::<PaletteCache>().update(app, |_| {});
+        sleep(SESSIONS_GAP).await;
         select! {
             changed = rows.changed() => if changed.is_err() { return },
             changed = pokes.changed() => if changed.is_err() { return },
         }
-
-        app.state::<PaletteCache>().read_sessions.notify_one();
     }
-}
-
-async fn follow_sessions(app: &AppHandle) {
-    let cache = app.state::<PaletteCache>();
-
-    loop {
-        read_sessions(app).await;
-        sleep(SESSIONS_GAP).await;
-        select! {
-            () = sleep(SESSIONS_EVERY) => {}
-            () = cache.read_sessions.notified() => {}
-        }
-    }
-}
-
-/// Every machine is asked.
-async fn read_sessions(app: &AppHandle) {
-    let sessions = machine_sessions(app, &app.state::<Arc<Fleet>>()).await;
-    app.state::<PaletteCache>()
-        .update(app, |lists| lists.sessions = Some(sessions));
 }
 
 /// Each project's are read on a machine.

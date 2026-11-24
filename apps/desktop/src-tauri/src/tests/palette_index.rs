@@ -53,7 +53,7 @@ fn titles(entries: &[Entry]) -> Vec<&str> {
 
 #[test]
 fn the_assistants_pages_are_not_found() {
-    let index = build_index(&PaletteLists::default());
+    let index = build_index(&PaletteLists::default(), &[]);
     let actions = titles(&index.actions);
     for gone in [
         "New chat",
@@ -105,7 +105,7 @@ fn the_assistants_pages_are_not_found() {
 
 #[test]
 fn settings_carry_their_section() {
-    let index = build_index(&PaletteLists::default());
+    let index = build_index(&PaletteLists::default(), &[]);
     let key = index
         .settings
         .iter()
@@ -126,7 +126,7 @@ fn a_project_on_two_machines_is_listed_once() {
         ]),
         ..PaletteLists::default()
     };
-    let projects = build_index(&lists).projects;
+    let projects = build_index(&lists, &[]).projects;
     assert_eq!(titles(&projects), ["acme/widget", "acme/relay"]);
     assert_eq!(projects[0].detail, "build-box");
     assert_eq!(projects[0].keys, ["acme/widget"]);
@@ -143,7 +143,7 @@ fn branches_with_work_are_found() {
         }]),
         ..PaletteLists::default()
     };
-    let code = build_index(&lists).code;
+    let code = build_index(&lists, &[]).code;
     assert_eq!(code[0].kind, HitKind::Branch);
     assert_eq!(code[0].id, "acme/widget fix-login");
     assert_eq!(code[0].detail, "Branch · 3 ahead · Retry the token once");
@@ -151,15 +151,15 @@ fn branches_with_work_are_found() {
 
 #[test]
 fn a_folder_only_coding_agents_worked_in_is_a_project() {
+    let sessions = vec![
+        agent_session("1", Some("Desktop UI"), "/work/widget", "build-box", 5),
+        agent_session("2", None, "/work/widget", "mac-box", 9),
+    ];
     let lists = PaletteLists {
         projects: Some(vec![imported("acme/relay", "build-box")]),
-        sessions: Some(vec![
-            agent_session("1", Some("Desktop UI"), "/work/widget", "build-box", 5),
-            agent_session("2", None, "/work/widget", "mac-box", 9),
-        ]),
         ..PaletteLists::default()
     };
-    let projects = build_index(&lists).projects;
+    let projects = build_index(&lists, &sessions).projects;
     assert_eq!(titles(&projects), ["acme/relay", "widget"]);
     assert_eq!(projects[1].id, "widget");
     assert_eq!(
@@ -170,20 +170,20 @@ fn a_folder_only_coding_agents_worked_in_is_a_project() {
 
 #[test]
 fn projects_are_listed_once_across_lists() {
+    let sessions = vec![
+        // Inside acme/relay's folder on its machine.
+        agent_session("1", None, "/srv/project/sub", "build-box", 1),
+        // A checkout named like acme/widget.
+        agent_session("2", None, "/home/user/Widget", "mac-box", 2),
+    ];
     let lists = PaletteLists {
         projects: Some(vec![
             imported("acme/relay", "build-box"),
             imported("acme/widget", "build-box"),
         ]),
-        sessions: Some(vec![
-            // Inside acme/relay's folder on its machine.
-            agent_session("1", None, "/srv/project/sub", "build-box", 1),
-            // A checkout named like acme/widget.
-            agent_session("2", None, "/home/user/Widget", "mac-box", 2),
-        ]),
         ..PaletteLists::default()
     };
-    let index = build_index(&lists);
+    let index = build_index(&lists, &sessions);
     assert_eq!(titles(&index.projects), ["acme/relay", "acme/widget"]);
     // The newest session, in the checkout, names the project it lists under.
     assert_eq!(index.sessions[0].project.as_deref(), Some("acme/widget"));
@@ -191,17 +191,15 @@ fn projects_are_listed_once_across_lists() {
 
 #[test]
 fn coding_agents_are_found_by_title_project_harness_and_machine() {
-    let lists = PaletteLists {
-        sessions: Some(vec![agent_session(
-            "s1",
-            Some("Cross-machine desktop UI"),
-            "/srv/project/widget",
-            "build-box",
-            1,
-        )]),
-        ..PaletteLists::default()
-    };
-    let sessions = build_index(&lists).sessions;
+    let sessions = vec![agent_session(
+        "s1",
+        Some("Cross-machine desktop UI"),
+        "/srv/project/widget",
+        "build-box",
+        1,
+    )];
+    let lists = PaletteLists::default();
+    let sessions = build_index(&lists, &sessions).sessions;
     assert_eq!(sessions[0].title, "Cross-machine desktop UI");
     assert_eq!(sessions[0].detail, "widget");
     assert_eq!(
@@ -219,31 +217,29 @@ fn coding_agents_are_found_by_title_project_harness_and_machine() {
 
 #[test]
 fn coding_agents_list_newest_first() {
-    let lists = PaletteLists {
-        sessions: Some(vec![
-            agent_session("a", Some("Old"), "/srv/a", "build-box", 1),
-            agent_session("b", Some("New"), "/srv/b", "build-box", 9),
-        ]),
-        ..PaletteLists::default()
-    };
-    let index = build_index(&lists);
+    let sessions = vec![
+        agent_session("a", Some("Old"), "/srv/a", "build-box", 1),
+        agent_session("b", Some("New"), "/srv/b", "build-box", 9),
+    ];
+    let lists = PaletteLists::default();
+    let index = build_index(&lists, &sessions);
     assert_eq!(titles(&index.sessions), ["New", "Old"]);
 }
 
 #[test]
 fn an_untitled_session_is_named_by_its_project() {
+    let sessions = vec![agent_session(
+        "s1",
+        None,
+        "/srv/project/src",
+        "build-box",
+        1,
+    )];
     let lists = PaletteLists {
         projects: Some(vec![imported("acme/widget", "build-box")]),
-        sessions: Some(vec![agent_session(
-            "s1",
-            None,
-            "/srv/project/src",
-            "build-box",
-            1,
-        )]),
         ..PaletteLists::default()
     };
-    let index = build_index(&lists);
+    let index = build_index(&lists, &sessions);
     assert_eq!(index.sessions[0].title, "acme/widget");
     assert_eq!(index.sessions[0].detail, "acme/widget");
     assert_eq!(titles(&index.projects), ["acme/widget"]);

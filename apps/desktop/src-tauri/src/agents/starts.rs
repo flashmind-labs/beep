@@ -613,9 +613,6 @@ impl Link for MeshLink {
         }
 
         sessions_changed(&self.app, start.id);
-        self.app
-            .state::<crate::palette::PaletteCache>()
-            .remember_session(&self.app, started.session);
     }
 
     async fn close(&mut self, started: StartedAgent) {

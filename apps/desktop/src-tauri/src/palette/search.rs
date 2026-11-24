@@ -22,7 +22,7 @@ const MOST_HITS: usize = 64;
 #[tauri::command]
 pub async fn center_find_prompts(app: AppHandle, query: String) -> Result<Vec<Entry>> {
     let cache = app.state::<PaletteCache>();
-    let sessions = cache.sessions();
+    let sessions = cache.sessions(&app);
     let fleet = app.state::<Arc<Fleet>>();
     let machines: HashMap<_, _> = match fleet.mesh() {
         Some(mesh) => mesh
