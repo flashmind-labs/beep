@@ -108,7 +108,7 @@ jobs:
           path: dist/*.zip
 
   macos:
-    runs-on: warp-macos-26-arm64-6x
+    runs-on: beep-mac
     steps:
       - uses: actions/checkout@v7
 

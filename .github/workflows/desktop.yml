@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   dmg:
-    runs-on: warp-macos-26-arm64-12x
+    runs-on: beep-mac
     permissions:
       contents: write
     env:
