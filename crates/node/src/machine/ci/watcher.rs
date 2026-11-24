@@ -124,7 +124,7 @@ enum Outcome {
     Listed(Result<(String, Vec<WorkflowRun>)>),
     Read {
         waited: Waited,
-        run: Result<WorkflowRun>,
+        run: Box<Result<WorkflowRun>>,
     },
 }
 
@@ -429,7 +429,10 @@ impl<F: Forge, W: World> Watcher<F, W> {
                     let run = bounded(forge.one(&project.target, waited.key.1)).await;
                     Called {
                         project,
-                        outcome: Outcome::Read { waited, run },
+                        outcome: Outcome::Read {
+                            waited,
+                            run: Box::new(run),
+                        },
                     }
                 });
             }
@@ -474,7 +477,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
             match outcome {
                 Outcome::Checked { at, answer } => self.checked(&project, at, answer),
                 Outcome::Listed(listed) => self.listed(&project, listed),
-                Outcome::Read { waited, run } => self.read(&project, waited, run),
+                Outcome::Read { waited, run } => self.read(&project, waited, *run),
             }
         }
 
