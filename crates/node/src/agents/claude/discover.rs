@@ -200,7 +200,9 @@ impl Store {
             .flatten()
             .map(|project| project.path().join(&name))
             .find(|path| path.is_file())?;
+
         crate::lock(&self.memos.found).insert(id.clone(), path.clone());
+
         Some(path)
     }
 

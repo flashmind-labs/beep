@@ -155,6 +155,7 @@ impl Agents {
         // Cleared first: a change during the read marks it stale again.
         self.seen_stale.store(false, Ordering::Relaxed);
         metrics::counter!("beep_store_reads_total").increment(1);
+
         let stores = self.stores.clone();
         let others = spawn_blocking(move || stores.sessions(None));
         let (claude, others) = tokio::join!(self.external.sightings(), others);
@@ -163,6 +164,7 @@ impl Agents {
             Vec::new()
         });
         seen.extend(others.context("reading the agents' sessions")?);
+
         let present = self.presence.snapshot();
         let mut folders: Vec<PathBuf> = seen
             .iter()
@@ -171,12 +173,14 @@ impl Agents {
             .collect();
         folders.sort();
         folders.dedup();
+
         let read = Sighted {
             at: Instant::now(),
             seen: Arc::new(seen),
             folders: Arc::new(folders),
         };
         *sighted = Some(read.clone());
+
         Ok(read)
     }
 
