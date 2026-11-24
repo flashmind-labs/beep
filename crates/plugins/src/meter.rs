@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::sandbox::locked;
@@ -12,13 +11,12 @@ pub(crate) const BUDGET: Duration = Duration::from_millis(500);
 /// Entries closer together than this share one record, so the record stays short.
 const MERGE: Duration = Duration::from_millis(250);
 
-/// CPU time a plugin spent inside its script over the last minute, and its
-/// pending timers. The window moves on the time the caller passes, so a test can
-/// use its own clock; the amounts are CPU time measured by the sandbox.
+/// CPU time a plugin spent inside its script over the last minute. The window
+/// moves on the time the caller passes, so a test can use its own clock; the
+/// amounts are CPU time measured by the sandbox.
 pub(crate) struct Meter {
     budget: Duration,
     used: Mutex<VecDeque<(Instant, Duration)>>,
-    timers: AtomicUsize,
 }
 
 impl Meter {
@@ -26,7 +24,6 @@ impl Meter {
         Self {
             budget,
             used: Mutex::new(VecDeque::new()),
-            timers: AtomicUsize::new(0),
         }
     }
 
@@ -55,14 +52,6 @@ impl Meter {
         used.iter().fold(Duration::ZERO, |total, (_, spent)| {
             total.saturating_add(*spent)
         })
-    }
-
-    pub(crate) fn set_timers(&self, count: usize) {
-        self.timers.store(count, Ordering::Relaxed);
-    }
-
-    pub(crate) fn timers(&self) -> usize {
-        self.timers.load(Ordering::Relaxed)
     }
 
     fn expire(used: &mut VecDeque<(Instant, Duration)>, now: Instant) {

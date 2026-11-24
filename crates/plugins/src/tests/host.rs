@@ -11,7 +11,7 @@ use crate::instance::{
 };
 use crate::managed::Origin;
 use crate::manifest::Permission;
-use crate::status::{PluginState, PluginStatus};
+use crate::status::{Info, PluginState, PluginStatus};
 use crate::style::StyleToken;
 use crate::ui::{CallbackId, Node, Slot};
 
@@ -643,7 +643,7 @@ fn driven(dir: &std::path::Path) -> (Supervisor, Arc<Published>, mpsc::Receiver<
 
 fn state_of(published: &Published, id: &str) -> PluginState {
     let id: PluginId = id.parse().unwrap();
-    let list = locked(&published.registry).list(Instant::now());
+    let list = locked(&published.registry).list();
 
     list.into_iter()
         .find(|status| status.id == id)
@@ -855,7 +855,7 @@ fn status_names_each_state_and_the_reason_a_plugin_stopped() {
             break;
         }
     }
-    let list = locked(&published.registry).list(Instant::now());
+    let list = locked(&published.registry).list();
     let find = |id: &str| {
         list.iter()
             .find(|status| status.id.to_string() == id)
@@ -863,12 +863,8 @@ fn status_names_each_state_and_the_reason_a_plugin_stopped() {
     };
 
     assert_eq!(find("lazy-one").state, PluginState::Waiting);
-    assert_eq!(find("lazy-one").name, "Lazy");
-    assert_eq!(find("lazy-one").version, semver::Version::new(0, 3, 0));
-    assert_eq!(
-        (find("lazy-one").used_ms, find("lazy-one").pending_timers),
-        (0, 0)
-    );
+    assert_eq!(find("lazy-one").info.name, "Lazy");
+    assert_eq!(find("lazy-one").info.version, semver::Version::new(0, 3, 0));
     let PluginState::Stopped { reason } = &find("greedy-one").state else {
         panic!("expected a stopped plugin");
     };
@@ -883,28 +879,27 @@ fn status_names_each_state_and_the_reason_a_plugin_stopped() {
 fn status_serializes_the_state_and_reason_flat() {
     let status = PluginStatus {
         id: "lazy-one".parse().unwrap(),
-        name: "Lazy".to_owned(),
-        version: semver::Version::new(1, 0, 0),
-        description: String::new(),
-        permissions: vec![Permission::UiAdd],
-        approved: vec![Permission::UiAdd],
-        source: Origin::Dev,
-        tools: Vec::new(),
-        style: Default::default(),
-        enabled: true,
+        info: Info {
+            name: "Lazy".to_owned(),
+            version: semver::Version::new(1, 0, 0),
+            description: String::new(),
+            permissions: vec![Permission::UiAdd],
+            approved: vec![Permission::UiAdd],
+            source: Origin::Dev,
+            tools: Vec::new(),
+            style: Default::default(),
+            enabled: true,
+        },
         state: PluginState::Stopped {
             reason: "used 600 ms".to_owned(),
         },
-        used_ms: 600,
-        pending_timers: 2,
     };
 
     assert_eq!(
         serde_json::to_value(&status).unwrap(),
         json!({ "id": "lazy-one", "name": "Lazy", "version": "1.0.0", "description": "",
                 "permissions": ["ui.add"], "approved": ["ui.add"], "source": { "kind": "dev" },
-                "tools": [], "style": {}, "enabled": true, "state": "stopped", "reason": "used 600 ms", "usedMs": 600,
-                "pendingTimers": 2 })
+                "tools": [], "style": {}, "enabled": true, "state": "stopped", "reason": "used 600 ms" })
     );
     let running = PluginStatus {
         state: PluginState::Paused,
@@ -1040,7 +1035,7 @@ fn a_managed_folder_without_a_record_waits_for_approval() {
             missing: vec![Permission::UiAdd]
         }
     );
-    assert_eq!(status.source, Origin::Local);
+    assert_eq!(status.info.source, Origin::Local);
     assert!(host.placements().is_empty());
 }
 
@@ -1054,8 +1049,8 @@ fn a_dev_folder_runs_without_a_record_and_says_so() {
     wait_for(&rx, |p| !p.is_empty());
     let status = status_of(&host, "cat-one").unwrap();
     assert_eq!(status.state, PluginState::Running);
-    assert_eq!(status.source, Origin::Dev);
-    assert_eq!(status.approved, [Permission::UiAdd]);
+    assert_eq!(status.info.source, Origin::Dev);
+    assert_eq!(status.info.approved, [Permission::UiAdd]);
 }
 
 #[test]
@@ -1087,7 +1082,7 @@ fn disabling_stops_the_plugin_and_enabling_starts_it_again() {
 
     let status = status_of(&host, "cat-one").unwrap();
     assert_eq!(status.state, PluginState::Disabled);
-    assert!(!status.enabled);
+    assert!(!status.info.enabled);
     wait_for(&rx, <[Placement]>::is_empty);
     assert!(host.placements().is_empty());
 
@@ -1205,8 +1200,8 @@ fn installing_a_prepared_folder_runs_it_and_an_update_replaces_it() {
     host.install(&update, origin("bbbbbbb")).unwrap();
 
     let status = status_of(&host, "cat-one").unwrap();
-    assert_eq!(status.version, semver::Version::new(0, 2, 0));
-    assert_eq!(status.source, origin("bbbbbbb"));
+    assert_eq!(status.info.version, semver::Version::new(0, 2, 0));
+    assert_eq!(status.info.source, origin("bbbbbbb"));
     assert_eq!(texts(&wait_for(&rx, |p| texts(p) == ["two"])), ["two"]);
 }
 
@@ -1331,9 +1326,9 @@ fn a_built_in_is_installed_allowed_and_off_at_first_start() {
     let (host, rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V1));
 
     let status = status_of(&host, "own-cat").unwrap();
-    assert_eq!(status.source, Origin::Builtin);
-    assert_eq!(status.approved, [Permission::UiAdd]);
-    assert!(!status.enabled);
+    assert_eq!(status.info.source, Origin::Builtin);
+    assert_eq!(status.info.approved, [Permission::UiAdd]);
+    assert!(!status.info.enabled);
     assert!(root.path().join("own-cat/art/frame.png").is_file());
 
     host.set_enabled(&plugin_id("own-cat"), true).unwrap();
@@ -1352,10 +1347,10 @@ fn a_changed_built_in_replaces_the_copy_and_keeps_the_off_switch() {
     let (host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(BUILTIN_V2));
 
     let status = status_of(&host, "own-cat").unwrap();
-    assert_eq!(status.version.to_string(), "2.0.0");
+    assert_eq!(status.info.version.to_string(), "2.0.0");
     assert_eq!(status.state, PluginState::Disabled);
     assert_eq!(
-        status.approved,
+        status.info.approved,
         [Permission::UiAdd, Permission::SessionsRead]
     );
     assert!(!root.path().join("own-cat/art").exists());
@@ -1398,7 +1393,10 @@ fn the_dev_policy_writes_no_built_in_and_runs_the_dev_copy() {
     let (host, rx) = start_with_builtins(root.path(), Policy::Dev, &own_cat(BUILTIN_V1));
 
     assert!(!root.path().join("own-cat/art").exists());
-    assert_eq!(status_of(&host, "own-cat").unwrap().source, Origin::Dev);
+    assert_eq!(
+        status_of(&host, "own-cat").unwrap().info.source,
+        Origin::Dev
+    );
     wait_for(&rx, |placements| texts(placements) == ["dev"]);
 
     let empty = tempfile::tempdir().unwrap();
@@ -1541,7 +1539,11 @@ fn a_built_in_update_keeps_the_plugins_data() {
     let (host, _rx) = start_with_builtins(root.path(), Policy::Managed, &own_cat(V2));
 
     assert_eq!(
-        status_of(&host, "own-cat").unwrap().version.to_string(),
+        status_of(&host, "own-cat")
+            .unwrap()
+            .info
+            .version
+            .to_string(),
         "2.0.0"
     );
     assert_eq!(std::fs::read_to_string(&data).unwrap(), r#"{"seen":"yes"}"#);
@@ -1606,7 +1608,7 @@ fn a_plugin_answers_the_tools_it_declares_and_registers() {
     let (host, _rx) = start_with(root.path(), Policy::Dev);
     wait_state(&host, "tool-one", PluginState::Running);
 
-    let listed = status_of(&host, "tool-one").unwrap().tools;
+    let listed = status_of(&host, "tool-one").unwrap().info.tools;
     assert_eq!(listed.len(), 4);
     assert_eq!(listed[0].description, "Adds two numbers.");
 
@@ -1775,10 +1777,10 @@ fn a_skin_needs_no_code_and_waits_for_approval() {
             missing: vec![Permission::Style]
         }
     );
-    assert_eq!(status.style[&StyleToken::Radius].as_ref(), "0");
+    assert_eq!(status.info.style[&StyleToken::Radius].as_ref(), "0");
 
     host.approve(&plugin_id("sharp")).unwrap();
     let status = status_of(&host, "sharp").unwrap();
     assert_eq!(status.state, PluginState::Waiting);
-    assert_eq!(status.approved, [Permission::Style]);
+    assert_eq!(status.info.approved, [Permission::Style]);
 }

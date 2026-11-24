@@ -1,13 +1,11 @@
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::Arc;
 use std::time::Instant;
 
 use serde::Serialize;
 
 use crate::managed::Origin;
 use crate::manifest::{Permission, PluginId};
-use crate::meter::Meter;
 use crate::style::Style;
 use crate::tool::ToolSpec;
 
@@ -35,30 +33,15 @@ pub enum PluginState {
     },
 }
 
-/// One plugin's name, state and cost.
+/// One plugin's name and state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PluginStatus {
     pub id: PluginId,
-    pub name: String,
-    pub version: semver::Version,
-    pub description: String,
-    /// What the manifest asks for.
-    pub permissions: Vec<Permission>,
-    /// What the user allowed.
-    pub approved: Vec<Permission>,
-    pub source: Origin,
-    /// The tools the manifest gives coding agents.
-    pub tools: Vec<ToolSpec>,
-    /// The style tokens the manifest sets.
-    pub style: Style,
-    /// Whether the user left it turned on.
-    pub enabled: bool,
+    #[serde(flatten)]
+    pub info: Info,
     #[serde(flatten)]
     pub state: PluginState,
-    /// CPU time over the last minute, in ms.
-    pub used_ms: u64,
-    pub pending_timers: usize,
 }
 
 /// A plugin's life as the supervisor tracks it.
@@ -73,22 +56,28 @@ pub(crate) enum Lifecycle {
 }
 
 /// What a plugin's manifest and record say about it.
-pub(crate) struct Info {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Info {
     pub name: String,
     pub version: semver::Version,
     pub description: String,
+    /// What the manifest asks for.
     pub permissions: Vec<Permission>,
+    /// What the user allowed.
     pub approved: Vec<Permission>,
     pub source: Origin,
+    /// The tools the manifest gives coding agents.
     pub tools: Vec<ToolSpec>,
+    /// The style tokens the manifest sets.
     pub style: Style,
+    /// Whether the user left it turned on.
     pub enabled: bool,
 }
 
 struct Entry {
     info: Info,
     lifecycle: Lifecycle,
-    meter: Option<Arc<Meter>>,
 }
 
 /// Every plugin's status. The supervisor writes it and the host reads it.
@@ -99,34 +88,14 @@ pub(crate) struct Registry {
 }
 
 impl Registry {
-    pub(crate) fn set(
-        &mut self,
-        id: PluginId,
-        info: Info,
-        lifecycle: Lifecycle,
-        meter: Option<Arc<Meter>>,
-    ) {
-        self.entries.insert(
-            id,
-            Entry {
-                info,
-                lifecycle,
-                meter,
-            },
-        );
+    pub(crate) fn set(&mut self, id: PluginId, info: Info, lifecycle: Lifecycle) {
+        self.entries.insert(id, Entry { info, lifecycle });
     }
 
-    /// Moves a known plugin to another lifecycle, keeping its name and meter.
+    /// Moves a known plugin to another lifecycle, keeping its name.
     pub(crate) fn move_to(&mut self, id: &PluginId, lifecycle: Lifecycle) {
         if let Some(entry) = self.entries.get_mut(id) {
             entry.lifecycle = lifecycle;
-        }
-    }
-
-    /// Shows the meter of a plugin's current run.
-    pub(crate) fn attach(&mut self, id: &PluginId, meter: Arc<Meter>) {
-        if let Some(entry) = self.entries.get_mut(id) {
-            entry.meter = Some(meter);
         }
     }
 
@@ -152,18 +121,6 @@ impl Registry {
         self.visible = visible;
     }
 
-    /// The list as `list` gives it, with no CPU time or timers, so two
-    /// reads differ only when a plugin or its state did.
-    pub(crate) fn list_without_cost(&self) -> Vec<PluginStatus> {
-        let mut all = self.list(Instant::now());
-        for status in &mut all {
-            status.used_ms = 0;
-            status.pending_timers = 0;
-        }
-
-        all
-    }
-
     /// A plugin's state as the page and agent tools read it.
     pub(crate) fn state(&self, id: &PluginId) -> Option<PluginState> {
         self.entries.get(id).map(|entry| self.state_of(entry))
@@ -184,29 +141,13 @@ impl Registry {
         }
     }
 
-    pub(crate) fn list(&self, now: Instant) -> Vec<PluginStatus> {
+    pub(crate) fn list(&self) -> Vec<PluginStatus> {
         self.entries
             .iter()
-            .map(|(id, entry)| {
-                let (used, timers) = entry.meter.as_ref().map_or((0, 0), |meter| {
-                    (meter.used(now).as_millis(), meter.timers())
-                });
-
-                PluginStatus {
-                    id: id.clone(),
-                    name: entry.info.name.clone(),
-                    version: entry.info.version.clone(),
-                    description: entry.info.description.clone(),
-                    permissions: entry.info.permissions.clone(),
-                    approved: entry.info.approved.clone(),
-                    source: entry.info.source.clone(),
-                    tools: entry.info.tools.clone(),
-                    style: entry.info.style.clone(),
-                    enabled: entry.info.enabled,
-                    state: self.state_of(entry),
-                    used_ms: u64::try_from(used).unwrap_or(u64::MAX),
-                    pending_timers: timers,
-                }
+            .map(|(id, entry)| PluginStatus {
+                id: id.clone(),
+                info: entry.info.clone(),
+                state: self.state_of(entry),
             })
             .collect()
     }

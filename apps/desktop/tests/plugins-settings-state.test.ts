@@ -9,7 +9,7 @@ import {
 const git = { kind: "git", url: "https://github.com/owner/repo.git", ref: null, subfolder: null, commit: "4f0915a8b3c2d1e0f9a8b7c6d5e4f30211223344" };
 const raw = (extra: Record<string, unknown> = {}) => ({
   id: "composer-cat", name: "Composer cat", version: "0.2.0", description: "A cat.", permissions: ["ui.add"], approved: ["ui.add"],
-  source: git, enabled: true, state: "running", usedMs: 3, pendingTimers: 0, ...extra,
+  source: git, enabled: true, state: "running", ...extra,
 });
 const row = (extra: Partial<PluginRow> = {}): PluginRow => {
   const parsed = parseRows([raw()]);

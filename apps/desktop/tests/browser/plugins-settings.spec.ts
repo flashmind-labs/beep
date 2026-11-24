@@ -9,7 +9,7 @@ const commit = "4f0915a8b3c2d1e0f9a8b7c6d5e4f30211223344";
 const git = (name: string, extra: Record<string, unknown> = {}) => ({ kind: "git", url: `https://github.com/owner/${name}.git`, ref: null, subfolder: null, commit, ...extra });
 const status = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
   id, name, version: "0.2.0", description: `${name} does one small thing.`, permissions: ["ui.add"], approved: ["ui.add"],
-  source: git(id), enabled: true, state: "running", usedMs: 0, pendingTimers: 0, ...extra,
+  source: git(id), enabled: true, state: "running", ...extra,
 });
 
 /// Six plugins in six states.
@@ -71,7 +71,7 @@ function installFake(options: FakeOptions): void {
       case "plugins_confirm": {
         const staged = typeof args.stage === "string" && args.stage.startsWith("2");
         if (staged) { const row = find("composer-cat"); if (row) { row.version = "0.3.0"; row.permissions = ["ui.add", "sessions.read"]; row.approved = ["ui.add", "sessions.read"]; } }
-        else listed.push({ id: "pocket-timer", name: "Pocket timer", version: "0.1.0", description: "A timer in the session header.", permissions: ["ui.add"], approved: ["ui.add"], source: source("pocket-timer"), enabled: true, state: "running", usedMs: 0, pendingTimers: 0 });
+        else listed.push({ id: "pocket-timer", name: "Pocket timer", version: "0.1.0", description: "A timer in the session header.", permissions: ["ui.add"], approved: ["ui.add"], source: source("pocket-timer"), enabled: true, state: "running" });
         changed();
         return "pocket-timer";
       }

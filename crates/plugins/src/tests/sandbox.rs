@@ -1796,7 +1796,6 @@ fn a_plugin_over_its_cpu_budget_is_stopped() {
         with_composer(Sandbox::load_metered(&fixture.dir(), start, meter.clone()).unwrap());
     // The meter now holds the whole budget, so any CPU the timer uses is over it.
     meter.record(Instant::now(), Duration::from_millis(25));
-    assert_eq!(meter.timers(), 1);
 
     let error = sandbox
         .fire_due(start + Duration::from_millis(20))
@@ -1808,7 +1807,6 @@ fn a_plugin_over_its_cpu_budget_is_stopped() {
     );
     assert!(error.to_string().contains("budget is 25 ms"), "{error}");
     assert!(meter.used(Instant::now()) > Duration::from_millis(25));
-    assert_eq!(meter.timers(), 0);
 }
 
 #[test]

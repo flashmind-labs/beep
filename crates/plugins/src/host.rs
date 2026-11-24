@@ -221,9 +221,9 @@ impl Host {
         locked(&self.published.assets).get(hash).cloned()
     }
 
-    /// Every plugin's state, CPU time over the last minute and pending timers.
+    /// Every plugin's state.
     pub fn status(&self) -> Vec<PluginStatus> {
-        locked(&self.published.registry).list(Instant::now())
+        locked(&self.published.registry).list()
     }
 
     /// Hands an update to every plugin that follows its topic. The host keeps the
@@ -427,11 +427,16 @@ impl Host {
             });
         }
 
-        let Some(spec) = status.tools.iter().find(|spec| &spec.name == tool) else {
+        let Some(spec) = status.info.tools.iter().find(|spec| &spec.name == tool) else {
             return Err(ToolError::NoTool {
                 plugin: id.clone(),
                 tool: tool.clone(),
-                provided: status.tools.iter().map(|spec| spec.name.clone()).collect(),
+                provided: status
+                    .info
+                    .tools
+                    .iter()
+                    .map(|spec| spec.name.clone())
+                    .collect(),
             });
         };
         spec.check_input(input)?;
@@ -676,7 +681,7 @@ impl Supervisor {
 
     /// Tells the handler when the list of plugins or a state changed.
     fn report_status(&mut self) {
-        let now = locked(&self.published.registry).list_without_cost();
+        let now = locked(&self.published.registry).list();
         if now != self.reported {
             self.reported = now;
             self.handler.status_changed();
@@ -970,7 +975,6 @@ impl Supervisor {
                         enabled: assessed.enabled,
                     },
                     lifecycle,
-                    None,
                 );
                 self.reconcile_one(&id, now);
 
@@ -1006,7 +1010,6 @@ impl Supervisor {
                         enabled: record.is_none_or(|record| record.enabled),
                     },
                     Lifecycle::Stopped(error.to_string()),
-                    None,
                 );
                 self.clear(&id);
             }
@@ -1085,7 +1088,6 @@ impl Supervisor {
         match spawned {
             Ok(thread) => {
                 registry.move_to(id, Lifecycle::Running);
-                registry.attach(id, meter);
                 self.running.insert(
                     id.clone(),
                     Running {

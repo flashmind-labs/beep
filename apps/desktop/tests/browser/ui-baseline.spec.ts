@@ -598,7 +598,7 @@ test("settings machine with WSL", async ({ page }) => {
 
 test("settings plugins", async ({ page }) => {
   const git = { kind: "git", url: "https://github.com/owner/idle-timer.git", ref: null, subfolder: null, commit: "4f0915a8b3c2d1e0f9a8b7c6d5e4f30211223344" };
-  const plugin = (id: string, name: string, description: string, extra: Record<string, unknown>) => ({ id, name, version: "0.2.0", description, permissions: ["ui.add"], approved: ["ui.add"], source: { kind: "builtin" }, enabled: true, state: "running", usedMs: 0, pendingTimers: 0, ...extra });
+  const plugin = (id: string, name: string, description: string, extra: Record<string, unknown>) => ({ id, name, version: "0.2.0", description, permissions: ["ui.add"], approved: ["ui.add"], source: { kind: "builtin" }, enabled: true, state: "running", ...extra });
   const plugins = [
     plugin("composer-cat", "Composer cat", "A cat sits on the message box.", { permissions: ["ui.add", "sessions.read"], approved: ["ui.add", "sessions.read"] }),
     plugin("idle-timer", "Idle timer", "Shows how long a session has been quiet.", { version: "1.0.3", source: git, enabled: false, state: "disabled" }),

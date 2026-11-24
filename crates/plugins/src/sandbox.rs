@@ -242,7 +242,6 @@ impl Sandbox {
         let api = loaded?;
         drained?;
         check_meter(&meter)?;
-        meter.set_timers(locked(&timers).pending.len());
         if let Some(missing) = locked(&tools).unregistered() {
             return Err(SandboxError::Unregistered(missing));
         }
@@ -429,7 +428,6 @@ impl Sandbox {
         let drained = drain_jobs(&self.runtime);
         self.budget.stop();
         self.meter.record(Instant::now(), started.spent());
-        self.meter.set_timers(locked(&self.timers).pending.len());
 
         let value = result?;
         drained?;
