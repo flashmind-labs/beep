@@ -489,17 +489,35 @@ fn sources(topics: &[Topic]) -> Vec<(Topic, Source)> {
 }
 
 #[test]
-fn the_wildcard_leaves_out_the_values_released_readers_cannot_decode() {
+fn a_released_readers_topics_get_what_a_released_node_gave() {
     let all = sources(&[Topic::new("*")]);
 
-    assert!(all.iter().all(|(topic, _)| !matches!(topic.name(), "devices" | "tool-updates")));
+    assert!(all.iter().all(|(topic, _)| {
+        !matches!(topic.name(), "devices" | "device-list" | "tool-updates")
+    }));
+    // A released node had no source for `devices`, and a released reader
+    // cannot decode the list.
+    assert!(sources(&[Topic::new("devices")]).is_empty());
     assert_eq!(
-        sources(&[Topic::new("devices"), Topic::new("tool-updates")])
+        sources(&[Topic::new("device-list"), Topic::new("tool-updates")])
             .into_iter()
             .map(|(_, source)| source)
             .collect::<Vec<_>>(),
         vec![Source::Devices, Source::ToolUpdates]
     );
+}
+
+#[test]
+fn a_device_ping_refreshes_the_device_list() {
+    let topic = Topic::new("device-list");
+    let mut snapshots = Snapshots::new();
+    snapshots.replace(&Offers::default(), std::slice::from_ref(&topic), &[], &BTreeMap::new());
+    let key = (topic, None);
+    snapshots.entries.get_mut(&key).unwrap().dirty = false;
+
+    snapshots.changed(&Topic::new("devices"), ChangeKind::Any);
+
+    assert!(snapshots.entries[&key].dirty);
 }
 
 #[tokio::test]

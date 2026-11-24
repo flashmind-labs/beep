@@ -76,7 +76,7 @@ pub enum Value {
     Sync(Box<sync::Reply>),
     /// A plugin's compact MessagePack state, published under its topic.
     Plugin(#[serde(with = "serde_bytes")] Vec<u8>),
-    /// Every emulator, phone and simulator on the node, under `devices`.
+    /// Every emulator, phone and simulator on the node, under `device-list`.
     /// Only a topic that names it gets it, never `*`.
     Devices(Vec<device::Device>),
     /// The tools the node has found a newer release of, under `tool-updates`.

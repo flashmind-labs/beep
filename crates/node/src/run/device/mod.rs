@@ -107,8 +107,11 @@ async fn platforms_in(agents: &Agents, root: &str) -> Result<Vec<Platform>> {
         .context("the platform check stopped")
 }
 
-/// The topic that says the device list changed.
+/// The topic that says the device list changed. Released readers name it and
+/// cannot decode the list, so it carries no value.
 pub(crate) const TOPIC: &str = "devices";
+/// The topic that carries the device list. No released reader names it.
+pub(crate) const LIST_TOPIC: &str = "device-list";
 
 /// Every emulator, phone and simulator here, Android first.
 pub(crate) async fn list() -> Vec<Device> {

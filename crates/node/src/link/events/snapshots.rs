@@ -247,7 +247,7 @@ impl Snapshots {
         }
 
         // These carry values released readers cannot decode, so `*` leaves them out.
-        for topic in topics.iter().filter(|topic| topic.name() == crate::run::device::TOPIC) {
+        for topic in topics.iter().filter(|topic| topic.name() == crate::run::device::LIST_TOPIC) {
             wanted.push((topic.clone(), Source::Devices));
         }
 
@@ -348,7 +348,7 @@ impl Snapshots {
                         | "moves"
                         | "reviews"
                         | "sign-in"
-                        | crate::run::device::TOPIC
+                        | crate::run::device::LIST_TOPIC
                         | crate::machine::provision::UPDATES_TOPIC
                 )
         }) {
@@ -618,6 +618,7 @@ fn affected(read: &Topic, change: &Topic) -> bool {
             ("agents", "agent" | "moves")
                 | ("agent", "agents")
                 | ("processes", "process-output")
+                | (crate::run::device::LIST_TOPIC, crate::run::device::TOPIC)
                 | ("terminals", "terminal-output")
         )
 }
