@@ -210,6 +210,25 @@ pub(crate) async fn edit_files(
     )
 }
 
+/// Asks a language server on `machine` for the definition at 0-based `line` and
+/// UTF-16 `column` of `path` inside `root`.
+pub(crate) async fn lsp_definition(
+    fleet: &Fleet,
+    machine: EndpointId,
+    root: String,
+    path: beep_proto::node::agent::RelPath,
+    line: u32,
+    column: u32,
+    text: Option<String>,
+) -> Result<sessions::LspReply> {
+    let client = fleet.client(machine).await?;
+    work(
+        fleet,
+        machine,
+        sessions::lsp_definition(&client, root, path, line, column, text).await?,
+    )
+}
+
 /// Whether each of `paths` is on `machine`, in order; `None` from a node from before the
 /// question.
 pub(crate) async fn present(

@@ -15,7 +15,7 @@ use beep_proto::{
     MachineHarnessSettings, check_agent, check_settings, merged_env,
     node::agent::valid_model,
     node::harness::{AutoCompact, HarnessConfig, HarnessDriver, ModelCompact},
-    node::mesh_state::{AssistantSettings, SkillSync},
+    node::mesh_state::{AssistantSettings, EditorSettings, SkillSync},
 };
 use iroh::EndpointId;
 use std::collections::HashSet;
@@ -412,6 +412,15 @@ impl Desk {
 
     pub async fn save_assistant(&self, settings: &AssistantSettings) -> Result<()> {
         write(&self.mesh, Key::Assistant, Some(settings)).await
+    }
+
+    /// Editor preferences shared across desktops.
+    pub fn editor(&self) -> EditorSettings {
+        read::<EditorSettings>(&self.mesh, &Key::Editor).unwrap_or_default()
+    }
+
+    pub async fn save_editor(&self, settings: &EditorSettings) -> Result<()> {
+        write(&self.mesh, Key::Editor, Some(settings)).await
     }
 
     /// Every saved version with its key, oldest first.

@@ -26,6 +26,7 @@ import type { TerminalRow } from "../terminals/terminals.tsx";
 import { newTermLike } from "../terminals/newkey-state.ts";
 import { readError, loadText, startTerminal, load } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
+import type { LspLocation } from "./lsp-state.ts";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { draw, flipTab, noteTab, pickPhoneTab, touchTab } from "./media-draw.ts";
@@ -66,6 +67,8 @@ export interface FileEdit {
   conflict: boolean;
   /// Where the cursor starts, such as the place double-clicked to edit.
   at: TextPlace | null;
+  /// Increments when navigation moves the cursor inside an already-open editor.
+  jump?: number;
 }
 
 /// A place in a text by its 0-based line and column.
@@ -126,6 +129,10 @@ export interface MediaTab {
   text?: TreeText;
   /// The line a link pointed at, marked and scrolled to in the text view.
   line?: number | null;
+  /// Increments on explicit jumps so jumping to the same line scrolls again.
+  lineJump?: number;
+  /// Pending cursor target from go-to-definition, applied once text loads.
+  jump?: { line: number; column: number; edit: boolean } | null;
   /// Where else to look, in order, when the file is not where it was
   /// looked for: the session's folder, then the top of its checkout.
   elsewhere?: WorkFile[];
@@ -474,9 +481,44 @@ export function openLinked(ref: FileRef) {
 
   if (tab && tab.line !== ref.line) {
     tab.line = ref.line;
+    tab.lineJump = (tab.lineJump ?? 0) + 1;
     tab.rev++;
     draw();
   }
+}
+
+/// Opens a definition target returned by LSP at its 0-based line and column.
+/// When `preferEdit` is set, opens or focuses the target in CodeMirror edit mode
+/// so Cmd+click and Vim `gd` keep the editing flow intact.
+export function openLocation(root: string, location: LspLocation, preferEdit: boolean) {
+  const s = P.session;
+  if (!s) return;
+
+  if (!location.inside_root) {
+    openLinked({ path: location.path, line: location.line + 1 });
+    return;
+  }
+
+  const cwd = s.cwd.replace(/\/+$/, "");
+  const cleanRoot = root.replace(/\/+$/, "");
+  const targetFull = resolvePath(cleanRoot, location.path);
+  const held = P.tabs.find(t => !t.closed && t.kind === "text" && t.rel && resolvePath(t.root ?? cwd, t.rel) === targetFull);
+  if (held) focusTab(held.id);
+  const tab = held ?? openIn(cleanRoot, location.path);
+  if (!tab || tab.kind !== "text") return;
+
+  tab.line = location.line + 1;
+  tab.lineJump = (tab.lineJump ?? 0) + 1;
+
+  if (tab.edit) {
+    tab.edit.at = { line: location.line, column: location.column };
+    tab.edit.jump = (tab.edit.jump ?? 0) + 1;
+  } else if (preferEdit) {
+    tab.jump = { line: location.line, column: location.column, edit: true };
+  }
+
+  tab.rev++;
+  draw();
 }
 
 /// Saves `rel`, a file in the worktree at `root` (the one shown when

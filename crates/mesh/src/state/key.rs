@@ -20,6 +20,8 @@ pub enum Key {
     ProjectSync,
     /// The harness, model and thinking level of the Home assistant: `settings/assistant`.
     Assistant,
+    /// Editor preferences shared across desktops: `settings/editor`.
+    Editor,
     /// One saved version of the user's instructions: `instructions/<ms>.<id>`.
     InstructionVersion(String),
     /// A terminal kept running on a machine: `terminal/<id>`.
@@ -71,6 +73,7 @@ impl fmt::Display for Key {
             Key::SkillSync => f.write_str("skills/sync"),
             Key::ProjectSync => f.write_str("settings/project-sync"),
             Key::Assistant => f.write_str("settings/assistant"),
+            Key::Editor => f.write_str("settings/editor"),
             Key::InstructionVersion(n) => write!(f, "instructions/{n}"),
             Key::Terminal(n) => write!(f, "terminal/{n}"),
             Key::SessionMove(n) => write!(f, "session-move/{n}"),
@@ -110,6 +113,10 @@ impl FromStr for Key {
 
         if s == "settings/assistant" {
             return Ok(Key::Assistant);
+        }
+
+        if s == "settings/editor" {
+            return Ok(Key::Editor);
         }
 
         let (kind, name) = s.split_once('/').ok_or_else(bad)?;

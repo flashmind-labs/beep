@@ -48,6 +48,14 @@ wire_structs! {
         pub effort: Option<Effort>,
         pub fast: Option<bool>,
     }
+
+    /// `settings/editor`: editor preferences shared across desktops.
+    /// `None` leaves the choice to each desktop's local storage until saved.
+    #[derive(Default)]
+    #[serde(default)]
+    pub struct EditorSettings {
+        pub vim: Option<bool>,
+    }
 }
 
 /// `skill-library/<name>`: a library of agent skills from a Git repository, the commit every
@@ -298,6 +306,7 @@ pub trait StateValue: Serialize + DeserializeOwned {
 impl StateValue for SyncSpec {}
 impl StateValue for SkillSync {}
 impl StateValue for AssistantSettings {}
+impl StateValue for EditorSettings {}
 impl StateValue for SkillLibrary {}
 impl StateValue for ProjectSkills {}
 impl StateValue for ProjectSyncSettings {}

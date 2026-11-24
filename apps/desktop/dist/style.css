@@ -456,13 +456,14 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.tool.artifact .tt { text-decoration: underline dotted var(--dim); text-underline-offset: 3px }
 /* A file of the Files tab as text, and a terminal tab. */
 .agcode { flex: 1; min-height: 0; overflow: auto }
+.agcode.lsp-mod pre { cursor: pointer }
 .agcode pre { margin: 0; padding: 8px 10px; font: 11.5px/17px var(--mono); color: var(--fg); white-space: pre; tab-size: 4; cursor: text; -webkit-user-select: text; user-select: text }
 .agcode .ln { display: inline-block; width: var(--lnw, 3ch); margin-right: 12px; text-align: right; color: var(--dim); -webkit-user-select: none; user-select: none }
 .agcode .ln.on { color: var(--accent); font-weight: 600 }
 /* Token colours, darker on a light skin. */
 .agcode .k, .dcoderen .cmd .k, .ddiff .k, .dv-c .k { color: light-dark(#7c3aad, #C792EA) } .agcode .s, .dcoderen .cmd .s, .ddiff .s, .dv-c .s { color: light-dark(#2e7d32, #A5D6A7) } .agcode .c, .dcoderen .cmd .c, .ddiff .c, .dv-c .c { color: var(--dim); font-style: italic } .agcode .n, .dcoderen .cmd .n, .ddiff .n, .dv-c .n { color: light-dark(#b45309, #F2B482) }
 .agcm .ty, .dv-c .ty { color: light-dark(#8a6100, #FFCB6B) } .agcm .fn, .dv-c .fn { color: light-dark(#1d4ed8, #82AAFF) } .agcm .pr, .dv-c .pr { color: light-dark(#0e7490, #89DDFF) } .agcm .tg, .dv-c .tg { color: light-dark(#c2410c, #F07178) }
-.agcm .hd { color: light-dark(#1d4ed8, #82AAFF); font-weight: 600 } .agcm .lk { color: var(--accent); text-decoration: underline } .agcm .em { font-style: italic } .agcm .st { font-weight: 600 }
+.agcm .hd { color: light-dark(#1d4ed8, #82AAFF); font-weight: 600 } .agcm .lk { color: var(--accent); text-decoration: underline } .agcm .em { font-style: italic } .agcm .st { font-weight: 600 } .agcm .cm-lsp-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer }
 .agpview.term .tm-term { flex: 1; min-height: 0; height: auto; padding: 6px 8px; background: var(--deep) }
 /* A terminal screen (terminals/termview.ts): its canvas, and the hidden field keys and IME type into. */
 .tm-term { position: relative; overflow: hidden; cursor: text }

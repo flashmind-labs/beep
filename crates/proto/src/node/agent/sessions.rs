@@ -376,6 +376,18 @@ pub enum SessionsRequest {
         draft: SessionId,
         path: String,
     },
+    /// Looks up the definition of the symbol at 0-based `line` and UTF-16
+    /// `column` of `path` inside `root` using an installed language server.
+    /// `text`, when given, is the editor's unsaved buffer. Answered with
+    /// `LspLocations` or `Error`. Older nodes refuse this request.
+    LspDefinition {
+        root: String,
+        path: RelPath,
+        line: u32,
+        column: u32,
+        #[serde(default)]
+        text: Option<String>,
+    },
 }
 
 /// One session `SessionsRequest::Search` found.
@@ -616,7 +628,8 @@ impl SessionsRequest {
             | Self::Review { .. }
             | Self::Reviews { .. }
             | Self::Processes { .. }
-            | Self::Live { .. } => true,
+            | Self::Live { .. }
+            | Self::LspDefinition { .. } => true,
             Self::Watch { .. }
             | Self::FollowPresence {}
             | Self::Steer { .. }
@@ -839,6 +852,33 @@ pub enum SessionsReply {
         rows: Vec<IndexRow>,
         current: bool,
     },
+    /// The answer to `LspDefinition`: definition targets in server order, and
+    /// a short note when no language server could answer.
+    LspLocations {
+        locations: Vec<LspLocation>,
+        #[serde(default)]
+        note: Option<String>,
+    },
+}
+
+/// One definition target reported by a language server.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LspLocation {
+    /// Path relative to the request's `root` when `inside_root` is true,
+    /// otherwise an absolute path on the node.
+    pub path: String,
+    #[serde(default)]
+    pub inside_root: bool,
+    /// 0-based line number.
+    pub line: u32,
+    /// 0-based UTF-16 column.
+    pub column: u32,
+    /// End 0-based line number.
+    #[serde(default)]
+    pub end_line: u32,
+    /// End 0-based UTF-16 column.
+    #[serde(default)]
+    pub end_column: u32,
 }
 
 /// A CI run the user started (a push or a pull request) that ended, told by

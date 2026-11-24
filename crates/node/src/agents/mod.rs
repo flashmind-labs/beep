@@ -51,6 +51,7 @@ host! {
     mod launch;
     mod live;
     pub(crate) mod locate;
+    mod lsp;
     mod made_files;
     mod media_file;
     mod models;
@@ -186,6 +187,8 @@ host! {
         alerts: Arc<AlertHub>,
         /// What git says of the folders sessions and peers read.
         checkouts: Arc<checkouts::Checkouts>,
+        /// Lazily spawned language servers for editor go-to-definition.
+        lsp: Arc<lsp::Pool>,
         /// The CI runs this node tells, and how it reaches the hosts.
         pub(crate) ci: Arc<crate::machine::ci::Ci>,
         /// What sessions spent, from the agents' own logs.

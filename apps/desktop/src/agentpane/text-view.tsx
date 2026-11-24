@@ -1,25 +1,68 @@
-import { lazy, Suspense, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { create } from "zustand";
 import { addMention } from "../agents/workdrop.ts";
+import { Button, ChipToggle } from "../ui/kit.tsx";
+import { openMenu } from "../ui/menu.tsx";
+import { APPLE, onPhone } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
 import { highlight, languageOf, MAX_LINES, shortSize } from "./files-state.ts";
 import { hasPreview } from "./html-preview-state.ts";
-import { type MediaTab, type TextPlace, type TreeText, discardSheet, P, rememberPane, saveWorkFile } from "./media.ts";
+import {
+  formatLocationLabel,
+  isDefinitionModifier,
+  parseEditorSettings,
+  parseLspResult,
+  resolveVimSync,
+  wordSpanAt,
+} from "./lsp-state.ts";
+import { type MediaTab, type TextPlace, type TreeText, discardSheet, openLocation, P, rememberPane, saveWorkFile } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
 import { fileError, readError } from "./read.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
-import { Button, ChipToggle } from "../ui/kit.tsx";
-import { onPhone } from "../ui/platform.ts";
 
 const vimPreference = "beep.editor.vim";
-const useVimKeys = create<boolean>(() => {
-  try { return localStorage.getItem(vimPreference) === "true"; } catch { return false; }
-});
+
+function readLocalVim(): string | null {
+  try { return localStorage.getItem(vimPreference); } catch { return null; }
+}
+
+function writeLocalVim(enabled: boolean) {
+  try { localStorage.setItem(vimPreference, String(enabled)); } catch { /* Keep it for this window. */ }
+}
+
+const useVimKeys = create<boolean>(() => readLocalVim() === "true");
 
 window.addEventListener("storage", event => {
   if (event.key === vimPreference || event.key === null) useVimKeys.setState(event.newValue === "true");
 });
+
+let vimSynced = false;
+
+/// Hydrates Vim mode from mesh settings once per window so the choice persists
+/// across restarts and machines, while keeping `localStorage` for instant boot.
+function syncVimPreference() {
+  if (vimSynced || onPhone()) return;
+  vimSynced = true;
+
+  void invoke<unknown>("editor_settings_get").then(raw => {
+    const remote = parseEditorSettings(raw);
+    const local = readLocalVim();
+    const plan = resolveVimSync(local, remote.vim);
+    if (plan.writeLocal) writeLocalVim(plan.enabled);
+    if (useVimKeys.getState() !== plan.enabled) useVimKeys.setState(plan.enabled);
+    if (plan.writeRemote) void invoke("editor_settings_save", { settings: { vim: plan.enabled } }).catch(() => {});
+  }).catch(() => { /* Keep the local choice when settings are unavailable. */ });
+}
+
+function setVimKeys(enabled: boolean) {
+  writeLocalVim(enabled);
+  useVimKeys.setState(enabled);
+  if (!onPhone()) {
+    void invoke("editor_settings_save", { settings: { vim: enabled } }).catch(() => {});
+  }
+}
+
 const CodeEditor = lazy(() => import("./code-editor.tsx"));
 const SourceSearch = lazy(() => import("./code-editor.tsx").then(module => ({ default: module.SourceSearch })));
 
@@ -85,25 +128,51 @@ export function takeText(tab: MediaTab, now: TreeText) {
 }
 
 /// Starts editing a text tab's file, from the text it shows, with the cursor `at` a place.
-function startEdit(tab: MediaTab, source: HTMLElement, at: TextPlace | null = null) {
+function startEdit(tab: MediaTab, source: HTMLElement | null, at: TextPlace | null = null) {
   if (!tab.text?.editable) return;
-  source.closest<HTMLElement>(".agpane")?.focus({ preventScroll: true });
+  source?.closest<HTMLElement>(".agpane")?.focus({ preventScroll: true });
   tab.findRequest = 0;
   tab.edit = { base: tab.text.text, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at };
   touchTab(tab);
 }
 
-/// The place in the code view that the selection starts at, as a double click leaves it.
-function selectedPlace(pre: HTMLPreElement): TextPlace | null {
-  const selection = getSelection();
-  if (!selection?.rangeCount || !pre.contains(selection.anchorNode)) return null;
+/// The 0-based line and column of a DOM node and offset inside the highlighted `<pre>`.
+function placeInPre(pre: HTMLPreElement, node: Node, offset: number): TextPlace | null {
+  if (!pre.contains(node)) return null;
   const range = document.createRange();
   range.setStart(pre, 0);
-  range.setEnd(selection.anchorNode ?? pre, selection.anchorOffset);
+  range.setEnd(node, offset);
   const before = range.toString().split("\n"), line = before.length - 1;
 
   // Each line starts with its number.
   return { line, column: Math.max(0, (before.at(-1)?.length ?? 0) - String(line + 1).length) };
+}
+
+/// The place in the code view that the selection starts at, as a double click leaves it.
+function selectedPlace(pre: HTMLPreElement): TextPlace | null {
+  const selection = getSelection();
+  if (!selection?.rangeCount || !selection.anchorNode) return null;
+  return placeInPre(pre, selection.anchorNode, selection.anchorOffset);
+}
+
+interface CaretPosition { offsetNode: Node; offset: number }
+type DocumentWithCaret = Document & {
+  caretPositionFromPoint?: (x: number, y: number) => CaretPosition | null;
+  caretRangeFromPoint?: (x: number, y: number) => Range | null;
+};
+
+/// The 0-based line and column under pointer coordinates `(clientX, clientY)` in `<pre>`.
+function placeFromPoint(pre: HTMLPreElement, clientX: number, clientY: number): TextPlace | null {
+  const doc = document as DocumentWithCaret;
+  if (typeof doc.caretPositionFromPoint === "function") {
+    const pos = doc.caretPositionFromPoint(clientX, clientY);
+    if (pos) return placeInPre(pre, pos.offsetNode, pos.offset);
+  }
+  if (typeof doc.caretRangeFromPoint === "function") {
+    const range = doc.caretRangeFromPoint(clientX, clientY);
+    if (range) return placeInPre(pre, range.startContainer, range.startOffset);
+  }
+  return selectedPlace(pre);
 }
 
 /// Stops editing, asking first when there are unsaved changes.
@@ -159,6 +228,71 @@ async function reloadEdit(tab: MediaTab) {
   }
 }
 
+let definitionSeq = 0;
+
+/// Asks the session's node for the definition of the symbol at 0-based `(line, column)`
+/// and jumps directly when one target matches or opens a picker when several do.
+async function lookupDefinition(
+  tab: MediaTab,
+  line: number,
+  column: number,
+  text: string | null,
+  clientX: number,
+  clientY: number,
+  preferEdit: boolean,
+) {
+  const session = P.session;
+  if (!session || !tab.rel) return;
+
+  const root = tab.root ?? session.cwd;
+  const seq = ++definitionSeq;
+  let shownBusy = false;
+  const busyTimer = setTimeout(() => {
+    if (definitionSeq !== seq) return;
+    shownBusy = true;
+    noteTab(tab, "Looking up definition…");
+  }, 250);
+
+  try {
+    const raw = await invoke<unknown>("agent_lsp_definition", {
+      machineId: session.machine_id,
+      root,
+      path: tab.rel,
+      line,
+      column,
+      text,
+    });
+    clearTimeout(busyTimer);
+    if (definitionSeq !== seq) return;
+
+    const result = parseLspResult(raw);
+    if (result.locations.length === 1) {
+      if (shownBusy) { tab.note = null; touchTab(tab); }
+      openLocation(root, result.locations[0], preferEdit);
+      return;
+    }
+
+    if (result.locations.length > 1) {
+      if (shownBusy) { tab.note = null; touchTab(tab); }
+      openMenu(
+        { clientX, clientY },
+        "Definitions",
+        result.locations.map(loc => ({
+          label: formatLocationLabel(loc),
+          on: () => openLocation(root, loc, preferEdit),
+        })),
+      );
+      return;
+    }
+
+    noteTab(tab, result.note ?? "No definition found.");
+  } catch (error) {
+    clearTimeout(busyTimer);
+    if (definitionSeq !== seq) return;
+    noteTab(tab, readError(error));
+  }
+}
+
 /// Where the code of a file's tab was scrolled to, kept with the session's views.
 interface Scrolled { top: number; left: number }
 
@@ -172,21 +306,50 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
   const findRequest = tab.findRequest ?? 0, finding = findRequest > 0;
   const foundLine = useRef<number | null>(null);
   const vimKeys = useVimKeys();
+  const [modHeld, setModHeld] = useState(false);
   const rel = tab.rel ?? "", lang = languageOf(rel);
   const scrollKey = P.session ? `${viewKey(P.session.machine_id, P.session.id)}:file:${tab.id}` : null;
-  const { about, style, html } = useMemo(() => {
+  const { about, style, html, lines } = useMemo(() => {
     const all = text.binary ? [] : text.text.split("\n");
     if (all.length > 1 && all.at(-1) === "") all.pop();
-    const lines = all.length, shown = all.slice(0, MAX_LINES);
-    const cut = text.cut || lines > MAX_LINES ? ` · the first ${lines > MAX_LINES ? `${MAX_LINES.toLocaleString()} lines` : shortSize(text.text.length)} shown` : "";
-    const about = [rel, lang, text.binary ? "" : `${lines.toLocaleString()} lines`, shortSize(text.size)].filter(Boolean).join(" · ") + cut;
+    const count = all.length, shown = all.slice(0, MAX_LINES);
+    const cut = text.cut || count > MAX_LINES ? ` · the first ${count > MAX_LINES ? `${MAX_LINES.toLocaleString()} lines` : shortSize(text.text.length)} shown` : "";
+    const about = [rel, lang, text.binary ? "" : `${count.toLocaleString()} lines`, shortSize(text.size)].filter(Boolean).join(" · ") + cut;
     const style: CSSProperties & Record<"--lnw", string> = { "--lnw": `${String(shown.length).length}ch` };
     const html = shown.map((line, index) => `<span class="ln${index + 1 === tab.line ? " on" : ""}">${index + 1}</span>${highlight(line, lang)}`).join("\n");
-    return { about, style, html };
+    return { about, style, html, lines: shown };
   }, [text, rel, lang, tab.line]);
   const preview = tab.preview;
   const source = !preview?.active && !text.binary;
   const editable = text.editable && !onPhone();
+  const edit = tab.edit;
+
+  useEffect(() => { syncVimPreference(); }, []);
+
+  // Show a pointer cursor on source code while holding Cmd/Ctrl for go-to-definition.
+  useEffect(() => {
+    if (!source || edit || finding || onPhone()) { setModHeld(false); return; }
+    const update = (event: KeyboardEvent) => setModHeld(isDefinitionModifier(event, APPLE));
+    const clear = () => setModHeld(false);
+    window.addEventListener("keydown", update);
+    window.addEventListener("keyup", update);
+    window.addEventListener("blur", clear);
+    return () => {
+      window.removeEventListener("keydown", update);
+      window.removeEventListener("keyup", update);
+      window.removeEventListener("blur", clear);
+    };
+  }, [source, edit, finding]);
+
+  // A definition jump triggered from edit mode enters edit mode once the target file loads.
+  useLayoutEffect(() => {
+    const jump = tab.jump;
+    if (!jump) return;
+    tab.jump = null;
+    if (jump.edit && editable && !tab.edit) {
+      startEdit(tab, code.current, { line: jump.line, column: jump.column });
+    }
+  }, [tab, tab.jump, editable]);
 
   const closeSearch = (line: number | null) => {
     foundLine.current = line;
@@ -208,23 +371,32 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
     return () => cancelAnimationFrame(frame);
   }, [scrollKey, source, finding]);
 
-  // A link to a line shows that line.
+  // A link or definition jump to a line shows that line.
   useLayoutEffect(() => {
     if (!source || !tab.line) return;
     const frame = requestAnimationFrame(() => code.current?.querySelector(".ln.on")?.scrollIntoView({ block: "center" }));
     return () => cancelAnimationFrame(frame);
-  }, [source, tab.line, html]);
+  }, [source, tab.line, tab.lineJump, html]);
 
   const scrolled = () => { if (scrollKey && code.current) writeView(scrollKey, { top: code.current.scrollTop, left: code.current.scrollLeft }); };
-  const edit = tab.edit;
+
   if (edit) return <>
     <Suspense fallback={<div className="agpmsg">Loading the editor…</div>}>
-      <CodeEditor key={edit.generation} edit={edit} rel={rel} vimKeys={vimKeys} findRequest={findRequest} closeSearch={() => closeSearch(null)} save={() => void saveEdit(tab)} changed={() => { if (!edit.dirty) { edit.dirty = true; tab.note = null; touchTab(tab); } }} />
+      <CodeEditor
+        key={edit.generation}
+        edit={edit}
+        rel={rel}
+        vimKeys={vimKeys}
+        findRequest={findRequest}
+        closeSearch={() => closeSearch(null)}
+        save={() => void saveEdit(tab)}
+        changed={() => { if (!edit.dirty) { edit.dirty = true; tab.note = null; touchTab(tab); } }}
+        goToDefinition={request => void lookupDefinition(tab, request.line, request.column, request.text, request.clientX, request.clientY, true)}
+      />
     </Suspense>
     <div className="agpacts"><span className="meta mono" title={rel}>{tab.note ?? (edit.dirty ? `${rel} · edited` : rel)}</span><span className="sp" />
       <ChipToggle label="Vim" selected={vimKeys} onToggle={() => {
-        try { localStorage.setItem(vimPreference, String(!vimKeys)); } catch { /* Keep it for this window. */ }
-        useVimKeys.setState(!vimKeys);
+        setVimKeys(!vimKeys);
         edit.view?.focus();
       }} />
       {edit.conflict ? <>
@@ -242,7 +414,23 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
     : finding ? <Suspense fallback={<div className="agpmsg">Opening file search…</div>}>
       <SourceSearch text={text.text} findRequest={findRequest} close={closeSearch} />
     </Suspense>
-    : <div className="agcode" style={style} ref={code} onScroll={scrolled} onDoubleClick={event => { if (editable && pre.current) startEdit(tab, event.currentTarget, selectedPlace(pre.current)); }}><pre ref={pre} dangerouslySetInnerHTML={{ __html: html }} /></div>}
+    : <div
+        className={`agcode${modHeld ? " lsp-mod" : ""}`}
+        style={style}
+        ref={code}
+        onScroll={scrolled}
+        onClick={event => {
+          if (onPhone() || !isDefinitionModifier(event, APPLE) || !pre.current) return;
+          const place = placeFromPoint(pre.current, event.clientX, event.clientY);
+          if (!place || !wordSpanAt(lines[place.line] ?? "", place.column)) return;
+          event.preventDefault();
+          void lookupDefinition(tab, place.line, place.column, null, event.clientX, event.clientY, false);
+        }}
+        onDoubleClick={event => {
+          if (isDefinitionModifier(event, APPLE)) return;
+          if (editable && pre.current) startEdit(tab, event.currentTarget, selectedPlace(pre.current));
+        }}
+      ><pre ref={pre} dangerouslySetInnerHTML={{ __html: html }} /></div>}
     <div className="agpacts"><span className="meta mono" title={rel}>{tab.note ?? about}</span><span className="sp" />
       {!text.binary && hasPreview(rel) && <Button data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</Button>}
       {editable && !preview?.active && <Button data-tedit="1" onClick={event => startEdit(tab, event.currentTarget)}>Edit</Button>}

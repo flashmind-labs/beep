@@ -371,6 +371,26 @@ pub async fn serve_sessions(
             })
             .await
         }
+        SessionsRequest::LspDefinition {
+            root,
+            path,
+            line,
+            column,
+            text,
+        } => {
+            let lookup = async {
+                let real = agents.reachable(&root, reach::Access::Read).await?;
+                agents.lsp.definition(&real, &path, line, column, text).await
+            };
+
+            match lookup.await {
+                Ok(outcome) => SessionsReply::LspLocations {
+                    locations: outcome.locations,
+                    note: outcome.note,
+                },
+                Err(e) => failed(e),
+            }
+        }
         SessionsRequest::CustomAgents { folder } => {
             let home = dirs::home_dir();
             work_request(&agents, &folder, reach::Access::Work, move |real| {

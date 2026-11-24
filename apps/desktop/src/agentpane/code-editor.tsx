@@ -3,32 +3,72 @@ import { indentWithTab } from "@codemirror/commands";
 import { LanguageDescription, syntaxHighlighting, toggleFold } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { openSearchPanel, search, searchKeymap, searchPanelOpen } from "@codemirror/search";
-import { Compartment, EditorState } from "@codemirror/state";
-import { drawSelection, EditorView, keymap, lineNumbers } from "@codemirror/view";
+import { Compartment, EditorState, StateEffect, StateField } from "@codemirror/state";
+import { Decoration, type DecorationSet, drawSelection, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { getCM, Vim, vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
 import { useLayoutEffect, useRef } from "react";
+import { APPLE } from "../ui/platform.ts";
 import { tokens } from "../ui/syntax.ts";
-import type { FileEdit } from "./media.ts";
+import { isDefinitionModifier, wordSpanAt } from "./lsp-state.ts";
+import type { FileEdit, TextPlace } from "./media.ts";
 
-export default function CodeEditor({ edit, rel, changed, save, vimKeys, findRequest, closeSearch }: {
-  edit: FileEdit; rel: string; changed: () => void; save: () => void; vimKeys: boolean; findRequest: number; closeSearch: () => void;
+export interface DefinitionRequest {
+  line: number;
+  column: number;
+  text: string;
+  clientX: number;
+  clientY: number;
+}
+
+export default function CodeEditor({ edit, rel, changed, save, vimKeys, findRequest, closeSearch, goToDefinition }: {
+  edit: FileEdit;
+  rel: string;
+  changed: () => void;
+  save: () => void;
+  vimKeys: boolean;
+  findRequest: number;
+  closeSearch: () => void;
+  goToDefinition: (request: DefinitionRequest) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
+  const onDefinition = useRef(goToDefinition);
+  onDefinition.current = goToDefinition;
 
   useLayoutEffect(() => {
     const parent = host.current;
     if (!parent) return;
 
-    const state = edit.state ?? EditorState.create({ doc: edit.base, extensions: setup(edit.base, changed, save, closeSearch) });
+    const triggerAt = (view: EditorView, pos: number, clientX: number, clientY: number) => {
+      const docLine = view.state.doc.lineAt(pos);
+      const column = pos - docLine.from;
+      if (!wordSpanAt(docLine.text, column)) return false;
+
+      onDefinition.current({
+        line: docLine.number - 1,
+        column,
+        text: view.state.sliceDoc(),
+        clientX,
+        clientY,
+      });
+      return true;
+    };
+
+    const state = edit.state ?? EditorState.create({
+      doc: edit.base,
+      extensions: setup(edit.base, changed, save, closeSearch, triggerAt),
+    });
     const view = new EditorView({ parent, state });
     edit.view = view;
+    definitionHandlers.set(view, () => {
+      const head = view.state.selection.main.head;
+      const coords = view.coordsAtPos(head);
+      const rect = parent.getBoundingClientRect();
+      triggerAt(view, head, coords?.left ?? rect.left + 20, coords?.bottom ?? rect.top + 20);
+    });
 
-    // A new editor opened at a place puts the cursor there.
-    if (!edit.state && edit.at) {
-      const { doc } = view.state, line = doc.line(Math.min(edit.at.line + 1, doc.lines));
-      const anchor = line.from + Math.min(edit.at.column, line.length);
-      view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+    if (edit.at) {
+      moveCursor(view, edit.at);
       edit.at = null;
     }
 
@@ -40,14 +80,36 @@ export default function CodeEditor({ edit, rel, changed, save, vimKeys, findRequ
       if (live) view.dispatch({ effects: language.reconfigure(support) });
     });
 
+    const clearHover = () => {
+      if (view.state.field(lspLinkField, false)?.size) {
+        view.dispatch({ effects: setLspLink.of(null) });
+      }
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (!isDefinitionModifier(event, APPLE)) clearHover();
+    };
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", clearHover);
+
     return () => {
       live = false;
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", clearHover);
+      definitionHandlers.delete(view);
       // A reload let go of this editor already, and its text with it.
       if (edit.view === view) { edit.state = view.state; edit.view = null; }
       view.destroy();
     };
     // The callbacks act on the tab whose edit this is, so the first ones do.
   }, [edit, rel]);
+
+  useLayoutEffect(() => {
+    const view = edit.view;
+    if (!view || !edit.at) return;
+    moveCursor(view, edit.at);
+    edit.at = null;
+    view.focus();
+  }, [edit, edit.jump]);
 
   useLayoutEffect(() => {
     const view = edit.view;
@@ -97,9 +159,82 @@ export function SourceSearch({ text, findRequest, close }: { text: string; findR
   return <div className="agcode agcm" ref={host} onKeyDown={event => { if (event.defaultPrevented) event.stopPropagation(); }} />;
 }
 
+function moveCursor(view: EditorView, at: TextPlace) {
+  const { doc } = view.state;
+  const line = doc.line(Math.min(Math.max(1, at.line + 1), doc.lines));
+  const anchor = line.from + Math.min(Math.max(0, at.column), line.length);
+  view.dispatch({ selection: { anchor }, effects: EditorView.scrollIntoView(anchor, { y: "center" }) });
+}
+
+const definitionHandlers = new WeakMap<EditorView, () => void>();
+const setLspLink = StateEffect.define<{ from: number; to: number } | null>();
+const lspLinkMark = Decoration.mark({ class: "cm-lsp-link" });
+const lspLinkField = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(value, tr) {
+    let next = tr.docChanged ? value.map(tr.changes) : value;
+    for (const effect of tr.effects) {
+      if (effect.is(setLspLink)) {
+        next = effect.value ? Decoration.set([lspLinkMark.range(effect.value.from, effect.value.to)]) : Decoration.none;
+      }
+    }
+    return next;
+  },
+  provide: field => EditorView.decorations.from(field),
+});
+
+function lspInteraction(triggerAt: (view: EditorView, pos: number, clientX: number, clientY: number) => boolean) {
+  let hovered: { from: number; to: number } | null = null;
+
+  const setHovered = (view: EditorView, next: { from: number; to: number } | null) => {
+    if (hovered?.from === next?.from && hovered?.to === next?.to) return;
+    hovered = next;
+    view.dispatch({ effects: setLspLink.of(next) });
+  };
+
+  return [
+    lspLinkField,
+    EditorView.domEventHandlers({
+      mousemove(event, view) {
+        if (!isDefinitionModifier(event, APPLE)) {
+          setHovered(view, null);
+          return false;
+        }
+
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (pos === null) {
+          setHovered(view, null);
+          return false;
+        }
+
+        const docLine = view.state.doc.lineAt(pos);
+        const span = wordSpanAt(docLine.text, pos - docLine.from);
+        setHovered(view, span ? { from: docLine.from + span.from, to: docLine.from + span.to } : null);
+        return false;
+      },
+      mouseleave(_event, view) {
+        setHovered(view, null);
+        return false;
+      },
+      mousedown(event, view) {
+        if (event.button !== 0 || !isDefinitionModifier(event, APPLE)) return false;
+        const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+        if (pos === null) return false;
+        if (!triggerAt(view, pos, event.clientX, event.clientY)) return false;
+
+        event.preventDefault();
+        setHovered(view, null);
+        return true;
+      },
+    }),
+  ];
+}
+
 const bindings = new Compartment();
 Vim.defineAction("toggleFold", cm => { toggleFold(cm.cm6); });
 Vim.mapCommand("za", "action", "toggleFold", {}, { context: "normal" });
+Vim.defineAction("gotoDefinition", cm => { definitionHandlers.get(cm.cm6)?.(); });
+Vim.mapCommand("gd", "action", "gotoDefinition", {}, { context: "normal" });
 const vimBindings = vim({ status: true });
 const fileSearch = search({ top: true });
 const language = new Compartment();
@@ -124,12 +259,19 @@ const theme = EditorView.theme({
   "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionLayer .cm-selectionBackground": { backgroundColor: "color-mix(in srgb, var(--accent) 30%, transparent)" },
 }, { dark: true });
 
-function setup(text: string, changed: () => void, save: () => void, closeSearch: () => void) {
+function setup(
+  text: string,
+  changed: () => void,
+  save: () => void,
+  closeSearch: () => void,
+  triggerAt: (view: EditorView, pos: number, clientX: number, clientY: number) => boolean,
+) {
   return [
     // A file with Windows line ends keeps them.
     EditorState.lineSeparator.of(text.includes("\r\n") ? "\r\n" : "\n"),
     bindings.of([]), fileSearch,
     syntaxHighlighting(tokens), language.of([]), theme,
+    lspInteraction(triggerAt),
     keymap.of([{ key: "Mod-s", run: () => { save(); return true; }, preventDefault: true }, indentWithTab]),
     basicSetup,
     EditorView.updateListener.of(update => {

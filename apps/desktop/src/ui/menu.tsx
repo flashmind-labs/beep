@@ -51,9 +51,13 @@ let open: { close: () => void } | null = null;
 
 /// Opens a menu titled `title` where `e` was clicked, in place of the system's. The
 /// returned function swaps in a fuller list while the menu is still open.
-export function openMenu(e: MouseEvent, title: string, items: readonly MenuItem[]) {
-  e.preventDefault();
-  e.stopPropagation();
+export function openMenu(
+  e: { clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void },
+  title: string,
+  items: readonly MenuItem[],
+) {
+  e.preventDefault?.();
+  e.stopPropagation?.();
   closeMenu();
   const back = document.activeElement;
   const owner = createDocumentScope<"menu">();
