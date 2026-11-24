@@ -692,9 +692,6 @@ pub(crate) struct Pulled {
     pub(crate) live: bool,
     /// The name the source keeps the file under.
     pub(crate) file_name: String,
-    /// The copy was not a start of the source's: it was set aside, and
-    /// this is a fresh one.
-    pub(crate) restarted: bool,
 }
 
 /// What `pull` asks for.
@@ -739,9 +736,8 @@ pub(super) async fn pull_within(
         return Err(Refused(format!("it named the transcript {file_name:?}")).into());
     }
 
-    let restarted = from > 0 && start == 0;
-
-    if restarted {
+    // A copy that is not a start of the source's is set aside for a fresh one.
+    if from > 0 && start == 0 {
         let mut aside = copy.as_os_str().to_owned();
         aside.push(".diverged");
         fs::rename(copy, aside).await?;
@@ -770,7 +766,6 @@ pub(super) async fn pull_within(
                     size,
                     live,
                     file_name,
-                    restarted,
                 });
             }
             _ => bail!("the source stopped before the end"),

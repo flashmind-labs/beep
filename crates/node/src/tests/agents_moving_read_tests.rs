@@ -168,7 +168,7 @@ async fn a_copy_is_brought_up_to_date_with_only_the_new_bytes() {
         fs::read(&copy).expect("copy"),
         fs::read(&source.rollout).unwrap()
     );
-    assert!(!first.live && !first.restarted);
+    assert!(!first.live);
     assert_eq!(
         first.file_name,
         source.rollout.file_name().unwrap().to_str().unwrap()
@@ -179,7 +179,6 @@ async fn a_copy_is_brought_up_to_date_with_only_the_new_bytes() {
     grown.extend_from_slice(b"{\"b\":2}\n");
     fs::write(&source.rollout, &grown).expect("appended");
     let second = read_from(&server, &copy, ID).await.expect("a second read");
-    assert!(!second.restarted);
     assert_eq!(second.size, grown.len() as u64);
     assert_eq!(fs::read(&copy).expect("copy"), grown);
 }
@@ -192,8 +191,7 @@ async fn a_copy_that_is_not_a_start_of_the_source_is_kept_aside_and_read_again()
     let copy = mine.path().join("copy.jsonl");
     fs::write(&copy, "something else entirely\n").expect("an old copy");
 
-    let pulled = read_from(&server, &copy, ID).await.expect("a read");
-    assert!(pulled.restarted);
+    read_from(&server, &copy, ID).await.expect("a read");
     assert_eq!(
         fs::read(&copy).expect("copy"),
         fs::read(&source.rollout).unwrap()
