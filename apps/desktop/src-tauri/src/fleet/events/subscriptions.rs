@@ -2,6 +2,7 @@
 
 use super::{Events, Fleet, Snapshots, Update, commands::retrying, controller_topic, invalidate};
 use crate::error::{DesktopError, Result};
+use crate::fleet::session_mirror::SessionMirror;
 use beep_proto::node::{
     events::{self, Topic},
     subscriptions::{Reply, Request},
@@ -78,6 +79,8 @@ impl SubscriptionWorker {
             return Ok(());
         }
         let _snapshots = SnapshotConnection {
+            app,
+            topic,
             snapshots: &fleet.snapshots,
             machine,
             generation,
@@ -218,6 +221,8 @@ impl SubscriptionWorker {
 }
 
 struct SnapshotConnection<'a> {
+    app: &'a AppHandle,
+    topic: &'a Topic,
     snapshots: &'a Snapshots,
     machine: EndpointId,
     generation: Uuid,
@@ -226,6 +231,13 @@ struct SnapshotConnection<'a> {
 impl Drop for SnapshotConnection<'_> {
     fn drop(&mut self) {
         self.snapshots.end(self.machine, self.generation);
+
+        // Its rows are no longer pushed: the mirror lists the machine again when they age.
+        if self.topic.name() == "agents" {
+            self.app
+                .state::<Arc<SessionMirror>>()
+                .unpushed(self.machine);
+        }
     }
 }
 

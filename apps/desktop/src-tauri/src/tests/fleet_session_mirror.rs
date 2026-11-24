@@ -297,6 +297,23 @@ async fn a_machine_that_pushes_is_not_listed_again_when_its_rows_age() {
     assert!(rig.asks.try_recv().is_err());
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_machine_whose_push_ended_is_listed_again_when_its_rows_age() {
+    let a = machine(1);
+    let mut rig = rig(vec![a], Vec::new());
+
+    rig.mirror
+        .pushed(a, vec![top(session(a, "a1", AgentStatus::Running {}))]);
+    assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
+    rig.mirror.unpushed(a);
+    tokio::time::sleep(FRESH * 2).await;
+    rig.mirror.rows();
+
+    let first = next(&mut rig.asks).await;
+    let second = next(&mut rig.asks).await;
+    assert!(first.scan != second.scan);
+}
+
 #[tokio::test]
 async fn a_push_during_a_listing_is_not_undone_by_the_older_answer() {
     let a = machine(1);

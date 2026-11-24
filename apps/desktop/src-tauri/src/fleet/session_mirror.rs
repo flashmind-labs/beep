@@ -314,6 +314,8 @@ enum Message {
     Read,
     /// The next read lists everything again.
     Stale,
+    /// A machine's `agents` subscription ended: its rows age again.
+    Unpushed(EndpointId),
     /// A machine pushed its Beep rows.
     Pushed {
         machine: EndpointId,
@@ -456,6 +458,11 @@ impl SessionMirror {
         self.send(Message::Pushed { machine, rows });
     }
 
+    /// `machine` no longer pushes its rows: they age and are listed again.
+    pub(crate) fn unpushed(&self, machine: EndpointId) {
+        self.send(Message::Unpushed(machine));
+    }
+
     /// The next read lists every machine again.
     pub(crate) fn stale(&self) {
         self.send(Message::Stale);
@@ -583,6 +590,11 @@ impl<O: Outside> Actor<O> {
         match message {
             Message::Read => self.read(),
             Message::Stale => self.reads.clear(),
+            Message::Unpushed(machine) => {
+                if let Some(reads) = self.reads.get_mut(&machine) {
+                    reads.pushed = false;
+                }
+            }
             Message::Pushed { machine, rows } => self.pushed(machine, rows),
             Message::Listed { machine, rows } => self.listed(machine, rows),
             Message::Scanned { machine, rows } => self.scanned(machine, rows),
