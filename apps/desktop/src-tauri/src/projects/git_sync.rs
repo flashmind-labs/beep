@@ -219,7 +219,7 @@ pub async fn project_git_state(
                 let cached = fetched.cached();
                 let changed =
                     fleet_bg.projections().git_state.peek(&key_bg).as_ref() != Some(&cached);
-                fleet_bg.projections().git_state.put(key_bg, cached);
+                fleet_bg.projections().git_state.put(key_bg, cached.clone());
                 let timed_out = tx.send(fetched).is_err();
 
                 if timed_out && changed {
