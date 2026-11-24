@@ -565,3 +565,190 @@ async fn a_node_that_pushes_is_not_answered_from_an_old_direct_call() {
 
     endpoint.close().await;
 }
+
+/// What a node's subscription does to a `SyncList` read.
+#[derive(Clone, Copy)]
+enum Subscription {
+    /// Pushes this many files.
+    Pushes(u64),
+    /// Does not answer in time.
+    Silent,
+    /// Answers with an error, as a node without the topic does.
+    Refuses,
+}
+
+/// A node whose subscription is set by the test, and whose client and snapshot wait `delay`.
+struct SteppedPeers {
+    mesh: Mesh,
+    subscription: Arc<std::sync::Mutex<Subscription>>,
+    delay: Arc<std::sync::Mutex<Duration>>,
+    /// Direct status calls answered, each with its count as the file count.
+    calls: Arc<std::sync::atomic::AtomicU64>,
+    /// Whether a direct call never answers.
+    hangs: bool,
+}
+
+struct SteppedReader {
+    subscription: Arc<std::sync::Mutex<Subscription>>,
+    delay: Arc<std::sync::Mutex<Duration>>,
+}
+
+impl beep_mesh::SnapshotReader for SteppedReader {
+    fn snapshot(&self, read: beep_proto::node::events::Read) -> beep_mesh::SnapshotFuture<'_> {
+        let subscription = *self.subscription.lock().unwrap();
+        let delay = *self.delay.lock().unwrap();
+        Box::pin(async move {
+            if read != beep_proto::node::events::Read::SyncList {
+                return None;
+            }
+
+            tokio::time::sleep(delay).await;
+            match subscription {
+                Subscription::Pushes(files) => Some(Ok(beep_proto::node::events::Value::Sync(
+                    Box::new(Reply::Status {
+                        projects: vec![widget(files)],
+                    }),
+                ))),
+                Subscription::Silent => std::future::pending().await,
+                Subscription::Refuses => Some(Err(beep_mesh::MeshError::Link(anyhow::anyhow!(
+                    "no state has been published for this topic"
+                )))),
+            }
+        })
+    }
+}
+
+#[async_trait]
+impl Peers for SteppedPeers {
+    async fn mesh(&self) -> Result<Mesh> {
+        Ok(self.mesh.clone())
+    }
+
+    fn me(&self) -> EndpointId {
+        self.mesh.me()
+    }
+
+    async fn client(&self, _machine: EndpointId) -> Result<PeerClient> {
+        let delay = *self.delay.lock().unwrap();
+        tokio::time::sleep(delay).await;
+        let calls = self.calls.clone();
+        let hangs = self.hangs;
+        let reader = Arc::new(SteppedReader {
+            subscription: self.subscription.clone(),
+            delay: self.delay.clone(),
+        });
+        Ok(PeerClient::local(Arc::new(move |mut tx, mut rx| {
+            let calls = calls.clone();
+            Box::pin(async move {
+                let _ = rx.recv::<beep_proto::node::Open>().await;
+                let _ = tx.send(&beep_proto::node::Opened::Ready {}).await;
+                let _ = rx.recv::<Request>().await;
+                if hangs {
+                    std::future::pending::<()>().await;
+                }
+
+                let files = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                let _ = tx
+                    .send(&Reply::Status {
+                        projects: vec![widget(files)],
+                    })
+                    .await;
+            })
+        }))
+        .with_snapshot_reader(reader))
+    }
+}
+
+/// A session over one project that this machine's folder holds, read through `peers`.
+async fn widget_desk(
+    dir: &TempDir,
+    endpoint: &Endpoint,
+    peers: impl FnOnce(Mesh) -> SteppedPeers,
+) -> (crate::Desk, Arc<SteppedPeers>) {
+    use crate::session::{Options, Session};
+
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .unwrap();
+    let mut folders = std::collections::BTreeMap::new();
+    folders.insert(mesh.me(), "/srv/widget".to_owned());
+    mesh.set(
+        Key::Sync("acme/widget".into()),
+        Some(
+            SyncSpec {
+                folders,
+                ..SyncSpec::default()
+            }
+            .to_bytes()
+            .unwrap(),
+        ),
+    )
+    .await
+    .unwrap();
+
+    let peers = Arc::new(peers(mesh));
+    let session = Session::new(peers.clone(), Options::default(), |_| {}).unwrap();
+    (session.desk().await.unwrap(), peers)
+}
+
+#[tokio::test]
+async fn a_pushing_node_that_stalls_is_read_within_one_wait() {
+    let dir = TempDir::new().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .unwrap();
+    let (desk, peers) = widget_desk(&dir, &endpoint, |mesh| SteppedPeers {
+        mesh,
+        subscription: Arc::new(std::sync::Mutex::new(Subscription::Pushes(7))),
+        delay: Arc::default(),
+        calls: Arc::default(),
+        hangs: true,
+    })
+    .await;
+    let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
+    assert_eq!(files(&desk.sync().await), 7);
+
+    // The subscription goes quiet and every step takes most of a wait: a read is cut at one.
+    *peers.subscription.lock().unwrap() = Subscription::Silent;
+    *peers.delay.lock().unwrap() = Duration::from_millis(300);
+    tokio::time::pause();
+    let before = tokio::time::Instant::now();
+    desk.node_statuses(peers.mesh.me()).await;
+    assert!(
+        before.elapsed() < SYNC_FIRST_WAIT + Duration::from_millis(10),
+        "{:?}",
+        before.elapsed()
+    );
+
+    endpoint.close().await;
+}
+
+#[tokio::test]
+async fn a_node_that_refuses_the_topic_after_pushing_is_read_directly_again() {
+    let dir = TempDir::new().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .unwrap();
+    let (desk, peers) = widget_desk(&dir, &endpoint, |mesh| SteppedPeers {
+        mesh,
+        subscription: Arc::new(std::sync::Mutex::new(Subscription::Pushes(7))),
+        delay: Arc::default(),
+        calls: Arc::default(),
+        hangs: false,
+    })
+    .await;
+    let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
+    assert_eq!(files(&desk.sync().await), 7);
+
+    // A node that pushed and now refuses is read directly, and a call's answer is kept.
+    *peers.subscription.lock().unwrap() = Subscription::Refuses;
+    assert_eq!(files(&desk.sync().await), 1);
+    assert_eq!(files(&desk.sync().await), 1, "the direct answer is kept");
+    assert_eq!(peers.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+
+    endpoint.close().await;
+}

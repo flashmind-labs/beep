@@ -112,6 +112,14 @@ impl DirectSyncs {
         self.forget(machine);
     }
 
+    /// `machine`'s node no longer offers `SyncList`: it is read directly again.
+    fn unpushed(&self, machine: EndpointId) {
+        self.pushing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&machine);
+    }
+
     fn forget(&self, machine: EndpointId) {
         self.held
             .lock()
@@ -398,36 +406,52 @@ impl Desk {
             return None;
         }
 
+        // A node that pushed before gets the time a first direct read gets, for the client, the
+        // snapshot and a direct call together.
+        if self.hosts.direct_syncs().pushes(machine) {
+            return timeout(
+                SYNC_FIRST_WAIT,
+                self.read_statuses(machine, SYNC_FIRST_WAIT),
+            )
+            .await
+            .ok()
+            .flatten();
+        }
+
+        self.read_statuses(machine, SNAPSHOT_POLL_WAIT).await
+    }
+
+    /// `machine`'s statuses from its subscription, each step waiting `wait` at most.
+    async fn read_statuses(
+        &self,
+        machine: EndpointId,
+        wait: Duration,
+    ) -> Option<Vec<ProjectStatus>> {
         let direct = self.hosts.direct_syncs();
-        // A node that pushed before gets the time a first direct read gets.
-        let wait = if direct.pushes(machine) {
-            SYNC_FIRST_WAIT
-        } else {
-            SNAPSHOT_POLL_WAIT
-        };
         let client = timeout(wait, self.peers.client(machine))
             .await
             .ok()
             .and_then(Result::ok);
 
-        if let Some(client) = &client
-            && let Ok(Some(Ok(Value::Sync(reply)))) =
-                timeout(wait, client.snapshot(Read::SyncList)).await
-        {
-            direct.pushed(machine);
+        if let Some(client) = &client {
+            match timeout(wait, client.snapshot(Read::SyncList)).await {
+                Ok(Some(Ok(Value::Sync(reply)))) => {
+                    direct.pushed(machine);
 
-            return match *reply {
-                Reply::Status { projects } => Some(projects),
-                _ => None,
-            };
+                    return match *reply {
+                        Reply::Status { projects } => Some(projects),
+                        _ => None,
+                    };
+                }
+                // The node refuses the topic now, as an older one does: it is read directly.
+                Ok(Some(Err(_))) => direct.unpushed(machine),
+                _ => {}
+            }
         }
 
         // Its subscription is not live: ask once and keep nothing, the push comes back.
         if direct.pushes(machine) {
-            return timeout(SYNC_FIRST_WAIT, fetch_node_statuses(&client?))
-                .await
-                .ok()
-                .flatten();
+            return fetch_node_statuses(&client?).await;
         }
 
         direct.read(machine, client).await
