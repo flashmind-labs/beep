@@ -212,3 +212,34 @@ test("a node that pushes its devices is not read again, and one that refuses the
   await expect.poll(reads).toBeGreaterThan(before);
   await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\npixel");
 });
+
+test("a pushed boot reaches the live screen without a read, and a node with only the old topic is read on its ping", async ({ page }) => {
+  const off = { ...pixel, state: "Off" };
+  await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Android"], device_list: [{ ...host, devices: [off], error: null }] });
+  await page.evaluate(() => {
+    window.__TAURI_INTERNALS__.transformCallback = () => 99;
+    const invoke = window.__TAURI__.core.invoke;
+    // The attach stays open, as a live stream does.
+    window.__TAURI__.core.invoke = <T>(command: string, args?: Record<string, unknown>) => {
+      const answer = invoke<T>(command, args);
+      return command === "device_attach" ? new Promise<T>(() => {}) : answer;
+    };
+  });
+  await page.evaluate(agent => window.__navigation.open({ agent }), session);
+  await page.getByRole("tab", { name: "Device" }).click();
+  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\npixel");
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_list").length);
+  const attaches = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_attach").length);
+
+  await page.evaluate(device => window.__navigation.publish("device-list.*", null, { Devices: [device] }, "build-box"), { ...pixel, state: "Booting" });
+  await expect(page.getByText("Booting Pixel 9")).toBeVisible();
+  await page.evaluate(device => window.__navigation.publish("device-list.*", null, { Devices: [device] }, "build-box"), pixel);
+  await expect.poll(attaches).toBe(1);
+  const before = await reads();
+
+  await page.evaluate(() => window.__navigation.publish("device-list.*", null, { error: "no state has been published for this topic" }, "build-box"));
+  await expect.poll(reads).toBeGreaterThan(before);
+  const refused = await reads();
+  await page.evaluate(() => window.__navigation.publish("devices.*", null, { error: "no state has been published for this topic" }, "build-box"));
+  await expect.poll(reads).toBeGreaterThan(refused);
+});

@@ -19,8 +19,7 @@ import {
 
 /// How often the list is read again while the tab shows, for the machines whose node does not
 /// push its devices: a booting device soon, otherwise now and then. A node that pushes them is not
-/// read, and it announces a change when adb sees a phone or emulator come or go or a boot or shut
-/// down ends; an iOS simulator changed outside Beep is not announced.
+/// read: it follows adb, booting devices and iOS simulators itself and pushes each change.
 /// How long a change waits for others before the list is read.
 const DEVICES_WAIT_MS = 300;
 const BOOTING_POLL_MS = 2000;
