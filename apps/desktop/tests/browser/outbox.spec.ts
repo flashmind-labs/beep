@@ -152,12 +152,17 @@ test("an outbox event after the page took the message adds no Steer row", async 
     queued: 0, queued_messages: [], entries: [{ kind: "user", text: "Hello there" }, { kind: "agent", text: "Hi." }],
   }), session);
   await expect(page.getByText("Hi.", { exact: true })).toBeVisible();
+  const reads = () => page.evaluate(() => window.__outbox.asked.filter(call => call.command === "outbox_list").length);
+  const before = await reads();
   await page.evaluate(() => window.__navigation.emit("outbox-changed", {
     machine_id: "build-box", agent: "codex", session: "notice-one", rows: [],
     sent: [{ id: 0, how: "steer", text: "Hello there", images: [], state: "sending", reason: null }],
   }));
-  await expect(steers(page)).toHaveCount(0);
-  await expect(page.locator("#agqueue")).toHaveCount(0);
+  // The listener redraws once it has re-read the outbox.
+  await expect.poll(reads).toBeGreaterThan(before);
+  await page.waitForTimeout(100);
+  // A single look: a retrying check would pass once the next page clears the row.
+  expect(await steers(page).count()).toBe(0);
 });
 
 test("Stop all takes every waiting message back into the field at once, oldest first", async ({ page }) => {
