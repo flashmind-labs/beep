@@ -16,8 +16,6 @@ struct Fake {
     members: Arc<Mutex<Option<HashSet<EndpointId>>>>,
     asks: mpsc::UnboundedSender<Ask>,
     drawn: mpsc::UnboundedSender<Drawn>,
-    /// Child sessions every listing holds besides the rows the test answers.
-    children: Arc<Mutex<Vec<Linked>>>,
 }
 
 impl Fake {
@@ -47,9 +45,8 @@ impl Outside for Fake {
 
     async fn list(&self, machine: EndpointId) -> Option<Vec<Linked>> {
         let rows = self.ask(machine, false).await?;
-        let children = self.children.lock().unwrap().clone();
 
-        Some(rows.into_iter().map(top).chain(children).collect())
+        Some(rows.into_iter().map(top).collect())
     }
 
     async fn scan(&self, machine: EndpointId) -> Option<Vec<MachineSession>> {
@@ -63,7 +60,6 @@ impl Outside for Fake {
 
 struct Rig {
     mirror: SessionMirror,
-    children: Arc<Mutex<Vec<Linked>>>,
     members: Arc<Mutex<Option<HashSet<EndpointId>>>>,
     asks: mpsc::UnboundedReceiver<Ask>,
     drawn: mpsc::UnboundedReceiver<Drawn>,
@@ -73,18 +69,15 @@ fn rig(online: Vec<EndpointId>, kept: Vec<MachineSession>) -> Rig {
     let (asks, asked) = mpsc::unbounded_channel();
     let (drawn, told) = mpsc::unbounded_channel();
     let members = Arc::new(Mutex::new(None));
-    let children = Arc::new(Mutex::new(Vec::new()));
     let fake = Fake {
         online: Mutex::new(online),
         members: members.clone(),
         asks,
         drawn,
-        children: children.clone(),
     };
 
     Rig {
         mirror: SessionMirror::start(fake, kept),
-        children,
         members,
         asks: asked,
         drawn: told,
