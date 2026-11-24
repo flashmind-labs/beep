@@ -523,6 +523,54 @@ async fn a_form_is_asked_field_by_field_and_sent_whole() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_choice_and_its_field_for_other_words_are_one_question() {
+    // Antigravity's ask_question: a choice and, beside it, a field for an
+    // answer in the user's own words.
+    const ADAPTER: &str = r#"
+handshake "$1"
+read -r line
+prompt=$(id)
+echo '{"jsonrpc":"2.0","id":"e1","method":"elicitation/create","params":{"mode":"form","sessionId":"s","message":"Which layout?","requestedSchema":{"type":"object","properties":{"q0":{"type":"string","title":"Which layout?","oneOf":[{"const":"Source","title":"Source"},{"const":"Screen","title":"Screen"}]},"q0_other":{"type":"string","title":"Optional free-form answer to: Which layout?"}}}}}'
+read -r line; log "$1"
+printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+cat > /dev/null
+"#;
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let session = Session::start(start_on(&script("pi", ADAPTER, &log), dir, None)).unwrap();
+    settle(&session).await;
+    let asked = session.info().question.expect("the choice");
+    assert_eq!(asked.text, "Which layout?");
+
+    let answer = Command::Answer {
+        question: asked.id,
+        reply: "neither, a board".into(),
+    };
+    session.order(answer).await.unwrap();
+
+    let mut live = session.live.clone();
+    tokio::time::timeout(
+        Duration::from_secs(10),
+        watched::wait_for(&mut live, |live| live.info.turns >= 1),
+    )
+    .await
+    .expect("the turn ends once the one question is answered")
+    .unwrap();
+    let sent = sent(&log);
+    let answer = sent.last().expect("the form's answer");
+    assert_eq!(
+        answer["result"],
+        serde_json::json!({
+            "action": "accept",
+            "content": { "q0_other": "neither, a board" },
+        })
+    );
+    session.close().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn codex_async_form_shows_the_question_without_the_timing_note() {
     const ADAPTER: &str = r#"
 handshake "$1"

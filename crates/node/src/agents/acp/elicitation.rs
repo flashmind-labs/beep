@@ -17,9 +17,9 @@ use std::collections::{BTreeMap, VecDeque};
 const SKIP: &str = "skip";
 
 /// The suffixes of a choice's companion field for the user's own words, as
-/// the Claude adapter (`question_0_custom`) and the Codex adapter
-/// (`question_0_note`) name it.
-const CUSTOM: [&str; 2] = ["_custom", "_note"];
+/// the Claude adapter (`question_0_custom`), the Codex adapter
+/// (`question_0_note`) and Antigravity (`q0_other`) name it.
+const CUSTOM: [&str; 3] = ["_custom", "_note", "_other"];
 
 /// A form waiting for the user, its fields still to answer first in line.
 pub(in crate::agents) struct Form {
