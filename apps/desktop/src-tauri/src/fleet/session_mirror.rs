@@ -182,6 +182,22 @@ impl Rows {
             .flat_map(|(_, machine)| machine.beep.iter().chain(&machine.scans))
     }
 
+    /// The machines whose Beep rows, children or links differ from `old`'s.
+    pub(crate) fn changed_since(&self, old: &Rows) -> HashSet<EndpointId> {
+        self.machines
+            .keys()
+            .chain(old.machines.keys())
+            .filter(|id| match (self.machines.get(id), old.machines.get(id)) {
+                (Some(new), Some(old)) => {
+                    new.beep != old.beep || new.children != old.children || new.links != old.links
+                }
+                (None, None) => false,
+                _ => true,
+            })
+            .copied()
+            .collect()
+    }
+
     /// No machine was read or kept yet.
     pub(crate) fn is_empty(&self) -> bool {
         self.machines.is_empty()

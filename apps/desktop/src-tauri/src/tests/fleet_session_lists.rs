@@ -160,3 +160,25 @@ fn beep_rows_come_from_the_mirror_over_the_answers() {
     assert!(status("new").is_some());
     assert!(status("elsewhere").is_none());
 }
+
+/// Only the machines whose Beep rows differ make their lists draw again.
+#[test]
+fn only_a_machine_whose_rows_changed_redraws_its_lists() {
+    let (a, b) = (machine(2), machine(3));
+    let held = |machine: EndpointId, status: AgentStatus| MachineSession {
+        machine_id: machine.to_string(),
+        status,
+        ..session("s1")
+    };
+    let before = Rows::kept(vec![
+        held(a, AgentStatus::Working {}),
+        held(b, AgentStatus::Working {}),
+    ]);
+    let after = Rows::kept(vec![
+        held(a, AgentStatus::Idle {}),
+        held(b, AgentStatus::Working {}),
+    ]);
+
+    assert_eq!(after.changed_since(&before), HashSet::from([a]));
+    assert!(after.changed_since(&after).is_empty());
+}

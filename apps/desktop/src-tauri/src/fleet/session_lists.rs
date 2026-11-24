@@ -14,7 +14,7 @@ use beep_proto::{MachineSession, SessionId};
 use iroh::EndpointId;
 use serde::Serialize;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -28,6 +28,8 @@ use tokio::{
 pub(crate) const SESSION_LIST: &str = "session-list";
 /// How long another machine's answer stays fresh; this Mac is asked on every read.
 const FRESH: Duration = Duration::from_secs(15);
+/// The least time between two redraws for the mirror's changes.
+const REDRAW_GAP: Duration = Duration::from_secs(1);
 /// How long one machine gets to answer.
 const ANSWER_LIMIT: Duration = Duration::from_secs(6);
 
@@ -102,7 +104,8 @@ impl SessionLists {
     }
 
     /// Sends again the lists whose rows differ now that the mirror's rows changed, until the
-    /// mirror goes.
+    /// mirror goes. A busy agent changes the rows many times a second, so the lists wait
+    /// `REDRAW_GAP` between draws.
     pub(crate) fn follow(&self, mut rows: watch::Receiver<Arc<Rows>>) {
         let asks = self.asks.clone();
         tauri::async_runtime::spawn(async move {
@@ -110,6 +113,8 @@ impl SessionLists {
                 if asks.send(Ask::Mirrored).is_err() {
                     return;
                 }
+
+                tokio::time::sleep(REDRAW_GAP).await;
             }
         });
     }
@@ -127,6 +132,8 @@ async fn serve(
     mut queue: mpsc::UnboundedReceiver<Ask>,
 ) {
     let mut lists = Lists::new(fleet.id());
+    // The rows the lists were last drawn from, to tell which machines changed.
+    let mut seen = Arc::new(Rows::default());
 
     while let Some(ask) = queue.recv().await {
         let now = Instant::now();
@@ -150,7 +157,11 @@ async fn serve(
             Ask::Answered { asked, rows } => lists.answered(asked, rows, now, shown),
             Ask::Forget { machine, session } => lists.forget(machine, &session, shown),
             Ask::Stale { machine } => lists.stale(machine),
-            Ask::Mirrored => lists.redraw(shown),
+            Ask::Mirrored => {
+                let changed = mirrored.changed_since(&seen);
+                seen = mirrored.clone();
+                lists.redraw(&changed, shown)
+            }
         };
 
         for asked in moved.fetch {
@@ -384,13 +395,17 @@ impl Lists {
         }
     }
 
-    /// The lists whose rows differ from what was sent, now sent.
+    /// The lists of `machines` whose rows differ from what was sent, now sent.
     pub(crate) fn redraw(
         &mut self,
+        machines: &HashSet<EndpointId>,
         finish: impl Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>,
     ) -> Moved {
         Moved {
-            sent: self.changed(|_| true, &finish),
+            sent: self.changed(
+                |keys| keys.iter().any(|key| machines.contains(&key.0)),
+                &finish,
+            ),
             fetch: Vec::new(),
         }
     }
