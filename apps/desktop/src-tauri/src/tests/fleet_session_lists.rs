@@ -47,7 +47,7 @@ fn a_list_holds_until_every_machine_answered_and_keeps_rows_on_failure() {
     let local = (me, vec!["/srv/project".to_owned()]);
     let remote = (other, vec!["/srv/project".to_owned()]);
     let list = ListId::Project("project".into());
-    let keep = |rows: Vec<MachineSession>| rows;
+    let keep = |_: &[MachineFolders], rows: Vec<MachineSession>| rows;
     let mut lists = Lists::new(me);
     let now = Instant::now();
 
@@ -95,7 +95,7 @@ fn an_answer_from_before_a_delete_is_asked_again() {
     let me = machine(1);
     let other = machine(2);
     let remote = (other, vec!["/srv/project".to_owned()]);
-    let keep = |rows: Vec<MachineSession>| rows;
+    let keep = |_: &[MachineFolders], rows: Vec<MachineSession>| rows;
     let mut lists = Lists::new(me);
     let now = Instant::now();
 
@@ -126,4 +126,41 @@ fn an_answer_from_before_a_delete_is_asked_again() {
     );
     assert!(moved.sent.is_empty());
     assert_eq!(keys(&moved.fetch), [remote]);
+}
+
+/// A project's Beep rows are the mirror's: its status now, and the sessions only it has.
+#[test]
+fn beep_rows_come_from_the_mirror_over_the_answers() {
+    let other = machine(2);
+    let key = (other, vec!["/srv/project".to_owned()]);
+    let held = |id: &str, status: AgentStatus, cwd: &str| MachineSession {
+        machine_id: other.to_string(),
+        status,
+        cwd: cwd.into(),
+        ..session(id)
+    };
+    let mirrored = Rows::kept(vec![
+        held("busy", AgentStatus::Working {}, "/srv/project"),
+        held("new", AgentStatus::Working {}, "/srv/project/sub"),
+        held("elsewhere", AgentStatus::Working {}, "/srv/other"),
+    ]);
+    let answered = vec![
+        held("busy", AgentStatus::Idle {}, "/srv/project"),
+        MachineSession {
+            external: true,
+            ..held("outside", AgentStatus::Ended {}, "/srv/project")
+        },
+    ];
+
+    let rows = with_mirrored(answered, &mirrored, &[key]);
+    let status = |id: &str| {
+        rows.iter()
+            .find(|row| row.id == id)
+            .map(|row| row.status.clone())
+    };
+
+    assert_eq!(status("busy"), Some(AgentStatus::Working {}));
+    assert_eq!(status("outside"), Some(AgentStatus::Ended {}));
+    assert!(status("new").is_some());
+    assert!(status("elsewhere").is_none());
 }

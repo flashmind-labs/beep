@@ -3,7 +3,11 @@
 //! sends a list to the windows only once every machine in it has answered and
 //! the list changed, so a slow or failing machine never empties a list.
 
-use super::{Fleet, files::Place};
+use super::{
+    Fleet,
+    files::{Place, in_any_folder},
+    session_mirror::{Rows, SessionMirror},
+};
 use crate::agents::sessions::SessionRow;
 use beep_mesh::machine::listing;
 use beep_proto::{MachineSession, SessionId};
@@ -14,9 +18,9 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::{
-    sync::{mpsc, oneshot},
+    sync::{mpsc, oneshot, watch},
     time::timeout,
 };
 
@@ -67,6 +71,8 @@ enum Ask {
     Stale {
         machine: EndpointId,
     },
+    /// The mirror's rows changed: the lists send again what differs.
+    Mirrored,
 }
 
 impl SessionLists {
@@ -95,6 +101,19 @@ impl SessionLists {
         let _ = self.asks.send(Ask::Forget { machine, session });
     }
 
+    /// Sends again the lists whose rows differ now that the mirror's rows changed, until the
+    /// mirror goes.
+    pub(crate) fn follow(&self, mut rows: watch::Receiver<Arc<Rows>>) {
+        let asks = self.asks.clone();
+        tauri::async_runtime::spawn(async move {
+            while rows.changed().await.is_ok() {
+                if asks.send(Ask::Mirrored).is_err() {
+                    return;
+                }
+            }
+        });
+    }
+
     /// `machine`'s sessions changed: ask it again, keeping what it said until it answers.
     pub(crate) fn stale(&self, machine: EndpointId) {
         let _ = self.asks.send(Ask::Stale { machine });
@@ -108,10 +127,16 @@ async fn serve(
     mut queue: mpsc::UnboundedReceiver<Ask>,
 ) {
     let mut lists = Lists::new(fleet.id());
-    let shown = |rows: Vec<MachineSession>| finish(&fleet, rows);
 
     while let Some(ask) = queue.recv().await {
         let now = Instant::now();
+        let mirrored = app
+            .try_state::<Arc<SessionMirror>>()
+            .map(|mirror| mirror.current())
+            .unwrap_or_default();
+        let shown = |keys: &[MachineFolders], rows: Vec<MachineSession>| {
+            finish(&fleet, &mirrored, keys, rows)
+        };
         let moved = match ask {
             Ask::Want {
                 list,
@@ -125,6 +150,7 @@ async fn serve(
             Ask::Answered { asked, rows } => lists.answered(asked, rows, now, shown),
             Ask::Forget { machine, session } => lists.forget(machine, &session, shown),
             Ask::Stale { machine } => lists.stale(machine),
+            Ask::Mirrored => lists.redraw(shown),
         };
 
         for asked in moved.fetch {
@@ -178,11 +204,19 @@ fn keys(places: &[Place]) -> Vec<MachineFolders> {
     keys
 }
 
-/// The machines' rows as the windows list them: without sessions being deleted, in their new
-/// folder when moved, with their saved titles, newest first.
-fn finish(fleet: &Fleet, rows: Vec<MachineSession>) -> Vec<MachineSession> {
+/// The machines' rows as the windows list them: Beep's own sessions as the mirror holds them,
+/// those in the lists' folders it has and the answers lack, without sessions being deleted,
+/// in their new folder when moved, with their saved titles, newest first.
+fn finish(
+    fleet: &Fleet,
+    mirrored: &Rows,
+    keys: &[MachineFolders],
+    rows: Vec<MachineSession>,
+) -> Vec<MachineSession> {
     let mesh = fleet.mesh();
     let ops = fleet.node_ops();
+    let rows = with_mirrored(rows, mirrored, keys);
+
     let rows = rows
         .into_iter()
         .filter(|session| !ops.is_deleting_session(&session.machine_id, &session.id))
@@ -197,6 +231,44 @@ fn finish(fleet: &Fleet, rows: Vec<MachineSession>) -> Vec<MachineSession> {
         });
 
     listing::project_history(rows)
+}
+
+/// `rows`, the answers of the machines, with Beep's own sessions as the mirror holds them: its
+/// row for each the answers list, and the ones in the lists' folders the answers lack.
+fn with_mirrored(
+    mut rows: Vec<MachineSession>,
+    mirrored: &Rows,
+    keys: &[MachineFolders],
+) -> Vec<MachineSession> {
+    let beep: HashMap<_, _> = mirrored
+        .beep()
+        .map(|row| ((&row.machine_id, &row.agent, &row.id), row))
+        .collect();
+
+    for row in &mut rows {
+        if !row.external
+            && let Some(live) = beep.get(&(&row.machine_id, &row.agent, &row.id))
+        {
+            *row = (*live).clone();
+        }
+    }
+
+    for (machine, folders) in keys {
+        let machine_id = machine.to_string();
+        let missing: Vec<MachineSession> = mirrored
+            .beep()
+            .filter(|row| row.machine_id == machine_id && in_any_folder(&row.cwd, folders))
+            .filter(|row| {
+                !rows.iter().any(|held| {
+                    held.machine_id == machine_id && held.agent == row.agent && held.id == row.id
+                })
+            })
+            .cloned()
+            .collect();
+        rows.extend(missing);
+    }
+
+    rows
 }
 
 /// The actor's state: each machine's last answer and each list's machines and last sent rows.
@@ -235,7 +307,8 @@ pub(crate) struct Moved {
     pub(crate) fetch: Vec<Asked>,
 }
 
-type Finish<'a> = &'a dyn Fn(Vec<MachineSession>) -> Vec<MachineSession>;
+/// Puts what the app knows on the rows a list merged, given the machines and folders it holds.
+type Finish<'a> = &'a dyn Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>;
 
 impl Lists {
     pub(crate) fn new(me: EndpointId) -> Self {
@@ -253,7 +326,7 @@ impl Lists {
         list: ListId,
         keys: Vec<MachineFolders>,
         now: Instant,
-        finish: impl Fn(Vec<MachineSession>) -> Vec<MachineSession>,
+        finish: impl Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>,
     ) -> (Option<Vec<MachineSession>>, Moved) {
         let mut moved = Moved::default();
 
@@ -265,7 +338,7 @@ impl Lists {
             }
         }
 
-        let rows = self.merged(&keys).map(finish);
+        let rows = self.merged(&keys).map(|rows| finish(&keys, rows));
         self.lists.insert(
             list,
             Listed {
@@ -284,7 +357,7 @@ impl Lists {
         asked: Asked,
         rows: Option<Vec<MachineSession>>,
         now: Instant,
-        finish: impl Fn(Vec<MachineSession>) -> Vec<MachineSession>,
+        finish: impl Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>,
     ) -> Moved {
         let listed = self.listed(&asked.key);
         let answer = self.answers.entry(asked.key.clone()).or_default();
@@ -320,7 +393,7 @@ impl Lists {
         &mut self,
         machine: EndpointId,
         session: &SessionId,
-        finish: impl Fn(Vec<MachineSession>) -> Vec<MachineSession>,
+        finish: impl Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>,
     ) -> Moved {
         for (_, answer) in self.answers.iter_mut().filter(|(key, _)| key.0 == machine) {
             answer.generation += 1;
@@ -331,6 +404,17 @@ impl Lists {
 
         Moved {
             sent: self.changed(|keys| keys.iter().any(|key| key.0 == machine), &finish),
+            fetch: Vec::new(),
+        }
+    }
+
+    /// The lists whose rows differ from what was sent, now sent.
+    pub(crate) fn redraw(
+        &mut self,
+        finish: impl Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>,
+    ) -> Moved {
+        Moved {
+            sent: self.changed(|_| true, &finish),
             fetch: Vec::new(),
         }
     }
@@ -379,7 +463,10 @@ impl Lists {
             let Some(listed) = self.lists.get(&id) else {
                 continue;
             };
-            let Some(rows) = self.merged(&listed.keys).map(finish) else {
+            let Some(rows) = self
+                .merged(&listed.keys)
+                .map(|rows| finish(&listed.keys, rows))
+            else {
                 continue;
             };
             let Some(listed) = self.lists.get_mut(&id) else {

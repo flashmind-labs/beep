@@ -143,7 +143,7 @@ pub(crate) struct Rows {
 
 impl Rows {
     /// The rows a previous run kept: a scan's rows are those of an outside session.
-    fn kept(kept: Vec<MachineSession>) -> Self {
+    pub(super) fn kept(kept: Vec<MachineSession>) -> Self {
         let mut rows = Self::default();
 
         for session in kept {
@@ -216,6 +216,11 @@ impl Rows {
             .then(|| machine.links.get(session))?
     }
 
+    /// Beep's own top-level sessions on every machine.
+    pub(crate) fn beep(&self) -> impl Iterator<Item = &MachineSession> {
+        self.machines.values().flat_map(|machine| &machine.beep)
+    }
+
     /// `scan`, a fresh scan of `machine`, with its native reports on top.
     pub(crate) fn with_presence(&self, machine: EndpointId, scan: &mut Vec<MachineSession>) {
         if let Some(reported) = self
@@ -255,8 +260,7 @@ pub(crate) trait Outside: Send + Sync + 'static {
 /// A change in what the windows draw.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Drawn {
-    /// A machine pushed rows that differ: the lists that ask the machine
-    /// themselves ask again.
+    /// A machine pushed rows that differ: the palette lists them again.
     Machine(EndpointId),
     /// A listing of a machine came back and its rows differ.
     Listed,
@@ -1006,9 +1010,7 @@ impl Outside for Desk {
     fn drawn(&self, drawn: Drawn) {
         let app = &self.app;
         let told = match drawn {
-            Drawn::Machine(machine) => {
-                app.state::<super::session_lists::SessionLists>()
-                    .stale(machine);
+            Drawn::Machine(_) => {
                 app.state::<PaletteCache>().sessions_changed();
                 Ok(())
             }

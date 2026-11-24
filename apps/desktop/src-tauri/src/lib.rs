@@ -823,6 +823,8 @@ fn setup(
         handle.clone(),
         mirror.watch(),
     ));
+    app.state::<fleet::session_lists::SessionLists>()
+        .follow(mirror.watch());
     app.manage(Arc::new(mirror));
     app.manage(projects::live::Followed::default());
     app.manage(settings::gh_sign_in::GhSignIn::default());

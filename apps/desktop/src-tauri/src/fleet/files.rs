@@ -352,7 +352,7 @@ pub(crate) async fn found_on(
         .unwrap_or_else(|_| Err("it did not answer in time".to_owned()))
 }
 
-fn in_any_folder(cwd: &str, folders: &[String]) -> bool {
+pub(super) fn in_any_folder(cwd: &str, folders: &[String]) -> bool {
     folders.iter().any(|folder| {
         let base = folder.trim_end_matches(['/', '\\']);
         cwd == folder
