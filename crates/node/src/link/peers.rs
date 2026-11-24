@@ -77,11 +77,10 @@ pub(super) const CHANNEL_OPEN_WAIT: Duration = Duration::from_secs(10);
 /// read. Each is sent only when it changed.
 const RESAMPLE: Duration = Duration::from_secs(60);
 
-/// What the node holds once it is in a mesh. The mesh stops with its last
-/// clone.
+/// What the node holds once it is in a mesh: the mesh itself is read from
+/// `Offers::mesh`. The mesh stops with its last clone.
 #[derive(Clone)]
-struct Active {
-    mesh: Mesh,
+struct Protocols {
     peer: MeshProtocol,
     join: JoinProtocol,
 }
@@ -95,7 +94,7 @@ struct Inner {
     offers: Mutex<Offers>,
     /// Protocols a host will offer once its services are up.
     later: watch::Sender<BTreeSet<String>>,
-    active: Mutex<Option<Active>>,
+    active: Mutex<Option<Protocols>>,
     /// Applies the mesh's state to the node while it is a member.
     follower: Mutex<Option<AbortOnDropHandle<()>>>,
     /// `beep-team/1`, served whether or not the node is in a mesh.
@@ -111,17 +110,13 @@ impl Inner {
         crate::lock(&self.follower)
     }
 
-    fn active(&self) -> Option<Active> {
-        crate::lock(&self.active).clone()
+    fn active(&self) -> Option<Mesh> {
+        self.offers().mesh.get()
     }
 
     /// What `beep-node status` shows. Checks each project's folder on disk.
     async fn local_status(&self) -> Result<LocalStatus> {
-        let active = self.active();
-        let mesh = active
-            .as_ref()
-            .filter(|active| active.mesh.is_member(active.mesh.me()))
-            .map(|active| active.mesh.clone());
+        let mesh = self.active().filter(|mesh| mesh.is_member(mesh.me()));
         let devices = mesh
             .as_ref()
             .map(Mesh::devices)
@@ -325,7 +320,7 @@ impl Peers {
         offers.mesh.clear();
 
         if let Some(transfers) = offers.transfers.get() {
-            transfers.syncs().unfollow();
+            transfers.syncs().forget_recoveries();
         }
 
         // The gateway stopped with the follower: no team is served from here.
@@ -334,7 +329,7 @@ impl Peers {
     }
 
     /// One of the active protocols, without a handle on the mesh itself.
-    fn protocols<P>(&self, take: impl FnOnce(&Active) -> P) -> Option<P> {
+    fn protocols<P>(&self, take: impl FnOnce(&Protocols) -> P) -> Option<P> {
         crate::lock(&self.inner.active).as_ref().map(take)
     }
 
@@ -397,9 +392,9 @@ impl Peers {
     ) -> Option<(iroh::EndpointId, watch::Receiver<u64>)> {
         let peer = connection.remote_id();
         let active = self.active()?;
-        active.mesh.track_protocol_connection(connection).ok()?;
-        self.channel_allowed(peer, active.mesh.id())
-            .then(|| (active.mesh.id(), active.mesh.updates()))
+        active.track_protocol_connection(connection).ok()?;
+        self.channel_allowed(peer, active.id())
+            .then(|| (active.id(), active.updates()))
     }
 
     pub(super) fn channel_allowed(&self, peer: iroh::EndpointId, mesh: iroh::EndpointId) -> bool {
@@ -417,11 +412,11 @@ impl Peers {
 
     fn channel_who(&self, peer: iroh::EndpointId, mesh: iroh::EndpointId) -> Option<Who> {
         let active = self.active()?;
-        if active.mesh.id() != mesh || !active.mesh.is_member(active.mesh.me()) {
+        if active.id() != mesh || !active.is_member(active.me()) {
             return None;
         }
 
-        let devices = active.mesh.devices();
+        let devices = active.devices();
         let kind = devices
             .iter()
             .find(|status| status.device.id == peer)?
@@ -432,7 +427,7 @@ impl Peers {
             DeviceKind::Node => Who::Node {
                 peer,
                 desktop_here: devices.iter().any(|status| {
-                    status.device.id == active.mesh.me()
+                    status.device.id == active.me()
                         && status.device.kind == DeviceKind::Desktop
                 }),
             },
@@ -472,7 +467,7 @@ impl Peers {
     /// try already closed the old one.
     pub(crate) async fn join(&self, ticket: &str) -> Result<()> {
         let invite: Invitation = ticket.parse()?;
-        let old = self.active().map(|active| active.mesh);
+        let old = self.active();
 
         if old.as_ref().is_some_and(|mesh| mesh.is_member(mesh.me())) {
             bail!("this node already belongs to a mesh");
@@ -498,7 +493,7 @@ impl Peers {
     /// Leaves the mesh for good and deletes what it kept: the node is in none
     /// after this, and can join another.
     pub(crate) async fn forget(&self) -> Result<()> {
-        let old = self.active().map(|active| active.mesh);
+        let old = self.active();
         self.leave().await;
 
         if let Some(old) = old {
@@ -521,17 +516,17 @@ impl Peers {
     /// Whether this device is in a mesh it was not removed from.
     pub fn is_member(&self) -> bool {
         self.active()
-            .is_some_and(|active| active.mesh.is_member(active.mesh.me()))
+            .is_some_and(|mesh| mesh.is_member(mesh.me()))
     }
 
     /// The mesh's devices, empty before the node joined.
     pub fn devices(&self) -> Vec<DeviceStatus> {
         self.active()
-            .map(|active| active.mesh.devices())
+            .map(|mesh| mesh.devices())
             .unwrap_or_default()
     }
 
-    fn active(&self) -> Option<Active> {
+    fn active(&self) -> Option<Mesh> {
         self.inner.active()
     }
 
@@ -547,9 +542,8 @@ impl Peers {
             client: Ok(PeerClient::local(self.local_session())),
         };
 
-        match active.filter(|active| active.mesh.is_member(me)) {
-            Some(active) => active
-                .mesh
+        match active.filter(|mesh| mesh.is_member(me)) {
+            Some(mesh) => mesh
                 .code_hosts()
                 .into_iter()
                 .map(|status| {
@@ -562,8 +556,7 @@ impl Peers {
                         id: device.id,
                         name: device.name,
                         kind: device.kind,
-                        client: active
-                            .mesh
+                        client: mesh
                             .peer(device.id)
                             .map(PeerClient::new)
                             .ok_or_else(|| "offline".to_owned()),
@@ -589,7 +582,9 @@ impl Peers {
     pub fn install(&self, mesh: Mesh) {
         let (peer, join) = mesh.protocols();
         peer.on_stream(self.stream_handler());
-        *crate::lock(&self.inner.active) = Some(Active { mesh, peer, join });
+        // The mesh first: `active` needs it with the protocols.
+        self.inner.offers().mesh.set(mesh);
+        *crate::lock(&self.inner.active) = Some(Protocols { peer, join });
         self.follow();
     }
 
@@ -602,49 +597,44 @@ impl Peers {
             return;
         };
         let offers = self.inner.offers().clone();
-        offers.mesh.set(active.mesh.clone());
-
-        if let Some(transfers) = offers.transfers.get() {
-            transfers.syncs().follow(active.mesh.clone());
-        }
 
         let follow = from_mesh::follow(
-            active.mesh.clone(),
+            active.clone(),
             self.inner.endpoint.id(),
             offers.clone(),
         );
         let runs = crate::machine::ci::watch(
-            active.mesh.clone(),
+            active.clone(),
             self.inner.endpoint.id(),
             self.inner.dir.clone(),
             offers.agents.ci.clone(),
         );
         let skills = crate::agents::skills::follow(
-            active.mesh.clone(),
+            active.clone(),
             self.inner.dir.clone(),
             offers.skills.clone(),
         );
         let libraries = crate::agents::skill_library::follow(
-            active.mesh.clone(),
+            active.clone(),
             self.inner.dir.clone(),
             offers.skills.clone(),
             offers.agents.clone(),
         );
-        let team = crate::team::home::follow(active.mesh.clone(), self.inner.team.clone());
+        let team = crate::team::home::follow(active.clone(), self.inner.team.clone());
         let gateway = crate::team::gateway::run(
-            active.mesh.clone(),
+            active.clone(),
             self.inner.endpoint.id(),
             self.inner.team.clone(),
             offers.clone(),
             self.inner.dir.clone(),
         );
         let search = crate::agents::follow_search(
-            active.mesh.clone(),
+            active.clone(),
             self.inner.dir.clone(),
             offers.agents.clone(),
         );
         let moves = crate::agents::follow_moves(
-            active.mesh,
+            active,
             self.inner.endpoint.clone(),
             self.inner.dir.clone(),
             offers.agents.clone(),

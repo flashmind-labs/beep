@@ -8,11 +8,10 @@ use crate::{
         grants::Access,
         place::{Journal, Room, open_target},
     },
-    link::{Protocol, Session},
+    link::{Membership, Protocol, Session},
     lock,
 };
 use anyhow::{Context, Result, bail};
-use beep_mesh::Mesh;
 use beep_proto::node::{
     LinkRx, LinkTx,
     sync::{
@@ -133,9 +132,9 @@ struct Inner {
     checking: Mutex<Option<AbortOnDropHandle<()>>>,
     /// The pulls other nodes have open here.
     serving: Arc<AtomicUsize>,
-    /// The mesh this node follows, once it is in one: it names the
-    /// projects, and its device list says who may sync them.
-    mesh: Mutex<Option<Mesh>>,
+    /// The mesh this node is in, once it is in one: it names the projects,
+    /// and its device list says who may sync them.
+    mesh: Membership,
 }
 
 /// Stops `running` and waits for its task, which saves its state, a while.
@@ -171,8 +170,8 @@ impl Inner {
     /// joined is no concern of the mesh: a machine still linked through
     /// the server keeps the grants the server issued it.
     fn removed(&self, peer: &EndpointId) -> bool {
-        lock(&self.mesh)
-            .as_ref()
+        self.mesh
+            .get()
             .is_some_and(|mesh| mesh.is_removed(*peer))
     }
 }
@@ -222,6 +221,7 @@ impl Syncs {
         folders: Folders,
         dir: PathBuf,
         syncthing: Syncthing,
+        mesh: Membership,
     ) -> Result<Self> {
         fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
         let config = match fs::read(dir.join(CONFIG)) {
@@ -248,7 +248,7 @@ impl Syncs {
                     syncthing,
                     checking: Mutex::default(),
                     serving: Arc::default(),
-                    mesh: Mutex::default(),
+                    mesh,
                 }
             }),
         };
@@ -303,14 +303,8 @@ impl Syncs {
         self.configure_from(projects, Source::Direct, false).await
     }
 
-    /// Follows `mesh` from now on: its device list says who may sync.
-    pub(crate) fn follow(&self, mesh: Mesh) {
-        *lock(&self.inner.mesh) = Some(mesh);
-    }
-
-    /// Lets go of the mesh `follow` took.
-    pub(crate) fn unfollow(&self) {
-        *lock(&self.inner.mesh) = None;
+    /// The node left its mesh: the recovery opt-ins it carried go.
+    pub(crate) fn forget_recoveries(&self) {
         lock(&self.inner.recoveries).clear();
 
         for shared in self.inner.actor.seen().values().filter_map(Entry::running) {
@@ -1084,7 +1078,7 @@ async fn serve(syncs: Syncs, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
 
 async fn answer(syncs: &Syncs, request: Request) -> Result<Reply> {
     Ok(match request {
-        Request::Configure { projects } if lock(&syncs.inner.mesh).is_some() => Reply::Configured {
+        Request::Configure { projects } if syncs.inner.mesh.get().is_some() => Reply::Configured {
             refused: projects
                 .into_iter()
                 .map(|project| Refused {

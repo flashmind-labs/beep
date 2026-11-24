@@ -1,3 +1,4 @@
+use beep_mesh::Mesh;
 use super::*;
 use crate::files::paths;
 use beep_mesh::{DeviceKind, JOIN_ALPN, PEER_ALPN, transport_config};
@@ -48,7 +49,7 @@ async fn a_removed_device_is_refused_and_mesh_owns_configure() {
     .await
     .expect("the transfers start");
     let syncs = transfers.syncs();
-    syncs.follow(mesh.clone());
+    syncs.inner.mesh.set(mesh.clone());
     let project = Project {
         name: "proj".to_owned(),
         folder: paths::canonicalize(shared.path().join("proj"))
@@ -85,6 +86,10 @@ async fn a_removed_device_is_refused_and_mesh_owns_configure() {
 
     mesh.remove(id).await.expect("the removal is signed");
     assert!(!syncs.inner.may_connect(&id), "a removed device does not");
+
+    // Leaving the mesh clears the one copy: no mesh, nobody is removed.
+    syncs.inner.mesh.clear();
+    assert!(syncs.inner.allows(&id), "no mesh removes nobody");
     joined.close().await.ok();
     transfers.shutdown().await.expect("the node stops");
 }

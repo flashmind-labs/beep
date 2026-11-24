@@ -48,6 +48,7 @@ async fn quitting_saves_the_projects_while_a_peer_hangs() {
         state.path(),
         Folders::new(&[shared.path().to_owned()]),
         syncthing,
+        Membership::default(),
         false,
     )
     .await
@@ -86,8 +87,15 @@ async fn a_shared_file_is_fetched_by_the_device_that_asked_and_no_other() {
     let asking = bind().await;
     let other = bind().await;
     let syncthing = Syncthing::at(vec![state.path().join("syncthing")], None);
-    let (transfers, _served) = Transfers::build(&here, state.path(), Folders::new(&[]), syncthing, true)
-        .await
+    let (transfers, _served) = Transfers::build(
+        &here,
+        state.path(),
+        Folders::new(&[]),
+        syncthing,
+        Membership::default(),
+        true,
+    )
+    .await
         .expect("the transfers start");
 
     let shared = transfers

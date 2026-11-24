@@ -7,7 +7,7 @@ use crate::{
     files::Folders,
     files::sync::{self, PeerHandler, Syncs},
     files::syncthing::Syncthing,
-    link::{Protocol, Session},
+    link::{Membership, Protocol, Session},
 };
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use beep_proto::node::{
@@ -351,7 +351,9 @@ impl Transfers {
         folders: Folders,
         syncthing: Syncthing,
     ) -> Result<Self> {
-        Ok(Self::build(endpoint, dir, folders, syncthing, true)
+        let membership = Membership::default();
+
+        Ok(Self::build(endpoint, dir, folders, syncthing, membership, true)
             .await?
             .0)
     }
@@ -359,12 +361,21 @@ impl Transfers {
     /// `start`, but the blobs and sync protocols are left to the caller's
     /// router: add `Served` to it. Stop that router before `shutdown`, or
     /// with it through `stop_for_exit`.
-    pub async fn start_shared(
+    pub(crate) async fn start_shared(
         endpoint: &Endpoint,
         dir: &Path,
         folders: Folders,
+        membership: Membership,
     ) -> Result<(Self, Served)> {
-        Self::build(endpoint, dir, folders, Syncthing::local(), false).await
+        Self::build(
+            endpoint,
+            dir,
+            folders,
+            Syncthing::local(),
+            membership,
+            false,
+        )
+        .await
     }
 
     async fn build(
@@ -372,6 +383,7 @@ impl Transfers {
         dir: &Path,
         folders: Folders,
         syncthing: Syncthing,
+        membership: Membership,
         own_router: bool,
     ) -> Result<(Self, Served)> {
         let collect = Arc::new(Notify::new());
@@ -403,6 +415,7 @@ impl Transfers {
             folders.clone(),
             dir.join("sync"),
             syncthing,
+            membership,
         )
         .await?;
         let grants = Arc::new(Grants::default());

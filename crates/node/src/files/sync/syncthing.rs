@@ -1,6 +1,6 @@
 //! Hands one checkout between Beep and Syncthing without pausing its share.
 
-use super::{Op, Phase, Syncs, halt, lock, open_target, spawn_blocking};
+use super::{Op, Phase, Syncs, halt, open_target, spawn_blocking};
 use anyhow::{Result, bail};
 use std::path::Path;
 use beep_proto::node::sync::SyncthingFiles;
@@ -11,7 +11,7 @@ impl Syncs {
         folder: &str,
         enabled: Option<bool>,
     ) -> Result<SyncthingFiles> {
-        let folders = if lock(&self.inner.mesh).is_some() {
+        let folders = if self.inner.mesh.get().is_some() {
             self.inner.folders.everywhere()
         } else {
             self.inner.folders.clone()

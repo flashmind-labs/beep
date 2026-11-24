@@ -148,7 +148,13 @@ pub async fn serve(
     // names, wherever they are, and transfers for `send_files`. Other machines
     // reach transfers only with shared folders. Without its store the node
     // still serves the rest.
-    match Transfers::start_shared(&endpoint, &state.dir.join("blobs"), folders.clone()).await {
+    match Transfers::start_shared(
+        &endpoint,
+        &state.dir.join("blobs"),
+        folders.clone(),
+        offers.mesh.clone(),
+    )
+    .await {
         Ok((transfers, handlers)) => {
             served = Some(handlers);
             offers.extra.push(Arc::new(transfers.syncs()));
