@@ -109,6 +109,11 @@ pub(super) struct Term {
     pub(super) cwd: Option<PathBuf>,
 }
 
+/// The topic of one terminal's output: `terminal-output` keyed by its id.
+fn output_topic(id: TaskId) -> beep_proto::node::events::Topic {
+    beep_proto::node::events::Topic::keyed("terminal-output", id.to_string())
+}
+
 /// What an attached stream shares with the terminal.
 pub(super) struct Live {
     pub(super) id: TaskId,
@@ -142,6 +147,12 @@ impl Live {
         crate::link::restart::changed();
         self.started_or_ended.notify_one();
         crate::events::system().changed(beep_proto::node::events::Topic::new("terminals"));
+    }
+
+    /// Says its output or state changed, on the topic that names this
+    /// terminal. A reader of every terminal's output covers it too.
+    pub(super) fn output_changed(&self) {
+        crate::events::system().changed(output_topic(self.id));
     }
 
     /// Sizes the terminal to `size`, unless it already is: a resize makes

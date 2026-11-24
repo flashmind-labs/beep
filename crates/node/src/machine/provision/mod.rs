@@ -18,6 +18,7 @@ use beep_proto::node::{
     setup::{Need, Reply as SetupReply, Request as SetupRequest},
     tool_update::{Available, Check, Reply, Request, Tool},
 };
+use beep_proto::node::events::Topic;
 use beep_proto::watched;
 use std::{
     collections::HashMap,
@@ -34,6 +35,9 @@ use tokio::{
     task::spawn_blocking,
 };
 use tokio_util::task::AbortOnDropHandle;
+
+/// The topic that says `Provision::updatable` changed.
+pub(crate) const UPDATES_TOPIC: &str = "tool-updates";
 
 /// One lock for each tool, taken while it is installed.
 #[derive(Default)]
@@ -182,12 +186,33 @@ impl Provision {
                 .flatten()
                 .collect();
 
-            self.updates.send_replace(Some(updates));
+            self.publish(updates);
             tokio::select! {
                 _ = interval.tick() => {},
                 _ = self.recheck.notified() => {},
             }
         }
+    }
+
+    /// Keeps `updates` as the latest check and says so on the `tool-updates`
+    /// topic when it differs from the one before. Returns whether it did.
+    fn publish(&self, updates: Vec<Available>) -> bool {
+        let changed = self.updates.send_if_modified(|known| {
+            let changed = known.as_ref() != Some(&updates);
+            *known = Some(updates);
+            changed
+        });
+
+        if changed {
+            crate::events::system().changed(Topic::new(UPDATES_TOPIC));
+        }
+
+        changed
+    }
+
+    /// The tools with a newer release, once the first check ended.
+    pub(crate) fn updatable(&self) -> Option<Vec<Available>> {
+        watched::read_sent(&self.updates, Clone::clone)
     }
 
     pub(crate) async fn serve_tool_checks(&self, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {

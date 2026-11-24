@@ -75,3 +75,21 @@ async fn installs_of_different_tools_overlap_and_of_one_tool_take_turns() {
     drop(gh);
     assert!(second.now_or_never().is_some());
 }
+
+#[test]
+fn a_check_is_published_for_the_snapshot_only_when_it_differs() {
+    let dir = tempfile::tempdir().unwrap();
+    let provision = Provision::new(dir.path());
+    let flsh = Available {
+        tool: Tool::Flsh,
+        version: "0.1.0".into(),
+        latest: "0.2.0".into(),
+    };
+
+    assert_eq!(provision.updatable(), None);
+    assert!(provision.publish(Vec::new()));
+    assert_eq!(provision.updatable(), Some(Vec::new()));
+    assert!(!provision.publish(Vec::new()));
+    assert!(provision.publish(vec![flsh.clone()]));
+    assert_eq!(provision.updatable(), Some(vec![flsh]));
+}

@@ -66,8 +66,8 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -
             Request::List {} => Reply::Devices {
                 devices: list().await,
             },
-            Request::Boot { id } => done(boot(&id).await),
-            Request::Shutdown { id } => done(shutdown(&id).await),
+            Request::Boot { id } => listed(done(boot(&id).await)),
+            Request::Shutdown { id } => listed(done(shutdown(&id).await)),
             Request::Logs { id, lines, filter } => answer(
                 logs(&id, lines, &filter)
                     .await
@@ -107,8 +107,11 @@ async fn platforms_in(agents: &Agents, root: &str) -> Result<Vec<Platform>> {
         .context("the platform check stopped")
 }
 
+/// The topic that says the device list changed.
+pub(crate) const TOPIC: &str = "devices";
+
 /// Every emulator, phone and simulator here, Android first.
-async fn list() -> Vec<Device> {
+pub(crate) async fn list() -> Vec<Device> {
     #[cfg(target_os = "macos")]
     let (mut devices, phones, iphones, simulators) =
         tokio::join!(android::list(), phone::list(), iphone::list(), ios::list());
@@ -279,6 +282,15 @@ fn answer(reply: Result<Reply>) -> Reply {
 
 fn done(result: Result<()>) -> Reply {
     answer(result.map(|()| Reply::Done {}))
+}
+
+/// Says the device list changed when `reply` says a boot or shutdown went through.
+fn listed(reply: Reply) -> Reply {
+    if matches!(reply, Reply::Done {}) {
+        crate::events::system().changed(beep_proto::node::events::Topic::new(TOPIC));
+    }
+
+    reply
 }
 
 /// What a device shows, newest only.

@@ -1,6 +1,6 @@
 //! Topic subscriptions and correlated commands on one bidirectional mesh stream.
 
-use super::{agent, process, sign_in, sync, terminal};
+use super::{agent, device, process, sign_in, sync, terminal, tool_update};
 use crate::SessionId;
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +76,13 @@ pub enum Value {
     Sync(Box<sync::Reply>),
     /// A plugin's compact MessagePack state, published under its topic.
     Plugin(#[serde(with = "serde_bytes")] Vec<u8>),
+    /// Every emulator, phone and simulator on the node, under `devices`.
+    /// Only a topic that names it gets it, never `*`.
+    Devices(Vec<device::Device>),
+    /// The tools the node has found a newer release of, under `tool-updates`.
+    /// `Missing` until the node's first check ends. Only a topic that names
+    /// it gets it, never `*`.
+    ToolUpdates(Vec<tool_update::Available>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -118,7 +118,7 @@ async fn follow_adb(adb: &Path) -> Result<()> {
     let mut read = [0; 4096];
 
     while out.read(&mut read).await? > 0 {
-        events::system().changed(Topic::new("devices"));
+        events::system().changed(Topic::new(super::TOPIC));
         let phones = list().await;
         PHONES.send_if_modified(|known| {
             let changed = *known != phones;

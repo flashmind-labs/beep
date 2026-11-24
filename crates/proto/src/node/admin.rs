@@ -365,7 +365,7 @@ pub mod tool_update {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct Check {}
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
     pub struct Available {
         pub tool: Tool,
         pub version: String,

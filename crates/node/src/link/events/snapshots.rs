@@ -1,4 +1,4 @@
-use beep_proto::SessionId;
+use beep_proto::{SessionId, node::process::TaskId};
 use super::*;
 use crate::events::ChangeKind;
 use beep_proto::node::events::{Query, Read, Snapshot, Value};
@@ -39,6 +39,10 @@ enum Source {
     Reviews,
     Agent(SessionId),
     Resources(Vec<Topic>),
+    /// One terminal's task, under its own `terminal-output` topic.
+    Terminal(TaskId),
+    Devices,
+    ToolUpdates,
 }
 
 impl Source {
@@ -240,8 +244,37 @@ impl Snapshots {
                 Source::Read(Read::Process(beep_proto::node::process::Request::List {})),
             ));
         }
-        if selected("terminals") || selected("terminal-output") {
+        // A topic that names one terminal reads only that terminal. Released
+        // readers ask for the whole `terminal-output` topic and get the list.
+        let whole_list = topics.iter().any(|topic| {
+            matches!(topic.name(), "terminals" | "*")
+                || (topic.name() == "terminal-output" && topic.is_pattern())
+        });
+
+        if whole_list {
             wanted.push((Topic::new("terminals"), Source::Read(Read::TerminalList)));
+        }
+
+        for topic in topics.iter().filter(|topic| topic.name() == "terminal-output") {
+            if let Some(id) = topic
+                .key()
+                .filter(|_| !topic.is_pattern())
+                .and_then(|key| key.parse().ok())
+            {
+                wanted.push((topic.clone(), Source::Terminal(TaskId(id))));
+            }
+        }
+
+        // These carry values released readers cannot decode, so `*` leaves them out.
+        for topic in topics.iter().filter(|topic| topic.name() == crate::run::device::TOPIC) {
+            wanted.push((topic.clone(), Source::Devices));
+        }
+
+        for topic in topics
+            .iter()
+            .filter(|topic| topic.name() == crate::machine::provision::UPDATES_TOPIC)
+        {
+            wanted.push((topic.clone(), Source::ToolUpdates));
         }
         if selected("sign-in") {
             for tool in [
@@ -334,6 +367,8 @@ impl Snapshots {
                         | "moves"
                         | "reviews"
                         | "sign-in"
+                        | crate::run::device::TOPIC
+                        | crate::machine::provision::UPDATES_TOPIC
                 )
         }) {
             wanted.push((topic.clone(), Source::Plugin));
@@ -460,6 +495,13 @@ impl Snapshots {
                         }))),
                         Source::Missing => Ok(Value::Missing),
                         Source::Resources(resources) => Ok(Value::Resources(resources)),
+                        Source::Terminal(id) => terminal(id).await,
+                        Source::Devices => Ok(Value::Devices(crate::run::device::list().await)),
+                        Source::ToolUpdates => Ok(offers
+                            .provision
+                            .as_ref()
+                            .and_then(|provision| provision.updatable())
+                            .map_or(Value::Missing, Value::ToolUpdates)),
                         Source::Plugin => offers
                             .agents
                             .events
@@ -597,6 +639,7 @@ fn affected(read: &Topic, change: &Topic) -> bool {
                 | ("agent", "agents")
                 | ("processes", "process-output")
                 | ("terminals", "terminal-output")
+                | ("terminal-output", "terminals")
         )
 }
 
@@ -624,16 +667,7 @@ async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Res
         Read::Process(request) => Ok(Value::Process(
             crate::run::tasks::answer(crate::run::tasks::Table::Shared, request).await,
         )),
-        Read::TerminalList => {
-            let list = super::ask(
-                &beep_proto::node::terminal::Request::List {},
-                crate::run::terminal::serve,
-            )
-            .await?;
-            Ok(Value::Terminals(
-                list.context("terminal list closed without state")?,
-            ))
-        }
+        Read::TerminalList => Ok(Value::Terminals(terminal_list().await?)),
         Read::SyncList => Ok(Value::Sync(Box::new(
             beep_proto::node::sync::Reply::Status {
                 projects: offers
@@ -644,6 +678,32 @@ async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Res
             },
         ))),
     }
+}
+
+async fn terminal_list() -> Result<beep_proto::node::terminal::Reply> {
+    super::ask(
+        &beep_proto::node::terminal::Request::List {},
+        crate::run::terminal::serve,
+    )
+    .await?
+    .context("terminal list closed without state")
+}
+
+/// The one terminal `id` as a list of one, or `Missing` once it is gone.
+async fn terminal(id: TaskId) -> Result<Value> {
+    use beep_proto::node::terminal::Reply as Terminals;
+
+    Ok(match terminal_list().await? {
+        Terminals::Terminals { terminals } => terminals
+            .into_iter()
+            .find(|task| task.id == id)
+            .map_or(Value::Missing, |task| {
+                Value::Terminals(Terminals::Terminals {
+                    terminals: vec![task],
+                })
+            }),
+        other => Value::Terminals(other),
+    })
 }
 
 #[cfg(test)]
