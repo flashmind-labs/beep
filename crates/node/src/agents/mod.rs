@@ -229,9 +229,9 @@ host! {
         /// Set once the sessions open before the last stop have been resumed, or
         /// there were none.
         reopened: watch::Sender<bool>,
-        /// The folders the agents' logs name and when they were read, for the
-        /// logs no watcher follows. Written after a read, never held across one.
-        sighted: Mutex<Option<(Instant, Arc<Vec<PathBuf>>)>>,
+        /// What the agents' logs held and when they were read, for the logs no
+        /// watcher follows. Written after a read, never held across one.
+        sighted: Mutex<Option<(Instant, Sighted)>>,
         /// The read of every store now running, shared by whoever asks while
         /// it does. Held only to join or start one, never across a read.
         sighting: Mutex<std::sync::Weak<ReadInFlight>>,

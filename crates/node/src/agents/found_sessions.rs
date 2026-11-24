@@ -127,25 +127,9 @@ impl Agents {
     }
 
     /// The folders sessions started outside Beep worked in, with those of
-    /// sessions known only from a live connection. While the logs are watched
-    /// the watcher's last read answers at once; else a read at most
-    /// `SIGHTED_FOR` ago does.
+    /// sessions known only from a live connection.
     pub(super) async fn sighted_folders(&self) -> Result<Vec<PathBuf>> {
-        let folders = match self.watched_sighted() {
-            Some(sighted) => sighted.folders,
-            None => {
-                let kept = crate::lock(&self.sighted).clone();
-
-                match kept {
-                    Some((at, folders)) if at.elapsed() < SIGHTED_FOR => folders,
-                    _ => {
-                        let folders = self.read_sighted().await?.folders;
-                        *crate::lock(&self.sighted) = Some((Instant::now(), folders.clone()));
-                        folders
-                    }
-                }
-            }
-        };
+        let folders = self.sighted().await?.folders;
         let mut folders = folders.as_ref().clone();
         let before = folders.len();
         folders.extend(
@@ -163,12 +147,26 @@ impl Agents {
         Ok(folders)
     }
 
-    /// The agents' logs as the watcher last read them, none until it did.
+    /// The agents' logs: what the watcher last read while they are watched,
+    /// else a read at most `SIGHTED_FOR` ago, else a new one. One policy for
+    /// listings, search and file requests.
     async fn sighted(&self) -> Result<Sighted> {
-        match self.watched_sighted() {
-            Some(sighted) => Ok(sighted),
-            None => self.read_sighted().await,
+        if let Some(sighted) = self.watched_sighted() {
+            return Ok(sighted);
         }
+
+        let kept = crate::lock(&self.sighted).clone();
+
+        if let Some((at, sighted)) = kept
+            && at.elapsed() < SIGHTED_FOR
+        {
+            return Ok(sighted);
+        }
+
+        let sighted = self.read_sighted().await?;
+        *crate::lock(&self.sighted) = Some((Instant::now(), sighted.clone()));
+
+        Ok(sighted)
     }
 
     /// Reads every store, for the logs no watcher follows. Callers that ask
