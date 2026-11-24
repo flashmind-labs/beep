@@ -475,7 +475,8 @@ async fn a_node_without_the_topic_answers_from_its_last_call_and_redraws_when_it
     tokio::time::pause();
     tokio::time::advance(SYNC_FRESH + Duration::from_secs(1)).await;
     assert_eq!(files(&desk.sync().await), 1);
-    assert_eq!(heard.recv().await, Some(Changed::Sync));
+    let said = tokio::time::timeout(Duration::from_secs(1), heard.recv()).await;
+    assert_eq!(said, Ok(Some(Changed::Sync)));
     assert_eq!(files(&desk.sync().await), 2);
 
     endpoint.close().await;
