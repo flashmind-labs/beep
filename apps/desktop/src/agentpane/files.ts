@@ -69,9 +69,7 @@ const view = {
   again: new Set<string>(),
   walking: false,
   capped: false,
-  ignored: false,
   clipboard: null as FileClipboard | null,
-  busy: false,
   fresh: false,
   generation: 0,
   made: false,
@@ -124,6 +122,8 @@ let showingRows = false;
 let restoring = true;
 
 const setModel = (change: Partial<FilesModel>) => filesModel.setState(change);
+const ignoredNow = () => filesModel.getState().ignored;
+const busyNow = () => filesModel.getState().busy;
 
 /// Folder reads run at once, and the entries a filter stops at.
 const WALK_AT_ONCE = 8;
@@ -184,7 +184,7 @@ function showTree(key: string) {
   let entry = kept.get(key) ?? null;
 
   if (!entry && key && s) {
-    const made = emptyTree(key, view.ignored);
+    const made = emptyTree(key, ignoredNow());
     made.unwatch = watchRoot(s.machine_id, paneRoot(), () => {
       made.dirty = true;
       if (current === made) revalidate();
@@ -193,17 +193,17 @@ function showTree(key: string) {
   }
 
   if (entry) { kept.delete(key); kept.set(key, entry); }
-  current = entry ?? emptyTree("", view.ignored);
-  Object.assign(view, { reading: new Set<string>(), again: new Set<string>(), walking: false, capped: false, busy: false, fresh: false, generation: view.generation + 1, reveal: null });
+  current = entry ?? emptyTree("", ignoredNow());
+  Object.assign(view, { reading: new Set<string>(), again: new Set<string>(), walking: false, capped: false, fresh: false, generation: view.generation + 1, reveal: null });
   restoring = true;
-  setModel({ label: "", active: null, status: "" });
+  setModel({ label: "", active: null, status: "", busy: false });
   watchingFiles = false;
   trim();
   draw();
   if (!entry) return;
 
   // Read what was never read or stopped, and all of it when it was read with ignored files shown otherwise.
-  if (entry.ignored !== view.ignored) { entry.ignored = view.ignored; entry.dirty = true; }
+  if (entry.ignored !== ignoredNow()) { entry.ignored = ignoredNow(); entry.dirty = true; }
   if (!entry.listings.get("")?.entries) load("");
   for (const dir of entry.unread) load(dir);
   entry.unread.clear();
@@ -390,7 +390,7 @@ async function readFolder(tree: FolderTree, generation: number, dir: string, dee
   let changed = true;
 
   try {
-    const got = await invoke<unknown>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: view.ignored, deep, fresh: fresh || view.fresh });
+    const got = await invoke<unknown>("agent_tree", { machineId: s.machine_id, root: paneRoot(), path: dir, ignored: ignoredNow(), deep, fresh: fresh || view.fresh });
     if (!isCurrent(tree, generation)) return;
     if (!isTree(got)) throw new Error("The machine sent no file listing.");
     changed = mergeTree(tree.listings, got);
@@ -416,8 +416,8 @@ function draw() {
   const visible = new Set(rows.map(row => row.path));
   current.selected = new Set([...current.selected].filter(path => visible.has(path)));
   if (current.picked && !visible.has(current.picked)) current.picked = null;
-  const label = view.busy ? filesModel.getState().label : current.selected.size ? `${current.selected.size} selected` : "";
-  const shell = { root: paneRoot(), filter: current.filter, ignored: view.ignored, busy: view.busy, label, selected: current.selected, active: current.picked ? rowId(current.picked) : null };
+  const label = busyNow() ? filesModel.getState().label : current.selected.size ? `${current.selected.size} selected` : "";
+  const shell = { root: paneRoot(), filter: current.filter, label, selected: current.selected, active: current.picked ? rowId(current.picked) : null };
 
   let message: string | null = null, error = false, loading = false;
   if (top?.error && !top.entries) { message = top.error; error = true; }
@@ -471,7 +471,6 @@ export function setFilter(value: string) {
 
 /// Show ignored was ticked or not.
 export function setIgnored(on: boolean) {
-  view.ignored = on;
   current.ignored = on;
   setModel({ ignored: on });
   void refresh().catch(e => console.warn("files:", e));
@@ -646,9 +645,9 @@ type FileAction = { CreateFile: { path: string } } | { CreateFolder: { path: str
   | { Move: { paths: string[]; folder: string } } | { Delete: { paths: string[] } };
 
 async function edit(action: FileAction, at = target()) {
-  if (view.busy) throw new Error("Wait for the current file operation to finish.");
+  if (busyNow()) throw new Error("Wait for the current file operation to finish.");
   if (current.key !== at.key) throw new Error("The working folder changed. Open the action again.");
-  view.busy = true;
+  setModel({ busy: true });
   draw();
   note("Updating files...");
 
@@ -657,7 +656,8 @@ async function edit(action: FileAction, at = target()) {
     if (current.key === at.key) note("Files updated.");
   } finally {
     if (current.key === at.key) {
-      Object.assign(view, { busy: false, fresh: true, generation: view.generation + 1, walking: false });
+      setModel({ busy: false });
+      Object.assign(view, { fresh: true, generation: view.generation + 1, walking: false });
       view.reading.clear();
       current.listings.clear();
       current.roots = new Set(["", ...current.open]);
@@ -666,7 +666,7 @@ async function edit(action: FileAction, at = target()) {
   }
 }
 function createItem(folder: boolean, dir = destination()) {
-  if (view.busy) return;
+  if (busyNow()) return;
   const at = target();
   renameSheet({ title: folder ? "New folder" : "New file", value: "", run: async name => {
     const why = fileNameError(name);
@@ -677,7 +677,7 @@ function createItem(folder: boolean, dir = destination()) {
 }
 function renameItem() {
   const paths = selectedPaths();
-  if (view.busy || current.selected.size !== 1 || paths.length !== 1) return;
+  if (busyNow() || current.selected.size !== 1 || paths.length !== 1) return;
   const path = paths[0], at = target();
   renameSheet({ title: "Rename", value: baseName(path), run: async name => {
     const why = fileNameError(name);
@@ -687,13 +687,13 @@ function renameItem() {
 }
 function clipboard(cut: boolean) {
   const paths = selectedPaths();
-  if (!paths.length || view.busy) return;
+  if (!paths.length || busyNow()) return;
   view.clipboard = { key: current.key, paths, cut };
   note(`${cut ? "Cut" : "Copied"} ${paths.length} items. Select a destination folder and paste.`);
 }
 async function paste(folder: string) {
   const clip = view.clipboard;
-  if (view.busy || !canPasteFiles(clip, current.key, folder) || !clip) return;
+  if (busyNow() || !canPasteFiles(clip, current.key, folder) || !clip) return;
 
   try {
     await edit(clip.cut ? { Move: { paths: clip.paths, folder } } : { Copy: { paths: clip.paths, folder } });
@@ -702,7 +702,7 @@ async function paste(folder: string) {
 }
 function deleteItems() {
   const paths = selectedPaths(), at = target();
-  if (!paths.length || view.busy) return;
+  if (!paths.length || busyNow()) return;
   const label = paths.length === 1 ? paths[0] : `${paths.length} items`;
   confirmSheet({ title: `Delete ${label} permanently?`, text: paths.join("\n"),
     note: "Folders include everything inside. This cannot be undone.", action: `Delete ${paths.length} ${paths.length === 1 ? "item" : "items"}`,
@@ -711,9 +711,9 @@ function deleteItems() {
 }
 async function saveItems() {
   const paths = selectedPaths(), at = target();
-  if (!paths.length || view.busy) return;
+  if (!paths.length || busyNow()) return;
   if (paths.length === 1 && !rowsNow().find(r => r.path === paths[0])?.folder) { saveWorkFile(paths[0], note, at.root); return; }
-  view.busy = true;
+  setModel({ busy: true });
   draw();
   note(`Saving ${paths.length} items...`);
 
@@ -722,5 +722,5 @@ async function saveItems() {
     if (current.key === at.key) note(`Saved to ${savedIn(to)}.`);
     await invoke("reveal_file", { path: to });
   } catch (e) { if (current.key === at.key) note(`Download stopped: ${e}. The save folder may contain incomplete files.`); }
-  finally { if (current.key === at.key) { view.busy = false; draw(); } }
+  finally { if (current.key === at.key) { setModel({ busy: false }); draw(); } }
 }
