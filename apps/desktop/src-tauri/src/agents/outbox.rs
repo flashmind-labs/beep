@@ -316,7 +316,7 @@ impl Held {
             if matches!(message.state, Stage::Waiting | Stage::Sending) {
                 message.state = Stage::Waiting;
                 // Nothing of it went while its files were still to upload.
-                message.unsure = true;
+                message.unsure = message.files.is_empty();
             }
         }
 
@@ -935,7 +935,7 @@ fn with_mentions(text: &str, mentions: &[String], images: usize, only_pictures: 
     let mentioned = mentions
         .iter()
         .map(|path| {
-            if false {
+            if path.contains(char::is_whitespace) {
                 format!("@\"{path}\"")
             } else {
                 format!("@{path}")
@@ -960,6 +960,10 @@ fn read_messages(folder: &KeptFolder) -> Vec<Message> {
         if !folder.read_images(message.id, &mut message.images) {
             message.state = Stage::Failed {
                 reason: "An image of this message could not be read.".into(),
+            };
+        } else if !folder.read_images(files_id(message.id), &mut message.files) {
+            message.state = Stage::Failed {
+                reason: "A file of this message could not be read.".into(),
             };
         }
     }
@@ -1092,7 +1096,7 @@ async fn try_message(outbox: &Outbox, link: &mut impl Link, message: Message) ->
     let key = message.key();
     link.changed(outbox.read(|held| held.changed(&key)));
 
-    let paths = match Ok::<Vec<String>, DesktopError>(Vec::new()) {
+    let paths = match link.upload(&message).await {
         Ok(paths) => paths,
         Err(e)
             if e.is_transport()
@@ -1100,7 +1104,7 @@ async fn try_message(outbox: &Outbox, link: &mut impl Link, message: Message) ->
         {
             return Tried::Lost { unsure: false };
         }
-        Err(_) => return Tried::Lost { unsure: false },
+        Err(e) => return Tried::Refused(e.to_string()),
     };
     let Some((message, changed)) = outbox.with(|held| held.uploaded(message.id, paths)) else {
         return Tried::Refused("The message was taken back.".into());
