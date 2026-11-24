@@ -104,3 +104,39 @@ fn saved_pi_subagent_calls_show_as_agent_cards() {
     assert!(entries[0].text.contains("[agent] scout"), "{}", entries[0].text);
     assert_eq!(entries[1].kind, EntryKind::Tool);
 }
+
+#[test]
+fn saved_pi_provider_errors_appear_in_transcript_and_custom_messages_stay_hidden() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let path = dir.path().join("session.jsonl");
+    let lines = [
+        json!({"type": "message", "message": {
+            "role": "assistant",
+            "content": [{"type": "toolCall", "id": "call-1", "name": "bash", "arguments": {"command": "echo hi"}}],
+            "stopReason": "error",
+            "errorMessage": "Provider finish_reason: content_filter"
+        }}),
+        json!({"type": "custom_message", "customType": "beep-error-recovery", "content": "hidden", "display": false}),
+        json!({"type": "message", "message": {
+            "role": "assistant",
+            "content": [],
+            "stopReason": "error",
+            "errorMessage": "Upstream 502"
+        }}),
+    ];
+    let text: Vec<String> = lines.iter().map(Value::to_string).collect();
+    fs::write(&path, text.join("\n") + "\n").expect("a session file");
+    let entries: Vec<(EntryKind, String)> = pi(&path)
+        .expect("the session reads")
+        .into_iter()
+        .map(|entry| (entry.kind, entry.text))
+        .collect();
+    assert_eq!(
+        entries,
+        [
+            (EntryKind::Tool, "bash: echo hi".into()),
+            (EntryKind::Other, "Provider finish_reason: content_filter".into()),
+            (EntryKind::Other, "Upstream 502".into()),
+        ]
+    );
+}

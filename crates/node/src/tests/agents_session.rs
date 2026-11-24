@@ -2755,10 +2755,11 @@ cat > /dev/null
 async fn pi_acp_appends_to_the_system_prompt_on_start_and_resume() {
     use std::os::unix::fs::PermissionsExt;
 
-    for (resume, method, has_append_file) in [
-        (None, "session/new", false),
-        (Some("s".into()), "session/load", false),
-        (Some("s".into()), "session/load", true),
+    for (resume, method, has_append_file, with_instructions) in [
+        (None, "session/new", false, false),
+        (None, "session/new", false, true),
+        (Some("s".into()), "session/load", false, true),
+        (Some("s".into()), "session/load", true, true),
     ] {
         let temp = tempfile::tempdir().unwrap();
         let dir = temp.path();
@@ -2778,7 +2779,16 @@ cat > /dev/null
         std::fs::write(&adapter, format!("#!/bin/sh\n{REPLY}{script_body}")).unwrap();
         std::fs::write(
             &pi,
-            "#!/bin/sh\nprintf '%s' \"$1\" > flag\ncp \"$2\" captured\nshift 2\nprintf '%s\\n' \"$@\" > args\n",
+            "#!/bin/sh\n\
+             : > flags\n\
+             while [ \"$#\" -ge 2 ]; do\n\
+               case \"$1\" in\n\
+                 --append-system-prompt) printf '%s\\n' \"$1\" >> flags; cp \"$2\" captured_prompt; shift 2 ;;\n\
+                 --extension) printf '%s\\n' \"$1\" >> flags; cp \"$2\" captured_ext; shift 2 ;;\n\
+                 *) break ;;\n\
+               esac\n\
+             done\n\
+             printf '%s\\n' \"$@\" > args\n",
         )
         .unwrap();
         for path in [&adapter, &pi] {
@@ -2793,20 +2803,32 @@ cat > /dev/null
             std::fs::write(dir.join("APPEND_SYSTEM.md"), "Keep Pi's own instructions.").unwrap();
         }
         let instructions = "Use plain words.\nKeep `quotes`, $variables and spaces.";
-        let session = Session::start(Start { begin: Begin { resume, ..begun(None) }, instructions: Some(instructions.into()), ..start_on(&kind, dir, None) })
+        let session = Session::start(Start {
+            begin: Begin { resume, ..begun(None) },
+            instructions: with_instructions.then(|| instructions.into()),
+            ..start_on(&kind, dir, None)
+        })
         .unwrap();
 
         settle(&session).await;
         assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
-        let flag = std::fs::read_to_string(dir.join("flag")).unwrap();
-        let captured = std::fs::read_to_string(dir.join("captured")).unwrap();
-        if has_append_file {
-            assert_eq!(flag, "--extension");
-            assert!(captured.contains("before_agent_start"));
-            assert!(captured.contains(&serde_json::to_string(instructions).unwrap()));
+        let flags = std::fs::read_to_string(dir.join("flags")).unwrap();
+        let ext = std::fs::read_to_string(dir.join("captured_ext")).unwrap();
+        assert!(ext.contains("beep-error-recovery"));
+        assert!(ext.contains("agent_settled"));
+        if !with_instructions {
+            assert_eq!(flags, "--extension\n");
+            assert!(ext.contains("const instructions = null;"));
+        } else if has_append_file {
+            assert_eq!(flags, "--extension\n");
+            assert!(ext.contains("before_agent_start"));
+            assert!(ext.contains(&serde_json::to_string(instructions).unwrap()));
         } else {
-            assert_eq!(flag, "--append-system-prompt");
-            assert_eq!(captured, instructions);
+            assert_eq!(flags, "--append-system-prompt\n--extension\n");
+            assert_eq!(
+                std::fs::read_to_string(dir.join("captured_prompt")).unwrap(),
+                instructions
+            );
         }
         assert_eq!(
             std::fs::read_to_string(dir.join("args")).unwrap(),
@@ -2816,6 +2838,134 @@ cat > /dev/null
         assert_eq!(requests[1]["method"], method);
         assert!(requests[1]["params"].get("systemPrompt").is_none());
         assert_eq!(prompt_texts(&requests[2]), ["go"]);
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn pi_extension_recovers_from_content_filter_and_surfaces_unrecovered_errors() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let adapter = dir.join("pi-acp");
+    let pi = dir.join("custom-pi");
+    let log = dir.join("sent.jsonl");
+    let script_body = r#"
+read -r line; log sent.jsonl
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
+read -r line; log sent.jsonl
+"$PI_ACP_PI_COMMAND" --mode rpc || exit 1
+reply '{"sessionId":"s"}'
+read -r line; log sent.jsonl
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+    std::fs::write(&adapter, format!("#!/bin/sh\n{REPLY}{script_body}")).unwrap();
+    std::fs::write(&pi, "#!/bin/sh\ncp \"$2\" captured_ext.mjs\n").unwrap();
+    for path in [&adapter, &pi] {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    let mut kind = fake("pi", &log);
+    kind.program = adapter.display().to_string();
+    kind.args.clear();
+    kind.env.insert("PI_ACP_PI_COMMAND".into(), pi.display().to_string());
+    kind.env.insert("PI_CODING_AGENT_DIR".into(), dir.display().to_string());
+    std::fs::write(dir.join("APPEND_SYSTEM.md"), "Keep Pi's own instructions.").unwrap();
+
+    let session = Session::start(Start {
+        instructions: Some("Keep replies short.".into()),
+        ..start_on(&kind, dir, None)
+    })
+    .unwrap();
+    settle(&session).await;
+
+    let ext_path = dir.join("captured_ext.mjs");
+    let harness = r#"
+import assert from 'node:assert/strict';
+import register from './captured_ext.mjs';
+
+const handlers = new Map();
+const sent = [];
+const notifications = [];
+const pi = {
+    on(name, fn) { handlers.set(name, fn); },
+    sendMessage(msg, opts) { sent.push({ msg, opts }); },
+};
+const ctx = { ui: { notify(msg, level) { notifications.push({ msg, level }); } } };
+register(pi);
+
+// before_agent_start appends instructions and resets retry state.
+const started = handlers.get('before_agent_start')({ systemPrompt: 'Base' });
+assert.equal(started.systemPrompt, 'Base\n\nKeep replies short.');
+
+const filtered = {
+    role: 'assistant',
+    stopReason: 'error',
+    rawStopReason: 'content_filter',
+    errorMessage: 'Provider finish_reason: content_filter',
+    content: [{ type: 'toolCall', name: 'bash' }],
+};
+
+// First two content_filter errors queue hidden follow-up recovery messages.
+handlers.get('agent_end')({ messages: [filtered] });
+handlers.get('agent_start')({});
+handlers.get('agent_end')({ messages: [filtered] });
+assert.equal(sent.length, 2);
+assert.equal(sent[0].msg.display, false);
+assert.equal(sent[0].opts.triggerTurn, true);
+assert.equal(sent[0].opts.deliverAs, 'followUp');
+assert.match(sent[0].msg.content, /\bbash\b/);
+assert.equal(notifications.length, 0);
+
+// Third consecutive content_filter stops retrying and surfaces on settle.
+handlers.get('agent_start')({});
+handlers.get('agent_end')({ messages: [filtered] });
+assert.equal(sent.length, 2);
+handlers.get('agent_settled')({ aborted: false }, ctx);
+assert.deepEqual(notifications, [{ msg: 'Error: Provider finish_reason: content_filter', level: 'error' }]);
+
+// Transient error followed by a successful retry does not notify.
+handlers.get('before_agent_start')({ systemPrompt: 'Base' });
+handlers.get('agent_end')({
+    messages: [{ role: 'assistant', stopReason: 'error', errorMessage: '429 rate limited', content: [] }],
+});
+handlers.get('agent_start')({});
+handlers.get('agent_end')({
+    messages: [{ role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'ok' }] }],
+});
+handlers.get('agent_settled')({ aborted: false }, ctx);
+assert.equal(notifications.length, 1);
+
+// Unrecovered non-filter error surfaces on settle, but aborted runs stay silent.
+handlers.get('agent_end')({
+    messages: [{ role: 'assistant', stopReason: 'error', errorMessage: 'Upstream 502', content: [] }],
+});
+handlers.get('agent_settled')({ aborted: false }, ctx);
+assert.equal(notifications.length, 2);
+assert.equal(notifications[1].msg, 'Error: Upstream 502');
+
+handlers.get('agent_end')({
+    messages: [{ role: 'assistant', stopReason: 'error', errorMessage: 'Cancelled', content: [] }],
+});
+handlers.get('agent_settled')({ aborted: true }, ctx);
+assert.equal(notifications.length, 2);
+"#;
+    let runner = dir.join("check.mjs");
+    std::fs::write(&runner, harness).unwrap();
+    let status = std::process::Command::new("node")
+        .arg(&runner)
+        .current_dir(dir)
+        .output();
+    if let Ok(output) = status {
+        assert!(
+            output.status.success(),
+            "extension check failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+    } else {
+        assert!(ext_path.exists());
     }
 }
 

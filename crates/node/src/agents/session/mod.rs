@@ -434,7 +434,7 @@ impl Session {
         }
 
         let in_wsl = super::kinds::in_wsl(kind);
-        let pi_files = pi::instructions(kind, &mut process, cwd, &mut instructions)?;
+        let pi_files = pi::setup(kind, &mut process, cwd, &mut instructions)?;
         if instructions.is_some() {
             standing = actor::joined(instructions, standing.as_deref());
         }

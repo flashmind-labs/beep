@@ -243,47 +243,51 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
         match message["role"].as_str() {
             Some("user") => entries.extend(entry(EntryKind::User, &prompt_of(&message["content"]))),
             Some("assistant") => {
-                let Value::Array(parts) = &message["content"] else {
-                    continue;
-                };
-
-                for part in parts {
-                    let made = match part["type"].as_str() {
-                        Some("text") => {
-                            entry(EntryKind::Agent, part["text"].as_str().unwrap_or_default())
-                        }
-                        Some("thinking") => entry(
-                            EntryKind::Thought,
-                            part["thinking"].as_str().unwrap_or_default(),
-                        ),
-                        Some("toolCall") => {
-                            let name = part["name"].as_str().unwrap_or("tool");
-                            if let Some(sub) =
-                                Subagent::of_call(Some(name), name, Some(&part["arguments"]))
-                            {
-                                entries.push(
-                                    SubagentRun {
-                                        task: sub.title,
-                                        name: sub.name,
-                                        model: sub.model,
-                                        ..Default::default()
-                                    }
-                                    .entry(),
-                                );
-                                continue;
+                if let Value::Array(parts) = &message["content"] {
+                    for part in parts {
+                        let made = match part["type"].as_str() {
+                            Some("text") => {
+                                entry(EntryKind::Agent, part["text"].as_str().unwrap_or_default())
                             }
+                            Some("thinking") => entry(
+                                EntryKind::Thought,
+                                part["thinking"].as_str().unwrap_or_default(),
+                            ),
+                            Some("toolCall") => {
+                                let name = part["name"].as_str().unwrap_or("tool");
+                                if let Some(sub) =
+                                    Subagent::of_call(Some(name), name, Some(&part["arguments"]))
+                                {
+                                    entries.push(
+                                        SubagentRun {
+                                            task: sub.title,
+                                            name: sub.name,
+                                            model: sub.model,
+                                            ..Default::default()
+                                        }
+                                        .entry(),
+                                    );
+                                    continue;
+                                }
 
-                            let detail = codex_run::detail(&part["arguments"]);
-                            let made =
-                                entry(EntryKind::Tool, &titled_call(name, detail.as_deref()));
-                            if let Some(id) = part["id"].as_str() {
-                                calls.insert(id.to_owned(), entries.len());
+                                let detail = codex_run::detail(&part["arguments"]);
+                                let made =
+                                    entry(EntryKind::Tool, &titled_call(name, detail.as_deref()));
+                                if let Some(id) = part["id"].as_str() {
+                                    calls.insert(id.to_owned(), entries.len());
+                                }
+                                made
                             }
-                            made
-                        }
-                        _ => None,
-                    };
-                    entries.extend(made);
+                            _ => None,
+                        };
+                        entries.extend(made);
+                    }
+                }
+
+                if message["stopReason"] == "error"
+                    && let Some(err) = message["errorMessage"].as_str()
+                {
+                    entries.extend(entry(EntryKind::Other, err));
                 }
             }
             Some("toolResult") if message["isError"] == true => {
