@@ -140,7 +140,9 @@ const WATCHED_EVERY: Duration = Duration::from_secs(5);
 
 /// Held while a client follows `device-list`: rereads the list and pings
 /// `devices` when it differs from the last read. Stops when dropped.
-pub(crate) struct Follow(AbortOnDropHandle<()>);
+pub(crate) struct Follow {
+    _task: AbortOnDropHandle<()>,
+}
 
 impl Follow {
     pub(crate) fn new() -> Self {
@@ -154,7 +156,7 @@ impl Follow {
         Read: Fn() -> Reading + Send + 'static,
         Reading: Future<Output = Vec<Device>> + Send,
     {
-        Self(AbortOnDropHandle::new(tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let mut last = read().await;
 
             loop {
@@ -168,7 +170,11 @@ impl Follow {
                     ping();
                 }
             }
-        })))
+        });
+
+        Self {
+            _task: AbortOnDropHandle::new(task),
+        }
     }
 }
 
