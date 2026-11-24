@@ -6,7 +6,7 @@ import { revealLabel } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
 import { resolvePath } from "./media-state.ts";
 import { transferSpeed } from "./files-state.ts";
-import { P, saveFile, type MediaTab } from "./media.ts";
+import { P, saveFile, type MediaTab, openTabs } from "./media.ts";
 import { readError, readFile } from "./read.ts";
 import { noteTab } from "./media-draw.ts";
 import { PdfExportView } from "./pdf-export-view.tsx";
@@ -110,12 +110,12 @@ export function ModelView({ tab, bytes, machine }: { tab: MediaTab; bytes: Array
       try {
         const { mountModel } = await import("./model3d.ts");
         const view = await mountModel(box, bytes, tab.name.slice(tab.name.lastIndexOf(".") + 1).toLowerCase(), sibling(tab));
-        if (!live || !P.tabs.includes(tab)) return view.dispose();
+        if (!live || !openTabs().includes(tab)) return view.dispose();
         tab.model = view;
         setState({ kind: "drawn" });
         view.resize();
       } catch (e) {
-        if (live && P.tabs.includes(tab)) setState({ kind: "failed", message: e instanceof Error ? e.message : String(e) });
+        if (live && openTabs().includes(tab)) setState({ kind: "failed", message: e instanceof Error ? e.message : String(e) });
       }
     })();
     return () => { live = false; };

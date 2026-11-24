@@ -9,8 +9,8 @@ import { onPhone, primaryModifier } from "../ui/platform.ts";
 import { dragHandle } from "../ui/drag.ts";
 import type { Dock } from "./media-state.ts";
 import { type DockView, dividerDrag, dividerKey, mainRef, paneModel, paneRefs, resetDivider, shellRef, stripRefs } from "./media-layout.ts";
-import { foldDock, moveDock, pickPhoneTab, pickTab, tabMenu, touchTab } from "./media-draw.ts";
-import { closeTab, newTerminal, P, type MediaTab } from "./media.ts";
+import { dockModel, foldDock, moveDock, pickPhoneTab, pickTab, tabMenu, touchTab } from "./media-draw.ts";
+import { closeTab, newTerminal, P, type MediaTab, openTabs } from "./media.ts";
 import { ghostRef, tabDown } from "./drag.ts";
 import { PaneTab, PaneTabs, PhonePaneTabs, type PaneTabActions } from "./tabs-view.tsx";
 import { WorktreeMenu } from "./worktree-view.tsx";
@@ -63,7 +63,7 @@ const sessionLinks = (): SessionTabLinks => ({ feed, keptTranscript, sendOnce, r
 
 /// Dock `dock`: its divider, the pane with its head and views, and its strip while folded.
 export function PaneDock({ dock }: { dock: Dock }) {
-  const model = useStore(paneModel, s => s.docks?.[dock] ?? null);
+  const model = useStore(paneModel, s => dockModel(s, dock));
   const { shown, strip, size } = useStore(paneModel, s => s.places[dock]);
   const on = useStore(paneModel, s => s.on[dock]);
   const zoomed = useStore(paneModel, s => s.zoomed === dock);
@@ -86,7 +86,7 @@ export function PaneDock({ dock }: { dock: Dock }) {
     <aside ref={paneRefs[dock]} className={`agpane${zoomed ? " zoomed" : ""}`} id={`agpane-${dock}`} data-dock={dock} tabIndex={-1} hidden={hidden} style={size != null ? { flexBasis: `var(--drag-size, ${size}px)` } : undefined}
       onKeyDownCapture={event => {
         if (event.key.toLowerCase() !== "f" || event.nativeEvent.isComposing || !primaryModifier(event)) return;
-        const tab = P.tabs.find(tab => tab.id === on);
+        const tab = openTabs().find(tab => tab.id === on);
         if (!tab?.text || tab.text.binary || (!tab.edit && tab.preview?.active) || onPhone()) return;
 
         event.preventDefault();
@@ -114,9 +114,14 @@ function PaneView({ view }: { view: DockView }) {
     case "running": return <RunningPane hidden={view.hidden} />;
     case "device": return <DevicePane hidden={view.hidden} />;
     case "agents": return <ChatAgentsPane hidden={view.hidden} />;
-    case "subagents": return <div className="agpview subs" hidden={view.hidden}><SubagentsView rows={P.subs} /></div>;
+    case "subagents": return <SubagentsPane hidden={view.hidden} />;
     case "tab": return <TabView tab={view.tab} rev={view.rev} hidden={view.hidden} />;
   }
+}
+
+function SubagentsPane({ hidden }: { hidden: boolean }) {
+  const rows = useStore(paneModel, s => s.subs);
+  return <div className="agpview subs" hidden={hidden}><SubagentsView rows={rows} /></div>;
 }
 
 /// The Changes tab: the diff viewer's own element, kept per session, goes into the view.

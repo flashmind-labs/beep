@@ -4,7 +4,7 @@ import { togglePreview } from "./text-view.tsx";
 // starting a terminal tab.
 import { viewKey } from "./view-memory.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
-import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, newFileEdit, rememberTerminal } from "./media.ts";
+import { type FilePart, type TreeText, type MediaTab, P, closeTab, leavePane, newFileEdit, rememberTerminal, openTabs } from "./media.ts";
 import { onPhone } from "../ui/platform.ts";
 import { draw, touchTab } from "./media-draw.ts";
 import { bytesOf, resolvePath } from "./media-state.ts";
@@ -119,7 +119,7 @@ export async function loadText(t: MediaTab) {
     readLater(t, e);
   }
 
-  if (P.tabs.includes(t)) {
+  if (openTabs().includes(t)) {
     if (t.editAt && t.text) {
       const at = t.editAt;
       t.editAt = null;
@@ -150,7 +150,7 @@ function readSoon(t: MediaTab) {
 
 function readAgain(t: MediaTab) {
   clearTimeout(t.retry);
-  if (!P.tabs.includes(t) || !t.error || !t.tries) return;
+  if (!openTabs().includes(t) || !t.error || !t.tries) return;
   Object.assign(t, { error: "", started: Date.now(), done: 0 });
   touchTab(t);
   if (t.kind === "text") void loadText(t);
@@ -158,7 +158,7 @@ function readAgain(t: MediaTab) {
 }
 
 listen("reconnected", () => {
-  for (const t of P.tabs) if (t.error && t.tries) readAgain(t);
+  for (const t of openTabs()) if (t.error && t.tries) readAgain(t);
 });
 
 /// Points `t` at the next place the file may be; false when there is
@@ -186,7 +186,7 @@ export async function startTerminal(t: MediaTab) {
     onEnd: () => {
       if (t.term) forgetTerm(t.term);
       t.term = undefined;
-      if (P.tabs.includes(t)) closeTab(t.id);
+      if (openTabs().includes(t)) closeTab(t.id);
     },
     onLink: () => drawTermStatus(t),
     onEscape: leavePane,
@@ -198,7 +198,7 @@ export async function startTerminal(t: MediaTab) {
 
     if (key) rememberTerminal(key, t, term.row);
 
-    if (!P.tabs.includes(t)) {
+    if (!openTabs().includes(t)) {
       // Only an explicit tab close stops a shell that was still starting.
       if (t.closed) {
         dropTerm(term);
@@ -210,12 +210,12 @@ export async function startTerminal(t: MediaTab) {
 
     t.term = term;
   } catch (e) {
-    if (!P.tabs.includes(t)) return;
+    if (!openTabs().includes(t)) return;
     t.error = readError(e);
   }
 
   // Its screen fits the view and takes the keys the pane has.
-  t.rev++;
+  touchTab(t);
   draw();
 }
 
@@ -240,7 +240,7 @@ export async function load(t: MediaTab, again = false) {
       t.size = size;
       touchTab(t);
     });
-    if (!P.tabs.includes(t)) return;
+    if (!openTabs().includes(t)) return;
     if (again) replacing(t);
     const was = t.url;
     t.size = bytes.length;
@@ -249,7 +249,7 @@ export async function load(t: MediaTab, again = false) {
     if (was?.startsWith("blob:")) URL.revokeObjectURL(was);
     t.tries = 0;
   } catch (e) {
-    if (!P.tabs.includes(t) || again) return;
+    if (!openTabs().includes(t) || again) return;
     if (isMissing(errorText(e)) && lookElsewhere(t)) return load(t);
     t.error = fileError(e, t.path);
     readLater(t, e);

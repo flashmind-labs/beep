@@ -11,6 +11,7 @@ import { invoke } from "../ui/tauri.ts";
 import { isMobile, onPhone } from "../ui/platform.ts";
 import { type Box, type Dock, DOCKS, DEFAULT_LAYOUT, FILES, CHANGES, ARTS, RUNNING, SUBS, DEVICE, AGENTS, frameKey, onZoomKey, paneSize, type PaneLayout, SIDE_BY_SIDE_MIN, splitTabs, withFolded } from "./media-state.ts";
 import type { PaneTabItem } from "./tabs-view.tsx";
+import type { SubagentRow } from "./subagents-view.tsx";
 import type { WorktreeMenuModel } from "./worktree-view.tsx";
 import { artifactCount } from "./artifacts.ts";
 import { PANE, S } from "../bar/core.ts";
@@ -76,7 +77,7 @@ export const dockHolding = (node: Node | null) => DOCKS.find(d => !!node && !!pa
 /// Every tab's id, in the order the tab strips show them.
 export function tabIds() {
   const chat = chatPane();
-  return [FILES, ...(chat ? [] : [CHANGES]), ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(P.subCount && !chat ? [SUBS] : []), ...(chat && chatAgentsCount(chat) ? [AGENTS] : []), ...(hasDeviceTab() ? [DEVICE] : []), ...P.tabs.map(t => t.id)];
+  return [FILES, ...(chat ? [] : [CHANGES]), ...(runningCount() ? [RUNNING] : []), ...(artifactCount() ? [ARTS] : []), ...(paneModel.getState().subCount && !chat ? [SUBS] : []), ...(chat && chatAgentsCount(chat) ? [AGENTS] : []), ...(hasDeviceTab() ? [DEVICE] : []), ...paneModel.getState().tabs.map(t => t.id)];
 }
 
 /// The chat of the pane of an assistant chat or one of its threads: their folders have no git,
@@ -95,7 +96,7 @@ export function desktopChatPane() {
 
 function rightPaneAvailable(tabs: string[]) {
   const chat = desktopChatPane();
-  if (!chat || P.rightRequested || hasFolderEntries() || P.tabs.some(tab => tabs.includes(tab.id))) return true;
+  if (!chat || P.rightRequested || hasFolderEntries() || paneModel.getState().tabs.some(tab => tabs.includes(tab.id))) return true;
 
   const rail = chatRail(sessions.filter(sessionVisible), chat);
   return !!rail?.running.some(row => row !== rail.chat);
@@ -136,8 +137,11 @@ export type DockView =
   | { kind: "files" | "changes" | "artifacts" | "running" | "subagents" | "agents" | "device"; hidden: boolean }
   | { kind: "tab"; tab: MediaTab; rev: number; hidden: boolean };
 
-/// What a dock holds: its tab strip, the views of its tabs, and the worktree
-/// menu in its head while it shows Files or Changes.
+/// What the fixed tabs count: processes, artifacts and the agents of a chat.
+export interface PaneCounts { running: number; artifacts: number; agents: number | null }
+
+/// What a dock holds, worked out from the model: its tab strip, the views of
+/// its tabs, and the worktree menu in its head while it shows Files or Changes.
 export interface DockModel {
   tabs: PaneTabItem[];
   worktrees: WorktreeMenuModel | null;
@@ -157,7 +161,7 @@ export interface DockPlace {
 /// dock it would drop in, with where that dock is in the shell.
 interface DragModel { item: PaneTabItem; selected: boolean; to: Dock | null; zone: Box | null }
 
-interface PaneModel {
+export interface PaneModel {
   /// The tab on screen in each dock: a tab's id, `FILES`, `ARTS` or `SUBS`.
   on: Record<Dock, string>;
   layout: PaneLayout;
@@ -167,7 +171,18 @@ interface PaneModel {
   wideFolded: boolean | null;
   /// The session drew on a phone, which shows the conversation first.
   phoneShown: boolean;
-  docks: Record<Dock, DockModel> | null;
+  /// The tabs the user opened, in the order they were opened. Replaced, never changed in place.
+  tabs: MediaTab[];
+  /// The subagents' rows and how many, as the log last drew them.
+  subs: SubagentRow[];
+  subCount: number;
+  /// The tab ids in each dock as last laid out; null until the first layout.
+  split: Record<Dock, string[]> | null;
+  /// What the fixed tabs count, and whether Changes was made, as the last draw left them.
+  counts: PaneCounts;
+  changes: boolean;
+  /// The worktree menu of Files and Changes, as the last draw left it.
+  worktrees: WorktreeMenuModel | null;
   places: Record<Dock, DockPlace>;
   narrow: boolean;
   /// The dock filling the session now: the zoomed one, or the right pane over a narrow window's conversation.
@@ -186,7 +201,7 @@ const HIDDEN: DockPlace = { shown: false, strip: false, size: null };
 
 export const paneModel = createStore<PaneModel>(() => ({
   on: { right: FILES, bottom: FILES }, layout: { ...DEFAULT_LAYOUT }, zoom: null, wideFolded: null, phoneShown: false,
-  docks: null, places: { right: HIDDEN, bottom: HIDDEN }, narrow: false, zoomed: null, crowded: false, resizing: null, drag: null, phone: null, log: false,
+  tabs: [], subs: [], subCount: 0, split: null, counts: { running: 0, artifacts: 0, agents: null }, changes: false, worktrees: null, places: { right: HIDDEN, bottom: HIDDEN }, narrow: false, zoomed: null, crowded: false, resizing: null, drag: null, phone: null, log: false,
 }));
 
 /// Sets part of the model and renders it now: callers measure and focus what it draws.
@@ -208,16 +223,15 @@ export function setHidden(d: Dock, folded: boolean) {
 /// folded or not. A dock with no tabs goes.
 let paneWasShown = false;
 
-export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel> = {}) {
+export function place(extra: Partial<PaneModel> = {}) {
   const el = shell(), box = main();
-  const docks = fresh ?? paneModel.getState().docks;
-  if (!docks) return;
-  if (!el || !box) { setPaneModel({ ...extra, docks }); return; }
+  if (!extra.split && !paneModel.getState().split) return;
+  const split = extra.split ?? docked();
+  if (!el || !box) { setPaneModel({ ...extra, split }); return; }
   const { width, height } = shellSize();
   const narrow = dockWidth() < SIDE_BY_SIDE_MIN;
   const over = foldNarrow();
   const { layout, zoom: asked } = paneModel.getState();
-  const split = docked();
   const places = { ...paneModel.getState().places };
   const rightAvailable = rightPaneAvailable(split.right);
 
@@ -235,7 +249,7 @@ export function place(fresh?: Record<Dock, DockModel>, extra: Partial<PaneModel>
   // list steps aside instead, when that gives the pane room beside it.
   const crowded = chatsListCrowded(places.right.shown);
   const zoomed = over && places.right.shown && !crowded ? "right" : zoom;
-  setPaneModel({ ...extra, docks, places, zoom, narrow, zoomed, crowded });
+  setPaneModel({ ...extra, split, places, zoom, narrow, zoomed, crowded });
   if (shown && !paneWasShown) queueMicrotask(() => window.dispatchEvent(new Event("agent-pane-shown")));
   paneWasShown = shown;
   refreshTopicSubscriptions();
@@ -255,8 +269,8 @@ export function foldNarrow(): boolean {
 
 /// The docks on screen now, as last laid out.
 export function shownDocks(): Dock[] {
-  const { docks, places } = paneModel.getState();
-  return docks ? DOCKS.filter(d => places[d].shown && !!paneOf(d)) : [];
+  const { split, places } = paneModel.getState();
+  return split ? DOCKS.filter(d => places[d].shown && !!paneOf(d)) : [];
 }
 
 /// ⇧esc: the dock with focus, else the right one, else the bottom one, fills the session
@@ -277,7 +291,7 @@ function toggleZoom() {
   const { zoom, on } = paneModel.getState(), pane = zoom && paneOf(zoom);
 
   if (zoom && pane && !pane.contains(document.activeElement)) {
-    const term = P.tabs.find(t => t.id === on[zoom])?.term;
+    const term = paneModel.getState().tabs.find(t => t.id === on[zoom])?.term;
     if (term) term.screen.focus(); else pane.focus({ preventScroll: true });
   }
 }

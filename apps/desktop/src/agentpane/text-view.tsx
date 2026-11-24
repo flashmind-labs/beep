@@ -14,7 +14,7 @@ import {
   resolveVimSync,
   wordSpanAt,
 } from "./lsp-state.ts";
-import { type MediaTab, type TextPlace, type TreeText, discardSheet, newFileEdit, openLocation, P, rememberPane, saveWorkFile } from "./media.ts";
+import { type MediaTab, type TextPlace, type TreeText, discardSheet, newFileEdit, openLocation, P, rememberPane, saveWorkFile, openTabs } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
 import { fileError, readError } from "./read.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
@@ -272,7 +272,7 @@ async function lookupDefinition(
   const root = tab.root ?? session.cwd;
   const seq = ++definitionSeq;
   const busyTimer = setTimeout(() => {
-    if (definitionSeq !== seq || P.session !== session || !P.tabs.includes(tab)) return;
+    if (definitionSeq !== seq || P.session !== session || !openTabs().includes(tab)) return;
     busyTab = tab;
     noteTab(tab, BUSY_NOTE);
   }, 250);
@@ -287,7 +287,7 @@ async function lookupDefinition(
       text,
     });
     clearTimeout(busyTimer);
-    if (definitionSeq !== seq || P.session !== session || !P.tabs.includes(tab)) return;
+    if (definitionSeq !== seq || P.session !== session || !openTabs().includes(tab)) return;
     clearBusyNote();
 
     const result = parseLspResult(raw);
@@ -311,7 +311,7 @@ async function lookupDefinition(
     noteTab(tab, result.note ?? "No definition found.");
   } catch (error) {
     clearTimeout(busyTimer);
-    if (definitionSeq !== seq || P.session !== session || !P.tabs.includes(tab)) return;
+    if (definitionSeq !== seq || P.session !== session || !openTabs().includes(tab)) return;
     clearBusyNote();
     noteTab(tab, readError(error));
   }

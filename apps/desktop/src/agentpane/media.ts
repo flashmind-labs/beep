@@ -7,7 +7,6 @@
 import { readWindowPreference, writeWindowPreference, windowPreferenceKey } from "../ui/window-layout.ts";
 import { shownMessage } from "../agents/session-frame.tsx";
 import type { AgentSession } from "../agents/agents.ts";
-import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
 import { hasPreview } from "./html-preview-state.ts";
 import { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS, baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock, withFolded } from "./media-state.ts";
@@ -180,12 +179,15 @@ const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
 /// How far a tab moves under the pointer before it drags.
 export const DRAG_START = 5;
 
+/// The tabs the user opened. They live in the pane's model, which draws them.
+export const openTabs = () => paneModel.getState().tabs;
+
+function addTab(tab: MediaTab) {
+  paneModel.setState(s => ({ tabs: [...s.tabs, tab] }));
+}
+
 export const P = {
   session: null as PaneSession | null,
-  tabs: [] as MediaTab[],
-  /// The subagents' rows and how many, as the log last drew them.
-  subs: [] as SubagentRow[],
-  subCount: 0,
   /// Tabs moved to a dock whose move is not kept (a picture by its data URL).
   moved: new Map<string, Dock>(),
   watch: null as ResizeObserver | null,
@@ -208,9 +210,7 @@ export function startPane(s: PaneSession) {
   const key = viewKey(s.machine_id, s.id);
   const saved = savedPane(key);
   const layout = saved && typeof saved === "object" && "layout" in saved ? readLayout(JSON.stringify(saved.layout)) : loadLayout();
-  paneModel.setState({ on: { right: FILES, bottom: FILES }, layout: inBar(layout), zoom: null, wideFolded: null, phoneShown: false });
-  P.subs = [];
-  P.subCount = 0;
+  paneModel.setState({ on: { right: FILES, bottom: FILES }, layout: inBar(layout), zoom: null, wideFolded: null, phoneShown: false, subs: [], subCount: 0 });
   P.moved.clear();
   P.rightRequested = false;
   const el = shell();
@@ -235,7 +235,7 @@ export function startPane(s: PaneSession) {
         if (row) open({ id: tab.id, kind: "term", name: typeof tab.name === "string" ? tab.name : row.name, path: null, url: null, existing: row });
         else {
           const pending = startingTerminals.get(viewKey(s.machine_id, s.id))?.find(t => t.id === tab.id);
-          if (pending) P.tabs.push(pending);
+          if (pending) addTab(pending);
         }
       } else if (typeof tab.path === "string") openPath(tab.path);
       else if (typeof tab.url === "string" && tab.url.startsWith("data:image/") && typeof tab.name === "string") openPicture(tab.url, tab.name);
@@ -268,7 +268,7 @@ function inBar(layout: PaneLayout): PaneLayout {
 export function rebindPane(s: PaneSession) {
   const was = P.session;
   P.session = s;
-  if (was && was.machine_id !== s.machine_id) for (const t of P.tabs.filter(x => x.kind !== "term")) closeTab(t.id);
+  if (was && was.machine_id !== s.machine_id) for (const t of openTabs().filter(x => x.kind !== "term")) closeTab(t.id);
   readWorktrees(s);
   pointFilesAt();
   revalidateChanges();
@@ -283,12 +283,12 @@ export function restorePane() {
 export function closePaneTabs() {
   rememberPane();
   paneReleased = true;
-  for (const t of P.tabs) {
+  for (const t of openTabs()) {
     dropTab(t);
     t.term = undefined;
   }
 
-  P.tabs = [];
+  paneModel.setState({ tabs: [] });
 }
 
 /// Opens a picture the log already shows (a data URL) in its own tab.
@@ -299,7 +299,7 @@ export function openPicture(url: string, name: string) {
 export function openPreviewExport(path: string, blob: Blob, source: { tab: string; url: string }) {
   const name = baseName(path.replaceAll("\\", "/"));
   const id = `export:${path}`;
-  if (P.tabs.some(tab => tab.id === id)) return focusTab(id);
+  if (openTabs().some(tab => tab.id === id)) return focusTab(id);
 
   const kind = blob.type === "application/pdf" ? "pdf" : "image";
   const url = kind === "image" ? URL.createObjectURL(blob) : null;
@@ -318,9 +318,9 @@ export function openPath(path: string) {
 }
 
 function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Partial<MediaTab>) {
-  if (!P.tabs.some(x => x.id === t.id)) {
+  if (!openTabs().some(x => x.id === t.id)) {
     const tab: MediaTab = { size: 0, started: Date.now(), done: 0, error: "", rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, ...t };
-    P.tabs.push(tab);
+    addTab(tab);
 
     if (!tab.error) {
       if (tab.kind === "text") loadText(tab);
@@ -375,7 +375,7 @@ export function showPaneTab(n: number) {
 /// Shows terminal `row`, one that runs on its machine, as a tab of the pane,
 /// with the keyboard in it.
 export function openTerminal(row: TerminalRow) {
-  const have = P.tabs.find(t => t.term?.row.id === row.id || t.existing?.id === row.id);
+  const have = openTabs().find(t => t.term?.row.id === row.id || t.existing?.id === row.id);
   if (have) return focusTab(have.id);
   open({ id: `term:${row.id}`, kind: "term", name: row.name, path: null, url: null, existing: row });
 }
@@ -424,7 +424,7 @@ function openIn(root: string, rel: string, elsewhere: WorkFile[] = []) {
   if (kind) open({ id, kind, name: baseName(full), path: full, url: null, elsewhere });
   else open({ id, kind: "text", name: baseName(rel), path: null, url: null, rel, root, elsewhere });
 
-  return P.tabs.find(t => t.id === id) ?? null;
+  return openTabs().find(t => t.id === id) ?? null;
 }
 
 /// Opens the file a link in a reply points at, at its line. A relative
@@ -454,7 +454,7 @@ export function openLinked(ref: FileRef) {
   // A tab that found the file at one of these places already, such as one
   // restored under the folder it was found in, is the one to show.
   const places = [{ root, rel }, ...elsewhere].map(place => resolvePath(place.root, place.rel));
-  const held = P.tabs.find(t => !t.closed && t.kind !== "term" && places.includes(t.rel ? resolvePath(t.root ?? cwd, t.rel) : t.path ?? ""));
+  const held = openTabs().find(t => !t.closed && t.kind !== "term" && places.includes(t.rel ? resolvePath(t.root ?? cwd, t.rel) : t.path ?? ""));
   if (held) focusTab(held.id);
   const tab = held ?? openIn(root, rel, elsewhere);
 
@@ -484,7 +484,7 @@ export function openLocation(root: string, location: LspLocation, preferEdit: bo
   const cwd = s.cwd.replace(/\/+$/, "");
   const cleanRoot = root.replace(/\/+$/, "");
   const targetFull = resolvePath(cleanRoot, location.path);
-  const held = P.tabs.find(t => !t.closed && t.kind === "text" && t.rel && resolvePath(t.root ?? cwd, t.rel) === targetFull);
+  const held = openTabs().find(t => !t.closed && t.kind === "text" && t.rel && resolvePath(t.root ?? cwd, t.rel) === targetFull);
   const tab = held ?? openIn(cleanRoot, location.path);
   if (!tab || tab.kind !== "text") return;
 
@@ -529,7 +529,7 @@ export function saveFile(command: string, args: Record<string, unknown>, note: (
 export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name">) {
   const s = P.session;
   if (!s) return;
-  const terms = P.tabs.filter(t => t.kind === "term");
+  const terms = openTabs().filter(t => t.kind === "term");
   const root = like?.cwd ?? paneRoot();
   const name = terminalName(root, terms.map(t => t.name));
   const id = `term:${name}`;
@@ -547,7 +547,7 @@ export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name
 export function newTerminalLike() {
   if (!shell()) return false;
   const shown = shownDocks().flatMap(d => {
-    const tab = P.tabs.find(t => t.id === paneModel.getState().on[d] && t.kind === "term");
+    const tab = openTabs().find(t => t.id === paneModel.getState().on[d] && t.kind === "term");
     const at = tab && (tab.term?.row ?? tab.existing ?? tab.at);
     return at ? [{ dock: d, machine_id: at.machine_id, machine_name: at.machine_name, cwd: at.cwd, project: at.project, focused: !!tab.term?.screen.focused() }] : [];
   });
@@ -564,10 +564,10 @@ export function discardSheet(tab: MediaTab, discard: () => void) {
 }
 
 export function closeTab(id: string) {
-  const i = P.tabs.findIndex(t => t.id === id);
+  const i = openTabs().findIndex(t => t.id === id);
   if (i < 0) return;
   // The tab goes once its terminal stopped, and says why when it could not.
-  const tab = P.tabs[i];
+  const tab = openTabs()[i];
 
   if (tab.edit?.dirty) {
     discardSheet(tab, () => { tab.edit = null; closeTab(id); });
@@ -585,15 +585,15 @@ export function closeTab(id: string) {
   // A shell still starting is stopped once it is there.
   if (tab.kind === "term") tab.closed = true;
   const d = dockOf(id);
-  dropTab(P.tabs[i]);
-  P.tabs.splice(i, 1);
+  dropTab(tab);
+  paneModel.setState(s => ({ tabs: s.tabs.filter(t => t !== tab) }));
   P.moved.delete(id);
 
   // The neighbour in the same dock shows next.
   if (paneModel.getState().on[d] === id) {
     const left = docked()[d];
     const source = tab.exported?.source.tab;
-    setOn(d, source && left.includes(source) ? source : P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES);
+    setOn(d, source && left.includes(source) ? source : openTabs().slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES);
   }
 
   rememberPane();
@@ -625,7 +625,7 @@ export async function stopTerminalTab(tab: MediaTab) {
 /// focused or that tab stays, as Files does. A terminal's tab ends the terminal.
 export function closeFocusedTab() {
   const d = dockHolding(document.activeElement);
-  const tab = d && P.tabs.find(t => t.id === paneModel.getState().on[d]);
+  const tab = d && openTabs().find(t => t.id === paneModel.getState().on[d]);
   if (!d || !tab) return false;
   closeTab(tab.id);
   paneOf(d)?.focus({ preventScroll: true });
@@ -637,10 +637,11 @@ export function closeFocusedTab() {
 export function openSessionBeside(s: SplitSession, dock: Dock = "right") {
   if (!shell()) return;
   const id = `session:${s.machine_id}:${s.agent}:${s.id}`;
-  const found = P.tabs.find(t => t.id === id);
+  const found = openTabs().find(t => t.id === id);
   if (found) {
     found.splitSession = s;
     found.name = s.title || s.agent || "Session";
+    touchTab(found);
     const d = dockOf(id);
     setFolded(d, false);
     saveLayout();
@@ -653,7 +654,7 @@ export function openSessionBeside(s: SplitSession, dock: Dock = "right") {
     size: 0, started: Date.now(), done: 0, error: "", rev: 0, viewHidden: false, note: null,
     player: null, playerAt: 0, splitSession: s,
   };
-  P.tabs.push(tab);
+  addTab(tab);
   if (dock === "bottom") { paneModel.setState(s => ({ layout: moveTab(s.layout, id, "bottom") })); P.moved.set(id, "bottom"); }
   const d = dockOf(id);
   setFolded(d, false);
@@ -757,8 +758,8 @@ export function showTab(d: Dock, id: string) {
 }
 
 function requestRightPane(d: Dock) {
-  const { docks, places } = paneModel.getState();
-  if (d === "right" && docks && !places.right.shown && !places.right.strip && desktopChatPane()) P.rightRequested = true;
+  const { split, places } = paneModel.getState();
+  if (d === "right" && split && !places.right.shown && !places.right.strip && desktopChatPane()) P.rightRequested = true;
 }
 
 /// Files and Changes read the folder of session `s`.
@@ -772,9 +773,9 @@ const startingTerminals = new Map<string, MediaTab[]>();
 export function rememberPane() {
   if (paneReleased || !P.session) return;
   const key = viewKey(P.session.machine_id, P.session.id);
-  const pending = P.tabs.filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
+  const pending = openTabs().filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
   if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  writeView(windowPreferenceKey(key), { on: paneModel.getState().on, layout: keptLayout(), zoom: paneModel.getState().zoom, tabs: P.tabs.filter(t => !t.closed && !t.exported).map(savedTab) });
+  writeView(windowPreferenceKey(key), { on: paneModel.getState().on, layout: keptLayout(), zoom: paneModel.getState().zoom, tabs: openTabs().filter(t => !t.closed && !t.exported).map(savedTab) });
 }
 
 function savedTab(t: MediaTab) {
@@ -804,7 +805,7 @@ export function rememberTerminal(key: string, tab: MediaTab, row: TerminalRow) {
   const pending = startingTerminals.get(key)?.filter(t => t !== tab) ?? [];
   if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
   tab.existing = row;
-  if (P.tabs.includes(tab)) { rememberPane(); return; }
+  if (openTabs().includes(tab)) { rememberPane(); return; }
   if (tab.closed) return;
   const saved = savedPane(key);
   if (!saved || typeof saved !== "object" || !("tabs" in saved) || !Array.isArray(saved.tabs)) return;

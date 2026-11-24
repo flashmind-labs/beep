@@ -22,7 +22,7 @@ import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { sessionsRead } from "../agents/sessions.ts";
 import { type TabKind, setFolded, closeTab, P, previewTab, saveFile, saveLayout, saveWorkFile, showTab, type MediaTab, focusTab } from "./media.ts";
-import { type DockModel, type DockView, chatPane, desktopChatPane, docked, foldNarrow, paneModel, paneOf, place, setOn, setPaneModel, shell } from "./media-layout.ts";
+import { type DockModel, type DockView, type PaneCounts, type PaneModel, chatPane, desktopChatPane, docked, foldNarrow, paneModel, paneOf, place, setOn, setPaneModel, shell } from "./media-layout.ts";
 
 // ----- Tabs -----
 
@@ -43,12 +43,13 @@ export function drawPane(subs?: { rows: SubagentRow[]; count: number }, arts?: P
   const key = JSON.stringify([subs ?? null, arts?.list ?? null]);
   if (given?.session === P.session && given.key === key) return;
   given = { session: P.session, key };
-  if (subs) { P.subs = subs.rows; P.subCount = subs.count; }
+  if (subs) paneModel.setState({ subs: subs.rows, subCount: subs.count });
   if (arts) setArtifacts(arts.list, arts.turnStart);
   draw();
 }
 
-/// Brings each dock's views up to date with what they show, then draws.
+/// Brings each dock's views up to date with what they show, then lays the docks out.
+/// What the docks draw comes from the model; this works out what the model cannot read.
 export function draw() {
   foldNarrow();
   // A tab being dragged is not drawn over until it drops.
@@ -56,23 +57,35 @@ export function draw() {
   const split = docked();
   for (const d of DOCKS) syncDock(d, split[d]);
   followFiles();
-  publish(split);
+
+  // The center window's phone layout, which center/mobile.ts marks on the body.
+  const phone = shell() && document.body.classList.contains("mobile") ? phoneTabs(split.bottom) : null;
+  // On a phone the session first shows the conversation.
+  if (phone && !paneModel.getState().phoneShown) paneModel.setState({ phoneShown: true, log: true });
+  const { log, on } = paneModel.getState();
+  const chat = chatPane();
+  place({
+    split, worktrees: worktreeMenu(),
+    counts: { running: runningCount(), artifacts: artifactCount(), agents: chat ? chatAgentsCount(chat) : null },
+    phone: phone && { tabs: phone, selected: log ? "log" : on.bottom },
+  });
 }
 
 sessionsRead.add(() => {
   if (shell() && desktopChatPane()) draw();
 });
 
-/// Shows the tab now on screen in dock `d` when nothing else changed: dock `d`'s views flip and
-/// it draws again alone, without laying the docks out. False when the docks need `draw`.
+/// Shows the tab now on screen in dock `d` when nothing else changed: dock `d`'s views flip,
+/// without laying the docks out. False when the docks need `draw`.
 export function flipTab(d: Dock) {
-  const { docks, places, phone, zoom, zoomed } = paneModel.getState();
-  if (drag?.ghost || phone || !docks || !places[d].shown || zoomed !== zoom) return false;
+  const { split, places, phone, zoom, zoomed } = paneModel.getState();
+  if (drag?.ghost || phone || !split || !places[d].shown || zoomed !== zoom) return false;
   const ids = docked()[d];
-  if (ids.length !== docks[d].tabs.length || ids.some((id, i) => docks[d].tabs[i].id !== id)) return false;
+  if (ids.length !== split[d].length || ids.some((id, i) => split[d][i] !== id)) return false;
   syncDock(d, ids);
   followFiles();
-  setPaneModel({ docks: { ...docks, [d]: dockModel(d, ids) } });
+  // Draws the flipped views now: what syncDock started reading lands in a view that shows.
+  setPaneModel({});
   refreshTopicSubscriptions();
   return true;
 }
@@ -80,17 +93,7 @@ export function flipTab(d: Dock) {
 /// Draws tab `t` again after its own state changed: its load, terminal or note.
 export function touchTab(t: MediaTab) {
   t.rev++;
-  if (P.tabs.includes(t) && !drag?.ghost) publish(docked());
-}
-
-/// Hands the docks' model to dock-view.tsx and lays them out.
-function publish(split: Record<Dock, string[]>) {
-  // The center window's phone layout, which center/mobile.ts marks on the body.
-  const phone = shell() && document.body.classList.contains("mobile") ? phoneTabs(split.bottom) : null;
-  // On a phone the session first shows the conversation.
-  if (phone && !paneModel.getState().phoneShown) paneModel.setState({ phoneShown: true, log: true });
-  const { log, on } = paneModel.getState();
-  place({ right: dockModel("right", split.right), bottom: dockModel("bottom", split.bottom) }, { phone: phone && { tabs: phone, selected: log ? "log" : on.bottom } });
+  if (paneModel.getState().tabs.includes(t)) setPaneModel({ tabs: [...paneModel.getState().tabs] });
 }
 
 /// On a phone the session shows one pane at a time: Chat, the conversation, or one of the
@@ -107,35 +110,39 @@ export function pickPhoneTab(id: string) {
 }
 
 /// The tab strip item of tab `id`.
-export function paneTabItem(id: string): PaneTabItem {
-  if (isFixed(id)) return { id, name: FIXED_NAMES[id], icon: TAB_ICONS[id], count: fixedCount(id), closeIcon: null };
-  const tab = P.tabs.find(t => t.id === id);
+export function paneTabItem(id: string, { tabs, counts, subCount } = paneModel.getState()): PaneTabItem {
+  if (isFixed(id)) return { id, name: FIXED_NAMES[id], icon: TAB_ICONS[id], count: fixedCount(id, counts, subCount), closeIcon: null };
+  const tab = tabs.find(t => t.id === id);
   return { id, name: tab?.name ?? id, icon: TAB_ICONS[tab?.kind ?? "text"], count: null, closeIcon: "x" };
 }
 
-/// What dock `d` with tabs `ids` shows.
-function dockModel(d: Dock, ids: string[]): DockModel {
-  const { layout } = paneModel.getState(), on = paneModel.getState().on[d];
+/// What dock `d` shows, worked out from the model. The same model gives the same dock.
+const docks: Record<Dock, { from: unknown[]; model: DockModel }> = { right: { from: [], model: { tabs: [], views: [], worktrees: null } }, bottom: { from: [], model: { tabs: [], views: [], worktrees: null } } };
+
+export function dockModel(s: PaneModel, d: Dock): DockModel | null {
+  if (!s.split) return null;
+  const ids = s.split[d], on = s.on[d];
+  const from = [s.tabs, s.subCount, s.counts, ids, on, s.layout.hidden[d], s.changes, s.worktrees];
+  const had = docks[d];
+  if (had.from.length === from.length && from.every((x, i) => Object.is(x, had.from[i]))) return had.model;
+
   const has = (id: string) => ids.includes(id);
   const views: DockView[] = [
     ...(has(FILES) ? [{ kind: "files" as const, hidden: on !== FILES }] : []),
-    ...(has(CHANGES) && changesMade ? [{ kind: "changes" as const, hidden: on !== CHANGES }] : []),
+    ...(has(CHANGES) && s.changes ? [{ kind: "changes" as const, hidden: on !== CHANGES }] : []),
     ...(has(ARTS) ? [{ kind: "artifacts" as const, hidden: on !== ARTS }] : []),
     ...(has(RUNNING) ? [{ kind: "running" as const, hidden: on !== RUNNING }] : []),
     ...(has(SUBS) ? [{ kind: "subagents" as const, hidden: on !== SUBS }] : []),
     ...(has(AGENTS) ? [{ kind: "agents" as const, hidden: on !== AGENTS }] : []),
     // A folded dock hides the device too, which stops its stream.
-    ...(has(DEVICE) ? [{ kind: "device" as const, hidden: on !== DEVICE || layout.hidden[d] }] : []),
-    ...P.tabs.filter(t => has(t.id)).map(t => ({ kind: "tab" as const, tab: t, rev: t.rev, hidden: t.id !== on })),
+    ...(has(DEVICE) ? [{ kind: "device" as const, hidden: on !== DEVICE || s.layout.hidden[d] }] : []),
+    ...s.tabs.filter(t => has(t.id)).map(t => ({ kind: "tab" as const, tab: t, rev: t.rev, hidden: t.id !== on })),
   ];
-  return {
-    tabs: ids.map(paneTabItem), views,
-    worktrees: on === FILES || on === CHANGES ? worktreeMenu() : null,
-  };
-}
+  const model = { tabs: ids.map(id => paneTabItem(id, s)), views, worktrees: on === FILES || on === CHANGES ? s.worktrees : null };
+  docks[d] = { from, model };
 
-/// Whether the Changes view of the pane's session was made, as the last draw left it.
-let changesMade = false;
+  return model;
+}
 
 /// Brings the views of dock `d`, with tabs `ids`, up to date with what it shows.
 function syncDock(d: Dock, ids: string[]) {
@@ -145,13 +152,16 @@ function syncDock(d: Dock, ids: string[]) {
   if (ids.includes(FILES)) filesTab(on === FILES, on === FILES && !folded);
   // The Changes view is made the first time it shows, as it runs git; shown
   // again, it reads only when the folder changed.
-  if (ids.includes(CHANGES)) changesMade = changesTab(on === CHANGES, on === CHANGES && !folded);
+  if (ids.includes(CHANGES)) {
+    const changes = changesTab(on === CHANGES, on === CHANGES && !folded);
+    if (changes !== paneModel.getState().changes) paneModel.setState({ changes });
+  }
   if (ids.includes(ARTS)) {
-    const source = P.tabs.find(t => t.id === on)?.exported?.source;
+    const source = paneModel.getState().tabs.find(t => t.id === on)?.exported?.source;
     artifactsTab(on === ARTS, on === ARTS && !folded, !folded && source?.tab === ARTS ? source.url : null);
   }
 
-  for (const t of P.tabs) {
+  for (const t of paneModel.getState().tabs) {
     if (!ids.includes(t.id)) continue;
     const hide = t.id !== on || folded;
     if (hide && !t.viewHidden) stopPlaying(t);
@@ -177,11 +187,11 @@ function isFixed(id: string): id is Fixed {
   return Object.hasOwn(FIXED_NAMES, id);
 }
 
-function fixedCount(id: Fixed) {
-  if (id === SUBS) return P.subCount;
-  if (id === RUNNING) return runningCount();
-  if (id === ARTS) return artifactCount();
-  if (id === AGENTS) { const chat = chatPane(); return chat ? chatAgentsCount(chat) : null; }
+function fixedCount(id: Fixed, counts: PaneCounts, subCount: number) {
+  if (id === SUBS) return subCount;
+  if (id === RUNNING) return counts.running;
+  if (id === ARTS) return counts.artifacts;
+  if (id === AGENTS) return counts.agents;
   return null;
 }
 
@@ -210,7 +220,7 @@ function showFrame(t: MediaTab) {
 // The window hid or the pane went: nothing plays on. Shown again, the
 // video in view gets its picture back.
 onShownChange(shown => {
-  for (const t of P.tabs) {
+  for (const t of paneModel.getState().tabs) {
     if (!shown) stopPlaying(t);
     else if (!t.viewHidden) showFrame(t);
   }
@@ -225,7 +235,7 @@ export function noteTab(t: MediaTab, text: string) {
 /// The menu of a tab the user opened: close it, save its file, copy its path. The
 /// fixed tabs (Files, Changes, Subagents, Artifacts) have none.
 export function tabMenu(e: MouseEvent, id: string) {
-  const t = P.tabs.find(x => x.id === id);
+  const t = paneModel.getState().tabs.find(x => x.id === id);
   if (!t) return;
   e.preventDefault();
   const items: MenuItem[] = [];

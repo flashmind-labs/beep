@@ -2,7 +2,11 @@ import { answers, calls, nativeEvent } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { P, type MediaTab } from "../src/agentpane/media.ts";
+import { paneModel } from "../src/agentpane/media-layout.ts";
 import { loadText } from "../src/agentpane/read.ts";
+
+const setTabs = (tabs: MediaTab[]) => paneModel.setState({ tabs });
+
 
 const reads = () => calls.filter(c => c.cmd === "agent_tree_text");
 
@@ -13,7 +17,7 @@ test("a text tab whose read lost the link reads its file again on reconnect, in 
     rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, rel: "a.txt",
     elsewhere: [{ root: "/srv", rel: "project/a.txt" }],
   };
-  P.tabs = [tab];
+  setTabs([tab]);
   answers.agent_tree_text = Promise.reject(new Error("connection lost"));
   (answers.agent_tree_text as Promise<unknown>).catch(() => {});
 
@@ -30,7 +34,7 @@ test("a text tab whose read lost the link reads its file again on reconnect, in 
   assert.equal(tab.error, "");
   assert.equal(tab.text?.text, "hello");
   assert.equal(tab.tries, 0);
-  P.tabs = [];
+  setTabs([]);
 });
 
 test("a text tab whose file is not there looks in the next place and does not retry", async () => {
@@ -40,12 +44,12 @@ test("a text tab whose file is not there looks in the next place and does not re
     rev: 0, viewHidden: false, note: null, player: null, playerAt: 0, rel: "b.txt",
     elsewhere: [{ root: "/srv", rel: "project/b.txt" }],
   };
-  P.tabs = [tab];
+  setTabs([tab]);
   answers.agent_tree_text = Promise.reject(new Error("b.txt is not there"));
   (answers.agent_tree_text as Promise<unknown>).catch(() => {});
 
   await loadText(tab);
   assert.equal(tab.rel, "project/b.txt");
   assert.equal(tab.tries, undefined);
-  P.tabs = [];
+  setTabs([]);
 });

@@ -10,7 +10,7 @@ import { artifactVersion } from "./artifacts-state.ts";
 import { followedArtifact, reloadArtifact } from "./artifacts.ts";
 import { isTree, type Tree } from "./files-state.ts";
 import { isHtmlFile } from "./html-preview-state.ts";
-import { type MediaTab, type TreeText, P } from "./media.ts";
+import { type MediaTab, type TreeText, P, openTabs } from "./media.ts";
 import { touchTab } from "./media-draw.ts";
 import { resolvePath } from "./media-state.ts";
 import { dockOf, paneModel } from "./media-layout.ts";
@@ -98,7 +98,7 @@ function followed(): Follow[] {
   if (!s) return [];
   const machine = s.machine_id, roots = [paneRoot(), s.cwd];
 
-  const tabs = P.tabs.flatMap((t): Follow[] => {
+  const tabs = openTabs().flatMap((t): Follow[] => {
     if (t.error) return [];
     const shown = !t.viewHidden && !paneModel.getState().layout.hidden[dockOf(t.id)];
 
@@ -127,7 +127,7 @@ function followed(): Follow[] {
 async function reloadText(t: MediaTab, at: { machine: string; root: string; path: string }) {
   if (t.edit?.dirty) return false;
   const now = await invoke<TreeText>("agent_tree_text", { machineId: at.machine, root: at.root, path: at.path }).catch(() => null);
-  if (!now || t.edit?.dirty || !P.tabs.includes(t)) return false;
+  if (!now || t.edit?.dirty || !openTabs().includes(t)) return false;
 
   if (t.text?.text !== now.text || t.text.size !== now.size) {
     takeText(t, now);
