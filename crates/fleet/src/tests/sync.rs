@@ -378,6 +378,46 @@ async fn degraded_node_does_not_stall_sync_and_shows_its_answer_on_the_next_read
 struct CountingPeers {
     mesh: Mesh,
     calls: Arc<std::sync::atomic::AtomicU64>,
+    /// The file count the node pushes on its subscription; 0 when it pushes nothing.
+    pushed: Arc<std::sync::atomic::AtomicU64>,
+}
+
+struct Pushed(Arc<std::sync::atomic::AtomicU64>);
+
+impl beep_mesh::SnapshotReader for Pushed {
+    fn snapshot(&self, read: beep_proto::node::events::Read) -> beep_mesh::SnapshotFuture<'_> {
+        let files = self.0.load(std::sync::atomic::Ordering::SeqCst);
+        Box::pin(async move {
+            if files == 0 || read != beep_proto::node::events::Read::SyncList {
+                return None;
+            }
+
+            Some(Ok(beep_proto::node::events::Value::Sync(Box::new(
+                Reply::Status {
+                    projects: vec![widget(files)],
+                },
+            ))))
+        })
+    }
+}
+
+fn widget(files: u64) -> ProjectStatus {
+    ProjectStatus {
+        name: "acme/widget".into(),
+        folder: "/srv/widget".into(),
+        state: State::Idle,
+        paused: false,
+        git_only: false,
+        files,
+        bytes: 0,
+        pending: 0,
+        waiting: Vec::new(),
+        progress: None,
+        conflicts: Vec::new(),
+        rescan_secs: None,
+        hint: None,
+        error: None,
+    }
 }
 
 #[async_trait]
@@ -392,6 +432,7 @@ impl Peers for CountingPeers {
 
     async fn client(&self, _machine: EndpointId) -> Result<PeerClient> {
         let calls = self.calls.clone();
+        let reader = Arc::new(Pushed(self.pushed.clone()));
         Ok(PeerClient::local(Arc::new(move |mut tx, mut rx| {
             let calls = calls.clone();
             Box::pin(async move {
@@ -401,26 +442,12 @@ impl Peers for CountingPeers {
                 let files = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
                 let _ = tx
                     .send(&Reply::Status {
-                        projects: vec![ProjectStatus {
-                            name: "acme/widget".into(),
-                            folder: "/srv/widget".into(),
-                            state: State::Idle,
-                            paused: false,
-                            git_only: false,
-                            files,
-                            bytes: 0,
-                            pending: 0,
-                            waiting: Vec::new(),
-                            progress: None,
-                            conflicts: Vec::new(),
-                            rescan_secs: None,
-                            hint: None,
-                            error: None,
-                        }],
+                        projects: vec![widget(files)],
                     })
                     .await;
             })
-        })))
+        }))
+        .with_snapshot_reader(reader))
     }
 }
 
@@ -458,6 +485,7 @@ async fn a_node_without_the_topic_answers_from_its_last_call_and_redraws_when_it
     let peers = Arc::new(CountingPeers {
         mesh: mesh.clone(),
         calls: calls.clone(),
+        pushed: Arc::default(),
     });
     let (tx, mut heard) = tokio::sync::mpsc::unbounded_channel();
     let session = Session::new(peers, Options::default(), move |changed| {
@@ -477,6 +505,60 @@ async fn a_node_without_the_topic_answers_from_its_last_call_and_redraws_when_it
     assert_eq!(files(&desk.sync().await), 1);
     let said = tokio::time::timeout(Duration::from_secs(1), heard.recv()).await;
     assert_eq!(said, Ok(Some(Changed::Sync)));
+    assert_eq!(files(&desk.sync().await), 2);
+
+    endpoint.close().await;
+}
+
+#[tokio::test]
+async fn a_node_that_pushes_is_not_answered_from_an_old_direct_call() {
+    use crate::session::{Options, Session};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    let dir = TempDir::new().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .unwrap();
+    let mut folders = std::collections::BTreeMap::new();
+    folders.insert(mesh.me(), "/srv/widget".to_owned());
+    mesh.set(
+        Key::Sync("acme/widget".into()),
+        Some(
+            SyncSpec {
+                folders,
+                ..SyncSpec::default()
+            }
+            .to_bytes()
+            .unwrap(),
+        ),
+    )
+    .await
+    .unwrap();
+
+    let calls = Arc::new(AtomicU64::new(0));
+    let pushed = Arc::new(AtomicU64::new(0));
+    let peers = Arc::new(CountingPeers {
+        mesh: mesh.clone(),
+        calls: calls.clone(),
+        pushed: pushed.clone(),
+    });
+    let session = Session::new(peers, Options::default(), |_| {}).unwrap();
+    let desk = session.desk().await.unwrap();
+    let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
+
+    // One slow stretch with no subscription keeps a direct answer.
+    assert_eq!(files(&desk.sync().await), 1);
+
+    pushed.store(50, Ordering::SeqCst);
+    assert_eq!(files(&desk.sync().await), 50);
+
+    // The subscription drops: the old direct answer is gone, so this asks again.
+    pushed.store(0, Ordering::SeqCst);
     assert_eq!(files(&desk.sync().await), 2);
 
     endpoint.close().await;
