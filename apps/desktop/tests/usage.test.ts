@@ -52,27 +52,40 @@ test("credits preserve zero, precision and unknown balances without counting as 
   assert.ok(hasUsage({ historical: [], limits: [{ agent: "flsh", account: null, plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: empty }));
 });
 
-test("the pill shows each plan's binding window, the one most used", () => {
-  const plan = (agent: string, windows: { minutes: number; used_percent: number }[]) => ({ agent, account: null, plan: null, machine_name: "build-box", as_of: 0, windows: windows.map(w => ({ ...w, resets_at: null, scope: null })) });
-  assert.deepEqual(pillPlans([
-    plan("claude", [{ minutes: 300, used_percent: 38 }, { minutes: 10_080, used_percent: 76.4 }]),
-    plan("codex", [{ minutes: 300, used_percent: 9 }]),
-    plan("flsh", []),
-  ]), [{ agent: "claude", account: null, model: null, used: 76, window: "This week" }, { agent: "codex", account: null, model: null, used: 9, window: "5 hours" }]);
-});
+const usageWindow = (minutes: number, used_percent: number, scope: string | null = null) => ({ minutes, used_percent, resets_at: null, scope });
+const plan = (agent: string, windows: ReturnType<typeof usageWindow>[]) => ({ agent, account: null, plan: null, machine_name: "build-box", as_of: 0, windows });
 
-test("the pill shows a model's weekly limit past 1% beside its plan", () => {
-  const windows = [{ minutes: 300, used_percent: 38, scope: null }, { minutes: 10_080, used_percent: 20, scope: null }, { minutes: 10_080, used_percent: 91, scope: "Fable" }, { minutes: 10_080, used_percent: 1, scope: "Opus" }];
-  assert.deepEqual(pillPlans([{ agent: "claude", account: null, plan: "max", machine_name: "build-box", as_of: 0, windows: windows.map(w => ({ ...w, resets_at: null })) }]), [
-    { agent: "claude", account: null, model: null, used: 38, window: "5 hours" },
-    { agent: "claude", account: null, model: "Fable", used: 91, window: "This week, Fable" },
+test("the pill shows the highest longer-window reading before the five-hour reading", () => {
+  const short = usageWindow(300, 83);
+  const week = usageWindow(10_080, 26);
+  const codex = usageWindow(300, 1);
+  assert.deepEqual(pillPlans([
+    plan("claude", [short, week, usageWindow(43_200, 12)]),
+    plan("codex", [codex]),
+    plan("agy", [usageWindow(300, 0.9)]),
+    plan("flsh", []),
+  ]), [
+    { agent: "claude", account: null, model: null, windows: [week, short] },
+    { agent: "codex", account: null, model: null, windows: [codex] },
   ]);
 });
 
-test("a plan with only grouped windows shows its most-used group under the harness mark", () => {
-  const windows = [{ minutes: 10_080, used_percent: 4, resets_at: null, scope: "Gemini Models" }, { minutes: 10_080, used_percent: 12, resets_at: null, scope: "Claude and GPT models" }];
-  assert.deepEqual(pillPlans([{ agent: "agy", account: null, plan: null, machine_name: "build-box", as_of: 0, windows }]), [
-    { agent: "agy", account: null, model: null, used: 12, window: "This week, Claude and GPT models" },
+test("the pill groups readings for a model used past 1% beside its plan", () => {
+  const short = usageWindow(300, 0);
+  const week = usageWindow(10_080, 20);
+  const fableWeek = usageWindow(10_080, 91, "Fable");
+  const fableShort = usageWindow(300, 0.9, "Fable");
+  assert.deepEqual(pillPlans([plan("claude", [short, week, fableWeek, fableShort, usageWindow(10_080, 1, "Opus")])]), [
+    { agent: "claude", account: null, model: null, windows: [week] },
+    { agent: "claude", account: null, model: "Fable", windows: [fableWeek] },
+  ]);
+});
+
+test("a plan with only grouped windows shows the highest usage for each period under the harness mark", () => {
+  const week = usageWindow(10_080, 12, "Claude and GPT models");
+  const short = usageWindow(300, 25, "Gemini Models");
+  assert.deepEqual(pillPlans([plan("agy", [usageWindow(10_080, 4, "Gemini Models"), week, short, usageWindow(300, 0, "Claude and GPT models")])]), [
+    { agent: "agy", account: null, model: null, windows: [week, short] },
   ]);
 });
 

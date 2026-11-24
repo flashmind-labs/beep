@@ -5,7 +5,7 @@ import { creditAmount, creditScope, providerName } from "../ui/credits.ts";
 import { harnessMark, providerMark } from "../ui/icons.tsx";
 import { money, tokenCount } from "../ui/format.ts";
 import { useDialogRef } from "../ui/parts.tsx";
-import { asOf, harnessCost, harnessName, modelTotals, PERIODS, pillPlans, planName, resetName, shortName, showsDollars, todayLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageTableRow, type UsageView } from "./usage.tsx";
+import { asOf, FIVE_HOURS, harnessCost, harnessName, modelTotals, PERIODS, pillPlans, planName, resetName, shortName, showsDollars, todayLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageTableRow, type UsageView } from "./usage.tsx";
 
 function Bar({ used }: { used: number }) { return <span className="bar"><i className={used > WARN_USED ? "warn" : ""} style={{ width: `${used}%` }} /></span>; }
 /// A harness's mark, else its short name: never a letter tile.
@@ -95,8 +95,13 @@ function Period({ view, periodKey, allProjects, pick, more }: {
   </div>;
 }
 export function UsageWidget({ view, open, period, allProjects, toggle, pick, more }: { view: UsageView; open: boolean; period: PeriodKey; allProjects: boolean; toggle(): void; pick(key: PeriodKey): void; more(): void }) {
-  const pop = useRef<HTMLDivElement>(null), dialog = useDialogRef(pop), plans = pillPlans(view.limits), shown = view[period] ?? view.today;
-  const label = plans.length ? `Plan usage: ${plans.map(plan => `${plan.model ?? agentLabel(plan.agent)} ${plan.used}%`).join(", ")}` : `Cost today: ${todayLine(view.today)}`;
+  const pop = useRef<HTMLDivElement>(null), dialog = useDialogRef(pop), shown = view[period] ?? view.today;
+  const plans = pillPlans(view.limits).map(plan => {
+    const name = [agentLabel(plan.agent), plan.account, plan.model].filter(Boolean).join(" ");
+    const readings = plan.windows.map(window => `${windowUsed(window)}% used (${windowName(window)})`);
+    return { ...plan, label: `${name} ${readings.join(", ")}` };
+  });
+  const label = plans.length ? `Plan usage: ${plans.map(plan => plan.label).join(" · ")}` : `Cost today: ${todayLine(view.today)}`;
   // The pop moves back inside the window when its edge would leave it, and scrolls when taller than the room below.
   const [place, setPlace] = useState({ shift: 0, maxHeight: 0 });
   useLayoutEffect(() => {
@@ -108,7 +113,16 @@ export function UsageWidget({ view, open, period, allProjects, toggle, pick, mor
     if (shift !== place.shift || maxHeight !== place.maxHeight) setPlace({ shift, maxHeight });
   }, [view, open, period, allProjects, place]);
   return <><button type="button" className={`us-pill${plans.length ? " plans" : ""}`} title="Plan usage and cost" aria-label={label} aria-expanded={open} onClick={toggle}>
-      {plans.map(plan => <span className="us-plan" key={`${plan.agent}:${plan.account ?? ""}:${plan.model ?? ""}`} title={`${[agentLabel(plan.agent), plan.account].filter(Boolean).join(" ")}: ${plan.used}% of ${plan.window} used`}>{plan.model ?? <Mark agent={plan.agent} />}{plan.account && !plan.model && <small>{plan.account}</small>}<b className={plan.used > WARN_USED ? "warn" : ""}>{plan.used}%</b></span>)}
+      {plans.map(plan => <span className="us-plan" key={`${plan.agent}:${plan.account ?? ""}:${plan.model ?? ""}`} title={plan.label}>
+        {plan.model ?? <Mark agent={plan.agent} />}{plan.account && !plan.model && <small>{plan.account}</small>}
+        <span className="us-readings">{plan.windows.map(window => {
+          const used = windowUsed(window);
+          return <span className="us-reading" key={window.minutes}>
+            {window.minutes === FIVE_HOURS && <small className="us-window">5h</small>}
+            <b className={used > WARN_USED ? "warn" : ""}>{used}%</b>
+          </span>;
+        })}</span>
+      </span>)}
       {view.limits.flatMap(plan => plan.credits ?? []).map((credit, n) => credit.remaining != null && <span className="us-x" key={n} title={`${providerName(credit.provider)}: ${credit.remaining_full ?? creditAmount(credit, credit.remaining)} remaining`}><Provider provider={credit.provider} /><span><b>{credit.remaining_short ?? creditAmount(credit, credit.remaining)}</b> left</span></span>)}
       {(!plans.length || view.today.total.cost_usd > 0) && <span className="us-x"><span><b>{todayLine(view.today)}</b> today</span></span>}
     </button>

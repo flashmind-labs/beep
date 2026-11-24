@@ -1,0 +1,1 @@
+- 'button "Plan usage: Claude Code 76% used (This week) · Claude Code Fable 3% used (This week, Fable) · Codex 20% used (This week) · Antigravity 4% used (This week, Gemini Models), 12% used (5 hours, Gemini Models)"': 76% Fable 3% 20% 4% 5h 12%

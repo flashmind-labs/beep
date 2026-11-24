@@ -92,6 +92,7 @@ export const WARN_USED = 70;
 const HOUR = 60;
 const DAY = 24 * HOUR;
 const WEEK = 7 * DAY;
+export const FIVE_HOURS = 5 * HOUR;
 
 /// The share of a window used, 0 to 100, rounded.
 export function windowUsed(w: Pick<UsageWindow, "used_percent">) {
@@ -99,35 +100,59 @@ export function windowUsed(w: Pick<UsageWindow, "used_percent">) {
   return Math.round(Math.min(100, Math.max(0, used)));
 }
 
-/// One item in the pill: a harness's binding window, the one most used, or
-/// one of its model limits, such as Fable's weekly window.
+/// One item in the pill for a harness or one of its model limits.
 export interface PillPlan {
   agent: string;
   /// The agent's named account; null for its default one.
   account: string | null;
   /// The model a limit applies to; null for the plan as a whole.
   model: string | null;
-  used: number;
-  window: string;
+  windows: UsageWindow[];
 }
 
-/// Each plan with windows, as the pill shows it: the plan's binding window,
-/// then each model limit used past 1%. A plan whose windows are all model
-/// groups, such as Antigravity's, shows its most-used group under the
-/// harness's own mark.
+/// The highest longer-window usage, followed by the highest five-hour usage.
+function pillWindows(windows: UsageWindow[]) {
+  let usage: UsageWindow | null = null;
+  let fiveHour: UsageWindow | null = null;
+
+  for (const window of windows) {
+    if (window.minutes === FIVE_HOURS) {
+      if (!Number.isFinite(window.used_percent) || window.used_percent < 1) continue;
+      if (!fiveHour || windowUsed(window) > windowUsed(fiveHour)) fiveHour = window;
+    } else if (!usage || windowUsed(window) > windowUsed(usage)) {
+      usage = window;
+    }
+  }
+
+  return [usage, fiveHour].filter(window => window !== null);
+}
+
 export function pillPlans(limits: PlanLimits[]): PillPlan[] {
-  const mostUsed = (windows: UsageWindow[]) =>
-    windows.reduce<UsageWindow | null>((most, w) => !most || windowUsed(w) > windowUsed(most) ? w : most, null);
-
   return limits.flatMap(plan => {
-    const unscoped = plan.windows.filter(w => !w.scope);
-    const binding = mostUsed(unscoped.length ? unscoped : plan.windows);
-    const models = unscoped.length
-      ? plan.windows.filter(w => w.scope && windowUsed(w) > 1)
-        .map(w => ({ agent: plan.agent, account: plan.account, model: w.scope, used: windowUsed(w), window: windowName(w) }))
-      : [];
+    if (!plan.windows.length) return [];
 
-    return binding ? [{ agent: plan.agent, account: plan.account, model: null, used: windowUsed(binding), window: windowName(binding) }, ...models] : models;
+    const { agent, account } = plan;
+    const unscoped = plan.windows.filter(window => !window.scope);
+    // Plans with only model groups summarize those groups under the harness mark.
+    const windows = pillWindows(unscoped.length ? unscoped : plan.windows);
+    const items: PillPlan[] = windows.length ? [{ agent, account, model: null, windows }] : [];
+    if (!unscoped.length) return items;
+
+    const models = new Map<string, UsageWindow[]>();
+    for (const window of plan.windows) {
+      if (!window.scope) continue;
+      const windows = models.get(window.scope);
+      if (windows) windows.push(window);
+      else models.set(window.scope, [window]);
+    }
+
+    for (const [model, windows] of models) {
+      if (windows.some(window => windowUsed(window) > 1)) {
+        items.push({ agent, account, model, windows: pillWindows(windows) });
+      }
+    }
+
+    return items;
   });
 }
 
@@ -150,7 +175,7 @@ export function planName(agent: string, plan: string | null) {
 
 /// "5 hours", "This week", "This week, Opus".
 export function windowName(w: Pick<UsageWindow, "minutes" | "scope">) {
-  const base = w.minutes === 5 * HOUR ? "5 hours"
+  const base = w.minutes === FIVE_HOURS ? "5 hours"
     : w.minutes === WEEK ? "This week"
     : w.minutes % DAY === 0 ? `${w.minutes / DAY} days`
     : w.minutes % HOUR === 0 ? `${w.minutes / HOUR} hours`

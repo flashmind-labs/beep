@@ -15,7 +15,7 @@ body.mobile .cwin { overflow: clip }
 /* Top bar: Back in place of the sidebar. */
 body.mobile .cc-top { min-height: 48px; padding: calc(env(safe-area-inset-top) + 4px) 8px 4px 16px; gap: 6px }
 body.mobile .cc-top h2 { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 17px; font-weight: 600; letter-spacing: 0 }
-body.mobile .cc-top small:not(.us-pop small) { display: none }
+body.mobile .cc-top small:not(.us-pop small, .us-window) { display: none }
 body.mobile .cc-top .tools { margin-left: 0; flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none }
 body.mobile :is(.mb-back, .mb-set) { display: grid; place-items: center; flex: none; width: 44px; height: 44px; padding: 0; border: 0; border-radius: var(--radius-sm); background: none; color: var(--muted) }
 body.mobile .mb-back { margin: 0 0 0 -10px }
@@ -23,6 +23,7 @@ body.mobile :is(.mb-back, .mb-set)[hidden] { display: none }
 body.mobile :is(.mb-back, .mb-set, .nt-bell):active { background: var(--elev) }
 body.mobile .mb-back:not([hidden]) + h2 { margin-left: -6px }
 /* The bell is a full touch target, and it and Settings have an icon the size of Back's. */
+body.mobile .nt { margin-left: 0 }
 body.mobile .nt-bell { width: 44px; height: 44px; border: 0 }
 body.mobile :is(.mb-set, .nt-bell) svg { width: 22px; height: 22px; stroke-width: 1.7 }
 body.mobile .nt-n { top: 4px; right: 4px }
@@ -176,7 +177,13 @@ body.mobile.pw #pw-back:not([hidden]) { align-self: flex-start; margin-left: 84p
 body.mobile:not(.mb-home, .pw) #usage { display: none }
 /* Home's usage pill keeps to plan shares when there are any; the popover has the rest. */
 body.mobile .us-pill.plans > .us-x { display: none }
-body.mobile .us-pill { min-height: 0; height: 32px; border-radius: 999px }
+body.mobile .us-pill { min-height: 0; height: 32px; border-radius: 999px; gap: 4px; padding-inline: 8px }
+body.mobile .us-plan, body.mobile .us-reading { gap: 4px }
+body.mobile .us-readings { flex-direction: column; align-items: flex-start; gap: 0; line-height: 1.1 }
+body.mobile.mb-home .cc-top:has(.us-pill.plans) h2 { flex-basis: 0 }
+body.mobile:not(.pw) .us { flex: 0 1 auto; min-width: 0; margin-left: 0 }
+body.mobile:not(.pw) .us-pill { max-width: 100%; overflow-x: auto; scrollbar-width: none }
+body.mobile:not(.pw) .us-pill > span { flex: none }
 
 /* A session: the composer is one rounded surface, its text on a full line and its controls
    under it, with no border of its own around the field. */

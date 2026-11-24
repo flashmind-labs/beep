@@ -33,7 +33,7 @@ const subscribed = (() => {
   const window = (minutes: number, used: number, scope: string | null = null) => ({ minutes, used_percent: used, resets_at: null, scope });
   return {
     limits: [
-      { agent: "claude", account: null, plan: "max", machine_name: "build-box", as_of: Date.now(), windows: [window(300, 38), window(10_080, 76)], credits: [] },
+      { agent: "claude", account: null, plan: "max", machine_name: "build-box", as_of: Date.now(), windows: [window(300, 0), window(10_080, 76), window(10_080, 3, "Fable")], credits: [] },
       { agent: "codex", account: null, plan: "pro", machine_name: "build-box", as_of: Date.now(), windows: [window(10_080, 20)], credits: [] },
       { agent: "agy", account: null, plan: null, machine_name: "build-box", as_of: Date.now(), windows: [
         window(300, 12, "Gemini Models"), window(300, 0, "Claude and GPT models"),
@@ -79,23 +79,27 @@ for (const kind of ["project", "chat"] as const) {
 }
 
 for (const [name, size] of [["desktop", { width: 1280, height: 900 }], ["phone", { width: 390, height: 844 }]] as const) {
-  test(`the ${name} pill shows each harness's binding share and the popover its values`, async ({ page }) => {
+  test(`the ${name} pill leads with longer-window usage and labels the five-hour reading`, async ({ page }) => {
     await page.setViewportSize(size);
     await openDesktop(page, false, { usage_get: subscribed });
-    const pill = page.getByRole("button", { name: "Plan usage: Claude Code 76%, Codex 20%, Antigravity 12%" });
-    await expect(pill).toBeVisible();
-    await expect(pill.locator(".us-plan")).toHaveCount(3);
+    const pill = page.getByRole("button", { name: /^Plan usage:/ });
+    await expect(pill).toBeInViewport({ ratio: 1 });
+    await expect(page.locator("#bell button")).toBeInViewport({ ratio: 1 });
+    if (name === "phone") await expect(page.locator(".mb-set")).toBeInViewport({ ratio: 1 });
+    await expect(pill.locator(".us-plan")).toHaveText(["76%", "Fable3%", "20%", "4%5h12%"]);
+    await expect(pill.getByText("5h", { exact: true })).toBeInViewport({ ratio: 1 });
     await expect(pill.locator(".us-plan svg")).toHaveCount(3);
     await expect(pill).not.toContainText("Gemini Models");
-    await expect(pill.locator(".us-plan").nth(2)).toHaveAttribute("title", "Antigravity: 12% of 5 hours, Gemini Models used");
-    await expect(pill.locator(".us-plan").nth(2).locator("image")).toHaveAttribute("href", "antigravity.svg");
+    await expect(pill.locator(".us-plan").last()).toHaveAttribute("title", "Antigravity 4% used (This week, Gemini Models), 12% used (5 hours, Gemini Models)");
+    await expect(pill.locator(".us-plan").last().locator("image")).toHaveAttribute("href", "antigravity.svg");
     await expect(pill.locator(".bar")).toHaveCount(0);
     await expect(pill.locator("b.warn")).toHaveText("76%");
-    await expect(pill.locator(".us-plan").nth(1).locator("b")).not.toHaveClass(/warn/);
+    if (name === "desktop") expect(await pill.ariaSnapshot()).toMatchSnapshot("plan-usage-bar.txt");
 
     await pill.click();
     const pop = page.getByRole("dialog", { name: "Plan usage and cost" });
     await expect(pop.getByText("76% used")).toBeVisible();
+    await expect(pop.getByText("5 hours", { exact: true }).locator("..")).toContainText("0% used");
     await expect(pop.getByText("5 hours, Gemini Models", { exact: true })).toBeVisible();
     await expect(pop.getByText("5 hours, Claude and GPT models", { exact: true })).toBeVisible();
     await expect(pop.getByText("This week, Gemini Models", { exact: true })).toBeVisible();
@@ -122,8 +126,9 @@ test("each named account's plan shows apart, under its name", async ({ page }) =
   const work = { ...subscribed.limits[0], account: "Work", windows: [window] };
   await openDesktop(page, false, { usage_get: { ...subscribed, limits: [subscribed.limits[0], work] } });
   const pill = page.getByRole("button", { name: /^Plan usage:/ });
-  await expect(pill.locator(".us-plan")).toHaveCount(2);
-  await expect(pill.locator(".us-plan").nth(1)).toHaveAttribute("title", "Claude Code Work: 40% of 5 hours used");
+  await expect(pill.locator(".us-plan")).toHaveCount(3);
+  await expect(pill.locator(".us-plan").last()).toHaveText("Work5h40%");
+  await expect(pill.locator(".us-plan").last()).toHaveAttribute("title", "Claude Code Work 40% used (5 hours)");
   await pill.click();
   await expect(page.getByRole("dialog", { name: "Plan usage and cost" }).locator("h5", { hasText: "Work" })).toHaveCount(1);
 });
