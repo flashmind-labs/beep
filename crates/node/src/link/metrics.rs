@@ -5,12 +5,13 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     metrics::{MAX_PERIOD, Query, Reply, Request},
 };
-use chrono::{DateTime, Duration as ChronoDuration, FixedOffset};
+use chrono::{DateTime, Duration as ChronoDuration, FixedOffset, NaiveDate, SecondsFormat, Utc};
 use regex::{Regex, RegexBuilder};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs::File,
-    io::{BufRead, BufReader, Read},
+    io::{BufRead, BufReader, Read, Take},
+    ops::RangeInclusive,
     path::{Path, PathBuf},
 };
 
@@ -18,6 +19,9 @@ const MAX_SCAN: u64 = 256 * 1024 * 1024;
 const MAX_SNAPSHOT: usize = 1024 * 1024;
 const MAX_SERIES: usize = 2048;
 const MAX_REPLY: usize = 256 * 1024;
+const SNAPSHOT_HEADER: &str = "# snapshot unix_seconds=";
+
+type MetricsFile = BufReader<Take<File>>;
 
 pub(super) async fn serve(tx: LinkTx, rx: LinkRx, path: PathBuf) -> Result<()> {
     serve_with(tx, rx, path, summarize).await
@@ -49,6 +53,20 @@ async fn serve_with<T: serde::de::DeserializeOwned + Send + 'static>(
 /// Whether `name` is a day's rotated file, not the live `metrics.log`.
 pub(super) fn is_rotated(name: &str) -> bool {
     name.starts_with("metrics.") && name.ends_with(".log") && name != "metrics.log"
+}
+
+fn rotation(name: &str) -> Option<(NaiveDate, u64)> {
+    let stem = name.strip_prefix("metrics.")?.strip_suffix(".log")?;
+    let (date, number) = match stem.split_once('.') {
+        Some((date, number)) => (date, number.parse().ok()?),
+        None => (stem, 0),
+    };
+
+    Some((NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?, number))
+}
+
+fn utc_date(seconds: u64) -> Option<NaiveDate> {
+    utc_stamp(seconds).map(|stamp| stamp.date_naive())
 }
 
 struct Selection {
@@ -114,9 +132,12 @@ impl TryFrom<&Query> for Selection {
 
 fn summarize_query(path: &Path, query: &Query) -> Result<String> {
     let selection = Selection::try_from(query)?;
+    // Snapshots have whole-second timestamps. Use inclusive bounds internally.
     let request = Request {
-        since: u64::try_from(selection.start.timestamp())?,
-        until: u64::try_from(selection.end.timestamp())?,
+        since: u64::try_from(selection.start.timestamp())?
+            + u64::from(selection.start.timestamp_subsec_nanos() != 0),
+        until: u64::try_from(selection.end.timestamp())?
+            - u64::from(selection.end.timestamp_subsec_nanos() == 0),
     };
     summarize_selected(path, &request, Some(&selection))
 }
@@ -169,20 +190,13 @@ fn summarize_selected(
     request: &Request,
     selection: Option<&Selection>,
 ) -> Result<String> {
-    let parent = path.parent().context("metrics path has no directory")?;
-    let mut paths = Vec::new();
-
-    for entry in std::fs::read_dir(parent).context("reading the metrics directory")? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if is_rotated(&name) {
-            paths.push(entry.path());
-        }
+    if request.since > request.until {
+        return Ok(no_snapshots());
     }
 
-    paths.sort();
-    paths.push(path.to_owned());
+    let dates = utc_date(request.since).zip(utc_date(request.until));
+    let dates = dates.map(|(start, end)| start..=end);
+    let files = metrics_files(path, dates.as_ref())?;
     let mut remaining = MAX_SCAN;
     let mut series = BTreeMap::<String, Series>::new();
     let mut counters = BTreeSet::new();
@@ -190,37 +204,25 @@ fn summarize_selected(
     let mut last = None;
     let mut snapshots = 0;
 
-    for file in paths {
-        let file = match File::open(&file) {
-            Ok(file) => file,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(e).context("opening a metrics file"),
-        };
-        let size = file.metadata()?.len();
+    for file in files {
+        let size = file.get_ref().limit() + u64::try_from(file.buffer().len())?;
 
         if size > remaining {
-            bail!("Retained metrics exceed the 256 MiB scan limit");
+            bail!(
+                "Metrics logs for this window exceed the 256 MiB read limit. Try a window spanning fewer UTC dates."
+            );
         }
         remaining -= size;
         let mut snapshot = String::new();
         let mut time = None;
-        // A writer may append while this runs; read only the captured size.
-        for line in BufReader::new(file.take(size)).lines() {
+        for line in file.lines() {
             let line = line?;
-            if let Some(stamp) = line.strip_prefix("# snapshot unix_seconds=") {
+            if let Some(stamp) = line.strip_prefix(SNAPSHOT_HEADER) {
                 snapshot.clear();
                 time = stamp
                     .parse::<u64>()
                     .ok()
-                    .filter(|t| *t >= request.since && *t <= request.until)
-                    .filter(|t| {
-                        selection.is_none_or(|selection| {
-                            i64::try_from(*t)
-                                .ok()
-                                .and_then(|time| DateTime::from_timestamp(time, 0))
-                                .is_some_and(|time| time >= selection.start && time < selection.end)
-                        })
-                    });
+                    .filter(|t| *t >= request.since && *t <= request.until);
             } else if line == "# end snapshot" {
                 if let Some(time) = time.take() {
                     // A repeated or out-of-order timestamp must not look like a counter reset.
@@ -285,7 +287,7 @@ fn summarize_selected(
     }
 
     let (Some(first), Some(last)) = (first, last) else {
-        return Ok("No complete metrics snapshots in this period. Metrics may be unavailable or outside retention.\n".to_owned());
+        return Ok(no_snapshots());
     };
     let requested = match selection {
         Some(selection) => format!(
@@ -293,10 +295,16 @@ fn summarize_selected(
             selection.start.to_rfc3339(),
             selection.end.to_rfc3339()
         ),
-        None => format!("Unix seconds {}..{}", request.since, request.until),
+        None => format!(
+            "{} to {} (inclusive)",
+            display_stamp(request.since),
+            display_stamp(request.until)
+        ),
     };
     let mut text = format!(
-        "Requested {requested}; observed {first}..{last}, {snapshots} complete snapshots.\nCounter increases cover observed samples only; activity before the first sample and between restarts can be missing.\nQuantile ranges are sampled exporter-window quantiles, not whole-period percentiles.\n"
+        "Requested {requested}; observed {} to {}, {snapshots} complete snapshots.\nCounter increases cover observed samples only; activity before the first sample and between restarts can be missing.\nQuantile ranges are sampled exporter-window quantiles, not whole-period percentiles.\n",
+        display_stamp(first),
+        display_stamp(last)
     );
 
     let total = series.len();
@@ -348,6 +356,99 @@ fn summarize_selected(
     }
 
     Ok(text)
+}
+
+fn no_snapshots() -> String {
+    "No complete metrics snapshots in this period. Metrics may be unavailable or outside retention.\n".to_owned()
+}
+
+fn utc_stamp(seconds: u64) -> Option<DateTime<Utc>> {
+    DateTime::from_timestamp(i64::try_from(seconds).ok()?, 0)
+}
+
+fn display_stamp(seconds: u64) -> String {
+    utc_stamp(seconds).map_or_else(
+        || seconds.to_string(),
+        |stamp| stamp.to_rfc3339_opts(SecondsFormat::Secs, true),
+    )
+}
+
+fn metrics_files(
+    path: &Path,
+    dates: Option<&RangeInclusive<NaiveDate>>,
+) -> Result<Vec<MetricsFile>> {
+    let parent = path.parent().context("metrics path has no directory")?;
+    // Open the live file before listing rotations so a rollover cannot hide it.
+    let mut current = open_metrics(path)?;
+    if let (Some(file), Some(dates)) = (&mut current, dates)
+        && first_snapshot_date(file)?.is_some_and(|date| date > *dates.end())
+    {
+        current = None;
+    }
+
+    let mut paths = Vec::new();
+
+    for entry in std::fs::read_dir(parent).context("reading the metrics directory")? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if is_rotated(&name) {
+            paths.push((rotation(&name), entry.path()));
+        }
+    }
+
+    paths.sort();
+    let mut files = Vec::new();
+    for (rotation, path) in paths {
+        if let (Some(dates), Some((date, _))) = (dates, rotation) {
+            if date < *dates.start() {
+                continue;
+            }
+
+            if date > *dates.end() {
+                // A snapshot whose export crossed midnight can be at the start of
+                // the next day's file.
+                if dates.end().succ_opt() == Some(date)
+                    && let Some(mut file) = open_metrics(&path)?
+                    && first_snapshot_date(&mut file)?.is_some_and(|first| first <= *dates.end())
+                {
+                    files.push(file);
+                }
+                continue;
+            }
+        }
+
+        files.extend(open_metrics(&path)?);
+    }
+    files.extend(current);
+
+    Ok(files)
+}
+
+fn first_snapshot_date(file: &mut MetricsFile) -> Result<Option<NaiveDate>> {
+    let date = file
+        .fill_buf()?
+        .split_inclusive(|&byte| byte == b'\n')
+        .next()
+        .and_then(|line| line.strip_suffix(b"\n"))
+        .and_then(|line| std::str::from_utf8(line).ok())
+        .and_then(|line| line.strip_prefix(SNAPSHOT_HEADER))
+        .and_then(|stamp| stamp.parse().ok())
+        .and_then(utc_date);
+
+    Ok(date)
+}
+
+fn open_metrics(path: &Path) -> Result<Option<MetricsFile>> {
+    let file = match File::open(path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).context("opening a metrics file"),
+    };
+    // A writer may append while this runs; read only the captured size.
+    let size = file.metadata()?.len();
+
+    Ok(Some(BufReader::new(file.take(size))))
 }
 
 #[cfg(test)]

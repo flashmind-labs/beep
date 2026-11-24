@@ -408,8 +408,9 @@ impl MetricsArgs {
 async fn metrics(peers: &Peers, args: MetricsArgs) -> Result<String, String> {
     use beep_proto::node::metrics::{PROTOCOL, QUERY_PROTOCOL, Reply, Request};
     let period = args.period.as_deref().unwrap_or("1h");
-    let duration =
-        humantime::parse_duration(period).map_err(|e| format!("Invalid metrics period: {e}"))?;
+    let duration = humantime::parse_duration(period).map_err(|e| {
+        format!("Invalid metrics period {period:?}. Use a duration such as 15m, 1h or 1d: {e}")
+    })?;
 
     if duration < Duration::from_secs(1)
         || duration > Duration::from_secs(beep_proto::node::metrics::MAX_PERIOD)

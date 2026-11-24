@@ -51,10 +51,6 @@ pub fn start(
             let scheduled = interval.tick().await;
             lagged(tokio::time::Instant::now().saturating_duration_since(scheduled));
 
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
             let transport = match registry.encode_openmetrics_to_string() {
                 Ok(text) => text,
                 Err(e) => {
@@ -66,6 +62,10 @@ pub fn start(
             let application = handle.render();
             let file = file.clone();
             match tokio::task::spawn_blocking(move || {
+                let timestamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs();
                 let mut file = &*file;
                 let snapshot = format!(
                     "# snapshot unix_seconds={timestamp}\n{transport}{application}\n# end snapshot\n"
