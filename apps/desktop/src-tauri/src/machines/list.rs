@@ -10,7 +10,7 @@ use crate::{
 };
 use beep_projects::imports::found::MachineFound;
 use beep_proto::{
-    Machine, MachineEnv, MachineTraffic, MachineUpdate, Terminal, TrafficCounter, UpdatableMachine,
+    Machine, MachineEnv, MachineUpdate, Terminal,
     node::device::PROTOCOL,
     node::{AdapterInstall, logs::MAX_LINES},
 };
@@ -256,28 +256,6 @@ pub async fn machine_clocks(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<ClockOff
     Ok(fleet.status().clocks_off())
 }
 
-/// What a machine moved over iroh, as the Machines screens read it.
-#[derive(Debug, Serialize)]
-pub struct TrafficView {
-    id: String,
-    counters: Vec<TrafficCounter>,
-}
-
-impl From<MachineTraffic> for TrafficView {
-    fn from(traffic: MachineTraffic) -> Self {
-        Self {
-            id: traffic.id,
-            counters: traffic.counters,
-        }
-    }
-}
-
-#[tauri::command]
-pub async fn machine_traffic(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<TrafficView>> {
-    let traffic = fleet.status().traffic();
-    Ok(traffic.into_iter().map(TrafficView::from).collect())
-}
-
 /// Removes a machine of the mesh by its id as text.
 #[tauri::command]
 pub async fn remove_machine(fleet: State<'_, Arc<Fleet>>, id: String) -> Result<()> {
@@ -296,13 +274,6 @@ fn member(fleet: &Fleet, id: &str) -> Result<EndpointId> {
         .ok()
         .filter(|machine| fleet.machines().iter().any(|m| m.device.id == *machine))
         .ok_or_else(|| DesktopError::BadRequest("that is not a machine".into()))
-}
-
-/// The machines Update works on: those of the mesh that update over
-/// `update/1`.
-#[tauri::command]
-pub async fn updatable_machines(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<UpdatableMachine>> {
-    Ok(fleet.status().updatable())
 }
 
 /// The newest beep-node release, looked up at most hourly; `None` while the
