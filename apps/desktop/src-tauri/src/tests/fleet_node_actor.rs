@@ -167,6 +167,26 @@ async fn projected_discards_in_flight_refresh_invalidated_by_mutation() {
 }
 
 #[test]
+fn projected_drops_a_read_that_started_before_a_write_of_its_key() {
+    let cache = Projected::<u32, String>::new(
+        Duration::from_secs(10),
+        Duration::from_millis(20),
+        Duration::from_secs(2),
+    );
+    cache.put(1, "main".into());
+    let started = cache.writes(&1);
+    let other = cache.writes(&2);
+
+    cache.put(1, "feature".into());
+    cache.put(2, "elsewhere".into());
+
+    assert!(!cache.put_unless_written(1, "main".into(), started));
+    assert_eq!(cache.peek(&1), Some("feature".into()));
+    assert!(cache.put_unless_written(3, "new".into(), cache.writes(&3)));
+    assert!(!cache.put_unless_written(2, "stale".into(), other));
+}
+
+#[test]
 fn node_ops_coalesces_unsent_jobs_and_tracks_optimistic_session_state() {
     let ops = NodeOps::default();
     let machine = sample_machine(9);

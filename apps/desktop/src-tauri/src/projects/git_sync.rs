@@ -214,15 +214,18 @@ pub async fn project_git_state(
             let app_bg = app.clone();
             let project_bg = project.clone();
 
+            let writes = fleet_arc.projections().git_state.writes(&key);
+
             tauri::async_runtime::spawn(async move {
                 let fetched = row(&fleet_bg, &place_bg, ReadFrom::Fetched).await;
                 let cached = fetched.cached();
-                let changed =
-                    fleet_bg.projections().git_state.peek(&key_bg).as_ref() != Some(&cached);
-                fleet_bg.projections().git_state.put(key_bg, cached.clone());
+                let git_state = &fleet_bg.projections().git_state;
+                let changed = git_state.peek(&key_bg).as_ref() != Some(&cached);
+                // A switch or move that wrote the row while this fetch ran is newer than it.
+                let stored = git_state.put_unless_written(key_bg, cached.clone(), writes);
                 let timed_out = tx.send(fetched).is_err();
 
-                if timed_out && changed {
+                if stored && timed_out && changed {
                     let row = GitRow::from_cached(place_bg.machine, cached);
                     let _ = app_bg.emit(
                         GIT_CHANGED,

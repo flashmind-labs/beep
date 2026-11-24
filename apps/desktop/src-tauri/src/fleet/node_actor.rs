@@ -99,6 +99,8 @@ struct HeldProjected<K, V> {
     /// Keys whose initial cold read already waited `first_wait`, so repeat reads return at once
     /// until the in-flight background fetch settles.
     waited: HashSet<K>,
+    /// How many times each key was written: a read that started before a write can be dropped.
+    writes: HashMap<K, u64>,
 }
 
 impl<K, V> Default for HeldProjected<K, V> {
@@ -109,6 +111,7 @@ impl<K, V> Default for HeldProjected<K, V> {
             refresh_ids: HashMap::new(),
             next_refresh: 0,
             waited: HashSet::new(),
+            writes: HashMap::new(),
         }
     }
 }
@@ -139,6 +142,27 @@ where
 
     pub(crate) fn put(&self, key: K, value: V) {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        Self::store(&mut held, key, value);
+    }
+
+    /// How many writes `key` has had; give it to [`Self::put_unless_written`] after a read.
+    pub(crate) fn writes(&self, key: &K) -> u64 {
+        let held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        held.writes.get(key).copied().unwrap_or(0)
+    }
+
+    /// Stores `value` unless `key` was written since `writes` was read. False when dropped.
+    pub(crate) fn put_unless_written(&self, key: K, value: V, writes: u64) -> bool {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        if held.writes.get(&key).copied().unwrap_or(0) != writes {
+            return false;
+        }
+        Self::store(&mut held, key, value);
+        true
+    }
+
+    fn store(held: &mut HeldProjected<K, V>, key: K, value: V) {
+        *held.writes.entry(key.clone()).or_insert(0) += 1;
         held.in_flight.remove(&key);
         held.refresh_ids.remove(&key);
         held.waited.remove(&key);
