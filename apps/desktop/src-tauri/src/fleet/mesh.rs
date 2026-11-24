@@ -125,7 +125,11 @@ impl Serving {
             return;
         }
 
-        match Transfers::start_shared(endpoint, &dir.join("blobs"), folders).await {
+        let started =
+            Transfers::start_shared(endpoint, &dir.join("blobs"), folders, peers.membership())
+                .await;
+
+        match started {
             Ok((transfers, served)) => {
                 let stopped = {
                     let mut services = self.services();

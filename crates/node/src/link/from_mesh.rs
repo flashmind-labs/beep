@@ -38,7 +38,7 @@ const RECHECK: Duration = Duration::from_secs(5 * 60);
 
 /// The mesh the node belongs to, once it does.
 #[derive(Clone)]
-pub(crate) struct Membership {
+pub struct Membership {
     mesh: Arc<watch::Sender<Option<Mesh>>>,
 }
 

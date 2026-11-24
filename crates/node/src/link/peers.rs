@@ -577,6 +577,11 @@ impl Peers {
         self.inner.endpoint.secret_key().clone()
     }
 
+    /// The node's membership, for a service started beside the router.
+    pub fn membership(&self) -> from_mesh::Membership {
+        self.inner.offers().mesh.clone()
+    }
+
     /// Takes `mesh` as the node's membership; its peers' streams are served
     /// from here on.
     pub fn install(&self, mesh: Mesh) {

@@ -361,7 +361,7 @@ impl Transfers {
     /// `start`, but the blobs and sync protocols are left to the caller's
     /// router: add `Served` to it. Stop that router before `shutdown`, or
     /// with it through `stop_for_exit`.
-    pub(crate) async fn start_shared(
+    pub async fn start_shared(
         endpoint: &Endpoint,
         dir: &Path,
         folders: Folders,
