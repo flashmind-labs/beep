@@ -6,9 +6,23 @@ import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import { Button, ChipToggle, SheetHead } from "../ui/kit.tsx";
 import { HARNESS_SLUGS, harnessName } from "../settings/providers-state.ts";
+import type { Allowed as AllowedList } from "../agents/agentpick.ts";
 
 /// The harnesses a project allows: any, or the ones picked.
 type Allowed = { kind: "any" } | { kind: "only"; agents: readonly string[] };
+
+/// Each project's allowed harnesses as last read, for the model pickers.
+const ALLOWED = new Map<string, AllowedList>();
+
+/// Reads which harnesses `project` allows; a folder Beep has not imported allows every one.
+export function readProjectHarnesses(project: string): Promise<AllowedList> {
+  return invoke<string[] | null>("project_harnesses", { project })
+    .catch(() => null)
+    .then(list => { ALLOWED.set(project, list); return list; });
+}
+
+/// The harnesses `project` allows as last read; null for every one.
+export const projectHarnesses = (project: string | null): AllowedList => project ? ALLOWED.get(project) ?? null : null;
 
 export function openProjectHarnesses(project: string) {
   let busy = false;
@@ -17,7 +31,9 @@ export function openProjectHarnesses(project: string) {
   const save = async (allowed: Allowed) => {
     busy = true;
     try {
-      await invoke("project_harnesses_save", { project, harnesses: allowed.kind === "any" ? null : allowed.agents });
+      const harnesses = allowed.kind === "any" ? null : allowed.agents;
+      await invoke("project_harnesses_save", { project, harnesses });
+      ALLOWED.set(project, harnesses);
       busy = false;
       close();
     } catch (error) {

@@ -27,9 +27,10 @@ import { addHosts, type BarPlace, type BarTarget, barCheckout, barPlace, barProm
 import { keepMachine, lastMachine, openAgents, openMachine, openMachines } from "../agents/agentnew.tsx";
 import { TASK_WORDS } from "../agents/assistant-state.ts";
 import type { Machine } from "../machines/machines.tsx";
-import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, machineRows, type MachineRow, startPlace } from "../agents/agentpick.ts";
+import { AGENT_ORDER, allowedOf, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, machineRows, type MachineRow, startPlace } from "../agents/agentpick.ts";
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.tsx";
+import { projectHarnesses, readProjectHarnesses } from "./project-harnesses.tsx";
 import { AG, accountsOf, type AgentHost, agentKind, loadAccountNames } from "../agents/agents.ts";
 import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
@@ -182,7 +183,7 @@ function closeBarPicker() {
 /// model when the machine or harness changes.
 function barHarness(place: { machine_id: string } | null) {
   const host = place ? pc.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
-  const offered = host ? [...host.agents].sort(byPreference) : [];
+  const offered = host ? allowedOf(host.agents, projectHarnesses(pc.project)).sort(byPreference) : [];
   const preferred = !pc.modelFor ? lastProjectPick(pc.project)?.agent : null;
   const agent = harnessFor(preferred ?? (pc.picked.agent || null), offered, AGENT_ORDER);
   if (agent && agent !== pc.picked.agent) pc.picked.effort = keepEffort(agent, pc.picked.effort);
@@ -242,6 +243,7 @@ subscribeChanges([topic("machines"), topic("accounts")], { deliver: "latest", re
 function loadProjectBar(name: string) {
   const redraw = () => { if (barOn(name)) redrawProjects(); };
   void readProjectHosts();
+  void readProjectHarnesses(name).then(redraw);
   ensureSessions().then(redraw).catch(e => console.warn("agent sessions:", e));
 
   if (!pc.branches.has(name)) {
@@ -568,6 +570,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
     picked: p,
     offered,
     everywhere: [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
+    allowed: projectHarnesses(pc.project),
     machine: { id: host.machine_id, name: host.machine_name },
     noMachine: "",
     steps: null,
@@ -697,7 +700,7 @@ export function pickButton(name: string, start: (pick: ProjectPick, machine: str
   /// The harness to offer first on the machine: the last one picked in the
   /// project when it has it, else the first it has.
   const defaults = () => {
-    const offered = host()?.agents ?? [];
+    const offered = allowedOf(host()?.agents ?? [], projectHarnesses(name));
     const saved = lastProjectPick(name);
     if (saved && offered.includes(saved.agent)) Object.assign(picked, saved);
     else if (!offered.includes(picked.agent)) Object.assign(picked, { agent: harnessFor(null, [...offered].sort(byPreference), AGENT_ORDER) ?? "", model: "", effort: null, fast: null });
@@ -706,6 +709,7 @@ export function pickButton(name: string, start: (pick: ProjectPick, machine: str
     picked,
     machine: () => { const h = host(); return h && { id: h.machine_id, name: h.machine_name, agents: [...h.agents].sort(byPreference) }; },
     everywhere: () => [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
+    allowed: () => projectHarnesses(name),
     machines: () => choose ? { rows: projectMachines(name), pick: id => { chosen = id; defaults(); } } : null,
     opening: () => { defaults(); return !!picked.agent; },
     start: () => start({ agent: picked.agent, model: picked.model, effort: picked.effort, fast: picked.fast }, host()?.machine_id ?? chosen),
@@ -723,7 +727,7 @@ export function pickButton(name: string, start: (pick: ProjectPick, machine: str
     setButton: pop.setButton,
     setSlot: pop.setSlot,
     // Without a bar, as on a phone, the machines are read on the first click.
-    click: () => void (pc.hosts ? pop.toggle() : readProjectHosts().then(() => pop.toggle())),
+    click: () => void Promise.all([pc.hosts ? null : readProjectHosts(), readProjectHarnesses(name)]).then(() => pop.toggle()),
     why: () => { const at = threadPlace(name, chosen); return !pc.hosts ? "" : at?.place ? "" : `${at?.why ?? `${name} is not on a machine`}.`; },
   };
 }

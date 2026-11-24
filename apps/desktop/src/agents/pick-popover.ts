@@ -4,7 +4,7 @@
 // outside, and its last step closes it and starts.
 import type { ReactElement } from "react";
 import type { Picked } from "./agentpicker.tsx";
-import { keepEffort, type MachineRow } from "./agentpick.ts";
+import { type Allowed, keepEffort, type MachineRow } from "./agentpick.ts";
 
 // The picker module pulls in the whole session view, so it loads the first
 // time a picker opens.
@@ -16,6 +16,8 @@ export interface PickPopoverOpts {
   machine: () => { id: string; name: string; agents: readonly string[] } | null;
   /// The harnesses any machine has.
   everywhere: () => readonly string[];
+  /// The harnesses the project allows; null for every one.
+  allowed: () => Allowed;
   /// The Machine step's rows and what picking one does; null where the machine is fixed.
   machines: () => { rows: readonly MachineRow[]; pick: (id: string) => void } | null;
   /// Sets the pick's defaults as the picker opens; false keeps it shut.
@@ -92,6 +94,7 @@ export function pickPopover(o: PickPopoverOpts): PickPopover {
       picked: o.picked,
       offered: machine.agents,
       everywhere: o.everywhere(),
+      allowed: o.allowed(),
       machine: { id: machine.id, name: machine.name },
       noMachine: "",
       steps: { machines: machinesStep() },

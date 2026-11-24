@@ -45,6 +45,7 @@ export function AssistantView() {
       picked,
       offered,
       everywhere: offered,
+      allowed: null,
       machine: machineFor(hosts, own, picked.agent),
       noMachine: "No machine is online to list models.",
       steps: null,

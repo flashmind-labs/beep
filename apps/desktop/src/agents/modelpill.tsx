@@ -92,6 +92,7 @@ function drawModelPicker() {
     picked,
     offered: [s.agent],
     everywhere: [s.agent],
+    allowed: null,
     machine: { id: s.machine_id, name: s.machine_name },
     noMachine: "",
     steps: null,

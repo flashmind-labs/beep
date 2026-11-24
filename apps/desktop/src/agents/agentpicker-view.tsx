@@ -3,7 +3,7 @@ import { Button, Spinner, Switch } from "../ui/kit.tsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { agentKind } from "./agents.ts";
-import { effortNote, effortsOf, placePopover, railOf, type MachineRow, type PickRow } from "./agentpick.ts";
+import { type Allowed, effortNote, effortsOf, placePopover, railOf, type MachineRow, type PickRow } from "./agentpick.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import type { Picked } from "./agentpicker.tsx";
 import { useDialogRef } from "../ui/parts.tsx";
@@ -13,6 +13,7 @@ interface PickerProps {
   model: ModelInfo | null;
   offered: readonly string[];
   everywhere: readonly string[];
+  allowed: Allowed;
   machineName: string | null;
   machineId: string | null;
   rows: readonly PickRow[];
@@ -110,7 +111,7 @@ export function AgentPillContent({ agent, detail }: { agent: string; detail: str
   return <><HarnessIcon agent={agent}/><span className="txt">{detail}</span><Icon name="caretDown" size={12} /></>;
 }
 
-export function AgentPicker({ picked, model, offered, everywhere, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, onFast, anchor, search }: PickerProps) {
+export function AgentPicker({ picked, model, offered, everywhere, allowed, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onAgent, onModel, onEffort, onFast, anchor, search }: PickerProps) {
   const name = agentKind(picked.agent).name;
   const levels = effortsOf(picked.agent).filter(level => !model?.efforts?.length || model.efforts.includes(level.value));
   // The highlighted row is kept by its model, so a list that streams in
@@ -133,7 +134,7 @@ export function AgentPicker({ picked, model, offered, everywhere, machineName, m
   const dialog = useDialogRef(node);
   const list = useRef<HTMLDivElement>(null);
   return <div className="agc-pick" role="dialog" aria-label="Harness, model and thinking" ref={dialog} style={style}>
-    <div className="agc-rail">{railOf(offered, everywhere).map(item => {
+    <div className="agc-rail">{railOf(offered, everywhere, allowed).map(item => {
       const kind = agentKind(item.agent);
       const title = item.enabled ? kind.name : `${kind.name} (not on ${machineName || "any machine"})`;
       return <button key={item.agent} type="button" data-agh={item.agent} aria-pressed={item.agent === picked.agent}
@@ -169,7 +170,7 @@ export function AgentPicker({ picked, model, offered, everywhere, machineName, m
 /// machine where it can change, the harness, the model, then the thinking
 /// level, whose pick starts. A step answered shows along the top; clicking
 /// it asks it again.
-export function StepPicker({ picked, model, modelName, offered, everywhere, machines, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onMachine, onAgent, onModel, onEffort, onFast, onDone, anchor, search }: StepPickerProps) {
+export function StepPicker({ picked, model, modelName, offered, everywhere, allowed, machines, machineName, machineId, rows, note, loading, failed, onRetry, onQuery, onMachine, onAgent, onModel, onEffort, onFast, onDone, anchor, search }: StepPickerProps) {
   const name = agentKind(picked.agent).name;
   const levels = effortsOf(picked.agent).filter(level => !model?.efforts?.length || model.efforts.includes(level.value));
   const steps: Step[] = [...(machines ? ["machine" as const] : []), "harness", "model", ...(thinks(picked.agent) ? ["thinking" as const] : [])];
@@ -213,7 +214,7 @@ export function StepPicker({ picked, model, modelName, offered, everywhere, mach
           <span className={`ddot ${m.online ? "on" : "off"}`} />{m.name}{m.note && <small>{m.note}</small>}
         </button>)}
       </div>}
-      {step === "harness" && <div className="agc-models">{railOf(offered, everywhere).filter(item => item.enabled || everywhere.includes(item.agent)).map(item =>
+      {step === "harness" && <div className="agc-models">{railOf(offered, everywhere, allowed).filter(item => item.enabled || everywhere.includes(item.agent)).map(item =>
         <button key={item.agent} type="button" data-agh={item.agent} disabled={!item.enabled} onClick={() => { setLit(null); onAgent(item.agent); setStep("model"); }}>
           <HarnessIcon agent={item.agent}/>{agentKind(item.agent).name}{!item.enabled && <small>not on {machineName || "any machine"}</small>}
         </button>)}

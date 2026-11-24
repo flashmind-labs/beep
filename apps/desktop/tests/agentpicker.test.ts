@@ -88,7 +88,7 @@ test("Retry reloads immediately, stays open and preserves the model selection", 
   const options: PickerOpts = {
     render: view => root.render(view),
     picked: { agent: "codex", model: "model-a", effort: null, fast: null, query: "" },
-    offered: ["codex"], everywhere: ["codex"], machine: { id: "picker-host", name: "build-box" },
+    offered: ["codex"], everywhere: ["codex"], allowed: null, machine: { id: "picker-host", name: "build-box" },
     noMachine: "Pick a machine.", steps: null, anchor: () => null, changed: () => {},
   };
   answers.agent_models = null;

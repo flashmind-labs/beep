@@ -16,10 +16,11 @@ import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { openAgent, sessionPicks, startedWith } from "./session.tsx";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.tsx";
-import { AGENT_ORDER, type BaseBranches, baseFor, byPreference, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
+import { AGENT_ORDER, allowedOf, type BaseBranches, baseFor, byPreference, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
 import { type AgentReturn, PANE, S } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder } from "../project/projects-state.ts";
+import { projectHarnesses, readProjectHarnesses } from "../project/project-harnesses.tsx";
 import { addHosts, barCheckout, barPlace, nextBarMachine } from "../project/projectbar.ts";
 import { composeMessage } from "../chat/compose.tsx";
 import type { Machine } from "../machines/machines.tsx";
@@ -134,7 +135,11 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: Agen
   void loadAccountNames().then(() => { if (S.view === "agentnew") drawParts(); });
   ensureSessions().then(() => { if (S.view === "agentnew") drawParts(); }).catch(() => {});
   if (changed || !KNOWN) invoke<Machine[]>("list_machines").then(list => { KNOWN = list.filter(m => m.can_host !== false); if (S.view === "agentnew") drawParts(); }).catch(() => {});
-  if (at?.project) loadBranches(at.project);
+  if (at?.project) {
+    const project = at.project;
+    loadBranches(project);
+    void readProjectHarnesses(project).then(() => { if (S.view === "agentnew" && AG.form.project === project) drawParts(); });
+  }
 }
 
 const PROMPT_MISSING = "Say what the agent should do.";
@@ -147,10 +152,11 @@ function showForm(page: BarPageSlot, c: StartComposer) {
 
 function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machine) ?? null; }
 /// The agents the chosen machine offers; before one is picked, any machine's.
+/// Only those the project allows.
 function formAgents() {
   const host = formHost();
   const all = host ? host.agents : [...new Set((AG.hosts ?? []).flatMap(m => m.agents))];
-  return all.sort(byPreference);
+  return allowedOf(all, projectHarnesses(AG.form.project ?? null)).sort(byPreference);
 }
 
 /// Redraws the form, keeping the prompt as typed when it shows already.
@@ -290,6 +296,7 @@ function drawPicker(c: StartComposer) {
     picked,
     offered: formAgents(),
     everywhere: [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
+    allowed: projectHarnesses(f.project ?? null),
     machine: machine && name ? { id: machine, name: host?.machine_name ?? name } : null,
     noMachine: "Pick a machine to list its models.",
     steps: null,

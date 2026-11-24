@@ -5,7 +5,7 @@ import { AgentPicker, AgentPillContent, StepPicker } from "./agentpicker-view.ts
 // model column and thinking column, and where it goes on screen.
 
 import { type AgentModels, MODELS_KEPT_MS } from "./agentmodels.ts";
-import { keepEffort, modelLabel, modelSearch, pillDetail, searchedHarnesses, searchRows, type MachineRow, type PickRow } from "./agentpick.ts";
+import { type Allowed, allowedOf, keepEffort, modelLabel, modelSearch, pillDetail, searchedHarnesses, searchRows, type MachineRow, type PickRow } from "./agentpick.ts";
 import { invoke, logError } from "../ui/tauri.ts";
 
 // ----- Models -----
@@ -111,6 +111,8 @@ export interface PickerOpts {
   /// The harnesses the machine has, and those any machine has.
   offered: readonly string[];
   everywhere: readonly string[];
+  /// The harnesses the project allows; null for every one.
+  allowed: Allowed;
   /// The machine models are listed on; null when there is none yet.
   machine: { id: string; name: string } | null;
   /// What the model column says without a machine.
@@ -149,9 +151,10 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   let field = searches.get(el);
   if (!field) searches.set(el, field = createRef<HTMLInputElement>());
   // In steps the harness is picked before the models: the search stays on it.
-  const search = modelSearch(p.query, o.steps ? [p.agent] : o.offered);
+  const offered = allowedOf(o.offered, o.allowed), everywhere = allowedOf(o.everywhere, o.allowed);
+  const search = modelSearch(p.query, o.steps ? [p.agent] : offered);
   const machine = o.machine;
-  const harnesses = machine && !o.steps ? searchedHarnesses(search, p.agent, o.offered) : [p.agent];
+  const harnesses = machine && !o.steps ? searchedHarnesses(search, p.agent, offered) : [p.agent];
   const lists = harnesses.map(agent => ({ agent, list: machine ? modelsOn(machine.id, agent, () => {
     const current = drawn.get(el);
     if (!current || !el.isConnected) return;
@@ -174,7 +177,7 @@ export function drawPicker(el: HTMLElement, o: PickerOpts) {
   const own = lists.find(list => list.agent === p.agent)?.list ?? null;
   const props = {
     model: own?.models.find(model => model.id === (p.model || own.current)) ?? null,
-    picked: p, offered: o.offered, everywhere: o.everywhere, machineName: o.machine?.name ?? null, machineId: o.machine?.id ?? null,
+    picked: p, offered, everywhere, allowed: o.allowed, machineName: o.machine?.name ?? null, machineId: o.machine?.id ?? null,
     rows: data.rows, note, loading, failed, onRetry,
     onQuery: (query: string) => { p.query = query; drawPicker(el, o); },
     onAgent: (next: string) => { p.agent = next; p.query = ""; p.model = ""; o.changed("agent"); },

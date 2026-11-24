@@ -18,10 +18,17 @@ interface RailItem {
 
 /// The rail for `offered`, the harnesses the picked machine has (any
 /// machine's before one is picked), with `everywhere` the harnesses any machine has.
-export function railOf(offered: readonly string[], everywhere: readonly string[]): RailItem[] {
+/// Harnesses the project does not allow are left out.
+export function railOf(offered: readonly string[], everywhere: readonly string[], allowed: Allowed): RailItem[] {
   const extra = everywhere.filter(a => !RAIL.includes(a));
-  return [...RAIL, ...extra].map(agent => ({ agent, enabled: offered.includes(agent) }));
+  return allowedOf([...RAIL, ...extra], allowed).map(agent => ({ agent, enabled: offered.includes(agent) }));
 }
+
+/// The harnesses a project allows; null for every one.
+export type Allowed = readonly string[] | null;
+
+/// Those of `agents` that `allowed` lets run.
+export const allowedOf = (agents: readonly string[], allowed: Allowed) => allowed ? agents.filter(agent => allowed.includes(agent)) : [...agents];
 
 /// Sorts harnesses by their place in `order`; those it lacks go last.
 export function byOrder(order: readonly string[]) {

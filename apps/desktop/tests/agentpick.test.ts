@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { AgentModels } from "../src/agents/agentmodels.ts";
-import { harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, startPlace } from "../src/agents/agentpick.ts";
+import { harnessFor, keepEffort, knownWorktrees, makesBranch, modelRows, railOf, startPlace } from "../src/agents/agentpick.ts";
 
 const ORDER = ["claude", "codex", "agy", "opencode", "pi", "flsh"];
 
@@ -147,4 +147,11 @@ test("a search names a model, a thinking level and a harness, subscription harne
   assert.deepEqual(rows("pi opus 5.5 h"), ["pi/anthropic/claude-opus-5-5", "pi/anthropic/claude-opus-5-5 high"], "a word in the model also reads as a level");
   assert.ok(searchRows([{ agent: "claude", list: claude }], modelSearch("opus h", offered)).rows.some(r => r.label === "Opus 5.5 · High"));
   assert.deepEqual(rows("claude opus 5-5"), ["claude/opus", "claude/"], "a version matches with any separator");
+});
+
+test("the rail leaves out harnesses the project does not allow", () => {
+  const agents = (allowed: readonly string[] | null) => railOf(["claude", "opencode"], ["claude", "opencode"], allowed).map(item => item.agent);
+  assert.deepEqual(agents(["claude", "opencode"]), ["claude", "opencode"]);
+  assert.deepEqual(agents([]), []);
+  assert.ok(agents(null).includes("codex"));
 });

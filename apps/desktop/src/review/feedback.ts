@@ -242,6 +242,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     picked,
     machine: () => { const h = host(); return h && o.machine ? { ...o.machine, agents: h.agents } : null; },
     everywhere: () => [...new Set((hosts ?? []).flatMap(m => m.agents))],
+    allowed: () => null,
     // A review runs where the diff's checkout is.
     machines: () => null,
     opening: () => {
