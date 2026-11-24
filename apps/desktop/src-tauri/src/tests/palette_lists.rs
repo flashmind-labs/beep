@@ -188,6 +188,7 @@ fn a_read_older_than_the_one_held_is_dropped() {
     };
     let mut lists = PaletteLists::default();
 
+    assert!(lists.read_projects(3, vec![project("acme/other")]));
     assert!(lists.read_projects(5, Vec::new()));
     // A read that started earlier ends later and must not undo the newer one.
     assert!(!lists.read_projects(4, vec![project("acme/widget")]));
