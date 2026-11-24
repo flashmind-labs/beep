@@ -419,21 +419,20 @@ impl Starts {
 
     /// Changes the held starts with `change`, then has what changed
     /// written: the starts' file, which leaves out image bytes, serialized
-    /// under the lock so no waiting image is copied.
+    /// and queued under the lock so no waiting image is copied and the
+    /// files land in the order of the changes.
     pub(crate) fn with<T>(&self, change: impl FnOnce(&mut Held) -> T) -> T {
-        let (out, writes) = {
-            let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
-            let out = change(&mut held);
-            let file = std::mem::take(&mut held.dirty)
-                .then(|| self.folder.records(&held.starts))
-                .flatten();
-            let writes: Vec<Write> = std::mem::take(&mut held.writes)
-                .into_iter()
-                .chain(file)
-                .collect();
-            (out, writes)
-        };
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+        let out = change(&mut held);
+        let file = std::mem::take(&mut held.dirty)
+            .then(|| self.folder.records(&held.starts))
+            .flatten();
+        let writes: Vec<Write> = std::mem::take(&mut held.writes)
+            .into_iter()
+            .chain(file)
+            .collect();
 
+        // Queued before the lock goes, so a later change cannot be queued first.
         self.folder.write(writes);
 
         out
