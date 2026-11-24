@@ -28,6 +28,20 @@ let syncing = false;
 export interface BackgroundTasks { session: string; tasks: readonly AgentTask[]; stopping: ReadonlySet<string>; stop(id: string): void }
 export const backgroundTasks = createStore<BackgroundTasks>(() => ({ session: "", tasks: [], stopping: new Set(), stop() {} }));
 
+/// What the Running tab was last given.
+let shownTasks = "";
+
+/// Gives the Running tab the open session's live commands; the one place that changes `backgroundTasks`.
+/// The tab shows while there are some, and its count follows at once.
+export function publishBackgroundTasks(next: BackgroundTasks) {
+  const signature = JSON.stringify([next.session, next.tasks, [...next.stopping]]);
+  if (signature === shownTasks) return;
+  shownTasks = signature;
+  const before = paneTasks().length;
+  backgroundTasks.setState(next, true);
+  if (paneTasks().length !== before) draw();
+}
+
 /// The key of session `s` in `BackgroundTasks.session`.
 export const sessionKey = (s: { machine_id: string; id: string } | null | undefined) => s ? viewKey(s.machine_id, s.id) : "";
 

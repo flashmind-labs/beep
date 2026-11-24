@@ -7,15 +7,12 @@ import { type AgentTask, type OpenAgent, AG, openTasks, AGENT_READ_WAIT_MS, wher
 import { steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 import { plural } from "../ui/format.ts";
-import { backgroundTasks, paneTasks, sessionKey } from "../agentpane/running.ts";
+import { publishBackgroundTasks, sessionKey } from "../agentpane/running.ts";
 import { showRunning } from "../agentpane/media.ts";
-import { draw } from "../agentpane/media-draw.ts";
 import { isStarting } from "./starting-state.ts";
 
 /// The tasks asked to stop, until they end.
 const stopping = new Set<string>();
-/// What the Running tab was last given.
-let shown = "";
 
 /// The open session's tasks; the last ones when a read fails.
 export async function readTasks(o: OpenAgent) {
@@ -41,14 +38,7 @@ export function drawTasks() {
   const live = openTasks().filter(runs);
   for (const id of stopping) if (!live.some(t => t.id === id)) stopping.delete(id);
 
-  const session = sessionKey(AG.page?.session), signature = JSON.stringify([session, live, [...stopping]]);
-  if (signature !== shown) {
-    shown = signature;
-    const before = paneTasks().length;
-    backgroundTasks.setState({ session, tasks: live, stopping: new Set(stopping), stop: id => void stopTask(id) }, true);
-    // The Running tab shows while there are some, and its count follows at once.
-    if (paneTasks().length !== before) draw();
-  }
+  publishBackgroundTasks({ session: sessionKey(AG.page?.session), tasks: live, stopping: new Set(stopping), stop: id => void stopTask(id) });
 
   // No tasks draws nothing, and an unchanged line does not draw again.
   showAgentControl("tasks", live.length === 0 ? null : <TasksLine count={live.length} />);
