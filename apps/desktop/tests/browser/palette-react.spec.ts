@@ -16,11 +16,13 @@ test("palette search keeps its field and selected result across index refreshes"
   await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
   await input.evaluate(element => { element.dataset.identity = "kept"; });
   await options.nth(1).evaluate(element => { element.dataset.identity = "kept"; });
-  await page.evaluate(() => window.__navigation.emit("palette-changed", null));
+  await page.evaluate(next => window.__navigation.emit("palette-changed", next), JSON.stringify({ ...index, projects: [...index.projects, project("three", "other/widget")] }));
   await expect(input).toHaveAttribute("data-identity", "kept");
   await expect(input).toBeFocused();
   await expect(options.nth(1)).toHaveAttribute("data-identity", "kept");
   await expect(options.nth(1)).toHaveAttribute("aria-selected", "true");
+  await input.fill("widget");
+  await expect(options).toHaveCount(1);
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: /^Search/ })).toBeFocused();

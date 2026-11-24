@@ -22,10 +22,18 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 use tokio::time::timeout;
 
-/// Event fired when a slow machine's Git branch/ahead-behind projection finishes in the background.
+/// Event fired with a `GitChanged` when a checkout's Git branch/ahead-behind projection changes
+/// in the background.
 const GIT_CHANGED: &str = "project-git-changed";
 /// Fast wait for a `fetch: true` call before returning cached local state while fetch completes.
 const FETCH_FAST_WAIT: Duration = Duration::from_millis(1500);
+
+/// What `project-git-changed` carries: the checkout's new state.
+#[derive(Clone, Debug, Serialize)]
+struct GitChanged {
+    project: String,
+    row: GitRow,
+}
 
 /// One checkout's branch and how far it is from its upstream.
 #[derive(Clone, Debug, Serialize)]
@@ -142,6 +150,7 @@ pub async fn project_git_state(
         let rows = join_all(places.into_iter().map(|place| {
             let app = app.clone();
             let fleet_arc = fleet_arc.clone();
+            let project = project.clone();
             async move {
                 if place.machine == fleet_arc.id() {
                     let read = row(&fleet_arc, &place, ReadFrom::LocalRefs).await;
@@ -154,8 +163,16 @@ pub async fn project_git_state(
 
                 let machine = place.machine;
                 let key = (machine, place.folder.clone());
-                let notify = move || {
-                    let _ = app.emit(GIT_CHANGED, ());
+                let notify = {
+                    let fleet = fleet_arc.clone();
+                    let key = key.clone();
+                    let project = project.clone();
+                    move || {
+                        if let Some(cached) = fleet.projections().git_state.peek(&key) {
+                            let row = GitRow::from_cached(machine, cached);
+                            let _ = app.emit(GIT_CHANGED, GitChanged { project, row });
+                        }
+                    }
                 };
                 let fleet_fetch = fleet_arc.clone();
                 let got = fleet_arc
@@ -186,6 +203,7 @@ pub async fn project_git_state(
     let rows = join_all(places.into_iter().map(|place| {
         let app = app.clone();
         let fleet_arc = fleet_arc.clone();
+        let project = project.clone();
         async move {
             let key = (place.machine, place.folder.clone());
             let prior = fleet_arc.projections().git_state.peek(&key);
@@ -194,6 +212,7 @@ pub async fn project_git_state(
             let place_bg = place.clone();
             let key_bg = key.clone();
             let app_bg = app.clone();
+            let project_bg = project.clone();
 
             tauri::async_runtime::spawn(async move {
                 let fetched = row(&fleet_bg, &place_bg, ReadFrom::Fetched).await;
@@ -204,7 +223,14 @@ pub async fn project_git_state(
                 let timed_out = tx.send(fetched).is_err();
 
                 if timed_out && changed {
-                    let _ = app_bg.emit(GIT_CHANGED, ());
+                    let row = GitRow::from_cached(place_bg.machine, cached);
+                    let _ = app_bg.emit(
+                        GIT_CHANGED,
+                        GitChanged {
+                            project: project_bg,
+                            row,
+                        },
+                    );
                 }
             });
 
@@ -295,7 +321,13 @@ pub async fn project_git_switch(
         .projections()
         .git_state
         .put((machine, place.folder), cached);
-    let _ = app.emit(GIT_CHANGED, ());
+    let _ = app.emit(
+        GIT_CHANGED,
+        GitChanged {
+            project,
+            row: updated.clone(),
+        },
+    );
 
     Ok(updated)
 }

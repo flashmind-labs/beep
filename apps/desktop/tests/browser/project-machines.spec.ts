@@ -87,6 +87,19 @@ test("Git controls retain their state and send one pull", async ({ page }) => {
   await page.evaluate(() => window.__navigation.release("project_git_move"));
 });
 
+test("a git change in the background is drawn from its event without reading the state again", async ({ page }) => {
+  const git = { machine_id: "studio", branch: "main", upstream: "origin/main", ahead: 0, behind: 2, error: null };
+  await openDesktop(page, false, { ...responses, project_git_state: [git] });
+  await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
+  const studio = page.getByRole("article", { name: "studio", exact: true });
+  await expect(studio.getByRole("button", { name: "Pull 2 commits" })).toBeEnabled();
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_git_state").length);
+  const before = await reads();
+  await page.evaluate(([name, row]) => window.__navigation.emit("project-git-changed", { project: name, row }), [projectName, { ...git, behind: 3 }] as const);
+  await expect(studio.getByRole("button", { name: "Pull 3 commits" })).toBeEnabled();
+  expect(await reads()).toBe(before);
+});
+
 test("sync and terminal events refresh the combined machine sections", async ({ page }) => {
   await openMachines(page);
   const studio = page.getByRole("article", { name: "studio", exact: true });

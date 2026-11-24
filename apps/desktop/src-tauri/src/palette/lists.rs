@@ -31,7 +31,7 @@ use std::{
 use tauri::{AppHandle, Emitter, Listener, Manager, State, ipc::Response};
 use tokio::{join, select, sync::Notify, task::JoinSet, time::sleep};
 
-/// Tells the windows to read the index again.
+/// Tells the windows the index changed, with the index as JSON text.
 const PALETTE_CHANGED: &str = "palette-changed";
 /// The branches are read again this often, and whenever the palette opens.
 const READ_EVERY: Duration = Duration::from_secs(300);
@@ -285,18 +285,20 @@ impl PaletteCache {
 
             match index_json(&held.lists) {
                 Ok(index) if index != held.index => {
-                    held.index = index;
-                    true
+                    held.index = index.clone();
+                    Some(index)
                 }
-                Ok(_) => false,
+                Ok(_) => None,
                 Err(e) => {
                     log::warn!("writing the palette's index: {e}");
-                    false
+                    None
                 }
             }
         };
 
-        if changed && let Err(e) = app.emit(PALETTE_CHANGED, ()) {
+        if let Some(index) = changed
+            && let Err(e) = app.emit(PALETTE_CHANGED, index)
+        {
             log::warn!("telling the windows the palette changed: {e}");
         }
     }

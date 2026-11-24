@@ -80,11 +80,8 @@ let searching: PaletteSearch<Entry<AgentRow>> | null = null, back: HTMLElement |
 /// What the palette finds, as of the app's last word. Empty until the first
 /// read answers.
 let index: Index = { actions: [], settings: [], code: [], projects: [], sessions: [], machines: [] };
-/// The app has a newer index than this window read.
-let behind = false;
 
 function readIndex() {
-  behind = false;
   invoke<Index>("center_palette_index")
     .then(read => { index = read; searching?.refresh(); })
     .catch(e => console.warn("reading the palette's index:", e));
@@ -93,8 +90,11 @@ function readIndex() {
 export function initPalette(window_: PaletteDeps) {
   deps = window_;
   readIndex();
-  // A window with the palette shut reads it the next time it opens.
-  listen("palette-changed", () => { if (open) readIndex(); else behind = true; });
+  // The app sends each new index as JSON text; this window takes it as it comes.
+  listen<string>("palette-changed", ({ payload }) => {
+    try { index = JSON.parse(payload) as Index; } catch (e) { console.warn("the palette's index:", e); return; }
+    searching?.refresh();
+  });
   listen("palette-text-changed", () => searching?.requery());
 }
 
@@ -122,7 +122,6 @@ export function openPalette() {
   );
   searching.type("");
   // Hits come from what this window holds; anything newer draws when it comes.
-  if (behind) readIndex();
   invoke("center_palette_refresh").catch(e => console.warn("refreshing the palette:", e));
 }
 

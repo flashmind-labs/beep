@@ -57,8 +57,12 @@ const termChanges = new Changes();
 const foundChanges = new Changes();
 subscribeEach([topic("projects"), topic("machines"), topic("sync")], () => whereChanges.changed());
 for (const name of ["sessions-changed", "reconnected"]) listen(name, () => sessionChanges.changed());
-listen("project-git-changed", () => {
-  if (currentLocation()?.view === "projects" && state.picked) void readGit(state.picked, false);
+// A checkout's git state changed in the background and arrives with the event.
+listen<{ project: string; row: GitRow }>("project-git-changed", ({ payload }) => {
+  // A project not read yet has no list to amend; its first read has the row.
+  if (!state.gitsync.has(payload.project)) return;
+  rememberGitRow(payload.project, payload.row);
+  if (currentLocation()?.view === "projects" && state.picked === payload.project) redrawProjectsPage();
 });
 subscribeEach(topic("terminals"), () => termChanges.changed());
 subscribeEach(topic("projects"), () => foundChanges.changed());
