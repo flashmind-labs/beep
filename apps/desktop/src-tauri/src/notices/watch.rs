@@ -17,6 +17,7 @@ use beep_proto::{
     AgentNoticeKey, SyncStatus,
     node::{agent::MovePhase, mesh_state::SessionMove, skills},
 };
+use futures::future::join_all;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
@@ -309,19 +310,21 @@ fn skill_note(name: &str) -> String {
 
 async fn failed_moves(app: &AppHandle, fleet: &Fleet, desk: &Desk, told: &mut HashSet<String>) {
     let now = now_ms();
+    let open: Vec<(SessionMove, String)> = desk
+        .moves()
+        .into_iter()
+        .filter(|record| now.saturating_sub(record.at) <= MOVES_FOR_MS)
+        .map(|record| {
+            let id = format!("move:{}:{}", record.id, record.at);
+            (record, id)
+        })
+        .filter(|(_, id)| !told.contains(id) && history::get(app, id).is_none())
+        .collect();
+    // Each target is asked at once: a slow one holds up no other.
+    let states = join_all(open.iter().map(|(record, _)| desk.move_state(&record.id))).await;
 
-    for record in desk.moves() {
-        if now.saturating_sub(record.at) > MOVES_FOR_MS {
-            continue;
-        }
-
-        let id = format!("move:{}:{}", record.id, record.at);
-
-        if told.contains(&id) || history::get(app, &id).is_some() {
-            continue;
-        }
-
-        let progress = match desk.move_state(&record.id).await {
+    for ((record, id), state) in open.into_iter().zip(states) {
+        let progress = match state {
             Ok(MoveState::Known(progress)) => progress,
             Ok(MoveState::NeedsUpdate) => {
                 told.insert(id);

@@ -557,9 +557,11 @@ async fn a_node_that_pushes_is_not_answered_from_an_old_direct_call() {
     pushed.store(50, Ordering::SeqCst);
     assert_eq!(files(&desk.sync().await), 50);
 
-    // The subscription drops: the old direct answer is gone, so this asks again.
+    // The subscription drops: the old direct answer is gone, so this asks again, and a node
+    // that pushed before has no direct answer kept: each read asks.
     pushed.store(0, Ordering::SeqCst);
     assert_eq!(files(&desk.sync().await), 2);
+    assert_eq!(files(&desk.sync().await), 3);
 
     endpoint.close().await;
 }

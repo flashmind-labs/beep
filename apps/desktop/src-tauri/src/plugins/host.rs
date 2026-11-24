@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use beep_plugins::{Builtin, Handler, Host, HostError, Placement, PluginId, Policy, Topic};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 /// Names the folder plugins load from, overriding the app data folder's.
 const DIR_ENV: &str = "BEEP_PLUGINS_DIR";
@@ -136,7 +136,10 @@ impl Handler for Windows {
     }
 
     fn status_changed(&self) {
-        if let Err(e) = self.app.emit(STATUS, ()) {
+        // The list as `plugins_status` gives it; null while the host is not kept yet.
+        let statuses = self.app.try_state::<Host>().map(|host| host.status());
+
+        if let Err(e) = self.app.emit(STATUS, statuses) {
             log::debug!("the page missed a plugin status change: {e}");
         }
     }

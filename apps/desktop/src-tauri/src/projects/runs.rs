@@ -49,8 +49,14 @@ pub async fn center_project_lists(
     refresh: bool,
 ) -> Result<Option<ListsRow>> {
     let name = named(&fleet, project_id).await?;
-    let LabeledProjectLists { lists, pr_labels } = fleet.lists(&name, refresh).await?;
-    Ok(Some(ListsRow {
+    Ok(Some(lists_row(fleet.lists(&name, refresh).await?)))
+}
+
+/// The lists as the page shows them.
+pub(crate) fn lists_row(read: LabeledProjectLists) -> ListsRow {
+    let LabeledProjectLists { lists, pr_labels } = read;
+
+    ListsRow {
         prs: lists
             .pull_requests
             .into_iter()
@@ -60,7 +66,7 @@ pub async fn center_project_lists(
         prs_error: lists.prs_error,
         issues: lists.issues.into_iter().map(Into::into).collect(),
         issues_error: lists.issues_error,
-    }))
+    }
 }
 
 #[derive(Debug, Serialize)]

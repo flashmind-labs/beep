@@ -5,7 +5,8 @@ use crate::{
     error::Result,
     fleet::projects::{FleetState, mesh_project},
 };
-use beep_fleet::Changed;
+use beep_fleet::{Changed, ProjectRead};
+use beep_proto::{HostedRuns, LabeledProjectLists};
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
@@ -33,6 +34,11 @@ pub(crate) struct LiveRow {
     polling_why: Option<String>,
     pub(crate) lists: bool,
     pub(crate) runs: bool,
+    /// What the read that caused this row found, so the draw does not read again.
+    #[serde(skip)]
+    pub(crate) lists_read: Option<LabeledProjectLists>,
+    #[serde(skip)]
+    pub(crate) runs_read: Option<HostedRuns>,
     views: Vec<crate::fleet::event_views::View>,
 }
 
@@ -261,21 +267,25 @@ pub fn follow_project_run(
 /// Usage that changed tells the usage pill to read it again.
 pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'static {
     move |changed| match changed {
-        Changed::Project {
-            project,
-            lists,
-            runs,
-        } => emit(
-            &app,
-            &LiveRow {
-                project_id: beep_fleet::project_id(&project),
-                live: Some(false),
-                polling_why: Some(POLLING_WHY.to_owned()),
-                lists,
-                runs,
-                views: Vec::new(),
-            },
-        ),
+        Changed::Project { project, read } => {
+            let (lists_read, runs_read) = match read {
+                ProjectRead::Lists(lists) => (Some(lists), None),
+                ProjectRead::Runs(runs) => (None, Some(runs)),
+            };
+            emit(
+                &app,
+                &LiveRow {
+                    project_id: beep_fleet::project_id(&project),
+                    live: Some(false),
+                    polling_why: Some(POLLING_WHY.to_owned()),
+                    lists: lists_read.is_some(),
+                    runs: runs_read.is_some(),
+                    lists_read,
+                    runs_read,
+                    views: Vec::new(),
+                },
+            );
+        }
         Changed::Sync => {
             crate::fleet::event_views::sync_changed(app.clone(), false);
         }
@@ -333,6 +343,8 @@ async fn poll(app: AppHandle, fleet: Arc<beep_fleet::Session>, project_id: Uuid,
                     polling_why: Some(POLLING_WHY.into()),
                     lists: lists_changed,
                     runs: runs_changed || !app.state::<Followed>().selected(project_id).is_empty(),
+                    lists_read: before_lists.clone().filter(|_| lists_changed),
+                    runs_read: before_runs.clone().filter(|_| runs_changed),
                     views: Vec::new(),
                 },
             );
@@ -354,8 +366,15 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
     let args = serde_json::json!({ "projectId": row.project_id });
 
     if row.lists {
-        match crate::projects::runs::center_project_lists(app.state(), row.project_id, false).await
-        {
+        let lists = match row.lists_read.take() {
+            Some(read) => Ok(Some(crate::projects::runs::lists_row(read))),
+            None => {
+                crate::projects::runs::center_project_lists(app.state(), row.project_id, false)
+                    .await
+            }
+        };
+
+        match lists {
             Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
                 "center_project_lists",
                 args.clone(),
@@ -370,7 +389,14 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
     }
 
     if row.runs {
-        match crate::projects::runs::center_project_runs(app.state(), row.project_id, false).await {
+        let runs = match row.runs_read.take() {
+            Some(read) => Ok(crate::projects::runs::RunsRow::from(read)),
+            None => {
+                crate::projects::runs::center_project_runs(app.state(), row.project_id, false).await
+            }
+        };
+
+        match runs {
             Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
                 "center_project_runs",
                 args,

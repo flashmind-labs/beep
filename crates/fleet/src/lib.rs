@@ -37,6 +37,6 @@ pub use notice_read::{Read, digest, mark_read, read_marks};
 pub use observer::{observe, phone_ticket};
 pub use peer::Peers;
 pub use projects::{ImportJob, RenameRepositoryTarget, RepositoryRename, RepositoryRenameResult};
-pub use session::{Changed, Options, Session};
+pub use session::{Changed, Options, ProjectRead, Session};
 
 pub(crate) type AsyncMutex<T> = tokio::sync::Mutex<T>;

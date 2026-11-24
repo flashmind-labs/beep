@@ -74,18 +74,24 @@ fn empty_spend() -> SpendReport {
 }
 
 /// What a background read changed, for the page that shows it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Changed {
     Project {
         /// `org/repo`.
         project: String,
-        lists: bool,
-        runs: bool,
+        read: ProjectRead,
     },
     /// A node that pushes no sync status said something new of it.
     Sync,
     /// The plans and spending: `Session::spend` gives more than before.
     Usage,
+}
+
+/// What a background read of a project found.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProjectRead {
+    Lists(LabeledProjectLists),
+    Runs(HostedRuns),
 }
 
 /// Something read, and when; `None` for a read kept from an earlier run, which is stale.
@@ -418,11 +424,10 @@ impl Session {
             if let Some(read) = read
                 && kept
             {
-                this.lists.put(key.clone(), read);
+                this.lists.put(key.clone(), read.clone());
                 (this.changed)(Changed::Project {
                     project: key,
-                    lists: true,
-                    runs: false,
+                    read: ProjectRead::Lists(read),
                 });
             }
         });
@@ -567,11 +572,10 @@ impl Session {
             if let Some(read) = read
                 && kept
             {
-                this.runs.put(key.clone(), read);
+                this.runs.put(key.clone(), read.clone());
                 (this.changed)(Changed::Project {
                     project: key,
-                    lists: false,
-                    runs: true,
+                    read: ProjectRead::Runs(read),
                 });
             }
         });

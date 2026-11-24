@@ -291,7 +291,7 @@ pub(crate) fn failed(app: &AppHandle, topic: &Topic, reason: &str) {
 
 fn commands(name: &str) -> &'static [&'static str] {
     match name {
-        "home" => &["center_home", "agent_sessions"],
+        "home" => &["center_home", "agent_sessions", "session_moves"],
         "machines" => &[
             "list_machines",
             "mac_control",
@@ -317,6 +317,12 @@ pub(crate) fn project_changed(app: AppHandle, mut row: crate::projects::live::Li
     let views = app.state::<Views>();
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(previous) = pending.projects.get(&row.project_id) {
+        // What the newer row carries wins; one that carries nothing keeps the earlier read.
+        row.lists_read = row
+            .lists_read
+            .take()
+            .or_else(|| previous.lists_read.clone());
+        row.runs_read = row.runs_read.take().or_else(|| previous.runs_read.clone());
         row.lists |= previous.lists;
         row.runs |= previous.runs;
     } else if pending.projects.len() >= 128 {
@@ -463,9 +469,14 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
     match name {
         "home" => {
             let reads = app.state::<crate::center::home::HomeReads>();
-            let (home, sessions) = tokio::join!(reads.read(app), reads.sessions(app));
+            let (home, sessions, moves) = tokio::join!(
+                reads.read(app),
+                reads.sessions(app),
+                crate::agents::moving::session_moves(app.state())
+            );
             append(&mut views, "center_home", home);
             append(&mut views, "agent_sessions", sessions);
+            append(&mut views, "session_moves", moves);
         }
         "machines" => {
             append(

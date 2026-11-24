@@ -22,7 +22,7 @@ use beep_proto::{
 use futures::{StreamExt, future::join_all, stream};
 use iroh::EndpointId;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeSet, HashMap, HashSet},
     sync::{Arc, Mutex, PoisonError},
     time::Duration,
 };
@@ -81,6 +81,9 @@ struct Direct {
 /// from it at once and a background call refreshes it. A node that pushes is never put here.
 pub(crate) struct DirectSyncs {
     held: Mutex<HashMap<EndpointId, Direct>>,
+    /// The machines that answered `SyncList` once: their node pushes, so a late snapshot is
+    /// waited for and never replaced by a direct call.
+    pushing: Mutex<HashSet<EndpointId>>,
     changed: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -88,8 +91,25 @@ impl DirectSyncs {
     pub(crate) fn new(changed: Option<Arc<dyn Fn() + Send + Sync>>) -> Self {
         Self {
             held: Mutex::default(),
+            pushing: Mutex::default(),
             changed,
         }
+    }
+
+    fn pushes(&self, machine: EndpointId) -> bool {
+        self.pushing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(&machine)
+    }
+
+    /// `machine` answered `SyncList`: nothing direct is kept or asked for it again.
+    fn pushed(&self, machine: EndpointId) {
+        self.pushing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(machine);
+        self.forget(machine);
     }
 
     fn forget(&self, machine: EndpointId) {
@@ -378,17 +398,23 @@ impl Desk {
             return None;
         }
 
-        let client = timeout(SNAPSHOT_POLL_WAIT, self.peers.client(machine))
+        let direct = self.hosts.direct_syncs();
+        // A node that pushed before gets the time a first direct read gets.
+        let wait = if direct.pushes(machine) {
+            SYNC_FIRST_WAIT
+        } else {
+            SNAPSHOT_POLL_WAIT
+        };
+        let client = timeout(wait, self.peers.client(machine))
             .await
             .ok()
             .and_then(Result::ok);
 
         if let Some(client) = &client
             && let Ok(Some(Ok(Value::Sync(reply)))) =
-                timeout(SNAPSHOT_POLL_WAIT, client.snapshot(Read::SyncList)).await
+                timeout(wait, client.snapshot(Read::SyncList)).await
         {
-            // The node pushes: an older direct answer must not be served again.
-            self.hosts.direct_syncs().forget(machine);
+            direct.pushed(machine);
 
             return match *reply {
                 Reply::Status { projects } => Some(projects),
@@ -396,7 +422,15 @@ impl Desk {
             };
         }
 
-        self.hosts.direct_syncs().read(machine, client).await
+        // Its subscription is not live: ask once and keep nothing, the push comes back.
+        if direct.pushes(machine) {
+            return timeout(SYNC_FIRST_WAIT, fetch_node_statuses(&client?))
+                .await
+                .ok()
+                .flatten();
+        }
+
+        direct.read(machine, client).await
     }
 
     pub(crate) fn name_of(&self, machine: EndpointId) -> String {
