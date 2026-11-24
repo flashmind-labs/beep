@@ -17,6 +17,7 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -375,16 +376,23 @@ impl Agents {
             log::info!("resuming sessions without the agent settings: the mesh gave none");
         }
 
-        let mut sessions = sessions;
-        // A parent starts before its children.
-        sessions.sort_by_key(|open| open.depth());
+        // A parent starts before its children: one depth after another, the
+        // sessions of a depth together.
+        let mut depths: BTreeMap<u8, Vec<OpenSession>> = BTreeMap::new();
 
         for open in sessions {
-            let id = open.session.clone();
+            depths.entry(open.depth()).or_default().push(open);
+        }
 
-            if let Err(e) = self.reopen_one(open).await {
-                log::warn!("could not resume session {id} after the restart: {e:#}");
-            }
+        for group in depths.into_values() {
+            futures::future::join_all(group.into_iter().map(|open| async move {
+                let id = open.session.clone();
+
+                if let Err(e) = self.reopen_one(open).await {
+                    log::warn!("could not resume session {id} after the restart: {e:#}");
+                }
+            }))
+            .await;
         }
 
         self.reopened.send_replace(true);
