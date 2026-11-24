@@ -18,6 +18,26 @@ const SETTINGS_PAGES = [
 
 export type SettingsPage = (typeof SETTINGS_PAGES)[number][0];
 
+export type SettingsGroup = "Workspace" | "Agents";
+
+/// Which group each Settings page sits under in the left navigation pane.
+export function pageGroup(page: SettingsPage): SettingsGroup {
+  switch (page) {
+    case "general":
+    case "appearance":
+    case "mac":
+    case "machines":
+      return "Workspace";
+    case "agents":
+    case "assistant":
+    case "creds":
+    case "instr":
+    case "skills":
+    case "plugins":
+      return "Agents";
+  }
+}
+
 /// The rows search finds by title, under the page that shows them, titled
 /// as the page titles them.
 export const SETTING_ROWS: readonly (readonly [SettingsPage, string])[] = [

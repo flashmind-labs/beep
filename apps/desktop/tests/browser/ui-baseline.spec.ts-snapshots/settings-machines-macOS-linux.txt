@@ -166,13 +166,18 @@ body.cbody
         b "Settings"
         input.dset-find.ip-field [aria-label="Search settings" autocomplete="off" placeholder="Search settings" spellcheck="false" type="search" value] value=""
         div.dset-pages
+          div.dset-grp "Workspace"
           button.cc-si [data-goto="general"]
+            svg [fill="none" height="14" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "General"
           button.cc-si [data-goto="appearance"]
+            svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Appearance"
           button.cc-si [data-goto="mac"]
+            svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "This computer"
           button.cc-si [aria-current="true" data-goto="machines"] (focused)
+            svg [aria-hidden="true" fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.7" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Machines"
             span.n "3"
           button.cc-si.sub [data-sub="machine:build-box"]
@@ -181,17 +186,24 @@ body.cbody
             span.tt "test-box"
           button.cc-si.sub [data-sub="machine:phone"]
             span.tt "Phone"
+          div.dset-grp "Agents"
           button.cc-si [data-goto="agents"]
+            svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Agent accounts"
           button.cc-si [data-goto="assistant"]
+            svg [fill="none" height="14" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Assistant"
           button.cc-si [data-goto="creds"]
+            svg [aria-hidden="true" fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Credentials"
           button.cc-si [data-goto="instr"]
+            svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Instructions"
           button.cc-si [data-goto="skills"]
+            svg [fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Skills"
           button.cc-si [data-goto="plugins"]
+            svg [aria-hidden="true" fill="none" height="14" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
             span.tt "Plugins"
         small.dset-ver "Beep desktop 0.9.0"
       div.dset-body

@@ -59,14 +59,15 @@ export type SyncthingImportChoice = ReturnType<typeof syncthingImportChoice>;
 
 /// The project menu: `top` first, then the project-wide sync settings under
 /// a label as each machine answers, then `remove`.
-export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAction[], remove: MenuAction, onChanged: () => void) {
+export function openProjectMenu(event: MouseEvent, project: Project, top: MenuItem[], remove: MenuAction, onChanged: () => void) {
   const sync = new Map<SyncLine, MenuLine[]>();
   const entries = (): MenuItem[] => {
     const lines = SYNC_LINES.flatMap(key => sync.get(key) ?? []);
     const section: MenuItem[] = lines.length ? [{ kind: "section", label: "Sync on all machines", items: lines }, { kind: "separator" }] : [];
     return [...top, { kind: "separator" }, ...section, remove];
   };
-  const replace = openMenu(event, project.name, entries());
+  const subtitle = project.machines.length ? `${project.machines.length} ${project.machines.length === 1 ? "machine" : "machines"}` : undefined;
+  const replace = openMenu(event, project.name, entries(), subtitle);
   const reopen = () => openProjectMenu(event, project, top, remove, onChanged);
   const retry = (e: unknown, again: () => void) => openMenu(event, project.name, [{ label: `${reason(e)} (retry)`, on: again }]);
   const insert = (key: SyncLine, items: MenuLine[]) => {
@@ -90,8 +91,8 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
         catch (e) { retry(e, change); }
       }
     };
-    insert("recovery", [{ kind: "toggle", label: "Preserve edits before Git sync", checked: enabled, on: change }]);
-  }, e => insert("recovery", [{ label: `Git recovery: ${reason(e)} (retry)`, on: reopen }]));
+    insert("recovery", [{ kind: "toggle", label: "Preserve edits before Git sync", icon: "shield", checked: enabled, on: change }]);
+  }, e => insert("recovery", [{ label: `Git recovery: ${reason(e)} (retry)`, icon: "shield", on: reopen }]));
 
   invoke<IgnoredSync>("project_ignored_sync", { project: project.name }).then(settings => {
     const change = async () => {
@@ -107,13 +108,20 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
         retry(e, change);
       }
     };
-    const choose = { label: "Choose ignored folders", on: () => chooseIgnoredFolders(project.name, project.machines, settings, onChanged) };
-    insert("ignored", [{ kind: "toggle", label: "Sync ignored folders", checked: settings.enabled, on: change }, ...(settings.enabled ? [choose] : [])]);
-  }, e => insert("ignored", [{ label: `Ignored folders: ${reason(e)} (retry)`, on: reopen }]));
+    const choose: MenuAction = {
+      label: "Choose ignored folders",
+      icon: "subArrow",
+      sub: true,
+      detail: settings.folders.length ? String(settings.folders.length) : undefined,
+      chevron: true,
+      on: () => chooseIgnoredFolders(project.name, project.machines, settings, onChanged),
+    };
+    insert("ignored", [{ kind: "toggle", label: "Sync ignored folders", icon: "folder", checked: settings.enabled, on: change }, ...(settings.enabled ? [choose] : [])]);
+  }, e => insert("ignored", [{ label: `Ignored folders: ${reason(e)} (retry)`, icon: "folder", on: reopen }]));
 
   invoke<string>("project_sync_rules", { project: project.name }).then(rules => {
-    insert("rules", [{ label: "Sync rules", on: () => editSyncRules(project.name, rules, onChanged) }]);
-  }, e => insert("rules", [{ label: `Sync rules: ${reason(e)} (retry)`, on: reopen }]));
+    insert("rules", [{ label: "Sync rules", icon: "sort", chevron: true, on: () => editSyncRules(project.name, rules, onChanged) }]);
+  }, e => insert("rules", [{ label: `Sync rules: ${reason(e)} (retry)`, icon: "sort", on: reopen }]));
 
   // Unset keeps each folder's own Syncthing share, so it reads as Syncthing.
   // The line shows once set, or while some machine shares the folder.
@@ -132,8 +140,8 @@ export function openProjectMenu(event: MouseEvent, project: Project, top: MenuAc
         retry(e, change);
       }
     };
-    insert("syncthing", [{ label: beep ? "Use Syncthing instead of Beep sync" : "Use Beep sync instead of Syncthing", on: change }]);
-  }, e => insert("syncthing", [{ label: `Syncthing: ${reason(e)} (retry)`, on: reopen }]));
+    insert("syncthing", [{ label: "Sync engine", icon: "sync", tag: beep ? "Beep" : "Syncthing", on: change }]);
+  }, e => insert("syncthing", [{ label: `Syncthing: ${reason(e)} (retry)`, icon: "sync", on: reopen }]));
 }
 
 /// The sync settings, in the order the menu shows them.

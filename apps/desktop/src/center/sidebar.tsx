@@ -242,13 +242,16 @@ export function projectWindowProps(name: string): ProjectWindowProps {
 function openProjectMenu(e: MouseEvent, name: string) {
   const p = projectRows()?.find(x => x.name === name);
   const on = state.top.includes(name);
-  const items: MenuItem[] = [...(onPhone() ? [] : [{ label: NEW_WINDOW, on: () => openProjectWindow(name) }]), { label: on ? "Unpin" : "Pin to top", on: () => setProjectOnTop(name, !on) }];
+  const items: MenuItem[] = [
+    ...(onPhone() ? [] : [{ label: NEW_WINDOW, icon: "openWindow" as const, on: () => openProjectWindow(name) }]),
+    { label: on ? "Unpin" : "Pin to top", icon: "pin", on: () => setProjectOnTop(name, !on) },
+  ];
   const folder = p && whereRows(p, state.where.get(name) || null, state.mac?.id || null).find(r => r.mac && r.folder)?.folder;
-  if (folder && !onPhone()) items.push({ label: "Open in editor", on: () => void openInEditor(folder) });
+  if (folder && !onPhone()) items.push({ label: "Open in editor", icon: "paneText", on: () => void openInEditor(folder) });
   const label = p?.url ? openOnLabel(p.url) : null;
-  if (p?.url && label) items.push({ label, on: () => openUrl(p.url!) });
-  if (p?.imported) items.push({ label: "Rename", on: () => void import("../project/rename.tsx").then(m => m.renameProject(p)) });
-  if (p?.imported) items.push({ label: REMOVE_PROJECT, warn: true, on: () => removeProject(name) });
+  if (p?.url && label) items.push({ label, icon: "openWindow", on: () => openUrl(p.url!) });
+  if (p?.imported) items.push({ label: "Rename", icon: "edit", on: () => void import("../project/rename.tsx").then(m => m.renameProject(p)) });
+  if (p?.imported) items.push({ kind: "separator" }, { label: REMOVE_PROJECT, icon: "remove", warn: true, on: () => removeProject(name) });
   openMenu(e, name, items);
 }
 

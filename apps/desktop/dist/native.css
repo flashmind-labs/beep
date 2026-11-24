@@ -88,9 +88,11 @@ body:not(.mobile) .cc-pal .q input { font-size: 15px }
 body:not(.mobile) .cc-pal h5 { margin: 8px 10px 3px; font-size: 11.5px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--dim) }
 body:not(.mobile) .cc-pal .it { min-height: 32px; padding: 0 10px }
 body:not(.mobile) :is(.cc-pal .it, .dchat)[aria-selected="true"] { background: color-mix(in srgb, var(--fg) 10%, transparent) }
+body:not(.mobile) .cc-pal .it[aria-selected="true"] { box-shadow: inset 2px 0 0 var(--accent) }
+body:not(.mobile) .cc-pal .it[aria-selected="true"] svg { color: var(--fg) }
 body:not(.mobile) .cc-pal .it { padding-block: 5px }
 body:not(.mobile) .cc-pal .it .t { grid-template-columns: minmax(0, max-content) minmax(0, 1fr); align-items: baseline; column-gap: 12px }
-body:not(.mobile) .cc-pal .it .t small { text-align: right; color: var(--dim) }
+body:not(.mobile) .cc-pal .it .t small { text-align: right; color: var(--muted) }
 body:not(.mobile) .cc-pal .it .t small.s { grid-column: 1 / -1; text-align: left; font-family: var(--body) }
 body:not(.mobile) .cc-pal mark { padding: 0; border-radius: 0; background: none; color: var(--fg); font-weight: 650 }
 body:not(.mobile) .cc-pal small mark { color: var(--muted); font-weight: 500 }
@@ -247,7 +249,7 @@ body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])):not(:has(.tl-vie
 
 
 /* Glass: only layers that float. */
-body:not(.mobile) :is(.cc-pal, .agctx, .agc-pick, .agc-menu, .us-pop, .nt-pop) { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) max(72%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass) }
+body:not(.mobile) :is(.cc-pal, .cc-menu, .agctx, .agc-pick, .agc-menu, .us-pop, .nt-pop) { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit), color-mix(in srgb, var(--elev) max(72%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass) }
 /* The two composers hold the model picker, which is placed against the window. A blur on the
    composer itself would become what the picker is placed against, so the glass is a layer behind it. */
 body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { position: relative; isolation: isolate; border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit) }

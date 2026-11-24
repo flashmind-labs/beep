@@ -4,21 +4,32 @@ import { focusBack, openSheet } from "./parts.tsx";
 import { flushSync } from "react-dom";
 import { createDocumentScope } from "./document-root.tsx";
 import { ConfirmView, MenuBox, RenameView } from "./menu-views.tsx";
+import type { IconName } from "./icons.tsx";
 
 /// A line that does something; `warn` reads it in red. Untagged, as most
 /// menus hold only these.
 export interface MenuAction {
   kind?: "action";
   label: string;
+  icon?: IconName;
+  /// Right-aligned mono hint, such as a keyboard shortcut or item count.
+  detail?: string;
+  /// Right-aligned mono value tag, such as the active sync engine.
+  tag?: string;
+  /// Draws a trailing chevron for items that open a sheet or submenu.
+  chevron?: boolean;
+  /// Indents a dependent row under the toggle above it.
+  sub?: boolean;
   warn?: boolean;
   disabled?: boolean;
   on: () => void;
 }
 
-/// A line that switches a setting, with a check while `checked`.
+/// A line that switches a setting, shown with an inline switch.
 interface MenuToggle {
   kind: "toggle";
   label: string;
+  icon?: IconName;
   checked: boolean;
   on: () => void;
 }
@@ -55,6 +66,7 @@ export function openMenu(
   e: { clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void },
   title: string,
   items: readonly MenuItem[],
+  subtitle?: string,
 ) {
   e.preventDefault?.();
   e.stopPropagation?.();
@@ -72,7 +84,7 @@ export function openMenu(
   const escape = () => { mine.close(); focusBack(back); };
   const draw = () => {
     const View = MenuView;
-    owner.set([{ slot: "menu", host: document.body, content: <MenuBox at={at} close={mine.close} escape={escape}>{View ? <View title={title} items={current} choose={choose} /> : null}</MenuBox> }]);
+    owner.set([{ slot: "menu", host: document.body, content: <MenuBox at={at} close={mine.close} escape={escape}>{View ? <View title={title} subtitle={subtitle} items={current} choose={choose} /> : null}</MenuBox> }]);
   };
 
   draw();

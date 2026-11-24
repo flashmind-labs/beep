@@ -13,10 +13,10 @@ test("the project menu groups sync toggles under a label with Remove last", asyn
   const sync = menu.getByRole("group", { name: "Sync on all machines" }).first();
   await expect(sync).toBeVisible();
   await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toBeVisible();
-  await expect(menu.getByRole("menuitem", { name: "Use Beep sync instead of Syncthing" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Sync engine Syncthing" })).toBeVisible();
 
   const lines = await menu.locator('[role="menuitem"], [role="menuitemcheckbox"], [role="separator"], header').evaluateAll(nodes => nodes.map(node => node.getAttribute("role") === "separator" ? "-" : node.tagName === "HEADER" ? `# ${node.textContent}` : node.textContent));
-  expect(lines).toEqual(["Pin", "Open in New Window", "Rename", "Skills", "Harnesses", "-", "# Sync on all machines", "Preserve edits before Git sync", "Sync ignored folders", "Choose ignored folders", "Sync rules", "Use Beep sync instead of Syncthing", "-", "Remove project"]);
+  expect(lines).toEqual(["Pin", "Open in New Window", "Rename", "-", "# Agents", "Skills", "Harnesses", "-", "# Sync on all machines", "Preserve edits before Git sync", "Sync ignored folders", "Choose ignored folders1", "Sync rules", "Sync engine Syncthing", "-", "Remove project"]);
   await expect(menu.getByRole("menuitemcheckbox", { name: "Preserve edits before Git sync" })).toHaveAttribute("aria-checked", "false");
   await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toHaveAttribute("aria-checked", "true");
   await expect(menu.getByRole("menuitem", { name: "Remove project" })).toHaveClass(/warn/);
@@ -32,13 +32,13 @@ test("the project menu groups sync toggles under a label with Remove last", asyn
 test("the project menu hides the folder choice while ignored sync is off and offers Syncthing back", async ({ page }) => {
   await openDesktop(page, false, { project_ignored_sync: { enabled: false, folders: [] }, project_git_auto_recovery: true, project_syncthing_mode: false });
   const menu = await openMenu(page);
-  await expect(menu.getByRole("menuitem", { name: "Use Syncthing instead of Beep sync" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Sync engine Beep" })).toBeVisible();
   await expect(menu.getByRole("menuitemcheckbox", { name: "Preserve edits before Git sync" })).toHaveAttribute("aria-checked", "true");
   await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toHaveAttribute("aria-checked", "false");
   await expect(menu.getByRole("menuitem", { name: "Choose ignored folders" })).toHaveCount(0);
-  await expect(menu.getByRole("menuitem", { name: "Use Beep sync instead of Syncthing" })).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: "Sync engine Syncthing" })).toHaveCount(0);
 
-  await menu.getByRole("menuitem", { name: "Use Syncthing instead of Beep sync" }).click();
+  await menu.getByRole("menuitem", { name: "Sync engine Beep" }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_syncthing_mode" && "enabled" in call.args).map(call => call.args))).toEqual([
     { project: projectName, enabled: true },
   ]);
@@ -48,7 +48,7 @@ test("the project menu leaves out the Syncthing switch when no machine shares th
   await openDesktop(page, false, { project_ignored_sync: { enabled: false, folders: [] }, project_git_auto_recovery: false, project_syncthing_mode: null, project_syncthing_files: { available: false, enabled: false, label: null } });
   const menu = await openMenu(page);
   await expect(menu.getByRole("menuitemcheckbox", { name: "Sync ignored folders" })).toBeVisible();
-  await expect(menu.getByRole("menuitem", { name: /instead of/ })).toHaveCount(0);
+  await expect(menu.getByRole("menuitem", { name: /Sync engine/ })).toHaveCount(0);
 });
 
 test("in the phone layout the project menu stays open after More scrolls the header", async ({ page }) => {
@@ -79,7 +79,7 @@ test("the project menu moves by keyboard across its sections and a toggle asks b
   await page.keyboard.press("End");
   await expect(remove).toBeFocused();
   await page.keyboard.press("ArrowUp");
-  await expect(menu.getByRole("menuitem", { name: "Use Beep sync instead of Syncthing" })).toBeFocused();
+  await expect(menu.getByRole("menuitem", { name: "Sync engine Syncthing" })).toBeFocused();
   await page.keyboard.press("Home");
   for (let press = 0; press < 5; press++) await page.keyboard.press("ArrowDown");
   await expect(preserve).toBeFocused();

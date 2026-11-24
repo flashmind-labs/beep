@@ -148,17 +148,34 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dhead .aguse:empty { display: none }
 .dhead .agedit { flex: none; display: flex; gap: 2px }
 .dhead .agedit:empty { display: none }
-.cc-menu { position: fixed; z-index: 40; min-width: 150px; width: max-content; max-width: min(360px, calc(100vw - 8px)); padding: 4px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--elev); box-shadow: 0 12px 32px color-mix(in srgb, var(--shade) 50%, transparent); display: grid }
-.cc-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]) { all: unset; padding: 5px 10px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--fg); cursor: default }
-.cc-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]):hover, .cc-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]):focus-visible { background: color-mix(in srgb, var(--fg) 7%, transparent) }
+.cc-menu { position: fixed; z-index: 40; min-width: 180px; width: max-content; max-width: min(360px, calc(100vw - 8px)); padding: 4px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--elev); box-shadow: 0 12px 32px color-mix(in srgb, var(--shade) 50%, transparent); display: grid }
+.cc-menu-head { display: grid; gap: 1px; padding: 5px 10px 6px; margin-bottom: 3px; border-bottom: 1px solid var(--border) }
+.cc-menu-head > .lbl { padding: 0; font-size: 12px; font-weight: 500; color: var(--fg); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.cc-menu-head > small { font-family: var(--mono); font-size: 10.5px; color: var(--dim); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.cc-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]) { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 9px; padding: 5.5px 10px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--fg); cursor: default }
+.cc-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]):hover, .cc-menu :is(button, [role="menuitem"], [role="menuitemcheckbox"]):focus-visible { background: color-mix(in srgb, var(--fg) 8%, transparent) }
 .cc-menu :is(button, [role="menuitem"]).warn { color: var(--err) }
-.cc-menu [role="menu"] { display: grid }
-.cc-menu [role="menuitemcheckbox"] { display: flex; gap: 12px; justify-content: space-between }
-.cc-menu [role="menuitemcheckbox"][aria-checked="true"]::after { content: "✓"; color: var(--dim) }
+.cc-menu :is(button, [role="menuitem"]).sub { padding-left: 26px; font-size: 12px; color: var(--muted) }
+.cc-menu :is(button, [role="menuitem"]).sub:hover, .cc-menu :is(button, [role="menuitem"]).sub:focus-visible { color: var(--fg) }
+.cc-menu [role="menu"] { display: grid; outline: none }
 .cc-menu [role="menu"] section { display: grid }
 .cc-menu [aria-disabled="true"] { opacity: .5 }
-.cc-menu [role="separator"] { height: 1px; margin: 4px 2px; border: 0; background: var(--border) }
-.cc-menu .lbl { padding: 4px 10px 3px; font-size: 11px; color: var(--dim); max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.cc-menu [role="separator"] { height: 1px; margin: 4px 4px; border: 0; background: var(--border) }
+.cc-menu .lbl { padding: 4px 10px 3px; font-size: 11px; color: var(--dim); max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.cc-menu section > .lbl { padding: 6px 10px 3px; font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+.cc-menu-ic { width: 14px; height: 14px; flex: none; display: grid; place-items: center; color: var(--muted) }
+.cc-menu :is([role="menuitem"], [role="menuitemcheckbox"]):is(:hover, :focus-visible) .cc-menu-ic { color: var(--fg) }
+.cc-menu .warn .cc-menu-ic { color: var(--err) }
+.cc-menu-lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.cc-menu-end { margin-left: auto; padding-left: 10px; display: inline-flex; align-items: center; gap: 6px; flex: none }
+.cc-menu-detail { font-family: var(--mono); font-size: 11px; color: var(--dim) }
+.cc-menu-tag { padding: 1px 6px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 7%, transparent); font-family: var(--mono); font-size: 10.5px; line-height: 15px; color: var(--muted) }
+.cc-menu [role="menuitem"]:is(:hover, :focus-visible) .cc-menu-tag { color: var(--fg) }
+.cc-menu-chev { display: grid; place-items: center; color: var(--dim) }
+.cc-menu-sw { width: 24px; height: 14px; border-radius: 999px; background: color-mix(in srgb, var(--fg) 16%, transparent); position: relative; flex: none; transition: background .15s var(--ease) }
+.cc-menu-sw::after { content: ""; position: absolute; left: 2px; top: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: transform .15s var(--ease), background .15s var(--ease) }
+.cc-menu [role="menuitemcheckbox"][aria-checked="true"] .cc-menu-sw { background: var(--accent) }
+.cc-menu [role="menuitemcheckbox"][aria-checked="true"] .cc-menu-sw::after { transform: translateX(10px); background: var(--on-accent) }
 .dform { display: grid; gap: 12px; padding: 12px 18px 16px }
 .dfield { display: grid; gap: 4px; font-size: 12px; color: var(--muted) }
 .dfield .f { min-height: 34px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font-size: 14px; display: flex; align-items: center }
@@ -862,7 +879,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-note { display: flex; gap: 8px; align-items: center; padding: 0 6px; font-size: 12.5px; color: var(--muted) }
 .agc-help { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 8px; font-size: 13px }
 .agc-help ol { margin: 0; padding-left: 18px; color: var(--muted); display: grid; gap: 3px }
-.agc-pick { position: fixed; top: 0; left: 0; z-index: 30; width: min(640px, calc(100vw - 16px)); box-sizing: border-box; display: grid; grid-template-columns: 58px minmax(0, 1fr) 184px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); --pick-h: 340px; max-height: var(--pick-h); overflow: hidden auto; scrollbar-width: thin }
+.agc-pick { position: fixed; top: 0; left: 0; z-index: 30; width: min(700px, calc(100vw - 16px)); box-sizing: border-box; display: grid; grid-template-columns: 146px minmax(0, 1fr) 184px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--deep); box-shadow: 0 18px 50px color-mix(in srgb, var(--shade) 50%, transparent); --pick-h: 340px; max-height: var(--pick-h); overflow: hidden auto; scrollbar-width: thin }
 /* The picker under an agent button asks one step at a time; each slides in under its heading. */
 .agc-pick.steps { width: min(340px, calc(100vw - 16px)); display: flex; flex-direction: column; overflow: hidden }
 .agc-pick.steps .agc-list { flex: 1; min-height: 0; padding: 4px 0 6px; animation: agc-step .16s ease-out }
@@ -877,13 +894,16 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-stephead > span { color: var(--dim) }
 .agc-back { all: unset; cursor: default; display: grid; place-items: center; width: 22px; height: 22px; margin-left: -6px; border-radius: var(--radius-sm); color: var(--muted) }
 .agc-back:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); color: var(--fg) }
-.agc-rail { display: grid; align-content: start; gap: 8px; padding: 12px 11px; border-right: 1px solid var(--border); box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: none }
-.agc-rail button { all: unset; cursor: default; width: 34px; height: 34px; border-radius: var(--radius-sm); display: grid; place-items: center; position: relative }
-.agc-rail button[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent) }
-.agc-rail button[aria-pressed="true"]::after { content: ""; position: absolute; right: -9px; top: 8px; bottom: 8px; width: 2px; border-radius: 2px; background: var(--accent) }
+.agc-rail { display: grid; align-content: start; gap: 3px; padding: 10px 6px; border-right: 1px solid var(--border); box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: none }
+.agc-rail button { all: unset; box-sizing: border-box; cursor: default; height: 32px; padding: 0 8px; border-radius: var(--radius-sm); display: flex; align-items: center; gap: 8px; position: relative; font-size: 12.5px; color: var(--muted); min-width: 0 }
+.agc-rail button:hover:not(:disabled) { background: color-mix(in srgb, var(--fg) 5%, transparent); color: var(--fg) }
+.agc-rail button[aria-pressed="true"] { background: color-mix(in srgb, var(--fg) 9%, transparent); color: var(--fg); box-shadow: inset 2px 0 0 var(--accent) }
 .agc-rail button[disabled] { opacity: .35; cursor: default }
-.agc-rail .cc-ag { width: 26px; height: 26px; font-size: 10px }
+.agc-rail .cc-ag { width: 20px; height: 20px; font-size: 9px; border: 0; background: none; flex: none }
+.agc-rail button > .agc-rname { flex: 1; display: block; line-height: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0 }
 .agc-list .cc-ag { width: 18px; height: 18px; font-size: 8px; flex: none }
+.agc-list button > .agc-mlbl { flex: 0 1 auto; display: block; line-height: normal; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0 }
+.agc-list button > .agc-chk { display: grid; place-items: center; flex: none; margin-left: auto; line-height: 1; color: var(--accent) }
 .agc-list { display: flex; flex-direction: column; max-height: calc(var(--pick-h) - 2px); min-width: 0 }
 .agc-find { padding: 12px 12px 8px }
 .agc-models { display: grid; align-content: start; min-width: 0; min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: thin; padding-bottom: 8px; box-sizing: border-box }
@@ -894,6 +914,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 :is(.agc-list, .agc-think) button.hi { background: color-mix(in srgb, var(--fg) 8%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent) }
 .agc-list button.on { background: color-mix(in srgb, var(--accent) 14%, transparent) }
 .agc-list button small { color: var(--muted); font-size: 11.5px; margin-left: auto; overflow: hidden; text-overflow: ellipsis }
+.agc-list button small + .agc-chk { margin-left: 0 }
 .agc-list .none, .agc-think .none { margin: 8px 16px; font-size: 12px; color: var(--dim); line-height: 17px; display: flex; gap: 6px; align-items: center }
 .agc-think { border-left: 1px solid var(--border); padding: 14px 0 10px; display: grid; align-content: start; box-sizing: border-box; max-height: calc(var(--pick-h) - 2px); overflow-y: auto; scrollbar-width: thin }
 .agc-think h5 { margin: 0 16px 8px; font-size: 12px; font-weight: 500; color: var(--muted); display: flex; justify-content: space-between; gap: 6px }
@@ -918,7 +939,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agc-menu.cols > button { grid-column: 1 / -1; grid-template-columns: subgrid }
 .agc-menu.cols > hr { grid-column: 1 / -1; width: 100% }
 .agc-menu.cols small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
-@media (max-width: 520px) { .agc-pick { grid-template-columns: 48px minmax(0, 1fr) } .agc-think { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border) } }
+@media (max-width: 520px) { .agc-pick { grid-template-columns: 48px minmax(0, 1fr) } .agc-rail { padding: 10px 6px } .agc-rail button { justify-content: center; padding: 0 } .agc-rname { display: none } .agc-think { grid-column: 1 / -1; border-left: 0; border-top: 1px solid var(--border) } }
 /* Harness badges show each agent's own logo; OpenCode keeps letters. */
 .cc-ag.mark, .dcoderav.mark { padding: 0 }
 .cc-ag.mark svg, .dcoderav.mark svg { width: 58%; height: 58%; display: block }

@@ -2,16 +2,33 @@ import type { ReactNode } from "react";
 import { Header } from "react-aria-components/Header";
 import { Menu, MenuItem, MenuSection } from "react-aria-components/Menu";
 import { Separator } from "react-aria-components/Separator";
+import { Icon } from "./icons.tsx";
 import type { MenuItem as Item, MenuLine } from "./menu.tsx";
 
 /// The menu of `items`; lines are numbered in order, as `menuLines` counts them.
-export function ContextMenu({ title, items, choose }: { title: string; items: readonly Item[]; choose(index: number): void }) {
+export function ContextMenu({ title, subtitle, items, choose }: { title: string; subtitle?: string; items: readonly Item[]; choose(index: number): void }) {
+  const hasIcons = items.some(item => item.kind === "section" ? item.items.some(line => !!line.icon) : item.kind !== "separator" && !!item.icon);
   let next = 0;
   const line = (item: MenuLine) => {
     const id = String(next++);
-    const warn = item.kind !== "toggle" && item.warn;
-    const disabled = item.kind !== "toggle" && !!item.disabled;
-    return <MenuItem id={id} key={id} textValue={item.label} isDisabled={disabled} className={warn ? "warn" : ""}>{item.label}</MenuItem>;
+    const toggle = item.kind === "toggle";
+    const warn = !toggle && item.warn;
+    const disabled = !toggle && !!item.disabled;
+    const sub = !toggle && !!item.sub;
+    const cls = [warn ? "warn" : "", sub ? "sub" : ""].filter(Boolean).join(" ");
+    const detail = !toggle ? item.detail : undefined;
+    const tag = !toggle ? item.tag : undefined;
+    const chevron = !toggle && !!item.chevron;
+    return <MenuItem id={id} key={id} textValue={item.label} isDisabled={disabled} className={cls}>
+      {hasIcons && <span className="cc-menu-ic" aria-hidden="true">{item.icon ? <Icon name={item.icon} size={14} /> : null}</span>}
+      <span className="cc-menu-lbl">{item.label}</span>
+      {(toggle || detail || tag || chevron) && <span className="cc-menu-end">
+        {detail && <span className="cc-menu-detail" aria-hidden="true">{detail}</span>}
+        {tag && <>{" "}<span className="cc-menu-tag">{tag}</span></>}
+        {chevron && <span className="cc-menu-chev" aria-hidden="true"><Icon name="chev" size={11} /></span>}
+        {toggle && <span className="cc-menu-sw" aria-hidden="true" />}
+      </span>}
+    </MenuItem>;
   };
 
   // Toggles sit in sections of their own, so only they read as checkboxes.
@@ -41,7 +58,7 @@ export function ContextMenu({ title, items, choose }: { title: string; items: re
   });
   flush();
 
-  return <><span className="lbl">{title}</span><Menu aria-label={title} autoFocus="first" onAction={key => choose(Number(key))}>{body}</Menu></>;
+  return <><div className="cc-menu-head"><span className="lbl">{title}</span>{subtitle && <small>{subtitle}</small>}</div><Menu aria-label={title} autoFocus="first" onAction={key => choose(Number(key))}>{body}</Menu></>;
 }
 
 /// `lines` split where they turn from actions to toggles or back.

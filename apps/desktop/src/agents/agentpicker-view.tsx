@@ -138,7 +138,7 @@ export function AgentPicker({ picked, model, offered, everywhere, allowed, machi
       const kind = agentKind(item.agent);
       const title = item.enabled ? kind.name : `${kind.name} (not on ${machineName || "any machine"})`;
       return <button key={item.agent} type="button" data-agh={item.agent} aria-pressed={item.agent === picked.agent}
-        title={title} disabled={!item.enabled} onClick={() => { setLit(null); onAgent(item.agent); }}><HarnessIcon agent={item.agent}/></button>;
+        title={title} disabled={!item.enabled} onClick={() => { setLit(null); onAgent(item.agent); }}><HarnessIcon agent={item.agent}/><span className="agc-rname">{kind.name}</span></button>;
     })}</div>
     <div className="agc-list"><div className="agc-find"><input ref={search} className="agc-search" spellCheck={false} autoComplete="off"
       placeholder={offered.length > 1 ? "Search models…" : `Search ${name} models…`} value={picked.query} onChange={event => { setLit(null); onQuery(event.currentTarget.value); }}
@@ -299,12 +299,13 @@ function ModelRows({ rows, picked, chosen, highlight, lit, list, onHover, onMode
   return <div style={{ position: "relative", height: virtual.getTotalSize() }}>
     {virtual.getVirtualItems().map(item => {
       const row = rows[item.index];
+      const active = chosen && row.value === picked.model && row.agent === picked.agent;
       // The search field is the list's one Tab stop: a focused row would unmount as it scrolls away.
       return <button key={item.key} ref={virtual.measureElement} data-index={item.index} type="button" tabIndex={-1} data-agmo={row.value}
-        className={`${chosen && row.value === picked.model && row.agent === picked.agent ? "on" : ""}${row.value && row.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
+        className={`${active ? "on" : ""}${row.value && row.agent === "flsh" ? " mono" : ""}${item.index === highlight ? " hi" : ""}`}
         style={{ position: "absolute", top: 0, left: 0, right: 0, transform: `translateY(${item.start}px)` }}
         onMouseMove={event => { if (item.index !== highlight && (event.movementX || event.movementY)) onHover(row); }}
-        onClick={() => onModel(row)}>{badged && <HarnessIcon agent={row.agent}/>}{row.label}{row.note && <small>{row.note}</small>}</button>;
+        onClick={() => onModel(row)}>{badged && <HarnessIcon agent={row.agent}/>}<span className="agc-mlbl">{row.label}</span>{row.note && <small>{row.note}</small>}{active && <span className="agc-chk" aria-hidden="true"><Check/></span>}</button>;
     })}
   </div>;
 }

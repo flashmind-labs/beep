@@ -6,7 +6,7 @@ import { isMobile, onPhone } from "../ui/platform.ts";
 // The Projects page: drawing it, and the project rows Home lists.
 import { filterProjects, whereRows, forgeLinks, projectLine, REMOVE_PROJECT, type Project } from "./projects-state.ts";
 import { overviewGroups, overviewSub } from "./overview-state.ts";
-import { openMenu, type MenuAction } from "../ui/menu.tsx";
+import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { openProjectMenu } from "./syncthing.ts";
 import { openProjectSkills } from "./project-skills.tsx";
 import { openProjectHarnesses } from "./project-harnesses.tsx";
@@ -157,12 +157,18 @@ export const projectsView: CenterView<"projects"> = {
       tools.push(<Button key="more" look="quiet" small title="More" aria-label="More" onClick={(event: React.MouseEvent) => {
         const project = (projectRows() || []).find(row => row.name === p.name) ?? p;
         const on = state.top.includes(project.name);
-        const items: MenuAction[] = [{ label: on ? "Unpin" : "Pin", on: () => setProjectOnTop(project.name, !on) }];
-        if (isMobile()) items.push(...forges.map(f => ({ label: `Open on ${f.label}`, on: () => openUrl(f.url) })));
-        if (!windowAlone && !onPhone()) items.push({ label: NEW_WINDOW, on: () => openProjectWindow(project.name) });
-        if (project.imported) items.push({ label: "Rename", on: () => renameProject(project) });
-        items.push({ label: "Skills", on: () => openProjectSkills(project.name) }, { label: "Harnesses", on: () => openProjectHarnesses(project.name) });
-        if (project.imported) openProjectMenu(event.nativeEvent, project, items, { label: REMOVE_PROJECT, warn: true, on: () => removeProject(project.name) }, () => { whereDue.add(project.name); revalidate(project.name); });
+        const items: MenuItem[] = [{ label: on ? "Unpin" : "Pin", icon: "pin", on: () => setProjectOnTop(project.name, !on) }];
+        if (isMobile()) items.push(...forges.map(f => ({ label: `Open on ${f.label}`, icon: "openWindow" as const, on: () => openUrl(f.url) })));
+        if (!windowAlone && !onPhone()) items.push({ label: NEW_WINDOW, icon: "openWindow", on: () => openProjectWindow(project.name) });
+        if (project.imported) items.push({ label: "Rename", icon: "edit", on: () => renameProject(project) });
+        items.push(
+          { kind: "separator" },
+          { kind: "section", label: "Agents", items: [
+            { label: "Skills", icon: "skill", chevron: true, on: () => openProjectSkills(project.name) },
+            { label: "Harnesses", icon: "sliders", chevron: true, on: () => openProjectHarnesses(project.name) },
+          ] },
+        );
+        if (project.imported) openProjectMenu(event.nativeEvent, project, items, { label: REMOVE_PROJECT, icon: "remove", warn: true, on: () => removeProject(project.name) }, () => { whereDue.add(project.name); revalidate(project.name); });
         else openMenu(event.nativeEvent, project.name, items);
       }}>⋯</Button>);
     }
