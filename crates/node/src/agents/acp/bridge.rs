@@ -7,7 +7,7 @@ use agent_client_protocol::{
     UntypedMessage, on_receive_dispatch,
     schema::ProtocolVersion,
     v1::schema::{
-        AgentCapabilities, CancelNotification, ContentBlock, CreateElicitationRequest,
+        AGENT_METHOD_NAMES, AgentCapabilities, CancelNotification, ContentBlock, CreateElicitationRequest,
         CreateElicitationResponse, HttpHeader, Implementation, InitializeRequest,
         InitializeResponse, LoadSessionRequest, LoadSessionResponse, McpCapabilities, McpServer,
         McpServerStdio, Meta, NewSessionRequest, NewSessionResponse, PromptCapabilities,
@@ -322,7 +322,7 @@ pub(in crate::agents) fn prompt_running() -> agent_client_protocol::Error {
 }
 
 pub(in crate::agents) fn cancel_session_id(message: &UntypedMessage) -> Option<SessionId> {
-    (message.method() == "session/cancel")
+    (message.method() == AGENT_METHOD_NAMES.session_cancel)
         .then(|| CancelNotification::parse_message(message.method(), message.params()).ok())
         .flatten()
         .map(|cancel| cancel.session_id)

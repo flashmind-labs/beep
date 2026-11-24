@@ -21,7 +21,7 @@ use agent_client_protocol::{
     Agent, Builder, Client, ConnectionTo, Dispatch, Handled, JsonRpcMessage, JsonRpcRequest,
     JsonRpcResponse, Responder, UntypedMessage, on_receive_dispatch,
     v1::schema::{
-        ContentBlock, CreateElicitationRequest, CreateElicitationResponse, McpServer,
+        CLIENT_METHOD_NAMES, ContentBlock, CreateElicitationRequest, CreateElicitationResponse, McpServer,
         PromptResponse, RequestPermissionRequest, RequestPermissionResponse, SessionConfigId,
         SessionId, SessionNotification, SessionUpdate, ToolCallId,
     },
@@ -509,16 +509,16 @@ impl Actor {
             .on_receive_dispatch(
                 async move |dispatch: Dispatch, _cx| {
                     let event = match dispatch {
-                        Dispatch::Notification(message) if message.method() == "session/update" => {
+                        Dispatch::Notification(message) if message.method() == CLIENT_METHOD_NAMES.session_update => {
                             Event::Notification(message)
                         }
                         Dispatch::Request(message, responder)
-                            if message.method() == "session/request_permission" =>
+                            if message.method() == CLIENT_METHOD_NAMES.session_request_permission =>
                         {
                             Event::PermissionRequest(message, Box::new(responder.cast()))
                         }
                         Dispatch::Request(message, responder)
-                            if message.method() == "elicitation/create" =>
+                            if message.method() == CLIENT_METHOD_NAMES.elicitation_create =>
                         {
                             Event::Elicitation(message, Box::new(responder.cast()))
                         }
