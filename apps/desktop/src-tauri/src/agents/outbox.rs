@@ -105,6 +105,10 @@ pub struct Attach {
     pub(crate) mentions: Vec<String>,
 }
 
+/// Why a message fails that was resuming its session when Beep quit.
+const RESUME_DOUBT: &str =
+    "The session may have resumed before Beep quit. Check the session list, then send again.";
+
 /// A session's model and thinking picks, applied once it runs again.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Pick {
@@ -365,6 +369,30 @@ impl Held {
     fn from_messages(mut messages: Vec<Message>) -> Self {
         // The file is written after each change, so a send cut short by
         // quitting or a crash may have gone even if it still reads as waiting.
+        // A resume cut short by quitting or a crash may have reached the machine, and
+        // sending it again would branch a second session: the message and those
+        // waiting behind it for that session fail, for the user to look.
+        let mut doubtful: Vec<SessionKey> = Vec::new();
+
+        for message in &mut messages {
+            if message.state == Stage::Sending
+                && message.resume.as_ref().is_some_and(|r| !r.resumed)
+            {
+                message.state = Stage::Failed {
+                    reason: RESUME_DOUBT.into(),
+                };
+                doubtful.push(message.key());
+            }
+        }
+
+        for message in &mut messages {
+            if message.state == Stage::Waiting && doubtful.contains(&message.key()) {
+                message.state = Stage::Failed {
+                    reason: RESUME_DOUBT.into(),
+                };
+            }
+        }
+
         for message in &mut messages {
             if matches!(message.state, Stage::Waiting | Stage::Sending) {
                 message.state = Stage::Waiting;
@@ -448,6 +476,54 @@ impl Held {
         }
 
         key.clone()
+    }
+
+    /// The resume of a message that left the queue without resuming goes to the
+    /// next one waiting for the same session, unless another still carries one.
+    fn hand_on_resume(&mut self, key: &SessionKey, resume: Option<Resume>) {
+        let Some(resume) = resume.filter(|r| !r.resumed) else {
+            return;
+        };
+
+        if self.resuming(key) {
+            return;
+        }
+
+        if let Some(next) = self
+            .messages
+            .iter_mut()
+            .find(|m| m.key() == *key && m.state == Stage::Waiting && m.resume.is_none())
+        {
+            next.resume = Some(resume);
+            self.dirty = true;
+        }
+    }
+
+    /// The outcome of message `id`'s resume is not known: it and every message
+    /// waiting for its session fail with `reason`, so none goes to a session that
+    /// ended or resumes it a second time.
+    pub(crate) fn uncertain(&mut self, id: u64, reason: String) -> Option<Changed> {
+        let key = self.messages.iter().find(|m| m.id == id)?.key();
+        let ids: Vec<u64> = self
+            .messages
+            .iter()
+            .filter(|m| m.key() == key && (m.id == id || m.state == Stage::Waiting))
+            .map(|m| m.id)
+            .collect();
+
+        for id in ids {
+            if let Some(reply) = self.replies.remove(&id) {
+                self.remove(id);
+                let _ = reply.send(Answer::Refused(reason.clone()));
+            } else if let Some(message) = self.messages.iter_mut().find(|m| m.id == id) {
+                message.state = Stage::Failed {
+                    reason: reason.clone(),
+                };
+            }
+        }
+
+        self.dirty = true;
+        Some(self.changed(&key))
     }
 
     /// Whether a message of `key` still to be sent resumes its session.
@@ -916,7 +992,8 @@ impl Held {
         let message = self.messages.iter_mut().find(|m| m.id == id)?;
         message.state = Stage::Failed { reason };
         self.dirty = true;
-        let key = message.key();
+        let (key, resume) = (message.key(), message.resume.clone());
+        self.hand_on_resume(&key, resume);
         Some(self.changed(&key))
     }
 
@@ -945,6 +1022,7 @@ impl Held {
             .remove(id)
             .ok_or_else(|| DesktopError::BadRequest("That message is no longer waiting.".into()))?;
         self.replies.remove(&id);
+        self.hand_on_resume(&message.key(), message.resume.clone());
         let changed = self.changed(&message.key());
         Ok((message, changed))
     }
@@ -1158,7 +1236,11 @@ pub(crate) struct Resumed {
 /// What became of one try at the oldest waiting message.
 enum Tried {
     Sent(Vec<String>),
-    Lost { unsure: bool },
+    /// A resume that may have gone: its message and those behind it fail.
+    Uncertain(String),
+    Lost {
+        unsure: bool,
+    },
     Refused(String),
 }
 
@@ -1186,6 +1268,7 @@ pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Lin
                     Tried::Sent(keys) => held.sent(id, keys),
                     Tried::Lost { unsure } => held.wait(id, unsure),
                     Tried::Refused(reason) => held.refused(id, reason),
+                    Tried::Uncertain(reason) => held.uncertain(id, reason),
                 });
 
                 if let Some(change) = change {
@@ -1253,13 +1336,10 @@ async fn try_order(link: &mut impl Link, order: &Order) -> TriedOrder {
 }
 
 /// What a step before the send, that did not finish, makes of the try: a
-/// machine not reached waits; what the machine refused is kept with its reason.
-/// A step that may have gone (a dropped answer) is taken as lost where doing it
-/// again does no harm, and as refused where it would (a resume).
-fn stopped(e: DesktopError, again_is_safe: bool) -> Tried {
-    if e.is_transport()
-        || (again_is_safe && matches!(e, DesktopError::Unsure(_) | DesktopError::TimedOut(_)))
-    {
+/// machine not reached, or an answer that did not come, waits and goes again;
+/// what the machine refused is kept with its reason.
+fn stopped(e: DesktopError) -> Tried {
+    if e.is_transport() || matches!(e, DesktopError::Unsure(_) | DesktopError::TimedOut(_)) {
         Tried::Lost { unsure: false }
     } else {
         Tried::Refused(e.to_string())
@@ -1281,7 +1361,13 @@ async fn try_message(
 
             let resumed = match link.resume(&message).await {
                 Ok(resumed) => resumed,
-                Err(e) => return stopped(e, false),
+                // Resuming again could branch a second session: not knowing fails them.
+                Err(e @ (DesktopError::Unsure(_) | DesktopError::TimedOut(_))) => {
+                    return Tried::Uncertain(format!(
+                        "The session may have resumed ({e}). Check the session list, then send again."
+                    ));
+                }
+                Err(e) => return stopped(e),
             };
             let Some((now, mut from, to)) =
                 outbox.with(|held| held.resumed(message.id, resumed.session))
@@ -1298,7 +1384,7 @@ async fn try_message(
         if let Some(pick) = &resume.pick
             && let Err(e) = link.configure(&message, pick).await
         {
-            return stopped(e, true);
+            return stopped(e);
         }
 
         outbox.with(|held| held.resume_done(message.id));
@@ -1312,7 +1398,7 @@ async fn try_message(
 
     let paths = match link.upload(&message).await {
         Ok(paths) => paths,
-        Err(e) => return stopped(e, true),
+        Err(e) => return stopped(e),
     };
     let Some((message, changed)) = outbox.with(|held| held.uploaded(message.id, paths)) else {
         return Tried::Refused("The message was taken back.".into());

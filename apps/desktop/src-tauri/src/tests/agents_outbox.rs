@@ -908,17 +908,82 @@ async fn the_picks_apply_to_the_resumed_session_before_the_message_and_its_files
 }
 
 #[test]
-fn a_message_whose_resume_was_cut_short_by_a_restart_is_not_read_as_sent() {
+fn a_resume_cut_short_by_a_restart_fails_its_message_and_those_behind_instead_of_resuming_again() {
     let (dir, kept, outbox) = outbox();
-    let id = outbox
-        .with(|held| held.push(&key("s1"), resuming("first"), None))
-        .0;
+    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    push(&outbox, "s1", "behind");
+    push(&outbox, "s9", "elsewhere");
     outbox.with(|held| held.begin(&key("s1")));
     outbox.sync();
 
     let again = Outbox::load(kept, dir.path().join("cache"));
-    let (message, _) = again.with(|held| held.take(id)).expect("taken");
+    let rows = again.read(|held| held.rows(&key("s1")));
 
-    assert!(!message.unsure);
-    assert!(message.resume.is_some());
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(|row| row.state == "failed"));
+    assert!(
+        rows[0]
+            .reason
+            .as_deref()
+            .is_some_and(|r| r.contains("may have resumed"))
+    );
+    // Nothing of that session goes; another session's message still does.
+    assert_eq!(again.read(|held| held.waiting()), [key("s9")]);
+}
+
+#[tokio::test]
+async fn a_message_behind_a_refused_resume_resumes_in_its_place_once() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("second"), None));
+    let mut link = Fake {
+        resumes: VecDeque::from([Err(DesktopError::BadRequest("Could not resume".into()))]),
+        ..Fake::default()
+    };
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(link.events, ["resume", "msg:second"]);
+    assert_eq!(link.resumed, 1);
+    assert_eq!(link.went_to, ["s2"]);
+    // The refused one goes on with the session, failed, for the user to Edit.
+    let rows = outbox.read(|held| held.rows(&key("s2")));
+    assert_eq!((rows.len(), rows[0].state), (1, "failed"));
+}
+
+#[tokio::test]
+async fn a_message_behind_one_taken_back_before_it_resumed_carries_the_resume() {
+    let (_dir, _, outbox) = outbox();
+    let first = outbox
+        .with(|held| held.push(&key("s1"), resuming("first"), None))
+        .0;
+    outbox.with(|held| held.push(&key("s1"), resuming("second"), None));
+    outbox.with(|held| held.take(first)).expect("taken");
+    assert!(outbox.read(|held| held.messages[0].resume.is_some()));
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(link.events, ["resume", "msg:second"]);
+    assert_eq!(link.went_to, ["s2"]);
+}
+
+#[tokio::test]
+async fn a_resume_whose_answer_never_came_fails_every_message_waiting_for_that_session() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("second"), None));
+    let mut link = Fake {
+        resumes: VecDeque::from([Err(DesktopError::TimedOut("build-box".into()))]),
+        ..Fake::default()
+    };
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    // It may have resumed: nothing is resumed again, nothing goes to the ended session.
+    assert_eq!(link.resumed, 0);
+    assert!(link.sent.is_empty());
+    let rows = outbox.read(|held| held.rows(&key("s1")));
+    assert!(rows.iter().all(|row| row.state == "failed"));
+    assert_eq!(rows.len(), 2);
 }
