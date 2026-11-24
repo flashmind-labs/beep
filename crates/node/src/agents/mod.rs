@@ -235,10 +235,10 @@ host! {
         sighted: AsyncMutex<Option<Sighted>>,
         /// The logs changed what listings show since `sighted` was read.
         seen_stale: AtomicBool,
-        /// The checkouts found on disk under home, once `warm` read them;
-        /// held while it does.
-        on_disk: AsyncMutex<Option<Arc<Vec<found::Checkout>>>>,
-        /// A quick walk for checkouts runs; one at a time.
+        /// The checkouts found on disk under home, once `warm` read them.
+        /// Written after a walk, by the one walk running.
+        on_disk: Mutex<Option<Arc<Vec<found::Checkout>>>>,
+        /// A walk for checkouts runs, deep or quick; one at a time.
         rescanning: AtomicBool,
         /// The last folder listing; held while one runs, so asks that come
         /// meanwhile share it instead of each running git for every folder.

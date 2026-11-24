@@ -24,7 +24,10 @@ use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, atomic::Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, SystemTime},
 };
 use tokio::{task::spawn_blocking, time::Instant};
@@ -43,6 +46,16 @@ pub(super) struct Listed {
     folders: Arc<Vec<SessionFolder>>,
 }
 
+/// Holds `Agents.rescanning` for as long as a walk for checkouts runs, also
+/// when the walk is dropped.
+struct Walking<'a>(&'a AtomicBool);
+
+impl Drop for Walking<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
+
 fn asked_folders(folders: Vec<String>) -> Vec<PathBuf> {
     folders
         .into_iter()
@@ -56,12 +69,13 @@ impl Agents {
     /// Reads the checkouts saved in the node's folder `dir` and the agents'
     /// logs ahead of the first requests, then walks `root` so checkouts made
     /// or removed since count. The saved list answers during the walk; with
-    /// none saved, `disk_checkouts` refuses until it ends.
+    /// none saved, `disk_checkouts` refuses until it ends. No rescan runs
+    /// meanwhile, so the walk is the only writer of the list.
     pub async fn warm(&self, root: Option<PathBuf>, dir: PathBuf) {
-        let mut on_disk = self.on_disk.lock().await;
+        self.rescanning.store(true, Ordering::Relaxed);
+        let _walking = Walking(&self.rescanning);
         let Some(root) = root else {
-            *on_disk = Some(Arc::default());
-            drop(on_disk);
+            self.publish_checkouts(Some(Arc::default()));
             self.read_logs_ahead().await;
             return;
         };
@@ -72,14 +86,8 @@ impl Agents {
                 log::warn!("the saved checkouts were not read: {e}");
                 None
             });
-        let first_walk = match saved {
-            Some(saved) => {
-                *on_disk = Some(Arc::new(saved));
-                drop(on_disk);
-                None
-            }
-            None => Some(on_disk),
-        };
+        let first_walk = saved.is_none();
+        self.publish_checkouts(saved.map(Arc::new));
         self.read_logs_ahead().await;
         let walk = match spawn_blocking(move || found::walk(&root, &dir)).await {
             Ok(walk) => walk,
@@ -89,32 +97,33 @@ impl Agents {
             }
         };
 
-        match first_walk {
-            Some(mut on_disk) => *on_disk = Some(Arc::new(walk.found)),
-            None if walk.whole => *self.on_disk.lock().await = Some(Arc::new(walk.found)),
-            None => log::info!("the walk for checkouts was cut short; kept the saved list"),
+        if first_walk || walk.whole {
+            self.publish_checkouts(Some(Arc::new(walk.found)));
+        } else {
+            log::info!("the walk for checkouts was cut short; kept the saved list");
         }
     }
 
     /// Walks `root` again, quickly and not deep, so a checkout made since the last walk
-    /// counts, and saves the list in `dir`. Nothing while the first walk runs or another
+    /// counts, and saves the list in `dir`. Nothing while a walk runs or another
     /// rescan does: what that one finds serves this one too.
     pub async fn rescan(&self, root: PathBuf, dir: PathBuf) -> Result<()> {
         if self.rescanning.swap(true, Ordering::Relaxed) {
             return Ok(());
         }
 
-        let walked = async {
-            let known = self.disk_checkouts()?;
-            let all = spawn_blocking(move || found::rescan(&root, &dir, &known))
-                .await
-                .context("walking for checkouts again")?;
-            *self.on_disk.lock().await = Some(Arc::new(all));
-            Ok(())
-        }
-        .await;
-        self.rescanning.store(false, Ordering::Relaxed);
-        walked
+        let _walking = Walking(&self.rescanning);
+        let known = self.disk_checkouts()?;
+        let all = spawn_blocking(move || found::rescan(&root, &dir, &known))
+            .await
+            .context("walking for checkouts again")?;
+        self.publish_checkouts(Some(Arc::new(all)));
+
+        Ok(())
+    }
+
+    fn publish_checkouts(&self, checkouts: Option<Arc<Vec<found::Checkout>>>) {
+        *crate::lock(&self.on_disk) = checkouts;
     }
 
     async fn read_logs_ahead(&self) {
@@ -127,10 +136,8 @@ impl Agents {
     /// read some, which the first walk can make minutes: requests do not wait,
     /// and an answer without them would say a checkout is not there.
     fn disk_checkouts(&self) -> Result<Arc<Vec<found::Checkout>>> {
-        self.on_disk
-            .try_lock()
-            .ok()
-            .and_then(|on_disk| on_disk.clone())
+        crate::lock(&self.on_disk)
+            .clone()
             .context("still looking for checkouts on this machine")
     }
 
@@ -899,3 +906,7 @@ impl Agents {
         Ok(spawn_blocking(move || stores.file(agent, &id)).await?)
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/agents_found_sessions.rs"]
+mod tests;
