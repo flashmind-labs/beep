@@ -413,7 +413,7 @@ subscribeEach([topic("machines"), topic("accounts")], event => {
   const pushed = pushedList<AgentHost>(event.data, "agent_hosts");
   if (!pushed) return;
 
-  if ("error" in pushed) { AG.hosts ??= []; return; }
+  if ("error" in pushed) { console.warn("agent hosts:", pushed.error); return; }
   takeHosts(pushed.list);
 });
 
@@ -446,12 +446,13 @@ let hostsRead: Promise<AgentHost[]> | null = null;
 
 /// The machines that can run an agent; none for an account that may not use machines. Held from
 /// the pushes; before the first one arrives, one read answers, and a push that comes while it is
-/// out wins over its answer. One that fails leaves an empty list until the next push.
+/// out wins over its answer. One that fails is not kept: `AG.hosts` stays null, the caller gets an
+/// empty list for now, and the next call reads again.
 export function ensureAgentHosts(): Promise<AgentHost[]> {
   if (AG.hosts) return Promise.resolve(AG.hosts);
 
   hostsRead ??= invoke<AgentHost[]>("agent_hosts")
-    .then(list => { if (!AG.hosts) takeHosts(list); }, () => { AG.hosts ??= []; })
+    .then(list => { if (!AG.hosts) takeHosts(list); }, e => console.warn("agent hosts:", e))
     .then(() => AG.hosts ?? [])
     .finally(() => { hostsRead = null; });
 
