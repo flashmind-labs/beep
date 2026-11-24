@@ -10,7 +10,7 @@ export interface ViewSnapshot {
 const VIEW_COMMANDS = [
   "center_home", "list_machines", "mac_control", "projects_on_top", "project_groups",
   "project_sync", "git_items", "usage_get", "agent_accounts", "center_project_lists",
-  "center_project_runs", "center_project_run",
+  "center_project_runs", "center_project_run", "agent_sessions",
 ] as const;
 type ViewCommand = typeof VIEW_COMMANDS[number];
 const COMMANDS = new Set<string>(VIEW_COMMANDS);
@@ -95,7 +95,7 @@ type WriteScope =
   | { kind: "views"; commands: readonly ViewCommand[] }
   | { kind: "all" };
 
-const SESSIONS: readonly ViewCommand[] = ["center_home"];
+const SESSIONS: readonly ViewCommand[] = ["center_home", "agent_sessions"];
 const FORGE: readonly ViewCommand[] = ["center_project_lists", "git_items", "center_home"];
 const ACCOUNTS: readonly ViewCommand[] = ["agent_accounts", "usage_get"];
 /// Frequent writes and the views they change. Other writes drop every view.

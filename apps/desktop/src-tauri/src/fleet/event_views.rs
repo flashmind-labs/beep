@@ -291,7 +291,7 @@ pub(crate) fn failed(app: &AppHandle, topic: &Topic, reason: &str) {
 
 fn commands(name: &str) -> &'static [&'static str] {
     match name {
-        "home" => &["center_home"],
+        "home" => &["center_home", "agent_sessions"],
         "machines" => &["list_machines", "mac_control"],
         "projects" => &["projects_on_top", "project_groups"],
         "sync" => &["project_sync"],
@@ -455,13 +455,14 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
     metrics::counter!("beep_view_render_total", "name" => name).increment(1);
 
     match name {
-        "home" => append(
-            &mut views,
-            "center_home",
-            app.state::<crate::center::home::HomeReads>()
-                .read(app)
-                .await,
-        ),
+        "home" => {
+            let (home, sessions) = tokio::join!(
+                app.state::<crate::center::home::HomeReads>().read(app),
+                crate::agents::sessions::agent_sessions(app.clone(), app.state()),
+            );
+            append(&mut views, "center_home", home);
+            append(&mut views, "agent_sessions", sessions);
+        }
         "machines" => {
             append(
                 &mut views,
