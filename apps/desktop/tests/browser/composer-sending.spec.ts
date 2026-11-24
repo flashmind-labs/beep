@@ -83,3 +83,17 @@ test("an ended session shows the message at once and keeps the field usable whil
   await expect.poll(async () => (await calls(page, "agent_steer")).length).toBe(1);
   expect(JSON.stringify((await calls(page, "agent_steer"))[0].args)).toContain(tiny);
 });
+test("a pasted image crosses once, with the message, and is not uploaded", async ({ page }) => {
+  await open(page);
+  await picker(page).setInputFiles([image]);
+  await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
+  await page.locator("#agmsg").fill("Look");
+  await page.locator("#agmsg").press("Enter");
+  await expect.poll(async () => (await calls(page, "agent_steer")).length).toBe(1);
+
+  const all = await page.evaluate(() => window.__navigation.calls().map(call => ({ command: call.command, text: JSON.stringify(call.args) })));
+  expect(all.filter(call => call.text.includes(tiny)).map(call => call.command)).toEqual(["agent_steer"]);
+  expect(all.filter(call => call.command === "agent_tree_upload")).toEqual([]);
+  await expect(page.locator(".dcoderen.user").first()).toContainText("Look");
+});
+

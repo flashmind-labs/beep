@@ -130,7 +130,7 @@ for (const count of [1, 2]) test(`image-only message sends a default request wit
   await page.locator("#agmsg").press("Enter");
   await expect.poll(async () => (await sentImages(page)).length).toBe(count);
   const sent = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").at(-1)?.args);
-  expect(sent).toMatchObject({ steer: { steer: { text: `${count === 1 ? "Check this image." : "Check these images."}\n\n@${path}` } } });
+  expect(sent).toMatchObject({ steer: { steer: { text: count === 1 ? "Check this image." : "Check these images." } } });
   await expect(page.locator(".dcoderen.user")).toContainText(count === 1 ? "Check this image." : "Check these images.");
 });
 

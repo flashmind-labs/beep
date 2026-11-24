@@ -73,6 +73,9 @@ function prepareMessage(input: HTMLTextAreaElement | null): Prepared | null {
   const batches = [...MN.pending].filter(batch => !claimedUploads.has(batch));
   // Keep pending batches together until all their images fit the prompt budget.
   const reserved = new Set([...MN.pending].flatMap(batch => batch.paths));
+  // Pictures waiting now go with it; those a batch is still attaching go with that batch.
+  const inBatches = new Set([...MN.pending].flatMap(batch => batch.images));
+  const earlier = new Set(mentionImages(state).filter(image => typeof image.original !== "string" && !inBatches.has(image)));
   for (const batch of batches) claimedUploads.add(batch);
   const draft = takeMessage(input, batches.length > 0, reserved), session = AG.open;
   if (!draft) return null;
@@ -81,7 +84,8 @@ function prepareMessage(input: HTMLTextAreaElement | null): Prepared | null {
   async function finishMessage(draft: Waiting) {
     await Promise.all(batches.map(batch => batch.ready.catch(() => { batch.failed = true; })));
     const paths = new Set(batches.flatMap(batch => batch.paths));
-    const images = mentionImages(state).filter(image => typeof image.original !== "string" || paths.has(image.original) || draft.paths.includes(image.original));
+    const own = new Set(batches.flatMap(batch => batch.images));
+    const images = mentionImages(state).filter(image => own.has(image) || earlier.has(image) || (typeof image.original === "string" && (paths.has(image.original) || draft.paths.includes(image.original))));
     for (const path of paths) {
       if (!draft.paths.includes(path)) draft.paths.push(path);
       const file = state.files.get(path);

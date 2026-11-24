@@ -251,7 +251,6 @@ test("sending an image keeps a conversation that was at the bottom following its
   await expect(body).toContainText("Message 39");
   const png = await page.evaluate(() => { const canvas = document.createElement("canvas"); canvas.width = 400; canvas.height = 300; return canvas.toDataURL("image/png").split(",")[1]; });
   await page.locator('#agfield input[type="file"]').setInputFiles({ name: "shot.png", mimeType: "image/png", buffer: Buffer.from(png, "base64") });
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree_upload").length)).toBeGreaterThan(0);
   await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
   await page.locator("#agmsg").fill("Describe the attached picture");
   await body.evaluate((el: HTMLElement & { stuck?: boolean }) => { el.stuck = true; el.scrollTop = el.scrollHeight; });

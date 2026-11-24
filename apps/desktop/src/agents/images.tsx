@@ -35,18 +35,25 @@ export function agentAttachError(text: string) {
   AG.attTimer = setTimeout(() => { setAttachError(""); drawAgentAttached(); }, 5000);
 }
 
-const attachmentWork = new WeakMap<Attached[], Promise<void>>();
+/// Whether `file` goes to the agent as the image it is, byte for byte: a
+/// supported type small enough that the combined budget never shrinks it.
+/// Its upload would only send the same bytes a second time.
+export const staysInline = (file: File) =>
+  file.size <= Math.floor(AGENT_IMAGES_BYTES / AGENT_MAX_IMAGES) && ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type);
+
+const attachmentWork = new WeakMap<Attached[], Promise<unknown>>();
 
 /// Preserve readable images within the prompt limits. Serialize batches
-/// sharing a composer so their combined bytes stay within the budget.
-export function attachPreview(list: Attached[], file: File, original: string | File) {
+/// sharing a composer so their combined bytes stay within the budget. Gives
+/// the image attached, or null when there was no room or it did not read.
+export function attachPreview(list: Attached[], file: File, original: string | File | null) {
   const work = (attachmentWork.get(list) ?? Promise.resolve()).then(() => prepareAttachment(list, file, original));
   attachmentWork.set(list, work);
   return work;
 }
 
-async function prepareAttachment(list: Attached[], file: File, original: string | File) {
-  if (list.length >= AGENT_MAX_IMAGES) return;
+async function prepareAttachment(list: Attached[], file: File, original: string | File | null) {
+  if (list.length >= AGENT_MAX_IMAGES) return null;
 
   try {
     const preview = await picPreview(file);
@@ -55,13 +62,15 @@ async function prepareAttachment(list: Attached[], file: File, original: string 
     const before = [...list];
     const fitted = await fitAttachedImages([...before, image]);
     const replacements = new Map(before.map((image, i) => [image, fitted[i]]));
-    if (list.length >= AGENT_MAX_IMAGES) return;
+    if (list.length >= AGENT_MAX_IMAGES) return null;
 
     for (let i = 0; i < list.length; i++) list[i] = replacements.get(list[i]) ?? list[i];
     const added = fitted[before.length];
     if (added) list.push(added);
+    return added ?? null;
   } catch {
-    // The file is still mentioned.
+    // An uploaded file is still mentioned.
+    return null;
   }
 }
 

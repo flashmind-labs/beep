@@ -2,7 +2,7 @@
 // or pasted on the session: they upload into its host's temporary cache and
 // are mentioned by absolute path.
 
-import { attachPreview } from "./images.tsx";
+import { attachPreview, staysInline } from "./images.tsx";
 import { AG } from "./agents.ts";
 import type { Attached } from "./agentqueue.ts";
 import { conversationKey } from "./conversation-state.ts";
@@ -26,6 +26,8 @@ interface Upload extends Transfer {
 interface UploadBatch {
   paths: string[];
   failed: boolean;
+  /// The images it attached without uploading them.
+  images: Attached[];
   ready: Promise<void>;
   size: number;
   done: number;
@@ -143,7 +145,7 @@ export function askUpload(files: File[], folder: string, root = paneSession()?.c
 export async function uploadDropped(files: PastedFiles, folder: string | null = null, root = paneSession()?.cwd ?? "", preview = false) {
   const state = current, session = paneSession();
   const pending = state.pending;
-  const batch: UploadBatch = { paths: [], failed: false, ready: Promise.resolve(), size: 0, done: 0 };
+  const batch: UploadBatch = { paths: [], failed: false, images: [], ready: Promise.resolve(), size: 0, done: 0 };
   pending.add(batch);
   const upload = (dropped: File[]) => {
     batch.size = dropped.reduce((n, f) => n + f.size, 0);
@@ -165,6 +167,14 @@ async function uploadFiles(files: File[], folder: string | null, root: string, p
 
     try {
       state.reading++;
+
+      // A picture that goes inline as it is crosses the link once, in the
+      // message: no file copy on the machine, so no path to mention.
+      if (preview && folder === null && staysInline(f)) {
+        const added = await attachPreview(mentionImages(state), f, null);
+        if (added) { batch.images.push(added); batch.done = start + f.size; redrawUploads(state); continue; }
+      }
+
       const path = await uploadOne(f, folder, root, session, state, batch);
       const data = path ? await fileBase64(f) : "";
 

@@ -8,6 +8,7 @@ import { pollAgent } from "../src/agents/session.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { MN, activateMentions, resetMentions, currentMentions, rememberMentionImages } from "../src/agents/workdrop.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
+import { staysInline } from "../src/agents/images.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
 import { conversationKey } from "../src/agents/conversation-state.ts";
@@ -98,7 +99,7 @@ test("resuming reconnects a stream that closed before its first snapshot", async
 function pendingUpload() {
   let finish = () => {};
   const ready = new Promise<void>(resolve => { finish = resolve; });
-  const batch = { paths: [] as string[], failed: false, ready, size: 0, done: 0 };
+  const batch = { paths: [] as string[], failed: false, images: [], ready, size: 0, done: 0 };
   MN.pending.add(batch);
   return {
     batch,
@@ -260,4 +261,12 @@ test("steers wait for attachment uploads too", async () => {
   const sent = steers()[0] as { steer: { images: unknown[] } };
   assert.equal(sent.steer.images.length, 1);
   clearTimeout(AG.timer);
+});
+
+test("only a small supported picture goes inline without a file copy", () => {
+  const file = (size: number, type: string) => ({ size, type }) as File;
+  assert.equal(staysInline(file(160 * 1024, "image/png")), true);
+  assert.equal(staysInline(file(2 * 1024 * 1024, "image/png")), false);
+  assert.equal(staysInline(file(1024, "image/heic")), false);
+  assert.equal(staysInline(file(1024, "text/plain")), false);
 });
