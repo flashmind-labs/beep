@@ -289,7 +289,7 @@ pub(crate) async fn redeem(
 /// The desktop's side. Nodes refuse.
 #[tracing::instrument(name = "join", skip_all, fields(joiner = %conn.remote_id().fmt_short()))]
 pub(crate) async fn serve(inner: &Inner, conn: Connection) {
-    if inner.is_closed() || !inner.view().devices.is_desktop(inner.me) {
+    if inner.is_closed() || !inner.view().devices.is_desktop(inner.me()) {
         conn.close(1u32.into(), b"not a desktop");
         return;
     }

@@ -140,7 +140,7 @@ impl Inner {
             .retain(|(peer, _), slot| {
                 // A restarted peer's new mesh hello invalidates its old channels too.
                 slot.live(conns.get(peer).map(|live| live.session));
-                let keep = self.is_member(self.me) && self.is_member(*peer);
+                let keep = self.is_member(self.me()) && self.is_member(*peer);
                 if !keep {
                     if let Some(connection) = slot.live(None) {
                         connection.close(2u32.into(), b"removed");

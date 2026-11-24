@@ -148,7 +148,7 @@ impl Mesh {
 
     /// This device's id.
     pub fn me(&self) -> EndpointId {
-        self.inner.me
+        self.inner.me()
     }
 
     /// The mesh's id: the id of the desktop that started it.
@@ -181,7 +181,7 @@ impl Mesh {
                     device.name = name.to_owned();
                 }
 
-                let me = device.id == self.inner.me;
+                let me = device.id == self.inner.me();
                 let online = me
                     || conns
                         .get(&device.id)

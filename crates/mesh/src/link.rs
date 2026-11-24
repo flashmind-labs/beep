@@ -294,7 +294,7 @@ async fn run(
     }
     unregister(inner, conn, peer);
 
-    if !inner.is_member(inner.me) || !inner.is_member(peer) {
+    if !inner.is_member(inner.me()) || !inner.is_member(peer) {
         conn.close(2u32.into(), b"removed");
     }
 
@@ -322,7 +322,7 @@ async fn handshake(
     dialer: EndpointId,
 ) -> Result<Shaken, MeshError> {
     let opened = async {
-        if dialer == inner.me {
+        if dialer == inner.me() {
             conn.open_bi().await.map_err(wire::net)
         } else {
             conn.accept_bi().await.map_err(wire::net)
@@ -483,7 +483,7 @@ async fn write(
             sent_ops = ops.len();
         }
 
-        if !view.devices.is_member(inner.me) {
+        if !view.devices.is_member(inner.me()) {
             conn.close(2u32.into(), b"removed");
             return Ok(());
         }

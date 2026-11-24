@@ -45,13 +45,13 @@ pub(super) async fn own(inner: Arc<Inner>) {
         watched::read_and_update(&mut rev, |_| ());
         inner.prune_channels();
         let view = inner.view();
-        let member = view.devices.is_member(inner.me);
+        let member = view.devices.is_member(inner.me());
         let wanted: Vec<EndpointId> = if member {
             view.devices
                 .members()
                 .into_iter()
                 .map(|d| d.id)
-                .filter(|id| *id != inner.me)
+                .filter(|id| *id != inner.me())
                 .collect()
         } else {
             for handle in running.values() {
@@ -141,7 +141,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
         tokio::pin!(notified);
         notified.as_mut().enable();
 
-        if !inner.is_member(peer) || !inner.is_member(inner.me) || inner.is_closed() {
+        if !inner.is_member(peer) || !inner.is_member(inner.me()) || inner.is_closed() {
             return peer;
         }
 
@@ -153,7 +153,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             continue;
         }
 
-        if inner.me > peer && !waited {
+        if inner.me() > peer && !waited {
             waited = true;
             tokio::select! {
                 () = &mut notified => {}
@@ -188,7 +188,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
 
         match dialed {
             Ok(Ok(conn)) => {
-                link::serve(inner.clone(), conn, inner.me).await;
+                link::serve(inner.clone(), conn, inner.me()).await;
                 waited = false;
 
                 if started.elapsed() >= STABLE {

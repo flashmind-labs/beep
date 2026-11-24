@@ -154,7 +154,6 @@ pub(crate) struct Retired {
 
 pub(crate) struct Inner {
     pub endpoint: Endpoint,
-    pub me: EndpointId,
     /// Random per start: peers tell a restart from a second dial by it.
     pub session: u64,
     pub store: Store,
@@ -186,6 +185,10 @@ impl Inner {
             .read()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    pub fn me(&self) -> EndpointId {
+        self.endpoint.id()
     }
 
     pub fn is_member(&self, id: EndpointId) -> bool {
@@ -258,7 +261,7 @@ impl Inner {
             for note in list.into_iter().take(MAX_ADDRS) {
                 let id = note.addr.id;
 
-                if id == self.me || !view.devices.is_member(id) {
+                if id == self.me() || !view.devices.is_member(id) {
                     continue;
                 }
 
@@ -331,7 +334,9 @@ pub struct Mesh {
 
 impl Debug for Mesh {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Mesh").field("me", &self.inner.me).finish()
+        f.debug_struct("Mesh")
+            .field("me", &self.inner.me())
+            .finish()
     }
 }
 
@@ -359,7 +364,6 @@ impl Mesh {
         };
         let inner = Arc::new(Inner {
             endpoint,
-            me,
             session: fastrand::u64(..),
             store: Store::spawn(core)?,
             view,
