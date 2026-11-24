@@ -314,3 +314,39 @@ async fn a_watch_is_answered_while_its_watchers_are_still_binding() {
         matches!(snapshot.value, Value::Sessions(reply) if matches!(*reply, SessionsReply::Tree { ref tree } if tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == "later.txt"))))
     );
 }
+
+// A watch can wait on a slow root check. A ping sent behind it is answered
+// at once, and a second watch is answered after the first.
+#[tokio::test]
+async fn a_ping_is_answered_while_a_watch_is_looked_up_and_watches_keep_their_order() {
+    let root = tempfile::tempdir().unwrap();
+    let offers = Offers::default();
+    offers.agents.share_folders(vec![root.path().to_owned()]);
+    let (mut tx, mut rx, _task) = start(offers.clone()).await;
+    let topic = Topic::keyed("files", root.path().to_str().unwrap());
+    // Holding the registry stops every source lookup, so the watches wait.
+    let registry = offers.agents.event_sources.lock().await;
+
+    for id in [1, 2] {
+        tx.send(&Request::Watch {
+            id,
+            topics: vec![topic.clone()],
+            queries: vec![],
+        })
+        .await
+        .unwrap();
+    }
+    tx.send(&Request::Ping { id: 7 }).await.unwrap();
+    assert_eq!(next(&mut rx).await, Reply::Pong { id: 7 });
+
+    drop(registry);
+    let mut acknowledged = Vec::new();
+
+    while acknowledged.len() < 2 {
+        if let Reply::Watching { id } = next(&mut rx).await {
+            acknowledged.push(id);
+        }
+    }
+
+    assert_eq!(acknowledged, [1, 2]);
+}

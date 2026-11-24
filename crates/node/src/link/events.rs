@@ -11,7 +11,7 @@ use beep_proto::node::{
 use beep_proto::watched;
 use futures::{FutureExt, StreamExt, future::join_all};
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
@@ -29,6 +29,7 @@ const WRITE_WAIT: Duration = Duration::from_secs(15);
 /// apps drop a stream after 35 s of silence, so it stays well under that.
 pub(crate) const HEARTBEAT: Duration = Duration::from_secs(15);
 const MAX_CALLS: usize = 16;
+const MAX_QUEUED_WATCHES: usize = 16;
 const MAX_FILE_ROOTS: usize = 512;
 const TOO_MANY_ROOTS: &str = "too many watched directories; subscribe to specific file roots";
 
@@ -61,6 +62,55 @@ struct Watched {
     topics: Vec<Topic>,
     queries: Vec<events::Query>,
     result: Result<Subscriptions>,
+}
+
+/// A watch read from the stream and not looked up yet.
+struct Queued {
+    id: u64,
+    topics: Vec<Topic>,
+    queries: Vec<events::Query>,
+}
+
+/// Checks a queued watch and starts looking its sources up, or answers it with an error.
+async fn begin_watch(
+    tx: &mut LinkTx,
+    wire: Wire,
+    offers: &Offers,
+    stream: &uuid::Uuid,
+    queued: Queued,
+    watching: &mut JoinSet<Watched>,
+) -> Result<()> {
+    let Queued { id, topics: wanted, queries: wanted_queries } = queued;
+    let started = Instant::now();
+    tracing::info!(%stream, watch = id, topics = wanted.len(), queries = wanted_queries.len(), "subscription watch received");
+    for query in &wanted_queries {
+        tracing::info!(%stream, watch = id, query = query.id, topic = query.topic.name(), "subscription query received");
+    }
+
+    let valid = if wanted.len() > events::MAX_TOPICS {
+        Err(anyhow::anyhow!("too many subscription topics"))
+    } else if wanted.iter().any(|topic| !topic.valid()) {
+        Err(anyhow::anyhow!("invalid subscription topics"))
+    } else {
+        Snapshots::validate(&wanted_queries)
+    };
+
+    match valid {
+        Ok(()) => {
+            let offers = offers.clone();
+            let source_topics = sources(&wanted, &wanted_queries);
+            watching.spawn(async move {
+                let result = sources::subscribe(&offers, &source_topics).await;
+                Watched { id, started, topics: wanted, queries: wanted_queries, result }
+            });
+        }
+        Err(error) => {
+            tracing::warn!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch rejected");
+            send(tx, wire, Reply::Error { id, reason: format!("{error:#}") }).await?;
+        }
+    }
+
+    Ok(())
 }
 
 pub(crate) async fn serve(
@@ -112,8 +162,10 @@ async fn run(
     let mut passes = Passes::new(&offers);
     // A watch was answered before its watchers bound: read once more after.
     let mut unbound = false;
-    // At most one watch is looked up at a time; the next request waits for it.
+    // At most one watch is looked up at a time; the others wait here and
+    // every other request is read meanwhile.
     let mut watching = JoinSet::new();
+    let mut queued = VecDeque::new();
     let mut calls = JoinSet::new();
     let mut pending = HashSet::new();
     let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
@@ -121,6 +173,12 @@ async fn run(
     send(&mut tx, wire, Reply::Ready).await?;
 
     loop {
+        while watching.is_empty()
+            && let Some(next) = queued.pop_front()
+        {
+            begin_watch(&mut tx, wire, &offers, &stream, next, &mut watching).await?;
+        }
+
         snapshots.start(&offers, caller);
         let snapshot_due = snapshots.due();
         tokio::select! {
@@ -130,7 +188,7 @@ async fn run(
                     None => std::future::pending().await,
                 }
             }, if snapshot_due.is_some() => {},
-            request = read_request(wire, &mut rx), if watching.is_empty() => {
+            request = read_request(wire, &mut rx) => {
                 if wire == Wire::Subscriptions {
                     anyhow::ensure!(offers.lends_to_peers() || offers.mesh.get().is_some_and(|mesh| mesh.me() == caller), "this machine is no longer shared");
                 }
@@ -148,32 +206,13 @@ async fn run(
 
                 match request {
                 None => return Ok(()),
-                Some(Request::Watch { id, topics: wanted, queries: wanted_queries }) => {
-                    let started = Instant::now();
-                    tracing::info!(%stream, watch = id, topics = wanted.len(), queries = wanted_queries.len(), "subscription watch received");
-                    for query in &wanted_queries {
-                        tracing::info!(%stream, watch = id, query = query.id, topic = query.topic.name(), "subscription query received");
-                    }
-
-                    let valid = if wanted.len() > events::MAX_TOPICS {
-                        Err(anyhow::anyhow!("too many subscription topics"))
-                    } else if wanted.iter().any(|topic| !topic.valid()) {
-                        Err(anyhow::anyhow!("invalid subscription topics"))
-                    } else { Snapshots::validate(&wanted_queries) };
-
-                    match valid {
-                        Ok(()) => {
-                            let offers = offers.clone();
-                            let source_topics = sources(&wanted, &wanted_queries);
-                            watching.spawn(async move {
-                                let result = sources::subscribe(&offers, &source_topics).await;
-                                Watched { id, started, topics: wanted, queries: wanted_queries, result }
-                            });
-                        }
-                        Err(error) => {
-                            tracing::warn!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch rejected");
-                            send(&mut tx, wire, Reply::Error { id, reason: format!("{error:#}") }).await?;
-                        }
+                Some(Request::Watch { id, topics, queries }) => {
+                    // Watches are looked up one at a time, in the order sent, so a later
+                    // one is never answered or applied before an earlier one.
+                    if queued.len() >= MAX_QUEUED_WATCHES {
+                        send(&mut tx, wire, Reply::Error { id, reason: "too many pending watches".into() }).await?;
+                    } else {
+                        queued.push_back(Queued { id, topics, queries });
                     }
                 }
                 Some(Request::Refresh { id }) => {
