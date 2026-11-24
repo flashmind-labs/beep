@@ -171,8 +171,30 @@ impl Agents {
         }
     }
 
-    /// Reads every store, for the logs no watcher follows.
+    /// Reads every store, for the logs no watcher follows. Callers that ask
+    /// while a read runs share it; none waits for a read it did not need.
     async fn read_sighted(&self) -> Result<Sighted> {
+        let running = {
+            let mut slot = crate::lock(&self.sighting);
+
+            match slot.upgrade() {
+                Some(running) => running,
+                None => {
+                    let running = Arc::default();
+                    *slot = Arc::downgrade(&running);
+                    running
+                }
+            }
+        };
+
+        running
+            .get_or_init(|| async { self.read_all_stores().await.map_err(Arc::new) })
+            .await
+            .clone()
+            .map_err(|error| anyhow::anyhow!("{error:#}"))
+    }
+
+    async fn read_all_stores(&self) -> Result<Sighted> {
         metrics::counter!("beep_store_reads_total").increment(1);
 
         let stores = self.stores.clone();

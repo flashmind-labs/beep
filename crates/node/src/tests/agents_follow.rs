@@ -1035,3 +1035,25 @@ async fn a_failed_summary_read_sends_readers_to_a_direct_read() {
     summarized(&mut changes).await;
     assert!(agents.watched_sighted().is_none());
 }
+
+#[tokio::test]
+async fn callers_asking_during_a_store_read_share_it() {
+    let root = tempfile::tempdir().unwrap();
+    let agents = Agents {
+        stores: super::super::found::Stores::at(Some(root.path()), None, None),
+        external: super::super::claude::External::locate_in(root.path()),
+        ..Agents::default()
+    };
+    let (first, second) = (agents.sightings(), agents.sighted_folders());
+    tokio::pin!(first, second);
+    assert!(futures::poll!(first.as_mut()).is_pending());
+    assert!(futures::poll!(second.as_mut()).is_pending());
+
+    let running = crate::lock(&agents.sighting).upgrade().unwrap();
+    // This handle and the two callers'.
+    assert_eq!(Arc::strong_count(&running), 3);
+    drop(running);
+
+    first.await.unwrap();
+    second.await.unwrap();
+}

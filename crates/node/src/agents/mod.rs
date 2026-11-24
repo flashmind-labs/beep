@@ -232,6 +232,9 @@ host! {
         /// The folders the agents' logs name and when they were read, for the
         /// logs no watcher follows. Written after a read, never held across one.
         sighted: Mutex<Option<(Instant, Arc<Vec<PathBuf>>)>>,
+        /// The read of every store now running, shared by whoever asks while
+        /// it does. Held only to join or start one, never across a read.
+        sighting: Mutex<std::sync::Weak<tokio::sync::OnceCell<Result<Sighted, Arc<anyhow::Error>>>>>,
         /// The checkouts found on disk under home, once `warm` read them.
         /// Written after a walk, by the one walk running.
         on_disk: Mutex<Option<Arc<Vec<found::Checkout>>>>,
