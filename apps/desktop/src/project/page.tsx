@@ -15,7 +15,7 @@ import { ProjectEditors } from "./header-view.tsx";
 import { type ReactNode } from "react";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { localProjectId } from "./localid.ts";
-import { type CenterView, state, warm } from "../center/state.ts";
+import { type CenterView, state, whereOf } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
 import { boxOf, drawPage, go, windowAlone } from "../center/views.tsx";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, addProject } from "../center/sidebar.tsx";
@@ -153,7 +153,7 @@ export const projectsView: CenterView<"projects"> = {
         tools.push(<Button key={`forge:${f.url}`} small title={f.url} onClick={() => openUrl(f.url)}>{f.label}</Button>);
       }
 
-      const here = whereRows(p, state.where.get(p.name) || null, state.mac?.id || null).find(r => r.mac && r.folder);
+      const here = whereRows(p, whereOf(p.name) || null, state.mac?.id || null).find(r => r.mac && r.folder);
       const editors = editorsFor(here?.folder, redrawProjectsPage);
       if (here?.folder && editors.length) tools.push(<ProjectEditors key="editors" editors={editors} folder={here.folder} />);
       // The rest goes in one menu, so the header keeps to a line.
@@ -188,7 +188,6 @@ export const projectsView: CenterView<"projects"> = {
     // What the project last showed draws at once; what changed since its
     // read reads again behind it.
     if (state.picked) {
-      warm(state.picked);
       markDue(state.picked);
       noteRecent(state.picked);
     }

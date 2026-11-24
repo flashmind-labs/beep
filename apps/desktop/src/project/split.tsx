@@ -22,8 +22,8 @@ import { machineTile } from "./board.ts";
 import { issueMeta, prMeta, sortedPrs } from "./threads.ts";
 import { arranged, issueSelection, setIssueSelection } from "./openlist.ts";
 import type { StartEntry } from "./openlist-state.ts";
-import { pages, state } from "../center/state.ts";
-import { projectBranch, type GitRow } from "./gitsync-state.ts";
+import { gitOf, sessionsOf, state } from "../center/state.ts";
+import { projectBranch } from "./gitsync-state.ts";
 import { boxOf, go } from "../center/views.tsx";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.tsx";
@@ -157,7 +157,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     queueMicrotask(() => runs.show(pid, asked.id, asked.host));
   }
 
-  const sessions = state.sessions.get(p.name);
+  const sessions = sessionsOf(p.name);
   if (sessions === undefined || sessionsDue.has(p.name)) loadSessions(p.name);
   if (terms.list(p.name) === undefined) terms.load(p.name);
   thr.ensure(pid);
@@ -247,7 +247,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const det = history ? hostPart(history.detail) : issuesView ? viewPart("issues", issuesView) : viewPart("detail", <Parts className="pj-det" parts={picked.detail?.() ?? []} />);
   const mine = myIssues(p.name, issues || []);
   const cells = [
-    { label: projectBranch(state.gitsync.get(p.name) ?? pages.get<GitRow[]>("gitsync", p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
+    { label: projectBranch(gitOf(p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
     { label: "Actions", text: runs.tile(pid).count || null, key: "actions", bad: runs.tile(pid).rows[0]?.chip?.text === "failed" },
     { label: plural(running.length, "agent", "agents"), text: "running", key: "running" },
     { label: "Team", text: team, key: "team" },

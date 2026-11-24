@@ -26,7 +26,7 @@ import { makeFileSync } from "./filesync.ts";
 import { makeThreads, type ListsRow, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
 import { makeThreadDetail } from "./threaddetail.tsx";
 import { makeRuns, type RunDetail, type RunsRow } from "./runs.tsx";
-import { state, keptSection } from "../center/state.ts";
+import { state, keptSection, sessionsOf } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
 import { currentLocation, go, drawTop } from "../center/views.tsx";
 import { openTile } from "./split.tsx";
@@ -134,7 +134,7 @@ export function redrawProjects() {
 
 /// The project's sessions with their latest status and reported worktree.
 function projectSessions(project: string): BranchSessionRow[] | undefined {
-  const listed = state.sessions.get(project);
+  const listed = sessionsOf(project);
   if (!listed) return undefined;
   const key = (s: SessionRow) => `${s.machine_id}:${s.agent}:${s.id}`;
   const latest = new Map(sessions.map(s => [key(s), s]));

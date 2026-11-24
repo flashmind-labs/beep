@@ -22,7 +22,7 @@ import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { localProjectId, projectRef } from "./localid.ts";
 import { machineTile } from "./board.ts";
-import { state, pages, keep, pageFresh } from "../center/state.ts";
+import { state, pages, keep, pageFresh, whereOf, sessionsOf, gitOf } from "../center/state.ts";
 import { openUrl, refreshGit } from "../center/openitems.ts";
 import { currentLocation, go, windowAlone } from "../center/views.tsx";
 import { projectRows, importSheet, addProject, importFromPage, loadFound, drawRail, openProjects } from "../center/sidebar.tsx";
@@ -61,7 +61,7 @@ listen("reconnected", () => sessionChanges.changed());
 // A checkout's git state changed in the background and arrives with the event.
 listen<{ project: string; row: GitRow }>("project-git-changed", ({ payload }) => {
   // A project not read yet has no list to amend; its first read has the row.
-  if (!state.gitsync.has(payload.project)) return;
+  if (gitOf(payload.project) === undefined) return;
   rememberGitRow(payload.project, payload.row);
   if (currentLocation()?.view === "projects" && state.picked === payload.project) redrawProjectsPage();
 });
@@ -95,7 +95,7 @@ export function revalidate(name: string) {
 
   loadTerms(name);
   fsync.ensure(name, UNWATCHED_MS);
-  if (sessionsDue.has(name) || !state.sessions.has(name)) reads.push(loadSessions(name));
+  if (sessionsDue.has(name) || sessionsOf(name) === undefined) reads.push(loadSessions(name));
   const fresh = reads.filter(read => read !== undefined);
   if (kept && fresh.length) void Promise.allSettled(fresh).then(perfFresh("project"));
 }
@@ -190,12 +190,10 @@ async function readGit(name: string, fetch: boolean) {
   try {
     const read = await invoke<GitRow[]>("project_git_state", { project: name, fetch });
     const newer = pushedDuring.get(name);
-    const rows = read.map(row => newer?.get(row.machine_id) ?? row);
-    state.gitsync.set(name, rows);
-    keep("gitsync", name, rows);
+    keep("gitsync", name, read.map(row => newer?.get(row.machine_id) ?? row));
   } catch (e) {
     console.warn("project git state:", e);
-    if (!state.gitsync.has(name)) state.gitsync.set(name, []);
+    if (gitOf(name) === undefined) pages.hold("gitsync", name, []);
   }
 
   pushedDuring.delete(name);
@@ -208,9 +206,7 @@ const moves = new Map<string, { moving: GitMove | null; failed?: string }>();
 
 export function rememberGitRow(name: string, row: GitRow) {
   pushedDuring.get(name)?.set(row.machine_id, row);
-  const rows = withRow(state.gitsync.get(name), row);
-  state.gitsync.set(name, rows);
-  keep("gitsync", name, rows);
+  keep("gitsync", name, withRow(gitOf(name), row));
 }
 
 /// Pulls or pushes on one machine; the counts come back with the answer.
@@ -232,7 +228,7 @@ async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
 }
 
 export function gitControls(p: Project, m: WhereRow, online: boolean) {
-  const row = state.gitsync.get(p.name)?.find(r => r.machine_id === m.id);
+  const row = gitOf(p.name)?.find(r => r.machine_id === m.id);
   if (!row) return null;
   const line = gitLine(row), move = moves.get(moveKey(p.name, m.id)), failed = move?.failed ?? null;
   const buttons = line.buttons ? (["pull", "push"] as const).map(direction => {
@@ -284,7 +280,7 @@ async function readWhere(name: string) {
   readingWhere.add(name);
   whereDue.delete(name);
   whereChanges.read(name);
-  const before = state.where.get(name);
+  const before = whereOf(name);
   // A kept list shows a spinner in its header meanwhile.
   if (before && state.picked === name) queueMicrotask(redrawProjects);
   let got: ProjectMachineRow[] | null = null;
@@ -303,8 +299,9 @@ async function readWhere(name: string) {
   }
 
   // A failed read keeps the last list it had.
-  if (got || !before) state.where.set(name, got);
+  // Rows still checking show, and are kept once they settle.
   if (got && !got.some(m => m.checking)) keep("where", name, got);
+  else if (got || !before) pages.hold("where", name, got);
   const folders = (list: ProjectMachineRow[] | null) => (list || []).filter(m => m.folder).map(m => `${m.id} ${m.folder}`).join("\n");
 
   if (got && before !== undefined && folders(before) !== folders(got)) {
@@ -330,7 +327,7 @@ export function sessionsHost(project: string, rows: SessionRow[]) {
 /// The project's past sessions, newest first, with the note that they are
 /// being read again.
 export function sessionsList(p: Project, running: RunningAgent[]): RecentSessions {
-  const sessions = state.sessions.get(p.name);
+  const sessions = sessionsOf(p.name);
   const past = projectPastSessions(sessions, running, [...moveStore.getState().records.values()]).filter(sessionVisible);
   if ((sessions === undefined || sessionsDue.has(p.name)) && p.imported) loadSessions(p.name);
   const freshness = sessions !== undefined ? pageFresh("sessions", p.name, readingSessions.has(p.name)) : null;
@@ -354,7 +351,7 @@ export function projectRail(name: string, current: string | null) {
 /// and issues, Actions and machines. Reads what is missing, as the project page does.
 function railCard(p: Project): RailCard | null {
   if (!p.imported) return null;
-  const machines = state.where.get(p.name);
+  const machines = whereOf(p.name);
   if (machines === undefined || whereDue.has(p.name)) loadWhere(p.name);
   const pid = projectRef(p.name).project_id;
   thr.ensure(pid);
@@ -371,7 +368,7 @@ function railCard(p: Project): RailCard | null {
 export function railSessions(name: string) {
   const p = projectRows()?.find(row => row.name === name);
   if (!p) return null;
-  const sessions = state.sessions.get(name), moves = [...moveStore.getState().records.values()];
+  const sessions = sessionsOf(name), moves = [...moveStore.getState().records.values()];
   if ((sessions === undefined || sessionsDue.has(name)) && p.imported) loadSessions(name);
   const running = projectRunning(p, state.home?.running, sessions, moves).filter(sessionVisible);
   const past = projectPastSessions(sessions, running, moves).filter(sessionVisible);
@@ -426,10 +423,10 @@ async function readSessions(name: string) {
   // A list pushed while the read was out is newer than its answer.
   if ((sessionPushes.get(name) ?? 0) !== pushes) return;
 
-  if (got || failed) showSessions(name, nextSessions(state.sessions.get(name), got).list, got !== null);
+  if (got || failed) showSessions(name, nextSessions(sessionsOf(name), got).list, got !== null);
   // The draw drops the Updating note. With no list yet it reads Reading sessions, and a draw
   // would ask again at once.
-  else if (state.sessions.has(name)) drawSessions(name);
+  else if (sessionsOf(name) !== undefined) drawSessions(name);
 }
 
 listen<SessionList>("session-list", ({ payload }) => {
@@ -440,8 +437,8 @@ listen<SessionList>("session-list", ({ payload }) => {
 
 /// Project `name`'s sessions are `list` now; `read` when the machines gave it, so it is kept.
 function showSessions(name: string, list: SessionRow[], read: boolean) {
-  state.sessions.set(name, list);
   if (read) keep("sessions", name, list);
+  else pages.hold("sessions", name, list);
   drawSessions(name);
 }
 
@@ -498,8 +495,8 @@ listen<Retitled>("agent-title-changed", ({ payload }) => {
     return;
   }
 
-  for (const [name, list] of state.sessions) {
-    const next = retitled(list, payload);
+  for (const name of pages.ids("sessions")) {
+    const next = retitled(sessionsOf(name) ?? [], payload);
     if (next) showSessions(name, next, true);
   }
 });

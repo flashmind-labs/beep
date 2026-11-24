@@ -5,7 +5,7 @@ import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
 import { applyTelemetry, keepUnchanged, withListedMachines, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
-import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pagesAccount } from "./state.ts";
+import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pages, pagesAccount } from "./state.ts";
 import { draw } from "./home.tsx";
 import { readAllTerms } from "../terminals/view.tsx";
 import { takeGit } from "./openitems.ts";
@@ -62,13 +62,12 @@ function editHome(edit: (home: HomeView) => HomeView) {
 export function forgetProject(name: string) {
   state.top = state.top.filter(n => n !== name);
   editHome(home => home.projects ? { ...home, projects: home.projects.filter(p => p.name !== name) } : home);
-  state.where.delete(name);
+  for (const section of ["where", "sessions", "gitsync"] as const) pages.drop(section, name);
 }
 
-/// Forgets what `where` read for project `name`, or for every project.
-export function dropWhere(name?: string) {
-  if (name === undefined) state.where.clear();
-  else state.where.delete(name);
+/// Forgets where every project was read: a removed machine changes each one.
+export function dropWhere() {
+  pages.drop("where");
 }
 
 // Home's cards take their names, and drop a removed machine, from the machine list.

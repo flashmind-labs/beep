@@ -15,7 +15,7 @@ import { whereRows, openOnLabel } from "../project/projects-state.ts";
 import { openUrl } from "./openitems.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
 import { ALL } from "../terminals/terminals.tsx";
-import { state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
+import { state, pages, whereOf, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
 import { stuck, draw } from "./home.tsx";
 import { allTerms } from "../terminals/view.tsx";
 import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./views.tsx";
@@ -24,7 +24,7 @@ import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
 import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
 import type { AgentRow } from "../agents/agents.ts";
-import { dropWhere, forgetProject } from "./refresh.ts";
+import { forgetProject } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
@@ -243,7 +243,7 @@ function openProjectMenu(e: MouseEvent, name: string) {
     ...(onPhone() ? [] : [{ label: NEW_WINDOW, icon: "openWindow" as const, on: () => openProjectWindow(name) }]),
     { label: on ? "Unpin" : "Pin to top", icon: "pin", on: () => setProjectOnTop(name, !on) },
   ];
-  const folder = p && whereRows(p, state.where.get(name) || null, state.mac?.id || null).find(r => r.mac && r.folder)?.folder;
+  const folder = p && whereRows(p, whereOf(name) || null, state.mac?.id || null).find(r => r.mac && r.folder)?.folder;
   if (folder && !onPhone()) items.push({ label: "Open in editor", icon: "paneText", on: () => void openInEditor(folder) });
   const label = p?.url ? openOnLabel(p.url) : null;
   if (p?.url && label) items.push({ label, icon: "openWindow", on: () => openUrl(p.url!) });
@@ -337,7 +337,7 @@ export function openProjects(name?: string | null) {
 function landed(p: { name: string }) {
   state.picked = p.name;
   sessionsDue.add(p.name);
-  dropWhere(p.name);
+  pages.drop("where", p.name);
   loadFound();
   openProjects(p.name);
 }

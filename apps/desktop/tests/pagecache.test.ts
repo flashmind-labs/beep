@@ -115,3 +115,38 @@ test("background ticks run online, skip offline, and skip one late after sleep",
   assert.equal(backgroundTick(0, every, every, false), "offline");
   assert.equal(backgroundTick(0, 2 * every + 1, every, true), "woke");
 });
+
+test("data held without a read keeps the read time, is not saved alone and survives a restore", () => {
+  const c = clock();
+  const cache = new PageCache("a", c.tick);
+  cache.put("where", "p", ["read"]);
+  const at = c.now;
+  c.now += 10_000;
+  cache.hold("where", "p", ["amended"]);
+  assert.deepEqual(cache.get("where", "p"), ["amended"]);
+  assert.equal(cache.at("where", "p"), at, "an amendment is not a read");
+  cache.takeChanged();
+
+  cache.hold("where", "q", null);
+  assert.equal(cache.get("where", "q"), null, "a failure is held, apart from never read");
+  assert.equal(cache.at("where", "q"), undefined);
+  assert.equal(cache.due("where", "q"), true);
+  assert.deepEqual(Object.keys(cache.toFile()!.slots), ["where\np"], "what was never read is not saved");
+
+  // A file read later does not replace data held in this window.
+  cache.restore({ format: PAGE_CACHE_FORMAT, account: "a", slots: { "where\nq": { data: ["old"], at: c.now - 1000, used: c.now - 1000 } } }, "a");
+  assert.equal(cache.get("where", "q"), null);
+});
+
+test("a project's section, or a whole section, can be forgotten, and the ids come back", () => {
+  const cache = new PageCache("a");
+  for (const id of ["p1", "p2"]) { cache.put("where", id, []); cache.put("sessions", id, []); }
+  assert.deepEqual(cache.ids("where").sort(), ["p1", "p2"]);
+  cache.drop("where", "p1");
+  assert.equal(cache.get("where", "p1"), undefined);
+  assert.deepEqual(cache.ids("where"), ["p2"]);
+  cache.drop("where");
+  assert.deepEqual(cache.ids("where"), []);
+  assert.deepEqual(cache.ids("sessions").sort(), ["p1", "p2"], "other sections stay");
+  assert.equal(cache.peek("sessions", "p1") !== undefined, true);
+});

@@ -8,11 +8,11 @@ import { moveStore } from "../agents/move-store.ts";
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, plural } from "../ui/format.ts";
-import { projectRunning, whereRows, whereCount, syncedBy, type Project, plainPath, type ProjectMachineRow, type WhereRow } from "./projects-state.ts";
+import { projectRunning, whereRows, whereCount, syncedBy, type Project, plainPath, type WhereRow } from "./projects-state.ts";
 import { projectActivity, projectSortTime, overviewGroups, type ProjectSort } from "./overview-state.ts";
 import { makeCustomAgents } from "./customagents.tsx";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
-import { pages, state, warm, pageFresh } from "../center/state.ts";
+import { state, whereOf, peekSessions, sessionsOf, gitOf, pageFresh } from "../center/state.ts";
 import { showMachineMenu } from "../machines/table.ts";
 import { MachinesSection, type ProjectMachineItem } from "./machines-section-view.tsx";
 import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
@@ -44,11 +44,11 @@ export function disposeOverview() {
 export function overviewSection(listed: Project[]): PagePart[] {
   leaveProject();
   // A card shows when something last happened, as Recent activity sorts it.
-  const rows = listed.map(p => ({ ...p, last: projectActivity(p, state.sessions.get(p.name), null) || null }));
+  const rows = listed.map(p => ({ ...p, last: projectActivity(p, peekSessions(p.name), null) || null }));
   const groups = overviewGroups(rows, state.top, state.groups, overviewOrder(rows));
   overviewHost ??= retainedHost(null);
   showWindowParts([{ part: "project-overview", host: overviewHost, content: <ProjectsOverview groups={groups} active={state.home ? <OpenProjects home={homeForDisplay(state.home)} /> : null} editing={state.renaming} sort={projectSort} changeSort={changeSort}
-    sync={(name: string) => syncedBy(name, state.sync, state.where.get(name) ?? pages.get<ProjectMachineRow[]>("where", name))} add={addProject}
+    sync={(name: string) => syncedBy(name, state.sync, whereOf(name))} add={addProject}
   /> }]);
   return [hostPart(overviewHost)];
 }
@@ -77,7 +77,7 @@ function overviewOrder(rows: readonly Project[]) {
   const busy = HOVERS.matches && !!box && (box.matches(":hover") || box.contains(document.activeElement));
   if (ranked && ranked.names === names && (busy || Date.now() - ranked.at < RANK_MS)) return ranked.activity;
 
-  const activity = new Map(rows.map(p => [p.name, projectSortTime(projectSort, p, state.sessions.get(p.name) ?? null, lastProjectVisit(p.name))]));
+  const activity = new Map(rows.map(p => [p.name, projectSortTime(projectSort, p, peekSessions(p.name) ?? null, lastProjectVisit(p.name))]));
   ranked = { names, at: Date.now(), activity };
   return activity;
 }
@@ -88,12 +88,11 @@ function overviewOrder(rows: readonly Project[]) {
 export function projectDetail(p: Project): PagePart[] {
   noteProjectVisit(p.name);
   ranked = null;
-  if (p.imported) warm(p.name);
-  const machines = p.imported ? state.where.get(p.name) : null;
+  const machines = p.imported ? whereOf(p.name) : null;
   if (p.imported && (machines === undefined || whereDue.has(p.name))) loadWhere(p.name);
-  if (p.imported && (!state.gitsync.has(p.name) || gitDue.has(p.name))) loadGit(p.name);
+  if (p.imported && (gitOf(p.name) === undefined || gitDue.has(p.name))) loadGit(p.name);
   const rows = whereRows(p, machines || null, state.mac?.id || null);
-  const running = projectRunning(p, state.home?.running, state.sessions.get(p.name), [...moveStore.getState().records.values()]).filter(sessionVisible);
+  const running = projectRunning(p, state.home?.running, sessionsOf(p.name), [...moveStore.getState().records.values()]).filter(sessionVisible);
   if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
   disposeProjectShell();
 

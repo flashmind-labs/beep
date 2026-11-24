@@ -72,10 +72,6 @@ export const state = {
   found: null as FoundRow[] | null,
   importing: null as string | null,
   foundError: null as { name: string; message: string } | null,
-  sessions: new Map<string, SessionRow[]>(),
-  where: new Map<string, ProjectMachineRow[] | null>(),
-  /// Each project's checkouts' branches, as `project_git_state` read them.
-  gitsync: new Map<string, GitRow[]>(),
   sync: [] as SyncRow[],
   git: null as GitItemsView | null,
   /// Why `git_items` threw, when it did.
@@ -127,24 +123,14 @@ export function pagesAccount(mac: MacControl | null) {
   }
 }
 
-/// Fills in project `name`'s sections from the cache where the window has
-/// not read them yet.
-export function warm(name: string) {
-  if (!state.where.get(name)) {
-    const where = pages.get<ProjectMachineRow[]>("where", name);
-    if (where) state.where.set(name, where);
-  }
-
-  if (!state.gitsync.has(name)) {
-    const git = pages.get<GitRow[]>("gitsync", name);
-    if (git) state.gitsync.set(name, git);
-  }
-
-  if (!state.sessions.has(name)) {
-    const sessions = pages.get<SessionRow[]>("sessions", name);
-    if (sessions) state.sessions.set(name, sessions);
-  }
-}
+/// Project `name`'s sessions, where it lives and its checkouts' branches as last read or
+/// pushed: undefined before any, null when the first read of where it lives failed. Held in
+/// `pages` only, which also drops the projects used least.
+export const sessionsOf = (name: string) => pages.get<SessionRow[]>("sessions", name);
+/// The same without counting the project as used, for lists that read every project.
+export const peekSessions = (name: string) => pages.peek<SessionRow[]>("sessions", name);
+export const whereOf = (name: string) => pages.get<ProjectMachineRow[] | null>("where", name);
+export const gitOf = (name: string) => pages.get<GitRow[]>("gitsync", name);
 
 /// A section header's note for `section` of `id`, `loading` while it reads.
 export function pageFresh(section: PageSection, id: string, loading: boolean) {

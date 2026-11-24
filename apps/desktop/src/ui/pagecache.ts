@@ -8,11 +8,12 @@ export type PageSection = "where" | "sessions" | "threads" | "runs" | "terminals
 
 const SECTIONS: readonly PageSection[] = ["where", "sessions", "threads", "runs", "terminals", "filesync", "gitsync", "team"];
 
-/// One kept answer: the data, when it was read, and when it was last read
+/// One kept answer: the data, when it was read (null for data held without a read, such as
+/// one the app amended or a failure, which is not saved), and when it was last read
 /// or used, which decides what goes first once the cache is too big.
 interface Slot {
   data: unknown;
-  at: number;
+  at: number | null;
   used: number;
 }
 
@@ -75,7 +76,7 @@ const QUIET_MS = 60_000;
 
 function slotKey(section: PageSection, id: string) { return `${section}\n${id}`; }
 
-function isSlot(v: unknown): v is Slot {
+function isSlot(v: unknown): v is Slot & { at: number } {
   if (!v || typeof v !== "object") return false;
   const s = v as Record<string, unknown>;
   return "data" in s && typeof s.at === "number" && typeof s.used === "number";
@@ -167,7 +168,7 @@ export class PageCache {
     for (const [key, slot] of Object.entries(f.slots)) {
       if (!knownKey(key) || !isSlot(slot) || now - slot.at >= MAX_AGE_MS) continue;
       const had = this.slots.get(key);
-      if (!had || had.at < slot.at) this.slots.set(key, slot);
+      if (!had || (had.at !== null && had.at < slot.at)) this.slots.set(key, slot);
     }
   }
 
@@ -179,15 +180,41 @@ export class PageCache {
     return slot.data as T;
   }
 
+  /// The data kept for `section` of `id`, without counting it as used.
+  peek<T>(section: PageSection, id: string): T | undefined {
+    return this.slots.get(slotKey(section, id))?.data as T | undefined;
+  }
+
   /// When `section` of `id` was read, undefined for never.
   at(section: PageSection, id: string): number | undefined {
-    return this.slots.get(slotKey(section, id))?.at;
+    return this.slots.get(slotKey(section, id))?.at ?? undefined;
   }
 
   /// Keeps `data` as what `section` of `id` read now.
   put(section: PageSection, id: string, data: unknown) {
     const now = this.clock();
     this.slots.set(slotKey(section, id), { data, at: now, used: now });
+    this.changed = true;
+  }
+
+  /// Holds `data` for `section` of `id` without counting it as a read: the time of the last
+  /// read stays, and data held with none is not saved or called read.
+  hold(section: PageSection, id: string, data: unknown) {
+    const key = slotKey(section, id), had = this.slots.get(key);
+    this.slots.set(key, { data, at: had?.at ?? null, used: this.clock() });
+  }
+
+  /// The ids `section` holds data for.
+  ids(section: PageSection): string[] {
+    return [...this.slots.keys()].filter(key => key.startsWith(`${section}\n`)).map(key => key.slice(section.length + 1));
+  }
+
+  /// Forgets `section` of `id`, or of every project.
+  drop(section: PageSection, id?: string) {
+    for (const key of [...this.slots.keys()]) {
+      if (id === undefined ? key.startsWith(`${section}\n`) : key === slotKey(section, id)) this.slots.delete(key);
+    }
+
     this.changed = true;
   }
 
@@ -226,8 +253,9 @@ export class PageCache {
   /// not fit is dropped from memory too.
   toFile(maxSlots = MAX_SLOTS, maxChars = MAX_CHARS): PageCacheFile | null {
     if (!this.account) return null;
-    const kept = evict([...this.slots], maxSlots, maxChars);
-    if (kept.length < this.slots.size) this.slots = new Map(kept);
+    const read = [...this.slots].filter(([, slot]) => slot.at !== null);
+    const kept = evict(read, maxSlots, maxChars);
+    if (kept.length < read.length) this.slots = new Map([...kept, ...[...this.slots].filter(([, slot]) => slot.at === null)]);
     return { format: PAGE_CACHE_FORMAT, account: this.account, slots: Object.fromEntries(kept) };
   }
 

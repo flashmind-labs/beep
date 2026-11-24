@@ -41,7 +41,7 @@ import { planStarts, type StartEntry, type StartRow } from "./openlist-state.ts"
 import type { Outcome } from "./openlist.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.tsx";
 import { conflictPrompt, type Conflict } from "./filesync.ts";
-import { type Started, state } from "../center/state.ts";
+import { type Started, state, sessionsOf, gitOf } from "../center/state.ts";
 import { currentLocation, go } from "../center/views.tsx";
 import { projectRows } from "../center/sidebar.tsx";
 import { redrawProjects, pa, pc } from "./sections.ts";
@@ -549,8 +549,8 @@ export function startConflictFix(name: string, c: Conflict, pick: ProjectPick) {
 export async function startSyncRepair(name: string, machine: string, error: string, pick: ProjectPick) {
   const p = projectRows()?.find(p => p.name === name);
   if (!p) throw new Error(`${name} is not on a machine.`);
-  const sessions = await invoke<SessionRow[] | null>("project_sessions", { project: name }).then(rows => rows ?? state.sessions.get(name) ?? [], e => { console.warn("repair sessions:", e); return []; });
-  const prompt = syncRepairPrompt({ project: name, machine, error, checkouts: p.machines, git: state.gitsync.get(name) ?? [], sessions });
+  const sessions = await invoke<SessionRow[] | null>("project_sessions", { project: name }).then(rows => rows ?? sessionsOf(name) ?? [], e => { console.warn("repair sessions:", e); return []; });
+  const prompt = syncRepairPrompt({ project: name, machine, error, checkouts: p.machines, git: gitOf(name) ?? [], sessions });
   await startTask(name, { prompt, target: null }, pick, machine);
 }
 
@@ -829,7 +829,7 @@ function branchSession(project: string, target: { branch: string }): TaskSession
 function projectSessions(project: string) {
   const places = projectOf(project)?.places ?? [];
   const inside = (s: TaskSession) => places.some(p => p.machine === s.machine_id && `${s.cwd}/`.startsWith(`${p.cwd.replace(/\/+$/, "")}/`));
-  return [...(state.sessions.get(project) ?? []), ...sessions.filter(inside)];
+  return [...(sessionsOf(project) ?? []), ...sessions.filter(inside)];
 }
 
 const sameSession = (s: TaskSession) => sessions.find(l => l.machine_id === s.machine_id && l.agent === s.agent && l.id === s.id) ?? null;
