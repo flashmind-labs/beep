@@ -999,7 +999,7 @@ fn a_file_over_the_limit_is_named_and_a_file_within_it_is_not() {
     // "aGVsbG8=" is 5 bytes, the other 12.
     assert_eq!(base64_size(&small.data), 5);
     assert_eq!(base64_size(&big.data), 12);
-    assert_eq!(too_big(&[small.clone()], 5), None);
+    assert_eq!(too_big(std::slice::from_ref(&small), 5), None);
     let reason = too_big(&[small, big], 11).expect("refused");
     assert!(reason.starts_with("big.bin is larger than"));
 }
