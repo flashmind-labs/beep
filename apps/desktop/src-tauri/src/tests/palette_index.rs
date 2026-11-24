@@ -71,6 +71,7 @@ fn the_assistants_pages_are_not_found() {
         "Projects",
         "Terminals",
         "Add project",
+        "Join team",
         "Add machine",
         "Settings",
         "Coding agents",

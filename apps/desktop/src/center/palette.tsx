@@ -36,6 +36,7 @@ export interface PaletteDeps {
   newSession?(): void;
   /// The Add a project sheet, which lists the folders agents worked in.
   addProject(): void;
+  joinTeam?(): void;
   addMachine?(): void;
   shortcuts?(): void;
   report?(): void;
@@ -198,6 +199,7 @@ function pick(hit: Hit) {
       if (hit.id === "projects") return deps!.projects ? deps!.projects() : project("");
       if (hit.id === "terminals") return deps!.terminals?.();
       if (hit.id === "add_project") return addProject();
+      if (hit.id === "join_team") return deps!.joinTeam?.();
       if (hit.id === "add_machine") return deps!.addMachine?.();
       if (hit.id === "coding_agents") return deps!.providers();
       if (hit.id === "settings") return go("pane", "settings");

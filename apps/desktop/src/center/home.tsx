@@ -1,7 +1,7 @@
 // Home: its tabs and the board.
 import { retitled, type Retitled } from "../agents/conversation-state.ts";
 import { conflicted, invoke, listen } from "../ui/tauri.ts";
-import { isMobile, onPhone } from "../ui/platform.ts";
+import { isMobile } from "../ui/platform.ts";
 import { Button } from "../ui/kit.tsx";
 import { Segmented } from "../ui/aria-kit.tsx";
 import { Icon } from "../ui/icons.tsx";
@@ -29,7 +29,6 @@ import { HomeShell, type HomeTab } from "./home-shell.tsx";
 import { HomeOverview } from "./home-overview.tsx";
 import { HomeGit } from "./openitems-view.tsx";
 import { HomeMachines } from "../machines/home-machines-view.tsx";
-import { openTeamJoin } from "../project/teamjoin.tsx";
 
 // ---------- Needs you ----------
 
@@ -166,12 +165,8 @@ let gitReadAt: number | null = null;
 
 export const homeView: CenterView<"home"> = {
   title: () => ({ title: "Home", sub: new Date().toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" }),
-    // A phone has no ⌘N: the assistant starts from here. Desktop joins teams from here.
-    reactTools: isMobile()
-      ? <Button small className="pj-tool fab" aria-label="New assistant" onClick={() => go("pane", { assistant: "chats" })}><span style={{ display: "contents" }}><Icon name="plus" /></span> New assistant</Button>
-      : onPhone()
-        ? null
-        : <Button small className="pj-tool" onClick={() => openTeamJoin(null)}><span style={{ display: "contents" }}><Icon name="group" /></span> Join team</Button> }),
+    // A phone has no ⌘N: the assistant starts from here.
+    reactTools: isMobile() ? <Button small className="pj-tool fab" aria-label="New assistant" onClick={() => go("pane", { assistant: "chats" })}><span style={{ display: "contents" }}><Icon name="plus" /></span> New assistant</Button> : null }),
   mount() {
     draw();
     ensureHome();

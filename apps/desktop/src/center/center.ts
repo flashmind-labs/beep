@@ -86,7 +86,8 @@ mountUsage(refresh => invoke<UsageView | null>("usage_get", { refresh }));
 initPalette({
   go, jump, scope: aloneProject, settings: openSettings, providers: () => go("providers"),
   project: openProjects, projects: () => void openProjects(null), terminals: () => void go("terminals"),
-  newSession: newAgentHere, addProject, addMachine: openAddMachine, shortcuts: showShortcuts, report: showReport,
+  newSession: newAgentHere, addProject, joinTeam: onPhone() ? undefined : () => void import("../project/teamjoin.tsx").then(t => t.openTeamJoin(null)),
+  addMachine: openAddMachine, shortcuts: showShortcuts, report: showReport,
   branches: name => { if (openProjects(name)) void import("../project/split.tsx").then(m => m.openTile("branches")); },
 });
 
