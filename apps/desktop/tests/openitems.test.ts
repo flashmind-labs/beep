@@ -6,7 +6,7 @@ import type { GitItemRow } from "../src/center/openitems-state.ts";
 const item = (over: Partial<GitItemRow> = {}): GitItemRow => ({
   host: "github.com", repo: "acme/widget", number: 1, kind: "pull_request", title: "A change",
   url: "https://github.com/acme/widget/pull/1", updated_at: 1000, authored: false, assigned: false,
-  review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, ...over,
+  review_requested: false, draft: false, review: "none", checks_failing: false, ...over,
 });
 
 test("an item waits on you when it asks for your review or your PR needs work", () => {

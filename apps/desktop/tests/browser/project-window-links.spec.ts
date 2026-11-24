@@ -16,7 +16,7 @@ async function gestures(page: Page, link: Locator) {
 
 for (const active of [false, true]) {
   test(`machine ${active ? "active" : "folded"} project links open separate windows and keep Home`, async ({ page }) => {
-    const machine = { id: "build-box", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
+    const machine = { id: "build-box", name: "Build box", online: true, can_host: true, seen_at: 0, version: "1", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
     const sync = { project: projectName, machine_id: machine.id, status: active ? "failed" : "in_sync", files: 10, pending: 0, error: null };
     await openDesktop(page, false, { project_sync: [sync] });
     await page.evaluate(machine => {
@@ -68,8 +68,8 @@ test("draft project breadcrumbs support window gestures", { tag: "@windows" }, a
 });
 
 test("Git Open project buttons keep the repository list in place", async ({ page }) => {
-  const item = { host: "example.test", repo: projectName, number: 1, title: "Example change", kind: "issue", url: "https://example.test/example/widget/issues/1", updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [] };
-  await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item] } });
+  const item = { host: "example.test", repo: projectName, number: 1, title: "Example change", kind: "issue", url: "https://example.test/example/widget/issues/1", updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, labels: [] };
+  await openDesktop(page, false, { git_items: { hosts: [{ error: null }], items: [item] } });
   await page.getByRole("tab", { name: "PRs and issues" }).click();
   await page.locator(".pl-row.repo").hover();
   await gestures(page, page.getByRole("button", { name: "Open project", exact: true }));

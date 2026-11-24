@@ -168,7 +168,7 @@ test("Working takes one wide column, Ready to review two of the same width", asy
 
 test("the queue's buttons share one width", async ({ page }) => {
   const pull = (number: number, repo: string, extra: Record<string, unknown>) => ({ host: "example.test", repo, number, kind: "pull_request", title: `Pull ${number}`, url: `https://example.test/${repo}/pull/${number}`,
-    updated_at: number, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, comments: 0, ...extra });
+    updated_at: number, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, ...extra });
   await openDesktop(page, false, { git_items: { items: [pull(1, "example/widget", {}), pull(2, "other/site", {})], hosts: [] },
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }] });
   const queue = page.locator("#sec-needs");

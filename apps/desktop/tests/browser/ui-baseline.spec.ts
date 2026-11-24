@@ -41,7 +41,7 @@ test.beforeEach(async ({ page, browserName }, info) => {
 const machineId = "build-box";
 const folder = "/srv/project";
 
-const machine = (id: string, name: string, online: boolean, agents: number) => ({ id, name, online, can_host: true, seen_at: NOW - 3_600_000, version: "0.9.0", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents, stats: null });
+const machine = (id: string, name: string, online: boolean, agents: number) => ({ id, name, online, can_host: true, seen_at: NOW - 3_600_000, version: "0.9.0", env: null, apps: [], gpus: [], capabilities: [], agents, stats: null });
 const project = (name: string, url = `https://example.test/${name}`, box = machineId) => ({ name, url, machine_id: box, machine_name: box, folder: `/srv/${name}`, cloned: true, imported_at: NOW - 86_400_000 });
 const agentRow = (id: string, title: string, status: string, ago: number, cwd = folder) => ({ kind: "agent", machine_id: machineId, machine_name: machineId, id, agent: "codex", title, cwd, status, doing: status === "working" ? "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40" : null, started_at: NOW - 7_200_000, last_activity: NOW - ago, external: false, question: null });
 
@@ -165,7 +165,7 @@ const assistantSessions = [
 ];
 const assistantHost = { machine_id: machineId, machine_name: machineId, agents: ["claude", "codex", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true };
 
-const gitItem = (repo: string, number: number, kind: string, title: string, hours: number, extra = {}) => ({ host: "example.test", repo, number, kind, title, url: `https://example.test/${repo}/${number}`, updated_at: NOW - hours * 3_600_000, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [], ...extra });
+const gitItem = (repo: string, number: number, kind: string, title: string, hours: number, extra = {}) => ({ host: "example.test", repo, number, kind, title, url: `https://example.test/${repo}/${number}`, updated_at: NOW - hours * 3_600_000, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, labels: [], ...extra });
 const gitItems = [
   gitItem("agent/plugins", 412, "pull_request", "feat: add background and foreground task switch", 3, { labels: ["plugins"] }),
   gitItem("agent/plugins", 398, "pull_request", "fix: keep a session's model when it resumes", 24, { checks_failing: true }),
@@ -180,7 +180,7 @@ const gitItems = [
 // Desktop window
 
 test("detached project header", async ({ page }) => {
-  const spend = { project: "", cost_usd: 2, unpriced: [] };
+  const spend = { cost_usd: 2 };
   const period = { total: spend, tokens: 0, projects: [], harnesses: [] };
   await openProject(page, { center_window_alone: { kind: "project", project: projectName }, usage_get: { limits: [], today: period, week: period, month: period } });
   await expect(page.locator("#rail")).toBeVisible();

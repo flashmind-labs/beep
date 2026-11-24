@@ -4,8 +4,8 @@
 
 use crate::{beep::epoch_ms, error::Result, fleet::projects::FleetState};
 use beep_proto::{
-    AccountName, AgentSlug, AgentTokens, CreditUnit, HarnessBill, ModelSpend, PlanLimits,
-    PlanWindow, ProjectBill, ProviderCredits, SpendPeriod, SpendReport, UsageTableRow,
+    AccountName, AgentSlug, CreditUnit, HarnessBill, ModelSpend, PlanLimits, PlanWindow,
+    ProjectBill, ProviderCredits, SpendPeriod, SpendReport, UsageTableRow,
 };
 use rust_decimal::{Decimal, RoundingStrategy};
 use serde::Serialize;
@@ -67,13 +67,7 @@ pub struct WindowRow {
 
 #[derive(Debug, Serialize)]
 pub struct SpendRow {
-    project: String,
     cost_usd: f64,
-    unpriced: Vec<TokensRow>,
-    /// The tokens of metered use.
-    metered_tokens: u64,
-    /// The tokens a subscription covered, by agent.
-    subscription: Vec<TokensRow>,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,23 +170,10 @@ impl Amount {
     }
 }
 
-impl From<AgentTokens> for TokensRow {
-    fn from(t: AgentTokens) -> Self {
-        Self {
-            name: t.agent.to_string(),
-            tokens: t.tokens,
-        }
-    }
-}
-
 impl From<ProjectBill> for SpendRow {
     fn from(b: ProjectBill) -> Self {
         Self {
-            project: b.project,
             cost_usd: b.cost_usd,
-            unpriced: Vec::new(),
-            metered_tokens: b.metered_tokens,
-            subscription: b.subscription.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -223,11 +204,7 @@ impl From<SpendPeriod> for PeriodRow {
     fn from(p: SpendPeriod) -> Self {
         Self {
             total: SpendRow {
-                project: String::new(),
                 cost_usd: p.cost_usd,
-                unpriced: Vec::new(),
-                metered_tokens: p.metered_tokens,
-                subscription: Vec::new(),
             },
             daily: p.daily,
             tokens: p.metered_tokens.saturating_add(p.subscription_tokens),

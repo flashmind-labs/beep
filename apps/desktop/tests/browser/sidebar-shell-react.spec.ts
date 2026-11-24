@@ -37,7 +37,7 @@ test("sidebar group rows keep focus on refresh", async ({ page }) => {
 });
 
 test("machine sidebar rows remain focused when another machine changes", async ({ page }) => {
-  const machine = (id: string, name: string) => ({ id, name, online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null });
+  const machine = (id: string, name: string) => ({ id, name, online: true, can_host: true, seen_at: 0, version: "1", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: null });
   const home = { machines: [machine("one", "Build box"), machine("two", "Test box")], projects: [], running: [], needs_you: [] };
   await openDesktop(page, false, { center_home: null });
   await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, home);

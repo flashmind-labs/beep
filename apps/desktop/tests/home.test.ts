@@ -121,7 +121,7 @@ test("the open session is the same only on its machine and agent", () => {
 test("telemetry replaces only its machine stats and preserves samples newer than a replay", async () => {
   const { applyTelemetry } = await import("../src/center/home-state.ts");
   const sample = (id: string, sampled_at: number, load: number) => ({ id, sampled_at, disks: [], memory_used_mb: 100, memory_total_mb: 200, load });
-  const machine = (id: string, sampled_at: number) => ({ id, name: id, online: true, seen_at: 0, version: "", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: sample(id, sampled_at, 1), connecting: false });
+  const machine = (id: string, sampled_at: number) => ({ id, name: id, online: true, seen_at: 0, version: "", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: sample(id, sampled_at, 1), connecting: false });
   const home = { machines: [machine("machine-a", 10), machine("machine-b", 30)], running: [], needs_you: [], coming_up: [], updates: [], projects: [] };
   const updated = applyTelemetry(home, { stats: [sample("machine-a", 20, 2), sample("machine-b", 20, 0)], traffic: [] });
   assert.equal(updated.machines![0].stats!.load, 2);

@@ -34,13 +34,7 @@ export interface NamedTokens {
 }
 
 export interface Spend {
-  project: string;
   cost_usd: number;
-  unpriced: NamedTokens[];
-  /// Tokens of metered use.
-  metered_tokens?: number;
-  /// Tokens a subscription covered, by agent.
-  subscription?: NamedTokens[];
 }
 
 export interface HarnessSpend {

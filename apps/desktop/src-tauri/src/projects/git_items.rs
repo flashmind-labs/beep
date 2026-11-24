@@ -11,7 +11,7 @@ use crate::{
 };
 use beep_fleet::GitKept;
 use beep_projects::git_items::board::OpenedItems;
-use beep_proto::{GitHost, GitHostKind, GitItem, LabeledGitItems};
+use beep_proto::{GitHost, GitItem, LabeledGitItems};
 use serde::Serialize;
 use std::{sync::Arc, time::SystemTime};
 use tauri::State;
@@ -25,9 +25,6 @@ pub struct GitItemsView {
 
 #[derive(Debug, Clone, Serialize)]
 struct GitHostRow {
-    host: String,
-    forgejo: bool,
-    account: Option<String>,
     error: Option<String>,
 }
 
@@ -51,18 +48,12 @@ struct GitItemRow {
     /// `none`, `approved` or `changes_requested`.
     review: &'static str,
     checks_failing: bool,
-    comments: u32,
     labels: Vec<String>,
 }
 
 impl From<GitHost> for GitHostRow {
     fn from(host: GitHost) -> Self {
-        Self {
-            host: host.host,
-            forgejo: matches!(host.kind, GitHostKind::Forgejo {}),
-            account: host.account,
-            error: host.error,
-        }
+        Self { error: host.error }
     }
 }
 
@@ -83,7 +74,6 @@ impl GitItemRow {
             draft: item.draft,
             review: item.review.into(),
             checks_failing: item.checks_failing,
-            comments: item.comments,
             labels,
         }
     }

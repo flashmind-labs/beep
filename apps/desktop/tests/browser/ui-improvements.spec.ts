@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 const machineId = "build-box";
-const machine = { id: machineId, name: machineId, online: true, can_host: true, seen_at: 1_000, version: "0.9.0", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 2, stats: null };
+const machine = { id: machineId, name: machineId, online: true, can_host: true, seen_at: 1_000, version: "0.9.0", env: null, apps: [], gpus: [], capabilities: [], agents: 2, stats: null };
 const project = { name: "example/widget", url: "https://example.test/example/widget", machine_id: machineId, machine_name: machineId, folder: "/srv/example/widget", cloned: true, imported_at: 1_000 };
 
 test("Home Review deck shows diff counts, sends quick replies, and closes sessions", async ({ page }) => {

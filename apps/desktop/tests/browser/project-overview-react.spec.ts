@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
 test("outside project rows retain focus and keep import clicks separate", async ({ page }) => {
-  const item = { host: 'example.test', repo: 'other/project', number: 7, kind: 'pull_request', title: 'Outside change', url: 'https://example.test/other/project/pull/7', updated_at: 1, authored: false, assigned: false, review_requested: true, draft: false, review: 'none', checks_failing: false, comments: 0, labels: ['review'] };
+  const item = { host: 'example.test', repo: 'other/project', number: 7, kind: 'pull_request', title: 'Outside change', url: 'https://example.test/other/project/pull/7', updated_at: 1, authored: false, assigned: false, review_requested: true, draft: false, review: 'none', checks_failing: false, labels: ['review'] };
   await openDesktop(page, false, { git_items: { items: [item], hosts: [] } });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
   const section = page.locator('#sec-elsewhere'), title = section.locator('.it .t');
@@ -23,7 +23,7 @@ test("outside project rows retain focus and keep import clicks separate", async 
 });
 
 test("the lists under the cards fold, open a repo's items and keep button clicks apart", async ({ page }) => {
-  const item = (repo: string, number: number, kind: string) => ({ host: 'example.test', repo, number, kind, title: `Change ${number}`, url: `https://example.test/${repo}/${number}`, updated_at: 1000 - number, authored: true, assigned: false, review_requested: false, draft: false, review: 'none', checks_failing: false, comments: 0, labels: [] });
+  const item = (repo: string, number: number, kind: string) => ({ host: 'example.test', repo, number, kind, title: `Change ${number}`, url: `https://example.test/${repo}/${number}`, updated_at: 1000 - number, authored: true, assigned: false, review_requested: false, draft: false, review: 'none', checks_failing: false, labels: [] });
   const items = [item('other/first', 1, 'pull_request'), item('other/first', 2, 'issue'), item('other/second', 3, 'pull_request')];
   await openDesktop(page, false, { git_items: { items, hosts: [] } });
   await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));

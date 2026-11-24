@@ -35,7 +35,6 @@ function machines(n) {
 function machineCards(n) {
   return machines(n).map((m, i) => ({
     ...m,
-    joined: true,
     apps: [{ name: "FakeApp", version: "1.0" }],
     gpus: i % 3 === 0 ? [{ vendor: "FakeVendor", model: "Fake GPU 9000", vram_mb: 8192, driver: null }] : [],
     capabilities: i % 3 === 0 ? ["gpu", "docker"] : ["docker"],

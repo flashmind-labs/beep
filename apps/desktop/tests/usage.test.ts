@@ -48,7 +48,7 @@ test("credits preserve zero, precision and unknown balances without counting as 
   assert.equal(creditAmount(credit, credit.used), "$42.123456");
   assert.equal(creditAmount(credit, credit.total), "unavailable");
   assert.equal(creditScope("api_key"), "API key limit");
-  const empty = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], daily: [], harnesses: [] };
+  const empty = { total: { cost_usd: 0 }, tokens: 0, projects: [], daily: [], harnesses: [] };
   assert.ok(hasUsage({ historical: [], limits: [{ agent: "flsh", account: null, plan: null, machine_name: "build-box", as_of: 0, windows: [], credits: [credit] }], today: empty, week: empty, month: empty }));
 });
 
@@ -90,7 +90,7 @@ test("a plan with only grouped windows shows the highest usage for each period u
 });
 
 test("the note on dollars shows only when a row shows dollars", () => {
-  const total = { project: "", cost_usd: 0, unpriced: [] };
+  const total = { cost_usd: 0 };
   const covered = { agent: "claude", subscription: true, cost_usd: null, tokens: 5_000, models: [] };
   assert.equal(showsDollars({ total, tokens: 5_000, projects: [], daily: [], harnesses: [covered] }), false);
   assert.equal(showsDollars({ total, tokens: 5_000, projects: [], daily: [], harnesses: [{ ...covered, cost_usd: 61 }] }), true);

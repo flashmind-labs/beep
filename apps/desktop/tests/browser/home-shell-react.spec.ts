@@ -25,8 +25,8 @@ test("Home refresh retains its tab, focus, content and scroll", async ({ page })
 });
 
 test("Git items retain a focused row during a Home refresh", async ({ page }) => {
-  const item = (number: number, title: string) => ({ host: "example.test", repo: "org/repo", number, title, kind: "issue", url: `https://example.test/org/repo/issues/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [] });
-  const git = { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "First issue"), item(2, "Second issue")] };
+  const item = (number: number, title: string) => ({ host: "example.test", repo: "org/repo", number, title, kind: "issue", url: `https://example.test/org/repo/issues/${number}`, updated_at: 1, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, labels: [] });
+  const git = { hosts: [{ error: null }], items: [item(1, "First issue"), item(2, "Second issue")] };
   await openDesktop(page, false, { git_items: git });
   await page.getByRole("tab", { name: "PRs and issues" }).click();
   const second = page.getByRole("button", { name: /Second issue/ });
@@ -41,8 +41,8 @@ test("Git items retain a focused row during a Home refresh", async ({ page }) =>
 });
 
 test("Git issue list loads more rows while scrolling", async ({ page }) => {
-  const items = Array.from({ length: 40 }, (_, index) => ({ host: "example.test", repo: "org/repo", number: index + 1, title: `Issue ${index + 1}`, kind: "issue", url: `https://example.test/org/repo/issues/${index + 1}`, updated_at: 100 - index, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [] }));
-  await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items } });
+  const items = Array.from({ length: 40 }, (_, index) => ({ host: "example.test", repo: "org/repo", number: index + 1, title: `Issue ${index + 1}`, kind: "issue", url: `https://example.test/org/repo/issues/${index + 1}`, updated_at: 100 - index, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, labels: [] }));
+  await openDesktop(page, false, { git_items: { hosts: [{ error: null }], items } });
   await page.getByRole("tab", { name: "PRs and issues" }).click();
   await expect(page.getByRole("button", { name: /Issue 1(?:\s|$)/ })).toBeVisible();
   await expect.poll(async () => {
@@ -52,9 +52,9 @@ test("Git issue list loads more rows while scrolling", async ({ page }) => {
 });
 
 test("Home lists pull requests and issues as a card per repository, with their buttons under the pointer", async ({ page }) => {
-  const item = (number: number, kind: string, repo = "example/widget") => ({ host: "example.test", repo, number, title: `Change ${number}`, kind, url: `https://example.test/${repo}/${number}`, updated_at: number, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: ["bug"] });
+  const item = (number: number, kind: string, repo = "example/widget") => ({ host: "example.test", repo, number, title: `Change ${number}`, kind, url: `https://example.test/${repo}/${number}`, updated_at: number, authored: false, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, labels: ["bug"] });
   const many = Array.from({ length: 12 }, (_, index) => item(10 + index, "issue", "other/long"));
-  await openDesktop(page, false, { git_items: { hosts: [{ host: "example.test", forgejo: false, account: null, error: null }], items: [item(1, "pull_request"), item(2, "issue"), item(3, "issue"), ...many] }, agent_hosts: [] });
+  await openDesktop(page, false, { git_items: { hosts: [{ error: null }], items: [item(1, "pull_request"), item(2, "issue"), item(3, "issue"), ...many] }, agent_hosts: [] });
   await page.getByRole("tab", { name: "PRs and issues" }).click();
   const cards = page.locator("#sec-git .bd-projects > .pl"), card = cards.filter({ hasText: "example/widget" });
   await expect(cards).toHaveCount(2);
@@ -76,7 +76,7 @@ test("Home keeps pull requests and issues to this week or one day, a day back at
   // A Thursday at noon: Monday of its week is three days back.
   const now = new Date(2026, 0, 15, 12).getTime(), hour = 3_600_000;
   await page.clock.setFixedTime(now);
-  const item = (number: number, ago: number) => ({ host: "example.test", repo: "example/widget", number, title: `Change ${number}`, kind: "issue", url: `https://example.test/example/widget/${number}`, updated_at: now - ago, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels: [] });
+  const item = (number: number, ago: number) => ({ host: "example.test", repo: "example/widget", number, title: `Change ${number}`, kind: "issue", url: `https://example.test/example/widget/${number}`, updated_at: now - ago, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, labels: [] });
   await openDesktop(page, false, { git_items: { hosts: [], items: [item(1, hour), item(2, 26 * hour), item(3, 72 * hour), item(4, 240 * hour)] }, agent_hosts: [] });
   await page.getByRole("tab", { name: "PRs and issues" }).click();
   const rows = page.locator("#sec-git .it"), period = (name: string | RegExp) => page.getByRole("radio", { name });
@@ -106,7 +106,7 @@ test("Home keeps pull requests and issues to this week or one day, a day back at
 });
 
 test("Machines retains a focused terminal action when another machine changes", async ({ page }) => {
-  const machine = (id: string, name: string) => ({ id, name, online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null });
+  const machine = (id: string, name: string) => ({ id, name, online: true, can_host: true, seen_at: 0, version: "1", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: null });
   const home = { machines: [machine("one", "Build box"), machine("two", "Test box")], projects: [], running: [], needs_you: [] };
   await openDesktop(page, false, { center_home: home, terminals_all: [] });
   await page.getByRole("tab", { name: "Machines" }).click();
@@ -125,14 +125,14 @@ test("Home shows unavailable and recently offline notices", async ({ page }) => 
   const home = { machines: null, projects: [], running: null, needs_you: [] };
   await openDesktop(page, false, { center_home: home });
   await expect(page.getByText("Machines and running sessions could not be read.")).toBeVisible();
-  const machine = { id: "one", name: "Build box", online: false, can_host: true, seen_at: Date.now(), version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
+  const machine = { id: "one", name: "Build box", online: false, can_host: true, seen_at: Date.now(), version: "1", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: null };
   await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, machines: [machine], running: [] });
   await expect(page.getByText("Build box is offline.")).toBeVisible();
 });
 
 test("A machine card folds its quiet projects and keeps the ones that need a look", async ({ page }) => {
   const stats = { sampled_at: 0, disks: [{ path: "/srv", free_bytes: 50, total_bytes: 1000 }], memory_used_mb: 1024, memory_total_mb: 4096, load: null };
-  const machine = (id: string, name: string, online: boolean) => ({ id, name, online, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: online ? stats : null });
+  const machine = (id: string, name: string, online: boolean) => ({ id, name, online, can_host: true, seen_at: 0, version: "1", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: online ? stats : null });
   const home = { machines: [machine("one", "Build box", true), machine("two", "Test box", false)], projects: [], running: [], needs_you: [] };
   const row = (project: string, status: string) => ({ project, machine_id: "one", status, files: 10, pending: 0, error: null });
   await openDesktop(page, false, { center_home: home, terminals_all: [], project_sync: [row("example/one", "in_sync"), row("example/two", "in_sync"), row("example/three", "failed")] });

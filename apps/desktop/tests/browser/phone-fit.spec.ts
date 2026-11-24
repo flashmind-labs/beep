@@ -11,7 +11,7 @@ const sessions = ["claude", "codex", "claude", "codex"].map((agent, i) => ({
   status: i < 2 ? "working" : "idle", doing: i < 2 ? `Running a long command with many arguments ${long}` : null, started_at: 1, last_activity: 1, external: false, question: null,
 }));
 const responses = {
-  center_home: { machines: machines.map(m => ({ ...m, online: true, can_host: true, seen_at: 0, version: "1", env: null, joined: true, apps: [], gpus: [], capabilities: [], agents: 0, stats: null })), projects, running: sessions, needs_you: [] },
+  center_home: { machines: machines.map(m => ({ ...m, online: true, can_host: true, seen_at: 0, version: "1", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: null })), projects, running: sessions, needs_you: [] },
   agent_sessions: sessions, project_sessions: sessions, mobile_paired: true,
 };
 
@@ -143,7 +143,7 @@ test("the phone Agents list shows a session that starts while it is open", async
 
 test("open issues with many long labels stay inside the phone screen", async ({ page }) => {
   const labels = ["domain:sinks", "domain:external docs", "sink:websocket", "docs review on hold for the release", "C-core", "C-main"];
-  const items = [1, 2, 3].map(n => ({ host: "example.test", repo: "other/project", number: n, kind: n % 2 ? "issue" : "pull_request", title: `A long issue title that keeps going ${long}`, url: `https://example.test/other/project/issues/${n}`, updated_at: 1, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, comments: 0, labels }));
+  const items = [1, 2, 3].map(n => ({ host: "example.test", repo: "other/project", number: n, kind: n % 2 ? "issue" : "pull_request", title: `A long issue title that keeps going ${long}`, url: `https://example.test/other/project/issues/${n}`, updated_at: 1, authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, labels }));
   await page.setViewportSize({ width: 402, height: 874 });
   await openDesktop(page, false, { ...responses, git_items: { items, hosts: [] } });
   await tab(page, "Projects").click();

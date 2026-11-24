@@ -15,7 +15,7 @@ test("Home lists the sessions that ended today under Done today", async ({ page 
 
 test("Home's queue opens a review on its host or hands it to an agent", async ({ page }) => {
   const pull = { host: "example.test", repo: "other/site", number: 12, kind: "pull_request", title: "Move the blog", url: "https://example.test/other/site/pull/12",
-    updated_at: 1, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false, comments: 0 };
+    updated_at: 1, authored: false, assigned: false, review_requested: true, draft: false, review: "none", checks_failing: false };
   await openDesktop(page, false, { git_items: { items: [pull, { ...pull, repo: projectName, number: 13, title: "Fix the feed", url: `https://example.test/${projectName}/pull/13` }], hosts: [] },
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] } });

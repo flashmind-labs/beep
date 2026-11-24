@@ -4,9 +4,6 @@ import type { Project } from "../project/projects-state.ts";
 
 /// A saved git host, as `git_items` lists it (GitHostRow).
 interface GitHostRow {
-  host: string;
-  forgejo: boolean;
-  account: string | null;
   error: string | null;
 }
 
@@ -27,7 +24,6 @@ export interface GitItemRow {
   /// `none`, `approved` or `changes_requested`.
   review: string;
   checks_failing: boolean;
-  comments: number;
   /// Missing from a list kept by an older app.
   labels?: string[];
   /// When it opened, in milliseconds since the Unix epoch. A host that does

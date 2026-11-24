@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
 test("usage updates retain the open popover and selected period", async ({ page }) => {
-  const spend = { project: "Example", cost_usd: 2, unpriced: [] };
+  const spend = { cost_usd: 2 };
   const period = { total: spend, tokens: 0, projects: [spend], harnesses: [] };
   const usage = { limits: [{ agent: "codex", account: null, plan: "pro", machine_name: "Build box", as_of: 0, windows: [{ minutes: 300, used_percent: 20, resets_at: null, scope: null }] }], today: period, week: period, month: period };
   await openDesktop(page, false, { usage_get: usage });
@@ -22,12 +22,12 @@ test("usage updates retain the open popover and selected period", async ({ page 
 });
 
 const subscribed = (() => {
-  const project = (name: string, tokens: number) => ({ project: name, cost_usd: 0, unpriced: [], metered_tokens: 0, subscription: [{ name: "claude", tokens }] });
+  const project = () => ({ cost_usd: 0 });
   const period = {
-    total: { project: "", cost_usd: 0, unpriced: [], metered_tokens: 0, subscription: [] },
+    total: { cost_usd: 0 },
     tokens: 39_300_000,
     daily: [{ first: "2026-03-06", last: "2026-03-06", project: "acme/widget", agent: null, cost_usd: 0, tokens: 38000000 }, { first: "2026-03-06", last: "2026-03-06", project: "acme/relay", agent: null, cost_usd: 0, tokens: 1300000 }],
-    projects: [project("acme/widget", 38_000_000), project("acme/relay", 1_300_000)],
+    projects: [project(), project()],
     harnesses: [{ agent: "claude", subscription: true, cost_usd: null, tokens: 39_300_000, models: [{ name: "claude-sonnet", tokens: 39_300_000 }] }],
   };
   const window = (minutes: number, used: number, scope: string | null = null) => ({ minutes, used_percent: used, resets_at: null, scope });
@@ -134,7 +134,7 @@ test("each named account's plan shows apart, under its name", async ({ page }) =
 });
 
 test("a provider balance shows whole dollars in the pill and cents in the popover", async ({ page }) => {
-  const period = { total: { project: "", cost_usd: 0, unpriced: [] }, tokens: 0, projects: [], harnesses: [] };
+  const period = { total: { cost_usd: 0 }, tokens: 0, projects: [], harnesses: [] };
   const credit = { provider: "openrouter", scope: "account", unit: "usd", remaining: "622.3218671", total: "1000", used: "377.6781329", resets: null };
   const written = { ...credit, remaining_short: "$622", remaining_full: "$622.32", used_full: "$377.68", total_full: "$1,000.00" };
   const usage = (credits: object[]) => ({ limits: [{ agent: "flsh", account: null, plan: null, machine_name: "build-box", as_of: Date.now(), windows: [], credits }], today: period, week: period, month: period });
