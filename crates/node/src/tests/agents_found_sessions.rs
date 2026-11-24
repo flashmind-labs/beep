@@ -52,3 +52,23 @@ async fn a_reset_makes_the_next_read_of_the_logs_start_over() {
     let again = agents.sighted(|_| true).await.expect("a read after the reset");
     assert!(!Arc::ptr_eq(&first.seen, &again.seen));
 }
+
+#[tokio::test]
+async fn stored_sessions_lock_one_at_a_time_each_and_the_lock_is_forgotten_after() {
+    let agents = Agents::new(Vec::new());
+    let (one, other) = (SessionId::from("one"), SessionId::from("other"));
+    let first = agents.store_of(&one);
+    let held = first.lock().await;
+
+    let same = agents.store_of(&one);
+    assert!(same.try_lock().is_err(), "the same session waits");
+    assert!(
+        agents.store_of(&other).try_lock().is_ok(),
+        "another session does not"
+    );
+
+    drop((held, same));
+    drop(first);
+    let _other = agents.store_of(&other);
+    assert_eq!(crate::lock(&agents.session_store).len(), 1);
+}

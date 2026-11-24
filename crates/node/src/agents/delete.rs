@@ -31,7 +31,8 @@ impl Agents {
     /// files go first, then the node's record of it, so a failure leaves
     /// the session listed. What it spent stays in the spend totals.
     pub(super) async fn delete_session(&self, agent: &str, id: &SessionId) -> Result<()> {
-        let _store = self.session_store.lock().await;
+        let store = self.store_of(id);
+        let _store = store.lock().await;
         let which = agent
             .parse::<Agent>()
             .ok()

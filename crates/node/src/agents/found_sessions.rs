@@ -7,6 +7,7 @@ use super::{
     window::clamp_limit,
 };
 use crate::{
+    AsyncMutex,
     agents::claude::{self, External},
     agents::found::{self, Agent},
 };
@@ -650,6 +651,28 @@ impl Agents {
         }
     }
 
+    /// The lock that keeps a resume, a delete and a move of one stored
+    /// session from interleaving. It is per session, by the agent's own id
+    /// when the session is here, so two sessions never wait on each other.
+    /// It lasts while a holder keeps the handle.
+    pub(super) fn store_of(&self, id: &SessionId) -> Arc<AsyncMutex<()>> {
+        let key = self
+            .get(id)
+            .and_then(|session| watched::read(&session.live, |live| live.agent_session.clone()))
+            .unwrap_or_else(|| id.clone());
+        let mut held = crate::lock(&self.session_store);
+        held.retain(|_, lock| lock.strong_count() > 0);
+
+        if let Some(lock) = held.get(&key).and_then(std::sync::Weak::upgrade) {
+            return lock;
+        }
+
+        let lock = Arc::new(AsyncMutex::new(()));
+        held.insert(key, Arc::downgrade(&lock));
+
+        lock
+    }
+
     /// Takes over the Claude Code session `id` started outside Beep, once
     /// nothing runs it; one this node already runs is returned as it is.
     /// `id` may also be one of this node's sessions that ended: it goes on
@@ -661,7 +684,8 @@ impl Agents {
         prompt: Option<String>,
         model: Option<ModelId>,
     ) -> Result<Arc<Session>> {
-        let _store = self.session_store.lock().await;
+        let store = self.store_of(id);
+        let _store = store.lock().await;
         anyhow::ensure!(
             !id.as_ref().starts_with("subagent:"),
             "This subagent is managed by its parent. Open the parent to continue it."

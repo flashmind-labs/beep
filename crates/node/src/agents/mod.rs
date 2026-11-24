@@ -174,8 +174,9 @@ host! {
         /// The adapters the node installs itself.
         adapters: adapters::Installs,
         sessions: sessions::Sessions,
-        /// Serializes changes to stored sessions against resuming them.
-        session_store: AsyncMutex<()>,
+        /// Serializes changes to a stored session against resuming it, one
+        /// lock for each session by the agent's own id; see `store_of`.
+        session_store: Mutex<HashMap<SessionId, std::sync::Weak<AsyncMutex<()>>>>,
         /// Claude Code sessions started outside Beep.
         external: External,
         /// Sessions held open by a local CLI, including idle prompts.

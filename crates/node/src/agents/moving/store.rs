@@ -154,7 +154,8 @@ impl Agents {
         id: &SessionId,
         destination: &str,
     ) -> anyhow::Result<()> {
-        let _store = self.session_store.lock().await;
+        let store = self.store_of(id);
+        let _store = store.lock().await;
         let which: Agent = agent.parse().ok().context("unknown agent")?;
         ensure!(
             matches!(which, Agent::Claude | Agent::Codex | Agent::Pi),
