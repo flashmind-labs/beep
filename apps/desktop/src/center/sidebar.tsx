@@ -24,7 +24,7 @@ import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
 import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
 import type { AgentRow } from "../agents/agents.ts";
-import { dropWhere, forgetProject, refresh } from "./refresh.ts";
+import { dropWhere, forgetProject } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
@@ -333,13 +333,12 @@ export function openProjects(name?: string | null) {
   return go("projects", { project: name || null });
 }
 
-/// Opens a project once it is in: Home and the found folders load again.
+/// Opens a project once it is in: the projects topic brings Home, and the found folders load again.
 function landed(p: { name: string }) {
   state.picked = p.name;
   sessionsDue.add(p.name);
   dropWhere(p.name);
   loadFound();
-  refresh();
   openProjects(p.name);
 }
 

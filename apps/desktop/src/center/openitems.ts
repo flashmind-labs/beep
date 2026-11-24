@@ -13,7 +13,6 @@ import { state } from "./state.ts";
 import { draw } from "./home.tsx";
 import { currentLocation, go } from "./views.tsx";
 import { loadFound } from "./sidebar.tsx";
-import { refresh } from "./refresh.ts";
 import { single } from "../ui/active.ts";
 import { prSession } from "../project/pr-session.ts";
 
@@ -99,7 +98,6 @@ export async function quickImport(p: OpenRepo) {
     if (here) { const { importFound } = await import("../addproject/addproject.tsx"); await importFound(here); }
     else keepLastImport(await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder: null, worktrees: [] }));
     rowImports.delete(p.key);
-    await refresh();
   } catch (e) {
     const error = reason(e);
     rowImports.set(p.key, { error });
@@ -118,7 +116,6 @@ function importWithSettings(p: OpenRepo) {
     macId: state.mac?.id || null,
     repo: importRepo(p),
     machine: machine?.id ?? null,
-    onDone: () => refresh(),
   }));
 }
 
