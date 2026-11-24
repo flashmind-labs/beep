@@ -11,7 +11,6 @@ use crate::{
         home::HOME_CHANGED,
         view_cache::{View, ViewCache},
     },
-    palette::lists::PaletteCache,
     tray::waiting::WaitingList,
 };
 use beep_mesh::machine::listing::{Host, Linked, apply_presence};
@@ -1056,10 +1055,7 @@ impl Outside for Desk {
     fn drawn(&self, drawn: Drawn) {
         let app = &self.app;
         let told = match drawn {
-            Drawn::Machine(_) => {
-                app.state::<PaletteCache>().sessions_changed();
-                Ok(())
-            }
+            Drawn::Machine(_) => Ok(()),
             Drawn::Listed => app.emit(HOME_CHANGED, ()),
             Drawn::Session(session) => {
                 // The tray reads again now that the rows hold the edit.

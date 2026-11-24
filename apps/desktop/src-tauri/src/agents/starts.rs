@@ -638,11 +638,8 @@ impl Link for MeshLink {
     }
 }
 
-/// Has the windows and the palette read their session lists again.
+/// Has the windows read their session lists again.
 fn sessions_changed(app: &AppHandle, id: StartId) {
-    app.state::<crate::palette::PaletteCache>()
-        .sessions_changed();
-
     if let Err(e) = app.emit(SESSIONS_CHANGED, id.to_string()) {
         log::warn!("could not tell the windows a start changed: {e}");
     }

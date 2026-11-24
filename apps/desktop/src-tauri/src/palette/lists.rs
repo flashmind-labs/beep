@@ -10,11 +10,11 @@ use super::{
 use crate::{
     agents::sessions::machine_sessions,
     center::{
-        home::{HOME_CHANGED, mesh_imports},
+        home::mesh_imports,
         lock, section,
         view_cache::{View, ViewCache, cache_view},
     },
-    fleet::Fleet,
+    fleet::{Fleet, home_signal::HomeSignal, session_mirror::SessionMirror},
     projects::branches::read_branches as read_project_branches,
 };
 use beep_fleet::Session as FleetSession;
@@ -28,7 +28,7 @@ use std::{
     },
     time::Duration,
 };
-use tauri::{AppHandle, Emitter, Listener, Manager, State, ipc::Response};
+use tauri::{AppHandle, Emitter, Manager, State, ipc::Response};
 use tokio::{join, select, sync::Notify, task::JoinSet, time::sleep};
 
 /// Tells the windows the index changed, with the index as JSON text.
@@ -269,11 +269,6 @@ impl PaletteCache {
         });
     }
 
-    /// A machine started or ended sessions: read them again, soon.
-    pub(crate) fn sessions_changed(&self) {
-        self.read_sessions.notify_one();
-    }
-
     /// Changes the lists and rebuilds the index. The windows hear of it only
     /// when the index came out different.
     fn update(&self, app: &AppHandle, change: impl FnOnce(&mut PaletteLists)) {
@@ -319,13 +314,6 @@ pub fn center_palette_refresh(cache: State<'_, PaletteCache>) {
 
 /// Keeps the index current for the app's life.
 pub(crate) async fn follow(app: AppHandle) {
-    for event in [HOME_CHANGED, "sessions-changed"] {
-        let handle = app.clone();
-        app.listen(event, move |_| {
-            handle.state::<PaletteCache>().read_sessions.notify_one()
-        });
-    }
-
     // A phone searches the machines' indexes; a desktop keeps copies.
     #[cfg(desktop)]
     let copies = super::copies::follow(app.clone());
@@ -336,6 +324,7 @@ pub(crate) async fn follow(app: AppHandle) {
         follow_local(&app),
         follow_branches(&app),
         follow_sessions(&app),
+        wake_on_sessions(&app),
         copies
     );
 }
@@ -391,6 +380,22 @@ async fn read_local_lists(app: &AppHandle) {
     app.state::<PaletteCache>().update(app, |lists| {
         lists.machines = Some(machines);
     });
+}
+
+/// Reads the sessions again when the mirror's rows change, or the signal Home follows says the
+/// starts, deletes or moves changed. The read loop's gap keeps a burst to one read.
+async fn wake_on_sessions(app: &AppHandle) {
+    let mut rows = app.state::<Arc<SessionMirror>>().watch();
+    let mut pokes = app.state::<Arc<HomeSignal>>().follow();
+
+    loop {
+        select! {
+            changed = rows.changed() => if changed.is_err() { return },
+            changed = pokes.changed() => if changed.is_err() { return },
+        }
+
+        app.state::<PaletteCache>().read_sessions.notify_one();
+    }
 }
 
 async fn follow_sessions(app: &AppHandle) {

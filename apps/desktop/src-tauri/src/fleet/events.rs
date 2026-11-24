@@ -1442,11 +1442,7 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
 
             match pushed {
                 Some(rows) => app.state::<Arc<SessionMirror>>().pushed(machine, rows),
-                None => {
-                    app.state::<Arc<SessionMirror>>().stale();
-                    app.state::<crate::palette::lists::PaletteCache>()
-                        .sessions_changed();
-                }
+                None => app.state::<Arc<SessionMirror>>().stale(),
             }
         }
         "agent" => {
