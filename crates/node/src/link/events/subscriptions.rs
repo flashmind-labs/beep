@@ -169,7 +169,11 @@ pub(crate) async fn serve(
             },
             result = passes.finished(), if !passes.is_empty() => {
                 // The roots are published now, and the watchers announce what changed.
-                result?;
+                // A pass that failed leaves its own watches unbound, not the stream.
+                if let Err(error) = result {
+                    tracing::warn!(%stream, "a topic pass failed: {error:#}");
+                }
+
                 roots = sources::roots(&subscriptions);
                 snapshots.replace(&offers, &topics, &queries, &roots);
 
