@@ -98,10 +98,13 @@ test("the project's sessions scroll under a header that stays put, and an idle o
   expect(top).toBeGreaterThanOrEqual((before?.y ?? 0) + (before?.height ?? 0));
 });
 
-test("closing a project's session opens its next running one, then the project once none is left", async ({ page }, info) => {
+test("closing the current session opens the next running one, then the project once none is left", async ({ page }, info) => {
   const modifier = info.project.name === "Windows" ? "Control" : "Meta";
   const past = { machine_id: "build-box", machine_name: "build-box", id: "past-0", agent: "codex", title: "Past session 0", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100, external: false, question: null, assistant: false };
-  await openDesktop(page, false, { project_sessions: [past] });
+  const project = { name: projectName, url: "https://example.test/example/widget", machine_id: past.machine_id, machine_name: past.machine_name, folder: past.cwd, cloned: true, imported_at: 1 };
+  const first = { ...past, kind: "agent", id: "notice-one", title: "First notification", status: "working" };
+  const second = { ...first, id: "notice-two", title: "Second notification", status: "idle" };
+  await openDesktop(page, false, { project_sessions: [past], center_home: { machines: [], projects: [project], running: [first, second], needs_you: [] } });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
   await page.locator(".pj-det .pv-row").filter({ hasText: "Past session 0" }).click();
   const rail = page.locator("#rail"), current = rail.locator('.pj-li[aria-current="true"]');
@@ -111,11 +114,41 @@ test("closing a project's session opens its next running one, then the project o
 
   // The last one hands over round to the first; the last one left goes to the project, its
   // sessions still beside it.
-  await page.keyboard.press(`${modifier}+Shift+w`);
+  await current.click({ button: "middle" });
   await expect(current).toHaveText(/First notification/);
   await page.keyboard.press(`${modifier}+Shift+w`);
   await expect(rail.locator(".rail-live")).toHaveCount(0);
   await expect(page.getByRole("heading", { level: 2, name: projectName })).toBeVisible();
+});
+
+test("middle-click closes only an idle session and restores it on failure", async ({ page }) => {
+  const past = { machine_id: "build-box", machine_name: "Build box", id: "past", agent: "codex", title: "Past session", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 1, external: false, question: null };
+  const idle = { ...past, id: "idle", title: "Idle session", status: "idle" };
+  const external = { ...idle, id: "external", title: "External session", external: true };
+  await openDesktop(page, false, { project_sessions: [past, idle, external] });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  await page.locator(".pj-det .pv-row").filter({ hasText: "Past session" }).click();
+  const rail = page.locator("#rail");
+  const current = rail.locator('.pj-li[aria-current="true"]');
+  const target = rail.getByRole("button", { name: /Idle session/ });
+  const closes = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer"));
+
+  await current.click({ button: "middle" });
+  await rail.getByRole("button", { name: /Second notification/ }).click({ button: "middle" });
+  await rail.getByRole("button", { name: /External session/ }).click({ button: "middle" });
+  expect(await closes()).toEqual([]);
+
+  await page.evaluate(() => window.__navigation.rejectOnce("agent_steer", "Close refused"));
+  await target.click({ button: "middle" });
+  await expect(page.getByRole("alert")).toContainText("Close refused");
+  await expect(target).toBeVisible();
+
+  await target.click({ button: "middle" });
+  await expect(target).toHaveCount(0);
+  await expect(current).toHaveText(/Past session/);
+  await expect(rail.getByRole("button", { name: /First notification/ })).toBeVisible();
+  const close = { command: "agent_steer", args: { machineId: "build-box", agent: "codex", session: "idle", steer: "close" } };
+  expect(await closes()).toEqual([close, close]);
 });
 
 test("the project's sessions end on its painting and a card of its pull requests, issues, Actions and machines", async ({ page }) => {

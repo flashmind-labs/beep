@@ -651,16 +651,24 @@ export const sessionPicks = new SessionPicks();
 
 /// Closes the open session, preserving its conversation for later.
 export async function closeOpenSession() {
-  const s = AG.page?.session, o = AG.open;
-  if (AG.draft || !s || !o || shownStatus(s) === "closing" || !sessionOffers({ ...s, status: shownStatus(s) }).close) return;
+  const s = AG.page?.session;
+  if (!AG.draft && s && AG.open) await closeAgentSession(s);
+}
+
+/// Closes a session from its view or the Running list.
+export async function closeAgentSession(s: AgentRow) {
+  const status = shownStatus(s);
+  if (status === "closing" || !sessionOffers({ ...s, status }).close) return;
+
+  const open = S.view === "agent" && !AG.draft && sameSession(AG.open, s) ? AG.open : null;
   const closing = closeSession(s);
   // Leave before the machine acknowledges the close.
-  agentBack(true);
+  if (open) agentBack(true);
 
   try {
     await closing;
   } catch (e) {
-    if (isOpen(o) && paneShown()) {
+    if (open && isOpen(open) && paneShown()) {
       AG.note = readError(e);
       drawAgentBody();
     } else {

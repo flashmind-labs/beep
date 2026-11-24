@@ -12,6 +12,8 @@ import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { ProjectArt } from "../ui/painted-art.tsx";
 import { SideToggle } from "../center/sidebar-shell.tsx";
 import { sessionMenu } from "../agents/sessionmenu.ts";
+import { sessionOffers } from "../agents/sessionmenu-state.ts";
+import { closeAgentSession } from "../agents/session.tsx";
 import type { AgentRow, AgentSession } from "../agents/agents.ts";
 import { go } from "../center/views.tsx";
 import { FreshNote } from "./page-view.tsx";
@@ -34,9 +36,15 @@ export function LabelGroup({ filter }: { filter: LabelFilter }) {
   return <div className="pj-labels">{filter.all.map(label => <Label key={label} label={label} filter={filter} button/>)}</div>;
 }
 
-export function Row({ item, picked, filter, nav, openTile }: { item: SplitItem; picked: string | null; filter?: LabelFilter; nav: boolean; openTile: (key: string) => void }) {
+export function Row({ item, picked, filter, nav, openTile, onMiddleClick }: { item: SplitItem; picked: string | null; filter?: LabelFilter; nav: boolean; openTile: (key: string) => void; onMiddleClick?: () => void }) {
   return <button type="button" className={`pj-li${nav ? " nav" : ""}`} title={item.title} aria-current={item.key === picked ? "true" : undefined}
-    onClick={() => item.open ? item.open() : openTile(item.key)} onContextMenu={item.menu ? e => item.menu?.(e.nativeEvent) : undefined}>
+    onClick={() => item.open ? item.open() : openTile(item.key)} onContextMenu={item.menu ? e => item.menu?.(e.nativeEvent) : undefined}
+    onMouseDown={onMiddleClick && (event => { if (event.button === 1) event.preventDefault(); })}
+    onAuxClick={onMiddleClick && (event => {
+      if (event.button !== 1) return;
+      event.preventDefault();
+      onMiddleClick();
+    })}>
     {nav ? <><span className="t"><b>{item.title}</b></span><span className="c">{item.sub}</span></> : <>
       {item.lead && <span className="lead">{item.lead}</span>}<span className="t"><b>{item.title}</b><span>{item.sub}{item.tags?.map(label => filter ? <Label key={label} label={label} filter={filter}/> : <i className="pj-tag" key={label}>{label}</i>)}</span></span>
       <span className="r">{item.right}</span>
@@ -100,13 +108,14 @@ export function RailList({ head = null, running, past, current, more, noun = "se
   });
   const matches = (row: AgentRow) => !needle || (row.title || agentName(row.agent)).toLowerCase().includes(needle);
   const live = running.filter(matches), ended = past.filter(matches);
-  const row = (session: AgentRow, right: ReactNode, sub: ReactNode = "") => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} item={{
+  const row = (session: AgentRow, right: ReactNode, sub: ReactNode, close?: () => void) => <Row key={runningKey(session)} picked={current} nav={false} openTile={() => {}} onMiddleClick={close} item={{
     key: runningKey(session), lead: <HarnessIcon agent={session.agent} />, title: session.title || agentName(session.agent), sub, right,
     open: () => go("pane", { agent: session }),
     menu: event => void sessionMenu(event, session, picked => go("pane", { agent: picked })),
   }} />;
 
-  const liveRow = (session: RunningAgent) => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, <><PersonaTag persona={session.persona} />{workLine(session)}</>);
+  const liveRow = (session: RunningAgent) => row(session, <><RunningStatus row={session} /><LineCounts changes={session.changes} /></>, <><PersonaTag persona={session.persona} />{workLine(session)}</>,
+    session.status === "idle" && sessionOffers(session).close ? () => void closeAgentSession(session) : undefined);
 
   return <>
     <input className="ip-field rail-filter" type="search" placeholder={`Filter ${noun}`} aria-label={`Filter ${noun}`} spellCheck={false} value={filter} onChange={e => setFilter(e.currentTarget.value)} />
