@@ -11,7 +11,7 @@ import { agentDrop } from "../chat/attach.tsx";
 import { fileLinkMenu } from "./filelinks.ts";
 import { agentKey, conversationHistory, conversationKey, retitle, sessionKey, type Retitled } from "./conversation-state.ts";
 import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
-import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
+import { $, type AgentReturn, bar, S, windowHooks, setView } from "../bar/core.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
 import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
@@ -89,7 +89,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     }
 
     if (from === undefined) AG.back = S.view === "agents" ? "agents" : "hide";
-    S.view = "agent";
+    setView("agent");
     Object.assign(AG, { sig: "", rest: "" });
     drawAgentFrame(false, followLatest(keptLogs.get(sessionKey(s))?.body ?? null));
     watchRead(AG.open!);
@@ -105,7 +105,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
   rememberMentionImages();
   leaveLog();
-  S.view = "agent";
+  setView("agent");
   AG.draft = null;
   const open: OpenAgent = openOf(s);
   const log = inPlace ? null : keptLogs.get(sessionKey(s)) ?? null;

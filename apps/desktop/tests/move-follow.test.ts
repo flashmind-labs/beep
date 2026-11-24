@@ -2,7 +2,7 @@ import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
-import { S } from "../src/bar/core.ts";
+import { setView } from "../src/bar/core.ts";
 import { SLOW_MS } from "../src/ui/active.ts";
 import { drawMove } from "../src/agents/move.ts";
 import { moveStore } from "../src/agents/move-store.ts";
@@ -23,7 +23,7 @@ test("the open conversation follows a completed move even when its target lists 
   const page: AgentPage = { session: source, plan: [], entries: [], earlier: 0, error: null, queued: 0, turns: 0, usage: null };
   const record = { session: "s1", agent: "codex", from: "laptop", to: "studio", project: "acme/app", at: Date.now() };
   const progress = { answer: "known" as const, phase: "done" as const, copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false, files_copied: 0, files_total: 0 };
-  S.view = "agent";
+  setView("agent");
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
   // This check draws the header; the composer needs native textarea accessors.
   const query = bar.querySelector.bind(bar);
@@ -67,7 +67,7 @@ test("taking over an external session retains the transcript and dock", t => {
   const page: AgentPage = { session, plan: [], entries: [], earlier: 0, error: null, queued: 0, turns: 0, usage: null };
   Object.assign(AG, { open: { machine_id: session.machine_id, agent: session.agent, session: session.id }, page, modes: null, tasks: [], queue: [] });
   Object.assign(answers, { agent_tasks: [], editors: [], agent_hosts: [], session_moves: [] });
-  S.view = "agent";
+  setView("agent");
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
   drawAgentFrame();
   const body = bar.querySelector<ChatBody>("#agbody"), dock = bar.querySelector("#agpane-right");
@@ -85,7 +85,7 @@ test("a cached transcript survives reattachment and is released when replaced", 
   const page: AgentPage = { session, plan: [], entries: [{ kind: "user", text: "Check" }, { kind: "agent", text: "Answer" }], earlier: 0, error: null, queued: 0, turns: 0, usage: null };
   Object.assign(AG, { open: { machine_id: session.machine_id, agent: session.agent, session: session.id }, page, modes: null, tasks: [], queue: [] });
   Object.assign(answers, { agent_tasks: [], editors: [], agent_hosts: [], session_moves: [] });
-  S.view = "agent";
+  setView("agent");
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
   drawAgentFrame();
   const body = bar.querySelector<ChatBody>("#agbody"); assert.ok(body);

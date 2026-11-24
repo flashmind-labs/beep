@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { MACHINES } from "../src/machines/machine-store.ts";
 import { machinesIn, machinesOut, renderMachines } from "../src/machines/machines.tsx";
-import { S } from "../src/bar/core.ts";
+import { setView } from "../src/bar/core.ts";
 import { openBarPage } from "../src/bar/bar-app.tsx";
 import { flushSync } from "react-dom";
 
@@ -15,12 +15,12 @@ answers.tool_updates = [];
 
 /// Another page opens in the bar, as when the user leaves Machines.
 function leave() {
-  S.view = "waiting";
+  setView("waiting");
   flushSync(() => openBarPage(() => {}).show({ view: "none" }));
 }
 
 test("the bar's machine screen unmounts when another page opens and draws again when reopened", async () => {
-  S.view = "machines";
+  setView("machines");
   await renderMachines();
   const add = bar.querySelector("#mcAdd");
   assert.ok(add);
@@ -29,7 +29,7 @@ test("the bar's machine screen unmounts when another page opens and draws again 
   assert.equal(bar.querySelector("#mcAdd"), null);
   assert.equal(add.isConnected, false);
 
-  S.view = "machines";
+  setView("machines");
   await renderMachines();
   assert.ok(bar.querySelector("#mcAdd"));
   assert.notEqual(bar.querySelector("#mcAdd"), add);
@@ -72,7 +72,7 @@ test("overlapping machine refreshes share one read", async () => {
   const first = new Promise(resolve => { finish = resolve; });
   answers.list_machines = first;
   Object.assign(MACHINES, { list: null });
-  S.view = "machines";
+  setView("machines");
   const before = calls.filter(call => call.cmd === "list_machines").length;
   const one = renderMachines();
   const two = renderMachines();

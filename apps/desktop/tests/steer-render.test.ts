@@ -1,7 +1,7 @@
 import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { S } from "../src/bar/core.ts";
+import { setView } from "../src/bar/core.ts";
 import { AG, type AgentModes, type AgentPage, type AgentTask, type OpenAgent } from "../src/agents/agents.ts";
 import { drawAgentBody } from "../src/agents/logview.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
@@ -25,7 +25,7 @@ function setup() {
   globalThis.getSelection = () => null;
   globalThis.getComputedStyle = () => ({ rowGap: "0" }) as CSSStyleDeclaration;
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
-  S.view = "agent";
+  setView("agent");
   const page: AgentPage = {
     session: { machine_id: "m1", machine_name: "build-box", id: "steer-render", agent: "claude", cwd: "/srv/project", status: "working", external: false, question: null },
     entries: [{ kind: "user", text: "Check the build" }, { kind: "other", text: "Compacting the conversation" }],
@@ -327,11 +327,11 @@ test("leaving the agent disposes its queue view but keeps pending messages", asy
   AG.queue = [item];
   drawQueue();
   assert.ok(bar.querySelector("#agqueue"));
-  S.view = "waiting";
+  setView("waiting");
   await settle();
   assert.equal(bar.querySelector("#agqueue"), null);
   assert.equal(AG.queue[0], item);
-  S.view = "agent";
+  setView("agent");
   drawQueue();
   assert.ok(bar.querySelector("#agqueue")?.textContent.includes("Pending"));
 });

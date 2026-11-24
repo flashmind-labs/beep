@@ -2,7 +2,7 @@ import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
-import { S } from "../src/bar/core.ts";
+import { setView } from "../src/bar/core.ts";
 import { sendAgentMessage, steerMessage, stopAllWork } from "../src/agents/messages.ts";
 import { pollAgent } from "../src/agents/session.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
@@ -23,7 +23,7 @@ function openSession(status: string): AgentPage {
   if (previous) disposeLogShell(previous);
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
   const page: AgentPage = { session, plan: [], entries: [], earlier: 0, error: null, queued: 0, turns: 0, usage: null };
-  S.view = "agent";
+  setView("agent");
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
   Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], flushing: false, inflight: null, stopping: null, tasks: [] });
   Object.assign(MN, { paths: [], uploads: [], ask: null });

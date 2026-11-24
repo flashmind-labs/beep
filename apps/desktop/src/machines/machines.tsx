@@ -10,7 +10,7 @@ import { openAddMachine } from "./addmachine.tsx";
 import { ensureMachines, MACHINES, removeListed, renameListed, takeTraffic } from "./machine-store.ts";
 import { openJoinTicket } from "./jointicket.tsx";
 import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-state.ts";
-import { S } from "../bar/core.ts";
+import { S, setView } from "../bar/core.ts";
 import { type BarPage, type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { hintModel } from "../bar/hints.ts";
 import { notice } from "../chat/media.tsx";
@@ -112,7 +112,7 @@ export async function renderMachines(id: string | null = null) {
   if (at) {
     at.machine = id;
   } else {
-    S.view = "machines";
+    setView("machines");
   }
 
   MC.asking = null;

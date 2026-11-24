@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 import assert from "node:assert/strict";
 import { flushSync } from "react-dom";
 import { openBarPage } from "../src/bar/bar-app.tsx";
-import { S, connectWindow, windowHooks, type BackTo, type AgentReturn, type WindowHooks } from "../src/bar/core.ts";
+import { S, setView, connectWindow, windowHooks, type BackTo, type AgentReturn, type WindowHooks } from "../src/bar/core.ts";
 import { AG, type AgentPage, type AgentRow, agentBack, agentKeys, agentsList, drawAgents, usageLine } from "../src/agents/agents.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
@@ -51,7 +51,7 @@ function openSession(status: string, polls = false): AgentPage {
   forgetAgentFollows();
   const session: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "claude", cwd: "/srv/project", status, external: false, question: null };
   const page: AgentPage = { session, plan: [], entries: [], earlier: 0, error: null, queued: 0, turns: 0, usage: null };
-  S.view = "agent";
+  setView("agent");
   Object.assign(AG, { open: { machine_id: "m1", agent: "claude", session: "s1" }, page, queue: [], note: "", att: [], inflight: null, stopping: null });
   visible(polls);
   Object.assign(MN, { paths: [], uploads: [], ask: null });
@@ -220,11 +220,11 @@ for (const [when, settled] of [["before", false], ["after", true]] as const) {
 
     // The first delta waits for its frame; the view is left before it comes.
     send("delta", 1, "first", "working");
-    S.view = "waiting";
+    setView("waiting");
     if (settled) await settle();
     send("delta", 2, "second", "idle");
     runFrames();
-    S.view = "agent";
+    setView("agent");
     await pollAgent(true);
 
     assert.deepEqual(AG.page?.entries.map(entry => entry.text), ["hello", "first", "second"]);
@@ -504,7 +504,7 @@ test("replacing the shared session list does not change what a drawn row opens",
   agentsListDom(t);
   const row = (id: string) => ({ machine_id: "m1", machine_name: "build-box", id, agent: "claude", cwd: "/srv/project", status: "idle", external: false, question: null });
   answers.agent_sessions = [row("a1"), row("a2")];
-  S.view = "agents";
+  setView("agents");
   agentsList.setState({ selected: 0 });
   await loadSessions();
   drawAgents(false);
@@ -554,7 +554,7 @@ for (const back of ["agents", { view: "projects", arg: { project: "acme/widget",
     agentsListDom(t);
     const previous = windowHooks;
     t.mock.timers.enable({ apis: ["setInterval"] });
-    t.after(() => { connectWindow(previous!); S.view = "agent"; });
+    t.after(() => { connectWindow(previous!); setView("agent"); });
     openSession("idle");
     Object.assign(AG, { back, draft: null, child: null, modelOpen: false });
     show({});
@@ -580,7 +580,7 @@ function closeDestination(t: test.TestContext, from: BackTo = { view: "home", ar
   const previous = windowHooks;
   connectWindow({
     goBack() { assert.fail("should open the session's project"); },
-    sessionProject() { return { label: "widget", name: "acme/widget", open() { S.view = "agents"; }, afterClose() { S.view = "agents"; } }; },
+    sessionProject() { return { label: "widget", name: "acme/widget", open() { setView("agents"); }, afterClose() { setView("agents"); } }; },
   } as unknown as WindowHooks);
   AG.back = from;
   t.after(() => connectWindow(previous!));
@@ -621,7 +621,7 @@ for (const from of [{ view: "home", arg: null }, { view: "projects", arg: { proj
     assert.equal(agentKeys(event, true), false);
     assert.deepEqual(steers(), ["close"]);
     assert.equal(prevented, 1);
-    S.view = "waiting";
+    setView("waiting");
     finish(null);
     await settle();
     assert.equal(S.view, "waiting");
@@ -651,7 +651,7 @@ test("closing removes list rows and counts before the reply, survives stale read
   const running = [{ ...closing, kind: "agent" as const }, { ...other, kind: "agent" as const }];
   answers.agent_sessions = [closing, other];
   await loadSessions();
-  S.view = "agents";
+  setView("agents");
   agentsList.setState({ selected: 1 });
   show({});
   drawAgents(false);

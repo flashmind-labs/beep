@@ -3,7 +3,7 @@
 // empty conversation. Sending from it starts the session in place (session.ts
 // openAgent with `adopt`); the pane and its terminals stay.
 import { createStore } from "zustand/vanilla";
-import { S, windowHooks } from "../bar/core.ts";
+import { S, windowHooks, setView } from "../bar/core.ts";
 import { rebindPane, startPane } from "../agentpane/media.ts";
 import { drawProjectComp, pointBar, projectComp } from "../project/composer.tsx";
 import type { BarPlace } from "../project/projectbar.ts";
@@ -36,7 +36,7 @@ export function openDraft(project: string, on: string | null) {
     leaveLog();
     clearPage();
     Object.assign(AG, { open: null, draft: project, inflight: null });
-    S.view = "agent";
+    setView("agent");
     drawFrame(project);
   }
 

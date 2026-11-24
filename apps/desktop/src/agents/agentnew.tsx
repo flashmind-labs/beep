@@ -18,7 +18,7 @@ import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 import { openAgent, sessionPicks, startedWith } from "./session.tsx";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.tsx";
 import { AGENT_ORDER, allowedOf, type BaseBranches, baseFor, byPreference, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
-import { type AgentReturn, PANE, S } from "../bar/core.ts";
+import { type AgentReturn, PANE, S, setView } from "../bar/core.ts";
 import { completed, type FolderMenu, isOpen, menuKey, menuOf, NO_MENU, splitTyped, suggest } from "../addproject/foldercomplete.ts";
 import { folderOn, type MachineFolder } from "../project/projects-state.ts";
 import { projectHarnesses, readProjectHarnesses } from "../project/project-harnesses.tsx";
@@ -118,7 +118,7 @@ let assistantDraft = "";
 /// `assistant` starts the Home assistant: no project, the machine's home folder.
 export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: AgentPlace | null = null, assistant = false) {
   if (assistant) prompt ||= assistantDraft;
-  S.view = "agentnew";
+  setView("agentnew");
   AG.back = from;
   AG.form = assistant
     ? { prompt, assistant, machine: "", machinePicked: false, agent: null, cwd: "", project: null, checkout: DEFAULT_CHECKOUT, base: null, baseTyping: false, effort: null, open: null, query: "", typing: false }

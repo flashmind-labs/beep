@@ -2,7 +2,7 @@ import { answers, bar, calls } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage } from "../src/agents/agents.ts";
-import { S } from "../src/bar/core.ts";
+import { setView } from "../src/bar/core.ts";
 import { loadOlder } from "../src/agents/older.ts";
 
 function page(earlier: number, count: number): AgentPage {
@@ -15,7 +15,7 @@ function page(earlier: number, count: number): AgentPage {
 
 function start() {
   bar.innerHTML = "";
-  S.view = "agent";
+  setView("agent");
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: "s1" }, page: page(400, 1), older: { stop: "", reading: null } });
   calls.length = 0;
 }

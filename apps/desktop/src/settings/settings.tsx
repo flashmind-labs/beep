@@ -13,7 +13,7 @@ import { AppearanceView, ComputerView } from "./local-view.tsx";
 import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading, type AgentsTab } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import { agentAccountsContent, credentialsContent, renderCreds, CRED, loadAgentAccounts, loadCreds } from "./accounts.tsx";
-import { bar, S, toWindow, windowHooks } from "../bar/core.ts";
+import { bar, S, toWindow, windowHooks, setView } from "../bar/core.ts";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { hintModel } from "../bar/hints.ts";
 import { machinesIn, machinesOut, renderMachines } from "../machines/machines.tsx";
@@ -63,7 +63,7 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
   else if (SET.root && !SET.root.isConnected) SET.root = null;
   // The window shows Settings as its sheet, never as a page of the pane.
   if (!SET.root && windowHooks) return windowHooks.openSettings();
-  if (!SET.root) S.view = "settings";
+  if (!SET.root) setView("settings");
   const token = ++SET.token;
   const alive = () => SET.token === token && setShown();
 

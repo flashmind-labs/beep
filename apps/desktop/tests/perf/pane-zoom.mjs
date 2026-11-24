@@ -5,7 +5,7 @@ import { buildSync } from "esbuild";
 import { playwright, stubInit } from "./stub.mjs";
 
 const code = buildSync({
-  stdin: { contents: `export { S } from "./src/bar/core.ts";
+  stdin: { contents: `export { setView } from "./src/bar/core.ts";
     export { paneFrame, startPane, showChanges, leavePane } from "./src/agentpane/media.ts";
     export { draw } from "./src/agentpane/media-draw.ts";`, resolveDir: process.cwd() },
   bundle: true, write: false, format: "iife", globalName: "zoomCheck",
@@ -40,7 +40,7 @@ try {
   });
   await page.addScriptTag({ content: code });
   await page.evaluate(() => {
-    zoomCheck.S.view = "agent";
+    zoomCheck.setView("agent");
     document.querySelector("#bar").innerHTML = `<div class="agshell" id="agshell">${zoomCheck.paneFrame('<div class="agconv"><div id="agbody" class="dbody"></div><textarea id="agmsg"></textarea></div>')}</div>`;
     document.querySelector("#agbody").innerHTML = Array.from({ length: 300 }, (_, i) => `<p>Paragraph ${i}: ${"Example text for the conversation. ".repeat(20)}</p>`).join("");
     zoomCheck.startPane({ machine_id: "machine", machine_name: "build-box", id: "session", agent: "claude", cwd: "/srv/project", external: false });

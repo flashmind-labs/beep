@@ -12,7 +12,7 @@ import type { Note } from "../center/notices-state.ts";
 import { formatAgo } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
-import { $, bar, newChat, PANE, S } from "./core.ts";
+import { $, bar, newChat, PANE, S, setView } from "./core.ts";
 import { hintModel } from "./hints.ts";
 import { type BarPageSlot, openBarPage } from "./bar-app.tsx";
 import { waitingSessions, type WaitingSession } from "./waiting-state.ts";
@@ -29,7 +29,7 @@ let page: BarPageSlot | null = null;
 /// Shows the list. Known sessions draw at once; a read follows only when a
 /// change came since.
 export function renderWaiting() {
-  S.view = "waiting";
+  setView("waiting");
   W.sel = 0;
   W.query = "";
   drawWaiting(true);

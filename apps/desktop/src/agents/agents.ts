@@ -24,7 +24,7 @@ import { mainTarget } from "../project/projectwindow.ts";
 import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
 import { draftEsc } from "./draft-state.ts";
-import { type AgentReturn, bar, PANE, S, toWindow, windowHooks } from "../bar/core.ts";
+import { type AgentReturn, bar, PANE, S, toWindow, windowHooks, setView } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { renderWaiting } from "../bar/waiting.ts";
 import { openAgent, closeOpenSession, submitAgentMessage } from "./session.tsx";
@@ -462,7 +462,7 @@ export function ensureAgentHosts(): Promise<AgentHost[]> {
 // ----- Every session -----
 
 export async function renderAgents() {
-  S.view = "agents";
+  setView("agents");
   agentsList.setState({ selected: 0, endedOpen: false });
   drawAgents(true);
 
