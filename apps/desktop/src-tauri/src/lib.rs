@@ -209,7 +209,6 @@ pub fn run() {
             agents::diff::agent_places,
             agents::diff::agent_worktrees,
             agents::diff::agent_commands,
-            agents::processes::agent_processes,
             agents::processes::agent_stop_process,
             machines::forwards::machine_forward_port,
             agents::processes::agent_close_external,

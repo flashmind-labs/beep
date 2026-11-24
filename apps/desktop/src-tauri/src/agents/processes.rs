@@ -1,61 +1,19 @@
-//! Commands left running by a session, read and stopped on its own machine,
+//! Commands left running by a session, stopped on its own machine,
 //! and the process of a session started outside Beep, ended to continue it here.
 
 use crate::{
     error::{DesktopError, Result},
     fleet::{
         Machines,
-        asked::SMALL_LIMIT,
         node_actor::{FAST_JOB_WAIT, JobKind},
     },
 };
 use beep_mesh::MeshError;
 use beep_proto::SessionId;
-use beep_proto::node::agent::{RunningProcess, SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
-use serde::Serialize;
+use beep_proto::node::agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
 use std::time::Duration;
 use tauri::AppHandle;
 use tokio::time::{error::Elapsed, timeout};
-
-#[derive(Serialize)]
-pub struct ProcessesView {
-    processes: Vec<RunningProcess>,
-}
-
-#[tauri::command]
-pub async fn agent_processes(
-    fleet: Machines<'_>,
-    machine_id: String,
-    session: SessionId,
-) -> Result<ProcessesView> {
-    let Some(machine) = fleet.member(&machine_id) else {
-        return Ok(ProcessesView {
-            processes: Vec::new(),
-        });
-    };
-    let read = async {
-        let request = SessionsRequest::Processes {
-            session: session.clone(),
-        };
-        let client = fleet.client(machine).await?;
-        Ok::<_, DesktopError>(
-            client
-                .call::<_, SessionsReply>(SESSIONS_PROTOCOL, &request)
-                .await?,
-        )
-    };
-    let step = "reading the session's running commands";
-    let reply = fleet
-        .asked(machine, &session, step, SMALL_LIMIT, read)
-        .await?;
-    match reply {
-        SessionsReply::Processes { processes } => Ok(ProcessesView { processes }),
-        SessionsReply::Error { message } => Err(DesktopError::BadRequest(message)),
-        _ => Err(DesktopError::BadRequest(
-            "The machine cannot list running commands yet.".into(),
-        )),
-    }
-}
 
 #[tauri::command]
 pub async fn agent_stop_process(

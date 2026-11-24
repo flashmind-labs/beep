@@ -64,7 +64,6 @@ test("the last process list shows at once when a session opens again, with no re
   await page.evaluate(() => window.__navigation.processes([{ pid: 42, command: "second process", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] }]));
   await expect(page.getByText("second process")).toBeVisible();
   await expect(page.getByText("first process")).toHaveCount(0);
-  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_processes").length)).toBe(0);
 });
 
 test("running pane keeps its scroll and handlers after leaving and reopening the session", async ({ page }) => {
