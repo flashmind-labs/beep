@@ -114,6 +114,9 @@ struct Session {
     settings: Settings,
     /// The prompt that runs, until its turn ends.
     running: Option<Running>,
+    /// The turn `turn/started` named while no prompt ran, which the prompt
+    /// about to start may take when Codex's answer names none.
+    started: Option<String>,
     /// Items whose text came as deltas, which their completion leaves out.
     streamed: HashSet<String>,
     /// The thread's tokens so far.
@@ -360,6 +363,7 @@ impl Bridge {
             server,
             settings,
             running: None,
+            started: None,
             streamed: HashSet::new(),
             tokens: Tokens::default(),
         };
@@ -404,7 +408,7 @@ impl Bridge {
             Ok(started) => {
                 session.running = Some(Running {
                     prompt: responder,
-                    turn: started["turn"]["id"].as_str().map(str::to_owned),
+                    turn: started_turn(&started, &mut session.started),
                     cancelled: false,
                     prompted_at: session.tokens,
                     failure: None,
@@ -537,8 +541,11 @@ impl Bridge {
                 None
             }
             "turn/started" => {
-                if let Some(running) = session.running.as_mut() {
-                    running.turn = params["turn"]["id"].as_str().map(str::to_owned);
+                let turn = params["turn"]["id"].as_str().map(str::to_owned);
+
+                match session.running.as_mut() {
+                    Some(running) => running.turn = turn,
+                    None => session.started = turn,
                 }
 
                 None
@@ -583,9 +590,19 @@ impl Bridge {
     }
 }
 
+/// The turn a `turn/start` answer names, else the one `turn/started` named
+/// before it.
+fn started_turn(answer: &Value, seen: &mut Option<String>) -> Option<String> {
+    answer["turn"]["id"]
+        .as_str()
+        .map(str::to_owned)
+        .or(seen.take())
+}
+
 /// The turn `turn` ended: the prompt it ran is answered.
 fn ended(session: &mut Session, turn: &Value) -> Result<()> {
     session.streamed.clear();
+    session.started = None;
     let Some(Running {
         prompt: responder,
         cancelled,
@@ -814,3 +831,7 @@ fn input(prompt: &[ContentBlock]) -> Vec<Value> {
 fn text<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key].as_str().unwrap_or_default()
 }
+
+#[cfg(test)]
+#[path = "../../tests/agents_codex_direct_bridge.rs"]
+mod tests;
