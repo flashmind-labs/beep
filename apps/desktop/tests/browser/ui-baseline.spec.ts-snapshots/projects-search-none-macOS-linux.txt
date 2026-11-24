@@ -101,6 +101,9 @@ body.cbody
           button.dbtn.pj-tool.small [aria-label="New group" type="button"] "New group"
             span style(display)
               svg [fill="none" height="12" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
+          button.dbtn.pj-tool.small [aria-label="Join team" type="button"] "Join team"
+            span style(display)
+              svg [fill="none" height="14" stroke-linecap="round" stroke-width="2.2" stroke="currentColor" viewBox="0 0 24 24" width="14"]
           button.dbtn.fab.pj-tool.small [aria-label="Add a project" type="button"] "Add a project"
             span style(display)
               svg [fill="none" height="14" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="14"]

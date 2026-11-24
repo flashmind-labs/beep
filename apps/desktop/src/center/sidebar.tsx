@@ -372,7 +372,6 @@ export function addProject() {
       onBack: addProject,
       onClone: repo => importSheet(repo),
     })),
-    onJoinTeam: onPhone() ? undefined : () => void import("../project/teamjoin.tsx").then(t => t.openTeamJoin(null)),
   }));
 }
 

@@ -27,8 +27,6 @@ export interface AddProjectOptions {
   onClone?: (repo?: string) => void;
   /// Opens the New project sheet.
   onNew?: () => void;
-  /// Opens the Join a team sheet.
-  onJoinTeam?: () => void;
 }
 
 /// One git host's repositories to clone.
@@ -289,7 +287,6 @@ function draw() {
     choose={() => { const action = opts.onChoose; closeAddProject(); action?.(); }}
     clone={(repo?: string) => { const action = opts.onClone; closeAddProject(); action?.(repo); }}
     create={() => { const action = opts.onNew; closeAddProject(); action?.(); }}
-    joinTeam={opts.onJoinTeam ? () => { const action = opts.onJoinTeam; closeAddProject(); action?.(); } : null}
   />));
   if (active && !active.isConnected) {
     const search = searchField.current;

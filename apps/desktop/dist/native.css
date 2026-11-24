@@ -425,7 +425,7 @@ body:not(.mobile) .painted-empty > .cc-empty > :is(.dbtn, .pri) { margin-top: 6p
 
 /* ----- Add a project: the three ways as tiles, then what the machines found as plain rows whose
    action shows when pointed at ----- */
-body:not(.mobile) .ap-ways { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; gap: 6px }
+body:not(.mobile) .ap-ways { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px }
 body:not(.mobile) .ap-ways .dbtn { display: grid; justify-items: start; gap: 2px; height: auto; min-height: 0; padding: 10px 12px; border: 0; text-align: left; white-space: normal }
 body:not(.mobile) .ap-ways .dbtn b { font-family: var(--body); font-size: 13px; font-weight: 600 }
 body:not(.mobile) .ap-ways .dbtn span { display: block; font-size: 11px; font-weight: 400; color: var(--dim) }

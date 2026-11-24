@@ -13,7 +13,7 @@ Use the `team_join` MCP tool when the user shares a `beepteam1...` invite code o
 - Pass `machine` (a name from `list_machines`) and `folder` (parent folder for cloning) only if the user specifies where the project should live.
 - Beep asks the user to confirm before making changes, automatically imports a matching local checkout or clones the repository if it is not a project yet, proves push access on the forge, and joins the team.
 
-Users can also join in the Beep desktop app from **Add a project** -> **Join team**, **Search (`⌘K`)** -> **Join team**, or **Accept** on a contact's invite card under **Needs you**.
+Users can also join in the Beep desktop app from **Projects** -> **Join team**, **Search (`⌘K`)** -> **Join team**, or **Accept** on a contact's invite card under **Needs you**.
 
 ## Requirements
 

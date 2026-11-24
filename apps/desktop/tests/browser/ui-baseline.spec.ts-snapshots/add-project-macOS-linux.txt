@@ -201,9 +201,6 @@ body.cbody
         button.dbtn.small [aria-label="New project" type="button"]
           b "New project"
           span "Start from nothing"
-        button.dbtn.small [aria-label="Join team" type="button"]
-          b "Join team"
-          span "From an invite code"
       div.am-label "On your machines"
       input.ap-q [aria-label="Filter found folders" autocapitalize="off" autocomplete="off" autocorrect="off" placeholder="Filter by repo, folder, machine or agent" spellcheck="false" type="search" value] value=""
       div.ap-bar

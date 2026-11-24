@@ -136,14 +136,14 @@ test("join sheet automatically adds the project and joins from an invite", async
   expect(await called(page, "team_join")).toEqual([{ ticket: "beepteam1xyz" }]);
 });
 
-test("join team from Add a project pastes a code and shows manual import when adding fails", async ({ page }) => {
+test("join team from Projects pastes a code and shows manual import when adding fails", async ({ page }) => {
   await openDesktop(page, false, {
     team_ticket: { host: "example.test", repo: "org/api", project: null },
   });
   await page.evaluate(() => window.__navigation.rejectOnce("team_prepare"));
+  await page.evaluate(() => window.__navigation.open({ projects: { project: null } }));
 
-  await page.locator("#side").getByRole("button", { name: "Add a project" }).click();
-  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Join team" }).click();
+  await page.getByRole("button", { name: "Join team" }).click();
   const sheet = page.getByRole("dialog", { name: "Join a team" });
   await sheet.getByRole("textbox", { name: "Team code" }).fill("beepteam1xyz");
   await sheet.getByRole("button", { name: "Join", exact: true }).click();

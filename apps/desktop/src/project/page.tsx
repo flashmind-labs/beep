@@ -29,6 +29,7 @@ import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon
 import { ensureHome } from "../center/refresh.ts";
 import { Icon } from "../ui/icons.tsx";
 import { Button, EmptyPanel } from "../ui/kit.tsx";
+import { openTeamJoin } from "./teamjoin.tsx";
 
 let focusComposer = false;
 
@@ -133,6 +134,7 @@ export const projectsView: CenterView<"projects"> = {
       const sub = rows?.length ? overviewSub(overviewGroups(rows, state.top, state.groups)) : "Repositories on your machines";
       // Group controls follow mesh support.
       const tools = [state.groups ? <Button key="group" small className="pj-tool" aria-label="New group" onClick={() => editGroup()}><span style={{ display: "contents" }}><Icon name="folder" /></span> New group</Button> : null,
+        !isMobile() && !onPhone() ? <Button key="join" small className="pj-tool" aria-label="Join team" onClick={() => openTeamJoin(null)}><span style={{ display: "contents" }}><Icon name="group" /></span> Join team</Button> : null,
         <Button key="add" small className="pj-tool fab" aria-label="Add a project" onClick={addProject}><span style={{ display: "contents" }}><Icon name="plus" /></span> Add a project</Button>];
       return { title: "Projects", sub, reactTools: tools };
     }
