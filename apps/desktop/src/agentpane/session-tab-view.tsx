@@ -21,8 +21,12 @@ import type { SplitSession } from "./media.ts";
 
 /// What the tab calls on the session modules, handed in by the dock so this view does not import
 /// the modules that reach back to it.
+/// How often a split tab reads its session while its node cannot stream, working or idle.
+const SPLIT_POLL_MS = 1500;
+const SPLIT_IDLE_POLL_MS = 5000;
+
 export interface SessionTabLinks {
-  feed: Pick<typeof feed, "hold">;
+  feed: Pick<typeof feed, "hold" | "live">;
   keptTranscript: typeof keptTranscript;
   sendOnce: typeof sendOnce;
   replyToQuestion: typeof replyToQuestion;
@@ -41,6 +45,7 @@ export function SessionTabView({ session, hidden, close, links }: { session: Spl
   const [answering, setAnswering] = useState<number | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
+  const activeRef = useRef(false);
   const page = held?.page ?? (read?.key === key ? read.page : null);
 
   useEffect(() => {
@@ -50,18 +55,28 @@ export function SessionTabView({ session, hidden, close, links }: { session: Spl
     let release = () => {};
     const keep = (page: AgentPage) => { if (shown) { setRead({ key, page }); setError(""); } };
 
+    const read = () => invoke<AgentPage>("agent_view", where(o)).then(keep, e => { if (shown) setError(reason(e)); });
+
+    // A node without the follow stream is read at the old pace until the follow opens.
+    let poll: ReturnType<typeof setTimeout> | undefined;
+    const readAgain = () => {
+      void read();
+      poll = setTimeout(() => {
+        poll = undefined;
+        if (shown && !links.feed.live(o)) readAgain();
+      }, activeRef.current ? SPLIT_POLL_MS : SPLIT_IDLE_POLL_MS);
+    };
+
     const hold = () => {
       if (!shown) return;
-      release = feed.hold(o, () => {
-        invoke<AgentPage>("agent_view", where(o)).then(keep, e => { if (shown) setError(reason(e)); });
-      });
+      release = feed.hold(o, () => { if (poll === undefined) readAgain(); });
     };
 
     // The page kept on disk draws at once, and the follow goes on from its cursor.
     if (transcripts.peek(key)) hold();
     else void keptTranscript(o).then(kept => { if (kept) keep(kept); hold(); });
 
-    return () => { shown = false; release(); };
+    return () => { shown = false; clearTimeout(poll); release(); };
   }, [key, hidden]);
 
   useEffect(() => {
@@ -72,6 +87,7 @@ export function SessionTabView({ session, hidden, close, links }: { session: Spl
   const current = page?.session ?? null;
   const status = current?.status ?? session.status;
   const active = AGENT_ACTIVE.has(status);
+  activeRef.current = active;
   const writable = !(current?.external ?? session.external);
   const question = current?.question ?? null;
 

@@ -95,6 +95,27 @@ test("Open beside mounts a second session in the right dock and sends messages",
   await expect(page.locator(".ag-head")).toContainText("Secondary session");
 });
 
+test("a split session on a node without the follow stream keeps reading it", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const first = { kind: "agent", machine_id: machineId, machine_name: machineId, id: "sess-a", agent: "codex", title: "Primary session", cwd: project.folder, status: "idle", doing: null, started_at: 1_000, last_activity: 2_000, external: false, question: null, assistant: false, persona: null };
+  const second = { ...first, id: "sess-b", title: "Secondary session", agent: "claude", status: "working" };
+  const view = (session: typeof first, text: string) => ({ session, plan: [], files: [], entries: [{ kind: "agent", text }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1, usage: null });
+
+  await openDesktop(page, false, {
+    center_home: { machines: [machine], projects: [project], running: [first, second], needs_you: [] },
+    agent_sessions: [first, second],
+    project_sessions: [first, second],
+    agent_views: { "sess-a": view(first, "Primary ready."), "sess-b": view(second, "Secondary output here.") },
+  });
+
+  await page.evaluate(target => window.__navigation.open({ agent: target }), first);
+  await page.locator("#rail").getByRole("button", { name: /Secondary session/ }).click({ button: "right" });
+  await page.getByRole("menuitem", { name: "Open beside" }).click();
+  await expect(page.locator("#agpane-right .agsplit")).toContainText("Secondary output here.");
+
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_view" && c.args.session === "sess-b").length), { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+});
+
 test("a split session follows the push stream and never reads the session", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await openDesktop(page, true);
