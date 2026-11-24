@@ -39,23 +39,29 @@ export function createPluginsSettings(call: Call, hear: Listen) {
   const without = <T>(map: ReadonlyMap<string, T>, id: string) => { const next = new Map(map); next.delete(id); return next; };
   const withEntry = <T>(map: ReadonlyMap<string, T>, id: string, value: T) => new Map(map).set(id, value);
 
-  /// Reads the list again. A list that was shown stays when the read fails.
+  /// Reads the list. A list that was shown stays when the read fails.
   async function load() {
     const mine = ++reads;
     try {
-      const rows = parseRows(await call<unknown>("plugins_status"));
-      if (mine !== reads) return;
-      state.setState({ list: rows === null ? { kind: "failed", failure: UNEXPECTED } : { kind: "ready", rows } });
+      take(await call<unknown>("plugins_status"), mine);
     } catch (error) {
       if (mine !== reads) return;
       state.setState(now => now.list.kind === "ready" ? now : { list: { kind: "failed", failure: parseFailure(error) } });
     }
   }
 
-  /// Reads the list again whenever the desktop says a plugin changed. Returns what stops it.
+  /// Shows `raw` as the list, unless a newer list or read came since `mine`.
+  function take(raw: unknown, mine: number) {
+    if (mine !== reads) return;
+    const rows = parseRows(raw);
+    state.setState({ list: rows === null ? { kind: "failed", failure: UNEXPECTED } : { kind: "ready", rows } });
+  }
+
+  /// Shows the list the desktop pushes whenever a plugin changed. Returns what stops it.
   function follow() {
     let stopped = false, off: (() => void) | null = null;
-    void hear("plugins-status", () => { void load(); }).then(stop => {
+    // The payload is null while the desktop has not started its plugins: the first read has the list.
+    void hear<unknown>("plugins-status", event => { if (event.payload !== null) take(event.payload, ++reads); }).then(stop => {
       if (stopped) stop(); else off = stop;
     }).catch(error => console.warn("plugins: no status events:", error));
     return () => { stopped = true; off?.(); };

@@ -111,7 +111,8 @@ export function followSkin() {
   apply();
   addEventListener("storage", e => { if (e.key === KEY) apply(); });
 
-  void listen("plugins-status", () => { void readPluginSkins(); }).catch(() => {});
+  // The payload is the list, or null while the desktop has not started its plugins.
+  void listen<unknown>("plugins-status", ({ payload }) => { if (payload !== null) takePluginSkins(payload, ++skinReads); }).catch(() => {});
   void readPluginSkins();
 }
 
@@ -119,7 +120,12 @@ let skinReads = 0;
 
 async function readPluginSkins() {
   const mine = ++skinReads;
-  const rows = parseRows(await invoke<unknown>("plugins_status").catch(() => null));
+  takePluginSkins(await invoke<unknown>("plugins_status").catch(() => null), mine);
+}
+
+/// Takes `raw` as the plugin list, unless a newer list or read came since `mine`.
+function takePluginSkins(raw: unknown, mine: number) {
+  const rows = parseRows(raw);
   if (rows === null || mine !== skinReads) return;
 
   pluginsRead = true;

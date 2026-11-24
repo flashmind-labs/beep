@@ -39,7 +39,7 @@ function installFake(options: FakeOptions): void {
     kind, previousVersion: null, added: ["ui.add"], removed: [], ...extra,
   });
   const catUpdate = { id: "composer-cat", name: "Composer cat", description: "A cat sits on the message box.", source: source("composer-cat"), version: "0.3.0", previousVersion: "0.2.0", permissions: ["ui.add", "sessions.read"], added: ["sessions.read"], removed: [] };
-  const changed = () => window.__navigation.emit("plugins-status", null);
+  const changed = () => window.__navigation.emit("plugins-status", structuredClone(listed));
   const fail = (kind: string, message: string) => Promise.reject({ kind, message });
 
   const fake = async (command: string, args: Record<string, unknown> = {}): Promise<unknown> => {
@@ -157,8 +157,12 @@ test("a switch turns a plugin on and the list follows the desktop's change event
   expect(await calls(page, "plugins_enable")).toEqual([{ id: "idle-timer", enabled: true }]);
   await expect(sheet.getByRole("listitem").filter({ hasText: "Idle timer" })).toContainText("On");
 
+  // A pushed list is shown as it comes, without reading again; a null push (host not started) changes nothing.
+  const reads = (await calls(page, "plugins_status")).length;
   await page.evaluate(() => window.__navigation.emit("plugins-status", null));
-  await expect.poll(async () => (await calls(page, "plugins_status")).length).toBeGreaterThan(2);
+  await page.evaluate(() => window.__navigation.emit("plugins-status", []));
+  await expect(sheet.getByRole("listitem").filter({ hasText: "Idle timer" })).toHaveCount(0);
+  expect((await calls(page, "plugins_status")).length).toBe(reads);
 });
 
 test("Install from Git shows the permissions, then installs on Allow and install", async ({ page }) => {
