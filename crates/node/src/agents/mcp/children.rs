@@ -809,7 +809,8 @@ impl Reach<'_> {
     /// call must come back before its client gives up, so a long job is
     /// checked with agent_status instead. A child here wakes the wait through
     /// its `live`, one on another machine through its note; a node too old to
-    /// note every settle is also read every `WAIT_RECHECK`.
+    /// note every settle is also read every `WAIT_RECHECK`, and one that does,
+    /// every `NOTED_RECHECK`, in case a note was lost.
     async fn waited(&self, view: ChildView) -> ChildView {
         // What this wait answers goes in no note.
         let waiting = self.agents.family.waits.hold(&self.who.session, &view.id);
@@ -836,9 +837,13 @@ impl Reach<'_> {
 /// settle reads its view: a turn that ends without a note (`family::notes`)
 /// costs at most this much.
 const WAIT_RECHECK: Duration = Duration::from_secs(5);
+/// How often a wait on a child that does note every settle reads its view
+/// anyway: a note that never arrives (the link dropped, the child's node
+/// restarted) costs at most this much, not the whole wait.
+const NOTED_RECHECK: Duration = Duration::from_secs(15);
 
 /// Reads `view` again with `read` each time `waiting`, `live` or, for a
-/// `remote` child whose node does not note every settle, the recheck says to,
+/// `remote` child, the recheck says to,
 /// until it is settled or `WAIT_LIMIT` is over.
 async fn wait_for_settled<F>(
     waiting: &Waiting,
@@ -867,7 +872,11 @@ where
             break;
         }
 
-        let recheck = (remote && !view.notes_settles).then_some(WAIT_RECHECK);
+        let recheck = remote.then_some(if view.notes_settles {
+            NOTED_RECHECK
+        } else {
+            WAIT_RECHECK
+        });
         let gone = tokio::select! {
             () = waiting.woken() => false,
             changed = async {

@@ -805,3 +805,24 @@ async fn a_wait_on_a_remote_child_that_notes_every_settle_waits_for_its_wake_and
 
     assert!(done.note.is_some_and(|note| note.starts_with("Still working")));
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_wait_on_a_remote_child_that_notes_every_settle_still_reads_when_the_note_is_lost() {
+    let waiting = crate::agents::family::Waits::default().hold(&SessionId::from("p0"), "k0@box");
+    let reads = std::cell::Cell::new(0);
+    let started = tokio::time::Instant::now();
+    // The child finished after the first read, and its note never came.
+    let read = |_: String| {
+        reads.set(reads.get() + 1);
+        let now = if reads.get() < 2 { "working" } else { "idle" };
+        std::future::ready(Ok(ChildView {
+            notes_settles: true,
+            ..state(now)
+        }))
+    };
+    let done = wait_for_settled(&waiting, None, true, state("working"), read).await;
+
+    assert_eq!(done.state, "idle");
+    assert_eq!(done.note, None);
+    assert_eq!(started.elapsed(), NOTED_RECHECK);
+}
