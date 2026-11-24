@@ -216,6 +216,32 @@ impl Rows {
             .then(|| machine.links.get(session))?
     }
 
+    /// Every Beep session the mirror holds, children and reviewers with how they hang.
+    pub(crate) fn linked(&self) -> Vec<Linked> {
+        let top = |session: &MachineSession| Linked {
+            session: session.clone(),
+            parent: None,
+            reviewer: false,
+        };
+
+        self.machines
+            .values()
+            .flat_map(|machine| {
+                let children = machine.children.iter().filter_map(|session| {
+                    let link = machine.links.get(&session.id)?;
+
+                    Some(Linked {
+                        session: session.clone(),
+                        parent: link.parent.clone(),
+                        reviewer: link.reviewer,
+                    })
+                });
+
+                machine.beep.iter().map(top).chain(children)
+            })
+            .collect()
+    }
+
     /// Beep's own top-level sessions on every machine.
     pub(crate) fn beep(&self) -> impl Iterator<Item = &MachineSession> {
         self.machines.values().flat_map(|machine| &machine.beep)

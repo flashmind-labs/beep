@@ -171,7 +171,7 @@ async fn ask_machine(fleet: Arc<Fleet>, asks: mpsc::UnboundedSender<Ask>, asked:
     let (machine, folders) = asked.key.clone();
     let read = async {
         let client = fleet.client(machine).await.ok()?;
-        Some(listing::project_sessions(&client, &fleet.host_of(machine), folders).await)
+        listing::project_history_rows(&client, &fleet.host_of(machine), folders).await
     };
     let rows = timeout(ANSWER_LIMIT, read).await.ok().flatten();
     let _ = asks.send(Ask::Answered { asked, rows });
@@ -233,25 +233,14 @@ fn finish(
     listing::project_history(rows)
 }
 
-/// `rows`, the answers of the machines, with Beep's own sessions as the mirror holds them: its
-/// row for each the answers list, and the ones in the lists' folders the answers lack.
+/// `rows`, the machines' history, with Beep's own sessions as the mirror holds them: its row
+/// for each the history lists, and the ones in the lists' folders the history lacks.
 fn with_mirrored(
-    mut rows: Vec<MachineSession>,
+    rows: Vec<MachineSession>,
     mirrored: &Rows,
     keys: &[MachineFolders],
 ) -> Vec<MachineSession> {
-    let beep: HashMap<_, _> = mirrored
-        .beep()
-        .map(|row| ((&row.machine_id, &row.agent, &row.id), row))
-        .collect();
-
-    for row in &mut rows {
-        if !row.external
-            && let Some(live) = beep.get(&(&row.machine_id, &row.agent, &row.id))
-        {
-            *row = (*live).clone();
-        }
-    }
+    let mut rows = listing::merge_owned(rows, mirrored.linked());
 
     for (machine, folders) in keys {
         let machine_id = machine.to_string();

@@ -185,12 +185,51 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
     host: &Host,
     folders: Vec<String>,
 ) -> Vec<MachineSession> {
-    let limit = u32::try_from(MAX_PROJECT_SESSIONS).unwrap_or(u32::MAX);
     let started = Instant::now();
-    let (listed, owned) = tokio::join!(
-        project_metadata(node, folders, limit),
+    let (past, owned) = tokio::join!(
+        project_history_rows(node, host, folders),
         linked_sessions(node, host, true),
     );
+
+    if started.elapsed() >= SLOW_NODE {
+        tracing::info!(
+            "project sessions listed slowly; node={} ms={}",
+            host.id,
+            started.elapsed().as_millis()
+        );
+    }
+
+    merge_owned(past.unwrap_or_default(), owned)
+}
+
+/// What a node's history holds of the sessions that ran in `folders`, as past sessions: the
+/// ones Beep owns are not told from the rest, which `merge_owned` does. `None` when the node's
+/// history could not be read, so a caller keeps what it had.
+pub async fn project_history_rows<S: Sessions + ?Sized>(
+    node: &S,
+    host: &Host,
+    folders: Vec<String>,
+) -> Option<Vec<MachineSession>> {
+    let limit = u32::try_from(MAX_PROJECT_SESSIONS).unwrap_or(u32::MAX);
+
+    match project_metadata(node, folders, limit).await {
+        Ok(found) => Some(
+            found
+                .into_iter()
+                .map(|session| past_session(host, session))
+                .collect(),
+        ),
+        Err(e) => {
+            tracing::info!("project sessions not listed; node={} error={e:#}", host.id);
+            None
+        }
+    }
+}
+
+/// `past`, a node's history rows, with the sessions Beep owns: a row of an owned session is
+/// replaced by the owned one, which knows its state now, and background children and
+/// reviewers are left out.
+pub fn merge_owned(past: Vec<MachineSession>, owned: Vec<Linked>) -> Vec<MachineSession> {
     let children: HashSet<_> = owned
         .iter()
         .filter(|linked| {
@@ -205,41 +244,21 @@ pub async fn project_sessions<S: Sessions + ?Sized>(
             ((session.agent.clone(), session.id.clone()), session)
         })
         .collect();
-    if started.elapsed() >= SLOW_NODE {
-        tracing::info!(
-            "project sessions listed slowly; node={} ms={}",
-            host.id,
-            started.elapsed().as_millis()
-        );
-    }
 
-    match listed {
-        Ok(found) => found
-            .into_iter()
-            .filter(|session| {
-                !children.contains(&(
-                    session.agent.clone(),
-                    session.taken_over.as_ref().unwrap_or(&session.id).clone(),
-                ))
-            })
-            .map(|session| {
-                let past = past_session(host, session);
-                // A transcript names the session that took it over, but cannot say
-                // whether its turn is working, idle, asking or ended now.
-                if past.external {
-                    past
-                } else {
-                    owned
-                        .remove(&(past.agent.clone(), past.id.clone()))
-                        .unwrap_or(past)
-                }
-            })
-            .collect(),
-        Err(e) => {
-            tracing::info!("project sessions not listed; node={} error={e:#}", host.id);
-            Vec::new()
-        }
-    }
+    past.into_iter()
+        .filter(|past| !children.contains(&(past.agent.clone(), past.id.clone())))
+        .map(|past| {
+            // A transcript names the session that took it over, but cannot say
+            // whether its turn is working, idle, asking or ended now.
+            if past.external {
+                past
+            } else {
+                owned
+                    .remove(&(past.agent.clone(), past.id.clone()))
+                    .unwrap_or(past)
+            }
+        })
+        .collect()
 }
 
 /// Read bounded metadata pages. Old nodes still answer their original list.
