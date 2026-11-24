@@ -151,6 +151,7 @@ pub async fn project_remove_from_machine(
     let removed = desk
         .remove_from_machine(&project, &machine_id, delete_folder.unwrap_or(false))
         .await?;
+    cache.place_removed(&app);
     let read = cache.ticket();
     cache.project_list(&app, read, desk.imported().await);
     Ok(removed)

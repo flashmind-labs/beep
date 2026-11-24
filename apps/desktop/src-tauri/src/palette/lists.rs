@@ -63,6 +63,9 @@ pub(crate) struct PaletteLists {
     /// The ticket of the last removal: a read of the projects taken before it is out of date.
     #[serde(skip)]
     pub(super) removed_at: u64,
+    /// The highest ticket of a projects read applied: an older read that ends later is stale.
+    #[serde(skip)]
+    pub(super) read_at: u64,
 }
 
 impl PaletteLists {
@@ -83,12 +86,13 @@ impl PaletteLists {
         self.projects = Some(projects);
     }
 
-    /// Takes the imports a read at ticket `read` found, unless a removal came after it, which
-    /// the read may not have seen. True when the places differ from the ones held.
+    /// Takes the imports a read at ticket `read` found, unless a removal or a newer read came
+    /// after it, which the read may not have seen. True when the places differ from the ones held.
     fn read_projects(&mut self, read: u64, projects: Vec<ImportedProject>) -> bool {
-        if read < self.removed_at {
+        if read < self.removed_at || read < self.read_at {
             return false;
         }
+        self.read_at = read;
 
         let places = |projects: &[ImportedProject]| -> BTreeSet<Place> {
             projects.iter().map(Place::from).collect()
@@ -218,6 +222,12 @@ impl PaletteCache {
         if changed {
             let _ = app.emit("palette-text-changed", ());
         }
+    }
+
+    /// A machine's place of a project was removed: a read taken before now may still hold it.
+    pub(crate) fn place_removed(&self, app: &AppHandle) {
+        let removed_at = self.ticket();
+        self.update(app, |lists| lists.removed_at = removed_at);
     }
 
     pub(crate) fn forget_project(&self, app: &AppHandle, project: &str) {

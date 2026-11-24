@@ -173,3 +173,23 @@ fn a_read_taken_before_a_removal_does_not_bring_the_project_back() {
     assert!(lists.read_projects(4, Vec::new()));
     assert!(lists.projects.as_deref().unwrap().is_empty());
 }
+
+#[test]
+fn a_read_older_than_the_one_held_is_dropped() {
+    let project = |name: &str| ImportedProject {
+        project: name.into(),
+        machine_id: "build-box".into(),
+        machine_name: "build-box".into(),
+        folder: format!("/srv/{name}"),
+        url: format!("https://example.com/{name}"),
+        cloned: false,
+        imported_at: SystemTime::UNIX_EPOCH,
+        display_name: None,
+    };
+    let mut lists = PaletteLists::default();
+
+    assert!(lists.read_projects(5, Vec::new()));
+    // A read that started earlier ends later and must not undo the newer one.
+    assert!(!lists.read_projects(4, vec![project("acme/widget")]));
+    assert!(lists.projects.as_deref().unwrap().is_empty());
+}
