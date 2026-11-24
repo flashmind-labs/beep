@@ -2,6 +2,24 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.25] - 2026-11-24
+
+### Added
+
+- Node: Added the `team_join` MCP tool (with user confirmation) and the built-in `beep_join_team` skill so coding agents can help users join teams and troubleshoot team setup.
+
+### Fixed
+
+- A wait on an agent running on another machine now ends the moment that agent settles, with no 5 second lag, when both machines run this version.
+- A call or ping sent right after switching watched topics is answered without waiting for the topic lookup.
+- A project's file view no longer stays on an old folder when two devices watch it at once.
+- A team's board and your teammates' cards keep updating while a machine of the mesh or the forge is slow to answer.
+- A team gateway acts on a changed team or project as soon as the mesh reports it, not at its next ten-second round.
+
+### Performance
+
+- The list of tools with a newer release is ready sooner after the node starts, because the releases are looked up together.
+
 ## [0.8.24] - 2026-11-24
 
 ### Fixed

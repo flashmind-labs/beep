@@ -7,6 +7,40 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.31] - 2026-11-24
+
+### Added
+
+- Desktop: Added a **Join team** button next to **Add a project** on the **Projects** page and in `⌘K` search so you can paste a `beepteam1` code without importing the project first.
+- Desktop: Joining a team now imports a matching local checkout or clones the repository automatically when the project is not added yet.
+
+### Fixed
+
+- The tray's list of sessions that wait on you now follows changes as they arrive instead of checking every few minutes.
+- Moving a session no longer makes every project page ask the machine again.
+- A failed session list on one machine no longer makes the others list again.
+- A machine you rename or remove on Home or the Machines page changes everywhere at once instead of after the next update.
+- The agent bar no longer says "Install a coding agent" after a failed first read of your machines; it reads them again.
+- Desktop: Home, the project lists, workflow runs, usage and agent accounts follow the latest update at once instead of asking again after each change you make.
+- Desktop: Removing a project or a machine no longer brings back its old sessions, places or git state when you open the page again.
+- A session move started on another desktop shows at once in the session lists.
+- A project's session list keeps updating for as long as its page stays open.
+- Plugin changes, and agent tokens saved, revoked or signed in on this desktop, show without a second read, so Settings no longer flickers back to old values.
+- A message sent to an idle agent over a slow connection no longer shows a Steer row above the message field when it is already in the conversation.
+- A message sent while its files are still uploading, or to an ended session that has to resume, now shows at once and the message field stays free for the next message, which is sent after it. A file still uploading shows "uploading" instead of a bar stuck at 0%.
+- A pasted or dropped picture now crosses to the machine once, with the message, instead of being uploaded as a file and sent again. Sending a screenshot no longer waits on an upload, and the message no longer mentions a file copy of it. Larger or unusual pictures still upload as before.
+
+### Performance
+
+- Machines page no longer asks every machine for tool updates, update support and this computer's state on each change; machines running a current beep-node report them as they change.
+- The Device tab on a machine running a current beep-node follows its devices without checking on a timer.
+- Project pages that are no longer shown stop being rebuilt, and the palette no longer keeps a second copy of the session list.
+- Desktop: Dragging and resizing the side pane draws it with the rest of the frame instead of forcing a separate redraw on every step.
+- Home and the session lists read the agent moves only when a move changes, not on every update.
+- The Machines page no longer asks for machine traffic again on each change.
+- Desktop: Importing a project or a repository from open items no longer reads all of Home a second time.
+- Desktop: The app keeps one copy of each project's sessions, places and git state, and lets go of the projects you used least.
+
 ## [0.10.30] - 2026-11-24
 
 ### Fixed
