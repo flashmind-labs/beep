@@ -32,7 +32,8 @@ body
             span "Still running"
             small "project · build-box · now"
           span.run [title="cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"]
-            span.drun style(animation-delay)
+            span.drun style(--mx-t)
+              svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
             span.tx "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
         button#wt-3.dchat [aria-selected="false" data-wti="3" role="option" tabindex="-1"]
           span style(display)

@@ -11,7 +11,7 @@ import type { ToolDetails } from "./tool-details.ts";
 import { EntryTime, Since, StepMarkView, type StepMark } from "./turn-heading-view.tsx";
 import { waitedFor, type WaitLine } from "./waiting-state.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
-import { Button } from "../ui/kit.tsx";
+import { Button, DotMatrix } from "../ui/kit.tsx";
 import { highlight, languageOf } from "../agentpane/files-state.ts";
 
 /// What an opened tool call shows under its row.
@@ -81,7 +81,7 @@ function Thought({ row }: { row: Extract<ActivityRow, { kind: "thought" }> }) {
 /// user does not sweep.
 function LiveLine({ row }: { row: Extract<ActivityRow, { kind: "live" }> }) {
   const waiting = row.state === "waiting", lead = row.doing || (row.thinking ? "Thinking" : "Working");
-  return <div className={`dthink dlive${waiting ? "" : " live"}`}><span className="lb" title={waiting ? undefined : lead}>{waiting ? "Waiting for you" : lead}</span>{row.start !== null && <Since className="since" start={row.start} />}</div>;
+  return <div className={`dthink dlive${waiting ? "" : " live"}`}>{!waiting && <DotMatrix />}<span className="lb" title={waiting ? undefined : lead}>{waiting ? "Waiting for you" : lead}</span>{row.start !== null && <Since className="since" start={row.start} />}</div>;
 }
 
 /// "Waiting for 1 subagent · Upgrade all deps · 12 min", still. A click opens

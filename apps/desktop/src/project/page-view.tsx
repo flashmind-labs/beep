@@ -1,5 +1,6 @@
 import { Fragment, useLayoutEffect, useRef, type ReactElement } from "react";
 import { Icon } from "../ui/icons.tsx";
+import { Spinner } from "../ui/kit.tsx";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import type { Freshness } from "../ui/pagecache.ts";
 
@@ -67,6 +68,6 @@ export function NoProjects({ add }: { add: () => void }) {
 
 /// The note on a list being read again: a still dot, else how old it is.
 export function FreshNote({ freshness, className = "" }: { freshness: Freshness; className?: string }) {
-  if (freshness.spin) return <span className={`drun sw-spin${className}`} title="Updating"/>;
+  if (freshness.spin) return <Spinner dot className={`sw-spin${className}`} title="Updating" />;
   return freshness.text ? <small className={`sw-age${className}`}>{freshness.text}</small> : null;
 }

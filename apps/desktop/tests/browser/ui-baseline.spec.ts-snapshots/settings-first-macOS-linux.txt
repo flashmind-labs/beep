@@ -115,7 +115,8 @@ body.cbody
                       span "example/widget · build-box"
                     span.ft
                       span.cc-running "now"
-                        span.drun [aria-label="Working" role="img"]
+                        span.drun [aria-label="Working" role="img"] style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                       span.sp
                   div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                     b "Second notification"
@@ -126,7 +127,8 @@ body.cbody
                       span "example/widget · build-box"
                     span.ft
                       span.cc-running "now"
-                        span.drun [aria-label="Working" role="img"]
+                        span.drun [aria-label="Working" role="img"] style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                       span.sp
               div.bd-lane.empty style(flex-grow)
                 h4 "Ready to review"

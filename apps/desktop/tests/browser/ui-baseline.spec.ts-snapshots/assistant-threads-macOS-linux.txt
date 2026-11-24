@@ -112,7 +112,8 @@ body.cbody
               span "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
             span.r
               span.cc-running "now"
-                span.drun [aria-label="Working" role="img"]
+                span.drun [aria-label="Working" role="img"] style(--mx-t)
+                  svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
           div.rail-live.rail-threads
             button.pj-li [title="Sodium-ion cost curve" type="button"]
               span.lead
@@ -123,7 +124,8 @@ body.cbody
                 span "Reading the supply reports"
               span.r
                 span.cc-running "now"
-                  span.drun [aria-label="Working" role="img"]
+                  span.drun [aria-label="Working" role="img"] style(--mx-t)
+                    svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
             button.pj-li [title="Solid-state timelines" type="button"]
               span.lead
                 span.cc-ag.flsh.mark
@@ -203,7 +205,8 @@ body.cbody
                       span "example/widget · build-box"
                     span.ft
                       span.cc-running
-                        span.drun [aria-label="Working" role="img"]
+                        span.drun [aria-label="Working" role="img"] style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                         span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                       span.sp
               div.bd-lane style(flex-grow)
@@ -263,6 +266,7 @@ body.cbody
                                 div.reply-body "Three threads are on it. I will merge what they find."
                             div style(display)
                               div.dlive.dthink.live
+                                svg.dmx.md [aria-hidden="true" viewBox="0 0 27 27"]
                                 span.lb [title="cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"] "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                                 span.since [data-since="1768471200000"] "2h 0m"
                           div.agspace [hidden] style(height)

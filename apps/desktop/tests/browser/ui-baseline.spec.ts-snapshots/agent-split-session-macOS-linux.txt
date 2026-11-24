@@ -110,7 +110,8 @@ body.cbody
               span
             span.r
               span.cc-running "now"
-                span.drun [aria-label="Working" role="img"]
+                span.drun [aria-label="Working" role="img"] style(--mx-t)
+                  svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
           button.pj-li [title="Update the changelog" type="button"]
             span.lead
               span.cc-ag.claude.mark
@@ -187,7 +188,8 @@ body.cbody
                       span "example/widget · build-box"
                     span.ft
                       span.cc-running "now"
-                        span.drun [aria-label="Working" role="img"]
+                        span.drun [aria-label="Working" role="img"] style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                       span.sp
               div.bd-lane style(flex-grow)
                 h4 "Ready to review"
@@ -278,6 +280,7 @@ body.cbody
                                 div.reply-body "Done. The query string now survives the redirect."
                             div style(display)
                               div.dlive.dthink.live
+                                svg.dmx.md [aria-hidden="true" viewBox="0 0 27 27"]
                                 span.lb [title="Working"] "Working"
                           div.agspace [hidden] style(height)
                       button#agjump.dagjump [hidden type="button"] "Scroll to bottom"

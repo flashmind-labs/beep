@@ -89,7 +89,8 @@ body.cbody
               span
             span.r
               span.cc-running "now"
-                span.drun [aria-label="Working" role="img"]
+                span.drun [aria-label="Working" role="img"] style(--mx-t)
+                  svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
           button.pj-li [title="Second notification" type="button"]
             span.lead
               span.cc-ag.codex.mark
@@ -99,7 +100,8 @@ body.cbody
               span
             span.r
               span.cc-running "now"
-                span.drun [aria-label="Working" role="img"]
+                span.drun [aria-label="Working" role="img"] style(--mx-t)
+                  svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
       div.rail-card
         button.dbtn.quiet.rail-card-li [type="button"]
           svg [fill="none" height="13" stroke-linecap="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
@@ -164,7 +166,8 @@ body.cbody
                       span "example/widget · build-box"
                     span.ft
                       span.cc-running "now"
-                        span.drun [aria-label="Working" role="img"]
+                        span.drun [aria-label="Working" role="img"] style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                       span.sp
                   div.bd-card [data-card="agent:build-box:notice-two" role="button" tabindex="0"]
                     b "Second notification"
@@ -175,7 +178,8 @@ body.cbody
                       span "example/widget · build-box"
                     span.ft
                       span.cc-running "now"
-                        span.drun [aria-label="Working" role="img"]
+                        span.drun [aria-label="Working" role="img"] style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                       span.sp
               div.bd-lane.empty style(flex-grow)
                 h4 "Ready to review"
@@ -283,13 +287,15 @@ body.cbody
                                     small "claude-sonnet-5-5 · done · 4 steps"
                                 button.dsubrow [data-native="9" title="Open Build the tool"]
                                   span.mk
-                                    span.drun [title="Running"] style(animation-delay)
+                                    span.drun [title="Running"] style(--mx-t)
+                                      svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                                   span.t
                                     b "Build the tool"
                                       span.kind "general-purpose"
                                     small "claude-sonnet-5-5 · working · 0s · 4 steps"
                             div style(display)
                               div.dlive.dthink.live
+                                svg.dmx.md [aria-hidden="true" viewBox="0 0 27 27"]
                                 span.lb [title="Working"] "Working"
                           div.agspace [hidden] style(height)
                       button#agjump.dagjump [hidden type="button"] "Scroll to bottom"
@@ -300,7 +306,8 @@ body.cbody
                   div.ag-work
                     div.ag-worklist
                       button.ag-plan [aria-expanded="false" type="button"]
-                        span.drun style(animation-delay)
+                        span.drun style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                         span "Plan 1 / 3"
                           b "Answer the projects tool"
                         svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.6" stroke="currentColor" viewBox="0 0 24 24" width="12"]
@@ -509,7 +516,8 @@ body.cbody
                           svg [fill="none" height="12" stroke-linecap="round" stroke-width="3" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                       button.dsubrow [data-native="9" title="Open Build the tool"]
                         span.mk
-                          span.drun [title="Running"] style(animation-delay)
+                          span.drun [title="Running"] style(--mx-t)
+                            svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                         span.t
                           b "Build the tool"
                             span.kind "general-purpose"

@@ -1,7 +1,7 @@
 // Shared command-center building blocks. Each one draws the exact markup the
 // views wrote by hand (`cc-sec`, `cc-panel cc-empty`, `cc-line`, `chip`,
 // `dspin`), so a view can switch to it without a visible change.
-import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
+import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import parse from "html-react-parser";
 import { ErrorBoundary } from "react-error-boundary";
 import { copy } from "./parts.tsx";
@@ -123,20 +123,88 @@ export function ProgressBar({ pct, label }: { pct: number; label: string }) {
   return <div className="agupbar" role="progressbar" aria-label={label} aria-valuenow={pct} title={`${label}: ${pct}%`}><span style={{ width: `${pct}%` }} /></div>;
 }
 
-/// A spinner: the ring (`dspin`), or with `dot` the small one (`drun`) for
-/// work that goes on by itself. A `label` makes it an image screen readers
-/// announce. It starts at the page clock's point in the turn, so one drawn
-/// again goes on where the last left off instead of starting over.
+/// A progress indicator: the 4x4 Neural Spark dot-matrix (`dspin`, or with `dot`
+/// the smaller `drun` for background work). A `label` makes it an image screen
+/// readers announce. It starts at the page clock's point in the cycle so one
+/// drawn again continues where the last left off instead of starting over.
 export function Spinner({ dot = false, className, label, title }: { dot?: boolean; className?: string; label?: string; title?: string }) {
-  const [style] = useState(spinPhase);
-  return <span className={`${dot ? "drun" : "dspin"}${className ? ` ${className}` : ""}`} style={style} role={label ? "img" : undefined} aria-label={label} title={title} />;
+  const [style] = useState(matrixPhase);
+  return <span className={`${dot ? "drun" : "dspin"}${className ? ` ${className}` : ""}`} style={style} role={label ? "img" : undefined} aria-label={label} title={title}><DotMatrix size="sm" synced /></span>;
 }
 
-/// One turn of `spin` in style.css.
-const SPIN_MS = 800;
+type MatrixStyle = CSSProperties & { "--mx-t"?: string; "--p"?: string };
+interface MatrixCell { key: number; x: number; y: number; cls: string; delay: MatrixStyle | undefined }
 
-/// How far into the turn every spinner is now, as a delay that starts a new one there.
-const spinPhase = () => ({ animationDelay: `${-Math.round(performance.now() % SPIN_MS)}ms` });
+/// One cycle of `dspark` in style.css.
+const MATRIX_MS = 2400;
+
+/// How far into the cycle every dot-matrix is now, as a negative offset shared by its cells.
+const matrixPhase = (): MatrixStyle => ({ "--mx-t": `${-Math.round(performance.now() % MATRIX_MS)}ms` });
+
+/// Builds a grid of rounded dot-matrix cells where two braided spark paths fire
+/// with phosphor decay and adjacent cells catch a softer halo.
+function buildMatrix(grid: number, paths: readonly (readonly (readonly [number, number])[])[], offset: number): readonly MatrixCell[] {
+  const stepOf = new Map<number, number>();
+  paths.forEach((path, pathIndex) => {
+    path.forEach(([x, y], step) => {
+      const idx = y * grid + x;
+      if (!stepOf.has(idx)) stepOf.set(idx, ((step + pathIndex * offset) % path.length) / path.length);
+    });
+  });
+
+  const cells: MatrixCell[] = [];
+  for (let y = 0; y < grid; y++) {
+    for (let x = 0; x < grid; x++) {
+      const idx = y * grid + x;
+      const direct = stepOf.get(idx);
+      if (direct !== undefined) {
+        const lit = direct < 0.28;
+        cells.push({ key: idx, x: x * 4, y: y * 4, cls: lit ? "hi lit" : "hi", delay: { "--p": `${-Math.round(direct * MATRIX_MS)}ms` } });
+        continue;
+      }
+
+      let near: number | undefined;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = x + dx, ny = y + dy;
+        if (nx >= 0 && nx < grid && ny >= 0 && ny < grid) {
+          const hit = stepOf.get(ny * grid + nx);
+          if (hit !== undefined && (near === undefined || hit < near)) near = hit;
+        }
+      }
+      if (near !== undefined) {
+        const phase = (near + 0.04) % 1;
+        cells.push({ key: idx, x: x * 4, y: y * 4, cls: phase < 0.25 ? "lo mid" : "lo", delay: { "--p": `${-Math.round(phase * MATRIX_MS)}ms` } });
+      } else {
+        cells.push({ key: idx, x: x * 4, y: y * 4, cls: "off", delay: undefined });
+      }
+    }
+  }
+  return cells;
+}
+
+// Two counter-weaving spark walks on a 7x7 grid (for inline live activity).
+const MATRIX_7 = buildMatrix(7, [
+  [[1, 1], [1, 2], [2, 2], [2, 3], [3, 3], [3, 4], [4, 4], [4, 5], [5, 4], [5, 3], [4, 2], [3, 1]],
+  [[5, 1], [4, 1], [3, 2], [2, 3], [1, 4], [1, 5], [2, 5], [3, 5], [4, 4], [5, 3], [5, 2], [4, 2]],
+], 5);
+
+// Compact braided spark walk on a 4x4 grid (for Spinners).
+const MATRIX_4 = buildMatrix(4, [
+  [[0, 1], [1, 1], [1, 2], [2, 2], [2, 1], [3, 1], [2, 0], [1, 0]],
+  [[3, 2], [2, 2], [2, 3], [1, 3], [1, 2], [0, 2], [1, 1], [2, 1]],
+], 4);
+
+/// Inline Neural Spark dot-matrix: `md` (7x7) for live thinking/activity lines,
+/// or `sm` (4x4) inside `Spinner`. Pure SVG + CSS keyframes so hidden windows
+/// and Reduce Motion stop it with no timers.
+export function DotMatrix({ size = "md", synced = false }: { size?: "sm" | "md"; synced?: boolean }) {
+  const [style] = useState(() => synced ? undefined : matrixPhase());
+  const cells = size === "sm" ? MATRIX_4 : MATRIX_7;
+  const box = size === "sm" ? "0 0 15 15" : "0 0 27 27";
+  return <svg className={`dmx ${size}`} viewBox={box} style={style} aria-hidden="true">
+    {cells.map(cell => <rect key={cell.key} x={cell.x} y={cell.y} width="3" height="3" rx="0.9" className={cell.cls} style={cell.delay} />)}
+  </svg>;
+}
 
 /// Enter or Space on a focusable row that is not itself a button runs `run`,
 /// as a click on it would. Keys from controls inside the row pass by.

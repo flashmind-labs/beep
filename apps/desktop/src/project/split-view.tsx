@@ -7,7 +7,7 @@ import { terminalNote, terminalWhere, type TerminalRow } from "../terminals/term
 import type { Freshness } from "../ui/pagecache.ts";
 import type { TileData } from "./board.ts";
 import type { LabelFilter, SplitGroup, SplitItem } from "./split.tsx";
-import { Button, EmptyPanel, LineRow, NO_AUTO, Section, SectionHead } from "../ui/kit.tsx";
+import { Button, EmptyPanel, LineRow, NO_AUTO, Section, SectionHead, Spinner } from "../ui/kit.tsx";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { ProjectArt } from "../ui/painted-art.tsx";
 import { SideToggle } from "../center/sidebar-shell.tsx";
@@ -64,7 +64,7 @@ export function RunningStatus({ row, doing = false }: { row: RunningAgent; doing
   if (moving) return <span className={`chip ${moving.chip === "Moving" ? "run" : "bad"}`}>{moving.chip}</span>;
   if (closing) return closing;
   if (row.status === "asking") return <span className="chip wait">needs you</span>;
-  if (["working", "running", "starting"].includes(row.status)) return <span className="cc-running"><span className="drun" role="img" aria-label={row.status === "starting" ? "Starting" : "Working"}/>{doing && row.doing ? <span className="doing">{row.doing}</span> : runningWhen(row)}</span>;
+  if (["working", "running", "starting"].includes(row.status)) return <span className="cc-running"><Spinner dot label={row.status === "starting" ? "Starting" : "Working"} />{doing && row.doing ? <span className="doing">{row.doing}</span> : runningWhen(row)}</span>;
   return runningWhen(row);
 }
 

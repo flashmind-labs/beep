@@ -143,7 +143,8 @@ body.cbody
                       span "example/widget · build-box"
                     span.ft
                       span.cc-running
-                        span.drun [aria-label="Working" role="img"]
+                        span.drun [aria-label="Working" role="img"] style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                         span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                       span.sp
               div.bd-lane style(flex-grow)
@@ -239,7 +240,8 @@ body.cbody
                       span "build-box"
                     span.ft
                       span.cc-running
-                        span.drun [aria-label="Working" role="img"]
+                        span.drun [aria-label="Working" role="img"] style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                         span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                       span.sp
                   div.bd-card [data-card="own:dana:queued:53" role="button" tabindex="0"]

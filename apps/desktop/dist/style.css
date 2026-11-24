@@ -59,19 +59,27 @@ kbd { font-family: var(--body); font-size: 11px; line-height: 16px; min-width: 1
 .dlate { animation: dlate .15s ease-out .8s backwards }
 @keyframes dlate { from { opacity: 0 } }
 
-/* Spinners show work in progress, so they turn: the ring for an action the user waits on, the
-   small one for work that runs on its own. A hidden window pauses them. */
-/* One turn takes SPIN_MS in ui/kit.tsx, whose Spinner starts each one at the page clock's point in the turn. */
-.dspin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); display: inline-block; flex: none; animation: spin .8s linear infinite }
-.drun { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border); border-top-color: var(--accent); box-sizing: border-box; display: inline-block; flex: none; animation: spin .8s linear infinite }
-.dspin.sw-spin, .drun.sw-spin { width: 9px; height: 9px; border-width: 1.5px; flex: none }
+/* Progress indicators use a calm Neural Spark dot-matrix (ui/kit.tsx): `dspin`
+   for an action the user waits on, `drun` for background work, and `dmx` inline
+   next to live thinking/activity lines. A hidden window pauses them. */
+.dspin { width: 12px; height: 12px; display: inline-grid; place-items: center; flex: none }
+.drun { width: 10px; height: 10px; display: inline-grid; place-items: center; flex: none }
+.dspin.sw-spin, .drun.sw-spin { width: 9px; height: 9px; flex: none }
 .cc-running .dspin, .cc-running .drun { width: 10px; height: 10px; flex: none }
 .chip .dspin, .chip .drun { width: 9px; height: 9px }
 .rr-st .dspin, .rr-st .drun { width: 11px; height: 11px }
 :is(.ag-tasks, .ag-plan, .ag-steps) :is(.dspin, .drun) { flex: none; width: 10px; height: 10px }
-@keyframes spin { to { transform: rotate(360deg) } }
+.dmx { display: block; flex: none; width: 100%; height: 100%; overflow: visible }
+.dmx.md { width: 15px; height: 15px }
+.dmx rect { fill: var(--accent); opacity: .15 }
+.dmx rect.lit { opacity: .85 }
+.dmx rect.mid { opacity: .4 }
+.dmx rect.hi { animation: dspark 2.4s linear infinite; animation-delay: calc(var(--mx-t, 0ms) + var(--p, 0ms)) }
+.dmx rect.lo { animation: dspark-lo 2.4s linear infinite; animation-delay: calc(var(--mx-t, 0ms) + var(--p, 0ms)) }
+@keyframes dspark { 0% { opacity: .15 } 8% { opacity: 1 } 24% { opacity: .55 } 46% { opacity: .2 } 100% { opacity: .15 } }
+@keyframes dspark-lo { 0% { opacity: .15 } 10% { opacity: .48 } 32% { opacity: .22 } 100% { opacity: .15 } }
 /* A hidden window keeps nothing moving (ui/active.ts sets data-hidden). */
-:root[data-hidden] :is(.dspin, .drun, .dthink.live .lb) { animation-play-state: paused }
+:root[data-hidden] :is(.dmx rect, .dthink.live .lb) { animation-play-state: paused }
 /* A Mermaid block not yet drawn announces itself to chat/diagrams.ts as it shows. */
 /* Found even with Reduce motion on, which removes every other animation. */
 pre:not([data-diagram]) > code.language-mermaid { animation: diagram-found 1ms !important }
@@ -644,9 +652,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dthink .lb { flex: none; font-size: 12.5px; color: var(--muted) }
 /* One light passes over the whole dim line, however long it is, in 15 frames a
    second: it reads as a sweep and repaints a quarter as often. */
-.dthink.live .lb { color: transparent; background: linear-gradient(90deg, var(--dim) 40%, var(--fg) 50%, var(--dim) 60%) 100% 0 / 300% 100% no-repeat; -webkit-background-clip: text; background-clip: text; animation: dthinksweep 2s steps(30) infinite }
+.dthink.live .lb { color: transparent; background: linear-gradient(90deg, var(--muted) 35%, var(--fg) 50%, var(--muted) 65%) 100% 0 / 300% 100% no-repeat; -webkit-background-clip: text; background-clip: text; animation: dthinksweep 2.4s steps(36) infinite }
 @keyframes dthinksweep { to { background-position: 0 0 } }
-.dlive { display: flex; align-items: baseline; gap: 8px; min-width: 0; padding: 4px 0; font-size: 12.5px }
+.dlive { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 4px 0; font-size: 12.5px }
 .dlive .since { flex: none; color: var(--dim); font-variant-numeric: tabular-nums }
 .dlive .lb { flex: 0 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .dthink .cv { display: grid; flex: none; color: var(--dim); transition: transform .2s var(--ease, ease) }

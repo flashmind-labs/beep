@@ -142,7 +142,8 @@ body.cbody.mobile
                       span "example/widget · build-box"
                     span.ft
                       span.cc-running
-                        span.drun [aria-label="Working" role="img"]
+                        span.drun [aria-label="Working" role="img"] style(--mx-t)
+                          svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
                         span.doing "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40"
                       span.sp
               div.bd-lane style(flex-grow)
@@ -237,7 +238,8 @@ body.cbody.mobile
               span "build-box"
             span.r
               span.cc-running "now"
-                span.drun [aria-label="Working" role="img"]
+                span.drun [aria-label="Working" role="img"] style(--mx-t)
+                  svg.dmx.sm [aria-hidden="true" viewBox="0 0 15 15"]
           button.pj-li [title="Check the open pull requests" type="button"]
             span.lead
               span.cc-ag.claude.mark
