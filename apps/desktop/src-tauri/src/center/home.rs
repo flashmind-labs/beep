@@ -5,7 +5,7 @@
 use super::view_cache::{View, ViewCache, cache_view};
 use crate::chat::markdown::inline_html;
 use crate::{
-    agents::sessions::overlaid,
+    agents::sessions::{SessionRow, agent_sessions, overlaid},
     beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
@@ -197,6 +197,12 @@ struct Flight {
 impl HomeReads {
     fn flight(&self) -> MutexGuard<'_, Flight> {
         super::lock(&self.flight)
+    }
+
+    /// The all-sessions list pushed beside Home. It lives here so the view layer
+    /// reaches the session code only through Home, which already imports it.
+    pub(crate) async fn sessions(&self, app: &AppHandle) -> Result<Vec<SessionRow>> {
+        agent_sessions(app.clone(), app.state()).await
     }
 
     /// Home, from the read under way or a new one.
