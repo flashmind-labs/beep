@@ -7,6 +7,12 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.32] - 2026-11-24
+
+### Fixed
+
+- The tray keeps showing sessions that need you while every Beep window has been hidden for more than five minutes.
+
 ## [0.10.31] - 2026-11-24
 
 ### Added
