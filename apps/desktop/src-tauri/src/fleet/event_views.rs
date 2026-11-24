@@ -506,7 +506,7 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             ));
         }
         "tools" => {
-            let found = crate::machines::tools::tool_updates(&app.state::<Arc<Fleet>>()).await;
+            let found = crate::fleet::tool_updates::all(&app.state::<Arc<Fleet>>()).await;
             views.extend(View::new("tool_updates", json!({}), found));
         }
         "projects" => {

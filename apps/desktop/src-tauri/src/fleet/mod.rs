@@ -22,6 +22,7 @@ pub(crate) mod session_lists;
 pub(crate) mod session_mirror;
 mod status;
 pub(crate) mod terminals;
+pub(crate) mod tool_updates;
 
 use crate::{
     agents::work_copy::Copies,
