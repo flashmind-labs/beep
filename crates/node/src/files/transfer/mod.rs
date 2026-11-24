@@ -142,17 +142,13 @@ pub struct Transfers {
 }
 
 struct Inner {
-    endpoint: Endpoint,
-    store: FsStore,
-    /// Where the store keeps its data.
-    store_dir: PathBuf,
+    /// The endpoint, the store, its directory, the journal and the room,
+    /// as sync holds them.
+    parts: sync::Parts,
     /// Wakes the collector once a transfer ended and its tags are gone.
     collect: Arc<Notify>,
     folders: Folders,
     grants: Arc<Grants>,
-    journal: Journal,
-    /// The free space running fetches hold.
-    room: Arc<Room>,
     running: Arc<Semaphore>,
     /// The files devices asked to have shared, by device and blob, each
     /// held in the store and granted until its lease ends.
@@ -404,14 +400,15 @@ impl Transfers {
         let sweeping = journal.clone();
         spawn_blocking(move || sweeping.sweep()).await??;
         let room: Arc<Room> = Arc::default();
+        let parts = sync::Parts {
+            endpoint: endpoint.clone(),
+            store,
+            store_dir: dir.to_owned(),
+            journal,
+            room,
+        };
         let syncs = Syncs::start(
-            sync::Parts {
-                endpoint: endpoint.clone(),
-                store: store.clone(),
-                store_dir: dir.to_owned(),
-                journal: journal.clone(),
-                room: room.clone(),
-            },
+            parts.clone(),
             folders.clone(),
             dir.join("sync"),
             syncthing,
@@ -422,7 +419,7 @@ impl Transfers {
         grants.set_access(syncs.access());
         let (events, events_task) = grants::events(grants.clone());
         let served = Served {
-            blobs: BlobsProtocol::new(&store, Some(events)),
+            blobs: BlobsProtocol::new(&parts.store, Some(events)),
             sync: PeerHandler {
                 syncs: syncs.clone(),
             },
@@ -435,14 +432,10 @@ impl Transfers {
         });
         let transfers = Self {
             inner: Arc::new(Inner {
-                endpoint: endpoint.clone(),
-                store,
-                store_dir: dir.to_owned(),
+                parts,
                 collect,
                 folders,
                 grants,
-                journal,
-                room,
                 running: Arc::new(Semaphore::new(MAX_RUNNING)),
                 shares: Mutex::default(),
                 syncs,
@@ -468,9 +461,9 @@ impl Transfers {
             spawn_blocking(move || folders.everywhere().resolve(&path)).await??
         };
         let offered = offer::offer(
-            &inner.store,
+            &inner.parts.store,
             &resolved,
-            inner.endpoint.addr(),
+            inner.parts.endpoint.addr(),
             &mut Out::Silent,
         )
         .await?;
@@ -489,7 +482,7 @@ impl Transfers {
         let inner = &self.inner;
         let _permit = inner.permit()?;
         let offered =
-            offer::offer(&inner.store, path, inner.endpoint.addr(), &mut Out::Silent).await?;
+            offer::offer(&inner.parts.store, path, inner.parts.endpoint.addr(), &mut Out::Silent).await?;
         let Reply::Offered { content, size, .. } = offered.reply else {
             bail!("{} could not be shared", path.display());
         };
@@ -584,7 +577,7 @@ impl Transfers {
                 .context("stopping the blobs protocol")?;
         }
         // The store stops without answering, so its reply channel closes.
-        if let Err(e) = self.inner.store.shutdown().await {
+        if let Err(e) = self.inner.parts.store.shutdown().await {
             log::debug!("the blob store stopped: {e}");
         }
 
@@ -647,11 +640,11 @@ impl Inner {
 
     fn fetcher<'a>(&'a self, cancel: &'a CancellationToken) -> fetch::Fetcher<'a> {
         fetch::Fetcher {
-            endpoint: &self.endpoint,
-            store: &self.store,
-            store_dir: &self.store_dir,
-            journal: &self.journal,
-            room: &self.room,
+            endpoint: &self.parts.endpoint,
+            store: &self.parts.store,
+            store_dir: &self.parts.store_dir,
+            journal: &self.parts.journal,
+            room: &self.parts.room,
             cancel,
         }
     }
@@ -735,12 +728,12 @@ async fn serve_offer(
         Ok(resolved) => resolved,
         Err(e) => return tx.send(&failed(&e)).await,
     };
-    let from = inner.endpoint.addr();
+    let from = inner.parts.endpoint.addr();
     // Dropping the import when the server goes away leaves only blobs no
     // tag holds, which the store's collector drops.
     let mut out = Out::Stream(&mut tx);
     let offered = tokio::select! {
-        offered = offer::offer(&inner.store, &resolved, from, &mut out) => offered,
+        offered = offer::offer(&inner.parts.store, &resolved, from, &mut out) => offered,
         _ = rx.recv::<Request>() => return Ok(()),
     };
     let offered = match offered {
