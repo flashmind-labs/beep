@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke } from "../ui/tauri.ts";
-import type { AgentHost } from "../agents/agents.ts";
+import { ensureAgentHosts, type AgentHost } from "../agents/agents.ts";
 import { SettingRow } from "./overview-view.tsx";
 import { Button } from "../ui/kit.tsx";
 import { closedPicker, drawPicker, focusSearch, pillContent, type Picked } from "../agents/agentpicker.tsx";
@@ -26,7 +26,7 @@ export function AssistantView() {
   const pill = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    invoke<AgentHost[]>("agent_hosts").then(setHosts, e => console.warn("agent hosts:", e));
+    ensureAgentHosts().then(setHosts, e => console.warn("agent hosts:", e));
     invoke<{ id: string | null }>("mac_control").then(mac => setOwn(mac.id), () => setOwn(null));
   }, []);
 

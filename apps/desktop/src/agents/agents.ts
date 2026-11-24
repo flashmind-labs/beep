@@ -432,19 +432,29 @@ export function accountsOf(agent: string | null): string[] {
   return namedAccounts.filter(account => account.agent === agent).map(account => account.name);
 }
 
+let hostsRead: Promise<AgentHost[]> | null = null;
+/// Orders the reads: only the newest one's answer is kept.
+let hostsGeneration = 0;
+
 /// The machines that can run an agent; none for an account that may not use machines.
-export async function loadAgentHosts() {
+/// Callers that ask together share one read, unless machines or accounts changed since it
+/// started: that one's answer is out of date, so a newer read starts and wins. One that fails
+/// keeps the list held.
+export function loadAgentHosts(): Promise<AgentHost[]> {
+  if (hostsRead && !hostChanges.dirty("")) return hostsRead;
+  const generation = ++hostsGeneration;
   hostChanges.read("");
+  const read = invoke<AgentHost[]>("agent_hosts")
+    .then(list => { if (generation === hostsGeneration) { AG.hosts = list; preloadModels(list); } }, () => { if (generation === hostsGeneration) { AG.hosts ??= []; hostChanges.changed(); } })
+    .then(() => { if (S.view === "agentnew") drawAgentNew(); return AG.hosts ?? []; })
+    .finally(() => { if (hostsRead === read) hostsRead = null; });
+  hostsRead = read;
+  return read;
+}
 
-  try {
-    AG.hosts = await invoke<AgentHost[]>("agent_hosts");
-    preloadModels(AG.hosts);
-  } catch {
-    AG.hosts = [];
-    hostChanges.changed();
-  }
-
-  if (S.view === "agentnew") drawAgentNew();
+/// The hosts as last read, read again only after machines or accounts changed.
+export function ensureAgentHosts(): Promise<AgentHost[]> {
+  return AG.hosts && !hostChanges.dirty("") ? Promise.resolve(AG.hosts) : loadAgentHosts();
 }
 
 // ----- Every session -----

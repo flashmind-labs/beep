@@ -1,7 +1,8 @@
 import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { MC, machinesIn, machinesOut, renderMachines } from "../src/machines/machines.tsx";
+import { MACHINES } from "../src/machines/machine-store.ts";
+import { machinesIn, machinesOut, renderMachines } from "../src/machines/machines.tsx";
 import { S } from "../src/bar/core.ts";
 import { openBarPage } from "../src/bar/bar-app.tsx";
 import { flushSync } from "react-dom";
@@ -82,7 +83,7 @@ test("overlapping machine refreshes wait for the latest read", async () => {
   finish([{ id: "machine", name: "Old", online: true, seen_at: 0, version: "", env: null }]);
   await Promise.all([one, two]);
   assert.equal(calls.filter(call => call.cmd === "list_machines").length - before, 2);
-  assert.equal(MC.list?.[0]?.name, "Current");
+  assert.equal(MACHINES.list?.[0]?.name, "Current");
   answers.list_machines = [];
   leave();
   await settle();

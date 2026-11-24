@@ -16,7 +16,8 @@ import { agentAccountsContent, credentialsContent, renderCreds, CRED, loadAgentA
 import { bar, S, toWindow, windowHooks } from "../bar/core.ts";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { hintModel } from "../bar/hints.ts";
-import { type Machine, machinesIn, machinesOut, MC, renderMachines } from "../machines/machines.tsx";
+import { machinesIn, machinesOut, renderMachines } from "../machines/machines.tsx";
+import { loadMachines, MACHINES } from "../machines/machine-store.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { harnessName } from "./providers-state.ts";
 import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
@@ -44,11 +45,10 @@ export interface MacSettings {
 export const SET: {
   root: HTMLElement | null;
   token: number;
-  machines: Machine[] | null | undefined;
   path: SettingsPath | null;
   local: { set: MacSettings; mac: MacControl | null } | null;
   unembed: (() => void) | null;
-} = { root: null, token: 0, machines: undefined, path: null, local: null, unembed: null };
+} = { root: null, token: 0, path: null, local: null, unembed: null };
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
 /// The sheet opens on `page` when given, else on the page picked last.
@@ -60,9 +60,13 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
   // The window shows Settings as its sheet, never as a page of the pane.
   if (!SET.root && windowHooks) return windowHooks.openSettings();
   if (!SET.root) S.view = "settings";
-  if (root && shownSheet !== root) showSheet(root, <SettingsLoading />);
   const token = ++SET.token;
   const alive = () => SET.token === token && setShown();
+
+  // What the last open read draws at once; the reads below revalidate it.
+  if (SET.local) drawLocal();
+  else if (root && shownSheet !== root) showSheet(root, <SettingsLoading />);
+
   const [got, mac] = await Promise.all([
     invoke<MacSettings>("settings"),
     invoke<MacControl>("mac_control").catch(e => { console.warn(e); return null; }),
@@ -81,15 +85,9 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
   // What `settings` answered: an object that is not an Error.
   const set = got as MacSettings;
   SET.local = { set, mac };
+  drawLocal();
 
-  if (SET.root) {
-    drawSheet();
-  } else {
-    barSettings ??= openBarPage(() => { barSettings = null; });
-    drawBarSettings();
-  }
-
-  invoke<Machine[]>("list_machines").then(m => { SET.machines = m; MC.list = m; }, () => { SET.machines = null; })
+  loadMachines().catch(e => console.warn("machines:", e))
     .then(() => {
       if (!alive()) return;
       redrawSettings();
@@ -98,6 +96,15 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
     });
   loadCreds();
   loadAgentAccounts();
+}
+
+function drawLocal() {
+  if (SET.root) {
+    drawSheet();
+  } else {
+    barSettings ??= openBarPage(() => { barSettings = null; });
+    drawBarSettings();
+  }
 }
 
 /// Draws Settings again where it is shown, the sheet or the bar.
@@ -228,7 +235,7 @@ function mountPage(path: SettingsPath) {
   if (!box) return;
 
   if (path.page === "machines") {
-    machinesIn(box, id => follow("machines", id ? { kind: "machine", id } : null), () => { SET.machines = MC.list; drawChrome(); });
+    machinesIn(box, id => follow("machines", id ? { kind: "machine", id } : null), drawChrome);
     return renderMachines(sub?.kind === "machine" ? sub.id : null);
   }
 
@@ -275,7 +282,7 @@ function settingsSections(mac: MacControl | null, sheet: boolean): [SettingsPage
 
 /// What a subpage is called in the breadcrumb and the left pane.
 function subLabel(sub: SettingsSub) {
-  if (sub.kind === "machine") return (SET.machines ?? MC.list)?.find(m => m.id === sub.id)?.name ?? "Machine";
+  if (sub.kind === "machine") return MACHINES.list?.find(m => m.id === sub.id)?.name ?? "Machine";
   return harnessName(sub.id);
 }
 
@@ -283,7 +290,7 @@ function subLabel(sub: SettingsSub) {
 /// read yet say yes; the page itself checks once they come.
 function subExists(sub: SettingsSub) {
   if (sub.kind === "machine") {
-    const list = SET.machines ?? MC.list;
+    const list = MACHINES.list;
     return !list || list.some(m => m.id === sub.id);
   }
 
@@ -292,14 +299,14 @@ function subExists(sub: SettingsSub) {
 
 /// The subpages a page lists under it in the left pane, once picked.
 function subEntries(page: SettingsPage): SettingsSub[] {
-  if (page === "machines") return (SET.machines ?? MC.list ?? []).map(m => ({ kind: "machine", id: m.id }));
+  if (page === "machines") return (MACHINES.list ?? []).map(m => ({ kind: "machine", id: m.id }));
   if (page === "agents") return CODING_AGENTS.map(id => ({ kind: "agent", id }));
   return [];
 }
 
 /// A count beside a page in the left pane: the machines.
 function navCount(page: SettingsPage) {
-  return (page === "machines" ? (SET.machines ?? MC.list)?.length : 0) ?? 0;
+  return (page === "machines" ? MACHINES.list?.length : 0) ?? 0;
 }
 
 /// localStorage, or null where it cannot be reached.
@@ -334,7 +341,7 @@ function localView(kind: LocalView): ReactNode {
       mac={local.mac} busy={macPending.size > 0}
       setEnabled={(enabled: boolean) => void change(macPending, "mac", "set_mac_control", { enabled })}
       allow={(permission: "ScreenRecording" | "Accessibility") => { invoke("allow_mac_permission", { permission }).catch(console.warn); }} /> : null;
-    case "machines": return <MachinesOverview machines={SET.machines} open={() => { void renderMachines(); }} />;
+    case "machines": return <MachinesOverview machines={MACHINES.list ?? (MACHINES.failed ? null : undefined)} open={() => { void renderMachines(); }} />;
     case "instr": return <InstructionsOverview open={() => toWindow("instructions")} />;
     case "creds": return credentialsContent();
     case "plugins": return <PluginsView store={pluginsSettings} />;

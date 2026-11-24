@@ -5,7 +5,7 @@ import { refreshTopicSubscriptions, subscribeChanges, topic } from "../ui/mesh-e
 // composer, and the lists say "laptop to studio". The records are in the
 // mesh; the target says how far it is (`move-state.ts` holds the logic).
 
-import { type AgentHost, type AgentRow, AG } from "./agents.ts";
+import { type AgentHost, type AgentRow, AG, ensureAgentHosts } from "./agents.ts";
 import { agentKey } from "./conversation-state.ts";
 import { type MoveProgress, type MoveRecord, type MoveTarget, canMove, chatSessions, going, movePct, moveRows, targetNote } from "./move-state.ts";
 import { isAssistant } from "./assistant-state.ts";
@@ -151,9 +151,8 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
   if (!project) return [];
   const [rows, hosts] = await Promise.all([
     invoke<ProjectMachineRow[] | null>("project_machines", { project }).catch(() => null),
-    invoke<AgentHost[]>("agent_hosts").catch(() => [] as AgentHost[]),
+    ensureAgentHosts().catch(() => [] as AgentHost[]),
   ]);
-  AG.hosts ??= hosts;
   for (const m of rows ?? []) machineNames.set(m.id, m.name);
   const others = (rows ?? []).filter(m => m.id !== s.machine_id);
   // A node from before moves would ignore the move, so it is not offered. One
@@ -172,8 +171,7 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
 
 /// The machines a chat could go to: those online whose node moves chats.
 async function chatTargets(s: AgentRow): Promise<MoveTarget[]> {
-  const hosts = await invoke<AgentHost[]>("agent_hosts").catch(() => [] as AgentHost[]);
-  AG.hosts ??= hosts;
+  const hosts = await ensureAgentHosts().catch(() => [] as AgentHost[]);
   for (const h of hosts) machineNames.set(h.machine_id, h.machine_name);
   return hosts.filter(h => h.machine_id !== s.machine_id).map(h => ({
     id: h.machine_id, name: h.machine_name, online: true, harnesses: h.agents, checkout: true, old: !h.moves_chats,

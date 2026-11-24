@@ -7,6 +7,7 @@ import { AMBIENT_MS } from "../ui/active.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.tsx";
+import { loadMachines, MACHINES, setMachines } from "./machine-store.ts";
 import { openJoinTicket } from "./jointicket.tsx";
 import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-state.ts";
 import { S } from "../bar/core.ts";
@@ -41,7 +42,6 @@ export interface MachineSearch { id: string; folder: string | null; draft: strin
 // this Mac's own id, which unlinks from Settings rather than here; `asking`
 // the machine whose Remove waits for an answer.
 export const MC: {
-  list: Machine[] | null;
   error: string;
   mac: string | null;
   asking: Asking | null;
@@ -61,7 +61,7 @@ export const MC: {
   traffic: MachineTraffic[];
   /// Try again on a machine's adapters: asking, or why it failed.
   adapterTries: Map<string, { busy: boolean; error: string }>;
-} = { list: null, error: "", mac: null, asking: null, updatable: new Set(), released: null, updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), traffic: [], adapterTries: new Map() };
+} = { error: "", mac: null, asking: null, updatable: new Set(), released: null, updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), traffic: [], adapterTries: new Map() };
 
 /// Where the open machine looks for projects (GetMachineSearch): null until
 /// read, or when its beep-node cannot say; `draft` is the field while
@@ -122,8 +122,8 @@ export async function renderMachines(id: string | null = null) {
   if (log?.id !== id) log = null;
   drawMachines();
   await readList();
-  if (id && MC.list?.some(m => m.id === id && m.can_host !== false)) void loadSearch(id);
-  if (id && MC.list?.some(m => m.id === id && m.can_host === false)) return;
+  if (id && MACHINES.list?.some(m => m.id === id && m.can_host !== false)) void loadSearch(id);
+  if (id && MACHINES.list?.some(m => m.id === id && m.can_host === false)) return;
   // Looking the newest releases up can take a while; the page shows first.
   void loadNodeRelease();
   void loadToolUpdates();
@@ -162,15 +162,14 @@ function readList(): Promise<void> {
     do {
       listAgain = false;
       try {
-        const [list, mac, updatable, traffic] = await Promise.all([
-          invoke<Machine[]>("list_machines"),
+        const [, mac, updatable, traffic] = await Promise.all([
+          loadMachines(),
           invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this computer's state:", e); return null; }),
           invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
           invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return []; }),
           loadClocks(invoke),
         ]);
         if (listAgain) continue;
-        MC.list = list;
         MC.traffic = traffic;
         MC.updatable = new Set(updatable.map(u => u.id));
         MC.mac = mac?.id || null;
@@ -271,7 +270,7 @@ async function updateTool(id: string, tool: string) {
     MC.toolUps.delete(key);
     MC.installed.set(key, to);
     MC.tools = MC.tools.filter(u => !(u.machine_id === id && u.tool === tool));
-    const found = MC.list?.find(m => m.id === id)?.env?.tools.find(t => t.name === tool);
+    const found = MACHINES.list?.find(m => m.id === id)?.env?.tools.find(t => t.name === tool);
     if (found) found.version = to;
   } catch (e) {
     MC.toolUps.set(key, { busy: false, error: errorText(e) });
@@ -290,7 +289,7 @@ async function retryAdapters(id: string) {
     await invoke("agent_adapters_install", { machineId: id });
     MC.adapterTries.delete(id);
     // The node reads them as installing at once; its report follows.
-    for (const a of MC.list?.find(m => m.id === id)?.adapters ?? []) a.failed = null;
+    for (const a of MACHINES.list?.find(m => m.id === id)?.adapters ?? []) a.failed = null;
   } catch (e) {
     MC.adapterTries.set(id, { busy: false, error: errorText(e) });
   }
@@ -301,7 +300,7 @@ async function retryAdapters(id: string) {
 /// Saves machine `id`'s new name, shown on every machine.
 async function renameMachine(id: string, name: string) {
   await invoke("rename_machine", { id, name });
-  MC.list = (MC.list || []).map(m => (m.id === id ? { ...m, name } : m));
+  setMachines((MACHINES.list || []).map(m => (m.id === id ? { ...m, name } : m)));
   hosted()?.changed();
   if (shown()) drawMachines();
 }
@@ -316,7 +315,7 @@ async function removeMachine() {
 
   try {
     await invoke("remove_machine", { id: asking.id });
-    MC.list = (MC.list || []).filter(m => m.id !== asking.id);
+    setMachines((MACHINES.list || []).filter(m => m.id !== asking.id));
     MC.asking = null;
     hosted()?.changed();
   } catch (e) {
@@ -370,9 +369,8 @@ async function waitForNode(id: string, to: string, polls: number) {
         if (now?.step !== "restarting" || now.to !== to) { finish(); break; }
 
         try {
-          const list = await invoke<Machine[]>("list_machines");
+          const list = await loadMachines();
           if (done) break;
-          MC.list = list;
           const machine = list.find(machine => machine.id === id);
 
           if (machine && updatedTo(machine, to)) {
@@ -404,7 +402,7 @@ async function waitForNode(id: string, to: string, polls: number) {
 /// others are behind.
 // Only nodes that update themselves count: the Mac app's built-in node is
 // whatever version the app was built with, which may never have been released.
-const newest = () => offeredNode(MC.released, (MC.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
+const newest = () => offeredNode(MC.released, (MACHINES.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
 
 /// Machines in the Settings sheet's box. Its own scope keeps the bar window from loading the
 /// command center's root.
@@ -429,7 +427,7 @@ function showScreen(at: MachinesHost | null, page: MachinesPage) {
 function drawList(at: MachinesHost | null) {
   const refreshAfterSheet = () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); };
   showScreen(at, { view: "machines", props: {
-    list: MC.list, error: MC.error, hosted: !!at, mac: MC.mac, newest: newest(), asking: MC.asking,
+    list: MACHINES.list, error: MC.error, hosted: !!at, mac: MC.mac, newest: newest(), asking: MC.asking,
     adapterTries: MC.adapterTries, hints: at ? null : hintModel([["esc", "back"]]), age: span,
     open: (id: string) => { if (at) { at.opened(id); void renderMachines(id); } },
     add: () => openAddMachine({ onClose: refreshAfterSheet }),
@@ -459,9 +457,9 @@ function drawDetail(at: MachinesHost | null, machine: Machine) {
 
 function drawMachines() {
   const at = hosted();
-  const open = at?.machine ? MC.list?.find(m => m.id === at.machine) : undefined;
+  const open = at?.machine ? MACHINES.list?.find(m => m.id === at.machine) : undefined;
 
-  if (at?.machine && MC.list && !open) {
+  if (at?.machine && MACHINES.list && !open) {
     // Gone, such as just removed: back to the list.
     at.machine = null;
     at.opened(null);

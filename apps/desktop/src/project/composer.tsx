@@ -26,12 +26,12 @@ import { localProjectId } from "./localid.ts";
 import { addHosts, type BarPlace, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, blockedHosts, forgeOf, nextBarMachine, reviewPrompt, reviewTitled, type SessionTask, sessionIn, type TaskSession, taskSession, taskTitle, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
 import { keepMachine, lastMachine, openAgents, openMachine, openMachines } from "../agents/agentnew.tsx";
 import { TASK_WORDS } from "../agents/assistant-state.ts";
-import type { Machine } from "../machines/machines.tsx";
 import { AGENT_ORDER, allowedOf, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, machineRows, type MachineRow, startPlace } from "../agents/agentpick.ts";
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
-import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent, preloadModels } from "../agents/agentpicker.tsx";
+import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent } from "../agents/agentpicker.tsx";
 import { projectHarnesses, readProjectHarnesses } from "./project-harnesses.tsx";
-import { AG, accountsOf, type AgentHost, agentKind, loadAccountNames } from "../agents/agents.ts";
+import { AG, accountsOf, type AgentHost, agentKind, ensureAgentHosts, loadAccountNames, loadAgentHosts } from "../agents/agents.ts";
+import { loadMachines } from "../machines/machine-store.ts";
 import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
@@ -101,14 +101,14 @@ export const projectComp = (() => {
 /// Where the bar's `/` and `@` menus look: its machine's checkout, with the
 /// commands of the harness picked there.
 function barMenuPlace() {
-  const p = barProject(), place = p && !pc.adding && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  const p = barProject(), place = p && !pc.adding && barPlace(p.places, AG.hosts ?? [], pc.machine);
   return place && pc.picked.agent ? menuPlaceFor(place.machine_id, pc.picked.agent, place.cwd) : null;
 }
 
 /// Shift+Tab in the task field moves the bar to the project's next machine.
 function switchMachine(e: KeyboardEvent) {
   if (e.key !== "Tab" || !e.shiftKey || e.altKey || e.ctrlKey || e.metaKey || e.isComposing || pc.adding || pc.starting) return;
-  const p = barProject(), hosts = pc.hosts ?? [];
+  const p = barProject(), hosts = AG.hosts ?? [];
   const current = p && barPlace(p.places, hosts, pc.machine);
   const next = p && current && nextBarMachine(p.places, hosts, current.machine_id);
   if (!p || !next) return;
@@ -129,7 +129,7 @@ function toggleBarPicker() {
 }
 
 function openMachineMenu(e: MouseEvent) {
-  const p = barProject(), hosts = pc.hosts ?? [];
+  const p = barProject(), hosts = AG.hosts ?? [];
   if (!p || pc.adding) return;
   if (!addHosts(hosts).length) return openAgents();
   if (!barPlace(p.places, hosts, pc.machine)) {
@@ -141,7 +141,7 @@ function openMachineMenu(e: MouseEvent) {
 }
 
 function openFolderMenu(e: MouseEvent) {
-  const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
+  const p = barProject(), place = p && barPlace(p.places, AG.hosts ?? [], pc.machine);
   if (!place) return;
   const trees = knownWorktrees(sessions, place.machine_id, place.cwd);
   const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; redrawProjects(); };
@@ -164,13 +164,13 @@ function openAccountMenu(e: MouseEvent) {
 
 /// The harness the bar starts, when it has one.
 function barAgent() {
-  const p = barProject(), place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-  return barHarness(pc.adding ?? place ?? addHosts(pc.hosts ?? [])[0] ?? null).agent;
+  const p = barProject(), place = p && barPlace(p.places, AG.hosts ?? [], pc.machine);
+  return barHarness(pc.adding ?? place ?? addHosts(AG.hosts ?? [])[0] ?? null).agent;
 }
 
 const barAttachments = startAttachments(projectComp, error => projectComp.update({ error }), () => {
   const p = barProject();
-  projectComp.update({ sendDisabled: pc.starting || barAttachments.reading || !p || !barPlace(p.places, pc.hosts ?? [], pc.machine) || !!pc.adding });
+  projectComp.update({ sendDisabled: pc.starting || barAttachments.reading || !p || !barPlace(p.places, AG.hosts ?? [], pc.machine) || !!pc.adding });
 });
 
 function closeBarPicker() {
@@ -182,7 +182,7 @@ function closeBarPicker() {
 /// it to first), its harnesses, and the harness picked there, kept with the
 /// model when the machine or harness changes.
 function barHarness(place: { machine_id: string } | null) {
-  const host = place ? pc.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
+  const host = place ? AG.hosts?.find(m => m.machine_id === place.machine_id) ?? null : null;
   const offered = host ? allowedOf(host.agents, projectHarnesses(pc.project)).sort(byPreference) : [];
   const preferred = !pc.modelFor ? lastProjectPick(pc.project)?.agent : null;
   const agent = harnessFor(preferred ?? (pc.picked.agent || null), offered, AGENT_ORDER);
@@ -219,16 +219,12 @@ export function barOn(name: string) {
 const hostsRead = latest();
 async function readProjectHosts() {
   try {
-    const read = await hostsRead.run(Promise.all([invoke<AgentHost[]>("agent_hosts"), invoke<Machine[] | null>("list_machines").catch((e: unknown) => { console.warn("machines for the bar:", e); return null; })]));
+    const read = await hostsRead.run(Promise.all([loadAgentHosts(), loadMachines().catch((e: unknown) => { console.warn("machines for the bar:", e); return null; })]));
     if (read === STALE) return;
     const [list, machines] = read;
-    pc.hosts = list;
     pc.blocked = blockedHosts(machines ?? [], list);
-    preloadModels(list);
   } catch (error) {
     console.warn("agent hosts:", error);
-    if (pc.hosts !== null) return;
-    pc.hosts = [];
   }
   if (pc.project && barOn(pc.project)) redrawProjects();
 }
@@ -296,16 +292,16 @@ export function drawProjectComp(name: string) {
   const p = barProject();
   // The machine last picked, while it still has a checkout and an agent,
   // else the first such machine.
-  const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-  const readiness = p ? barReadiness(p.places, pc.hosts, pc.machine, pc.blocked) : { kind: "ready" as const };
+  const place = p && barPlace(p.places, AG.hosts ?? [], pc.machine);
+  const readiness = p ? barReadiness(p.places, AG.hosts, pc.machine, pc.blocked) : { kind: "ready" as const };
   // Text set or cleared from code (Work on it, a start) fits once the page places the form.
   requestAnimationFrame(fitField);
   const t = pc.target;
   const co = t ? targetCheckout(t) : barCheckout(pc.checkout, baseFor(null, pc.branches.get(name)));
-  const { host, offered, agent } = barHarness(pc.adding ?? place ?? addHosts(pc.hosts ?? [])[0] ?? null);
+  const { host, offered, agent } = barHarness(pc.adding ?? place ?? addHosts(AG.hosts ?? [])[0] ?? null);
   const names = accountsOf(agent);
   c.renderChoices({
-    machine: pc.adding?.machine_name ?? (place ? place.machine_name : readiness.kind === "no agent" ? "Install a coding agent" : pc.hosts ? "Add to a machine" : "Machine"),
+    machine: pc.adding?.machine_name ?? (place ? place.machine_name : readiness.kind === "no agent" ? "Install a coding agent" : AG.hosts ? "Add to a machine" : "Machine"),
     on: !!place && !pc.adding, adding: !!pc.adding, machineDisabled: !!pc.adding || pc.starting,
     folder: co.label, folderSub: co.sub, folderDisabled: !place || pc.starting,
     branch: t?.kind === "issue" ? t.branch : "", showBranch: t?.kind === "issue",
@@ -408,10 +404,10 @@ export function discussThread(name: string, topic: DiscussionTopic) {
 /// picked (the one last picked for another project, and the first harness);
 /// null until the machines are read.
 export function issueStartPlan(entries: readonly StartEntry[]) {
-  if (!pc.hosts) return null;
+  if (!AG.hosts) return null;
   const projects = projectRows() || [];
   const places = (name: string) => { const p = projects.find(x => x.name === name); return p ? projectPlaces(p) : []; };
-  const rows = planStarts(entries, places, pc.hosts, name => (pc.project === name ? pc.machine : lastMachine(name)), pc.picked.agent || null, AGENT_ORDER);
+  const rows = planStarts(entries, places, AG.hosts, name => (pc.project === name ? pc.machine : lastMachine(name)), pc.picked.agent || null, AGENT_ORDER);
   // An issue a teammate has is left out: its own page asks them first.
   return rows.map((row): StartRow => {
     const held = row.skip === null && row.entry.project ? heldBy(row.entry.project, row.entry.number) : null;
@@ -421,7 +417,7 @@ export function issueStartPlan(entries: readonly StartEntry[]) {
 
 /// Reads the machines when no project's bar has.
 export async function loadStartHosts() {
-  pc.hosts ??= await invoke<AgentHost[]>("agent_hosts");
+  await ensureAgentHosts();
 }
 
 /// Starts one agent per row, one at a time in a new worktree each, waiting
@@ -569,7 +565,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
     render: view => { if (projectComp.form.isConnected) projectComp.setPicker(view); },
     picked: p,
     offered,
-    everywhere: [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
+    everywhere: [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
     allowed: projectHarnesses(pc.project),
     machine: { id: host.machine_id, name: host.machine_name },
     noMachine: "",
@@ -595,8 +591,8 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 /// opens its session; Esc there comes back to the project.
 async function startFromBar() {
   const c = projectComp, p = barProject(), text = composeMessage(c.input.value);
-  const place = p && barPlace(p.places, pc.hosts ?? [], pc.machine);
-  if (p && !place && !pc.adding && pc.hosts) { c.update({ error: barPrompt(p.name, barReadiness(p.places, pc.hosts, pc.machine, pc.blocked)) + "." }); return; }
+  const place = p && barPlace(p.places, AG.hosts ?? [], pc.machine);
+  if (p && !place && !pc.adding && AG.hosts) { c.update({ error: barPrompt(p.name, barReadiness(p.places, AG.hosts, pc.machine, pc.blocked)) + "." }); return; }
   if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
@@ -671,7 +667,7 @@ export interface AgentTask { prompt: string; target: BarTarget | null }
 function threadPlace(name: string, machine: string | null) {
   const p = projectOf(name);
   machine ??= pc.project === name ? pc.machine : lastMachine(name);
-  return p ? { place: barPlace(p.places, pc.hosts ?? [], machine), why: barPrompt(name, barReadiness(p.places, pc.hosts, machine, pc.blocked)) } : null;
+  return p ? { place: barPlace(p.places, AG.hosts ?? [], machine), why: barPrompt(name, barReadiness(p.places, AG.hosts, machine, pc.blocked)) } : null;
 }
 
 /// Starts `task` of project `name` at once with `pick`, on `machine` when
@@ -695,7 +691,7 @@ export function pickButton(name: string, start: (pick: ProjectPick, machine: str
   let chosen = machine;
   const host = () => {
     const place = threadPlace(name, chosen)?.place;
-    return place ? pc.hosts?.find(h => h.machine_id === place.machine_id) ?? null : null;
+    return place ? AG.hosts?.find(h => h.machine_id === place.machine_id) ?? null : null;
   };
   /// The harness to offer first on the machine: the last one picked in the
   /// project when it has it, else the first it has.
@@ -708,7 +704,7 @@ export function pickButton(name: string, start: (pick: ProjectPick, machine: str
   const pop = pickPopover({
     picked,
     machine: () => { const h = host(); return h && { id: h.machine_id, name: h.machine_name, agents: [...h.agents].sort(byPreference) }; },
-    everywhere: () => [...new Set((pc.hosts ?? []).flatMap(m => m.agents))],
+    everywhere: () => [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
     allowed: () => projectHarnesses(name),
     machines: () => choose ? { rows: projectMachines(name), pick: id => { chosen = id; defaults(); } } : null,
     opening: () => { defaults(); return !!picked.agent; },
@@ -727,8 +723,8 @@ export function pickButton(name: string, start: (pick: ProjectPick, machine: str
     setButton: pop.setButton,
     setSlot: pop.setSlot,
     // Without a bar, as on a phone, the machines are read on the first click.
-    click: () => void Promise.all([pc.hosts ? null : readProjectHosts(), readProjectHarnesses(name)]).then(() => pop.toggle()),
-    why: () => { const at = threadPlace(name, chosen); return !pc.hosts ? "" : at?.place ? "" : `${at?.why ?? `${name} is not on a machine`}.`; },
+    click: () => void Promise.all([AG.hosts ? null : readProjectHosts(), readProjectHarnesses(name)]).then(() => pop.toggle()),
+    why: () => { const at = threadPlace(name, chosen); return !AG.hosts ? "" : at?.place ? "" : `${at?.why ?? `${name} is not on a machine`}.`; },
   };
 }
 
@@ -736,7 +732,7 @@ export function pickButton(name: string, start: (pick: ProjectPick, machine: str
 /// agent, those without the project's checkout listed but not picked.
 function projectMachines(name: string): MachineRow[] {
   const places = projectOf(name)?.places ?? [];
-  return machineRows(pc.hosts ?? [], null, agent => agentKind(agent).name, AGENT_ORDER)
+  return machineRows(AG.hosts ?? [], null, agent => agentKind(agent).name, AGENT_ORDER)
     .map(m => places.some(p => p.machine === m.id) ? m : { ...m, enabled: false, note: `${shortName(name)} is not here` });
 }
 

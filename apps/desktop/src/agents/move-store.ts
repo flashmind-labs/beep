@@ -5,6 +5,7 @@ import { type MoveProgress, type MoveRecord, awaitingMove, bySession, dedupe, ef
 import { single, SLOW_MS } from "../ui/active.ts";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { invoke } from "../ui/tauri.ts";
+import { ensureMachines } from "../machines/machine-store.ts";
 import { createStore } from "zustand/vanilla";
 
 /// Records older than this are not asked about again.
@@ -64,7 +65,7 @@ export const refreshMoves = single(async () => {
   if (!recent.length) return;
 
   if (!machineNames.size) {
-    try { for (const m of await invoke<{ machine_id: string; machine_name: string }[]>("agent_hosts")) machineNames.set(m.machine_id, m.machine_name); }
+    try { for (const m of await ensureMachines()) machineNames.set(m.id, m.name); }
     catch (e) { console.warn("machine names not read", e); }
   }
 

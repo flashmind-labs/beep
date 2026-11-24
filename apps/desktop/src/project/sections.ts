@@ -167,7 +167,6 @@ export const pc = {
   /// The machine the project is being added to, until it is ready.
   adding: null as AgentHost | null,
   checkout: DEFAULT_CHECKOUT,
-  hosts: null as AgentHost[] | null,
   /// The machines with a coding agent installed that Beep cannot run yet.
   blocked: [] as BlockedHost[],
   branches: new Map<string, BaseBranches | null>(),

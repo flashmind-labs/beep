@@ -5,8 +5,7 @@ import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
 import { applyTelemetry, keepUnchanged, onlineMachines, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
-import { preloadModels } from "../agents/agentpicker.tsx";
-import type { AgentHost } from "../agents/agents.ts";
+import { loadAgentHosts } from "../agents/agents.ts";
 import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pagesAccount } from "./state.ts";
 import { draw } from "./home.tsx";
 import { readAllTerms } from "../terminals/view.tsx";
@@ -111,7 +110,7 @@ async function readHome(): Promise<void> {
         lastRead = next;
         state.home = shown = telemetry ? applyTelemetry(next, telemetry) : next;
         keepConnecting(next.machines);
-        if (onlineMachines(next) !== was) invoke<AgentHost[]>("agent_hosts").then(preloadModels).catch(e => console.warn("agent hosts:", e));
+        if (onlineMachines(next) !== was) loadAgentHosts().catch(e => console.warn("agent hosts:", e));
       }
 
       // A change read off screen draws with the next read on screen.

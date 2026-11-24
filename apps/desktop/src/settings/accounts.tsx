@@ -7,8 +7,9 @@ import { cliHost, draft as credentialDraft, editFor } from "./credentials.ts";
 import type { ApiProvider, CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
 import { copy } from "../ui/parts.tsx";
 import type { Machine } from "../machines/machines.tsx";
+import { loadMachines, MACHINES } from "../machines/machine-store.ts";
 import { openSignIn } from "../machines/signin.tsx";
-import { redrawSettings, SET, setShown } from "./settings.tsx";
+import { redrawSettings, setShown } from "./settings.tsx";
 import { Mounted } from "./settings-shell-view.tsx";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { onShownChange } from "../ui/active.ts";
@@ -106,7 +107,7 @@ let credEditVersion = 0;
 const credsEntered = () => { credsShown = true; };
 const credsLeft = () => { credsShown = false; credEditVersion++; };
 export function credentialsContent() {
-  const machines = Array.isArray(SET.machines) ? SET.machines : null;
+  const machines = MACHINES.list;
   return <Mounted entered={credsEntered} left={credsLeft}><CredentialsView state={CRED} machines={machines} actions={credActions} /></Mounted>;
 }
 export function renderCreds() {
@@ -166,7 +167,7 @@ export async function loadAgentAccounts() {
   try {
     const [data, machines] = await Promise.all([
       invoke<AgentAccounts>("agent_accounts"),
-      invoke<Machine[]>("list_machines").catch((): Machine[] => []),
+      loadMachines().catch((): Machine[] => []),
     ]);
     ACC.data = data;
     // Each machine's own Claude Code sign-in, as it last reported it.

@@ -14,6 +14,7 @@ import { AG, accountsOf, agentKind, type AgentHost, hostChanges, loadAccountName
 import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./assistant-state.ts";
 import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
+import { ensureMachines, loadMachines } from "../machines/machine-store.ts";
 import { openAgent, sessionPicks, startedWith } from "./session.tsx";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.tsx";
 import { AGENT_ORDER, allowedOf, type BaseBranches, baseFor, byPreference, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
@@ -134,7 +135,7 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: Agen
   if (changed) loadAgentHosts();
   void loadAccountNames().then(() => { if (S.view === "agentnew") drawParts(); });
   ensureSessions().then(() => { if (S.view === "agentnew") drawParts(); }).catch(() => {});
-  if (changed || !KNOWN) invoke<Machine[]>("list_machines").then(list => { KNOWN = list.filter(m => m.can_host !== false); if (S.view === "agentnew") drawParts(); }).catch(() => {});
+  if (changed || !KNOWN) (changed ? loadMachines() : ensureMachines()).then(list => { KNOWN = list.filter(m => m.can_host !== false); if (S.view === "agentnew") drawParts(); }).catch(() => {});
   if (at?.project) {
     const project = at.project;
     loadBranches(project);
