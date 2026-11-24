@@ -57,3 +57,21 @@ async fn forgetting_removes_the_tokens_from_disk() {
     let out = command.output().await.unwrap();
     assert!(out.stdout.is_empty());
 }
+
+// A desktop's "Install Node" must not wait for the pinned tools' downloads,
+// while two installs of one tool still take turns.
+#[tokio::test]
+async fn installs_of_different_tools_overlap_and_of_one_tool_take_turns() {
+    use futures::FutureExt;
+
+    let installs = Installs::default();
+    let gh = installs.lock(Tool::Gh).await;
+
+    assert!(installs.lock(Tool::Teacli).now_or_never().is_some());
+    assert!(installs.lock(Need::Node).now_or_never().is_some());
+
+    let mut second = Box::pin(installs.lock(Tool::Gh));
+    assert!(second.as_mut().now_or_never().is_none());
+    drop(gh);
+    assert!(second.now_or_never().is_some());
+}

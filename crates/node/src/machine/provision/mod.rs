@@ -20,18 +20,32 @@ use beep_proto::node::{
 };
 use beep_proto::watched;
 use std::{
+    collections::HashMap,
     env,
     ffi::OsString,
+    fmt::Display,
     fs,
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
-    sync::{Notify, watch},
+    sync::{Notify, OwnedMutexGuard, watch},
     task::spawn_blocking,
 };
 use tokio_util::task::AbortOnDropHandle;
+
+/// One lock for each tool, taken while it is installed.
+#[derive(Default)]
+struct Installs(Mutex<HashMap<String, Arc<AsyncMutex<()>>>>);
+
+impl Installs {
+    async fn lock(&self, tool: impl Display) -> OwnedMutexGuard<()> {
+        let one = lock(&self.0).entry(tool.to_string()).or_default().clone();
+
+        one.lock_owned().await
+    }
+}
 
 /// What the node readies on the machine, made once per node process.
 pub struct Provision {
@@ -45,9 +59,9 @@ pub struct Provision {
     changed: Notify,
     /// Held while teacli's config is written, so two writes never mix.
     teacli: AsyncMutex<()>,
-    /// Held while a tool is installed, so two installs never share a
-    /// download folder.
-    installing: AsyncMutex<()>,
+    /// Held while a tool is installed, so two installs of one tool never share
+    /// its download folder. Installs of different tools run together.
+    installing: Installs,
     updates: watch::Sender<Option<Vec<Available>>>,
     recheck: Notify,
 }
@@ -61,7 +75,7 @@ impl Provision {
             forgejo: Mutex::default(),
             changed: Notify::new(),
             teacli: AsyncMutex::new(()),
-            installing: AsyncMutex::new(()),
+            installing: Installs::default(),
             updates: watch::channel(None).0,
             recheck: Notify::new(),
         };
@@ -207,26 +221,34 @@ impl Provision {
         }))
     }
 
-    /// Whether any tool was installed.
+    /// Whether any tool was installed. The missing tools install together.
     async fn install_tools(&self) -> bool {
-        let _one = self.installing.lock().await;
-        let mut installed = false;
         let missing = |name| which::which_in(name, Some(self.tool_path()), "/").is_err();
+        let pinned = tools::PINNED.iter().map(|tool| async move {
+            let _one = self.installing.lock(tool.name).await;
 
-        for tool in tools::PINNED {
-            if missing(tool.name) {
-                log::info!("installing {}", tool.name);
-                installed |= installed_ok(tool.name, tool.install(&self.bin()).await);
+            if !missing(tool.name) {
+                return false;
             }
-        }
 
-        if missing("flsh") && tools::flsh_target(env::consts::OS, env::consts::ARCH).is_some() {
+            log::info!("installing {}", tool.name);
+            installed_ok(tool.name, tool.install(&self.bin()).await)
+        });
+        let flsh = async {
+            let _one = self.installing.lock(Tool::Flsh).await;
+
+            if !missing("flsh") || tools::flsh_target(env::consts::OS, env::consts::ARCH).is_none()
+            {
+                return false;
+            }
+
             log::info!("installing flsh");
             let result = tools::install_newest(Tool::Flsh, &self.flsh_bin()).await;
-            installed |= installed_ok("flsh", result);
-        }
+            installed_ok("flsh", result)
+        };
+        let (pinned, flsh) = futures::future::join(futures::future::join_all(pinned), flsh).await;
 
-        installed
+        flsh || pinned.into_iter().any(|installed| installed)
     }
 
     /// Serves one `tool-update/1` stream: installs the release the caller
@@ -266,7 +288,7 @@ impl Provision {
 
     async fn set_up(&self, need: Need) -> Result<SetupReply> {
         let reply = {
-            let _one = self.installing.lock().await;
+            let _one = self.installing.lock(need).await;
             log::info!("installing {need}");
 
             match need {
@@ -286,7 +308,7 @@ impl Provision {
 
     async fn update(&self, tool: Tool, version: &str) -> Result<()> {
         {
-            let _one = self.installing.lock().await;
+            let _one = self.installing.lock(tool).await;
             log::info!("installing {tool} {version}");
             let path = tools::install_release(tool, version, &self.bin_of(tool)).await?;
             log::info!("installed {tool} {version} at {}", path.display());
