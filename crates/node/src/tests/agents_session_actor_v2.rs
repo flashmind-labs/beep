@@ -222,13 +222,14 @@ async fn a_steer_waits_for_the_turn_the_user_stopped() {
 #[tokio::test]
 async fn taking_steers_back_also_takes_the_one_sent_to_the_agent() {
     with_actor(async |mut actor, cx| {
+        // The reply, and whether the adapter still takes steers after it.
         let replies = [
-            Ok(json!({"outcome": "promptRequired"})),
-            Ok(json!({"outcome": "failed"})),
-            Err(agent_client_protocol::Error::internal_error()),
+            (Ok(json!({"outcome": "promptRequired"})), true),
+            (Ok(json!({"outcome": "failed"})), false),
+            (Err(agent_client_protocol::Error::internal_error()), false),
         ];
 
-        for reply in replies {
+        for (reply, still_steers) in replies {
             actor.offers.takes_steering = true;
             actor.steering = Some(PendingSteer {
                 prompt: Prompt::from("old text".to_owned()),
@@ -253,6 +254,7 @@ async fn taking_steers_back_also_takes_the_one_sent_to_the_agent() {
             assert!(actor.steers.is_empty());
             assert!(actor.steering.is_none());
             assert!(actor.turn.is_none());
+            assert_eq!(actor.offers.takes_steering, still_steers);
         }
     })
     .await;

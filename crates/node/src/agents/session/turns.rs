@@ -175,7 +175,13 @@ impl Actor {
 
         match outcome {
             Ok(acp::SteeringOutcome::Injected) => {}
-            _ if steer.dropped => {}
+            // Taken back, so it is not sent again, but an adapter that failed
+            // it is not asked to steer the next one.
+            _ if steer.dropped => {
+                if !matches!(outcome, Ok(acp::SteeringOutcome::PromptRequired)) {
+                    self.offers.takes_steering = false;
+                }
+            }
             Ok(acp::SteeringOutcome::PromptRequired) => {
                 self.steers.push_front(steer.prompt);
                 if let Some(turn) = &mut self.turn {
