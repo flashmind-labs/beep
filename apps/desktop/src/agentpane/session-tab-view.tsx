@@ -39,13 +39,16 @@ export function SessionTabView({ session, hidden, close }: { session: SplitSessi
     let release = () => {};
     const keep = (page: AgentPage) => { if (shown) { setRead({ key, page }); setError(""); } };
 
-    void keptTranscript(o).then(kept => {
+    const hold = () => {
       if (!shown) return;
-      if (kept) keep(kept);
       release = feed.hold(o, () => {
         invoke<AgentPage>("agent_view", where(o)).then(keep, e => { if (shown) setError(reason(e)); });
       });
-    });
+    };
+
+    // The page kept on disk draws at once, and the follow goes on from its cursor.
+    if (transcripts.peek(key)) hold();
+    else void keptTranscript(o).then(kept => { if (kept) keep(kept); hold(); });
 
     return () => { shown = false; release(); };
   }, [key, hidden]);
