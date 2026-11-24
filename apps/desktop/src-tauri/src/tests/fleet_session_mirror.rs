@@ -1,4 +1,5 @@
 use super::*;
+use beep_mesh::machine::listing::Host;
 use beep_proto::{AgentQuestion, node::agent::ParentLink};
 use iroh::SecretKey;
 use std::sync::Mutex;
@@ -356,6 +357,49 @@ async fn children_and_reviewers_stay_out_of_the_rows_and_are_edited_with_them() 
     rig.mirror.deleted(&machine_id, &"kid".into());
     let rows = rows_where(&rig.mirror, |rows| rows.children_of(None).count() == 1).await;
     assert!(rows.link(&machine_id, &"kid".into()).is_none());
+}
+
+#[tokio::test]
+async fn native_reports_win_over_the_scans_that_come_after_them() {
+    let a = machine(1);
+    let mut rig = rig(vec![a], Vec::new());
+    let host = Host {
+        id: a.to_string(),
+        name: "build-box".into(),
+    };
+    let report = |presence| ExternalSession {
+        id: "ext".into(),
+        agent: "claude".into(),
+        cwd: "/srv/project".into(),
+        presence,
+        ..ExternalSession::default()
+    };
+
+    rig.mirror
+        .presence(a, host.clone(), vec![report(Presence::Working)]);
+    assert_eq!(rig.drawn.recv().await, Some(Drawn::Listed));
+    assert_eq!(ids(&rig.mirror.current(), a), ["ext"]);
+
+    // A scan that does not find the session leaves it: the report is newer.
+    rig.mirror.stale();
+    rig.mirror.rows();
+    let scan = loop {
+        let ask = next(&mut rig.asks).await;
+
+        if ask.scan {
+            break ask;
+        }
+
+        ask.reply.send(Some(Vec::new())).unwrap();
+    };
+    scan.reply.send(Some(Vec::new())).unwrap();
+    rig.mirror.stale();
+    // The mirror took the scan before this report, which ends the session.
+    rig.mirror
+        .presence(a, host, vec![report(Presence::Stopped)]);
+    let rows = rows_where(&rig.mirror, |rows| rows.iter().count() == 0).await;
+
+    assert!(ids(&rows, a).is_empty());
 }
 
 #[tokio::test(start_paused = true)]

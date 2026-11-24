@@ -430,7 +430,7 @@ pub(crate) async fn has_open_project_session(
         return Ok(true);
     }
 
-    fleet.apply_presence(&mut outside);
+    rows.with_presence(machine, &mut outside);
     Ok(outside.iter().any(open) || rows.iter().filter(|s| s.external).any(open))
 }
 

@@ -6,18 +6,18 @@ use crate::{
     bar,
     beep::state::Prefs,
     center,
-    center::home::HOME_CHANGED,
     fleet::Fleet,
     fleet::{alerts::Direct, session_mirror::SessionMirror},
     tray::waiting::WaitingList,
 };
 use beep_fleet::Read;
+use beep_mesh::machine::listing::Host;
 use beep_proto::{AgentNoticeKey, Notice};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio::{sync::mpsc, time::sleep_until};
 
 /// How long after a machine's stream opens its news waits for the reads of the other apps. What
@@ -38,10 +38,13 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
                 }
             }
             Direct::Presence { machine, sessions } => {
-                app.state::<Arc<Fleet>>().note_presence(machine, sessions);
-                let _ = app.emit("sessions-changed", "");
-                let _ = app.emit(HOME_CHANGED, ());
-                crate::fleet::event_views::home_changed(app.clone());
+                let fleet = app.state::<Arc<Fleet>>();
+                let host = Host {
+                    id: machine.to_string(),
+                    name: fleet.name_of(machine),
+                };
+                app.state::<Arc<SessionMirror>>()
+                    .presence(machine, host, sessions);
             }
             // A build: the bell keeps it, and the first machine to tell
             // it shows it.

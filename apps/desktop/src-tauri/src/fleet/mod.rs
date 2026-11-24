@@ -16,7 +16,6 @@ pub(crate) mod files;
 mod mesh;
 pub(crate) mod node_actor;
 pub(crate) mod phone;
-mod presence;
 pub(crate) mod projects;
 pub(crate) mod session_lists;
 pub(crate) mod session_mirror;
@@ -200,9 +199,6 @@ pub struct Fleet {
     copies: Copies,
     /// The newest release of each tool a node installs.
     releases: ToolReleases,
-    /// Who started each session the nodes listed, to nest them.
-    /// Native session reports, overlaid on the slower transcript scans.
-    presence: presence::Presence,
     snapshots: Arc<events::Snapshots>,
     projections: node_actor::Projections,
     node_ops: Arc<node_actor::NodeOps>,
@@ -241,7 +237,6 @@ impl Fleet {
             joining: AsyncMutex::new(()),
             copies: Copies::default(),
             releases: ToolReleases::default(),
-            presence: presence::Presence::default(),
             snapshots: Arc::new(events::Snapshots::default()),
             projections: node_actor::Projections::default(),
             node_ops: Arc::new(node_actor::NodeOps::default()),
@@ -265,7 +260,6 @@ impl Fleet {
             joining: AsyncMutex::new(()),
             copies: Copies::default(),
             releases: ToolReleases::default(),
-            presence: presence::Presence::default(),
             snapshots: Arc::new(events::Snapshots::default()),
             projections: node_actor::Projections::default(),
             node_ops: Arc::new(node_actor::NodeOps::default()),

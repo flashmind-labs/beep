@@ -341,7 +341,6 @@ pub(crate) async fn machine_sessions(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec
 /// way, the user's titles and the starts it holds.
 pub(crate) fn overlaid(app: &AppHandle, fleet: &Fleet, rows: &Rows) -> Vec<MachineSession> {
     let mut sessions: Vec<MachineSession> = rows.iter_of(shown(fleet).as_ref()).cloned().collect();
-    fleet.apply_presence(&mut sessions);
     sessions.retain_mut(|session| overlay(fleet, session));
 
     sessions.extend(app.state::<Arc<Starts>>().rows());

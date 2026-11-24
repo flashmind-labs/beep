@@ -14,7 +14,7 @@ use crate::{
     palette::lists::PaletteCache,
     tray::waiting::WaitingList,
 };
-use beep_mesh::machine::listing::Linked;
+use beep_mesh::machine::listing::{Host, Linked, apply_presence};
 use beep_proto::{
     AgentStatus, MachineSession, SessionId,
     node::agent::{ExternalSession, ParentLink, Presence},
@@ -66,7 +66,16 @@ pub(crate) struct Machine {
     /// The sessions started outside Beep, and the assistant's ended
     /// conversations, found by scanning it.
     scans: Vec<MachineSession>,
+    /// What its native session reports say last, which win over its scans.
+    presence: Option<Reported>,
     source: Source,
+}
+
+/// A machine's native session reports.
+#[derive(Clone)]
+struct Reported {
+    host: Host,
+    sessions: Vec<ExternalSession>,
 }
 
 /// How a child session hangs under its parent.
@@ -207,6 +216,17 @@ impl Rows {
             .then(|| machine.links.get(session))?
     }
 
+    /// `scan`, a fresh scan of `machine`, with its native reports on top.
+    pub(crate) fn with_presence(&self, machine: EndpointId, scan: &mut Vec<MachineSession>) {
+        if let Some(reported) = self
+            .machines
+            .get(&machine)
+            .and_then(|machine| machine.presence.as_ref())
+        {
+            apply_presence(&reported.host, &reported.sessions, scan);
+        }
+    }
+
     /// Whether `machine` listed its Beep sessions in this run.
     fn live(&self, machine: EndpointId) -> bool {
         self.machines
@@ -281,6 +301,12 @@ enum Message {
     },
     /// A session moved to another folder: its machine is listed again.
     Moved(EndpointId),
+    /// The native reports of the sessions started outside Beep on a machine.
+    Presence {
+        machine: EndpointId,
+        host: Host,
+        sessions: Vec<ExternalSession>,
+    },
     /// One external session's live state.
     Reported {
         machine_id: String,
@@ -423,6 +449,16 @@ impl SessionMirror {
         self.send(Message::Moved(machine));
     }
 
+    /// `machine` reported its sessions started outside Beep: they win over
+    /// its scans, now and in the scans to come.
+    pub(crate) fn presence(&self, machine: EndpointId, host: Host, sessions: Vec<ExternalSession>) {
+        self.send(Message::Presence {
+            machine,
+            host,
+            sessions,
+        });
+    }
+
     pub(crate) fn reported(&self, machine_id: &str, report: &ExternalSession) {
         self.send(Message::Reported {
             machine_id: machine_id.to_owned(),
@@ -551,6 +587,11 @@ impl<O: Outside> Actor<O> {
                 self.edit(|rows| answer(rows, &machine_id, &session, question));
                 self.outside.drawn(Drawn::Session(session));
             }
+            Message::Presence {
+                machine,
+                host,
+                sessions,
+            } => self.took_presence(machine, Reported { host, sessions }),
             Message::Reported { machine_id, report } => {
                 self.edit(|rows| report_in(rows, &machine_id, &report));
             }
@@ -711,6 +752,26 @@ impl<O: Outside> Actor<O> {
         }
     }
 
+    fn took_presence(&mut self, machine: EndpointId, reported: Reported) {
+        let mut drawn = false;
+
+        self.revise(|all| {
+            let held = all.machines.entry(machine).or_default();
+            let mut scans = held.scans.clone();
+            apply_presence(&reported.host, &reported.sessions, &mut scans);
+            drawn = differ(&held.scans, &scans);
+            let changed = held.scans != scans;
+            held.scans = scans;
+            held.presence = Some(reported);
+
+            changed
+        });
+
+        if drawn {
+            self.outside.drawn(Drawn::Listed);
+        }
+    }
+
     fn scanned(&mut self, machine: EndpointId, rows: Option<Vec<MachineSession>>) {
         if self.scanning.remove(&machine) == Some(true) {
             // An edit came while it ran: what it found may undo the edit.
@@ -775,6 +836,12 @@ impl<O: Outside> Actor<O> {
 
         self.revise(|all| {
             let held = all.machines.entry(machine).or_default();
+            let mut rows = rows;
+
+            if let Some(reported) = &held.presence {
+                apply_presence(&reported.host, &reported.sessions, &mut rows);
+            }
+
             drawn = differ(&held.scans, &rows);
             let changed = held.scans != rows;
             held.scans = rows;
