@@ -232,8 +232,13 @@ pub(super) struct Ledger {
     pub(super) version: u32,
     pub(super) logs: BTreeMap<PathBuf, LogFile>,
     pub(super) databases: BTreeMap<PathBuf, Database>,
-    /// Sessions the caller has not heard of as they stand.
-    pub(super) unsent: BTreeSet<SessionKey>,
+    /// When each session last changed, as a number from `revision`. A
+    /// stream that heard a session at that number has it as it stands.
+    #[serde(skip)]
+    pub(super) touched: BTreeMap<SessionKey, u64>,
+    /// The number the latest change got.
+    #[serde(skip)]
+    revision: u64,
     /// Whether it changed since it was saved.
     #[serde(skip)]
     pub(super) changed: bool,
@@ -361,6 +366,12 @@ impl Ledger {
                 })
             })
             .collect()
+    }
+
+    /// Notes that `session` of `agent` changed.
+    pub(super) fn touch(&mut self, agent: Agent, session: SessionId) {
+        self.revision += 1;
+        self.touched.insert(SessionKey { agent, session }, self.revision);
     }
 
     /// The latest hour `key` spent in, to send the newest sessions first.

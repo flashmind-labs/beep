@@ -6,7 +6,7 @@ use super::{
     Line, agy,
     billing::{AccountFiles, Accounts},
     claude, codex, databases,
-    ledger::{Database, Ledger, LogFile, Part, SessionKey, Stamp},
+    ledger::{Database, Ledger, LogFile, Part, Stamp},
     pi,
 };
 use crate::agents::found::{self, Agent, LogRoots, is_jsonl, is_rollout, wal_path, walk_files};
@@ -112,12 +112,10 @@ pub(super) fn pass(ledger: &mut Ledger, roots: &Roots, since: u64) {
         match read_log(entry, &log, &mut budget, accounts) {
             Ok(touched) => {
                 ledger.changed = true;
-                ledger
-                    .unsent
-                    .extend(touched.into_iter().map(|session| SessionKey {
-                        agent: log.agent,
-                        session,
-                    }));
+
+                for session in touched {
+                    ledger.touch(log.agent, session);
+                }
             }
             Err(e) => log::debug!("agent log not read; path={} error={e}", log.path.display()),
         }
@@ -415,14 +413,12 @@ fn read_databases(ledger: &mut Ledger, roots: &Roots, since: u64, accounts: &mut
         match read {
             Ok(parts) => {
                 entry.separates_historical_usage = *agent == Agent::Flsh;
-                for session in changed_sessions(&entry.parts, &parts) {
-                    ledger.unsent.insert(SessionKey {
-                        agent: *agent,
-                        session,
-                    });
-                }
-
+                let changed = changed_sessions(&entry.parts, &parts);
                 entry.parts = parts;
+
+                for session in changed {
+                    ledger.touch(*agent, session);
+                }
             }
             Err(e) => log::debug!("agent database not read; path={} error={e}", path.display()),
         }

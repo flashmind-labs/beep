@@ -78,3 +78,26 @@ fn only_changed_credits_move_the_plans() {
     assert!(plans.has_changed().unwrap());
     assert_eq!(watched::read(&plans, |plans| plans[&claude].at), 30);
 }
+
+#[tokio::test]
+async fn every_follower_gets_every_finished_turn() {
+    let hub = UsageHub::default();
+    let (a, b) = (
+        hub.turns.follow(iroh::SecretKey::generate().public()),
+        hub.turns.follow(iroh::SecretKey::generate().public()),
+    );
+
+    for tokens in [1, 2] {
+        hub.record(TurnUsage {
+            tokens,
+            ..TurnUsage::default()
+        });
+    }
+
+    for follow in [&a, &b] {
+        for tokens in [1, 2] {
+            assert_eq!(follow.next().await.tokens, tokens);
+            follow.sent();
+        }
+    }
+}

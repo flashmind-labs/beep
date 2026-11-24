@@ -1,7 +1,7 @@
 //! Passes over fabricated Antigravity conversations.
 
 use super::*;
-use crate::agents::spend::{Roots, Spend};
+use crate::agents::spend::{Heard, Roots, Spend};
 use rusqlite::Connection;
 
 /// 2026-11-03T09:00:00Z.
@@ -121,7 +121,7 @@ fn a_subagents_requests_count_toward_the_session_that_started_it() {
     };
     let spend = Spend::at(roots, dir.path().join("agent-spend.json"));
 
-    let reports = spend.pass(NOW);
+    let reports = spend.pass(NOW, &mut Heard::default());
 
     assert_eq!(reports.len(), 1, "{reports:?}");
     let report = &reports[0];

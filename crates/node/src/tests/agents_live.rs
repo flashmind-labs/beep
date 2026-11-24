@@ -483,6 +483,7 @@ fn a_turn_shows_each_tool_image_once_and_a_bounded_few() {
 #[tokio::test]
 async fn a_running_cost_is_counted_per_turn() {
     let usage = Arc::new(UsageHub::default());
+    let turns = usage.turns.follow(iroh::SecretKey::generate().public());
     let mut live = Live::new(
         SessionInfo {
             id: "a3f9c1".into(),
@@ -506,19 +507,19 @@ async fn a_running_cost_is_counted_per_turn() {
         total: 900,
         models: Vec::new(),
     });
-    let first = usage.next_turn().await;
+    let first = next_turn(&turns).await;
     assert_eq!(first.cost_usd, Some(1.25));
     assert_eq!((first.tokens, first.agent.as_ref()), (900, "opencode"));
     live.apply(&cost(1.5));
     live.spent(TurnTokens::default());
-    assert_eq!(usage.next_turn().await.cost_usd, Some(0.25));
+    assert_eq!(next_turn(&turns).await.cost_usd, Some(0.25));
     // A turn that spent nothing is not counted.
     live.spent(TurnTokens::default());
     live.spent(TurnTokens {
         total: 5,
         models: Vec::new(),
     });
-    let last = usage.next_turn().await;
+    let last = next_turn(&turns).await;
     assert_eq!((last.tokens, last.cost_usd), (5, None));
     assert_eq!((live.info.tokens, live.info.cost_usd), (905, Some(1.5)));
 }
@@ -1014,6 +1015,7 @@ fn flsh_credit_snapshots_preserve_context_and_do_not_count_as_session_cost() {
 #[tokio::test]
 async fn flsh_keeps_counting_priced_calls_after_a_call_without_a_price() {
     let usage = Arc::new(UsageHub::default());
+    let turns = usage.turns.follow(iroh::SecretKey::generate().public());
     let mut live = Live::new(
         SessionInfo {
             agent: "flsh".into(),
@@ -1035,7 +1037,7 @@ async fn flsh_keeps_counting_priced_calls_after_a_call_without_a_price() {
         "_meta": {"flsh/sessionUsage": {"total_cost": "0.25", "cost_unknown": false}}
     })));
     live.spent(TurnTokens::default());
-    assert_eq!(usage.next_turn().await.cost_usd, Some(0.25));
+    assert_eq!(next_turn(&turns).await.cost_usd, Some(0.25));
 
     live.apply(&subtotal("0.25"));
     live.apply(&subtotal("1.75"));
@@ -1044,13 +1046,14 @@ async fn flsh_keeps_counting_priced_calls_after_a_call_without_a_price() {
     assert_eq!(live.info.cost_usd, Some(1.75));
 
     live.spent(TurnTokens::default());
-    assert_eq!(usage.next_turn().await.cost_usd, Some(1.50));
+    assert_eq!(next_turn(&turns).await.cost_usd, Some(1.50));
     assert_eq!(live.info.cost_usd, Some(1.75));
 }
 
 #[tokio::test]
 async fn flsh_session_tokens_are_counted_once_across_repeated_usage_updates() {
     let usage = Arc::new(UsageHub::default());
+    let turns = usage.turns.follow(iroh::SecretKey::generate().public());
     let mut live = Live::new(
         SessionInfo {
             agent: "flsh".into(),
@@ -1069,11 +1072,11 @@ async fn flsh_session_tokens_are_counted_once_across_repeated_usage_updates() {
     live.apply(&totals(100, 20));
     live.spent(TurnTokens::default());
     assert_eq!(live.info.tokens, 120);
-    assert_eq!(usage.next_turn().await.tokens, 120);
+    assert_eq!(next_turn(&turns).await.tokens, 120);
     live.apply(&totals(250, 40));
     live.spent(TurnTokens::default());
     assert_eq!(live.info.tokens, 290);
-    assert_eq!(usage.next_turn().await.tokens, 170);
+    assert_eq!(next_turn(&turns).await.tokens, 170);
     live.apply(&totals(u64::MAX, 1));
     live.spent(TurnTokens::default());
     assert_eq!(live.info.tokens, 290);
@@ -1646,4 +1649,11 @@ fn replayed_flsh_delegations_keep_the_agent_card() {
     assert_eq!(entries.len(), 1);
     assert!(entries[0].text.starts_with("Check files [completed]"));
     assert!(entries[0].text.contains("[agent] worker"));
+}
+
+/// The next finished turn, taken as a stream does: read, then sent.
+async fn next_turn(turns: &crate::agents::alerts::Follow<'_, beep_proto::node::usage::TurnUsage>) -> beep_proto::node::usage::TurnUsage {
+    let turn = turns.next().await;
+    turns.sent();
+    turn
 }

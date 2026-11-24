@@ -1,21 +1,16 @@
 //! What the node's coding agents spent and how much of their plans is left
-//! (`UsageHub`), for the caller's `FollowUsage` stream. Plan usage is the
+//! (`UsageHub`), for the callers' `FollowUsage` streams: each follower has
+//! its own place among the finished turns. Plan usage is the
 //! latest report per agent, from `plans` or Claude Code's rate limit events.
 
-use crate::lock;
+use crate::agents::AlertHub;
 use beep_proto::{
     AccountName, AgentSlug, ProviderCredits,
     node::usage::{LimitWindow, PlanUsage, TurnUsage},
 };
 use serde_json::Value;
-use std::{
-    collections::{BTreeMap, VecDeque},
-    sync::Mutex,
-};
-use tokio::sync::{Notify, watch};
-
-/// The most turns waiting for the caller; the oldest go.
-const MAX_UNSENT: usize = 500;
+use std::collections::BTreeMap;
+use tokio::sync::watch;
 
 /// Whose plan a report is: an agent, and its named account or `None` for
 /// its default one.
@@ -26,9 +21,8 @@ pub(crate) type Plans = BTreeMap<PlanOf, PlanUsage>;
 
 #[derive(Debug)]
 pub(crate) struct UsageHub {
-    turns: Mutex<VecDeque<TurnUsage>>,
-    /// Woken when a turn joins `turns`.
-    arrived: Notify,
+    /// The finished turns, each follower reading them at its own pace.
+    pub(crate) turns: AlertHub<TurnUsage>,
     plans: watch::Sender<Plans>,
 }
 
@@ -49,39 +43,17 @@ fn usage_changed() {
 impl Default for UsageHub {
     fn default() -> Self {
         Self {
-            turns: Mutex::default(),
-            arrived: Notify::new(),
+            turns: AlertHub::default(),
             plans: watch::Sender::new(Plans::new()),
         }
     }
 }
 
 impl UsageHub {
-    /// Has `turn` wait for the caller.
+    /// Keeps `turn` for every follower.
     pub(crate) fn record(&self, turn: TurnUsage) {
-        let mut turns = lock(&self.turns);
-        turns.push_back(turn);
-
-        while turns.len() > MAX_UNSENT {
-            turns.pop_front();
-        }
-
-        drop(turns);
-        self.arrived.notify_one();
+        self.turns.record(turn);
         usage_changed();
-    }
-
-    /// The oldest turn waiting for the caller, once there is one.
-    pub(crate) async fn next_turn(&self) -> TurnUsage {
-        loop {
-            let arrived = self.arrived.notified();
-
-            if let Some(turn) = lock(&self.turns).pop_front() {
-                return turn;
-            }
-
-            arrived.await;
-        }
     }
 
     /// Follows the plans: each agent's latest report.

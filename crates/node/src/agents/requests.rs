@@ -3,7 +3,7 @@
 use beep_proto::SessionId;
 use super::{
     Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
-    custom_agents, harnesses, media_file, reach, unix_now, work_folder, worktrees,
+    custom_agents, harnesses, media_file, reach, spend::Heard, unix_now, work_folder, worktrees,
 };
 use crate::files::transfer::Transfers;
 use anyhow::{Context, Result};
@@ -244,7 +244,9 @@ pub async fn serve_sessions(
                 .await;
         }
         SessionsRequest::FollowUsage { history } => {
-            return trace.stream(send_usage(tx, rx, &agents, history)).await;
+            return trace
+                .stream(send_usage(tx, rx, &agents, history, caller))
+                .await;
         }
         SessionsRequest::FollowIndex { epoch, after } => {
             return trace
@@ -755,7 +757,9 @@ async fn send_usage(
     mut rx: LinkRx,
     agents: &Arc<Agents>,
     history: bool,
+    caller: EndpointId,
 ) -> Result<()> {
+    let turns = agents.usage.turns.follow(caller);
     let mut plans = agents.usage.plans();
     // What earlier reads left goes out at once: a desktop opens a stream per
     // look and listens only briefly, so it would miss a CLI that starts slowly.
@@ -776,15 +780,16 @@ async fn send_usage(
     every_scan.set_missed_tick_behavior(MissedTickBehavior::Delay);
     // A pass reads files; it runs on the blocking pool beside the loop.
     // Dropped with the stream, it still finishes and saves what it read.
-    let mut scanning: Option<JoinHandle<Vec<SessionSpend>>> = None;
-    // The first pass gives this stream every session: a desktop keeps nothing
-    // between reads, so sessions only one earlier stream heard would go missing.
-    let mut first_pass = true;
+    // What this stream heard goes with it and comes back with the reports; a
+    // new stream has heard nothing, so its first pass gives it every session.
+    let mut scanning: Option<JoinHandle<(Heard, Vec<SessionSpend>)>> = None;
+    let mut heard = Heard::default();
 
     loop {
         tokio::select! {
-            turn = agents.usage.next_turn() => {
+            turn = turns.next() => {
                 tx.send(&SessionsReply::TurnUsage { usage: turn }).await?;
+                turns.sent();
             }
             Ok(()) = plans.changed() => {
                 let now = watched::read_and_update(&mut plans, Clone::clone);
@@ -800,24 +805,22 @@ async fn send_usage(
             }
             _ = every_scan.tick(), if history && scanning.is_none() => {
                 let spend = agents.spend.clone();
-                let all = first_pass;
+                let mut known = std::mem::take(&mut heard);
                 scanning = Some(spawn_blocking(move || {
-                    if all { spend.pass_all(unix_now()) } else { spend.pass(unix_now()) }
+                    let reports = spend.pass(unix_now(), &mut known);
+                    (known, reports)
                 }));
             }
             Some(read) = async { Some(scanning.as_mut()?.await) }, if scanning.is_some() => {
                 scanning = None;
 
                 match read {
-                    Ok(reports) => {
-                        for report in reports {
-                            tx.send(&SessionsReply::SessionSpend { usage: report.clone() }).await?;
+                    Ok((known, reports)) => {
+                        heard = known;
 
-                            if !first_pass {
-                                agents.spend.sent(&report);
-                            }
+                        for report in reports {
+                            tx.send(&SessionsReply::SessionSpend { usage: report }).await?;
                         }
-                        first_pass = false;
                     }
                     Err(e) => log::warn!("reading the agents' logs failed: {e}"),
                 }

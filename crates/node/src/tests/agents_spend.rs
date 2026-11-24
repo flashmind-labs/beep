@@ -98,7 +98,8 @@ fn cost(report: &SessionSpend) -> f64 {
 fn a_pass_reports_every_agents_sessions_once_each() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
-    let reports = spend.pass(NOW);
+    let mut heard = Heard::default();
+    let reports = spend.pass(NOW, &mut heard);
     let sessions = by_session(&reports);
     let names: Vec<(&str, &str)> = sessions
         .values()
@@ -134,23 +135,23 @@ fn a_pass_reports_every_agents_sessions_once_each() {
 fn a_new_stream_hears_every_session_and_takes_none_from_an_older_one() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
-    let reports = spend.pass(NOW);
+    let mut old = Heard::default();
+    let reports = spend.pass(NOW, &mut old);
     assert!(!reports.is_empty());
 
-    for report in &reports {
-        spend.sent(report);
-    }
-
-    assert!(spend.pass(NOW).is_empty(), "an older stream heard them all");
-    assert_eq!(spend.pass_all(NOW).len(), reports.len());
+    assert!(spend.pass(NOW, &mut old).is_empty(), "an older stream heard them all");
+    assert_eq!(spend.pass(NOW, &mut Heard::default()).len(), reports.len());
 
     append(
         &fixture.claude_main,
         &claude_line("s1", "m3", "2026-11-03T08:30:00.000Z", 1_000),
     );
-    assert_eq!(spend.pass_all(NOW + 1).len(), reports.len());
     assert_eq!(
-        spend.pass(NOW + 1).len(),
+        spend.pass(NOW + 1, &mut Heard::default()).len(),
+        reports.len()
+    );
+    assert_eq!(
+        spend.pass(NOW + 1, &mut old).len(),
         1,
         "the older stream still hears the change"
     );
@@ -160,37 +161,32 @@ fn a_new_stream_hears_every_session_and_takes_none_from_an_older_one() {
 fn only_changed_sessions_go_again_and_a_restart_reads_nothing_twice() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    let mut heard = Heard::default();
+    spend.pass(NOW, &mut heard);
 
-    for report in spend.pass(NOW) {
-        spend.sent(&report);
-    }
-
-    assert!(spend.pass(NOW).is_empty(), "nothing changed");
+    assert!(spend.pass(NOW, &mut heard).is_empty(), "nothing changed");
 
     append(
         &fixture.claude_main,
         &claude_line("s1", "m3", "2026-11-03T08:30:00.000Z", 1_000_000),
     );
-    let reports = spend.pass(NOW);
+    let reports = spend.pass(NOW, &mut heard);
     assert_eq!(reports.len(), 1);
     // The whole session, not just the new line: 1M + 0.2M + 1M at $5.
     assert!((cost(&reports[0]) - 11.0).abs() < 1e-9);
+    assert!(spend.pass(NOW, &mut heard).is_empty());
 
-    for report in &reports {
-        spend.sent(report);
-    }
-
-    assert!(spend.pass(NOW).is_empty());
-
-    // A restart keeps what was read.
+    // A restart keeps what was read, and a stream after it hears every session.
     let again = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
-    let first = again.pass(NOW);
-    assert!(first.is_empty(), "{first:?}");
+    let mut heard = Heard::default();
+    let first = again.pass(NOW, &mut heard);
+    assert!((cost(by_session(&first)["s1"]) - 11.0).abs() < 1e-9);
+    assert!(again.pass(NOW, &mut heard).is_empty());
     append(
         &fixture.claude_main,
         &claude_line("s1", "m4", "2026-11-03T08:40:00.000Z", 1_000_000),
     );
-    let reports = again.pass(NOW);
+    let reports = again.pass(NOW, &mut heard);
     assert_eq!(reports.len(), 1);
     assert!((cost(&reports[0]) - 16.0).abs() < 1e-9);
 }
@@ -199,17 +195,15 @@ fn only_changed_sessions_go_again_and_a_restart_reads_nothing_twice() {
 fn a_line_still_being_written_waits() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
-
-    for report in spend.pass(NOW) {
-        spend.sent(&report);
-    }
+    let mut heard = Heard::default();
+    spend.pass(NOW, &mut heard);
 
     let line = claude_line("s1", "m5", "2026-11-03T08:50:00.000Z", 1_000_000);
     let (head, tail) = line.split_at(40);
     append(&fixture.claude_main, head);
-    assert!(spend.pass(NOW).is_empty(), "half a line counts nothing");
+    assert!(spend.pass(NOW, &mut heard).is_empty(), "half a line counts nothing");
     append(&fixture.claude_main, tail);
-    let reports = spend.pass(NOW);
+    let reports = spend.pass(NOW, &mut heard);
     assert!((cost(&reports[0]) - 11.0).abs() < 1e-9);
 }
 
@@ -217,9 +211,10 @@ fn a_line_still_being_written_waits() {
 fn the_window_starts_on_an_hour() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    let mut heard = Heard::default();
     // The window starts after ses_a's message (1_793_614_600) but within
     // its hour, which the server replaces whole.
-    let reports = spend.pass(1_793_614_650 + WINDOW_SECS);
+    let reports = spend.pass(1_793_614_650 + WINDOW_SECS, &mut heard);
     let sessions = by_session(&reports);
     let a = sessions
         .get("ses_a")
@@ -232,6 +227,7 @@ fn the_window_starts_on_an_hour() {
 fn a_moved_transcript_is_not_counted_again_but_what_follows_is() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    let mut heard = Heard::default();
     let moved = fixture
         .roots
         .claude
@@ -243,7 +239,7 @@ fn a_moved_transcript_is_not_counted_again_but_what_follows_is() {
     spend
         .mark_counted(Agent::Claude, &SessionId::from("s9"), &moved)
         .expect("marked");
-    let reports = spend.pass(NOW);
+    let reports = spend.pass(NOW, &mut heard);
     assert!(
         !by_session(&reports).contains_key("s9"),
         "the machine it came from counted that: {reports:?}"
@@ -253,7 +249,7 @@ fn a_moved_transcript_is_not_counted_again_but_what_follows_is() {
         &moved,
         &claude_line("s9", "m10", "2026-11-03T08:40:00.000Z", 200_000),
     );
-    let reports = spend.pass(NOW);
+    let reports = spend.pass(NOW, &mut heard);
     let sessions = by_session(&reports);
     assert!((cost(sessions["s9"]) - 1.0).abs() < 1e-9, "{reports:?}");
 }
@@ -270,7 +266,7 @@ fn a_session_that_comes_back_keeps_what_it_spent_here_before() {
         .join("-work-app/s9.jsonl");
     let first = claude_line("s9", "m9", "2026-11-03T08:30:00.000Z", 1_000_000);
     append(&path, &first);
-    let before = spend.pass_all(NOW);
+    let before = spend.pass(NOW, &mut Heard::default());
     assert!(
         (cost(by_session(&before)["s9"]) - 5.0).abs() < 1e-9,
         "{before:?}"
@@ -286,7 +282,7 @@ fn a_session_that_comes_back_keeps_what_it_spent_here_before() {
     spend
         .mark_counted(Agent::Claude, &SessionId::from("s9"), &path)
         .expect("marked");
-    let after = spend.pass_all(NOW);
+    let after = spend.pass(NOW, &mut Heard::default());
     assert!(
         (cost(by_session(&after)["s9"]) - 5.0).abs() < 1e-9,
         "the hours it spent here stay, and the turn run elsewhere is not added: {after:?}"
@@ -295,7 +291,7 @@ fn a_session_that_comes_back_keeps_what_it_spent_here_before() {
         &path,
         &claude_line("s9", "m11", "2026-11-03T08:50:00.000Z", 100_000),
     );
-    let reports = spend.pass_all(NOW);
+    let reports = spend.pass(NOW, &mut Heard::default());
     assert!(
         (cost(by_session(&reports)["s9"]) - 5.5).abs() < 1e-9,
         "{reports:?}"
@@ -306,6 +302,7 @@ fn a_session_that_comes_back_keeps_what_it_spent_here_before() {
 fn a_moved_codex_session_keeps_its_folder_and_provider_for_what_runs_here() {
     let fixture = fixture();
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
+    let mut heard = Heard::default();
     let path = fixture
         .roots
         .codex
@@ -332,7 +329,7 @@ fn a_moved_codex_session_keeps_its_folder_and_provider_for_what_runs_here() {
     // A turn run here: its lines name neither the folder nor the provider
     // nor the model, the header did.
     append(&path, &count("2026-11-03T08:30:00.000Z", 2_000_000));
-    let reports = spend.pass(NOW);
+    let reports = spend.pass(NOW, &mut heard);
     let report = by_session(&reports)["t9"];
     assert_eq!(report.cwd, "/work/app");
     assert!(
@@ -379,9 +376,8 @@ fn imported_openrouter_hours_replace_estimates_after_the_session_was_scanned() {
     append(&path, &format!("{header}\n"));
     fixture.roots.flsh = Some(root);
     let spend = Spend::at(fixture.roots, fixture.ledger);
-    for report in spend.pass(NOW) {
-        spend.sent(&report);
-    }
+    let mut heard = Heard::default();
+    spend.pass(NOW, &mut heard);
 
     let filled = serde_json::json!({hour.to_string(): {
         "example": {"input": 20, "cached": 5, "output": 2, "usd": 2.0},
@@ -389,25 +385,24 @@ fn imported_openrouter_hours_replace_estimates_after_the_session_was_scanned() {
     }});
     let billed = path.with_extension("openrouter.json");
     fs::write(&billed, filled.to_string()).unwrap();
-    let reports = spend.pass(NOW);
+    let reports = spend.pass(NOW, &mut heard);
     assert_eq!(reports.len(), 1);
     let chat = &reports[0];
     assert_eq!(chat.session.as_ref(), "chat");
     assert_eq!(chat.hours.len(), 3);
     assert_eq!(cost(chat), 3.25);
     assert_eq!(chat.hours.iter().map(|h| h.tokens()).sum::<u64>(), 39);
-    spend.sent(chat);
-    assert!(spend.pass(NOW).is_empty());
-    assert_eq!(cost(by_session(&spend.pass_all(NOW))["chat"]), 3.25);
+    assert!(spend.pass(NOW, &mut heard).is_empty());
+    assert_eq!(cost(by_session(&spend.pass(NOW, &mut Heard::default()))["chat"]), 3.25);
 
     let mut empty = header;
     empty["metadata"]["total_usage"] = serde_json::Value::Null;
     empty["metadata"]["usage_log"] = serde_json::json!([]);
     fs::write(&path, format!("{empty}\n")).unwrap();
-    assert_eq!(cost(&spend.pass(NOW)[0]), 3.25);
+    assert_eq!(cost(&spend.pass(NOW, &mut heard)[0]), 3.25);
 
     fs::remove_file(billed).unwrap();
-    assert!(!by_session(&spend.pass_all(NOW)).contains_key("chat"));
+    assert!(!by_session(&spend.pass(NOW, &mut Heard::default())).contains_key("chat"));
 }
 
 #[test]
@@ -434,10 +429,9 @@ fn resuming_a_legacy_flsh_session_corrects_its_cached_hour() {
     );
     fixture.roots.flsh = Some(root);
     let spend = Spend::at(fixture.roots.clone(), fixture.ledger.clone());
-    for report in spend.pass(NOW) {
-        spend.sent(&report);
-    }
-    assert!(spend.pass(NOW).is_empty());
+    let mut heard = Heard::default();
+    spend.pass(NOW, &mut heard);
+    assert!(spend.pass(NOW, &mut heard).is_empty());
     drop(spend);
 
     let mut cache: serde_json::Value =
@@ -457,18 +451,18 @@ fn resuming_a_legacy_flsh_session_corrects_its_cached_hour() {
     fs::write(&fixture.ledger, serde_json::to_vec(&cache).unwrap()).unwrap();
 
     let spend = Spend::at(fixture.roots, fixture.ledger);
-    let corrected = spend.pass(NOW);
+    let mut heard = Heard::default();
+    let corrected = spend.pass(NOW, &mut heard);
     let chat = by_session(&corrected)["chat"];
     assert!(chat.hours.is_empty());
     assert_eq!(chat.historical[0].cost_usd, 0.5);
     assert_eq!(chat.historical[0].first, Some(NOW - 86400 + 240));
-    spend.sent(chat);
 
     append(
         &path,
         "{\"type\":\"user\",\"timestamp\":\"2026-11-03T09:03:00Z\"}\n",
     );
-    let resumed = spend.pass(NOW);
+    let resumed = spend.pass(NOW, &mut heard);
     let chat = by_session(&resumed)["chat"];
     assert!(chat.hours.is_empty());
     assert_eq!(chat.historical[0].last, Some(NOW + 180));
@@ -481,13 +475,13 @@ fn resuming_a_legacy_flsh_session_corrects_its_cached_hour() {
     };
     let sidecar = path.with_extension("openrouter.json");
     fs::write(&sidecar, receipt(20, 0.30).to_string()).unwrap();
-    let partial = spend.pass(NOW);
+    let partial = spend.pass(NOW, &mut heard);
     let chat = by_session(&partial)["chat"];
     assert_eq!(cost(chat), 0.30);
     assert_eq!(chat.historical[0].tokens, 20);
     assert!((chat.historical[0].cost_usd - 0.20).abs() < 1e-9);
     fs::write(&sidecar, receipt(40, 0.45).to_string()).unwrap();
-    let complete = spend.pass(NOW);
+    let complete = spend.pass(NOW, &mut heard);
     let chat = by_session(&complete)["chat"];
     assert_eq!(cost(chat), 0.45);
     assert!(chat.historical.is_empty());
