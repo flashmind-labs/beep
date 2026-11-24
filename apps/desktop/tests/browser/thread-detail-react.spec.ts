@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { allowSelection, openDesktop, projectName } from "./harness.ts";
+import { allowSelection, openDesktop, projectName, pushPinned } from "./harness.ts";
 
 test("issue detail keeps comment draft, caret and scroll during project refresh", async ({ page }) => {
   const now = Date.now(), issue = { number: 1, title: "Example issue", url: "https://example.test/issues/1", author: "Author", opened_at: now, comments: 1, labels: [] };
@@ -15,16 +15,14 @@ test("issue detail keeps comment draft, caret and scroll during project refresh"
   const action = pane.getByRole("button", { name: "Work on it" });
   await action.focus();
   await action.evaluate(element => { (element as HTMLElement).dataset.identity = "kept"; });
-  await page.evaluate(() => window.__navigation.notify("projects"));
-  await page.waitForTimeout(1300);
+  await pushPinned(page, [projectName]);
   await expect(action).toHaveAttribute("data-identity", "kept");
   await expect(action).toBeFocused();
   await input.fill("Draft reply");
   await input.evaluate(element => { if (element instanceof HTMLTextAreaElement) { element.dataset.identity = "kept"; element.setSelectionRange(2, 5); } });
   await pane.evaluate(element => { element.style.maxHeight = "150px"; element.scrollTop = 80; });
   const top = await pane.evaluate(element => element.scrollTop);
-  await page.evaluate(() => window.__navigation.notify("projects"));
-  await page.waitForTimeout(1300);
+  await pushPinned(page, []);
   await expect(input).toHaveAttribute("data-identity", "kept");
   await expect(input).toBeFocused();
   await expect(input).toHaveValue("Draft reply");

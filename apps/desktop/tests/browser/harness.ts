@@ -92,6 +92,22 @@ export async function openStartForm(page: Page): Promise<void> {
   await expect(page.locator("#agprompt")).toBeVisible();
 }
 
+/// Pushes Home (the fixture's when none is given) with one more project, and waits until the sidebar
+/// draws it. Home follows a push once a second at most, so what a spec checks after this has seen that refresh.
+export async function pushHome(page: Page, home: { projects: unknown[] } = { ...fixture.home, projects: [project] }, sentinel = "team/sentinel"): Promise<void> {
+  const next = { ...home, projects: [...home.projects, { ...project, name: sentinel, folder: "/srv/sentinel" }] };
+  await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, next);
+  await expect(page.locator("#side .cc-grp.projects").getByRole("button", { name: sentinel, exact: true })).toBeVisible();
+}
+
+/// Pushes the projects pinned to the top and waits until the sidebar's Pinned group lists exactly those.
+export async function pushPinned(page: Page, names: string[]): Promise<void> {
+  await page.evaluate(value => { window.__navigation.respond("projects_on_top", value); window.__navigation.notify("projects"); }, names);
+  const group = page.locator("#side .cc-grp.pinned");
+  if (!names.length) { await expect(group).toHaveCount(0); return; }
+  for (const name of names) await expect(group.getByRole("button", { name })).toBeVisible();
+}
+
 /// Collects the page's uncaught errors and console errors, without known browser warnings.
 export function pageErrors(page: Page): string[] {
   const errors: string[] = [];

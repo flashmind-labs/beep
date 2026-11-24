@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop, projectName } from "./harness.ts";
+import { openDesktop, projectName, pushHome } from "./harness.ts";
 
 test("project running agents retain their rows and open by keyboard", async ({ page }) => {
   await openDesktop(page);
@@ -24,7 +24,8 @@ test("project running agents retain their rows and open by keyboard", async ({ p
 test("project running rows show status, metadata and recent order", async ({ page }) => {
   const project = { name: projectName, url: 'https://example.test/example/widget', machine_id: 'build-box', machine_name: 'build-box', folder: '/srv/project', cloned: true };
   const agent = (id: string, status: string, last: number) => ({ kind: 'agent', machine_id: 'build-box', machine_name: 'build-box', id, agent: 'codex', title: id, cwd: '/srv/project', status, doing: null, started_at: 1, last_activity: last, external: false, question: null });
-  await openDesktop(page, false, { project_sessions: [], agent_sessions: [], center_home: { machines: [], projects: [project], running: [agent('Idle', 'idle', 1), agent('Waiting', 'asking', 2), agent('Starting', 'starting', 3)], needs_you: [] } });
+  const home = { machines: [], projects: [project], running: [agent('Idle', 'idle', 1), agent('Waiting', 'asking', 2), agent('Starting', 'starting', 3)], needs_you: [] };
+  await openDesktop(page, false, { project_sessions: [], agent_sessions: [], center_home: home });
   await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
   const lane = (title: string) => page.locator('.pj-board .bd-lane').filter({ has: page.getByRole('heading', { name: title }) });
   const starting = lane('Working').locator('.bd-card').filter({ hasText: 'Starting' });
@@ -33,8 +34,7 @@ test("project running rows show status, metadata and recent order", async ({ pag
   await expect(lane('Ready to review').locator('.bd-card')).toHaveText(/Idle/);
   await starting.focus();
   await starting.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
-  await page.evaluate(() => window.__navigation.notify('home'));
-  await page.waitForTimeout(1300);
+  await pushHome(page, home);
   await expect(starting).toHaveAttribute('data-identity', 'kept');
   await expect(starting).toBeFocused();
   await page.locator('.pj-strip button').filter({ hasText: 'running' }).click();

@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, pushHome } from "./harness.ts";
 
 test("sidebar navigation keeps focus and scroll during Home updates", async ({ page }) => {
   await openDesktop(page);
@@ -9,8 +9,7 @@ test("sidebar navigation keeps focus and scroll during Home updates", async ({ p
   expect(scroll).toBeGreaterThan(0);
   await home.evaluate(element => (element as HTMLElement).focus({ preventScroll: true }));
   await home.evaluate(element => { (window as any).__sidebarHome = element; });
-  await page.evaluate(() => window.__navigation.notify("home"));
-  await page.waitForTimeout(1300);
+  await pushHome(page);
   await expect(home).toBeFocused();
   expect(await page.locator("#side-content").evaluate(element => element.scrollTop)).toBe(scroll);
   expect(await home.evaluate(element => element === (window as any).__sidebarHome)).toBe(true);
@@ -28,8 +27,7 @@ test("sidebar group rows keep focus on refresh", async ({ page }) => {
   await expect(settings).toBeVisible();
   await settings.focus();
   await settings.evaluate(element => { (window as any).__settingsRow = element; });
-  await page.evaluate(() => window.__navigation.notify("home"));
-  await page.waitForTimeout(1300);
+  await pushHome(page);
   await expect(settings).toBeFocused();
   expect(await settings.evaluate(element => element === (window as any).__settingsRow)).toBe(true);
 });
@@ -44,7 +42,6 @@ test("machine sidebar rows remain focused when another machine changes", async (
   await row.focus();
   await row.evaluate(element => { (window as any).__sidebarMachine = element; });
   await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, machines: [{ ...home.machines[0], agents: 2 }, home.machines[1]] });
-  await page.waitForTimeout(1300);
   await expect(page.locator("#side .cc-grp.machines").getByRole("button", { name: "Build box" })).toContainText("2");
   await expect(row).toBeFocused();
   expect(await row.evaluate(element => element === (window as any).__sidebarMachine)).toBe(true);

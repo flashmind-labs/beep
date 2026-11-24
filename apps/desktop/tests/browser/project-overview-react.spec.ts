@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop, projectName } from "./harness.ts";
+import { openDesktop, projectName, pushPinned } from "./harness.ts";
 
 test("outside project rows retain focus and keep import clicks separate", async ({ page }) => {
   const item = { host: 'example.test', repo: 'other/project', number: 7, kind: 'pull_request', title: 'Outside change', url: 'https://example.test/other/project/pull/7', updated_at: 1, authored: false, assigned: false, review_requested: true, draft: false, review: 'none', checks_failing: false, labels: ['review'] };
@@ -9,8 +9,7 @@ test("outside project rows retain focus and keep import clicks separate", async 
   await expect(title).toContainText('Outside change');
   await title.focus();
   await title.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
-  await page.evaluate(() => window.__navigation.notify('projects'));
-  await page.waitForTimeout(1300);
+  await pushPinned(page, [projectName]);
   await expect(title).toHaveAttribute('data-identity', 'kept');
   await expect(title).toBeFocused();
   await title.press('Enter');
@@ -69,8 +68,7 @@ test("found project actions retain focus across overview refresh", async ({ page
   await expect(section.locator('.chip')).toHaveAttribute('title', 'Build box: /srv/found');
   await action.focus();
   await action.evaluate(el => { (el as HTMLElement).dataset.identity = 'kept'; });
-  await page.evaluate(() => window.__navigation.notify('projects'));
-  await page.waitForTimeout(1300);
+  await pushPinned(page, [projectName]);
   await expect(action).toHaveAttribute('data-identity', 'kept');
   await expect(action).toBeFocused();
   await page.evaluate(() => window.__navigation.hold('import_project'));

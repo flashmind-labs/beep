@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, pushHome } from "./harness.ts";
 
 test("Home refresh retains its tab, focus, content and scroll", async ({ page }) => {
   const home = { machines: [], projects: [], running: [], needs_you: [], coming_up: null,
@@ -14,8 +14,7 @@ test("Home refresh retains its tab, focus, content and scroll", async ({ page })
     (window as any).__homeTab = document.querySelector('[role="tab"]');
   });
   await tab.focus();
-  await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, home);
-  await page.waitForTimeout(1300);
+  await pushHome(page, home);
   await expect.poll(() => page.evaluate(() => document.querySelector("#view")!.scrollTop)).toBe(await page.evaluate(() => (window as any).__homeScroll));
   await expect(tab).toBeFocused();
   expect(await page.evaluate(() => document.querySelector('[role="tab"]') === (window as any).__homeTab)).toBe(true);
@@ -32,8 +31,7 @@ test("Git items retain a focused row during a Home refresh", async ({ page }) =>
   await expect(second).toBeVisible();
   await second.focus();
   await second.evaluate(element => { (window as any).__gitRow = element; });
-  await page.evaluate(() => window.__navigation.notify("home"));
-  await page.waitForTimeout(1300);
+  await pushHome(page);
   await expect(second).toBeFocused();
   expect(await second.evaluate(element => element === (window as any).__gitRow)).toBe(true);
 });

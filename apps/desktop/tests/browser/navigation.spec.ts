@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { openDesktop, projectName } from "./harness.ts";
+import { openDesktop, projectName, pushHome } from "./harness.ts";
 import type { CenterTarget } from "../../src/project/projectwindow.ts";
 
 const pageErrors = new WeakMap<Page, string[]>();
@@ -113,8 +113,7 @@ test("project header actions retain focus during refresh", async ({ page }) => {
   await expect(more).toBeVisible();
   await more.focus();
   await more.evaluate(element => { (window as any).__headerMore = element; });
-  await page.evaluate(() => window.__navigation.notify("home"));
-  await page.waitForTimeout(1300);
+  await pushHome(page);
   await expect(more).toBeFocused();
   expect(await more.evaluate(element => element === (window as any).__headerMore)).toBe(true);
   await page.evaluate(() => window.__navigation.respond("project_ignored_sync", { enabled: false, folders: [] }));
