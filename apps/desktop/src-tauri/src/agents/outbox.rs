@@ -826,37 +826,23 @@ impl Outbox {
     }
 
     /// Changes the held messages with `change`, then has what changed
-    /// written: the messages' file without image bytes, serialized after
-    /// the lock is let go.
+    /// written: the messages' file, which leaves out image bytes, serialized
+    /// under the lock so no waiting image is copied.
     pub(crate) fn with<T>(&self, change: impl FnOnce(&mut Held) -> T) -> T {
-        let (out, writes, messages) = {
+        let (out, writes) = {
             let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
             let out = change(&mut held);
-            let writes = std::mem::take(&mut held.writes);
-            let messages = std::mem::take(&mut held.dirty).then(|| {
-                held.messages
-                    .iter()
-                    .map(|m| Message {
-                        images: m
-                            .images
-                            .iter()
-                            .map(|i| KeptImage {
-                                data: String::new(),
-                                ..i.clone()
-                            })
-                            .collect(),
-                        ..m.clone()
-                    })
-                    .collect::<Vec<_>>()
-            });
-            (out, writes, messages)
+            let file = std::mem::take(&mut held.dirty)
+                .then(|| self.folder.records(&held.messages))
+                .flatten();
+            let writes: Vec<Write> = std::mem::take(&mut held.writes)
+                .into_iter()
+                .chain(file)
+                .collect();
+            (out, writes)
         };
 
         self.folder.write(writes);
-
-        if let Some(messages) = messages {
-            self.folder.keep(&messages);
-        }
 
         out
     }

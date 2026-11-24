@@ -418,35 +418,23 @@ impl Starts {
     }
 
     /// Changes the held starts with `change`, then has what changed
-    /// written: the starts' file without image bytes.
+    /// written: the starts' file, which leaves out image bytes, serialized
+    /// under the lock so no waiting image is copied.
     pub(crate) fn with<T>(&self, change: impl FnOnce(&mut Held) -> T) -> T {
-        let (out, writes, starts) = {
+        let (out, writes) = {
             let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
             let out = change(&mut held);
-            let writes = std::mem::take(&mut held.writes);
-            let starts = std::mem::take(&mut held.dirty).then(|| {
-                held.starts
-                    .iter()
-                    .map(|start| Start {
-                        images: start
-                            .images
-                            .iter()
-                            .map(|image| KeptImage {
-                                data: String::new(),
-                                ..image.clone()
-                            })
-                            .collect(),
-                        ..start.clone()
-                    })
-                    .collect::<Vec<_>>()
-            });
-            (out, writes, starts)
+            let file = std::mem::take(&mut held.dirty)
+                .then(|| self.folder.records(&held.starts))
+                .flatten();
+            let writes: Vec<Write> = std::mem::take(&mut held.writes)
+                .into_iter()
+                .chain(file)
+                .collect();
+            (out, writes)
         };
-        self.folder.write(writes);
 
-        if let Some(starts) = starts {
-            self.folder.keep(&starts);
-        }
+        self.folder.write(writes);
 
         out
     }

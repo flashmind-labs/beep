@@ -141,11 +141,16 @@ impl KeptFolder {
         }
     }
 
-    /// Has the records' file replaced with `records`.
-    pub(crate) fn keep<T: Serialize>(&self, records: &[T]) {
+    /// The write that replaces the records' file with `records`, for `write`.
+    /// Image bytes are not part of it. Quick to make, so a caller may make it
+    /// under its lock and hand it on after.
+    pub(crate) fn records<T: Serialize>(&self, records: &[T]) -> Option<Write> {
         match serde_json::to_vec(records) {
-            Ok(bytes) => self.write([Write::Records(bytes)]),
-            Err(e) => log::warn!("keeping {}: {e}", self.dir.display()),
+            Ok(bytes) => Some(Write::Records(bytes)),
+            Err(e) => {
+                log::warn!("keeping {}: {e}", self.dir.display());
+                None
+            }
         }
     }
 
