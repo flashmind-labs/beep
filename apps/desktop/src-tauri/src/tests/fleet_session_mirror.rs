@@ -307,7 +307,7 @@ async fn a_stale_machine_does_not_make_a_pushing_one_listed() {
     }
     rig.mirror.rows();
     // Both are scanned once. A scan under way is not started again, so wait
-    // until the mirror has taken both answers: each holds a row.
+    // until the mirror has taken both answers: each adds the row `x`.
     for _ in 0..2 {
         let ask = next(&mut rig.asks).await;
         assert!(ask.scan);
@@ -315,7 +315,9 @@ async fn a_stale_machine_does_not_make_a_pushing_one_listed() {
         ask.reply.send(Some(found)).unwrap();
     }
     rows_where(&rig.mirror, |rows| {
-        !ids(rows, a).is_empty() && !ids(rows, b).is_empty()
+        [a, b]
+            .iter()
+            .all(|m| ids(rows, *m).contains(&"x".to_string()))
     })
     .await;
 
