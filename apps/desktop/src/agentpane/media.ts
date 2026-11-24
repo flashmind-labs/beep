@@ -30,7 +30,7 @@ import type { LspLocation } from "./lsp-state.ts";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { draw, flipTab, noteTab, pickPhoneTab, touchTab } from "./media-draw.ts";
-import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setHidden, setOn, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
+import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setHidden, setOn, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { onPhone, savedIn } from "../ui/platform.ts";
 import { confirmSheet } from "../ui/menu.tsx";
 
@@ -355,7 +355,7 @@ export function focusTab(id: string) {
 
 /// On a phone, which shows one pane at a time, a tab being shown takes the screen from the log.
 function leaveLog() {
-  if (paneModel.getState().phone) setPaneModel({ log: false });
+  if (paneModel.getState().phone) paneModel.setState({ log: false });
 }
 
 /// ⌘2 to ⌘9: the pane's tab `n` (from 0), counting the right strip's tabs
@@ -723,7 +723,7 @@ export function showChanges(zoomed = true) {
   const d = dockOf(CHANGES);
   setOn(d, CHANGES);
   setFolded(d, false);
-  setPaneModel({ log: false });
+  paneModel.setState({ log: false });
   draw();
 
   if (zoomed) {

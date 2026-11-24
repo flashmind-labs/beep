@@ -62,7 +62,7 @@ function tabMove(e: PointerEvent) {
 function showDropZone(to: Dock | null) {
   const now = paneModel.getState().drag, { layout } = paneModel.getState(), el = shell(), box = main();
   if (!now || now.to === to || !el || !box) return;
-  if (!to) { setPaneModel({ drag: { ...now, to: null, zone: null } }); return; }
+  if (!to) { paneModel.setState({ drag: { ...now, to: null, zone: null } }); return; }
   const s = el.getBoundingClientRect();
   const pane = paneOf(to);
   let r: Box;
@@ -76,7 +76,7 @@ function showDropZone(to: Dock | null) {
     r = { left: m.left, top: m.bottom - hgt, width: m.width, height: hgt };
   }
 
-  setPaneModel({ drag: { ...now, to, zone: { left: r.left - s.left, top: r.top - s.top, width: r.width, height: r.height } } });
+  paneModel.setState({ drag: { ...now, to, zone: { left: r.left - s.left, top: r.top - s.top, width: r.width, height: r.height } } });
 }
 
 function tabUp(e: PointerEvent) {
@@ -105,7 +105,7 @@ function endDrag() {
   if (d.tab.hasPointerCapture(d.pointer)) d.tab.releasePointerCapture(d.pointer);
   document.removeEventListener("keydown", dragKey, true);
   if (!d.ghost) return;
-  setPaneModel({ drag: null });
+  paneModel.setState({ drag: null });
   // The click that ends a drag does not pick the tab.
   P.dragged = true;
   setTimeout(() => { P.dragged = false; }, 0);

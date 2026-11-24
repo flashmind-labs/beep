@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, MEDIA_EXTENSIONS, mediaKind, baseName, isCloseKey, leavesTerminal, moveTab, pinchStep, readLayout, resolvePath, splitTabs, tabDock, zoomAt, type Touches } from "../src/agentpane/media-state.ts";
+import { DEFAULT_LAYOUT, KEPT_TABS, SIDE_BY_SIDE_MIN, ZOOM_MAX, MEDIA_EXTENSIONS, mediaKind, baseName, isCloseKey, leavesTerminal, moveTab, pinchStep, readLayout, resolvePath, splitTabs, tabDock, withFolded, zoomAt, type Touches } from "../src/agentpane/media-state.ts";
 
 test("a relative path is the session folder's", () => {
   assert.equal(resolvePath("/srv/project", "out/a.glb"), "/srv/project/out/a.glb");
@@ -97,4 +97,10 @@ test("SVG files use the image viewer and appear among media links", () => {
   assert.equal(mediaKind("out/diagram.SVG"), "image");
   assert.equal(mediaKind("out/diagram.svg.txt"), null);
   assert.ok(MEDIA_EXTENSIONS.includes("svg"));
+});
+
+test("folding a dock leaves the layout it came from as it was", () => {
+  const folded = withFolded(DEFAULT_LAYOUT, "right", true);
+  assert.deepEqual(folded.hidden, { right: true, bottom: false });
+  assert.deepEqual(DEFAULT_LAYOUT.hidden, { right: false, bottom: false });
 });
