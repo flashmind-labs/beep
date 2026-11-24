@@ -3,6 +3,7 @@
 use beep_proto::node::events::{Topic, Value};
 use std::{
     collections::BTreeMap,
+    panic::Location,
     sync::{Arc, LazyLock, Mutex},
 };
 use tokio::sync::broadcast;
@@ -57,21 +58,32 @@ impl Hub {
         self.0.changes.subscribe()
     }
 
+    #[track_caller]
     pub fn changed(&self, topic: Topic) {
-        self.changed_as(topic, ChangeKind::Any);
+        self.changed_as(topic, ChangeKind::Any, Location::caller());
     }
 
     /// Files in the checkout `topic` names changed, but not its Git metadata.
     #[cfg(feature = "host")]
+    #[track_caller]
     pub(crate) fn changed_work_tree(&self, topic: Topic) {
-        self.changed_as(topic, ChangeKind::WorkTree);
+        self.changed_as(topic, ChangeKind::WorkTree, Location::caller());
     }
 
-    fn changed_as(&self, topic: Topic, kind: ChangeKind) {
+    /// Counts the change by its topic and by the line of code that sent it,
+    /// which says what makes a topic change so often.
+    #[cfg_attr(not(feature = "host"), allow(unused_variables))]
+    fn changed_as(&self, topic: Topic, kind: ChangeKind, from: &Location<'_>) {
         #[cfg(feature = "host")]
         if topic.valid() {
-            metrics::counter!("beep_topic_changed_total", "name" => topic.name().to_owned())
-                .increment(1);
+            let file = from.file();
+            let file = file.rsplit_once("/src/").map_or(file, |(_, file)| file);
+            metrics::counter!(
+                "beep_topic_changed_total",
+                "name" => topic.name().to_owned(),
+                "from" => format!("{file}:{}", from.line()),
+            )
+            .increment(1);
         }
 
         self.forward(Change { topic, kind });
