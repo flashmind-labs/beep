@@ -781,7 +781,25 @@ impl Events {
         Ok(Some((stopped, Primed::Full)))
     }
 
-    fn start(&self, app: AppHandle, fleet: Arc<Fleet>) {
+    /// A standing interest in `topics` that no window owns, so it is never paused: the nodes keep
+    /// pushing them while every window is hidden, until the returned reader is dropped.
+    #[cfg(desktop)]
+    pub(crate) fn hold(&self, topics: Vec<Interest>) -> Result<Reading<'_>> {
+        let id = Uuid::new_v4();
+        self.registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .register(STANDING, id, topics, Arc::new(|_| true))?;
+        self.changed();
+
+        Ok(Reading {
+            events: self,
+            window: STANDING.to_owned(),
+            id,
+        })
+    }
+
+    pub(crate) fn start(&self, app: AppHandle, fleet: Arc<Fleet>) {
         self.controller.get_or_init(|| fleet.me);
         let mut manager = self.manager.lock().unwrap_or_else(PoisonError::into_inner);
 
@@ -1053,7 +1071,11 @@ impl Events {
     }
 }
 
-struct Reading<'a> {
+/// The registry label of the tray's standing interest, which no window can have.
+#[cfg(desktop)]
+const STANDING: &str = "tray-standing";
+
+pub(crate) struct Reading<'a> {
     events: &'a Events,
     window: String,
     id: Uuid,
