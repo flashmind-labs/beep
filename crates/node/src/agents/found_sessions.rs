@@ -148,7 +148,9 @@ impl Agents {
     async fn sighted(&self, usable: impl Fn(&Sighted) -> bool) -> Result<Sighted> {
         let mut sighted = self.sighted.lock().await;
 
-        if let Some(kept) = sighted.as_ref().filter(|kept| usable(kept)) {
+        if let Some(kept) = sighted.as_ref()
+            && usable(kept)
+        {
             return Ok(kept.clone());
         }
 
