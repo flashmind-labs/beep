@@ -68,7 +68,9 @@ pub struct Candidate<'a> {
 
 /// The machine to import onto, by index: `wanted`, else the only online one.
 pub fn choose(candidates: &[Candidate<'_>], wanted: Option<&str>) -> Result<usize, ImportError> {
-    if let Some(id) = wanted.map(str::trim).filter(|id| !id.is_empty()) {
+    if let Some(id) = wanted.map(str::trim)
+        && !id.is_empty()
+    {
         let at = candidates
             .iter()
             .position(|c| c.id == id)

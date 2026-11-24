@@ -204,7 +204,9 @@ fn parse_desktop_entry(text: &str) -> Option<AppInfo> {
     for line in text.lines().map(str::trim) {
         if line.starts_with('[') {
             in_entry = line == "[Desktop Entry]";
-        } else if let Some(name) = line.strip_prefix("Name=").filter(|_| in_entry) {
+        } else if let Some(name) = line.strip_prefix("Name=")
+            && in_entry
+        {
             let name = name.to_lowercase();
             let app = [
                 ("blender", AppName::Blender),

@@ -436,7 +436,9 @@ impl Live {
             );
         }
 
-        if let Some(subagent) = call.subagent.as_mut().filter(|sub| sub.codex) {
+        if let Some(subagent) = call.subagent.as_mut()
+            && subagent.codex
+        {
             subagent.update(fields.raw_input.as_ref());
 
             for thread in &subagent.threads {

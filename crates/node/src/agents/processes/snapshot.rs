@@ -26,7 +26,9 @@ impl Reader {
         // Coalesce concurrent reads instead of starting another full OS scan.
         let mut last = self.last.lock().await;
 
-        if let Some(snapshot) = last.as_ref().filter(|s| s.at.elapsed() < max_age) {
+        if let Some(snapshot) = last.as_ref()
+            && snapshot.at.elapsed() < max_age
+        {
             return Ok(snapshot.table.clone());
         }
 

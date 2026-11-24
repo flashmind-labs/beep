@@ -191,7 +191,7 @@ pub(super) async fn reconcile(env: &Arc<Env>, running: &mut HashMap<SessionId, R
         if let Some(old) = env
             .state
             .load(&id)
-            .filter(|old| old.at != record.at && old.phase == Phase::Working)
+            && old.at != record.at && old.phase == Phase::Working
         {
             target::take_back(env, &id, old.at).await;
             env.state.clear(&id, old.at);

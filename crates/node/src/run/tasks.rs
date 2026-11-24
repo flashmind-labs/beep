@@ -297,7 +297,7 @@ impl Tasks {
             if let Some(group) = entry
                 .group
                 .as_ref()
-                .filter(|_| !watched::read(&entry.done, |done| *done))
+                && !watched::read(&entry.done, |done| *done)
             {
                 group.kill();
             }

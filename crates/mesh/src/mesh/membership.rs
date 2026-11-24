@@ -176,7 +176,7 @@ impl Mesh {
                     .values
                     .get(&Key::MachineName(device.id.to_string()))
                     .and_then(|bytes| std::str::from_utf8(bytes).ok())
-                    .filter(|name| !name.trim().is_empty())
+                    && !name.trim().is_empty()
                 {
                     device.name = name.to_owned();
                 }

@@ -222,7 +222,9 @@ impl Snapshots {
             wanted.push((Topic::new("reviews"), Source::Reviews));
         }
         for topic in topics.iter().filter(|topic| topic.name() == "processes") {
-            if let Some(session) = topic.key().filter(|_| !topic.is_pattern()) {
+            if let Some(session) = topic.key()
+                && !topic.is_pattern()
+            {
                 wanted.push((
                     topic.clone(),
                     Source::Read(Read::Sessions(Box::new(SessionsRequest::Processes {

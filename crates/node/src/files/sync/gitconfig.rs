@@ -202,7 +202,7 @@ impl Scan<'_> {
 
         while let Some(c) = self
             .peek()
-            .filter(|c| c.is_ascii_alphanumeric() || "-.".contains(*c))
+            && (c.is_ascii_alphanumeric() || "-.".contains(c))
         {
             name.push(c);
             self.at += 1;
@@ -246,7 +246,7 @@ impl Scan<'_> {
 
         while let Some(c) = self
             .peek()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
+            && (c.is_ascii_alphanumeric() || c == '-')
         {
             name.push(c);
             self.at += 1;

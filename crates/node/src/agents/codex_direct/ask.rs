@@ -407,7 +407,7 @@ fn questions_form(
         });
         if let Some(header) = question["header"]
             .as_str()
-            .filter(|header| !header.is_empty())
+            && !header.is_empty()
         {
             field["description"] = json!(header);
         }

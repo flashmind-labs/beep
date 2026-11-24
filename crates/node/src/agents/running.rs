@@ -157,7 +157,9 @@ impl Agents {
                 })
             };
 
-            if let Some(id) = id.filter(|_| !calls.is_empty()) {
+            if let Some(id) = id
+                && !calls.is_empty()
+            {
                 match self
                     .external
                     .attach_children(&id, calls, entries.clone())
@@ -219,7 +221,7 @@ impl Agents {
         }
         if let Some(history) = cached
             .as_ref()
-            .filter(|h| h.dropped == dropped || (before.is_none() && last <= retained))
+            && (history.dropped == dropped || (before.is_none() && last <= retained))
         {
             return Some(history.clone());
         }

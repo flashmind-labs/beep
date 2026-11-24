@@ -301,7 +301,9 @@ fn env_of(kind: &AgentKind) -> impl Fn(&str) -> Option<OsString> + '_ {
 /// else `~/.flashmind` when it exists, else the platform's config folder
 /// (`$XDG_CONFIG_HOME` or `~/.config` outside Windows) plus `flashmind`.
 fn flsh_config_dir(env: &dyn Fn(&str) -> Option<OsString>, home: Option<&Path>) -> Option<PathBuf> {
-    if let Some(dir) = env("FLASHMIND_HOME").filter(|dir| !dir.is_empty()) {
+    if let Some(dir) = env("FLASHMIND_HOME")
+        && !dir.is_empty()
+    {
         let dir = PathBuf::from(dir);
         return dir.is_absolute().then_some(dir);
     }

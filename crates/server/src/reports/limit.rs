@@ -100,7 +100,9 @@ async fn run(mut asks: mpsc::Receiver<Ask>, per_day: u32, max_keys: usize) {
                 let _ = reply.send(allowed);
             }
             Ask::GiveBack { key, day } => {
-                if let Some(count) = counts.get_mut(&key).filter(|count| count.day == day) {
+                if let Some(count) = counts.get_mut(&key)
+                    && count.day == day
+                {
                     count.sent = count.sent.saturating_sub(1);
                 }
             }

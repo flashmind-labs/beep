@@ -386,7 +386,9 @@ impl Shell for Rules {
         let (holds, code, out) = first.map_or(("", 1, "no rule"), |at| rules[at]);
         let again = rules.iter().filter(|(other, ..)| *other == holds).count() > 1;
 
-        if let Some(at) = first.filter(|_| again) {
+        if let Some(at) = first
+            && again
+        {
             rules.remove(at);
         }
 

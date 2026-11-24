@@ -183,7 +183,9 @@ pub(super) fn latest_folder(path: &Path) -> Option<PathBuf> {
         };
         let payload = &value["payload"];
         if is_turn && value["type"] == "turn_context" {
-            if let Some(cwd) = payload["cwd"].as_str().filter(|cwd| !cwd.is_empty()) {
+            if let Some(cwd) = payload["cwd"].as_str()
+                && !cwd.is_empty()
+            {
                 let next = PathBuf::from(cwd);
                 if turn.as_ref() != Some(&next) || folder.is_none() {
                     folder = Some(next.clone());

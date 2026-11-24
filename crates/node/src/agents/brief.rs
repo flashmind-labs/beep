@@ -35,7 +35,9 @@ pub(crate) fn environment_on(cx: &Context, os: &str) -> String {
             let _ = write!(out, "on this machine ({os})");
         }
     }
-    if let Some(project) = cx.project.as_deref().filter(|name| !name.is_empty()) {
+    if let Some(project) = cx.project.as_deref()
+        && !project.is_empty()
+    {
         let _ = write!(out, " in project `{project}`");
     }
     if cx.multi_machine {

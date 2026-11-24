@@ -199,7 +199,9 @@ impl Field {
                     ),
                 );
                 // Words that name no option are the user's own answer.
-                if let Some(custom) = self.custom.as_deref().filter(|_| !words.is_empty()) {
+                if let Some(custom) = self.custom.as_deref()
+                    && !words.is_empty()
+                {
                     let words = words.join(", ");
                     said.push(words.clone());
                     put(custom, words.into());

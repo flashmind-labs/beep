@@ -263,19 +263,27 @@ impl Stores {
         let mut seen = Vec::new();
         let memos = &self.memos;
 
-        if let Some(root) = self.codex.as_deref().filter(|_| wants(Agent::Codex)) {
+        if let Some(root) = self.codex.as_deref()
+            && wants(Agent::Codex)
+        {
             seen.extend(codex::sessions(root, memos));
         }
 
-        if let Some(root) = self.pi.as_deref().filter(|_| wants(Agent::Pi)) {
+        if let Some(root) = self.pi.as_deref()
+            && wants(Agent::Pi)
+        {
             seen.extend(pi::sessions(root, memos));
         }
 
-        if let Some(root) = self.flsh.as_deref().filter(|_| wants(Agent::Flsh)) {
+        if let Some(root) = self.flsh.as_deref()
+            && wants(Agent::Flsh)
+        {
             seen.extend(flsh::sessions(root, memos));
         }
 
-        if let Some(root) = self.opencode.as_deref().filter(|_| wants(Agent::OpenCode)) {
+        if let Some(root) = self.opencode.as_deref()
+            && wants(Agent::OpenCode)
+        {
             seen.extend(opencode::sessions(root, memos));
         }
 

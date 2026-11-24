@@ -146,7 +146,8 @@ fn walk<H>(
             let _ = write!(out.text, " {label:?}");
         }
         // A field's value is what it holds, not its name.
-        if let Some(value) = value.as_deref().map(str::trim).filter(|v| !v.is_empty())
+        if let Some(value) = value.as_deref().map(str::trim)
+            && !value.is_empty()
             && label.as_deref() != Some(&clip(value))
         {
             let _ = write!(out.text, " value={:?}", clip(value));

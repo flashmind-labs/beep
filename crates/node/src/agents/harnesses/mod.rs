@@ -154,7 +154,9 @@ fn configure(kind: &AgentKind, config: &HarnessConfig) -> AgentKind {
 
     if adapter {
         let program = config.program.as_deref().map(str::trim);
-        if let Some(program) = program.filter(|program| !program.is_empty()) {
+        if let Some(program) = program
+            && !program.is_empty()
+        {
             kind.program = program.to_owned();
             kind.bridge = None;
         }

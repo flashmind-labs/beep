@@ -274,7 +274,9 @@ fn scalar(value: &Value) -> Option<String> {
 
 fn allow(input: Value, permissions: Option<Value>) -> Value {
     let mut decision = json!({"behavior": "allow", "updatedInput": input});
-    if let Some(permissions) = permissions.filter(|permissions| !permissions.is_null()) {
+    if let Some(permissions) = permissions
+        && !permissions.is_null()
+    {
         decision["updatedPermissions"] = permissions;
     }
     decision

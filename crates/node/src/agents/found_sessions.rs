@@ -251,7 +251,7 @@ impl Agents {
 
         if let Some(done) = listed
             .as_ref()
-            .filter(|done| done.at >= asked && done.limit == limit)
+            && done.at >= asked && done.limit == limit
         {
             return Ok(done.folders.as_ref().clone());
         }
@@ -442,7 +442,9 @@ impl Agents {
             session.assistant = kept.is_some_and(|kept| kept.info.assistant && !kept.info.reviewer);
             session.persona = kept.and_then(|kept| kept.info.persona.clone());
 
-            if let Some(kept) = kept.filter(|kept| kept.named) {
+            if let Some(kept) = kept
+                && kept.named
+            {
                 session.title.clone_from(&kept.info.title);
             }
         }

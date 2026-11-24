@@ -641,7 +641,9 @@ impl Actor {
         let shown =
             watched::read_sent(&self.live, |live| live.info.question.as_ref().map(|q| q.id));
 
-        if let Some(asks) = question.as_ref().filter(|q| Some(q.id) != shown) {
+        if let Some(asks) = question.as_ref()
+            && Some(asks.id) != shown
+        {
             self.alert(AlertKind::Asks {
                 question: asks.clone(),
             });

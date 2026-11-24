@@ -143,7 +143,9 @@ impl HostRun {
 
     /// GitHub's name, else the workflow file name without folder or Gitea's `@ref`.
     fn workflow_name(&self) -> String {
-        if let Some(name) = self.name.as_deref().filter(|name| !name.trim().is_empty()) {
+        if let Some(name) = self.name.as_deref()
+            && !name.trim().is_empty()
+        {
             return name.trim().to_owned();
         }
 

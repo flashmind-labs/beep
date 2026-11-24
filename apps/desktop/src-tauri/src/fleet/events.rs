@@ -382,10 +382,8 @@ impl Registry {
             self.check_topics(window, &topics)?;
         }
 
-        if let Some(current) = self
-            .windows
-            .get_mut(window)
-            .filter(|current| current.id == id)
+        if let Some(current) = self.windows.get_mut(window)
+            && current.id == id
         {
             current.topics = topics;
         } else {

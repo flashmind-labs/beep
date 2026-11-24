@@ -343,7 +343,7 @@ impl Run {
                 if let Some(model) = value["message"]["model"]
                     .as_str()
                     .map(str::trim)
-                    .filter(|model| !model.is_empty() && *model != "<synthetic>")
+                    && !model.is_empty() && model != "<synthetic>"
                 {
                     self.model = Some(cut(model, MAX_STEP));
                 }

@@ -42,7 +42,9 @@ struct Copied {
 pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
     let saved = env.state.load(&record.id);
 
-    if let Some(saved) = saved.filter(|saved| saved.is_over(record.at)) {
+    if let Some(saved) = saved
+        && saved.is_over(record.at)
+    {
         // After a restart, how it ended is still what the source and the
         // desktop are told.
         show_end(tracker, &saved.phase, saved.reason);

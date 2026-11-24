@@ -74,7 +74,8 @@ pub(crate) async fn report() -> Vec<WslDistro> {
     // The default distribution is looked into once even when stopped, so
     // the agents in it are found without the user starting it. Starting it
     // can take longer than the report waits.
-    if let Some(default) = default.filter(|default| !default.running)
+    if let Some(default) = default
+        && !default.running
         && !DEFAULT_PROBED.swap(true, Ordering::Relaxed)
     {
         let name = default.name.clone();

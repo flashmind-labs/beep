@@ -258,7 +258,9 @@ pub(in crate::agents) fn choice_options(options: &[Value]) -> Vec<Value> {
         .filter_map(|option| {
             let label = option["label"].as_str()?;
             let mut choice = json!({"const": label, "title": label});
-            if let Some(d) = option["description"].as_str().filter(|d| !d.is_empty()) {
+            if let Some(d) = option["description"].as_str()
+                && !d.is_empty()
+            {
                 choice["description"] = json!(d);
             }
             Some(choice)

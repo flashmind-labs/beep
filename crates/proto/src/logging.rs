@@ -252,9 +252,8 @@ impl RollingFile {
     /// Opens `path` to append to, first moving it aside if it was last
     /// written on an earlier day.
     pub fn new(path: &Path, keep: usize) -> Result<Self> {
-        if let Some(folder) = path
-            .parent()
-            .filter(|folder| !folder.as_os_str().is_empty())
+        if let Some(folder) = path.parent()
+            && !folder.as_os_str().is_empty()
         {
             fs::create_dir_all(folder).with_context(|| format!("creating {}", folder.display()))?;
         }
@@ -273,7 +272,9 @@ impl RollingFile {
             .filter(|metadata| metadata.len() > 0)
             .and_then(|metadata| metadata.modified().ok())
             .map(day);
-        if let Some(written) = written.filter(|&written| written < today) {
+        if let Some(written) = written
+            && written < today
+        {
             let file = rolling.roll(written)?;
 
             match rolling.open.get_mut() {

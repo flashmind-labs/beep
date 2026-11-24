@@ -227,7 +227,9 @@ impl Document {
         let config = server.config.expose();
         ensure!(config.len() <= MAX_SERVER, "The MCP server entry is too large.");
 
-        if let Some(previous) = previous.filter(|&previous| previous != server.name) {
+        if let Some(previous) = previous
+            && previous != server.name
+        {
             self.remove(previous)?;
         }
         match self {

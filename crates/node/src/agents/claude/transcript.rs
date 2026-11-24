@@ -1043,7 +1043,9 @@ fn refresh(path: &Path, parsed: &mut Option<Parsed>) -> io::Result<()> {
     let (len, modified) = (meta.len(), meta.modified()?);
     let id = fsat::id_of_file(&file)?;
 
-    if let Some(kept) = parsed.as_mut().filter(|kept| kept.id == id) {
+    if let Some(kept) = parsed.as_mut()
+        && kept.id == id
+    {
         if kept.len == len && kept.modified == modified {
             return Ok(());
         }

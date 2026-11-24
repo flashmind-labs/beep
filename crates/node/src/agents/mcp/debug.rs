@@ -574,7 +574,9 @@ async fn file(
         answers.join(", ")
     );
 
-    if let Some(gh) = gh.filter(|_| with_issue) {
+    if let Some(gh) = gh
+        && with_issue
+    {
         // The report reached Beep: a failed issue is said, not a failed call.
         let opened = match issue(&manifest, &receipt.reference) {
             Ok(issue) => open_issue(&gh, &issue).await.map_err(|e| e.to_string()),

@@ -152,7 +152,9 @@ impl Alert {
 
     /// The session's title, or else its folder's name, or else its id.
     fn about(&self) -> String {
-        if let Some(title) = self.title.as_deref().filter(|t| !t.trim().is_empty()) {
+        if let Some(title) = self.title.as_deref()
+            && !title.trim().is_empty()
+        {
             return title.trim().to_owned();
         }
 

@@ -190,7 +190,9 @@ impl Store {
         // the node runs, and each would check every project folder.
         let known = crate::lock(&self.memos.found).get(id).cloned();
 
-        if let Some(path) = known.filter(|path| path.is_file()) {
+        if let Some(path) = known
+            && path.is_file()
+        {
             return Some(path);
         }
 
@@ -253,7 +255,9 @@ pub(super) fn list(
     limit: usize,
     only: Option<&SessionId>,
 ) -> io::Result<Vec<ExternalSession>> {
-    if let Some(id) = only.filter(|id| id.as_ref().starts_with("subagent:")) {
+    if let Some(id) = only
+        && id.as_ref().starts_with("subagent:")
+    {
         return super::subagents::session(store, id).map(|session| session.into_iter().collect());
     }
 

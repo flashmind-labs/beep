@@ -45,7 +45,9 @@ impl Schedule {
             return Due::Current;
         }
 
-        if let Some(at) = tracked.and_then(|t| t.retry_at).filter(|at| *at > now) {
+        if let Some(at) = tracked.and_then(|t| t.retry_at)
+            && at > now
+        {
             return Due::At(at);
         }
 

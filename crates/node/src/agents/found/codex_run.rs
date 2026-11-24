@@ -146,7 +146,7 @@ impl Reader {
                 if let Some(model) = payload["model"]
                     .as_str()
                     .map(str::trim)
-                    .filter(|model| !model.is_empty())
+                    && !model.is_empty()
                 {
                     self.run.model = Some(cut(model, MAX_STEP));
                 }
@@ -180,7 +180,7 @@ impl Reader {
                 if let Some(last) = payload["last_agent_message"]
                     .as_str()
                     .map(str::trim)
-                    .filter(|last| !last.is_empty())
+                    && !last.is_empty()
                 {
                     self.run.result = Some(cut(last, MAX_RESULT));
                 }
