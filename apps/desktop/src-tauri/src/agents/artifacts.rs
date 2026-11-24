@@ -335,7 +335,6 @@ pub fn agent_page_files(pages: State<'_, Pages>, src: String) -> Vec<String> {
 enum Kind {
     Html,
     Markdown,
-    Svg,
     Image(&'static str),
 }
 
@@ -350,7 +349,7 @@ fn kind_of(path: &str) -> Option<Kind> {
     Some(match ext.to_ascii_lowercase().as_str() {
         "html" | "htm" => Kind::Html,
         "md" | "markdown" => Kind::Markdown,
-        "svg" => Kind::Svg,
+        "svg" => Kind::Image("image/svg+xml"),
         "png" => Kind::Image("image/png"),
         "jpg" | "jpeg" => Kind::Image("image/jpeg"),
         "gif" => Kind::Image("image/gif"),
@@ -367,12 +366,7 @@ pub enum ArtifactView {
     Html { size: u64, src: String },
     /// Rendered and cleaned of anything that runs.
     Md { size: u64, html: String },
-    /// Its bytes in base64, for an `<img>`.
-    Svg {
-        size: u64,
-        mime: String,
-        data: String,
-    },
+    /// Its bytes in base64, for an `<img>`; a picture or an SVG.
     Image {
         size: u64,
         mime: String,
@@ -424,11 +418,6 @@ pub async fn agent_artifact(
         Kind::Markdown => ArtifactView::Md {
             size,
             html: markdown::to_html(&String::from_utf8_lossy(&data)),
-        },
-        Kind::Svg => ArtifactView::Svg {
-            size,
-            mime: "image/svg+xml".into(),
-            data: STANDARD.encode(&data),
         },
         Kind::Image(mime) => ArtifactView::Image {
             size,

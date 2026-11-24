@@ -17,7 +17,7 @@ import { followFiles } from "./reload.ts";
 type Shown =
   | { kind: "html"; size: number; src: string }
   | { kind: "md"; size: number; html: string }
-  | { kind: "svg" | "image"; size: number; mime: string; data: string };
+  | { kind: "image"; size: number; mime: string; data: string };
 
 const A = {
   /// The session's machine and folder the list is of.

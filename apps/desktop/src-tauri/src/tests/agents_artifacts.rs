@@ -263,7 +263,7 @@ fn only_the_oldest_pages_go() {
 fn kinds_go_by_extension() {
     assert_eq!(kind_of("/srv/project/a.HTML"), Some(Kind::Html));
     assert_eq!(kind_of("notes.md"), Some(Kind::Markdown));
-    assert_eq!(kind_of("flow.svg"), Some(Kind::Svg));
+    assert_eq!(kind_of("flow.svg"), Some(Kind::Image("image/svg+xml")));
     assert_eq!(kind_of("shot.jpeg"), Some(Kind::Image("image/jpeg")));
     assert_eq!(kind_of("main.rs"), None);
     assert_eq!(kind_of(".html"), None);
