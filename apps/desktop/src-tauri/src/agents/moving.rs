@@ -14,10 +14,7 @@ use beep_fleet::{ChatMoveAsk, ChatSession, MoveAsk, MoveState};
 use beep_proto::SessionId;
 use beep_proto::{
     ApiError, ModelId,
-    node::{
-        agent::{MovePhase, MoveProgress},
-        mesh_state::SessionMove,
-    },
+    node::agent::{MovePhase, MoveProgress},
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
