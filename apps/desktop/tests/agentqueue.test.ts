@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Attached, dropDelivered, markDelivered, stopPending, syncSteers, type Waiting } from "../src/agents/agentqueue.ts";
+import { type Attached, dropDelivered, markDelivered, type OutboxRow, sentFromOutbox, stopPending, syncSteers, type Waiting } from "../src/agents/agentqueue.ts";
 
 const img = (name: string, size = 10): Attached => ({ name, mime: "image/png", size, data: "", url: "", original: null });
 const item = (text: string, images: Attached[] = []): Waiting => ({ typed: text, text, paths: [], images, state: null, after: 0 });
@@ -93,4 +93,40 @@ test("a steer another app sent shows on a later read and leaves when the node dr
   syncSteers(queue, { earlier: 0, entries: [], queued: 0, queued_messages: [] }, 4);
   dropDelivered(queue);
   assert.deepEqual(queue, []);
+});
+
+const out: OutboxRow = { id: 0, how: "steer", text: "hello", images: [], state: "sending", reason: null };
+const run = { earlier: 0, entries: [] };
+
+test("an outbox event after the page applied the turn adds no row", () => {
+  const queue: Waiting[] = [];
+  const page = { ...run, queued: 0, queued_messages: [] };
+  assert.equal(sentFromOutbox(out, queue, page, 4), null);
+});
+
+test("a page that lists the message before the outbox event draws it once", () => {
+  const queue: Waiting[] = [];
+  const page = { ...run, queued: 1, queued_messages: ["hello"] };
+  syncSteers(queue, page, 4);
+  assert.equal(sentFromOutbox(out, queue, page, 4), null);
+  assert.deepEqual(queue.map(q => q.text), ["hello"]);
+});
+
+test("a busy session shows the message once the page lists it and drops it when taken", () => {
+  const queue: Waiting[] = [];
+  assert.equal(sentFromOutbox(out, queue, { ...run, queued: 0, queued_messages: [] }, 4), null);
+  syncSteers(queue, { ...run, queued: 1, queued_messages: ["hello"] }, 5);
+  assert.deepEqual(queue.map(q => [q.text, q.state]), [["hello", "sent"]]);
+  syncSteers(queue, { ...run, queued: 0, queued_messages: [] }, 6);
+  dropDelivered(queue);
+  assert.deepEqual(queue, []);
+});
+
+test("an older node's page without message text still gets a local row for a held message", () => {
+  const queue: Waiting[] = [];
+  assert.equal(sentFromOutbox(out, queue, { ...run, queued: 0 }, 4), null);
+  const row = sentFromOutbox(out, queue, { ...run, queued: 1 }, 4);
+  assert.deepEqual(row && [row.text, row.state, row.after], ["hello", "sent", 4]);
+  if (row) queue.push(row);
+  assert.equal(sentFromOutbox(out, queue, { ...run, queued: 1 }, 4), null);
 });

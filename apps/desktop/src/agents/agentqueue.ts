@@ -56,9 +56,16 @@ export function outboxNote(row: OutboxRow) {
   }
 }
 
-/// A row the outbox sent, as the node now holds it until delivered.
-export const sentFromOutbox = (row: OutboxRow, read: number): Waiting =>
-  ({ typed: row.text, text: row.text, paths: [], images: [], state: "sent", after: read });
+/// The row to show for a message the outbox just handed to the node, or null.
+/// A page that lists the node's held messages already draws them (see
+/// `syncSteers`), so nothing is added then. An older node reports only a
+/// count: add a row unless the queue already shows that many.
+export function sentFromOutbox(row: OutboxRow, items: Waiting[], page: { queued: number; queued_messages?: string[] } | null, read: number): Waiting | null {
+  if (page?.queued_messages && page.queued_messages.length === page.queued) return null;
+  if (page && page.queued <= items.filter(q => q.state === "sent").length) return null;
+
+  return { typed: row.text, text: row.text, paths: [], images: [], state: "sent", after: read };
+}
 
 /// Marks the steers the node no longer holds as delivered, oldest first.
 export function markDelivered(items: Waiting[], waiting: number, read: number) {

@@ -145,6 +145,21 @@ test("a late sending event cannot put a delivered image prompt back in the queue
   await expect(page.locator("#agqueue")).toHaveCount(0);
 });
 
+test("an outbox event after the page took the message adds no Steer row", async ({ page }) => {
+  await openUnreachable(page);
+  await page.evaluate(row => window.__navigation.respond("agent_view", {
+    session: row, plan: [], earlier: 0, error: null, turns: 1,
+    queued: 0, queued_messages: [], entries: [{ kind: "user", text: "Hello there" }, { kind: "agent", text: "Hi." }],
+  }), session);
+  await expect(page.getByText("Hi.", { exact: true })).toBeVisible();
+  await page.evaluate(() => window.__navigation.emit("outbox-changed", {
+    machine_id: "build-box", agent: "codex", session: "notice-one", rows: [],
+    sent: [{ id: 0, how: "steer", text: "Hello there", images: [], state: "sending", reason: null }],
+  }));
+  await expect(steers(page)).toHaveCount(0);
+  await expect(page.locator("#agqueue")).toHaveCount(0);
+});
+
 test("Stop all takes every waiting message back into the field at once, oldest first", async ({ page }) => {
   await openUnreachable(page);
   await send(page, "First message");

@@ -586,8 +586,11 @@ export async function readOutbox(o: OpenAgent) {
 listen<OutboxChanged>("outbox-changed", ({ payload }) => {
   const o = AG.open;
   if (!o || !sameSession(o, { machine_id: payload.machine_id, agent: payload.agent, id: payload.session })) return;
-  // What went is the node's now: its row stays until the agent has it.
-  for (const row of payload.sent) AG.queue.push(sentFromOutbox(row, AG.polls));
+  // What went is the node's now: its page shows the row until the agent has it.
+  for (const row of payload.sent) {
+    const sent = sentFromOutbox(row, AG.queue, AG.page, AG.polls);
+    if (sent) AG.queue.push(sent);
+  }
   // A sending notification may arrive after delivery. Read what is still held.
   void readOutbox(o);
 });
