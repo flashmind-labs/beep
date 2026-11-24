@@ -3,6 +3,7 @@ import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList } from "../ui/snapshot-state.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import type { AgentRow, AgentSession } from "./agents.ts";
+import type { MoveRecord } from "./move-state.ts";
 import { retitled, sessionKey, type Retitled } from "./conversation-state.ts";
 import { parentRow } from "./nesting-state.ts";
 import { moveStore, refreshMoves, takePushedSessions, withoutCopies } from "./move-store.ts";
@@ -56,7 +57,9 @@ subscribeEach(topic("home"), event => {
   if (!pushed || "error" in pushed) return;
 
   take(pushed.list);
-  takePushedSessions(pushed.list);
+
+  const moves = pushedList<MoveRecord>(event.data, "session_moves");
+  if (moves && !("error" in moves)) takePushedSessions(moves.list);
 });
 
 // A move that ends or starts changes which copy shows.

@@ -63,26 +63,16 @@ test("a cancelled move stays gone when its progress request returns", async () =
   assert.equal(stateOf(move.session), null);
 });
 
-test("a pushed list reads the moves when it shows a move change, not on every push", async () => {
-  const row = (machine_id: string) => ({ machine_id, id: "chat", agent: "codex" });
+test("a pushed move list shows a move started elsewhere without a read", async () => {
   const reads = () => calls.filter(call => call.cmd === "session_moves").length;
-  const settle = () => new Promise<void>(resolve => setImmediate(resolve));
-  answers.session_moves = [];
+  const move = record("chat");
+  answers.session_move_progress = progress("files");
 
-  takePushedSessions([row("source")]);
-  await settle();
-  assert.equal(reads(), 1, "the first push reads once");
+  takePushedSessions([move]);
+  assert.equal(moveStore.getState().records.get("chat")?.to, "target");
+  assert.equal(reads(), 0, "the push carries the moves, nothing is read");
 
-  takePushedSessions([row("source")]);
-  takePushedSessions([row("source"), { ...row("source"), id: "other" }]);
-  await settle();
-  assert.equal(reads(), 1, "the same placement reads nothing");
-
-  takePushedSessions([row("source"), row("target")]);
-  await settle();
-  assert.equal(reads(), 2, "a session on two machines is a move starting");
-
-  takePushedSessions([row("target")]);
-  await settle();
-  assert.equal(reads(), 3, "the source row going is the move ending");
+  takePushedSessions([]);
+  assert.equal(moveStore.getState().records.size, 0, "a move that ended leaves");
+  assert.equal(reads(), 0);
 });

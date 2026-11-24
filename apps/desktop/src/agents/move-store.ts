@@ -28,39 +28,28 @@ export const nameOf = (id: string) => MACHINES.list?.find(m => m.id === id)?.nam
 // Each record is one move attempt. A later move of the same session gets a new deadline.
 const nextCheck = new WeakMap<MoveRecord, number>();
 
-/// Where the sessions that matter to a move are listed, as the last pushed rows showed it.
-let placed: string | null = null;
-
-/// Takes the sessions a `home` push carried. The push has no moves in it yet, so the moves are
-/// read when the rows show one starting, changing or ending: a session listed on two machines, or
-/// one with a record that went from one machine to another, and while a move is still going, for
-/// its progress. Once the push carries the moves, this takes that list and the rows are not read.
-export function takePushedSessions(rows: readonly { machine_id: string; id: string; agent: string }[]) {
-  const { records } = moveStore.getState();
-  const where = new Map<string, string[]>();
-  for (const row of rows) {
-    const key = `${row.agent}/${row.id}`;
-    const machines = where.get(key);
-    if (machines) machines.push(row.machine_id); else where.set(key, [row.machine_id]);
-  }
-
-  const shown = [...where].filter(([key, machines]) => machines.length > 1 || records.has(key.slice(key.indexOf("/") + 1)))
-    .map(([key, machines]) => `${key}@${machines.sort().join(",")}`).sort().join(" ");
-  const now = Date.now();
-  const active = [...records.values()].some(r => awaitingMove(r, now) || going(stateOf(r.session)));
-  const changed = placed !== shown;
-  placed = shown;
-  if (changed || active) void refreshMoves();
+/// Takes the moves a `home` push carried, so a move started on another desktop shows at once.
+export function takePushedSessions(records: readonly MoveRecord[]) {
+  void takeMoves(records);
 }
 
 /// Lists recent moves and shares progress reads across the views that requested them.
 export const refreshMoves = single(async () => {
-  const before = moveStore.getState();
+  const before = moveStore.getState().records;
   let records: MoveRecord[];
   try { records = await invoke<MoveRecord[]>("session_moves"); } catch (e) { console.warn("moves not read", e); return; }
-  if (before.records !== moveStore.getState().records) return;
+  if (before !== moveStore.getState().records) return;
 
-  const read = bySession(Array.isArray(records) ? records : []);
+  await takeMoves(records);
+});
+
+/// Whether a round of progress reads is out; a move list that arrives meanwhile waits for the next.
+let asking = false;
+
+/// Takes `list` as the move records, then asks the targets how the due moves go.
+async function takeMoves(list: readonly MoveRecord[]) {
+  const before = moveStore.getState();
+  const read = bySession(Array.isArray(list) ? list : []);
   let changed = read.size !== before.records.size;
 
   for (const [id, old] of before.records) {
@@ -85,20 +74,25 @@ export const refreshMoves = single(async () => {
   const due = (r: MoveRecord) => nextCheck.get(r) ?? 0;
   const recent = [...read.values()].filter(r => now - r.at < RECENT_MS && due(r) <= now)
     .sort((a, b) => due(a) - due(b) || b.at - a.at).slice(0, MAX_ASKED);
-  if (!recent.length) return;
+  if (!recent.length || asking) return;
 
-  if (!MACHINES.list) await ensureMachines().catch(e => console.warn("machine names not read", e));
+  asking = true;
+  try {
+    if (!MACHINES.list) await ensureMachines().catch(e => console.warn("machine names not read", e));
 
-  const answers = await Promise.all(recent.map(readProgress));
-  const current = moveStore.getState();
-  let updated: Map<string, MoveProgress> | null = null;
-  for (const result of answers) {
-    if (!result?.answer || current.records.get(result.record.session) !== result.record) continue;
-    updated ??= new Map(current.progress);
-    updated.set(result.record.session, result.answer);
+    const answers = await Promise.all(recent.map(readProgress));
+    const current = moveStore.getState();
+    let updated: Map<string, MoveProgress> | null = null;
+    for (const result of answers) {
+      if (!result?.answer || current.records.get(result.record.session) !== result.record) continue;
+      updated ??= new Map(current.progress);
+      updated.set(result.record.session, result.answer);
+    }
+    if (updated) moveStore.setState({ progress: updated });
+  } finally {
+    asking = false;
   }
-  if (updated) moveStore.setState({ progress: updated });
-});
+}
 
 async function readProgress(record: MoveRecord) {
   try {
