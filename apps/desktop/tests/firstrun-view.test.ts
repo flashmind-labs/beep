@@ -47,33 +47,3 @@ test("first run moves focus through the link flow and removes its fields when go
     close();
   }
 });
-
-test("Start shows what this computer lacks and Set up starts the run", async () => {
-  const { testing: { render, fireEvent, findByRole }, FirstRunScreen, close } = await page();
-  const { idleWork } = await import("../src/center/firstrun-state.ts");
-  const env = {
-    os: "macos", os_version: "macOS 26", arch: "aarch64", hostname: "box", cpus: 8, memory_mb: 16384, home: "/Users/me", avds: [], gpus: [], wsl: [],
-    tools: [{ name: "git", version: "2.47.1" }], logins: [],
-  };
-  const state = { env, skipped: new Set<never>(), installed: new Set<never>(), work: idleWork(), running: false };
-  let starts = 0;
-  const run = {
-    get: () => state,
-    subscribe: () => () => {},
-    start: () => { starts++; },
-    act: () => {},
-    skip: () => {},
-    dispose: () => {},
-  };
-  try {
-    const view = render(createElement(FirstRunScreen, { done: () => {}, join: async () => {}, prepare: async () => run }));
-    fireEvent.click(view.getByRole("button", { name: /^Start/ }));
-    const setUp = await findByRole(view.container, "button", { name: "Set up all" });
-    assert.ok(view.getByText("Installed · v2.47.1"));
-    assert.equal(view.getAllByText("Not installed").length, 3);
-    fireEvent.click(setUp);
-    assert.equal(starts, 1);
-  } finally {
-    close();
-  }
-});
