@@ -23,7 +23,7 @@ import { editGroup } from "./groups.tsx";
 import { disposeOverview, overviewSection, projectDetail } from "./projects.tsx";
 import { NoProjects, Parts, viewPart, type PagePart } from "./page-view.tsx";
 import { splitOn, openTile } from "./split.tsx";
-import { liveMode, pa, redrawProjectsPage, runs, terms } from "./sections.ts";
+import { pa, redrawProjectsPage, runs, syncProjectFollow, terms } from "./sections.ts";
 import { projectComp, drawProjectComp } from "./composer.tsx";
 import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, elsewhereSection, disposeSessionPanel } from "./loads.tsx";
 import { ensureHome } from "../center/refresh.ts";
@@ -57,7 +57,6 @@ export function drawProjects() {
   } else {
     const shownRows = filterProjects(rows, state.picked);
     one = state.picked && shownRows.length === 1 ? shownRows[0] : null;
-    liveMode.follow(one ? localProjectId(one.name) : null);
     parts.push(...(one ? projectDetail(one) : overviewSection(shownRows.length ? shownRows : rows)));
 
     const found = foundSection(!one);
@@ -65,6 +64,8 @@ export function drawProjects() {
     const elsewhere = elsewhereSection(rows, !state.picked);
     if (elsewhere) parts.push(viewPart("elsewhere", elsewhere));
   }
+
+  syncProjectFollow();
 
   const project = state.picked ?? "";
   watchScroll(el, project);
@@ -199,5 +200,5 @@ export const projectsView: CenterView<"projects"> = {
     ensureHome();
     prefetchRecentSoon();
   },
-  unmount: () => { focusComposer = false; disposeSessionPanel(); disposeOverview(); openTile(null, false); liveMode.follow(null); terms.stop(); },
+  unmount: () => { focusComposer = false; disposeSessionPanel(); disposeOverview(); openTile(null, false); terms.stop(); },
 };

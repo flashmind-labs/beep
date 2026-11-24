@@ -180,9 +180,10 @@ export function makeThreads(deps: ThreadDeps) {
     return s;
   };
 
-  /// Projects whose read is on its way (a load meanwhile is dropped), and when
-  /// each was last tried, so a failing host is not asked on every draw.
+  /// Projects whose read is on its way (a reload meanwhile runs once after),
+  /// and when each was last tried, so a failing host is not asked on every draw.
   const reading = new Set<string>();
+  const reloadAgain = new Map<string, boolean>();
   const tried = new Map<string, number>();
 
   /// Reads `id` when it is due: never read, or `every` passed since the last
@@ -195,26 +196,40 @@ export function makeThreads(deps: ThreadDeps) {
   }
 
   async function load(id: string, refresh = false) {
+    if (reading.has(id)) {
+      reloadAgain.set(id, (reloadAgain.get(id) ?? false) || refresh);
+      return;
+    }
     const s = of(id);
-    if (reading.has(id)) return;
     reading.add(id);
-    tried.set(id, Date.now());
-    // Kept lists stay up meanwhile, with a spinner in their header.
-    if (s.issues !== undefined) queueMicrotask(redraw);
+    let force = refresh;
 
     try {
-      const lists = await invoke<ListsRow | null>("center_project_lists", { projectId: id, refresh });
-      // Why the host could not be read shows in each section, in place of an empty list.
-      s.issuesError = lists?.issues_error ?? "";
-      s.prsError = lists?.prs_error ?? "";
-      s.issues = lists && !lists.issues_error ? withAssignees(lists.issues) : s.issues ?? [];
-      s.prs = lists && !lists.prs_error ? lists.prs : s.prs ?? null;
-      // Kept once the host answered; a failed read keeps the last good lists.
-      if (lists && !lists.issues_error && !lists.prs_error) kept.put(id, { issues: s.issues, prs: s.prs });
-    } catch (e) {
-      s.issuesError = s.prsError = reason(e);
-      s.issues ??= [];
-      s.prs ??= null;
+      while (true) {
+        tried.set(id, Date.now());
+        // Kept lists stay up meanwhile, with a spinner in their header.
+        if (s.issues !== undefined) queueMicrotask(redraw);
+
+        try {
+          const lists = await invoke<ListsRow | null>("center_project_lists", { projectId: id, refresh: force });
+          // Why the host could not be read shows in each section, in place of an empty list.
+          s.issuesError = lists?.issues_error ?? "";
+          s.prsError = lists?.prs_error ?? "";
+          s.issues = lists && !lists.issues_error ? withAssignees(lists.issues) : s.issues ?? [];
+          s.prs = lists && !lists.prs_error ? lists.prs : s.prs ?? null;
+          // Kept once the host answered; a failed read keeps the last good lists.
+          if (lists && !lists.issues_error && !lists.prs_error) kept.put(id, { issues: s.issues, prs: s.prs });
+        } catch (e) {
+          s.issuesError = s.prsError = reason(e);
+          s.issues ??= [];
+          s.prs ??= null;
+        }
+
+        const next = reloadAgain.get(id);
+        if (next === undefined) break;
+        reloadAgain.delete(id);
+        force = next;
+      }
     } finally {
       reading.delete(id);
     }

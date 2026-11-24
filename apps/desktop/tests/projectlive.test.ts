@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeProjectLive } from "../src/project/projectlive.ts";
+import { followedProject, makeProjectLive } from "../src/project/projectlive.ts";
 function setup() {
   const calls: [string, unknown][] = [];
   const reads: [string, boolean, boolean][] = [];
@@ -149,4 +149,17 @@ test("repeated cleanup retries an unacknowledged source without starting it agai
   await live.follow(null);
   await live.follow(null);
   assert.deepEqual(calls, ["follow_project", "unfollow_project", "unfollow_project"]);
+});
+
+test("followedProject follows the visible imported project page or rail while shown", () => {
+  const projects = [{ name: "acme/app", imported: true }, { name: "acme/local", imported: false }];
+  assert.equal(followedProject(true, "projects", "acme/app", null, projects), "acme/app");
+  assert.equal(followedProject(true, "pane", null, "acme/app", projects), "acme/app");
+  assert.equal(followedProject(true, "projects", null, "acme/app", projects), "acme/app");
+  assert.equal(followedProject(true, "pane", "acme/app", null, projects), null);
+  assert.equal(followedProject(true, "home", "acme/app", null, projects), null);
+  assert.equal(followedProject(false, "pane", null, "acme/app", projects), null);
+  assert.equal(followedProject(true, "projects", "acme/local", null, projects), null);
+  assert.equal(followedProject(true, "pane", null, "acme/local", projects), null);
+  assert.equal(followedProject(true, "pane", null, "acme/app", null), null);
 });

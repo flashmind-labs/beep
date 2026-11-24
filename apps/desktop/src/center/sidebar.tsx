@@ -19,7 +19,7 @@ import { state, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
 import { stuck, draw } from "./home.tsx";
 import { allTerms } from "../terminals/view.tsx";
 import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./views.tsx";
-import { fsync, redrawProjects, redrawProjectsPage } from "../project/sections.ts";
+import { fsync, redrawProjects, redrawProjectsPage, syncProjectFollow } from "../project/sections.ts";
 import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
 import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
@@ -104,6 +104,7 @@ export function drawRail() {
   const rail: Rail | null = onPhone() || isMobile() ? null
     : project ? { kind: "project", project } : chat ? { kind: "chat", chat: runningKey(chat.chat) } : null;
   setRail(rail);
+  syncProjectFollow();
   placeWindowParts({ rail: rail?.kind === "project" ? projectRail(rail.project, openKey()) : chat && rail ? <ChatRail rail={chat} current={openKey()} /> : null });
 }
 

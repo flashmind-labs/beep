@@ -26,6 +26,21 @@ interface LiveDeps {
   reload: (id: string, lists: boolean, runs: boolean) => void;
 }
 
+/// The imported project whose forge data this window shows right now: the open
+/// project page, or the project rail beside one of its sessions.
+export function followedProject(
+  shown: boolean,
+  view: string | null,
+  picked: string | null,
+  rail: string | null,
+  projects: readonly { name: string; imported: boolean }[] | null,
+): string | null {
+  if (!shown) return null;
+  const name = view === "projects" && picked ? picked : rail;
+  if (!name) return null;
+  return projects?.some(row => row.name === name && row.imported) ? name : null;
+}
+
 export function makeProjectLive(deps: LiveDeps) {
   const { invoke, redraw, reload } = deps;
   const modes = new Map<string, LiveMode>();

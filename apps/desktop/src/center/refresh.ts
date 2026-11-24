@@ -10,7 +10,7 @@ import { draw } from "./home.tsx";
 import { readAllTerms } from "../terminals/view.tsx";
 import { refreshGit } from "./openitems.ts";
 import { currentLocation } from "./views.tsx";
-import { reloadGroup, drawSide } from "./sidebar.tsx";
+import { reloadGroup, drawRail, drawSide } from "./sidebar.tsx";
 import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
 import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
@@ -216,7 +216,7 @@ export const onScreen = pageShown;
 onShownChange(visible => {
   if (!visible) { clearTimeout(retryTimer); runs.stop(); liveMode.follow(null); return; }
 
-  if (state.home) redrawProjectsPage();
+  if (state.home) { redrawProjectsPage(); drawRail(); }
 });
 
 // These are state changes. Agent tokens and terminal output have their own topics.

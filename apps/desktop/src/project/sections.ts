@@ -1,15 +1,18 @@
 import { prSession } from "./pr-session.ts";
 // A project page's sections (terminals, file sync, Git history, pull
 // requests and issues, runs).
-import { drawRail } from "../center/sidebar.tsx";
+import { drawRail, projectRows } from "../center/sidebar.tsx";
+import { railProject, shell } from "../center/window-shell.tsx";
+import { pageShown } from "../ui/active.ts";
 import { layoutChanged } from "../ui/skin.ts";
 import { formatAgo } from "../ui/format.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing, sessionVisible, shownStatus } from "../agents/closing.ts";
 import { invoke, indexedChannel, listen } from "../ui/tauri.ts";
+import { localProjectId } from "./localid.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
-import { makeProjectLive, type LiveRow } from "./projectlive.ts";
+import { followedProject, makeProjectLive, type LiveRow } from "./projectlive.ts";
 import type { BarTarget, BlockedHost, TaskSession } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
@@ -103,14 +106,26 @@ onPlaces(() => redrawProjects());
 onMoves(() => redrawProjects());
 onClosing(() => redrawProjects());
 
+/// Follows the imported project this window shows, on its page or in its rail, while visible.
+export function syncProjectFollow() {
+  const project = followedProject(
+    pageShown(),
+    currentLocation()?.view ?? null,
+    state.picked,
+    railProject(shell.getState().side.rail),
+    projectRows(),
+  );
+  void liveMode.follow(project ? localProjectId(project) : null);
+}
+
 export function redrawProjects() {
   const view = currentLocation()?.view;
-  if (view === "projects") return drawProjects();
+  if (view === "projects") drawProjects();
 
-  // The project's sessions beside one of them show its card.
-  if (view === "pane") drawRail();
+  // The project's sessions beside one of them or beside its page show its card.
+  if (view === "pane" || railProject(shell.getState().side.rail)) drawRail();
   // The empty agent view has the same bar.
-  if (AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
+  if (view !== "projects" && AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
 }
 
 /// The project's sessions with their latest status and reported worktree.

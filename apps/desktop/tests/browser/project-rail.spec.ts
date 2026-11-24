@@ -197,3 +197,41 @@ test("a project window shows its sessions in the sidebar's place, and its Back c
   await expect(back).toBeVisible();
   expect((await back.boundingBox())?.x ?? 0).toBeGreaterThanOrEqual(78);
 });
+
+test("a session's project rail keeps following the project and updates Actions from live snapshots", async ({ page }) => {
+  const run = (id: number, state: string) => ({
+    id, number: id, workflow: "CI", title: `Run ${id}`, branch: "main", event: "push", actor: "kim",
+    state, url: `https://example.test/example/widget/actions/runs/${id}`, started_at: 1, finished_at: state === "running" ? null : 2, progress: null, host: "github.com",
+  });
+  const initialRuns = { runs: [run(1, "passed"), run(2, "passed")], checks: [], synced_at: 1, error: null, rate_limited_until: null, hosts: [] };
+  const past = { machine_id: "build-box", machine_name: "build-box", id: "past-0", agent: "codex", title: "Past session 0", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100, external: false, question: null, assistant: false };
+  await openDesktop(page, false, { project_sessions: [past], center_project_runs: initialRuns });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  await page.locator(".pj-det .pv-row").filter({ hasText: "Past session 0" }).click();
+
+  const rail = page.locator("#rail"), actions = rail.locator(".rail-card").getByRole("button", { name: /Actions/ });
+  await expect(actions).toContainText("2");
+
+  const follows = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "follow_project" || call.command === "unfollow_project"));
+  await expect.poll(async () => (await follows()).map(call => call.command)).toEqual(["follow_project"]);
+  const projectId = String((await follows())[0]?.args.projectId ?? "");
+  expect(projectId).not.toBe("");
+
+  const activeRuns = { runs: [run(3, "running"), run(4, "running"), run(1, "passed")], checks: [], synced_at: 2, error: null, rate_limited_until: null, hosts: [] };
+  await page.evaluate(({ projectId, activeRuns }) => window.__navigation.emit("project-live", {
+    project_id: projectId, live: false, polling_why: null, lists: false, runs: true,
+    views: [{ command: "center_project_runs", args: { projectId }, value: activeRuns }],
+  }), { projectId, activeRuns });
+  await expect(actions).toContainText("2 running");
+
+  // Hiding the window unfollows; showing it again while in the session follows again.
+  await page.evaluate(() => window.__navigation.emit("center-hidden", null));
+  await expect.poll(async () => (await follows()).map(call => call.command)).toEqual(["follow_project", "unfollow_project"]);
+  await page.evaluate(() => window.__navigation.emit("center-shown", null));
+  await expect.poll(async () => (await follows()).map(call => call.command)).toEqual(["follow_project", "unfollow_project", "follow_project"]);
+
+  // Leaving for Home stops following.
+  await rail.locator(".cc-side-toggle").click();
+  await page.locator("#side").getByRole("button", { name: "Home", exact: true }).click();
+  await expect.poll(async () => (await follows()).map(call => call.command)).toEqual(["follow_project", "unfollow_project", "follow_project", "unfollow_project"]);
+});

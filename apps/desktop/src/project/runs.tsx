@@ -332,10 +332,23 @@ export function makeRuns(deps: RunDeps) {
   }
 
   const loads = new Map<string, Promise<void>>();
+  const reloadAgain = new Map<string, boolean>();
   function load(id: string, refresh = false): Promise<void> {
     const pending = loads.get(id);
-    if (pending) return pending;
-    const read = readList(id, refresh).finally(() => loads.delete(id));
+    if (pending) {
+      reloadAgain.set(id, (reloadAgain.get(id) ?? false) || refresh);
+      return pending;
+    }
+    const read = (async () => {
+      let force = refresh;
+      while (true) {
+        await readList(id, force);
+        const next = reloadAgain.get(id);
+        if (next === undefined) break;
+        reloadAgain.delete(id);
+        force = next;
+      }
+    })().finally(() => loads.delete(id));
     loads.set(id, read);
     return read;
   }
