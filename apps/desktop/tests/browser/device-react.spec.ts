@@ -204,11 +204,11 @@ test("a node that pushes its devices is not read again, and one that refuses the
   await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\npixel");
   const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_list").length);
   const before = await reads();
-  await page.evaluate(device => window.__navigation.publish("devices.*", null, { Devices: [device] }, "build-box"), second);
+  await page.evaluate(device => window.__navigation.publish("device-list.*", null, { Devices: [device] }, "build-box"), second);
   await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\ntablet");
   expect(await reads()).toBe(before);
 
-  await page.evaluate(() => window.__navigation.publish("devices.*", null, { error: "no state has been published for this topic" }, "build-box"));
+  await page.evaluate(() => window.__navigation.publish("device-list.*", null, { error: "no state has been published for this topic" }, "build-box"));
   await expect.poll(reads).toBeGreaterThan(before);
   await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\npixel");
 });

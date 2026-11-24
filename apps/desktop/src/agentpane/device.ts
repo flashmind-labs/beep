@@ -5,7 +5,7 @@ import type JMuxer from "jmuxer";
 // to the painter device-view.tsx registers; the rest is `deviceModel`.
 import { createStore } from "zustand";
 import { indexedChannel, invoke, listen } from "../ui/tauri.ts";
-import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList } from "../ui/snapshot-state.ts";
 import { ambient, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { paneSession, showDevice } from "./media.ts";
@@ -156,12 +156,12 @@ export function setDeviceShown(shown: boolean) {
 }
 
 onShownChange(() => shownChanged(), true);
-/// The devices each machine's node pushed on its `devices` topic, by machine id. A machine not
+/// The devices each machine's node pushed on its `device-list` topic, by machine id. A machine not
 /// here is read: its node has not answered yet, or predates the topic.
 const announced = new Map<string, Device[]>();
 // The desktop's `devices-changed` says a read of a machine that does not push changed.
 const devicesChanged = ambient(readDevices, DEVICES_WAIT_MS, visible);
-subscribeEach(topic("devices"), event => {
+subscribeEach(topic("device-list"), event => {
   const heard = readAnnounced(event.data);
   if (heard === null) return;
 
@@ -169,6 +169,8 @@ subscribeEach(topic("devices"), event => {
   else announced.set(event.machine_id, heard);
   devicesChanged();
 }, { when: visible });
+// A node that predates `device-list` pings its older `devices` topic, and the machine is read.
+subscribeChanges(topic("devices"), { deliver: "latest", receive: () => devicesChanged() }, { when: visible });
 listen("devices-changed", () => devicesChanged());
 
 function shownChanged() {
