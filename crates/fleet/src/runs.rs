@@ -317,7 +317,7 @@ impl Desk {
             if let Ok(output) = run_script(shell, &script, READ_LIMIT).await
                 && let Ok(reply) = serde_json::from_str::<RunsReply>(&output)
             {
-                return Some(reply.runs().into_iter().map(|listed| listed.run).collect());
+                return Some(reply.runs());
             }
         }
 
@@ -341,7 +341,7 @@ impl Desk {
             .target
             .caller(self.hosts.semaphore(), self.hosts.client());
         let mut shown = match host_runs::list(calls, &caller, &place.target).await {
-            Ok(listed) => listed,
+            Ok(runs) => runs,
             Err(e) => {
                 if matches!(e, HostError::Timeout(_) | HostError::Unreachable(_))
                     && let Some(runs) = self.fallback_runs(&host).await
@@ -361,20 +361,19 @@ impl Desk {
         if !low {
             let going = shown
                 .iter_mut()
-                .filter(|listed| listed.run.state.going())
+                .filter(|run| run.state.going())
                 .take(PROGRESS_READS);
-            join_all(going.map(|listed| async {
-                if let Ok(Some(jobs)) =
-                    host_runs::jobs(calls, &caller, &place.target, listed.run.id).await
+            join_all(going.map(|run| async {
+                if let Ok(Some(jobs)) = host_runs::jobs(calls, &caller, &place.target, run.id).await
                 {
-                    listed.run.progress = progress(&jobs);
+                    run.progress = progress(&jobs);
                 }
             }))
             .await;
         }
 
         host.rate_limited_until = calls.limited_until(&place.target.who, SystemTime::now());
-        (shown.into_iter().map(|listed| listed.run).collect(), host)
+        (shown, host)
     }
 
     /// The open pull requests' numbers and head branches; none when they cannot be read, as the

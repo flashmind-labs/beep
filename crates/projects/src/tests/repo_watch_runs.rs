@@ -52,7 +52,7 @@ async fn runs_and_jobs_read_with_etags_and_steps() {
     let first = list(&calls, &caller, &target).await.expect("the runs");
     let again = list(&calls, &caller, &target).await.expect("the runs");
     assert_eq!(first, again);
-    assert_eq!(first[0].run.state, RunState::Running {});
+    assert_eq!(first[0].state, RunState::Running {});
     let jobs = jobs(&calls, &caller, &target, 77)
         .await
         .expect("the jobs")
@@ -82,7 +82,7 @@ async fn forgejo_run_lists_request_a_page_to_enable_pagination() {
     let calls = HostCalls::default();
     let runs = list(&calls, &caller, &target).await.expect("paged runs");
     assert_eq!(runs.len(), 1);
-    assert_eq!(runs[0].run.id, 77);
+    assert_eq!(runs[0].id, 77);
 }
 
 #[tokio::test]

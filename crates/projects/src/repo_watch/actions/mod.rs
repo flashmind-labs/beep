@@ -13,26 +13,12 @@ pub struct RunsReply {
 }
 
 impl RunsReply {
-    pub fn runs(self) -> Vec<ListedRun> {
+    pub fn runs(self) -> Vec<WorkflowRun> {
         self.workflow_runs
             .into_iter()
-            .map(|run| {
-                let sha = run.head_sha.clone().unwrap_or_default();
-                ListedRun {
-                    run: run.into_run(),
-                    sha,
-                }
-            })
+            .map(HostRun::into_run)
             .collect()
     }
-}
-
-/// A listed run with its commit, which the wire's run does not carry.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ListedRun {
-    pub run: WorkflowRun,
-    /// Empty when the host does not say.
-    pub sha: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -92,9 +78,6 @@ pub struct HostRun {
     updated_at: Option<String>,
     #[serde(default)]
     pull_requests: Vec<PullRef>,
-    /// Forgejo: `commit_sha`.
-    #[serde(default, alias = "commit_sha")]
-    head_sha: Option<String>,
 }
 
 impl HostRun {

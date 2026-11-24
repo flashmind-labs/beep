@@ -189,7 +189,7 @@ impl Forge for Cli {
         let path = format!("repos/{}/actions/runs?{page}", at.repo);
         let text = Self::read(at, &path).await?;
         let reply: RunsReply = serde_json::from_str(&text).context("the run list does not read")?;
-        Ok(reply.runs().into_iter().map(|listed| listed.run).collect())
+        Ok(reply.runs())
     }
 
     async fn one(&self, at: &Target, id: u64) -> Result<WorkflowRun> {

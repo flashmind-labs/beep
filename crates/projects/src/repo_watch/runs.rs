@@ -1,7 +1,7 @@
 //! Where a project's workflow runs are read: its host's Actions API with the user's token.
 
 use super::{
-    actions::{HostRun, JobsReply, LOG_LINES, ListedRun, RunsReply, failing_part},
+    actions::{HostRun, JobsReply, LOG_LINES, RunsReply, failing_part},
     http::{HostCalls, TailLimits, Who},
 };
 use crate::{
@@ -92,7 +92,7 @@ pub async fn list(
     calls: &HostCalls,
     caller: &Caller<'_>,
     target: &Target,
-) -> Result<Vec<ListedRun>, HostError> {
+) -> Result<Vec<WorkflowRun>, HostError> {
     let url = format!(
         "{}/actions/runs?{}",
         target.repo_url(),
