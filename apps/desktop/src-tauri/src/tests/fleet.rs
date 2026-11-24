@@ -8,7 +8,7 @@ use beep_proto::node::{
     status::Report,
     tools::{self, Reply, Request, Tool},
 };
-use beep_proto::watched;
+use beep_proto::{SessionId, watched};
 use iroh::{SecretKey, endpoint::presets, protocol::Router};
 use std::{
     sync::Arc,
