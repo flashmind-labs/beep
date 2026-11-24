@@ -234,16 +234,15 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
         mode: None,
         background: false,
     };
-    let mut started = Vec::new();
-
-    for _ in 0..MAX_CHILDREN {
-        let child = rig
-            .agents
-            .start_child(link.clone(), start("kid", "go", rig.dir.path()))
-            .await
-            .expect("within the limit");
-        started.push(child);
-    }
+    // Started together: each counts the starts beside it.
+    let starts = (0..=MAX_CHILDREN)
+        .map(|_| rig.agents.start_child(link.clone(), start("kid", "go", rig.dir.path())));
+    let (started, refused): (Vec<_>, Vec<_>) = futures::future::join_all(starts)
+        .await
+        .into_iter()
+        .partition(Result::is_ok);
+    let started: Vec<_> = started.into_iter().flatten().collect();
+    assert_eq!((started.len(), refused.len()), (MAX_CHILDREN, 1));
 
     let refused = rig
         .agents

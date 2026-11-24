@@ -10,7 +10,7 @@
 
 use beep_proto::SessionId;
 use super::{Agents, Begin, Command, Session, known, live::Live, mcp::children};
-use crate::{AsyncMutex, link::Membership};
+use crate::link::Membership;
 use beep_proto::{AccountName, AgentAccount, CustomAgent, ModelId};
 use beep_proto::node::agent::{Effort, ParentLink, Persona, SessionInfo, Status};
 use beep_proto::watched;
@@ -18,7 +18,7 @@ use iroh::EndpointId;
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex, OnceLock, Weak},
     time::Duration,
 };
 use tokio::sync::watch;
@@ -40,6 +40,8 @@ pub(crate) const MAX_DEPTH: u8 = 3;
 /// The most live descendants one root session may have, and the most direct
 /// children one session may have.
 pub(crate) const MAX_CHILDREN: usize = 8;
+/// The session a chain of starts began from, and its machine.
+type Root = (Option<EndpointId>, SessionId);
 /// How long the count of a root's agents on another machine may take.
 const COUNT_LIMIT: Duration = Duration::from_secs(3);
 /// What a machine says when it has no child of that name for the caller: also
@@ -54,9 +56,10 @@ pub(super) struct Family {
     /// Per parent with children elsewhere, the task that stops them when it
     /// ends for good.
     watchers: Mutex<HashMap<SessionId, AbortOnDropHandle<()>>>,
-    /// Held from counting a root's agents until the child exists, so two
-    /// starts here cannot both take the last place.
-    starting: AsyncMutex<()>,
+    /// The child starts under way here, each under its root. They count
+    /// with the root's live agents, so two starts cannot both take the last
+    /// place.
+    starting: Mutex<Vec<(Root, Weak<()>)>>,
     /// What transcripts show of children on other machines.
     pub(crate) views: children::Views,
     /// The children parents wait on in `start_agent`, which send no note
@@ -170,24 +173,41 @@ impl Agents {
         })
     }
 
-    /// The live sessions on every machine that descend from the root `root`:
-    /// this node's own, and what each online machine says of its own. A
-    /// machine that does not answer in time counts none.
-    async fn live_under(&self, root_machine: Option<EndpointId>, root: &SessionId) -> usize {
-        let here = self.live_descendants(root_machine, root);
+    /// The live sessions on other machines that descend from `root`, as
+    /// each online machine says of its own. A machine that does not answer
+    /// in time counts none.
+    async fn live_elsewhere(&self, root: &Root) -> usize {
         let Some(mesh) = self.mesh() else {
-            return here;
+            return 0;
         };
         let me = mesh.me();
         let there = mesh
             .code_hosts()
             .into_iter()
             .filter(|status| status.online && status.device.id != me)
-            .map(|status| {
-                children::count_on(&mesh, status.device.id, root_machine, root, COUNT_LIMIT)
-            });
-        let counts = futures::future::join_all(there).await;
-        here + counts.into_iter().sum::<usize>()
+            .map(|status| children::count_on(&mesh, status.device.id, root.0, &root.1, COUNT_LIMIT));
+
+        futures::future::join_all(there).await.into_iter().sum()
+    }
+
+    /// Takes a place under `root` for a child that is starting, held until
+    /// what it returns is dropped. Refused when the root's live agents,
+    /// `elsewhere` and here, and the starts under way here fill it.
+    fn take_place(&self, root: &Root, elsewhere: usize) -> Result<Arc<()>, String> {
+        let mut starting = crate::lock(&self.family.starting);
+        starting.retain(|(_, held)| held.strong_count() > 0);
+        let here = self.live_descendants(root.0, &root.1)
+            + starting.iter().filter(|(under, _)| under == root).count();
+
+        if elsewhere + here >= MAX_CHILDREN {
+            return Err(too_many(&format!(
+                "the session this chain started from has {MAX_CHILDREN} agents running"
+            )));
+        }
+
+        let held = Arc::new(());
+        starting.push((root.clone(), Arc::downgrade(&held)));
+        Ok(held)
     }
 
     /// The live sessions here that descend from the root `root`.
@@ -326,20 +346,15 @@ impl Agents {
             instructions: start.persona.as_ref().map(super::custom_agents::persona_brief),
             ..Begin::default()
         };
-        let session = {
-            // From counting to the child's place in the list, one start at a time.
-            let _starting = self.family.starting.lock().await;
-
-            if self.live_under(root.0, &root.1).await >= MAX_CHILDREN {
-                return Err(too_many(&format!(
-                    "the session this chain started from has {MAX_CHILDREN} agents running"
-                )));
-            }
-
-            self.start_in(&kind, start.cwd.as_deref(), None, begin)
-                .await
-                .map_err(|e| format!("{e:#}"))?
-        };
+        let elsewhere = self.live_elsewhere(&root).await;
+        // Held until the child is listed. It then counts twice for an
+        // instant, which can refuse a start but never admit one too many.
+        let place = self.take_place(&root, elsewhere)?;
+        let session = self
+            .start_in(&kind, start.cwd.as_deref(), None, begin)
+            .await
+            .map_err(|e| format!("{e:#}"))?;
+        drop(place);
         self.watch_parent(&session);
 
         // Its prompt says what the parent knew: it has seen the parent so far.
