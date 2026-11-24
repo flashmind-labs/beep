@@ -42,6 +42,48 @@ export function homeCached() {
   if (!fresh) homeFresh = perfFresh("home");
 }
 
+/// Every write to the window's Home, pins, groups, `where` and Mac comes
+/// through here. A local edit goes to `lastRead` too, so the next read still
+/// compares against what Home shows and an unchanged Home draws nothing.
+function editHome(edit: (home: HomeView) => HomeView) {
+  if (!state.home) return;
+  const kept = state.home === shown;
+  state.home = edit(state.home);
+
+  if (kept) {
+    shown = state.home;
+    if (lastRead) lastRead = edit(lastRead);
+  }
+}
+
+export function setTop(top: string[]) { state.top = top; }
+
+export function setGroups(groups: ProjectGroup[] | null | undefined) { state.groups = groups; }
+
+export function setMac(mac: MacControl | null) { state.mac = mac; }
+
+/// A project the user removed: the topics push the new lists.
+export function forgetProject(name: string) {
+  state.top = state.top.filter(n => n !== name);
+  editHome(home => home.projects ? { ...home, projects: home.projects.filter(p => p.name !== name) } : home);
+  state.where.delete(name);
+}
+
+/// Forgets what `where` read for project `name`, or for every project.
+export function dropWhere(name?: string) {
+  if (name === undefined) state.where.clear();
+  else state.where.delete(name);
+}
+
+export function forgetMachine(id: string) {
+  editHome(home => ({ ...home, machines: home.machines?.filter(x => x.id !== id) ?? null }));
+  state.where.clear();
+}
+
+export function renameMachineHome(id: string, name: string) {
+  editHome(home => ({ ...home, machines: home.machines?.map(x => (x.id === id ? { ...x, name } : x)) ?? null }));
+}
+
 /// Reads membership, running sessions and Home data without refreshing unrelated panes.
 /// Sections that did not change keep their objects; an unchanged Home draws nothing.
 async function readHome(): Promise<void> {
@@ -130,8 +172,8 @@ const refreshProjects = single(async () => {
     invoke<string[]>("projects_on_top"),
     invoke<ProjectGroup[] | null>("project_groups"),
   ]);
-  state.top = top || [];
-  state.groups = groups;
+  setTop(top || []);
+  setGroups(groups);
   await Promise.all(["projects", "pinned"].map(name => reloadGroup(name, false)));
 
   if (onScreen()) {
@@ -141,7 +183,7 @@ const refreshProjects = single(async () => {
 });
 
 const refreshMac = single(async () => {
-  state.mac = await invoke<MacControl>("mac_control");
+  setMac(await invoke<MacControl>("mac_control"));
   pagesAccount(state.mac);
 });
 

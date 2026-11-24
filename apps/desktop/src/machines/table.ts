@@ -8,7 +8,7 @@ import { draw } from "../center/home.tsx";
 import { openTerminals } from "../terminals/view.tsx";
 import { reloadGroup } from "../center/sidebar.tsx";
 import { fsync } from "../project/sections.ts";
-import { refresh } from "../center/refresh.ts";
+import { forgetMachine, renameMachineHome, setMac } from "../center/refresh.ts";
 import { type MacControl } from "./machine-state.ts";
 
 /// How old the table lets a moving project's detail get.
@@ -26,7 +26,7 @@ export function readSyncDetails() {
 /// Turns on Let Beep use this Mac, so it joins as a machine.
 export async function useThisMac() {
   try {
-    state.mac = await invoke<MacControl>("set_mac_control", { enabled: true });
+    setMac(await invoke<MacControl>("set_mac_control", { enabled: true }));
   } catch (e) {
     console.warn("turning on this computer:", e);
   }
@@ -63,10 +63,9 @@ function renameMachine(m: Removable) {
     value: m.name,
     run: async name => {
       await invoke("rename_machine", { id: m.id, name });
-      if (state.home) state.home = { ...state.home, machines: state.home.machines?.map(x => (x.id === m.id ? { ...x, name } : x)) ?? null };
+      renameMachineHome(m.id, name);
       draw();
       reloadGroup("machines");
-      refresh();
     },
   });
 }
@@ -80,11 +79,9 @@ function removeMachine(m: Removable) {
     action: "Remove",
     run: async () => {
       await invoke("remove_machine", { id: m.id });
-      if (state.home) state.home = { ...state.home, machines: state.home.machines?.filter(x => x.id !== m.id) ?? null };
-      state.where.clear();
+      forgetMachine(m.id);
       draw();
       reloadGroup("machines");
-      refresh();
     },
   });
 }

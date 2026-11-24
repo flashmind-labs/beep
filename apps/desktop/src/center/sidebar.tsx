@@ -24,7 +24,7 @@ import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
 import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
 import type { AgentRow } from "../agents/agents.ts";
-import { refresh } from "./refresh.ts";
+import { dropWhere, forgetProject, refresh, setTop } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
 import type { HomeView } from "./home-state.ts";
@@ -186,14 +186,14 @@ function pinnedProjects(): Placed<Project>[] {
 /// file sync pin, which keeps a project on the machines it is on.
 export async function setProjectOnTop(name: string, pinned: boolean) {
   const before = state.top;
-  state.top = pinned ? [...before.filter(n => n !== name), name] : before.filter(n => n !== name);
+  setTop(pinned ? [...before.filter(n => n !== name), name] : before.filter(n => n !== name));
   redrawProjectPins();
 
   try {
     await invoke("pin_project_to_top", { project: name, pinned });
   } catch (e) {
     console.warn("pinning a project:", e);
-    state.top = before;
+    setTop(before);
     redrawProjectPins();
   }
 }
@@ -259,15 +259,12 @@ export function removeProject(name: string) {
     ...removeProjectSheet(name),
     run: async () => {
       await invoke("remove_project", { project: name });
-      state.top = state.top.filter(n => n !== name);
-      if (state.home?.projects) state.home = { ...state.home, projects: state.home.projects.filter(p => p.name !== name) };
-      state.where.delete(name);
+      forgetProject(name);
 
       if (currentLocation()?.view === "projects" && state.picked === name) openProjects();
       else { draw(); redrawProjectsPage(); }
 
       loadFound();
-      refresh();
     },
   });
 }
@@ -340,7 +337,7 @@ export function openProjects(name?: string | null) {
 function landed(p: { name: string }) {
   state.picked = p.name;
   sessionsDue.add(p.name);
-  state.where.delete(p.name);
+  dropWhere(p.name);
   loadFound();
   refresh();
   openProjects(p.name);
