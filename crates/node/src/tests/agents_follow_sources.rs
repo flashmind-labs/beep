@@ -11,13 +11,11 @@ fn changes_keep_every_affected_harness_until_the_batch_is_taken() {
         (Agent::Flsh, flsh),
     ];
     let mut pending = Pending::default();
-    pending.record(&roots, &[codex], false);
-    pending.record(&roots, &[claude], true);
+    pending.record(&roots, &[codex]);
+    pending.record(&roots, &[claude]);
     let batch = std::mem::take(&mut pending);
     assert_eq!(batch.agents, BTreeSet::from([Agent::Codex, Agent::Claude]));
-    assert!(batch.structural);
     assert!(pending.agents.is_empty());
-    assert!(!pending.structural);
 }
 
 #[test]
@@ -25,6 +23,6 @@ fn shared_watched_roots_invalidate_each_owner() {
     let root = PathBuf::from("/srv/sessions");
     let roots = vec![(Agent::Codex, root.clone()), (Agent::Pi, root.clone())];
     let mut pending = Pending::default();
-    pending.record(&roots, &[root], false);
+    pending.record(&roots, &[root]);
     assert_eq!(pending.agents, BTreeSet::from([Agent::Codex, Agent::Pi]));
 }

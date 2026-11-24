@@ -261,7 +261,7 @@ impl Agents {
             .await
             .map_err(|_| refused(asked, access))
             .context("the agents' logs took too long to read")??;
-        let reach = self.reach(sighted.to_vec());
+        let reach = self.reach(sighted);
         let held =
             spawn_blocking(move || reach.with_checkouts().holds(&real, access).then_some(real))
                 .await

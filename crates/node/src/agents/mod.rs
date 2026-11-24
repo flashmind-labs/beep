@@ -137,11 +137,9 @@ host! {
     /// How often the agents' logs are read for what sessions spent, while the
     /// caller follows it.
     const SPEND_EVERY: Duration = Duration::from_secs(60);
-    /// How long the folders found in the agents' logs are kept.
+    /// How long the folders found in the agents' logs are kept while no
+    /// watcher follows them.
     const SIGHTED_FOR: Duration = Duration::from_secs(60);
-    /// How long one read of the agents' logs answers every session listing,
-    /// while the logs are watched.
-    const SEEN_FOR: Duration = Duration::from_secs(2);
     /// How long a file request may wait for a look in the agents' logs.
     const SIGHTING_WAIT: Duration = Duration::from_secs(5);
 
@@ -231,14 +229,9 @@ host! {
         /// Set once the sessions open before the last stop have been resumed, or
         /// there were none.
         reopened: watch::Sender<bool>,
-        /// The sessions in the agents' logs and the folders they worked in,
-        /// with when they were read; one read at a time.
-        sighted: AsyncMutex<Option<Sighted>>,
-        /// Sessions were added or removed since `sighted` was read: the next
-        /// read starts over.
-        sighted_reset: AtomicBool,
-        /// The logs changed what listings show since `sighted` was read.
-        seen_stale: AtomicBool,
+        /// The folders the agents' logs name and when they were read, for the
+        /// logs no watcher follows. Written after a read, never held across one.
+        sighted: Mutex<Option<(Instant, Arc<Vec<PathBuf>>)>>,
         /// The checkouts found on disk under home, once `warm` read them.
         /// Written after a walk, by the one walk running.
         on_disk: Mutex<Option<Arc<Vec<found::Checkout>>>>,
@@ -258,12 +251,25 @@ host! {
         saved: Mutex<Vec<restart::SavedSession>>,
     }
 
-    /// What the agents' logs hold, and when it was read.
+    /// What the agents' logs hold: the sessions, and the folders they ran in.
     #[derive(Clone)]
     struct Sighted {
-        at: Instant,
         seen: Arc<Vec<found::Seen>>,
         folders: Arc<Vec<PathBuf>>,
+    }
+
+    impl Sighted {
+        /// `seen`, with the folders it names.
+        fn of(seen: Vec<found::Seen>) -> Self {
+            let mut folders: Vec<PathBuf> = seen.iter().map(|seen| seen.cwd.clone()).collect();
+            folders.sort();
+            folders.dedup();
+
+            Self {
+                seen: Arc::new(seen),
+                folders: Arc::new(folders),
+            }
+        }
     }
 
     impl Agents {

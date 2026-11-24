@@ -40,19 +40,6 @@ async fn a_listing_for_one_limit_does_not_wait_for_another() {
 }
 
 #[tokio::test]
-async fn a_reset_makes_the_next_read_of_the_logs_start_over() {
-    let agents = Agents::new(Vec::new());
-    let first = agents.sighted(|_| true).await.expect("a first read");
-    let kept = agents.sighted(|_| true).await.expect("the kept read");
-    assert!(Arc::ptr_eq(&first.seen, &kept.seen));
-
-    agents.reset_sighted();
-
-    let again = agents.sighted(|_| true).await.expect("a read after the reset");
-    assert!(!Arc::ptr_eq(&first.seen, &again.seen));
-}
-
-#[tokio::test]
 async fn stored_sessions_lock_one_at_a_time_each_and_the_lock_is_forgotten_after() {
     let agents = Agents::new(Vec::new());
     let (one, other) = (SessionId::from("one"), SessionId::from("other"));

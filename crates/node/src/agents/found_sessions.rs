@@ -2,7 +2,7 @@
 
 use super::{
     AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
-    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SEEN_FOR, SIGHTED_FOR, SavedSession, Session, Sighted,
+    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, SavedSession, Session, Sighted,
     holders::{self, Holding},
     window::clamp_limit,
 };
@@ -25,7 +25,7 @@ use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, atomic::Ordering},
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 use tokio::{task::spawn_blocking, time::Instant};
@@ -126,36 +126,53 @@ impl Agents {
             .context("still looking for checkouts on this machine")
     }
 
-    /// The folders sessions started outside Beep worked in, read from the
-    /// agents' logs at most `SIGHTED_FOR` ago.
-    pub(super) async fn sighted_folders(&self) -> Result<Arc<Vec<PathBuf>>> {
-        let sighted = self.sighted(|kept| kept.at.elapsed() < SIGHTED_FOR).await?;
+    /// The folders sessions started outside Beep worked in, with those of
+    /// sessions known only from a live connection. While the logs are watched
+    /// the watcher's last read answers at once; else a read at most
+    /// `SIGHTED_FOR` ago does.
+    pub(super) async fn sighted_folders(&self) -> Result<Vec<PathBuf>> {
+        let folders = match self.watched_sighted() {
+            Some(sighted) => sighted.folders,
+            None => {
+                let kept = crate::lock(&self.sighted).clone();
 
-        Ok(sighted.folders)
-    }
+                match kept {
+                    Some((at, folders)) if at.elapsed() < SIGHTED_FOR => folders,
+                    _ => {
+                        let folders = self.read_sighted().await?.folders;
+                        *crate::lock(&self.sighted) = Some((Instant::now(), folders.clone()));
+                        folders
+                    }
+                }
+            }
+        };
+        let mut folders = folders.as_ref().clone();
+        let before = folders.len();
+        folders.extend(
+            self.presence
+                .snapshot()
+                .into_iter()
+                .map(|native| PathBuf::from(native.cwd)),
+        );
 
-    /// Has the next read of the agents' logs start over, for sessions added
-    /// or removed. Never waits for a read that runs.
-    pub(super) fn reset_sighted(&self) {
-        self.sighted_reset.store(true, Ordering::Relaxed);
-    }
-
-    /// The agents' logs as last read, read again unless `usable` takes what
-    /// is kept. Requests that come during a read wait for it rather than
-    /// read again.
-    async fn sighted(&self, usable: impl Fn(&Sighted) -> bool) -> Result<Sighted> {
-        let mut sighted = self.sighted.lock().await;
-        let reset = self.sighted_reset.swap(false, Ordering::Relaxed);
-
-        if let Some(kept) = sighted.as_ref()
-            && !reset
-            && usable(kept)
-        {
-            return Ok(kept.clone());
+        if folders.len() > before {
+            folders.sort();
+            folders.dedup();
         }
 
-        // Cleared first: a change during the read marks it stale again.
-        self.seen_stale.store(false, Ordering::Relaxed);
+        Ok(folders)
+    }
+
+    /// The agents' logs as the watcher last read them, none until it did.
+    async fn sighted(&self) -> Result<Sighted> {
+        match self.watched_sighted() {
+            Some(sighted) => Ok(sighted),
+            None => self.read_sighted().await,
+        }
+    }
+
+    /// Reads every store, for the logs no watcher follows.
+    async fn read_sighted(&self) -> Result<Sighted> {
         metrics::counter!("beep_store_reads_total").increment(1);
 
         let stores = self.stores.clone();
@@ -167,23 +184,7 @@ impl Agents {
         });
         seen.extend(others.context("reading the agents' sessions")?);
 
-        let present = self.presence.snapshot();
-        let mut folders: Vec<PathBuf> = seen
-            .iter()
-            .map(|seen| seen.cwd.clone())
-            .chain(present.into_iter().map(|native| PathBuf::from(native.cwd)))
-            .collect();
-        folders.sort();
-        folders.dedup();
-
-        let read = Sighted {
-            at: Instant::now(),
-            seen: Arc::new(seen),
-            folders: Arc::new(folders),
-        };
-        *sighted = Some(read.clone());
-
-        Ok(read)
+        Ok(Sighted::of(seen))
     }
 
     /// The Claude Code sessions started outside Beep.
@@ -200,19 +201,10 @@ impl Agents {
         Ok(sessions)
     }
 
-    /// Every session the agents' stores hold, with the folder it ran in.
-    /// While the stores are watched one read answers every listing for
-    /// `SEEN_FOR`, unless the watcher saw them change what listings show.
-    /// Unwatched, each call reads them.
+    /// Every session the agents' stores hold, with the folder it ran in:
+    /// what the watcher last read while they are watched, else a read of them.
     pub(super) async fn sightings(&self) -> Result<Vec<found::Seen>> {
-        let watched = crate::lock(&self.event_watcher).upgrade().is_some();
-        let sighted = self
-            .sighted(|kept| {
-                watched
-                    && !self.seen_stale.load(Ordering::Relaxed)
-                    && kept.at.elapsed() < SEEN_FOR
-            })
-            .await?;
+        let sighted = self.sighted().await?;
 
         Ok(self.with_present(sighted.seen.as_ref().clone()))
     }

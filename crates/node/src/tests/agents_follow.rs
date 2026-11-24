@@ -93,7 +93,7 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
         ..Agents::default()
     };
     let mut cache = SummaryCache::default();
-    let initial = cache.read(&agents, &BTreeSet::new()).await.unwrap();
+    let initial = cache.read(&agents, &BTreeSet::new()).await.unwrap().0;
     assert_eq!(initial.len(), 2);
 
     // An unrelated harness write must not walk the flsh store again.
@@ -111,7 +111,8 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
     let summary = cache
         .read(&agents, &BTreeSet::from([Agent::Codex]))
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert_eq!(
         summary
             .iter()
@@ -127,7 +128,8 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
     let summary = cache
         .read(&agents, &BTreeSet::from([Agent::Flsh]))
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert!(!summary.iter().any(|session| session.id == "flsh-example"));
     assert!(summary.iter().any(|session| session.id == "flsh-new"));
 
@@ -137,14 +139,16 @@ async fn summary_cache_rescans_only_changed_harnesses_and_tracks_file_changes() 
         cache
             .read(&agents, &BTreeSet::from([Agent::Codex]))
             .await
-            .unwrap(),
+            .unwrap()
+            .0,
         summary
     );
     std::fs::remove_file(&renamed).unwrap();
     let summary = cache
         .read(&agents, &BTreeSet::from([Agent::Codex]))
         .await
-        .unwrap();
+        .unwrap()
+        .0;
     assert_eq!(summary.len(), 1);
     assert_eq!(summary[0].id, "flsh-new");
 }
@@ -187,7 +191,7 @@ async fn cached_source_notifications_follow_file_creation_title_changes_and_remo
 }
 
 #[tokio::test]
-async fn listings_read_the_stores_again_once_the_watcher_says_they_changed() {
+async fn listings_follow_what_the_watcher_read_of_the_stores() {
     let root = tempfile::tempdir().unwrap();
     let sessions = root.path().join("sessions/2026/11/01");
     std::fs::create_dir_all(&sessions).unwrap();
@@ -209,9 +213,25 @@ async fn listings_read_the_stores_again_once_the_watcher_says_they_changed() {
     write("second");
     assert_eq!(agents.sightings().await.unwrap().len(), 2);
 
+    let mut changes = agents.events.subscribe();
     let _source = agents.watch_event_sources().await.unwrap();
+    async fn summarized(changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>) {
+        timeout(Duration::from_secs(5), async {
+            loop {
+                if changes.recv().await.unwrap().topic.name() == "agents" {
+                    return;
+                }
+            }
+        })
+        .await
+        .unwrap();
+    }
+    summarized(&mut changes).await;
+    assert_eq!(agents.sightings().await.unwrap().len(), 2);
+
+    // Watched, the summary task's read answers: it is ahead of the ping.
     write("third");
-    agents.seen_stale.store(true, std::sync::atomic::Ordering::Relaxed);
+    summarized(&mut changes).await;
     assert_eq!(agents.sightings().await.unwrap().len(), 3);
 }
 

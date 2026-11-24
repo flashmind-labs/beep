@@ -1,17 +1,17 @@
 //! Event sources for sessions on this machine.
 
 use super::{SummaryCache, recent_deadline};
-use crate::agents::{Agents, found::Agent};
+use crate::agents::{Agents, Sighted, found::Agent};
 use anyhow::{Context, Result};
-use beep_proto::SessionId;
+use beep_proto::{SessionId, watched};
 use std::{
     collections::BTreeSet,
     path::PathBuf,
-    sync::{Arc, Mutex, atomic::Ordering},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
-    sync::mpsc,
+    sync::{mpsc, watch},
     task::spawn_blocking,
     time::{Instant, sleep},
 };
@@ -21,18 +21,19 @@ pub(crate) struct Sources {
     processes: std::sync::Mutex<std::collections::HashMap<(String, SessionId), ProcessWatch>>,
     pending: Arc<Mutex<Pending>>,
     dirty: mpsc::Sender<()>,
+    /// What the summary task last read of the agents' stores, none until its
+    /// first read.
+    sighted: watch::Receiver<Option<Sighted>>,
     _summary: tokio_util::task::AbortOnDropHandle<()>,
 }
 
 #[derive(Default)]
 struct Pending {
     agents: BTreeSet<Agent>,
-    structural: bool,
 }
 
 impl Pending {
-    fn record(&mut self, roots: &[(Agent, PathBuf)], changed: &[PathBuf], structural: bool) {
-        self.structural |= structural;
+    fn record(&mut self, roots: &[(Agent, PathBuf)], changed: &[PathBuf]) {
         self.agents.extend(
             roots
                 .iter()
@@ -172,6 +173,14 @@ impl Agents {
         }
     }
 
+    /// The agents' stores as the watcher's summary task last read them, none
+    /// while nothing watches or before its first read.
+    pub(in crate::agents) fn watched_sighted(&self) -> Option<Sighted> {
+        crate::lock(&self.event_watcher)
+            .upgrade()
+            .and_then(|source| watched::read(&source.sighted, Clone::clone))
+    }
+
     pub(in crate::agents) fn observed_work_roots(&self) -> Vec<PathBuf> {
         crate::lock(&self.event_watcher)
             .upgrade()
@@ -224,6 +233,7 @@ impl Agents {
             let pending = Arc::new(Mutex::new(Pending::default()));
             let summary_pending = pending.clone();
             let summary_hub = hub.clone();
+            let (sighted_tx, sighted) = watch::channel(None);
             let summary = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
                 let mut previous = None;
                 let mut cache = SummaryCache::default();
@@ -237,16 +247,18 @@ impl Agents {
 
                     let pending = std::mem::take(&mut *crate::lock(&summary_pending));
 
-                    if pending.structural {
-                        agents.reset_sighted();
-                    }
-
                     let changed = match cache.read(&agents, &pending.agents).await {
-                        Ok(summary) if previous.as_ref() != Some(&summary) => {
-                            previous = Some(summary);
-                            true
+                        Ok((summary, seen)) => {
+                            // Before the ping, so whoever it wakes reads this.
+                            sighted_tx.send_replace(Some(Sighted::of(seen)));
+
+                            if previous.as_ref() == Some(&summary) {
+                                false
+                            } else {
+                                previous = Some(summary);
+                                true
+                            }
                         }
-                        Ok(_) => false,
                         Err(error) => {
                             log::debug!("agent summary could not be reconciled: {error}");
                             true
@@ -254,18 +266,18 @@ impl Agents {
                     };
 
                     if changed {
-                        // Before the ping, so whoever it wakes reads the stores again.
-                        agents.seen_stale.store(true, Ordering::Relaxed);
                         summary_hub.changed(beep_proto::node::events::Topic::new("agents"));
                     }
                 }
             }));
             let changed = pending.clone();
             let notify = dirty.clone();
+            // The first read, so readers have a value to take.
+            let _ = dirty.try_send(());
             let paths =
-                crate::events::paths::Paths::with_structure(move |changed_roots, structural| {
+                crate::events::paths::Paths::with_structure(move |changed_roots, _| {
                     let mut pending = crate::lock(&changed);
-                    pending.record(&roots, &changed_roots, structural);
+                    pending.record(&roots, &changed_roots);
                     drop(pending);
 
                     hub.changed(beep_proto::node::events::Topic::new("agent"));
@@ -277,6 +289,7 @@ impl Agents {
                     processes: std::sync::Mutex::default(),
                     pending,
                     dirty,
+                    sighted,
                     _summary: summary,
                 }),
                 watched,
