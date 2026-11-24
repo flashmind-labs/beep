@@ -125,24 +125,8 @@ fn view_tasks_can_start_outside_a_tokio_runtime() {
 }
 
 #[test]
-fn the_hosts_are_pushed_again_when_accounts_or_machines_change() {
-    for name in ["machines", "accounts"] {
-        assert!(
-            commands(name).contains(&"agent_hosts"),
-            "{name} pushes the hosts"
-        );
-    }
-}
-
-#[test]
-fn an_older_agent_hosts_build_publishes_the_newer_value() {
-    let mut hosts = NewestHosts::default();
-    let accounts = hosts.start();
-    let machines = hosts.start();
-
-    assert_eq!(hosts.settle(machines, json!(["new"])), json!(["new"]));
-    assert_eq!(hosts.settle(accounts, json!(["old"])), json!(["new"]));
-
-    let later = hosts.start();
-    assert_eq!(hosts.settle(later, json!(["later"])), json!(["later"]));
+fn the_hosts_are_drawn_once_and_redrawn_when_accounts_change() {
+    assert!(commands("machines").contains(&"agent_hosts"));
+    assert!(!commands("accounts").contains(&"agent_hosts"));
+    assert!(affected("accounts").contains(&"machines"));
 }
