@@ -1,7 +1,7 @@
 use crate::agents::{AgentKind, Agents, running::Begin};
 use beep_proto::SessionId;
 use super::reserve;
-use std::{collections::BTreeMap, path::PathBuf, pin::pin, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::timeout};
 
 /// Generous: only a hang can reach it.
@@ -40,7 +40,7 @@ async fn an_inserted_session_is_there_for_the_next_read() {
     assert!(agents.get(&session.id).is_some());
     assert!(agents.session_map().contains_key(&session.id));
 
-    agents.sessions.remove(vec![session.id.clone()]).await.unwrap();
+    agents.sessions.remove(std::slice::from_ref(&session.id));
 
     assert!(agents.get(&session.id).is_none());
 }
@@ -55,7 +55,6 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
     let _slow = agents
         .sessions
         .reserve(None, PathBuf::from("/srv/slow"))
-        .await
         .unwrap();
 
     let others = async {
@@ -67,10 +66,7 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
     };
     timeout(LONG, others).await.expect("another start was held up");
 
-    assert_eq!(
-        agents.sessions.starting().await.unwrap(),
-        [PathBuf::from("/srv/slow")]
-    );
+    assert_eq!(agents.sessions.starting(), [PathBuf::from("/srv/slow")]);
 }
 
 #[tokio::test]
@@ -81,7 +77,6 @@ async fn one_session_is_not_taken_over_while_another_takeover_starts() {
     let first = agents
         .sessions
         .reserve(Some(SessionId::from(id)), PathBuf::from("/"))
-        .await
         .unwrap();
 
     let refused = agents.start(&kind, Some("/"), resuming(id)).await.err().unwrap();
@@ -90,7 +85,7 @@ async fn one_session_is_not_taken_over_while_another_takeover_starts() {
     // A start that gave up frees the session and its folder.
     drop(first);
     agents.start(&kind, Some("/"), resuming(id)).await.unwrap();
-    assert!(agents.sessions.starting().await.unwrap().is_empty());
+    assert!(agents.sessions.starting().is_empty());
 }
 
 #[tokio::test]
@@ -109,29 +104,4 @@ async fn a_new_id_skips_the_ids_of_starts_under_way() {
 
     assert_eq!(first.0, SessionId::from("aaaaaa"));
     assert_eq!(second.0, SessionId::from("bbbbbb"));
-}
-
-#[tokio::test]
-async fn a_start_dropped_after_it_spawned_still_adds_its_session() {
-    let kind = silent();
-    let agents = Agents::new(vec![kind.clone()]);
-    let spawned = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
-    let id = SessionId::from("0f3c2a9e-1111-4222-8333-944455556666");
-    let reservation = agents
-        .sessions
-        .reserve(Some(id.clone()), PathBuf::from("/"))
-        .await
-        .unwrap();
-    // A second takeover whose order is queued before the insert is.
-    let mut second = pin!(agents.sessions.reserve(Some(id.clone()), PathBuf::from("/")));
-    assert!(futures::poll!(second.as_mut()).is_pending());
-
-    {
-        let mut insert = pin!(agents.sessions.insert(reservation, Some(id.clone()), spawned));
-        assert!(futures::poll!(insert.as_mut()).is_pending());
-    }
-
-    let refused = second.await.err().expect("the second takeover is refused");
-    assert!(refused.to_string().contains("already runs here"), "{refused}");
-    assert!(agents.session_map().contains_key(&id));
 }

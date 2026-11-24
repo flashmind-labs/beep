@@ -1,10 +1,8 @@
-//! The sessions this node runs. One task owns the map and is its only
-//! writer; it publishes each change as a new map, so readers take no lock and
-//! send no message.
+//! The sessions this node runs. `Sessions` is the only code that changes the
+//! map; it publishes each change as a new map, so readers take no lock.
 
 use super::{MAX_KEPT, Session, running::new_id};
-use crate::actor;
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use beep_proto::{
     SessionId,
     node::agent::Status,
@@ -13,62 +11,33 @@ use beep_proto::{
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{Arc, OnceLock, Weak},
+    sync::{Arc, Mutex, MutexGuard, Weak},
 };
-use tokio::sync::{oneshot, watch};
-use tokio_util::task::AbortOnDropHandle;
-
-const WAITING: usize = 64;
-const STOPPED: &str = "the sessions' supervisor stopped";
+use tokio::sync::watch;
 
 pub(super) type Map = HashMap<SessionId, Arc<Session>>;
 
-/// The node's sessions. The task that owns them starts with the first
-/// command and ends with this.
+/// The node's sessions.
 #[derive(Default)]
 pub(super) struct Sessions {
     map: watch::Sender<Arc<Map>>,
-    started: OnceLock<Started>,
-}
-
-struct Started {
-    orders: actor::Sender<Order>,
-    _task: AbortOnDropHandle<()>,
+    /// The starts that hold an id and have no session yet. Locked for each
+    /// reservation and insert, so an id is checked and taken in one step.
+    pending: Mutex<Vec<Pending>>,
 }
 
 /// A start that has its id and no session yet. Dropped, it gives the id
-/// back. It also holds a place in the supervisor's queue, so that handing
-/// over the session it started cannot wait or fail.
+/// back.
 pub(super) struct Reservation {
     pub(super) id: SessionId,
-    held: Arc<()>,
-    place: actor::Place<Order>,
+    _held: Arc<()>,
 }
 
-#[derive(strum::IntoStaticStr)]
-enum Order {
-    /// Picks the id of a start and refuses a second takeover of one session.
-    Reserve {
-        resume: Option<SessionId>,
-        cwd: PathBuf,
-        reply: oneshot::Sender<Result<(SessionId, Arc<()>), String>>,
-    },
-    /// Adds the session a reservation was for. It carries the reservation's
-    /// hold, so the id stays taken until this is handled, even when the
-    /// caller is gone.
-    Insert {
-        id: SessionId,
-        _held: Arc<()>,
-        resume: Option<SessionId>,
-        session: Arc<Session>,
-        reply: oneshot::Sender<()>,
-    },
-    Remove {
-        ids: Vec<SessionId>,
-        reply: oneshot::Sender<()>,
-    },
-    /// The folders of the starts that have no session yet.
-    Starting { reply: oneshot::Sender<Vec<PathBuf>> },
+/// A start that holds an id.
+struct Pending {
+    id: SessionId,
+    cwd: PathBuf,
+    held: Weak<()>,
 }
 
 impl Sessions {
@@ -80,137 +49,58 @@ impl Sessions {
     /// Takes the id for a session started in `cwd`, or the agent's `resume`
     /// id of one taken over. Refused while another run of that session is
     /// live or starting.
-    pub(super) async fn reserve(
-        &self,
-        resume: Option<SessionId>,
-        cwd: PathBuf,
-    ) -> Result<Reservation> {
-        let (id, held) = self
-            .ask(|reply| Order::Reserve { resume, cwd, reply })
-            .await?
+    pub(super) fn reserve(&self, resume: Option<SessionId>, cwd: PathBuf) -> Result<Reservation> {
+        let (id, held) = reserve(&self.map, &mut self.pending(), resume, cwd, new_id)
             .map_err(anyhow::Error::msg)?;
-        let place = self
-            .started()
-            .orders
-            .clone()
-            .reserve_owned()
-            .await
-            .map_err(|_| anyhow!(STOPPED))?;
 
-        Ok(Reservation { id, held, place })
+        Ok(Reservation { id, _held: held })
     }
 
-    /// Adds `session` for `reservation`. The order is queued before this
-    /// first waits, so dropping the call afterwards still adds the session.
-    /// Once this returns, `read` shows it. A resumed session replaces the
+    /// Adds `session` for `reservation`. A resumed session replaces the
     /// ended runs of it, and a full map drops its oldest ended session.
-    pub(super) async fn insert(
+    pub(super) fn insert(
         &self,
         reservation: Reservation,
         resume: Option<SessionId>,
         session: Arc<Session>,
-    ) -> Result<()> {
-        let Reservation { id, held, place } = reservation;
-        let (reply, answer) = oneshot::channel();
-        place.send(Order::Insert {
-            id,
-            _held: held,
-            resume,
-            session,
-            reply,
-        });
+    ) {
+        // Held until the session is in the map, so its id is never free
+        // between, and two inserts do not push out the same session.
+        let mut pending = self.pending();
+        pending.retain(|start| start.id != reservation.id);
+        let doomed = doomed(&self.read(), resume.as_ref());
 
-        answer.await.map_err(|_| anyhow!(STOPPED))
+        self.map.send_modify(|sessions| {
+            let sessions = Arc::make_mut(sessions);
+            doomed.iter().for_each(|id| drop(sessions.remove(id)));
+            sessions.insert(reservation.id.clone(), session);
+        });
     }
 
-    /// Takes the sessions `ids` out. Once this returns, `read` shows none.
-    /// Fails when the supervisor is gone, which leaves the map as it was.
-    pub(super) async fn remove(&self, ids: Vec<SessionId>) -> Result<()> {
-        self.ask(|reply| Order::Remove { ids, reply }).await
+    /// Takes the sessions `ids` out.
+    pub(super) fn remove(&self, ids: &[SessionId]) {
+        self.map.send_if_modified(|sessions| {
+            if !ids.iter().any(|id| sessions.contains_key(id)) {
+                return false;
+            }
+
+            let sessions = Arc::make_mut(sessions);
+            ids.iter().for_each(|id| drop(sessions.remove(id)));
+            true
+        });
     }
 
     /// The folders of the starts under way.
-    pub(super) async fn starting(&self) -> Result<Vec<PathBuf>> {
-        self.ask(|reply| Order::Starting { reply }).await
+    pub(super) fn starting(&self) -> Vec<PathBuf> {
+        self.pending().iter().map(|start| start.cwd.clone()).collect()
     }
 
-    async fn ask<R>(&self, order: impl FnOnce(oneshot::Sender<R>) -> Order) -> Result<R> {
-        let (reply, answer) = oneshot::channel();
-        self.started()
-            .orders
-            .send(order(reply))
-            .await
-            .map_err(|_| anyhow!(STOPPED))?;
-
-        answer.await.map_err(|_| anyhow!(STOPPED))
-    }
-
-    fn started(&self) -> &Started {
-        self.started.get_or_init(|| {
-            let (orders, ordered) = actor::channel("sessions", WAITING);
-            Started {
-                orders,
-                _task: AbortOnDropHandle::new(tokio::spawn(supervise(
-                    self.map.clone(),
-                    ordered,
-                ))),
-            }
-        })
-    }
-}
-
-/// A start that holds an id.
-struct Pending {
-    id: SessionId,
-    cwd: PathBuf,
-    held: Weak<()>,
-}
-
-async fn supervise(map: watch::Sender<Arc<Map>>, mut orders: actor::Receiver<Order>) {
-    let mut pending: Vec<Pending> = Vec::new();
-
-    while let Some((order, _timing)) = orders.recv().await {
-        // A start that was dropped before it inserted gives its id back.
+    /// The starts under way. One that was dropped before it inserted gives
+    /// its id back here.
+    fn pending(&self) -> MutexGuard<'_, Vec<Pending>> {
+        let mut pending = crate::lock(&self.pending);
         pending.retain(|start| start.held.strong_count() > 0);
-
-        match order {
-            Order::Reserve { resume, cwd, reply } => {
-                let _ = reply.send(reserve(&map, &mut pending, resume, cwd, new_id));
-            }
-            Order::Insert {
-                id,
-                resume,
-                session,
-                reply,
-                ..
-            } => {
-                pending.retain(|start| start.id != id);
-                // Chosen from a snapshot: this task is the only writer, and the
-                // watch is locked for the change alone, not for reading sessions.
-                let doomed = doomed(&watched::read_sent(&map, Arc::clone), resume.as_ref());
-                map.send_modify(|sessions| {
-                    let sessions = Arc::make_mut(sessions);
-                    doomed.iter().for_each(|id| drop(sessions.remove(id)));
-                    sessions.insert(id, session);
-                });
-                let _ = reply.send(());
-            }
-            Order::Remove { ids, reply } => {
-                map.send_if_modified(|sessions| {
-                    if !ids.iter().any(|id| sessions.contains_key(id)) {
-                        return false;
-                    }
-
-                    let sessions = Arc::make_mut(sessions);
-                    ids.iter().for_each(|id| drop(sessions.remove(id)));
-                    true
-                });
-                let _ = reply.send(());
-            }
-            Order::Starting { reply } => {
-                let _ = reply.send(pending.iter().map(|start| start.cwd.clone()).collect());
-            }
-        }
+        pending
     }
 }
 

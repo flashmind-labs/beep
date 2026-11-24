@@ -509,7 +509,7 @@ impl Agents {
         self.stopping.store(true, Ordering::Relaxed);
     }
 
-    /// The sessions now, as the supervisor last published them.
+    /// The sessions now, as last published.
     pub(super) fn session_map(&self) -> Arc<sessions::Map> {
         self.sessions.read()
     }
@@ -775,8 +775,8 @@ impl Agents {
 
         let resume = begin.resume.clone();
         // The id is taken first, so no other start takes it while this one
-        // spawns. Recovery asks the supervisor for the starts under way.
-        let reservation = self.sessions.reserve(resume.clone(), cwd.clone()).await?;
+        // spawns. Recovery reads the starts under way.
+        let reservation = self.sessions.reserve(resume.clone(), cwd.clone())?;
         let id = reservation.id.clone();
         not_recovering(&crate::lock(&self.recovering), &cwd)?;
         let assistant = begin.assistant;
@@ -903,7 +903,7 @@ impl Agents {
                 }
             }
         }));
-        self.sessions.insert(reservation, resume, session.clone()).await?;
+        self.sessions.insert(reservation, resume, session.clone());
         crate::link::restart::changed();
         Ok(session)
     }

@@ -44,9 +44,6 @@ impl<M> Clone for Sender<M> {
     }
 }
 
-/// A place in the mailbox, taken by `Sender::reserve_owned`.
-pub struct Place<M>(mpsc::OwnedPermit<Stamped<M>>);
-
 /// The receiving half of an actor's mailbox.
 pub struct Receiver<M> {
     actor: &'static str,
@@ -90,11 +87,6 @@ impl<M> Sender<M> {
             })
     }
 
-    /// Waits for room and holds it. `Place::send` then cannot wait or fail.
-    pub async fn reserve_owned(self) -> Result<Place<M>, SendError<()>> {
-        self.mailbox.reserve_owned().await.map(Place)
-    }
-
     pub fn is_closed(&self) -> bool {
         self.mailbox.is_closed()
     }
@@ -108,15 +100,6 @@ impl<M> Sender<M> {
     /// How many senders there are, this one included.
     pub fn strong_count(&self) -> usize {
         self.mailbox.strong_count()
-    }
-}
-
-impl<M> Place<M> {
-    pub fn send(self, message: M) {
-        self.0.send(Stamped {
-            message,
-            sent: Instant::now(),
-        });
     }
 }
 

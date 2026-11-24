@@ -381,9 +381,7 @@ impl Agents {
         for (agent, id) in closed {
             if let Err(e) = self.delete_session(&agent, &id).await {
                 log::warn!("background child {id} was not deleted: {e:#}");
-                if let Err(e) = self.sessions.remove(vec![id.clone()]).await {
-                    log::error!("background child {id} stays listed: {e:#}");
-                }
+                self.sessions.remove(std::slice::from_ref(&id));
             }
         }
 

@@ -43,7 +43,7 @@ impl Agents {
             agents: self.clone(),
             folder: folder.clone(),
         };
-        let mut running = self.sessions.starting().await?;
+        let mut running = self.sessions.starting();
         running.extend(self.session_map().values().filter_map(|session| {
             watched::read(&session.live, |live| {
                 (live.status() != Status::Ended).then(|| PathBuf::from(&live.info.cwd))
