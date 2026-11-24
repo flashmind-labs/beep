@@ -268,7 +268,7 @@ async fn a_push_replaces_the_rows_without_asking_the_machine() {
 
     rig.mirror
         .pushed(a, vec![top(session(a, "a2", AgentStatus::Running {}))]);
-    assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
+    rows_where(&rig.mirror, |rows| rows.live(a)).await;
     let rows = rig.mirror.current();
 
     assert_eq!(ids(&rows, a), ["a2"]);
@@ -287,7 +287,6 @@ async fn a_machine_that_pushes_is_not_listed_again_when_its_rows_age() {
 
     rig.mirror
         .pushed(a, vec![top(session(a, "a1", AgentStatus::Running {}))]);
-    assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
     tokio::time::sleep(FRESH * 2).await;
     rig.mirror.rows();
 
@@ -304,7 +303,6 @@ async fn a_machine_whose_push_ended_is_listed_again_when_its_rows_age() {
 
     rig.mirror
         .pushed(a, vec![top(session(a, "a1", AgentStatus::Running {}))]);
-    assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
     rig.mirror.unpushed(a);
     tokio::time::sleep(FRESH * 2).await;
     rig.mirror.rows();
@@ -335,7 +333,6 @@ async fn a_push_during_a_listing_is_not_undone_by_the_older_answer() {
         .reply
         .send(Some(vec![session(a, "new", AgentStatus::Running {})]))
         .unwrap();
-    assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
 
     assert_eq!(ids(&rig.mirror.current(), a), ["new"]);
 }

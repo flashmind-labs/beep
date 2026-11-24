@@ -301,8 +301,6 @@ pub(crate) trait Outside: Send + Sync + 'static {
 /// A change in what the windows draw.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Drawn {
-    /// A machine pushed rows that differ: the palette lists them again.
-    Machine(EndpointId),
     /// A listing of a machine came back and its rows differ.
     Listed,
     /// A local edit of this session.
@@ -732,9 +730,7 @@ impl<O: Outside> Actor<O> {
             relist.edited = true;
         }
 
-        if self.replace_listed(machine, rows) {
-            self.outside.drawn(Drawn::Machine(machine));
-        }
+        self.replace_listed(machine, rows);
 
         let reads = self.reads.entry(machine).or_default();
         reads.beep = Some(Instant::now());
@@ -1067,7 +1063,6 @@ impl Outside for Desk {
     fn drawn(&self, drawn: Drawn) {
         let app = &self.app;
         let told = match drawn {
-            Drawn::Machine(_) => Ok(()),
             Drawn::Listed => app.emit(HOME_CHANGED, ()),
             Drawn::Session(session) => {
                 // The tray reads again now that the rows hold the edit.
