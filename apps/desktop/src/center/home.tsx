@@ -16,7 +16,7 @@ import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { ensureAllTerms } from "../terminals/view.tsx";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { onPlaces } from "../agents/place.ts";
-import { ensureSessions, sessionsChanged, sessionsRead } from "../agents/sessions.ts";
+import { ensureSessions, sessionsRead } from "../agents/sessions.ts";
 import type { SessionList, SessionRow } from "../project/projects-state.ts";
 import { ambient } from "../ui/active.ts";
 import { onMoves } from "../agents/move-store.ts";
@@ -144,7 +144,8 @@ const readSessions = ambient(() => {
 }, DONE_REREAD_MS, () => currentLocation()?.view === "home");
 listen<SessionList>("session-list", ({ payload }) => { if (payload.list === "home") showSessions(payload.sessions); });
 function showSessions(rows: SessionRow[]) { projectSessions = rows; draw(); }
-sessionsChanged.add(() => { sessionsStale = true; readSessions(); });
+// The list itself follows as `session-list` events; these say it may be out of step.
+for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, () => { sessionsStale = true; readSessions(); });
 sessionsRead.add(() => draw());
 onPlaces(() => draw());
 onMoves(() => draw());

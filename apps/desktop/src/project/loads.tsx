@@ -3,7 +3,7 @@ import { ProjectSessions } from "./sessions-view.tsx";
 import { retainedHost } from "./page-view.tsx";
 import { refreshMoves, moveStore } from "../agents/move-store.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
-import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
+import { AMBIENT_MS } from "../ui/active.ts";
 // Reading a project page: its machines, lists and sessions, kept fresh
 // while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
@@ -55,8 +55,6 @@ const sessionChanges = new Changes();
 const termChanges = new Changes();
 const foundChanges = new Changes();
 subscribeEach([topic("projects"), topic("machines"), topic("sync")], () => whereChanges.changed());
-// Home changes with every session's state and with moves.
-subscribeEach(topic("home"), () => sessionChanges.changed());
 for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, () => sessionChanges.changed());
 listen("project-git-changed", () => {
   if (currentLocation()?.view === "projects" && state.picked) void readGit(state.picked, false);
@@ -466,8 +464,7 @@ async function refreshProjectSessions() {
   const name = shownSessions();
   if (name) { sessionsDue.add(name); await loadSessions(name); }
 }
-// Agents report many times a second during turns; the list follows every two seconds.
-subscribeChanges([topic("agents"), topic("moves")], { deliver: "latest", receive: refreshProjectSessions }, { when: projectSessionsShown, wait: SLOW_MS });
+// The lists themselves come as `session-list` events, also for agents and moves.
 listen("agent-title-changed", () => {
   if (projectSessionsShown()) void refreshProjectSessions().catch(e => console.warn("project session titles:", e));
 });
