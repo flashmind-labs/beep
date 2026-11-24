@@ -203,3 +203,46 @@ fn symlinked_session_folders_are_never_written_or_cleaned() {
     assert!(remove_in(dir.path(), &session).is_err());
     assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1);
 }
+
+#[tokio::test]
+async fn the_sweep_cleans_the_folder_a_session_was_refiled_to() {
+    use crate::agents::{AgentKind, running::Begin};
+    use std::collections::BTreeMap;
+
+    const ADAPTER: &str = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+read -r line
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+while read -r line; do
+  case "$line" in
+    *'"session/new"'*) reply '{"sessionId":"refiled-1"}' ;;
+    *'"id"'*) reply '{}' ;;
+  esac
+done
+"#;
+    let dir = tempfile::tempdir().unwrap();
+    let kind = AgentKind {
+        name: "fake".into(),
+        program: "sh".into(),
+        args: vec!["-c".into(), ADAPTER.into()],
+        env: BTreeMap::new(),
+        compact: None,
+        compact_models: Vec::new(),
+        default_model: None,
+        bridge: None,
+    };
+    let agents = Agents::new(vec![kind.clone()]);
+    let session = agents
+        .start(&kind, Some(&dir.path().to_string_lossy()), Begin::default())
+        .await
+        .unwrap();
+    session.named_info().await.unwrap();
+    session.moved_to("/srv/refiled");
+
+    let (_, folders) = sessions(&agents);
+
+    assert!(folders.contains(Path::new("/srv/refiled")));
+    assert!(!folders.contains(dir.path()));
+    agents.shutdown().await;
+}
