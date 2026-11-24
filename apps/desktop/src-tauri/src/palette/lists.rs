@@ -14,7 +14,7 @@ use crate::{
         lock, section,
         view_cache::{View, ViewCache, cache_view},
     },
-    fleet::{AsyncMutex, Fleet},
+    fleet::Fleet,
     projects::branches::read_branches as read_project_branches,
 };
 use beep_fleet::Session as FleetSession;
@@ -22,7 +22,10 @@ use beep_proto::{ImportedProject, Machine, MachineSession};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{
+        Arc, Mutex, MutexGuard,
+        atomic::{AtomicU64, Ordering},
+    },
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Listener, Manager, State, ipc::Response};
@@ -57,6 +60,9 @@ pub(crate) struct PaletteLists {
     /// The machines' coding-agent sessions.
     pub(super) sessions: Option<Vec<MachineSession>>,
     pub(super) branches: Option<Vec<BranchRow>>,
+    /// The ticket of the last removal: a read of the projects taken before it is out of date.
+    #[serde(skip)]
+    removed_at: u64,
 }
 
 impl PaletteLists {
@@ -75,6 +81,22 @@ impl PaletteLists {
         }
 
         self.projects = Some(projects);
+    }
+
+    /// Takes the imports a read at ticket `read` found, unless a removal came after it, which
+    /// the read may not have seen. True when the places differ from the ones held.
+    fn read_projects(&mut self, read: u64, projects: Vec<ImportedProject>) -> bool {
+        if read < self.removed_at {
+            return false;
+        }
+
+        let places = |projects: &[ImportedProject]| -> BTreeSet<Place> {
+            projects.iter().map(Place::from).collect()
+        };
+        let changed = places(self.projects.as_deref().unwrap_or_default()) != places(&projects);
+        self.set_projects(projects);
+
+        changed
     }
 
     fn forget_project(&mut self, project: &str) {
@@ -130,9 +152,9 @@ pub(crate) struct PaletteCache {
     held: Mutex<Held>,
     read_lists: Notify,
     read_sessions: Notify,
-    /// Held while the project list changes, so a read of the mesh taken
-    /// before a removal cannot bring the project back.
-    project_changes: AsyncMutex<()>,
+    /// Counts the reads of the mesh's projects and the removals, so a read
+    /// taken before a removal cannot bring the project back.
+    tickets: AtomicU64,
 }
 
 fn index_json(lists: &PaletteLists) -> anyhow::Result<String> {
@@ -157,7 +179,7 @@ impl PaletteCache {
             held: Mutex::new(Held { lists, index }),
             read_lists: Notify::new(),
             read_sessions: Notify::new(),
-            project_changes: AsyncMutex::new(()),
+            tickets: AtomicU64::new(0),
         })
     }
 
@@ -183,25 +205,15 @@ impl PaletteCache {
             .collect()
     }
 
-    pub(crate) async fn project_lock(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.project_changes.lock().await
+    /// The ticket of a read of the mesh's projects that starts now.
+    pub(crate) fn ticket(&self) -> u64 {
+        self.tickets.fetch_add(1, Ordering::Relaxed) + 1
     }
 
-    /// `projects` are the imports as the mesh holds them.
-    pub(crate) fn project_list(&self, app: &AppHandle, projects: Vec<ImportedProject>) {
-        let current: BTreeSet<Place> = projects.iter().map(Place::from).collect();
-        let changed = {
-            let held = self.held();
-            let previous: BTreeSet<Place> = held
-                .lists
-                .projects
-                .iter()
-                .flatten()
-                .map(Place::from)
-                .collect();
-            previous != current
-        };
-        self.update(app, |lists| lists.set_projects(projects));
+    /// `projects` are the imports as the mesh held them at the read with ticket `read`.
+    pub(crate) fn project_list(&self, app: &AppHandle, read: u64, projects: Vec<ImportedProject>) {
+        let mut changed = false;
+        self.update(app, |lists| changed = lists.read_projects(read, projects));
 
         if changed {
             let _ = app.emit("palette-text-changed", ());
@@ -209,7 +221,11 @@ impl PaletteCache {
     }
 
     pub(crate) fn forget_project(&self, app: &AppHandle, project: &str) {
-        self.update(app, |lists| lists.forget_project(project));
+        let removed_at = self.ticket();
+        self.update(app, |lists| {
+            lists.removed_at = removed_at;
+            lists.forget_project(project);
+        });
         let _ = app.emit("palette-text-changed", ());
     }
 
@@ -356,9 +372,9 @@ async fn read_local_lists(app: &AppHandle) {
     }
 
     let cache = app.state::<PaletteCache>();
-    let _projects = cache.project_lock().await;
+    let read = cache.ticket();
     let projects = mesh_imports(&fleet, &session).await;
-    cache.project_list(app, projects);
+    cache.project_list(app, read, projects);
     let machines = fleet.status().machines();
     app.state::<PaletteCache>().update(app, |lists| {
         lists.machines = Some(machines);

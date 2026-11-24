@@ -69,10 +69,10 @@ pub async fn pin_project_to_top(
 #[tauri::command]
 pub async fn remove_project(app: AppHandle, fleet: FleetState<'_>, project: String) -> Result<()> {
     let cache = app.state::<crate::palette::PaletteCache>();
-    let _projects = cache.project_lock().await;
     let desk = desk(&fleet).await?;
     // Record locations even if the menu has not read this new import yet.
-    cache.project_list(&app, desk.imported().await);
+    let read = cache.ticket();
+    cache.project_list(&app, read, desk.imported().await);
     desk.remove(&project).await?;
     // Nothing read of it is kept.
     fleet.forget();

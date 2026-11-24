@@ -147,3 +147,29 @@ fn a_place_that_left_stays_out_until_imported_again() {
     assert_eq!(lists.retired_places, [Place::from(&tools)], "once");
     assert!(lists.forgotten_projects.contains("acme/tools"));
 }
+
+#[test]
+fn a_read_taken_before_a_removal_does_not_bring_the_project_back() {
+    let project = |name: &str| ImportedProject {
+        project: name.into(),
+        machine_id: "build-box".into(),
+        machine_name: "build-box".into(),
+        folder: format!("/srv/{name}"),
+        url: format!("https://example.com/{name}"),
+        cloned: false,
+        imported_at: SystemTime::UNIX_EPOCH,
+        display_name: None,
+    };
+    let mut lists = PaletteLists::default();
+
+    assert!(lists.read_projects(1, vec![project("acme/widget")]));
+    // The removal is ticket 3; the read with ticket 2 started before it and still holds the project.
+    lists.removed_at = 3;
+    lists.forget_project("acme/widget");
+    assert!(!lists.read_projects(2, vec![project("acme/widget")]));
+    assert!(lists.forgotten_projects.contains("acme/widget"));
+
+    // A read that started after it saw the removal.
+    assert!(lists.read_projects(4, Vec::new()));
+    assert!(lists.projects.as_deref().unwrap().is_empty());
+}

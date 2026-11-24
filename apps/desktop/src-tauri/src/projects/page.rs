@@ -147,12 +147,12 @@ pub async fn project_remove_from_machine(
     }
 
     let cache = app.state::<crate::palette::PaletteCache>();
-    let _projects = cache.project_lock().await;
     let desk = desk(&fleet).await?;
     let removed = desk
         .remove_from_machine(&project, &machine_id, delete_folder.unwrap_or(false))
         .await?;
-    cache.project_list(&app, desk.imported().await);
+    let read = cache.ticket();
+    cache.project_list(&app, read, desk.imported().await);
     Ok(removed)
 }
 
