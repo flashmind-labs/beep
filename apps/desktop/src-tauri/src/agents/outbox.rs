@@ -13,7 +13,7 @@ use crate::{
     agents::{
         kept_folder::{KeptFolder, KeptImage, Write, forget_images, image_writes},
         kept_transcripts::SessionKey,
-        sessions::closed,
+        sessions::{SessionRow, closed, resume_session},
         steer::{BEFORE_STOP_ALL, PastedImage, Steer, SteerError, newer_than, sent},
     },
     error::{DesktopError, Result},
@@ -29,7 +29,7 @@ use beep_mesh::RETRY;
 use beep_proto::SessionId;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentNoticeKey, AgentSteer, ApiError, GetAgentSession, ModelId,
-    SteerAgentSession, WriteWorkFile,
+    ResumeAgentSession, SteerAgentSession, WriteWorkFile,
     node::agent::{Effort, Request as AgentRequest, SessionDevice},
     node::events::{CallReply, Operation, Topic},
 };
@@ -105,12 +105,39 @@ pub struct Attach {
     pub(crate) mentions: Vec<String>,
 }
 
+/// A session's model and thinking picks, applied once it runs again.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Pick {
+    #[serde(default)]
+    pub(crate) model: Option<ModelId>,
+    #[serde(default)]
+    pub(crate) effort: Option<Effort>,
+    #[serde(default)]
+    pub(crate) fast: Option<bool>,
+}
+
+/// A message to a session that ended: it resumes first, once however many
+/// messages wait for it, and the messages go on in the session that resumes.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct Resume {
+    /// The model a Codex session resumes on.
+    #[serde(default)]
+    pub(crate) model: Option<ModelId>,
+    /// What to apply to the resumed session before the message.
+    #[serde(default)]
+    pub(crate) pick: Option<Pick>,
+    /// The session is running again; what is left is its pick.
+    #[serde(default)]
+    pub(crate) resumed: bool,
+}
+
 /// A message as a window hands it to the outbox.
 pub(crate) struct Draft {
     pub(crate) how: Kind,
     pub(crate) text: String,
     pub(crate) images: Vec<PastedImage>,
     pub(crate) attach: Attach,
+    pub(crate) resume: Option<Resume>,
     pub(crate) seen: Option<Seen>,
 }
 
@@ -133,6 +160,9 @@ pub(crate) struct Message {
     /// Paths to mention after the uploaded files' own.
     #[serde(default)]
     pub(crate) mentions: Vec<String>,
+    /// Its session ended: it resumes before the message goes.
+    #[serde(default)]
+    pub(crate) resume: Option<Resume>,
     pub(crate) state: Stage,
     /// A send of it may have reached the machine before the link dropped,
     /// so the session is read before it is sent again.
@@ -162,6 +192,9 @@ impl Message {
     fn row(&self) -> Row {
         let (state, reason) = match &self.state {
             Stage::Waiting => ("waiting", None),
+            Stage::Sending if self.resume.as_ref().is_some_and(|r| !r.resumed) => {
+                ("resuming", None)
+            }
             Stage::Sending if !self.files.is_empty() => ("uploading", None),
             Stage::Sending => ("sending", None),
             Stage::Failed { reason } => ("failed", Some(reason.clone())),
@@ -181,6 +214,11 @@ impl Message {
         }
     }
 
+    /// Nothing of it has gone: its session is still to resume and its files to upload.
+    fn untouched(&self) -> bool {
+        self.files.is_empty() && self.resume.is_none()
+    }
+
     fn taken(self) -> Taken {
         Taken {
             text: self.text,
@@ -198,7 +236,7 @@ pub(crate) struct Row {
     pub(crate) how: Kind,
     pub(crate) text: String,
     pub(crate) images: Vec<String>,
-    /// "waiting", "uploading", "sending" or "failed".
+    /// "waiting", "resuming", "uploading", "sending" or "failed".
     pub(crate) state: &'static str,
     pub(crate) reason: Option<String>,
 }
@@ -212,6 +250,18 @@ pub(crate) struct Changed {
     pub(crate) session: SessionId,
     pub(crate) rows: Vec<Row>,
     pub(crate) sent: Vec<Row>,
+    /// The session that goes on from this one, which ended and was resumed:
+    /// the windows showing this one open it.
+    pub(crate) resumed: Option<SessionRow>,
+    /// The files that just reached the machine, and where.
+    pub(crate) uploaded: Vec<Uploaded>,
+}
+
+/// A file of a message, on the machine at `path`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub(crate) struct Uploaded {
+    pub(crate) name: String,
+    pub(crate) path: String,
 }
 
 /// The answer to the window that sent a message, after its first try.
@@ -297,6 +347,9 @@ pub(crate) struct Held {
     next: u64,
     /// Sessions whose flusher runs.
     flushing: HashSet<SessionKey>,
+    /// Where a session that was resumed went on: a window that has not
+    /// opened that yet still sends to the old one, and is sent on.
+    redirects: HashMap<SessionKey, SessionKey>,
     /// The windows waiting on a message's first try. A message with one is
     /// not shown in the outbox: the window shows it as sending.
     replies: HashMap<u64, oneshot::Sender<Answer>>,
@@ -315,8 +368,8 @@ impl Held {
         for message in &mut messages {
             if matches!(message.state, Stage::Waiting | Stage::Sending) {
                 message.state = Stage::Waiting;
-                // Nothing of it went while its files were still to upload.
-                message.unsure = message.files.is_empty();
+                // Nothing of it went while its session or files were still to do.
+                message.unsure = message.untouched();
             }
         }
 
@@ -337,6 +390,13 @@ impl Held {
         draft: Draft,
         reply: Option<oneshot::Sender<Answer>>,
     ) -> (u64, bool) {
+        let resolved = self.resolve(key);
+        // One resume however many messages wait: a message behind another
+        // that resumes, or to a session already resumed, never does.
+        let resume = draft
+            .resume
+            .filter(|_| resolved == *key && !self.resuming(key));
+        let key = &resolved;
         let id = self.next;
         self.next += 1;
         let images: Vec<KeptImage> = draft.images.into_iter().map(Into::into).collect();
@@ -357,6 +417,7 @@ impl Held {
             files,
             root: draft.attach.root,
             mentions: draft.attach.mentions,
+            resume,
             state: Stage::Waiting,
             unsure: false,
             seen: draft.seen,
@@ -372,6 +433,30 @@ impl Held {
         }
 
         (id, self.flushing.insert(key.clone()))
+    }
+
+    /// The session `key` went on in, if it was resumed.
+    pub(crate) fn resolve(&self, key: &SessionKey) -> SessionKey {
+        let mut key = key;
+
+        // A chain ends where a session was not resumed; bounded in case of a loop.
+        for _ in 0..self.redirects.len() {
+            match self.redirects.get(key) {
+                Some(next) => key = next,
+                None => break,
+            }
+        }
+
+        key.clone()
+    }
+
+    /// Whether a message of `key` still to be sent resumes its session.
+    fn resuming(&self, key: &SessionKey) -> bool {
+        self.messages.iter().any(|m| {
+            m.key() == *key
+                && !matches!(m.state, Stage::Failed { .. })
+                && m.resume.as_ref().is_some_and(|r| !r.resumed)
+        })
     }
 
     fn is_stuck(&self, key: &SessionKey) -> bool {
@@ -718,16 +803,81 @@ impl Held {
         let message = self.messages.iter_mut().find(|m| m.id == id)?;
         let files = std::mem::take(&mut message.files);
         let images = message.images.len();
+        let names: Vec<String> = files.iter().map(|f| f.name.clone()).collect();
         let mut mentions = std::mem::take(&mut message.mentions);
         let only_pictures =
             mentions.is_empty() && files.iter().all(|f| f.mime.starts_with("image/"));
+        let uploaded = names
+            .into_iter()
+            .zip(&paths)
+            .map(|(name, path)| Uploaded {
+                name,
+                path: path.clone(),
+            })
+            .collect();
         mentions.extend(paths);
         message.text = with_mentions(&message.text, &mentions, images, only_pictures);
         let (message, key) = (message.clone(), message.key());
 
         self.writes.extend(forget_images(files_id(id), files.len()));
         self.dirty = true;
-        Some((message, self.changed(&key)))
+        let mut changed = self.changed(&key);
+        changed.uploaded = uploaded;
+        Some((message, changed))
+    }
+
+    /// Message `id`'s session was resumed, as `session`: it and every message
+    /// and order kept for the old session go on there, and later sends to the
+    /// old one are sent on. The old session's flusher goes on as the new one's.
+    /// The changes of the old session and of the new one.
+    pub(crate) fn resumed(
+        &mut self,
+        id: u64,
+        session: SessionId,
+    ) -> Option<(Message, Changed, Changed)> {
+        let from = self.messages.iter().find(|m| m.id == id)?.key();
+        let to = SessionKey {
+            session,
+            ..from.clone()
+        };
+
+        if from != to {
+            for message in self.messages.iter_mut().filter(|m| m.key() == from) {
+                message.session = to.session.clone();
+                message.resume = if message.id == id {
+                    message.resume.take().map(|r| Resume { resumed: true, ..r })
+                } else {
+                    None
+                };
+            }
+
+            for order in self.orders.iter_mut().filter(|o| o.key == from) {
+                order.key = to.clone();
+            }
+
+            self.flushing.remove(&from);
+            self.flushing.insert(to.clone());
+            self.redirects.insert(from.clone(), to.clone());
+        } else if let Some(resume) = self
+            .messages
+            .iter_mut()
+            .find(|m| m.id == id)
+            .and_then(|m| m.resume.as_mut())
+        {
+            resume.resumed = true;
+        }
+
+        self.dirty = true;
+        let message = self.messages.iter().find(|m| m.id == id)?.clone();
+        Some((message, self.changed(&from), self.changed(&to)))
+    }
+
+    /// The pick of message `id`'s resumed session is applied: nothing is left to do first.
+    pub(crate) fn resume_done(&mut self, id: u64) {
+        if let Some(message) = self.messages.iter_mut().find(|m| m.id == id) {
+            message.resume = None;
+            self.dirty = true;
+        }
     }
 
     /// Message `id` could not reach its machine: it and those after it wait,
@@ -864,6 +1014,8 @@ impl Held {
             session: key.session.clone(),
             rows: self.rows(key),
             sent: Vec::new(),
+            resumed: None,
+            uploaded: Vec::new(),
         }
     }
 }
@@ -975,6 +1127,10 @@ fn read_messages(folder: &KeptFolder) -> Vec<Message> {
 pub(crate) trait Link {
     /// Sends `message`.
     async fn send(&mut self, message: &Message) -> Result<Vec<String>>;
+    /// Resumes the ended session of `message`, on `message.resume`'s model.
+    async fn resume(&mut self, message: &Message) -> Result<Resumed>;
+    /// Applies `pick` to the session of `message`, which runs again.
+    async fn configure(&mut self, message: &Message, pick: &Pick) -> Result<()>;
     /// Writes the files of `message` into its session's cache on the machine;
     /// where each went.
     async fn upload(&mut self, message: &Message) -> Result<Vec<String>>;
@@ -990,6 +1146,13 @@ pub(crate) trait Link {
     fn changed(&mut self, changed: Changed);
     /// Runs after an order finished or was refused in the background.
     fn order_settled(&mut self, _order: &Order, _refused: Option<&str>) {}
+}
+
+/// The session that goes on from one that was resumed.
+pub(crate) struct Resumed {
+    pub(crate) session: SessionId,
+    /// As the windows list it; none in tests.
+    pub(crate) row: Option<SessionRow>,
 }
 
 /// What became of one try at the oldest waiting message.
@@ -1010,11 +1173,14 @@ enum TriedOrder {
 /// those after it wait behind it. One the machine refused keeps its reason
 /// and the next goes.
 pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Link) {
-    while let Some(step) = outbox.with(|held| held.begin_step(key, Instant::now())) {
+    // A message that resumes its session moves this flusher to the session it went on in.
+    let mut key = key.clone();
+
+    while let Some(step) = outbox.with(|held| held.begin_step(&key, Instant::now())) {
         match step {
             Step::Message(message) => {
                 let id = message.id;
-                let tried = try_message(outbox, link, message).await;
+                let tried = try_message(outbox, link, &mut key, message).await;
                 let lost = matches!(tried, Tried::Lost { .. });
                 let change = outbox.with(|held| match tried {
                     Tried::Sent(keys) => held.sent(id, keys),
@@ -1086,25 +1252,67 @@ async fn try_order(link: &mut impl Link, order: &Order) -> TriedOrder {
     }
 }
 
-/// One try at `message`: its files go first, if it has any, each try from the
-/// start; those already there are never uploaded again.
-async fn try_message(outbox: &Outbox, link: &mut impl Link, message: Message) -> Tried {
+/// What a step before the send, that did not finish, makes of the try: a
+/// machine not reached waits; what the machine refused is kept with its reason.
+/// A step that may have gone (a dropped answer) is taken as lost where doing it
+/// again does no harm, and as refused where it would (a resume).
+fn stopped(e: DesktopError, again_is_safe: bool) -> Tried {
+    if e.is_transport()
+        || (again_is_safe && matches!(e, DesktopError::Unsure(_) | DesktopError::TimedOut(_)))
+    {
+        Tried::Lost { unsure: false }
+    } else {
+        Tried::Refused(e.to_string())
+    }
+}
+
+/// One try at `message`: its session resumes first if it ended, then its
+/// files go, each try from the start; those already there are never uploaded
+/// again, nor a session resumed twice.
+async fn try_message(
+    outbox: &Outbox,
+    link: &mut impl Link,
+    key: &mut SessionKey,
+    mut message: Message,
+) -> Tried {
+    if let Some(resume) = message.resume.clone() {
+        if !resume.resumed {
+            link.changed(outbox.read(|held| held.changed(key)));
+
+            let resumed = match link.resume(&message).await {
+                Ok(resumed) => resumed,
+                Err(e) => return stopped(e, false),
+            };
+            let Some((now, mut from, to)) =
+                outbox.with(|held| held.resumed(message.id, resumed.session))
+            else {
+                return Tried::Refused("The message was taken back.".into());
+            };
+            from.resumed = resumed.row;
+            link.changed(from);
+            link.changed(to);
+            *key = now.key();
+            message = now;
+        }
+
+        if let Some(pick) = &resume.pick
+            && let Err(e) = link.configure(&message, pick).await
+        {
+            return stopped(e, true);
+        }
+
+        outbox.with(|held| held.resume_done(message.id));
+    }
+
     if message.files.is_empty() {
         return try_once(link, &message).await;
     }
 
-    let key = message.key();
-    link.changed(outbox.read(|held| held.changed(&key)));
+    link.changed(outbox.read(|held| held.changed(key)));
 
     let paths = match link.upload(&message).await {
         Ok(paths) => paths,
-        Err(e)
-            if e.is_transport()
-                || matches!(e, DesktopError::Unsure(_) | DesktopError::TimedOut(_)) =>
-        {
-            return Tried::Lost { unsure: false };
-        }
-        Err(e) => return Tried::Refused(e.to_string()),
+        Err(e) => return stopped(e, true),
     };
     let Some((message, changed)) = outbox.with(|held| held.uploaded(message.id, paths)) else {
         return Tried::Refused("The message was taken back.".into());
@@ -1161,6 +1369,38 @@ impl Link for MeshLink {
         )
         .await?;
         Ok(keys)
+    }
+
+    async fn resume(&mut self, message: &Message) -> Result<Resumed> {
+        let fleet = self.app.state::<Arc<Fleet>>();
+        let request = ResumeAgentSession {
+            machine_id: message.machine_id.clone(),
+            agent: message.agent.clone(),
+            session: message.session.clone(),
+            prompt: None,
+            model: message.resume.as_ref().and_then(|r| r.model.clone()),
+        };
+        let started = resume_session(&fleet, self.machine, request).await?;
+        let _ = self.app.emit("sessions-changed", message.session.as_ref());
+        Ok(Resumed {
+            session: started.session.id().clone(),
+            row: Some(started.session),
+        })
+    }
+
+    async fn configure(&mut self, message: &Message, pick: &Pick) -> Result<()> {
+        let order = Order {
+            id: 0,
+            key: message.key(),
+            kind: OrderKind::Configure {
+                model: pick.model.clone(),
+                effort: pick.effort,
+                fast: pick.fast,
+            },
+            sending: true,
+            deadline: None,
+        };
+        send_node_order(&self.app, self.machine, &order).await
     }
 
     async fn upload(&mut self, message: &Message) -> Result<Vec<String>> {
@@ -1525,6 +1765,7 @@ pub(crate) async fn send(
     steer: Steer,
     seen: Option<Seen>,
     attach: Attach,
+    resume: Option<Resume>,
 ) -> std::result::Result<Vec<String>, SteerError> {
     let (how, text, images) = match steer {
         Steer::Prompt { text, images } => (Kind::Prompt, text, images),
@@ -1540,14 +1781,17 @@ pub(crate) async fn send(
         text,
         images,
         attach,
+        resume,
         seen,
     };
     let outbox = app.state::<Arc<Outbox>>();
 
-    // A message with files is the outbox's from the start: it shows as
-    // uploading, and no window waits on the machine for it.
-    if !draft.attach.files.is_empty() {
+    // A message that resumes its session or uploads files is the outbox's
+    // from the start: its row says what is done, and no window waits on the
+    // machine for it.
+    if draft.resume.is_some() || !draft.attach.files.is_empty() {
         let (_, flusher) = outbox.with(|held| held.push(&key, draft, None));
+        let key = outbox.read(|held| held.resolve(&key));
         emit(app, outbox.read(|held| held.changed(&key)));
 
         if flusher {
@@ -1561,6 +1805,7 @@ pub(crate) async fn send(
 
     let (reply, mut answer) = oneshot::channel();
     let (id, flusher) = outbox.with(|held| held.push(&key, draft, Some(reply)));
+    let key = outbox.read(|held| held.resolve(&key));
 
     if flusher {
         start(app, key, window.to_string());

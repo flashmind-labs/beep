@@ -235,6 +235,8 @@ pub async fn agent_steer(
     seen: Option<outbox::Seen>,
     // Files the message uploads before it goes, with the paths it mentions.
     attach: Option<outbox::Attach>,
+    // Set for a session that ended: it resumes before the message goes.
+    resume: Option<outbox::Resume>,
 ) -> Result<Vec<String>, SteerError> {
     if let Ok(start) = session.as_ref().parse::<StartId>() {
         return starts::steer(&app, start, &steer);

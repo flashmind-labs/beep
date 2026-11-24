@@ -77,6 +77,12 @@ pub struct SessionRow {
     persona: Option<Persona>,
 }
 
+impl SessionRow {
+    pub(crate) fn id(&self) -> &SessionId {
+        &self.id
+    }
+}
+
 impl From<MachineSession> for SessionRow {
     fn from(session: MachineSession) -> Self {
         Self {
@@ -434,8 +440,18 @@ pub async fn agent_resume(
         model,
     };
     let machine = fleet.machine(&request.machine_id)?;
+    resume_session(&fleet, machine, request).await
+}
+
+/// Resumes the session `request` names on `machine`, which answers with the
+/// session that goes on from it.
+pub(crate) async fn resume_session(
+    fleet: &Fleet,
+    machine: EndpointId,
+    request: ResumeAgentSession,
+) -> Result<Started> {
     let session = request.session.clone();
-    let resume = direct::resume(&fleet, machine, request);
+    let resume = direct::resume(fleet, machine, request);
     let started = fleet
         .asked(
             machine,

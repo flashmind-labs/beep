@@ -24,7 +24,16 @@ fn draft(text: &str) -> Draft {
         text: text.into(),
         images: Vec::new(),
         attach: Attach::default(),
+        resume: None,
         seen: None,
+    }
+}
+
+/// A message to a session that ended.
+fn resuming(text: &str) -> Draft {
+    Draft {
+        resume: Some(Resume::default()),
+        ..draft(text)
     }
 }
 
@@ -68,6 +77,11 @@ fn texts(outbox: &Outbox, session: &str) -> Vec<String> {
 struct Fake {
     sends: VecDeque<Result<Vec<String>>>,
     uploads: VecDeque<Result<()>>,
+    resumes: VecDeque<Result<()>>,
+    /// How many times the session was resumed, and the sessions messages went to.
+    resumed: usize,
+    went_to: Vec<SessionId>,
+    configured: Vec<String>,
     orders: VecDeque<Result<()>>,
     checks: VecDeque<Result<bool>>,
     sent: Vec<String>,
@@ -79,6 +93,22 @@ struct Fake {
 }
 
 impl Link for Fake {
+    async fn resume(&mut self, _: &Message) -> Result<Resumed> {
+        self.resumes.pop_front().unwrap_or(Ok(()))?;
+        self.resumed += 1;
+        self.events.push("resume".into());
+        Ok(Resumed {
+            session: "s2".into(),
+            row: None,
+        })
+    }
+
+    async fn configure(&mut self, message: &Message, pick: &Pick) -> Result<()> {
+        self.configured.push(format!("{:?}", pick.effort));
+        self.events.push(format!("configure:{}", message.session));
+        Ok(())
+    }
+
     async fn upload(&mut self, message: &Message) -> Result<Vec<String>> {
         self.uploads.pop_front().unwrap_or(Ok(()))?;
         let names: Vec<String> = message.files.iter().map(|f| f.name.clone()).collect();
@@ -90,6 +120,7 @@ impl Link for Fake {
         let answer = self.sends.pop_front().unwrap_or(Ok(Vec::new()));
 
         if answer.is_ok() {
+            self.went_to.push(message.session.clone());
             self.sent.push(message.text.clone());
             self.events.push(format!("msg:{}", message.text));
         }
@@ -373,6 +404,7 @@ fn kept(text: &str, images: &[&str], seen: Option<Seen>) -> Message {
         files: Vec::new(),
         root: String::new(),
         mentions: Vec::new(),
+        resume: None,
         state: Stage::Waiting,
         unsure: true,
         seen,
@@ -764,4 +796,129 @@ fn mentions_follow_the_typed_words_and_pictures_alone_get_a_request() {
         Some("Check these images.")
     );
     assert_eq!(with_mentions("", &[], 0, false), "");
+}
+
+#[tokio::test]
+async fn an_ended_session_resumes_once_then_the_messages_go_on_in_the_new_one_in_order() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    // The window still shows the session as ended: this one asks to resume too.
+    outbox.with(|held| held.push(&key("s1"), resuming("second"), None));
+    let rows = outbox.read(|held| held.rows(&key("s1")));
+    assert_eq!(rows.len(), 2);
+    assert!(outbox.read(|held| held.messages[1].resume.is_none()));
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(link.events, ["resume", "msg:first", "msg:second"]);
+    assert_eq!(link.resumed, 1);
+    assert_eq!(link.went_to, ["s2", "s2"]);
+    // Its first row said what was being done, and the window was sent to the new session.
+    assert_eq!(link.changes[0].rows[0].state, "resuming");
+    assert!(outbox.read(|held| held.rows(&key("s2"))).is_empty());
+}
+
+#[tokio::test]
+async fn a_send_to_the_old_session_after_it_resumed_is_sent_on_and_never_resumes_again() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    let mut link = Fake::default();
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    // A window that has not opened the new session yet sends once more to the old one.
+    let (_, flusher) = outbox.with(|held| held.push(&key("s1"), resuming("late"), None));
+    assert!(flusher);
+    assert_eq!(outbox.read(|held| held.resolve(&key("s1"))), key("s2"));
+    assert!(outbox.read(|held| held.messages[0].resume.is_none()));
+    flush(&outbox, &key("s2"), &mut link).await;
+
+    assert_eq!(link.resumed, 1);
+    assert_eq!(link.went_to, ["s2", "s2"]);
+}
+
+#[tokio::test]
+async fn a_refused_resume_leaves_a_failed_row_and_sends_nothing() {
+    let (_dir, _, outbox) = outbox();
+    let id = outbox
+        .with(|held| held.push(&key("s1"), resuming("first"), None))
+        .0;
+    let mut link = Fake {
+        resumes: VecDeque::from([Err(DesktopError::BadRequest("Could not resume".into()))]),
+        ..Fake::default()
+    };
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert!(link.sent.is_empty());
+    let rows = outbox.read(|held| held.rows(&key("s1")));
+    assert_eq!(
+        (rows[0].state, rows[0].reason.as_deref()),
+        ("failed", Some("Could not resume"))
+    );
+    // Edit gives the words back; sending again asks to resume again.
+    outbox.with(|held| held.take(id)).expect("taken");
+    outbox.with(|held| held.push(&key("s1"), resuming("again"), None));
+    assert!(outbox.read(|held| held.messages[0].resume.is_some()));
+}
+
+#[tokio::test]
+async fn a_dropped_link_before_the_resume_waits_and_the_session_resumes_once() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    let mut link = Fake {
+        resumes: VecDeque::from([Err(DesktopError::Offline("build-box".into()))]),
+        ..Fake::default()
+    };
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(link.waits, 1);
+    assert_eq!(link.resumed, 1);
+    assert_eq!(link.events, ["resume", "msg:first"]);
+}
+
+#[tokio::test]
+async fn the_picks_apply_to_the_resumed_session_before_the_message_and_its_files_after() {
+    let (_dir, _, outbox) = outbox();
+    let pick = Pick {
+        model: None,
+        effort: Some(Effort::High),
+        fast: None,
+    };
+    let mut draft = with_files("Read", &["a.txt"]);
+    draft.resume = Some(Resume {
+        pick: Some(pick),
+        ..Resume::default()
+    });
+    outbox.with(|held| held.push(&key("s1"), draft, None));
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(
+        link.events,
+        [
+            "resume",
+            "configure:s2",
+            "up:a.txt",
+            "msg:Read\n\n@src/lib.rs @/cache/a.txt"
+        ]
+    );
+}
+
+#[test]
+fn a_message_whose_resume_was_cut_short_by_a_restart_is_not_read_as_sent() {
+    let (dir, kept, outbox) = outbox();
+    let id = outbox
+        .with(|held| held.push(&key("s1"), resuming("first"), None))
+        .0;
+    outbox.with(|held| held.begin(&key("s1")));
+    outbox.sync();
+
+    let again = Outbox::load(kept, dir.path().join("cache"));
+    let (message, _) = again.with(|held| held.take(id)).expect("taken");
+
+    assert!(!message.unsure);
+    assert!(message.resume.is_some());
 }
