@@ -180,7 +180,6 @@ enum UiView {
     Settings,
     Bar,
     Terminals,
-    Sync,
     List,
     Other,
 }
