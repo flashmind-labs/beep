@@ -208,6 +208,19 @@ test("Git tree stays collapsed when a pending branch read finishes", async ({ pa
   await page.evaluate(() => window.dispatchEvent(new Event("test-git-read")));
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_git_history").length)).toBeGreaterThan(1);
   await expect(tree.locator('details[data-key="branches"]')).not.toHaveAttribute("open", "");
+  const actions = page.locator(".gh-nav-head");
+  await expect(tree.locator(":scope > details[open]")).toHaveCount(0);
+  await actions.getByRole("button", { name: "Expand all" }).press("Enter");
+  await expect(tree.locator(":scope > details[open]")).toHaveCount(3);
+  await expect(tree.locator('details[data-key="branch:local:feature"]')).not.toHaveAttribute("open", "");
+  const collapse = actions.getByRole("button", { name: "Collapse all" });
+  await expect(collapse).toBeFocused();
+  await collapse.click();
+  await expect(tree.locator(":scope > details[open]")).toHaveCount(0);
+  await tree.locator('details[data-key="history"] > summary').click();
+  await expect(collapse).toBeVisible();
+  await tree.locator('details[data-key="history"] > summary').click();
+  await expect(actions.getByRole("button", { name: "Expand all" })).toBeVisible();
 });
 
 test("Git details update when changing commits", async ({ page }) => {

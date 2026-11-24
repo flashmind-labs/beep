@@ -514,6 +514,10 @@ test("project git history", async ({ page }) => {
   await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
   await expect(page.getByRole("heading", { name: "Keep the query string on redirect" })).toBeVisible();
   await baseline(page, "project-git");
+  const navigation = page.getByRole("complementary", { name: "Git navigation" });
+  await navigation.getByRole("button", { name: "Collapse all" }).click();
+  await expect(navigation.getByRole("button", { name: "Expand all" })).toBeVisible();
+  await baseline(page, "project-git-collapsed", ".gh-nav");
 });
 
 test("project machines", async ({ page }) => {

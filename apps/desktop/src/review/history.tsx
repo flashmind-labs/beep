@@ -57,6 +57,8 @@ interface ProjectHistory {
   timer?: ReturnType<typeof setTimeout>;
 }
 
+const HISTORY_SECTIONS = ["history", "branches", "worktrees"] as const;
+
 export function makeGitHistory(deps: HistoryDeps) {
   const projects = new Map<string, ProjectHistory>();
   let following: ProjectHistory | null = null;
@@ -125,8 +127,17 @@ export function makeGitHistory(deps: HistoryDeps) {
   }
 
   function navigation(p: ProjectHistory) {
-    return <HistoryNavigation query={p.query} back={deps.back}
-      refresh={() => void refresh(p.name)} collapse={() => { p.open.clear(); renderTree(p); }}
+    const collapsed = !HISTORY_SECTIONS.some(key => p.open.has(key));
+
+    return <HistoryNavigation query={p.query} back={deps.back} collapsed={collapsed}
+      refresh={() => void refresh(p.name)} toggleSections={() => {
+        if (collapsed) {
+          for (const key of HISTORY_SECTIONS) p.open.add(key);
+        } else {
+          p.open.clear();
+        }
+        renderTree(p);
+      }}
       search={(query: string) => {
         p.query = query;
         clearTimeout(p.timer);

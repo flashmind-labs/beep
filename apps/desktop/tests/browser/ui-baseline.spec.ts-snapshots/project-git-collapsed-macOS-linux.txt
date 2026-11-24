@@ -1,0 +1,29 @@
+aside.gh-nav.pj-list [aria-label="Git navigation"]
+  div style(display)
+    div.gh-nav-head
+      button.gh-back [type="button"] "Project"
+      b "Git"
+      button.gh-collapse [type="button"] "Refresh"
+      button.gh-collapse [type="button"] (focused) "Expand all"
+    label.gh-search
+      input [aria-label="Search commit messages" maxlength="256" placeholder="Search commit messages" type="search" value] value=""
+  div.gh-tree [data-started="true"]
+    details.gh-node [data-key="history"]
+      summary
+        svg [aria-hidden="true" viewBox="0 0 16 16"]
+        b "All history"
+        small "3"
+      div.gh-children
+    details.gh-node [data-key="branches"]
+      summary
+        svg [aria-hidden="true" viewBox="0 0 16 16"]
+        b "Branches"
+        small "1"
+      div.gh-children
+    details.gh-node [data-key="worktrees"]
+      summary
+        svg [aria-hidden="true" viewBox="0 0 16 16"]
+        b "Worktrees"
+        small "0"
+      div.gh-children
+  div.gh-nav-foot "All branches · build-box"
