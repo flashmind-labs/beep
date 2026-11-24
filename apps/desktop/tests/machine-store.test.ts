@@ -1,7 +1,7 @@
 import { answers } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { ensureMachines, MACHINES, machinesChanged, removeListed, renameListed, takeTraffic } from "../src/machines/machine-store.ts";
+import { ensureMachines, MACHINES, machinesChanged, REMOVED, removeListed, renameListed, takeTraffic } from "../src/machines/machine-store.ts";
 import type { Machine } from "../src/machines/machines.tsx";
 
 const held = (): Machine[] | null => MACHINES.list;
@@ -45,6 +45,24 @@ test("a rename or removal changes the one list and tells its readers", () => {
   }
 
   assert.deepEqual(heard, [["first", "two"], ["first"]]);
+});
+
+test("a removal made here is remembered, and told even before the list arrived", () => {
+  let heard = 0;
+  const hear = () => { heard++; };
+  machinesChanged.add(hear);
+
+  try {
+    MACHINES.list = null;
+    REMOVED.clear();
+    removeListed("m9");
+  } finally {
+    machinesChanged.delete(hear);
+  }
+
+  assert.equal(heard, 1);
+  assert.ok(REMOVED.has("m9"));
+  REMOVED.clear();
 });
 
 test("traffic is taken from a telemetry update and only when it changed", () => {

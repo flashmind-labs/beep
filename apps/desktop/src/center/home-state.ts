@@ -31,13 +31,17 @@ export function applyTelemetry(home: HomeView, telemetry: Telemetry): HomeView {
   }) ?? null };
 }
 
-/// `home` with each machine card named as the machine list names it, and without a machine the
-/// list no longer has. The cards keep what only Home reads. `home` itself when nothing differs.
-export function withListedMachines(home: HomeView, listed: readonly { id: string; name: string }[] | null): HomeView {
-  if (!listed || !home.machines) return home;
+/// `home` with each machine card named as the machine list names it, and without a machine this
+/// window removed. A card the list does not have yet stays: Home's own push says it exists. The
+/// cards keep what only Home reads. `home` itself when nothing differs.
+export function withListedMachines(home: HomeView, listed: readonly { id: string; name: string }[] | null, removed: ReadonlySet<string>): HomeView {
+  if (!home.machines) return home;
 
-  const names = new Map(listed.map(machine => [machine.id, machine.name]));
-  const cards = home.machines.filter(card => names.has(card.id)).map(card => (names.get(card.id) === card.name ? card : { ...card, name: names.get(card.id) ?? card.name }));
+  const names = new Map((listed ?? []).map(machine => [machine.id, machine.name]));
+  const cards = home.machines.filter(card => !removed.has(card.id)).map(card => {
+    const name = names.get(card.id);
+    return name === undefined || name === card.name ? card : { ...card, name };
+  });
   const same = cards.length === home.machines.length && cards.every((card, i) => card === home.machines?.[i]);
 
   return same ? home : { ...home, machines: cards };

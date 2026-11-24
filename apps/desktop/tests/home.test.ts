@@ -136,16 +136,31 @@ test("Home's cards follow the machine list for names and removal", async () => {
   const { withListedMachines } = await import("../src/center/home-state.ts");
   const card = (id: string, name: string) => ({ id, name, online: true, seen_at: 0, version: "", env: null, apps: [], gpus: [], capabilities: [], agents: 3, stats: null, connecting: false });
   const home = { machines: [card("a", "Alpha"), card("b", "Beta")], running: [], needs_you: [], projects: [] };
+  const none = new Set<string>();
 
-  assert.equal(withListedMachines(home, [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }]), home);
-  assert.equal(withListedMachines(home, null), home);
+  assert.equal(withListedMachines(home, [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }], none), home);
+  assert.equal(withListedMachines(home, null, none), home);
 
-  const renamed = withListedMachines(home, [{ id: "a", name: "Alpha" }, { id: "b", name: "Second" }]);
+  const renamed = withListedMachines(home, [{ id: "a", name: "Alpha" }, { id: "b", name: "Second" }], none);
   assert.equal(renamed.machines?.[0], home.machines[0]);
   assert.equal(renamed.machines?.[1]?.name, "Second");
   assert.equal(renamed.machines?.[1]?.agents, 3, "the card keeps what only Home reads");
 
-  assert.deepEqual(withListedMachines(home, [{ id: "b", name: "Beta" }]).machines?.map(m => m.id), ["b"]);
+  // A removal made here hides the card even while the list and Home still carry it.
+  const gone = new Set(["a"]);
+  assert.deepEqual(withListedMachines(home, [{ id: "b", name: "Beta" }], gone).machines?.map(m => m.id), ["b"]);
+  assert.deepEqual(withListedMachines(home, [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }], gone).machines?.map(m => m.id), ["b"]);
+});
+
+test("a machine only Home's push names keeps its card, before and after the list has it", async () => {
+  const { withListedMachines } = await import("../src/center/home-state.ts");
+  const card = (id: string, name: string) => ({ id, name, online: true, seen_at: 0, version: "", env: null, apps: [], gpus: [], capabilities: [], agents: 0, stats: null, connecting: false });
+  const home = { machines: [card("a", "Alpha"), card("b", "Beta")], running: [], needs_you: [], projects: [] };
+  const none = new Set<string>();
+
+  assert.deepEqual(withListedMachines(home, [], none).machines?.map(m => m.id), ["a", "b"]);
+  assert.deepEqual(withListedMachines(home, [{ id: "a", name: "Alpha" }], none).machines?.map(m => m.id), ["a", "b"]);
+  assert.equal(withListedMachines(home, [{ id: "a", name: "Alpha" }, { id: "b", name: "Beta" }], none), home);
 });
 
 test("an empty list says connecting until a machine that runs agents answers", () => {

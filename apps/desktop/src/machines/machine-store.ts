@@ -9,6 +9,8 @@ import type { MachineTraffic } from "./traffic-state.ts";
 /// is not an empty mesh.
 /// `traffic` is what each machine moved, from the `telemetry` topic, whichever screen follows it.
 export const MACHINES: { list: Machine[] | null; failed: boolean; traffic: MachineTraffic[] } = { list: null, failed: false, traffic: [] };
+/// Machines this window removed that a pushed list still has: Home hides them until the push drops them.
+export const REMOVED = new Set<string>();
 /// Called after the list changed, from a push or a rename or removal made here.
 export const machinesChanged = new Set<() => void>();
 let first: Promise<Machine[]> | null = null;
@@ -38,7 +40,9 @@ export function renameListed(id: string, name: string) {
 
 /// Drops machine `id` after this window removed it, until the push confirms it.
 export function removeListed(id: string) {
+  REMOVED.add(id);
   if (MACHINES.list) take(MACHINES.list.filter(m => m.id !== id));
+  else for (const f of machinesChanged) f();
 }
 
 subscribeEach(topic("machines"), event => {
@@ -46,6 +50,8 @@ subscribeEach(topic("machines"), event => {
   if (!pushed) return;
   if ("error" in pushed) { MACHINES.failed = true; return; }
 
+  const ids = new Set(pushed.list.map(m => m.id));
+  for (const id of REMOVED) if (!ids.has(id)) REMOVED.delete(id);
   take(pushed.list);
 });
 

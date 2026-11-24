@@ -13,7 +13,7 @@ import type { GitItemsView } from "./openitems-state.ts";
 import { currentLocation } from "./views.tsx";
 import { reloadGroup, drawRail, drawSide } from "./sidebar.tsx";
 import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
-import { MACHINES, machinesChanged, takeTraffic } from "../machines/machine-store.ts";
+import { MACHINES, machinesChanged, REMOVED, takeTraffic } from "../machines/machine-store.ts";
 import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
 import { followSync, readSync } from "../project/syncpage.ts";
@@ -70,9 +70,16 @@ export function dropWhere() {
   pages.drop("where");
 }
 
+/// What Home shows for what it read: the machine list's names, no machine removed here, telemetry.
+/// Derived from the read each time, so a card the list lacks is never lost.
+function shownHome(read: HomeView): HomeView {
+  return withListedMachines(telemetry ? applyTelemetry(read, telemetry) : read, MACHINES.list, REMOVED);
+}
+
 // Home's cards take their names, and drop a removed machine, from the machine list.
 machinesChanged.add(() => {
-  editHome(home => withListedMachines(home, MACHINES.list));
+  if (state.home && state.home === shown && lastRead) state.home = shown = shownHome(lastRead);
+  else if (state.home) state.home = withListedMachines(state.home, MACHINES.list, REMOVED);
   if (onScreen()) draw();
 });
 
@@ -101,7 +108,7 @@ async function readHome(): Promise<void> {
 
       if (next) {
         lastRead = next;
-        state.home = shown = withListedMachines(telemetry ? applyTelemetry(next, telemetry) : next, MACHINES.list);
+        state.home = shown = shownHome(next);
         keepConnecting(next.machines);
       }
 
