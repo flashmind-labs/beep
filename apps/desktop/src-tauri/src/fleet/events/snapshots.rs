@@ -348,8 +348,9 @@ fn error(message: &str) -> MeshError {
 }
 
 /// How long a read waits for the first snapshot of its subscription before the caller reads
-/// the node directly.
-const SNAPSHOT_WAIT: Duration = Duration::from_secs(3);
+/// the node directly. Well under the 3 s a session listing is allowed, so the direct read still
+/// has time to run.
+const SNAPSHOT_WAIT: Duration = Duration::from_secs(1);
 
 struct Reader {
     snapshots: Arc<Snapshots>,
