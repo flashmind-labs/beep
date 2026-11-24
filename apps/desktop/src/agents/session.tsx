@@ -37,7 +37,8 @@ import { onPhone } from "../ui/platform.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder } from "./older.ts";
 import { joinRuns, newestRead } from "./older-state.ts";
-import { endedPage, hasNews, LINKED, noteAfterRead, readFailed, RETRY_MS, viewError } from "./reconnect-state.ts";
+import { adoptKeptPage, endPage, mergePage, openPage, setFirstMessage, setPageSession } from "./open-page.ts";
+import { hasNews, LINKED, noteAfterRead, readFailed, RETRY_MS, viewError } from "./reconnect-state.ts";
 import { drawMove } from "./move.ts";
 import { moveStore, refreshMoves } from "./move-store.ts";
 import { movedTo } from "./move-state.ts";
@@ -49,33 +50,10 @@ import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./sess
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
 
-/// The first message of each session started from here, by session, until its machine logs one.
-const firstMessages = new Map<string, string>();
-
 /// Session `s` was started with `prompt` and `images`: its log shows them until its machine
 /// logs the prompt, which it sends only once the model and thinking are set.
 export function startedWith(s: AgentRow, prompt: string, images: readonly { name: string }[]) {
-  firstMessages.set(sessionKey(s), sentText(prompt, images));
-}
-
-/// `page` with the message its session was started with, while its machine has logged nothing.
-function withFirstMessage(page: AgentPage): AgentPage {
-  const key = sessionKey(page.session), first = firstMessages.get(key);
-  if (!first) return page;
-
-  if (page.entries.length || page.earlier) {
-    firstMessages.delete(key);
-    return page;
-  }
-
-  return { ...page, entries: [{ kind: "user", text: first }] };
-}
-
-/// The page to hold once `fresh` came: joined on `held`, or alone when it replaces it, with the
-/// message its session was started with while its machine has logged nothing.
-export function heldPage(held: AgentPage | null, fresh: AgentPage, replace: boolean): AgentPage {
-  const page = withFirstMessage(fresh);
-  return replace ? page : joinRuns(held, page);
+  setFirstMessage(s, sentText(prompt, images));
 }
 
 /// The session each start kept on this device became, by the start's id: a page that still
@@ -95,7 +73,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     if (AG.page.session.status === "ended" && s.status !== "ended") {
       clearTimeout(AG.timer);
       feed.drop(AG.open!);
-      AG.page.session = s;
+      setPageSession(s);
       AG.sig = "";
       drawAgentHeading();
       drawModelPill();
@@ -133,9 +111,9 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   const open: OpenAgent = openOf(s);
   const log = inPlace ? null : keptLogs.get(sessionKey(s)) ?? null;
   const held = keptPage(log, transcripts.get(transcriptKey(open))?.page ?? null);
+  openPage(s, held);
   Object.assign(AG, {
     open,
-    page: withFirstMessage(held ?? { session: s, plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0, usage: null }),
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey(open)) ?? [],
@@ -157,7 +135,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     if (AG.open !== open) return;
     // The session row it opened with is newer than the kept one, and the steers it held went long ago.
     if (page && !AG.sig && AG.page) {
-      AG.page = { ...page, session: AG.page.session, queued: 0, queued_messages: [] };
+      adoptKeptPage(page);
       if (isOpen(open)) {
         drawAgentHeading();
         drawAgentBody();
@@ -327,7 +305,7 @@ export async function pollAgent(readNow = false) {
       const failed = readFailed(AG.link, e, AG.page?.session.machine_name || "the machine");
       AG.link = failed.link;
       setReadNote(failed.note);
-      if (failed.link.ended && AG.page) AG.page = endedPage(AG.page);
+      if (failed.link.ended) endPage();
       drawAgentBody();
       finishFirstRead(o, "error");
     }
@@ -460,8 +438,7 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
   const news = hasNews(AG.page, page);
   // The older entries held stay while the newest are read again.
   const earlier = AG.page?.earlier;
-  AG.page = heldPage(AG.page, page, replace);
-  if (AG.page.earlier !== earlier) AG.older.stop = "";
+  if (mergePage(page, replace).earlier !== earlier) AG.older.stop = "";
   drawModelPill();
   drawAgentHeading();
   // The frame around the log is drawn again; the log itself stays.
@@ -585,7 +562,7 @@ async function retitleOpen(change: Retitled) {
   const now = AG.page?.session;
   const shown = now && retitle(now, change, listed);
   if (!shown || !AG.page) return;
-  AG.page.session = shown;
+  setPageSession(shown);
   drawAgentHeading();
 }
 
@@ -601,7 +578,7 @@ listen("sessions-changed", () => {
 // A start's machine named its session: what was kept for the start goes to the session, which
 // takes over the view that shows the start.
 listen<AgentStarted>("agent-started", ({ payload: { start, session, first_message } }) => {
-  firstMessages.set(sessionKey(session), first_message);
+  setFirstMessage(session, first_message);
   became.set(start, session);
   const pick = sessionPicks.get(start);
 

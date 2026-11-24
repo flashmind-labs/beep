@@ -7,6 +7,7 @@ import { AG, type OpenAgent, where } from "./agents.ts";
 import { drawAgentBody, rowInView, syncJump } from "./logview.tsx";
 import { OLDER_PAGE, type Run, olderBefore, takeOlder } from "./older-state.ts";
 import { sessionBody } from "./session-frame.tsx";
+import { takeEarlier } from "./open-page.ts";
 
 /// Home and Find wait for the same read that starts when the log opens.
 export function loadOlder(): Promise<void> {
@@ -37,7 +38,7 @@ async function readOlder(open: OpenAgent, older: typeof AG.older) {
       if (taken.run === AG.page) return;
 
       const keep = rowInView();
-      AG.page = { ...AG.page, ...taken.run };
+      takeEarlier(taken.run);
       drawAgentBody(keep, false, true);
     }
   } catch (e) {
