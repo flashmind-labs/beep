@@ -51,7 +51,7 @@ mod pi;
 mod turns;
 mod v2;
 
-use actor::{Accepting, Actor, Opening};
+use actor::{Accepting, Actor, Offers, Opening};
 
 pub(super) use actor::joined as standing;
 
@@ -499,14 +499,12 @@ impl Session {
             acp_session: None,
             banner: None,
             reading_cost: false,
-            protocol,
+            offers: Offers::new(protocol),
             foreground: false,
             ready_for_prompts: false,
             initial_v2_state: None,
             compacting_v2: false,
             accepting_v2: Accepting::Done,
-            takes_images: None,
-            takes_steering: false,
             steering: None,
             steer_after_turn: false,
             queued: prompt.into_iter().collect(),
@@ -522,11 +520,6 @@ impl Session {
             running: HashSet::new(),
             brief,
             standing,
-            thinking: None,
-            fast_option: None,
-            mode_config: None,
-            switch: None,
-            bypass_mode: known.and_then(|known| known.bypass_mode),
             left_plan_for: None,
             returning: None,
             compactor: Compactor::new(route, policy).with_models(kind.compact_models.clone()),

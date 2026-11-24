@@ -236,31 +236,16 @@ pub(super) struct Actor {
     pub(super) banner: Option<String>,
     /// pi's log is being read for what the session spent.
     pub(super) reading_cost: bool,
-    pub(super) protocol: acp::Protocol,
+    pub(super) offers: Offers,
     pub(super) foreground: bool,
     pub(super) ready_for_prompts: bool,
     pub(super) initial_v2_state: Option<agent_client_protocol::v2::schema::StateUpdate>,
     pub(super) compacting_v2: bool,
     pub(super) accepting_v2: Accepting,
-    /// Whether the agent takes image blocks, once `initialize` said.
-    pub(super) takes_images: Option<bool>,
-    pub(super) takes_steering: bool,
     /// A steer sent to the adapter, awaiting its delivery outcome.
     pub(super) steering: Option<PendingSteer>,
     /// The adapter found no running turn; wait for our prompt's reply.
     pub(super) steer_after_turn: bool,
-    pub(super) fast_option: Option<SessionConfigId>,
-    /// The session's option that sets how hard it thinks, once it said.
-    pub(super) thinking: Option<SessionConfigId>,
-    pub(super) mode_config: Option<SessionConfigId>,
-    /// How the session switches models, once it said; `None` when it
-    /// cannot.
-    pub(super) switch: Option<ModelSwitch>,
-    /// The session mode that turns the agent's permission prompts off, set
-    /// before the first prompt: Claude Code's `bypassPermissions`. Every
-    /// agent runs without prompts, and a permission request that comes
-    /// anyway is allowed rather than asked.
-    pub(super) bypass_mode: Option<&'static str>,
     /// The last mode the session was in other than plan mode.
     pub(super) left_plan_for: Option<String>,
     /// The mode to go back to once the agent left plan mode for an approved
@@ -331,6 +316,69 @@ pub(super) enum Stopping {
     /// the steer goes as the next prompt.
     #[strum(serialize = "Taking your message")]
     Steer,
+}
+
+/// What the agent said it offers: its protocol and abilities once
+/// `initialize` is answered, and its options once the session exists and
+/// again when it announces new ones.
+pub(super) struct Offers {
+    /// The version the agent speaks; the one asked for until `initialize`
+    /// is answered.
+    pub(super) protocol: acp::Protocol,
+    /// Whether the agent takes image blocks, once `initialize` said.
+    pub(super) takes_images: Option<bool>,
+    pub(super) takes_steering: bool,
+    pub(super) fast_option: Option<SessionConfigId>,
+    /// The session's option that sets how hard it thinks, once it said.
+    pub(super) thinking: Option<SessionConfigId>,
+    pub(super) mode_config: Option<SessionConfigId>,
+    /// How the session switches models, once it said; `None` when it
+    /// cannot.
+    pub(super) switch: Option<ModelSwitch>,
+}
+
+impl Offers {
+    pub(super) fn new(protocol: acp::Protocol) -> Self {
+        Self {
+            protocol,
+            takes_images: None,
+            takes_steering: false,
+            fast_option: None,
+            thinking: None,
+            mode_config: None,
+            switch: None,
+        }
+    }
+
+    /// `initialize` was answered.
+    fn initialized(&mut self, initialized: &acp::Capabilities) {
+        self.protocol = initialized.protocol;
+        self.takes_images = Some(initialized.images);
+        self.takes_steering = initialized.steering;
+    }
+
+    /// The session was made: its answer replaces every option.
+    fn made(&mut self, offered: &Offered) {
+        self.fast_option = offered.fast.clone();
+        self.thinking = offered.thinking.clone();
+        self.mode_config = offered.mode_config.clone();
+        self.switch = offered.switch.clone();
+    }
+
+    /// A v1 agent announced its options: they replace the two it lists.
+    fn announced(&mut self, offered: &Offered) {
+        self.fast_option = offered.fast.clone();
+        self.thinking = offered.thinking.clone();
+    }
+
+    /// A v2 agent announced its options: they replace the fast option and
+    /// add what else they list.
+    pub(super) fn added(&mut self, offered: &Offered) {
+        self.fast_option = offered.fast.clone();
+        self.thinking = offered.thinking.clone().or(self.thinking.take());
+        self.switch = offered.switch.clone().or(self.switch.take());
+        self.mode_config = offered.mode_config.clone().or(self.mode_config.take());
+    }
 }
 
 /// Whether the agent has answered the v2 prompt just sent.
@@ -582,7 +630,7 @@ impl Actor {
         opening: Opening,
     ) -> Result<End> {
         let async_tasks = known(&self.agent).is_some_and(|known| known.async_tasks);
-        let protocol = self.protocol;
+        let protocol = self.offers.protocol;
         let request = acp::initialize(async_tasks).to_untyped_message()?;
         self.send(cx, request, move |result| {
             Reply::Initialized(result.and_then(|answer| protocol.initialized(answer)), opening)
@@ -668,7 +716,7 @@ impl Actor {
     {
         let mut trace = beep_proto::logging::RequestTrace::new(std::any::type_name::<Req>());
         trace.phase("waiting for agent");
-        let protocol = self.protocol;
+        let protocol = self.offers.protocol;
         let method = request.method().to_owned();
         let request = request
             .to_untyped_message()
@@ -705,7 +753,7 @@ impl Actor {
                 if let Some(task) = acp::async_task(&message) {
                     return self.event(cx, Event::Task(task));
                 }
-                if self.protocol == acp::Protocol::V2 {
+                if self.offers.protocol == acp::Protocol::V2 {
                     let notification = agent_client_protocol::v2::schema::UpdateSessionNotification::parse_message(message.method(), message.params())?;
                     if self
                         .acp_session
@@ -722,13 +770,13 @@ impl Actor {
                 }
             }
             Event::PermissionRequest(message, responder) => {
-                if self.protocol == acp::Protocol::V2
+                if self.offers.protocol == acp::Protocol::V2
                     && *responder.raw_id() == agent_client_protocol::RawJsonRpcId::Null
                 {
                     responder.respond_with_error(agent_client_protocol::Error::invalid_request())?;
                     return Ok(());
                 }
-                let request = if self.protocol == acp::Protocol::V2 {
+                let request = if self.offers.protocol == acp::Protocol::V2 {
                     acp::permission_v2(message.params())
                 } else {
                     RequestPermissionRequest::parse_message(message.method(), message.params()).map(
@@ -795,8 +843,7 @@ impl Actor {
                         &serde_json::json!({ "configOptions": options.config_options }),
                     );
 
-                    self.fast_option = offered.fast;
-                    self.thinking = offered.thinking;
+                    self.offers.announced(&offered);
                     if let Some(model) = offered.current {
                         self.model_is(Some(&model));
                     }
@@ -924,9 +971,7 @@ impl Actor {
                 }
             }
             Reply::Initialized(Ok(initialized), opening) => {
-                self.protocol = initialized.protocol;
-                self.takes_images = Some(initialized.images);
-                self.takes_steering = initialized.steering;
+                self.offers.initialized(&initialized);
 
                 if let Some(end) = self.initialized(cx, &initialized, opening) {
                     return Ok(Some(end));
@@ -935,7 +980,7 @@ impl Actor {
             Reply::NewSession(Ok(answer), opening) => match acp::session_created(answer.clone()) {
                 Ok((created, _)) => {
                     self.banner = acp::startup_banner(&answer);
-                    let offered = self.protocol.offers(&answer);
+                    let offered = self.offers.protocol.offers(&answer);
                     return Ok(self.ready(cx, created.session_id, offered, opening));
                 }
                 Err(e) => {
@@ -945,7 +990,7 @@ impl Actor {
                 }
             },
             Reply::Resumed(session, Ok(answer), opening) => {
-                let offered = self.protocol.offers(&answer);
+                let offered = self.offers.protocol.offers(&answer);
                 return Ok(self.ready(cx, session, offered, opening));
             }
             Reply::ModelSet {
@@ -1256,13 +1301,10 @@ impl Actor {
             self.v2_state(cx, state);
         }
         self.model_is(offered.current.as_deref());
-        self.fast_option = offered.fast;
-        self.thinking = offered.thinking;
-        self.mode_config = offered.mode_config;
-        self.switch = offered.switch.clone();
+        self.offers.made(&offered);
 
         if let Some(modes) = offered.modes {
-            let bypass = self.bypass_mode;
+            let bypass = self.bypass_mode();
             self.live.send_modify(|live| {
                 live.info.modes = cycle(modes.available, bypass);
             });
@@ -1340,6 +1382,14 @@ impl Actor {
         }
     }
 
+    /// The session mode that turns the agent's permission prompts off, set
+    /// before the first prompt: Claude Code's `bypassPermissions`. Every
+    /// agent runs without prompts, and a permission request that comes
+    /// anyway is allowed rather than asked.
+    pub(super) fn bypass_mode(&self) -> Option<&'static str> {
+        known(&self.agent).and_then(|known| known.bypass_mode)
+    }
+
     /// Shows `note` in the transcript, for what the session does other
     /// than asked.
     pub(super) fn note(&mut self, note: &str) {
@@ -1364,7 +1414,7 @@ impl Actor {
                 effort.as_ref()
             )
         };
-        let Some(id) = self.thinking.clone() else {
+        let Some(id) = self.offers.thinking.clone() else {
             self.note(&cannot(&self.agent));
             self.set_fast(cx, opening);
             return;
@@ -1386,7 +1436,7 @@ impl Actor {
 
     fn set_fast(&mut self, cx: &ConnectionTo<Agent>, mut opening: Opening) {
         if let Some(fast) = opening.fast.take() {
-            if let (Some(session), Some(id)) = (&self.acp_session, &self.fast_option) {
+            if let (Some(session), Some(id)) = (&self.acp_session, &self.offers.fast_option) {
                 let request = acp::set_fast(session, id, fast);
                 match request {
                     Ok(request) => {
@@ -1414,7 +1464,7 @@ impl Actor {
         };
         let first = opening.first_mode.take();
 
-        if let Some(mode) = first.or_else(|| self.bypass_mode.map(str::to_owned)) {
+        if let Some(mode) = first.or_else(|| self.bypass_mode().map(str::to_owned)) {
             // The first prompt waits for the mode, so it never asks.
             let request = match self.mode_request(session, &mode) {
                 Ok(request) => request,

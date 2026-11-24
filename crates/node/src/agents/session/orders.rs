@@ -199,7 +199,7 @@ impl Actor {
 
         if watched::read_sent(&self.live, Live::status) == Status::Idle {
             self.next_prompt(cx);
-        } else if steer && self.takes_steering {
+        } else if steer && self.offers.takes_steering {
             self.steer_now(cx)?;
         }
 
@@ -406,7 +406,7 @@ impl Actor {
         let mut requests = Vec::new();
 
         if let Some(model) = model {
-            let Some(switch) = &self.switch else {
+            let Some(switch) = &self.offers.switch else {
                 return Err(format!(
                     "{title} here cannot switch models in a running session"
                 ));
@@ -417,7 +417,7 @@ impl Actor {
         }
 
         if let Some(effort) = effort {
-            let Some(id) = &self.thinking else {
+            let Some(id) = &self.offers.thinking else {
                 return Err(format!("{title} here cannot change how hard it thinks"));
             };
             let request = acp::set_effort(&session, id, effort)
@@ -433,7 +433,7 @@ impl Actor {
 
         if let Some(fast) = fast {
             let id = self
-                .fast_option
+                .offers.fast_option
                 .as_ref()
                 .ok_or_else(|| format!("{title} here does not offer fast mode for this model"))?;
             let request = acp::set_fast(&session, id, fast).map_err(|e| e.to_string())?;
@@ -465,7 +465,7 @@ impl Actor {
 
     /// Keep images until initialization tells us whether the agent takes them.
     fn fitted(&self, mut prompt: Prompt) -> Prompt {
-        if self.takes_images == Some(false) {
+        if self.offers.takes_images == Some(false) {
             prompt.images.clear();
         }
 
@@ -620,7 +620,7 @@ impl Actor {
             self.returning = self
                 .left_plan_for
                 .clone()
-                .or_else(|| self.bypass_mode.map(str::to_owned));
+                .or_else(|| self.bypass_mode().map(str::to_owned));
         }
 
         if let Some(prompt) = follow_up {

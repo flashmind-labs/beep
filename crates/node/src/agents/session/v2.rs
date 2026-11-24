@@ -17,12 +17,12 @@ impl Actor {
         session: SessionId,
         mode: &str,
     ) -> Result<UntypedMessage, Error> {
-        match self.protocol {
+        match self.offers.protocol {
             Protocol::V1 => {
                 SetSessionModeRequest::new(session, mode.to_owned()).to_untyped_message()
             }
             Protocol::V2 => {
-                let id = self.mode_config.as_ref().ok_or_else(|| {
+                let id = self.offers.mode_config.as_ref().ok_or_else(|| {
                     Error::invalid_params().data("the agent has no mode config option")
                 })?;
                 UntypedMessage::new(
@@ -39,7 +39,7 @@ impl Actor {
         request: PromptRequest,
         compact: bool,
     ) {
-        if self.protocol == Protocol::V1 {
+        if self.offers.protocol == Protocol::V1 {
             if compact {
                 self.send(cx, request, Reply::Compacted);
             } else {
@@ -77,21 +77,10 @@ impl Actor {
     }
 
     pub(super) fn v2_options(&mut self, cx: &ConnectionTo<Agent>, answer: &Value) {
-        let offered = self.protocol.offers(answer);
-        self.fast_option = offered.fast;
+        let offered = self.offers.protocol.offers(answer);
+        self.offers.added(&offered);
         if let Some(model) = offered.current {
             self.model_is(Some(&model));
-        }
-        if let Some(thinking) = offered.thinking {
-            self.thinking = Some(thinking);
-        }
-
-        if let Some(switch) = offered.switch {
-            self.switch = Some(switch);
-        }
-
-        if let Some(mode_config) = offered.mode_config {
-            self.mode_config = Some(mode_config);
         }
 
         if let Some(modes) = offered.modes {

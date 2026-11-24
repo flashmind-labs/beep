@@ -15,21 +15,20 @@ fn actor() -> Actor {
         acp_session: Some(SessionId::new("session-test")),
         banner: None,
         reading_cost: false,
-        protocol: acp::Protocol::V2,
+        offers: Offers {
+            takes_images: Some(false),
+            thinking: Some(SessionConfigId::new("effort")),
+            switch: Some(ModelSwitch::ConfigOption(SessionConfigId::new("model"))),
+            mode_config: Some(SessionConfigId::new("mode")),
+            ..Offers::new(acp::Protocol::V2)
+        },
         foreground: false,
         ready_for_prompts: true,
         initial_v2_state: None,
         compacting_v2: false,
         accepting_v2: Accepting::Done,
-        takes_images: Some(false),
-        takes_steering: false,
         steering: None,
         steer_after_turn: false,
-        fast_option: None,
-        thinking: Some(SessionConfigId::new("effort")),
-        switch: Some(ModelSwitch::ConfigOption(SessionConfigId::new("model"))),
-        mode_config: Some(SessionConfigId::new("mode")),
-        bypass_mode: None,
         left_plan_for: None,
         returning: None,
         compactor: Compactor::new(Route::Advertised, Policy::Off),
@@ -115,11 +114,11 @@ async fn incomplete_v2_options_preserve_working_configuration_controls() {
         ] {
             actor.v2_options(&cx, &answer);
             assert_eq!(
-                actor.thinking.as_ref().map(ToString::to_string).as_deref(),
+                actor.offers.thinking.as_ref().map(ToString::to_string).as_deref(),
                 Some("effort")
             );
             assert_eq!(
-                actor.switch,
+                actor.offers.switch,
                 Some(ModelSwitch::ConfigOption(SessionConfigId::new("model")))
             );
             let request = actor
@@ -152,11 +151,11 @@ async fn a_valid_v2_option_replaces_only_its_own_selector() {
             "currentValue":"high", "options":[{"value":"high", "name":"High"}]
         }]}));
         assert_eq!(
-            actor.thinking.as_ref().map(ToString::to_string).as_deref(),
+            actor.offers.thinking.as_ref().map(ToString::to_string).as_deref(),
             Some("new-effort")
         );
         assert_eq!(
-            actor.switch,
+            actor.offers.switch,
             Some(ModelSwitch::ConfigOption(SessionConfigId::new("model")))
         );
         assert!(
@@ -200,7 +199,7 @@ async fn recovery_context_cannot_rename_a_v2_conversation() {
 async fn a_steer_waits_for_the_turn_the_user_stopped() {
     with_actor(async |mut actor, cx| {
         let session = actor.acp_session.clone().unwrap();
-        actor.takes_steering = true;
+        actor.offers.takes_steering = true;
         actor.send_prompt(
             &cx,
             acp::prompt(&session, &Prompt::from("look".to_owned()), None),
@@ -229,7 +228,7 @@ async fn taking_steers_back_also_takes_the_one_sent_to_the_agent() {
         ];
 
         for reply in replies {
-            actor.takes_steering = true;
+            actor.offers.takes_steering = true;
             actor.steering = Some(PendingSteer {
                 prompt: Prompt::from("old text".to_owned()),
                 shown: false,

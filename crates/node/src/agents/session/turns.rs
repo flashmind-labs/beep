@@ -117,7 +117,7 @@ impl Actor {
             return Ok(());
         };
 
-        if self.takes_steering {
+        if self.offers.takes_steering {
             let Some(prompt) = self.steers.pop_front() else {
                 return Ok(());
             };
@@ -195,7 +195,7 @@ impl Actor {
                 self.note(&format!(
                     "The agent could not inject the message{reason}; it will go as the next prompt"
                 ));
-                self.takes_steering = false;
+                self.offers.takes_steering = false;
                 self.steers.push_front(steer.prompt);
             }
         }
@@ -217,7 +217,7 @@ impl Actor {
             }
 
             self.next_prompt(cx);
-        } else if self.takes_steering || self.running.is_empty() {
+        } else if self.offers.takes_steering || self.running.is_empty() {
             self.steer_now(cx)?;
         }
 
@@ -322,7 +322,7 @@ impl Actor {
         self.live.send_if_modified(|live| {
             let before = live.info.state.subagents;
 
-            if self.protocol == acp::Protocol::V1 {
+            if self.offers.protocol == acp::Protocol::V1 {
                 if stop == StopReason::Cancelled {
                     live.close_interrupted_subagents();
                 } else {
@@ -589,7 +589,7 @@ impl Actor {
             }
         }
 
-        if self.takes_images == Some(false) {
+        if self.offers.takes_images == Some(false) {
             prompt.images.clear();
         }
 
@@ -608,7 +608,7 @@ impl Actor {
             }
 
             live.prompted(&prompt.shown());
-            if self.protocol == acp::Protocol::V2 {
+            if self.offers.protocol == acp::Protocol::V2 {
                 live.v2_submitted();
             }
             live.info.state.queued = queued;
