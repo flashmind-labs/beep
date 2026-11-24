@@ -233,6 +233,8 @@ pub async fn agent_steer(
     steer: Steer,
     // What the window saw of the session when it sent a message.
     seen: Option<outbox::Seen>,
+    // Files the message uploads before it goes, with the paths it mentions.
+    attach: Option<outbox::Attach>,
 ) -> Result<Vec<String>, SteerError> {
     if let Ok(start) = session.as_ref().parse::<StartId>() {
         return starts::steer(&app, start, &steer);
@@ -248,7 +250,15 @@ pub async fn agent_steer(
             agent,
             session,
         };
-        return outbox::send(&app, window.label(), key, steer, seen).await;
+        return outbox::send(
+            &app,
+            window.label(),
+            key,
+            steer,
+            seen,
+            attach.unwrap_or_default(),
+        )
+        .await;
     }
 
     if let Some(kind) = actor_order(&fleet, &machine_id, &steer)? {

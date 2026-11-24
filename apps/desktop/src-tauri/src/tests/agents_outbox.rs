@@ -23,7 +23,20 @@ fn draft(text: &str) -> Draft {
         how: Kind::Steer,
         text: text.into(),
         images: Vec::new(),
+        attach: Attach::default(),
         seen: None,
+    }
+}
+
+/// A message with files to upload first.
+fn with_files(text: &str, names: &[&str]) -> Draft {
+    Draft {
+        attach: Attach {
+            root: "/srv/project".into(),
+            files: names.iter().map(|name| image(name)).collect(),
+            mentions: vec!["src/lib.rs".into()],
+        },
+        ..draft(text)
     }
 }
 
@@ -54,6 +67,7 @@ fn texts(outbox: &Outbox, session: &str) -> Vec<String> {
 #[derive(Default)]
 struct Fake {
     sends: VecDeque<Result<Vec<String>>>,
+    uploads: VecDeque<Result<()>>,
     orders: VecDeque<Result<()>>,
     checks: VecDeque<Result<bool>>,
     sent: Vec<String>,
@@ -65,6 +79,13 @@ struct Fake {
 }
 
 impl Link for Fake {
+    async fn upload(&mut self, message: &Message) -> Result<Vec<String>> {
+        self.uploads.pop_front().unwrap_or(Ok(()))?;
+        let names: Vec<String> = message.files.iter().map(|f| f.name.clone()).collect();
+        self.events.push(format!("up:{}", names.join(",")));
+        Ok(names.iter().map(|name| format!("/cache/{name}")).collect())
+    }
+
     async fn send(&mut self, message: &Message) -> Result<Vec<String>> {
         let answer = self.sends.pop_front().unwrap_or(Ok(Vec::new()));
 
@@ -349,6 +370,9 @@ fn kept(text: &str, images: &[&str], seen: Option<Seen>) -> Message {
         how: Kind::Steer,
         text: text.into(),
         images: images.iter().map(|name| image(name).into()).collect(),
+        files: Vec::new(),
+        root: String::new(),
+        mentions: Vec::new(),
         state: Stage::Waiting,
         unsure: true,
         seen,
@@ -606,4 +630,138 @@ async fn configure_stays_ordered_around_queued_prompts_and_stops_do_not_replay()
     flush(&outbox, &s2, &mut unsure_link).await;
     assert_eq!(unsure_link.waits, 0, "Cancel must not wait to retry");
     assert!(outbox.with(|held| held.begin_step(&s2, now).is_none()));
+}
+
+#[tokio::test]
+async fn files_upload_before_their_message_goes_and_a_second_message_waits_behind() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None));
+    push(&outbox, "s1", "Then this");
+    // Its row says what is being done, from the first change.
+    assert_eq!(
+        outbox.read(|held| held.rows(&key("s1")))[0].state,
+        "waiting"
+    );
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(
+        link.events,
+        [
+            "up:a.txt",
+            "msg:Read these\n\n@src/lib.rs @/cache/a.txt",
+            "msg:Then this"
+        ]
+    );
+    let first = &link.changes[0].rows[0];
+    assert_eq!(
+        (first.state, first.text.as_str()),
+        ("uploading", "Read these")
+    );
+    assert!(texts(&outbox, "s1").is_empty());
+}
+
+#[tokio::test]
+async fn a_refused_upload_leaves_a_failed_row_with_its_files_and_sends_nothing_of_it() {
+    let (_dir, _, outbox) = outbox();
+    let id = outbox
+        .with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None))
+        .0;
+    push(&outbox, "s1", "Then this");
+    let mut link = Fake {
+        uploads: VecDeque::from([Err(DesktopError::BadRequest("no space left".into()))]),
+        ..Fake::default()
+    };
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(link.events, ["msg:Then this"]);
+    let rows = outbox.read(|held| held.rows(&key("s1")));
+    assert_eq!(
+        (rows[0].state, rows[0].reason.as_deref()),
+        ("failed", Some("no space left"))
+    );
+    // Edit gives the text and the files back, unchanged.
+    let (message, _) = outbox.with(|held| held.take(id)).expect("taken");
+    let taken = message.taken();
+    assert_eq!(taken.text, "Read these");
+    assert_eq!(taken.files[0].name, "a.txt");
+    assert_eq!(taken.mentions, ["src/lib.rs"]);
+}
+
+#[tokio::test]
+async fn a_dropped_link_during_an_upload_waits_and_the_message_goes_once() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None));
+    let mut link = Fake {
+        uploads: VecDeque::from([Err(DesktopError::Offline("build-box".into()))]),
+        ..Fake::default()
+    };
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(link.waits, 1);
+    assert_eq!(
+        link.events,
+        ["up:a.txt", "msg:Read these\n\n@src/lib.rs @/cache/a.txt"]
+    );
+    assert!(link.checked.is_empty());
+}
+
+#[test]
+fn files_not_uploaded_yet_survive_a_restart_and_are_not_read_as_sent() {
+    let (dir, kept, outbox) = outbox();
+    let id = outbox
+        .with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None))
+        .0;
+    outbox.with(|held| held.begin(&key("s1")));
+    outbox.sync();
+
+    let again = Outbox::load(kept, dir.path().join("cache"));
+    let (message, _) = again.with(|held| held.take(id)).expect("taken");
+
+    assert_eq!(message.files[0].data, "aGVsbG8=");
+    assert!(!message.unsure);
+    assert_eq!(message.state, Stage::Waiting);
+}
+
+#[test]
+fn a_file_lost_from_the_cache_fails_its_message_instead_of_sending_it_without() {
+    let (dir, kept, outbox) = outbox();
+    let id = outbox
+        .with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None))
+        .0;
+    outbox.sync();
+    fs::remove_file(
+        dir.path()
+            .join("cache")
+            .join(IMAGES)
+            .join(image_file(files_id(id), 0)),
+    )
+    .unwrap();
+
+    let again = Outbox::load(kept, dir.path().join("cache"));
+    let rows = again.read(|held| held.rows(&key("s1")));
+
+    assert_eq!(rows[0].state, "failed");
+    assert!(again.read(|held| held.waiting()).is_empty());
+}
+
+#[test]
+fn mentions_follow_the_typed_words_and_pictures_alone_get_a_request() {
+    let paths = vec!["a b.png".to_string(), "c.png".to_string()];
+    assert_eq!(
+        with_mentions("Look", &paths, 0, false),
+        "Look\n\n@\"a b.png\" @c.png"
+    );
+    assert_eq!(
+        with_mentions(" ", &paths[1..], 0, true),
+        "Check this image.\n\n@c.png"
+    );
+    assert_eq!(
+        with_mentions("", &paths, 0, true).lines().next(),
+        Some("Check these images.")
+    );
+    assert_eq!(with_mentions("", &[], 0, false), "");
 }

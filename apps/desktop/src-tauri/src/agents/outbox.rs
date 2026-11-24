@@ -24,11 +24,12 @@ use crate::{
         session_mirror::SessionMirror,
     },
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_mesh::RETRY;
 use beep_proto::SessionId;
 use beep_proto::{
     AgentEntry, AgentEntryKind, AgentNoticeKey, AgentSteer, ApiError, GetAgentSession, ModelId,
-    SteerAgentSession,
+    SteerAgentSession, WriteWorkFile,
     node::agent::{Effort, Request as AgentRequest, SessionDevice},
     node::events::{CallReply, Operation, Topic},
 };
@@ -56,6 +57,8 @@ const ANSWER_WAIT: Duration = Duration::from_millis(250);
 /// How long transient interrupt orders (`Cancel`, `StopAll`, `StopTask`) stay queued if
 /// a machine remains unreachable.
 const ORDER_TTL: Duration = Duration::from_secs(60);
+/// The bytes of a file one upload call carries.
+const UPLOAD_PART: usize = 2 * 1024 * 1024;
 
 /// How a message goes to the session: a prompt for its next turn, or a
 /// message for the running turn.
@@ -89,11 +92,25 @@ pub struct Seen {
     pub(crate) queued: Vec<String>,
 }
 
+/// Files a message uploads to its session's machine before it goes, as the
+/// window hands them over, and the paths it mentions without uploading. The
+/// message's text then holds only what was typed: the mentions are added once
+/// the files are there and have their paths.
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct Attach {
+    /// The session's folder.
+    pub(crate) root: String,
+    pub(crate) files: Vec<PastedImage>,
+    #[serde(default)]
+    pub(crate) mentions: Vec<String>,
+}
+
 /// A message as a window hands it to the outbox.
 pub(crate) struct Draft {
     pub(crate) how: Kind,
     pub(crate) text: String,
     pub(crate) images: Vec<PastedImage>,
+    pub(crate) attach: Attach,
     pub(crate) seen: Option<Seen>,
 }
 
@@ -107,6 +124,15 @@ pub(crate) struct Message {
     pub(crate) how: Kind,
     pub(crate) text: String,
     pub(crate) images: Vec<KeptImage>,
+    /// Files still to upload, kept like the images; none once they are there.
+    #[serde(default)]
+    pub(crate) files: Vec<KeptImage>,
+    /// The session's folder, where the files go.
+    #[serde(default)]
+    pub(crate) root: String,
+    /// Paths to mention after the uploaded files' own.
+    #[serde(default)]
+    pub(crate) mentions: Vec<String>,
     pub(crate) state: Stage,
     /// A send of it may have reached the machine before the link dropped,
     /// so the session is read before it is sent again.
@@ -136,6 +162,7 @@ impl Message {
     fn row(&self) -> Row {
         let (state, reason) = match &self.state {
             Stage::Waiting => ("waiting", None),
+            Stage::Sending if !self.files.is_empty() => ("uploading", None),
             Stage::Sending => ("sending", None),
             Stage::Failed { reason } => ("failed", Some(reason.clone())),
         };
@@ -153,6 +180,8 @@ impl Message {
         Taken {
             text: self.text,
             images: self.images.into_iter().map(Into::into).collect(),
+            files: self.files.into_iter().map(Into::into).collect(),
+            mentions: self.mentions,
         }
     }
 }
@@ -164,7 +193,7 @@ pub(crate) struct Row {
     pub(crate) how: Kind,
     pub(crate) text: String,
     pub(crate) images: Vec<String>,
-    /// "waiting", "sending" or "failed".
+    /// "waiting", "uploading", "sending" or "failed".
     pub(crate) state: &'static str,
     pub(crate) reason: Option<String>,
 }
@@ -281,7 +310,8 @@ impl Held {
         for message in &mut messages {
             if matches!(message.state, Stage::Waiting | Stage::Sending) {
                 message.state = Stage::Waiting;
-                message.unsure = true;
+                // Nothing of it went while its files were still to upload.
+                message.unsure = message.files.is_empty();
             }
         }
 
@@ -307,6 +337,8 @@ impl Held {
         let images: Vec<KeptImage> = draft.images.into_iter().map(Into::into).collect();
 
         self.writes.extend(image_writes(id, &images));
+        let files: Vec<KeptImage> = draft.attach.files.into_iter().map(Into::into).collect();
+        self.writes.extend(image_writes(files_id(id), &files));
 
         let stuck = self.is_stuck(key);
         self.messages.push(Message {
@@ -317,6 +349,9 @@ impl Held {
             how: draft.how,
             text: draft.text,
             images,
+            files,
+            root: draft.attach.root,
+            mentions: draft.attach.mentions,
             state: Stage::Waiting,
             unsure: false,
             seen: draft.seen,
@@ -672,6 +707,24 @@ impl Held {
         Some(changed)
     }
 
+    /// The files of message `id` are on the machine, at `paths`: they and the
+    /// paths it mentions go into its text, and it is sent as it now is.
+    pub(crate) fn uploaded(&mut self, id: u64, paths: Vec<String>) -> Option<(Message, Changed)> {
+        let message = self.messages.iter_mut().find(|m| m.id == id)?;
+        let files = std::mem::take(&mut message.files);
+        let images = message.images.len();
+        let mut mentions = std::mem::take(&mut message.mentions);
+        let only_pictures =
+            mentions.is_empty() && files.iter().all(|f| f.mime.starts_with("image/"));
+        mentions.extend(paths);
+        message.text = with_mentions(&message.text, &mentions, images, only_pictures);
+        let (message, key) = (message.clone(), message.key());
+
+        self.writes.extend(forget_images(files_id(id), files.len()));
+        self.dirty = true;
+        Some((message, self.changed(&key)))
+    }
+
     /// Message `id` could not reach its machine: it and those after it wait,
     /// and the windows that sent them are told so.
     pub(crate) fn wait(&mut self, id: u64, unsure: bool) -> Option<Changed> {
@@ -769,6 +822,8 @@ impl Held {
         self.dirty = true;
 
         self.writes.extend(forget_images(id, message.images.len()));
+        self.writes
+            .extend(forget_images(files_id(id), message.files.len()));
 
         Some(message)
     }
@@ -858,6 +913,39 @@ impl Outbox {
 
 const MESSAGES: &str = "messages.json";
 
+/// What names the cached files of message `id`, apart from its images.
+fn files_id(id: u64) -> String {
+    format!("{id}f")
+}
+
+/// The text a message sends once its files have their paths: what was typed,
+/// else a request for a message of pictures only, then the mentions.
+fn with_mentions(text: &str, mentions: &[String], images: usize, only_pictures: bool) -> String {
+    let count = images.max(mentions.len());
+    let request = match text.trim() {
+        "" if count > 0 && only_pictures && count == 1 => "Check this image.",
+        "" if count > 0 && only_pictures => "Check these images.",
+        typed => typed,
+    };
+    let mentioned = mentions
+        .iter()
+        .map(|path| {
+            if path.contains(char::is_whitespace) {
+                format!("@\"{path}\"")
+            } else {
+                format!("@{path}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    [request, mentioned.as_str()]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
 /// The messages kept in `folder`, each with its images read back. One whose
 /// image is gone stays, refused, for the user to see.
 fn read_messages(folder: &KeptFolder) -> Vec<Message> {
@@ -867,6 +955,10 @@ fn read_messages(folder: &KeptFolder) -> Vec<Message> {
         if !folder.read_images(message.id, &mut message.images) {
             message.state = Stage::Failed {
                 reason: "An image of this message could not be read.".into(),
+            };
+        } else if !folder.read_images(files_id(message.id), &mut message.files) {
+            message.state = Stage::Failed {
+                reason: "A file of this message could not be read.".into(),
             };
         }
     }
@@ -878,6 +970,9 @@ fn read_messages(folder: &KeptFolder) -> Vec<Message> {
 pub(crate) trait Link {
     /// Sends `message`.
     async fn send(&mut self, message: &Message) -> Result<Vec<String>>;
+    /// Writes the files of `message` into its session's cache on the machine;
+    /// where each went.
+    async fn upload(&mut self, message: &Message) -> Result<Vec<String>>;
     /// Sends `order`.
     async fn order(&mut self, _order: &Order) -> Result<()> {
         Ok(())
@@ -914,7 +1009,7 @@ pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Lin
         match step {
             Step::Message(message) => {
                 let id = message.id;
-                let tried = try_once(link, &message).await;
+                let tried = try_message(outbox, link, message).await;
                 let lost = matches!(tried, Tried::Lost { .. });
                 let change = outbox.with(|held| match tried {
                     Tried::Sent(keys) => held.sent(id, keys),
@@ -986,6 +1081,34 @@ async fn try_order(link: &mut impl Link, order: &Order) -> TriedOrder {
     }
 }
 
+/// One try at `message`: its files go first, if it has any, each try from the
+/// start; those already there are never uploaded again.
+async fn try_message(outbox: &Outbox, link: &mut impl Link, message: Message) -> Tried {
+    if message.files.is_empty() {
+        return try_once(link, &message).await;
+    }
+
+    let key = message.key();
+    link.changed(outbox.read(|held| held.changed(&key)));
+
+    let paths = match link.upload(&message).await {
+        Ok(paths) => paths,
+        Err(e)
+            if e.is_transport()
+                || matches!(e, DesktopError::Unsure(_) | DesktopError::TimedOut(_)) =>
+        {
+            return Tried::Lost { unsure: false };
+        }
+        Err(e) => return Tried::Refused(e.to_string()),
+    };
+    let Some((message, changed)) = outbox.with(|held| held.uploaded(message.id, paths)) else {
+        return Tried::Refused("The message was taken back.".into());
+    };
+    link.changed(changed);
+
+    try_once(link, &message).await
+}
+
 /// One try at `message`. One whose last send may have gone is sent again
 /// only once a read of the session shows the machine does not have it.
 async fn try_once(link: &mut impl Link, message: &Message) -> Tried {
@@ -1033,6 +1156,47 @@ impl Link for MeshLink {
         )
         .await?;
         Ok(keys)
+    }
+
+    async fn upload(&mut self, message: &Message) -> Result<Vec<String>> {
+        let fleet = self.app.state::<Arc<Fleet>>();
+        let mut paths = Vec::new();
+
+        for file in &message.files {
+            let bytes = STANDARD.decode(&file.data).map_err(|_| {
+                DesktopError::BadRequest(format!("{} could not be read", file.name))
+            })?;
+            let size = u64::try_from(bytes.len()).map_err(anyhow::Error::from)?;
+            let mut parts: Vec<&[u8]> = bytes.chunks(UPLOAD_PART).collect();
+            parts.resize(parts.len().max(1), &[]);
+            // The machine names the file after its first part.
+            let mut path = file.name.clone();
+            let mut offset = 0u64;
+
+            for part in parts {
+                let write = WriteWorkFile {
+                    machine_id: message.machine_id.clone(),
+                    root: message.root.clone(),
+                    path,
+                    offset,
+                    size,
+                    data: part.to_vec(),
+                };
+                offset += u64::try_from(part.len()).map_err(anyhow::Error::from)?;
+                path = direct::upload(
+                    &fleet,
+                    self.machine,
+                    message.agent.clone(),
+                    message.session.clone(),
+                    write,
+                )
+                .await?;
+            }
+
+            paths.push(path);
+        }
+
+        Ok(paths)
     }
 
     async fn order(&mut self, order: &Order) -> Result<()> {
@@ -1355,6 +1519,7 @@ pub(crate) async fn send(
     key: SessionKey,
     steer: Steer,
     seen: Option<Seen>,
+    attach: Attach,
 ) -> std::result::Result<Vec<String>, SteerError> {
     let (how, text, images) = match steer {
         Steer::Prompt { text, images } => (Kind::Prompt, text, images),
@@ -1369,10 +1534,27 @@ pub(crate) async fn send(
         how,
         text,
         images,
+        attach,
         seen,
     };
-    let (reply, mut answer) = oneshot::channel();
     let outbox = app.state::<Arc<Outbox>>();
+
+    // A message with files is the outbox's from the start: it shows as
+    // uploading, and no window waits on the machine for it.
+    if !draft.attach.files.is_empty() {
+        let (_, flusher) = outbox.with(|held| held.push(&key, draft, None));
+        emit(app, outbox.read(|held| held.changed(&key)));
+
+        if flusher {
+            start(app, key, window.to_string());
+        }
+
+        return Err(SteerError::Waiting {
+            message: "Waiting for the connection".into(),
+        });
+    }
+
+    let (reply, mut answer) = oneshot::channel();
     let (id, flusher) = outbox.with(|held| held.push(&key, draft, Some(reply)));
 
     if flusher {
@@ -1491,6 +1673,8 @@ pub fn outbox_list(
 pub struct Taken {
     text: String,
     images: Vec<PastedImage>,
+    files: Vec<PastedImage>,
+    mentions: Vec<String>,
 }
 
 /// Takes a waiting message out of the outbox, to remove or edit it.
