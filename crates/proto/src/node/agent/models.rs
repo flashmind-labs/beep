@@ -42,6 +42,7 @@ pub enum Effort {
 ///
 /// - `claude`: `claude --effort` (low, medium, high, xhigh, max).
 /// - `codex`: `codex -c model_reasoning_effort=` (none, minimal, low, medium, high, xhigh, max, ultra).
+/// - `agy`: `agy --effort` (low, medium, high, xhigh, max).
 /// - `pi`: `pi --thinking` (off, minimal, low, medium, high, xhigh, max).
 /// - `flsh`: ACP `thought_level` (off, low, medium, high), from 0.2.7.
 ///
@@ -50,7 +51,7 @@ pub fn efforts(agent: &str) -> &'static [Effort] {
     use Effort::*;
 
     match agent {
-        "claude" => &[Low, Medium, High, Xhigh, Max],
+        "claude" | "agy" => &[Low, Medium, High, Xhigh, Max],
         "codex" => &[None, Minimal, Low, Medium, High, Xhigh, Max, Ultra],
         "pi" => &[Off, Minimal, Low, Medium, High, Xhigh, Max],
         "flsh" => &[Off, Low, Medium, High],

@@ -376,6 +376,7 @@ pub(in crate::agents) fn offered_models(answer: &Value) -> Offered {
 }
 
 fn models_from_options(answer: &Value, options: Vec<SessionConfigOption>) -> Offered {
+    let has_thinking = thinking_option(&options).is_some();
     let selector = options.into_iter().find_map(|option| {
         let SessionConfigKind::Select(select) = option.kind else {
             return None;
@@ -392,18 +393,24 @@ fn models_from_options(answer: &Value, options: Vec<SessionConfigOption>) -> Off
             }
             _ => Vec::new(),
         };
+        let mut models: Vec<ModelOption> = choices
+            .into_iter()
+            .take(MAX_MODELS)
+            .map(|choice| ModelOption {
+                id: choice.value.to_string(),
+                name: choice.name,
+                description: choice.description,
+                ..ModelOption::default()
+            })
+            .collect();
+
+        if has_thinking {
+            attach_model_efforts(answer, &mut models);
+        }
+
         return Offered {
             current: Some(select.current_value.to_string()),
-            models: choices
-                .into_iter()
-                .take(MAX_MODELS)
-                .map(|choice| ModelOption {
-                    id: choice.value.to_string(),
-                    name: choice.name,
-                    description: choice.description,
-                    ..ModelOption::default()
-                })
-                .collect(),
+            models,
             switch: Some(ModelSwitch::ConfigOption(id)),
             ..Offered::default()
         };
@@ -448,6 +455,60 @@ pub(in crate::agents) fn switch_model(
             "session/set_model",
             serde_json::json!({ "sessionId": session, "modelId": model }),
         ),
+    }
+}
+
+/// Canonical order for thinking levels on a model option.
+const EFFORT_ORDER: &[Effort] = &[
+    Effort::Off,
+    Effort::None,
+    Effort::Minimal,
+    Effort::Low,
+    Effort::Medium,
+    Effort::High,
+    Effort::Xhigh,
+    Effort::Max,
+    Effort::Ultra,
+];
+
+/// Reads per-model thinking levels when an agent's unstable `models` list
+/// pairs each base model from `configOptions` with `<model>-<effort>` entries
+/// (as Antigravity does).
+fn attach_model_efforts(answer: &Value, models: &mut [ModelOption]) {
+    let Some(session_models) = answer
+        .get("models")
+        .and_then(|models| serde_json::from_value::<SessionModels>(models.clone()).ok())
+    else {
+        return;
+    };
+    let known: std::collections::HashSet<&str> = models.iter().map(|m| m.id.as_str()).collect();
+    let variants: Vec<&str> = session_models
+        .available_models
+        .iter()
+        .map(|m| m.model_id.as_str())
+        .filter(|id| !known.contains(id))
+        .collect();
+
+    if variants.is_empty() {
+        return;
+    }
+
+    for model in models {
+        let prefix = format!("{}-", model.id);
+        let found: Vec<Effort> = variants
+            .iter()
+            .filter_map(|variant| variant.strip_prefix(&prefix)?.parse::<Effort>().ok())
+            .collect();
+
+        if found.is_empty() {
+            continue;
+        }
+
+        model.efforts = EFFORT_ORDER
+            .iter()
+            .copied()
+            .filter(|effort| found.contains(effort))
+            .collect();
     }
 }
 

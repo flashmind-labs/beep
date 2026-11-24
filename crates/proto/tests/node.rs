@@ -1424,6 +1424,7 @@ mod agent {
         fn each_agent_takes_the_thinking_levels_its_cli_does() {
             use Effort::*;
             assert_eq!(efforts("claude"), [Low, Medium, High, Xhigh, Max]);
+            assert_eq!(efforts("agy"), [Low, Medium, High, Xhigh, Max]);
             assert_eq!(
                 efforts("codex"),
                 [None, Minimal, Low, Medium, High, Xhigh, Max, Ultra]
@@ -1431,7 +1432,7 @@ mod agent {
             assert_eq!(efforts("pi"), [Off, Minimal, Low, Medium, High, Xhigh, Max]);
             assert_eq!(efforts("flsh"), [Off, Low, Medium, High]);
 
-            for agent in ["agy", "opencode", "other"] {
+            for agent in ["opencode", "other"] {
                 assert!(efforts(agent).is_empty(), "{agent}");
             }
 
