@@ -298,3 +298,43 @@ fn the_prompt_names_the_base_and_the_tool() {
     );
     assert!(with.contains("defined in .codex/agents/reviewer.toml"));
 }
+
+#[tokio::test]
+async fn a_wait_on_a_review_ends_when_the_review_does() {
+    let rig = Rig::new();
+    let parent = rig.root().await;
+    let who = rig.agents.who_of(&parent);
+    let run = rig
+        .agents
+        .start_review(rig.order("HOLD", Some(parent.id.clone())))
+        .await
+        .expect("the review starts");
+    let reviewer = rig.agents.get(&run.id).expect("the reviewer runs");
+    let wait = tokio::spawn({
+        let (agents, who, id) = (rig.agents.clone(), who.clone(), run.id.clone());
+        async move { agents.review_ended(&who, &id).await }
+    });
+
+    rig.agents
+        .submit_review(&run.id, found())
+        .expect("the reviewer hands in");
+    reviewer
+        .order(Command::Cancel { by_user: false })
+        .await
+        .expect("cancelled");
+
+    let ended = timeout(Duration::from_secs(20), wait)
+        .await
+        .expect("the wait ended in time")
+        .expect("the wait task ran")
+        .expect("the review is the parent's");
+    assert!(!ended.running());
+    assert_eq!(ended.review, Some(found()));
+    assert_eq!(
+        rig.agents
+            .review_ended(&who, &SessionId::from("nothing"))
+            .await,
+        None
+    );
+    rig.agents.shutdown().await;
+}

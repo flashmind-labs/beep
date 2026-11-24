@@ -1549,3 +1549,22 @@ fn a_teammate_s_words_never_answer_what_the_user_is_asked() {
     live.info.state.status = Status::Idle;
     assert_eq!(notes::open_to_teammates(&live, "s1@build-box"), Ok(true));
 }
+
+#[tokio::test]
+async fn a_note_about_a_child_ends_its_parents_wait_and_goes_in_no_prompt() {
+    let waits = Waits::default();
+    let parent = SessionId::from("p0");
+
+    assert!(!waits.wake(&parent, "k0@build-box"), "no wait holds it yet");
+
+    let waiting = waits.hold(&parent, "k0@build-box");
+    assert!(!waits.wake(&parent, "k1@build-box"), "another child");
+    assert!(waits.wake(&parent, "k0@build-box"));
+    // The note came before the wait looked: it still counts.
+    timeout(Duration::from_secs(20), waiting.woken())
+        .await
+        .expect("the note woke the wait");
+
+    drop(waiting);
+    assert!(!waits.wake(&parent, "k0@build-box"), "the wait ended");
+}

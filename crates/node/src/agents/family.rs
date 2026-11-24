@@ -557,9 +557,8 @@ fn too_many(what: &str) -> String {
     format!("Not started: at most {MAX_CHILDREN} agents may run under one session, and {what}.")
 }
 
-/// How long a settled child is polled at most by `wait`, and how often.
+/// How long `wait` waits at most on a child or a review.
 pub(crate) const WAIT_LIMIT: Duration = Duration::from_secs(45);
-pub(crate) const WAIT_POLL: Duration = Duration::from_secs(1);
 
 #[cfg(test)]
 #[path = "../tests/agents_family.rs"]

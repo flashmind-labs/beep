@@ -22,6 +22,7 @@ use std::{
     collections::VecDeque,
     sync::{Arc, Mutex},
 };
+use tokio::sync::Notify;
 use tokio_util::task::AbortOnDropHandle;
 
 /// The most reviews kept, finished ones going first.
@@ -35,6 +36,8 @@ pub(crate) const NUDGE: &str = "Call submit_review with your findings.";
 pub(super) struct Reviews {
     kept: Mutex<VecDeque<Kept>>,
     events: crate::events::Hub,
+    /// Woken when a review changes, for the callers that wait on one.
+    changed: Notify,
 }
 
 struct Kept {
@@ -58,6 +61,7 @@ impl Reviews {
         Self {
             kept: Mutex::default(),
             events,
+            changed: Notify::new(),
         }
     }
 
@@ -70,6 +74,7 @@ impl Reviews {
         if kept.run != before {
             self.events
                 .changed(beep_proto::node::events::Topic::keyed("reviews", id));
+            self.changed.notify_waiters();
         }
 
         Some(value)
@@ -196,6 +201,22 @@ impl Agents {
                 (kept.parent.as_ref() == Some(who)).then(|| kept.run.clone())
             })
             .flatten()
+    }
+
+    /// The review `id` of `who` once it is no longer running, or as it was
+    /// last seen when it is gone. None when `who` has no such review.
+    pub(crate) async fn review_ended(&self, who: &Who, id: &SessionId) -> Option<ReviewRun> {
+        loop {
+            // Made before the read, so a change in between wakes it.
+            let changed = self.reviews.changed.notified();
+            let run = self.review_for(who, id)?;
+
+            if !run.running() {
+                return Some(run);
+            }
+
+            changed.await;
+        }
     }
 
     /// The reviews of `session`'s work, by its id here or the agent's.

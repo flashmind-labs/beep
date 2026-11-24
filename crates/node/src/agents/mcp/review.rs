@@ -4,7 +4,7 @@
 
 use super::reply::{fail, json_done, ok, parse};
 use crate::agents::{
-    family::{WAIT_LIMIT, WAIT_POLL},
+    family::WAIT_LIMIT,
     reviews::MAX_FINDINGS,
 };
 use crate::link::Offers;
@@ -14,7 +14,7 @@ use beep_proto::node::{
     tools::{Reply, Request},
 };
 use serde::{Deserialize, Serialize};
-use tokio::time::{Instant, sleep};
+use tokio::time::timeout;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -124,29 +124,21 @@ fn answer(view: &ReviewView) -> Reply {
 async fn waited(
     offers: &Offers,
     who: &crate::agents::family::Who,
-    mut run: ReviewRun,
+    run: ReviewRun,
 ) -> ReviewView {
-    let deadline = Instant::now() + WAIT_LIMIT;
+    let agents = &offers.agents;
 
-    while run.running() {
-        if Instant::now() >= deadline {
-            let mut view = ReviewView::from(run);
+    match timeout(WAIT_LIMIT, agents.review_ended(who, &run.id)).await {
+        Ok(ended) => ReviewView::from(ended.unwrap_or(run)),
+        Err(_) => {
+            let mut view = ReviewView::from(agents.review_for(who, &run.id).unwrap_or(run));
             view.note = Some(format!(
                 "Still reviewing after {} seconds. Call review with this id to check again.",
                 WAIT_LIMIT.as_secs()
             ));
-            return view;
-        }
-
-        sleep(WAIT_POLL).await;
-
-        match offers.agents.review_for(who, &run.id) {
-            Some(next) => run = next,
-            None => break,
+            view
         }
     }
-
-    ReviewView::from(run)
 }
 
 fn submit_review(offers: &Offers, request: &Request) -> Result<Reply, String> {

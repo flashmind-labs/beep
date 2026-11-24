@@ -11,7 +11,7 @@ use super::machines::{Machine, command_name, find_named, machines};
 use super::reply::{fail, json_of, ok, parse};
 use crate::agents::{
     Agents, Command, Session,
-    family::{ChildNote, ChildStart, Mark, RemoteKid, WAIT_LIMIT, WAIT_POLL, Who},
+    family::{ChildNote, ChildStart, Mark, RemoteKid, WAIT_LIMIT, Who},
 };
 use crate::link::Offers;
 use beep_mesh::Mesh;
@@ -27,7 +27,7 @@ use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration};
-use tokio::time::{Instant, sleep};
+use tokio::time::sleep;
 
 mod peer;
 
@@ -801,30 +801,52 @@ impl Reach<'_> {
 
     /// Waits for `view`'s turn to end, at most `WAIT_LIMIT`: an agent's tool
     /// call must come back before its client gives up, so a long job is
-    /// polled instead.
+    /// checked with agent_status instead. A child here wakes the wait through
+    /// its `live`, one on another machine through its note.
     async fn waited(&self, mut view: ChildView) -> ChildView {
         // What this wait answers goes in no note.
-        let _waiting = self.agents.family.waits.hold(&self.who.session, &view.id);
-        let deadline = Instant::now() + WAIT_LIMIT;
+        let waiting = self.agents.family.waits.hold(&self.who.session, &view.id);
+        let mut live = match self.find(&view.id) {
+            Ok(Found::Here(child)) => Some(child.live.clone()),
+            _ => None,
+        };
+        let deadline = sleep(WAIT_LIMIT);
+        tokio::pin!(deadline);
 
         while !view.settled() {
-            if Instant::now() >= deadline {
-                view.note = Some(format!(
-                    "Still working after {} seconds. Call agent_status with this id to check \
-                     again.",
-                    WAIT_LIMIT.as_secs()
-                ));
-                return view;
-            }
-
-            sleep(WAIT_POLL).await;
-
+            // A change before the hold and the clone above went unseen.
             match self.view_of(&view.id).await {
                 Ok(next) => view = next,
                 Err(e) => {
                     view.note = Some(e);
                     return view;
                 }
+            }
+
+            if view.settled() {
+                break;
+            }
+
+            let gone = tokio::select! {
+                () = waiting.woken() => false,
+                changed = async {
+                    match live.as_mut() {
+                        Some(live) => live.changed().await.is_err(),
+                        None => std::future::pending().await,
+                    }
+                } => changed,
+                () = &mut deadline => {
+                    view.note = Some(format!(
+                        "Still working after {} seconds. Call agent_status with this id to \
+                         check again.",
+                        WAIT_LIMIT.as_secs()
+                    ));
+                    return view;
+                }
+            };
+
+            if gone {
+                live = None;
             }
         }
 

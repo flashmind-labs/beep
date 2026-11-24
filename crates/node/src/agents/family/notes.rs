@@ -7,8 +7,8 @@
 //! at once; one on another machine gets it over `tools/1` (`AgentNote`),
 //! and its node checks that it keeps that child. No note goes to a parent
 //! that ended or was stopped, for a turn or session the parent stopped, or
-//! while the parent waits on that child in `start_agent` (`wait` gives the
-//! state). Reviewers report through `submit_review` and send none.
+//! while the parent waits on that child in `start_agent`: the note ends
+//! that wait, which then gives the state. Reviewers report through `submit_review` and send none.
 //!
 //! What the user did in the child is no news that should start a turn: the
 //! end of a turn the user's message began, a question in it, and a stop or a
@@ -24,10 +24,10 @@ use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
+    collections::HashMap,
     sync::{Arc, Mutex, OnceLock, Weak},
 };
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 /// What a child came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::AsRefStr)]
@@ -90,14 +90,26 @@ impl ChildNote {
 }
 
 /// The children each parent waits on in `start_agent`, by the parent's name
-/// and the child's id as the parent got it.
+/// and the child's id as the parent got it, each with what wakes its wait.
 #[derive(Clone, Default)]
-pub(crate) struct Waits(Arc<Mutex<HashSet<(SessionId, String)>>>);
+pub(crate) struct Waits(Arc<Mutex<HashMap<WaitKey, Arc<Notify>>>>);
+
+/// A parent's name and the child's id as the parent got it.
+type WaitKey = (SessionId, String);
 
 /// Held while a parent waits on a child; the wait ends when it drops.
 pub(crate) struct Waiting {
     waits: Waits,
-    key: (SessionId, String),
+    key: WaitKey,
+    woken: Arc<Notify>,
+}
+
+impl Waiting {
+    /// Ready once the child's node pushed a note about it. A note that came
+    /// before this is asked for still counts.
+    pub(crate) async fn woken(&self) {
+        self.woken.notified().await;
+    }
 }
 
 impl Drop for Waiting {
@@ -109,15 +121,27 @@ impl Drop for Waiting {
 impl Waits {
     pub(crate) fn hold(&self, parent: &SessionId, child: &str) -> Waiting {
         let key = (parent.to_owned(), child.to_owned());
-        crate::lock(&self.0).insert(key.clone());
+        let woken = Arc::new(Notify::new());
+        crate::lock(&self.0).insert(key.clone(), woken.clone());
         Waiting {
             waits: self.clone(),
             key,
+            woken,
         }
     }
 
-    fn holds(&self, parent: &SessionId, child: &str) -> bool {
-        crate::lock(&self.0).contains(&(parent.to_owned(), child.to_owned()))
+    /// Wakes the wait of `parent` on `child`, if any. The wait answers the
+    /// note, so it goes in no prompt.
+    pub(super) fn wake(&self, parent: &SessionId, child: &str) -> bool {
+        let held = crate::lock(&self.0);
+
+        match held.get(&(parent.to_owned(), child.to_owned())) {
+            Some(woken) => {
+                woken.notify_one();
+                true
+            }
+            None => false,
+        }
     }
 }
 
@@ -404,7 +428,11 @@ async fn deliver(
 ) -> Result<(), String> {
     let (idle, stopped) = watched::read(&parent.live, idle_or_stopped);
 
-    if stopped || waits.holds(&Agents::name_of(parent), id) {
+    if stopped {
+        return Ok(());
+    }
+
+    if waits.wake(&Agents::name_of(parent), id) {
         return Ok(());
     }
 
