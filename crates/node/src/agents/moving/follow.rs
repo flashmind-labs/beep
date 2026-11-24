@@ -219,11 +219,11 @@ fn spawn(
     env: Arc<Env>,
     record: SessionMove,
     side: Side,
-    before: Option<AbortOnDropHandle<()>>,
+    before: Option<impl Future<Output = ()> + Send + 'static>,
 ) -> AbortOnDropHandle<()> {
     AbortOnDropHandle::new(tokio::spawn(async move {
         if let Some(before) = before {
-            let _ = before.await;
+            before.await;
         }
 
         log::info!(

@@ -108,10 +108,54 @@ async fn a_take_back_runs_beside_the_caller_and_the_next_one_waits_for_it() {
 
     release.send(()).expect("the first take-back waits");
     first.await.expect("the first take-back ended");
-    moves
-        .cleaned(&id)
-        .expect("the take-back is kept")
-        .await
-        .expect("the take-back task ran");
+    moves.cleaned(&id).expect("the take-back is kept").await;
     assert!(second.try_recv().is_ok());
+}
+
+#[tokio::test]
+async fn a_take_back_goes_on_when_the_next_move_stops_waiting() {
+    use crate::agents::moving::progress::Moves;
+    use tokio::sync::mpsc;
+
+    let moves = Moves::default();
+    let (open, gate) = tokio::sync::oneshot::channel::<()>();
+    let (ended, mut ends) = mpsc::unbounded_channel();
+    moves.clean(&SessionId::from("s1"), async move {
+        let _ = gate.await;
+        let _ = ended.send(());
+    });
+
+    // The next move takes the signal, then is cancelled.
+    let waiting = moves.cleaned(&SessionId::from("s1")).expect("a take-back is going");
+    let next = tokio::spawn(waiting);
+    next.abort();
+    let _ = next.await;
+    open.send(()).unwrap();
+
+    assert_eq!(ends.recv().await, Some(()));
+}
+
+#[tokio::test]
+async fn take_backs_of_one_session_run_one_at_a_time() {
+    use crate::agents::moving::progress::Moves;
+    use tokio::sync::mpsc;
+
+    let moves = Moves::default();
+    let (open, gate) = tokio::sync::oneshot::channel::<()>();
+    let (said, mut order) = mpsc::unbounded_channel();
+    let first = said.clone();
+    moves.clean(&SessionId::from("s1"), async move {
+        let _ = gate.await;
+        let _ = first.send(1);
+    });
+
+    // A move took the signal, so the first is no longer waiting for anyone.
+    let _ = moves.cleaned(&SessionId::from("s1"));
+    moves.clean(&SessionId::from("s1"), async move {
+        let _ = said.send(2);
+    });
+    open.send(()).unwrap();
+
+    assert_eq!(order.recv().await, Some(1));
+    assert_eq!(order.recv().await, Some(2));
 }

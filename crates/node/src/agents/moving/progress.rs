@@ -13,7 +13,10 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant},
 };
-use tokio::{sync::Notify, task::spawn_blocking};
+use tokio::{
+    sync::{Notify, watch},
+    task::spawn_blocking,
+};
 use tokio_util::task::AbortOnDropHandle;
 
 /// Old sources can ask how a move ended after its record was replaced.
@@ -181,11 +184,18 @@ pub(crate) struct Moves {
     /// taking that session's move back waits for that to finish.
     placing: Mutex<HashMap<SessionId, Arc<AsyncMutex<()>>>>,
     /// The take-back of each session's last move that did not happen, which
-    /// the session's next move waits for.
-    cleaning: Mutex<HashMap<SessionId, AbortOnDropHandle<()>>>,
+    /// the session's next move waits for. Moves owns it until it ends.
+    cleaning: Mutex<HashMap<SessionId, Cleaning>>,
     /// Told each time a move ends on this side, which leaves room for one
     /// that found none: a chat moves as many sessions at once.
     pub(super) ended: Notify,
+}
+
+/// A take-back going, and the signal that it ended: the sender lives in the
+/// task, so the receiver reports a change, an error, once it is gone.
+struct Cleaning {
+    task: AbortOnDropHandle<()>,
+    done: watch::Receiver<()>,
 }
 
 /// A session the source ended is served as running while this lives, so a
@@ -233,26 +243,32 @@ impl Moves {
     }
 
     /// Runs `work`, the take-back of `id`'s move, beside the caller, after
-    /// any earlier one of the session.
+    /// any earlier one of the session. The task stays here, whoever waits for it.
     pub(super) fn clean(&self, id: &SessionId, work: impl Future<Output = ()> + Send + 'static) {
         let mut all = lock(&self.cleaning);
-        all.retain(|_, one| !one.is_finished());
+        all.retain(|_, one| !one.task.is_finished());
         let before = all.remove(id);
-        all.insert(
-            id.to_owned(),
-            AbortOnDropHandle::new(tokio::spawn(async move {
-                if let Some(before) = before {
-                    let _ = before.await;
-                }
+        let (ending, done) = watch::channel(());
+        let task = AbortOnDropHandle::new(tokio::spawn(async move {
+            let _ending = ending;
 
-                work.await;
-            })),
-        );
+            if let Some(before) = before {
+                let _ = before.task.await;
+            }
+
+            work.await;
+        }));
+        all.insert(id.to_owned(), Cleaning { task, done });
     }
 
-    /// The take-back of `id`'s last move, still going, for its next move to wait for.
-    pub(super) fn cleaned(&self, id: &SessionId) -> Option<AbortOnDropHandle<()>> {
-        lock(&self.cleaning).remove(id)
+    /// Resolves once the take-back of `id`'s last move, if one is going, has
+    /// ended, for its next move to wait for.
+    pub(super) fn cleaned(&self, id: &SessionId) -> Option<impl Future<Output = ()> + use<>> {
+        let mut done = lock(&self.cleaning).get(id)?.done.clone();
+
+        Some(async move {
+            let _ = done.changed().await;
+        })
     }
 
     /// How the move of `id` stands here, when this machine is part of one.
