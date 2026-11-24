@@ -80,30 +80,6 @@ pub struct DeviceMachine {
     error: Option<String>,
 }
 
-/// A machine that serves `device/1`.
-#[derive(Debug, Serialize)]
-pub struct DeviceHost {
-    machine_id: String,
-    machine_name: String,
-}
-
-/// The machines that are on and serve `device/1`, as last reported; no
-/// machine is asked.
-#[tauri::command]
-pub fn device_hosts(fleet: Machines<'_>) -> Vec<DeviceHost> {
-    let mut hosts: Vec<DeviceHost> = fleet
-        .status()
-        .offering(PROTOCOL)
-        .into_iter()
-        .map(|machine| DeviceHost {
-            machine_id: machine.to_string(),
-            machine_name: fleet.name_of(machine),
-        })
-        .collect();
-    hosts.sort_by(|a, b| a.machine_name.cmp(&b.machine_name));
-    hosts
-}
-
 /// The devices of `machine_id`, or of every machine serving `device/1`,
 /// asked at once.
 #[tauri::command]

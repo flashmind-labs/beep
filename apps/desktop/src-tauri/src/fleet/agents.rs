@@ -34,13 +34,43 @@ use beep_proto::{
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     future::Future,
+    sync::Arc,
     time::{Duration, UNIX_EPOCH},
 };
+use tauri::State;
 use tokio::time::{error::Elapsed, timeout};
+
+/// A machine that can run a coding agent.
+#[derive(Debug, Serialize)]
+pub struct HostRow {
+    #[serde(flatten)]
+    host: AgentHost,
+    /// Its node runs the home assistant.
+    assistant: bool,
+    /// Its node takes part in moving a chat.
+    moves_chats: bool,
+}
+
+/// The machines that can run an agent, without a harness the desktops switched off.
+#[tauri::command]
+pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
+    let hosts = fleet.status().agent_hosts(|agent| fleet.harness_off(agent));
+
+    Ok(hosts
+        .into_iter()
+        .map(|host| HostRow {
+            assistant: runs_assistant(&fleet, &host),
+            moves_chats: fleet
+                .member(&host.machine_id)
+                .is_some_and(|machine| moves_chats(&fleet, machine)),
+            host,
+        })
+        .collect())
+}
 
 /// The most transcript entries one view reads at once.
 const MAX_ENTRIES: u32 = 200;

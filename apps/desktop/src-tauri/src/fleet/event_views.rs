@@ -480,12 +480,12 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             append(
                 &mut views,
                 "agent_hosts",
-                crate::machines::list::agent_hosts(app.state()).await,
+                crate::fleet::agents::agent_hosts(app.state()).await,
             );
             views.extend(View::new(
                 "device_hosts",
                 json!({}),
-                crate::machines::devices::device_hosts(app.state()),
+                crate::machines::list::device_hosts(app.state()),
             ));
         }
         "projects" => {
