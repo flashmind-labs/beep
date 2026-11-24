@@ -342,6 +342,7 @@ impl Tasks {
         let mut taken = false;
         self.list.send_if_modified(|list| {
             if list.len() + self.starting.load(Ordering::SeqCst) < MAX_TASKS {
+                self.starting.fetch_add(1, Ordering::SeqCst);
                 taken = true;
                 return false;
             }
@@ -354,6 +355,7 @@ impl Tasks {
                 return false;
             };
             list.remove(oldest);
+            self.starting.fetch_add(1, Ordering::SeqCst);
             taken = true;
 
             true
@@ -364,8 +366,6 @@ impl Tasks {
                 format!("Background process limit reached ({MAX_TASKS}). Stop a process first.");
             return Err(Reply::Error { message });
         }
-
-        self.starting.fetch_add(1, Ordering::SeqCst);
 
         Ok(Place(self.starting.clone()))
     }

@@ -8,6 +8,15 @@ fn started(reply: Reply) -> TaskId {
     }
 }
 
+/// Ends the tasks of a test on every exit path, a failed assert included.
+struct KillOnDrop(Tasks);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        self.0.kill_all();
+    }
+}
+
 async fn wait_done(tasks: &Tasks, id: TaskId) -> Reply {
     let mut done = tasks.entry(id).expect("the task is kept").done.clone();
     timeout(
@@ -172,6 +181,7 @@ async fn a_task_spawned_after_kill_all_is_killed() {
 #[tokio::test]
 async fn a_start_in_flight_holds_a_place() {
     let tasks = Tasks::default();
+    let _kill = KillOnDrop(tasks.clone());
 
     for _ in 0..MAX_TASKS - 1 {
         started(tasks.start("sleep 300".to_owned(), None).await);
@@ -193,13 +203,13 @@ async fn a_start_in_flight_holds_a_place() {
 
     release_tx.send(()).expect("the spawn waits");
     started(last.await.expect("the start ends"));
-    tasks.kill_all();
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn a_full_set_makes_room_from_the_oldest_finished_task() {
     let tasks = Tasks::default();
+    let _kill = KillOnDrop(tasks.clone());
     let first = started(tasks.start("true".to_owned(), None).await);
     wait_done(&tasks, first).await;
 
@@ -210,5 +220,30 @@ async fn a_full_set_makes_room_from_the_oldest_finished_task() {
     let next = started(tasks.start("sleep 300".to_owned(), None).await);
     assert!(tasks.entry(first).is_none(), "the finished task made room");
     assert!(tasks.entry(next).is_some());
-    tasks.kill_all();
+}
+
+// Starts on several threads race for the last place: one gets it.
+#[test]
+fn two_starts_never_take_the_last_place_together() {
+    for _ in 0..200 {
+        let tasks = Tasks::default();
+        tasks.starting.store(MAX_TASKS - 1, Ordering::SeqCst);
+        let barrier = std::sync::Barrier::new(8);
+        let places: Vec<_> = std::thread::scope(|scope| {
+            let racers: Vec<_> = (0..8)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        tasks.reserve()
+                    })
+                })
+                .collect();
+            racers
+                .into_iter()
+                .filter_map(|racer| racer.join().expect("a racer ends").ok())
+                .collect()
+        });
+
+        assert_eq!(places.len(), 1, "the set took more than its places");
+    }
 }
