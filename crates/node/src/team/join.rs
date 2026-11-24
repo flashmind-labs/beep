@@ -98,7 +98,7 @@ impl TeamLink {
             .forge()
             .login(&ticket.repo)
             .await
-            .map_err(TeamError::Forge)?;
+            .map_err(TeamError::Refused)?;
         let (mesh, devices) =
             self.with(|teams| (teams.home.mesh, teams.home.devices(&ticket.repo)));
         let sent = Sent {
@@ -140,7 +140,7 @@ impl TeamLink {
         self.forge()
             .stamp(&repo, &sha, &proof_context(&nonce))
             .await
-            .map_err(|e| TeamError::Forge(format!("Could not mark the proof on {}: {e}", repo.host)))?;
+            .map_err(|e| TeamError::Refused(format!("Could not mark the proof on {}: {e}", repo.host)))?;
         tx.send(&TeamMsg::Proved {
             nonce: nonce.to_string(),
         })

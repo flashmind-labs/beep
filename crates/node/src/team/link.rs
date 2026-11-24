@@ -112,8 +112,6 @@ pub(crate) enum TeamError {
     NotImported(TeamRepo),
     #[error(transparent)]
     Proof(#[from] ProofError),
-    #[error("{0}")]
-    Forge(String),
     #[error("The team link failed: {0:#}")]
     Link(#[from] anyhow::Error),
 }

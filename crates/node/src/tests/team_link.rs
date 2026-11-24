@@ -450,7 +450,7 @@ async fn a_joiner_the_forge_does_not_let_mark_the_proof_is_refused() {
     let joined = pair.join(pair.secret.clone()).await;
 
     assert!(
-        matches!(&joined, Err(TeamError::Forge(e)) if e.contains("Could not mark the proof")),
+        matches!(&joined, Err(TeamError::Refused(e)) if e.contains("Could not mark the proof")),
         "{joined:?}"
     );
     assert!(pair.inviter_pending().is_empty());
