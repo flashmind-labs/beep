@@ -9,7 +9,10 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
     pin::Pin,
-    sync::{Arc, Mutex, Weak},
+    sync::{
+        Arc, Mutex, Weak,
+        atomic::{AtomicU64, Ordering},
+    },
     task::{Context, Poll},
     time::Duration,
 };
@@ -32,11 +35,18 @@ pub(crate) struct Source {
     /// What the topic resolves to now. Published as soon as it is known,
     /// before the watcher binds it, so a snapshot never waits for the watcher.
     roots: Mutex<BTreeMap<Topic, PathBuf>>,
+    /// Tickets for `resolve`: taken before a lookup starts, and the newest
+    /// one whose answer was stored, so an older lookup never lands over it.
+    issued: AtomicU64,
+    stored: AtomicU64,
     /// Topics whose root came or went, announced once the watcher has bound.
     unannounced: Mutex<BTreeSet<Topic>>,
     /// Held only to compare and swap the bindings.
     watcher: AsyncMutex<Option<FileWatcher>>,
     bare: Mutex<Bare>,
+    /// For a test: the next lookup says it is done, then waits to be released.
+    #[cfg(test)]
+    after_lookup: Mutex<Option<Gate>>,
     _agent_sources: Option<Arc<crate::agents::follow::Sources>>,
     _processes: Option<crate::agents::ProcessDemand>,
 }
@@ -54,9 +64,13 @@ impl Source {
             topic: topic.clone(),
             sender: broadcast::channel(1024).0,
             roots: Mutex::default(),
+            issued: AtomicU64::new(0),
+            stored: AtomicU64::new(0),
             unannounced: Mutex::default(),
             watcher: AsyncMutex::default(),
             bare: Mutex::default(),
+            #[cfg(test)]
+            after_lookup: Mutex::default(),
             _agent_sources: agent_sources,
             _processes: matches!(topic.name(), "processes" | "*")
                 .then(crate::agents::ProcessDemand::new),
@@ -69,10 +83,30 @@ impl Source {
     }
 
     /// Looks up the roots the topic names now and publishes them. Takes no
-    /// lock across the lookups.
+    /// lock across the lookups. Of two overlapping lookups the one that
+    /// started last wins, whichever finishes last.
     async fn resolve(&self, offers: &Offers) -> Result<()> {
+        let ticket = self.issued.fetch_add(1, Ordering::Relaxed) + 1;
         let wanted = super::resolve(offers, std::slice::from_ref(&self.topic)).await?;
-        let previous = std::mem::replace(&mut *crate::lock(&self.roots), wanted.clone());
+        #[cfg(test)]
+        {
+            let gate = crate::lock(&self.after_lookup).take();
+
+            if let Some(gate) = gate {
+                let _ = gate.reached.send(());
+                let _ = gate.release.await;
+            }
+        }
+
+        let mut roots = crate::lock(&self.roots);
+
+        if ticket < self.stored.load(Ordering::Relaxed) {
+            return Ok(());
+        }
+
+        self.stored.store(ticket, Ordering::Relaxed);
+        let previous = std::mem::replace(&mut *roots, wanted.clone());
+        drop(roots);
 
         // A root can appear or disappear while a broad subscription remains
         // active. The watcher announces it once it is bound, which covers
@@ -228,7 +262,7 @@ async fn git_bindings(
         .await
 }
 
-/// Holds the bind of one root, for a test: it says it is there, then waits.
+/// Holds a bind or a lookup, for a test: it says it is there, then waits.
 #[cfg(test)]
 pub(crate) struct Gate {
     pub(crate) root: PathBuf,
@@ -461,3 +495,7 @@ fn source_roots(sources: &[Arc<Source>]) -> BTreeMap<Topic, PathBuf> {
         .flat_map(|source| crate::lock(&source.roots).clone())
         .collect()
 }
+
+#[cfg(test)]
+#[path = "../../tests/link_events_sources.rs"]
+mod tests;
