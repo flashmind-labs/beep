@@ -387,6 +387,9 @@ impl Desk {
             && let Ok(Some(Ok(Value::Sync(reply)))) =
                 timeout(SNAPSHOT_POLL_WAIT, client.snapshot(Read::SyncList)).await
         {
+            // The node pushes: an older direct answer must not be served again.
+            self.hosts.direct_syncs().forget(machine);
+
             return match *reply {
                 Reply::Status { projects } => Some(projects),
                 _ => None,
