@@ -691,7 +691,7 @@ impl Actor {
             return;
         };
 
-        self.alerts.record(Alert {
+        self.node.alerts.record(Alert {
             session,
             agent: self.agent.clone(),
             title,

@@ -7,9 +7,11 @@ fn actor() -> Actor {
     let (live, _) = watch::channel(Live::default());
     Actor {
         live,
-        alerts: Arc::default(),
-        checkouts: Arc::default(),
-        node_stopping: Arc::default(),
+        node: Node {
+            alerts: Arc::default(),
+            checkouts: Arc::default(),
+            stopping: Arc::default(),
+        },
         moving: false,
         agent: "test-agent".into(),
         acp_session: Some(SessionId::new("session-test")),

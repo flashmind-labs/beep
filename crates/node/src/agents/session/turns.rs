@@ -468,7 +468,7 @@ impl Actor {
                 .as_ref()
                 .map_or_else(|| live.info.cwd.clone(), |place| place.folder.clone())
         });
-        let checkouts = self.checkouts.clone();
+        let checkouts = self.node.checkouts.clone();
         self.replies.push(
             async move { Reply::Changed(checkouts.changes(PathBuf::from(folder)).await) }.boxed(),
         );

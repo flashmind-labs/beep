@@ -51,7 +51,7 @@ mod pi;
 mod turns;
 mod v2;
 
-use actor::{Accepting, Actor, Offers, Opening};
+use actor::{Accepting, Actor, Node, Offers, Opening};
 
 pub(super) use actor::joined as standing;
 
@@ -491,9 +491,11 @@ impl Session {
         let history = (kind.name == "claude").then(Default::default);
         let actor = Actor {
             live: live_tx,
-            alerts,
-            checkouts,
-            node_stopping: stopping,
+            node: Node {
+                alerts,
+                checkouts,
+                stopping,
+            },
             moving: false,
             agent: kind.name.clone(),
             acp_session: None,

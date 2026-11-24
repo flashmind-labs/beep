@@ -218,12 +218,19 @@ pub(super) struct Opening {
     pub(super) subagents: bool,
 }
 
-pub(super) struct Actor {
-    pub(super) live: watch::Sender<Live>,
+/// What the session reaches of the node it runs on.
+pub(super) struct Node {
+    /// Where what the user would want to hear about goes.
     pub(super) alerts: Arc<AlertHub>,
+    /// What git says of the folder it works in.
     pub(super) checkouts: Arc<Checkouts>,
     /// Set once the node is stopping.
-    pub(super) node_stopping: Arc<AtomicBool>,
+    pub(super) stopping: Arc<AtomicBool>,
+}
+
+pub(super) struct Actor {
+    pub(super) live: watch::Sender<Live>,
+    pub(super) node: Node,
     /// A move to another machine waits for the turn: queued prompts wait
     /// too.
     pub(super) moving: bool,
@@ -445,7 +452,7 @@ impl Actor {
         // The node stopping ends its sessions, whether it closed them or the
         // service manager stopped the agents first.
         let end = match end {
-            Ok(End::Closed | End::Exited) if self.node_stopping.load(Ordering::Relaxed) => {
+            Ok(End::Closed | End::Exited) if self.node.stopping.load(Ordering::Relaxed) => {
                 Ok(End::NodeStopped)
             }
             end => end,
