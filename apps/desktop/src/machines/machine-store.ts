@@ -33,6 +33,7 @@ export function ensureMachines(): Promise<Machine[]> {
 
 /// Takes `list` after a change this window made, until the push confirms it.
 export function setMachines(list: Machine[]) {
+  generation++;
   MACHINES.list = list;
   MACHINES.failed = false;
 }
