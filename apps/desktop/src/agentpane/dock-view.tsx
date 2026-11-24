@@ -59,12 +59,15 @@ const UNFOLD: Record<Dock, PaneTabActions> = { right: unfold("right"), bottom: u
 /// Dock `dock`: its divider, the pane with its head and views, and its strip while folded.
 export function PaneDock({ dock }: { dock: Dock }) {
   const model = useStore(paneModel, s => s.docks?.[dock] ?? null);
+  const { shown, strip, size } = useStore(paneModel, s => s.places[dock]);
+  const on = useStore(paneModel, s => s.on[dock]);
+  const zoomed = useStore(paneModel, s => s.zoomed === dock);
   const resizing = useStore(paneModel, s => s.resizing === dock);
   const dragging = useStore(paneModel, s => s.drag?.item.id ?? null);
   const divider = useRef<HTMLDivElement>(null);
   // The divider says its orientation once its dock showed.
   const oriented = useRef(false);
-  if (model?.shown) oriented.current = true;
+  if (shown) oriented.current = true;
 
   useLayoutEffect(() => {
     const div = divider.current;
@@ -72,13 +75,13 @@ export function PaneDock({ dock }: { dock: Dock }) {
   }, [dock]);
 
   const bottom = dock === "bottom";
-  const hidden = !model?.shown;
+  const hidden = !shown;
   return <><div ref={divider} className={`agdiv${resizing ? " active" : ""}`} id={`agdiv-${dock}`} data-dock={dock} role="separator" aria-orientation={oriented.current ? bottom ? "horizontal" : "vertical" : undefined} tabIndex={0} title="Drag to resize, double-click to reset" hidden={hidden}
       onDoubleClick={() => resetDivider(dock)} onKeyDown={event => { if (dividerKey(dock, event.key)) { event.preventDefault(); event.stopPropagation(); } }} />
-    <aside ref={paneRefs[dock]} className={`agpane${model?.zoomed ? " zoomed" : ""}`} id={`agpane-${dock}`} data-dock={dock} tabIndex={-1} hidden={hidden} style={model?.size != null ? { flexBasis: `var(--drag-size, ${model.size}px)` } : undefined}
+    <aside ref={paneRefs[dock]} className={`agpane${zoomed ? " zoomed" : ""}`} id={`agpane-${dock}`} data-dock={dock} tabIndex={-1} hidden={hidden} style={size != null ? { flexBasis: `var(--drag-size, ${size}px)` } : undefined}
       onKeyDownCapture={event => {
         if (event.key.toLowerCase() !== "f" || event.nativeEvent.isComposing || !primaryModifier(event)) return;
-        const tab = P.tabs.find(tab => tab.id === model?.on);
+        const tab = P.tabs.find(tab => tab.id === on);
         if (!tab?.text || tab.text.binary || (!tab.edit && tab.preview?.active) || onPhone()) return;
 
         event.preventDefault();
@@ -88,14 +91,14 @@ export function PaneDock({ dock }: { dock: Dock }) {
       }}
       onPointerDownCapture={event => { const pane = event.currentTarget; if (!pane.contains(document.activeElement)) pane.focus({ preventScroll: true }); }}>
       <div className="agpane-content"><div className="agphead">
-        <div className="agtabs" role="tablist">{model && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={ACTIONS[dock]} />}</div>
+        <div className="agtabs" role="tablist">{model && <PaneTabs tabs={model.tabs} selected={on} dragging={dragging} actions={ACTIONS[dock]} />}</div>
         <span className="agwtw" hidden={!model?.worktrees}>{model?.worktrees && <WorktreeMenu {...model.worktrees} />}</span>
         <button className="agpbtn agaddterm" data-pact="term" title="New terminal in this folder (⌃`)" onClick={() => newTerminal(dock)}>+ Terminal</button>
         <button className="agpbtn" data-pact="dock" title={model ? bottom ? "Dock these tabs on the right" : "Dock these tabs at the bottom" : undefined} onClick={() => moveDock(dock)}>{model && <span style={{ display: "contents" }}>{bottom ? DOCK_RIGHT : DOCK_BOTTOM}</span>}</button>
         <button className="agpbtn" data-pact="fold" title="Hide the pane" onClick={() => foldDock(dock, true)}>{model && <span style={{ display: "contents" }}>{bottom ? FOLD_DOWN : FOLD_RIGHT}</span>}</button>
       </div><div className="agpviews">{model?.views.map(view => <PaneView key={view.kind === "tab" ? view.tab.id : view.kind} view={view} />)}</div></div>
     </aside>
-    <div ref={el => { stripRefs[dock].current = el; }} className="agpstrip tabs" id={`agpstrip-${dock}`} data-dock={dock} role="tablist" aria-orientation={bottom ? "horizontal" : "vertical"} hidden={!model?.strip}>{model?.strip && <PaneTabs tabs={model.tabs} selected={model.on} dragging={dragging} actions={UNFOLD[dock]} />}</div></>;
+    <div ref={el => { stripRefs[dock].current = el; }} className="agpstrip tabs" id={`agpstrip-${dock}`} data-dock={dock} role="tablist" aria-orientation={bottom ? "horizontal" : "vertical"} hidden={!strip}>{strip && model && <PaneTabs tabs={model.tabs} selected={on} dragging={dragging} actions={UNFOLD[dock]} />}</div></>;
 }
 
 function PaneView({ view }: { view: DockView }) {

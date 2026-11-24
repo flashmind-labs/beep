@@ -10,7 +10,7 @@ import type { AgentSession } from "../agents/agents.ts";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
 import { hasPreview } from "./html-preview-state.ts";
-import { baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
+import { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS, baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock, withFolded } from "./media-state.ts";
 import { terminalName } from "./files-state.ts";
 import type { ModelView } from "./model3d.ts";
 import type { EditorState } from "@codemirror/state";
@@ -30,7 +30,7 @@ import type { LspLocation } from "./lsp-state.ts";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { draw, flipTab, noteTab, pickPhoneTab, touchTab } from "./media-draw.ts";
-import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
+import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setHidden, setOn, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { onPhone, savedIn } from "../ui/platform.ts";
 import { confirmSheet } from "../ui/menu.tsx";
 
@@ -175,13 +175,7 @@ interface PaneSession extends Partial<Pick<AgentSession, "assistant" | "reviewer
   project?: string;
 }
 
-export const SUBS = "subagents";
-export const FILES = "files";
-export const CHANGES = "changes";
-export const ARTS = "artifacts";
-export const RUNNING = "running";
-export const DEVICE = "device";
-export const AGENTS = "agents";
+export { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS };
 const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
 /// How far a tab moves under the pointer before it drags.
 export const DRAG_START = 5;
@@ -189,25 +183,16 @@ export const DRAG_START = 5;
 export const P = {
   session: null as PaneSession | null,
   tabs: [] as MediaTab[],
-  /// The tab on screen in each dock: a tab's id, `FILES`, `ARTS` or `SUBS`.
-  on: { right: FILES, bottom: FILES } as Record<Dock, string>,
   /// The subagents' rows and how many, as the log last drew them.
   subs: [] as SubagentRow[],
   subCount: 0,
-  layout: loadLayout(),
   /// Tabs moved to a dock whose move is not kept (a picture by its data URL).
   moved: new Map<string, Dock>(),
   watch: null as ResizeObserver | null,
   /// A tab drag just ended: the click that follows it does nothing.
   dragged: false,
-  /// The dock zoomed over the whole session by ⇧esc, remembered per session.
-  zoom: null as Dock | null,
-  /// The wide layout's fold of the right pane while a narrow window keeps it folded.
-  wideFolded: null as boolean | null,
   /// The user opened a tab while Assistant's right pane was hidden for lack of content.
   rightRequested: false,
-  /// The session drew on a phone, which shows the conversation first.
-  phoneShown: false,
 };
 
 function savedPane(key: string): unknown {
@@ -220,19 +205,14 @@ export function startPane(s: PaneSession) {
   closePaneTabs();
   P.session = s;
   paneReleased = true;
-  P.on = { right: FILES, bottom: FILES };
   const key = viewKey(s.machine_id, s.id);
   const saved = savedPane(key);
-  P.layout = loadLayout();
-  if (saved && typeof saved === "object" && "layout" in saved) P.layout = readLayout(JSON.stringify(saved.layout));
-  foldInBar();
+  const layout = saved && typeof saved === "object" && "layout" in saved ? readLayout(JSON.stringify(saved.layout)) : loadLayout();
+  paneModel.setState({ on: { right: FILES, bottom: FILES }, layout: inBar(layout), zoom: null, wideFolded: null, phoneShown: false });
   P.subs = [];
   P.subCount = 0;
   P.moved.clear();
-  P.zoom = null;
-  P.wideFolded = null;
   P.rightRequested = false;
-  P.phoneShown = false;
   const el = shell();
   if (!el) return;
   P.watch?.disconnect();
@@ -263,23 +243,22 @@ export function startPane(s: PaneSession) {
     if ("on" in saved && saved.on && typeof saved.on === "object") {
       for (const dock of DOCKS) if (dock in saved.on) {
         const id: unknown = Reflect.get(saved.on, dock);
-        if (typeof id === "string" && tabIds().includes(id)) P.on[dock] = id;
+        if (typeof id === "string" && tabIds().includes(id)) setOn(dock, id);
       }
     }
-    if ("layout" in saved) P.layout = readLayout(JSON.stringify(saved.layout));
-    foldInBar();
-    if ("zoom" in saved && (saved.zoom === "right" || saved.zoom === "bottom")) P.zoom = saved.zoom;
+    if ("layout" in saved) paneModel.setState({ layout: inBar(readLayout(JSON.stringify(saved.layout))) });
+    if ("zoom" in saved && (saved.zoom === "right" || saved.zoom === "bottom")) paneModel.setState({ zoom: saved.zoom });
   }
   // Each tab reopened above took the phone's screen; a session still opens on its chat.
-  P.phoneShown = false;
+  paneModel.setState({ phoneShown: false });
   draw();
   paneReleased = false;
   rememberPane();
 }
 
 /// The bar opens a session with its docks folded, the conversation first.
-function foldInBar() {
-  if (!PANE) P.layout.hidden = { right: true, bottom: true };
+function inBar(layout: PaneLayout): PaneLayout {
+  return PANE ? layout : { ...layout, hidden: { right: true, bottom: true } };
 }
 
 /// The pane's session changes with its frame as it is: the empty view's place
@@ -357,9 +336,9 @@ function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Parti
 /// it beside the conversation stays shown once the window is wide, as when an assistant chat's
 /// list steps aside for it; one hidden there leaves the wide layout's choice as it was.
 export function setFolded(d: Dock, folded: boolean) {
-  P.layout.hidden[d] = folded;
+  setHidden(d, folded);
   if (d === "right" && folded) P.rightRequested = false;
-  if (d === "right" && !folded && P.wideFolded !== null) P.wideFolded = false;
+  if (d === "right" && !folded && paneModel.getState().wideFolded !== null) paneModel.setState({ wideFolded: false });
 }
 
 /// Shows tab `id`, unfolding its dock, and gives the pane the keys.
@@ -368,7 +347,7 @@ export function focusTab(id: string) {
   leaveLog();
   setFolded(d, false);
   saveLayout();
-  P.on[d] = id;
+  setOn(d, id);
   rememberPane();
   draw();
   paneOf(d)?.focus({ preventScroll: true });
@@ -387,7 +366,7 @@ export function showPaneTab(n: number) {
   if (!id || !shell()) return false;
   const d = dockOf(id);
   setFolded(d, false);
-  if (P.zoom) P.zoom = d;
+  if (paneModel.getState().zoom) paneModel.setState({ zoom: d });
   saveLayout();
   showTab(d, id);
   return true;
@@ -555,11 +534,12 @@ export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name
   const name = terminalName(root, terms.map(t => t.name));
   const id = `term:${name}`;
   const newest = terms.at(-1);
-  const to = d ? d : newest ? tabDock(P.layout, newest.id) : tabDock(P.layout, id);
-  if (to !== tabDock(P.layout, id)) P.layout = moveTab(P.layout, id, to);
+  const { layout } = paneModel.getState();
+  const to = d ? d : newest ? tabDock(layout, newest.id) : tabDock(layout, id);
+  if (to !== tabDock(layout, id)) paneModel.setState({ layout: moveTab(layout, id, to) });
   const at = like ?? { machine_id: s.machine_id, machine_name: s.machine_name, cwd: root, project: s.project ?? "" };
   open({ id, kind: "term", name, path: null, url: null, at, error: at.machine_id ? "" : "No machine has a checkout of this project to open a terminal in." });
-  if (zoom) { P.zoom = dockOf(id); place(); }
+  if (zoom) { paneModel.setState({ zoom: dockOf(id) }); place(); }
 }
 
 /// ⌘N with a terminal tab on screen: a new one on its machine, in its folder,
@@ -567,7 +547,7 @@ export function newTerminal(d?: Dock, zoom = false, like?: Omit<TermPlace, "name
 export function newTerminalLike() {
   if (!shell()) return false;
   const shown = shownDocks().flatMap(d => {
-    const tab = P.tabs.find(t => t.id === P.on[d] && t.kind === "term");
+    const tab = P.tabs.find(t => t.id === paneModel.getState().on[d] && t.kind === "term");
     const at = tab && (tab.term?.row ?? tab.existing ?? tab.at);
     return at ? [{ dock: d, machine_id: at.machine_id, machine_name: at.machine_name, cwd: at.cwd, project: at.project, focused: !!tab.term?.screen.focused() }] : [];
   });
@@ -610,10 +590,10 @@ export function closeTab(id: string) {
   P.moved.delete(id);
 
   // The neighbour in the same dock shows next.
-  if (P.on[d] === id) {
+  if (paneModel.getState().on[d] === id) {
     const left = docked()[d];
     const source = tab.exported?.source.tab;
-    P.on[d] = source && left.includes(source) ? source : P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES;
+    setOn(d, source && left.includes(source) ? source : P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES);
   }
 
   rememberPane();
@@ -645,7 +625,7 @@ export async function stopTerminalTab(tab: MediaTab) {
 /// focused or that tab stays, as Files does. A terminal's tab ends the terminal.
 export function closeFocusedTab() {
   const d = dockHolding(document.activeElement);
-  const tab = d && P.tabs.find(t => t.id === P.on[d]);
+  const tab = d && P.tabs.find(t => t.id === paneModel.getState().on[d]);
   if (!d || !tab) return false;
   closeTab(tab.id);
   paneOf(d)?.focus({ preventScroll: true });
@@ -674,10 +654,10 @@ export function openSessionBeside(s: SplitSession, dock: Dock = "right") {
     player: null, playerAt: 0, splitSession: s,
   };
   P.tabs.push(tab);
-  if (dock === "bottom") { P.layout = moveTab(P.layout, id, "bottom"); P.moved.set(id, "bottom"); }
+  if (dock === "bottom") { paneModel.setState(s => ({ layout: moveTab(s.layout, id, "bottom") })); P.moved.set(id, "bottom"); }
   const d = dockOf(id);
   setFolded(d, false);
-  P.on[d] = id;
+  setOn(d, id);
   saveLayout();
   draw();
 }
@@ -687,7 +667,7 @@ export function showFiles() {
   const d = dockOf(FILES);
   leaveLog();
   requestRightPane(d);
-  P.on[d] = FILES;
+  setOn(d, FILES);
   setFolded(d, false);
   draw();
 }
@@ -715,7 +695,7 @@ export function showDevice() {
   requestRightPane(d);
   setFolded(d, false);
   saveLayout();
-  P.on[d] = DEVICE;
+  setOn(d, DEVICE);
   rememberPane();
   if (!flipTab(d)) draw();
 }
@@ -728,7 +708,7 @@ export function showArtifact(path?: string) {
   const d = dockOf(ARTS);
   leaveLog();
   requestRightPane(d);
-  P.on[d] = ARTS;
+  setOn(d, ARTS);
   setFolded(d, false);
   saveLayout();
   draw();
@@ -741,13 +721,13 @@ export function showArtifact(path?: string) {
 export function showChanges(zoomed = true) {
   if (!shell()) return;
   const d = dockOf(CHANGES);
-  P.on[d] = CHANGES;
+  setOn(d, CHANGES);
   setFolded(d, false);
   setPaneModel({ log: false });
   draw();
 
   if (zoomed) {
-    P.zoom = d;
+    paneModel.setState({ zoom: d });
     place();
     focusChanges();
   }
@@ -759,8 +739,8 @@ export function showChanges(zoomed = true) {
 /// conversation's input takes the keys. False when no pane has them.
 export function leavePane() {
   const focus = document.activeElement;
-  if (!P.zoom && !dockHolding(focus)) return false;
-  P.zoom = null;
+  if (!paneModel.getState().zoom && !dockHolding(focus)) return false;
+  paneModel.setState({ zoom: null });
   place();
   rememberPane();
   const input = shownMessage();
@@ -770,15 +750,15 @@ export function leavePane() {
 
 export function showTab(d: Dock, id: string) {
   requestRightPane(d);
-  P.on[d] = id;
+  setOn(d, id);
   rememberPane();
   if (!flipTab(d)) draw();
   paneOf(d)?.focus({ preventScroll: true });
 }
 
 function requestRightPane(d: Dock) {
-  const right = paneModel.getState().docks?.right;
-  if (d === "right" && right && !right.shown && !right.strip && desktopChatPane()) P.rightRequested = true;
+  const { docks, places } = paneModel.getState();
+  if (d === "right" && docks && !places.right.shown && !places.right.strip && desktopChatPane()) P.rightRequested = true;
 }
 
 /// Files and Changes read the folder of session `s`.
@@ -794,7 +774,7 @@ export function rememberPane() {
   const key = viewKey(P.session.machine_id, P.session.id);
   const pending = P.tabs.filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
   if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  writeView(windowPreferenceKey(key), { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed && !t.exported).map(savedTab) });
+  writeView(windowPreferenceKey(key), { on: paneModel.getState().on, layout: keptLayout(), zoom: paneModel.getState().zoom, tabs: P.tabs.filter(t => !t.closed && !t.exported).map(savedTab) });
 }
 
 function savedTab(t: MediaTab) {
@@ -851,7 +831,8 @@ function loadLayout(): PaneLayout {
 
 /// The layout to keep: a narrow window's fold of the right pane is not kept.
 function keptLayout(): PaneLayout {
-  return P.wideFolded === null ? P.layout : { ...P.layout, hidden: { ...P.layout.hidden, right: P.wideFolded } };
+  const { layout, wideFolded } = paneModel.getState();
+  return wideFolded === null ? layout : withFolded(layout, "right", wideFolded);
 }
 
 export function saveLayout() {

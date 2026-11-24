@@ -5,7 +5,7 @@ import type { SubagentRow } from "./subagents-view.tsx";
 import { chatAgentsCount } from "./chat-agents.tsx";
 import type { PaneTabItem } from "./tabs-view.tsx";
 import { hasPreview } from "./html-preview-state.ts";
-import { type Dock, DOCKS } from "./media-state.ts";
+import { type Dock, DOCKS, AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS } from "./media-state.ts";
 import type { Artifact } from "./artifacts-state.ts";
 import { artifactCount, artifactsTab, setArtifacts } from "./artifacts.ts";
 import { changesTab } from "./changes.ts";
@@ -21,8 +21,8 @@ import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { sessionsRead } from "../agents/sessions.ts";
-import { type TabKind, AGENTS, ARTS, CHANGES, setFolded, closeTab, FILES, P, previewTab, RUNNING, DEVICE, saveFile, saveLayout, saveWorkFile, showTab, SUBS, type MediaTab, focusTab } from "./media.ts";
-import { type DockModel, type DockView, chatPane, desktopChatPane, docked, foldNarrow, paneModel, paneOf, place, setPaneModel, shell } from "./media-layout.ts";
+import { type TabKind, setFolded, closeTab, P, previewTab, saveFile, saveLayout, saveWorkFile, showTab, type MediaTab, focusTab } from "./media.ts";
+import { type DockModel, type DockView, chatPane, desktopChatPane, docked, foldNarrow, paneModel, paneOf, place, setOn, setPaneModel, shell } from "./media-layout.ts";
 
 // ----- Tabs -----
 
@@ -63,11 +63,11 @@ sessionsRead.add(() => {
   if (shell() && desktopChatPane()) draw();
 });
 
-/// Shows the tab now in `P.on[d]` when nothing else changed: dock `d`'s views flip and
+/// Shows the tab now on screen in dock `d` when nothing else changed: dock `d`'s views flip and
 /// it draws again alone, without laying the docks out. False when the docks need `draw`.
 export function flipTab(d: Dock) {
-  const { docks, phone } = paneModel.getState();
-  if (drag?.ghost || phone || !docks?.[d].shown || DOCKS.some(x => docks[x].zoomed !== (P.zoom === x))) return false;
+  const { docks, places, phone, zoom, zoomed } = paneModel.getState();
+  if (drag?.ghost || phone || !docks || !places[d].shown || zoomed !== zoom) return false;
   const ids = docked()[d];
   if (ids.length !== docks[d].tabs.length || ids.some((id, i) => docks[d].tabs[i].id !== id)) return false;
   syncDock(d, ids);
@@ -88,9 +88,9 @@ function publish(split: Record<Dock, string[]>) {
   // The center window's phone layout, which center/mobile.ts marks on the body.
   const phone = shell() && document.body.classList.contains("mobile") ? phoneTabs(split.bottom) : null;
   // On a phone the session first shows the conversation.
-  if (phone && !P.phoneShown) { P.phoneShown = true; setPaneModel({ log: true }); }
-  const log = paneModel.getState().log;
-  place({ right: dockModel("right", split.right), bottom: dockModel("bottom", split.bottom) }, { phone: phone && { tabs: phone, selected: log ? "log" : P.on.bottom } });
+  if (phone && !paneModel.getState().phoneShown) paneModel.setState({ phoneShown: true, log: true });
+  const { log, on } = paneModel.getState();
+  place({ right: dockModel("right", split.right), bottom: dockModel("bottom", split.bottom) }, { phone: phone && { tabs: phone, selected: log ? "log" : on.bottom } });
 }
 
 /// On a phone the session shows one pane at a time: Chat, the conversation, or one of the
@@ -101,8 +101,8 @@ function phoneTabs(ids: string[]) {
 
 /// A tab picked in the phone's strip.
 export function pickPhoneTab(id: string) {
-  setPaneModel({ log: id === "log" });
-  if (id !== "log") P.on.bottom = id;
+  paneModel.setState({ log: id === "log" });
+  if (id !== "log") setOn("bottom", id);
   draw();
 }
 
@@ -115,7 +115,7 @@ export function paneTabItem(id: string): PaneTabItem {
 
 /// What dock `d` with tabs `ids` shows.
 function dockModel(d: Dock, ids: string[]): DockModel {
-  const on = P.on[d];
+  const { layout } = paneModel.getState(), on = paneModel.getState().on[d];
   const has = (id: string) => ids.includes(id);
   const views: DockView[] = [
     ...(has(FILES) ? [{ kind: "files" as const, hidden: on !== FILES }] : []),
@@ -125,13 +125,11 @@ function dockModel(d: Dock, ids: string[]): DockModel {
     ...(has(SUBS) ? [{ kind: "subagents" as const, hidden: on !== SUBS }] : []),
     ...(has(AGENTS) ? [{ kind: "agents" as const, hidden: on !== AGENTS }] : []),
     // A folded dock hides the device too, which stops its stream.
-    ...(has(DEVICE) ? [{ kind: "device" as const, hidden: on !== DEVICE || P.layout.hidden[d] }] : []),
+    ...(has(DEVICE) ? [{ kind: "device" as const, hidden: on !== DEVICE || layout.hidden[d] }] : []),
     ...P.tabs.filter(t => has(t.id)).map(t => ({ kind: "tab" as const, tab: t, rev: t.rev, hidden: t.id !== on })),
   ];
-  const before = paneModel.getState().docks?.[d];
   return {
-    tabs: ids.map(paneTabItem), on, views,
-    shown: before?.shown ?? false, strip: before?.strip ?? false, size: before?.size ?? null, zoomed: before?.zoomed ?? false,
+    tabs: ids.map(paneTabItem), views,
     worktrees: on === FILES || on === CHANGES ? worktreeMenu() : null,
   };
 }
@@ -142,8 +140,8 @@ let changesMade = false;
 /// Brings the views of dock `d`, with tabs `ids`, up to date with what it shows.
 function syncDock(d: Dock, ids: string[]) {
   // The tab on screen went: the newest one here.
-  if (!ids.includes(P.on[d])) P.on[d] = ids.at(-1) ?? FILES;
-  const on = P.on[d], folded = P.layout.hidden[d];
+  if (!ids.includes(paneModel.getState().on[d])) setOn(d, ids.at(-1) ?? FILES);
+  const { on: shownTabs, layout } = paneModel.getState(), on = shownTabs[d], folded = layout.hidden[d];
   if (ids.includes(FILES)) filesTab(on === FILES, on === FILES && !folded);
   // The Changes view is made the first time it shows, as it runs git; shown
   // again, it reads only when the folder changed.
@@ -165,7 +163,8 @@ function syncDock(d: Dock, ids: string[]) {
       // A refresh must not take the keys back from the conversation.
       // Check now, since focus may have changed while this frame waited.
       const pane = paneOf(d);
-      if (t.id === P.on[d] && !P.layout.hidden[d] && pane && (document.activeElement === pane || t.term?.screen.focused())) t.term?.screen.focus();
+      const now = paneModel.getState();
+      if (t.id === now.on[d] && !now.layout.hidden[d] && pane && (document.activeElement === pane || t.term?.screen.focused())) t.term?.screen.focus();
     });
   }
 }
@@ -264,13 +263,12 @@ export function pickTab(d: Dock, id: string) {
 
 /// This dock's tabs go to the other, which shows the one on screen here.
 export function moveDock(d: Dock) {
-  const to: Dock = d === "right" ? "bottom" : "right", on = P.on[d];
+  const to: Dock = d === "right" ? "bottom" : "right", on = paneModel.getState().on[d];
   // Moving the whole pane also places tabs that only appear in other sessions.
-  P.layout.dock = to;
-  P.layout.tabs = {};
+  paneModel.setState(s => ({ layout: { ...s.layout, dock: to, tabs: {} } }));
   P.moved.clear();
   setFolded(to, false);
-  P.on[to] = on;
+  setOn(to, on);
   saveLayout();
   draw();
 }

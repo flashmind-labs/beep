@@ -5,7 +5,7 @@ import { createRef } from "react";
 import { type Box, type Dock, DOCKS, dropDock, moveTab, paneSize, SIDE_BY_SIDE_MIN } from "./media-state.ts";
 import { DRAG_START, P, saveLayout } from "./media.ts";
 import { draw, paneTabItem } from "./media-draw.ts";
-import { shell, main, paneOf, dockOf, paneModel, setPaneModel, stripRefs } from "./media-layout.ts";
+import { shell, main, paneOf, dockOf, paneModel, setOn, setPaneModel, stripRefs } from "./media-layout.ts";
 
 /// Where a tab drag stands: the tab, where the pointer went down, whether it
 /// moved far enough to drag, and the dock it would drop in.
@@ -42,7 +42,7 @@ function tabMove(e: PointerEvent) {
   if (!d.ghost) {
     if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_START) return;
     d.ghost = true;
-    setPaneModel({ drag: { item: paneTabItem(d.id), selected: P.on[dockOf(d.id)] === d.id, to: null, zone: null } });
+    setPaneModel({ drag: { item: paneTabItem(d.id), selected: paneModel.getState().on[dockOf(d.id)] === d.id, to: null, zone: null } });
     document.addEventListener("keydown", dragKey, true);
   }
 
@@ -60,19 +60,19 @@ function tabMove(e: PointerEvent) {
 /// Shows where a dragged tab would go: over that dock, or where it would
 /// open.
 function showDropZone(to: Dock | null) {
-  const now = paneModel.getState().drag, el = shell(), box = main();
+  const now = paneModel.getState().drag, { layout } = paneModel.getState(), el = shell(), box = main();
   if (!now || now.to === to || !el || !box) return;
   if (!to) { setPaneModel({ drag: { ...now, to: null, zone: null } }); return; }
   const s = el.getBoundingClientRect();
   const pane = paneOf(to);
   let r: Box;
 
-  if (pane && paneModel.getState().docks?.[to].shown) r = (pane.firstElementChild ?? pane).getBoundingClientRect();
+  if (pane && paneModel.getState().places[to].shown) r = (pane.firstElementChild ?? pane).getBoundingClientRect();
   else if (to === "right") {
-    const w = paneSize("right", P.layout.right, s.width);
+    const w = paneSize("right", layout.right, s.width);
     r = { left: s.right - w, top: s.top, width: w, height: s.height };
   } else {
-    const m = box.getBoundingClientRect(), hgt = paneSize("bottom", P.layout.bottom, m.height);
+    const m = box.getBoundingClientRect(), hgt = paneSize("bottom", layout.bottom, m.height);
     r = { left: m.left, top: m.bottom - hgt, width: m.width, height: hgt };
   }
 
@@ -116,9 +116,9 @@ function endDrag() {
 /// Moves tab `id` to dock `to`, on screen there. Its view moves with it,
 /// so a terminal keeps its shell and screen.
 function moveTo(id: string, to: Dock) {
-  P.layout = moveTab(P.layout, id, to);
+  paneModel.setState(s => ({ layout: moveTab(s.layout, id, to) }));
   if (id.startsWith("data:")) P.moved.set(id, to);
   saveLayout();
-  P.on[to] = id;
+  setOn(to, id);
   draw();
 }

@@ -13,7 +13,7 @@ import { isHtmlFile } from "./html-preview-state.ts";
 import { type MediaTab, type TreeText, P } from "./media.ts";
 import { touchTab } from "./media-draw.ts";
 import { resolvePath } from "./media-state.ts";
-import { dockOf } from "./media-layout.ts";
+import { dockOf, paneModel } from "./media-layout.ts";
 import { load } from "./read.ts";
 import { type Followed, type Stamp, followedAt, folderStamp, hashedStamp, listedSize, nextStamp, splitPath, textStamp } from "./reload-state.ts";
 import { refreshPreview, takeText } from "./text-view.tsx";
@@ -100,7 +100,7 @@ function followed(): Follow[] {
 
   const tabs = P.tabs.flatMap((t): Follow[] => {
     if (t.error) return [];
-    const shown = !t.viewHidden && !P.layout.hidden[dockOf(t.id)];
+    const shown = !t.viewHidden && !paneModel.getState().layout.hidden[dockOf(t.id)];
 
     if (t.kind === "text" && t.rel) {
       const root = t.root ?? s.cwd, path = t.rel;

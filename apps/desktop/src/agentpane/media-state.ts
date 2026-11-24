@@ -93,6 +93,15 @@ function normalize(path: string) {
 
 // ----- Where the pane sits -----
 
+/// The ids of the pane's fixed tabs.
+export const SUBS = "subagents";
+export const FILES = "files";
+export const CHANGES = "changes";
+export const ARTS = "artifacts";
+export const RUNNING = "running";
+export const DEVICE = "device";
+export const AGENTS = "agents";
+
 export type Dock = "right" | "bottom";
 
 export const DOCKS: readonly Dock[] = ["right", "bottom"];
@@ -156,6 +165,11 @@ export function readLayout(raw: string | null): PaneLayout {
 
 function copyLayout(l: PaneLayout): PaneLayout {
   return { ...l, hidden: { ...l.hidden }, tabs: { ...l.tabs } };
+}
+
+/// `l` with dock `d` folded or shown.
+export function withFolded(l: PaneLayout, d: Dock, folded: boolean): PaneLayout {
+  return { ...l, hidden: { ...l.hidden, [d]: folded } };
 }
 
 /// The dock tab `id` sits in, before the window's width has a say.

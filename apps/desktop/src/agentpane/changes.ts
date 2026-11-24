@@ -125,7 +125,7 @@ function make(key: string) {
   const view = diffView({
     owner,
     uncommitted: true,
-    zoom: { zoomed: () => !!paneModel.getState().docks?.[dockOf(CHANGES)].zoomed, subscribe: paneModel.subscribe, enter: () => showChanges() },
+    zoom: { zoomed: () => paneModel.getState().zoomed === dockOf(CHANGES), subscribe: paneModel.subscribe, enter: () => showChanges() },
     load: async (only, lockfiles, uncommitted, context) => {
       const full = !only.length;
 
