@@ -126,6 +126,11 @@ impl DiffParser {
         }
     }
 
+    /// The bytes of text one file keeps.
+    pub(super) fn file_bytes(&self) -> usize {
+        self.caps.file_bytes
+    }
+
     /// One line of `git diff` output, its `\n` taken off. A `\r` before
     /// it is part of a changed line in a file with CRLF endings, and goes.
     pub(super) fn line(&mut self, raw: &str) {

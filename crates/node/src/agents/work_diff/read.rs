@@ -1,6 +1,6 @@
 //! The git side of the diff: runs git in a checkout and reads what it says.
 
-use super::{Caps, DiffParser};
+use super::DiffParser;
 use crate::files::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::{MAX_DIFF_FILES, WorkDiff, node::agent::DiffAsk};
@@ -62,7 +62,7 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
         }
     };
     let from = merge_base.as_deref().unwrap_or(EMPTY_TREE);
-    let (mut parser, caps) = super::parser(ask);
+    let mut parser = super::parser(ask);
     let context = format!("--unified={}", super::context(ask));
     let mut args = vec![
         "-c",
@@ -90,7 +90,7 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
     stream_git(&dir, &args, index_path, |line| parser.line(line))?;
 
     if working_tree && index.is_none() {
-        add_untracked(&dir, &mut parser, caps)?;
+        add_untracked(&dir, &mut parser)?;
     }
 
     let parsed = parser.finish();
@@ -234,7 +234,7 @@ fn untracked_index(dir: &Path) -> Option<UntrackedIndex> {
 }
 
 /// Adds the files git does not track and does not ignore, as added files.
-fn add_untracked(dir: &Path, parser: &mut DiffParser, caps: Caps) -> Result<()> {
+fn add_untracked(dir: &Path, parser: &mut DiffParser) -> Result<()> {
     let list = git(dir, &["ls-files", "--others", "--exclude-standard", "-z"])?;
 
     for rel in list
@@ -242,7 +242,7 @@ fn add_untracked(dir: &Path, parser: &mut DiffParser, caps: Caps) -> Result<()> 
         .filter(|rel| !rel.is_empty())
         .take(MAX_DIFF_FILES + 1)
     {
-        let Some(text) = untracked_text(dir, rel, caps.file_bytes)? else {
+        let Some(text) = untracked_text(dir, rel, parser.file_bytes())? else {
             continue;
         };
 

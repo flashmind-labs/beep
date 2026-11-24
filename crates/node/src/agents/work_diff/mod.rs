@@ -44,20 +44,19 @@ fn patch_caps(shown: bool) -> Caps {
     }
 }
 
-/// A parser for the files `ask` wants, and the limits it keeps to.
-fn parser(ask: &DiffAsk) -> (DiffParser, Caps) {
+/// A parser for the files `ask` wants, with the limits it keeps to.
+fn parser(ask: &DiffAsk) -> DiffParser {
     let shown = !ask.only.is_empty();
-    let caps = patch_caps(shown);
     let keep = Keep {
         only: ask.only.iter().cloned().collect(),
         lockfiles: ask.lockfiles || shown,
     };
-    (DiffParser::new(caps, keep), caps)
+    DiffParser::new(patch_caps(shown), keep)
 }
 
 /// Parses a complete Git patch with the same limits as a live worktree diff.
 pub fn parse_git_patch(ask: &DiffAsk, text: &str) -> WorkDiff {
-    let (mut parser, _) = parser(ask);
+    let mut parser = parser(ask);
 
     for line in text.lines() {
         parser.line(line);
