@@ -144,7 +144,12 @@ impl Provision {
     }
 
     async fn check_loop(&self) {
-        let releases = beep_mesh::machine::releases::ToolReleases::default();
+        // One lookup table per tool: a table holds its lock across the
+        // lookup, so a shared one would run the tools' lookups in turn.
+        let releases: Vec<_> = Tool::ALL
+            .into_iter()
+            .map(|tool| (tool, beep_mesh::machine::releases::ToolReleases::default()))
+            .collect();
         let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         interval.tick().await;
@@ -152,28 +157,30 @@ impl Provision {
         loop {
             let (installed, _) =
                 crate::machine::env::probe_tools(crate::machine::env::ToolScope::Updatable).await;
-            let mut updates = Vec::new();
-
-            for tool in Tool::ALL {
+            // Each tool's latest release is looked up together, then published once.
+            let lookups = releases.iter().filter_map(|(tool, releases)| {
+                let tool = *tool;
                 let name: &str = tool.into();
-                let Some(version) = installed
+                let version = installed
                     .iter()
                     .find(|item| item.name == name)
-                    .and_then(|item| item.version.as_ref())
-                else {
-                    continue;
-                };
+                    .and_then(|item| item.version.clone())?;
 
-                if let Some(latest) = releases.latest(tool).await
-                    && beep_proto::node::harness::is_newer(&latest, version)
-                {
-                    updates.push(Available {
+                Some(async move {
+                    let latest = releases.latest(tool).await?;
+
+                    beep_proto::node::harness::is_newer(&latest, &version).then_some(Available {
                         tool,
-                        version: version.clone(),
+                        version,
                         latest,
-                    });
-                }
-            }
+                    })
+                })
+            });
+            let updates: Vec<_> = futures::future::join_all(lookups)
+                .await
+                .into_iter()
+                .flatten()
+                .collect();
 
             self.updates.send_replace(Some(updates));
             tokio::select! {
