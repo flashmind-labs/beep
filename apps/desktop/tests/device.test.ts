@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, rotatedSize, keyInput, maxSide, missingLine, pickValue, queueInput,
-  keptPick, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, touchPoint, commandName, deviceCall, followedDevice, targetPick,
+  keptPick, readAnnounced, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, touchPoint, commandName, deviceCall, followedDevice, targetPick,
 } from "../src/agentpane/device-state.ts";
 
 const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null, phone: false });
@@ -193,4 +193,12 @@ test("video chunks preserve native bytes and reject invalid rotation and size", 
 test("quarter turns swap the displayed video dimensions", () => {
   assert.deepEqual(rotatedSize({ width: 100, height: 200 }, 1), { width: 200, height: 100 });
   assert.deepEqual(rotatedSize({ width: 100, height: 200 }, 2), { width: 100, height: 200 });
+});
+
+test("a node's pushed devices read as its list, and the error of a node without the topic as refused", () => {
+  const pushed = readAnnounced({ Devices: [{ id: "p", name: "Pixel", platform: "Android", state: "On", os: null, phone: true }, { id: "q" }] });
+  assert.deepEqual(pushed, [{ id: "p", name: "Pixel", platform: "Android", state: "On", os: null, phone: true }]);
+  assert.equal(readAnnounced({ error: "no state has been published for this topic" }), "refused");
+  assert.equal(readAnnounced({ Terminals: [] }), null);
+  assert.equal(readAnnounced(null), null);
 });

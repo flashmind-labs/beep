@@ -276,6 +276,14 @@ function readDevice(value: unknown): Device[] {
   return [{ id: value.id, name: value.name, platform, state, os: typeof value.os === "string" ? value.os : null, phone: value.phone === true }];
 }
 
+/// What a node's `devices` topic pushed: its devices as one machine's list, or null for an update
+/// that holds none. A node that predates the topic answers an error instead, which is `"refused"`.
+export function readAnnounced(data: unknown): Device[] | "refused" | null {
+  if (!isRecord(data)) return null;
+  if (typeof data.error === "string") return "refused";
+  return Array.isArray(data.Devices) ? data.Devices.flatMap(readDevice) : null;
+}
+
 /// `device_hosts`' answer, checked.
 export function readHosts(value: unknown): DeviceHost[] {
   if (!Array.isArray(value)) return [];

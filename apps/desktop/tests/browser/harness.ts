@@ -45,8 +45,8 @@ interface NavigationHarness {
   respond(command: string, value: unknown): void;
   /// An update on `topic`, carrying `views` the way a topic push carries its values.
   notify(topic: string, views?: { command: string; value: unknown }[]): void;
-  /// One event on exactly `topic`, at `revision` or the next one.
-  publish(topic: string, revision: number | null): void;
+  /// One event on exactly `topic`, at `revision` or the next one, carrying `data` from `machine` when given.
+  publish(topic: string, revision: number | null, data?: unknown, machine?: string): void;
   emit(name: string, payload: unknown): void;
   hold(command: string): void;
   holdNext(command: string): void;
@@ -181,7 +181,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   /// The views each topic's push carries (fleet/event_views.rs).
   const pushedViews: Record<string, string[]> = {
     home: ["center_home", "agent_sessions"],
-    machines: ["list_machines", "mac_control", "agent_hosts", "device_hosts"],
+    machines: ["list_machines", "mac_control", "updatable_machines", "agent_hosts", "device_hosts"],
+    tools: ["tool_updates"],
     projects: ["projects_on_top", "project_groups"],
     sync: ["project_sync"], usage: ["usage_get"], accounts: ["agent_accounts"], forge: ["git_items"],
   };
@@ -323,8 +324,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
       const event: MeshEvent = { machine_id: data.project.machine_id, topic: `${topic}.*`, revision: ++revision, initial: false, ...(sent.length ? { data: { views: sent } } : {}) };
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === event.topic)) reader.channel.onmessage(event);
     },
-    publish(topic, at) {
-      const event: MeshEvent = { machine_id: data.project.machine_id, topic, revision: at ?? ++revision, initial: false };
+    publish(topic, at, payload, machine) {
+      const event: MeshEvent = { machine_id: machine ?? data.project.machine_id, topic, revision: at ?? ++revision, initial: false, ...(payload === undefined ? {} : { data: payload }) };
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === topic)) reader.channel.onmessage(event);
     },
     ready: () => (pendingReads > 0 || (typeof answers.center_window_alone === "object" && answers.center_window_alone !== null)) && handlers.has("center-open"),

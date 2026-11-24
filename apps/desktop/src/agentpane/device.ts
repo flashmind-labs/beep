@@ -5,7 +5,7 @@ import type JMuxer from "jmuxer";
 // to the painter device-view.tsx registers; the rest is `deviceModel`.
 import { createStore } from "zustand";
 import { indexedChannel, invoke, listen } from "../ui/tauri.ts";
-import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList } from "../ui/snapshot-state.ts";
 import { ambient, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { paneSession, showDevice } from "./media.ts";
@@ -13,14 +13,14 @@ import { draw } from "./media-draw.ts";
 import { sessionKey } from "./running.ts";
 import { paneRoot } from "./worktree.ts";
 import {
-  type DeviceMedia, type VideoRotation, type DeviceFollow, type DeviceHost, type KeptDevice, type DeviceInput, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
-  defaultPick, deviceError, followedDevice, keptPick, pickedDevice, queueInput, readHosts, readKeptDevice, readMachines, readPlatforms, readScreenMessage, showsDeviceTab, targetPick,
+  type DeviceMedia, type VideoRotation, type DeviceFollow, type DeviceHost, type KeptDevice, type DeviceInput, type Device, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
+  defaultPick, deviceError, readAnnounced, followedDevice, keptPick, pickedDevice, queueInput, readHosts, readKeptDevice, readMachines, readPlatforms, readScreenMessage, showsDeviceTab, targetPick,
 } from "./device-state.ts";
 
-/// How often the list is read again while the tab shows: a booting device
-/// soon, otherwise now and then for what nodes do not announce (iOS
-/// simulators, nodes without adb or older ones). A node announces `devices`
-/// when adb sees a phone or emulator come or go.
+/// How often the list is read again while the tab shows, for the machines whose node does not
+/// push its devices: a booting device soon, otherwise now and then. A node that pushes them is not
+/// read, and it announces a change when adb sees a phone or emulator come or go or a boot or shut
+/// down ends; an iOS simulator changed outside Beep is not announced.
 /// How long a change waits for others before the list is read.
 const DEVICES_WAIT_MS = 300;
 const BOOTING_POLL_MS = 2000;
@@ -65,6 +65,7 @@ function takeDeviceHosts(list: unknown) {
   const had = hasDeviceTab();
   hosts = readHosts(list);
   if (had !== hasDeviceTab()) draw();
+  if (visible()) devicesChanged();
 }
 
 subscribeEach(topic("machines"), event => {
@@ -155,10 +156,19 @@ export function setDeviceShown(shown: boolean) {
 }
 
 onShownChange(() => shownChanged(), true);
-// The node's `devices` topic and the desktop's `devices-changed` say the same thing about the same
-// list: one read follows both.
+/// The devices each machine's node pushed on its `devices` topic, by machine id. A machine not
+/// here is read: its node has not answered yet, or predates the topic.
+const announced = new Map<string, Device[]>();
+// The desktop's `devices-changed` says a read of a machine that does not push changed.
 const devicesChanged = ambient(readDevices, DEVICES_WAIT_MS, visible);
-subscribeChanges(topic("devices"), { deliver: "latest", receive: () => devicesChanged() }, { when: visible });
+subscribeEach(topic("devices"), event => {
+  const heard = readAnnounced(event.data);
+  if (heard === null) return;
+
+  if (heard === "refused") announced.delete(event.machine_id);
+  else announced.set(event.machine_id, heard);
+  devicesChanged();
+}, { when: visible });
 listen("devices-changed", () => devicesChanged());
 
 function shownChanged() {
@@ -246,10 +256,9 @@ async function readDevices() {
   if (!visible()) return;
 
   try {
-    const value = await reads.run(Promise.all([invoke<unknown>("device_list", { machineId: null }), readKept()]));
+    const value = await reads.run(Promise.all([listMachines(), readKept()]));
     if (value === STALE) return;
-    const [listed, stored] = value;
-    const machines = readMachines(listed);
+    const [machines, stored] = value;
     const at = paneCheckout(), platforms = sessionPlatforms(), session = sessionKey(paneSession());
     const last = session === pickedFor ? deviceModel.getState().pick : null;
     const asked = wanted ? targetPick(machines, wanted) : null;
@@ -272,7 +281,21 @@ async function readDevices() {
   if (!visible()) return;
   const state = pickedDevice(deviceModel.getState().machines, deviceModel.getState().pick)?.state;
   if (state === "On" && live) return;
+  // Machines whose nodes push their devices need no timer.
+  if (hosts.every(host => announced.has(host.machine_id))) return;
   poll = setTimeout(() => void readDevices(), state === "Booting" ? BOOTING_POLL_MS : IDLE_POLL_MS);
+}
+
+/// Every host's devices: a machine that pushes its list gives it, the others are read.
+async function listMachines(): Promise<DeviceMachine[]> {
+  const read = await Promise.all(hosts.filter(host => !announced.has(host.machine_id))
+    .map(host => invoke<unknown>("device_list", { machineId: host.machine_id }).then(readMachines)));
+  const pushed = hosts.flatMap(host => {
+    const devices = announced.get(host.machine_id);
+    return devices ? [{ machine_id: host.machine_id, machine_name: host.machine_name, devices, error: null }] : [];
+  });
+  const all = [...read.flat(), ...pushed];
+  return hosts.flatMap(host => all.filter(machine => machine.machine_id === host.machine_id));
 }
 
 /// Boots the device shown, or shuts it down.
@@ -291,7 +314,8 @@ export async function power(on: boolean) {
     set({ busy: false });
   }
 
-  await readDevices();
+  // A node that pushes its devices says when the boot or shut down ends.
+  if (!announced.has(pick.machine)) await readDevices();
 }
 
 // ----- The live screen -----
