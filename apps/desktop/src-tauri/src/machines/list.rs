@@ -151,7 +151,7 @@ impl<T: Clone + Send + 'static> Held<T> {
                 log::warn!("telling the windows a list changed: {e}");
             }
 
-            crate::fleet::event_views::home_changed(app);
+            crate::fleet::home_signal::poke(&app);
         }));
     }
 

@@ -12,6 +12,7 @@ mod carry;
 pub(crate) mod event_views;
 pub(crate) mod events;
 pub(crate) mod files;
+pub(crate) mod home_signal;
 #[cfg(desktop)]
 mod mesh;
 pub(crate) mod node_actor;

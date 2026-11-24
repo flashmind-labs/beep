@@ -819,6 +819,12 @@ fn setup(
     tauri::async_runtime::spawn(fleet::session_mirror::keep(mirror.watch(), move |rows| {
         fleet::session_mirror::save(&kept, rows)
     }));
+    let home_signal = Arc::new(fleet::home_signal::HomeSignal::new());
+    tauri::async_runtime::spawn(fleet::event_views::follow_signal(
+        handle.clone(),
+        home_signal.follow(),
+    ));
+    app.manage(home_signal);
     tauri::async_runtime::spawn(fleet::event_views::follow_rows(
         handle.clone(),
         mirror.watch(),

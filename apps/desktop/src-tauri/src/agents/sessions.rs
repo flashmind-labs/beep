@@ -844,6 +844,6 @@ pub async fn agent_relocate(
     // The settled job lists the machine again and has the lists ask it.
     app.emit("sessions-changed", session)
         .map_err(anyhow::Error::from)?;
-    crate::fleet::event_views::home_changed(app);
+    crate::fleet::home_signal::poke(&app);
     Ok(())
 }

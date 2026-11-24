@@ -122,7 +122,7 @@ impl Pending {
 pub(crate) fn listen(app: &AppHandle) {
     for event in ["agent-title-changed", "reconnected"] {
         let handle = app.clone();
-        app.listen(event, move |_| home_changed(handle.clone()));
+        app.listen(event, move |_| changed(handle.clone(), Topic::new("home")));
     }
 }
 
@@ -134,10 +134,12 @@ pub(crate) async fn follow_rows(app: AppHandle, mut rows: watch::Receiver<Arc<Ro
     }
 }
 
-/// Something Home shows changed, other than the mirror's rows: a start, a delete or move
-/// under way, a machine's terminals.
-pub(crate) fn home_changed(app: AppHandle) {
-    changed(app, Topic::new("home"));
+/// Draws Home again at each poke of the signal others send for what Home shows besides the
+/// mirror's rows.
+pub(crate) async fn follow_signal(app: AppHandle, mut pokes: watch::Receiver<u64>) {
+    while pokes.changed().await.is_ok() {
+        changed(app.clone(), Topic::new("home"));
+    }
 }
 
 /// Source reads may wait for node projections, so they run outside the stream reader.
