@@ -792,6 +792,18 @@ impl Agents {
         } else {
             self.alerts.clone()
         };
+        let mesh = self.mesh();
+        let context = super::brief::Context {
+            machine: mesh
+                .as_ref()
+                .map(|mesh| mcp::children::machine_name(Some(mesh)))
+                .filter(|name| !name.is_empty()),
+            project: mesh.as_ref().and_then(|mesh| {
+                mcp::projects::of_folder(mesh, &cwd.to_string_lossy(), mesh.me())
+            }),
+            multi_machine: mesh.as_ref().is_some_and(|mesh| !mcp::alone(mesh)),
+            rust_or_c: super::brief::has_native_build(&cwd),
+        };
         let mut session = Session::start(Start {
             id: id.clone(),
             kind,
@@ -822,6 +834,7 @@ impl Agents {
                 .get()
                 .and_then(|dir| crate::machine::provision::skills_brief(dir)),
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
+            context,
             assistant,
             account: begin.account,
             persona: begin.persona,

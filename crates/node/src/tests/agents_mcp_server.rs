@@ -563,19 +563,25 @@ fn assistant_session_lists_the_project_tools_in_place_of_review() {
 }
 
 #[tokio::test]
-async fn assistant_initialize_has_brief() {
+async fn initialize_omits_instructions_without_media_tools() {
     let initialize = || [request(1, "initialize", json!({}))];
     let assistant = Fake {
         assistant: true,
         ..Fake::new("allow")
     };
     let out = exchange(&assistant, &initialize()).await;
-    let instructions = out[0]["result"]["instructions"].as_str().unwrap();
-    assert!(instructions.contains(super::super::ASSISTANT), "{instructions}");
+    assert!(
+        out[0]["result"].get("instructions").is_none(),
+        "{}",
+        out[0]["result"]
+    );
 
     let out = exchange(&Fake::new("allow"), &initialize()).await;
-    let instructions = out[0]["result"]["instructions"].as_str().unwrap();
-    assert!(!instructions.contains(super::super::ASSISTANT), "{instructions}");
+    assert!(
+        out[0]["result"].get("instructions").is_none(),
+        "{}",
+        out[0]["result"]
+    );
 }
 
 #[tokio::test]
@@ -629,8 +635,17 @@ fn the_tool_definitions_fit_the_budget() {
         let tokens = listed.len() / 4;
         assert!(tokens <= budget, "{tokens} tokens, assistant {assistant}");
     }
-    let brief = (super::super::BRIEF.len() + super::super::ASSISTANT.len()) / 4;
-    assert!(brief <= 700, "the assistant's brief is {brief} tokens");
+    let full = crate::agents::brief::Context {
+        machine: Some("workstation".into()),
+        project: Some("project".into()),
+        multi_machine: true,
+        rust_or_c: true,
+    };
+    let brief = (crate::agents::brief::environment(&full).len()
+        + crate::agents::brief::ASSISTANT.len()
+        + crate::agents::brief::chat(true).len())
+        / 4;
+    assert!(brief <= 1_000, "the assistant's brief is {brief} tokens");
 }
 
 #[test]

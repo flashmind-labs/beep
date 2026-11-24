@@ -54,8 +54,8 @@ impl Media {
         }
 
         Some(format!(
-            "\n\nWith the user's API keys it also offers {}. They run on this machine and \
-             save what they make in your working folder, at the path they give. list_models \
+            "With the user's API keys this server also offers {}. They run on this machine and \
+             save what they make in your working folder, at the path they give. `list_models` \
              lists the models you can pass as `model`.",
             names.join(", ")
         ))

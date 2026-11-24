@@ -263,8 +263,10 @@ pub(super) struct Start<'a> {
     /// The skills Beep keeps in its own folder, listed for the agent.
     pub(super) skills: Option<String>,
     /// The Beep MCP server for the agent, passed in `session/new` and
-    /// `session/load`. With it the brief also says what its tools are.
+    /// `session/load`. With it the standing prompt also frames Beep and its tools.
     pub(super) mcp: Option<McpServer>,
+    /// Runtime context woven into Beep's standing prompt when `mcp` is set.
+    pub(super) context: super::brief::Context,
     /// The home assistant, whose standing text adds the assistant's brief.
     pub(super) assistant: bool,
     /// The named account it runs signed in as; `None` for the default one.
@@ -328,6 +330,7 @@ impl Session {
             rule,
             skills,
             mcp,
+            context,
             assistant,
             account,
             persona,
@@ -369,16 +372,19 @@ impl Session {
         // An off switch the node inherited, such as `DISABLE_AUTO_COMPACT`
         // from the shell that started it, would beat the setting.
         let cleared = native_policy.and_then(|policy| policy.cleared(route, &kind.env));
+        let image_titling = resume.is_none() && title.is_none() && !named;
+        let environment = mcp.is_some().then(|| super::brief::environment(&context));
+        let chat = mcp.is_some().then(|| super::brief::chat(image_titling));
         let own_folder = (assistant && mcp.is_some())
             .then(dirs::home_dir)
             .flatten()
             .and_then(|home| super::conversation::brief(&home, cwd));
         let mut standing = [
+            environment.as_deref(),
             rule.as_deref(),
-            mcp.is_some().then_some(super::mcp::BRIEF),
-            (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+            (assistant && mcp.is_some()).then_some(super::brief::ASSISTANT),
             own_folder,
-            mcp.is_some().then_some(super::mcp::CHAT),
+            chat.as_deref(),
             skills.as_deref(),
         ]
         .into_iter()

@@ -169,21 +169,15 @@ async fn answer<B: Backend>(
                 .and_then(Value::as_str)
                 .filter(|asked| VERSIONS.contains(asked))
                 .unwrap_or(VERSIONS[0]);
-            let assistant = if backend.assistant(session) {
-                format!("\n\n{}", super::ASSISTANT)
-            } else {
-                String::new()
-            };
-            let brief = media.as_deref().and_then(Media::brief).unwrap_or_default();
-            success(
-                id,
-                json!({
-                    "protocolVersion": version,
-                    "capabilities": { "tools": { "listChanged": true } },
-                    "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": format!("{}{assistant}{brief}", super::BRIEF),
-                }),
-            )
+            let mut result = json!({
+                "protocolVersion": version,
+                "capabilities": { "tools": { "listChanged": true } },
+                "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
+            });
+            if let Some(brief) = media.as_deref().and_then(Media::brief) {
+                result["instructions"] = json!(brief);
+            }
+            success(id, result)
         }
         "ping" => success(id, json!({})),
         "tools/list" => {

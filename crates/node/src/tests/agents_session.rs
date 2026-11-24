@@ -278,8 +278,8 @@ async fn an_agent_that_takes_a_system_prompt_gets_the_brief_in_session_new() {
     assert_eq!(sent[1]["method"], "session/new");
     let brief = format!(
         "Worktree first.\n\n{}\n\n{}",
-        crate::agents::mcp::BRIEF,
-        crate::agents::mcp::CHAT
+        crate::agents::brief::environment(&crate::agents::brief::Context::default()),
+        crate::agents::brief::chat(true)
     );
     assert_eq!(
         sent[1]["params"]["systemPrompt"],
@@ -311,7 +311,7 @@ async fn a_resumed_session_gets_the_tools_in_session_load_and_the_brief_in_its_p
         sent[1]["params"]["systemPrompt"],
         serde_json::json!({
             "mode": "append",
-            "content": [{"type": "text", "text": format!("{}\n\n{}", crate::agents::mcp::BRIEF, crate::agents::mcp::CHAT)}],
+            "content": [{"type": "text", "text": format!("{}\n\n{}", crate::agents::brief::environment(&crate::agents::brief::Context::default()), crate::agents::brief::chat(false))}],
         })
     );
     assert_eq!(
@@ -341,8 +341,8 @@ async fn an_agent_without_a_system_prompt_gets_the_whole_brief_in_its_first_prom
     assert!(sent[1]["params"].get("systemPrompt").is_none());
     let brief = format!(
         "Worktree first.\n\n{}\n\n{}",
-        crate::agents::mcp::BRIEF,
-        crate::agents::mcp::CHAT
+        crate::agents::brief::environment(&crate::agents::brief::Context::default()),
+        crate::agents::brief::chat(true)
     );
     assert_eq!(
         prompt_texts(&sent[2]),
@@ -987,6 +987,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         rule: None,
         skills: None,
         mcp: None,
+        context: crate::agents::brief::Context::default(),
         assistant: false,
         account: None,
         persona: None,
@@ -1446,9 +1447,9 @@ async fn a_resumed_session_keeps_the_rule_in_its_system_prompt() {
     let sent = sent(&log);
     assert_eq!(sent[1]["method"], "session/load");
     let system = format!(
-        "Worktree first.\n\n{}\n\n{}",
-        crate::agents::mcp::BRIEF,
-        crate::agents::mcp::CHAT
+        "{}\n\nWorktree first.\n\n{}",
+        crate::agents::brief::environment(&crate::agents::brief::Context::default()),
+        crate::agents::brief::chat(false)
     );
     assert_eq!(
         sent[1]["params"]["systemPrompt"]["content"][0]["text"],

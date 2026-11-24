@@ -18,7 +18,8 @@ use tokio::task::spawn_blocking;
 
 /// Beep's standing rule for a session in a git repository. A session runs
 /// in the project folder, the main checkout, and works in worktrees under it.
-pub(super) const GIT_RULE: &str = "This folder is the project's git checkout, where this session runs. Before you \
+pub(super) const GIT_RULE: &str = "## Git & worktrees\n\n\
+    This folder is the project's git checkout, where this session runs. Before you \
     change project files, create a new branch and a git worktree for it under the repository's \
     .worktrees/ folder, both named for the work, and work there, unless this session already \
     has a worktree for that work. A session may use several worktrees and branches. Work that \

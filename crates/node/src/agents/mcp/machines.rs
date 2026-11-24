@@ -109,7 +109,7 @@ pub(super) fn find_or_id_named(mesh: &Mesh, name: &str) -> Result<Machine, Strin
 }
 
 /// Whether `mesh` has no machine but this one to run on; phones host nothing.
-pub(super) fn alone(mesh: &Mesh) -> bool {
+pub(crate) fn alone(mesh: &Mesh) -> bool {
     let me = mesh.me();
 
     mesh.inventory().iter().all(|device| match device {

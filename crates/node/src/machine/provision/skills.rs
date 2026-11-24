@@ -71,7 +71,8 @@ pub(crate) fn brief(dir: &Path) -> Option<String> {
 
     lines.sort();
     Some(format!(
-        "Beep keeps skills of its own in `{}`, outside your own skills list. \
+        "## Beep skills\n\n\
+         Beep keeps skills of its own in `{}`, outside your own skills list. \
          When a task fits one, read its SKILL.md and follow it:\n{}",
         dir.display(),
         lines.join("\n")
