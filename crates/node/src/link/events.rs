@@ -8,7 +8,7 @@ use beep_proto::node::{
     events::{self, CallReply, Incoming, Operation, Reply, Request, Topic},
 };
 use beep_proto::watched;
-use futures::{FutureExt, StreamExt};
+use futures::{FutureExt, StreamExt, future::join_all};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
@@ -325,38 +325,48 @@ async fn resolve(offers: &Offers, topics: &[Topic]) -> Result<BTreeMap<Topic, Pa
         }
     }
 
-    let projects = project_files(offers);
+    // The roots are checked together: each check can wait on a worktree list.
+    let projects: Vec<_> = project_files(offers)
+        .into_iter()
+        .filter(|(topic, _)| topics.iter().any(|wanted| wanted.covers(topic)))
+        .collect();
+    let reached = join_all(
+        projects
+            .iter()
+            .map(|(_, path)| offers.agents.reachable(path, crate::agents::reach::Access::Read)),
+    )
+    .await;
 
-    for (topic, path) in projects {
-        if topics.iter().any(|wanted| wanted.covers(&topic)) {
-            match offers
-                .agents
-                .reachable(&path, crate::agents::reach::Access::Read)
-                .await
-            {
-                Ok(root) => {
-                    wanted.insert(topic, root);
-                }
-                Err(error) if topics.iter().any(|wanted| wanted == &topic) => return Err(error),
-                Err(_) => {}
+    for ((topic, _), reached) in projects.into_iter().zip(reached) {
+        match reached {
+            Ok(root) => {
+                wanted.insert(topic, root);
             }
+            Err(error) if topics.iter().any(|wanted| wanted == &topic) => return Err(error),
+            Err(_) => {}
         }
     }
 
-    for topic in topics
+    let literal: Vec<_> = topics
         .iter()
         .filter(|topic| topic.name() == "files" && !topic.is_pattern())
-    {
-        if let [path] = topic.resource_segments() {
+        .filter_map(|topic| match topic.resource_segments() {
             // Local paths are opaque literal segments. Project aliases use their mesh names.
-            if std::path::Path::new(path).is_absolute() || path.starts_with("~/") {
-                let root = offers
-                    .agents
-                    .reachable(path, crate::agents::reach::Access::Read)
-                    .await?;
-                wanted.insert(topic.clone(), root);
+            [path] if std::path::Path::new(path).is_absolute() || path.starts_with("~/") => {
+                Some((topic, path))
             }
-        }
+            _ => None,
+        })
+        .collect();
+    let reached = join_all(
+        literal
+            .iter()
+            .map(|(_, path)| offers.agents.reachable(path, crate::agents::reach::Access::Read)),
+    )
+    .await;
+
+    for ((topic, _), root) in literal.into_iter().zip(reached) {
+        wanted.insert(topic.clone(), root?);
     }
 
     if wanted.len() > MAX_FILE_ROOTS {

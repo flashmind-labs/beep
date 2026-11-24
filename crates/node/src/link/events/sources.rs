@@ -4,7 +4,7 @@ use super::{FileBindings, FileWatcher, MAX_FILE_ROOTS, Offers, TOO_MANY_ROOTS, b
 use crate::{AsyncMutex, events::Change};
 use anyhow::{Context as _, Result, ensure};
 use beep_proto::node::events::Topic;
-use futures::{Stream, StreamExt, future::try_join_all, stream};
+use futures::{Stream, StreamExt, future::{join_all, try_join_all}, stream};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
@@ -262,48 +262,60 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
         topics.iter().all(Topic::valid),
         "invalid subscription topics"
     );
+    // The topics are looked up together: each may wait on a worktree list or a mesh lookup.
+    let found = join_all(topics.iter().map(|topic| source_of(offers, topic)))
+        .await
+        .into_iter()
+        .collect::<Result<Vec<_>>>()?;
     let mut subscriptions = Subscriptions::new();
 
-    for topic in topics {
-        let source = {
-            let mut registry = offers.agents.event_sources.lock().await;
-            registry.retain(|_, source| source.strong_count() > 0);
-            registry.get(topic).and_then(Weak::upgrade)
-        };
-        let (source, reused) = match source {
-            Some(source) => (source, true),
-            None => {
-                let candidate = Arc::new(Source::new(offers, topic).await?);
-                let mut registry = offers.agents.event_sources.lock().await;
-
-                match registry.get(topic).and_then(Weak::upgrade) {
-                    Some(source) => (source, true),
-                    None => {
-                        offers
-                            .agents
-                            .events
-                            .register(topic.clone(), &candidate.sender);
-                        registry.insert(topic.clone(), Arc::downgrade(&candidate));
-                        (candidate, false)
-                    }
-                }
-            }
-        };
-
-        if reused {
-            // A reused source still checks the node's current allowed roots.
-            source.resolve(offers).await?;
-        }
-
+    for (topic, source) in topics.iter().zip(found) {
         let stream = BroadcastStream::new(source.sender.subscribe());
         subscriptions.insert(topic.clone(), Subscription { stream, source });
-        ensure!(
-            roots(&subscriptions).len() <= MAX_FILE_ROOTS,
-            TOO_MANY_ROOTS
-        );
     }
 
+    ensure!(
+        roots(&subscriptions).len() <= MAX_FILE_ROOTS,
+        TOO_MANY_ROOTS
+    );
+
     Ok(subscriptions)
+}
+
+/// The running source of `topic`, started when no stream holds one, with its roots looked up now.
+async fn source_of(offers: &Offers, topic: &Topic) -> Result<Arc<Source>> {
+    let source = {
+        let mut registry = offers.agents.event_sources.lock().await;
+        registry.retain(|_, source| source.strong_count() > 0);
+        registry.get(topic).and_then(Weak::upgrade)
+    };
+
+    let (source, reused) = match source {
+        Some(source) => (source, true),
+        None => {
+            let candidate = Arc::new(Source::new(offers, topic).await?);
+            let mut registry = offers.agents.event_sources.lock().await;
+
+            match registry.get(topic).and_then(Weak::upgrade) {
+                Some(source) => (source, true),
+                None => {
+                    offers
+                        .agents
+                        .events
+                        .register(topic.clone(), &candidate.sender);
+                    registry.insert(topic.clone(), Arc::downgrade(&candidate));
+                    (candidate, false)
+                }
+            }
+        }
+    };
+
+    if reused {
+        // A reused source still checks the node's current allowed roots.
+        source.resolve(offers).await?;
+    }
+
+    Ok(source)
 }
 
 pub(super) fn roots(subscriptions: &Subscriptions) -> BTreeMap<Topic, PathBuf> {
