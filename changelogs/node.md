@@ -2,6 +2,36 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.20] - 2026-11-24
+
+### Added
+
+- Node: accept thinking levels for Antigravity sessions and report per-model thinking levels from Antigravity's model catalog.
+- Node: Lazily runs installed language servers (such as `rust-analyzer`,
+  `vtsls`, `typescript-language-server`, `basedpyright`/`pyright`, `gopls`, and
+  `clangd`) per workspace with an idle timeout to answer editor go-to-definition
+  requests.
+
+### Changed
+
+- Node: agent sessions now receive structured Beep ADE framing, runtime context, explicit precedence for Beep links and artifacts, and clean MCP initialize instructions.
+
+### Fixed
+
+- Node: short metrics queries work even when older retained logs exceed the scan limit. Summaries show the observed times in UTC.
+
+### Performance
+
+- Node: when one agent starts several agents at once, they now start side
+  by side instead of one after another. The limit of 8 agents under one
+  session still applies.
+- Node: session lists, project session pages, search and file previews no
+  longer each read every coding agent's session files from disk. The node
+  reads them once and shares the result, which cuts its disk work when many
+  sessions are stored.
+- Node: listing sessions no longer looks through every Claude Code project
+  folder for each running session.
+
 ## [0.8.19] - 2026-11-24
 
 ### Added
