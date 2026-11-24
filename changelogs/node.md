@@ -2,6 +2,12 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.23] - 2026-11-24
+
+### Fixed
+
+- Node: Pi sessions now recover from provider `content_filter` stops by informing the agent within the same turn, and surface unrecovered provider errors instead of ending with blank output.
+
 ## [0.8.22] - 2026-11-24
 
 ### Added

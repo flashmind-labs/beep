@@ -7,6 +7,17 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.29] - 2026-11-24
+
+### Changed
+
+- Desktop: Grouped the Settings sidebar into App, Fleet, Agents, and Extensions sections, added a `/` search shortcut, moved coding agent configuration into tabs on the Agents page, and updated account cards with semantic status dots.
+
+### Fixed
+
+- Desktop: Local Pi sessions now recover from provider `content_filter` stops within the same turn and surface unrecovered provider errors instead of ending with blank output.
+- Desktop: The project rail beside an open session now stays subscribed to project updates, so running Actions and counts update without returning to the project page.
+
 ## [0.10.28] - 2026-11-24
 
 ### Added
