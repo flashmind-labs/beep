@@ -163,7 +163,7 @@ async fn one_machines_answer_replaces_only_its_rows() {
     ];
     let mut rig = rig(vec![a, b], kept);
 
-    rig.mirror.changed(a);
+    rig.mirror.moved(a);
     let ask = next(&mut rig.asks).await;
     assert_eq!(ask.machine, a);
     ask.reply
@@ -250,27 +250,48 @@ async fn a_machine_absent_from_the_first_listing_keeps_its_kept_rows() {
 }
 
 #[tokio::test]
-async fn two_changes_while_a_listing_runs_cause_one_more_listing() {
+async fn a_push_replaces_the_rows_without_asking_the_machine() {
     let a = machine(1);
-    let mut rig = rig(vec![a], Vec::new());
+    let mut rig = rig(vec![a], vec![session(a, "a1", AgentStatus::Running {})]);
 
-    rig.mirror.changed(a);
-    let first = next(&mut rig.asks).await;
-    rig.mirror.changed(a);
-    rig.mirror.changed(a);
-    first.reply.send(Some(Vec::new())).unwrap();
-    assert_eq!(rig.drawn.recv().await, Some(Drawn::Pushed(a)));
-
-    let second = next(&mut rig.asks).await;
-    second.reply.send(Some(Vec::new())).unwrap();
-    assert_eq!(rig.drawn.recv().await, Some(Drawn::Pushed(a)));
-    // The lists that ask the machine themselves hear once, when the chain ends.
+    rig.mirror
+        .pushed(a, vec![session(a, "a2", AgentStatus::Running {})]);
     assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
+    let rows = rig.mirror.current();
 
-    // The mirror took every message before this edit, and asked for nothing more.
+    assert_eq!(ids(&rows, a), ["a2"]);
+    assert!(rows.live(a));
+
+    // The mirror took every message before this edit, and asked for nothing.
     rig.mirror.closed(&a.to_string(), &"s1".into());
     assert_eq!(rig.drawn.recv().await, Some(Drawn::Session("s1".into())));
     assert!(rig.asks.try_recv().is_err());
+}
+
+#[tokio::test]
+async fn a_push_during_a_listing_is_not_undone_by_the_older_answer() {
+    let a = machine(1);
+    let mut rig = rig(vec![a], Vec::new());
+
+    rig.mirror.moved(a);
+    let first = next(&mut rig.asks).await;
+    rig.mirror
+        .pushed(a, vec![session(a, "new", AgentStatus::Running {})]);
+    rows_where(&rig.mirror, |rows| rows.live(a)).await;
+    // The listing was asked before the push and answers with the older rows.
+    first
+        .reply
+        .send(Some(vec![session(a, "old", AgentStatus::Running {})]))
+        .unwrap();
+
+    let second = next(&mut rig.asks).await;
+    second
+        .reply
+        .send(Some(vec![session(a, "new", AgentStatus::Running {})]))
+        .unwrap();
+    assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
+
+    assert_eq!(ids(&rig.mirror.current(), a), ["new"]);
 }
 
 #[tokio::test(start_paused = true)]
@@ -278,7 +299,7 @@ async fn a_machine_that_does_not_answer_is_asked_again_and_keeps_its_rows() {
     let a = machine(1);
     let mut rig = rig(vec![a], vec![session(a, "a1", AgentStatus::Running {})]);
 
-    rig.mirror.changed(a);
+    rig.mirror.moved(a);
     next(&mut rig.asks).await.reply.send(None).unwrap();
     // The pause passes on the paused clock.
     let again = next(&mut rig.asks).await;
@@ -350,7 +371,7 @@ async fn an_answer_during_a_listing_does_not_come_back() {
     });
     let mut rig = rig(vec![a], vec![asking.clone()]);
 
-    rig.mirror.changed(a);
+    rig.mirror.moved(a);
     let first = next(&mut rig.asks).await;
     rig.mirror.answered(&a.to_string(), &"s1".into(), Some(7));
     rows_where(&rig.mirror, |rows| {
@@ -409,7 +430,7 @@ async fn a_machine_that_left_the_mesh_is_dropped_from_the_rows() {
     // Until the mesh opens nothing is dropped: the read came before the
     // change, whose listing starts only after the mirror took the read.
     rig.mirror.rows();
-    rig.mirror.changed(a);
+    rig.mirror.moved(a);
     let ask = next(&mut rig.asks).await;
     assert_eq!(rig.mirror.rows().iter().count(), 2);
     drop(ask);

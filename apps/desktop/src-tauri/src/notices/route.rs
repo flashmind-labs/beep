@@ -36,6 +36,7 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
                 app.state::<Arc<Fleet>>().note_presence(machine, sessions);
                 let _ = app.emit("sessions-changed", "");
                 let _ = app.emit(HOME_CHANGED, ());
+                crate::fleet::event_views::home_changed(app.clone());
             }
             // A build: the bell keeps it, and the first machine to tell
             // it shows it.

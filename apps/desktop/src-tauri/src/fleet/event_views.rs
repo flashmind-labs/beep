@@ -1,6 +1,6 @@
 //! Render controller-owned state once, then send the same snapshot to every window.
 
-use super::{Fleet, events::Events};
+use super::{Fleet, events::Events, session_mirror::Rows};
 use crate::error::Result;
 use beep_proto::node::events::Topic;
 use serde::Serialize;
@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Listener, Manager};
-use tokio::task::JoinSet;
+use tokio::{sync::watch, task::JoinSet};
 use uuid::Uuid;
 
 /// The least time between two sync views while files move, whose progress
@@ -120,15 +120,24 @@ impl Pending {
 }
 
 pub(crate) fn listen(app: &AppHandle) {
-    for event in [
-        crate::center::home::HOME_CHANGED,
-        "sessions-changed",
-        "agent-title-changed",
-        "reconnected",
-    ] {
+    for event in ["agent-title-changed", "reconnected"] {
         let handle = app.clone();
-        app.listen(event, move |_| changed(handle.clone(), Topic::new("home")));
+        app.listen(event, move |_| home_changed(handle.clone()));
     }
+}
+
+/// Draws Home again whenever the mirror's rows change. A busy agent changes them many
+/// times a second, so the draws keep `HOME_GAP`.
+pub(crate) async fn follow_rows(app: AppHandle, mut rows: watch::Receiver<Arc<Rows>>) {
+    while rows.changed().await.is_ok() {
+        paced(app.clone(), "home", true);
+    }
+}
+
+/// Something Home shows changed, other than the mirror's rows: a start, a delete or move
+/// under way, a machine's terminals.
+pub(crate) fn home_changed(app: AppHandle) {
+    changed(app, Topic::new("home"));
 }
 
 /// Source reads may wait for node projections, so they run outside the stream reader.

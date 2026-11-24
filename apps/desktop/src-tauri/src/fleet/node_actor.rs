@@ -862,6 +862,7 @@ fn on_settled(
                         mirror.delete_failed(machine);
                         // The windows read at once; the relist follows.
                         let _ = app.emit("sessions-changed", session);
+                        super::event_views::home_changed(app.clone());
                     }
                 }
             }
@@ -891,6 +892,7 @@ fn on_settled(
         JobKind::TerminalStop { .. } if !ok => {
             if let Some(app) = app {
                 let _ = app.emit(HOME_CHANGED, ());
+                super::event_views::home_changed(app.clone());
             }
         }
         JobKind::TerminalStop { .. }

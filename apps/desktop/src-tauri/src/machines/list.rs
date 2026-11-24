@@ -143,11 +143,15 @@ impl<T: Clone + Send + 'static> Held<T> {
     ) {
         let (held, app) = (self.clone(), app.clone());
         self.queue_refresh(Box::pin(async move {
-            if held.finish(ask.await, same)
-                && let Err(e) = app.emit(HOME_CHANGED, ())
-            {
+            if !held.finish(ask.await, same) {
+                return;
+            }
+
+            if let Err(e) = app.emit(HOME_CHANGED, ()) {
                 log::warn!("telling the windows a list changed: {e}");
             }
+
+            crate::fleet::event_views::home_changed(app);
         }));
     }
 

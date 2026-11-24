@@ -659,6 +659,8 @@ fn sessions_changed(app: &AppHandle, id: StartId) {
     if let Err(e) = app.emit(SESSIONS_CHANGED, id.to_string()) {
         log::warn!("could not tell the windows a start changed: {e}");
     }
+
+    crate::fleet::event_views::home_changed(app.clone());
 }
 
 /// Runs the runner of start `id`, which the caller marked as running.

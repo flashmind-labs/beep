@@ -182,7 +182,7 @@ impl SubscriptionWorker {
                             if !initial && snapshot.topic.name() == "sync" {
                                 super::super::event_views::sync_changed(app.clone(), super::super::event_views::moving(&snapshot.value));
                             } else if !initial && snapshot.topic.name() != "agents" && (machine == fleet.me || matches!(snapshot.topic.name(), "agent" | "processes" | "terminals" | "moves")) {
-                                // "agents" draws once its machine's rows are listed again, in `invalidate`.
+                                // "agents" draws when `invalidate` changes the mirror's rows, which Home follows.
                                 super::super::event_views::sessions_changed(app.clone(), snapshot.topic.clone());
                             }
 

@@ -1102,6 +1102,7 @@ impl Link for MeshLink {
                 .app
                 .emit("sessions-changed", order.key.session.as_ref());
             crate::fleet::event_views::sessions_changed(self.app.clone(), Topic::new("agents"));
+            crate::fleet::event_views::home_changed(self.app.clone());
             return;
         }
 

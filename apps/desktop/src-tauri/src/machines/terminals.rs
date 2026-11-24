@@ -207,6 +207,7 @@ pub async fn terminal_close(
     direct::close_with(Some(app.clone()), &fleet, id).await?;
     held.terminals.replace(Vec::new(), |t| t.id == id);
     let _ = app.emit(HOME_CHANGED, ());
+    crate::fleet::event_views::home_changed(app);
     Ok(())
 }
 

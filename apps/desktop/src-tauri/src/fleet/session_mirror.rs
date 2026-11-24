@@ -3,7 +3,7 @@
 //! local edit reach it as one message. Asking a machine runs off its loop in
 //! a `JoinSet` and comes back as a message.
 
-use super::{Fleet, agents as direct, event_views};
+use super::{Fleet, agents as direct};
 use crate::{
     agents::starts::StartId,
     center::{
@@ -16,10 +16,7 @@ use crate::{
 };
 use beep_proto::{
     AgentStatus, MachineSession, SessionId,
-    node::{
-        agent::{ExternalSession, Presence},
-        events::Topic,
-    },
+    node::agent::{ExternalSession, Presence},
     watched,
 };
 use futures::FutureExt;
@@ -158,12 +155,10 @@ pub(crate) trait Outside: Send + Sync + 'static {
 /// A change in what the windows draw.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Drawn {
-    /// A machine's push was listed again: Home draws.
-    Pushed(EndpointId),
-    /// The listings of a machine's pushes ended or changed what is drawn: the
-    /// lists that ask the machine themselves ask again.
+    /// A machine pushed rows that differ: the lists that ask the machine
+    /// themselves ask again.
     Machine(EndpointId),
-    /// A read listed a machine again and its rows differ.
+    /// A listing of a machine came back and its rows differ.
     Listed,
     /// A local edit of this session.
     Session(SessionId),
@@ -174,8 +169,11 @@ enum Message {
     Read,
     /// The next read lists everything again.
     Stale,
-    /// A machine's push: its rows are listed again.
-    Changed(EndpointId),
+    /// A machine pushed its Beep rows.
+    Pushed {
+        machine: EndpointId,
+        rows: Vec<MachineSession>,
+    },
     /// A listing of one machine came back.
     Listed {
         machine: EndpointId,
@@ -302,9 +300,9 @@ impl SessionMirror {
         self.rows.clone()
     }
 
-    /// `machine` pushed a change: its rows are listed again.
-    pub(crate) fn changed(&self, machine: EndpointId) {
-        self.send(Message::Changed(machine));
+    /// `machine` pushed its Beep rows: they replace the ones held.
+    pub(crate) fn pushed(&self, machine: EndpointId, rows: Vec<MachineSession>) {
+        self.send(Message::Pushed { machine, rows });
     }
 
     /// The next read lists every machine again.
@@ -368,22 +366,17 @@ struct Reads {
 
 /// A machine whose sessions are listed now.
 struct Relist {
-    /// Another change came meanwhile: list once more.
-    again: bool,
-    /// A push, not a read, asked for it: the lists that follow hear of it.
-    loud: bool,
     /// The wait before the next try, should the machine not answer.
     pause: Duration,
-    /// An edit came meanwhile: the answer may hold what it undid, so it is
-    /// dropped and the machine listed again.
+    /// A change came meanwhile (an edit, a push, a refused delete or a move):
+    /// the answer may hold what it undid, so it is dropped and the machine
+    /// listed again.
     edited: bool,
 }
 
 impl Relist {
-    fn new(loud: bool) -> Self {
+    fn new() -> Self {
         Self {
-            again: false,
-            loud,
             pause: RELIST_FIRST,
             edited: false,
         }
@@ -427,11 +420,11 @@ impl<O: Outside> Actor<O> {
         match message {
             Message::Read => self.read(),
             Message::Stale => self.reads.clear(),
-            Message::Changed(machine) => self.relist(machine, true),
+            Message::Pushed { machine, rows } => self.pushed(machine, rows),
             Message::Listed { machine, rows } => self.listed(machine, rows),
             Message::Scanned { machine, rows } => self.scanned(machine, rows),
             Message::DeleteFailed(machine) | Message::Moved(machine) => {
-                self.relist(machine, true);
+                self.relist(machine);
                 self.stale_scans();
             }
             Message::Deleted {
@@ -494,8 +487,8 @@ impl<O: Outside> Actor<O> {
             let list = reads.beep.is_none_or(|at| now - at >= FRESH);
             let scan = reads.scans.is_none_or(|at| now - at >= FRESH);
 
-            if list {
-                self.relist(machine, false);
+            if list && !self.relisting.contains_key(&machine) {
+                self.start_listing(machine);
             }
 
             if scan {
@@ -538,19 +531,32 @@ impl<O: Outside> Actor<O> {
         }
     }
 
-    /// Lists `machine`, one listing at a time. A push that comes while it is
-    /// listed has it listed once more; a read does not.
-    fn relist(&mut self, machine: EndpointId, push: bool) {
+    /// Lists `machine` because what it listed may be out of date, one listing
+    /// at a time: one under way is dropped and runs again.
+    fn relist(&mut self, machine: EndpointId) {
         match self.relisting.get_mut(&machine) {
-            Some(relist) => {
-                relist.again |= push;
-                relist.loud |= push;
-            }
-            None => {
-                self.relisting.insert(machine, Relist::new(push));
-                self.list(machine, Duration::ZERO);
-            }
+            Some(relist) => relist.edited = true,
+            None => self.start_listing(machine),
         }
+    }
+
+    fn start_listing(&mut self, machine: EndpointId) {
+        self.relisting.insert(machine, Relist::new());
+        self.list(machine, Duration::ZERO);
+    }
+
+    /// Takes what `machine` pushed as its Beep rows. A listing under way may
+    /// hold older rows, so it is dropped and runs again.
+    fn pushed(&mut self, machine: EndpointId, rows: Vec<MachineSession>) {
+        if let Some(relist) = self.relisting.get_mut(&machine) {
+            relist.edited = true;
+        }
+
+        if self.replace(machine, rows, false) {
+            self.outside.drawn(Drawn::Machine(machine));
+        }
+
+        self.reads.entry(machine).or_default().beep = Some(Instant::now());
     }
 
     fn list(&mut self, machine: EndpointId, after: Duration) {
@@ -595,10 +601,7 @@ impl<O: Outside> Actor<O> {
     }
 
     fn listed(&mut self, machine: EndpointId, rows: Option<Vec<MachineSession>>) {
-        let mut relist = self
-            .relisting
-            .remove(&machine)
-            .unwrap_or_else(|| Relist::new(false));
+        let mut relist = self.relisting.remove(&machine).unwrap_or_else(Relist::new);
         let mut drawn = false;
 
         if relist.edited {
@@ -623,23 +626,8 @@ impl<O: Outside> Actor<O> {
 
         self.reads.entry(machine).or_default().beep = Some(Instant::now());
 
-        if relist.loud {
-            relist.loud = false;
-            self.outside.drawn(Drawn::Pushed(machine));
-
-            if drawn || !relist.again {
-                self.outside.drawn(Drawn::Machine(machine));
-            }
-        } else if drawn {
+        if drawn {
             self.outside.drawn(Drawn::Listed);
-        }
-
-        if relist.again {
-            // The listing to come is for the pushes that waited.
-            relist.again = false;
-            relist.loud = true;
-            self.list(machine, Duration::ZERO);
-            self.relisting.insert(machine, relist);
         }
     }
 
@@ -833,10 +821,6 @@ impl Outside for Desk {
     fn drawn(&self, drawn: Drawn) {
         let app = &self.app;
         let told = match drawn {
-            Drawn::Pushed(_) => {
-                event_views::sessions_changed(app.clone(), Topic::new("agents"));
-                Ok(())
-            }
             Drawn::Machine(machine) => {
                 app.state::<super::session_lists::SessionLists>()
                     .stale(machine);

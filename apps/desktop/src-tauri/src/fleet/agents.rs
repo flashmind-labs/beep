@@ -118,6 +118,32 @@ pub(crate) async fn sessions_of(fleet: &Fleet, machine: EndpointId) -> Option<Ve
     Some(noted(fleet, &host, linked))
 }
 
+/// Beep's sessions on `machine` as it pushed them, in the shape `sessions_of`
+/// answers; `None` when `value` is not a list of sessions.
+pub(crate) fn pushed_sessions(
+    fleet: &Fleet,
+    machine: EndpointId,
+    value: &beep_proto::node::events::Value,
+) -> Option<Vec<MachineSession>> {
+    let beep_proto::node::events::Value::Sessions(reply) = value else {
+        return None;
+    };
+    let agent::SessionsReply::Sessions { sessions } = reply.as_ref() else {
+        return None;
+    };
+    let host = fleet.host_of(machine);
+    let linked = sessions
+        .iter()
+        .map(|info| Linked {
+            parent: info.parent.clone(),
+            reviewer: info.reviewer,
+            session: listing::beep_session(&host, info.clone()),
+        })
+        .collect();
+
+    Some(noted(fleet, &host, linked))
+}
+
 /// Top-level sessions, after keeping children for the parent agent panel.
 fn noted(fleet: &Fleet, host: &Host, linked: Vec<Linked>) -> Vec<MachineSession> {
     fleet.parents.note(&host.id, &linked);

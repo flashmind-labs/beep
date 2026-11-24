@@ -1,6 +1,6 @@
 //! All windows share one duplex stream per subscription on each demanded node.
 
-use super::{Fleet, Machines, Opened, session_mirror::SessionMirror};
+use super::{Fleet, Machines, Opened, agents as direct, session_mirror::SessionMirror};
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
 use beep_proto::watched;
@@ -1430,14 +1430,24 @@ async fn run(
 /// or the processes leave the session lists as they are; a live report updates its session.
 fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
     match topic.name() {
-        // One machine's list changed: its rows alone are listed again, then Home draws.
-        "agents" if value.is_some() => {
-            app.state::<Arc<SessionMirror>>().changed(machine);
-        }
-        name if lists_sessions_again(name) => {
-            app.state::<Arc<SessionMirror>>().stale();
-            app.state::<crate::palette::lists::PaletteCache>()
-                .sessions_changed();
+        // One machine's list changed: its pushed rows replace the ones held. Without them
+        // the next read lists every machine again.
+        "agents" | "*" => {
+            let pushed = match value {
+                Some(value) if topic.name() == "agents" => {
+                    direct::pushed_sessions(&app.state::<Arc<Fleet>>(), machine, value)
+                }
+                _ => None,
+            };
+
+            match pushed {
+                Some(rows) => app.state::<Arc<SessionMirror>>().pushed(machine, rows),
+                None => {
+                    app.state::<Arc<SessionMirror>>().stale();
+                    app.state::<crate::palette::lists::PaletteCache>()
+                        .sessions_changed();
+                }
+            }
         }
         "agent" => {
             if let Some(events::Value::Sessions(reply)) = value
@@ -1449,11 +1459,6 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
         }
         _ => {}
     }
-}
-
-/// Whether a snapshot of the topic `name` can add or end sessions, so their lists are read again.
-fn lists_sessions_again(name: &str) -> bool {
-    matches!(name, "agents" | "*")
 }
 
 /// Hosts without a push feed are read once for all windows. Results arrive as IPC events.

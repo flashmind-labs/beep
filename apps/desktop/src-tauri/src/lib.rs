@@ -819,6 +819,10 @@ fn setup(
     tauri::async_runtime::spawn(fleet::session_mirror::keep(mirror.watch(), move |rows| {
         fleet::session_mirror::save(&kept, rows)
     }));
+    tauri::async_runtime::spawn(fleet::event_views::follow_rows(
+        handle.clone(),
+        mirror.watch(),
+    ));
     app.manage(Arc::new(mirror));
     app.manage(projects::live::Followed::default());
     app.manage(settings::gh_sign_in::GhSignIn::default());

@@ -834,5 +834,6 @@ pub async fn agent_relocate(
     app.state::<SessionLists>().stale(machine);
     app.emit("sessions-changed", session)
         .map_err(anyhow::Error::from)?;
+    crate::fleet::event_views::home_changed(app);
     Ok(())
 }
