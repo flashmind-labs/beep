@@ -14,9 +14,8 @@ import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.t
 import { AG, AGENT_ACTIVE, openOf, where } from "./agents.ts";
 import { sameSession } from "./running-state.ts";
 import { workingSubagents } from "./logview.tsx";
-import { runs } from "./tasks.tsx";
 import { draftNewThread, resumeEndedSession, stopAllWork } from "./messages.ts";
-import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
+import { runs, transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
 import { forgetTranscript } from "./session-follow.ts";
 import { forgetLog } from "./session.tsx";

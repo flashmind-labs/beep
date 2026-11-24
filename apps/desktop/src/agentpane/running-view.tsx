@@ -1,7 +1,9 @@
-import { memo, type MouseEvent } from "react";
+import { memo, useMemo, useSyncExternalStore, type MouseEvent } from "react";
 import { useStore } from "zustand";
 import { runningRow, runningTrees, shownCommand, type RunningProcess } from "./running-state.ts";
-import { backgroundTasks, paneTasks, runningModel, type BackgroundTasks } from "./running.ts";
+import { transcripts } from "../agents/transcript-cache-state.ts";
+import type { AgentTask } from "../agents/agents.ts";
+import { backgroundStops, paneKey, paneTasks, runningModel, type BackgroundStops } from "./running.ts";
 import { Button } from "../ui/kit.tsx";
 
 export interface RunningModel { processes: readonly RunningProcess[]; stopping: ReadonlySet<number>; whole: ReadonlySet<number>; machine: string; error: string }
@@ -11,8 +13,9 @@ export interface RunningActions { open(port: number): void; toggle(pid: number):
 /// The Running tab's view in its dock.
 export const RunningPane = memo(function RunningPane({ hidden }: { hidden: boolean }) {
   const shown = useStore(runningModel);
-  const background = useStore(backgroundTasks);
-  const tasks = paneTasks(background);
+  const background = useStore(backgroundStops);
+  const held = useSyncExternalStore(transcripts.subscribe, () => transcripts.tasks(paneKey() ?? ""));
+  const tasks = useMemo(() => paneTasks(held), [held]);
   return <div className="agpview running" hidden={hidden}>{(shown || tasks.length > 0) && <RunningView model={shown?.model ?? null} actions={shown?.actions ?? null} tasks={tasks} background={background} />}</div>;
 });
 
@@ -24,7 +27,7 @@ export function RunningPages() {
   return <div className="ag-tasks ag-page">{ports.map(port => <Button look="plain" key={port} title="Open in the browser" onClick={() => shown.actions.open(port)}>{`Open :${port}`}</Button>)}</div>;
 }
 
-interface RunningViewProps { model: RunningModel | null; actions: RunningActions | null; tasks: BackgroundTasks["tasks"]; background: BackgroundTasks }
+interface RunningViewProps { model: RunningModel | null; actions: RunningActions | null; tasks: readonly AgentTask[]; background: BackgroundStops }
 
 function RunningView({ model, actions, tasks, background }: RunningViewProps) {
   const processes = model?.processes ?? [];

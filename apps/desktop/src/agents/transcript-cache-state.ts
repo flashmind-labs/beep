@@ -3,6 +3,11 @@ import type { AgentModes, AgentPage, AgentTask, OpenAgent } from "./agents.ts";
 import { BACKGROUND_FOLLOWS } from "./agentfeed-state.ts";
 import { joinRuns, type Run } from "./older-state.ts";
 
+/// A task that has not ended.
+export const runs = (t: AgentTask) => t.state === "running" || t.state === "paused";
+
+const NO_TASKS: AgentTask[] = [];
+
 export interface TranscriptCursor {
   start: number;
   next: number;
@@ -90,7 +95,7 @@ export class TranscriptCache<T extends Run> {
   }
 
   modes(key: string) { return this.extras.get(key)?.modes ?? null; }
-  tasks(key: string) { return this.extras.get(key)?.tasks ?? []; }
+  tasks(key: string) { return this.extras.get(key)?.tasks ?? NO_TASKS; }
 
   setModes(key: string, modes: AgentModes | null) {
     this.extras.set(key, { modes, tasks: this.tasks(key) });

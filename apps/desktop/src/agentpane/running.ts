@@ -7,11 +7,12 @@ import { TopicValues } from "../ui/topic-values-state.ts";
 import { parseProcesses, runningTrees, type ProcessesValue, type RunningProcess } from "./running-state.ts";
 import { paneSession } from "./media.ts";
 import { draw } from "./media-draw.ts";
-import { viewKey } from "./view-memory.ts";
 import { shellSize, shownDocks } from "./media-layout.ts";
+import { viewKey } from "./view-memory.ts";
 import { paneShown } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { AgentTask } from "../agents/agents.ts";
+import { runs, transcriptKey, transcripts } from "../agents/transcript-cache-state.ts";
 import { readError } from "./read.ts";
 
 let key = "";
@@ -23,32 +24,37 @@ let error = "";
 /// Set while `syncSession` takes the kept list, which its caller draws.
 let syncing = false;
 
-/// The background commands the session's agent runs, listed above its
-/// processes with their Stop; the log shows only their count.
-export interface BackgroundTasks { session: string; tasks: readonly AgentTask[]; stopping: ReadonlySet<string>; stop(id: string): void }
-export const backgroundTasks = createStore<BackgroundTasks>(() => ({ session: "", tasks: [], stopping: new Set(), stop() {} }));
+/// The Stop clicks of the background commands the session's agent runs, which the Running tab lists
+/// above its processes. The commands are the open session's `transcripts` extras; the log shows only
+/// their count.
+export interface BackgroundStops { stopping: ReadonlySet<string>; stop(id: string): void }
+export const backgroundStops = createStore<BackgroundStops>(() => ({ stopping: new Set(), stop() {} }));
 
-/// What the Running tab was last given.
-let shownTasks = "";
-
-/// Gives the Running tab the open session's live commands; the one place that changes `backgroundTasks`.
-/// The tab shows while there are some, and its count follows at once.
-export function publishBackgroundTasks(next: BackgroundTasks) {
-  const signature = JSON.stringify([next.session, next.tasks, [...next.stopping]]);
-  if (signature === shownTasks) return;
-  shownTasks = signature;
-  const before = paneTasks().length;
-  backgroundTasks.setState(next, true);
-  if (paneTasks().length !== before) draw();
+/// The tasks asked to stop, as the open log draws them; the one place that changes `backgroundStops`.
+export function publishBackgroundStops(next: BackgroundStops) {
+  const before = backgroundStops.getState().stopping;
+  if (next.stop === backgroundStops.getState().stop && next.stopping.size === before.size && [...next.stopping].every(id => before.has(id))) return;
+  backgroundStops.setState(next, true);
 }
 
-/// The key of session `s` in `BackgroundTasks.session`.
+/// The key of session `s` in the Running tab.
 export const sessionKey = (s: { machine_id: string; id: string } | null | undefined) => s ? viewKey(s.machine_id, s.id) : "";
 
-/// The background commands of the session the pane shows.
-export function paneTasks(state = backgroundTasks.getState()) {
-  return state.session && state.session === sessionKey(paneSession()) ? state.tasks : [];
+/// The key of the session the pane shows in `transcripts`, or null.
+export const paneKey = () => {
+  const s = paneSession();
+  return s ? transcriptKey({ machine_id: s.machine_id, agent: s.agent, session: s.id }) : null;
+};
+
+/// The background commands of the session the pane shows, from what its follow last said.
+export function paneTasks(tasks: readonly AgentTask[] = transcripts.tasks(paneKey() ?? "")) {
+  return tasks.filter(runs);
 }
+
+/// The pane's count of commands when last drawn: the tab shows while there are some, and its count
+/// follows at once.
+let drawnTasks = 0;
+transcripts.subscribe(() => { if (paneTasks().length !== drawnTasks) draw(); });
 
 /// What the view draws, for the session the pane shows.
 export const runningModel = createStore<{ model: RunningModel; actions: RunningActions } | null>(() => null);
@@ -92,7 +98,11 @@ function update(value: ProcessesValue) {
   if (list.length !== count) draw();
 }
 
-export function runningCount() { syncSession(); return runningTrees(list).length + paneTasks().length; }
+export function runningCount() {
+  syncSession();
+  drawnTasks = paneTasks().length;
+  return runningTrees(list).length + drawnTasks;
+}
 
 const visible = () => paneShown() && shellSize().width > 0 && shownDocks().length > 0;
 
