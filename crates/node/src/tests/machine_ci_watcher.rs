@@ -81,9 +81,115 @@ async fn a_cancelled_wait_does_not_clear_the_wait_that_replaced_it() {
         .await
         .expect("a finished task");
     assert!(cancelled.is_err());
-    watcher.waited(cancelled).await;
+    watcher.waited(cancelled);
 
     assert_eq!(watcher.waiting.get(&key).map(AbortHandle::id), Some(second));
     assert_eq!(watcher.tasks.get(&second), Some(&key));
     assert_eq!(watcher.tasks.len(), 1);
+}
+
+/// Lists of the `slow` repository wait for a permit; others answer at once.
+#[derive(Clone)]
+struct Slow {
+    permits: Arc<tokio::sync::Semaphore>,
+    active: Arc<std::sync::atomic::AtomicUsize>,
+    most: Arc<std::sync::atomic::AtomicUsize>,
+    slow_lists: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl Default for Slow {
+    fn default() -> Self {
+        Self {
+            permits: Arc::new(tokio::sync::Semaphore::new(0)),
+            active: Arc::default(),
+            most: Arc::default(),
+            slow_lists: Arc::default(),
+        }
+    }
+}
+
+impl Forge for Slow {
+    async fn list(&self, at: &Target) -> Result<Vec<WorkflowRun>> {
+        use std::sync::atomic::Ordering::SeqCst;
+
+        if at.repo == "slow/repo" {
+            self.slow_lists.fetch_add(1, SeqCst);
+            let now = self.active.fetch_add(1, SeqCst) + 1;
+            self.most.fetch_max(now, SeqCst);
+            self.permits.acquire().await.expect("open").forget();
+            self.active.fetch_sub(1, SeqCst);
+        }
+
+        Ok(Vec::new())
+    }
+
+    async fn one(&self, _: &Target, id: u64) -> Result<WorkflowRun> {
+        bail!("no run {id}")
+    }
+
+    async fn login(&self, _: &Target) -> Result<String> {
+        Ok("someone".into())
+    }
+
+    async fn wait(&self, _: &Target, _: u64) -> Result<bool> {
+        pending().await
+    }
+
+    async fn check(&self, _: &Target, _: Option<&str>) -> Result<Option<Answer>> {
+        Ok(None)
+    }
+}
+
+fn project(name: &str, repo: &str) -> Project {
+    Project {
+        name: name.into(),
+        target: Target {
+            host: Host::GitHub,
+            repo: repo.into(),
+        },
+        machines: BTreeSet::new(),
+    }
+}
+
+// A host that does not answer holds its own project only: the other lists
+// are applied as they end, and the slow project never has two calls at once.
+#[tokio::test]
+async fn a_slow_host_holds_only_its_own_project() {
+    use std::sync::atomic::Ordering::SeqCst;
+
+    let dir = TempDir::new().expect("a temp dir");
+    let forge = Slow::default();
+    let mut watcher = Watcher::start(
+        forge.clone(),
+        Nobody,
+        Arc::new(Ci::default()),
+        dir.path().join("runs.json"),
+    )
+    .await;
+    let slow = project("slow", "slow/repo");
+    let fast = project("fast", "fast/repo");
+    watcher.projects = vec![slow.clone(), fast.clone()];
+    watcher.held = ["slow".to_owned(), "fast".to_owned()].into();
+
+    watcher.begin(slow.clone(), Todo::List);
+    watcher.begin(fast.clone(), Todo::List);
+    // Asked for again while the first is in flight: kept once, for after it.
+    watcher.begin(slow.clone(), Todo::List);
+    watcher.begin(slow.clone(), Todo::List);
+
+    let done = watcher.calls.join_next_with_id().await.expect("a call");
+    watcher.applied(done).await;
+    assert!(watcher.next.contains_key("fast"), "the fast list was applied");
+    assert!(!watcher.next.contains_key("slow"));
+
+    forge.permits.add_permits(10);
+    let done = watcher.calls.join_next_with_id().await.expect("a call");
+    watcher.applied(done).await;
+    assert!(watcher.next.contains_key("slow"));
+    let done = watcher.calls.join_next_with_id().await.expect("the kept list");
+    watcher.applied(done).await;
+
+    assert!(watcher.calls.is_empty());
+    assert_eq!(forge.slow_lists.load(SeqCst), 2, "the two asks became one");
+    assert_eq!(forge.most.load(SeqCst), 1, "never two lists at once");
 }

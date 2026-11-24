@@ -6,12 +6,13 @@
 //! asked how they reach the hosts every `QUIET`, and when one comes or goes.
 //! A mesh change elects again. Going runs are waited on by at most
 //! `MAX_WAITS` CLI processes at once, owned here and killed when the role
-//! moves away or the node stops.
+//! moves away or the node stops. Every call to a forge runs in its own task,
+//! never two for one project, and is applied when the loop joins it.
 
 use super::{
     Ci,
     book::{self, Books},
-    check::{CHECK, Checks},
+    check::{Answer, CHECK, Checks},
     forge::{Cli, Forge, Host, Target},
     projects::{self, Project},
 };
@@ -37,6 +38,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
+use futures::future::join_all;
 use tokio::{
     select,
     sync::watch,
@@ -99,6 +101,33 @@ struct Waited {
     passed: Result<bool>,
 }
 
+/// What a project's next call to its forge is, once the one running ends.
+enum Todo {
+    List,
+    /// Read a run whose wait ended.
+    Read(Waited),
+}
+
+/// A call to a forge that ended, with the project it was for.
+struct Called {
+    project: Project,
+    outcome: Outcome,
+}
+
+enum Outcome {
+    /// The cheap check, made at `at`; `None` with no token.
+    Checked {
+        at: Instant,
+        answer: Result<Option<Answer>>,
+    },
+    /// The account and the runs.
+    Listed(Result<(String, Vec<WorkflowRun>)>),
+    Read {
+        waited: Waited,
+        run: Result<WorkflowRun>,
+    },
+}
+
 pub(super) struct Watcher<F, W> {
     forge: Arc<F>,
     world: W,
@@ -114,6 +143,11 @@ pub(super) struct Watcher<F, W> {
     /// The projects this machine watches.
     held: BTreeSet<String>,
     waits: JoinSet<Waited>,
+    /// The calls to forges in flight, and the project each is for.
+    calls: JoinSet<Called>,
+    calling: HashMap<Id, String>,
+    /// What each project does next, after its call in flight.
+    pending: HashMap<String, VecDeque<Todo>>,
     /// The runs waited on, and their tasks.
     waiting: HashMap<RunKey, AbortHandle>,
     tasks: HashMap<Id, RunKey>,
@@ -148,6 +182,9 @@ impl<F: Forge, W: World> Watcher<F, W> {
             projects: Vec::new(),
             held: BTreeSet::new(),
             waits: JoinSet::new(),
+            calls: JoinSet::new(),
+            calling: HashMap::new(),
+            pending: HashMap::new(),
             waiting: HashMap::new(),
             tasks: HashMap::new(),
             queued: VecDeque::new(),
@@ -174,7 +211,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
             let parked = self.held.is_empty() && self.asked.is_some();
 
             select! {
-                _ = check.tick(), if !parked => self.check_due().await,
+                _ = check.tick(), if !parked => self.check_due(),
                 _ = tick.tick(), if !parked => self.poll().await,
                 () = sleep_until(parked_until), if parked => {
                     parked_until = Instant::now() + QUIET;
@@ -192,11 +229,14 @@ impl<F: Forge, W: World> Watcher<F, W> {
                     }
 
                     for project in self.elect() {
-                        self.list(&project).await;
+                        self.begin(project, Todo::List);
                     }
                 }
                 Some(done) = self.waits.join_next_with_id(), if !self.waits.is_empty() => {
-                    self.waited(done).await;
+                    self.waited(done);
+                }
+                Some(done) = self.calls.join_next_with_id(), if !self.calls.is_empty() => {
+                    self.applied(done).await;
                 }
             }
         }
@@ -257,6 +297,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
         for lost in lost {
             log::info!("CI watch: {lost} is watched elsewhere now");
             self.drop_waits(&lost);
+            self.pending.remove(&lost);
         }
 
         let gained: Vec<Project> = self
@@ -283,30 +324,30 @@ impl<F: Forge, W: World> Watcher<F, W> {
     /// Checks every held GitHub project that is due, and lists those whose
     /// runs changed. With no token a project is not checked, and its lists
     /// keep their schedule.
-    async fn check_due(&mut self) {
+    fn check_due(&mut self) {
         let held: Vec<Project> = self
             .held_projects()
             .filter(|project| project.target.host == Host::GitHub)
             .collect();
+
         for project in held {
-            let now = Instant::now();
+            let at = Instant::now();
+            let busy = self.calling(&project.name);
             let checks = self.checks.entry(project.name.clone()).or_default();
 
-            if !checks.due(now) {
+            if !checks.due(at) || busy {
                 continue;
             }
 
-            let answer = bounded(self.forge.check(&project.target, checks.etag())).await;
-            let answer = match answer {
-                Ok(Some(answer)) => Ok(answer),
-                Ok(None) => continue,
-                Err(e) => Err(e),
-            };
-            let checks = self.checks.entry(project.name.clone()).or_default();
-
-            if checks.answered(answer, now, SystemTime::now()) {
-                self.list(&project).await;
-            }
+            let etag = checks.etag().map(str::to_owned);
+            let forge = self.forge.clone();
+            self.spawn(project.clone(), async move {
+                let answer = bounded(forge.check(&project.target, etag.as_deref())).await;
+                Called {
+                    project,
+                    outcome: Outcome::Checked { at, answer },
+                }
+            });
         }
     }
 
@@ -315,9 +356,11 @@ impl<F: Forge, W: World> Watcher<F, W> {
     async fn list_due(&mut self) {
         let now = Instant::now();
         let held: Vec<Project> = self.held_projects().collect();
+        let world = &self.world;
+        let pushed = join_all(held.iter().map(|project| world.pushed(project))).await;
 
-        for project in held {
-            if let Some(at) = self.world.pushed(&project).await {
+        for (project, pushed) in held.into_iter().zip(pushed) {
+            if let Some(at) = pushed {
                 let before = self.pushes.insert(project.name.clone(), at);
                 if before.is_some_and(|before| before != at) {
                     self.busy_until.insert(project.name.clone(), now + BUSY);
@@ -326,7 +369,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
             }
 
             if self.next.get(&project.name).is_none_or(|next| now >= *next) {
-                self.list(&project).await;
+                self.begin(project, Todo::List);
             }
         }
     }
@@ -338,18 +381,126 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .cloned()
     }
 
-    /// One list of `project`'s runs: what ended is told, what goes is waited on.
-    async fn list(&mut self, project: &Project) {
-        let host = project.target.host_name().to_owned();
-        let listed = async {
-            let login = match self.logins.get(&host) {
-                Some(login) => login.clone(),
-                None => bounded(self.forge.login(&project.target)).await?,
-            };
-            let runs = bounded(self.forge.list(&project.target)).await?;
-            Ok::<_, anyhow::Error>((login, runs))
+    /// Whether a call for `project` is in flight.
+    fn calling(&self, project: &str) -> bool {
+        self.calling.values().any(|name| name == project)
+    }
+
+    fn spawn(&mut self, project: Project, call: impl Future<Output = Called> + Send + 'static) {
+        let handle = self.calls.spawn(call);
+        self.calling.insert(handle.id(), project.name);
+    }
+
+    /// Does `todo` for `project` now, or after the call it has in flight.
+    fn begin(&mut self, project: Project, todo: Todo) {
+        if self.calling(&project.name) {
+            let queue = self.pending.entry(project.name).or_default();
+
+            if !matches!(todo, Todo::List) || !queue.iter().any(|todo| matches!(todo, Todo::List)) {
+                queue.push_back(todo);
+            }
+
+            return;
         }
-        .await;
+
+        let forge = self.forge.clone();
+
+        match todo {
+            Todo::List => {
+                let login = self.logins.get(project.target.host_name()).cloned();
+                self.spawn(project.clone(), async move {
+                    let listed = async {
+                        let login = match login {
+                            Some(login) => login,
+                            None => bounded(forge.login(&project.target)).await?,
+                        };
+                        let runs = bounded(forge.list(&project.target)).await?;
+                        Ok::<_, anyhow::Error>((login, runs))
+                    }
+                    .await;
+                    Called {
+                        project,
+                        outcome: Outcome::Listed(listed),
+                    }
+                });
+            }
+            Todo::Read(waited) => {
+                self.spawn(project.clone(), async move {
+                    let run = bounded(forge.one(&project.target, waited.key.1)).await;
+                    Called {
+                        project,
+                        outcome: Outcome::Read { waited, run },
+                    }
+                });
+            }
+        }
+    }
+
+    /// Starts what `project` had waiting for its call to end.
+    fn resume(&mut self, project: &str) {
+        let Some(todo) = self.pending.get_mut(project).and_then(VecDeque::pop_front) else {
+            return;
+        };
+
+        let held = self.held_projects().find(|held| held.name == project);
+
+        if let Some(project) = held {
+            self.begin(project, todo);
+        }
+    }
+
+    /// A call ended: its answer is applied here, and the file is written
+    /// once the last call of a batch is in.
+    async fn applied(&mut self, done: Result<(Id, Called), JoinError>) {
+        let called = match done {
+            Ok((id, called)) => {
+                self.calling.remove(&id);
+                called
+            }
+            Err(e) => {
+                log::warn!("CI watch: a call to a host stopped: {e}");
+
+                if let Some(project) = self.calling.remove(&e.id()) {
+                    self.resume(&project);
+                }
+
+                return;
+            }
+        };
+        let Called { project, outcome } = called;
+
+        // The role may have moved while the call ran.
+        if self.held.contains(&project.name) {
+            match outcome {
+                Outcome::Checked { at, answer } => self.checked(&project, at, answer),
+                Outcome::Listed(listed) => self.listed(&project, listed),
+                Outcome::Read { waited, run } => self.read(&project, waited, run),
+            }
+        }
+
+        self.resume(&project.name);
+
+        if self.calls.is_empty() {
+            self.save().await;
+        }
+    }
+
+    fn checked(&mut self, project: &Project, at: Instant, answer: Result<Option<Answer>>) {
+        let answer = match answer {
+            Ok(Some(answer)) => Ok(answer),
+            Ok(None) => return,
+            Err(e) => Err(e),
+        };
+        let checks = self.checks.entry(project.name.clone()).or_default();
+
+        if checks.answered(answer, at, SystemTime::now()) {
+            self.begin(project.clone(), Todo::List);
+        }
+    }
+
+    /// One list of `project`'s runs: what ended is told, what goes is waited on.
+    fn listed(&mut self, project: &Project, listed: Result<(String, Vec<WorkflowRun>)>) {
+        let host = project.target.host_name().to_owned();
         let (login, runs) = match listed {
             Ok(listed) => listed,
             Err(e) => {
@@ -380,8 +531,6 @@ impl<F: Forge, W: World> Watcher<F, W> {
         for run in seen.going {
             self.queue(project, run);
         }
-
-        self.save().await;
     }
 
     fn tell(&mut self, project: &Project, run: WorkflowRun) {
@@ -465,7 +614,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
     }
 
     /// A wait ended: the run is read once, and told when it ended.
-    async fn waited(&mut self, done: Result<(Id, Waited), JoinError>) {
+    fn waited(&mut self, done: Result<(Id, Waited), JoinError>) {
         let waited = match done {
             Ok((id, waited)) => {
                 self.tasks.remove(&id);
@@ -483,11 +632,18 @@ impl<F: Forge, W: World> Watcher<F, W> {
         };
         self.waiting.remove(&waited.key);
         self.start_queued();
-        let Some(project) = self.held_projects().find(|p| p.name == waited.key.0) else {
-            return;
-        };
+
+        let project = self.held_projects().find(|p| p.name == waited.key.0);
+
+        if let Some(project) = project {
+            self.begin(project, Todo::Read(waited));
+        }
+    }
+
+    /// The run of a wait that ended, read once.
+    fn read(&mut self, project: &Project, waited: Waited, run: Result<WorkflowRun>) {
         let host = project.target.host_name().to_owned();
-        let run = match bounded(self.forge.one(&project.target, waited.key.1)).await {
+        let run = match run {
             Ok(run) => {
                 self.ci.record_reach(&host, true);
                 Some(run)
@@ -512,8 +668,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
         };
 
         if self.books.settle(&project.name, &run, SystemTime::now()) {
-            self.tell(&project, run);
-            self.save().await;
+            self.tell(project, run);
         }
     }
 
