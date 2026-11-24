@@ -2,9 +2,9 @@
 //! ask, as Home lists them under Needs you.
 
 use crate::{
-    agents::sessions::machine_sessions,
+    agents::sessions::overlaid,
     center::{self, AgentTarget, CenterTarget, NeedsYou},
-    fleet::Fleet,
+    fleet::{Fleet, home_signal::HomeSignal, session_mirror::SessionMirror},
     notices::history,
 };
 use beep_proto::SessionId;
@@ -13,10 +13,7 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Manager};
-use tokio::{
-    sync::Notify,
-    time::{sleep, timeout},
-};
+use tokio::{select, time::sleep};
 
 /// Menu ids of Waiting's items start with this.
 pub const ITEM: &str = "wait:";
@@ -28,12 +25,7 @@ pub const MORE: &str = "wait-more";
 pub const SHOWN: usize = 8;
 /// The longest label, in characters, so the menu keeps its width.
 const LABEL_MAX: usize = 60;
-/// How often the list is fetched when nothing poked, at first and after
-/// a change; each fetch that changes nothing doubles the wait up to
-/// `QUIET`.
-const EVERY: Duration = Duration::from_secs(60);
-const QUIET: Duration = Duration::from_secs(5 * 60);
-/// The least time between two fetches, so a burst of notices makes one.
+/// The least time between two reads of the mirror, so a burst of changes makes one.
 const GAP: Duration = Duration::from_secs(2);
 
 /// One thing that waits, as the tray lists it.
@@ -51,7 +43,6 @@ pub struct Entry {
 #[derive(Default)]
 pub struct WaitingList {
     entries: Mutex<Vec<Entry>>,
-    wake: Notify,
 }
 
 impl WaitingList {
@@ -81,11 +72,6 @@ impl WaitingList {
         }
         *slot = entries;
         true
-    }
-
-    /// Asks for a fetch soon. Pokes that come during one make one more.
-    pub fn poke(&self) {
-        self.wake.notify_one();
     }
 }
 
@@ -150,22 +136,19 @@ pub fn tooltip(count: usize) -> String {
     }
 }
 
-/// Keeps the list current while Beep runs: on each poke, and every `EVERY`
-/// to `QUIET`.
-/// Machines poke on every question or finished turn they send, and when
-/// they connect; the slow look catches an entry answered elsewhere and a
-/// session that ended with no alert.
+/// Keeps the list current while Beep runs: it follows the mirror's rows and the signal Home
+/// follows, and reads the rows as they stand. Alerts and pushes reach the rows, so nothing asks
+/// the machines.
 pub async fn follow(app: AppHandle) {
     let list = app.state::<WaitingList>();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
-    list.poke();
-    let mut wait = EVERY;
+    let mirror = app.state::<Arc<SessionMirror>>();
+    let mut rows = mirror.watch();
+    let mut pokes = app.state::<Arc<HomeSignal>>().follow();
 
     loop {
-        // Timing out is the usual way round: nothing poked.
-        let _ = timeout(wait, list.wake.notified()).await;
-        wait = (wait * 2).min(QUIET);
-        let entries = fetch(&app, &fleet).await;
+        let sessions = overlaid(&app, &fleet, &mirror.current());
+        let entries = entries(center::needs_you(sessions.iter()));
         let gone: Vec<String> = list
             .entries()
             .into_iter()
@@ -174,18 +157,16 @@ pub async fn follow(app: AppHandle) {
             .collect();
 
         if list.set(entries) {
-            wait = EVERY;
             crate::tray::refresh(&app);
             history::no_longer_waiting(&app, &gone);
         }
 
         sleep(GAP).await;
+        select! {
+            changed = rows.changed() => if changed.is_err() { return },
+            changed = pokes.changed() => if changed.is_err() { return },
+        }
     }
-}
-
-async fn fetch(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec<Entry> {
-    let sessions = machine_sessions(app, fleet).await;
-    entries(center::needs_you(sessions.iter()))
 }
 
 #[cfg(test)]

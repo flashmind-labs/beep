@@ -11,7 +11,6 @@ use crate::{
         home::HOME_CHANGED,
         view_cache::{View, ViewCache},
     },
-    tray::waiting::WaitingList,
 };
 use beep_mesh::machine::listing::{Host, Linked, apply_presence};
 use beep_proto::{
@@ -1067,8 +1066,6 @@ impl Outside for Desk {
         let told = match drawn {
             Drawn::Listed => app.emit(HOME_CHANGED, ()),
             Drawn::Session(session) => {
-                // The tray reads again now that the rows hold the edit.
-                app.state::<WaitingList>().poke();
                 crate::fleet::event_views::session_edited(app.clone());
                 app.emit("sessions-changed", session)
             }

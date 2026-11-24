@@ -8,7 +8,6 @@ use crate::{
     center,
     fleet::Fleet,
     fleet::{alerts::Direct, session_mirror::SessionMirror},
-    tray::waiting::WaitingList,
 };
 use beep_fleet::Read;
 use beep_mesh::machine::listing::Host;
@@ -69,15 +68,13 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
             Direct::Connected => {
                 settle = Instant::now() + SETTLE;
                 let _ = app.emit("reconnected", ());
-                app.state::<WaitingList>().poke();
             }
         }
     }
 }
 
-/// A coding agent asked something or finished a turn. The tray looks at
-/// what waits again, the bell keeps it, and the notice shows unless agent
-/// notices are off, the session is on screen or any app read it.
+/// A coding agent asked something or finished a turn. The bell keeps it, and the notice shows
+/// unless agent notices are off, the session is on screen or any app read it.
 /// A child's finished turn tells nothing, but a reviewer's means its review is in.
 /// A question Allow and Deny cannot answer only opens its chat.
 fn agent_notice(
@@ -95,7 +92,6 @@ fn agent_notice(
         return;
     }
 
-    app.state::<WaitingList>().poke();
     let focused = focused_center_label(app);
     let mut on_screen: Vec<&str> = focused.iter().map(String::as_str).collect();
     if bar::is_open(app) {
