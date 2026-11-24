@@ -150,25 +150,45 @@ export function steerMessage(input: HTMLTextAreaElement) {
   });
 }
 
+// A batch of files being read goes with exactly one message.
+const claimedReads = new WeakSet<object>();
+// The latest message of each conversation, until its send has been handed to the app.
+const handing = new Map<string, Promise<void>>();
+
 /// Takes what the field holds and runs `send` with it. The field is free at
 /// once; files still being read from the disk join the message when they are,
-/// and its files upload behind its row in the outbox.
+/// and its files upload behind its row in the outbox. Messages of one
+/// conversation are handed to the app in the order of Enter: one waits only
+/// for the one before to be handed over, never for the network.
 function submit(input: HTMLTextAreaElement | null, send: (draft: Waiting) => unknown) {
-  const o = AG.open, state = currentMentions(), reads = attachReads();
+  const o = AG.open, state = currentMentions(), key = o ? conversationKey({ ...o, id: o.session }) : "";
+  const reads = attachReads().filter(batch => !claimedReads.has(batch));
+  for (const batch of reads) claimedReads.add(batch);
   const draft = takeMessage(input, reads.length > 0);
   if (!draft) return;
-  if (!reads.length) return send(draft);
+  const before = handing.get(key);
+  if (!before && !reads.length) return send(draft);
 
-  return Promise.all(reads.map(batch => batch.ready)).then(async () => {
-    if (!await joinRead(draft, reads, state, o)) return;
-    return send(draft);
+  let sending: unknown;
+  const handed = (before ?? Promise.resolve()).then(async () => {
+    if (reads.length) {
+      await Promise.all(reads.map(batch => batch.ready));
+      if (!await joinRead(draft, reads, state, o)) return;
+    }
+
+    sending = send(draft);
   });
+  const mine: Promise<void> = handed.catch(() => {}).then(() => { if (handing.get(key) === mine) handing.delete(key); });
+  handing.set(key, mine);
+
+  return handed.then(() => sending);
 }
 
 /// Adds what `reads` attached since the message was taken from its conversation
 /// `state`. False when nothing is left to send.
 async function joinRead(draft: Waiting, reads: ReturnType<typeof attachReads>, state: MentionState, session: OpenAgent | null) {
-  const paths = reads.flatMap(batch => batch.paths), own = new Set(reads.flatMap(batch => batch.images));
+  // Only what is still in the conversation: another message may have taken a file already.
+  const paths = reads.flatMap(batch => batch.paths).filter(path => state.files.has(path)), own = new Set(reads.flatMap(batch => batch.images));
   const images = mentionImages(state).filter(image => own.has(image));
 
   for (const path of paths) {

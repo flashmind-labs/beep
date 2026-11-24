@@ -121,6 +121,28 @@ test("Send waits for files still being read, then hands them to the outbox with 
   clearTimeout(AG.timer);
 });
 
+test("Enter pressed again while a file is read takes neither the file nor an empty message, and a later one goes after", async () => {
+  openSession("idle");
+  answers.agent_steer = [];
+  const read = pendingRead();
+  field().value = "First";
+  const first = sendAgentMessage();
+  // Nothing typed and the read is claimed: no message at all.
+  const again = sendAgentMessage();
+  if (again) read.finish();
+  assert.equal(again, undefined);
+  field().value = "Second";
+  const second = sendAgentMessage();
+  read.attach("attachment:7:report.txt");
+  read.finish();
+  await Promise.all([first, second]);
+  const sent = calls.filter(call => call.cmd === "agent_steer").map(call => call.args as { steer: { steer: { text: string } }; attach?: { files: unknown[] } });
+  assert.deepEqual(sent.map(call => call.steer.steer.text), ["First", "Second"]);
+  assert.equal(sent[0].attach?.files.length, 1);
+  assert.equal(sent[1].attach, undefined);
+  assert.equal(JSON.stringify(sent).includes("attachment:"), false);
+});
+
 test("leaving the conversation while its files are read still sends the message there", async () => {
   openSession("idle");
   const read = pendingRead();

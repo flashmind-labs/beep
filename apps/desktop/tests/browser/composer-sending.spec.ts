@@ -28,12 +28,14 @@ async function keepFilesInOutbox(page: Page) {
     type Row = { id: number; how: string; text: string; images: string[]; state: string; reason: string | null };
     const invoke = window.__TAURI__.core.invoke;
     let rows: Row[] = [], next = 0;
-    const asked: { args: unknown }[] = [];
-    Object.assign(window, { __asked: asked });
+    const asked: { args: unknown }[] = [], order: string[] = [];
+    Object.assign(window, { __asked: asked, __order: order });
     const changed = () => window.__navigation.emit("outbox-changed", { ...where, rows, sent: [] });
     Object.assign(window, { __rows: { set(update: (rows: Row[]) => Row[]) { rows = update(rows); changed(); } } });
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
       const steer = args?.steer as { steer?: { text: string } } | undefined;
+
+      if (command === "agent_steer" && steer?.steer) order.push(steer.steer.text);
 
       if (command === "agent_steer" && (args?.attach || args?.resume) && steer?.steer) {
         asked.push({ args });
@@ -106,6 +108,39 @@ test("a message whose upload failed stays as a failed row, and Edit puts its wor
   await expect(page.locator("#agmsg")).toHaveValue("Read the notes");
   await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
   expect(await calls(page, "agent_tree_upload")).toEqual([]);
+});
+
+test("Enter pressed again while a dropped file is read sends no junk message, and the messages go in the order of Enter", async ({ page }) => {
+  await open(page);
+  await keepFilesInOutbox(page);
+  // The file's read waits until the test lets it finish.
+  await page.evaluate(() => {
+    const read = FileReader.prototype.readAsDataURL;
+    let release = () => {};
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    Object.assign(window, { __releaseRead: release });
+    FileReader.prototype.readAsDataURL = function (this: FileReader, blob: Blob) { void gate.then(() => read.call(this, blob)); };
+  });
+  await picker(page).setInputFiles([notes]);
+  await page.locator("#agmsg").fill("First");
+  await page.locator("#agmsg").press("Enter");
+  // Nothing typed, the read already belongs to the first message: no message.
+  await page.locator("#agmsg").press("Enter");
+  await page.locator("#agmsg").fill("Second");
+  await page.locator("#agmsg").press("Enter");
+  expect(await calls(page, "agent_steer")).toEqual([]);
+
+  await page.evaluate(() => (window as unknown as { __releaseRead(): void }).__releaseRead());
+  await expect(page.locator(".ag-queue .it.out")).toHaveCount(1);
+  await expect.poll(async () => (await calls(page, "agent_steer")).length).toBe(1);
+  const withFile = await page.evaluate(() => (window as unknown as { __asked: { args: { steer: { steer: { text: string } } } }[] }).__asked);
+  expect(withFile.map(call => call.args.steer.steer.text)).toEqual(["First"]);
+  // The first reached the app before the second, which has no file.
+  const second = (await calls(page, "agent_steer"))[0];
+  expect(JSON.stringify(second.args)).toContain("Second");
+  expect(JSON.stringify([withFile, second])).not.toContain("attachment:");
+  const order = await page.evaluate(() => (window as unknown as { __order: string[] }).__order);
+  expect(order).toEqual(["First", "Second"]);
 });
 
 test("an ended session hands the message and its resume to the outbox, shows a row, and opens the session that resumed", async ({ page }) => {
