@@ -1431,7 +1431,7 @@ async fn run(
 fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
     match topic.name() {
         // One machine's list changed: its pushed rows replace the ones held. Without them
-        // the next read lists every machine again.
+        // the next read lists that machine again.
         "agents" | "*" => {
             let pushed = match value {
                 Some(value) if topic.name() == "agents" => {
@@ -1442,7 +1442,7 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
 
             match pushed {
                 Some(rows) => app.state::<Arc<SessionMirror>>().pushed(machine, rows),
-                None => app.state::<Arc<SessionMirror>>().stale(),
+                None => app.state::<Arc<SessionMirror>>().stale(machine),
             }
         }
         "agent" => {

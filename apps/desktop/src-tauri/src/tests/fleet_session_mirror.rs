@@ -297,6 +297,32 @@ async fn a_machine_that_pushes_is_not_listed_again_when_its_rows_age() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_stale_machine_does_not_make_a_pushing_one_listed() {
+    let (a, b) = (machine(1), machine(2));
+    let mut rig = rig(vec![a, b], Vec::new());
+
+    for m in [a, b] {
+        rig.mirror
+            .pushed(m, vec![top(session(m, "s", AgentStatus::Running {}))]);
+    }
+    rig.mirror.rows();
+    // Both are scanned once.
+    for _ in 0..2 {
+        let ask = next(&mut rig.asks).await;
+        assert!(ask.scan);
+        ask.reply.send(Some(Vec::new())).unwrap();
+    }
+
+    rig.mirror.stale(a);
+    rig.mirror.rows();
+    let first = next(&mut rig.asks).await;
+    let second = next(&mut rig.asks).await;
+    assert_eq!([first.machine, second.machine], [a, a]);
+    tokio::task::yield_now().await;
+    assert!(rig.asks.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_machine_whose_push_ended_is_listed_again_when_its_rows_age() {
     let a = machine(1);
     let mut rig = rig(vec![a], Vec::new());
@@ -412,7 +438,7 @@ async fn native_reports_win_over_the_scans_that_come_after_them() {
     assert_eq!(ids(&rig.mirror.current(), a), ["ext"]);
 
     // A scan that does not find the session leaves it: the report is newer.
-    rig.mirror.stale();
+    rig.mirror.stale(a);
     rig.mirror.rows();
     let scan = loop {
         let ask = next(&mut rig.asks).await;
@@ -424,7 +450,7 @@ async fn native_reports_win_over_the_scans_that_come_after_them() {
         ask.reply.send(Some(Vec::new())).unwrap();
     };
     scan.reply.send(Some(Vec::new())).unwrap();
-    rig.mirror.stale();
+    rig.mirror.stale(a);
     // The mirror took the scan before this report, which ends the session.
     rig.mirror
         .presence(a, host, vec![report(Presence::Stopped)]);

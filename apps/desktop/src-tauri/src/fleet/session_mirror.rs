@@ -310,8 +310,8 @@ pub(crate) enum Drawn {
 enum Message {
     /// Someone reads the rows: what is older than `FRESH` is listed again.
     Read,
-    /// The next read lists everything again.
-    Stale,
+    /// The next read lists this machine again.
+    Stale(EndpointId),
     /// A machine's `agents` subscription ended: its rows age again.
     Unpushed(EndpointId),
     /// A machine pushed its Beep rows.
@@ -461,9 +461,9 @@ impl SessionMirror {
         self.send(Message::Unpushed(machine));
     }
 
-    /// The next read lists every machine again.
-    pub(crate) fn stale(&self) {
-        self.send(Message::Stale);
+    /// The next read lists `machine` again.
+    pub(crate) fn stale(&self, machine: EndpointId) {
+        self.send(Message::Stale(machine));
     }
 
     /// The session is deleted on its machine.
@@ -587,7 +587,9 @@ impl<O: Outside> Actor<O> {
     fn handle(&mut self, message: Message) {
         match message {
             Message::Read => self.read(),
-            Message::Stale => self.reads.clear(),
+            Message::Stale(machine) => {
+                self.reads.remove(&machine);
+            }
             Message::Unpushed(machine) => {
                 if let Some(reads) = self.reads.get_mut(&machine) {
                     reads.pushed = false;
