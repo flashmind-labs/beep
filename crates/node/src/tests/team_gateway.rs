@@ -352,8 +352,6 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
         cards::Teammates,
     };
     use beep_proto::team::Card;
-    use tokio::time::timeout;
-
     let dir = tempfile::tempdir().unwrap();
     let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
     let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
@@ -386,25 +384,20 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
         pr: None,
         updated_at: SystemTime::now(),
     };
-    let _running = AbortOnDropHandle::new(tokio::spawn(gateway.drive(hearing)));
+    // The first tick is due at once, once the timer has run.
+    tokio::time::pause();
+    let mut running = Box::pin(gateway.drive(hearing));
+    assert!(futures::poll!(&mut running).is_pending());
+    tokio::time::advance(Duration::from_millis(1)).await;
+    assert!(futures::poll!(&mut running).is_pending());
     let board = Followed {
         repo: repo(),
         mesh: bob.mesh,
         heard: Heard::Board(vec![card.clone()]),
     };
     heard.send(board).await.unwrap();
+    assert!(futures::poll!(&mut running).is_pending());
 
-    let taken = async {
-        loop {
-            let cards = link.with(|teams| teams.teammates.get(&repo()).map(Teammates::cards));
-
-            if cards == Some(vec![card.clone()]) {
-                return;
-            }
-
-            tokio::task::yield_now().await;
-        }
-    };
-
-    timeout(Duration::from_secs(10), taken).await.unwrap();
+    let cards = link.with(|teams| teams.teammates.get(&repo()).map(Teammates::cards));
+    assert_eq!(cards, Some(vec![card]));
 }
