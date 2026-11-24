@@ -79,9 +79,6 @@ pub(crate) struct Live {
     /// The prompts still waiting when the node stopped, to send once it
     /// resumes the session.
     pub(super) held: Vec<Prompt>,
-    /// The agent replays the conversation when it loads the session, so
-    /// the node need not keep the transcript across a restart.
-    pub(crate) replays: bool,
     /// The slash commands and skills the agent advertises, such as
     /// `compact`.
     pub(crate) commands: Vec<AgentCommand>,
@@ -99,9 +96,7 @@ pub(crate) struct Live {
     codex_threads: HashMap<String, ToolCallId>,
     /// The turn Claude Code runs on its own now, by its task id: one starts
     /// when a background subagent ends after its turn was stopped.
-    autonomous_turn: Option<String>,
-    /// The session shows Working for that turn alone: no prompt runs.
-    autonomous_shown: bool,
+    autonomous_turn: Option<AutonomousTurn>,
     /// An interrupt closed subagent calls the adapter may still run: they
     /// no longer count, so `StopAll` ends the agent for them anyway.
     pub(crate) orphaned_subagents: bool,
@@ -138,9 +133,6 @@ pub(crate) struct Live {
     /// The image lines of the pictures tool calls showed this turn, each
     /// also shown as an agent image: at most `image_files::MAX_PER_TURN`.
     turn_images: Vec<String>,
-    /// The thought arriving now, for the line the summary shows while the
-    /// agent thinks.
-    thought: String,
     /// The thought arriving now, as its transcript entry once it has text,
     /// and when it started; `None` for one replayed by a loaded session,
     /// whose time is not known.
@@ -165,9 +157,20 @@ pub(crate) struct Live {
     pub(in crate::agents) user_turn: bool,
 }
 
+/// A turn the agent runs on its own.
+#[derive(Debug)]
+struct AutonomousTurn {
+    /// The agent's task id for it.
+    task: String,
+    /// The session shows Working for that turn alone: no prompt runs.
+    shown: bool,
+}
+
 /// A thought still arriving.
 #[derive(Debug)]
 struct OpenThought {
+    /// Its text, for the line the summary shows while the agent thinks.
+    text: String,
     entry: Option<u64>,
     started: Option<Instant>,
 }

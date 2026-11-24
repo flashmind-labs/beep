@@ -1,7 +1,7 @@
 //! The commands an agent runs in the background, from its `async_task_*`
 //! updates, and the tool calls that started them.
 
-use super::{Live, MAX_LINE, MAX_TASKS, content::cut, tools::ToolCall};
+use super::{AutonomousTurn, Live, MAX_LINE, MAX_TASKS, content::cut, tools::ToolCall};
 use crate::agents::acp::AsyncTask;
 use agent_client_protocol::v1::schema::{Meta, ToolCallId};
 use beep_proto::node::agent::{Status, Task, TaskState};
@@ -27,7 +27,11 @@ impl Live {
                 tool_call_id,
             } => {
                 if task_type == TURN {
-                    self.autonomous_turn = Some(async_task_id);
+                    let shown = self.autonomous_turn.as_ref().is_some_and(|turn| turn.shown);
+                    self.autonomous_turn = Some(AutonomousTurn {
+                        task: async_task_id,
+                        shown,
+                    });
                     return self.show_autonomous_turn();
                 }
 
@@ -82,7 +86,7 @@ impl Live {
                 output_file_path,
                 tool_call_id,
             } => {
-                if self.autonomous_turn.as_ref() == Some(&async_task_id) {
+                if self.autonomous_turn.as_ref().is_some_and(|turn| turn.task == async_task_id) {
                     let state = state.parse().unwrap_or(TaskState::Unknown);
 
                     if !state.ended() {
@@ -91,8 +95,7 @@ impl Live {
 
                     // Claude Code works on its own once a background
                     // subagent reports; that work ended.
-                    self.autonomous_turn = None;
-                    let shown = std::mem::take(&mut self.autonomous_shown);
+                    let shown = self.autonomous_turn.take().is_some_and(|turn| turn.shown);
                     if shown && self.info.state.status == Status::Working {
                         self.info.state.status = Status::Idle;
                         self.info.state.summary.clear();
@@ -126,11 +129,15 @@ impl Live {
     /// own runs, such as Claude Code's after a background task reported.
     /// True when the status changed.
     pub(crate) fn show_autonomous_turn(&mut self) -> bool {
-        if self.autonomous_turn.is_none() || self.info.state.status != Status::Idle {
+        let Some(turn) = &mut self.autonomous_turn else {
+            return false;
+        };
+
+        if self.info.state.status != Status::Idle {
             return false;
         }
 
-        self.autonomous_shown = true;
+        turn.shown = true;
         self.active_at = Some(Instant::now());
         self.info.state.status = Status::Working;
         self.info.state.summary = "Working on its own".into();

@@ -500,6 +500,7 @@ impl Session {
             agent: kind.name.clone(),
             acp_session: None,
             banner: None,
+            replays: false,
             reading_cost: false,
             offers: Offers::new(protocol),
             foreground: false,

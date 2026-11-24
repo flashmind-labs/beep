@@ -538,26 +538,30 @@ impl Live {
     /// its own once it has text, so a redacted one shows nothing.
     fn thought_chunk(&mut self, content: &ContentBlock, now: Instant) {
         if self.open_thought.is_none() {
-            self.thought.clear();
             self.info.state.summary = "Thinking".into();
             // A loaded session replays its thoughts all at once.
             let started = (self.info.state.status != Status::Starting)
                 .then(|| self.active_at.unwrap_or(now).min(now));
             self.open_thought = Some(OpenThought {
+                text: String::new(),
                 entry: None,
                 started,
             });
         }
 
         if let ContentBlock::Text(text) = content {
-            if self.thought.len() < MAX_THOUGHT {
-                self.thought.push_str(&text.text);
+            if let Some(open) = &mut self.open_thought
+                && open.text.len() < MAX_THOUGHT
+            {
+                open.text.push_str(&text.text);
             }
 
             self.thought_text(&text.text);
         }
 
-        if let Some(line) = thought_line(&self.thought) {
+        if let Some(open) = &self.open_thought
+            && let Some(line) = thought_line(&open.text)
+        {
             self.info.state.summary = cut(&line, MAX_LINE);
         }
     }

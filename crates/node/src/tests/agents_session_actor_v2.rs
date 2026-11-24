@@ -16,6 +16,7 @@ fn actor() -> Actor {
         agent: "test-agent".into(),
         acp_session: Some(SessionId::new("session-test")),
         banner: None,
+        replays: false,
         reading_cost: false,
         offers: Offers {
             takes_images: Some(false),
@@ -296,6 +297,6 @@ fn the_adapter_banner_is_left_out_once() {
     actor.acp_session = None;
     assert!(actor.is_banner("pi v1.0.0"));
 
-    actor.live.send_modify(|live| live.replays = true);
+    actor.replays = true;
     assert!(!actor.is_banner("a replayed answer"));
 }

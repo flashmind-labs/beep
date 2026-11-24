@@ -241,6 +241,9 @@ pub(super) struct Actor {
     /// What the adapter said it sends as the session's first message, which
     /// is left out.
     pub(super) banner: Option<String>,
+    /// The agent replays the conversation when it loads the session, so
+    /// the node need not keep the transcript across a restart.
+    pub(super) replays: bool,
     /// pi's log is being read for what the session spent.
     pub(super) reading_cost: bool,
     pub(super) offers: Offers,
@@ -1200,9 +1203,7 @@ impl Actor {
             self.standing.clone()
         };
         let method = initialized.resume;
-        self.live.send_modify(|live| {
-            live.replays = method == Some(acp::ResumeMethod::Load);
-        });
+        self.replays = method == Some(acp::ResumeMethod::Load);
         let Some(session) = opening.resume.take() else {
             let brief = joined(self.brief.take(), standing.as_deref());
             let system = if takes_system {
@@ -1299,7 +1300,7 @@ impl Actor {
     /// loaded session's replay has, or the banner it named.
     fn is_banner(&mut self, text: &str) -> bool {
         if self.acp_session.is_none() {
-            return !watched::read_sent(&self.live, |live| live.replays);
+            return !self.replays;
         }
 
         self.banner.take_if(|banner| banner == text).is_some()
