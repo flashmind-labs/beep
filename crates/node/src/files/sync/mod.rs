@@ -344,16 +344,12 @@ impl Syncs {
             .filter(|name| !projects.iter().any(|project| project.name == **name))
             .cloned()
             .collect();
-        let folders: Vec<PathBuf> = projects.iter().map(|p| PathBuf::from(&p.folder)).collect();
-        let managed = self.inner.syncthing.check_all(&folders).await;
         // Each project halts and loads on its own, all together.
         let dropping = join_all(dropped.iter().map(|name| self.drop_project(name)));
-        let loading = join_all(projects.into_iter().zip(managed).map(
-            |(mut project, managed)| {
-                project.peers.retain(|peer| peer.id != me);
-                self.load_project(project, managed, from, keep)
-            },
-        ));
+        let loading = join_all(projects.into_iter().map(|mut project| {
+            project.peers.retain(|peer| peer.id != me);
+            self.load_project(project, from, keep)
+        }));
         let (_, loaded) = futures::join!(dropping, loading);
         let mut refused = Vec::new();
         let mut kept = Vec::new();
@@ -398,7 +394,6 @@ impl Syncs {
     async fn load_project(
         &self,
         project: Project,
-        managed: Option<Managed>,
         from: Source,
         keep: bool,
     ) -> (Option<Project>, Option<Refused>) {
@@ -413,6 +408,9 @@ impl Syncs {
             return (Some(project), None);
         }
 
+        // Asked under the gate: Syncthing may have taken the folder while
+        // this waited for it.
+        let managed = self.inner.syncthing.check(Path::new(&project.folder)).await;
         // Stopped before its replacement starts: the same folder named
         // another way has the same key, watches and state file.
         let replaced = match state.take(&project.name) {

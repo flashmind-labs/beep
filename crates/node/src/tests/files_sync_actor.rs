@@ -2,7 +2,7 @@ use super::*;
 use crate::files::sync::STOPPING;
 use crate::{files::Folders, files::paths, files::syncthing::Syncthing};
 use futures::FutureExt;
-use std::time::Duration;
+use std::{path::Path, time::Duration};
 use iroh::{SecretKey, endpoint::presets};
 use tempfile::TempDir;
 use tokio::time::timeout;
@@ -223,5 +223,32 @@ async fn changes_to_one_project_never_overlap_but_other_projects_do_not_wait() {
         .expect("it ends once the first change did")
         .expect("it starts over");
 
+    rig.transfers.shutdown().await.expect("the node stops");
+}
+
+// Syncthing takes a folder while a configure waits for the project's gate:
+// the configure asks it again under the gate and does not start the project.
+#[tokio::test]
+async fn a_configure_does_not_start_a_project_syncthing_took_while_it_waited() {
+    let rig = rig().await;
+    let gate = rig.syncs.inner.projects.gate("proj").await;
+    let changed = Project {
+        rules: "*.log\n".to_owned(),
+        ..rig.project.clone()
+    };
+    let syncs = rig.syncs.clone();
+    let configure = tokio::spawn(async move { syncs.configure(vec![changed]).await });
+
+    // Let it reach the gate; the marker comes after.
+    for _ in 0..100 {
+        tokio::task::spawn_blocking(|| ()).await.expect("the pool runs");
+        tokio::task::yield_now().await;
+    }
+
+    std::fs::write(Path::new(&rig.project.folder).join(".stfolder"), "").expect("a marker");
+    drop(gate);
+    configure.await.expect("the configure ends");
+
+    assert!(rig.syncs.project("proj").is_none(), "Syncthing keeps the folder");
     rig.transfers.shutdown().await.expect("the node stops");
 }
