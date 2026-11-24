@@ -101,3 +101,22 @@ async fn every_follower_gets_every_finished_turn() {
         }
     }
 }
+
+#[tokio::test]
+async fn a_follower_that_connects_late_gets_all_the_turns_kept() {
+    let hub = UsageHub::default();
+
+    for tokens in 1..=120 {
+        hub.record(TurnUsage {
+            tokens,
+            ..TurnUsage::default()
+        });
+    }
+
+    let follow = hub.turns.follow(iroh::SecretKey::generate().public());
+
+    for tokens in 1..=120 {
+        assert_eq!(follow.next().await.tokens, tokens);
+        follow.sent();
+    }
+}

@@ -311,8 +311,8 @@ async fn a_wait_on_a_review_ends_when_the_review_does() {
         .expect("the review starts");
     let reviewer = rig.agents.get(&run.id).expect("the reviewer runs");
     let wait = tokio::spawn({
-        let (agents, who, id) = (rig.agents.clone(), who.clone(), run.id.clone());
-        async move { agents.review_ended(&who, &id).await }
+        let (agents, who, run) = (rig.agents.clone(), who.clone(), run.clone());
+        async move { crate::agents::mcp::review::waited(&agents, &who, run).await }
     });
 
     rig.agents
@@ -323,18 +323,13 @@ async fn a_wait_on_a_review_ends_when_the_review_does() {
         .await
         .expect("cancelled");
 
-    let ended = timeout(Duration::from_secs(20), wait)
+    // Well inside the one second a polling wait would add, and the cap.
+    let ended = timeout(Duration::from_millis(500), wait)
         .await
-        .expect("the wait ended in time")
-        .expect("the wait task ran")
-        .expect("the review is the parent's");
-    assert!(!ended.running());
-    assert_eq!(ended.review, Some(found()));
-    assert_eq!(
-        rig.agents
-            .review_ended(&who, &SessionId::from("nothing"))
-            .await,
-        None
-    );
+        .expect("the wait ended when the review did")
+        .expect("the wait task ran");
+    let ended = serde_json::to_value(&ended).expect("a view is JSON");
+    assert_eq!(ended["state"], "done");
+    assert_eq!(ended["note"], serde_json::Value::Null);
     rig.agents.shutdown().await;
 }

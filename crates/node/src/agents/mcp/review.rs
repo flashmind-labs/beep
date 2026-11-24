@@ -4,6 +4,7 @@
 
 use super::reply::{fail, json_done, ok, parse};
 use crate::agents::{
+    Agents,
     family::WAIT_LIMIT,
     reviews::MAX_FINDINGS,
 };
@@ -29,7 +30,7 @@ struct ReviewArgs {
 
 /// What `review` answers, as JSON.
 #[derive(Debug, Serialize)]
-struct ReviewView {
+pub(in crate::agents) struct ReviewView {
     id: SessionId,
     /// `working`, `done` or `failed`.
     state: &'static str,
@@ -112,7 +113,7 @@ async fn run_review(offers: &Offers, request: &Request) -> Result<Reply, String>
         }
     };
 
-    Ok(answer(&waited(offers, &who, run).await))
+    Ok(answer(&waited(&offers.agents, &who, run).await))
 }
 
 fn answer(view: &ReviewView) -> Reply {
@@ -121,13 +122,11 @@ fn answer(view: &ReviewView) -> Reply {
 
 /// Waits for the review to end, at most `WAIT_LIMIT`, as `start_agent`'s
 /// `wait` does: a tool call must come back before the agent's client gives up.
-async fn waited(
-    offers: &Offers,
+pub(in crate::agents) async fn waited(
+    agents: &Agents,
     who: &crate::agents::family::Who,
     run: ReviewRun,
 ) -> ReviewView {
-    let agents = &offers.agents;
-
     match timeout(WAIT_LIMIT, agents.review_ended(who, &run.id)).await {
         Ok(ended) => ReviewView::from(ended.unwrap_or(run)),
         Err(_) => {

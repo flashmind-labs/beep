@@ -9,8 +9,11 @@ use beep_proto::{
     node::usage::{LimitWindow, PlanUsage, TurnUsage},
 };
 use serde_json::Value;
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, time::Duration};
 use tokio::sync::watch;
+
+/// The most finished turns kept for the followers; the oldest go.
+const MAX_TURNS: usize = 500;
 
 /// Whose plan a report is: an agent, and its named account or `None` for
 /// its default one.
@@ -43,7 +46,8 @@ fn usage_changed() {
 impl Default for UsageHub {
     fn default() -> Self {
         Self {
-            turns: AlertHub::default(),
+            // A follower that connects late still gets every turn kept.
+            turns: AlertHub::keeping(MAX_TURNS, Duration::MAX),
             plans: watch::Sender::new(Plans::new()),
         }
     }

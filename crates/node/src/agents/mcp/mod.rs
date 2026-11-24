@@ -39,7 +39,7 @@ mod machines;
 mod media;
 pub(crate) mod projects;
 mod reply;
-mod review;
+pub(in crate::agents) mod review;
 mod server;
 mod socket;
 mod team;

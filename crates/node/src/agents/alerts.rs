@@ -36,11 +36,25 @@ pub(crate) struct AlertHub<T = Alert> {
     held: Mutex<Held<T>>,
     /// Woken when an alert joins the ring.
     arrived: Notify,
+    /// The most alerts kept.
+    max_kept: usize,
+    /// How far back a follower seen for the first time starts.
+    fresh: Duration,
 }
 
 impl<T> Default for AlertHub<T> {
     fn default() -> Self {
+        Self::keeping(MAX_KEPT, FRESH)
+    }
+}
+
+impl<T> AlertHub<T> {
+    /// A hub that keeps the last `max_kept` alerts, and starts a follower
+    /// never seen at those of the last `fresh`.
+    pub(crate) fn keeping(max_kept: usize, fresh: Duration) -> Self {
         Self {
+            max_kept,
+            fresh,
             held: Mutex::new(Held {
                 next: 0,
                 kept: VecDeque::new(),
@@ -101,7 +115,7 @@ impl<T: Clone> AlertHub<T> {
         held.next += 1;
         held.kept.push_back(Numbered { number, alert, at });
 
-        while held.kept.len() > MAX_KEPT {
+        while held.kept.len() > self.max_kept {
             held.kept.pop_front();
         }
 
@@ -140,8 +154,8 @@ impl<T> Held<T> {
     }
 
     /// Gives a follower never seen its place: the oldest alert of the last
-    /// `FRESH`, or the next one to come.
-    fn start(&mut self, id: EndpointId, now: Instant) {
+    /// `fresh`, or the next one to come.
+    fn start(&mut self, id: EndpointId, now: Instant, fresh: Duration) {
         if self.cursors.contains_key(&id) {
             return;
         }
@@ -149,7 +163,7 @@ impl<T> Held<T> {
         let from = self
             .kept
             .iter()
-            .find(|kept| now.saturating_duration_since(kept.at) <= FRESH)
+            .find(|kept| now.saturating_duration_since(kept.at) <= fresh)
             .map_or(self.next, |kept| kept.number);
         self.place(id, from);
     }
@@ -190,7 +204,7 @@ impl<T: Clone> Follow<'_, T> {
             let arrived = self.hub.arrived.notified();
             {
                 let mut held = lock(&self.hub.held);
-                held.start(self.id, Instant::now());
+                held.start(self.id, Instant::now(), self.hub.fresh);
 
                 if let Some(kept) = held.after(self.id) {
                     self.given.store(kept.number + 1, Ordering::Relaxed);
