@@ -155,3 +155,19 @@ test("a project's session list is let go when its page goes away, not while it s
   await expect.poll(async () => (await calls("project_sessions")).length).toBeGreaterThan(reads);
   expect(await calls("project_sessions_forget")).toHaveLength(1);
 });
+
+test("a project's session list is let go only after the read that is out has ended", async ({ page }) => {
+  const row = { machine_id: "build-box", machine_name: "build-box", id: "past-1", agent: "codex", title: "First session", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100, external: false, question: null };
+  await openDesktop(page, false, { project_sessions: [row], project_sessions_forget: null });
+  await page.evaluate(() => window.__navigation.holdNext("project_sessions"));
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  const calls = (command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).length, command);
+  await expect.poll(() => calls("project_sessions")).toBe(1);
+
+  await page.evaluate(() => window.__navigation.open("home"));
+  await expect(page.getByText("First session", { exact: true })).toBeHidden();
+  expect(await calls("project_sessions_forget")).toBe(0);
+
+  await page.evaluate(() => window.__navigation.release("project_sessions"));
+  await expect.poll(() => calls("project_sessions_forget")).toBeGreaterThan(0);
+});

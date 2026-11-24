@@ -3,7 +3,7 @@ import { keepProjectAccount, keepProjectPick, lastProjectPick, type ProjectPick,
 import { pickPopover } from "../agents/pick-popover.ts";
 import { reopened } from "../agents/closing.ts";
 import type { AgentButtonItem, AgentState, PickButton } from "../review/feedback-view.tsx";
-import { agentLabel, type SessionRow } from "./projects-state.ts";
+import { agentLabel } from "./projects-state.ts";
 import { syncRepairPrompt } from "./gitsync-state.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
 import { StashBar } from "../chat/stash-hints.tsx";
@@ -45,7 +45,7 @@ import { type Started, state, sessionsOf, gitOf } from "../center/state.ts";
 import { currentLocation, go } from "../center/views.tsx";
 import { projectRows } from "../center/sidebar.tsx";
 import { redrawProjects, pa, pc } from "./sections.ts";
-import { loadWhere, projectPlaces } from "./loads.tsx";
+import { loadSessions, loadWhere, projectPlaces } from "./loads.tsx";
 import { copyLine, shortName } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
@@ -549,7 +549,8 @@ export function startConflictFix(name: string, c: Conflict, pick: ProjectPick) {
 export async function startSyncRepair(name: string, machine: string, error: string, pick: ProjectPick) {
   const p = projectRows()?.find(p => p.name === name);
   if (!p) throw new Error(`${name} is not on a machine.`);
-  const sessions = await invoke<SessionRow[] | null>("project_sessions", { project: name }).then(rows => rows ?? sessionsOf(name) ?? [], e => { console.warn("repair sessions:", e); return []; });
+  await loadSessions(name);
+  const sessions = sessionsOf(name) ?? [];
   const prompt = syncRepairPrompt({ project: name, machine, error, checkouts: p.machines, git: gitOf(name) ?? [], sessions });
   await startTask(name, { prompt, target: null }, pick, machine);
 }

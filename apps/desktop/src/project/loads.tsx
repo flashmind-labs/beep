@@ -409,12 +409,13 @@ const forgetting = new Map<string, Promise<unknown>>();
 
 /// Lets native drop the list of every project that neither the page nor the rail shows. It sends
 /// no more pushes for it, so the project reads again when shown. An open page is never let go,
-/// however long it stays open.
+/// however long it stays open. A project whose read is out is let go when it ends: native takes
+/// the two calls on different threads, so a forget sent now could be heard before the read.
 export function releaseSessions(page: string | null) {
   const rail = railProject(shell.getState().side.rail);
 
   for (const name of [...held]) {
-    if (name === page || name === rail) continue;
+    if (name === page || name === rail || readingSessions.has(name)) continue;
 
     held.delete(name);
     sessionsDue.add(name);
