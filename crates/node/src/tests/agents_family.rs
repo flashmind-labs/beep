@@ -234,15 +234,28 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
         mode: None,
         background: false,
     };
-    // Started together: each counts the starts beside it.
-    let starts = (0..=MAX_CHILDREN)
-        .map(|_| rig.agents.start_child(link.clone(), start("kid", "go", rig.dir.path())));
-    let (started, refused): (Vec<_>, Vec<_>) = futures::future::join_all(starts)
+    // Starts under way count too: each holds a place until its child is listed.
+    let root = (Some(far), SessionId::from("p0"));
+    let places: Vec<_> = (0..MAX_CHILDREN)
+        .map(|_| rig.agents.take_place(&root, 0).expect("within the limit"))
+        .collect();
+    let refused = rig
+        .agents
+        .start_child(link.clone(), start("kid", "go", rig.dir.path()))
         .await
-        .into_iter()
-        .partition(Result::is_ok);
-    let started: Vec<_> = started.into_iter().flatten().collect();
-    assert_eq!((started.len(), refused.len()), (MAX_CHILDREN, 1));
+        .unwrap_err();
+    assert!(refused.contains("at most 8 agents"), "{refused}");
+    drop(places);
+    let mut started = Vec::new();
+
+    for _ in 0..MAX_CHILDREN {
+        let child = rig
+            .agents
+            .start_child(link.clone(), start("kid", "go", rig.dir.path()))
+            .await
+            .expect("within the limit");
+        started.push(child);
+    }
 
     let refused = rig
         .agents
