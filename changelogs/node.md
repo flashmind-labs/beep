@@ -2,6 +2,31 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.21] - 2026-11-24
+
+### Added
+
+- Subagents started through pi's `subagent` tool now show as subagents, with their agent, task and model, in live and saved pi chats.
+
+### Fixed
+
+- Node: With two desktops or phones open, each now gets every usage and spend update.
+- Node: A session moved to another folder resumes in that folder after a node restart.
+- Pi's compaction summary now shows as the compaction note instead of being appended to the agent's last reply.
+- Taking back a waiting message while the agent is still receiving it now removes it, and it is no longer sent again with its old text.
+
+### Performance
+
+- Node: A wait on a sub-agent or review returns as soon as it finishes.
+- Node: Reopening many sessions after a restart now happens at the same time for sessions that do not depend on each other.
+- Node: Resuming, deleting or moving one session no longer waits on another session.
+- Node: Moving several sessions to one machine places their worktrees at the same time.
+- Node: Files and Changes views open without waiting for file watching to finish starting.
+- Node: Work on one synced project no longer waits behind work on another project.
+- Node: Credentials and agent settings from the mesh apply without waiting for projects to load.
+- Node: CI checks for one project no longer wait behind slow forge calls for other projects.
+- Node: Installing a tool from the desktop no longer waits for pinned tools to install.
+
 ## [0.8.20] - 2026-11-24
 
 ### Added

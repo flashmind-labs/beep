@@ -7,6 +7,54 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.27] - 2026-11-24
+
+### Added
+
+- Desktop: pick thinking levels (Low, Medium, High, Extra high, Max; filtered per model when reported) when starting or switching models on Antigravity sessions.
+- Desktop: Cmd+click (Ctrl+click on Linux and Windows) in the file viewer and
+  editor, as well as `gd` in Vim mode, jumps to a symbol's definition using the
+  machine's installed language server, offering a picker when multiple
+  definitions match.
+- Desktop: middle-click an idle session in the sidebar to close it.
+- Desktop: Switch to an existing local branch from the project Git panel.
+
+### Changed
+
+- Desktop: Editor Vim mode preference now syncs across desktops via mesh state
+  in addition to local storage, ensuring the choice persists across restarts and
+  machines.
+- Desktop: expand or collapse all Git panel sections with one control.
+- Desktop: On a node too old for live sync status, the view may show no answer while a direct check is slow.
+- Desktop: a session opened beside the conversation shows its transcript at once and updates as the session runs.
+
+### Fixed
+
+- Desktop: the project status strip now shows the Team button even when a project has no team yet, so you can open Team directly from the Board view to invite or join.
+- Desktop: short metrics queries work even when older retained logs exceed the scan limit. Summaries show the observed times in UTC.
+- Desktop: the `/` menu of a new chat lists an agent's commands from its last session, even when none of its sessions is running.
+- Desktop: A deleted sub-agent or reviewer leaves the session list at once.
+- Desktop: Files and Changes panes load from a slow machine instead of reporting a missing subscription snapshot.
+- Desktop: A project's session history that cannot be read keeps the rows already shown.
+- Desktop: Tasks no longer carry over from one session to another when you open a session.
+- Desktop: Machine and agent lists now match on every screen.
+- The model picker on desktop now shows only the harnesses a project allows, and no longer starts on one the project leaves out.
+- Desktop: horizontally scrolled code in the file editor and file search no longer shows through behind the line-number gutter.
+- Desktop: Show the highest longer-window usage in the header and label five-hour usage separately once it reaches 1%.
+
+### Performance
+
+- Desktop: The File sync view follows a machine's changes as they arrive, without polling.
+- Desktop: Project pages follow session changes without asking the machine again.
+- Desktop: Operations of different kinds on one machine now run together.
+- Desktop: A split session tab shows its transcript at once and keeps it live.
+- Desktop: A new session title appears at once in every list.
+- Desktop: Settings opens straight away.
+- Desktop: Removing a project or machine no longer redraws all of Home.
+- Desktop: Session lists no longer reread on every agent update.
+- Desktop: Project git state updates without a fresh read.
+- Desktop: Terminal output is not read while no terminal is open.
+
 ## [0.10.26] - 2026-11-24
 
 ### Changed
