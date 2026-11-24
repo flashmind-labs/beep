@@ -1084,7 +1084,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .chip.term { color: var(--fg) }
 .chip.dropped { color: var(--dim); text-decoration: line-through }
 /* ⇧esc: a dock fills the session over the conversation; its width and place are untouched. */
-.agpane.zoomed > .agpane-content { position: absolute; inset: 0; z-index: 3; background: var(--surface) }
+.agpane.zoomed > .agpane-content { position: absolute; inset: 0; z-index: 3; --pane-bg: var(--surface); background: var(--pane-bg) }
 .agshell.zoomed .agdiv { visibility: hidden; pointer-events: none }
 #agtasks:empty { display: none }
 /* Queued steers never take more than about a third of the session. */

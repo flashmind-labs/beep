@@ -115,7 +115,7 @@ const theme = EditorView.theme({
   ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--accent) 28%, transparent)" },
   ".cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--accent) 52%, transparent)" },
   ".cm-cursor": { borderLeftColor: "var(--fg)" },
-  ".cm-gutters": { backgroundColor: "transparent", color: "var(--dim)", border: "none" },
+  ".cm-gutters": { backgroundColor: "var(--pane-bg, var(--ink))", color: "var(--dim)", border: "none" },
   ".cm-tooltip": { color: "var(--fg)", backgroundColor: "var(--glass-solid)", borderColor: "var(--border)" },
   ".cm-tooltip-autocomplete ul li[aria-selected]": { backgroundColor: "var(--ctl-fill-hi)", color: "var(--ink)" },
   ".cm-foldPlaceholder": { backgroundColor: "var(--ctl-fill)", color: "var(--muted)", border: "none" },

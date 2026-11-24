@@ -773,6 +773,16 @@ test("agent file being edited", async ({ page }) => {
   const editor = await page.locator(".agcm .cm-editor").evaluate(element => element.getBoundingClientRect().height);
   expect(Math.abs(box - editor)).toBeLessThan(1);
   expect(await page.locator(".agcm .cm-scroller").evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  // Sticky line numbers keep an opaque fill matching the pane so horizontally scrolled code never shows behind them.
+  const { gutterBg, paneBg } = await page.locator(".agcm .cm-gutters").evaluate(element => {
+    const pane = element.closest(".agpane");
+    return {
+      gutterBg: getComputedStyle(element).backgroundColor,
+      paneBg: pane ? getComputedStyle(pane).backgroundColor : "",
+    };
+  });
+  expect(gutterBg).toBe(paneBg);
+  expect(gutterBg).toMatch(/^rgb\(/);
   await baseline(page, "agent-file-edit");
 });
 
