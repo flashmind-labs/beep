@@ -301,7 +301,8 @@ fn commands(name: &str) -> &'static [&'static str] {
         "projects" => &["projects_on_top", "project_groups"],
         "sync" => &["project_sync"],
         "usage" => &["usage_get"],
-        "accounts" => &["agent_accounts"],
+        // A harness switched on or off is an account change, and changes the hosts offered.
+        "accounts" => &["agent_accounts", "agent_hosts"],
         _ => &[],
     }
 }
@@ -515,11 +516,18 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             "git_items",
             crate::projects::git_items::git_items(app.state(), app.state()).await,
         ),
-        "accounts" => append(
-            &mut views,
-            "agent_accounts",
-            crate::agents::accounts::agent_accounts(app.state()).await,
-        ),
+        "accounts" => {
+            append(
+                &mut views,
+                "agent_accounts",
+                crate::agents::accounts::agent_accounts(app.state()).await,
+            );
+            append(
+                &mut views,
+                "agent_hosts",
+                crate::fleet::agents::agent_hosts(app.state()).await,
+            );
+        }
         _ => {}
     }
 

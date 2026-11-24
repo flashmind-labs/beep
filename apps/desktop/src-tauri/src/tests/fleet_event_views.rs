@@ -123,3 +123,13 @@ fn view_tasks_can_start_outside_a_tokio_runtime() {
             .unwrap();
     });
 }
+
+#[test]
+fn the_hosts_are_pushed_again_when_accounts_or_machines_change() {
+    for name in ["machines", "accounts"] {
+        assert!(
+            commands(name).contains(&"agent_hosts"),
+            "{name} pushes the hosts"
+        );
+    }
+}
