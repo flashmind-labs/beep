@@ -2148,7 +2148,8 @@ async fn background_commands_show_as_running_and_stop_without_ending_the_turn() 
     assert_eq!(stops[0]["params"]["sessionId"], "s");
     assert_eq!(stops[0]["params"]["asyncTaskId"], "bg1");
     assert!(sent.iter().all(|line| line["method"] != "session/cancel"));
-    assert_eq!(session.info().state.status, Status::Idle);
+    // The turn Claude Code started on its own, `turn1`, still runs.
+    assert_eq!(session.info().state.status, Status::Working);
 }
 
 /// An adapter that writes the compaction variables it started with to

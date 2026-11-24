@@ -334,6 +334,8 @@ impl Live {
         self.turn_began = Some(SystemTime::now());
         // A tool whose entry left the transcript has nothing left to show.
         self.prune_tools();
+        // The prompt's turn tells the status now.
+        self.autonomous_shown = false;
         let state = &mut self.info.state;
         state.status = Status::Working;
         state.summary = "Thinking".into();

@@ -1421,6 +1421,49 @@ fn a_claude_subagent_launched_in_the_background_counts_until_its_turn_ends() {
 }
 
 #[test]
+fn a_turn_claude_code_starts_on_its_own_shows_as_working() {
+    use crate::agents::acp::AsyncTask;
+    let spawned = |id: &str| AsyncTask::Spawned {
+        async_task_id: id.into(),
+        name: "Claude is working".into(),
+        task_type: "turn".into(),
+        description: String::new(),
+        can_stop: true,
+        output_file_path: None,
+        tool_call_id: None,
+    };
+    let ended = |id: &str| AsyncTask::StateUpdate {
+        async_task_id: id.into(),
+        state: "completed".into(),
+        summary: None,
+        output_file_path: None,
+        tool_call_id: None,
+    };
+    let mut live = live();
+    live.info.state.status = Status::Idle;
+
+    assert!(live.apply_task(spawned("turn1")));
+    assert_eq!(live.status(), Status::Working, "a background task's report woke it");
+    assert!(live.apply_task(ended("turn1")));
+    assert_eq!(live.status(), Status::Idle);
+
+    // A prompt folded into that turn ends before it: the turn goes on.
+    live.apply_task(spawned("turn2"));
+    live.prompted("so?");
+    live.info.state.status = Status::Idle;
+    assert!(live.show_autonomous_turn());
+    assert_eq!(live.status(), Status::Working);
+    live.apply_task(ended("turn2"));
+    assert_eq!(live.status(), Status::Idle);
+
+    // A prompt that runs past that turn's end keeps its own status.
+    live.apply_task(spawned("turn3"));
+    live.prompted("go on");
+    live.apply_task(ended("turn3"));
+    assert_eq!(live.status(), Status::Working);
+}
+
+#[test]
 fn a_live_claude_spawn_shows_its_requested_model() {
     let mut live = live();
     live.apply(&update(json!({

@@ -360,6 +360,8 @@ impl Actor {
             state.summary.clear();
             state.error = error;
             state.last_stop = Some(stop);
+            // A prompt folded into a turn the agent started can end first.
+            live.show_autonomous_turn();
             files = live.turn_files();
             made = live.turn_made();
             worktrees = live.turn_worktrees();
@@ -529,6 +531,7 @@ impl Actor {
             let state = &mut live.info.state;
             state.status = Status::Idle;
             state.summary.clear();
+            live.show_autonomous_turn();
         });
         self.next_prompt(cx);
     }

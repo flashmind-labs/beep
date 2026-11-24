@@ -4,7 +4,8 @@
 use super::{Live, MAX_LINE, MAX_TASKS, content::cut, tools::ToolCall};
 use crate::agents::acp::AsyncTask;
 use agent_client_protocol::v1::schema::{Meta, ToolCallId};
-use beep_proto::node::agent::{Task, TaskState};
+use beep_proto::node::agent::{Status, Task, TaskState};
+use std::time::Instant;
 
 /// The task type of a turn the agent started on its own, which is not a
 /// command.
@@ -27,7 +28,7 @@ impl Live {
             } => {
                 if task_type == TURN {
                     self.autonomous_turn = Some(async_task_id);
-                    return false;
+                    return self.show_autonomous_turn();
                 }
 
                 let task = Task {
@@ -91,9 +92,15 @@ impl Live {
                     // Claude Code works on its own once a background
                     // subagent reports; that work ended.
                     self.autonomous_turn = None;
+                    let shown = std::mem::take(&mut self.autonomous_shown);
+                    if shown && self.info.state.status == Status::Working {
+                        self.info.state.status = Status::Idle;
+                        self.info.state.summary.clear();
+                    }
+
                     let subagents = self.info.state.subagents;
                     self.end_background_subagents();
-                    return self.info.state.subagents != subagents;
+                    return shown || self.info.state.subagents != subagents;
                 }
 
                 let Some(task) = self.task_mut(&async_task_id) else {
@@ -113,6 +120,21 @@ impl Live {
 
         self.count_subagents();
         self.info.state.tasks != before || self.info.state.subagents != subagents
+    }
+
+    /// An idle session shows Working while a turn the agent started on its
+    /// own runs, such as Claude Code's after a background task reported.
+    /// True when the status changed.
+    pub(crate) fn show_autonomous_turn(&mut self) -> bool {
+        if self.autonomous_turn.is_none() || self.info.state.status != Status::Idle {
+            return false;
+        }
+
+        self.autonomous_shown = true;
+        self.active_at = Some(Instant::now());
+        self.info.state.status = Status::Working;
+        self.info.state.summary = "Working on its own".into();
+        true
     }
 
     /// The session ended, and with it the commands its agent ran.
