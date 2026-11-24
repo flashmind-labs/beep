@@ -294,7 +294,7 @@ fn a_start_shows_as_a_starting_session_with_its_prompt_as_the_first_entry() {
         images: vec![KeptImage {
             name: "shot.png".into(),
             mime: "image/png".into(),
-            data: String::new(),
+            data: "".into(),
         }],
         ..start(Stage::Waiting)
     };

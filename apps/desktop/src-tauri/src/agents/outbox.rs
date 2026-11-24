@@ -57,8 +57,12 @@ const ANSWER_WAIT: Duration = Duration::from_millis(250);
 /// How long transient interrupt orders (`Cancel`, `StopAll`, `StopTask`) stay queued if
 /// a machine remains unreachable.
 const ORDER_TTL: Duration = Duration::from_secs(60);
-/// The bytes of a file one upload call carries.
+/// The bytes of a file one upload call carries, about: its base64 text is cut at
+/// a multiple of four characters.
 const UPLOAD_PART: usize = 2 * 1024 * 1024;
+const PART_CHARS: usize = UPLOAD_PART / 3 * 4;
+/// The largest file a message uploads. The window refuses larger ones too.
+const MAX_FILE_BYTES: u64 = 512 * 1024 * 1024;
 
 /// How a message goes to the session: a prompt for its next turn, or a
 /// message for the running turn.
@@ -140,7 +144,10 @@ pub(crate) struct Draft {
     pub(crate) how: Kind,
     pub(crate) text: String,
     pub(crate) images: Vec<PastedImage>,
-    pub(crate) attach: Attach,
+    /// Files to upload first, already kept: a whole file is copied before the lock, not under it.
+    pub(crate) files: Vec<KeptImage>,
+    pub(crate) root: String,
+    pub(crate) mentions: Vec<String>,
     pub(crate) resume: Option<Resume>,
     pub(crate) seen: Option<Seen>,
 }
@@ -430,7 +437,7 @@ impl Held {
         let images: Vec<KeptImage> = draft.images.into_iter().map(Into::into).collect();
 
         self.writes.extend(image_writes(id, &images));
-        let files: Vec<KeptImage> = draft.attach.files.into_iter().map(Into::into).collect();
+        let files = draft.files;
         self.writes.extend(image_writes(files_id(id), &files));
 
         let stuck = self.is_stuck(key);
@@ -443,8 +450,8 @@ impl Held {
             text: draft.text,
             images,
             files,
-            root: draft.attach.root,
-            mentions: draft.attach.mentions,
+            root: draft.root,
+            mentions: draft.mentions,
             resume,
             state: Stage::Waiting,
             unsure: false,
@@ -1148,6 +1155,28 @@ impl Outbox {
 
 const MESSAGES: &str = "messages.json";
 
+/// The bytes a base64 text holds.
+fn base64_size(data: &str) -> u64 {
+    let padding = data.bytes().rev().take_while(|b| *b == b'=').count().min(2);
+    let len = u64::try_from(data.len()).unwrap_or(u64::MAX);
+
+    (len / 4).saturating_mul(3).saturating_sub(padding as u64)
+}
+
+/// Why the first of `files` larger than `limit` bytes is refused, if any is.
+fn too_big(files: &[KeptImage], limit: u64) -> Option<String> {
+    files
+        .iter()
+        .find(|f| base64_size(&f.data) > limit)
+        .map(|f| {
+            format!(
+                "{} is larger than {} MiB, the most a message uploads.",
+                f.name,
+                limit / (1024 * 1024)
+            )
+        })
+}
+
 /// What names the cached files of message `id`, apart from its images.
 fn files_id(id: u64) -> String {
     format!("{id}f")
@@ -1394,6 +1423,10 @@ async fn try_message(
         return try_once(link, &message).await;
     }
 
+    if let Some(reason) = too_big(&message.files, MAX_FILE_BYTES) {
+        return Tried::Refused(reason);
+    }
+
     link.changed(outbox.read(|held| held.changed(key)));
 
     let paths = match link.upload(&message).await {
@@ -1494,26 +1527,29 @@ impl Link for MeshLink {
         let mut paths = Vec::new();
 
         for file in &message.files {
-            let bytes = STANDARD.decode(&file.data).map_err(|_| {
-                DesktopError::BadRequest(format!("{} could not be read", file.name))
-            })?;
-            let size = u64::try_from(bytes.len()).map_err(anyhow::Error::from)?;
-            let mut parts: Vec<&[u8]> = bytes.chunks(UPLOAD_PART).collect();
+            let size = base64_size(&file.data);
+            let text = file.data.as_bytes();
+            // The bytes are decoded a part at a time, never the whole file at once.
+            let mut parts: Vec<&[u8]> = text.chunks(PART_CHARS).collect();
             parts.resize(parts.len().max(1), &[]);
             // The machine names the file after its first part.
             let mut path = file.name.clone();
             let mut offset = 0u64;
 
             for part in parts {
+                let data = STANDARD.decode(part).map_err(|_| {
+                    DesktopError::BadRequest(format!("{} could not be read", file.name))
+                })?;
+                let len = u64::try_from(data.len()).map_err(anyhow::Error::from)?;
                 let write = WriteWorkFile {
                     machine_id: message.machine_id.clone(),
                     root: message.root.clone(),
                     path,
                     offset,
                     size,
-                    data: part.to_vec(),
+                    data,
                 };
-                offset += u64::try_from(part.len()).map_err(anyhow::Error::from)?;
+                offset += len;
                 path = crate::fleet::files::upload(
                     &fleet,
                     self.machine,
@@ -1866,7 +1902,9 @@ pub(crate) async fn send(
         how,
         text,
         images,
-        attach,
+        files: attach.files.into_iter().map(Into::into).collect(),
+        root: attach.root,
+        mentions: attach.mentions,
         resume,
         seen,
     };
@@ -1875,7 +1913,7 @@ pub(crate) async fn send(
     // A message that resumes its session or uploads files is the outbox's
     // from the start: its row says what is done, and no window waits on the
     // machine for it.
-    if draft.resume.is_some() || !draft.attach.files.is_empty() {
+    if draft.resume.is_some() || !draft.files.is_empty() {
         let (_, flusher) = outbox.with(|held| held.push(&key, draft, None));
         let key = outbox.read(|held| held.resolve(&key));
         emit(app, outbox.read(|held| held.changed(&key)));

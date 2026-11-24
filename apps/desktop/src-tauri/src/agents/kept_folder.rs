@@ -8,7 +8,7 @@ use std::{
     fs::{self, File},
     io::{self, ErrorKind, Write as _},
     path::{Path, PathBuf},
-    sync::mpsc,
+    sync::{Arc, mpsc},
     thread,
 };
 
@@ -22,7 +22,8 @@ pub(crate) struct KeptImage {
     pub(crate) name: String,
     pub(crate) mime: String,
     #[serde(skip)]
-    pub(crate) data: String,
+    /// Shared, so a copy of the record for a flusher or a writer does not copy the bytes.
+    pub(crate) data: Arc<str>,
 }
 
 impl From<PastedImage> for KeptImage {
@@ -30,7 +31,7 @@ impl From<PastedImage> for KeptImage {
         Self {
             name: image.name,
             mime: image.mime,
-            data: image.data,
+            data: image.data.into(),
         }
     }
 }
@@ -40,7 +41,7 @@ impl From<KeptImage> for PastedImage {
         Self {
             name: image.name,
             mime: image.mime,
-            data: image.data,
+            data: image.data.to_string(),
         }
     }
 }
@@ -55,7 +56,7 @@ pub(crate) enum Write {
     /// The records' file, as it is now.
     Records(Vec<u8>),
     /// An image of a record, kept until it goes.
-    Image { file: String, data: String },
+    Image { file: String, data: Arc<str> },
     /// The images of a record that went.
     Forget(Vec<String>),
     /// Answers once what was asked before is on disk.
@@ -126,7 +127,7 @@ impl KeptFolder {
             });
 
             match data {
-                Ok(data) => image.data = data,
+                Ok(data) => image.data = data.into(),
                 Err(_) => whole = false,
             }
         }

@@ -23,7 +23,9 @@ fn draft(text: &str) -> Draft {
         how: Kind::Steer,
         text: text.into(),
         images: Vec::new(),
-        attach: Attach::default(),
+        files: Vec::new(),
+        root: String::new(),
+        mentions: Vec::new(),
         resume: None,
         seen: None,
     }
@@ -40,11 +42,9 @@ fn resuming(text: &str) -> Draft {
 /// A message with files to upload first.
 fn with_files(text: &str, names: &[&str]) -> Draft {
     Draft {
-        attach: Attach {
-            root: "/srv/project".into(),
-            files: names.iter().map(|name| image(name)).collect(),
-            mentions: vec!["src/lib.rs".into()],
-        },
+        root: "/srv/project".into(),
+        files: names.iter().map(|name| image(name).into()).collect(),
+        mentions: vec!["src/lib.rs".into()],
         ..draft(text)
     }
 }
@@ -350,7 +350,7 @@ fn images_are_cached_and_go_with_their_message() {
 
     let again = Outbox::load(kept, cache);
     let (message, _) = again.with(|held| held.take(id)).expect("taken");
-    assert_eq!(message.images[0].data, "aGVsbG8=");
+    assert_eq!(&*message.images[0].data, "aGVsbG8=");
     again.sync();
     assert!(!file.exists());
 }
@@ -370,7 +370,7 @@ fn an_image_queued_before_the_cache_move_can_still_be_loaded() {
     fs::rename(cache.join(IMAGES), &legacy).unwrap();
     let again = Outbox::load(kept, cache);
     let (message, _) = again.with(|held| held.take(id)).expect("taken");
-    assert_eq!(message.images[0].data, "aGVsbG8=");
+    assert_eq!(&*message.images[0].data, "aGVsbG8=");
     again.sync();
     assert!(!legacy.join(image_file(id, 0)).exists());
 }
@@ -753,7 +753,7 @@ fn files_not_uploaded_yet_survive_a_restart_and_are_not_read_as_sent() {
     let again = Outbox::load(kept, dir.path().join("cache"));
     let (message, _) = again.with(|held| held.take(id)).expect("taken");
 
-    assert_eq!(message.files[0].data, "aGVsbG8=");
+    assert_eq!(&*message.files[0].data, "aGVsbG8=");
     assert!(!message.unsure);
     assert_eq!(message.state, Stage::Waiting);
 }
@@ -986,4 +986,20 @@ async fn a_resume_whose_answer_never_came_fails_every_message_waiting_for_that_s
     let rows = outbox.read(|held| held.rows(&key("s1")));
     assert!(rows.iter().all(|row| row.state == "failed"));
     assert_eq!(rows.len(), 2);
+}
+
+#[test]
+fn a_file_over_the_limit_is_named_and_a_file_within_it_is_not() {
+    let small: KeptImage = image("a.txt").into();
+    let big: KeptImage = PastedImage {
+        data: "QUJD".repeat(4),
+        ..image("big.bin")
+    }
+    .into();
+    // "aGVsbG8=" is 5 bytes, the other 12.
+    assert_eq!(base64_size(&small.data), 5);
+    assert_eq!(base64_size(&big.data), 12);
+    assert_eq!(too_big(&[small.clone()], 5), None);
+    let reason = too_big(&[small, big], 11).expect("refused");
+    assert!(reason.starts_with("big.bin is larger than"));
 }

@@ -169,16 +169,25 @@ export async function uploadDropped(files: PastedFiles, folder: string | null = 
 /// What the pictures and files this window sent were, until the machine says where they went.
 const sentFiles = new Map<string, StashFile>();
 const SENT_FILES_KEPT = 16;
+const SENT_FILE_MAX_BYTES = 32 * 1024 * 1024;
+/// The largest file a message uploads; the app refuses larger ones too.
+export const MAX_ATTACH_BYTES = 512 * 1024 * 1024;
 
 /// Keeps `files`, which the outbox uploads for a message from this window.
 export function keepSentFiles(machine: string, files: readonly { file: StashFile }[]) {
   for (const { file } of files) {
+    // A big file is read back from the machine: keeping it here would hold its whole text in memory.
+    if (file.size > SENT_FILE_MAX_BYTES) continue;
     const key = JSON.stringify([machine, file.name]);
     sentFiles.delete(key);
     sentFiles.set(key, file);
   }
 
-  while (sentFiles.size > SENT_FILES_KEPT) sentFiles.delete(sentFiles.keys().next().value!);
+  while (sentFiles.size > SENT_FILES_KEPT) {
+    const oldest = sentFiles.keys().next();
+    if (oldest.done) break;
+    sentFiles.delete(oldest.value);
+  }
 }
 
 /// The outbox put `uploaded` on `machine`: what this window sent is read from here, not from there.
@@ -208,6 +217,15 @@ async function attachFiles(files: File[], preview: boolean, batch: UploadBatch, 
       }
 
       if (!session) continue;
+
+      if (f.size > MAX_ATTACH_BYTES) {
+        // Not attached: the app refuses it too, and it would only cross the window as one text.
+        const message = `${f.name || "That file"} is larger than ${MAX_ATTACH_BYTES / 1024 / 1024} MiB, the most a message uploads.`;
+        state.error = message;
+        if (state === current) MN.error(message);
+        setTimeout(() => { if (state.error === message) state.error = ""; }, ERROR_SHOWN_MS);
+        continue;
+      }
 
       const key = attachmentKey(f.name || "file");
       state.files.set(key, { name: f.name || "file", mime: f.type || "application/octet-stream", size: f.size, data: await fileBase64(f) });

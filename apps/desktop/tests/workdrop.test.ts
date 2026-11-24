@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFile } from "../src/agentpane/read.ts";
 import { type FilePart, P } from "../src/agentpane/media.ts";
 import { UPLOAD_PART } from "../src/agentpane/files-state.ts";
-import { MN, attachReads, uploadDropped, activateMentions, rememberMentionImages, resetMentions, currentMentions } from "../src/agents/workdrop.ts";
+import { MN, MAX_ATTACH_BYTES, attachReads, uploadDropped, activateMentions, rememberMentionImages, resetMentions, currentMentions } from "../src/agents/workdrop.ts";
 
 globalThis.FileReader = class {
   result = "";
@@ -38,6 +38,18 @@ test("a dropped file is kept for the next message and nothing is uploaded", asyn
   const file = MN.files.get(key);
   assert.deepEqual([file?.name, file?.mime, file?.size], ["clip.mp4", "video/mp4", UPLOAD_PART + 1]);
   assert.equal(file?.data.length, Math.ceil((UPLOAD_PART + 1) / 3) * 4);
+});
+
+test("a file over the limit is refused with its name and the field keeps nothing of it", async () => {
+  setup("/cache/never");
+  const errors: string[] = [];
+  MN.error = text => { errors.push(text); };
+  const big = new File([], "huge.bin");
+  Object.defineProperty(big, "size", { value: MAX_ATTACH_BYTES + 1 });
+  await uploadDropped([big]);
+  assert.deepEqual(MN.paths, []);
+  assert.equal(MN.files.size, 0);
+  assert.match(errors[0], /^huge\.bin is larger than 512 MiB/);
 });
 
 test("choosing the project root or another folder uploads at once and keeps it permanent", async () => {
