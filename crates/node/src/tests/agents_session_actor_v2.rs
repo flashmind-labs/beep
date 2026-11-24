@@ -102,6 +102,44 @@ async fn rejected_v2_compaction_cannot_arm_an_idle_stop_timer() {
 }
 
 #[tokio::test]
+async fn a_rejected_v2_compaction_after_a_stop_clears_the_stop() {
+    with_actor(async |mut actor, cx| {
+        let session = actor.acp_session.clone().unwrap();
+        actor.send_prompt(
+            &cx,
+            acp::prompt(&session, &Prompt::from("/compact".to_owned()), None),
+            true,
+        );
+        actor.stop_due();
+        assert_eq!(actor.stopping(), Some(Stopping::User));
+        let turn = actor.sent;
+        actor
+            .reply(
+                &cx,
+                Reply::Accepted {
+                    turn,
+                    compact: true,
+                    result: Err(agent_client_protocol::Error::invalid_params()),
+                },
+            )
+            .unwrap();
+        assert!(actor.turn.is_none());
+        assert_eq!(actor.stopping(), None);
+
+        // The next turn starts with nothing held back from the stopped one.
+        actor.send_prompt(
+            &cx,
+            acp::prompt(&session, &Prompt::from("go on".to_owned()), None),
+            true,
+        );
+        let next = actor.turn.as_ref().unwrap();
+        assert_eq!(next.stopping, None);
+        assert!(!next.steer_after);
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn incomplete_v2_options_preserve_working_configuration_controls() {
     with_actor(async |mut actor, cx| {
         for answer in [
