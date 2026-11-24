@@ -2,7 +2,7 @@
 
 use super::{
     MAX_RUNNING_TOOLS,
-    actor::{Actor, PendingSteer, Reply, Stopping, stop_reason},
+    actor::{Actor, PendingSteer, Reply, Stopping, Turn, stop_reason},
 };
 use crate::agents::{
     acp::{self, Prompt},
@@ -44,15 +44,16 @@ impl Actor {
     /// Marks the running turn as stopping for the user, at once, and gives
     /// the agent `stop_within` to end it before the node stops the agent.
     pub(super) fn stop_due(&mut self) {
-        let Some(turn) = self.turn else {
+        let Some(turn) = &mut self.turn else {
             return;
         };
 
-        if self.stopping == Some(Stopping::User) {
+        if turn.stopping == Some(Stopping::User) {
             return;
         }
 
-        self.stopping = Some(Stopping::User);
+        turn.stopping = Some(Stopping::User);
+        let turn = turn.number;
         self.show_stopping(Stopping::User);
         let within = self.stop_within;
         self.replies.push(
@@ -102,12 +103,15 @@ impl Actor {
     /// user stopped takes none: injected, the agent works on in that turn
     /// instead of stopping, and the steer goes as the next prompt anyway.
     pub(super) fn steer_now(&mut self, cx: &ConnectionTo<Agent>) -> Result<()> {
+        let Some(turn) = &mut self.turn else {
+            return Ok(());
+        };
+
         if self.steers.is_empty()
-            || self.turn.is_none()
             || self.by_user
-            || self.stopping.is_some()
+            || turn.stopping.is_some()
             || self.steering.is_some()
-            || self.steer_after_turn
+            || turn.steer_after
             || !self.asked.is_empty()
         {
             return Ok(());
@@ -132,7 +136,7 @@ impl Actor {
         }
 
         cx.send_notification(CancelNotification::new(session))?;
-        self.stopping = Some(Stopping::Steer);
+        turn.stopping = Some(Stopping::Steer);
         self.show_stopping(Stopping::Steer);
         Ok(())
     }
@@ -174,7 +178,9 @@ impl Actor {
             _ if steer.dropped => {}
             Ok(acp::SteeringOutcome::PromptRequired) => {
                 self.steers.push_front(steer.prompt);
-                self.steer_after_turn = self.turn.is_some();
+                if let Some(turn) = &mut self.turn {
+                    turn.steer_after = true;
+                }
                 // Wait for the owning prompt's terminal reply. Sending it
                 // again now would race the adapter's end-of-turn handling.
                 self.show_queued();
@@ -596,7 +602,7 @@ impl Actor {
         self.context_turn = crate::agents::tags::said(&prompt.text).is_empty();
         let brief = self.brief.take();
         self.sent += 1;
-        self.turn = Some(self.sent);
+        self.turn = Some(Turn::new(self.sent));
         self.send_prompt(cx, acp::prompt(&session, &prompt, brief.as_deref()), false);
         // The new turn tells its own end.
         self.held_end = None;

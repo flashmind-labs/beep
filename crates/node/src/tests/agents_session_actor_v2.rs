@@ -30,7 +30,6 @@ fn actor() -> Actor {
         compacting_v2: false,
         accepting_v2: Accepting::Done,
         steering: None,
-        steer_after_turn: false,
         left_plan_for: None,
         returning: None,
         compactor: Compactor::new(Route::Advertised, Policy::Off),
@@ -41,7 +40,6 @@ fn actor() -> Actor {
         kept_title: false,
         turn: None,
         held_end: None,
-        stopping: None,
         by_user: false,
         stop_within: Duration::from_secs(1),
         running: HashSet::new(),
@@ -96,7 +94,7 @@ async fn rejected_v2_compaction_cannot_arm_an_idle_stop_timer() {
         let waiting = actor.replies.len();
         actor.stop_due();
         assert_eq!(actor.replies.len(), waiting);
-        assert_eq!(actor.stopping, None);
+        assert_eq!(actor.stopping(), None);
         assert!(actor.reply(&cx, Reply::StopDue { turn }).unwrap().is_none());
     })
     .await;

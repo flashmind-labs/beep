@@ -251,8 +251,6 @@ pub(super) struct Actor {
     pub(super) accepting_v2: Accepting,
     /// A steer sent to the adapter, awaiting its delivery outcome.
     pub(super) steering: Option<PendingSteer>,
-    /// The adapter found no running turn; wait for our prompt's reply.
-    pub(super) steer_after_turn: bool,
     /// The last mode the session was in other than plan mode.
     pub(super) left_plan_for: Option<String>,
     /// The mode to go back to once the agent left plan mode for an approved
@@ -271,12 +269,10 @@ pub(super) struct Actor {
     /// prompt sent here does not replace: flsh writes one from the first
     /// prompt it gets, Beep's brief included.
     pub(super) kept_title: bool,
-    /// The turn running, by its number, while its prompt is unanswered.
-    pub(super) turn: Option<u64>,
+    /// The turn running, while its prompt is unanswered.
+    pub(super) turn: Option<Turn>,
     /// The end of the last turn, held while its subagents run.
     pub(super) held_end: Option<HeldEnd>,
-    /// Why the running turn was asked to stop, once it was.
-    pub(super) stopping: Option<Stopping>,
     /// The user stopped the running turn, or closed the session.
     pub(super) by_user: bool,
     /// How long the agent has to end its turn after Stop.
@@ -298,6 +294,27 @@ pub(super) struct Actor {
     /// Answers still to come. At most a few: one per request in flight, and
     /// a session has at most one prompt in flight.
     pub(super) replies: FuturesUnordered<BoxFuture<'static, Reply>>,
+}
+
+/// The turn running: what only has a meaning while its prompt is
+/// unanswered.
+pub(super) struct Turn {
+    pub(super) number: u64,
+    /// Why it was asked to stop, once it was.
+    pub(super) stopping: Option<Stopping>,
+    /// The adapter found no running turn for a steer; wait for our
+    /// prompt's reply.
+    pub(super) steer_after: bool,
+}
+
+impl Turn {
+    pub(super) fn new(number: u64) -> Self {
+        Self {
+            number,
+            stopping: None,
+            steer_after: false,
+        }
+    }
 }
 
 /// Why the session's task stopped.
@@ -868,7 +885,7 @@ impl Actor {
                 });
                 self.look_for_place();
 
-                if let Some(stopping) = self.stopping {
+                if let Some(stopping) = self.stopping() {
                     self.show_stopping(stopping);
                 }
 
@@ -1105,8 +1122,6 @@ impl Actor {
             }
             Reply::Prompt(result) => {
                 self.turn = None;
-                self.steer_after_turn = false;
-                self.stopping = None;
                 self.running.clear();
                 let tokens = result.as_ref().map(turn_tokens).unwrap_or_default();
                 self.live.send_modify(|live| live.spent(tokens));
@@ -1123,7 +1138,9 @@ impl Actor {
             Reply::Steered(result) => self.steered(cx, result)?,
             Reply::Compacted(result) => self.compacted(cx, result),
             Reply::StopDue { turn } => {
-                if self.turn == Some(turn) && self.stopping == Some(Stopping::User) {
+                if self.stopping().is_some_and(|stopping| stopping == Stopping::User)
+                    && self.turn.as_ref().is_some_and(|running| running.number == turn)
+                {
                     log::warn!("the agent ignored session/cancel; stopping it");
                     return Ok(Some(End::Unstoppable(self.stop_within)));
                 }
@@ -1395,6 +1412,11 @@ impl Actor {
     /// anyway is allowed rather than asked.
     pub(super) fn bypass_mode(&self) -> Option<&'static str> {
         known(&self.agent).and_then(|known| known.bypass_mode)
+    }
+
+    /// Why the running turn was asked to stop, once it was.
+    pub(super) fn stopping(&self) -> Option<Stopping> {
+        self.turn.as_ref().and_then(|turn| turn.stopping)
     }
 
     /// Shows `note` in the transcript, for what the session does other

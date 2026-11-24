@@ -1,6 +1,6 @@
 //! ACP v2 foreground lifecycle, independent of prompt acceptance.
 
-use super::actor::{Accepting, Actor, Reply};
+use super::actor::{Accepting, Actor, Reply, Turn};
 use crate::agents::acp::Protocol;
 use agent_client_protocol::{
     Agent, ConnectionTo, Error, JsonRpcMessage, UntypedMessage,
@@ -50,7 +50,7 @@ impl Actor {
 
         if compact {
             self.sent += 1;
-            self.turn = Some(self.sent);
+            self.turn = Some(Turn::new(self.sent));
         }
         self.compacting_v2 = compact;
         self.accepting_v2 = Accepting::Waiting;
@@ -104,7 +104,7 @@ impl Actor {
             update => {
                 self.live.send_modify(|live| live.apply_v2(&update));
                 self.look_for_place();
-                if let Some(stopping) = self.stopping {
+                if let Some(stopping) = self.stopping() {
                     self.show_stopping(stopping);
                 }
                 self.subagents_moved();
@@ -132,7 +132,7 @@ impl Actor {
                 self.foreground = true;
                 if self.turn.is_none() {
                     self.sent += 1;
-                    self.turn = Some(self.sent);
+                    self.turn = Some(Turn::new(self.sent));
                 }
                 self.live.send_modify(|live| {
                     live.info.state.status = match state {
@@ -147,8 +147,6 @@ impl Actor {
     pub(super) fn v2_idle(&mut self, cx: &ConnectionTo<Agent>, idle: v2::IdleStateUpdate) {
         self.foreground = false;
         self.turn = None;
-        self.steer_after_turn = false;
-        self.stopping = None;
         self.running.clear();
         let (stop, error) = match idle.stop_reason {
             Some(v2::StopReason::EndTurn) => (StopReason::EndTurn, None),
