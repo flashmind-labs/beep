@@ -213,6 +213,12 @@ pub(crate) fn sessions_changed(app: AppHandle, topic: Topic) {
     }
 }
 
+/// The user changed a session on this desktop: Home draws at once, not after the gap that
+/// keeps what machines push from drawing it many times a second.
+pub(crate) fn session_edited(app: AppHandle) {
+    paced(app, "home", false);
+}
+
 /// Draws `name` now, or once its gap after the last draw when the change is `frequent`.
 fn paced(app: AppHandle, name: &'static str, frequent: bool) {
     let views = app.state::<Views>();

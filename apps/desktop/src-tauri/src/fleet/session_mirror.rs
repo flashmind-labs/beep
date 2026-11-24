@@ -1044,6 +1044,7 @@ impl Outside for Desk {
             Drawn::Session(session) => {
                 // The tray reads again now that the rows hold the edit.
                 app.state::<WaitingList>().poke();
+                crate::fleet::event_views::session_edited(app.clone());
                 app.emit("sessions-changed", session)
             }
         };
