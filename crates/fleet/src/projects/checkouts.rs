@@ -201,7 +201,6 @@ impl Desk {
         write(&self.mesh, place_key(&stored.name, id), Some(&place)).await?;
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
         sync_checkouts(&self.mesh, &stored).await?;
-        self.hosts.sync_statuses().clear();
         Ok(flow::project(row(&stored, id, &place), name.clone(), false))
     }
 
@@ -257,7 +256,6 @@ impl Desk {
         write(&self.mesh, place_key(&stored.name, id), Some(&place)).await?;
         let stored = find_project(&self.mesh, project).ok_or(FleetError::NotFound)?;
         sync_checkouts(&self.mesh, &stored).await?;
-        self.hosts.sync_statuses().clear();
         Ok(flow::project(row(&stored, id, &place), name.clone(), false))
     }
 
@@ -323,7 +321,6 @@ impl Desk {
         }
 
         write::<Place>(&self.mesh, place_key(&stored.name, id), None).await?;
-        self.hosts.sync_statuses().clear();
         Ok((stored.name, folder))
     }
 
@@ -357,7 +354,6 @@ impl Desk {
                 self.mesh.set(key, None).await?;
             }
         }
-        self.hosts.sync_statuses().clear();
 
         Ok(())
     }

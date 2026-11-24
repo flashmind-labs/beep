@@ -82,8 +82,6 @@ pub enum Changed {
         lists: bool,
         runs: bool,
     },
-    /// One or more machines answered with updated project sync status.
-    Sync,
     /// The plans and spending: `Session::spend` gives more than before.
     Usage,
 }
@@ -277,7 +275,7 @@ impl Session {
         Ok(Arc::new(Self {
             options,
             peers,
-            hosts: DesktopHosts::new_with(Some(changed.clone()))?,
+            hosts: DesktopHosts::new()?,
             changed,
             lists: Cache::default(),
             runs: Cache::default(),

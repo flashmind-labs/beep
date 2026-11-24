@@ -276,9 +276,6 @@ pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'stati
                 views: Vec::new(),
             },
         ),
-        Changed::Sync => {
-            crate::fleet::event_views::sync_changed(app.clone(), false);
-        }
         Changed::Usage => {
             beep_node::events::system().changed(beep_proto::node::events::Topic::new("usage"));
             crate::fleet::event_views::changed(

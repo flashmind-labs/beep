@@ -23,7 +23,6 @@ impl Desk {
         if let Some(settings) = settings {
             spec.ignored = settings.normalized().map_err(FleetError::refused)?;
             write(&self.mesh, key, Some(&spec)).await?;
-            self.hosts.sync_statuses().clear();
         }
 
         Ok(spec.ignored)
@@ -46,7 +45,6 @@ impl Desk {
 
             spec.rules = rules;
             write(&self.mesh, key, Some(&spec)).await?;
-            self.hosts.sync_statuses().clear();
         }
 
         Ok(spec.rules)

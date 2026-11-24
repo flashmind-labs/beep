@@ -5,8 +5,6 @@ use crate::{
     AsyncMutex,
     error::{FleetError, Result},
     peer::{PeerFound, PeerShell, Peers, Probe, probe},
-    session::Changed,
-    sync::SyncStatuses,
 };
 use beep_mesh::{
     DeviceStatus, Mesh,
@@ -261,8 +259,6 @@ pub(crate) struct DesktopHosts {
     gates: Arc<HostGates>,
     /// Held by the run reading Home's pull requests and issues.
     board_run: Arc<AsyncMutex<()>>,
-    /// Per-machine sync status actor/cache, so a degraded node never blocks other machines' sync.
-    sync: Arc<SyncStatuses>,
     /// Per-machine spend cache, so a degraded node keeps its last spend instead of dropping to 0.
     usage: Arc<crate::usage::UsageCache>,
     /// Last move state reported by each target machine, used when a link glitches momentarily.
@@ -271,10 +267,6 @@ pub(crate) struct DesktopHosts {
 
 impl DesktopHosts {
     pub(crate) fn new() -> Result<Self> {
-        Self::new_with(None)
-    }
-
-    pub(crate) fn new_with(changed: Option<Arc<dyn Fn(Changed) + Send + Sync>>) -> Result<Self> {
         let client = beep_proto::https::client()
             .connect_timeout(Duration::from_secs(3))
             .timeout(HOST_TIMEOUT)
@@ -290,14 +282,9 @@ impl DesktopHosts {
             remotes: Arc::default(),
             gates: Arc::default(),
             board_run: Arc::default(),
-            sync: Arc::new(SyncStatuses::new(changed)),
             usage: Arc::default(),
             moves: Arc::default(),
         })
-    }
-
-    pub(crate) fn sync_statuses(&self) -> &Arc<SyncStatuses> {
-        &self.sync
     }
 
     pub(crate) fn usage(&self) -> &Arc<crate::usage::UsageCache> {

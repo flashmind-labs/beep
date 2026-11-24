@@ -8,7 +8,7 @@ use beep_proto::{
     node::harness::{AutoCompact, HarnessDriver},
 };
 use iroh::{Endpoint, endpoint::presets};
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 use tempfile::TempDir;
 
 struct TestPeers(Mesh);
@@ -185,7 +185,7 @@ async fn two_harness_saves_at_once_keep_both_fields() {
 struct DegradedSyncPeers {
     mesh: Mesh,
     slow: EndpointId,
-    release: Arc<tokio::sync::Notify>,
+    release: tokio::sync::watch::Receiver<bool>,
 }
 
 #[async_trait]
@@ -200,7 +200,7 @@ impl Peers for DegradedSyncPeers {
 
     async fn client(&self, machine: EndpointId) -> Result<PeerClient> {
         if machine == self.slow {
-            self.release.notified().await;
+            let _ = beep_proto::watched::wait_for(&mut self.release.clone(), |open| *open).await;
             let slow_projects = vec![ProjectStatus {
                 name: "acme/widget".into(),
                 folder: "/srv/widget".into(),
@@ -263,8 +263,8 @@ impl Peers for DegradedSyncPeers {
 }
 
 #[tokio::test]
-async fn degraded_node_does_not_stall_sync_and_updates_in_background() {
-    use crate::session::{Changed, Options, Session};
+async fn degraded_node_does_not_stall_sync_and_shows_its_answer_on_the_next_read() {
+    use crate::session::{Options, Session};
     use beep_mesh::{DeviceKind, JOIN_ALPN, PEER_ALPN};
 
     let serve = |mesh: &Mesh, endpoint: &Endpoint| {
@@ -327,24 +327,20 @@ async fn degraded_node_does_not_stall_sync_and_updates_in_background() {
     .await
     .unwrap();
 
-    let release = Arc::new(tokio::sync::Notify::new());
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (release, opened) = tokio::sync::watch::channel(false);
     let peers = Arc::new(DegradedSyncPeers {
         mesh: mesh.clone(),
         slow: node.me(),
-        release: release.clone(),
+        release: opened,
     });
-    let session = Session::new(peers, Options::default(), move |c| {
-        let _ = tx.send(c);
-    })
-    .unwrap();
+    let session = Session::new(peers, Options::default(), |_| {}).unwrap();
     let desk = session.desk().await.unwrap();
 
     let started = Instant::now();
     let initial = desk.sync().await;
     assert!(
-        started.elapsed() < Duration::from_secs(2),
-        "sync returned without waiting 30s on the stalled node"
+        started.elapsed() < Duration::from_secs(4),
+        "sync returned without waiting on the stalled node"
     );
     let fast_row = initial[0]
         .machines
@@ -353,18 +349,15 @@ async fn degraded_node_does_not_stall_sync_and_updates_in_background() {
         .unwrap();
     assert_eq!(fast_row.status, SyncStatus::InSync {});
 
-    // Subsequent read while the node is still degraded returns in ~0ms from cache.
-    let cached_start = Instant::now();
-    let _ = desk.sync().await;
-    assert!(cached_start.elapsed() < Duration::from_millis(100));
+    let slow_row = initial[0]
+        .machines
+        .iter()
+        .find(|m| m.machine_id == node.me().to_string())
+        .unwrap();
+    assert_eq!(slow_row.status, SyncStatus::Failed {});
 
-    // Once the degraded node answers, the background actor updates cache and emits Changed::Sync.
-    release.notify_waiters();
-    let heard = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-        .await
-        .expect("heard sync update");
-    assert_eq!(heard, Some(Changed::Sync));
-
+    // Nothing is kept from the unanswered read: the next one shows what the node says now.
+    release.send(true).unwrap();
     let updated = desk.sync().await;
     let slow_row = updated[0]
         .machines
