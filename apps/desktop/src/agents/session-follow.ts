@@ -158,6 +158,13 @@ export function flushDraw(now = false) {
 export function stopAgentFollow() {
   clearTimeout(AG.timer);
   feed.leave();
+  forgetUnfollowedExtras(AG.open);
+}
+
+/// A session read by polling has no follow to end and clear its modes and tasks, so they go as it
+/// leaves the screen, unless it is followed still.
+export function forgetUnfollowedExtras(o: OpenAgent | null) {
+  if (o && !feed.live(o)) transcripts.clearExtras(transcriptKey(o));
 }
 
 /// Stops following every session, the open one included.

@@ -45,7 +45,7 @@ import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
 import { type AgentStarted, isStarting } from "./starting-state.ts";
-import { feed, flushDraw, keptTranscript } from "./session-follow.ts";
+import { feed, flushDraw, forgetUnfollowedExtras, keptTranscript } from "./session-follow.ts";
 import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./session-head.tsx";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
@@ -389,6 +389,7 @@ function keepLog(key: string, b: ChatBody, page: AgentPage) {
 export function leaveLog() {
   const log = AG.open && keptLogs.get(sessionKey({ machine_id: AG.open.machine_id, id: AG.open.session }));
   if (log && AG.page) log.page = AG.page;
+  forgetUnfollowedExtras(AG.open);
 }
 
 /// The page a session opens with: the one held in this window, or the kept log's when it
