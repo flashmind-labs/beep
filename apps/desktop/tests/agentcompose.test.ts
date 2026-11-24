@@ -252,14 +252,14 @@ test("a stalled first read logs the operation it is waiting for", async t => {
 });
 
 test("a text message that fails to send goes back in the field under the error", async () => {
-  const page = openSession("idle");
+  openSession("idle");
   const input = field("fix the build");
   show({}, input);
   refuse("agent_steer", "bad request: the machine is offline");
   await sendAgentMessage();
   assert.equal(input.value, "fix the build");
   assert.equal(AG.note, "the machine is offline");
-  assert.deepEqual(page.entries, []);
+  assert.deepEqual(AG.page?.entries, []);
 });
 
 for (const status of ["idle", "working", "ended"]) {
@@ -678,7 +678,7 @@ test("closing removes list rows and counts before the reply, survives stale read
 
 
 test("an image sent without typed text gets a default prompt", async () => {
-  const page = openSession("idle");
+  openSession("idle");
   const input = field("  ");
   show({}, input);
   AG.att = [png];
@@ -687,7 +687,7 @@ test("an image sent without typed text gets a default prompt", async () => {
   assert.deepEqual(steers(), [{ steer: { text: "Check this image.", images: [{ name: png.name, mime: png.mime, data: png.data }] } }]);
   assert.equal(input.value, "");
   assert.deepEqual(AG.att, []);
-  assert.equal(page.entries[0].text, "Check this image.\n[image: shot.png]");
+  assert.equal(AG.page?.entries[0].text, "Check this image.\n[image: shot.png]");
 });
 
 test("session usage shows cumulative tokens and spend apart from the remaining key budget", () => {

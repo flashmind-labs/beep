@@ -3,7 +3,8 @@ import { joinRuns, type Run } from "./older-state.ts";
 import { endedPage } from "./reconnect-state.ts";
 import { sessionKey } from "./conversation-state.ts";
 
-// The open session's page, with the one place that changes it. `AG.page` reads it. This module
+// The open session's page, with the one place that changes it. `AG.page` reads it. A page is
+// replaced, never changed in place, as `transcripts` may hold the same object. This module
 // imports no views, so the modules that write the page can import it without a cycle.
 
 let page: AgentPage | null = null;
@@ -67,7 +68,7 @@ export function takeEarlier(run: Run) {
 
 /// The session row the page shows.
 export function setPageSession(s: AgentRow) {
-  if (page) page.session = s;
+  if (page) page = { ...page, session: s };
 }
 
 /// The session ended with its machine: no turn runs on.
@@ -77,23 +78,20 @@ export function endPage() {
 
 /// The open question was answered.
 export function clearQuestion() {
-  if (!page) return;
-  page.session.question = null;
-  page.session.status = "working";
+  if (page) page = { ...page, session: { ...page.session, question: null, status: "working" } };
 }
 
 /// A message just sent shows in the log before its machine logs it.
 export function appendEntry(entry: AgentPage["entries"][number]) {
-  page?.entries.push(entry);
+  if (page) page = { ...page, entries: [...page.entries, entry] };
 }
 
 /// Takes out `entry`, not the last, as a read may have drawn more since.
 export function removeEntry(entry: AgentPage["entries"][number]) {
-  const at = page?.entries.indexOf(entry) ?? -1;
-  if (at >= 0) page?.entries.splice(at, 1);
+  if (page?.entries.includes(entry)) page = { ...page, entries: page.entries.filter(en => en !== entry) };
 }
 
 /// Takes out the entry `appendEntry` put last.
 export function dropLastEntry() {
-  page?.entries.pop();
+  if (page) page = { ...page, entries: page.entries.slice(0, -1) };
 }

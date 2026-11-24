@@ -419,7 +419,7 @@ export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && 
 /// A `pushed` update always holds something new; a polled one is compared
 /// with the last read.
 export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false, pushed = false) {
-  if (AG.page) page.session = nativeUpdate(AG.page.session, page.session);
+  if (AG.page) page = { ...page, session: nativeUpdate(AG.page.session, page.session) };
 
   if (isNativeSession(page.session.id)) {
     const row = sessions.find(s => s.machine_id === page.session.machine_id && s.id === page.session.id);
