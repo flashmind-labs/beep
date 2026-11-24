@@ -52,6 +52,7 @@ pub(crate) struct Source {
     after_lookup: Mutex<Option<Gate>>,
     _agent_sources: Option<Arc<crate::agents::follow::Sources>>,
     _processes: Option<crate::agents::ProcessDemand>,
+    _devices: Option<crate::run::device::Follow>,
 }
 
 impl Source {
@@ -78,6 +79,8 @@ impl Source {
             _agent_sources: agent_sources,
             _processes: matches!(topic.name(), "processes" | "*")
                 .then(crate::agents::ProcessDemand::new),
+            _devices: (topic.name() == crate::run::device::LIST_TOPIC)
+                .then(crate::run::device::Follow::new),
         };
         source.resolve(offers).await?;
         // Nobody else watches it yet. The stream that made it reads again

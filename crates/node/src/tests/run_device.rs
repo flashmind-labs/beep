@@ -391,3 +391,76 @@ async fn conversion_time_is_included_in_the_frame_budget_without_catch_up_bursts
             .expect("next frame delivered on its deadline")
     );
 }
+
+fn device(state: DeviceState) -> Device {
+    Device {
+        id: DeviceId("emulator-5554".to_owned()),
+        name: "Pixel".to_owned(),
+        platform: Platform::Android,
+        state,
+        os: None,
+        phone: false,
+    }
+}
+
+/// A `Follow` over a device list the test sets, counting reads.
+fn follow_of(
+    list: &Arc<std::sync::Mutex<Vec<Device>>>,
+    reads: &Arc<AtomicU8>,
+) -> (Follow, tokio::sync::mpsc::UnboundedReceiver<()>) {
+    let (ping, pings) = tokio::sync::mpsc::unbounded_channel();
+    let (list, reads) = (list.clone(), reads.clone());
+    let follow = Follow::with(
+        move || {
+            reads.fetch_add(1, Ordering::Relaxed);
+            let list = list.lock().unwrap().clone();
+            async move { list }
+        },
+        move || {
+            let _ = ping.send(());
+        },
+    );
+
+    (follow, pings)
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_device_that_finishes_booting_with_no_event_is_pinged() {
+    let list = Arc::new(std::sync::Mutex::new(vec![device(DeviceState::Booting)]));
+    let reads = Arc::new(AtomicU8::new(0));
+    let (_follow, mut pings) = follow_of(&list, &reads);
+
+    // The first read sees it booting.
+    while reads.load(Ordering::Relaxed) == 0 {
+        tokio::task::yield_now().await;
+    }
+    *list.lock().unwrap() = vec![device(DeviceState::On)];
+
+    assert_eq!(pings.recv().await, Some(()));
+}
+
+#[tokio::test(start_paused = true)]
+async fn an_unchanged_list_is_read_again_but_not_pinged() {
+    let list = Arc::new(std::sync::Mutex::new(vec![device(DeviceState::On)]));
+    let reads = Arc::new(AtomicU8::new(0));
+    let (_follow, mut pings) = follow_of(&list, &reads);
+
+    tokio::time::sleep(WATCHED_EVERY * 3 + Duration::from_secs(1)).await;
+    assert_eq!(reads.load(Ordering::Relaxed), 4);
+    assert!(pings.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn nothing_is_read_once_nobody_follows() {
+    let list = Arc::new(std::sync::Mutex::new(vec![device(DeviceState::Booting)]));
+    let reads = Arc::new(AtomicU8::new(0));
+    let (follow, _pings) = follow_of(&list, &reads);
+
+    tokio::time::sleep(BOOTING_EVERY + Duration::from_secs(1)).await;
+    drop(follow);
+    let before = reads.load(Ordering::Relaxed);
+    tokio::time::sleep(WATCHED_EVERY * 10).await;
+
+    assert!(before >= 2);
+    assert_eq!(reads.load(Ordering::Relaxed), before);
+}

@@ -131,6 +131,47 @@ pub(crate) async fn list() -> Vec<Device> {
     devices
 }
 
+/// How often the list is read again while a device boots: the emulator says
+/// it is up to no one but its own port.
+const BOOTING_EVERY: Duration = Duration::from_secs(2);
+/// How often it is read again otherwise, for what no event announces, such as
+/// an iOS simulator changed outside Beep.
+const WATCHED_EVERY: Duration = Duration::from_secs(5);
+
+/// Held while a client follows `device-list`: rereads the list and pings
+/// `devices` when it differs from the last read. Stops when dropped.
+pub(crate) struct Follow(AbortOnDropHandle<()>);
+
+impl Follow {
+    pub(crate) fn new() -> Self {
+        Self::with(list, || {
+            crate::events::system().changed(beep_proto::node::events::Topic::new(TOPIC));
+        })
+    }
+
+    fn with<Read, Reading>(read: Read, ping: impl Fn() + Send + 'static) -> Self
+    where
+        Read: Fn() -> Reading + Send + 'static,
+        Reading: Future<Output = Vec<Device>> + Send,
+    {
+        Self(AbortOnDropHandle::new(tokio::spawn(async move {
+            let mut last = read().await;
+
+            loop {
+                let booting = last.iter().any(|device| device.state == DeviceState::Booting);
+                tokio::time::sleep(if booting { BOOTING_EVERY } else { WATCHED_EVERY }).await;
+
+                let now = read().await;
+
+                if now != last {
+                    last = now;
+                    ping();
+                }
+            }
+        })))
+    }
+}
+
 /// Device `id`, from the list.
 async fn find(id: &DeviceId) -> Result<Device> {
     list()

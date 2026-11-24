@@ -44,3 +44,20 @@ async fn an_older_lookup_that_lands_last_does_not_replace_a_newer_one() {
     let roots = crate::lock(&source.roots).clone();
     assert_eq!(roots.values().next(), Some(&new.canonicalize().unwrap()));
 }
+
+// The device list is followed while a stream holds its source, and by no other topic.
+#[tokio::test]
+async fn only_the_device_list_source_follows_the_devices() {
+    let offers = Offers::default();
+    let followed = |name: &'static str| {
+        let offers = offers.clone();
+        async move {
+            let source = Source::new(&offers, &Topic::new(name)).await.unwrap();
+            source._devices.is_some()
+        }
+    };
+
+    assert!(followed("device-list").await);
+    assert!(!followed("devices").await);
+    assert!(!followed("*").await);
+}
