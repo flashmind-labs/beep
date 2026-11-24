@@ -2,7 +2,8 @@ import { placeWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { UsageWidget } from "./usage-view.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { AMBIENT_MS, ambient } from "../ui/active.ts";
+import { AMBIENT_MS } from "../ui/active.ts";
+import { pushedView } from "../ui/snapshot-state.ts";
 import type { WrittenCredits } from "../ui/credits.ts";
 // The pill at the right end of every command center header: how much of each
 // coding agent's plan is used and what the agents cost today.
@@ -251,20 +252,19 @@ export function mountUsage(read: (refresh: boolean) => Promise<UsageView | null>
       toggle={() => toggle(!open)} pick={pick} more={() => { allProjects = !allProjects; draw(); }} /> });
   };
 
-  const load = async (refresh: boolean) => {
-    let next: UsageView | null;
-
-    try {
-      next = await read(refresh);
-    } catch (e) {
-      console.warn("reading usage:", e);
-      return;
-    }
-
+  const take = (next: UsageView | null) => {
     if (loaded && JSON.stringify(next) === JSON.stringify(view)) return;
     loaded = true;
     view = next;
     draw();
+  };
+
+  const load = async (refresh: boolean) => {
+    try {
+      take(await read(refresh));
+    } catch (e) {
+      console.warn("reading usage:", e);
+    }
   };
 
   const toggle = (to: boolean) => {
@@ -277,7 +277,11 @@ export function mountUsage(read: (refresh: boolean) => Promise<UsageView | null>
   document.addEventListener("click", e => { if (open && !e.composedPath().includes(windowHost("usage"))) toggle(false); });
   document.addEventListener("keydown", e => { if (open && e.key === "Escape") toggle(false); });
   // Spending changes with every turn; the pill follows at most once a second.
-  const reload = ambient(() => load(false), AMBIENT_MS);
-  subscribeChanges(topic("usage"), { deliver: "latest", receive: () => reload() });
+  subscribeChanges(topic("usage"), { deliver: "each", receive: event => {
+    const pushed = pushedView<UsageView | null>(event.data, "usage_get");
+    if (!pushed) return;
+    if ("error" in pushed) console.warn("reading usage:", pushed.error);
+    else take(pushed.value);
+  } }, { wait: AMBIENT_MS });
   void load(false);
 }
