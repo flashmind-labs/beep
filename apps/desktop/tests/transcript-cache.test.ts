@@ -118,3 +118,21 @@ test("modes and tasks come with an update, survive a gap, and go with the sessio
   cache.delete("one");
   assert.deepEqual(cache.tasks("one"), []);
 });
+
+test("amending a held page replaces it and tells the listeners", () => {
+  const cache = new TranscriptCache<Run & { note: string }>();
+  cache.receive("one", { ...update("snapshot", 0, ["first"]), page: { earlier: 0, entries: [{ kind: "agent", text: "first" }], note: "a" } });
+  cache.receive("two", { ...update("snapshot", 0, ["other"]), page: { earlier: 0, entries: [{ kind: "agent", text: "other" }], note: "b" } });
+  const before = cache.peek("one");
+  let heard = 0;
+  cache.subscribe(() => { heard++; });
+
+  cache.amend("one", page => ({ ...page, note: "c" }));
+  assert.equal(heard, 1);
+  assert.notEqual(cache.peek("one"), before, "a new entry, so a store snapshot sees the change");
+  assert.equal(cache.peek("one")?.page.note, "c");
+  assert.equal(cache.peek("one")?.cursor, before?.cursor);
+
+  cache.amend("missing", page => page);
+  assert.equal(heard, 1);
+});

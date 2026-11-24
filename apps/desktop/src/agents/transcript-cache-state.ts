@@ -68,6 +68,15 @@ export class TranscriptCache<T extends Run> {
     this.changed();
   }
 
+  /// Replaces the page held for `key` with what `change` makes of it, in the same place in the order,
+  /// and tells the listeners; nothing when none is held.
+  amend(key: string, change: (page: T) => T) {
+    const held = this.sessions.get(key);
+    if (!held) return;
+    this.sessions.set(key, { ...held, page: change(held.page) });
+    this.changed();
+  }
+
   /// Drops the page held for `key`, as after a gap; its modes and tasks stay for the next update.
   private drop(key: string) {
     this.sessions.delete(key);

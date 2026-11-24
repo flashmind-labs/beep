@@ -109,8 +109,7 @@ export function heldSteers(o: OpenAgent): string[] {
 
 /// The node dropped its steers after Stop all.
 export function clearHeldSteers(o: OpenAgent) {
-  const held = transcripts.peek(transcriptKey(o));
-  if (held) held.page = { ...held.page, queued: 0, queued_messages: [] };
+  transcripts.amend(transcriptKey(o), page => ({ ...page, queued: 0, queued_messages: [] }));
 }
 
 /// Drops what is held of a deleted session, in memory and on disk.
