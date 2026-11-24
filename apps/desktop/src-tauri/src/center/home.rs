@@ -61,15 +61,8 @@ pub async fn center_answer_agent(
         question: Some(question),
         machine_name: String::new(),
     };
-    let answered =
-        crate::agents::outbox::answer(window.app_handle(), &fleet, window.label(), &key, reply)
-            .await;
 
-    if let Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) = answered {
-        crate::agents::outbox::answered_locally(window.app_handle(), &key);
-    }
-
-    answered
+    crate::agents::outbox::answer(window.app_handle(), &fleet, window.label(), &key, reply).await
 }
 
 /// What Home shows. A section is `None` when it cannot be listed.

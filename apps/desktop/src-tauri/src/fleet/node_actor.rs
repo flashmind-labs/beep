@@ -892,28 +892,18 @@ fn on_settled(
     ok: bool,
 ) {
     match kind {
-        JobKind::DeleteSession { session, .. } => {
-            if ok {
-                fleet.projections().forget_session(machine, session);
-            }
-
+        // The command that asked for the delete took the session out of every list. Only a
+        // refusal needs more: the machine still has it.
+        JobKind::DeleteSession { session, .. } if !ok => {
             if let Some(app) = app {
                 if let Some(lists) = app.try_state::<SessionLists>() {
-                    if ok {
-                        lists.forget(machine, session.clone());
-                    } else {
-                        lists.stale(machine);
-                    }
+                    lists.stale(machine);
                 }
                 if let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
-                    if ok {
-                        mirror.deleted(&machine.to_string(), session);
-                    } else {
-                        mirror.delete_failed(machine);
-                        // The windows read at once; the relist follows.
-                        let _ = app.emit("sessions-changed", session);
-                        super::event_views::home_changed(app.clone());
-                    }
+                    mirror.delete_failed(machine);
+                    // The windows read at once; the relist follows.
+                    let _ = app.emit("sessions-changed", session);
+                    super::event_views::home_changed(app.clone());
                 }
             }
         }
@@ -945,7 +935,8 @@ fn on_settled(
                 super::event_views::home_changed(app.clone());
             }
         }
-        JobKind::TerminalStop { .. }
+        JobKind::DeleteSession { .. }
+        | JobKind::TerminalStop { .. }
         | JobKind::StopProcess { .. }
         | JobKind::SetSearch { .. }
         | JobKind::ApplyMcpServer { .. } => {}

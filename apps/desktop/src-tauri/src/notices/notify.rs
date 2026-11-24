@@ -7,12 +7,11 @@
 use crate::{
     center::{self, AgentTarget, CenterTarget},
     chat::markdown::plain_text,
-    error::{DesktopError, Result},
+    error::Result,
     fleet::Fleet,
-    notices::history,
 };
 use beep_proto::{
-    AgentNoticeKey, ApiError, Notice,
+    AgentNoticeKey, Notice,
     node::agent::{AnswerOption, OptionKind},
 };
 use std::sync::Arc;
@@ -175,16 +174,9 @@ fn open(app: &AppHandle, target: CenterTarget) {
 /// notification, since nothing else is on screen; one already answered
 /// elsewhere only goes to the log.
 async fn answer(app: AppHandle, key: AgentNoticeKey, allow: bool) {
-    match answer_agent(&app, key.clone(), allow).await {
-        Ok(()) => history::answered(&app, &key),
-        Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) => {
-            history::answered(&app, &key);
-            log::info!("a notification answered a question that no longer waits");
-        }
-        Err(e) => {
-            log::warn!("answering from a notification: {e}");
-            text(&app, "Beep could not send your answer", &e.to_string());
-        }
+    if let Err(e) = answer_agent(&app, key, allow).await {
+        log::warn!("answering from a notification: {e}");
+        text(&app, "Beep could not send your answer", &e.to_string());
     }
 }
 

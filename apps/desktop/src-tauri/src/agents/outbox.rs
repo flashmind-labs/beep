@@ -1094,16 +1094,6 @@ impl Link for MeshLink {
 
         match &order.kind {
             OrderKind::Close => closed(&self.app, &order.key.machine_id, &order.key.session),
-            OrderKind::Answer { question, .. } => {
-                let notice = AgentNoticeKey {
-                    machine_id: order.key.machine_id.clone(),
-                    agent: order.key.agent.clone(),
-                    session: order.key.session.clone(),
-                    question: Some(*question),
-                    machine_name: String::new(),
-                };
-                answered_locally(&self.app, &notice);
-            }
             _ => {}
         }
     }
@@ -1229,8 +1219,9 @@ async fn send_node_order(app: &AppHandle, machine: EndpointId, order: &Order) ->
 }
 
 /// Clears a session's answered question locally at once so Home, notifications, and the tray
-/// do not stay stuck waiting on a slow node link.
-pub(crate) fn answered_locally(app: &AppHandle, key: &AgentNoticeKey) {
+/// do not stay stuck waiting on a slow node link. The one place an answer is applied: the
+/// order's later settling changes nothing more.
+fn answered_locally(app: &AppHandle, key: &AgentNoticeKey) {
     crate::notices::history::answered(app, key);
 
     if let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
