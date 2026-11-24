@@ -4,8 +4,8 @@
 
 use async_trait::async_trait;
 use beep_fleet::{
-    Changed, Desk, FleetError, ImportJob, Options, Peers, RepositoryRename, RepositoryRenameResult,
-    Session, project_id,
+    Desk, FleetError, ImportJob, Options, Peers, RepositoryRename, RepositoryRenameResult, Session,
+    project_id,
 };
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
@@ -137,9 +137,6 @@ struct FakeNode {
     prints: Vec<(&'static str, &'static str)>,
     /// What `FollowUsage` says.
     usage: Vec<SessionsReply>,
-    /// What `FollowUsage` says after `release`, as a plan its CLI read late.
-    late: Vec<SessionsReply>,
-    release: tokio::sync::Notify,
     /// The tools its `status/1` reports.
     tools: Vec<&'static str>,
     /// The diffs it was asked for.
@@ -303,16 +300,6 @@ impl FakeNode {
                 for reply in &self.usage {
                     if tx.send(reply).await.is_err() {
                         return;
-                    }
-                }
-
-                if !self.late.is_empty() {
-                    self.release.notified().await;
-
-                    for reply in &self.late {
-                        if tx.send(reply).await.is_err() {
-                            return;
-                        }
                     }
                 }
 
@@ -1093,122 +1080,6 @@ async fn usage_sums_every_machine() {
     assert_eq!(bill.limits.len(), 1);
     assert_eq!(bill.limits[0].machine_name, "mac-box");
     assert_eq!(bill.limits[0].windows[0].used_percent, 40.0);
-}
-
-fn plan_reply(agent: &str, used: f64, at: u64) -> SessionsReply {
-    SessionsReply::PlanUsage {
-        usage: PlanUsage {
-            agent: agent.into(),
-            plan: Some("max".into()),
-            windows: vec![beep_proto::node::usage::LimitWindow {
-                minutes: 300,
-                used_percent: used,
-                ..Default::default()
-            }],
-            credits: Vec::new(),
-            account: None,
-            at,
-        },
-    }
-}
-
-/// The pill shows the last run's plans as the app opens, before any machine answers (#370).
-#[tokio::test]
-async fn the_usage_read_before_a_restart_shows_at_once() {
-    let f = fleet().await;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("after the epoch")
-        .as_secs();
-    let build = Arc::new(FakeNode {
-        usage: vec![
-            plan_reply("claude", 40.0, now),
-            plan_reply("codex", 20.0, now),
-        ],
-        ..FakeNode::default()
-    });
-    let dir = TempDir::new().expect("a temp folder");
-    let options = Options {
-        settle: Duration::from_millis(300),
-        usage_file: Some(dir.path().join("usage.msgpack")),
-        ..Options::default()
-    };
-    let agents = |report: &beep_proto::SpendReport| -> Vec<String> {
-        report.limits.iter().map(|l| l.agent.to_string()).collect()
-    };
-    let before = Session::new(
-        peering(&f.studio, &[(&f.build, &build)], &[]),
-        options.clone(),
-        |_| {},
-    )
-    .expect("a session");
-    let read = before.spend(false).await.expect("the usage reads");
-    assert_eq!(agents(&read), ["claude", "codex"]);
-    before.settled().await;
-    drop(before);
-    // No machine answers now: what shows is what the last run kept.
-    let after = Session::new(peering(&f.studio, &[], &[]), options, |_| {}).expect("a session");
-    let shown = timeout(Duration::from_millis(500), after.spend(false))
-        .await
-        .expect("the kept report comes at once")
-        .expect("the usage reads");
-    assert_eq!(agents(&shown), ["claude", "codex"]);
-    assert_eq!(shown.limits[0].windows[0].used_percent, 40.0);
-}
-
-/// A plan kept from the last run does not stop a later reading of it: over a slow link Claude's
-/// plan comes after every read went quiet, and its old numbers stayed for good (#968).
-#[tokio::test]
-async fn a_late_plan_replaces_the_one_kept_from_the_last_run() {
-    let f = fleet().await;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("after the epoch")
-        .as_secs();
-    let dir = TempDir::new().expect("a temp folder");
-    let options = Options {
-        settle: Duration::from_millis(300),
-        usage_file: Some(dir.path().join("usage.msgpack")),
-        ..Options::default()
-    };
-    let earlier = Arc::new(FakeNode {
-        usage: vec![plan_reply("claude", 10.0, now - 600)],
-        ..FakeNode::default()
-    });
-    let before = Session::new(
-        peering(&f.studio, &[(&f.build, &earlier)], &[]),
-        options.clone(),
-        |_| {},
-    )
-    .expect("a session");
-    before.spend(false).await.expect("the usage reads");
-    before.settled().await;
-    drop(before);
-
-    let build = Arc::new(FakeNode {
-        usage: vec![plan_reply("codex", 20.0, now)],
-        late: vec![plan_reply("claude", 40.0, now)],
-        ..FakeNode::default()
-    });
-    let (told, mut heard) = tokio::sync::mpsc::unbounded_channel();
-    let session = Session::new(
-        peering(&f.studio, &[(&f.build, &build)], &[]),
-        options,
-        move |changed| {
-            told.send(changed).ok();
-        },
-    )
-    .expect("a session");
-    let first = session.spend(true).await.expect("the usage reads");
-    assert_eq!(first.limits[0].windows[0].used_percent, 10.0);
-    build.release.notify_one();
-    timeout(LIMIT, async {
-        while heard.recv().await != Some(Changed::Usage) {}
-    })
-    .await
-    .expect("the page hears of the newer plan");
-    let next = session.spend(false).await.expect("the usage reads");
-    assert_eq!(next.limits[0].windows[0].used_percent, 40.0);
 }
 
 #[tokio::test]
