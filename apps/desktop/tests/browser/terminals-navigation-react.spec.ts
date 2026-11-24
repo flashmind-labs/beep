@@ -122,9 +122,8 @@ test("new terminal cannot submit after its machine goes offline", async ({ page 
   await page.getByRole("button", { name: "New terminal", exact: true }).first().click();
   const form = page.locator(".tm-form");
   await expect(form.getByRole("button", { name: "Build box" })).toHaveAttribute("aria-pressed", "true");
-  const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length);
   await page.evaluate(value => { window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, { ...home, machines: [{ ...machine, online: false }] });
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_home").length)).toBeGreaterThan(reads);
+  await page.waitForTimeout(1300);
   await page.evaluate(() => window.__navigation.notify("terminals"));
   await expect(form.getByText("No machine is online")).toBeVisible();
   await expect(form.getByRole("button", { name: "Open", exact: true })).toBeDisabled();

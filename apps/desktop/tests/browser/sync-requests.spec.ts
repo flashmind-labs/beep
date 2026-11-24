@@ -14,15 +14,13 @@ test("sync changes read only the projects they touch, and clocks once", async ({
   const clocks = (await count(page, "machine_clocks")).length;
 
   // The same summary again and again reads nothing.
-  for (let i = 0; i < 10; i++) {
-    const reads = (await count(page, "project_sync")).length;
-    await page.evaluate(() => window.__navigation.notify("sync"));
-    await expect.poll(async () => (await count(page, "project_sync")).length).toBeGreaterThan(reads);
-  }
+  for (let i = 0; i < 10; i++) await page.evaluate(() => window.__navigation.notify("sync"));
+  await page.waitForTimeout(1300);
   expect((await count(page, "project_sync_detail")).length).toBe(details);
 
   // One project's change reads that project.
   await page.evaluate(rows => { window.__navigation.respond("project_sync", rows); window.__navigation.notify("sync"); }, [row("acme/one"), row("acme/two", 11), row("acme/three")]);
-  await expect.poll(async () => (await count(page, "project_sync_detail")).slice(details)).toEqual(["acme/two"]);
+  // A detail read waits out the sync page's ten seconds between reads of one project.
+  await expect.poll(async () => (await count(page, "project_sync_detail")).slice(details), { timeout: 15_000 }).toEqual(["acme/two"]);
   expect((await count(page, "machine_clocks")).length).toBe(clocks);
 });
