@@ -2,7 +2,7 @@ import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { S } from "../src/bar/core.ts";
-import { AG, type AgentPage } from "../src/agents/agents.ts";
+import { AG, type AgentModes, type AgentPage, type AgentTask } from "../src/agents/agents.ts";
 import { drawAgentBody } from "../src/agents/logview.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { answerAgentQuestion, answerFirst, questionKey, disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
@@ -10,6 +10,7 @@ import { pollAgent } from "../src/agents/session.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { askUpload, MN } from "../src/agents/workdrop.ts";
 import { drawTasks } from "../src/agents/tasks.tsx";
+import { transcriptKey, transcripts } from "../src/agents/transcript-cache-state.ts";
 import { drawAgentAttached } from "../src/agents/images.tsx";
 import { createElement } from "react";
 import { FieldControl, showAgentControl } from "../src/agents/composer-ui.tsx";
@@ -44,6 +45,9 @@ function setup() {
 }
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
+
+const setTasks = (tasks: AgentTask[]) => transcripts.setTasks(transcriptKey(AG.open!), tasks);
+const setModes = (modes: AgentModes | null) => transcripts.setModes(transcriptKey(AG.open!), modes);
 
 test("agent prompt keeps context before the user and retains its element", t => {
   const { page } = setup();
@@ -152,21 +156,21 @@ test("attachment updates preserve the file-count control and upload choices", as
 
 test("background commands show as one line that keeps its focus as the count changes", t => {
   setup();
-  t.after(() => { disposeQueue(); AG.tasks = []; });
+  t.after(() => { disposeQueue(); setTasks([]); });
   const task = { id: "first", name: "Build", description: "Build the app", state: "running", can_stop: true, output_file: null, summary: null, entry: null };
-  AG.tasks = [task]; drawTasks();
+  setTasks([task]); drawTasks();
   const line = bar.querySelector<HTMLButtonElement>(".ag-tasks"); assert.ok(line); line.focus();
   assert.equal(line.textContent, "1 command running");
   assert.equal(bar.querySelector("[data-agtask]"), null, "rows with Stop live in the Running tab");
-  AG.tasks = [{ ...task }, { ...task, id: "second", name: "Test" }]; drawTasks();
+  setTasks([{ ...task }, { ...task, id: "second", name: "Test" }]); drawTasks();
   assert.equal(bar.querySelector(".ag-tasks"), line);
   assert.equal(line.textContent, "2 commands running");
   assert.equal(document.activeElement, line);
-  AG.tasks = [{ ...task, state: "completed" }, { ...task, id: "second", name: "Test" }]; drawTasks();
+  setTasks([{ ...task, state: "completed" }, { ...task, id: "second", name: "Test" }]); drawTasks();
   assert.equal(line.textContent, "1 command running");
-  AG.tasks = []; drawTasks();
+  setTasks([]); drawTasks();
   assert.equal(bar.querySelector(".ag-tasks"), null);
-  AG.tasks = [{ ...task, id: "third", name: "Lint" }]; drawTasks();
+  setTasks([{ ...task, id: "third", name: "Lint" }]); drawTasks();
   assert.equal(bar.querySelector(".ag-tasks")?.textContent, "1 command running");
 });
 
@@ -363,9 +367,9 @@ test("mode and plan controls share the queue owner without losing focus", async 
   field.insertAdjacentHTML("beforeend", '<span id="agmode"></span>');
   field.insertAdjacentHTML("beforebegin", '<div id="agplan"></div>');
   page.session.question = { id: 7, text: "Approve?", detail: null, options: [{ id: "yes", name: "Approve", allow: true }, { id: "no", name: "Reject", allow: false }] };
-  AG.modes = { current: "plan", modes: [{ id: "plan", name: "Plan" }, { id: "edit", name: "Edit" }], plan: "<p>Plan text</p>" };
+  setModes({ current: "plan", modes: [{ id: "plan", name: "Plan" }, { id: "edit", name: "Edit" }], plan: "<p>Plan text</p>" });
   const { drawModes } = await import("../src/agents/modepill.tsx");
-  t.after(() => { disposeQueue(); AG.modes = null; });
+  t.after(() => { disposeQueue(); setModes(null); });
   drawModes();
   const mode = bar.querySelector<HTMLButtonElement>("#agmodeb"), approve = bar.querySelector<HTMLButtonElement>('[data-agopt="0"]');
   assert.ok(mode && approve); approve.focus();

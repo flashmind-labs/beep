@@ -32,6 +32,7 @@ import { openEditorKey } from "./session-head.tsx";
 import { sessionMenu } from "./sessionmenu.ts";
 import type { AgentQuestion } from "./running-state.ts";
 import { AGENT_ACTIVE, TAKEOVER } from "./sessionmenu-state.ts";
+import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { toggleCommands, toggleLastCommand, toggleThoughts } from "./logkeys.ts";
 import { jumpToStart, logJumpKey } from "./older.ts";
 import { jumpToLatest } from "./logview.tsx";
@@ -337,13 +338,13 @@ interface AgentState {
   stopping: { id: string; turns: number } | null;
   /// Whether the model picker by the field is open.
   modelOpen: boolean;
-  /// The open session's modes, when the server says.
-  modes: AgentModes | null;
-  /// The open session's background commands, when the server says.
-  tasks: AgentTask[];
   /// The open conversation's history read and why it stopped early.
   older: { stop: OlderStop; reading: Promise<void> | null };
 }
+
+/// The modes and tasks of the open session, held by `transcripts`.
+export const openModes = () => AG.open ? transcripts.modes(transcriptKey(AG.open)) : null;
+export const openTasks = () => AG.open ? transcripts.tasks(transcriptKey(AG.open)) : [];
 
 export const AG: AgentState = {
   readError: "", link: LINKED,
@@ -352,7 +353,7 @@ export const AG: AgentState = {
   open: null, draft: null, page: null, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined,
-  opened: new Set(), steps: new Map(), all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false, modes: null, tasks: [],
+  opened: new Set(), steps: new Map(), all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false,
   older: { stop: "", reading: null },
 };
 /// What a coding agent takes with a message, as the server checks it.

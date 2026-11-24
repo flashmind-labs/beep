@@ -7,7 +7,7 @@ import { sentText } from "./agentlog.ts";
 import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
-import { transcriptKey } from "./transcript-cache-state.ts";
+import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.tsx";
 import { fileLinkMenu } from "./filelinks.ts";
 import { agentKey, conversationHistory, conversationKey, retitle, sessionKey, type Retitled } from "./conversation-state.ts";
@@ -18,7 +18,7 @@ import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/med
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, activateMentions, currentMentions, rememberMentionImages } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, AG, drawAgents, sessionUsage, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
+import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, drawAgents, sessionUsage, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
 import { agentAttachError, drawAgentAttached } from "./images.tsx";
 import { removeLastAttachment } from "./attachments-view.tsx";
 import { keepNativeSession, ensureSessions, loadSessions, sessions, sessionsRead } from "./sessions.ts";
@@ -44,7 +44,7 @@ import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
 import { type AgentStarted, isStarting } from "./starting-state.ts";
-import { feed, flushDraw, keptTranscript, offScreen, transcripts } from "./session-follow.ts";
+import { feed, flushDraw, keptTranscript } from "./session-follow.ts";
 import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./session-head.tsx";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
@@ -139,17 +139,9 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     attError: "", opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey(open)) ?? [],
-    outbox: [], stopping: null, modelOpen: false, modes: null,
+    outbox: [], stopping: null, modelOpen: false,
     older: { stop: "", reading: null },
   });
-  const kept = offScreen.get(transcriptKey(AG.open!));
-
-  if (kept) {
-    offScreen.delete(transcriptKey(AG.open!));
-    AG.modes = kept.modes;
-    AG.tasks = kept.tasks;
-  }
-
   firstRead = { open, at: performance.now() };
   drawAgentFrame(inPlace, followLatest(held && log && held.earlier <= log.page.earlier ? log.body : null));
   watchRead(open);
@@ -311,8 +303,8 @@ export async function pollAgent(readNow = false) {
 
   const still = () => isOpen(o) && feed.version(o) === version;
   // The page shows as soon as it comes; modes and tasks join it as each arrives.
-  void tracked("modes", readModes(o)).then(modes => { if (still()) { AG.modes = modes; drawRest(); } });
-  void tracked("tasks", readTasks(o)).then(tasks => { if (still()) { AG.tasks = tasks; drawRest(); } });
+  void tracked("modes", readModes(o)).then(modes => { if (still()) { transcripts.setModes(transcriptKey(o), modes); drawRest(); } });
+  void tracked("tasks", readTasks(o)).then(tasks => { if (still()) { transcripts.setTasks(transcriptKey(o), tasks); drawRest(); } });
 
   try {
     const page = await tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST, window.innerHeight) }, AGENT_READ_WAIT_MS));
@@ -484,7 +476,7 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
 /// Draws the log again when the page `moved` or what shows with it changed; nothing the log
 /// shows changed: no draw.
 function drawRest(moved = false, placed = false) {
-  const rest = JSON.stringify([AG.modes, AG.tasks, AG.note, AG.answering, stoppingNow(), AG.queue.map(q => q.state), placed]);
+  const rest = JSON.stringify([openModes(), openTasks(), AG.note, AG.answering, stoppingNow(), AG.queue.map(q => q.state), placed]);
   if (!moved && rest === AG.rest) return;
   // Only the page moved: the turns it left as they were keep their rows.
   const news = rest === AG.rest;

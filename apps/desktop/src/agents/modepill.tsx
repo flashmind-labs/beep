@@ -2,7 +2,7 @@
 // for approval above the field.
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentMode, AgentPlan } from "./mode-view.tsx";
-import { type AgentModes, type OpenAgent, AG, AGENT_READ_WAIT_MS, agentKind, openOf, where } from "./agents.ts";
+import { type AgentModes, type OpenAgent, AG, openModes, AGENT_READ_WAIT_MS, agentKind, openOf, where } from "./agents.ts";
 import { questionKey, steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 import { isStarting } from "./starting-state.ts";
@@ -23,20 +23,20 @@ export async function readModes(o: OpenAgent) {
     return modes;
   } catch (e) {
     console.warn("agent modes not read", e);
-    return AG.modes;
+    return openModes();
   }
 }
 
 /// Whether the open session offers modes to switch between.
 export function hasModes() {
   const s = AG.page?.session;
-  return !!s && !s.external && s.status !== "ended" && (AG.modes?.modes.length ?? 0) > 1;
+  return !!s && !s.external && s.status !== "ended" && (openModes()?.modes.length ?? 0) > 1;
 }
 
 /// Switches the open session to the mode after the one it is in; false when
 /// it offers none.
 export function cycleMode() {
-  const m = AG.modes;
+  const m = openModes();
   if (!m || !hasModes()) return false;
   if (switching) return true;
   const next = m.modes[(m.modes.findIndex(x => x.id === m.current) + 1) % m.modes.length];
@@ -52,7 +52,7 @@ export function cycleMode() {
 const FULL_MODES = new Set(["bypassPermissions", "agent-full-access"]);
 
 export function drawModes() {
-  const m = AG.modes, s = AG.page?.session, q = s?.question;
+  const m = openModes(), s = AG.page?.session, q = s?.question;
   const name = m?.modes.find(x => x.id === m.current)?.name ?? m?.current ?? "";
   showAgentControl("mode", hasModes() && !FULL_MODES.has(m?.current ?? "") ? <AgentMode name={name} plan={m?.current === "plan"} /> : null);
   showAgentControl("plan", s && q && m?.plan != null ? <AgentPlan harness={agentKind(s.agent).name} plan={m.plan} question={q} approvalKey={questionKey(q, openOf(s))} answering={AG.answering} /> : null);

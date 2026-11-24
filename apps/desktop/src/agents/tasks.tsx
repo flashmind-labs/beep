@@ -3,7 +3,7 @@
 // one shows with its Stop button.
 import { Spinner } from "../ui/kit.tsx";
 import { showAgentControl } from "./composer-ui.tsx";
-import { type AgentTask, type OpenAgent, AG, AGENT_READ_WAIT_MS, where } from "./agents.ts";
+import { type AgentTask, type OpenAgent, AG, openTasks, AGENT_READ_WAIT_MS, where } from "./agents.ts";
 import { steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 import { plural } from "../ui/format.ts";
@@ -26,7 +26,7 @@ export async function readTasks(o: OpenAgent) {
     return await invoke<AgentTask[]>("agent_tasks", where(o), AGENT_READ_WAIT_MS);
   } catch (e) {
     console.warn("agent tasks not read", e);
-    return AG.tasks;
+    return openTasks();
   }
 }
 
@@ -35,10 +35,10 @@ export const runs = (t: AgentTask) => t.state === "running" || t.state === "paus
 
 /// Whether the log entry `at` is a call whose command still runs in the
 /// background, though the call itself is done.
-export const backgroundedEntry = (at: number) => AG.tasks.some(t => t.entry === at && runs(t));
+export const backgroundedEntry = (at: number) => openTasks().some(t => t.entry === at && runs(t));
 
 export function drawTasks() {
-  const live = AG.tasks.filter(runs);
+  const live = openTasks().filter(runs);
   for (const id of stopping) if (!live.some(t => t.id === id)) stopping.delete(id);
 
   const session = sessionKey(AG.page?.session), signature = JSON.stringify([session, live, [...stopping]]);

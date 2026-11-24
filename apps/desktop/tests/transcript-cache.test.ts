@@ -104,3 +104,17 @@ test("the budget follows deltas that replace, append and drop entries", () => {
   assert.equal(cache.get("two"), undefined);
   assert.deepEqual(cache.get("one")?.page.entries.map(e => e.text[0]), ["c", "e", "f"]);
 });
+
+test("modes and tasks come with an update, survive a gap, and go with the session", () => {
+  const cache = new TranscriptCache<Run>();
+  const task = { id: "t", name: "Build", description: "", state: "running", can_stop: true, output_file: null, summary: null, entry: null };
+  cache.receive("one", { ...update("snapshot", 0, ["a"]), modes: null, tasks: [task] });
+  assert.deepEqual(cache.tasks("one"), [task]);
+  assert.equal(cache.receive("one", update("delta", 9, ["gap"], 1)), null);
+  assert.deepEqual(cache.tasks("one"), [task]);
+  cache.setTasks("one", []);
+  assert.deepEqual(cache.tasks("one"), []);
+  cache.setTasks("one", [task]);
+  cache.delete("one");
+  assert.deepEqual(cache.tasks("one"), []);
+});

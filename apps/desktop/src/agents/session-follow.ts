@@ -1,9 +1,9 @@
 // The sessions followed by stream: the open one and, off screen, those that
 // run or ask, and the pushed updates held until the next frame.
-import { AgentFeed, BACKGROUND_FOLLOWS, type Activity } from "./agentfeed-state.ts";
-import { TranscriptCache, transcriptKey, type TranscriptCursor, type TranscriptUpdate } from "./transcript-cache-state.ts";
+import { AgentFeed, type Activity } from "./agentfeed-state.ts";
+import { transcripts, transcriptKey, type TranscriptCursor, type TranscriptUpdate } from "./transcript-cache-state.ts";
 import { S, changeListeners } from "../bar/core.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, AG, AGENT_ACTIVE, where } from "./agents.ts";
+import { type AgentRow, type AgentPage, type OpenAgent, type AgentModes, type AgentTask, AG, AGENT_ACTIVE, where } from "./agents.ts";
 import { drawAgentBody } from "./logview.tsx";
 import { disposeQueue } from "./messages.ts";
 import { Channel, invoke } from "../ui/tauri.ts";
@@ -13,17 +13,10 @@ import { applyAgentPage, heldPage, isOpen, pollAgent } from "./session.tsx";
 import { paneShown } from "../ui/active.ts";
 import { publishTurn } from "../plugins/plugins-state.ts";
 
-// Room for the open session, those followed off screen and a few recent.
-export const transcripts = new TranscriptCache<AgentPage>(BACKGROUND_FOLLOWS + 4);
-
 interface FeedUpdate extends TranscriptUpdate<AgentPage> {
-  modes: typeof AG.modes;
-  tasks: typeof AG.tasks;
+  modes: AgentModes | null;
+  tasks: AgentTask[];
 }
-
-/// The newest modes and tasks of each followed session, by `transcriptKey`, for when it opens
-/// again and for its menu.
-export const offScreen = new Map<string, Pick<FeedUpdate, "modes" | "tasks">>();
 
 /// What a session is doing, for how long it stays followed off screen.
 const activityOf = (s: AgentRow): Activity =>
@@ -43,7 +36,8 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     return invoke<void>("agent_follow", { ...where(o), id, last: viewRead(window.innerHeight), after: transcripts.get(transcriptKey(o))?.cursor ?? null, onEvent });
   },
   close: id => { void invoke("agent_unfollow", { id }).catch(e => console.warn("session detach:", e)); },
-  unfollowed: o => { offScreen.delete(transcriptKey(o)); },
+  // What it said of its modes and tasks goes stale unless it is the open session, read again after a gap.
+  unfollowed: o => { if (!AG.open || transcriptKey(AG.open) !== transcriptKey(o)) transcripts.clearExtras(transcriptKey(o)); },
   receive: (o, update) => {
     const key = transcriptKey(o);
     const page = transcripts.receive(key, update);
@@ -63,13 +57,9 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
 
     feed.activity(o, activityOf(page.session));
     publishTurn(o.machine_id, page);
-    offScreen.set(key, { modes: update.modes, tasks: update.tasks });
     const fresh = update.kind === "delta" ? update.page : page;
     const replace = update.kind === "snapshot" && !update.resumed;
     if (!open) return;
-
-    AG.modes = update.modes;
-    AG.tasks = update.tasks;
 
     // Left for another view: its model takes what was held, then the
     // update, with no draw, so updates join in the order they came.
@@ -174,7 +164,6 @@ export function stopAgentFollow() {
 export function forgetAgentFollows() {
   clearTimeout(AG.timer);
   feed.clear();
-  offScreen.clear();
 }
 
 changeListeners.push(() => {

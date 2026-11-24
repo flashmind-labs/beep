@@ -1,5 +1,6 @@
 import { conversationKey } from "./conversation-state.ts";
-import type { OpenAgent } from "./agents.ts";
+import type { AgentModes, AgentPage, AgentTask, OpenAgent } from "./agents.ts";
+import { BACKGROUND_FOLLOWS } from "./agentfeed-state.ts";
 import { joinRuns, type Run } from "./older-state.ts";
 
 export interface TranscriptCursor {
@@ -29,6 +30,9 @@ export class TranscriptCache<T extends Run> {
   /// Each held page's size in characters, by key.
   private readonly sizes = new Map<string, number>();
   private readonly listeners = new Set<() => void>();
+  /// The newest modes and tasks of each session, by key: kept beside its page, and like it
+  /// dropped when the session is evicted or forgotten, not when a gap drops the page.
+  private readonly extras = new Map<string, { modes: AgentModes | null; tasks: AgentTask[] }>();
 
   constructor(limit = 8, characters = 8 * 1024 * 1024) {
     this.limit = limit;
@@ -64,13 +68,37 @@ export class TranscriptCache<T extends Run> {
     this.changed();
   }
 
-  delete(key: string) {
+  /// Drops the page held for `key`, as after a gap; its modes and tasks stay for the next update.
+  private drop(key: string) {
     this.sessions.delete(key);
     this.sizes.delete(key);
     this.changed();
   }
 
-  receive(key: string, update: TranscriptUpdate<T>): T | null {
+  delete(key: string) {
+    this.extras.delete(key);
+    this.drop(key);
+  }
+
+  modes(key: string) { return this.extras.get(key)?.modes ?? null; }
+  tasks(key: string) { return this.extras.get(key)?.tasks ?? []; }
+
+  setModes(key: string, modes: AgentModes | null) {
+    this.extras.set(key, { modes, tasks: this.tasks(key) });
+    this.changed();
+  }
+
+  setTasks(key: string, tasks: AgentTask[]) {
+    this.extras.set(key, { modes: this.modes(key), tasks });
+    this.changed();
+  }
+
+  /// Forgets the modes and tasks of `key`, which is no longer followed and would go stale.
+  clearExtras(key: string) {
+    if (this.extras.delete(key)) this.changed();
+  }
+
+  receive(key: string, update: TranscriptUpdate<T> & { modes?: AgentModes | null; tasks?: AgentTask[] }): T | null {
     const held = this.sessions.get(key);
     const { cursor } = update;
     const append = update.kind === "delta" || update.resumed;
@@ -82,14 +110,14 @@ export class TranscriptCache<T extends Run> {
       || (append && (!held || update.page.earlier < held.page.earlier
         || update.page.earlier > held.cursor.next
         || (update.resumed && update.page.earlier !== held.cursor.next)))) {
-      this.delete(key);
+      this.drop(key);
       return null;
     }
 
     let page = append ? joinRuns(held!.page, update.page) : update.page;
 
     if (cursor.start < page.earlier || cursor.start > cursor.next) {
-      this.delete(key);
+      this.drop(key);
       return null;
     }
 
@@ -98,6 +126,7 @@ export class TranscriptCache<T extends Run> {
     this.sessions.delete(key);
     this.sessions.set(key, { page, cursor });
     this.sizes.set(key, size);
+    if (update.modes !== undefined && update.tasks) this.extras.set(key, { modes: update.modes, tasks: update.tasks });
 
     while (this.sessions.size > this.limit || this.size() > this.characters) {
       const oldest = this.sessions.keys().next().value;
@@ -154,3 +183,6 @@ export class TranscriptCache<T extends Run> {
 
 export const transcriptKey = (session: OpenAgent) =>
   conversationKey({ machine_id: session.machine_id, agent: session.agent, id: session.session });
+
+// Room for the open session, those followed off screen and a few recent.
+export const transcripts = new TranscriptCache<AgentPage>(BACKGROUND_FOLLOWS + 4);

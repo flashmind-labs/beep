@@ -25,7 +25,7 @@ import { connectingNote } from "./reconnect-state.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.tsx";
 import { answerHtml, blockedReply } from "./turnrows.ts";
 import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
-import { type AgentEntry, type AgentPage, AG, openOf, agentPics, agentThumbs, AGENT_ACTIVE, folderName } from "./agents.ts";
+import { type AgentEntry, type AgentPage, AG, openModes, openTasks, openOf, agentPics, agentThumbs, AGENT_ACTIVE, folderName } from "./agents.ts";
 import { stoppingNow } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";
 import { promptParts } from "./promptparts-state.ts";
@@ -72,7 +72,7 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   const scroll = logScroll(b.stuck !== false, redraw);
   const anchor = scroll === "keep" ? scrollAnchor(b, keep) : null;
   // A plan waiting for approval shows above the field instead.
-  const question = q && AG.modes?.plan == null ? q : null;
+  const question = q && openModes()?.plan == null ? q : null;
   const why = AG.why ? `Auto picked ${s.machine_name}. ${AG.why}` : null;
   const olderText = olderNote(p, AG.older.stop, AG.older.reading !== null);
   const parent = parentSession(p.session);
@@ -405,7 +405,7 @@ function backgroundWork(p: AgentPage): BackgroundWork[] {
     return x.working && !x.sub.child ? [{ target: { kind: "subagent" as const, at }, title: x.title, start: x.start }] : [];
   });
 
-  for (const task of AG.tasks) {
+  for (const task of openTasks()) {
     const key = `${AG.open?.session}\n${task.id}`;
     if (!runs(task)) { taskStarts.delete(key); continue; }
     if (task.entry != null && subs.includes(task.entry)) continue;

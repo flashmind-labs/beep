@@ -16,9 +16,9 @@ import { sameSession } from "./running-state.ts";
 import { workingSubagents } from "./logview.tsx";
 import { runs } from "./tasks.tsx";
 import { draftNewThread, resumeEndedSession, stopAllWork } from "./messages.ts";
-import { transcriptKey } from "./transcript-cache-state.ts";
+import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
-import { forgetTranscript, offScreen, transcripts } from "./session-follow.ts";
+import { forgetTranscript } from "./session-follow.ts";
 import { forgetLog } from "./session.tsx";
 
 /// Stops the turn of `s`, its subagents, background commands and the agents it started; asks
@@ -30,7 +30,7 @@ function stopAll(s: AgentRow) {
   const work: SideWork = {
     // The node's count reaches sessions that are not open; the open log may show one sooner.
     subagents: Math.max((open ? AG.page : transcripts.peek(transcriptKey(o))?.page)?.session.subagents ?? s.subagents ?? 0, open ? workingSubagents() : 0),
-    tasks: (open ? AG.tasks : offScreen.get(transcriptKey(o))?.tasks ?? []).filter(runs).length,
+    tasks: transcripts.tasks(transcriptKey(o)).filter(runs).length,
     started: sessions.filter(row => { const parent = parentSession(row); return AGENT_ACTIVE.has(row.status) && !!parent && parent.machine_id === s.machine_id && parent.id === s.id; }).length,
   };
   if (!stopAllAsks(work)) return void run().catch(err => console.warn("stop all:", err));

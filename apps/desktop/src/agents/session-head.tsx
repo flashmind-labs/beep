@@ -3,7 +3,7 @@
 import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
 import { PANE, windowHooks } from "../bar/core.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
-import { type AgentRow, AG, sessionUsage, agentKind, folderName } from "./agents.ts";
+import { type AgentRow, AG, openModes, sessionUsage, agentKind, folderName } from "./agents.ts";
 import { hasModes } from "./modepill.tsx";
 import { editorsFor, openInEditor } from "../project/editors.ts";
 import { ProjectEditors } from "../project/header-view.tsx";
@@ -25,7 +25,7 @@ export function agentHints() {
   };
   if (AG.draft) return slim([["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
   const mode: readonly Hint[] = hasModes() ? [["⇧Tab", "mode"]] : [];
-  if (q && AG.modes?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
+  if (q && openModes()?.plan != null) return slim([[`⌘${ICON.ret}`, "approve"], ["⌘D", "keep planning"], ...mode, ["esc", "back"]]);
   if (q) return slim([[`⌘${ICON.ret}`, "allow"], ["⌘D", "deny"], ["esc", "back"]]);
   if (s && isNativeSession(s.id)) return slim([["esc", "parent session"]]);
   if (s && (followsOnly(s) || isStarting(s.id))) return slim([["esc", "back"]]);
