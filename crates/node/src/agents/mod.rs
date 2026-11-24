@@ -234,7 +234,7 @@ host! {
         sighted: Mutex<Option<(Instant, Arc<Vec<PathBuf>>)>>,
         /// The read of every store now running, shared by whoever asks while
         /// it does. Held only to join or start one, never across a read.
-        sighting: Mutex<std::sync::Weak<tokio::sync::OnceCell<Result<Sighted, Arc<anyhow::Error>>>>>,
+        sighting: Mutex<std::sync::Weak<ReadInFlight>>,
         /// The checkouts found on disk under home, once `warm` read them.
         /// Written after a walk, by the one walk running.
         on_disk: Mutex<Option<Arc<Vec<found::Checkout>>>>,
@@ -253,6 +253,9 @@ host! {
         /// What sessions were, ended ones too, from the restart note.
         saved: Mutex<Vec<restart::SavedSession>>,
     }
+
+    /// The outcome of one read of every store, set once by the caller that runs it.
+    type ReadInFlight = tokio::sync::OnceCell<Result<Sighted, Arc<anyhow::Error>>>;
 
     /// What the agents' logs hold: the sessions, and the folders they ran in.
     #[derive(Clone)]
