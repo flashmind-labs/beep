@@ -90,7 +90,7 @@ fn sessions(agents: &Agents) -> (HashSet<String>, HashSet<PathBuf>) {
             if live.status() != Status::Ended {
                 running.insert(owner(&live.info.agent, &live.info.id));
             }
-            folders.insert(PathBuf::from(session.folder(&live.info.cwd)));
+            folders.insert(PathBuf::from(&live.info.cwd));
         });
     }
 

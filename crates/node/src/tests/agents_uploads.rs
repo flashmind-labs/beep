@@ -238,6 +238,7 @@ done
         .await
         .unwrap();
     session.named_info().await.unwrap();
+    session.close().await;
     session.moved_to("/srv/refiled");
 
     let (_, folders) = sessions(&agents);

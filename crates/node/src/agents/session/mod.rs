@@ -184,6 +184,9 @@ impl From<&Order> for &'static str {
     }
 }
 
+/// Where a session's task leaves its state sender when it ends.
+pub(super) type Kept = Arc<Mutex<Option<watch::Sender<Live>>>>;
+
 pub(super) struct Session {
     /// Private handle for the process and its MCP connection, never a public session id.
     pub(super) id: SessionId,
@@ -192,7 +195,11 @@ pub(super) struct Session {
     pub(super) live: watch::Receiver<Live>,
     /// Where the retained live replay begins in Claude's saved transcript.
     pub(super) history: Option<crate::AsyncMutex<Option<super::running::History>>>,
-    moved_cwd: Mutex<Option<String>>,
+    /// The session's state sender once its task ended, so a refile can
+    /// write the new folder into the one copy. Held from the moment the
+    /// last state is published, never before, so a task that dies without
+    /// that still drops it and its watchers see the session gone.
+    kept: Kept,
     /// A temporary reviewer (`agents::reviews`): never listed, never kept
     /// over a restart, offered `submit_review`.
     pub(super) reviewer: bool,
@@ -544,9 +551,13 @@ impl Session {
             AbortOnDropHandle::new(tokio::spawn(follow_parent(parent, orders.clone())))
         });
         let actor_processes = processes.clone();
+        let kept = Kept::default();
+        let handed = kept.clone();
         let task = tokio::spawn(async move {
             let _pi_files = pi_files;
-            actor.run(agent, orders_rx, actor_processes, opening).await;
+            actor
+                .run(agent, orders_rx, actor_processes, opening, handed)
+                .await;
         });
         Ok(Self {
             id,
@@ -554,7 +565,7 @@ impl Session {
             orders,
             live,
             history,
-            moved_cwd: Mutex::new(None),
+            kept,
             reviewer: false,
             assistant,
             account,
@@ -644,36 +655,25 @@ impl Session {
     }
 
     pub(super) fn info(&self) -> SessionInfo {
-        self.refiled(watched::read(&self.live, |live| live.info.clone()))
+        watched::read(&self.live, |live| live.info.clone())
     }
 
     /// `info`, read from the session's state already, as its list shows it.
     pub(super) fn listed(&self, info: SessionInfo) -> SessionInfo {
         SessionInfo {
             reviewer: self.reviewer,
-            ..self.refiled(info)
+            ..info
         }
     }
 
-    fn refiled(&self, mut info: SessionInfo) -> SessionInfo {
-        info.cwd = self.folder(&info.cwd);
-
-        info
-    }
-
-    /// The folder to use for the session: where its conversation was
-    /// refiled to, else `cwd` as its state has it.
-    pub(super) fn folder(&self, cwd: &str) -> String {
-        crate::lock(&self.moved_cwd)
-            .clone()
-            .unwrap_or_else(|| cwd.to_owned())
-    }
-
     /// Shows the folder its conversation was refiled in. Only a closed
-    /// session is refiled (`relocate_session`), whose task has ended and
-    /// can take no order, so the handle keeps this one.
+    /// session is refiled (`relocate_session`): its task handed its state
+    /// sender back as it ended, so the folder is written where every reader
+    /// looks. A session still running has nothing to write.
     pub(super) fn moved_to(&self, folder: &str) {
-        *crate::lock(&self.moved_cwd) = Some(folder.to_owned());
+        if let Some(live) = crate::lock(&self.kept).as_ref() {
+            live.send_modify(|live| live.info.cwd = folder.to_owned());
+        }
     }
 
     /// Waits for ACP to name the session. A failed startup has no session to publish.

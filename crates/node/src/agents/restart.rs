@@ -278,7 +278,7 @@ impl Agents {
                 info: SessionInfo {
                     id: info.id.clone(),
                     agent: info.agent.clone(),
-                    cwd: session.folder(&info.cwd),
+                    cwd: info.cwd.clone(),
                     title: info.title.clone(),
                     mode: info.mode.clone(),
                     parent: info.parent.clone(),
@@ -320,7 +320,7 @@ impl Agents {
             Some(OpenSession {
                 agent: session.agent.clone(),
                 session: live.agent_session.clone()?,
-                cwd: PathBuf::from(session.folder(&live.info.cwd)),
+                cwd: PathBuf::from(&live.info.cwd),
                 started_at: live.info.started_at,
                 last_activity: live.info.last_activity,
                 held: match keep {

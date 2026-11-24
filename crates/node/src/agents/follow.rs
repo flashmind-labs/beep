@@ -13,7 +13,7 @@ use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{
         Entry, ExternalSession, FOLLOW_READERS_FULL, FollowSession, SessionCursor, SessionSnapshot,
-        SessionSource, SessionUpdate,
+        SessionSource, SessionUpdate, Status,
     },
 };
 use beep_proto::watched;
@@ -348,6 +348,14 @@ async fn follow(
             let sending = Instant::now();
             send(tx, &update).await?;
             transcript_stage("send", sending.into_std());
+        }
+
+        // The session's sender outlives its task, so an ended session is
+        // told by its state, not by the sender dropping.
+        if let Some(live) = &live
+            && watched::read(live, |live| live.status() == Status::Ended)
+        {
+            return Ok(FollowEnd::LiveWatchClosed);
         }
 
         let follow_presence = live.is_none();

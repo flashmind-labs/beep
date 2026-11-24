@@ -436,6 +436,7 @@ impl Actor {
         mut orders: crate::actor::Receiver<Order>,
         processes: Arc<super::Processes>,
         opening: Opening,
+        kept: super::Kept,
     ) {
         let _cleanup = super::super::processes::Cleanup(processes.clone());
         let _watch = processes.watch(self.live.subscribe());
@@ -553,6 +554,9 @@ impl Actor {
             });
         }
 
+        // Locked across the last publish, so a refile that sees the session
+        // ended finds the sender.
+        let mut kept = crate::lock(&kept);
         self.live.send_modify(|live| {
             // A cost the agent reported after its last turn still counts.
             live.spent(TurnTokens::default());
@@ -570,6 +574,8 @@ impl Actor {
                 live.info.state.error = Some(reason);
             }
         });
+        *kept = Some(self.live);
+        drop(kept);
         crate::link::restart::changed();
     }
 
