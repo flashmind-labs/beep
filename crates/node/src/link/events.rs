@@ -8,7 +8,7 @@ use beep_proto::node::{
     events::{self, CallReply, Incoming, Operation, Reply, Request, Topic},
 };
 use beep_proto::watched;
-use futures::{FutureExt, StreamExt, stream};
+use futures::{FutureExt, StreamExt};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::PathBuf,
@@ -37,7 +37,7 @@ mod snapshots;
 pub(crate) mod sources;
 pub(super) mod subscriptions;
 use snapshots::Snapshots;
-use sources::Subscriptions;
+use sources::{Pass, Passes, Subscriptions};
 
 type FileBindings = BTreeMap<Topic, Vec<PathBuf>>;
 
@@ -67,6 +67,9 @@ pub(crate) async fn serve(
     let mut queries = Vec::new();
     let mut subscriptions = Subscriptions::new();
     let mut roots = BTreeMap::new();
+    let mut passes = Passes::new(&offers);
+    // A watch was answered before its watchers bound: read once more after.
+    let mut unbound = false;
     let mut calls = JoinSet::new();
     let mut pending = HashSet::new();
     let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
@@ -122,6 +125,9 @@ pub(crate) async fn serve(
                             topics = wanted;
                             queries = wanted_queries;
                             snapshots.replace(&offers, &topics, &queries, &roots);
+                            // The first snapshots do not wait for the watchers.
+                            passes.start(Pass::bind(&subscriptions));
+                            unbound = true;
                             send(&mut tx, Reply::Watching { id }).await?;
                             tracing::info!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch acknowledged");
                         }
@@ -196,11 +202,10 @@ pub(crate) async fn serve(
                 let reconcile = lagged || broad_files(&sources(&topics, &queries))
                     && changed.keys().any(|topic| matches!(topic.name(), "agents" | "projects" | "*"));
                 if reconcile {
-                    sources::reconcile(&offers, &subscriptions).await?;
-                    roots = sources::roots(&subscriptions);
+                    passes.start(Pass::all(&subscriptions));
                 }
                 // Publication can add a previously unknown exact plugin topic.
-                if reconcile || changed.keys().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
+                if changed.keys().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
                     snapshots.replace(&offers, &topics, &queries, &roots);
                 }
 
@@ -208,7 +213,9 @@ pub(crate) async fn serve(
                     snapshots.reset();
                 }
 
-                sources::retry_git(&offers, &subscriptions, changed.keys()).await?;
+                if let Some(pass) = Pass::git(&subscriptions, changed.keys()) {
+                    passes.start(pass);
+                }
 
                 for (topic, kind) in changed {
                     snapshots.changed(&topic, kind);
@@ -217,9 +224,7 @@ pub(crate) async fn serve(
             changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {
                 if changed.is_err() { return Ok(()); }
                 project_changes = watched::read_and_update(&mut membership, |mesh| mesh.as_ref().map(beep_mesh::Mesh::changes));
-                sources::reconcile(&offers, &subscriptions).await?;
-                roots = sources::roots(&subscriptions);
-                snapshots.replace(&offers, &topics, &queries, &roots);
+                passes.start(Pass::all(&subscriptions));
             },
             change = async { match &mut project_changes { Some(changes) => changes.recv().await, None => std::future::pending().await } }, if watches_files(&sources(&topics, &queries)) => {
                 let reconcile = match change {
@@ -229,9 +234,23 @@ pub(crate) async fn serve(
                 };
 
                 if reconcile {
-                    sources::reconcile(&offers, &subscriptions).await?;
-                    roots = sources::roots(&subscriptions);
-                    snapshots.replace(&offers, &topics, &queries, &roots);
+                    passes.start(Pass::all(&subscriptions));
+                }
+            },
+            result = passes.finished(), if !passes.is_empty() => {
+                // The roots are published now, and the watchers announce what changed.
+                result?;
+                roots = sources::roots(&subscriptions);
+                snapshots.replace(&offers, &topics, &queries, &roots);
+
+                // A change made between the first read and the binding is
+                // not announced by a watcher that was not there yet.
+                if unbound && passes.is_empty() {
+                    unbound = false;
+
+                    for topic in roots.keys() {
+                        snapshots.changed(topic, crate::events::ChangeKind::Any);
+                    }
                 }
             },
             _ = heartbeat.tick() => send(&mut tx, Reply::Pong { id: 0 }).await?,
@@ -291,12 +310,8 @@ fn broad_files(topics: &[Topic]) -> bool {
         .any(|topic| topic.name() == "*" || (topic.name() == "files" && topic.key().is_none()))
 }
 
-async fn watch(
-    offers: &Offers,
-    watcher: &mut Option<FileWatcher>,
-    roots: &Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
-    topics: &[Topic],
-) -> Result<()> {
+/// The roots `topics` name now, by topic.
+async fn resolve(offers: &Offers, topics: &[Topic]) -> Result<BTreeMap<Topic, PathBuf>> {
     let mut wanted = BTreeMap::new();
 
     if broad_files(topics) {
@@ -344,91 +359,7 @@ async fn watch(
         bail!(TOO_MANY_ROOTS);
     }
 
-    let same_roots = *crate::lock(roots) == wanted;
-    let held = watcher
-        .as_ref()
-        .map(|watcher| crate::lock(&watcher.bindings).clone())
-        .unwrap_or_default();
-
-    if same_roots && held.values().all(|dependencies| has_git(dependencies)) {
-        return Ok(());
-    }
-
-    if wanted.is_empty() {
-        *watcher = None;
-    } else {
-        // A root kept from the last pass keeps its Git paths without asking Git again.
-        // One without them asks again: it may have become a repository, or Git failed.
-        let bindings = stream::iter(wanted.clone())
-            .map(|(topic, root)| {
-                let kept = held
-                    .get(&topic)
-                    .filter(|dependencies| {
-                        dependencies.first() == Some(&root) && has_git(dependencies)
-                    })
-                    .cloned();
-                async move {
-                    if let Some(dependencies) = kept {
-                        return (topic, dependencies);
-                    }
-
-                    let mut dependencies = vec![root.clone()];
-
-                    match crate::agents::checkouts::watch_paths(&root).await {
-                        Ok(paths) => dependencies.extend(paths),
-                        Err(error) => {
-                            log::debug!("Git metadata notifications unavailable: {error:#}")
-                        }
-                    }
-                    (topic, dependencies)
-                }
-            })
-            .buffer_unordered(8)
-            .collect::<FileBindings>()
-            .await;
-
-        if same_roots && bindings == held {
-            return Ok(());
-        }
-
-        if watcher.is_none() {
-            let bindings = Arc::new(Mutex::new(BTreeMap::<Topic, Vec<PathBuf>>::new()));
-            let changed_roots = bindings.clone();
-            let hub = offers.agents.events.clone();
-            let paths = crate::events::paths::Paths::new(move |paths| {
-                let held = crate::lock(&changed_roots);
-
-                for (topic, dependencies) in held.iter() {
-                    // The root comes first; the rest are its Git metadata.
-                    let Some((root, git)) = dependencies.split_first() else {
-                        continue;
-                    };
-
-                    if git.iter().any(|dependency| paths.contains(dependency)) {
-                        hub.changed(topic.clone());
-                    } else if paths.contains(root) {
-                        hub.changed_work_tree(topic.clone());
-                    }
-                }
-            })?;
-            *watcher = Some(FileWatcher { paths, bindings });
-        }
-
-        if let Some(watcher) = watcher.as_ref() {
-            let paths = bindings.values().flatten().cloned().collect();
-            watcher.paths.replace(paths).await?;
-            *crate::lock(&watcher.bindings) = bindings;
-        }
-    }
-    // A root can appear or disappear while a broad subscription remains active.
-    // Reconcile it after installing the new key mapping, including any watch gap.
-    let previous = std::mem::replace(&mut *crate::lock(roots), wanted.clone());
-
-    for topic in previous.keys().chain(wanted.keys()).collect::<HashSet<_>>() {
-        offers.agents.events.changed(topic.clone());
-    }
-
-    Ok(())
+    Ok(wanted)
 }
 
 /// Whether a root's bindings include its Git metadata after the root itself.

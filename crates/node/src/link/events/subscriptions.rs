@@ -26,6 +26,9 @@ pub(crate) async fn serve(
     let mut queries = Vec::new();
     let mut subscriptions = Subscriptions::new();
     let mut roots = BTreeMap::new();
+    let mut passes = Passes::new(&offers);
+    // A watch was answered before its watchers bound: read once more after.
+    let mut unbound = false;
     let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
     send(&mut tx, Reply::Ready).await?;
@@ -70,6 +73,9 @@ pub(crate) async fn serve(
                             topics = wanted;
                             queries = wanted_queries;
                             snapshots.replace(&offers, &topics, &queries, &roots);
+                            // The first snapshots do not wait for the watchers.
+                            passes.start(Pass::bind(&subscriptions));
+                            unbound = true;
                             send(&mut tx, Reply::Watching { id }).await?;
                             tracing::info!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch acknowledged");
                         }
@@ -126,11 +132,10 @@ pub(crate) async fn serve(
                 let reconcile = lagged || broad_files(&sources(&topics, &queries))
                     && changed.keys().any(|topic| matches!(topic.name(), "agents" | "projects" | "*"));
                 if reconcile {
-                    with_heartbeat(&mut tx, &mut heartbeat, sources::reconcile(&offers, &subscriptions)).await??;
-                    roots = sources::roots(&subscriptions);
+                    passes.start(Pass::all(&subscriptions));
                 }
                 // Publication can add a previously unknown exact plugin topic.
-                if reconcile || changed.keys().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
+                if changed.keys().any(|topic| !snapshots.contains(topic) && offers.agents.events.current(topic).is_some()) {
                     snapshots.replace(&offers, &topics, &queries, &roots);
                 }
 
@@ -138,7 +143,9 @@ pub(crate) async fn serve(
                     snapshots.reset();
                 }
 
-                with_heartbeat(&mut tx, &mut heartbeat, sources::retry_git(&offers, &subscriptions, changed.keys())).await??;
+                if let Some(pass) = Pass::git(&subscriptions, changed.keys()) {
+                    passes.start(pass);
+                }
 
                 for (topic, kind) in changed {
                     snapshots.changed(&topic, kind);
@@ -147,9 +154,7 @@ pub(crate) async fn serve(
             changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {
                 if changed.is_err() { return Ok(()); }
                 project_changes = watched::read_and_update(&mut membership, |mesh| mesh.as_ref().map(beep_mesh::Mesh::changes));
-                with_heartbeat(&mut tx, &mut heartbeat, sources::reconcile(&offers, &subscriptions)).await??;
-                roots = sources::roots(&subscriptions);
-                snapshots.replace(&offers, &topics, &queries, &roots);
+                passes.start(Pass::all(&subscriptions));
             },
             change = async { match &mut project_changes { Some(changes) => changes.recv().await, None => std::future::pending().await } }, if watches_files(&sources(&topics, &queries)) => {
                 let reconcile = match change {
@@ -159,9 +164,23 @@ pub(crate) async fn serve(
                 };
 
                 if reconcile {
-                    with_heartbeat(&mut tx, &mut heartbeat, sources::reconcile(&offers, &subscriptions)).await??;
-                    roots = sources::roots(&subscriptions);
-                    snapshots.replace(&offers, &topics, &queries, &roots);
+                    passes.start(Pass::all(&subscriptions));
+                }
+            },
+            result = passes.finished(), if !passes.is_empty() => {
+                // The roots are published now, and the watchers announce what changed.
+                result?;
+                roots = sources::roots(&subscriptions);
+                snapshots.replace(&offers, &topics, &queries, &roots);
+
+                // A change made between the first read and the binding is
+                // not announced by a watcher that was not there yet.
+                if unbound && passes.is_empty() {
+                    unbound = false;
+
+                    for topic in roots.keys() {
+                        snapshots.changed(topic, crate::events::ChangeKind::Any);
+                    }
                 }
             },
             _ = heartbeat.tick() => send(&mut tx, Reply::Pong { id: 0 }).await?,

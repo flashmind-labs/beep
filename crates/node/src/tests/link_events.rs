@@ -282,3 +282,35 @@ async fn a_blocked_topic_stream_does_not_block_another_subscription() {
         Value::Plugin(vec![2])
     );
 }
+
+// Binding the file watchers can take long (Git, the process-wide watcher).
+// The first snapshot and the acknowledgement must not wait for it.
+#[tokio::test]
+async fn a_watch_is_answered_while_its_watchers_are_still_binding() {
+    let root = tempfile::tempdir().unwrap();
+    let offers = Offers::default();
+    offers.agents.share_folders(vec![root.path().to_owned()]);
+    let (mut tx, mut rx, _task) = start(offers).await;
+    let (reached, reached_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release) = tokio::sync::oneshot::channel();
+    // Resolved the way the node does, so the gate matches the bound root.
+    let real = root.path().canonicalize().unwrap();
+    crate::lock(&sources::GATES).push(sources::Gate {
+        root: real,
+        reached,
+        release,
+    });
+    let topic = Topic::keyed("files", root.path().to_str().unwrap());
+    watch(&mut tx, &mut rx, 1, vec![topic.clone()], vec![]).await;
+    let snapshot = state(&mut rx, &topic).await;
+    assert!(matches!(snapshot.value, Value::Sessions(_)));
+    reached_rx.await.expect("the bind started and is held");
+
+    // Released, the watcher binds and a later change is seen.
+    release_tx.send(()).unwrap();
+    std::fs::write(root.path().join("later.txt"), "x").unwrap();
+    let snapshot = state(&mut rx, &topic).await;
+    assert!(
+        matches!(snapshot.value, Value::Sessions(reply) if matches!(*reply, SessionsReply::Tree { ref tree } if tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == "later.txt"))))
+    );
+}

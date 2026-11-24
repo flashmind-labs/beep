@@ -1,10 +1,10 @@
 //! Topic streams own the sources they keep running. Registries hold weak references only.
 
-use super::{FileWatcher, MAX_FILE_ROOTS, Offers, TOO_MANY_ROOTS, broad_files, has_git, watch};
+use super::{FileBindings, FileWatcher, MAX_FILE_ROOTS, Offers, TOO_MANY_ROOTS, broad_files, has_git};
 use crate::{AsyncMutex, events::Change};
-use anyhow::{Result, ensure};
+use anyhow::{Context as _, Result, ensure};
 use beep_proto::node::events::Topic;
-use futures::Stream;
+use futures::{Stream, StreamExt, future::try_join_all, stream};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::PathBuf,
@@ -13,7 +13,7 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
-use tokio::{sync::broadcast, time::Instant};
+use tokio::{sync::broadcast, task::JoinSet, time::Instant};
 use tokio_stream::{
     StreamMap, wrappers::BroadcastStream, wrappers::errors::BroadcastStreamRecvError,
 };
@@ -29,7 +29,12 @@ pub(super) type Subscriptions = StreamMap<Topic, Subscription>;
 pub(crate) struct Source {
     topic: Topic,
     sender: broadcast::Sender<Change>,
-    roots: Arc<Mutex<BTreeMap<Topic, PathBuf>>>,
+    /// What the topic resolves to now. Published as soon as it is known,
+    /// before the watcher binds it, so a snapshot never waits for the watcher.
+    roots: Mutex<BTreeMap<Topic, PathBuf>>,
+    /// Topics whose root came or went, announced once the watcher has bound.
+    unannounced: Mutex<BTreeSet<Topic>>,
+    /// Held only to compare and swap the bindings.
     watcher: AsyncMutex<Option<FileWatcher>>,
     bare: Mutex<Bare>,
     _agent_sources: Option<Arc<crate::agents::follow::Sources>>,
@@ -48,38 +53,92 @@ impl Source {
         let source = Self {
             topic: topic.clone(),
             sender: broadcast::channel(1024).0,
-            roots: Arc::default(),
+            roots: Mutex::default(),
+            unannounced: Mutex::default(),
             watcher: AsyncMutex::default(),
             bare: Mutex::default(),
             _agent_sources: agent_sources,
             _processes: matches!(topic.name(), "processes" | "*")
                 .then(crate::agents::ProcessDemand::new),
         };
-        source.reconcile(offers).await?;
+        source.resolve(offers).await?;
+        // Nobody else watches it yet. The stream that made it reads again
+        // once it is bound.
+        crate::lock(&source.unannounced).clear();
         Ok(source)
     }
 
-    pub(super) async fn reconcile(&self, offers: &Offers) -> Result<()> {
-        let mut watcher = self.watcher.lock().await;
-        let watched = watch(
-            offers,
-            &mut watcher,
-            &self.roots,
-            std::slice::from_ref(&self.topic),
-        )
-        .await;
-        let bare = watcher
-            .as_ref()
-            .map(|watcher| {
-                crate::lock(&watcher.bindings)
+    /// Looks up the roots the topic names now and publishes them. Takes no
+    /// lock across the lookups.
+    async fn resolve(&self, offers: &Offers) -> Result<()> {
+        let wanted = super::resolve(offers, std::slice::from_ref(&self.topic)).await?;
+        let previous = std::mem::replace(&mut *crate::lock(&self.roots), wanted.clone());
+
+        // A root can appear or disappear while a broad subscription remains
+        // active. The watcher announces it once it is bound, which covers
+        // the gap before it.
+        if previous != wanted {
+            crate::lock(&self.unannounced).extend(previous.into_keys().chain(wanted.into_keys()));
+        }
+
+        Ok(())
+    }
+
+    /// Brings the file watcher in line with the published roots. Git is
+    /// asked outside the lock, which is taken to compare and swap.
+    async fn bind(&self, offers: &Offers) -> Result<()> {
+        let wanted = crate::lock(&self.roots).clone();
+        #[cfg(test)]
+        {
+            let gate = {
+                let mut gates = crate::lock(&GATES);
+                gates
                     .iter()
-                    .filter(|(_, dependencies)| !has_git(dependencies))
-                    .map(|(topic, _)| topic.clone())
-                    .collect()
-            })
-            .unwrap_or_default();
-        crate::lock(&self.bare).topics = bare;
-        watched
+                    .position(|gate| wanted.values().any(|root| *root == gate.root))
+                    .map(|at| gates.remove(at))
+            };
+
+            if let Some(gate) = gate {
+                let _ = gate.reached.send(());
+                let _ = gate.release.await;
+            }
+        }
+
+        let held = held(&*self.watcher.lock().await);
+        let bindings = git_bindings(&wanted, &held).await;
+        let mut watcher = self.watcher.lock().await;
+
+        // A newer resolve is followed by its own bind.
+        if *crate::lock(&self.roots) != wanted {
+            return Ok(());
+        }
+
+        if wanted.is_empty() {
+            *watcher = None;
+        } else if bindings != self::held(&watcher) {
+            if watcher.is_none() {
+                *watcher = Some(file_watcher(offers)?);
+            }
+
+            if let Some(watcher) = watcher.as_ref() {
+                let paths = bindings.values().flatten().cloned().collect();
+                watcher.paths.replace(paths).await?;
+                *crate::lock(&watcher.bindings) = bindings.clone();
+            }
+        }
+
+        drop(watcher);
+        crate::lock(&self.bare).topics = bindings
+            .iter()
+            .filter(|(_, dependencies)| !has_git(dependencies))
+            .map(|(topic, _)| topic.clone())
+            .collect();
+
+        for topic in std::mem::take(&mut *crate::lock(&self.unannounced)) {
+            offers.agents.events.changed(topic);
+        }
+
+        Ok(())
     }
 
     /// Whether one of the `changed` roots was bound without Git metadata and
@@ -97,6 +156,84 @@ impl Source {
         true
     }
 }
+
+fn held(watcher: &Option<FileWatcher>) -> FileBindings {
+    watcher
+        .as_ref()
+        .map(|watcher| crate::lock(&watcher.bindings).clone())
+        .unwrap_or_default()
+}
+
+/// The watcher for one source: its callback turns a change under a bound
+/// root into an event for that root's topic.
+fn file_watcher(offers: &Offers) -> Result<FileWatcher> {
+    let bindings = Arc::new(Mutex::new(FileBindings::new()));
+    let changed_roots = bindings.clone();
+    let hub = offers.agents.events.clone();
+    let paths = crate::events::paths::Paths::new(move |paths| {
+        let held = crate::lock(&changed_roots);
+
+        for (topic, dependencies) in held.iter() {
+            // The root comes first; the rest are its Git metadata.
+            let Some((root, git)) = dependencies.split_first() else {
+                continue;
+            };
+
+            if git.iter().any(|dependency| paths.contains(dependency)) {
+                hub.changed(topic.clone());
+            } else if paths.contains(root) {
+                hub.changed_work_tree(topic.clone());
+            }
+        }
+    })?;
+
+    Ok(FileWatcher { paths, bindings })
+}
+
+/// Each root with the Git metadata to watch beside it. A root kept from the
+/// last pass keeps its Git paths without asking Git again. One without them
+/// asks again: it may have become a repository, or Git failed.
+async fn git_bindings(
+    wanted: &BTreeMap<Topic, PathBuf>,
+    held: &FileBindings,
+) -> FileBindings {
+    stream::iter(wanted.clone())
+        .map(|(topic, root)| {
+            let kept = held
+                .get(&topic)
+                .filter(|dependencies| dependencies.first() == Some(&root) && has_git(dependencies))
+                .cloned();
+            async move {
+                if let Some(dependencies) = kept {
+                    return (topic, dependencies);
+                }
+
+                let mut dependencies = vec![root.clone()];
+
+                match crate::agents::checkouts::watch_paths(&root).await {
+                    Ok(paths) => dependencies.extend(paths),
+                    Err(error) => {
+                        log::debug!("Git metadata notifications unavailable: {error:#}")
+                    }
+                }
+                (topic, dependencies)
+            }
+        })
+        .buffer_unordered(8)
+        .collect()
+        .await
+}
+
+/// Holds the bind of one root, for a test: it says it is there, then waits.
+#[cfg(test)]
+pub(super) struct Gate {
+    pub(super) root: PathBuf,
+    pub(super) reached: tokio::sync::oneshot::Sender<()>,
+    pub(super) release: tokio::sync::oneshot::Receiver<()>,
+}
+
+#[cfg(test)]
+pub(super) static GATES: Mutex<Vec<Gate>> = Mutex::new(Vec::new());
 
 /// The roots a source bound without Git metadata, and when it last asked
 /// Git again.
@@ -154,7 +291,7 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
 
         if reused {
             // A reused source still checks the node's current allowed roots.
-            source.reconcile(offers).await?;
+            source.resolve(offers).await?;
         }
 
         let stream = BroadcastStream::new(source.sender.subscribe());
@@ -169,36 +306,132 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
 }
 
 pub(super) fn roots(subscriptions: &Subscriptions) -> BTreeMap<Topic, PathBuf> {
+    source_roots(&held_sources(subscriptions))
+}
+
+/// The sources a stream holds, for a pass to run on while the stream goes on.
+fn held_sources(subscriptions: &Subscriptions) -> Vec<Arc<Source>> {
     subscriptions
         .values()
-        .flat_map(|subscription| crate::lock(&subscription.source.roots).clone())
+        .map(|subscription| subscription.source.clone())
         .collect()
 }
 
-pub(super) async fn reconcile(offers: &Offers, subscriptions: &Subscriptions) -> Result<()> {
-    for subscription in subscriptions.values() {
-        subscription.source.reconcile(offers).await?;
-    }
-
-    ensure!(
-        roots(subscriptions).len() <= MAX_FILE_ROOTS,
-        TOO_MANY_ROOTS
-    );
-    Ok(())
+/// One pass over some sources: look their roots up again when `resolve`,
+/// then bind their watchers. The sources of a pass run together.
+pub(super) struct Pass {
+    sources: Vec<Arc<Source>>,
+    resolve: bool,
 }
 
-/// Asks Git again for every changed root a source bound without Git
-/// metadata: it may have become a repository.
-pub(super) async fn retry_git<'a>(
-    offers: &Offers,
-    subscriptions: &Subscriptions,
-    changed: impl Iterator<Item = &'a Topic> + Clone,
-) -> Result<()> {
-    for subscription in subscriptions.values() {
-        if subscription.source.retry_git(changed.clone()) {
-            subscription.source.reconcile(offers).await?;
+impl Pass {
+    /// Every source of the stream, roots looked up again.
+    pub(super) fn all(subscriptions: &Subscriptions) -> Self {
+        Self {
+            sources: held_sources(subscriptions),
+            resolve: true,
         }
     }
 
-    Ok(())
+    /// Every source of the stream, whose roots are known.
+    pub(super) fn bind(subscriptions: &Subscriptions) -> Self {
+        Self {
+            sources: held_sources(subscriptions),
+            resolve: false,
+        }
+    }
+
+    /// The sources that have a changed root bound without Git metadata and
+    /// may ask Git again, or none.
+    pub(super) fn git<'a>(
+        subscriptions: &Subscriptions,
+        changed: impl Iterator<Item = &'a Topic> + Clone,
+    ) -> Option<Self> {
+        let sources: Vec<_> = subscriptions
+            .values()
+            .filter(|subscription| subscription.source.retry_git(changed.clone()))
+            .map(|subscription| subscription.source.clone())
+            .collect();
+
+        (!sources.is_empty()).then_some(Self {
+            sources,
+            resolve: false,
+        })
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.resolve |= other.resolve;
+
+        for source in other.sources {
+            if !self.sources.iter().any(|held| Arc::ptr_eq(held, &source)) {
+                self.sources.push(source);
+            }
+        }
+    }
+
+    async fn run(self, offers: Offers) -> Result<()> {
+        if self.resolve {
+            try_join_all(self.sources.iter().map(|source| source.resolve(&offers))).await?;
+        }
+
+        ensure!(
+            source_roots(&self.sources).len() <= MAX_FILE_ROOTS,
+            TOO_MANY_ROOTS
+        );
+        try_join_all(self.sources.iter().map(|source| source.bind(&offers))).await?;
+
+        Ok(())
+    }
+}
+
+/// The passes of one stream, off its loop: one runs, and what asks for
+/// another meanwhile is run together after it.
+pub(super) struct Passes {
+    offers: Offers,
+    running: JoinSet<Result<()>>,
+    next: Option<Pass>,
+}
+
+impl Passes {
+    pub(super) fn new(offers: &Offers) -> Self {
+        Self {
+            offers: offers.clone(),
+            running: JoinSet::new(),
+            next: None,
+        }
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.running.is_empty()
+    }
+
+    pub(super) fn start(&mut self, pass: Pass) {
+        if self.running.is_empty() {
+            self.running.spawn(pass.run(self.offers.clone()));
+        } else if let Some(next) = &mut self.next {
+            next.merge(pass);
+        } else {
+            self.next = Some(pass);
+        }
+    }
+
+    /// Waits for the running pass, then starts the one that queued behind it.
+    pub(super) async fn finished(&mut self) -> Result<()> {
+        let Some(joined) = self.running.join_next().await else {
+            return std::future::pending().await;
+        };
+
+        if let Some(next) = self.next.take() {
+            self.start(next);
+        }
+
+        joined.context("a topic pass stopped")?
+    }
+}
+
+fn source_roots(sources: &[Arc<Source>]) -> BTreeMap<Topic, PathBuf> {
+    sources
+        .iter()
+        .flat_map(|source| crate::lock(&source.roots).clone())
+        .collect()
 }
