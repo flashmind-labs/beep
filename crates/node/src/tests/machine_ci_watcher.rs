@@ -42,8 +42,9 @@ impl World for Nobody {
         BTreeSet::new()
     }
 
-    async fn ask(&self, _: EndpointId) -> Result<ForgeReach> {
-        bail!("nobody")
+    #[allow(clippy::manual_async_fn, reason = "the future must not borrow the world")]
+    fn ask(&self, _: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
+        async { bail!("nobody") }
     }
 
     async fn changed(&mut self) -> bool {
@@ -237,4 +238,62 @@ async fn the_books_are_saved_while_another_projects_call_is_in_flight() {
 
     assert!(!watcher.calls.is_empty(), "the slow list is still in flight");
     assert!(file.exists(), "the file holds the running run");
+}
+
+/// One other machine is online and never says how it reaches the hosts.
+struct Silent(EndpointId);
+
+impl World for Silent {
+    fn me(&self) -> EndpointId {
+        iroh::SecretKey::from_bytes(&[1; 32]).public()
+    }
+
+    fn projects(&self) -> Vec<Project> {
+        let mut project = project("quiet", "quiet/repo");
+        project.machines = [self.me(), self.0].into();
+        vec![project]
+    }
+
+    fn online(&self) -> BTreeSet<EndpointId> {
+        [self.0].into()
+    }
+
+    #[allow(clippy::manual_async_fn, reason = "the future must not borrow the world")]
+    fn ask(&self, _: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
+        pending()
+    }
+
+    async fn changed(&mut self) -> bool {
+        pending().await
+    }
+
+    async fn pushed(&self, _: &Project) -> Option<SystemTime> {
+        None
+    }
+}
+
+// A machine that does not answer delays no poll: the held projects are
+// listed with what was known, and the election waits for the answer only
+// the first time.
+#[tokio::test]
+async fn a_silent_machine_does_not_hold_up_a_poll() {
+    let dir = TempDir::new().expect("a temp dir");
+    let peer = iroh::SecretKey::from_bytes(&[2; 32]).public();
+    let mut watcher = Watcher::start(
+        Slow::default(),
+        Silent(peer),
+        Arc::new(Ci::default()),
+        dir.path().join("runs.json"),
+    )
+    .await;
+
+    watcher.poll().await;
+    assert!(watcher.held.is_empty(), "the first election waits for the answers");
+    assert_eq!(watcher.asking.len(), 1);
+
+    watcher.answered = true;
+    watcher.poll().await;
+    assert!(watcher.held.contains("quiet"), "later polls go on with what is known");
+    assert!(!watcher.calls.is_empty(), "and list the held project");
+    assert_eq!(watcher.asking.len(), 1, "one gather at a time");
 }

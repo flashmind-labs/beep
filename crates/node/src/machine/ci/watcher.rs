@@ -71,7 +71,8 @@ pub(super) trait World: Send + Sync + 'static {
     fn online(&self) -> BTreeSet<EndpointId>;
     /// How `peer` reaches the hosts; an error when it cannot say, as a node
     /// from before the watch, which then never watches.
-    fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send;
+    /// The answer is waited on in a task of its own, so it holds nothing of the world.
+    fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static;
     /// Waits for the mesh to change; false once it is gone.
     fn changed(&mut self) -> impl Future<Output = bool> + Send;
     /// When this machine's checkout of `project` last moved a remote's ref,
@@ -136,8 +137,12 @@ pub(super) struct Watcher<F, W> {
     books: Books,
     /// The account signed in on each host, by host name.
     logins: HashMap<String, String>,
-    /// What the online machines said of their reach, this minute.
+    /// What the online machines said of their reach, when last asked.
     peers: BTreeMap<EndpointId, ForgeReach>,
+    /// The machines being asked now: at most one gather, a newer one replaces it.
+    asking: JoinSet<BTreeMap<EndpointId, ForgeReach>>,
+    /// Whether the machines have answered once, so an election has their reach to go on.
+    answered: bool,
     /// The pinned projects, as last read.
     projects: Vec<Project>,
     /// The projects this machine watches.
@@ -179,6 +184,8 @@ impl<F: Forge, W: World> Watcher<F, W> {
             file,
             logins: HashMap::new(),
             peers: BTreeMap::new(),
+            asking: JoinSet::new(),
+            answered: false,
             projects: Vec::new(),
             held: BTreeSet::new(),
             waits: JoinSet::new(),
@@ -225,11 +232,23 @@ impl<F: Forge, W: World> Watcher<F, W> {
                     let online = self.world.online();
 
                     if self.asked.as_ref().is_some_and(|(_, then)| *then != online) {
-                        self.ask_peers().await;
+                        // The answers elect when they arrive.
+                        self.ask_peers();
+                    } else {
+                        for project in self.elect() {
+                            self.begin(project, Todo::List);
+                        }
                     }
+                }
+                Some(done) = self.asking.join_next(), if !self.asking.is_empty() => {
+                    // A gather that a newer one replaced ends cancelled.
+                    if let Ok(peers) = done {
+                        self.peers = peers;
+                        self.answered = true;
 
-                    for project in self.elect() {
-                        self.begin(project, Todo::List);
+                        for project in self.elect() {
+                            self.begin(project, Todo::List);
+                        }
                     }
                 }
                 Some(done) = self.waits.join_next_with_id(), if !self.waits.is_empty() => {
@@ -250,16 +269,21 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .as_ref()
             .is_none_or(|(at, _)| at.elapsed() >= QUIET);
         if due {
-            self.ask_peers().await;
+            self.ask_peers();
+        }
+
+        // The first election waits for the first answers: another machine may be the better one.
+        if !self.answered {
+            return;
         }
 
         self.elect();
         self.list_due().await;
     }
 
-    /// Asks every online machine with a checkout of a pinned project how it
-    /// reaches the hosts, all at once.
-    async fn ask_peers(&mut self) {
+    /// Starts asking every online machine with a checkout of a pinned project
+    /// how it reaches the hosts, all at once, in place of an ask still going.
+    fn ask_peers(&mut self) {
         let me = self.world.me();
         let online = self.world.online();
         let asked: BTreeSet<EndpointId> = self
@@ -270,8 +294,12 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .filter(|machine| *machine != me && online.contains(machine))
             .collect();
         self.asked = Some((Instant::now(), online));
-        let world = &self.world;
-        self.peers = gather("CI watch", asked, |peer| world.ask(peer)).await;
+        let asks: Vec<_> = asked
+            .into_iter()
+            .map(|peer| (peer, self.world.ask(peer)))
+            .collect();
+        self.asking.abort_all();
+        self.asking.spawn(gather("CI watch", asks));
     }
 
     /// Elects the watcher of every pinned project; the projects this machine
@@ -721,8 +749,10 @@ impl World for MeshWorld {
         online(&self.mesh)
     }
 
-    async fn ask(&self, peer: EndpointId) -> Result<ForgeReach> {
-        ask_reach(&self.mesh, peer).await
+    #[allow(clippy::manual_async_fn, reason = "the future must not borrow the world")]
+    fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
+        let mesh = self.mesh.clone();
+        async move { ask_reach(&mesh, peer).await }
     }
 
     async fn changed(&mut self) -> bool {

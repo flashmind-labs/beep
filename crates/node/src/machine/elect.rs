@@ -70,27 +70,22 @@ pub(crate) fn online(mesh: &Mesh) -> BTreeSet<EndpointId> {
         .collect()
 }
 
-/// What each of `peers` says of its reach, asked all at once with `ask`;
-/// one that fails or does not answer in time is left out. `what` names the
-/// asker in the log.
-pub(crate) async fn gather<F, A>(
+/// What each of `asks` says of its reach, all awaited at once; one that
+/// fails or does not answer in time is left out. `what` names the asker in
+/// the log.
+pub(crate) async fn gather<A>(
     what: &str,
-    peers: impl IntoIterator<Item = EndpointId>,
-    ask: F,
+    asks: impl IntoIterator<Item = (EndpointId, A)>,
 ) -> BTreeMap<EndpointId, ForgeReach>
 where
-    F: Fn(EndpointId) -> A,
     A: Future<Output = Result<ForgeReach>>,
 {
-    let answers = join_all(peers.into_iter().map(|peer| {
-        let asked = ask(peer);
-        async move {
-            let said = match timeout(ASK_LIMIT, asked).await {
-                Ok(said) => said,
-                Err(_) => Err(anyhow!("it did not answer in time")),
-            };
-            (peer, said)
-        }
+    let answers = join_all(asks.into_iter().map(|(peer, asked)| async move {
+        let said = match timeout(ASK_LIMIT, asked).await {
+            Ok(said) => said,
+            Err(_) => Err(anyhow!("it did not answer in time")),
+        };
+        (peer, said)
     }))
     .await;
 

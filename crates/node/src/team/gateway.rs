@@ -209,7 +209,10 @@ impl Gateway {
 
         self.asked = Some((Instant::now(), asked.clone()));
         let mesh = &self.mesh;
-        self.peers = gather("team gateway", asked, |peer| ask_reach(mesh, peer)).await;
+        self.peers = gather(
+            "team gateway",
+            asked.into_iter().map(|peer| (peer, ask_reach(mesh, peer))),
+        ).await;
     }
 
     /// Makes the cards of every held team, which teammates and this mesh's
