@@ -17,7 +17,7 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::{sync::mpsc, time::sleep_until};
 
 /// How long after a machine's stream opens its news waits for the reads of the other apps. What
