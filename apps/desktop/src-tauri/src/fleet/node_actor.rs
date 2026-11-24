@@ -56,6 +56,8 @@ pub(crate) const FAST_JOB_WAIT: Duration = Duration::from_millis(250);
 const DEFAULT_JOB_TTL: Duration = Duration::from_secs(600);
 /// Shorter TTL for transient process signals.
 const PROCESS_JOB_TTL: Duration = Duration::from_secs(60);
+/// What a job's waiters hear when it was not delivered before its time ran out.
+const NOT_SENT: &str = "the machine did not take it in time";
 
 #[derive(Clone, Debug)]
 struct SharedFailure {
@@ -528,6 +530,13 @@ enum JobKey {
     ApplyMcpServer { harness: String, name: String },
 }
 
+/// What runs in order on a machine.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum Lane {
+    Session(SessionId),
+    Key(JobKey),
+}
+
 impl JobKind {
     fn key(&self) -> JobKey {
         match self {
@@ -549,6 +558,17 @@ impl JobKind {
                 harness: harness.as_ref().to_owned(),
                 name: server.name.clone(),
             },
+        }
+    }
+
+    /// The jobs of one lane run one after another; those of different lanes together. A
+    /// session's delete and move share a lane, so they keep the order they were asked in.
+    fn lane(&self) -> Lane {
+        match self {
+            Self::DeleteSession { session, .. } | Self::RelocateSession { session, .. } => {
+                Lane::Session(session.clone())
+            }
+            _ => Lane::Key(self.key()),
         }
     }
 
@@ -581,7 +601,8 @@ struct QueuedJob {
 #[derive(Default)]
 struct HeldOps {
     queues: HashMap<EndpointId, Vec<QueuedJob>>,
-    running: HashSet<EndpointId>,
+    /// The lanes a worker runs now.
+    running: HashSet<(EndpointId, Lane)>,
     deleting: HashSet<(EndpointId, SessionId)>,
     relocating: HashMap<(EndpointId, SessionId), String>,
     closing_terminals: HashSet<uuid::Uuid>,
@@ -645,10 +666,10 @@ impl NodeOps {
         fast_wait: Duration,
     ) -> Result<JobOutcome> {
         let (tx, rx) = oneshot::channel();
-        let start = self.push_job(machine, kind, Some(tx));
+        let lane = kind.lane();
 
-        if start {
-            self.spawn_worker(app, fleet, machine);
+        if self.push_job(machine, kind, Some(tx)) {
+            self.spawn_worker(app, fleet, machine, lane);
         }
 
         match timeout(fast_wait, rx).await {
@@ -658,6 +679,7 @@ impl NodeOps {
         }
     }
 
+    /// Queues `kind`; true when its lane has no worker, which the caller starts.
     fn push_job(&self, machine: EndpointId, kind: JobKind, waiter: Option<JobWaiter>) -> bool {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
 
@@ -679,6 +701,7 @@ impl NodeOps {
         }
 
         let key = kind.key();
+        let lane = kind.lane();
         let deadline = Instant::now() + kind.ttl();
         let queue = held.queues.entry(machine).or_default();
 
@@ -703,44 +726,57 @@ impl NodeOps {
             });
         }
 
-        held.running.insert(machine)
+        held.running.insert((machine, lane))
     }
 
-    fn next_due(&self, machine: EndpointId) -> Option<(u64, JobKind, u32)> {
+    /// The next job of `lane` to send, and the jobs of it that waited in the queue past their
+    /// time, which are settled as failed: their waiters hear of it and the caller tells the
+    /// windows. With none left to send the lane has no worker.
+    fn next_due(
+        &self,
+        machine: EndpointId,
+        lane: &Lane,
+    ) -> (Option<(u64, JobKind, u32)>, Vec<JobKind>) {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let now = Instant::now();
+        let mut expired = Vec::new();
 
-        let expired: Vec<JobKind> = if let Some(queue) = held.queues.get_mut(&machine) {
-            let mut expired = Vec::new();
-            queue.retain(|job| {
-                if !job.sending && now >= job.deadline {
-                    expired.push(job.kind.clone());
-                    false
+        if let Some(queue) = held.queues.get_mut(&machine) {
+            let mut kept = Vec::new();
+
+            for job in std::mem::take(queue) {
+                if job.kind.lane() == *lane && !job.sending && now >= job.deadline {
+                    for waiter in job.waiters {
+                        let _ = waiter.send(Err(NOT_SENT.to_owned()));
+                    }
+                    expired.push(job.kind);
                 } else {
-                    true
+                    kept.push(job);
                 }
-            });
-            expired
-        } else {
-            Vec::new()
-        };
+            }
 
-        for kind in expired {
-            clear_optimistic(&mut held, machine, &kind);
+            *queue = kept;
+        }
+
+        for kind in &expired {
+            clear_optimistic(&mut held, machine, kind);
         }
 
         if let Some(job) = held
             .queues
             .get_mut(&machine)
-            .and_then(|queue| queue.first_mut())
+            .and_then(|queue| queue.iter_mut().find(|job| job.kind.lane() == *lane))
         {
             job.sending = true;
-            return Some((job.id, job.kind.clone(), job.attempts));
+            return (Some((job.id, job.kind.clone(), job.attempts)), expired);
         }
 
-        held.queues.remove(&machine);
-        held.running.remove(&machine);
-        None
+        if held.queues.get(&machine).is_some_and(Vec::is_empty) {
+            held.queues.remove(&machine);
+        }
+
+        held.running.remove(&(machine, lane.clone()));
+        (None, expired)
     }
 
     fn settle_job(
@@ -779,6 +815,7 @@ impl NodeOps {
                 if Instant::now() >= job.deadline {
                     let expired = queue.remove(pos);
                     clear_optimistic(&mut held, machine, &expired.kind);
+                    return Some((expired.kind, Err(NOT_SENT.to_owned())));
                 }
                 None
             }
@@ -790,20 +827,33 @@ impl NodeOps {
         app: Option<AppHandle>,
         fleet: Arc<Fleet>,
         machine: EndpointId,
+        lane: Lane,
     ) {
         let this = self.clone();
         tauri::async_runtime::spawn(async move {
-            this.run_machine(app, fleet, machine).await;
+            this.run_lane(app, fleet, machine, lane).await;
         });
     }
 
-    async fn run_machine(
+    /// Sends the jobs of one lane of `machine` in order until none is left. Another lane of the
+    /// machine runs meanwhile, so a long job, such as a device boot, holds back only its own.
+    async fn run_lane(
         self: &Arc<Self>,
         app: Option<AppHandle>,
         fleet: Arc<Fleet>,
         machine: EndpointId,
+        lane: Lane,
     ) {
-        while let Some((id, kind, attempts)) = self.next_due(machine) {
+        loop {
+            let (due, expired) = self.next_due(machine, &lane);
+
+            for kind in &expired {
+                on_settled(app.as_ref(), &fleet, machine, kind, false);
+            }
+
+            let Some((id, kind, attempts)) = due else {
+                return;
+            };
             let outcome = execute_job(&fleet, machine, &kind, attempts).await;
 
             match self.settle_job(machine, id, outcome) {
