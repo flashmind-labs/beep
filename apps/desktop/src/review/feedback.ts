@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { flushSync } from "react-dom";
 import type { FeedbackState } from "./feedback-view.tsx";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 // Review with agent: the diff header's button, the start form's picker
 // under it, and what follows a pick. A pick asks the node of the diff's
 // checkout to start a temporary reviewer there, a child of the session whose
@@ -67,7 +67,7 @@ function readHosts(done: () => void) {
 }
 
 /// How long the session's reviews last before they are read again.
-const HOSTS_MS = 30_000;
+const SESSION_REVIEWS_MS = 30_000;
 
 // ----- Reviews already taken -----
 
@@ -336,7 +336,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
 
   function redraw() {
     if (disposed) return;
-    if (Date.now() - tookAt >= HOSTS_MS) { tookAt = Date.now(); void takeSessionReviews(); }
+    if (Date.now() - tookAt >= SESSION_REVIEWS_MS) { tookAt = Date.now(); void takeSessionReviews(); }
     drawButton();
     if (pop.open && !runs.has(o.key)) void pop.redraw();
     else if (pop.open) pop.close();
@@ -350,6 +350,12 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   };
   attached.set(o.key, attachment);
   readHosts(redraw);
+  // The agents module holds the hosts and takes a push first: it subscribes at load, so this
+  // one comes after it.
+  let stopHosts = () => {};
+  void import("../agents/agents.ts").then(() => {
+    if (!disposed) stopHosts = subscribeEach([topic("machines"), topic("accounts")], redraw);
+  });
   redraw();
   return {
     snapshot: () => current,
@@ -364,6 +370,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
       if (disposed) return;
       pop.close();
       disposed = true;
+      stopHosts();
       if (attached.get(o.key) === attachment) attached.delete(o.key);
     },
   };
