@@ -130,14 +130,21 @@ struct Session {
     models: Vec<SessionConfigSelectOption>,
     model: String,
     controls: HashMap<String, Control>,
-    prompt: Option<Responder<PromptResponse>>,
-    cancelled: bool,
+    /// The prompt being answered, from its request to its result.
+    turn: Option<Turn>,
     /// How much of the window the main agent's context fills.
     context: u64,
     /// The messages of this turn whose text came as stream deltas.
     streamed: HashSet<String>,
     /// The main agent's message streaming now.
     message: Option<String>,
+}
+
+/// A prompt waiting for Claude Code's result.
+struct Turn {
+    responder: Responder<PromptResponse>,
+    /// An interrupt was sent for it.
+    cancelled: bool,
 }
 
 impl Session {
@@ -234,15 +241,17 @@ impl Bridge {
                     return Ok(responder.respond_with_error(unknown_session())?);
                 };
 
-                if session.prompt.is_some() {
+                if session.turn.is_some() {
                     return Ok(responder.respond_with_error(acp::bridge::prompt_running())?);
                 }
 
                 session
                     .cli
                     .user(request.prompt.iter().filter_map(content).collect());
-                session.prompt = Some(responder);
-                session.cancelled = false;
+                session.turn = Some(Turn {
+                    responder,
+                    cancelled: false,
+                });
             }
             "session/set_mode" => {
                 let request = SetSessionModeRequest::parse_message(method, params)?;
@@ -311,8 +320,10 @@ impl Bridge {
             return;
         };
 
-        if session.prompt.is_some() && !session.cancelled {
-            session.cancelled = true;
+        if let Some(turn) = session.turn.as_mut()
+            && !turn.cancelled
+        {
+            turn.cancelled = true;
             let id = session.cli.control(json!({"subtype": "interrupt"}));
             session.controls.insert(id, Control::Interrupt);
         }
@@ -368,8 +379,7 @@ impl Bridge {
             models: Vec::new(),
             model: String::new(),
             controls: HashMap::new(),
-            prompt: None,
-            cancelled: false,
+            turn: None,
             context: 0,
             streamed: HashSet::new(),
             message: None,
@@ -448,15 +458,14 @@ impl Bridge {
                     )?;
                 }
             }
-            Some("result") if session.prompt.is_some() && updates::ends_prompt(&frame) => {
+            Some("result") if session.turn.is_some() && updates::ends_prompt(&frame) => {
                 if let Some(usage) = updates::usage_update(&frame, session.context) {
                     notify(cx, &session.id, SessionUpdate::UsageUpdate(usage))?;
                 }
 
                 session.streamed.clear();
-                let cancelled = std::mem::take(&mut session.cancelled);
 
-                if let Some(responder) = session.prompt.take() {
+                if let Some(Turn { responder, cancelled }) = session.turn.take() {
                     match updates::stop(&frame, cancelled) {
                         Ok(stop) => responder.respond(
                             PromptResponse::new(stop).usage(updates::turn_usage(&frame)),
