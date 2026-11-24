@@ -211,6 +211,7 @@ pub(crate) struct Received {
 
 /// What `Transfers` answers on the endpoint: the blobs and sync protocols,
 /// for a router the caller runs.
+#[derive(Clone)]
 pub struct Served {
     blobs: BlobsProtocol,
     sync: PeerHandler,
@@ -219,10 +220,7 @@ pub struct Served {
 #[derive(Clone)]
 enum Slot {
     Waiting,
-    Ready {
-        blobs: BlobsProtocol,
-        sync: PeerHandler,
-    },
+    Ready(Served),
     Failed,
 }
 
@@ -263,10 +261,7 @@ impl Late {
 
     /// The services are up.
     pub fn serve(&self, served: Served) {
-        self.slot.send_replace(Slot::Ready {
-            blobs: served.blobs,
-            sync: served.sync,
-        });
+        self.slot.send_replace(Slot::Ready(served));
     }
 
     /// The services will not start, unless they already have.
@@ -317,8 +312,8 @@ impl ProtocolHandler for Waiting {
         };
 
         match ready {
-            Some(Slot::Ready { blobs, .. }) if self.blobs => blobs.accept(connection).await,
-            Some(Slot::Ready { sync, .. }) => sync.accept(connection).await,
+            Some(Slot::Ready(Served { blobs, .. })) if self.blobs => blobs.accept(connection).await,
+            Some(Slot::Ready(Served { sync, .. })) => sync.accept(connection).await,
             _ => {
                 connection.close(1u32.into(), b"not serving");
                 Ok(())
@@ -425,8 +420,8 @@ impl Transfers {
             },
         };
         let router = own_router.then(|| {
-            let (blobs, sync) = (served.blobs.clone(), served.sync.clone());
-            Served { blobs, sync }
+            served
+                .clone()
                 .add_to(Router::builder(endpoint.clone()))
                 .spawn()
         });
@@ -555,8 +550,7 @@ impl Transfers {
             incoming.executable,
         );
         let cancel = CancellationToken::new();
-        let cx = inner.fetcher(&cancel);
-        let fetched = fetch::fetch(cx, job, &mut Out::Silent).await;
+        let fetched = fetch::fetch(&inner.parts, &cancel, job, &mut Out::Silent).await;
         inner.collect.notify_one();
         let fetched = fetched?;
         Ok(Received {
@@ -636,17 +630,6 @@ impl Inner {
             .clone()
             .try_acquire_owned()
             .map_err(|_| anyhow!("busy: {MAX_RUNNING} transfers are running on this machine"))
-    }
-
-    fn fetcher<'a>(&'a self, cancel: &'a CancellationToken) -> fetch::Fetcher<'a> {
-        fetch::Fetcher {
-            endpoint: &self.parts.endpoint,
-            store: &self.parts.store,
-            store_dir: &self.parts.store_dir,
-            journal: &self.parts.journal,
-            room: &self.parts.room,
-            cancel,
-        }
     }
 }
 
@@ -760,10 +743,9 @@ async fn serve_fetch(
     mut rx: LinkRx,
 ) -> Result<()> {
     let cancel = CancellationToken::new();
-    let cx = inner.fetcher(&cancel);
     let result = {
         let mut out = Out::Stream(&mut tx);
-        let work = fetch::fetch(cx, job, &mut out);
+        let work = fetch::fetch(&inner.parts, &cancel, job, &mut out);
         let mut work = std::pin::pin!(work);
 
         loop {

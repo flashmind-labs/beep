@@ -3,16 +3,17 @@
 
 use super::{
     Out, Ticker,
-    place::{self, Folder, Journal, Partial, Reserved, Room, make_dirs_at, relative_path},
+    place::{self, Folder, Partial, Reserved, make_dirs_at, relative_path},
 };
+use crate::files::sync::Parts;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use beep_proto::node::transfer::{
     Content, ContentKind, MANIFEST_NAME, MAX_BYTES, MAX_FILES, MAX_MANIFEST, Manifest, Stage,
 };
 use futures::StreamExt;
-use iroh::{Endpoint, EndpointAddr, endpoint::Connection};
+use iroh::{EndpointAddr, endpoint::Connection};
 use iroh_blobs::{
-    Hash, HashAndFormat,
+    BlobFormat, Hash, HashAndFormat,
     api::{Store, remote::GetProgressItem},
     format::collection::Collection,
     get::request::{get_hash_seq_and_sizes, get_verified_size},
@@ -48,7 +49,6 @@ pub(super) const CANCELLED: &str = "the transfer was cancelled";
 pub(super) struct Job {
     pub(super) from: EndpointAddr,
     pub(super) content: HashAndFormat,
-    pub(super) kind: ContentKind,
     /// A plain name, checked.
     pub(super) name: String,
     /// The target folder, open.
@@ -73,7 +73,6 @@ impl Job {
                 ContentKind::File => HashAndFormat::raw(hash),
                 ContentKind::Folder => HashAndFormat::hash_seq(hash),
             },
-            kind: content.kind,
             name,
             folder,
             executable,
@@ -108,17 +107,6 @@ struct Plan {
     expected: u64,
 }
 
-pub(super) struct Fetcher<'a> {
-    pub(super) endpoint: &'a Endpoint,
-    pub(super) store: &'a Store,
-    /// Where the store keeps its data, for its free space.
-    pub(super) store_dir: &'a Path,
-    pub(super) journal: &'a Journal,
-    /// The free space the running fetches hold.
-    pub(super) room: &'a Arc<Room>,
-    pub(super) cancel: &'a CancellationToken,
-}
-
 /// A fetch written out into its partial folder, holding its disk space
 /// until it is placed.
 struct Written {
@@ -131,11 +119,16 @@ struct Written {
 /// and checks limits and free space before any data moves. Writes under a
 /// hidden partial folder, used by descriptor, and checks for a cancel
 /// between chunks; only the final rename touches the final path.
-pub(super) async fn fetch(cx: Fetcher<'_>, job: Job, tx: &mut Out<'_>) -> Result<Fetched> {
+pub(super) async fn fetch(
+    parts: &Parts,
+    cancel: &CancellationToken,
+    job: Job,
+    tx: &mut Out<'_>,
+) -> Result<Fetched> {
     // Kept from the collector while it downloads and is written out.
-    let _tag = cx.store.tags().temp_tag(job.content).await?;
-    let connection = connect(&cx, &job.from).await?;
-    let result = transfer(&cx, &job, &connection, tx).await;
+    let _tag = parts.store.tags().temp_tag(job.content).await?;
+    let connection = connect(parts, cancel, &job.from).await?;
+    let result = transfer(parts, cancel, &job, &connection, tx).await;
     connection.close(0u32.into(), b"done");
     let Written {
         plan,
@@ -144,7 +137,11 @@ pub(super) async fn fetch(cx: Fetcher<'_>, job: Job, tx: &mut Out<'_>) -> Result
     } = result?;
     let files = plan.items.iter().filter(|item| item.blob.is_some()).count() as u64;
     let size = plan.total;
-    let Job { name, kind, .. } = job;
+    let kind = match job.content.format {
+        BlobFormat::Raw => ContentKind::File,
+        BlobFormat::HashSeq => ContentKind::Folder,
+    };
+    let name = job.name;
     spawn_blocking(move || match place::place(&partial, &name, kind) {
         Ok(path) => {
             partial.finish()?;
@@ -161,11 +158,15 @@ pub(super) async fn fetch(cx: Fetcher<'_>, job: Job, tx: &mut Out<'_>) -> Result
     .await?
 }
 
-async fn connect(cx: &Fetcher<'_>, from: &EndpointAddr) -> Result<Connection> {
+async fn connect(
+    parts: &Parts,
+    cancel: &CancellationToken,
+    from: &EndpointAddr,
+) -> Result<Connection> {
     let source = from.id;
     tokio::select! {
-        () = cx.cancel.cancelled() => bail!(CANCELLED),
-        connected = timeout(beep_mesh::OPEN_TIMEOUT, cx.endpoint.connect(from.clone(), iroh_blobs::ALPN)) => {
+        () = cancel.cancelled() => bail!(CANCELLED),
+        connected = timeout(beep_mesh::OPEN_TIMEOUT, parts.endpoint.connect(from.clone(), iroh_blobs::ALPN)) => {
             connected
                 .map_err(|_| anyhow!("could not reach the source machine ({source}) in time"))?
                 .with_context(|| format!("could not reach the source machine ({source})"))
@@ -175,25 +176,26 @@ async fn connect(cx: &Fetcher<'_>, from: &EndpointAddr) -> Result<Connection> {
 
 /// Probes, downloads and writes the content into a partial folder.
 async fn transfer(
-    cx: &Fetcher<'_>,
+    parts: &Parts,
+    cancel: &CancellationToken,
     job: &Job,
     connection: &Connection,
     tx: &mut Out<'_>,
 ) -> Result<Written> {
-    let mut plan = cancellable(cx, probe(cx, job, connection)).await?;
-    let room = reserve_space(cx, job, plan.total).await?;
-    download(cx, job, connection, &plan, tx).await?;
+    let mut plan = cancellable(cancel, probe(&parts.store, job, connection)).await?;
+    let room = reserve_space(parts, job, plan.total).await?;
+    download(&parts.store, cancel, job, connection, &plan, tx).await?;
 
     if let Some(manifest) = plan.manifest {
-        apply_manifest(cx.store, manifest, job, &mut plan).await?;
+        apply_manifest(&parts.store, manifest, job, &mut plan).await?;
     }
 
     let partial = {
-        let (journal, folder) = (cx.journal.clone(), job.folder.clone());
+        let (journal, folder) = (parts.journal.clone(), job.folder.clone());
         spawn_blocking(move || journal.start(folder)).await??
     };
 
-    if let Err(e) = write_out(cx, job, &plan, &partial, tx).await {
+    if let Err(e) = write_out(&parts.store, cancel, job, &plan, &partial, tx).await {
         // Removed before the reply, so nothing is left when it goes out.
         let removed = spawn_blocking(move || partial.remove()).await?;
 
@@ -211,21 +213,24 @@ async fn transfer(
     })
 }
 
-async fn cancellable<T>(cx: &Fetcher<'_>, work: impl Future<Output = Result<T>>) -> Result<T> {
+async fn cancellable<T>(
+    cancel: &CancellationToken,
+    work: impl Future<Output = Result<T>>,
+) -> Result<T> {
     tokio::select! {
-        () = cx.cancel.cancelled() => bail!(CANCELLED),
+        () = cancel.cancelled() => bail!(CANCELLED),
         result = work => result,
     }
 }
 
 /// Asks the source for the size of every blob, and the names of a
 /// folder's files, before any data moves.
-async fn probe(cx: &Fetcher<'_>, job: &Job, connection: &Connection) -> Result<Plan> {
+async fn probe(store: &Store, job: &Job, connection: &Connection) -> Result<Plan> {
     let hash = job.content.hash;
     let probe_failed = |e| anyhow!("asking the source machine what it sends failed: {e}");
     let too_large = || anyhow!("the transfer is larger than {} GiB", MAX_BYTES >> 30);
 
-    if job.kind == ContentKind::File {
+    if job.content.format == BlobFormat::Raw {
         let (size, _) = get_verified_size(connection, &hash)
             .await
             .map_err(probe_failed)?;
@@ -254,12 +259,12 @@ async fn probe(cx: &Fetcher<'_>, job: &Job, connection: &Connection) -> Result<P
         .root(ChunkRanges::all())
         .child(0, ChunkRanges::all())
         .build(hash);
-    cx.store
+    store
         .remote()
         .execute_get(connection.clone(), request)
         .await
         .map_err(|e| anyhow!("fetching the folder's names failed: {e}"))?;
-    let collection = Collection::load(hash, cx.store)
+    let collection = Collection::load(hash, store)
         .await
         .context("reading the folder's names")?;
     ensure!(
@@ -301,8 +306,12 @@ async fn probe(cx: &Fetcher<'_>, job: &Job, connection: &Connection) -> Result<P
 /// Holds `need` bytes on the store's disk and the target folder's disk,
 /// twice over when they are one disk, beside what the other running
 /// fetches hold; fails when they do not have it.
-async fn reserve_space(cx: &Fetcher<'_>, job: &Job, need: u64) -> Result<Reserved> {
-    let (store_dir, folder, room) = (cx.store_dir.to_owned(), job.folder.clone(), cx.room.clone());
+async fn reserve_space(parts: &Parts, job: &Job, need: u64) -> Result<Reserved> {
+    let (store_dir, folder, room) = (
+        parts.store_dir.clone(),
+        job.folder.clone(),
+        parts.room.clone(),
+    );
     spawn_blocking(move || {
         let store = place::space_at(&store_dir)?;
         room.reserve(need, store, folder.space()?, SPACE_MARGIN)
@@ -312,19 +321,20 @@ async fn reserve_space(cx: &Fetcher<'_>, job: &Job, need: u64) -> Result<Reserve
 
 /// Downloads the content into the store, sending progress.
 async fn download(
-    cx: &Fetcher<'_>,
+    store: &Store,
+    cancel: &CancellationToken,
     job: &Job,
     connection: &Connection,
     plan: &Plan,
     tx: &mut Out<'_>,
 ) -> Result<()> {
-    let progress = cx.store.remote().fetch(connection.clone(), job.content);
+    let progress = store.remote().fetch(connection.clone(), job.content);
     let mut progress = pin!(progress.stream());
     let mut ticker = Ticker::new(Stage::Downloading, plan.total);
 
     loop {
         let item = tokio::select! {
-            () = cx.cancel.cancelled() => bail!(CANCELLED),
+            () = cancel.cancelled() => bail!(CANCELLED),
             item = progress.next() => item,
         };
 
@@ -392,7 +402,8 @@ fn add_empty_folders(plan: &mut Plan, root: &Path, folders: &[String]) -> Result
 
 /// Writes every item into the partial folder, sending progress.
 async fn write_out(
-    cx: &Fetcher<'_>,
+    store: &Store,
+    cancel: &CancellationToken,
     job: &Job,
     plan: &Plan,
     partial: &Partial,
@@ -400,7 +411,7 @@ async fn write_out(
 ) -> Result<()> {
     let mut ticker = Ticker::new(Stage::Writing, plan.total);
 
-    if job.kind == ContentKind::Folder {
+    if job.content.format == BlobFormat::HashSeq {
         let dir = partial.dir().try_clone()?;
         let name = PathBuf::from(&job.name);
         spawn_blocking(move || make_dirs_at(&dir, &name))
@@ -427,7 +438,7 @@ async fn write_out(
             continue;
         };
         let file = File::from_std(file);
-        export(cx, &item.path, blob, file, &mut ticker, tx).await?;
+        export(store, cancel, &item.path, blob, file, &mut ticker, tx).await?;
     }
 
     ticker.finish(tx, ticker.done()).await
@@ -435,18 +446,19 @@ async fn write_out(
 
 /// Copies one blob out of the store into `file`, counting on `ticker`.
 async fn export(
-    cx: &Fetcher<'_>,
+    store: &Store,
+    cancel: &CancellationToken,
     path: &Path,
     blob: Hash,
     mut file: File,
     ticker: &mut Ticker,
     tx: &mut Out<'_>,
 ) -> Result<()> {
-    let mut reader = cx.store.blobs().reader(blob);
+    let mut reader = store.blobs().reader(blob);
     let mut buffer = vec![0; CHUNK];
 
     loop {
-        ensure!(!cx.cancel.is_cancelled(), CANCELLED);
+        ensure!(!cancel.is_cancelled(), CANCELLED);
         let read = reader
             .read(&mut buffer)
             .await
