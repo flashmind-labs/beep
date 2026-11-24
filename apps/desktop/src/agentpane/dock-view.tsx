@@ -58,7 +58,8 @@ const ACTIONS: Record<Dock, PaneTabActions> = { right: tabActions("right"), bott
 const unfold = (d: Dock): PaneTabActions => ({ ...ACTIONS[d], pick: id => { foldDock(d, false); pickTab(d, id); } });
 const UNFOLD: Record<Dock, PaneTabActions> = { right: unfold("right"), bottom: unfold("bottom") };
 
-const sessionLinks: SessionTabLinks = { feed, keptTranscript, sendOnce, replyToQuestion };
+// Read when drawn, as these modules reach this one and may not have run when it loads.
+const sessionLinks = (): SessionTabLinks => ({ feed, keptTranscript, sendOnce, replyToQuestion });
 
 /// Dock `dock`: its divider, the pane with its head and views, and its strip while folded.
 export function PaneDock({ dock }: { dock: Dock }) {
@@ -140,7 +141,7 @@ const ChangesView = memo(function ChangesView({ hidden }: { hidden: boolean }) {
 const TabView = memo(function TabView({ tab, hidden }: { tab: MediaTab; rev: number; hidden: boolean }) {
   const machine = P.session?.machine_id ?? null;
   if (tab.kind === "term" && tab.term && !tab.error) return <TermView tab={tab} term={tab.term} hidden={hidden} />;
-  if (tab.kind === "session" && tab.splitSession) return <div className="agpview agsplit-view" hidden={hidden}><SessionTabView session={tab.splitSession} hidden={hidden} close={() => closeTab(tab.id)} links={sessionLinks} /></div>;
+  if (tab.kind === "session" && tab.splitSession) return <div className="agpview agsplit-view" hidden={hidden}><SessionTabView session={tab.splitSession} hidden={hidden} close={() => closeTab(tab.id)} links={sessionLinks()} /></div>;
   const ready = !tab.error && (tab.kind === "text" ? !!tab.text : tab.kind === "term" ? false : tab.kind === "model" ? !!tab.bytes : !!(tab.url || tab.exported));
   return <div className="agpview" hidden={hidden}>{!ready ? <PendingView tab={tab} />
     : tab.kind === "text" && tab.text ? <TextView tab={tab} text={tab.text} />
