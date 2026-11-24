@@ -1,7 +1,7 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, Prompt, Session, Start, checkout,
+    AgentKind, Agents, Answered, Asking, Command, Session, Start, checkout,
     harnesses,
     live::{Live, Sent},
     models, plans, sessions,
@@ -754,13 +754,13 @@ impl Agents {
         &self,
         kind: &AgentKind,
         cwd: Option<&str>,
-        begin: Begin,
+        mut begin: Begin,
     ) -> Result<Arc<Session>> {
         let kind = &self.settings.configured(kind)?;
         signs_in(&kind.name, begin.account.as_ref())?;
         let own = own_folder(cwd, &begin)?;
-        let (cwd, brief) = in_project(own.as_deref().or(cwd), begin.resume.is_some(), begin.brief)?;
-        let brief = match begin.instructions {
+        let (cwd, brief) = in_project(own.as_deref().or(cwd), begin.resume.is_some(), begin.brief.take())?;
+        let brief = match begin.instructions.take() {
             Some(instructions) => super::session::standing(brief.map(Cow::into_owned), Some(&instructions)).map(Cow::Owned),
             None => brief,
         };
@@ -782,7 +782,6 @@ impl Agents {
         let reservation = self.sessions.reserve(resume.clone(), cwd.clone())?;
         let id = reservation.id.clone();
         not_recovering(&crate::lock(&self.recovering), &cwd)?;
-        let assistant = begin.assistant;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
         let instructions = crate::lock(&self.instructions)
@@ -807,29 +806,13 @@ impl Agents {
             multi_machine: mesh.as_ref().is_some_and(|mesh| !mcp::alone(mesh)),
             rust_or_c: super::brief::has_native_build(&cwd),
         };
+        begin.brief = brief;
+        let review = begin.review;
         let mut session = Session::start(Start {
             id: id.clone(),
             kind,
             cwd: &cwd,
-            prompt: begin.prompt.map(|text| Prompt {
-                text,
-                images: begin.images,
-                context: None,
-            }),
-            resume: begin.resume,
-            earlier: begin.earlier,
-            timestamps: begin.timestamps,
-            title: begin.title,
-            named: begin.named,
-            model: begin.model,
-            mode: begin.mode,
-            effort: begin.effort,
-            fast: begin.fast,
-            parent: begin.parent,
-            follows: begin.follows,
-            note: begin.note,
-            worktrees: begin.worktrees,
-            brief,
+            begin,
             instructions,
             rule,
             skills: self
@@ -838,16 +821,13 @@ impl Agents {
                 .and_then(|dir| crate::machine::provision::skills_brief(dir)),
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
             context,
-            assistant,
-            account: begin.account,
-            persona: begin.persona,
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
             checkouts: self.checkouts.clone(),
             stopping: self.stopping.clone(),
         })?;
-        session.reviewer = begin.review;
+        session.reviewer = review;
         let session = Arc::new(session);
         let how = if resumed { "took over" } else { "started" };
         log::info!("{how} {} session {id} in {}", kind.name, cwd.display());

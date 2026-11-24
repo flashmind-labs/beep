@@ -12,6 +12,7 @@ use super::{
     images::Images,
     kinds::{CODEX_CONFIG, OPENCODE_PERMISSION, known},
     live::{Live, Sent},
+    running::Begin,
     processes::Processes,
     route, unix_now,
     usage::UsageHub,
@@ -25,7 +26,7 @@ use anyhow::Result;
 use beep_proto::{AccountName, ModelId};
 use beep_proto::SessionId;
 use beep_proto::node::agent::{
-    AgentCommand, AnswerOption, Effort, Entry, EntryKind, ParentLink, Persona, SessionDevice, SessionInfo,
+    AgentCommand, AnswerOption, Effort, EntryKind, SessionDevice, SessionInfo,
     Status,
 };
 use beep_proto::watched;
@@ -227,35 +228,9 @@ pub(super) struct Start<'a> {
     pub(super) id: SessionId,
     pub(super) kind: &'a AgentKind,
     pub(super) cwd: &'a Path,
-    pub(super) prompt: Option<Prompt>,
-    /// The agent's id of an earlier session to resume instead of a new one.
-    pub(super) resume: Option<SessionId>,
-    /// The resumed session's transcript from before the node restarted.
-    pub(super) earlier: Vec<Entry>,
-    pub(super) timestamps: Option<(u64, u64)>,
-    pub(super) title: Option<String>,
-    /// Its parent gave `title`.
-    pub(super) named: bool,
-    /// The model to run a new session on, rather than the agent's own.
-    pub(super) model: Option<ModelId>,
-    /// How hard a new session thinks, rather than the agent's own level.
-    pub(super) effort: Option<Effort>,
-    pub(super) fast: Option<bool>,
-    /// The session mode it was in before the node restarted, rather than
-    /// the one that asks no permission.
-    pub(super) mode: Option<String>,
-    /// The session that started it with `start_agent`.
-    pub(super) parent: Option<ParentLink>,
-    /// The parent's state when it runs on this node: the session ends when
-    /// the parent does.
-    pub(super) follows: Option<watch::Receiver<Live>>,
-    /// A first line for its transcript, such as the branch it started on.
-    pub(super) note: Option<String>,
-    /// The linked worktrees it created.
-    pub(super) worktrees: Vec<String>,
-    /// Beep's word to the agent, kept out of the transcript: in its system
-    /// prompt when it takes one, else ahead of the first prompt.
-    pub(super) brief: Option<Cow<'static, str>>,
+    /// What the caller asked for. Its `brief` is the final one, with its
+    /// `instructions` already in it.
+    pub(super) begin: Begin,
     /// Saved user instructions, delivered through a system prompt when supported.
     pub(super) instructions: Option<String>,
     /// Beep's checkout rule for the whole session.
@@ -267,12 +242,6 @@ pub(super) struct Start<'a> {
     pub(super) mcp: Option<McpServer>,
     /// Runtime context woven into Beep's standing prompt when `mcp` is set.
     pub(super) context: super::brief::Context,
-    /// The home assistant, whose standing text adds the assistant's brief.
-    pub(super) assistant: bool,
-    /// The named account it runs signed in as; `None` for the default one.
-    pub(super) account: Option<AccountName>,
-    /// The custom agent it runs as.
-    pub(super) persona: Option<Persona>,
     /// Where its transcript's pictures are kept.
     pub(super) images: Arc<Images>,
     /// Where what its turns spend goes.
@@ -311,7 +280,21 @@ impl Session {
             id,
             kind,
             cwd,
+            begin,
+            mut instructions,
+            rule,
+            skills,
+            mcp,
+            context,
+            images,
+            usage,
+            alerts,
+            checkouts,
+            stopping,
+        } = start;
+        let Begin {
             prompt,
+            images: attached,
             resume,
             earlier,
             timestamps,
@@ -321,25 +304,21 @@ impl Session {
             effort,
             fast,
             mode,
+            note,
+            brief,
+            worktrees,
             parent,
             follows,
-            note,
-            worktrees,
-            brief,
-            mut instructions,
-            rule,
-            skills,
-            mcp,
-            context,
             assistant,
             account,
             persona,
-            images,
-            usage,
-            alerts,
-            checkouts,
-            stopping,
-        } = start;
+            ..
+        } = begin;
+        let prompt = prompt.map(|text| Prompt {
+            text,
+            images: attached,
+            context: None,
+        });
         let protocol = super::acp::Protocol::from_env(&kind.env)?;
 
         // Only a new session takes the default model. A resumed one takes the

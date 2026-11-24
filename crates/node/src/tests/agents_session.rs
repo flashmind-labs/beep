@@ -161,12 +161,7 @@ async fn a_takeover_resumes_without_permission_prompts() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
-    let session = Session::start(Start {
-        prompt: Some(String::from("carry on").into()),
-        resume: Some(id.into()),
-        earlier: Vec::new(),
-        ..start_on(&fake("claude", &log), dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { prompt: Some(String::from("carry on")), resume: Some(id.into()), earlier: Vec::new(), ..begun(None) }, ..start_on(&fake("claude", &log), dir, None) })
     .unwrap();
     settle(&session).await;
     let info = session.info();
@@ -209,10 +204,7 @@ async fn the_first_prompt_carries_the_brief() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", PLAIN_ADAPTER, &log);
-    let session = Session::start(Start {
-        brief: Some("Worktree first.".into()),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { brief: Some("Worktree first.".into()), ..begun(None) }, ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
@@ -266,11 +258,7 @@ async fn an_agent_that_takes_a_system_prompt_gets_the_brief_in_session_new() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
-    let session = Session::start(Start {
-        brief: Some("Worktree first.".into()),
-        mcp: Some(beep_server()),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { brief: Some("Worktree first.".into()), ..begun(None) }, mcp: Some(beep_server()), ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
@@ -296,12 +284,7 @@ async fn a_resumed_session_gets_the_tools_in_session_load_and_the_brief_in_its_p
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
-    let session = Session::start(Start {
-        resume: Some("s".into()),
-        brief: Some("This session moved.".into()),
-        mcp: Some(beep_server()),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { resume: Some("s".into()), brief: Some("This session moved.".into()), ..begun(None) }, mcp: Some(beep_server()), ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
@@ -330,11 +313,7 @@ async fn an_agent_without_a_system_prompt_gets_the_whole_brief_in_its_first_prom
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("pi", PLAIN_ADAPTER, &log);
-    let session = Session::start(Start {
-        brief: Some("Worktree first.".into()),
-        mcp: Some(beep_server()),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { brief: Some("Worktree first.".into()), ..begun(None) }, mcp: Some(beep_server()), ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     let sent = sent(&log);
@@ -364,10 +343,7 @@ async fn a_question_of_the_nodes_takes_an_option_or_any_words() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
-    let session = Session::start(Start {
-        prompt: Some(String::from("hello").into()),
-        ..start_on(&script("fake", PLAIN_ADAPTER, &log), dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { prompt: Some(String::from("hello")), ..begun(None) }, ..start_on(&script("fake", PLAIN_ADAPTER, &log), dir, None) })
     .unwrap();
     settle(&session).await;
     let ask = |reply| Command::Ask {
@@ -631,10 +607,7 @@ async fn a_large_prompt_and_a_large_burst_do_not_deadlock() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("unused");
-    let session = Session::start(Start {
-        prompt: Some("y".repeat(4 * 1024 * 1024).into()),
-        ..start_on(&script("codex", BURSTING_ADAPTER, &log), dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { prompt: Some("y".repeat(4 * 1024 * 1024)), ..begun(None) }, ..start_on(&script("codex", BURSTING_ADAPTER, &log), dir, None) })
     .unwrap();
     let mut live = session.live.clone();
     // The timeout only bounds a failure; the turn ending is the signal.
@@ -830,10 +803,7 @@ while read -r line; do log "$1"; reply '{"stopReason":"end_turn"}'; done
 async fn image_session(dir: &Path, images: bool) -> Session {
     let mut kind = script("codex", IMAGES_ADAPTER, &dir.join("sent.jsonl"));
     kind.args.push(images.to_string());
-    let session = Session::start(Start {
-        prompt: None,
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { prompt: None, ..begun(None) }, ..start_on(&kind, dir, None) })
     .unwrap();
     until(&session, |live| {
         matches!(live.status(), Status::Idle | Status::Ended)
@@ -963,34 +933,26 @@ fn sent(log: &Path) -> Vec<Value> {
         .collect()
 }
 
+/// What a test session begins with: the prompt "go", on `model`.
+fn begun(model: Option<&str>) -> Begin {
+    Begin {
+        prompt: Some("go".into()),
+        model: model.map(ModelId::new),
+        ..Begin::default()
+    }
+}
+
 fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Start<'a> {
     Start {
         id: "c0ffee".into(),
         kind,
         cwd: dir,
-        prompt: Some(String::from("go").into()),
-        resume: None,
-        earlier: Vec::new(),
-        timestamps: None,
-        title: None,
-        named: false,
-        model: model.map(ModelId::new),
-        effort: None,
-        fast: None,
-        mode: None,
-        parent: None,
-        follows: None,
-        note: None,
-        worktrees: Vec::new(),
-        brief: None,
+        begin: begun(model),
         instructions: None,
         rule: None,
         skills: None,
         mcp: None,
         context: crate::agents::brief::Context::default(),
-        assistant: false,
-        account: None,
-        persona: None,
         images: Arc::default(),
         usage: Arc::default(),
         alerts: Arc::default(),
@@ -1137,10 +1099,7 @@ async fn a_resumed_session_switches_its_model_with_what_load_offers() {
     let log = dir.join("sent.jsonl");
     let mut kind = script("codex", RESUMED_CODEX_ADAPTER, &log);
     kind.default_model = Some(ModelId::new("deep"));
-    let start = Start {
-        resume: Some("0f3c2a9e-1111-4222-8333-944455556666".into()),
-        ..start_on(&kind, dir, None)
-    };
+    let start = Start { begin: Begin { resume: Some("0f3c2a9e-1111-4222-8333-944455556666".into()), ..begun(None) }, ..start_on(&kind, dir, None) };
     let session = Session::start(start).unwrap();
     settle(&session).await;
     assert_eq!(
@@ -1198,10 +1157,7 @@ async fn a_new_session_sets_its_thinking_before_the_first_prompt() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", THINKING_ADAPTER, &log);
-    let session = Session::start(Start {
-        effort: Some(Effort::Max),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { effort: Some(Effort::Max), ..begun(None) }, ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1);
@@ -1293,10 +1249,7 @@ async fn a_full_window_is_compacted_as_soon_as_its_turn_ends() {
     let log = dir.join("sent.jsonl");
     let adapter = COMPACTING_ADAPTER.replace("handshake ", "system_handshake ");
     let kind = script("codex", &adapter, &log);
-    let session = Session::start(Start {
-        instructions: Some("Use plain words.".into()),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { instructions: Some("Use plain words.".into()), ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     // Nothing waits: the compaction goes before the next message comes, so
@@ -1439,11 +1392,7 @@ async fn an_agent_without_a_system_prompt_hears_instructions_again_after_compact
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("pi", COMPACTING_ADAPTER, &log);
-    let session = Session::start(Start {
-        instructions: Some("Use plain words.".into()),
-        rule: Some("Worktree first.".into()),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { instructions: Some("Use plain words.".into()), rule: Some("Worktree first.".into()), ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     session
@@ -1478,12 +1427,7 @@ async fn a_resumed_session_keeps_the_rule_in_its_system_prompt() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
-    let session = Session::start(Start {
-        resume: Some("s".into()),
-        rule: Some("Worktree first.".into()),
-        mcp: Some(beep_server()),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { resume: Some("s".into()), ..begun(None) }, rule: Some("Worktree first.".into()), mcp: Some(beep_server()), ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     let sent = sent(&log);
@@ -1525,10 +1469,7 @@ async fn a_question_alerts_and_a_queued_prompt_ends_in_one_alert() {
     let log = dir.join("sent.jsonl");
     let kind = script("pi", TWO_TURN_ADAPTER, &log);
     let alerts = Arc::new(AlertHub::default());
-    let session = Session::start(Start {
-        alerts: alerts.clone(),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { alerts: alerts.clone(), ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     let question = session.info().question.expect("a question");
@@ -1612,10 +1553,7 @@ async fn a_turn_alerts_its_end_once_its_subagents_end() {
     let mut kind = script("pi", SUBAGENT_ADAPTER, &log);
     kind.args.push(fifo.display().to_string());
     let alerts = Arc::new(AlertHub::default());
-    let session = Session::start(Start {
-        alerts: alerts.clone(),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { alerts: alerts.clone(), ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     let question = session.info().question.expect("a question");
@@ -1688,10 +1626,7 @@ async fn a_turn_alerts_its_end_once_its_subagents_go_quiet() {
     let mut kind = script("pi", SUBAGENT_ADAPTER, &log);
     kind.args.push(fifo.display().to_string());
     let alerts = Arc::new(AlertHub::default());
-    let session = Session::start(Start {
-        alerts: alerts.clone(),
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { alerts: alerts.clone(), ..start_on(&kind, dir, None) })
     .unwrap();
     settle(&session).await;
     let question = session.info().question.expect("a question");
@@ -1960,10 +1895,7 @@ async fn plan_mode_waits_for_approval_and_goes_back_to_the_mode_before_it() {
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("claude", PLAN_ADAPTER, &log);
-    let session = Session::start(Start {
-        prompt: None,
-        ..start_on(&kind, dir, None)
-    })
+    let session = Session::start(Start { begin: Begin { prompt: None, ..begun(None) }, ..start_on(&kind, dir, None) })
     .unwrap();
     until(&session, |live| live.status() == Status::Idle).await;
     let info = session.info();
@@ -2225,10 +2157,7 @@ async fn codex_resumes_with_the_session_model_in_its_startup_config() {
         if let Some(env) = env {
             kind.env.insert("CODEX_CONFIG".to_owned(), env.to_owned());
         }
-        let start = Start {
-            resume: Some("held-1".into()),
-            ..start_on(&kind, dir, Some("saved-model"))
-        };
+        let start = Start { begin: Begin { resume: Some("held-1".into()), ..begun(Some("saved-model")) }, ..start_on(&kind, dir, Some("saved-model")) };
         let session = Session::start(start).unwrap();
         settle(&session).await;
 
@@ -2727,11 +2656,7 @@ cat > /dev/null
 "#;
         let kind = script("agy", &adapter.replace("LOAD_SESSION", load_session), &log);
         let instructions = "Use plain words.";
-        let session = Session::start(Start {
-            instructions: Some(instructions.into()),
-            resume,
-            ..start_on(&kind, temp.path(), None)
-        })
+        let session = Session::start(Start { begin: Begin { resume, ..begun(None) }, instructions: Some(instructions.into()), ..start_on(&kind, temp.path(), None) })
         .unwrap();
 
         settle(&session).await;
@@ -2764,11 +2689,7 @@ reply '{"stopReason":"end_turn"}'
 cat > /dev/null
 "#;
         let kind = script("custom", adapter, &log);
-        let session = Session::start(Start {
-            instructions: Some("Use plain words.".into()),
-            resume,
-            ..start_on(&kind, temp.path(), None)
-        })
+        let session = Session::start(Start { begin: Begin { resume, ..begun(None) }, instructions: Some("Use plain words.".into()), ..start_on(&kind, temp.path(), None) })
         .unwrap();
 
         settle(&session).await;
@@ -2824,11 +2745,7 @@ cat > /dev/null
             std::fs::write(dir.join("APPEND_SYSTEM.md"), "Keep Pi's own instructions.").unwrap();
         }
         let instructions = "Use plain words.\nKeep `quotes`, $variables and spaces.";
-        let session = Session::start(Start {
-            instructions: Some(instructions.into()),
-            resume,
-            ..start_on(&kind, dir, None)
-        })
+        let session = Session::start(Start { begin: Begin { resume, ..begun(None) }, instructions: Some(instructions.into()), ..start_on(&kind, dir, None) })
         .unwrap();
 
         settle(&session).await;
@@ -2885,12 +2802,7 @@ cat > /dev/null
             args,
             ..script("flsh", "", &log)
         };
-        let session = Session::start(Start {
-            instructions: Some("Use plain words.".into()),
-            rule: Some("Use a worktree.".into()),
-            resume: resume.clone(),
-            ..start_on(&kind, dir, None)
-        })
+        let session = Session::start(Start { begin: Begin { resume: resume.clone(), ..begun(None) }, instructions: Some("Use plain words.".into()), rule: Some("Use a worktree.".into()), ..start_on(&kind, dir, None) })
         .unwrap();
 
         settle(&session).await;
@@ -3097,11 +3009,7 @@ async fn an_image_sent_during_resume_waits_for_image_capabilities() {
         let mut kind = script("codex", &adapter, &dir.join("sent.jsonl"));
         kind.args
             .extend([images.to_string(), fifo.display().to_string()]);
-        let session = Session::start(Start {
-            prompt: None,
-            resume: Some("s".into()),
-            ..start_on(&kind, dir, None)
-        })
+        let session = Session::start(Start { begin: Begin { prompt: None, resume: Some("s".into()), ..begun(None) }, ..start_on(&kind, dir, None) })
         .unwrap();
         session
             .order(Command::Steer(shot()))
@@ -3152,10 +3060,7 @@ read -r line; log "$1"; reply '{}'
 cat > /dev/null
 "#;
     let kind = script("codex", adapter, &log);
-    let session = Session::start(Start {
-        fast: Some(true),
-        ..start_on(&kind, temp.path(), None)
-    })
+    let session = Session::start(Start { begin: Begin { fast: Some(true), ..begun(None) }, ..start_on(&kind, temp.path(), None) })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1);
@@ -3192,10 +3097,7 @@ read -r line; log "$1"; reply '{"stopReason":"end_turn"}'
 cat > /dev/null
 "#;
     let kind = script("codex", adapter, &log);
-    let session = Session::start(Start {
-        fast: Some(true),
-        ..start_on(&kind, temp.path(), Some("model-b"))
-    })
+    let session = Session::start(Start { begin: Begin { fast: Some(true), ..begun(Some("model-b")) }, ..start_on(&kind, temp.path(), Some("model-b")) })
     .unwrap();
     settle(&session).await;
     assert_eq!(session.info().turns, 1);
