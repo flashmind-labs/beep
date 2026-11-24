@@ -7,7 +7,7 @@ const record = {
   members: [{ login: "dana", mesh: "mesh-a", joined_at: now - 2000 }, { login: "kim", mesh: "mesh-b", joined_at: now - 1000 }],
 };
 const issue = (number: number, assignees: string[]) => ({ number, title: `Issue ${number}`, url: `https://example.test/example/widget/issues/${number}`, author: "Example", opened_at: now - number * 1000, comments: 0, labels: [], assignees });
-const lists = { issues: [issue(47, ["kim"]), issue(52, ["kim"]), issue(53, [])], prs: [], issues_error: null, prs_error: null, synced_at: now };
+const lists = { issues: [issue(47, ["kim"]), issue(52, ["kim"]), issue(53, [])], prs: [], issues_error: null, prs_error: null };
 const teammate = { id: "kim-1", title: "Issue 47", lane: "working", login: "kim", machine: "kim-laptop", issue: 47, pr: null, updated_at: now };
 const queued = { id: "queued:53", title: "Issue 53", lane: "queued", login: "dana", machine: "build-box", issue: 53, pr: null, updated_at: now };
 

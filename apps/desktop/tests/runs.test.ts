@@ -9,7 +9,7 @@ function run(over: Partial<RunRow> = {}): RunRow {
   return {
     id: 9001, number: 409, workflow: "CI", title: "Bump gradle", branch: "bump-gradle", event: "pull_request",
     actor: "kim", state: "failed", url: "https://github.com/acme/widget/actions/runs/9001",
-    started_at: NOW - 293_000, finished_at: NOW, progress: null, pull_requests: [43], ...over,
+    started_at: NOW - 293_000, finished_at: NOW, progress: null, ...over,
   };
 }
 

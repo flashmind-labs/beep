@@ -12,7 +12,6 @@ export interface Forge {
 
 /// What `create_project` did.
 export interface Created {
-  name: string;
   url: string;
   imported: ProjectRow[];
   failed: { machine_id: string; machine_name: string; why: string }[];

@@ -6,7 +6,7 @@ test("issue detail keeps comment draft, caret and scroll during project refresh"
   const detail = { kind: "issue", number: 1, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue description</p>", comments: [{ author: "Writer", at: now, html: "<p>Existing comment</p>" }], earlier: 0, review: "none", checks: null, linked_prs: [] };
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
-    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
+    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null }, center_thread_detail: detail,
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
   await page.locator('.pj-det .pj-li[title="Example issue"]').click();
@@ -57,7 +57,7 @@ test("Work on it picks a model under the button and starts the issue's agent at 
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }, { id: "beta", name: "Beta", description: null }] },
     agent_begin: { session: { machine_id: "build-box", machine_name: "build-box", id: "start:one", agent: "codex", cwd: "/srv/project", status: "starting", external: false, question: null } },
-    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
+    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null }, center_thread_detail: detail,
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
   await page.locator('.pj-det .pj-li[title="Example issue"]').click();
@@ -93,7 +93,7 @@ test("an issue opens the session that worked on it, one started before sessions 
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     agent_sessions: [row("earlier", null, "ended")], project_sessions: [row("earlier", null, "ended")],
-    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
+    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null }, center_thread_detail: detail,
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
   await page.locator('.pj-det .pj-li[title="Example issue"]').click();
@@ -109,10 +109,10 @@ test("Work on it asks the machine first when the project is on several", async (
   const host = (id: string, agents: string[]) => ({ machine_id: id, machine_name: id, agents, workspace: null, home: "/srv", capabilities: [] });
   await openDesktop(page, false, {
     agent_hosts: [host("build-box", ["codex"]), host("gpu-box", ["claude", "codex"]), host("spare-box", ["codex"])],
-    center_home: { machines: [], running: [], needs_you: [], projects: ["build-box", "gpu-box"].map(id => ({ display_name: null, name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true, imported_at: 1 })) },
+    center_home: { machines: [], running: [], needs_you: [], projects: ["build-box", "gpu-box"].map(id => ({ display_name: null, name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true })) },
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
     agent_begin: { session: { machine_id: "gpu-box", machine_name: "gpu-box", id: "start:one", agent: "claude", cwd: "/srv/project", status: "starting", external: false, question: null } },
-    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
+    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null }, center_thread_detail: detail,
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
   await page.locator('.pj-det .pj-li[title="Example issue"]').click();
@@ -133,7 +133,7 @@ test("Work on it asks the machine first when the project is on several", async (
 
 test("Review stays in the checkout and Work on PR targets the branch when a session only mentions the PR", async ({ page }) => {
   const reviewer = { machine_id: "build-box", machine_name: "build-box", id: "reviewer", agent: "codex", cwd: "/srv/project", status: "working", external: false, question: null };
-  const now = Date.now(), pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
+  const now = Date.now(), pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, labels: [] };
   const detail = { kind: "pr", number: 9, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
@@ -147,7 +147,7 @@ test("Review stays in the checkout and Work on PR targets the branch when a sess
       { kind: "tool", text: `Bash: gh pr create [completed]\n${pr.url}0` },
     ] },
     center_pull_request_head: { branch: "example-change", fork: false },
-    center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail,
+    center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null }, center_thread_detail: detail,
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".pj-strip button").filter({ hasText: "1 PR" }).click();
@@ -187,11 +187,11 @@ test("Review stays in the checkout and Work on PR targets the branch when a sess
 
 test("Continue opens the PR creator's session without a model picker", async ({ page }) => {
   const now = Date.now();
-  const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: true, created_at: now, updated_at: now, labels: [] };
+  const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: true, created_at: now, labels: [] };
   const detail = { kind: "pr", number: pr.number, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
   const creator = { machine_id: "build-box", machine_name: "build-box", id: "creator", agent: "codex", title: "Original work", cwd: "/srv/project", status: "ended", external: false, question: null };
   await openDesktop(page, false, {
-    center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null, synced_at: now },
+    center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null },
     center_thread_detail: detail,
     center_find_prompts: [{ session: creator }],
     agent_older: { earlier: 0, entries: [{
@@ -210,9 +210,9 @@ test("Continue opens the PR creator's session without a model picker", async ({ 
 
 test("Open on GitHub opens the current pull request in the browser", async ({ page }) => {
   const now = Date.now();
-  const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
+  const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, labels: [] };
   const detail = { kind: "pr", number: pr.number, title: pr.title, url: pr.url, author: pr.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
-  await openDesktop(page, false, { center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail });
+  await openDesktop(page, false, { center_project_lists: { issues: [], prs: [pr], issues_error: null, prs_error: null }, center_thread_detail: detail });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "pr:9" } }), projectName);
   const pane = page.locator(".pj-split > .pj-det");
   await expect(pane.getByText("Change", { exact: true })).toBeVisible();
@@ -222,10 +222,10 @@ test("Open on GitHub opens the current pull request in the browser", async ({ pa
 
 test("an issue's linked pull requests open here or on the host", async ({ page }) => {
   const now = Date.now(), issue = { number: 1, title: "Example issue", url: "https://github.com/example/widget/issues/1", author: "Author", opened_at: now, comments: 0, labels: [], linked_pr: true };
-  const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, updated_at: now, labels: [] };
+  const pr = { number: 9, title: "Example change", url: "https://github.com/example/widget/pull/9", author: "Author", draft: false, mine: false, created_at: now, labels: [] };
   const other = { number: 4, title: "Elsewhere", url: "https://github.com/example/other/pull/4", state: "merged" };
   const detail = { kind: "issue", number: 1, title: issue.title, url: issue.url, author: issue.author, state: "open", draft: false, labels: [], opened_at: now, body_html: "<p>Issue</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [{ number: 9, title: pr.title, url: pr.url, state: "open" }, other] };
-  await openDesktop(page, false, { center_project_lists: { issues: [issue], prs: [pr], issues_error: null, prs_error: null, synced_at: now }, center_thread_detail: detail });
+  await openDesktop(page, false, { center_project_lists: { issues: [issue], prs: [pr], issues_error: null, prs_error: null }, center_thread_detail: detail });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "issues" } }), projectName);
   await page.locator('.pj-det .pj-li[title="Example issue"]').click();
   const pane = page.locator(".pj-split > .pj-det");
@@ -244,13 +244,13 @@ for (const { kind, subject, path } of [
     const url = `https://github.com/example/widget/${path}/${number}`;
     const thread = { number, title, url, author: "Author", opened_at: now, labels: [] };
     const issue = { ...thread, comments: 0 };
-    const pr = { ...thread, draft: false, mine: false, created_at: now, updated_at: now };
+    const pr = { ...thread, draft: false, mine: false, created_at: now };
     const detail = { ...thread, kind, state: "open", draft: false, body_html: "<p>Change</p>", comments: [], earlier: 0, review: "none", checks: null, linked_prs: [] };
     await openDesktop(page, false, {
       agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
       agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
       agent_begin: { session: { machine_id: "build-box", machine_name: "build-box", id: "start:discussion", agent: "codex", cwd: "/srv/project", status: "starting", external: false, question: null } },
-      center_project_lists: { issues: kind === "issue" ? [issue] : [], prs: kind === "pr" ? [pr] : [], issues_error: null, prs_error: null, synced_at: now },
+      center_project_lists: { issues: kind === "issue" ? [issue] : [], prs: kind === "pr" ? [pr] : [], issues_error: null, prs_error: null },
       center_thread_detail: detail,
     });
     await page.evaluate(tile => window.__navigation.open({ projects: { project: tile.project, tile: tile.key } }), { project: projectName, key: `${kind}:${number}` });

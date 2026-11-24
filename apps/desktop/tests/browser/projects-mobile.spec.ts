@@ -6,9 +6,9 @@ import { openDesktop } from "./harness.ts";
 const long = "a-very-long-repository-name-that-keeps-going-without-any-break-at-all";
 const machines = Array.from({ length: 6 }, (_, i) => ({ id: `box-${i}`, name: `build-box-with-a-long-name-${i}` }));
 const rows = [
-  ...machines.map(m => ({ name: `example/${long}`, url: `https://example.test/example/${long}`, machine_id: m.id, machine_name: m.name, folder: `/srv/work/deeply/nested/folder/${long}`, cloned: true, imported_at: 1 })),
-  { name: `other-org-with-a-long-name/${long}-2`, url: "https://example.test/o/p", machine_id: "box-0", machine_name: machines[0].name, folder: `/srv/other/${long}-2`, cloned: true, imported_at: 1 },
-  { name: "plain-folder-without-an-org-and-a-long-name-too", url: "", machine_id: "box-1", machine_name: machines[1].name, folder: "/srv/plain", cloned: false, imported_at: 1 },
+  ...machines.map(m => ({ name: `example/${long}`, url: `https://example.test/example/${long}`, machine_id: m.id, machine_name: m.name, folder: `/srv/work/deeply/nested/folder/${long}`, cloned: true })),
+  { name: `other-org-with-a-long-name/${long}-2`, url: "https://example.test/o/p", machine_id: "box-0", machine_name: machines[0].name, folder: `/srv/other/${long}-2`, cloned: true },
+  { name: "plain-folder-without-an-org-and-a-long-name-too", url: "", machine_id: "box-1", machine_name: machines[1].name, folder: "/srv/plain", cloned: false },
 ];
 const home = { machines: [], projects: rows, running: [], needs_you: [] };
 const groups = [{ id: "g", name: `A group with a long name ${long}`, paths: [`work/deeply/nested/folder`, `another/very/long/group/folder/path/${long}`] }];

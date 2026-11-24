@@ -54,7 +54,7 @@ test("machine sidebar rows remain focused when another machine changes", async (
 });
 
 test("sidebar project rows retain focus and update another project", async ({ page }) => {
-  const project = (name: string) => ({ name, url: `https://example.test/${name}`, machine_id: "box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true, imported_at: 1 });
+  const project = (name: string) => ({ name, url: `https://example.test/${name}`, machine_id: "box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true });
   const home = { machines: [], projects: [project("team/alpha"), project("team/beta")], running: [], needs_you: [] };
   await openDesktop(page, false, { center_home: home });
   const beta = page.locator("#side .cc-grp.projects").getByRole("button", { name: "team/beta", exact: true });
@@ -68,7 +68,7 @@ test("sidebar project rows retain focus and update another project", async ({ pa
 });
 
 test("sidebar project headings fold and middle-click opens a project window", async ({ page }) => {
-  const project = { name: "team/widget", url: "https://example.test/team/widget", machine_id: "box", machine_name: "Build box", folder: "/srv/widget", cloned: true, imported_at: 1 };
+  const project = { name: "team/widget", url: "https://example.test/team/widget", machine_id: "box", machine_name: "Build box", folder: "/srv/widget", cloned: true };
   await openDesktop(page, false, { center_home: { machines: [], projects: [project], running: [], needs_you: [] } });
   const group = page.locator("#side .cc-grp.projects"), heading = group.getByRole("button", { name: "team/", exact: true });
   const row = group.getByRole("button", { name: "team/widget", exact: true });

@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
 test("workflow run retains focus while details update", async ({ page }) => {
-  const run = { id: 42, number: 42, workflow: 'Build', title: 'Example run', branch: 'main', event: 'push', actor: 'Example', state: 'failed', url: 'https://example.test/run/42', started_at: 1, finished_at: 2, progress: null, pull_requests: [], host: 'github.com' };
+  const run = { id: 42, number: 42, workflow: 'Build', title: 'Example run', branch: 'main', event: 'push', actor: 'Example', state: 'failed', url: 'https://example.test/run/42', started_at: 1, finished_at: 2, progress: null, host: 'github.com' };
   const detail = { run, jobs: [{ id: 1, name: 'Test', state: 'failed', started_at: 1, finished_at: 2, steps: [{ number: 1, name: 'Run tests', state: 'failed', started_at: 1, finished_at: 2 }], url: 'https://example.test/log' }], log: { job: 'Test', step: 'Run tests', text: 'Example failure', truncated: false }, error: null, rate_limited_until: null };
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: 'build-box', machine_name: 'build-box', agents: ['codex'], workspace: null, home: '/srv', capabilities: [] }],
@@ -38,7 +38,7 @@ test("workflow run retains focus while details update", async ({ page }) => {
 });
 
 test("workflow filters retain host labels and show read errors", async ({ page }) => {
-  const run = (id: number, state: string, host: string) => ({ id, number: id, workflow: 'Build', title: `Run ${id}`, branch: 'main', event: 'push', actor: 'Example', state, url: `https://example.test/run/${id}`, started_at: 1, finished_at: 2, progress: null, pull_requests: [], host });
+  const run = (id: number, state: string, host: string) => ({ id, number: id, workflow: 'Build', title: `Run ${id}`, branch: 'main', event: 'push', actor: 'Example', state, url: `https://example.test/run/${id}`, started_at: 1, finished_at: 2, progress: null, host });
   const hosts = [{ host: 'github.com', kind: 'github', repo: 'example/widget', primary: true, synced_at: null, error: null, rate_limited_until: null }, { host: 'forge.example.test', kind: 'forgejo', repo: 'example/widget', primary: false, synced_at: null, error: 'Unavailable', rate_limited_until: null }];
   await openDesktop(page, false, { center_project_runs: { runs: [run(1, 'failed', 'github.com'), run(2, 'passed', 'forge.example.test')], checks: [], hosts, synced_at: null, error: 'Some runs could not be read', rate_limited_until: null } });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "actions" } }), projectName);
@@ -54,7 +54,7 @@ test("workflow filters retain host labels and show read errors", async ({ page }
 });
 
 test("showing the window again restarts the project's Actions", async ({ page }) => {
-  const run = { id: 7, number: 7, workflow: 'Build', title: 'Example run', branch: 'main', event: 'push', actor: 'Example', state: 'passed', url: 'https://example.test/run/7', started_at: 1, finished_at: 2, progress: null, pull_requests: [], host: 'github.com' };
+  const run = { id: 7, number: 7, workflow: 'Build', title: 'Example run', branch: 'main', event: 'push', actor: 'Example', state: 'passed', url: 'https://example.test/run/7', started_at: 1, finished_at: 2, progress: null, host: 'github.com' };
   await openDesktop(page, false, { center_project_runs: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null } });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "actions" } }), projectName);
   await expect(page.locator('#sec-actions')).toContainText('Build #7');
@@ -71,7 +71,7 @@ test("showing the window again restarts the project's Actions", async ({ page })
 });
 
 test("wheeling over an opened run's log scrolls the page", async ({ page }) => {
-  const run = (id: number) => ({ id, number: id, workflow: 'Build', title: `Run ${id}`, branch: 'main', event: 'push', actor: 'Example', state: id === 40 ? 'failed' : 'passed', url: `https://example.test/run/${id}`, started_at: 1, finished_at: 2, progress: null, pull_requests: [], host: 'github.com' });
+  const run = (id: number) => ({ id, number: id, workflow: 'Build', title: `Run ${id}`, branch: 'main', event: 'push', actor: 'Example', state: id === 40 ? 'failed' : 'passed', url: `https://example.test/run/${id}`, started_at: 1, finished_at: 2, progress: null, host: 'github.com' });
   const runs = Array.from({ length: 20 }, (_, i) => run(40 - i));
   const log = { job: 'Test', step: 'Run tests', text: Array.from({ length: 120 }, (_, i) => `line ${i}`).join("\n"), truncated: true };
   const detail = { run: runs[0], jobs: [{ id: 1, name: 'Test', state: 'failed', started_at: 1, finished_at: 2, steps: [{ number: 1, name: 'Run tests', state: 'failed', started_at: 1, finished_at: 2 }], url: 'https://example.test/log' }], log, error: null, rate_limited_until: null };

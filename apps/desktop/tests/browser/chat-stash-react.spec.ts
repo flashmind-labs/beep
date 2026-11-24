@@ -59,7 +59,7 @@ test("stash Escape returns focus and Remove sends the selected id", async ({ pag
 });
 
 test("a pending pop does not close another project's stash", async ({ page }) => {
-  const first = { name: projectName, url: 'https://example.test/example/widget', machine_id: 'build-box', machine_name: 'build-box', folder: '/srv/project', cloned: true, imported_at: 1 };
+  const first = { name: projectName, url: 'https://example.test/example/widget', machine_id: 'build-box', machine_name: 'build-box', folder: '/srv/project', cloned: true };
   const second = { ...first, name: 'example/other', folder: '/srv/other' };
   const entries = [{ id: 'entry', text: 'Saved message', images: [], files: [] }];
   await openDesktop(page, false, { center_home: { machines: [], projects: [first, second], running: [], needs_you: [] }, agent_hosts: [{ machine_id: 'build-box', machine_name: 'build-box', agents: ['codex'], workspace: null, home: '/srv', capabilities: [] }], prompt_stash_list: entries, prompt_stash_read: { text: 'Restored draft', images: [], files: [], paths: [] } });

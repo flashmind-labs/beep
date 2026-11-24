@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const project = (name: string, folder: string, url = `https://example.test/${name}`) => ({ name, url, machine_id: "build-box", machine_name: "build-box", folder, cloned: true, imported_at: 1 });
+const project = (name: string, folder: string, url = `https://example.test/${name}`) => ({ name, url, machine_id: "build-box", machine_name: "build-box", folder, cloned: true });
 const agent = (id: string, cwd: string, last_activity: number) => ({ kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title: id, cwd, status: "working", doing: null, started_at: 1, last_activity, external: false, question: null });
 const projects = [
   project("acme/alpha", "/srv/acme/alpha"),

@@ -21,7 +21,7 @@ for (const active of [false, true]) {
     await openDesktop(page, false, { project_sync: [sync] });
     await page.evaluate(machine => {
       // Keep the fixture's project and sessions while adding a connected machine.
-      window.__navigation.respond("center_home", { machines: [machine], projects: [{ name: "example/widget", url: "", machine_id: machine.id, machine_name: machine.name, folder: "/srv/project", cloned: true, imported_at: 1 }], running: [], needs_you: [] });
+      window.__navigation.respond("center_home", { machines: [machine], projects: [{ name: "example/widget", url: "", machine_id: machine.id, machine_name: machine.name, folder: "/srv/project", cloned: true }], running: [], needs_you: [] });
       window.__navigation.notify("home");
     }, machine);
     await page.getByRole("tab", { name: "Machines", exact: true }).click();

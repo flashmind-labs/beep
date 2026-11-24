@@ -5,7 +5,7 @@ test.use({ hasTouch: true, isMobile: true, viewport: { width: 390, height: 844 }
 
 test("a phone sorts projects by the activity their cards show", async ({ page }) => {
   const now = Date.now();
-  const projects = ["alpha", "beta"].map(name => ({ name: `example/${name}`, url: "", machine_id: "build-box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true, imported_at: 1 }));
+  const projects = ["alpha", "beta"].map(name => ({ name: `example/${name}`, url: "", machine_id: "build-box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true }));
   const running = [{ kind: "agent", machine_id: "build-box", machine_name: "Build box", id: "active", agent: "codex", title: "Task", cwd: "/srv/alpha", status: "working", doing: null, started_at: 1, last_activity: now - 2 * 86_400_000, external: false, question: null }];
   const ended = [{ machine_id: "build-box", machine_name: "Build box", id: "past", agent: "codex", title: "Done", cwd: "/srv/beta", status: "ended", doing: null, started_at: 1, last_activity: now - 3_600_000, external: false, question: null }];
   await openDesktop(page, false, { center_home: { machines: [], projects, running, needs_you: [] }, project_sessions: ended });

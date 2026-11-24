@@ -101,7 +101,7 @@ test("the project's sessions scroll under a header that stays put, and an idle o
 test("closing the current session opens the next running one, then the project once none is left", async ({ page }, info) => {
   const modifier = info.project.name === "Windows" ? "Control" : "Meta";
   const past = { machine_id: "build-box", machine_name: "build-box", id: "past-0", agent: "codex", title: "Past session 0", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100, external: false, question: null, assistant: false };
-  const project = { name: projectName, url: "https://example.test/example/widget", machine_id: past.machine_id, machine_name: past.machine_name, folder: past.cwd, cloned: true, imported_at: 1 };
+  const project = { name: projectName, url: "https://example.test/example/widget", machine_id: past.machine_id, machine_name: past.machine_name, folder: past.cwd, cloned: true };
   const first = { ...past, kind: "agent", id: "notice-one", title: "First notification", status: "working" };
   const second = { ...first, id: "notice-two", title: "Second notification", status: "idle" };
   await openDesktop(page, false, { project_sessions: [past], center_home: { machines: [], projects: [project], running: [first, second], needs_you: [] } });

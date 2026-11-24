@@ -77,7 +77,7 @@ test("text after a blank line is outlined as code", async ({ page }) => {
 
 test("each project keeps its own unsent task", async ({ page }) => {
   const other = "example/gadget";
-  const row = (name: string) => ({ display_name: null, name, url: `https://example.test/${name}`, machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 });
+  const row = (name: string) => ({ display_name: null, name, url: `https://example.test/${name}`, machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true });
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
     center_home: { machines: [], projects: [row(projectName), row(other)], running: [], needs_you: [] },

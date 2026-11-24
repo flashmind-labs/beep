@@ -65,8 +65,6 @@ pub struct PullRequestRow {
     mine: bool,
     /// In milliseconds since the Unix epoch.
     created_at: u64,
-    /// In milliseconds since the Unix epoch.
-    updated_at: u64,
     labels: Vec<String>,
 }
 
@@ -80,7 +78,6 @@ impl PullRequestRow {
             draft: p.draft,
             mine: p.mine,
             created_at: epoch_ms(p.created_at),
-            updated_at: epoch_ms(p.updated_at),
             labels,
         }
     }

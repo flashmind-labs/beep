@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const projects = [{ name: "example/widget", url: "", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 }];
+const projects = [{ name: "example/widget", url: "", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true }];
 const row = (id: string, title: string, status: string) => ({ kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title, cwd: "/srv/project",
   status, doing: status === "working" ? "running the tests" : null, started_at: 1, last_activity: 1, external: false, question: null });
 const question = { id: 7, text: "Restart the web server?", detail: "systemctl restart web", options: [{ id: "yes", name: "Allow", allow: true }, { id: "no", name: "Deny", allow: false }] };

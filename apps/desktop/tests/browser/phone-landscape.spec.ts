@@ -17,7 +17,7 @@ test.use({ hasTouch: true, isMobile: true });
 
 const home = {
   machines: [], running: [], coming_up: null, updates: null,
-  projects: [{ name: "example/app", url: "https://example.test/example/app", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 }],
+  projects: [{ name: "example/app", url: "https://example.test/example/app", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true }],
   needs_you: [],
 };
 

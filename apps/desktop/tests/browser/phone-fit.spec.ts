@@ -5,7 +5,7 @@ import { openDesktop } from "./harness.ts";
 // phone page wider than the screen.
 const long = "a-very-long-repository-name-that-keeps-going-without-any-break-at-all";
 const machines = [{ id: "box-0", name: "build-box" }, { id: "box-1", name: "gpu-box" }];
-const projects = machines.map((m, i) => ({ name: `example/${long}-${i}`, url: `https://example.test/example/${i}`, machine_id: m.id, machine_name: m.name, folder: `/srv/work/${long}-${i}`, cloned: true, imported_at: 1 }));
+const projects = machines.map((m, i) => ({ name: `example/${long}-${i}`, url: `https://example.test/example/${i}`, machine_id: m.id, machine_name: m.name, folder: `/srv/work/${long}-${i}`, cloned: true }));
 const sessions = ["claude", "codex", "claude", "codex"].map((agent, i) => ({
   kind: "agent", machine_id: "box-0", machine_name: "build-box", id: `session-${i}`, agent, title: `A session title that keeps going ${long}`, cwd: `/srv/work/${long}-0`,
   status: i < 2 ? "working" : "idle", doing: i < 2 ? `Running a long command with many arguments ${long}` : null, started_at: 1, last_activity: 1, external: false, question: null,

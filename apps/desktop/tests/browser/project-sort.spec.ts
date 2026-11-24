@@ -5,7 +5,7 @@ test("project sort separates activity from visits and survives a reload", async 
   await page.addInitScript(() => {
     localStorage.setItem("beep.projects.visited", JSON.stringify({ "example/beta": 400 }));
   });
-  const projects = ["alpha", "beta"].map(name => ({ name: `example/${name}`, url: "", machine_id: "build-box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true, imported_at: 1 }));
+  const projects = ["alpha", "beta"].map(name => ({ name: `example/${name}`, url: "", machine_id: "build-box", machine_name: "Build box", folder: `/srv/${name}`, cloned: true }));
   const running = [{ kind: "agent", machine_id: "build-box", machine_name: "Build box", id: "active", agent: "codex", title: "Task", cwd: "/srv/alpha", status: "working", doing: null, started_at: 1, last_activity: 300, external: false, question: null }];
   await openDesktop(page, false, { center_home: { machines: [], projects, running, needs_you: [] } });
   const open = () => page.evaluate(() => window.__navigation.open({ projects: { project: null } }));

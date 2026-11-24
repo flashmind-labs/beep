@@ -62,7 +62,6 @@ export interface RunRow {
   started_at: number | null;
   finished_at: number | null;
   progress: RunProgress | null;
-  pull_requests: number[];
   /// The host it ran on, such as `github.com`.
   host?: string | null;
 }
@@ -71,7 +70,6 @@ export interface RunRow {
 interface ChecksRow {
   number: number;
   state: RunState;
-  run_id: number;
   progress: RunProgress | null;
   /// As in RunRow.
   host?: string | null;

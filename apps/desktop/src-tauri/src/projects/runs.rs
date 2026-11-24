@@ -37,8 +37,6 @@ pub struct ListsRow {
     prs_error: Option<String>,
     issues: Vec<IssueRow>,
     issues_error: Option<String>,
-    /// In milliseconds since the Unix epoch.
-    synced_at: Option<u64>,
 }
 
 /// The pull requests and issues as last read, at once, with a newer read
@@ -62,7 +60,6 @@ pub async fn center_project_lists(
         prs_error: lists.prs_error,
         issues: lists.issues.into_iter().map(Into::into).collect(),
         issues_error: lists.issues_error,
-        synced_at: ms(lists.synced_at),
     }))
 }
 
@@ -121,7 +118,6 @@ pub struct RunRow {
     started_at: Option<u64>,
     finished_at: Option<u64>,
     progress: Option<ProgressRow>,
-    pull_requests: Vec<u64>,
     /// The host it ran on; `None` on an opened run, which names its host apart.
     host: Option<String>,
 }
@@ -142,7 +138,6 @@ impl From<WorkflowRun> for RunRow {
             started_at: ms(r.started_at),
             finished_at: ms(r.finished_at),
             progress: r.progress.map(Into::into),
-            pull_requests: r.pull_requests,
         }
     }
 }
@@ -160,7 +155,6 @@ impl From<HostedRun> for RunRow {
 pub struct ChecksRow {
     number: u64,
     state: &'static str,
-    run_id: u64,
     progress: Option<ProgressRow>,
     /// As in `RunRow`.
     host: Option<String>,
@@ -172,7 +166,6 @@ impl From<PrChecks> for ChecksRow {
             host: None,
             number: c.number,
             state: c.state.into(),
-            run_id: c.run_id,
             progress: c.progress.map(Into::into),
         }
     }

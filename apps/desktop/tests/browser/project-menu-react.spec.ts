@@ -96,7 +96,7 @@ test("project rename keeps its identity and only renames the repository when sel
   await expect(page.getByLabel("Repository name on GitHub", { exact: true })).toHaveCount(0);
   await page.getByLabel("Project name", { exact: true }).fill("New name");
   await page.evaluate(project => window.__navigation.respond("center_home", {
-    machines: [], running: [], needs_you: [], projects: [{ name: project, display_name: "New name", url: "https://example.test/example/widget", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 }],
+    machines: [], running: [], needs_you: [], projects: [{ name: project, display_name: "New name", url: "https://example.test/example/widget", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true }],
   }), projectName);
   await page.getByRole("button", { name: "Rename", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "rename_project").map(call => call.args))).toEqual([{ project: projectName, name: "New name", repositories: [] }]);

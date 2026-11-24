@@ -129,7 +129,7 @@ test("sync and terminal events refresh the combined machine sections", async ({ 
 });
 
 test("handoff retries errors and keeps its native request after closing", async ({ page }) => {
-  const projects = machines.slice(0, 2).map(machine => ({ name: projectName, url: "https://example.test/example/widget", machine_id: machine.id, machine_name: machine.name, folder: machine.folder, cloned: true, imported_at: 1 }));
+  const projects = machines.slice(0, 2).map(machine => ({ name: projectName, url: "https://example.test/example/widget", machine_id: machine.id, machine_name: machine.name, folder: machine.folder, cloned: true }));
   const git = machines.slice(0, 2).map(machine => ({ machine_id: machine.id, machine_name: machine.name, branch: "main", upstream: null, ahead: 0, behind: 0, error: null }));
   await openDesktop(page, false, { ...responses, center_home: { machines: [], projects, running: [], needs_you: [] }, project_git_state: git });
   await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
@@ -209,7 +209,7 @@ test("adding a machine picks its folder in a palette of the machine's folders", 
 
 test("the project composer offers hosts that reconnect while it stays open", async ({ page }) => {
   const host = (id: string) => ({ machine_id: id, machine_name: id, agents: ["codex"], workspace: null, home: null, capabilities: [] });
-  const projects = ["build-box", "studio"].map(id => ({ name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true, imported_at: 1 }));
+  const projects = ["build-box", "studio"].map(id => ({ name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true }));
   await openDesktop(page, false, { ...responses, agent_hosts: [host("build-box")], center_home: { machines: [], projects, running: [], needs_you: [] } });
   await page.evaluate(name => window.__navigation.open({ projects: { project: name } }), projectName);
   const picker = page.locator(".cc-pjc").getByRole("button", { name: /build-box/ });
@@ -228,7 +228,7 @@ test("Fix with an agent on a blocked Git sync starts the agent on that machine a
     agent_models: { pick: "listed", current: "alpha", models: [{ id: "alpha", name: "Alpha", description: null }] },
     agent_begin: { session: { machine_id: "studio", machine_name: "studio", id: "start:repair", agent: "codex", cwd: "/srv/project", status: "starting", external: false, question: null }, why: "" },
     project_sessions: [],
-    center_home: { machines: [], running: [], needs_you: [], projects: ["build-box", "studio"].map(id => ({ display_name: null, name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true, imported_at: 1 })) },
+    center_home: { machines: [], running: [], needs_you: [], projects: ["build-box", "studio"].map(id => ({ display_name: null, name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true })) },
   });
   await page.evaluate(name => window.__navigation.open({ projects: { project: name, tile: "machines" } }), projectName);
   const studio = page.getByRole("article", { name: "studio", exact: true });

@@ -31,11 +31,11 @@ test("project navigation keeps scroll and focus while the selected section chang
 test("project pull request controls keep keyboard focus and row menus work", async ({ page }) => {
   const now = Date.now();
   const prs = [
-    { number: 1, title: "First PR", url: "https://example.test/pull/1", author: "Example", draft: false, mine: false, created_at: now - 1000, updated_at: now, labels: ["bug"] },
-    { number: 2, title: "Second PR", url: "https://example.test/pull/2", author: "Example", draft: false, mine: false, created_at: now, updated_at: now, labels: ["feature"] },
+    { number: 1, title: "First PR", url: "https://example.test/pull/1", author: "Example", draft: false, mine: false, created_at: now - 1000, labels: ["bug"] },
+    { number: 2, title: "Second PR", url: "https://example.test/pull/2", author: "Example", draft: false, mine: false, created_at: now, labels: ["feature"] },
   ];
   const issues = [{ number: 3, title: "Example issue", url: "https://example.test/issues/3", author: "Example", opened_at: now, comments: 0, labels: ["bug"] }];
-  await openDesktop(page, false, { center_project_lists: { issues, prs, issues_error: null, prs_error: null, synced_at: now } });
+  await openDesktop(page, false, { center_project_lists: { issues, prs, issues_error: null, prs_error: null } });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   await page.locator(".pj-strip button").filter({ hasText: "2 PRs" }).click();
   const nav = page.locator(".pj-split:not(.gh-layout) > .pj-list");
@@ -65,7 +65,7 @@ test("project pull request controls keep keyboard focus and row menus work", asy
 
 
 test("switching projects creates navigation for the active project", async ({ page }) => {
-  const first = { name: projectName, url: "https://example.test/example/widget", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true, imported_at: 1 };
+  const first = { name: projectName, url: "https://example.test/example/widget", machine_id: "build-box", machine_name: "build-box", folder: "/srv/project", cloned: true };
   const second = { ...first, name: "example/other", url: "https://example.test/example/other", folder: "/srv/other" };
   await openDesktop(page, false, { center_home: { machines: [], projects: [first, second], running: [], needs_you: [] } });
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "machines" } }), first.name);

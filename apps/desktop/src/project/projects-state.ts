@@ -18,8 +18,6 @@ export interface ProjectRow {
   machine_name: string;
   folder: string;
   cloned: boolean;
-  /// In milliseconds since the Unix epoch.
-  imported_at: number;
 }
 
 /// Where a project is on one machine.

@@ -54,14 +54,14 @@ test("creation completes without replacing a newer project form", async ({ page 
   sheet = await add(page);
   const name = sheet.getByRole("textbox", { name: "Name" });
   await name.fill("second-project");
-  await page.evaluate(() => { window.__navigation.respond("create_project", { name: "first-project", url: "", imported: [], failed: [] }); window.__navigation.release("create_project"); });
+  await page.evaluate(() => { window.__navigation.respond("create_project", { url: "", imported: [], failed: [] }); window.__navigation.release("create_project"); });
   await expect(name).toHaveValue("second-project");
   await expect(sheet.getByRole("button", { name: "Create", exact: true })).toBeEnabled();
 });
 
 test("created project shows its destination and unmounts on close", async ({ page }) => {
-  const project = { name: "example/project", url: "https://example.test/example/project", machine_id: "one", machine_name: "Build box", folder: "/srv/project", cloned: true, imported_at: 1 };
-  await openDesktop(page, false, { center_home: home, project_forges: [forge], create_project: { name: "project", url: project.url, imported: [project], failed: [] } });
+  const project = { name: "example/project", url: "https://example.test/example/project", machine_id: "one", machine_name: "Build box", folder: "/srv/project", cloned: true };
+  await openDesktop(page, false, { center_home: home, project_forges: [forge], create_project: { url: project.url, imported: [project], failed: [] } });
   const sheet = await add(page);
   await sheet.getByRole("textbox", { name: "Name" }).fill("project");
   await sheet.getByRole("button", { name: "Create", exact: true }).click();
@@ -75,7 +75,7 @@ test("created project shows its destination and unmounts on close", async ({ pag
 
 test("unavailable credentials and failed clone remain actionable", async ({ page }) => {
   const broken = { host: "forge.example", github: false, owners: [], error: "Credentials unavailable" };
-  await openDesktop(page, false, { center_home: home, project_forges: [broken], create_project: { name: "project", url: "https://example.test/repo", imported: [], failed: [{ machine_id: "one", machine_name: "Build box", why: "Clone failed" }] } });
+  await openDesktop(page, false, { center_home: home, project_forges: [broken], create_project: { url: "https://example.test/repo", imported: [], failed: [{ machine_id: "one", machine_name: "Build box", why: "Clone failed" }] } });
   const sheet = await add(page);
   await sheet.getByRole("textbox", { name: "Name" }).fill("project");
   await sheet.getByRole("button", { name: "forge.example", exact: true }).click();

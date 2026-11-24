@@ -18,7 +18,7 @@ test("run log updates retain the row, focus and scroll", async () => {
   const { createRoot } = await import("react-dom/client");
   const host = dom.window.document.getElementById("root"); assert.ok(host);
   const root = createRoot(host);
-  const run: RunRow = { id: 1, number: 1, workflow: "Build", title: "Check", branch: "main", event: "push", actor: "Example", state: "running", url: "https://example.test/run", started_at: 1, finished_at: null, progress: null, pull_requests: [], host: "example.test" };
+  const run: RunRow = { id: 1, number: 1, workflow: "Build", title: "Check", branch: "main", event: "push", actor: "Example", state: "running", url: "https://example.test/run", started_at: 1, finished_at: null, progress: null, host: "example.test" };
   const detail: RunDetail = { run, jobs: [], log: { job: "Test", step: null, text: "First line", truncated: false }, error: null, rate_limited_until: null };
   const props: RunsViewProps = { data: { runs: [run], checks: [], synced_at: null, error: null, rate_limited_until: null }, error: "", only: null, open: "example.test#1", mode: null, refresh() {}, filter() {}, toggle() {}, hover() {}, leave() {}, menu() {}, detail: () => ({ data: detail, error: "" }), fix: () => ({ button, state: { kind: "starting" }, error: "" }), openUrl() {} };
   try {

@@ -34,7 +34,7 @@ test("project composer keeps draft, menu choices and issue branch across redraws
   const issue = { number: 7, title: "Example issue", url: "https://example.test/issues/7", author: "Example", opened_at: now, comments: 0, labels: [] };
   await openDesktop(page, false, {
     agent_hosts: [{ machine_id: "build-box", machine_name: "build-box", agents: ["codex"], workspace: null, home: "/srv", capabilities: [] }],
-    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null, synced_at: now },
+    center_project_lists: { issues: [issue], prs: [], issues_error: null, prs_error: null },
   });
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
   const form = page.locator(".cc-pjc:visible");

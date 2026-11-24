@@ -40,7 +40,7 @@ test("closed import result does not replace a later import sheet", async ({ page
   await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Clone repository", exact: true }).click();
   const next = page.getByRole("dialog", { name: "Import a project" });
   await next.getByRole("textbox", { name: "Repository" }).fill("example/second");
-  await page.evaluate(() => { window.__navigation.respond("import_project", { name: "example/first", url: "https://example.test/example/first", machine_id: "one", machine_name: "Build box", folder: "/srv/example/first", cloned: true, imported_at: 1 }); window.__navigation.release("import_project"); });
+  await page.evaluate(() => { window.__navigation.respond("import_project", { name: "example/first", url: "https://example.test/example/first", machine_id: "one", machine_name: "Build box", folder: "/srv/example/first", cloned: true }); window.__navigation.release("import_project"); });
   await expect(next.getByRole("textbox", { name: "Repository" })).toHaveValue("example/second");
 });
 
@@ -77,7 +77,7 @@ test("the folder picker and import progress restore keyboard focus", async ({ pa
   await page.evaluate(() => window.__navigation.hold("import_project"));
   await sheet.getByRole("button", { name: "Import", exact: true }).click();
   await expect(sheet.getByRole("button", { name: "Close", exact: true })).toBeFocused();
-  await page.evaluate(() => { window.__navigation.respond("import_project", { name: "example/project", url: "https://example.test/example/project", machine_id: "one", machine_name: "Build box", folder: "/srv/example/project", cloned: true, imported_at: 1 }); window.__navigation.release("import_project"); });
+  await page.evaluate(() => { window.__navigation.respond("import_project", { name: "example/project", url: "https://example.test/example/project", machine_id: "one", machine_name: "Build box", folder: "/srv/example/project", cloned: true }); window.__navigation.release("import_project"); });
   await expect(sheet.getByRole("button", { name: "Open project" })).toBeFocused();
 });
 

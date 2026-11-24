@@ -14,7 +14,6 @@ use serde::Serialize;
 /// What making a project did, as the sheet shows it.
 #[derive(Debug, Serialize)]
 pub struct CreatedRow {
-    name: String,
     url: String,
     imported: Vec<ProjectRow>,
     failed: Vec<CheckoutFailure>,
@@ -23,7 +22,6 @@ pub struct CreatedRow {
 impl From<CreatedProject> for CreatedRow {
     fn from(c: CreatedProject) -> Self {
         Self {
-            name: c.project,
             url: c.url,
             imported: c.imported.into_iter().map(ProjectRow::from).collect(),
             failed: c.failed,

@@ -42,7 +42,7 @@ const machineId = "build-box";
 const folder = "/srv/project";
 
 const machine = (id: string, name: string, online: boolean, agents: number) => ({ id, name, online, can_host: true, seen_at: NOW - 3_600_000, version: "0.9.0", env: null, apps: [], gpus: [], capabilities: [], agents, stats: null });
-const project = (name: string, url = `https://example.test/${name}`, box = machineId) => ({ name, url, machine_id: box, machine_name: box, folder: `/srv/${name}`, cloned: true, imported_at: NOW - 86_400_000 });
+const project = (name: string, url = `https://example.test/${name}`, box = machineId) => ({ name, url, machine_id: box, machine_name: box, folder: `/srv/${name}`, cloned: true });
 const agentRow = (id: string, title: string, status: string, ago: number, cwd = folder) => ({ kind: "agent", machine_id: machineId, machine_name: machineId, id, agent: "codex", title, cwd, status, doing: status === "working" ? "cargo test -p beep-node --workspace --all-features -- --nocapture --test-threads 8 2>&1 | tail -40" : null, started_at: NOW - 7_200_000, last_activity: NOW - ago, external: false, question: null });
 
 const projects = [project(projectName), project("example/gadget"), project("tools/delta", "https://forge.test/team/delta")];
@@ -1078,8 +1078,8 @@ test("phone projects overflow", async ({ page }) => {
   const long = "a-very-long-repository-name-that-keeps-going-without-any-break-at-all";
   const boxes = Array.from({ length: 4 }, (_, i) => ({ id: `box-${i}`, name: `build-box-with-a-long-name-${i}` }));
   const rows = [
-    ...boxes.map(box => ({ name: `example/${long}`, url: `https://example.test/example/${long}`, machine_id: box.id, machine_name: box.name, folder: `/srv/work/deeply/nested/folder/${long}`, cloned: true, imported_at: 1 })),
-    { name: "plain-folder-without-an-org-and-a-long-name-too", url: "", machine_id: "box-1", machine_name: boxes[1].name, folder: "/srv/plain", cloned: false, imported_at: 1 },
+    ...boxes.map(box => ({ name: `example/${long}`, url: `https://example.test/example/${long}`, machine_id: box.id, machine_name: box.name, folder: `/srv/work/deeply/nested/folder/${long}`, cloned: true })),
+    { name: "plain-folder-without-an-org-and-a-long-name-too", url: "", machine_id: "box-1", machine_name: boxes[1].name, folder: "/srv/plain", cloned: false },
   ];
   const longGroups = [{ id: "g", name: `A group with a long name ${long}`, paths: ["work/deeply/nested/folder"] }];
   const found = [{ name: `found-org/${long}`, remote: "https://example.test/found", places: boxes.map(box => ({ machine_id: box.id, machine_name: box.name, folder: `/srv/found/${long}` })), agents: [{ agent: "codex", sessions: 2 }], last_activity: NOW - 3_600_000 }];

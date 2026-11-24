@@ -2,7 +2,6 @@
 //! rows, pins to the top, and removing one.
 
 use crate::{
-    beep::epoch_ms,
     center::kept,
     center::view_cache::{View, ViewCache},
     error::Result,
@@ -25,8 +24,6 @@ pub struct ProjectRow {
     machine_name: String,
     folder: String,
     cloned: bool,
-    /// In milliseconds since the Unix epoch.
-    imported_at: u64,
 }
 
 impl From<ImportedProject> for ProjectRow {
@@ -39,7 +36,6 @@ impl From<ImportedProject> for ProjectRow {
             machine_name: p.machine_name,
             folder: p.folder,
             cloned: p.cloned,
-            imported_at: epoch_ms(p.imported_at),
         }
     }
 }
