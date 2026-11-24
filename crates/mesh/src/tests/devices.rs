@@ -69,9 +69,8 @@ fn an_op_from_a_stranger_is_refused() {
         OpBody::Add(device(&other, "x", DeviceKind::Node)),
     )
     .unwrap();
-    let merged = mine.merge(&[op]);
-    assert_eq!(merged.held, 1);
-    assert!(merged.added.is_empty());
+    mine.merge(&[op]);
+    assert_eq!(mine.pending.len(), 1);
     assert!(!mine.is_member(other.public()));
 }
 
@@ -102,8 +101,7 @@ fn a_good_remove_is_reported_next_to_junk_ops() {
     let mut bad = stranger_op(a.public());
     bad.author = a.public();
     let merged = mine.merge(&[bad, stranger_op(a.public()), remove]);
-    assert_eq!(merged.removed, vec![b.public()]);
-    assert_eq!(merged.held, 1);
+    assert_eq!(mine.pending.len(), 1);
     assert!(matches!(
         merged.rejected.as_slice(),
         [MeshError::BadSignature]
@@ -123,14 +121,10 @@ fn a_flooded_buffer_still_takes_a_legitimate_out_of_order_op() {
         mine.merge(&[stranger_op(a.public())]);
     }
 
-    let merged = mine.merge(&[op_c]);
-    assert_eq!(merged.held, 1);
-    let merged = mine.merge(&[op_b]);
-    assert_eq!(merged.added, {
-        let mut ids = vec![b.public(), c.public()];
-        ids.sort();
-        ids
-    });
+    mine.merge(&[op_c.clone()]);
+    assert!(mine.pending.iter().any(|held| held.sig == op_c.sig));
+    mine.merge(&[op_b]);
+    assert!(mine.is_member(b.public()));
     assert!(mine.is_member(c.public()));
 }
 
@@ -178,8 +172,7 @@ fn a_member_adds_a_device_and_another_member_sees_it() {
     let mut two = from(one.ops());
     assert!(two.is_member(b.public()));
     let op2 = two.add(&b, device(&c, "c", DeviceKind::Node)).unwrap();
-    let merged = one.merge(&[op2]);
-    assert_eq!(merged.added, vec![c.public()]);
+    one.merge(&[op2]);
     assert!(one.is_member(c.public()));
     assert_eq!(one.mesh(), a.public());
     assert_eq!(op.author, a.public());
@@ -212,7 +205,7 @@ fn merging_ops_in_any_order_gives_the_same_members() {
     for order in permutations(&all) {
         let mut d = only_genesis(&src);
         let merged = d.merge(&order);
-        assert!(merged.rejected.is_empty() && merged.held == 0);
+        assert!(merged.rejected.is_empty() && d.pending.is_empty());
         assert_eq!(d.members(), expected);
     }
 }
@@ -421,7 +414,7 @@ fn from_ops_keeps_the_good_ops_and_reports_the_refused_ones() {
     assert_eq!(list.mesh(), a.public());
     assert!(list.is_member(b.public()));
     assert!(matches!(merged.rejected.as_slice(), [MeshError::OtherMesh]));
-    assert_eq!(merged.held, 1);
+    assert_eq!(list.pending.len(), 1);
     assert!(matches!(
         Devices::from_ops(&[stranger_op(a.public())]),
         Err(MeshError::NoGenesis)

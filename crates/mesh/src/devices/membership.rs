@@ -3,7 +3,7 @@
 use super::{Device, DeviceKind, DeviceOp, MeshError, OpBody};
 use crate::state::now_ms;
 use iroh::{EndpointId, SecretKey};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 /// Ops held while waiting for their author to count.
 const MAX_PENDING: usize = 256;
@@ -23,10 +23,6 @@ pub enum WriteLimit {
 /// What a merge did. Refused ops never hide the ones that counted.
 #[derive(Debug, Default)]
 pub struct Merged {
-    pub added: Vec<EndpointId>,
-    pub removed: Vec<EndpointId>,
-    /// Ops of this call kept until their author counts.
-    pub held: usize,
     /// Ops of this call that were refused, and why.
     pub rejected: Vec<MeshError>,
 }
@@ -92,8 +88,8 @@ impl Devices {
     }
 
     /// Builds a list from ops received from a peer. It fails only without a
-    /// valid first genesis from a desktop; other ops that were refused or are
-    /// held come back in the `Merged`. Compare `mesh()` with the ticket's.
+    /// valid first genesis from a desktop; the ops that were refused come
+    /// back in the `Merged`, and the ones from strangers stay held. Compare `mesh()` with the ticket's.
     pub fn from_ops(ops: &[DeviceOp]) -> Result<(Devices, Merged), MeshError> {
         let genesis = ops
             .iter()
@@ -221,7 +217,6 @@ impl Devices {
     /// yet a member are held until it counts, the oldest dropped when the
     /// buffer is full. Refused ops are reported, never applied.
     pub fn merge(&mut self, ops: &[DeviceOp]) -> Merged {
-        let before = self.member_ids();
         let mut merged = Merged::default();
         let mut items: Vec<(DeviceOp, bool)> =
             self.pending.drain(..).map(|op| (op, false)).collect();
@@ -252,14 +247,11 @@ impl Devices {
             }
         }
 
-        for (op, fresh) in items {
+        for (op, _) in items {
             if self.pending.iter().any(|held| held.sig == op.sig) {
                 continue;
             }
 
-            if fresh {
-                merged.held += 1;
-            }
             if self.pending.len() >= MAX_PENDING {
                 self.pending.remove(0);
             }
@@ -267,14 +259,7 @@ impl Devices {
             self.pending.push(op);
         }
 
-        let after = self.member_ids();
-        merged.added = after.difference(&before).copied().collect();
-        merged.removed = before.difference(&after).copied().collect();
         merged
-    }
-
-    fn member_ids(&self) -> BTreeSet<EndpointId> {
-        self.members().iter().map(|d| d.id).collect()
     }
 
     /// Fails unless `author` is a member desktop.
