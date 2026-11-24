@@ -348,9 +348,19 @@ fn error(message: &str) -> MeshError {
 }
 
 /// How long a read waits for the first snapshot of its subscription before the caller reads
-/// the node directly. Well under the 3 s a session listing is allowed, so the direct read still
+/// the node directly.
+const SNAPSHOT_WAIT: Duration = Duration::from_secs(3);
+
+/// The wait of a session listing: well under the 3 s it is allowed, so the direct read still
 /// has time to run.
-const SNAPSHOT_WAIT: Duration = Duration::from_secs(1);
+const LISTING_WAIT: Duration = Duration::from_secs(1);
+
+fn wait_for_snapshot(read: &Read) -> Duration {
+    match read.topic() {
+        Some(topic) if topic.name() == "agents" => LISTING_WAIT,
+        _ => SNAPSHOT_WAIT,
+    }
+}
 
 struct Reader {
     snapshots: Arc<Snapshots>,
@@ -360,16 +370,14 @@ struct Reader {
 impl SnapshotReader for Reader {
     fn snapshot(&self, read: Read) -> SnapshotFuture<'_> {
         Box::pin(async move {
+            let wait = wait_for_snapshot(&read);
             let mut current = match self.snapshots.register(self.id, read)? {
                 Ok(current) => current,
                 Err(error) => return Some(Err(error)),
             };
             Some(
-                match tokio::time::timeout(
-                    SNAPSHOT_WAIT,
-                    watched::wait_for(&mut current, Option::is_some),
-                )
-                .await
+                match tokio::time::timeout(wait, watched::wait_for(&mut current, Option::is_some))
+                    .await
                 {
                     Ok(Ok(())) => match watched::read(&current, Clone::clone) {
                         Some(Ok(value)) => Ok(value),
