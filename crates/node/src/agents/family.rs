@@ -30,7 +30,7 @@ mod orphans;
 mod remote;
 
 pub(in crate::agents) use changes::Mark;
-pub(crate) use notes::{ChildNote, Waits};
+pub(crate) use notes::{ChildNote, Waiting, Waits};
 pub(crate) use orphans::Parent;
 pub(crate) use remote::RemoteKid;
 
