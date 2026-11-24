@@ -4,7 +4,7 @@ import { retainedHost } from "../project/page-view.tsx";
 import { HistoryFacts } from "./history-facts.tsx";
 import { HistoryDetail } from "./history-detail.tsx";
 import { HistoryHeader } from "./history-header.tsx";
-import { HistoryNavigation } from "./history-navigation.tsx";
+import { CheckoutBranch, HistoryNavigation } from "./history-navigation.tsx";
 import { HistoryPath, HistorySessions, SessionLink } from "./history-sessions.tsx";
 import { TreeNode } from "./history-tree.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
@@ -13,6 +13,7 @@ import { SLOW_MS } from "../ui/active.ts";
 import { reason } from "../ui/format.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { SessionRow } from "../project/projects-state.ts";
+import type { GitRow } from "../project/gitsync-state.ts";
 import { branchSessions } from "./branchsession-state.ts";
 import { windowDiffOwner } from "./diff-owner.ts";
 import { diffView, type DiffViewHandle } from "./diff.tsx";
@@ -24,6 +25,7 @@ interface HistoryDeps {
   back: () => void;
   sessions: (project: string) => readonly BranchSessionRow[] | undefined;
   openSession: (session: SessionRow) => void;
+  changedCheckout: (project: string, row: GitRow) => void;
 }
 interface CommitList {
   revision: string | null;
@@ -127,9 +129,13 @@ export function makeGitHistory(deps: HistoryDeps) {
   }
 
   function navigation(p: ProjectHistory) {
+    const data = p.data;
+    const worktree = data?.worktrees.find(tree => tree.path === data.root);
+    const checkout = data && worktree ? <CheckoutBranch data={data} worktree={worktree}
+      switchTo={branch => switchTo(p, data, worktree, branch)} /> : null;
     const collapsed = !HISTORY_SECTIONS.some(key => p.open.has(key));
 
-    return <HistoryNavigation query={p.query} back={deps.back} collapsed={collapsed}
+    return <HistoryNavigation query={p.query} back={deps.back} collapsed={collapsed} checkout={checkout}
       refresh={() => void refresh(p.name)} toggleSections={() => {
         if (collapsed) {
           for (const key of HISTORY_SECTIONS) p.open.add(key);
@@ -150,7 +156,30 @@ export function makeGitHistory(deps: HistoryDeps) {
       }} />;
   }
 
-  async function load(p: ProjectHistory, target: CommitList, more = false) {
+  async function switchTo(p: ProjectHistory, data: HistoryPage, worktree: GitWorktree, branch: string) {
+    try {
+      const row = await deps.invoke<GitRow>("project_git_switch", {
+        project: p.name, machineId: data.machine_id, root: data.root, current: worktree.branch, branch,
+      });
+      if (p.data?.root === data.root && p.data.machine_id === data.machine_id) {
+        updatePage(p, { ...p.data, worktrees: p.data.worktrees.map(tree => tree.path === worktree.path ? { ...tree, branch: row.branch } : tree) });
+      }
+      deps.changedCheckout(p.name, row);
+    } finally {
+      void refresh(p.name, true);
+    }
+  }
+
+  function updatePage(p: ProjectHistory, data: HistoryPage) {
+    p.data = data;
+    const selected = p.selected;
+    if (selected?.kind === "working") {
+      const worktree = data.worktrees.find(tree => tree.path === selected.worktree.path);
+      if (worktree) p.selected = { ...selected, worktree };
+    }
+  }
+
+  async function load(p: ProjectHistory, target: CommitList, more = false, fresh = false) {
     if (target.loading) return;
     const version = ++target.version;
     target.loading = true;
@@ -160,10 +189,10 @@ export function makeGitHistory(deps: HistoryDeps) {
     try {
       const data = await read<HistoryPage>("project_git_history", {
         project: p.name, machineId: p.data?.machine_id ?? null, revision: target.revision,
-        offset: more ? target.next ?? 0 : 0, search: target.search,
+        offset: more ? target.next ?? 0 : 0, search: target.search, fresh,
       });
       if (version !== target.version) return;
-      if (!p.data || (!target.revision && !target.search && !more)) p.data = data;
+      if (!p.data || (!target.revision && !more)) updatePage(p, data);
       if (following === p) follow(p);
       target.rows = more ? appendCommits(target.rows, data.commits) : data.commits;
       target.next = data.next;
@@ -374,13 +403,13 @@ export function makeGitHistory(deps: HistoryDeps) {
     return { navigation: p.nav, detail: p.detail };
   }
 
-  function refresh(name: string) {
+  function refresh(name: string, fresh = false) {
     const p = project(name);
     for (const key of p.files.keys()) if (key.startsWith("working:")) p.files.delete(key);
     if (p.selected?.kind === "working" && p.viewKey === `${selectionKey(p.selected)}\0${p.path || ""}`) p.view?.reload();
     const current = list(p, null, p.query);
     for (const value of p.lists.values()) { ++value.version; value.loading = false; if (value !== current) value.loaded = false; value.error = ""; }
-    return load(p, current);
+    return load(p, current, false, fresh);
   }
   return { panels, refresh, stop };
 }

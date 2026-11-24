@@ -192,6 +192,12 @@ async function readGit(name: string, fetch: boolean) {
 /// A running move's direction and a refused one's reason, by project and machine.
 const moves = new Map<string, { moving: GitMove | null; failed?: string }>();
 
+export function rememberGitRow(name: string, row: GitRow) {
+  const rows = withRow(state.gitsync.get(name), row);
+  state.gitsync.set(name, rows);
+  keep("gitsync", name, rows);
+}
+
 /// Pulls or pushes on one machine; the counts come back with the answer.
 async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
   const key = moveKey(p.name, m.id);
@@ -202,9 +208,7 @@ async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
   try {
     const next = await invoke<GitRow>("project_git_move", { project: p.name, machineId: m.id, branch: row.branch, direction: move });
     moves.delete(key);
-    const rows = withRow(state.gitsync.get(p.name), next);
-    state.gitsync.set(p.name, rows);
-    keep("gitsync", p.name, rows);
+    rememberGitRow(p.name, next);
   } catch (e) {
     moves.set(key, { moving: null, failed: reason(e) });
   }

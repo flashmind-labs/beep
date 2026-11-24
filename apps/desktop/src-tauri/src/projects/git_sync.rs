@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use beep_projects::{
+    branches::switch_branch,
     checkout_sync::{Move, read_local_state, read_state, run_move},
     model::branch_name,
 };
@@ -248,5 +249,53 @@ pub async fn project_git_move(
         .projections()
         .git_state
         .put((place.machine, place.folder), updated.cached());
+    Ok(updated)
+}
+
+/// Switches the project's own checkout on the machine shown in Git history.
+#[tauri::command]
+pub async fn project_git_switch(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    project: String,
+    machine_id: String,
+    root: String,
+    current: Option<String>,
+    branch: String,
+) -> Result<GitRow> {
+    let branch = branch_name(&branch)
+        .ok_or_else(|| DesktopError::BadRequest("That is not a branch name.".into()))?;
+    let machine = fleet.machine(&machine_id)?;
+    let name = fleet.name_of(machine);
+    let place = placed(&fleet, &project)?
+        .into_iter()
+        .find(|place| place.machine == machine)
+        .ok_or_else(|| DesktopError::BadRequest(format!("{name} has no checkout of {project}.")))?;
+    let shell = PeerShell::on(&fleet, machine).await?;
+    switch_branch(&shell, &place.folder, &root, current.as_deref(), branch).await?;
+
+    let cached = match read_local_state(&shell, &place.folder).await {
+        Ok(state) => GitStateRow {
+            branch: state.branch,
+            upstream: state.upstream,
+            ahead: state.ahead,
+            behind: state.behind,
+            error: None,
+        },
+        Err(error) => GitStateRow {
+            branch: Some(branch.to_owned()),
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            error: Some(error.to_string()),
+        },
+    };
+    let updated = GitRow::from_cached(machine, cached.clone());
+    fleet
+        .projections()
+        .git_state
+        .put((machine, place.folder), cached);
+    let _ = app.emit(GIT_CHANGED, ());
+
     Ok(updated)
 }

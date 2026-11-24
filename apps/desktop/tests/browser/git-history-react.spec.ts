@@ -1,6 +1,65 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop, projectName } from "./harness.ts";
 
+test("Git switches the displayed checkout and keeps the picker open on refusal", async ({ page }) => {
+  const root = "/srv/project", machine = "build-box";
+  const row = { machine_id: machine, branch: "feature", upstream: null, ahead: 0, behind: 0, error: null };
+  const history = {
+    machine_id: machine, machine_name: machine, root,
+    refs: [
+      { name: "main", head: "abc123", kind: "local" },
+      { name: "feature", head: "abc123", kind: "local" },
+      { name: "origin/main", head: "abc123", kind: "remote" },
+    ],
+    worktrees: [{ path: root, head: "abc123", branch: "feature", main: true }],
+    commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null,
+  };
+  await openDesktop(page, false, {
+    project_git_history: history, project_git_state: [row], project_git_files: [],
+    project_git_diff: { root, base: "", merge_base: "", working_tree: false, additions: 0, deletions: 0, more: 0, files: [] },
+  });
+  await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
+  const branchBadge = page.locator(".pj-strip button").filter({ hasText: "branch" });
+  await expect(branchBadge).toContainText("feature");
+  await branchBadge.click();
+  const checkout = page.locator(".gh-checkout");
+  await expect(checkout.locator("code")).toHaveText("feature");
+  await checkout.getByRole("button", { name: "Switch branch" }).click();
+  const picker = page.getByRole("dialog", { name: "Switch branch" });
+  await expect(picker).toContainText(`${machine} · ${root}`);
+  const input = picker.getByRole("searchbox", { name: "Search local branches" });
+  await expect(input).toBeFocused();
+  await input.fill("missing");
+  await expect(picker.getByText("No local branches match.")).toBeVisible();
+  await input.fill("main");
+  await expect(picker.getByRole("option")).toHaveCount(1);
+  await picker.getByRole("option", { name: "main", exact: true }).click();
+  const submit = picker.getByRole("button", { name: "Switch branch" });
+  await page.evaluate(() => window.__navigation.rejectOnce("project_git_switch", "Git refused to overwrite a local change."));
+  await submit.click();
+  await expect(picker.getByRole("alert")).toHaveText("Git refused to overwrite a local change.");
+  await expect(checkout.locator("code")).toHaveText("feature");
+
+  const updated = { ...row, branch: "main" };
+  await page.evaluate(value => {
+    window.__navigation.respond("project_git_switch", value);
+    window.__navigation.hold("project_git_switch");
+  }, updated);
+  await submit.click();
+  await expect(picker.getByRole("button", { name: "Switching…" })).toBeDisabled();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_git_switch").map(call => call.args))).toEqual(
+    Array.from({ length: 2 }, () => ({ project: projectName, machineId: machine, root, current: "feature", branch: "main" })),
+  );
+  await page.evaluate(value => {
+    window.__navigation.respond("project_git_history", value);
+    window.__navigation.release("project_git_switch");
+  }, { ...history, worktrees: history.worktrees.map(tree => ({ ...tree, branch: "main" })) });
+  await expect(picker).toBeHidden();
+  await expect(checkout.locator("code")).toHaveText("main");
+  await expect(branchBadge).toContainText("main");
+  await expect(checkout.getByRole("button", { name: "Switch branch" })).toBeFocused();
+});
+
 test("diff status shows loading, empty, errors and omitted files", async ({ page }) => {
   const empty = { root: "/srv/project", base: "main", merge_base: "", working_tree: false, additions: 0, deletions: 0, more: 0, files: [] };
   await openDesktop(page, false, { project_git_history: { machine_id: "build-box", machine_name: "build-box", root: "/srv/project", refs: [], worktrees: [], commits: [{ id: "abc123", parents: [], author: "Example", committed_at: 1, subject: "Commit" }], next: null }, project_git_files: [], project_git_diff: empty });

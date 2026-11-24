@@ -163,3 +163,107 @@ fn branches_are_listed_for_a_checkout_with_spaces_and_an_apostrophe() {
     let names: Vec<_> = branches.iter().map(|branch| branch.name.as_str()).collect();
     assert_eq!(names, ["release/one", "main"]);
 }
+
+#[test]
+fn switches_the_recorded_checkout_only_to_a_local_branch() {
+    let tmp = TempDir::new().expect("fixture");
+    let folder = tmp
+        .path()
+        .canonicalize()
+        .expect("checkout path")
+        .join("Pat's checkout");
+    fs::create_dir(&folder).expect("checkout folder");
+    git(&folder, &["init", "-b", "main"]);
+    git(&folder, &["commit", "--allow-empty", "-m", "Initial"]);
+    git(&folder, &["branch", "feature/it's-ready"]);
+    git(
+        &folder,
+        &["update-ref", "refs/remotes/origin/remote-only", "HEAD"],
+    );
+    let path = folder.to_str().expect("UTF-8 path");
+
+    assert_eq!(
+        sh(&switch_script(
+            path,
+            "/other/checkout",
+            Some("main"),
+            "feature/it's-ready"
+        )),
+        Some(8)
+    );
+    assert_eq!(
+        sh(&switch_script(
+            path,
+            path,
+            Some("stale"),
+            "feature/it's-ready"
+        )),
+        Some(8)
+    );
+    assert_eq!(
+        sh(&switch_script(path, path, Some("main"), "remote-only")),
+        Some(9)
+    );
+    assert_eq!(
+        sh(&switch_script(
+            path,
+            path,
+            Some("main"),
+            "feature/it's-ready"
+        )),
+        Some(0)
+    );
+    assert_eq!(
+        sh(&switch_script(
+            path,
+            path,
+            Some("feature/it's-ready"),
+            "main"
+        )),
+        Some(0)
+    );
+    git(&folder, &["switch", "--detach"]);
+    assert_eq!(sh(&switch_script(path, path, None, "main")), Some(0));
+}
+
+#[test]
+fn branch_switch_preserves_conflicting_files_and_other_worktrees() {
+    let tmp = TempDir::new().expect("fixture");
+    let folder = tmp.path().canonicalize().expect("checkout path");
+    git(&folder, &["init", "-b", "main"]);
+    fs::write(folder.join("tracked"), "main").expect("tracked file");
+    git(&folder, &["add", "."]);
+    git(&folder, &["commit", "-m", "Initial"]);
+    git(&folder, &["switch", "-c", "feature"]);
+    fs::write(folder.join("tracked"), "feature").expect("tracked file");
+    fs::write(folder.join("ignored"), "feature").expect("file to track");
+    git(&folder, &["add", "."]);
+    git(&folder, &["commit", "-m", "Feature"]);
+    git(&folder, &["switch", "main"]);
+
+    let path = folder.to_str().expect("UTF-8 path");
+    let switch = switch_script(path, path, Some("main"), "feature");
+    fs::write(folder.join("tracked"), "local").expect("local edit");
+    assert_eq!(sh(&switch), Some(4));
+    assert_eq!(
+        fs::read_to_string(folder.join("tracked")).expect("local edit"),
+        "local"
+    );
+
+    fs::write(folder.join("tracked"), "main").expect("restore fixture content");
+    fs::write(folder.join(".git/info/exclude"), "ignored\n/other\n").expect("ignore rules");
+    fs::write(folder.join("ignored"), "local").expect("ignored file");
+    assert_eq!(sh(&switch), Some(4));
+    assert_eq!(
+        fs::read_to_string(folder.join("ignored")).expect("ignored file"),
+        "local"
+    );
+
+    fs::remove_file(folder.join("ignored")).expect("remove fixture file");
+    git(&folder, &["worktree", "add", "other", "feature"]);
+    assert_eq!(sh(&switch), Some(4));
+    assert_eq!(
+        sh(&switch_script(path, path, Some("main"), "main")),
+        Some(0)
+    );
+}

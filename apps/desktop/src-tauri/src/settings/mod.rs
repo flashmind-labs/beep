@@ -19,9 +19,6 @@ pub async fn editor_settings_get(fleet: FleetState<'_>) -> Result<EditorSettings
 }
 
 #[tauri::command]
-pub async fn editor_settings_save(
-    fleet: FleetState<'_>,
-    settings: EditorSettings,
-) -> Result<()> {
+pub async fn editor_settings_save(fleet: FleetState<'_>, settings: EditorSettings) -> Result<()> {
     Ok(desk(&fleet).await?.save_editor(&settings).await?)
 }

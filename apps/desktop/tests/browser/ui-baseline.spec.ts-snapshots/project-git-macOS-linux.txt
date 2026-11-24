@@ -199,6 +199,9 @@ body.cbody
                   b "Git"
                   button.gh-collapse [type="button"] "Refresh"
                   button.gh-collapse [type="button"] "Collapse all"
+                div.gh-checkout
+                  code [aria-live="polite" title="/srv/project"] "main"
+                  button.dbtn.quiet.small [aria-haspopup="dialog" type="button"] "Switch branch"
                 label.gh-search
                   input [aria-label="Search commit messages" maxlength="256" placeholder="Search commit messages" type="search" value] value=""
               div.gh-tree [data-started="true"]
@@ -243,13 +246,13 @@ body.cbody
                   summary
                     svg [aria-hidden="true" viewBox="0 0 16 16"]
                     b "Branches"
-                    small "1"
+                    small "2"
                   div.gh-children
                 details.gh-node [data-key="worktrees"]
                   summary
                     svg [aria-hidden="true" viewBox="0 0 16 16"]
                     b "Worktrees"
-                    small "0"
+                    small "1"
                   div.gh-children
               div.gh-nav-foot "All branches · build-box"
             div.gh-detail.pj-det

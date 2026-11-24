@@ -32,6 +32,7 @@ import { barOn, drawProjectComp, workOnIssue, startIssue, discussThread, workOnP
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { redrawSync } from "./syncpage.ts";
 import { drawProjects } from "./page.tsx";
+import { rememberGitRow } from "./loads.tsx";
 import { assign, teamLogins } from "./team-view.tsx";
 
 /// The row of the project's list picked, null for the first, and a run to
@@ -57,6 +58,7 @@ export const gitHistory = makeGitHistory({
   back: () => openTile("overview"),
   sessions: projectSessions,
   openSession: openBranchSession,
+  changedCheckout: (project, row) => { rememberGitRow(project, row); redrawProjectsPage(); },
 });
 
 /// Whether the project shown is live or polling; what its host changed is

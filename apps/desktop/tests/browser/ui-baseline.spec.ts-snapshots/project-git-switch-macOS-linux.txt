@@ -1,0 +1,17 @@
+div.am-sheet.gh-switch-sheet [aria-label="Switch branch" aria-modal="true" role="dialog"]
+  div.am-head
+    b "Switch branch"
+    kbd "esc"
+  p.am-sub "· build-box · /srv/project"
+    code "main"
+  input.am-code [aria-label="Search local branches" autocapitalize="off" placeholder="Search local branches" spellcheck="false" type="search" value] value=""
+  span [data-focus-scope-start="true" hidden]
+  div#<id>.dropdown-menu.gh-branch-list [aria-label="Local branches" aria-orientation="vertical" data-collection="<id>" data-layout="stack" data-orientation="vertical" data-rac role="listbox" tabindex="-1"]
+    div#<id>.dropdown-option [aria-selected="true" data-collection="<id>" data-focused="true" data-hovered="true" data-key="feature" data-rac data-react-aria-pressable="true" data-selected="true" data-selection-mode="single" role="option" tabindex="0"] (focused)
+      span.dropdown-check
+        svg [fill="none" height="13" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" stroke="currentColor" viewBox="0 0 24 24" width="13"]
+      code "feature"
+  span [data-focus-scope-end="true" hidden]
+  div.gp-foot
+    button.dbtn.quiet [type="button"] "Cancel"
+    button.dbtn.pri [type="button"] "Switch branch"

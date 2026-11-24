@@ -931,6 +931,9 @@ body:not(.mobile) .pl-row:is(.it, .repo):is(:hover, :focus-within) .age { displa
 .gh-back, .gh-collapse { border: 0; padding: 0; color: var(--muted); background: transparent; font-size: 12px; line-height: 16px; cursor: default }
 .gh-back:hover, .gh-collapse:hover { color: var(--fg) }
 .gh-collapse { margin-left: auto }
+.gh-checkout { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 12px 4px 16px }
+.gh-checkout code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: 12px var(--mono); color: var(--muted) }
+.gh-checkout .dbtn { flex: none; font-family: var(--mono) }
 .gh-search { display: block; padding: 4px 12px 12px }
 .gh-search input { display: block; width: 100%; min-width: 0; border: 1px solid var(--border); background: var(--ink); color: var(--fg); border-radius: var(--radius-sm); padding: 8px; font: inherit; font-size: 12px; line-height: 16px }
 .gh-search input::placeholder { color: var(--muted) }

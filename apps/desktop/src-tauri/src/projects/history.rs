@@ -39,20 +39,26 @@ pub async fn project_git_history(
     revision: Option<String>,
     offset: u32,
     search: String,
+    fresh: Option<bool>,
 ) -> Result<HistoryView> {
     let place = location(&fleet, &project, machine_id.as_deref())?;
     let shell = PeerShell::on(&fleet, place.machine)
         .await?
-        .snapshot_git(
-            &place.folder,
-            GitRead::History {
-                revision: revision.clone(),
-                offset,
-                search: search.clone(),
-            },
-        )
-        .await?
         .complete_output();
+    let shell = if fresh == Some(true) {
+        shell
+    } else {
+        shell
+            .snapshot_git(
+                &place.folder,
+                GitRead::History {
+                    revision: revision.clone(),
+                    offset,
+                    search: search.clone(),
+                },
+            )
+            .await?
+    };
     let revision = revision.as_deref().map(CommitId::from_str).transpose()?;
     let ask = HistoryAsk {
         folder: &place.folder,

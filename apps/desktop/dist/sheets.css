@@ -32,6 +32,9 @@
 .si-code { font-family: var(--mono); font-size: 18px; letter-spacing: .12em; padding: 4px 10px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--fg) 7%, transparent) }
 .am-msg { font-size: 13px; margin-bottom: 12px }
 .am-msg.bad { color: var(--err) }
+.gh-switch-sheet .am-sub, .gh-branch-list code { overflow-wrap: anywhere }
+.gh-branch-list { max-height: min(280px, 38dvh); margin-bottom: 12px }
+.gh-switch-error { max-height: 9em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere }
 .am-mac { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border) }
 .am-mac .am-line, .am-mac .am-msg { margin-bottom: 0 }
 /* The WSL distributions of a Windows machine, each a row with its action. */

@@ -1,7 +1,7 @@
 //! A project's branches with work, and giving one a worktree.
 
 use crate::{
-    NO_GIT_SH, Shell, ShellOutput,
+    NO_GIT_SH, NO_GIT_SH_TEXT, Shell, ShellOutput,
     commands::{exclude_project_dirs, gh_account},
     model::MachinePath,
     quote,
@@ -26,6 +26,52 @@ const MAX_PRS: u32 = 50;
 /// The branch's worktree path: `.worktrees/` plus the name with `/` as `-`.
 pub fn worktree_path(branch: &str) -> String {
     agent::worktree_path(branch)
+}
+
+/// Switches the recorded checkout to an existing local branch, if it still has the
+/// root and branch the user saw. Git protects local files and other worktrees.
+pub async fn switch_branch(
+    shell: &dyn Shell,
+    folder: &str,
+    root: &str,
+    current: Option<&str>,
+    branch: &str,
+) -> Result<()> {
+    let script = switch_script(folder, root, current, branch);
+    let ran = shell.run(&script, READ_LIMIT).await?;
+
+    match ran.exit_code {
+        Some(0) => Ok(()),
+        Some(3) => bail!("The project's folder is not there."),
+        Some(8) => bail!("The checkout changed. Reopen Switch branch and try again."),
+        Some(9) => bail!("{branch} is no longer a local branch."),
+        Some(NO_GIT_SH) => bail!("{NO_GIT_SH_TEXT}"),
+        None => bail!("Git did not finish in time. Check the current branch before trying again."),
+        Some(_) => {
+            let output = ran.output.trim();
+            if output.is_empty() {
+                bail!("Git could not switch to {branch}.");
+            }
+            bail!("{}", &output[..output.floor_char_boundary(1200)])
+        }
+    }
+}
+
+fn switch_script(folder: &str, root: &str, current: Option<&str>, branch: &str) -> String {
+    let current = current.map(|branch| format!("refs/heads/{branch}"));
+    format!(
+        "cd -- {folder} || exit 3; \
+         root=$(git rev-parse --show-toplevel) || exit 4; \
+         [ \"$root\" = {root} ] || exit 8; \
+         cur=$(git symbolic-ref -q HEAD) || [ \"$?\" -eq 1 ] || exit 4; \
+         [ \"$cur\" = {current} ] || exit 8; \
+         b={branch}; git show-ref --verify --quiet \"refs/heads/$b\" || exit 9; \
+         git switch --no-guess --no-overwrite-ignore -- \"$b\" || exit 4",
+        folder = quote(folder),
+        root = quote(root),
+        current = quote(current.as_deref().unwrap_or_default()),
+        branch = quote(branch),
+    )
 }
 
 /// Gives `branch` a worktree in `folder`, from the local branch or the first remote that has it.

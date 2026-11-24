@@ -414,6 +414,7 @@ pub fn run() {
             projects::file_sync::project_syncthing_files,
             projects::file_sync::syncthing_in_use,
             projects::git_sync::project_git_move,
+            projects::git_sync::project_git_switch,
             projects::file_sync::project_handoff_work,
             projects::file_sync::project_git_auto_recovery,
             projects::file_sync::project_syncthing_mode,

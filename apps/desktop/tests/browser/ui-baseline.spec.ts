@@ -510,7 +510,11 @@ test("project sessions", async ({ page }) => {
 });
 
 test("project git history", async ({ page }) => {
-  await openProject(page);
+  await openProject(page, { project_git_history: {
+    ...gitHistory,
+    refs: [...gitHistory.refs, { name: "feature", head: commits[1].id, kind: "local" }],
+    worktrees: [{ path: folder, head: commits[0].id, branch: "main", main: true }],
+  } });
   await page.locator(".pj-strip button").filter({ hasText: "branch" }).click();
   await expect(page.getByRole("heading", { name: "Keep the query string on redirect" })).toBeVisible();
   await baseline(page, "project-git");
@@ -518,6 +522,9 @@ test("project git history", async ({ page }) => {
   await navigation.getByRole("button", { name: "Collapse all" }).click();
   await expect(navigation.getByRole("button", { name: "Expand all" })).toBeVisible();
   await baseline(page, "project-git-collapsed", ".gh-nav");
+  await navigation.getByRole("button", { name: "Switch branch" }).click();
+  await page.getByRole("option", { name: "feature", exact: true }).click();
+  await baseline(page, "project-git-switch", ".gh-switch-sheet");
 });
 
 test("project machines", async ({ page }) => {
