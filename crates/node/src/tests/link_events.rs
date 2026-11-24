@@ -290,12 +290,12 @@ async fn a_watch_is_answered_while_its_watchers_are_still_binding() {
     let root = tempfile::tempdir().unwrap();
     let offers = Offers::default();
     offers.agents.share_folders(vec![root.path().to_owned()]);
-    let (mut tx, mut rx, _task) = start(offers).await;
+    let (mut tx, mut rx, _task) = start(offers.clone()).await;
     let (reached, reached_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release) = tokio::sync::oneshot::channel();
     // Resolved the way the node does, so the gate matches the bound root.
     let real = root.path().canonicalize().unwrap();
-    crate::lock(&sources::GATES).push(sources::Gate {
+    crate::lock(&offers.bind_gates).push(sources::Gate {
         root: real,
         reached,
         release,

@@ -88,10 +88,12 @@ impl Source {
     /// asked outside the lock, which is taken to compare and swap.
     async fn bind(&self, offers: &Offers) -> Result<()> {
         let wanted = crate::lock(&self.roots).clone();
+        let held = held(&*self.watcher.lock().await);
+        let bindings = git_bindings(&wanted, &held).await;
         #[cfg(test)]
         {
             let gate = {
-                let mut gates = crate::lock(&GATES);
+                let mut gates = crate::lock(&offers.bind_gates);
                 gates
                     .iter()
                     .position(|gate| wanted.values().any(|root| *root == gate.root))
@@ -104,8 +106,6 @@ impl Source {
             }
         }
 
-        let held = held(&*self.watcher.lock().await);
-        let bindings = git_bindings(&wanted, &held).await;
         let mut watcher = self.watcher.lock().await;
 
         // A newer resolve is followed by its own bind.
@@ -139,6 +139,10 @@ impl Source {
         }
 
         Ok(())
+    }
+
+    fn has_bare(&self) -> bool {
+        !crate::lock(&self.bare).topics.is_empty()
     }
 
     /// Whether one of the `changed` roots was bound without Git metadata and
@@ -226,14 +230,11 @@ async fn git_bindings(
 
 /// Holds the bind of one root, for a test: it says it is there, then waits.
 #[cfg(test)]
-pub(super) struct Gate {
-    pub(super) root: PathBuf,
-    pub(super) reached: tokio::sync::oneshot::Sender<()>,
-    pub(super) release: tokio::sync::oneshot::Receiver<()>,
+pub(crate) struct Gate {
+    pub(crate) root: PathBuf,
+    pub(crate) reached: tokio::sync::oneshot::Sender<()>,
+    pub(crate) release: tokio::sync::oneshot::Receiver<()>,
 }
-
-#[cfg(test)]
-pub(super) static GATES: Mutex<Vec<Gate>> = Mutex::new(Vec::new());
 
 /// The roots a source bound without Git metadata, and when it last asked
 /// Git again.
@@ -322,6 +323,9 @@ fn held_sources(subscriptions: &Subscriptions) -> Vec<Arc<Source>> {
 pub(super) struct Pass {
     sources: Vec<Arc<Source>>,
     resolve: bool,
+    /// Bind the roots that came out bare once more after the watcher is
+    /// installed: one may have become a repository before it was.
+    rebind_bare: bool,
 }
 
 impl Pass {
@@ -330,14 +334,17 @@ impl Pass {
         Self {
             sources: held_sources(subscriptions),
             resolve: true,
+            rebind_bare: false,
         }
     }
 
-    /// Every source of the stream, whose roots are known.
+    /// Every source of the stream, whose roots are known: the first bind
+    /// of a watch, before which no watcher saw a change.
     pub(super) fn bind(subscriptions: &Subscriptions) -> Self {
         Self {
             sources: held_sources(subscriptions),
             resolve: false,
+            rebind_bare: true,
         }
     }
 
@@ -356,11 +363,13 @@ impl Pass {
         (!sources.is_empty()).then_some(Self {
             sources,
             resolve: false,
+            rebind_bare: false,
         })
     }
 
     fn merge(&mut self, other: Self) {
         self.resolve |= other.resolve;
+        self.rebind_bare |= other.rebind_bare;
 
         for source in other.sources {
             if !self.sources.iter().any(|held| Arc::ptr_eq(held, &source)) {
@@ -379,6 +388,11 @@ impl Pass {
             TOO_MANY_ROOTS
         );
         try_join_all(self.sources.iter().map(|source| source.bind(&offers))).await?;
+
+        if self.rebind_bare {
+            let bare = self.sources.iter().filter(|source| source.has_bare());
+            try_join_all(bare.map(|source| source.bind(&offers))).await?;
+        }
 
         Ok(())
     }

@@ -299,13 +299,9 @@ mod current {
         }
     }
 
-    #[tokio::test]
-    async fn a_folder_that_becomes_a_repository_pushes_its_later_commits() {
-        let root = tempfile::tempdir().unwrap();
-        let offers = Offers::default();
-        offers.agents.share_folders(vec![root.path().to_owned()]);
+    async fn subscribe(offers: Offers, root: &Path) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
         let link = local_link();
-        let _task = AbortOnDropHandle::new(tokio::spawn(super::super::super::subscriptions::serve(
+        let task = AbortOnDropHandle::new(tokio::spawn(super::super::super::subscriptions::serve(
             link.node.0,
             link.node.1,
             offers,
@@ -313,7 +309,7 @@ mod current {
         )));
         let (mut tx, mut rx) = link.caller;
         assert_eq!(rx.recv::<Reply>().await.unwrap(), Some(Reply::Ready));
-        let root_name = root.path().to_str().unwrap().to_owned();
+        let root_name = root.to_str().unwrap().to_owned();
         let topic = Topic::keyed("files", &root_name);
         tx.send(&Request::Watch {
             id: 1,
@@ -333,12 +329,51 @@ mod current {
         })
         .await
         .unwrap();
+        (tx, rx, task)
+    }
+
+    #[tokio::test]
+    async fn a_folder_that_becomes_a_repository_pushes_its_later_commits() {
+        let root = tempfile::tempdir().unwrap();
+        let offers = Offers::default();
+        offers.agents.share_folders(vec![root.path().to_owned()]);
+        let (_tx, mut rx, _task) = subscribe(offers, root.path()).await;
         projection(&mut rx).await;
 
         git(root.path(), &["init", "--initial-branch=main"]).await;
         git(root.path(), &["commit", "--allow-empty", "-m", "first"]).await;
         // A work tree change has the folder ask Git again.
         std::fs::write(root.path().join("example.txt"), "first file").unwrap();
+        commits(&mut rx, 1).await;
+
+        // Only Git metadata changes now.
+        git(root.path(), &["commit", "--allow-empty", "-m", "second"]).await;
+        commits(&mut rx, 2).await;
+    }
+
+    // The watcher is not installed while the first bind runs, so a folder
+    // that becomes a repository then raises no event: the bind asks Git
+    // again once the watcher is there.
+    #[tokio::test]
+    async fn a_folder_that_becomes_a_repository_while_binding_pushes_its_later_commits() {
+        let root = tempfile::tempdir().unwrap();
+        let offers = Offers::default();
+        offers.agents.share_folders(vec![root.path().to_owned()]);
+        let (reached, reached_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release) = tokio::sync::oneshot::channel();
+        crate::lock(&offers.bind_gates).push(crate::link::events::sources::Gate {
+            root: root.path().canonicalize().unwrap(),
+            reached,
+            release,
+        });
+        let (_tx, mut rx, _task) = subscribe(offers, root.path()).await;
+        projection(&mut rx).await;
+        // Git has been asked and found no repository; no watcher is installed.
+        reached_rx.await.unwrap();
+
+        git(root.path(), &["init", "--initial-branch=main"]).await;
+        git(root.path(), &["commit", "--allow-empty", "-m", "first"]).await;
+        release_tx.send(()).unwrap();
         commits(&mut rx, 1).await;
 
         // Only Git metadata changes now.

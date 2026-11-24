@@ -372,6 +372,9 @@ pub struct Offers {
     /// Set while the host does not lend this machine to other devices: they
     /// get its status, but no shell, task or screen.
     pub(crate) withheld: Arc<AtomicBool>,
+    /// Holds the next bind of a root, for a test.
+    #[cfg(test)]
+    pub(crate) bind_gates: Arc<std::sync::Mutex<Vec<crate::link::events::sources::Gate>>>,
     /// The user's coding agent skills, synced with the mesh when the host
     /// names their home folder.
     pub skills: Skills,
@@ -410,6 +413,8 @@ impl Offers {
             mesh: Membership::default(),
             transfers: Sharing::default(),
             withheld: Arc::default(),
+            #[cfg(test)]
+            bind_gates: Arc::default(),
             skills: Skills::default(),
             reach: Reach::default(),
             project_tools: None,
