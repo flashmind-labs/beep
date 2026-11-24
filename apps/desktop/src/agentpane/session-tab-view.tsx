@@ -36,8 +36,6 @@ export function SessionTabView({ session, hidden, close, links }: { session: Spl
   const { feed, keptTranscript, sendOnce, replyToQuestion } = links;
   const key = transcriptKey(openOf(session));
   const held = useSyncExternalStore(transcripts.subscribe, () => transcripts.peek(key));
-  // A page read by other means: the one kept on disk, or the one read when the follow could not open.
-  const [read, setRead] = useState<{ key: string; page: AgentPage } | null>(null);
   const [error, setError] = useState("");
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -46,16 +44,24 @@ export function SessionTabView({ session, hidden, close, links }: { session: Spl
   const scroller = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
   const activeRef = useRef(false);
-  const page = held?.page ?? (read?.key === key ? read.page : null);
+  const page = held?.page ?? null;
 
   useEffect(() => {
     if (hidden) return;
     const o = openOf(session);
     let shown = true;
     let release = () => {};
-    const keep = (page: AgentPage) => { if (shown) { setRead({ key, page }); setError(""); } };
+    // A page read by other means, the one kept on disk or the one read when the follow could not
+    // open, is held like a pushed one, as a snapshot with no cursor the node could resume from.
+    const keep = (page: AgentPage) => {
+      if (!shown) return;
+      const next = page.earlier + page.entries.length;
+      transcripts.receive(key, { kind: "snapshot", page, cursor: { start: page.earlier, next, fingerprint: "" }, resumed: false });
+      setError("");
+    };
 
-    const read = () => invoke<AgentPage>("agent_view", where(o)).then(keep, e => { if (shown) setError(reason(e)); });
+    // A page read after the follow went live is older than what it pushed.
+    const read = () => invoke<AgentPage>("agent_view", where(o)).then(page => { if (!links.feed.live(o)) keep(page); }, e => { if (shown) setError(reason(e)); });
 
     // A node without the follow stream is read at the old pace until the follow opens.
     let poll: ReturnType<typeof setTimeout> | undefined;
@@ -74,7 +80,7 @@ export function SessionTabView({ session, hidden, close, links }: { session: Spl
 
     // The page kept on disk draws at once, and the follow goes on from its cursor.
     if (transcripts.peek(key)) hold();
-    else void keptTranscript(o).then(kept => { if (kept) keep(kept); hold(); });
+    else void keptTranscript(o).then(kept => { if (kept && !transcripts.peek(key)) keep(kept); hold(); });
 
     return () => { shown = false; clearTimeout(poll); release(); };
   }, [key, hidden]);
