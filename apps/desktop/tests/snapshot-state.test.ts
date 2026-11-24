@@ -33,6 +33,9 @@ test("only read views are accepted and cache size stays bounded", t => {
   assert.equal(viewWrite("session_move_progress"), false, "move progress is a read");
   assert.deepEqual(writeScope("agent_steer"), { kind: "views", commands: ["center_home", "agent_sessions"] });
   assert.deepEqual(writeScope("chat_move"), { kind: "views", commands: ["center_home", "agent_sessions"] }, "moving a chat changes the session lists");
+  installViews({ views: [{ command: "agent_hosts", value: [] }, { command: "device_hosts", value: [] }] });
+  assert.deepEqual(snapshotView("agent_hosts"), { kind: "value", value: [] });
+  assert.deepEqual(snapshotView("device_hosts"), { kind: "value", value: [] });
   installViews({ views: [{ command: "agent_sessions", value: [] }] });
   assert.deepEqual(snapshotView("agent_sessions"), { kind: "value", value: [] }, "the all-sessions list is served from the push");
   assert.deepEqual(writeScope("set_zoom_level"), { kind: "none" });

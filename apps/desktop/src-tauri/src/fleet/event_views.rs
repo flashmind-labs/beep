@@ -292,7 +292,12 @@ pub(crate) fn failed(app: &AppHandle, topic: &Topic, reason: &str) {
 fn commands(name: &str) -> &'static [&'static str] {
     match name {
         "home" => &["center_home", "agent_sessions"],
-        "machines" => &["list_machines", "mac_control"],
+        "machines" => &[
+            "list_machines",
+            "mac_control",
+            "agent_hosts",
+            "device_hosts",
+        ],
         "projects" => &["projects_on_top", "project_groups"],
         "sync" => &["project_sync"],
         "usage" => &["usage_get"],
@@ -471,6 +476,16 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 "mac_control",
                 json!({}),
                 crate::bar::app::mac_control(app.state(), app.state(), app.state()),
+            ));
+            append(
+                &mut views,
+                "agent_hosts",
+                crate::machines::list::agent_hosts(app.state()).await,
+            );
+            views.extend(View::new(
+                "device_hosts",
+                json!({}),
+                crate::machines::devices::device_hosts(app.state()),
             ));
         }
         "projects" => {

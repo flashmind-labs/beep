@@ -6,12 +6,14 @@ use crate::{
     center::{home::HOME_CHANGED, lock},
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
-    fleet::{ClockOff, Fleet, Machines, files as direct},
+    fleet::{ClockOff, Fleet, Machines, agents as hosts, files as direct},
 };
+use beep_mesh::Key;
 use beep_projects::imports::found::MachineFound;
 use beep_proto::{
-    Machine, MachineEnv, MachineTraffic, MachineUpdate, Terminal, TrafficCounter, UpdatableMachine,
-    node::{AdapterInstall, logs::MAX_LINES},
+    AgentHost, Machine, MachineEnv, MachineTraffic, MachineUpdate, Terminal, TrafficCounter,
+    UpdatableMachine,
+    node::{AdapterInstall, harness::HarnessConfig, logs::MAX_LINES},
 };
 use futures::future::BoxFuture;
 use iroh::EndpointId;
@@ -24,6 +26,40 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc::{self, error::TrySendError};
+
+/// A machine that can run a coding agent.
+#[derive(Debug, Serialize)]
+pub struct HostRow {
+    #[serde(flatten)]
+    host: AgentHost,
+    /// Its node runs the home assistant.
+    assistant: bool,
+    /// Its node takes part in moving a chat.
+    moves_chats: bool,
+}
+
+#[tauri::command]
+pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
+    let mesh = fleet.mesh();
+    // A harness the desktops switched off is not offered.
+    let is_off = |agent: &str| {
+        mesh.as_ref()
+            .and_then(|mesh| mesh.get(&Key::Harness(agent.to_owned())))
+            .and_then(|bytes| HarnessConfig::from_bytes(&bytes).ok())
+            .is_some_and(|config| !config.enabled)
+    };
+    let hosts = fleet.status().agent_hosts(is_off);
+    Ok(hosts
+        .into_iter()
+        .map(|host| HostRow {
+            assistant: hosts::runs_assistant(&fleet, &host),
+            moves_chats: fleet
+                .member(&host.machine_id)
+                .is_some_and(|machine| hosts::moves_chats(&fleet, machine)),
+            host,
+        })
+        .collect())
+}
 
 /// A machine as the bar shows it.
 #[derive(Debug, Serialize)]

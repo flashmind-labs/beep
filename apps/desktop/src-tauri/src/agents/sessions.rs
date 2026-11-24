@@ -21,18 +21,16 @@ use crate::{
     },
     projects::known,
 };
-use beep_mesh::Key;
 use beep_node::agents::tags::own_words;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{LineChanges, Persona};
 use beep_proto::{
-    AccountName, AgentEntry, AgentEntryKind, AgentHost, AgentMode, AgentModels, AgentPlanStep,
-    AgentQuestion, AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentTask,
-    AgentToolCall, ApiError, GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks,
-    ListAgentModels, MachineSession, ModelId, ResumeAgentSession, StartAgentSession,
+    AccountName, AgentEntry, AgentEntryKind, AgentMode, AgentModels, AgentPlanStep, AgentQuestion,
+    AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentTask, AgentToolCall, ApiError,
+    GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, ListAgentModels, MachineSession,
+    ModelId, ResumeAgentSession, StartAgentSession,
     node::{
         agent::{CheckoutPlan, Effort, StopReason},
-        harness::HarnessConfig,
         mesh_state::StateValue,
     },
 };
@@ -41,17 +39,6 @@ use serde::Serialize;
 use std::{collections::HashSet, str::FromStr, sync::Arc, time::Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::broadcast;
-
-/// A machine that can run a coding agent.
-#[derive(Debug, Serialize)]
-pub struct HostRow {
-    #[serde(flatten)]
-    host: AgentHost,
-    /// Its node runs the home assistant.
-    assistant: bool,
-    /// Its node takes part in moving a chat.
-    moves_chats: bool,
-}
 
 /// One session as the views list it.
 #[derive(Clone, Debug, Serialize)]
@@ -228,29 +215,6 @@ impl From<AgentSessionView> for SessionPage {
 pub struct Started {
     pub(crate) session: SessionRow,
     pub(crate) why: String,
-}
-
-#[tauri::command]
-pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
-    let mesh = fleet.mesh();
-    // A harness the desktops switched off is not offered.
-    let is_off = |agent: &str| {
-        mesh.as_ref()
-            .and_then(|mesh| mesh.get(&Key::Harness(agent.to_owned())))
-            .and_then(|bytes| HarnessConfig::from_bytes(&bytes).ok())
-            .is_some_and(|config| !config.enabled)
-    };
-    let hosts = fleet.status().agent_hosts(is_off);
-    Ok(hosts
-        .into_iter()
-        .map(|host| HostRow {
-            assistant: direct::runs_assistant(&fleet, &host),
-            moves_chats: fleet
-                .member(&host.machine_id)
-                .is_some_and(|machine| direct::moves_chats(&fleet, machine)),
-            host,
-        })
-        .collect())
 }
 
 #[tauri::command]

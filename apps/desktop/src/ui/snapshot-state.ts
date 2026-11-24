@@ -11,6 +11,7 @@ const VIEW_COMMANDS = [
   "center_home", "list_machines", "mac_control", "projects_on_top", "project_groups",
   "project_sync", "git_items", "usage_get", "agent_accounts", "center_project_lists",
   "center_project_runs", "center_project_run", "agent_sessions",
+  "agent_hosts", "device_hosts",
 ] as const;
 type ViewCommand = typeof VIEW_COMMANDS[number];
 const COMMANDS = new Set<string>(VIEW_COMMANDS);

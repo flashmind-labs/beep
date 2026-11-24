@@ -257,7 +257,7 @@ pub fn run() {
             agents::sessions::agent_deletable,
             agents::sessions::agent_delete,
             agents::sessions::agent_relocate,
-            agents::sessions::agent_hosts,
+            machines::list::agent_hosts,
             agents::sessions::agent_models,
             agents::sessions::agent_resume,
             agents::sessions::agent_sessions,
