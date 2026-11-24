@@ -35,11 +35,10 @@ fn a_process_naming_the_session_runs_it_wherever_it_is() {
     };
     let snapshot = Snapshot {
         processes: vec![named(8271, "/elsewhere", ID)],
-        now: Some(now),
         ..Snapshot::default()
     };
     assert_eq!(
-        presence(&seen(old, true), &snapshot),
+        presence(&seen(old, true), &snapshot, now),
         Found {
             presence: Presence::Running,
             pid: Some(8271)
@@ -48,17 +47,16 @@ fn a_process_naming_the_session_runs_it_wherever_it_is() {
     // The arguments name the session that was resumed; after `/clear`
     // the process runs a newer one, so only the folder's newest counts.
     assert_eq!(
-        presence(&seen(old, false), &snapshot).presence,
+        presence(&seen(old, false), &snapshot, now).presence,
         Presence::Stopped
     );
     // One in the folder naming another, older session runs the newest.
     let other = Snapshot {
         processes: vec![named(8271, "/srv/project", OTHER)],
-        now: Some(now),
         ..Snapshot::default()
     };
     assert_eq!(
-        presence(&seen(old, true), &other),
+        presence(&seen(old, true), &other, now),
         Found {
             presence: Presence::Running,
             pid: Some(8271)
@@ -72,11 +70,10 @@ fn a_process_naming_the_session_runs_it_wherever_it_is() {
             session_id: OTHER.into(),
             status: Some("busy".into()),
         }],
-        now: Some(now),
         ..Snapshot::default()
     };
     assert_eq!(
-        presence(&seen(old, true), &claimed).presence,
+        presence(&seen(old, true), &claimed, now).presence,
         Presence::Stopped
     );
 }
@@ -91,12 +88,11 @@ fn a_pid_file_names_the_session_and_its_state() {
             session_id: ID.into(),
             status: Some("busy".into()),
         }],
-        now: Some(now),
         ..Snapshot::default()
     };
     let old = now - Duration::from_secs(3600);
     assert_eq!(
-        presence(&seen(old, false), &snapshot),
+        presence(&seen(old, false), &snapshot, now),
         Found {
             presence: Presence::Working,
             pid: Some(41)
@@ -113,17 +109,16 @@ fn a_stale_pid_file_does_not_count() {
             session_id: ID.into(),
             status: Some("idle".into()),
         }],
-        now: Some(now),
         ..Snapshot::default()
     };
     let old = now - Duration::from_secs(3600);
     assert_eq!(
-        presence(&seen(old, true), &snapshot).presence,
+        presence(&seen(old, true), &snapshot, now).presence,
         Presence::Stopped
     );
     let fresh = now - Duration::from_secs(30);
     assert_eq!(
-        presence(&seen(fresh, true), &snapshot).presence,
+        presence(&seen(fresh, true), &snapshot, now).presence,
         Presence::Recent
     );
 }
@@ -134,18 +129,17 @@ fn a_process_in_the_folder_runs_its_newest_session_only() {
     let old = now - Duration::from_secs(3600);
     let snapshot = Snapshot {
         processes: vec![process(7, "/srv/project")],
-        now: Some(now),
         ..Snapshot::default()
     };
     assert_eq!(
-        presence(&seen(old, true), &snapshot),
+        presence(&seen(old, true), &snapshot, now),
         Found {
             presence: Presence::Running,
             pid: Some(7)
         }
     );
     assert_eq!(
-        presence(&seen(old, false), &snapshot).presence,
+        presence(&seen(old, false), &snapshot, now).presence,
         Presence::Stopped
     );
     // A process whose pid file names another session is not this one.
@@ -158,7 +152,7 @@ fn a_process_in_the_folder_runs_its_newest_session_only() {
         ..snapshot
     };
     assert_eq!(
-        presence(&seen(old, true), &claimed).presence,
+        presence(&seen(old, true), &claimed, now).presence,
         Presence::Stopped
     );
 }
@@ -241,7 +235,6 @@ fn a_store_lists_sessions_newest_first_with_what_they_say() {
         processes: vec![process(41, "/srv/project")],
         pid_files: store.pid_files(),
         owned: HashMap::from([(SessionId::from(OTHER), SessionId::from("a3f9c1"))]),
-        now: None,
     };
     let sessions = list(&store, &snapshot, 10, None).unwrap();
     assert_eq!(sessions.len(), 2);

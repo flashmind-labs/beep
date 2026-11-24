@@ -101,7 +101,6 @@ pub(super) struct Snapshot {
     pub(super) pid_files: Vec<PidFile>,
     /// Sessions this node runs: the agent's id to the node's.
     pub(super) owned: HashMap<SessionId, SessionId>,
-    pub(super) now: Option<SystemTime>,
 }
 
 impl Snapshot {
@@ -116,7 +115,6 @@ impl Snapshot {
             processes,
             pid_files: store.pid_files(),
             owned,
-            now: None,
         }
     }
 }
@@ -504,6 +502,7 @@ fn describe(
             newest_in_folder,
         },
         snapshot,
+        SystemTime::now(),
     );
     Ok(ExternalSession {
         id: transcript.id.clone(),
@@ -545,7 +544,7 @@ pub(super) struct Found {
 }
 
 /// Whether a process runs the session `seen`, and what it is doing.
-pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot) -> Found {
+pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot, now: SystemTime) -> Found {
     let running = |pid: u32| snapshot.processes.iter().any(|p| p.pid == pid);
     // Claude Code's own word, when its process still runs.
     if let Some(file) = snapshot
@@ -597,7 +596,7 @@ pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot) -> Found {
     }
 
     Found {
-        presence: quiet_presence(seen.modified, snapshot.now.unwrap_or_else(SystemTime::now)),
+        presence: quiet_presence(seen.modified, now),
         pid: None,
     }
 }
