@@ -29,7 +29,7 @@ import type { LspLocation } from "./lsp-state.ts";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
 import { draw, flipTab, noteTab, pickPhoneTab, touchTab } from "./media-draw.ts";
-import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setHidden, setOn, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
+import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, drawPaneNow, paneModel, paneOf, place, setHidden, setOn, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { onPhone, savedIn } from "../ui/platform.ts";
 import { confirmSheet } from "../ui/menu.tsx";
 
@@ -730,6 +730,7 @@ export function showChanges(zoomed = true) {
   if (zoomed) {
     paneModel.setState({ zoom: d });
     place();
+    drawPaneNow();
     focusChanges();
   }
 
@@ -754,6 +755,7 @@ export function showTab(d: Dock, id: string) {
   setOn(d, id);
   rememberPane();
   if (!flipTab(d)) draw();
+  drawPaneNow();
   paneOf(d)?.focus({ preventScroll: true });
 }
 

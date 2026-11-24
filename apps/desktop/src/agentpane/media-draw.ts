@@ -22,7 +22,7 @@ import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/parts.tsx";
 import { sessionsRead } from "../agents/sessions.ts";
 import { type TabKind, setFolded, closeTab, P, previewTab, saveFile, saveLayout, saveWorkFile, showTab, type MediaTab, focusTab } from "./media.ts";
-import { type DockModel, type DockView, type PaneCounts, type PaneModel, chatPane, desktopChatPane, docked, foldNarrow, paneModel, paneOf, place, setOn, setPaneModel, shell } from "./media-layout.ts";
+import { type DockModel, type DockView, type PaneCounts, type PaneModel, chatPane, desktopChatPane, docked, foldNarrow, paneModel, paneOf, drawPaneNow, place, setOn, setPaneModel, shell } from "./media-layout.ts";
 
 // ----- Tabs -----
 
@@ -86,6 +86,7 @@ export function flipTab(d: Dock) {
   followFiles();
   // Draws the flipped views now: what syncDock started reading lands in a view that shows.
   setPaneModel({});
+  drawPaneNow();
   refreshTopicSubscriptions();
   return true;
 }

@@ -5,7 +5,7 @@ import { createRef } from "react";
 import { type Box, type Dock, DOCKS, dropDock, moveTab, paneSize, SIDE_BY_SIDE_MIN } from "./media-state.ts";
 import { DRAG_START, P, saveLayout } from "./media.ts";
 import { draw, paneTabItem } from "./media-draw.ts";
-import { shell, main, paneOf, dockOf, paneModel, setOn, setPaneModel, stripRefs } from "./media-layout.ts";
+import { shell, main, paneOf, dockOf, paneModel, drawPaneNow, setOn, setPaneModel, stripRefs } from "./media-layout.ts";
 
 /// Where a tab drag stands: the tab, where the pointer went down, whether it
 /// moved far enough to drag, and the dock it would drop in.
@@ -43,6 +43,7 @@ function tabMove(e: PointerEvent) {
     if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < DRAG_START) return;
     d.ghost = true;
     setPaneModel({ drag: { item: paneTabItem(d.id), selected: paneModel.getState().on[dockOf(d.id)] === d.id, to: null, zone: null } });
+    drawPaneNow();
     document.addEventListener("keydown", dragKey, true);
   }
 

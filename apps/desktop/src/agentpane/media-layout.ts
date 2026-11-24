@@ -204,9 +204,14 @@ export const paneModel = createStore<PaneModel>(() => ({
   tabs: [], subs: [], subCount: 0, split: null, counts: { running: 0, artifacts: 0, agents: null }, changes: false, worktrees: null, places: { right: HIDDEN, bottom: HIDDEN }, narrow: false, zoomed: null, crowded: false, resizing: null, drag: null, phone: null, log: false,
 }));
 
-/// Sets part of the model and renders it now: callers measure and focus what it draws.
+/// Sets part of the model; React draws it with the rest of the event.
 export function setPaneModel(change: Partial<PaneModel>) {
-  flushSync(() => paneModel.setState(change));
+  paneModel.setState(change);
+}
+
+/// Draws what the model changed now, for a caller that measures or focuses what it draws next.
+export function drawPaneNow() {
+  flushSync(() => {});
 }
 
 /// Shows tab `id` in dock `d` at the next draw.
@@ -286,6 +291,7 @@ function toggleZoom() {
   }
 
   place();
+  drawPaneNow();
   rememberPane();
   // From the input, the zoomed tab takes the keys: a terminal fills the view and is typed in.
   const { zoom, on } = paneModel.getState(), pane = zoom && paneOf(zoom);
