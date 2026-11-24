@@ -518,35 +518,32 @@ struct Wanted {
     topics: Vec<Topic>,
 }
 
-/// What the supervisor knows of a plugin from its manifest.
-struct Plan {
-    activation: Vec<Activation>,
+/// Whether something the plugin is activated by has happened.
+fn triggered(
+    activation: &[Activation],
+    instances: &Instances,
+    local: &HashMap<Topic, Delivery>,
+) -> bool {
+    activation.iter().any(|activation| match activation {
+        Activation::Startup => true,
+        Activation::Slot(slot) => instances.has(*slot),
+        Activation::Topic(topic) => local.keys().any(|seen| seen.name == topic.name),
+    })
 }
 
-impl Plan {
-    /// Whether something the plugin is activated by has happened.
-    fn triggered(&self, instances: &Instances, local: &HashMap<Topic, Delivery>) -> bool {
-        self.activation.iter().any(|activation| match activation {
-            Activation::Startup => true,
-            Activation::Slot(slot) => instances.has(*slot),
-            Activation::Topic(topic) => local.keys().any(|seen| seen.name == topic.name),
-        })
-    }
+/// Whether the plugin stops when its slots are gone: only plugins activated
+/// by slots alone do.
+fn idles(activation: &[Activation]) -> bool {
+    activation
+        .iter()
+        .all(|activation| matches!(activation, Activation::Slot(_)))
+}
 
-    /// Whether the plugin stops when its slots are gone: only plugins activated
-    /// by slots alone do.
-    fn idles(&self) -> bool {
-        self.activation
-            .iter()
-            .all(|activation| matches!(activation, Activation::Slot(_)))
-    }
-
-    fn holds(&self, instances: &Instances) -> bool {
-        self.activation.iter().any(|activation| match activation {
-            Activation::Slot(slot) => instances.has(*slot),
-            Activation::Startup | Activation::Topic(_) => true,
-        })
-    }
+fn holds(activation: &[Activation], instances: &Instances) -> bool {
+    activation.iter().any(|activation| match activation {
+        Activation::Slot(slot) => instances.has(*slot),
+        Activation::Startup | Activation::Topic(_) => true,
+    })
 }
 
 /// What a plugin's last render put on the page.
@@ -561,7 +558,8 @@ struct Supervisor {
     managed: Arc<Managed>,
     events: Sender<Event>,
     running: HashMap<PluginId, Running>,
-    plans: HashMap<PluginId, Plan>,
+    /// What each plugin is activated by, from its manifest.
+    plans: HashMap<PluginId, Vec<Activation>>,
     shown: BTreeMap<PluginId, Shown>,
     reloads: HashMap<PluginId, Instant>,
     published: Arc<Published>,
@@ -955,12 +953,7 @@ impl Supervisor {
                     Verdict::Disabled => Lifecycle::Disabled,
                     Verdict::NeedsApproval(missing) => Lifecycle::NeedsApproval(missing),
                 };
-                self.plans.insert(
-                    id.clone(),
-                    Plan {
-                        activation: manifest.activation,
-                    },
-                );
+                self.plans.insert(id.clone(), manifest.activation);
                 locked(&self.published.registry).set(
                     id.clone(),
                     Info {
@@ -1026,22 +1019,24 @@ impl Supervisor {
     }
 
     fn reconcile_one(&mut self, id: &PluginId, now: Instant) {
-        let Some(plan) = self.plans.get(id) else {
+        let Some(activation) = self.plans.get(id) else {
             return;
         };
         let lifecycle = locked(&self.published.registry).lifecycle(id).cloned();
 
         match lifecycle {
             Some(Lifecycle::Waiting) => {
-                if plan.triggered(&self.instances, &self.local) {
+                if triggered(activation, &self.instances, &self.local) {
                     self.start_plugin(id);
                 }
             }
-            Some(Lifecycle::Running) if plan.idles() && !plan.holds(&self.instances) => {
+            Some(Lifecycle::Running)
+                if idles(activation) && !holds(activation, &self.instances) =>
+            {
                 locked(&self.published.registry)
                     .move_to(id, Lifecycle::IdleGrace(now + IDLE_GRACE));
             }
-            Some(Lifecycle::IdleGrace(_)) if plan.holds(&self.instances) => {
+            Some(Lifecycle::IdleGrace(_)) if holds(activation, &self.instances) => {
                 locked(&self.published.registry).move_to(id, Lifecycle::Running);
             }
             Some(Lifecycle::IdleGrace(deadline)) if deadline <= now => {
