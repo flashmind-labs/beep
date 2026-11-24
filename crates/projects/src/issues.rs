@@ -12,14 +12,14 @@ use host::{failed_everywhere, is_not_found, read_sources, set_up_on};
 use crate::{
     Shell,
     commands::{
-        HostCommand, OpenIssue, OpenPr, PrHead, parse_can_push, parse_login, parse_open_issues,
+        HostCommand, OpenIssue, OpenPr, parse_can_push, parse_login, parse_open_issues,
         parse_open_prs, parse_pr_head,
     },
     model::{IssueHost, RepoName},
 };
 use anyhow::Result;
 use async_trait::async_trait;
-use beep_proto::{ProjectIssue, ProjectPullRequest};
+use beep_proto::{ProjectIssue, ProjectPullRequest, PullRequestHead};
 use iroh::EndpointId;
 use std::{collections::HashSet, sync::Arc, time::Duration};
 use thiserror::Error;
@@ -378,7 +378,7 @@ pub async fn pull_request_head(
     store: &dyn ProjectStore,
     machines: &dyn Machines,
     number: u64,
-) -> Result<PrHead, SourceError> {
+) -> Result<PullRequestHead, SourceError> {
     let Some(sources) = issue_sources(store, machines).await? else {
         return Err(SourceError::Refused(
             "The project has no GitHub or Forgejo host to read pull requests from.".into(),

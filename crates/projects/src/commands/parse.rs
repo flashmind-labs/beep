@@ -1,6 +1,7 @@
 //! Reads what `gh` and `tea` print: issues, pull requests, checks and logins.
 
 use anyhow::{Context, Result, anyhow, bail};
+use beep_proto::PullRequestHead;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
@@ -232,17 +233,8 @@ pub fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
         .collect()
 }
 
-/// The branch of a pull request, as [`HostCommand::ViewPrHead`] reads it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrHead {
-    pub number: u64,
-    pub branch: String,
-    /// Made from another repository's branch.
-    pub fork: bool,
-}
-
 /// Parses [`HostCommand::ViewPrHead`] from gh or Forgejo (a deleted fork's repo is null).
-pub fn parse_pr_head(out: &str) -> Result<PrHead> {
+pub fn parse_pr_head(out: &str) -> Result<PullRequestHead> {
     let item = json(out)?;
     let number = item
         .get("number")
@@ -274,7 +266,7 @@ pub fn parse_pr_head(out: &str) -> Result<PrHead> {
         bail!("#{number} names no branch");
     }
 
-    Ok(PrHead {
+    Ok(PullRequestHead {
         number,
         branch,
         fork,

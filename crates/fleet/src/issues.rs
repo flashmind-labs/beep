@@ -114,12 +114,7 @@ impl Desk {
     /// The branch pull request `number` is made from.
     pub async fn pr_head(&self, project: &str, number: u64) -> Result<PullRequestHead> {
         self.host_first(project, |store, machines| async move {
-            let head = pull_request_head(&store, &machines, number).await?;
-            Ok(PullRequestHead {
-                number: head.number,
-                branch: head.branch,
-                fork: head.fork,
-            })
+            Ok(pull_request_head(&store, &machines, number).await?)
         })
         .await
     }

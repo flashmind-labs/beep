@@ -1,5 +1,6 @@
 use super::{host::*, parse::*, *};
 use crate::model::{IssueHost, RepoName};
+use beep_proto::PullRequestHead;
 use chrono::{DateTime, Utc};
 use std::str::FromStr;
 
@@ -37,7 +38,7 @@ fn can_push_reads_gh_and_teacli_output() {
 
 #[test]
 fn pr_heads_parse_from_gh_and_teacli() {
-    let head = |number, branch: &str, fork| PrHead {
+    let head = |number, branch: &str, fork| PullRequestHead {
         number,
         branch: branch.into(),
         fork,
