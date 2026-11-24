@@ -107,22 +107,12 @@ pub enum Error {
     Join(#[from] JoinError),
 }
 
-/// How `beep-node update` runs.
-#[derive(Debug, Clone)]
-pub struct Options {
-    /// Only says whether a newer version is out.
-    pub check: bool,
-    /// How long to wait for the node's agent sessions to be idle before
-    /// restarting it; `None` restarts at once.
-    pub wait: Option<Duration>,
-    /// The node's folder, where the running node is asked to wait.
-    pub dir: PathBuf,
-}
-
 /// `beep-node update`: installs the newest release over this binary and
 /// restarts its service. With `check`, only says whether there is one.
-pub async fn update(options: Options) -> Result<(), Error> {
-    let Options { check, wait, dir } = options;
+/// Otherwise it waits up to `wait` for the node's agent sessions to be
+/// idle before restarting it, or restarts at once when `wait` is `None`;
+/// `dir` is the node's folder, where the running node is asked to wait.
+pub async fn update(check: bool, wait: Option<Duration>, dir: PathBuf) -> Result<(), Error> {
     let base = base();
     let client = client()?;
     let Newest { current, latest } = newest(&client, &base, ReleaseChannel::All).await?;

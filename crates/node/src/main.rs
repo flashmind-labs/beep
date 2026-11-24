@@ -485,12 +485,8 @@ async fn run() -> Result<()> {
             action: ServiceAction::Uninstall,
         } => service::uninstall(),
         Command::Update { check, now, wait } => {
-            let options = update::Options {
-                check,
-                wait: (!now).then(|| Duration::from_secs(wait.saturating_mul(60))),
-                dir,
-            };
-            Ok(update::update(options).await?)
+            let wait = (!now).then(|| Duration::from_secs(wait.saturating_mul(60)));
+            Ok(update::update(check, wait, dir).await?)
         }
         Command::Hooks { action, settings } => {
             let settings = match settings {
