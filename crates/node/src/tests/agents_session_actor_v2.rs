@@ -232,29 +232,38 @@ async fn a_steer_waits_for_the_turn_the_user_stopped() {
 #[tokio::test]
 async fn taking_steers_back_also_takes_the_one_sent_to_the_agent() {
     with_actor(async |mut actor, cx| {
-        actor.takes_steering = true;
-        actor.steering = Some(PendingSteer {
-            prompt: Prompt::from("old text".to_owned()),
-            shown: false,
-            dropped: false,
-        });
-        actor.show_queued();
-        assert_eq!(
-            watched::read_sent(&actor.live, |live| live.info.state.queued_messages.clone()),
-            ["old text"]
-        );
+        let replies = [
+            Ok(json!({"outcome": "promptRequired"})),
+            Ok(json!({"outcome": "failed"})),
+            Err(agent_client_protocol::Error::internal_error()),
+        ];
 
-        actor.command(&cx, Command::DropSteers).unwrap().unwrap();
+        for reply in replies {
+            actor.takes_steering = true;
+            actor.steering = Some(PendingSteer {
+                prompt: Prompt::from("old text".to_owned()),
+                shown: false,
+                dropped: false,
+            });
+            actor.show_queued();
+            assert_eq!(
+                watched::read_sent(&actor.live, |live| live.info.state.queued_messages.clone()),
+                ["old text"]
+            );
 
-        assert_eq!(
-            watched::read_sent(&actor.live, |live| live.info.state.queued),
-            0
-        );
+            actor.command(&cx, Command::DropSteers).unwrap().unwrap();
 
-        // The adapter could not inject it: it must not come back as a prompt.
-        actor.steered(&cx, Ok(json!({"outcome": "promptRequired"}))).unwrap();
-        assert!(actor.steers.is_empty());
-        assert!(actor.steering.is_none());
+            assert_eq!(
+                watched::read_sent(&actor.live, |live| live.info.state.queued),
+                0
+            );
+
+            // The adapter could not inject it: it must not come back as a prompt.
+            actor.steered(&cx, reply).unwrap();
+            assert!(actor.steers.is_empty());
+            assert!(actor.steering.is_none());
+            assert!(actor.turn.is_none());
+        }
     })
     .await;
 }

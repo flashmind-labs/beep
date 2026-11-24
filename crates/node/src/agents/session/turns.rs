@@ -171,8 +171,7 @@ impl Actor {
 
         match outcome {
             Ok(acp::SteeringOutcome::Injected) => {}
-            Ok(acp::SteeringOutcome::PromptRequired | acp::SteeringOutcome::Failed)
-                if steer.dropped => {}
+            _ if steer.dropped => {}
             Ok(acp::SteeringOutcome::PromptRequired) => {
                 self.steers.push_front(steer.prompt);
                 self.steer_after_turn = self.turn.is_some();
