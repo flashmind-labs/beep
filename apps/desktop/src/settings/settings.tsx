@@ -17,7 +17,7 @@ import { bar, S, toWindow, windowHooks } from "../bar/core.ts";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { hintModel } from "../bar/hints.ts";
 import { machinesIn, machinesOut, renderMachines } from "../machines/machines.tsx";
-import { loadMachines, MACHINES } from "../machines/machine-store.ts";
+import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { harnessName } from "./providers-state.ts";
 import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
@@ -87,7 +87,7 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
   SET.local = { set, mac };
   drawLocal();
 
-  loadMachines().catch(e => console.warn("machines:", e))
+  ensureMachines().catch(e => console.warn("machines:", e))
     .then(() => {
       if (!alive()) return;
       redrawSettings();

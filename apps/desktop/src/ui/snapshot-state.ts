@@ -8,10 +8,9 @@ export interface ViewSnapshot {
 }
 
 const VIEW_COMMANDS = [
-  "center_home", "list_machines", "mac_control", "projects_on_top", "project_groups",
+  "center_home", "mac_control", "projects_on_top", "project_groups",
   "project_sync", "git_items", "usage_get", "agent_accounts", "center_project_lists",
-  "center_project_runs", "center_project_run", "agent_sessions",
-  "agent_hosts", "device_hosts",
+  "center_project_runs", "center_project_run",
 ] as const;
 type ViewCommand = typeof VIEW_COMMANDS[number];
 const COMMANDS = new Set<string>(VIEW_COMMANDS);
@@ -33,13 +32,29 @@ export function installViews(data: unknown): void {
 
   for (const value of data.views) {
     const snapshot = readSnapshot(value);
-    if (!snapshot) continue;
+    if (!snapshot || !COMMANDS.has(snapshot.command)) continue;
     const id = key(snapshot.command, snapshot.args);
     pending.delete(id);
     pending.set(id, snapshot);
   }
 
   if (pending.size > MAX_VIEWS) settle();
+}
+
+/// The list a topic update pushed for `command`, used as it arrives and never cached: the
+/// error text when that view failed, null when the update does not carry the view.
+export function pushedList<T>(data: unknown, command: string): { list: T[] } | { error: string } | null {
+  if (!record(data) || !Array.isArray(data.views)) return null;
+
+  for (const value of data.views) {
+    const snapshot = readSnapshot(value);
+    if (snapshot?.command !== command) continue;
+    if (snapshot.result.kind === "error") return { error: snapshot.result.error };
+
+    return Array.isArray(snapshot.result.value) ? { list: snapshot.result.value } : null;
+  }
+
+  return null;
 }
 
 /// Moves the pending projections into the bounded cache.
@@ -96,7 +111,7 @@ type WriteScope =
   | { kind: "views"; commands: readonly ViewCommand[] }
   | { kind: "all" };
 
-const SESSIONS: readonly ViewCommand[] = ["center_home", "agent_sessions"];
+const SESSIONS: readonly ViewCommand[] = ["center_home"];
 const FORGE: readonly ViewCommand[] = ["center_project_lists", "git_items", "center_home"];
 const ACCOUNTS: readonly ViewCommand[] = ["agent_accounts", "usage_get"];
 /// Frequent writes and the views they change. Other writes drop every view.
@@ -104,8 +119,8 @@ const WRITES: Readonly<Record<string, readonly ViewCommand[]>> = {
   agent_steer: SESSIONS, agent_start: SESSIONS, agent_begin: SESSIONS, agent_begin_retry: SESSIONS, agent_resume: SESSIONS,
   agent_delete: SESSIONS, agent_title_save: SESSIONS, agent_stop_process: SESSIONS, agent_close_external: SESSIONS, agent_review_start: SESSIONS,
   center_answer_agent: SESSIONS, session_move: SESSIONS, session_move_cancel: SESSIONS, chat_move: SESSIONS,
-  terminal_open: ["center_home", "list_machines"],
-  terminal_close: ["center_home", "list_machines"],
+  terminal_open: ["center_home"],
+  terminal_close: ["center_home"],
   agent_file_save: ["project_sync"], agent_tree_edit: ["project_sync"], agent_tree_upload: ["project_sync"],
   agent_files_sync: ["project_sync"], project_sync_pause: ["project_sync"], project_sync_resolve: ["project_sync"], project_sync_start_over: ["project_sync"],
   save_picture: [], save_machine_log: [],
@@ -157,7 +172,7 @@ function record(value: unknown): value is Record<string, unknown> {
 
 /// Optional fields are accepted only at the wire boundary; the cache has explicit states.
 function readSnapshot(value: unknown): Snapshot | null {
-  if (!record(value) || typeof value.command !== "string" || !COMMANDS.has(value.command)) return null;
+  if (!record(value) || typeof value.command !== "string") return null;
   if (value.args !== undefined && !record(value.args)) return null;
   const args = record(value.args) ? value.args : {};
   if (typeof value.error === "string") return { command: value.command, args, result: { kind: "error", error: value.error } };

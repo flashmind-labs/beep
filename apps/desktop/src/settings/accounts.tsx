@@ -7,7 +7,7 @@ import { cliHost, draft as credentialDraft, editFor } from "./credentials.ts";
 import type { ApiProvider, CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
 import { copy } from "../ui/parts.tsx";
 import type { Machine } from "../machines/machines.tsx";
-import { loadMachines, MACHINES } from "../machines/machine-store.ts";
+import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 import { openSignIn } from "../machines/signin.tsx";
 import { redrawSettings, setShown } from "./settings.tsx";
 import { Mounted } from "./settings-shell-view.tsx";
@@ -167,7 +167,7 @@ export async function loadAgentAccounts() {
   try {
     const [data, machines] = await Promise.all([
       invoke<AgentAccounts>("agent_accounts"),
-      loadMachines().catch((): Machine[] => []),
+      ensureMachines().catch((): Machine[] => []),
     ]);
     ACC.data = data;
     // Each machine's own Claude Code sign-in, as it last reported it.

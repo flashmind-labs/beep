@@ -166,13 +166,6 @@ export function doneNote(agentName: string, verdict: string, added: number, tota
 
 // ----- The button -----
 
-/// The machines list after a read: a failed read (`list` null) keeps a list
-/// already held, and only marks failure when none is held.
-export function hostsAfterRead<T>(held: T[] | null, list: T[] | null): { hosts: T[] | null; failed: boolean } {
-  if (list) return { hosts: list, failed: false };
-  return held ? { hosts: held, failed: false } : { hosts: [], failed: true };
-}
-
 /// What decides whether a review can start: the machine the diff is on and
 /// what it offers, and the checkout.
 export interface CanStart {
@@ -182,8 +175,6 @@ export interface CanStart {
   root: string | null;
   /// The machines that run coding agents, as read; null until read.
   hosts: readonly { machine_id: string; agents: readonly string[] }[] | null;
-  /// Whether reading the machines failed, so an empty list says nothing about them.
-  hostsFailed: boolean;
   /// Whether the diff has any change to review.
   changes: boolean;
 }
@@ -194,7 +185,6 @@ export function whyNot(c: CanStart): string {
   if (c.root == null) return "Reading the changes";
   if (!c.changes) return "There are no changes to review";
   if (!c.hosts) return "Looking for coding agents";
-  if (c.hostsFailed) return "The machines' coding agents could not be read";
   const host = c.hosts.find(h => h.machine_id === c.machine!.id);
   if (!host) return `${c.machine.name} is offline, so the checkout cannot be read`;
   if (!host.agents.length) return `${c.machine.name} has no coding agent`;

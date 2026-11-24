@@ -92,7 +92,7 @@ test("Claude signs in on the selected machine and refreshes its account", async 
   const sheet = page.getByRole("dialog", { name: "Sign in to Claude Code on test-box", exact: true });
   await expect(sheet).toContainText("Claude Code is signed in on test-box.");
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "machine_sign_in").map(call => call.args))).toContainEqual({ machineId: "test-box", tool: "claude", step: { step: "start" } });
-  await page.evaluate(machines => window.__navigation.respond("list_machines", machines), [login("build-box", true, "one@example.com"), login("test-box", true, "two@example.com")]);
+  await page.evaluate(machines => window.__navigation.notify("machines", [{ command: "list_machines", value: machines }]), [login("build-box", true, "one@example.com"), login("test-box", true, "two@example.com")]);
   await sheet.getByRole("button", { name: "Close", exact: true }).click();
   await expect(row("test-box")).toContainText("signed in as two@example.com");
   await expect(row("test-box").getByRole("button")).toHaveCount(0);

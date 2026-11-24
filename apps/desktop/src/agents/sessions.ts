@@ -1,10 +1,11 @@
 import { invoke, listen } from "../ui/tauri.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
-import { Changes } from "../ui/pagecache.ts";
+import { pushedList } from "../ui/snapshot-state.ts";
+import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import type { AgentRow, AgentSession } from "./agents.ts";
 import { retitled, sessionKey, type Retitled } from "./conversation-state.ts";
 import { parentRow } from "./nesting-state.ts";
-import { refreshMoves, withoutCopies } from "./move-store.ts";
+import { moveStore, refreshMoves, withoutCopies } from "./move-store.ts";
 
 /// Every session on the user's machines, as the last `loadSessions` read it.
 export let sessions: AgentSession[] = [];
@@ -29,46 +30,68 @@ export function keepNativeSession(row: AgentSession, parent?: AgentRow) {
 export const parentSession = (row: AgentRow) => parentRow(sessions, row) ?? nativeParents.get(sessionKey(row));
 
 let loading: Promise<AgentSession[]> | null = null;
-/// Called after each read of the sessions, with the new list in `sessions`.
+/// The list the `home` push or a read last gave, before the moves and native rows join it.
+let listed: AgentSession[] | null = null;
+/// Counts the lists taken, so a read that was out when a push arrived is dropped.
+let taken = 0;
+/// Called after each change of the sessions, with the new list in `sessions`.
 export const sessionsRead = new Set<() => void>();
 
-/// Home's topic changes with every session's state and moves, and the
-/// window hears of titles and sessions on other devices: until one of those,
-/// the last read stands.
-const changes = new Changes();
-/// Called when the sessions may have changed since the last read.
-export const sessionsChanged = new Set<() => void>();
-const changed = () => { changes.changed(); for (const f of sessionsChanged) f(); };
-subscribeEach(topic("home"), changed);
-for (const name of ["sessions-changed", "reconnected"]) listen(name, changed);
+/// Takes `list` as the sessions: a session that moved is on two machines for a while, it shows once.
+function take(list: AgentSession[]) {
+  listed = list;
+  taken++;
+  show();
+}
+
+function show() {
+  if (!listed) return;
+  sessions = withoutCopies([...listed.filter(s => !s.reviewer), ...nativeSessions.values()]);
+  for (const f of sessionsRead) f();
+}
+
+// Home's topic pushes the list with every change of a session's state or moves.
+subscribeEach(topic("home"), event => {
+  const pushed = pushedList<AgentSession>(event.data, "agent_sessions");
+  if (!pushed || "error" in pushed) return;
+
+  take(pushed.list);
+  void refreshMoves();
+});
+
+// A move that ends or starts changes which copy shows.
+let moves = moveStore.getState().records;
+moveStore.subscribe(state => { if (state.records !== moves) { moves = state.records; show(); } });
+
+// Events with no list in them: the sessions are read again, once a second at most.
+const reread = ambient(() => loadSessions().catch(e => console.warn("sessions:", e)), AMBIENT_MS);
+for (const name of ["sessions-changed", "reconnected"]) listen(name, () => reread());
 // A title saved comes with its value: the kept rows take it, and only a cleared title reads.
 listen<Retitled>("agent-title-changed", ({ payload }) => {
   const next = retitled(sessions, payload);
-  if (!next) { if (payload.title === null) changed(); return; }
+  if (!next) { if (payload.title === null) reread(); return; }
+  if (listed) listed = retitled(listed, payload) ?? listed;
   sessions = next;
   for (const f of sessionsRead) f();
 });
 
-/// The sessions every page shares: the last read while nothing changed
-/// since, otherwise a read.
+/// The sessions every page shares: the list held from the pushes, or one read before the first.
 export function ensureSessions(): Promise<AgentSession[]> {
-  return loading ?? (changes.dirty("") ? loadSessions() : Promise.resolve(sessions));
+  return loading ?? (listed ? Promise.resolve(sessions) : loadSessions());
 }
 
-/// Reads the sessions again into `sessions` and returns them. A call made
-/// while another read is out waits for that one, so pages that ask together
-/// cost one request. A failed read rejects and leaves `sessions` as it was.
+/// Reads the sessions into `sessions` and returns them, for the first draw and after events that
+/// carry no list. A call made while another read is out waits for that one. A list pushed while
+/// the read is out is newer, and the read's answer is dropped. A failed read rejects and leaves
+/// `sessions` as it was.
 export function loadSessions() {
   if (loading) return loading;
-  changes.read("");
+  const at = taken;
   loading = Promise.all([invoke<AgentSession[]>("agent_sessions"), refreshMoves()])
-    // A session that moved is on two machines for a while: it shows once.
     .then(([list]) => {
-      sessions = withoutCopies([...list.filter(s => !s.reviewer), ...nativeSessions.values()]);
-      for (const f of sessionsRead) f();
+      if (at === taken) take(list);
       return sessions;
     })
-    .catch(e => { changes.changed(); throw e; })
     .finally(() => { loading = null; });
   return loading;
 }

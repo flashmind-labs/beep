@@ -5,7 +5,7 @@ import { type MoveProgress, type MoveRecord, awaitingMove, bySession, dedupe, ef
 import { single, SLOW_MS } from "../ui/active.ts";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
 import { invoke } from "../ui/tauri.ts";
-import { ensureMachines } from "../machines/machine-store.ts";
+import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 import { createStore } from "zustand/vanilla";
 
 /// Records older than this are not asked about again.
@@ -19,13 +19,11 @@ export const moveStore = createStore(() => ({
   records: new Map<string, MoveRecord>(),
   progress: new Map<string, MoveProgress>(),
 }));
-/// Machine names by id, for machines a move names.
-export const machineNames = new Map<string, string>();
 
 /// Calls `f` whenever the moves change, for the lists to draw again.
 export const onMoves = (f: () => void) => void moveStore.subscribe(() => f());
 
-export const nameOf = (id: string) => machineNames.get(id) ?? id.slice(0, 8);
+export const nameOf = (id: string) => MACHINES.list?.find(m => m.id === id)?.name ?? id.slice(0, 8);
 
 // Each record is one move attempt. A later move of the same session gets a new deadline.
 const nextCheck = new WeakMap<MoveRecord, number>();
@@ -64,10 +62,7 @@ export const refreshMoves = single(async () => {
     .sort((a, b) => due(a) - due(b) || b.at - a.at).slice(0, MAX_ASKED);
   if (!recent.length) return;
 
-  if (!machineNames.size) {
-    try { for (const m of await ensureMachines()) machineNames.set(m.id, m.name); }
-    catch (e) { console.warn("machine names not read", e); }
-  }
+  if (!MACHINES.list) await ensureMachines().catch(e => console.warn("machine names not read", e));
 
   const answers = await Promise.all(recent.map(readProgress));
   const current = moveStore.getState();

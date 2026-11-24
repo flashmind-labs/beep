@@ -10,7 +10,7 @@ import { StashBar } from "../chat/stash-hints.tsx";
 import { ComposerChoices, type ComposerChoicesState, ComposerMachine } from "./composer-choices.tsx";
 import { composeMessage } from "../chat/compose.tsx";
 import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { AMBIENT_MS, latest, STALE } from "../ui/active.ts";
+import { AMBIENT_MS } from "../ui/active.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
 import { makeStartComposer } from "../agents/start-composer.tsx";
@@ -30,8 +30,8 @@ import { AGENT_ORDER, allowedOf, type BaseBranches, baseFor, byPreference, type 
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
 import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent } from "../agents/agentpicker.tsx";
 import { projectHarnesses, readProjectHarnesses } from "./project-harnesses.tsx";
-import { AG, accountsOf, type AgentHost, agentKind, ensureAgentHosts, loadAccountNames, loadAgentHosts } from "../agents/agents.ts";
-import { loadMachines } from "../machines/machine-store.ts";
+import { AG, accountsOf, type AgentHost, agentKind, ensureAgentHosts, loadAccountNames } from "../agents/agents.ts";
+import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
@@ -214,15 +214,12 @@ export function barOn(name: string) {
   return (currentLocation()?.view === "projects" && state.picked === name) || (currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name);
 }
 
-// Initial and live reads share a generation so an older response cannot
-// overwrite host availability reported by a newer machine event.
-const hostsRead = latest();
+// The hosts and machines are held from their pushes; the first read fills them. The held values
+// are read after it, so a push that came meanwhile is not undone.
 async function readProjectHosts() {
   try {
-    const read = await hostsRead.run(Promise.all([loadAgentHosts(), loadMachines().catch((e: unknown) => { console.warn("machines for the bar:", e); return null; })]));
-    if (read === STALE) return;
-    const [list, machines] = read;
-    pc.blocked = blockedHosts(machines ?? [], list);
+    await Promise.all([ensureAgentHosts(), ensureMachines().catch((e: unknown) => console.warn("machines for the bar:", e))]);
+    pc.blocked = blockedHosts(MACHINES.list ?? [], AG.hosts ?? []);
   } catch (error) {
     console.warn("agent hosts:", error);
   }

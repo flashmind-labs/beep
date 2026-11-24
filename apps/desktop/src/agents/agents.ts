@@ -14,7 +14,7 @@ import type { ProviderCredits } from "../ui/credits.ts";
 // file holds their shared types and state, and the Every session list.
 import { type Nested, nest, splitEnded } from "./nesting-state.ts";
 import { chatOf } from "./threads-state.ts";
-import { parentSession, ensureSessions, loadSessions, sessions, sessionsChanged } from "./sessions.ts";
+import { parentSession, ensureSessions, sessions, sessionsRead } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import { drawAgentNew, startAgent, togglePicker } from "./agentnew.tsx";
 import { preloadModels } from "./agentpicker.tsx";
@@ -47,7 +47,7 @@ import { ICON } from "../ui/icons.tsx";
 import { invoke } from "../ui/tauri.ts";
 import type { NamedAccount } from "../settings/agentaccounts.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
-import { Changes } from "../ui/pagecache.ts";
+import { pushedList } from "../ui/snapshot-state.ts";
 import { currentPage, setPage } from "./open-page.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
@@ -410,9 +410,20 @@ export const folderName = (p: string) => String(p || "").split("/").filter(Boole
 /// The open session `row` is.
 export { openOf, where } from "./conversation-state.ts";
 
-/// Machines and accounts decide which machines run agents.
-export const hostChanges = new Changes();
-subscribeEach([topic("machines"), topic("accounts")], () => hostChanges.changed());
+/// Machines and accounts decide which machines run agents: both pushes carry the list.
+subscribeEach([topic("machines"), topic("accounts")], event => {
+  const pushed = pushedList<AgentHost>(event.data, "agent_hosts");
+  if (!pushed) return;
+
+  if ("error" in pushed) { AG.hosts ??= []; return; }
+  takeHosts(pushed.list);
+});
+
+function takeHosts(list: AgentHost[]) {
+  AG.hosts = list;
+  preloadModels(list);
+  if (S.view === "agentnew") drawAgentNew();
+}
 
 /// The coding agents' named accounts, as Settings last saved them.
 let namedAccounts: readonly NamedAccount[] = [];
@@ -434,28 +445,19 @@ export function accountsOf(agent: string | null): string[] {
 }
 
 let hostsRead: Promise<AgentHost[]> | null = null;
-/// Orders the reads: only the newest one's answer is kept.
-let hostsGeneration = 0;
 
-/// The machines that can run an agent; none for an account that may not use machines.
-/// Callers that ask together share one read, unless machines or accounts changed since it
-/// started: that one's answer is out of date, so a newer read starts and wins. One that fails
-/// keeps the list held.
-export function loadAgentHosts(): Promise<AgentHost[]> {
-  if (hostsRead && !hostChanges.dirty("")) return hostsRead;
-  const generation = ++hostsGeneration;
-  hostChanges.read("");
-  const read = invoke<AgentHost[]>("agent_hosts")
-    .then(list => { if (generation === hostsGeneration) { AG.hosts = list; preloadModels(list); } }, () => { if (generation === hostsGeneration) { AG.hosts ??= []; hostChanges.changed(); } })
-    .then(() => { if (S.view === "agentnew") drawAgentNew(); return AG.hosts ?? []; })
-    .finally(() => { if (hostsRead === read) hostsRead = null; });
-  hostsRead = read;
-  return read;
-}
-
-/// The hosts as last read, read again only after machines or accounts changed.
+/// The machines that can run an agent; none for an account that may not use machines. Held from
+/// the pushes; before the first one arrives, one read answers, and a push that comes while it is
+/// out wins over its answer. One that fails leaves an empty list until the next push.
 export function ensureAgentHosts(): Promise<AgentHost[]> {
-  return AG.hosts && !hostChanges.dirty("") ? Promise.resolve(AG.hosts) : loadAgentHosts();
+  if (AG.hosts) return Promise.resolve(AG.hosts);
+
+  hostsRead ??= invoke<AgentHost[]>("agent_hosts")
+    .then(list => { if (!AG.hosts) takeHosts(list); }, () => { AG.hosts ??= []; })
+    .then(() => AG.hosts ?? [])
+    .finally(() => { hostsRead = null; });
+
+  return hostsRead;
 }
 
 // ----- Every session -----
@@ -483,13 +485,9 @@ function sessionSub(s: AgentSession, harness: string, folder: string) {
   return (worktree ? [harness, worktree.replace(s.machine_name, machine)] : [harness, folder, machine]).filter(Boolean).join(" · ");
 }
 
-// The list on screen follows the sessions: a change reads them again at most
-// once a second while it shows.
-const rereadAgents = ambient(async () => {
-  try { await loadSessions(); } catch (e) { console.warn("sessions:", e); return; }
-  if (S.view === "agents") drawAgents(false);
-}, AMBIENT_MS, () => S.view === "agents");
-sessionsChanged.add(() => rereadAgents());
+// The list on screen follows the sessions as they arrive, drawn at most once a second.
+const redrawAgents = ambient(() => drawAgents(false), AMBIENT_MS, () => S.view === "agents");
+sessionsRead.add(() => redrawAgents());
 onPlaces(() => { if (S.view === "agents") drawAgents(false); });
 onMoves(() => { if (S.view === "agents") drawAgents(false); });
 onClosing(() => { if (S.view === "agents") drawAgents(false); });

@@ -7,7 +7,7 @@ import { AMBIENT_MS } from "../ui/active.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
 import { openAddMachine } from "./addmachine.tsx";
-import { loadMachines, MACHINES, setMachines } from "./machine-store.ts";
+import { ensureMachines, MACHINES, setMachines } from "./machine-store.ts";
 import { openJoinTicket } from "./jointicket.tsx";
 import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-state.ts";
 import { S } from "../bar/core.ts";
@@ -163,7 +163,7 @@ function readList(): Promise<void> {
       listAgain = false;
       try {
         const [, mac, updatable, traffic] = await Promise.all([
-          loadMachines(),
+          ensureMachines(),
           invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this computer's state:", e); return null; }),
           invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
           invoke<MachineTraffic[]>("machine_traffic").catch(e => { console.warn("machine traffic:", e); return []; }),
@@ -369,7 +369,7 @@ async function waitForNode(id: string, to: string, polls: number) {
         if (now?.step !== "restarting" || now.to !== to) { finish(); break; }
 
         try {
-          const list = await loadMachines();
+          const list = await ensureMachines();
           if (done) break;
           const machine = list.find(machine => machine.id === id);
 

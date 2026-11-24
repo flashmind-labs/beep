@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { invoke } from "../ui/tauri.ts";
-import { ensureAgentHosts, type AgentHost } from "../agents/agents.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { AG, ensureAgentHosts, type AgentHost } from "../agents/agents.ts";
 import { SettingRow } from "./overview-view.tsx";
 import { Button } from "../ui/kit.tsx";
 import { closedPicker, drawPicker, focusSearch, pillContent, type Picked } from "../agents/agentpicker.tsx";
@@ -19,15 +20,20 @@ export function AssistantView() {
   const [open, setOpen] = useState(false);
   const [picker, setPicker] = useState<ReactElement | null>(null);
   const [error, setError] = useState("");
-  const [hosts, setHosts] = useState<readonly AgentHost[]>([]);
   const [own, setOwn] = useState<string | null>(null);
   const [, listed] = useState(0);
   const host = useRef<HTMLDivElement>(null);
   const pill = useRef<HTMLButtonElement>(null);
 
+  const hosts: readonly AgentHost[] = AG.hosts ?? [];
+
   useEffect(() => {
-    ensureAgentHosts().then(setHosts, e => console.warn("agent hosts:", e));
+    ensureAgentHosts().then(() => listed(n => n + 1), e => console.warn("agent hosts:", e));
+    // The hosts follow the pushes of machines and accounts.
+    const stop = subscribeEach([topic("machines"), topic("accounts")], () => listed(n => n + 1));
     invoke<{ id: string | null }>("mac_control").then(mac => setOwn(mac.id), () => setOwn(null));
+
+    return stop;
   }, []);
 
   useEffect(() => { loadAssistant().then(setPick, e => setError(String(e))); }, []);

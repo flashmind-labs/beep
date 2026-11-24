@@ -5,8 +5,9 @@ import type JMuxer from "jmuxer";
 // to the painter device-view.tsx registers; the rest is `deviceModel`.
 import { createStore } from "zustand";
 import { indexedChannel, invoke, listen } from "../ui/tauri.ts";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { ambient, AMBIENT_MS, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
+import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedList } from "../ui/snapshot-state.ts";
+import { ambient, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import { paneSession, showDevice } from "./media.ts";
 import { draw } from "./media-draw.ts";
 import { sessionKey } from "./running.ts";
@@ -50,6 +51,8 @@ const set = (change: Partial<DeviceModel>) => deviceModel.setState(change);
 // ----- The tab -----
 
 let hosts: DeviceHost[] = [];
+/// Whether a push gave the hosts, which an answer to the first read then does not replace.
+let pushedHosts = false;
 
 /// Whether the pane has a Device tab: a machine that is on serves
 /// `device/1`, and the session's checkout builds for a mobile platform or
@@ -57,22 +60,19 @@ let hosts: DeviceHost[] = [];
 export const hasDeviceTab = () =>
   hosts.length > 0 && ((agentUsed !== null && agentUsed === sessionKey(paneSession())) || showsDeviceTab(sessionPlatforms(), hosts));
 
-async function readDeviceHosts() {
+// The `machines` push carries the hosts; one read answers before the first push.
+function takeDeviceHosts(list: unknown) {
   const had = hasDeviceTab();
-
-  try {
-    hosts = readHosts(await invoke("device_hosts"));
-  } catch {
-    return;
-  }
-
+  hosts = readHosts(list);
   if (had !== hasDeviceTab()) draw();
 }
 
-subscribeChanges(topic("machines"), { deliver: "latest", receive: readDeviceHosts }, { when: paneShown, wait: AMBIENT_MS });
+subscribeEach(topic("machines"), event => {
+  const pushed = pushedList<unknown>(event.data, "device_hosts");
+  if (pushed && "list" in pushed) { pushedHosts = true; takeDeviceHosts(pushed.list); }
+});
 if (typeof window !== "undefined") {
-  window.addEventListener("agent-pane-shown", () => void readDeviceHosts());
-  queueMicrotask(() => void readDeviceHosts());
+  queueMicrotask(() => void invoke("device_hosts").then(list => { if (!pushedHosts) takeDeviceHosts(list); }, () => {}));
 }
 
 // ----- The project's platforms -----

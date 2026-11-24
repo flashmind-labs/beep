@@ -10,7 +10,7 @@ import { agentKey } from "./conversation-state.ts";
 import { type MoveProgress, type MoveRecord, type MoveTarget, canMove, chatSessions, going, movePct, moveRows, targetNote } from "./move-state.ts";
 import { isAssistant } from "./assistant-state.ts";
 import { isStarting } from "./starting-state.ts";
-import { machineNames, moveStore, nameOf, onMoves, refreshMoves, stateOf } from "./move-store.ts";
+import { moveStore, nameOf, onMoves, refreshMoves, stateOf } from "./move-store.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
@@ -153,7 +153,6 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
     invoke<ProjectMachineRow[] | null>("project_machines", { project }).catch(() => null),
     ensureAgentHosts().catch(() => [] as AgentHost[]),
   ]);
-  for (const m of rows ?? []) machineNames.set(m.id, m.name);
   const others = (rows ?? []).filter(m => m.id !== s.machine_id);
   // A node from before moves would ignore the move, so it is not offered. One
   // that cannot be asked (offline) is offered: it answers when it returns.
@@ -172,7 +171,6 @@ async function targets(s: AgentRow): Promise<MoveTarget[]> {
 /// The machines a chat could go to: those online whose node moves chats.
 async function chatTargets(s: AgentRow): Promise<MoveTarget[]> {
   const hosts = await ensureAgentHosts().catch(() => [] as AgentHost[]);
-  for (const h of hosts) machineNames.set(h.machine_id, h.machine_name);
   return hosts.filter(h => h.machine_id !== s.machine_id).map(h => ({
     id: h.machine_id, name: h.machine_name, online: true, harnesses: h.agents, checkout: true, old: !h.moves_chats,
   }));

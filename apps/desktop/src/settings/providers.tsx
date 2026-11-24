@@ -11,6 +11,7 @@ import type { CenterView } from "../center/state.ts";
 import { modelContextPanel } from "./model-context.ts";
 import { flshPanel } from "./flsh.ts";
 import { type AdapterInstall, adapterOf } from "../machines/adapters-state.ts";
+import { ensureMachines } from "../machines/machine-store.ts";
 
 /// A machine as `list_machines` gives it; only these fields are read.
 interface MachineRow { id: string; name: string; online: boolean; can_host?: boolean; adapters?: AdapterInstall[] }
@@ -82,7 +83,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
     changes.read("");
 
     try {
-      const all = await invoke<MachineRow[]>("list_machines");
+      const all: MachineRow[] = await ensureMachines();
       st.machines = all.filter(m => m.can_host !== false);
       const online = st.machines.filter(m => m.online);
       if (!st.machine || !online.some(m => m.id === st.machine)) st.machine = online[0]?.id ?? null;

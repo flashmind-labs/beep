@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { clearViews, installViews, snapshotView, takeSnapshotView, viewWrite, writeScope } from "../src/ui/snapshot-state.ts";
+import { clearViews, installViews, pushedList, snapshotView, takeSnapshotView, viewWrite, writeScope } from "../src/ui/snapshot-state.ts";
 
 test("snapshots match command arguments, preserve null and keep caller changes private", t => {
   t.after(clearViews);
@@ -31,13 +31,14 @@ test("only read views are accepted and cache size stays bounded", t => {
   assert.equal(viewWrite("agent_tree_edit"), true);
   assert.equal(viewWrite("center_project_runs"), false);
   assert.equal(viewWrite("session_move_progress"), false, "move progress is a read");
-  assert.deepEqual(writeScope("agent_steer"), { kind: "views", commands: ["center_home", "agent_sessions"] });
-  assert.deepEqual(writeScope("chat_move"), { kind: "views", commands: ["center_home", "agent_sessions"] }, "moving a chat changes the session lists");
-  installViews({ views: [{ command: "agent_hosts", value: [] }, { command: "device_hosts", value: [] }] });
-  assert.deepEqual(snapshotView("agent_hosts"), { kind: "value", value: [] });
-  assert.deepEqual(snapshotView("device_hosts"), { kind: "value", value: [] });
-  installViews({ views: [{ command: "agent_sessions", value: [] }] });
-  assert.deepEqual(snapshotView("agent_sessions"), { kind: "value", value: [] }, "the all-sessions list is served from the push");
+  assert.deepEqual(writeScope("agent_steer"), { kind: "views", commands: ["center_home"] });
+  assert.deepEqual(writeScope("chat_move"), { kind: "views", commands: ["center_home"] }, "moving a chat changes the session lists");
+  const lists = { views: [{ command: "agent_hosts", value: [] }, { command: "agent_sessions", value: [1] }, { command: "list_machines", error: "down" }] };
+  installViews(lists);
+  assert.equal(snapshotView("agent_hosts"), null, "pushed lists are used as they arrive, not cached");
+  assert.deepEqual(pushedList(lists, "agent_sessions"), { list: [1] });
+  assert.deepEqual(pushedList(lists, "list_machines"), { error: "down" });
+  assert.equal(pushedList(lists, "device_hosts"), null);
   assert.deepEqual(writeScope("set_zoom_level"), { kind: "none" });
   assert.deepEqual(writeScope("save_credential"), { kind: "all" });
 });

@@ -1,10 +1,10 @@
-import { AG, hostChanges, loadAgentHosts } from "../agents/agents.ts";
+import { ensureAgentHosts } from "../agents/agents.ts";
 import { renderSettings } from "../settings/settings.tsx";
 import { renderWaiting } from "./waiting.ts";
 
-/// Hosts stand until machines or accounts change.
+/// Hosts follow the pushes; the first read is made here.
 export function loadHosts() {
-  if (!AG.hosts || hostChanges.dirty("")) loadAgentHosts();
+  void ensureAgentHosts();
 }
 
 /// Shows the bar on `view`, as Rust names it, or on the sessions waiting for the user.

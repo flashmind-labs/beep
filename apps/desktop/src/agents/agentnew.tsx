@@ -10,11 +10,11 @@ import { menuPlaceFor } from "./mentionmenu.ts";
 import { FolderChoice, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { AccountChoice, BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
-import { AG, accountsOf, agentKind, type AgentHost, hostChanges, loadAccountNames, loadAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
+import { AG, accountsOf, agentKind, type AgentHost, ensureAgentHosts, loadAccountNames, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
 import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./assistant-state.ts";
 import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
-import { ensureMachines, loadMachines } from "../machines/machine-store.ts";
+import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 import { openAgent, sessionPicks, startedWith } from "./session.tsx";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, knownModels, modelsOn, type Picked, pillContent } from "./agentpicker.tsx";
 import { AGENT_ORDER, allowedOf, type BaseBranches, baseFor, byPreference, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";
@@ -24,7 +24,6 @@ import { folderOn, type MachineFolder } from "../project/projects-state.ts";
 import { projectHarnesses, readProjectHarnesses } from "../project/project-harnesses.tsx";
 import { addHosts, barCheckout, barPlace, nextBarMachine } from "../project/projectbar.ts";
 import { composeMessage } from "../chat/compose.tsx";
-import type { Machine } from "../machines/machines.tsx";
 import { invoke } from "../ui/tauri.ts";
 
 // ----- Start form -----
@@ -85,9 +84,6 @@ function keepAssistantMachine(machine: string) {
   }
 }
 
-/// Every machine of the user's, online or not, for the Machine menu; null
-/// until read.
-let KNOWN: Machine[] | null = null;
 type FormError = { kind: "prompt" } | { kind: "failed"; message: string };
 type StartPhase = { kind: "editing"; error: FormError | null } | { kind: "preparing" } | { kind: "starting" };
 
@@ -130,12 +126,10 @@ export function renderAgentNew(prompt = "", from: AgentReturn = "hide", at: Agen
   if (assistant) presetAssistant(); else restoreProjectPick();
   drawFrame();
   startView?.composer.input.focus();
-  // What the form showed last stands until machines or accounts change.
-  const changed = !AG.hosts || hostChanges.dirty("");
-  if (changed) loadAgentHosts();
+  void ensureAgentHosts();
   void loadAccountNames().then(() => { if (S.view === "agentnew") drawParts(); });
   ensureSessions().then(() => { if (S.view === "agentnew") drawParts(); }).catch(() => {});
-  if (changed || !KNOWN) (changed ? loadMachines() : ensureMachines()).then(list => { KNOWN = list.filter(m => m.can_host !== false); if (S.view === "agentnew") drawParts(); }).catch(() => {});
+  if (!MACHINES.list) ensureMachines().then(() => { if (S.view === "agentnew") drawParts(); }).catch(() => {});
   if (at?.project) {
     const project = at.project;
     loadBranches(project);
@@ -394,7 +388,7 @@ function baseKey(e: ReactKeyboardEvent<HTMLInputElement>) {
 function hostMenu(): ChoiceMenu | null {
   const f = AG.form;
   if (f.open !== "host") return null;
-  const rows = machineRows(AG.hosts ?? [], KNOWN?.map(m => ({ id: m.id, name: m.name, online: m.online })) ?? null, a => agentKind(a).name, AGENT_ORDER);
+  const rows = machineRows(AG.hosts ?? [], MACHINES.list?.filter(m => m.can_host !== false).map(m => ({ id: m.id, name: m.name, online: m.online })) ?? null, a => agentKind(a).name, AGENT_ORDER);
   return { style: "cols", rows: rows.map(m => ({ kind: "button", action: "agm", value: m.id, selected: f.machine === m.id, disabled: !m.enabled, dot: m.online ? "on" : "off", label: <span>{m.name}</span>, detail: m.note })) };
 }
 

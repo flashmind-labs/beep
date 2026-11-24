@@ -12,11 +12,10 @@ import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 // `review` tool) become comments too, once.
 import {
   type CanStart, type ReviewRun,
-  doneNote, findingsOf, hostsAfterRead, mergeComments, reviewBase, runState, toComments, whyNot,
+  doneNote, findingsOf, mergeComments, reviewBase, runState, toComments, whyNot,
 } from "./feedback-state.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
-import type { AgentHost } from "../agents/agents.ts";
 import { isStarting } from "../agents/starting-state.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
 import { byPreference } from "../agents/agentpick.ts";
@@ -26,10 +25,6 @@ import { reason } from "../ui/format.ts";
 /// Calls a Rust command; the Tauri binding loads on first use, so a diff view can be made where there is none.
 const invoke = async <T = unknown>(cmd: string, args?: Record<string, unknown>) => (await import("../ui/tauri.ts")).invoke<T>(cmd, args);
 
-
-// The picker module pulls in the whole session view, so it loads the first
-// time a review is asked for, not with every diff.
-const picker = () => import("../agents/agentpicker.tsx");
 
 /// How often a running review is read.
 
@@ -62,21 +57,17 @@ interface Attached {
 const attached = new Map<string, Attached>();
 /// The harness, model and thinking last picked, for the next time.
 let lastPick: Pick<Picked, "agent" | "model" | "effort" | "fast"> | null = null;
-/// The machines that run coding agents, as last read.
-let hosts: AgentHost[] | null = null;
-/// Whether the last read failed, so an empty list does not mean offline.
-let hostsFailed = false;
-let hostsAsked = 0;
-/// How long the machines read lasts.
-const HOSTS_MS = 30_000;
+// The agents module pulls in the whole session view, so it loads the first time a review is
+// asked for, not with every diff.
+let agents: typeof import("../agents/agents.ts") | null = null;
+const hostsHeld = () => agents?.AG.hosts ?? null;
 
 function readHosts(done: () => void) {
-  if (hosts && Date.now() - hostsAsked < HOSTS_MS) return;
-  hostsAsked = Date.now();
-  invoke<AgentHost[]>("agent_hosts")
-    .then(list => { ({ hosts, failed: hostsFailed } = hostsAfterRead(hosts, list)); void picker().then(p => p.preloadModels(list)); done(); })
-    .catch(e => { console.warn("agent hosts:", e); ({ hosts, failed: hostsFailed } = hostsAfterRead(hosts, null)); done(); });
+  void import("../agents/agents.ts").then(m => { agents = m; return m.ensureAgentHosts(); }).then(done);
 }
+
+/// How long the session's reviews last before they are read again.
+const HOSTS_MS = 30_000;
 
 // ----- Reviews already taken -----
 
@@ -232,16 +223,16 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   const listeners = new Set<() => void>();
   let current: FeedbackSnapshot = { state: { kind: "ready", label: LABEL, hint: HINT, reason: "", open: false }, picker: null, note: "" };
 
-  const host = () => (o.machine ? hosts?.find(h => h.machine_id === o.machine!.id) ?? null : null);
+  const host = () => (o.machine ? hostsHeld()?.find(h => h.machine_id === o.machine!.id) ?? null : null);
   const why = () => {
     const v = o.view();
-    const c: CanStart = { machine: o.machine, root: v ? v.root : null, hosts, hostsFailed, changes: !!v?.files.length };
+    const c: CanStart = { machine: o.machine, root: v ? v.root : null, hosts: hostsHeld(), changes: !!v?.files.length };
     return whyNot(c);
   };
   const pop = pickPopover({
     picked,
     machine: () => { const h = host(); return h && o.machine ? { ...o.machine, agents: h.agents } : null; },
-    everywhere: () => [...new Set((hosts ?? []).flatMap(m => m.agents))],
+    everywhere: () => [...new Set((hostsHeld() ?? []).flatMap(m => m.agents))],
     allowed: () => null,
     // A review runs where the diff's checkout is.
     machines: () => null,

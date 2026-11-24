@@ -68,21 +68,20 @@ test("reattaching the machine host before observer delivery retains its controls
   host.remove();
 });
 
-test("overlapping machine refreshes wait for the latest read", async () => {
+test("overlapping machine refreshes share one read", async () => {
   let finish: (value: unknown) => void = () => {};
   const first = new Promise(resolve => { finish = resolve; });
   answers.list_machines = first;
+  Object.assign(MACHINES, { list: null });
   S.view = "machines";
   const before = calls.filter(call => call.cmd === "list_machines").length;
   const one = renderMachines();
   const two = renderMachines();
   await settle();
   assert.equal(calls.filter(call => call.cmd === "list_machines").length - before, 1);
-  const newest = [{ id: "machine", name: "Current", online: true, seen_at: 0, version: "", env: null }];
-  answers.list_machines = newest;
-  finish([{ id: "machine", name: "Old", online: true, seen_at: 0, version: "", env: null }]);
+  finish([{ id: "machine", name: "Current", online: true, seen_at: 0, version: "", env: null }]);
   await Promise.all([one, two]);
-  assert.equal(calls.filter(call => call.cmd === "list_machines").length - before, 2);
+  assert.equal(calls.filter(call => call.cmd === "list_machines").length - before, 1);
   assert.equal(MACHINES.list?.[0]?.name, "Current");
   answers.list_machines = [];
   leave();

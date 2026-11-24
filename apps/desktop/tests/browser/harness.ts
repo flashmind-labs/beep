@@ -43,7 +43,8 @@ interface NavigationHarness {
   sessionUsage(id: string, usage: AgentUsage): void;
   calls(): NativeCall[];
   respond(command: string, value: unknown): void;
-  notify(topic: string): void;
+  /// An update on `topic`, carrying `views` the way a topic push carries its values.
+  notify(topic: string, views?: { command: string; value: unknown }[]): void;
   /// One event on exactly `topic`, at `revision` or the next one.
   publish(topic: string, revision: number | null): void;
   emit(name: string, payload: unknown): void;
@@ -309,8 +310,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     release(command) { held.delete(command); releases.get(command)?.(); releases.delete(command); },
     calls: () => calls,
     respond(command, value) { answers[command] = value; },
-    notify(topic) {
-      const event: MeshEvent = { machine_id: data.project.machine_id, topic: `${topic}.*`, revision: ++revision, initial: false };
+    notify(topic, views) {
+      const event: MeshEvent = { machine_id: data.project.machine_id, topic: `${topic}.*`, revision: ++revision, initial: false, ...(views ? { data: { views } } : {}) };
       for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === event.topic)) reader.channel.onmessage(event);
     },
     publish(topic, at) {

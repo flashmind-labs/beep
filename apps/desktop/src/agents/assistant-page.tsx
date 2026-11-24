@@ -8,7 +8,7 @@ import { assistantRows } from "./assistant-state.ts";
 import { chatActivity, chatOf, type chatRail, type Thread, type ThreadDetail, threadsByChat } from "./threads-state.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { agentName, runningKey } from "./running-state.ts";
-import { ensureSessions, sessions, sessionsChanged, sessionsRead } from "./sessions.ts";
+import { ensureSessions, sessions, sessionsRead } from "./sessions.ts";
 import { sessionVisible } from "./closing.ts";
 import { S } from "../bar/core.ts";
 import type { Location } from "../center/state.ts";
@@ -104,13 +104,8 @@ export function AssistantList() {
   /// The chats whose ended threads show.
   const [unfolded, setUnfolded] = useState<ReadonlySet<string>>(new Set());
 
-  // Read again while on screen when the sessions change.
   useEffect(() => {
-    if (!on) return;
-    const again = () => { void ensureSessions().catch(() => {}); };
-    again();
-    sessionsChanged.add(again);
-    return () => { sessionsChanged.delete(again); };
+    if (on) void ensureSessions().catch(() => {});
   }, [on]);
 
   if (!on) return <div className="pj-list asst-list" hidden />;

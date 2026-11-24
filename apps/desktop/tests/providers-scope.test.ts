@@ -1,6 +1,7 @@
 import { routerWindowGlobals } from "./start-react-env.ts";
 import { answers, calls } from "./dom-env.ts";
 import { JSDOM } from "jsdom";
+import { MACHINES } from "../src/machines/machine-store.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { invoke } from "../src/ui/tauri.ts";
@@ -79,6 +80,7 @@ test("machine selection preserves shared drafts and each save writes only its sc
 
 test("shared compaction stays editable when no machine is online", async () => {
   answers.list_machines = [];
+  Object.assign(MACHINES, { list: null });
   const root = document.createElement("div");
   document.body.replaceChildren(root);
   const { providersPage } = await import("../src/settings/providers.tsx");

@@ -226,9 +226,9 @@ test("model search keeps its query, focus and highlight while lists stream in (#
   const updates = [
     () => page.evaluate(() => { window.__navigation.release("project_machines"); window.__navigation.notify("machines"); }),
     () => page.evaluate(() => { window.__navigation.release("project_git_state"); window.__navigation.notify("projects"); }),
-    () => page.evaluate(next => { window.__navigation.respond("agent_hosts", next); window.__navigation.notify("machines"); }, hostsWith(["codex", "claude", "flsh"])),
+    () => page.evaluate(next => { window.__navigation.notify("machines", [{ command: "agent_hosts", value: next }]); }, hostsWith(["codex", "claude", "flsh"])),
     () => page.evaluate(() => { window.__navigation.release("project_branches"); window.__navigation.notify("projects"); }),
-    () => page.evaluate(next => { window.__navigation.respond("agent_hosts", next); window.__navigation.notify("accounts"); }, hostsWith(["codex", "claude"])),
+    () => page.evaluate(next => { window.__navigation.notify("accounts", [{ command: "agent_hosts", value: next }]); }, hostsWith(["codex", "claude"])),
   ];
   for (const [index, part] of ["claude op", "us", " 5", ".", "5"].entries()) {
     await page.keyboard.type(part);

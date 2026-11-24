@@ -10,7 +10,7 @@ import { invoke, recordTiming } from "../ui/tauri.ts";
 import { perfOpened, perfView, perfViewOf } from "../ui/perf.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import { keepWindowSession, mainTarget, route, type Alone, type CenterTarget, type WindowScope } from "../project/projectwindow.ts";
-import { loadSessions, sessions, sessionsChanged } from "../agents/sessions.ts";
+import { loadSessions, sessions, sessionsRead } from "../agents/sessions.ts";
 import { threadsByChat } from "../agents/threads-state.ts";
 import { shortName } from "../project/agent.ts";
 import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName } from "./state.ts";
@@ -142,17 +142,18 @@ function WaitingForChat({ open, savedThread }: { open(chatOnly: boolean): boolea
 
   useEffect(() => {
     let waiting = true;
+    const check = () => { if (waiting && !currentLocation()) open(chatOnly); };
     const read = async () => {
       await loadSessions().catch(() => {});
-      if (waiting && !currentLocation()) open(chatOnly);
+      check();
     };
-    sessionsChanged.add(read);
+    sessionsRead.add(check);
     const timer = setInterval(() => { if (pageShown()) void read(); }, RETRY_MS);
     void read();
 
     return () => {
       waiting = false;
-      sessionsChanged.delete(read);
+      sessionsRead.delete(check);
       clearInterval(timer);
     };
   }, [open, chatOnly]);

@@ -2,7 +2,7 @@ import { composeMessage } from "../chat/compose.tsx";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { makeStartComposer } from "../agents/start-composer.tsx";
 import { lastAssistantMachine, startAssistant } from "../agents/agentnew.tsx";
-import { AG, loadAgentHosts, type AgentHost } from "../agents/agents.ts";
+import { ensureAgentHosts, type AgentHost } from "../agents/agents.ts";
 import { pillContent } from "../agents/agentpicker.tsx";
 import { ASSISTANT_WORDS, assistantHost, resolveAssistant } from "../agents/assistant-state.ts";
 import { loadAssistant, onAssistantSaved } from "../settings/assistant.ts";
@@ -65,8 +65,7 @@ let sending = false;
 
 /// The machines that run agents, read once.
 async function agentHosts(): Promise<readonly AgentHost[]> {
-  if (!AG.hosts) await loadAgentHosts();
-  return AG.hosts ?? [];
+  return ensureAgentHosts();
 }
 
 /// Shows the harness, model and thinking level the assistant starts with.

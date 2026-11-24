@@ -59,7 +59,3 @@ export function needsLine(n: Pick<NeedsYou, "agent" | "title" | "machine_name"> 
   return { title: n.question.text, sub: [n.question.detail, agentName(n.agent), n.title || n.machine_name].filter(Boolean).join(" · ") };
 }
 
-/// The machines online in `home`, as a key that changes when one connects.
-export function onlineMachines(home: HomeView | null) {
-  return (home?.machines || []).filter(m => m.online).map(m => m.id).sort().join(" ");
-}

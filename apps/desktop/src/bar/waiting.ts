@@ -9,10 +9,8 @@ import { openAgent } from "../agents/session.tsx";
 import { ensureSessions, sessions, sessionsRead } from "../agents/sessions.ts";
 import { onClosing, sessionVisible } from "../agents/closing.ts";
 import type { Note } from "../center/notices-state.ts";
-import { ambient, AMBIENT_MS } from "../ui/active.ts";
 import { formatAgo } from "../ui/format.ts";
 import { ICON } from "../ui/icons.tsx";
-import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { $, bar, newChat, PANE, S } from "./core.ts";
 import { hintModel } from "./hints.ts";
@@ -123,10 +121,6 @@ if (!PANE) {
   sessionsRead.add(() => { known = true; drawWaiting(); });
   onPlaces(drawWaiting);
   onClosing(drawWaiting);
-  // While the list shows, a change to the sessions reads them again, once a second at most.
-  const reread = ambient(() => ensureSessions(), AMBIENT_MS, () => S.view === "waiting");
-  subscribeEach(topic("home"), () => reread(), { when: () => S.view === "waiting" });
-  for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, () => reread());
   listen<Note[]>("notes", e => readNotes(e.payload));
   invoke<Note[]>("notes_list").then(readNotes).catch(() => {});
   ensureSessions().catch(() => {});

@@ -18,10 +18,11 @@ test("opening and revisiting a project focuses its composer without stealing foc
   const folder = form.locator('[data-composer="folder"]');
   await expect(folder).toBeEnabled();
   await folder.focus();
-  const reads = (await calls(page, "agent_hosts")).length;
-  await page.evaluate(() => window.__navigation.notify("machines"));
-  await expect.poll(async () => (await calls(page, "agent_hosts")).length).toBeGreaterThan(reads);
+  await page.evaluate(host => window.__navigation.notify("machines", [{ command: "agent_hosts", value: [host] }]),
+    { machine_id: "build-box", machine_name: "build-box", agents: ["codex", "claude"], workspace: null, home: "/srv", capabilities: [] });
+  await expect(form.locator('[data-composer="machine"]')).toHaveText("build-box");
   await expect(folder).toBeFocused();
+  expect(await calls(page, "agent_hosts")).toHaveLength(1);
 
   await page.evaluate(() => window.__navigation.open("home"));
   await page.evaluate(project => window.__navigation.open({ projects: { project } }), projectName);
@@ -243,7 +244,7 @@ test("newer host availability wins over a delayed initial read", async ({ page }
   const form = page.locator(".cc-pjc:visible"), input = form.getByRole("textbox", { name: "Task for a coding agent" });
   await input.fill("Keep the draft");
   await input.evaluate(el => { if (el instanceof HTMLTextAreaElement) el.setSelectionRange(2, 5); });
-  await page.evaluate(() => window.__navigation.notify("machines"));
+  await page.evaluate(host => window.__navigation.notify("machines", [{ command: "agent_hosts", value: [host] }]), host);
   await expect(form.locator('[data-composer="machine"]')).toHaveText("build-box");
   await page.evaluate(() => Reflect.get(window, "releaseOldHosts")());
   await expect.poll(() => page.evaluate(() => Reflect.get(window, "oldHostsDelivered"))).toBe(true);

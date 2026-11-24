@@ -215,10 +215,8 @@ test("the project composer offers hosts that reconnect while it stays open", asy
   const picker = page.locator(".cc-pjc").getByRole("button", { name: /build-box/ });
   await expect(picker).toBeVisible();
   await page.evaluate(hosts => {
-    window.__navigation.respond("agent_hosts", hosts);
-    window.__navigation.notify("machines");
+    window.__navigation.notify("machines", [{ command: "agent_hosts", value: hosts }]);
   }, [host("build-box"), host("studio")]);
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_hosts").length)).toBeGreaterThan(1);
   await picker.click();
   await expect(page.getByRole("menuitem", { name: "studio", exact: true })).toBeVisible();
 });
