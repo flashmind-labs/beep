@@ -1,6 +1,6 @@
 use super::*;
 use beep_proto::node::{
-    events::{Query, Read, Value},
+    events::{Query, Read, Reply, Value},
     local_link, process,
 };
 

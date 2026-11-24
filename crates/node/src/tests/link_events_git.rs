@@ -301,7 +301,7 @@ mod current {
 
     async fn subscribe(offers: Offers, root: &Path) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
         let link = local_link();
-        let task = AbortOnDropHandle::new(tokio::spawn(super::super::super::subscriptions::serve(
+        let task = AbortOnDropHandle::new(tokio::spawn(crate::link::events::serve_subscriptions(
             link.node.0,
             link.node.1,
             offers,
@@ -379,30 +379,6 @@ mod current {
         // Only Git metadata changes now.
         git(root.path(), &["commit", "--allow-empty", "-m", "second"]).await;
         commits(&mut rx, 2).await;
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn the_heartbeat_keeps_going_while_slow_work_runs() {
-        let link = local_link();
-        let (mut tx, _rx) = link.node;
-        let (_caller_tx, mut caller_rx) = link.caller;
-        let mut heartbeat = tokio::time::interval_at(
-            tokio::time::Instant::now() + crate::link::events::HEARTBEAT,
-            crate::link::events::HEARTBEAT,
-        );
-        let slow = tokio::time::sleep(Duration::from_secs(100));
-        let done = crate::link::events::subscriptions::with_heartbeat(&mut tx, &mut heartbeat, slow);
-        let pongs = async {
-            let mut seen = 0;
-
-            while seen < 3 {
-                if let Some(Reply::Pong { id: 0 }) = caller_rx.recv::<Reply>().await.unwrap() {
-                    seen += 1;
-                }
-            }
-        };
-        let (finished, ()) = tokio::join!(done, pongs);
-        finished.unwrap();
     }
 }
 

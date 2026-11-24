@@ -5,7 +5,8 @@ use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{SessionsReply, SessionsRequest},
-    events::{self, CallReply, Incoming, Operation, Reply, Request, Topic},
+    events::{self, CallReply, Incoming, Operation, Request, Topic},
+    subscriptions::{self, Reply},
 };
 use beep_proto::watched;
 use futures::{FutureExt, StreamExt, future::join_all};
@@ -35,7 +36,6 @@ mod git;
 mod git_reads;
 mod snapshots;
 pub(crate) mod sources;
-pub(super) mod subscriptions;
 use snapshots::Snapshots;
 use sources::{Pass, Passes, Subscriptions};
 
@@ -46,7 +46,43 @@ struct FileWatcher {
     bindings: Arc<Mutex<FileBindings>>,
 }
 
+/// Which stream protocol a loop serves. `events/1` and `peer-subscriptions/1` carry the same
+/// topics and snapshots, with different bytes, and only `events/1` takes calls.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Wire {
+    Events,
+    Subscriptions,
+}
+
+/// A watch being looked up: its sources are found while the stream goes on.
+struct Watched {
+    id: u64,
+    started: Instant,
+    topics: Vec<Topic>,
+    queries: Vec<events::Query>,
+    result: Result<Subscriptions>,
+}
+
 pub(crate) async fn serve(
+    tx: LinkTx,
+    rx: LinkRx,
+    offers: Offers,
+    caller: iroh::EndpointId,
+) -> Result<()> {
+    run(Wire::Events, tx, rx, offers, caller).await
+}
+
+pub(super) async fn serve_subscriptions(
+    tx: LinkTx,
+    rx: LinkRx,
+    offers: Offers,
+    caller: iroh::EndpointId,
+) -> Result<()> {
+    run(Wire::Subscriptions, tx, rx, offers, caller).await
+}
+
+async fn run(
+    wire: Wire,
     mut tx: LinkTx,
     mut rx: LinkRx,
     offers: Offers,
@@ -70,11 +106,13 @@ pub(crate) async fn serve(
     let mut passes = Passes::new(&offers);
     // A watch was answered before its watchers bound: read once more after.
     let mut unbound = false;
+    // At most one watch is looked up at a time; the next request waits for it.
+    let mut watching = JoinSet::new();
     let mut calls = JoinSet::new();
     let mut pending = HashSet::new();
     let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    send(&mut tx, Reply::Ready).await?;
+    send(&mut tx, wire, Reply::Ready).await?;
 
     loop {
         snapshots.start(&offers, caller);
@@ -86,14 +124,18 @@ pub(crate) async fn serve(
                     None => std::future::pending().await,
                 }
             }, if snapshot_due.is_some() => {},
-            request = rx.recv_with(Incoming::read) => {
+            request = read_request(wire, &mut rx), if watching.is_empty() => {
+                if wire == Wire::Subscriptions {
+                    anyhow::ensure!(offers.lends_to_peers() || offers.mesh.get().is_some_and(|mesh| mesh.me() == caller), "this machine is no longer shared");
+                }
+
                 let request = match request? {
                     None => None,
                     Some(Incoming::Request(request)) => Some(request),
                     // From a newer app: refuse the call, keep the stream.
                     Some(Incoming::Unread { id, reason }) => {
                         tracing::warn!(%stream, call = id, %reason, "subscription call not read");
-                        send(&mut tx, Reply::Error { id, reason }).await?;
+                        send(&mut tx, wire, Reply::Error { id, reason }).await?;
                         continue;
                     }
                 };
@@ -112,39 +154,30 @@ pub(crate) async fn serve(
                     } else if wanted.iter().any(|topic| !topic.valid()) {
                         Err(anyhow::anyhow!("invalid subscription topics"))
                     } else { Snapshots::validate(&wanted_queries) };
-                    let source_topics = sources(&wanted, &wanted_queries);
-                    let result = match valid {
-                        Ok(()) => sources::subscribe(&offers, &source_topics).await,
-                        Err(error) => Err(error),
-                    };
 
-                    match result {
-                        Ok(next) => {
-                            subscriptions = next;
-                            roots = sources::roots(&subscriptions);
-                            topics = wanted;
-                            queries = wanted_queries;
-                            snapshots.replace(&offers, &topics, &queries, &roots);
-                            // The first snapshots do not wait for the watchers.
-                            passes.start(Pass::bind(&subscriptions));
-                            unbound = true;
-                            send(&mut tx, Reply::Watching { id }).await?;
-                            tracing::info!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch acknowledged");
+                    match valid {
+                        Ok(()) => {
+                            let offers = offers.clone();
+                            let source_topics = sources(&wanted, &wanted_queries);
+                            watching.spawn(async move {
+                                let result = sources::subscribe(&offers, &source_topics).await;
+                                Watched { id, started, topics: wanted, queries: wanted_queries, result }
+                            });
                         }
                         Err(error) => {
                             tracing::warn!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch rejected");
-                            send(&mut tx, Reply::Error { id, reason: format!("{error:#}") }).await?;
-                        },
+                            send(&mut tx, wire, Reply::Error { id, reason: format!("{error:#}") }).await?;
+                        }
                     }
                 }
                 Some(Request::Refresh { id }) => {
                     snapshots.reset();
-                    send(&mut tx, Reply::Watching { id }).await?;
+                    send(&mut tx, wire, Reply::Watching { id }).await?;
                 },
-                Some(Request::Ping { id }) => send(&mut tx, Reply::Pong { id }).await?,
+                Some(Request::Ping { id }) => send(&mut tx, wire, Reply::Pong { id }).await?,
                 Some(Request::Call { id, operation }) => {
                     if calls.len() >= MAX_CALLS || !pending.insert(id) {
-                        send(&mut tx, Reply::Error { id, reason: "too many pending calls or duplicate call id".into() }).await?;
+                        send(&mut tx, wire, Reply::Error { id, reason: "too many pending calls or duplicate call id".into() }).await?;
                     } else {
                         let agents = offers.agents.clone();
                         calls.spawn(async move { (id, timeout(Duration::from_secs(120), execute(agents, caller, *operation)).await) });
@@ -152,18 +185,39 @@ pub(crate) async fn serve(
                 }
                 }
             },
+            Some(done) = watching.join_next(), if !watching.is_empty() => {
+                let Watched { id, started, topics: wanted, queries: wanted_queries, result } = done.context("a topic watch stopped")?;
+
+                match result {
+                    Ok(next) => {
+                        subscriptions = next;
+                        roots = sources::roots(&subscriptions);
+                        topics = wanted;
+                        queries = wanted_queries;
+                        snapshots.replace(&offers, &topics, &queries, &roots);
+                        // The first snapshots do not wait for the watchers.
+                        passes.start(Pass::bind(&subscriptions));
+                        unbound = true;
+                        send(&mut tx, wire, Reply::Watching { id }).await?;
+                        tracing::info!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch acknowledged");
+                    }
+                    Err(error) => {
+                        tracing::warn!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch rejected");
+                        send(&mut tx, wire, Reply::Error { id, reason: format!("{error:#}") }).await?;
+                    }
+                }
+            },
             Some(result) = calls.join_next(), if !calls.is_empty() => {
                 let (id, result) = result.context("a node command stopped")?;
                 pending.remove(&id);
-                let reply = match result {
-                    Ok(Ok(reply)) => Reply::Result { id, reply: Box::new(reply) },
-                    Ok(Err(error)) => Reply::Error { id, reason: format!("{error:#}") },
-                    Err(_) => Reply::Error { id, reason: "command timed out; its outcome may be unknown".into() },
-                };
-                send(&mut tx, reply).await?;
+
+                match result {
+                    Ok(Ok(reply)) => write(&mut tx, &events::Reply::Result { id, reply: Box::new(reply) }).await?,
+                    Ok(Err(error)) => send(&mut tx, wire, Reply::Error { id, reason: format!("{error:#}") }).await?,
+                    Err(_) => send(&mut tx, wire, Reply::Error { id, reason: "command timed out; its outcome may be unknown".into() }).await?,
+                }
             },
             snapshot = snapshots.next() => if let Some(snapshot) = snapshot? {
-                let snapshot = Reply::from(snapshot);
                 let started = Instant::now();
                 let (topic, query, success) = match &snapshot {
                     Reply::Snapshot(value) => (value.topic.name().to_owned(), value.query, true),
@@ -171,7 +225,7 @@ pub(crate) async fn serve(
                     _ => unreachable!("snapshot queue only returns snapshots"),
                 };
                 tracing::debug!(%stream, %topic, query, success, "subscription snapshot sending");
-                send(&mut tx, snapshot).await?;
+                send(&mut tx, wire, snapshot).await?;
                 tracing::debug!(%stream, %topic, query, success, elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot sent");
             },
             Some((_, event)) = subscriptions.next(), if !subscriptions.is_empty() => {
@@ -257,8 +311,27 @@ pub(crate) async fn serve(
                     }
                 }
             },
-            _ = heartbeat.tick() => send(&mut tx, Reply::Pong { id: 0 }).await?,
+            _ = heartbeat.tick() => send(&mut tx, wire, Reply::Pong { id: 0 }).await?,
         }
+    }
+}
+
+/// The next request of the stream, as `events/1` names it.
+async fn read_request(wire: Wire, rx: &mut LinkRx) -> Result<Option<Incoming>> {
+    match wire {
+        Wire::Events => rx.recv_with(Incoming::read).await,
+        Wire::Subscriptions => Ok(rx
+            .recv::<subscriptions::Request>()
+            .await?
+            .map(|request| Incoming::Request(match request {
+                subscriptions::Request::Watch { id, topic, queries } => Request::Watch {
+                    id,
+                    topics: vec![topic],
+                    queries,
+                },
+                subscriptions::Request::Refresh { id } => Request::Refresh { id },
+                subscriptions::Request::Ping { id } => Request::Ping { id },
+            }))),
     }
 }
 
@@ -296,10 +369,18 @@ fn sources(topics: &[Topic], queries: &[events::Query]) -> Vec<Topic> {
     sources
 }
 
-async fn send(tx: &mut LinkTx, reply: Reply) -> Result<()> {
-    timeout(WRITE_WAIT, tx.send(&reply))
+/// Sends `reply` as `wire` words it.
+async fn send(tx: &mut LinkTx, wire: Wire, reply: Reply) -> Result<()> {
+    match wire {
+        Wire::Events => write(tx, &events::Reply::from(reply)).await,
+        Wire::Subscriptions => write(tx, &reply).await,
+    }
+}
+
+async fn write(tx: &mut LinkTx, reply: &impl serde::Serialize) -> Result<()> {
+    timeout(WRITE_WAIT, tx.send(reply))
         .await
-        .context("event reader stopped receiving")?
+        .context("subscription reader stopped receiving")?
 }
 
 fn watches_files(topics: &[Topic]) -> bool {

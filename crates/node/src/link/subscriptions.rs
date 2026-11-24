@@ -56,5 +56,5 @@ pub(super) async fn serve_open(
     timeout(CHANNEL_OPEN_WAIT, rx.recv::<Open>())
         .await??
         .context("the subscription stream closed before opening")?;
-    events::subscriptions::serve(tx, rx, offers, caller).await
+    events::serve_subscriptions(tx, rx, offers, caller).await
 }
