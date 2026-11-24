@@ -186,7 +186,7 @@ impl Rows {
         self.machines
             .keys()
             .chain(old.machines.keys())
-            .filter(|id| match (self.machines.get(id), old.machines.get(id)) {
+            .filter(|id| match (self.machines.get(*id), old.machines.get(*id)) {
                 (Some(new), Some(old)) => {
                     new.beep != old.beep || new.children != old.children || new.links != old.links
                 }
