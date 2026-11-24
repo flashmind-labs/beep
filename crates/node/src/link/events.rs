@@ -91,9 +91,15 @@ async fn run(
     let mut snapshots = Snapshots::new();
     let stream = snapshots.stream();
     tracing::info!(%stream, "subscription stream opened");
-    // Several controllers may each keep one stream per demanded topic.
-    static READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(256);
-    let _reader = READERS.try_acquire().context("too many topic readers")?;
+    // Several controllers may each keep one stream per demanded topic; each
+    // protocol has its own limit.
+    static EVENT_READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(256);
+    static PEER_READERS: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(256);
+    let readers = match wire {
+        Wire::Events => &EVENT_READERS,
+        Wire::Subscriptions => &PEER_READERS,
+    };
+    let _reader = readers.try_acquire().context("too many topic readers")?;
     let mut membership = offers.mesh.subscribe();
     let mut project_changes = watched::read_and_update(&mut membership, |mesh| {
         mesh.as_ref().map(beep_mesh::Mesh::changes)
