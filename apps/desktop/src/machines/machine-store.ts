@@ -1,6 +1,6 @@
 // The machines of the mesh as the `machines` push carries them: one copy for every screen.
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
-import { pushedList } from "../ui/snapshot-state.ts";
+import { pushedList, pushedView } from "../ui/snapshot-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { Machine } from "./machines.tsx";
 import type { MachineTraffic } from "./traffic-state.ts";
@@ -8,7 +8,9 @@ import type { MachineTraffic } from "./traffic-state.ts";
 /// `list` is null before the first value. `failed` says the last read failed, so a missing list
 /// is not an empty mesh.
 /// `traffic` is what each machine moved, from the `telemetry` topic, whichever screen follows it.
-export const MACHINES: { list: Machine[] | null; failed: boolean; traffic: MachineTraffic[] } = { list: null, failed: false, traffic: [] };
+/// `mac` is this computer's own machine id and `updatable` the machines that update over `update/1`,
+/// both from the `machines` push: none until it comes.
+export const MACHINES: { list: Machine[] | null; failed: boolean; traffic: MachineTraffic[]; mac: string | null; updatable: Set<string> } = { list: null, failed: false, traffic: [], mac: null, updatable: new Set() };
 /// Machines this window removed that a pushed list still has: Home hides them until the push drops them.
 export const REMOVED = new Set<string>();
 /// Called after the list changed, from a push or a rename or removal made here.
@@ -46,6 +48,11 @@ export function removeListed(id: string) {
 }
 
 subscribeEach(topic("machines"), event => {
+  const mac = pushedView<{ id: string | null }>(event.data, "mac_control");
+  const updatable = pushedList<{ id: string }>(event.data, "updatable_machines");
+  if (mac && "value" in mac) MACHINES.mac = mac.value.id || null;
+  if (updatable && "list" in updatable) MACHINES.updatable = new Set(updatable.list.map(u => u.id));
+
   const pushed = pushedList<Machine>(event.data, "list_machines");
   if (!pushed) return;
   if ("error" in pushed) { MACHINES.failed = true; return; }

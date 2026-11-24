@@ -9,9 +9,7 @@ import { flushSync } from "react-dom";
 
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
 answers.list_machines = [];
-answers.updatable_machines = [];
 answers.machine_clocks = [];
-answers.tool_updates = [];
 
 /// Another page opens in the bar, as when the user leaves Machines.
 function leave() {

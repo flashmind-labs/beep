@@ -2,7 +2,8 @@ import { flushSync } from "react-dom";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { MachineList, MachineLoading } from "./list-view.tsx";
 import { MachineDetail, type MachineLog } from "./detail-view.tsx";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedList } from "../ui/snapshot-state.ts";
 import { AMBIENT_MS, SLOW_MS } from "../ui/active.ts";
 // machines/: the Machines list, Home's machine table (table.ts) and the
 // Add a machine sheet. Entry: this file.
@@ -37,15 +38,11 @@ export interface Asking { id: string; busy: boolean; error: string }
 
 export interface MachineSearch { id: string; folder: string | null; draft: string | null; busy: boolean; error: string }
 
-// The machines running beep-node (ListMachines), from Settings. `mac` is
-// this Mac's own id, which unlinks from Settings rather than here; `asking`
+// The machines running beep-node (ListMachines), from Settings; `asking`
 // the machine whose Remove waits for an answer.
 export const MC: {
   error: string;
-  mac: string | null;
   asking: Asking | null;
-  /// The machines Update works on.
-  updatable: Set<string>;
   /// The newest beep-node release, null until read or while offline.
   released: string | null;
   /// Update's progress by machine.
@@ -58,7 +55,7 @@ export const MC: {
   installed: Map<string, string>;
   /// Try again on a machine's adapters: asking, or why it failed.
   adapterTries: Map<string, { busy: boolean; error: string }>;
-} = { error: "", mac: null, asking: null, updatable: new Set(), released: null, updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), adapterTries: new Map() };
+} = { error: "", asking: null, released: null, updates: new Map(), tools: [], toolUps: new Map(), installed: new Map(), adapterTries: new Map() };
 
 /// Where the open machine looks for projects (GetMachineSearch): null until
 /// read, or when its beep-node cannot say; `draft` is the field while
@@ -123,31 +120,6 @@ export async function renderMachines(id: string | null = null) {
   if (id && MACHINES.list?.some(m => m.id === id && m.can_host === false)) return;
   // Looking the newest releases up can take a while; the page shows first.
   void loadNodeRelease();
-  void loadToolUpdates();
-}
-
-let toolUpdatesLoading = false;
-let toolUpdatesAgain = false;
-async function loadToolUpdates() {
-  if (toolUpdatesLoading) { toolUpdatesAgain = true; return; }
-  toolUpdatesLoading = true;
-
-  try {
-    const tools = await invoke<ToolUpdate[]>("tool_updates");
-    // The page only changes when a newer release shows up.
-    const same = JSON.stringify(tools) === JSON.stringify(MC.tools);
-    MC.tools = tools;
-    if (shown() && !same) drawMachines();
-  } catch (e) {
-    console.warn("tool updates:", e);
-  } finally {
-    toolUpdatesLoading = false;
-
-    if (toolUpdatesAgain) {
-      toolUpdatesAgain = false;
-      if (shown()) void loadToolUpdates();
-    }
-  }
 }
 
 // Concurrent invalidations share one read and request a fresh pass before publishing.
@@ -159,15 +131,8 @@ function readList(): Promise<void> {
     do {
       listAgain = false;
       try {
-        const [, mac, updatable] = await Promise.all([
-          ensureMachines(),
-          invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this computer's state:", e); return null; }),
-          invoke<{ id: string }[]>("updatable_machines").catch(e => { console.warn("updatable machines:", e); return []; }),
-          loadClocks(invoke),
-        ]);
+        await Promise.all([ensureMachines(), loadClocks(invoke)]);
         if (listAgain) continue;
-        MC.updatable = new Set(updatable.map(u => u.id));
-        MC.mac = mac?.id || null;
         MC.error = "";
       } catch (e) {
         if (listAgain) continue;
@@ -184,8 +149,18 @@ function readList(): Promise<void> {
 /// Starts the machine updates once per webview, from its entry point.
 export function followToolUpdates() {
   // Opened before the machines connected: the page follows them as they come.
-  listen("reconnected", () => { if (shown()) { void readList(); void loadToolUpdates(); } });
+  listen("reconnected", () => { if (shown()) void readList(); });
   subscribeChanges(topic("machines"), { deliver: "latest", receive: () => readList() }, { when: shown, wait: AMBIENT_MS });
+  // The tools behind their newest release come in the `tools` push, which the machines ask their nodes for.
+  subscribeEach(topic("tools"), event => {
+    const pushed = pushedList<ToolUpdate>(event.data, "tool_updates");
+    if (!pushed) return;
+    if ("error" in pushed) { console.warn("tool updates:", pushed.error); return; }
+    if (JSON.stringify(pushed.list) === JSON.stringify(MC.tools)) return;
+
+    MC.tools = pushed.list;
+    if (shown()) drawMachines();
+  }, { when: shown });
   // What each machine moved comes with the telemetry; Home takes it the same way while it shows.
   subscribeChanges(topic("telemetry"), { deliver: "each", receive: event => { if (takeTraffic(event.data) && shown()) drawMachines(); } }, { when: shown, wait: SLOW_MS });
 }
@@ -399,7 +374,7 @@ async function waitForNode(id: string, to: string, polls: number) {
 /// others are behind.
 // Only nodes that update themselves count: the Mac app's built-in node is
 // whatever version the app was built with, which may never have been released.
-const newest = () => offeredNode(MC.released, (MACHINES.list ?? []).filter(m => MC.updatable.has(m.id)).map(m => m.version));
+const newest = () => offeredNode(MC.released, (MACHINES.list ?? []).filter(m => MACHINES.updatable.has(m.id)).map(m => m.version));
 
 /// Machines in the Settings sheet's box. Its own scope keeps the bar window from loading the
 /// command center's root.
@@ -424,7 +399,7 @@ function showScreen(at: MachinesHost | null, page: MachinesPage) {
 function drawList(at: MachinesHost | null) {
   const refreshAfterSheet = () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); };
   showScreen(at, { view: "machines", props: {
-    list: MACHINES.list, error: MC.error, hosted: !!at, mac: MC.mac, newest: newest(), asking: MC.asking,
+    list: MACHINES.list, error: MC.error, hosted: !!at, mac: MACHINES.mac, newest: newest(), asking: MC.asking,
     adapterTries: MC.adapterTries, hints: at ? null : hintModel([["esc", "back"]]), age: span,
     open: (id: string) => { if (at) { at.opened(id); void renderMachines(id); } },
     add: () => openAddMachine({ onClose: refreshAfterSheet }),
@@ -438,7 +413,7 @@ function drawList(at: MachinesHost | null) {
 
 function drawDetail(at: MachinesHost | null, machine: Machine) {
   showScreen(at, { view: "machine", props: {
-    machine, invoke, error: MC.error, mac: MC.mac, newest: newest(), updatable: MC.updatable.has(machine.id),
+    machine, invoke, error: MC.error, mac: MACHINES.mac, newest: newest(), updatable: MACHINES.updatable.has(machine.id),
     nodeUpdate: MC.updates.get(machine.id) ?? null, search, log, tools: MC.tools, toolUps: MC.toolUps,
     installed: MC.installed, traffic: MACHINES.traffic.find(t => t.id === machine.id), asking: MC.asking, age: span,
     searchEdit: () => { if (search) { search.draft = search.folder; drawMachines(); } },
