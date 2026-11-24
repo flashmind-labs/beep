@@ -38,8 +38,6 @@ use tokio::join;
 
 /// How long Home waits for the first machine's rows when it has none.
 const WAIT: Duration = Duration::from_millis(1500);
-/// Tells the windows the rows changed, for Home to load again.
-pub const HOME_CHANGED: &str = "home-changed";
 
 /// Answers a question an agent session asks. Its notice is answered too, as
 /// is one the session no longer asks, and the tray looks again.

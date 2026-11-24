@@ -3,10 +3,7 @@
 //! block UI commands or stall healthy machines.
 
 use super::{Fleet, alerts, session_lists::SessionLists, session_mirror::SessionMirror};
-use crate::{
-    center::home::HOME_CHANGED,
-    error::{DesktopError, Result},
-};
+use crate::error::{DesktopError, Result};
 use beep_mesh::{
     PeerClient, RETRY,
     machine::{
@@ -933,15 +930,14 @@ fn on_settled(
     match kind {
         // The command that asked for the delete took the session out of every list. Only a
         // refusal needs more: the machine still has it.
-        JobKind::DeleteSession { session, .. } if !ok => {
+        JobKind::DeleteSession { .. } if !ok => {
             if let Some(app) = app {
                 if let Some(lists) = app.try_state::<SessionLists>() {
                     lists.stale(machine);
                 }
                 if let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
                     mirror.delete_failed(machine);
-                    // The windows read at once; the relist follows.
-                    let _ = app.emit("sessions-changed", session);
+                    // The windows draw at once; the relist follows.
                     super::home_signal::poke(app);
                 }
             }
@@ -974,7 +970,6 @@ fn on_settled(
         }
         JobKind::TerminalStop { .. } if !ok => {
             if let Some(app) = app {
-                let _ = app.emit(HOME_CHANGED, ());
                 super::home_signal::poke(app);
             }
         }

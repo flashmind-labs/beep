@@ -8,7 +8,6 @@ use crate::{
     agents::starts::StartId,
     center::{
         cache_view,
-        home::HOME_CHANGED,
         view_cache::{View, ViewCache},
     },
 };
@@ -1063,16 +1062,14 @@ impl Outside for Desk {
 
     fn drawn(&self, drawn: Drawn) {
         let app = &self.app;
-        let told = match drawn {
-            Drawn::Listed => app.emit(HOME_CHANGED, ()),
-            Drawn::Session(session) => {
-                crate::fleet::event_views::session_edited(app.clone());
-                app.emit("sessions-changed", session)
-            }
-        };
+        // The rows reach Home through the mirror's watch. A local edit tells the windows which
+        // session, for the closing rows to settle.
+        if let Drawn::Session(session) = drawn {
+            crate::fleet::event_views::session_edited(app.clone());
 
-        if let Err(e) = told {
-            log::warn!("telling the windows the sessions changed: {e}");
+            if let Err(e) = app.emit("sessions-changed", session) {
+                log::warn!("telling the windows the sessions changed: {e}");
+            }
         }
     }
 }

@@ -4,7 +4,6 @@
 
 use crate::{
     beep::epoch_ms,
-    center::home::HOME_CHANGED,
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
@@ -29,7 +28,7 @@ use std::{
     time::Duration,
 };
 use tauri::{
-    AppHandle, Emitter, Manager, State, WebviewWindow,
+    AppHandle, Manager, State, WebviewWindow,
     ipc::{Channel, InvokeResponseBody},
 };
 use tokio::{
@@ -206,7 +205,6 @@ pub async fn terminal_close(
 ) -> Result<()> {
     direct::close_with(Some(app.clone()), &fleet, id).await?;
     held.terminals.replace(Vec::new(), |t| t.id == id);
-    let _ = app.emit(HOME_CHANGED, ());
     crate::fleet::home_signal::poke(&app);
     Ok(())
 }

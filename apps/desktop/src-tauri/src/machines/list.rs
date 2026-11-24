@@ -3,7 +3,7 @@
 
 use crate::{
     beep::{epoch_ms, state::Prefs},
-    center::{home::HOME_CHANGED, lock},
+    center::lock,
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
     fleet::{ClockOff, Fleet, Machines, files as direct},
@@ -23,7 +23,7 @@ use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
 };
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, State};
 use tokio::sync::mpsc::{self, error::TrySendError};
 
 /// A machine that serves `device/1`.
@@ -170,10 +170,6 @@ impl<T: Clone + Send + 'static> Held<T> {
         self.queue_refresh(Box::pin(async move {
             if !held.finish(ask.await, same) {
                 return;
-            }
-
-            if let Err(e) = app.emit(HOME_CHANGED, ()) {
-                log::warn!("telling the windows a list changed: {e}");
             }
 
             crate::fleet::home_signal::poke(&app);
