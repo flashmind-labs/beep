@@ -227,6 +227,63 @@ impl Default for Options {
     }
 }
 
+/// The last spend report and the plans heard since, which are written to disk for the next run.
+struct Spent {
+    report: Cache<(), SpendReport>,
+    /// The freshest plan of each agent any read heard, which `spend` gives: a machine's stream
+    /// that still owes a plan adds it when the node sends it.
+    plans: watch::Sender<Vec<PlanLimits>>,
+    /// One write of `usage_file` at a time.
+    saving: Mutex<()>,
+}
+
+impl Spent {
+    /// Holds the report kept from the last run, if any.
+    fn new(saved: Option<SpendReport>) -> Self {
+        let report = Cache::default();
+        let plans = saved.as_ref().map(|saved| saved.limits.clone());
+
+        if let Some(saved) = saved {
+            report.hold((), saved, None);
+        }
+
+        Self {
+            report,
+            plans: watch::Sender::new(plans.unwrap_or_default()),
+            saving: Mutex::new(()),
+        }
+    }
+
+    /// The plans heard so far.
+    fn limits(&self) -> Vec<PlanLimits> {
+        watched::read_sent(&self.plans, Clone::clone)
+    }
+
+    /// Takes the freshest of `plans` and those held; true when that changed anything.
+    fn hear(&self, plans: Vec<PlanLimits>) -> bool {
+        self.plans.send_if_modified(|held| {
+            let merged = freshest(held.iter().cloned().chain(plans));
+            let changed = merged != *held;
+            *held = merged;
+            changed
+        })
+    }
+
+    /// Writes what is held when the write starts, one write at a time, so the last one written
+    /// is the newest.
+    fn write(&self, path: &Path) -> io::Result<()> {
+        let _one = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some((mut report, _)) = self.report.get(&(), Duration::ZERO) else {
+            return Ok(());
+        };
+        report.limits = self.limits();
+        let bytes = rmp_serde::to_vec_named(&report).map_err(io::Error::other)?;
+        let part = path.with_extension("part");
+        fs::write(&part, bytes)?;
+        fs::rename(&part, path)
+    }
+}
+
 pub struct Session {
     options: Options,
     peers: Arc<dyn Peers>,
@@ -237,12 +294,9 @@ pub struct Session {
     run_reads: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
     /// Runs opened, by project, host and run id.
     run_details: Cache<(String, Option<String>, u64), ProjectRunDetail>,
-    spend: Cache<(), SpendReport>,
+    spent: Spent,
     /// True once a cold `spend(false)` already waited its initial fast window on a slow machine.
     spend_waited: AtomicBool,
-    /// The freshest plan of each agent any read heard, which `spend` gives: a machine's stream
-    /// that still owes a plan adds it when the node sends it.
-    plans: watch::Sender<Vec<PlanLimits>>,
     /// The machines' streams kept for the plans they owe.
     following: AtomicUsize,
     /// Rises when what was read may no longer be what a read would give, so a read that started
@@ -250,8 +304,6 @@ pub struct Session {
     epoch: AtomicU64,
     /// Bounds the background reads.
     limit: Arc<Semaphore>,
-    /// One write of `usage_file` at a time.
-    saving: Mutex<()>,
     /// The background reads, owned here: they stop with the session.
     tasks: Mutex<JoinSet<()>>,
     /// Whether the first desk put the projects already imported in sync.
@@ -265,14 +317,7 @@ impl Session {
         options: Options,
         changed: impl Fn(Changed) + Send + Sync + 'static,
     ) -> Result<Arc<Self>> {
-        let spend = Cache::default();
         let saved = options.usage_file.as_deref().and_then(load_spend);
-        let plans = saved.as_ref().map(|report| report.limits.clone());
-
-        if let Some(report) = saved {
-            spend.hold((), report, None);
-        }
-
         let changed: Arc<dyn Fn(Changed) + Send + Sync> = Arc::new(changed);
         let sync_changed = changed.clone();
         Ok(Arc::new(Self {
@@ -284,13 +329,11 @@ impl Session {
             runs: Cache::default(),
             run_reads: Mutex::default(),
             run_details: Cache::default(),
-            spend,
+            spent: Spent::new(saved),
             spend_waited: AtomicBool::new(false),
-            plans: watch::Sender::new(plans.unwrap_or_default()),
             following: AtomicUsize::new(0),
             epoch: AtomicU64::new(0),
             limit: Arc::new(Semaphore::new(READS_AT_ONCE)),
-            saving: Mutex::new(()),
             tasks: Mutex::default(),
             checkouts_synced: AtomicBool::new(false),
         }))
@@ -541,7 +584,7 @@ impl Session {
     /// The pill polls once per `fresh`, so a report is stale at half that: each poll reads
     /// again, and a machine that came online since is heard within a poll.
     pub async fn spend(self: &Arc<Self>, refresh: bool) -> Result<SpendReport> {
-        let mut report = match self.spend.get(&(), self.options.fresh / 2) {
+        let mut report = match self.spent.report.get(&(), self.options.fresh / 2) {
             Some((held, stale)) if !refresh => {
                 if stale {
                     self.read_spend_later();
@@ -550,7 +593,7 @@ impl Session {
                 held
             }
             None if !refresh => {
-                if self.spend_waited.load(Ordering::Acquire) && self.spend.is_reading(&()) {
+                if self.spend_waited.load(Ordering::Acquire) && self.spent.report.is_reading(&()) {
                     empty_spend()
                 } else {
                     self.read_cold_spend().await?
@@ -562,15 +605,16 @@ impl Session {
                 read
             }
         };
-        report.limits = watched::read_sent(&self.plans, Clone::clone);
+        report.limits = self.spent.limits();
         Ok(report)
     }
 
     async fn read_cold_spend(self: &Arc<Self>) -> Result<SpendReport> {
         let cold_wait = self.options.settle + Duration::from_millis(800);
-        if !self.spend.begin(&()) {
+        if !self.spent.report.begin(&()) {
             return Ok(self
-                .spend
+                .spent
+                .report
                 .get(&(), self.options.fresh)
                 .map_or_else(empty_spend, |(held, _)| held));
         }
@@ -593,7 +637,7 @@ impl Session {
                     Err(e)
                 }
             };
-            this.spend.end(&());
+            this.spent.report.end(&());
             let _ = tx.send(out);
         });
 
@@ -608,7 +652,7 @@ impl Session {
     }
 
     fn read_spend_later(self: &Arc<Self>) {
-        if !self.spend.begin(&()) {
+        if !self.spent.report.begin(&()) {
             return;
         }
 
@@ -624,18 +668,18 @@ impl Session {
                 }
                 Err(e) => {
                     log::info!("the usage did not read again: {e}");
-                    this.spend.touch(&());
+                    this.spent.report.touch(&());
                 }
             }
 
-            this.spend.end(&());
+            this.spent.report.end(&());
         });
     }
 
     /// Keeps `read` and its plans, and listens on for the plans `follows` owe.
     fn keep_spend(self: &Arc<Self>, read: SpendReport, follows: Vec<PlanFollow>) {
-        self.hear(read.limits.clone());
-        self.spend.put((), read);
+        self.spent.hear(read.limits.clone());
+        self.spent.report.put((), read);
         self.save_spend();
 
         // A plan shown already is waited for too: it may be one kept from the last run, and over a
@@ -653,7 +697,7 @@ impl Session {
                 follow
                     .run(
                         |plan| {
-                            if this.hear(vec![plan]) {
+                            if this.spent.hear(vec![plan]) {
                                 this.save_spend();
                                 (this.changed)(Changed::Usage);
                             }
@@ -668,9 +712,7 @@ impl Session {
                     && let Ok(desk) = this.desk().await
                 {
                     let updated = desk.spend_from_cache();
-                    this.hear(updated.limits.clone());
-                    this.spend.put((), updated);
-                    this.save_spend();
+                    this.keep_spend(updated, Vec::new());
                     (this.changed)(Changed::Usage);
                 }
 
@@ -686,7 +728,7 @@ impl Session {
         };
         let this = self.clone();
         self.spawn(async move {
-            let saved = tokio::task::spawn_blocking(move || this.write_spend(&path)).await;
+            let saved = tokio::task::spawn_blocking(move || this.spent.write(&path)).await;
 
             match saved {
                 Ok(Ok(())) => {}
@@ -694,30 +736,6 @@ impl Session {
                 Err(e) => log::warn!("keeping the usage stopped: {e}"),
             }
         });
-    }
-
-    /// Writes what is held when the write starts, one write at a time, so the last one written
-    /// is the newest.
-    fn write_spend(&self, path: &Path) -> io::Result<()> {
-        let _one = self.saving.lock().unwrap_or_else(PoisonError::into_inner);
-        let Some((mut report, _)) = self.spend.get(&(), Duration::ZERO) else {
-            return Ok(());
-        };
-        report.limits = watched::read_sent(&self.plans, Clone::clone);
-        let bytes = rmp_serde::to_vec_named(&report).map_err(io::Error::other)?;
-        let part = path.with_extension("part");
-        fs::write(&part, bytes)?;
-        fs::rename(&part, path)
-    }
-
-    /// Takes the freshest of `plans` and those held; true when that changed anything.
-    fn hear(&self, plans: Vec<PlanLimits>) -> bool {
-        self.plans.send_if_modified(|held| {
-            let merged = freshest(held.iter().cloned().chain(plans));
-            let changed = merged != *held;
-            *held = merged;
-            changed
-        })
     }
 
     /// Drops what was read, for a project that was removed or a credential that changed, so the
