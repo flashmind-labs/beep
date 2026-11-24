@@ -87,3 +87,20 @@ fn saved_flsh_delegations_show_as_agent_cards() {
     assert!(entries[0].text.contains("[agent] worker"));
     assert!(entries[0].text.contains("[model] provider:model"));
 }
+
+#[test]
+fn saved_pi_subagent_calls_show_as_agent_cards() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let path = dir.path().join("session.jsonl");
+    let line = json!({"type": "message", "message": {"role": "assistant", "content": [
+        {"type": "toolCall", "id": "call-1", "name": "subagent",
+         "arguments": {"agent": "scout", "task": "Find the config"}},
+        {"type": "toolCall", "id": "call-2", "name": "subagent",
+         "arguments": {"action": "status", "id": "run-1"}}
+    ]}});
+    fs::write(&path, format!("{line}\n")).expect("a session file");
+    let entries = pi(&path).expect("the session reads");
+    assert_eq!(entries.len(), 2);
+    assert!(entries[0].text.contains("[agent] scout"), "{}", entries[0].text);
+    assert_eq!(entries[1].kind, EntryKind::Tool);
+}

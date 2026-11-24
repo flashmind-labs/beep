@@ -62,3 +62,22 @@ fn flsh_agent_events_use_the_existing_card_without_claiming_other_tools() {
     assert!(Subagent::of_call(Some("agent_wait"), "Waiting", Some(&input)).is_none());
     assert!(Subagent::of_call(Some("flsh_agent"), "Check files", Some(&json!({}))).is_none());
 }
+
+#[test]
+fn a_pi_subagent_call_starts_one_unless_it_manages_runs() {
+    let single = json!({"agent": "scout", "task": "\nFind the config\nthen report", "model": "anthropic/sonnet"});
+    let sub = Subagent::of_call(None, PI_SPAWN, Some(&single)).expect("a pi subagent");
+    assert_eq!(sub.name.as_deref(), Some("scout"));
+    assert_eq!(sub.title.as_deref(), Some("Find the config"));
+    assert_eq!(sub.model.as_deref(), Some("anthropic/sonnet"));
+
+    let parallel = json!({"tasks": [{"agent": "reviewer", "task": "Review"}, {"agent": "scout", "task": "Look"}]});
+    let sub = Subagent::of_call(None, PI_SPAWN, Some(&parallel)).expect("parallel subagents");
+    assert_eq!(sub.name.as_deref(), Some("reviewer"));
+
+    let chain = json!({"chain": [{"agent": "planner", "task": "Plan"}]});
+    assert!(Subagent::of_call(None, PI_SPAWN, Some(&chain)).is_some());
+
+    let status = json!({"action": "status", "agent": "scout"});
+    assert!(Subagent::of_call(None, PI_SPAWN, Some(&status)).is_none());
+}

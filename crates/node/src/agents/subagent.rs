@@ -59,6 +59,8 @@ impl std::fmt::Display for Conversation<'_> {
 
 /// The title codex-acp gives the call that starts subagents.
 const CODEX_SPAWN: &str = "spawnAgent";
+/// The tool pi's subagent packages add, which also manages their runs.
+const PI_SPAWN: &str = "subagent";
 /// Claude Code's tools that start a subagent, the older name last.
 pub(crate) const CLAUDE_SPAWNS: [&str; 2] = ["Agent", "Task"];
 /// The longest name or title taken from a call.
@@ -104,6 +106,10 @@ impl Subagent {
                 title: text(input, "task"),
                 ..Self::default()
             });
+        }
+
+        if tool.unwrap_or(title) == PI_SPAWN {
+            return pi_spawn(input);
         }
 
         if title == CODEX_SPAWN {
@@ -153,6 +159,32 @@ impl Subagent {
             }
         }
     }
+}
+
+/// A pi `subagent` call that runs one agent (`agent`, `task`), several in
+/// parallel (`tasks`) or a chain (`chain`). A call with an `action` manages
+/// runs and starts none.
+fn pi_spawn(input: &Value) -> Option<Subagent> {
+    if input.get("action").is_some() {
+        return None;
+    }
+
+    let first = ["tasks", "chain"]
+        .iter()
+        .find_map(|key| input[*key].as_array()?.first())
+        .unwrap_or(input);
+    let name = text(first, "agent")?;
+    let title = first["task"]
+        .as_str()
+        .and_then(|task| task.lines().map(str::trim).find(|line| !line.is_empty()))
+        .map(|line| crate::agents::cut(line, MAX_NAME));
+
+    Some(Subagent {
+        name: Some(name),
+        model: text(first, "model").or_else(|| text(input, "model")),
+        title,
+        ..Subagent::default()
+    })
 }
 
 /// codex-acp's report that a subagent started, ended or was talked to

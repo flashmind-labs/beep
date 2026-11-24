@@ -258,6 +258,21 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
                         ),
                         Some("toolCall") => {
                             let name = part["name"].as_str().unwrap_or("tool");
+                            if let Some(sub) =
+                                Subagent::of_call(Some(name), name, Some(&part["arguments"]))
+                            {
+                                entries.push(
+                                    SubagentRun {
+                                        task: sub.title,
+                                        name: sub.name,
+                                        model: sub.model,
+                                        ..Default::default()
+                                    }
+                                    .entry(),
+                                );
+                                continue;
+                            }
+
                             let detail = codex_run::detail(&part["arguments"]);
                             let made =
                                 entry(EntryKind::Tool, &titled_call(name, detail.as_deref()));
