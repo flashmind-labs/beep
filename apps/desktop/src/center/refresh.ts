@@ -153,20 +153,18 @@ const homeChanged = ambient(readHome, AMBIENT_MS);
 
 /// Takes the new sync summary; only projects whose rows changed are drawn and
 /// read again.
-const refreshSync = single(async () => {
-  const { rows, changed } = mergeSyncRows(state.sync, await invoke<SyncRow[]>("project_sync"));
+async function takeSync(next: SyncRow[]) {
+  const { rows, changed } = mergeSyncRows(state.sync, next);
   state.sync = rows;
   if (!onScreen()) return;
 
   if (changed.size) { draw(); drawSide(); }
   await followSync(changed);
-});
+}
 
-const refreshProjects = single(async () => {
-  const [top, groups] = await Promise.all([
-    invoke<string[]>("projects_on_top"),
-    invoke<ProjectGroup[] | null>("project_groups"),
-  ]);
+const refreshSync = single(async () => takeSync(await invoke<SyncRow[]>("project_sync")));
+
+async function takeProjects(top: string[], groups: ProjectGroup[] | null) {
   state.top = top || [];
   state.groups = groups;
   await Promise.all(["projects", "pinned"].map(name => reloadGroup(name, false)));
@@ -175,7 +173,11 @@ const refreshProjects = single(async () => {
     drawSide();
     redrawProjectsPage();
   }
-});
+}
+
+const refreshProjects = single(async () => takeProjects(
+  ...await Promise.all([invoke<string[]>("projects_on_top"), invoke<ProjectGroup[] | null>("project_groups")]),
+));
 
 function takeMac(mac: MacControl) {
   state.mac = mac;
@@ -240,9 +242,22 @@ subscribeChanges(topic("machines"), { deliver: "each", receive: async event => {
   takeMac(pushed.value);
   await reloadGroup("machines");
 } }, { wait: AMBIENT_MS });
-subscribeChanges(topic("projects"), { deliver: "latest", receive: refreshProjects }, { wait: AMBIENT_MS });
+subscribeChanges(topic("projects"), { deliver: "each", receive: async event => {
+  const top = pushedView<string[]>(event.data, "projects_on_top"), groups = pushedView<ProjectGroup[] | null>(event.data, "project_groups");
+  if (!top || !groups) return;
+  if ("error" in top) { console.warn("projects on top:", top.error); return; }
+  if ("error" in groups) { console.warn("project groups:", groups.error); return; }
+
+  await takeProjects(top.value, groups.value);
+} }, { wait: AMBIENT_MS });
 // Sync progress changes many times a second during a transfer; the rows follow once a second.
-subscribeChanges(topic("sync"), { deliver: "latest", receive: refreshSync }, { wait: AMBIENT_MS });
+subscribeChanges(topic("sync"), { deliver: "each", receive: async event => {
+  const pushed = pushedView<SyncRow[]>(event.data, "project_sync");
+  if (!pushed) return;
+  if ("error" in pushed) { console.warn("file sync:", pushed.error); return; }
+
+  await takeSync(pushed.value);
+} }, { wait: AMBIENT_MS });
 subscribeChanges(topic("terminals"), { deliver: "latest", receive: readAllTerms }, { wait: AMBIENT_MS });
 subscribeChanges(topic("forge"), { deliver: "latest", receive: async () => {
   if (!snapshotView("git_items")) return;
