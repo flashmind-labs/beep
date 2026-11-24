@@ -124,5 +124,9 @@ fn project_calls_name_their_action() {
         title("mcp__beep__projects_import", json!({"projects": ["org/repo"]})),
         "Beep: Import projects"
     );
+    assert_eq!(
+        title("mcp__beep__team_join", json!({"ticket": "beepteam1secret"})),
+        "Beep: Join a team"
+    );
     assert_eq!(Tool::of_name("mcp__beep__projects"), None);
 }

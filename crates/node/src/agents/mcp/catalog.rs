@@ -361,6 +361,12 @@ fn beep() -> Vec<Value> {
         }, "Send a problem report about Beep with its logs and status, after asking the user. \
             period is hour, today or day. Returns its reference and, when the user picks it, the \
             GitHub issue opened with their gh." },
+        spec! { "team_join", OpenAct("Join a team"), ["ticket"], {
+            "ticket": Desc("The beepteam1 invite code"),
+            "machine": Machine,
+            "folder": Desc("Parent folder when cloning"),
+        }, "Join a team with a beepteam1 code, after asking the user. Imports or clones the \
+            project automatically if missing." },
     ]
 }
 

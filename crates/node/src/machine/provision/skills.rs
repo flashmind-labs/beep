@@ -38,6 +38,10 @@ pub(super) const SKILLS: &[Skill] = &[
         name: "forgejo",
         text: include_str!("../../../skills/forgejo/SKILL.md"),
     },
+    Skill {
+        name: "beep_join_team",
+        text: include_str!("../../../skills/beep_join_team/SKILL.md"),
+    },
 ];
 
 pub(crate) fn beep_dir() -> Option<PathBuf> {

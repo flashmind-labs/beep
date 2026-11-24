@@ -5,15 +5,22 @@
 use crate::{
     beep::epoch_ms,
     error::{DesktopError, Result},
-    fleet::projects::{FleetState, desk, named},
+    fleet::{
+        Fleet, Machines,
+        projects::{FleetState, desk, named},
+    },
+    machines::list::MachineLists,
 };
+use beep_fleet::{Desk, ImportJob};
 use beep_proto::{
+    FoundPlace, FoundProject,
     node::tools::{TeamCards, TeamInviteArgs},
-    team::{Card, ContactRecord, ForgeLogin, TeamRecord},
+    team::{Card, ContactRecord, ForgeLogin, TeamRecord, TeamRepo},
 };
 use iroh::EndpointId;
 use serde::Serialize;
 use std::str::FromStr;
+use tauri::State;
 use uuid::Uuid;
 
 /// A project's team as the Team page shows it.
@@ -188,6 +195,117 @@ pub async fn team_ticket(fleet: FleetState<'_>, ticket: String) -> Result<Ticket
         repo: repo.repo,
         project,
     })
+}
+
+/// The project ready for a team join: either already imported or added now.
+#[derive(Debug, Serialize)]
+pub struct PreparedProject {
+    pub project: String,
+    pub machine_name: Option<String>,
+    pub folder: Option<String>,
+    pub added: bool,
+    pub cloned: bool,
+}
+
+#[tauri::command]
+pub async fn team_prepare(
+    fleet: Machines<'_>,
+    session: FleetState<'_>,
+    held: State<'_, MachineLists>,
+    ticket: String,
+) -> Result<PreparedProject> {
+    let desk = desk(&session).await?;
+    let (repo, existing) = desk.team_ticket(&ticket)?;
+
+    ensure_team_project(&fleet, &desk, &held, &repo, existing, None, None).await
+}
+
+/// Makes sure `repo` is imported as a project before joining its team: uses
+/// `existing` when already imported, links a matching found checkout on an
+/// online machine when one exists, or clones `https://{repo}`.
+pub(super) async fn ensure_team_project(
+    fleet: &Fleet,
+    desk: &Desk,
+    held: &MachineLists,
+    repo: &TeamRepo,
+    existing: Option<String>,
+    machine_id: Option<&str>,
+    folder: Option<&str>,
+) -> Result<PreparedProject> {
+    if let Some(project) = existing {
+        return Ok(PreparedProject {
+            project,
+            machine_name: None,
+            folder: None,
+            added: false,
+            cloned: false,
+        });
+    }
+
+    let online: Vec<String> = fleet
+        .online()
+        .into_iter()
+        .map(|machine| machine.to_string())
+        .collect();
+    let found = desk.group_found(held.found.last());
+
+    if let Some((remote, place)) = find_matching_place(&found, repo, &online, machine_id) {
+        let imported = desk
+            .import(ImportJob {
+                repo: &remote,
+                machine_id: Some(&place.machine_id),
+                folder: Some(&place.folder),
+                parent: None,
+                worktrees: &[],
+            })
+            .await?;
+
+        return Ok(PreparedProject {
+            project: imported.project,
+            machine_name: Some(imported.machine_name),
+            folder: Some(imported.folder),
+            added: true,
+            cloned: imported.cloned,
+        });
+    }
+
+    let url = format!("https://{repo}");
+    let imported = desk
+        .import(ImportJob {
+            repo: &url,
+            machine_id,
+            folder: None,
+            parent: folder,
+            worktrees: &[],
+        })
+        .await?;
+
+    Ok(PreparedProject {
+        project: imported.project,
+        machine_name: Some(imported.machine_name),
+        folder: Some(imported.folder),
+        added: true,
+        cloned: imported.cloned,
+    })
+}
+
+/// The first online checkout in `found` whose remote matches `repo` (and
+/// `machine_id`, when given).
+pub(super) fn find_matching_place(
+    found: &[FoundProject],
+    repo: &TeamRepo,
+    online: &[String],
+    machine_id: Option<&str>,
+) -> Option<(String, FoundPlace)> {
+    let project = found
+        .iter()
+        .find(|project| project.remote.parse::<TeamRepo>().as_ref() == Ok(repo))?;
+    let place = project.places.iter().find(|place| {
+        online.contains(&place.machine_id)
+            && machine_id.is_none_or(|wanted| place.machine_id == wanted)
+    })?;
+
+    Some((project.remote.clone(), place.clone()))
 }
 
 #[tauri::command]

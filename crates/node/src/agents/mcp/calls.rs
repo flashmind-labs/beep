@@ -60,6 +60,7 @@ pub(crate) enum Tool {
     BeepMetrics,
     #[strum(to_string = "beep_report", serialize = "file_report")]
     FileReport,
+    TeamJoin,
     ProjectsHosts,
     ProjectsCreate,
     ProjectsClone,
@@ -254,6 +255,7 @@ impl Tool {
             Self::BeepLogs => on_opt("Read logs"),
             Self::BeepMetrics => on_opt("Read metrics"),
             Self::FileReport => with("File a report", text("description")),
+            Self::TeamJoin => "Join a team".to_owned(),
             Self::ProjectsHosts => "List Git hosts".to_owned(),
             Self::ProjectsCreate => with("Create project", text("name")),
             Self::ProjectsClone => with("Clone project", text("url")),

@@ -6,13 +6,13 @@
 //! every member of that roster on the forge in turn.
 
 use super::{
-    home::Checkout,
-    link::{TeamError, TeamLink, finish},
     gateway::FORGE_LIMIT,
+    home::{self, Checkout},
+    link::{TeamError, TeamLink, finish},
     proof::{Nonce, ProofError, drop_proof, proof_context, proof_seen, push_proof},
     roster::vet_roster,
 };
-use beep_mesh::{JoinSecret, TeamTicket, secret_hash};
+use beep_mesh::{JoinSecret, Key, Mesh, TeamTicket, secret_hash};
 use beep_proto::{
     node::{
         LinkRx, LinkTx,
@@ -28,7 +28,10 @@ use std::{
     path::Path,
     time::{Duration, SystemTime},
 };
-use tokio::time::timeout;
+use tokio::{
+    sync::broadcast::error::RecvError,
+    time::{Instant, timeout},
+};
 
 /// How long a whole join may take, as the joiner waits.
 const JOIN_LIMIT: Duration = Duration::from_secs(60);
@@ -40,6 +43,9 @@ const ADMIT_LIMIT: Duration = Duration::from_secs(if cfg!(test) { 5 } else { 50 
 const PROVE_LIMIT: Duration = Duration::from_secs(45);
 /// How long one git command of the proof may take.
 const GIT_LIMIT: Duration = Duration::from_secs(20);
+/// How long `answer` waits for a just-imported project to reach this node's
+/// mesh state before refusing with `NotImported`.
+const CHECKOUT_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 5 });
 
 /// A `Join` as the inviter takes it.
 pub(super) struct Join {
@@ -58,14 +64,18 @@ pub(super) struct Sent {
 }
 
 /// Answers `Tool::TeamJoin`: joins on this machine, which has the checkout.
-pub(crate) async fn answer(link: Option<&TeamLink>, request: &Request) -> Reply {
+pub(crate) async fn answer(
+    link: Option<&TeamLink>,
+    mesh: Option<&Mesh>,
+    request: &Request,
+) -> Reply {
     let joined = async {
         let link = link.ok_or("Teams are joined from a desktop of the mesh")?;
         let args: TeamJoinArgs = serde_json::from_str(&request.args)
             .map_err(|e| format!("The arguments do not fit: {e}"))?;
         let ticket = TeamTicket::parse(&args.ticket).map_err(|e| e.to_string())?;
-        let checkout = link
-            .with(|teams| teams.home.checkout(&ticket.repo))
+        let checkout = checkout_for(link, mesh, &ticket.repo)
+            .await
             .ok_or_else(|| TeamError::NotImported(ticket.repo.clone()).to_string())?;
         let record = link
             .join(ticket, &checkout.folder, &checkout.remote)
@@ -81,6 +91,38 @@ pub(crate) async fn answer(link: Option<&TeamLink>, request: &Request) -> Reply 
             failed: false,
         },
         Err(text) => Reply::Done { text, failed: true },
+    }
+}
+
+/// The checkout of `repo` on this machine. When a project was just imported,
+/// its `Key::Project` can still be replicating or waiting for `home::follow`,
+/// so this checks `mesh` directly and waits briefly for it to arrive.
+async fn checkout_for(link: &TeamLink, mesh: Option<&Mesh>, repo: &TeamRepo) -> Option<Checkout> {
+    if let Some(checkout) = link.with(|teams| teams.home.checkout(repo)) {
+        return Some(checkout);
+    }
+
+    let mesh = mesh?;
+    let mut changes = mesh.changes();
+    let deadline = Instant::now() + CHECKOUT_WAIT;
+
+    loop {
+        let current = home::read(mesh);
+        if let Some(checkout) = current.checkout(repo) {
+            link.with(|teams| teams.home = current);
+            return Some(checkout);
+        }
+
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return None;
+        }
+
+        match timeout(left, changes.recv()).await {
+            Ok(Ok(Key::Project(_)) | Err(RecvError::Lagged(_))) => {}
+            Ok(Ok(_)) => continue,
+            Ok(Err(RecvError::Closed)) | Err(_) => return None,
+        }
     }
 }
 

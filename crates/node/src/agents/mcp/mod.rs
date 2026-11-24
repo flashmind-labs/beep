@@ -226,6 +226,7 @@ impl Backend for Node {
             | Tool::StopAgent
             | Tool::ListAgents => return Ok(children::call(&self.offers, request).await),
             Tool::Team | Tool::TeamAsk => return Ok(team::call(&self.offers, request).await),
+            Tool::TeamJoin => return Ok(team::join_call(&self.offers, request).await),
             Tool::BeepStatus | Tool::BeepLogs | Tool::BeepMetrics | Tool::FileReport => {
                 return Ok(debug::call(&self.offers, request).await);
             }

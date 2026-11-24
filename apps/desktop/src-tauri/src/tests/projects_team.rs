@@ -130,3 +130,46 @@ fn invite_and_ticket_views_have_their_keys() {
     assert_eq!(keys(&invite), ["from", "login", "repo", "ticket"]);
     assert_eq!(keys(&ticket), ["host", "project", "repo"]);
 }
+
+#[test]
+fn prepared_project_has_its_keys_and_matches_online_found_checkout() {
+    let prepared = json(PreparedProject {
+        project: "org/web".to_owned(),
+        machine_name: Some("build-box".to_owned()),
+        folder: Some("/srv/org/web".to_owned()),
+        added: true,
+        cloned: false,
+    });
+    assert_eq!(
+        keys(&prepared),
+        ["added", "cloned", "folder", "machine_name", "project"]
+    );
+
+    let found = [FoundProject {
+        project: "org/web".to_owned(),
+        remote: "git@github.com:Org/Web.git".to_owned(),
+        places: vec![
+            FoundPlace {
+                machine_id: "offline-box".to_owned(),
+                machine_name: "offline-box".to_owned(),
+                folder: "/srv/offline/web".to_owned(),
+            },
+            FoundPlace {
+                machine_id: "build-box".to_owned(),
+                machine_name: "build-box".to_owned(),
+                folder: "/srv/org/web".to_owned(),
+            },
+        ],
+        agents: Vec::new(),
+        last_activity: SystemTime::UNIX_EPOCH,
+    }];
+    let online = ["build-box".to_owned()];
+
+    let matched = find_matching_place(&found, &repo(), &online, None).expect("matches online");
+    assert_eq!(matched.0, "git@github.com:Org/Web.git");
+    assert_eq!(matched.1.machine_id, "build-box");
+    assert_eq!(matched.1.folder, "/srv/org/web");
+
+    assert!(find_matching_place(&found, &repo(), &online, Some("other-box")).is_none());
+    assert!(find_matching_place(&found, &repo(), &[], None).is_none());
+}

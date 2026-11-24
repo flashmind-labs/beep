@@ -8,11 +8,13 @@
 
 use super::{
     children::{ChildView, full_id, machine_name},
+    desktop,
     machines::{find, over_the_mesh},
     reply::{fail, json_of, ok, parse},
+    server::ASK_LIMIT,
 };
 use crate::{
-    agents::Agents,
+    agents::{Agents, Answered, Asking},
     link::Offers,
     team::{
         asks::{Delivery, MAX_TEXT, Outgoing, Sessions},
@@ -23,11 +25,11 @@ use crate::{
         pickup::{Auto, issue_branch, issue_of_repo, issue_prompt},
     },
 };
-use beep_mesh::Mesh;
+use beep_mesh::{Mesh, TeamTicket};
 use beep_proto::{
     SessionId,
     node::{
-        agent::CheckoutPlan,
+        agent::{AnswerOption, CheckoutPlan, OptionKind},
         tools::{Approved, Reply, Request, Tool},
     },
     team::{AgentRef, Card, Target, TeamRepo},
@@ -54,6 +56,19 @@ struct AskArgs {
     text: String,
     reply_to: Option<String>,
 }
+
+/// `team_join` as an agent calls it.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct JoinToolArgs {
+    ticket: String,
+    machine: Option<String>,
+    folder: Option<String>,
+}
+
+const JOIN_CONFIRM: &str = "join";
+const JOIN_PRIVACY: &str = "Teammates see your cards on this project's board and can message your \
+    agents. They never see your sessions, files, terminals or other projects.";
 
 /// `Tool::Team` from a session's node to the gateway.
 #[derive(Serialize, Deserialize)]
@@ -90,6 +105,89 @@ pub(super) fn team_of(offers: &Offers, session: &SessionId) -> Option<(TeamLink,
     })?;
 
     Some((link, repo))
+}
+
+/// `team_join` from any session: validates the code, asks the user to confirm,
+/// and forwards the join (with automatic project import or clone) to a desktop.
+pub(super) async fn join_call(offers: &Offers, request: &Request) -> Reply {
+    let args: JoinToolArgs = match parse(&request.args) {
+        Ok(args) => args,
+        Err(e) => return fail(e),
+    };
+    let ticket_text = args.ticket.trim().to_owned();
+    let ticket = match TeamTicket::parse(&ticket_text) {
+        Ok(ticket) => ticket,
+        Err(e) => return fail(e.to_string()),
+    };
+    let machine = args
+        .machine
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let folder = args
+        .folder
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mut detail = format!(
+        "Adds {} automatically if it is not imported yet, proves push access, and joins its team.",
+        ticket.repo
+    );
+    if let Some(machine) = machine {
+        detail.push_str(&format!("\nMachine: {machine}"));
+    }
+    if let Some(folder) = folder {
+        detail.push_str(&format!("\nFolder: {folder}"));
+    }
+    detail.push_str(&format!("\n\n{JOIN_PRIVACY}"));
+
+    let question = Asking {
+        text: format!("Join the team for {}?", ticket.repo),
+        detail: Some(detail),
+        options: vec![
+            AnswerOption {
+                id: JOIN_CONFIRM.to_owned(),
+                name: "Join".to_owned(),
+                kind: OptionKind::AllowOnce,
+            },
+            AnswerOption {
+                id: "cancel".to_owned(),
+                name: "Cancel".to_owned(),
+                kind: OptionKind::RejectOnce,
+            },
+        ],
+    };
+
+    match timeout(ASK_LIMIT, offers.agents.ask(&request.session, question)).await {
+        Ok(Ok(Answered::Picked(option))) if option.id == JOIN_CONFIRM => {}
+        Ok(Ok(_)) => {
+            return fail(
+                "The user did not join the team. Do not try again unless they ask.",
+            );
+        }
+        Ok(Err(e)) => return fail(format!("Could not ask the user: {e:#}")),
+        Err(_) => return fail("Not joined: the user did not answer within an hour."),
+    }
+
+    let mut payload = json!({
+        "action": "join_team",
+        "ticket": ticket_text,
+    });
+    if let Some(machine) = machine {
+        payload["machine"] = json!(machine);
+    }
+    if let Some(folder) = folder {
+        payload["folder"] = json!(folder);
+    }
+
+    let forward = Request {
+        session: request.session.clone(),
+        tool: Tool::Projects,
+        args: payload.to_string(),
+        approved: Approved::No,
+    };
+
+    desktop::call(offers, &forward).await
 }
 
 /// `team` or `team_ask` from a session on this node, answered by the

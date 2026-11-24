@@ -63,6 +63,11 @@ enum Action {
         #[serde(default)]
         machines: Vec<String>,
     },
+    JoinTeam {
+        ticket: String,
+        machine: Option<String>,
+        folder: Option<String>,
+    },
 }
 
 /// The repository `create` makes, private unless the assistant says not.
@@ -217,6 +222,63 @@ async fn run(app: &AppHandle, args: &str) -> Result<Value, String> {
             };
 
             Ok(import_found(&found, &projects, &ids, import).await)
+        }
+        Action::JoinTeam {
+            ticket,
+            machine,
+            folder,
+        } => {
+            let machine_id = match machine.as_deref().map(str::trim).filter(|m| !m.is_empty()) {
+                Some(name) => machine_ids(&fleet, &[name.to_owned()])?.into_iter().next(),
+                None => None,
+            };
+            let folder = folder
+                .as_deref()
+                .map(str::trim)
+                .filter(|dir| !dir.is_empty());
+            let (repo, existing) = desk.team_ticket(&ticket).map_err(|e| e.to_string())?;
+            let prepared = super::team::ensure_team_project(
+                &fleet,
+                &desk,
+                &held,
+                &repo,
+                existing,
+                machine_id.as_deref(),
+                folder,
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+            let record = desk.team_join(&ticket).await.map_err(|e| e.to_string())?;
+
+            if let Ok(invites) = desk.team_invites().await {
+                for invite in invites.into_iter().filter(|invite| invite.repo == repo) {
+                    if let Err(e) = desk.team_invite_drop(invite).await {
+                        log::warn!("invite drop after join_team: {e}");
+                    }
+                }
+            }
+
+            let me = record
+                .members
+                .iter()
+                .find(|member| member.mesh == desk.mesh_id())
+                .map(|member| member.login.to_string());
+            let members: Vec<String> = record
+                .members
+                .iter()
+                .map(|member| member.login.to_string())
+                .collect();
+
+            Ok(json!({
+                "repo": record.repo.to_string(),
+                "project": prepared.project,
+                "machine": prepared.machine_name,
+                "folder": prepared.folder,
+                "added_project": prepared.added,
+                "cloned": prepared.cloned,
+                "me": me,
+                "members": members,
+            }))
         }
     }
 }

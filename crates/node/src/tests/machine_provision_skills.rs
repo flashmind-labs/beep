@@ -78,7 +78,11 @@ fn a_skill_the_user_deleted_stays_deleted() {
 fn the_shipped_skills_have_front_matter() {
     for skill in SKILLS {
         assert!(front_matter_end(skill.text) > 0, "{}", skill.name);
+        let parsed = parse::markdown(skill.text);
+        assert_eq!(parsed.name.as_deref(), Some(skill.name));
+        assert!(!parsed.description.is_empty(), "{}", skill.name);
     }
+    assert!(SKILLS.iter().any(|skill| skill.name == "beep_join_team"));
 }
 
 #[test]

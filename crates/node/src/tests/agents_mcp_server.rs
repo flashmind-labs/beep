@@ -134,7 +134,7 @@ fn request(id: i64, method: &str, params: Value) -> Value {
 }
 
 /// Every tool a session gets without API keys, in order.
-const ALL: [&str; 34] = [
+const ALL: [&str; 35] = [
     "list_machines",
     "list_projects",
     "harness_info",
@@ -169,6 +169,7 @@ const ALL: [&str; 34] = [
     "beep_logs",
     "beep_metrics",
     "beep_report",
+    "team_join",
 ];
 
 fn text(answer: &Value) -> &str {
@@ -621,14 +622,33 @@ async fn project_tools_reach_the_desktop_as_projects_with_their_action() {
     );
 }
 
+#[tokio::test]
+async fn team_join_tool_validates_and_routes_for_any_session() {
+    let fake = Fake::new("allow");
+    let session = SessionId::from("a3f9c1");
+
+    let missing = call(&fake, &session, "team_join", json!({})).await;
+    assert!(missing.failed, "{missing:?}");
+    let extra = call(&fake, &session, "team_join", json!({ "ticket": "beepteam1abc", "extra": 1 })).await;
+    assert!(extra.failed && extra.text.contains("extra"), "{extra:?}");
+
+    let args = json!({ "ticket": "beepteam1abc", "machine": "build-box", "folder": "~/work" });
+    call(&fake, &session, "team_join", args.clone()).await;
+
+    let calls = fake.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].tool, Tool::TeamJoin);
+    assert_eq!(serde_json::from_str::<Value>(&calls[0].args).unwrap(), args);
+}
+
 /// The tools agents get without API keys stay within a context budget, at
 /// about four bytes a token.
 #[test]
 fn the_tool_definitions_fit_the_budget() {
-    const TOKENS: usize = 4_250;
+    const TOKENS: usize = 4_350;
     // The home assistant's list has the thread and project tools in place
     // of review.
-    const ASSISTANT_TOKENS: usize = 4_900;
+    const ASSISTANT_TOKENS: usize = 5_050;
 
     for (assistant, budget) in [(false, TOKENS), (true, ASSISTANT_TOKENS)] {
         let listed = catalog::tools(false, false, assistant).to_string();
@@ -656,51 +676,51 @@ fn catalog_schemas_preserve_exact_serialized_json_for_every_mode() {
     let cases = [
         (
             (false, false, false),
-            16_563,
-            "56b17db42fe15f92d5fa539c5fa006288e4b033330298573d6f4355847c7c1a2",
-            "a1626056177be4c5f46c70d1ceba5c99bfdf898875dd026ff092aa1b89a6d09a",
+            17_117,
+            "616cd6b7ddd490137b9f468a269eb9212b04da60d6cdb0a61c8487f8d9d18f95",
+            "ac821a65b22352002e0a1ab9f2477aaf0170aaffd00ffcf9429ab462349434c5",
         ),
         (
             (false, false, true),
-            19_593,
-            "cbb8a6fad3f1d9e1b8d2fdf53ce8c1b2410d134428b0fa4d7ac14c5f47b2a696",
-            "93d69865b976c2b7e0e28986f5d1eb9dccc0030f6182ebd050125cec77aa8513",
+            20_147,
+            "2cade9f718b3c27e8d2cfa1c95390a532b673b67f35506e7ba3c17ed82e4b465",
+            "ea4794b4612ba7db672ace97c272d0b909b5e77eb853a799bc11c1005547f07b",
         ),
         (
             (false, true, false),
-            14_097,
-            "b579b45b447ca84c83417043872641665abc63208b5710079909bddb811e4a8f",
-            "9e4788abf5578e4d744f60c651cb12d1833328e052ceed46e968baa545df0060",
+            14_651,
+            "0ebd764661fa195801cd819a8123c055ab657227a6cde81c8269a8473e3fe34e",
+            "b463e280722b1c48b8fdc4df7014cc195a82d87005af3c6d44858136a0d54fe7",
         ),
         (
             (false, true, true),
-            17_127,
-            "2215e19a87a72991aa3160f7772ac5c29cf6ba9e14c8d1b5257871bb307fde40",
-            "23a796b0e327588ef1147ca97f7769962fde956cf1d562f0bc61da19f5751672",
+            17_681,
+            "54e59adf0da5cee5c258861901ea55576f9c4fbbc79a01b4303f2cc89eef0478",
+            "d3a9e4b3bfb29a6b4e66fc2064e2502666087a4c2d5af6c70cfe890084da044e",
         ),
         (
             (true, false, false),
-            16_533,
-            "a74344de7a994ea009bf92a25c27e4622fad21e892972ac2ff4fe14cf20949f0",
-            "23efb53bba55ce208a0a620c6fd3d5a4ce29f6900f4d97e6f4938a110b82d5f0",
+            17_087,
+            "a7b819fe9dab28093c146f9970b210b374a38b64f9fd3621d9de5e98f7a974bb",
+            "3490669ec2acb1cedc99165cfd37e6232cb1e02012ceb1ea3e9566929eba850d",
         ),
         (
             (true, false, true),
-            20_633,
-            "0efa2cd76ea2caa68b8086c83cde2896159bf7426e8f855cc1a53584c71d237f",
-            "f5876a3c4ad81ebee57da4ee7c8e65aa6e5fe5c759b695e16e5ff212a3e98bbf",
+            21_187,
+            "f0009879c2bb38081e8fad72bb041ebdee1db8715ff19d3ca4be6021c2ba27b0",
+            "9409380fd81bda0c1788acaa5a6abb0a34eb40ec0d159762563285d6a0ecae14",
         ),
         (
             (true, true, false),
-            14_067,
-            "f4434a0b3a4a3f9a5b89ae7e827393dd31b950b899d4f49b44af7cdfe871cf9b",
-            "31c8d999f6461639c87b40fa12c89e4e0acd0a18f0b9c37ff50b4e26101be514",
+            14_621,
+            "17e5ab12df7c8902c90b40bbd1256730f241a98325fe74d973969e46052cda73",
+            "f62d9ecf0cf260bcc22d9a1d8fd709b65ea50cb45d264b04a52eb2ba6a1ec18b",
         ),
         (
             (true, true, true),
-            18_167,
-            "59be54d08de8fedab836f4e8f998734872703cfa1febe3b769885627b4e42967",
-            "06004ffa7781fd7d6b006cc15d44e0180435b115c8ff43c9aba3165fe25b7015",
+            18_721,
+            "c522a8092ce7bb3e0c03b58028b7b4ebb71f2cbe8977266add1306137af9c8df",
+            "8ebb620640a91bf618c9defdff3ddb7fcedbe8b04a61efdefdc4e9c34dff1d21",
         ),
     ];
 
@@ -895,7 +915,7 @@ async fn only_sessions_in_a_team_project_get_the_team_tools() {
 
     let alone = Fake::new("allow");
     let out = exchange(&alone, &ask()).await;
-    assert!(!listed(&out).iter().any(|name| name.starts_with("team")));
+    assert!(!listed(&out).iter().any(|name| TEAM.contains(&name.as_str())));
     assert_eq!(out[1]["result"]["isError"], true);
     assert!(alone.calls.lock().unwrap().is_empty());
 

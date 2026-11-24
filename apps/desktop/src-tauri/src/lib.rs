@@ -472,6 +472,7 @@ pub fn run() {
             projects::team::team_invites,
             projects::team::team_join,
             projects::team::team_leave,
+            projects::team::team_prepare,
             projects::team::team_readmit,
             projects::team::team_record,
             projects::team::team_remove,

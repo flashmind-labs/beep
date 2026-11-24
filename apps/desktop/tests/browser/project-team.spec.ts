@@ -113,17 +113,45 @@ test("a batch start before the team answers leaves out a held issue and takes a 
   expect((await called(page, "agent_start")).map(args => args.prompt)).toEqual([expect.stringContaining("#53")]);
 });
 
-test("join sheet shows the import step when not imported", async ({ page }) => {
+test("join sheet automatically adds the project and joins from an invite", async ({ page }) => {
   const invite = { from: "mesh-b", login: "kim", repo: "example.test/org/api", ticket: "beepteam1xyz" };
-  await openDesktop(page, false, { team_invites: [invite], team_ticket: { host: "example.test", repo: "org/api", project: null } });
+  await openDesktop(page, false, {
+    team_invites: [invite],
+    team_ticket: { host: "example.test", repo: "org/api", project: null },
+    team_prepare: { project: "org/api", machine_name: "build-box", folder: "/srv/org/api", added: true, cloned: true },
+    team_join: { ...record, repo: "example.test/org/api", me: "dana" },
+    team_invite_drop: null,
+  });
 
   const card = page.locator("#sec-needs .cc-line").filter({ hasText: "kim invites you to org/api" });
   await expect(card).toBeVisible();
   await card.getByRole("button", { name: "Accept" }).click();
   const sheet = page.getByRole("dialog", { name: "Join org/api" });
-  await expect(sheet).toContainText("Import org/api first");
-  await expect(sheet.getByRole("button", { name: "Import" })).toBeVisible();
+  await expect(sheet).toContainText("org/api is on build-box");
+  await expect(sheet).toContainText("Signed in to example.test as dana");
   await expect(sheet).toContainText("Teammates see your cards on this project's board and can message your agents. They never see your sessions, files, terminals or other projects.");
+  await expect(sheet.getByRole("button", { name: "Open project" })).toBeVisible();
+  await expect(sheet.getByRole("button", { name: "Done" })).toBeVisible();
+  expect(await called(page, "team_prepare")).toEqual([{ ticket: "beepteam1xyz" }]);
+  expect(await called(page, "team_join")).toEqual([{ ticket: "beepteam1xyz" }]);
+});
+
+test("join team button on Home pastes a code and shows manual import when adding fails", async ({ page }) => {
+  await openDesktop(page, false, {
+    team_ticket: { host: "example.test", repo: "org/api", project: null },
+  });
+  await page.evaluate(() => window.__navigation.rejectOnce("team_prepare"));
+
+  await page.getByRole("button", { name: "Join team" }).click();
+  const sheet = page.getByRole("dialog", { name: "Join a team" });
+  await sheet.getByRole("textbox", { name: "Team code" }).fill("beepteam1xyz");
+  await sheet.getByRole("button", { name: "Join", exact: true }).click();
+
+  const named = page.getByRole("dialog", { name: "Join org/api" });
+  await expect(named).toContainText("Could not add org/api");
+  await expect(named.locator(".am-msg.bad")).toHaveText("Requested test failure");
+  await expect(named.getByRole("button", { name: "Import manually" })).toBeVisible();
+  await expect(named.getByRole("button", { name: "Try again" })).toBeVisible();
   expect(await called(page, "team_join")).toEqual([]);
 });
 

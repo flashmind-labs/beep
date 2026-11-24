@@ -136,3 +136,23 @@ async fn import_takes_a_project_named_by_name_and_remote_once() {
 
     assert_eq!(calls.into_inner(), 1);
 }
+
+#[test]
+fn join_team_action_parses_with_optional_machine_and_folder() {
+    let action: Action = serde_json::from_str(
+        r#"{"action": "join_team", "ticket": "beepteam1abc", "machine": "build-box", "folder": "~/work"}"#,
+    )
+    .unwrap();
+    let Action::JoinTeam {
+        ticket,
+        machine,
+        folder,
+    } = action
+    else {
+        panic!("not a join_team action");
+    };
+
+    assert_eq!(ticket, "beepteam1abc");
+    assert_eq!(machine.as_deref(), Some("build-box"));
+    assert_eq!(folder.as_deref(), Some("~/work"));
+}

@@ -3,7 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import type { BoardCard } from "../center/lanes-view.tsx";
-import { importSheet } from "../center/sidebar.tsx";
+import { refresh } from "../center/refresh.ts";
+import { importSheet, loadFound, openProjects } from "../center/sidebar.tsx";
 import { state } from "../center/state.ts";
 import { currentLocation } from "../center/views.tsx";
 import { pageShown } from "../ui/active.ts";
@@ -25,6 +26,15 @@ interface Ticket {
   project: string | null;
 }
 
+/// The project prepared for a team join (PreparedProject).
+interface PreparedProject {
+  project: string;
+  machine_name: string | null;
+  folder: string | null;
+  added: boolean;
+  cloned: boolean;
+}
+
 /// A contact's invite to their team, waiting for Accept (InviteView).
 export interface TeamInvite {
   from: string;
@@ -34,14 +44,14 @@ export interface TeamInvite {
   ticket: string;
 }
 
-/// Where the sheet is: waiting for a code, reading it, ready to join, joining, joined, or failed.
+/// Where the sheet is: waiting for a code, reading it, adding the project, joining, joined, or failed.
 type JoinState =
   | { kind: "code" }
   | { kind: "reading"; code: string }
-  | { kind: "ready"; code: string; ticket: Ticket }
-  | { kind: "joining"; code: string; ticket: Ticket }
-  | { kind: "joined"; ticket: Ticket; login: string }
-  | { kind: "failed"; code: string; ticket: Ticket | null; message: string };
+  | { kind: "importing"; code: string; ticket: Ticket }
+  | { kind: "joining"; code: string; ticket: Ticket; machine: string | null }
+  | { kind: "joined"; ticket: Ticket; machine: string | null; login: string }
+  | { kind: "failed"; code: string; ticket: Ticket | null; machine: string | null; stage: "read" | "import" | "join"; message: string };
 
 const PRIVACY = "Teammates see your cards on this project's board and can message your agents. They never see your sessions, files, terminals or other projects.";
 
@@ -75,23 +85,36 @@ function JoinSheet({ invite, close, name }: { invite: TeamInvite | null; close()
       const ticket = await invoke<Ticket>("team_ticket", { ticket: text });
       if (!live.current) return;
       name(joinTitle(invite, ticket));
-      // An imported repository joins at once: Accept or Join was the go.
-      if (ticket.project === null) setJoin({ kind: "ready", code: text, ticket });
-      else void run(text, ticket);
+      if (ticket.project === null) void prepareAndJoin(text, ticket);
+      else void run(text, ticket, null);
     } catch (error) {
-      if (live.current) setJoin({ kind: "failed", code: text, ticket: null, message: reason(error) });
+      if (live.current) setJoin({ kind: "failed", code: text, ticket: null, machine: null, stage: "read", message: reason(error) });
     }
   };
-  const run = async (text: string, ticket: Ticket) => {
-    setJoin({ kind: "joining", code: text, ticket });
+  const prepareAndJoin = async (text: string, ticket: Ticket) => {
+    setJoin({ kind: "importing", code: text, ticket });
+    try {
+      const prepared = await invoke<PreparedProject>("team_prepare", { ticket: text });
+      if (!live.current) return;
+      if (prepared.added) {
+        void loadFound();
+        void refresh();
+      }
+      void run(text, { ...ticket, project: prepared.project }, prepared.machine_name);
+    } catch (error) {
+      if (live.current) setJoin({ kind: "failed", code: text, ticket, machine: null, stage: "import", message: reason(error) });
+    }
+  };
+  const run = async (text: string, ticket: Ticket, machine: string | null) => {
+    setJoin({ kind: "joining", code: text, ticket, machine });
     try {
       const record = await invoke<TeamRecord>("team_join", { ticket: text });
       if (invite) await invoke("team_invite_drop", { from: invite.from, repo: invite.repo, ticket: invite.ticket }).catch(error => console.warn("invite:", reason(error)));
       if (ticket.project !== null) void readTeam(ticket.project);
       void readInvites();
-      if (live.current) setJoin({ kind: "joined", ticket, login: record.me ?? "" });
+      if (live.current) setJoin({ kind: "joined", ticket, machine, login: record.me ?? "" });
     } catch (error) {
-      if (live.current) setJoin({ kind: "failed", code: text, ticket, message: reason(error) });
+      if (live.current) setJoin({ kind: "failed", code: text, ticket, machine, stage: "join", message: reason(error) });
     }
   };
 
@@ -106,7 +129,12 @@ function JoinSheet({ invite, close, name }: { invite: TeamInvite | null; close()
     <div className="tm-note">{PRIVACY}</div>
     <div className="am-line tm-end">
       {join.kind === "code" && <Button look="primary" disabled={!code.trim()} onClick={() => void read(code.trim())}>Join</Button>}
-      {join.kind === "failed" && <Button look="primary" onClick={() => void (join.ticket ? run(join.code, join.ticket) : read(join.code))}>Try again</Button>}
+      {join.kind === "failed" && <Button look="primary" onClick={() => {
+        if (join.stage === "import" && join.ticket) void prepareAndJoin(join.code, join.ticket);
+        else if (join.ticket) void run(join.code, join.ticket, join.machine);
+        else void read(join.code);
+      }}>Try again</Button>}
+      {join.kind === "joined" && join.ticket.project && <Button look="quiet" onClick={() => { close(); openProjects(join.ticket.project); }}>Open project</Button>}
       <Button look={join.kind === "joined" ? "primary" : "quiet"} onClick={close}>{join.kind === "joined" ? "Done" : "Cancel"}</Button>
     </div>
   </>;
@@ -117,7 +145,7 @@ function JoinCode({ code, setCode, submit }: { code: string; setCode(code: strin
   useLayoutEffect(() => { input.current?.focus(); }, []);
 
   return <>
-    <div className="am-os">Paste the code a teammate shared. You need the project imported and push access to it.</div>
+    <div className="am-os">Paste the code a teammate shared. Beep adds the project automatically if you do not have it yet. You need push access to it.</div>
     <input ref={input} className="am-code" placeholder="beepteam1…" {...NO_AUTO} aria-label="Team code" value={code}
       onChange={event => setCode(event.currentTarget.value)} onKeyDown={event => { if (event.key === "Enter") submit(); }}/>
   </>;
@@ -133,15 +161,18 @@ function Steps({ join, close }: { join: Exclude<JoinState, { kind: "code" }>; cl
   const ticket = join.ticket;
   if (!ticket) return <div className="am-msg bad">{join.kind === "failed" ? join.message : ""}</div>;
 
-  const machine = ticket.project === null ? null : state.home?.projects?.find(project => project.name === ticket.project)?.machine_name ?? null;
+  const machine = ("machine" in join && join.machine)
+    || (ticket.project === null ? null : state.home?.projects?.find(project => project.name === ticket.project)?.machine_name ?? null);
   const later: StepState = join.kind === "joined" ? "done" : join.kind === "joining" ? "running" : "waiting";
   const host = hostLabel(ticket.host);
   const login = join.kind === "joined" && join.login ? ` as ${join.login}` : "";
 
   return <div className="tm-steps">
-    {ticket.project === null
-      ? <Step state="failed" text={`Import ${ticket.repo} first`}><Button small onClick={() => { close(); importSheet(`https://${ticket.host}/${ticket.repo}`); }}>Import</Button></Step>
-      : <Step state="done" text={machine ? `${ticket.repo} is on ${machine}` : `${ticket.repo} is imported`}/>}
+    {join.kind === "importing"
+      ? <Step state="running" text={`Adding ${ticket.repo}`}/>
+      : join.kind === "failed" && join.stage === "import"
+        ? <Step state="failed" text={`Could not add ${ticket.repo}`}><Button small onClick={() => { close(); importSheet(`https://${ticket.host}/${ticket.repo}`); }}>Import manually</Button></Step>
+        : <Step state="done" text={machine ? `${ticket.repo} is on ${machine}` : `${ticket.repo} is imported`}/>}
     <Step state={later} text={`Signed in to ${host}${login}`}/>
     <Step state={later === "running" ? "waiting" : later} text={`Proving push access to ${ticket.repo}`}/>
     <Step state={later === "running" ? "waiting" : later} text="Saving the team and contacts"/>
