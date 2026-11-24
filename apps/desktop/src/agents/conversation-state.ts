@@ -159,3 +159,7 @@ export function nextConversation(index: number, count: number, backwards: boolea
 export function isConversationKey(e: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "isComposing">) {
   return e.key === "Tab" && e.altKey && !e.ctrlKey && !e.metaKey && !e.isComposing;
 }
+
+export const openOf = (row: Pick<AgentRow, "machine_id" | "agent" | "id">): OpenAgent => ({ machine_id: row.machine_id, agent: row.agent, session: row.id });
+/// The session `o` names, as the node's commands take it.
+export const where = (o: OpenAgent) => ({ machineId: o.machine_id, agent: o.agent, session: o.session });

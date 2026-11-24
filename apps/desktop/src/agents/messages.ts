@@ -428,7 +428,7 @@ export async function sendAgentMessage() {
 
 /// Sends a prepared message, preserving it in the field if refused.
 async function sendMessage(input: HTMLTextAreaElement, text: string, images: Attached[], draft?: Draft) {
-  const o = AG.open!, page = AG.page!;
+  const o = AG.open!;
   if (!draft) input.value = "";
 
   if (images.length) {
@@ -439,12 +439,12 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
 
   const mine = { kind: "user", text: sentText(text, images) };
   const seen = seenNow();
-  appendEntry(page, mine);
+  appendEntry(mine);
   drawAgentBody();
   const sent = await sendText({ steer: outgoing(text, images) }, seen);
   if (sent === "sent" || !isOpen(o)) return sent !== "failed";
   // A poll may have drawn more since: take out this message, not the last.
-  removeEntry(page, mine);
+  removeEntry(mine);
 
   if (sent === "waiting") {
     // It shows in the queue, waiting for the connection; the field stays as it is.
@@ -488,13 +488,13 @@ export async function sendPrompt(text: string) {
     ok = await sendSteer(q, false);
   } else {
     const mine = { kind: "user", text }, seen = seenNow();
-    appendEntry(page, mine);
+    appendEntry(mine);
     drawAgentBody();
     const sent = await sendText({ prompt: outgoing(text, []) }, seen);
     ok = sent !== "failed";
 
     if (sent !== "sent") {
-      removeEntry(page, mine);
+      removeEntry(mine);
       drawAgentBody();
     }
   }
@@ -536,7 +536,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
   if (!draft) input.value = "";
   input.disabled = true;
   setNote("");
-  if (!images.length && AG.page) appendEntry(AG.page, { kind: "user", text });
+  if (!images.length) appendEntry({ kind: "user", text });
   drawAgentBody();
 
   try {
@@ -550,7 +550,7 @@ async function continueAgent(input: HTMLTextAreaElement, text: string, images: A
     return true;
   } catch (e) {
     if (!isOpen(o)) return false;
-    if (!images.length && AG.page) dropLastEntry(AG.page);
+    if (!images.length) dropLastEntry();
     input.disabled = false;
     backInField(draft ?? { typed: text, paths: [], images });
     setNote(sendError(e).message.replace(/^error:\s*/i, ""));

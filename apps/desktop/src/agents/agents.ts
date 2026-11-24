@@ -48,6 +48,7 @@ import { invoke } from "../ui/tauri.ts";
 import type { NamedAccount } from "../settings/agentaccounts.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { Changes } from "../ui/pagecache.ts";
+import { currentPage, setPage } from "./open-page.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
@@ -300,6 +301,7 @@ interface AgentState {
   open: OpenAgent | null;
   /// The project whose empty view shows (no session yet), else null.
   draft: string | null;
+  /// The open session's page, kept by `open-page.ts`.
   page: AgentPage | null;
   why: string;
   /// Where Esc goes: "agents", "waiting", "hide", or a window view.
@@ -350,7 +352,7 @@ export const AG: AgentState = {
   readError: "", link: LINKED,
   hosts: null, error: "",
   form: { prompt: "", assistant: false, machine: "", machinePicked: false, agent: null, cwd: "" },
-  open: null, draft: null, page: null, why: "", back: "hide", timer: undefined, inflight: null, note: "",
+  open: null, draft: null, get page() { return currentPage(); }, set page(next) { setPage(next); }, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined,
   opened: new Set(), steps: new Map(), all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false,
@@ -406,9 +408,7 @@ export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill=
 export const agentKind = (a: string): AgentKind => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
 export const folderName = (p: string) => String(p || "").split("/").filter(Boolean).pop() || p || "";
 /// The open session `row` is.
-export const openOf = (row: Pick<AgentRow, "machine_id" | "agent" | "id">): OpenAgent => ({ machine_id: row.machine_id, agent: row.agent, session: row.id });
-/// The session `o` names, as the node's commands take it.
-export const where = (o: OpenAgent) => ({ machineId: o.machine_id, agent: o.agent, session: o.session });
+export { openOf, where } from "./conversation-state.ts";
 
 /// Machines and accounts decide which machines run agents.
 export const hostChanges = new Changes();

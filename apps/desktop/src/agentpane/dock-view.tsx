@@ -25,7 +25,9 @@ import { TextView } from "./text-view.tsx";
 import { ImageView } from "./image-view.tsx";
 import { ModelView, PdfView, PendingView, PlayerView } from "./media-view.tsx";
 import { TermView } from "./term-footer.tsx";
-import { SessionTabView } from "./session-tab-view.tsx";
+import { SessionTabView, type SessionTabLinks } from "./session-tab-view.tsx";
+import { replyToQuestion, sendOnce } from "../agents/messages.ts";
+import { feed, keptTranscript } from "../agents/session-follow.ts";
 
 /// The session's shell: the conversation with the bottom dock under it, and the right dock.
 export function PaneShell({ children }: { children: ReactNode }) {
@@ -55,6 +57,8 @@ const ACTIONS: Record<Dock, PaneTabActions> = { right: tabActions("right"), bott
 /// A folded dock keeps its tabs in its strip: picking one opens the dock on it.
 const unfold = (d: Dock): PaneTabActions => ({ ...ACTIONS[d], pick: id => { foldDock(d, false); pickTab(d, id); } });
 const UNFOLD: Record<Dock, PaneTabActions> = { right: unfold("right"), bottom: unfold("bottom") };
+
+const sessionLinks: SessionTabLinks = { feed, keptTranscript, sendOnce, replyToQuestion };
 
 /// Dock `dock`: its divider, the pane with its head and views, and its strip while folded.
 export function PaneDock({ dock }: { dock: Dock }) {
@@ -136,7 +140,7 @@ const ChangesView = memo(function ChangesView({ hidden }: { hidden: boolean }) {
 const TabView = memo(function TabView({ tab, hidden }: { tab: MediaTab; rev: number; hidden: boolean }) {
   const machine = P.session?.machine_id ?? null;
   if (tab.kind === "term" && tab.term && !tab.error) return <TermView tab={tab} term={tab.term} hidden={hidden} />;
-  if (tab.kind === "session" && tab.splitSession) return <div className="agpview agsplit-view" hidden={hidden}><SessionTabView session={tab.splitSession} hidden={hidden} close={() => closeTab(tab.id)} /></div>;
+  if (tab.kind === "session" && tab.splitSession) return <div className="agpview agsplit-view" hidden={hidden}><SessionTabView session={tab.splitSession} hidden={hidden} close={() => closeTab(tab.id)} links={sessionLinks} /></div>;
   const ready = !tab.error && (tab.kind === "text" ? !!tab.text : tab.kind === "term" ? false : tab.kind === "model" ? !!tab.bytes : !!(tab.url || tab.exported));
   return <div className="agpview" hidden={hidden}>{!ready ? <PendingView tab={tab} />
     : tab.kind === "text" && tab.text ? <TextView tab={tab} text={tab.text} />

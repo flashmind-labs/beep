@@ -4,10 +4,11 @@
 // the user steer, answer or promote it.
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 import type { AgentEntry, AgentPage, AgentQuestion, AgentRow } from "../agents/agents.ts";
-import { AGENT_ACTIVE, openOf, where } from "../agents/agents.ts";
+import { openOf, where } from "../agents/conversation-state.ts";
+import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { parseTool } from "../agents/agentlog.ts";
-import { replyToQuestion, sendOnce } from "../agents/messages.ts";
-import { feed, keptTranscript } from "../agents/session-follow.ts";
+import type { replyToQuestion, sendOnce } from "../agents/messages.ts";
+import type { feed, keptTranscript } from "../agents/session-follow.ts";
 import { transcriptKey, transcripts } from "../agents/transcript-cache-state.ts";
 import { agentName } from "../agents/running-state.ts";
 import { promptParts } from "../agents/promptparts-state.ts";
@@ -18,7 +19,17 @@ import { Button, EmptyPanel, Spinner, useHtml } from "../ui/kit.tsx";
 import { conflicted, invoke } from "../ui/tauri.ts";
 import type { SplitSession } from "./media.ts";
 
-export function SessionTabView({ session, hidden, close }: { session: SplitSession; hidden: boolean; close(): void }) {
+/// What the tab calls on the session modules, handed in by the dock so this view does not import
+/// the modules that reach back to it.
+export interface SessionTabLinks {
+  feed: Pick<typeof feed, "hold">;
+  keptTranscript: typeof keptTranscript;
+  sendOnce: typeof sendOnce;
+  replyToQuestion: typeof replyToQuestion;
+}
+
+export function SessionTabView({ session, hidden, close, links }: { session: SplitSession; hidden: boolean; close(): void; links: SessionTabLinks }) {
+  const { feed, keptTranscript, sendOnce, replyToQuestion } = links;
   const key = transcriptKey(openOf(session));
   const held = useSyncExternalStore(transcripts.subscribe, () => transcripts.peek(key));
   // A page read by other means: the one kept on disk, or the one read when the follow could not open.
