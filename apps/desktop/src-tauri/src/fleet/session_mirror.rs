@@ -38,8 +38,8 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
-/// How long a machine's rows stand before a read lists it again. Until then
-/// its pushes replace its rows alone. Nothing runs while nobody reads.
+/// How long a machine's rows stand before a read lists it again, when it has
+/// pushed none. Until then its pushes replace its rows alone. Nothing runs while nobody reads.
 const FRESH: Duration = Duration::from_secs(30);
 /// The first wait before a machine that did not list its sessions is asked
 /// again; it doubles up to `RELIST_LAST`.
@@ -508,6 +508,8 @@ impl SessionMirror {
 struct Reads {
     beep: Option<Instant>,
     scans: Option<Instant>,
+    /// The machine pushes its rows, so they never age: a listing would read them back.
+    pushed: bool,
 }
 
 /// A machine whose sessions are listed now.
@@ -635,7 +637,7 @@ impl<O: Outside> Actor<O> {
 
         for machine in self.outside.online() {
             let reads = self.reads.entry(machine).or_default();
-            let list = reads.beep.is_none_or(|at| now - at >= FRESH);
+            let list = !reads.pushed && reads.beep.is_none_or(|at| now - at >= FRESH);
             let scan = reads.scans.is_none_or(|at| now - at >= FRESH);
 
             if list && !self.relisting.contains_key(&machine) {
@@ -707,7 +709,9 @@ impl<O: Outside> Actor<O> {
             self.outside.drawn(Drawn::Machine(machine));
         }
 
-        self.reads.entry(machine).or_default().beep = Some(Instant::now());
+        let reads = self.reads.entry(machine).or_default();
+        reads.beep = Some(Instant::now());
+        reads.pushed = true;
     }
 
     fn list(&mut self, machine: EndpointId, after: Duration) {

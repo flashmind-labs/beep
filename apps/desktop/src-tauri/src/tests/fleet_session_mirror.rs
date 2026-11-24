@@ -280,6 +280,23 @@ async fn a_push_replaces_the_rows_without_asking_the_machine() {
     assert!(rig.asks.try_recv().is_err());
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_machine_that_pushes_is_not_listed_again_when_its_rows_age() {
+    let a = machine(1);
+    let mut rig = rig(vec![a], Vec::new());
+
+    rig.mirror
+        .pushed(a, vec![top(session(a, "a1", AgentStatus::Running {}))]);
+    assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
+    tokio::time::sleep(FRESH * 2).await;
+    rig.mirror.rows();
+
+    // Only the scan runs.
+    assert!(next(&mut rig.asks).await.scan);
+    tokio::task::yield_now().await;
+    assert!(rig.asks.try_recv().is_err());
+}
+
 #[tokio::test]
 async fn a_push_during_a_listing_is_not_undone_by_the_older_answer() {
     let a = machine(1);

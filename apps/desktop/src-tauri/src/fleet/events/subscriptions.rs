@@ -178,7 +178,8 @@ impl SubscriptionWorker {
                                 app.state::<Events>().resources(machine, &snapshot.topic, resources);
                             }
 
-                            if !initial { invalidate(app, machine, &snapshot.topic, Some(&snapshot.value)); }
+                            // The first agents list of a subscription is pushed to the mirror too: nothing reads it back.
+                            if !initial || snapshot.topic.name() == "agents" { invalidate(app, machine, &snapshot.topic, Some(&snapshot.value)); }
                             if !initial && snapshot.topic.name() == "sync" {
                                 super::super::event_views::sync_changed(app.clone(), super::super::event_views::moving(&snapshot.value));
                             } else if !initial && snapshot.topic.name() != "agents" && (machine == fleet.me || matches!(snapshot.topic.name(), "agent" | "processes" | "terminals" | "moves")) {
