@@ -2,6 +2,27 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.22] - 2026-11-24
+
+### Added
+
+- Antigravity sessions started outside Beep now show in a project's sessions and in the folders suggested when adding a project, and can be continued in Beep.
+
+### Fixed
+
+- Opening a file in a folder known only from the agents' logs no longer waits behind a session listing.
+- CI pass and fail notices no longer wait for a machine that does not answer.
+- If the agent refused a queued message you had taken back to edit, Beep no longer sends the old version as your next prompt.
+- Node: When Claude Code starts working on its own, such as after a
+  background command finishes, the chat now shows it as working instead of
+  idle.
+- Antigravity multiple-choice questions no longer appear twice in Beep, and typing your own answer fills the free-form field.
+
+### Performance
+
+- Sessions started outside Beep are read from disk once per change instead of twice, so lists and search catch up sooner.
+- A desktop or phone watching files on a machine with many projects gets its first data sooner, because the machine looks up the folders together.
+
 ## [0.8.21] - 2026-11-24
 
 ### Added

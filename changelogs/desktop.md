@@ -7,6 +7,38 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.28] - 2026-11-24
+
+### Added
+
+- Antigravity sessions started outside Beep can be continued from the session menu.
+- Desktop and phone: Filter files in the Files tab by path segments (`folder/file`, `folder/folder`, or `folder/`).
+
+### Changed
+
+- Desktop and phone: Improved menu and navigation readability with labeled sections, aligned icons, inline toggle switches, sync mode tags, harness labels in the model picker, and clearer selection indicators in the command palette and model list.
+
+### Fixed
+
+- A project page no longer shows a machine's sync state from an old answer after the machine reconnects.
+- A Git fetch you ask for now updates the ahead and behind counts even when another read finishes first.
+- A machine that is slow to send its session list is read directly instead of showing old sessions.
+- Messages and starts waiting to send are saved in the order they changed, so a quit or crash does not bring back a sent message.
+- After a machine reconnects, its sessions show at once instead of waiting for a second read.
+- A past session you move to another project stays on its new project page.
+- A message that failed to send after you left its session no longer shows again when you reopen the session.
+- A session opened beside another no longer sits on an old copy of its conversation when its live link fails to open.
+- Machine names, agent hosts and the session list now update as soon as a change arrives, without a second read that could show an older state.
+- A branch's ahead and behind counts and a project's session list no longer step back to older values after an update.
+- Renaming a project, removing a machine from it or changing its folder no longer reloads all of Home.
+- Desktop (macOS): Turn off native autocomplete, autocorrect, and auto-capitalization across text inputs and search fields.
+
+### Performance
+
+- A project page checks Syncthing on all machines at once, so a slow or unreachable machine delays its Syncthing row by 3 seconds at most instead of 3 seconds each.
+- Project pages redraw their session lists only when that machine's sessions changed, at most once a second.
+- Several Codex sign-ins waiting at once are checked together, and the check no longer runs on every line a process prints.
+
 ## [0.10.27] - 2026-11-24
 
 ### Added
