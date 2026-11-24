@@ -1,7 +1,7 @@
 // Whether the project page shown updates live or by polling, and the reads
 // it starts.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { installViews, type ViewSnapshot } from "../ui/snapshot-state.ts";
+import { installViews, pushedView, type Pushed, type ViewSnapshot } from "../ui/snapshot-state.ts";
 
 /// What the desktop says of a followed project (LiveRow).
 export interface LiveRow {
@@ -19,11 +19,19 @@ export interface LiveMode {
   why: string | null;
 }
 
+/// What an update changed of a project, with the views it pushed.
+export interface ProjectUpdate {
+  lists: boolean;
+  runs: boolean;
+  /// The pushed view `command` read with `args`, null when the update did not carry it.
+  view<T>(command: string, args: Record<string, unknown>): Pushed<T> | null;
+}
+
 interface LiveDeps {
   invoke: typeof Invoke;
   redraw: () => void;
-  /// Reads the project's lists or runs again.
-  reload: (id: string, lists: boolean, runs: boolean) => void;
+  /// Takes what the project's lists or runs changed to.
+  reload: (id: string, update: ProjectUpdate) => void;
 }
 
 /// The imported project whose forge data this window shows right now: the open
@@ -83,7 +91,7 @@ export function makeProjectLive(deps: LiveDeps) {
     if (id !== current) return;
     installViews(row);
     modes.set(id, { live: row.live, why: row.polling_why });
-    if (row.lists || row.runs) reload(id, row.lists, row.runs);
+    if (row.lists || row.runs) reload(id, { lists: row.lists, runs: row.runs, view: (command, args) => pushedView(row, command, args) });
     redraw();
   }
 

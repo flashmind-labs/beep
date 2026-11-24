@@ -39,3 +39,17 @@ test("kept issues draw before any read answers, and one closed upstream goes onc
   assert.ok(redraws > 0);
 });
 
+
+test("pushed lists are taken as they come, and a read that was out meanwhile does not replace them", async () => {
+  const late = deferred<unknown>();
+  const invoke = (() => late.promise) as unknown as ThreadDeps["invoke"];
+  const thr = makeThreads({ invoke, redraw() {}, openUrl() {} });
+  const read = thr.load("p1", true);
+  thr.take("p1", { value: { prs: [], prs_error: null, issues: [issue(5)], issues_error: null } });
+  assert.deepEqual(thr.issues("p1")?.map(i => i.number), [5]);
+  late.resolve({ prs: [], prs_error: null, issues: [issue(1)], issues_error: null });
+  await read;
+  assert.deepEqual(thr.issues("p1")?.map(i => i.number), [5], "the older answer is dropped");
+  thr.take("p1", { error: "host down" });
+  assert.deepEqual(thr.issues("p1")?.map(i => i.number), [5], "a failed push keeps the last good list");
+});

@@ -3,9 +3,7 @@ import { RunsView } from "./runs-view.tsx";
 import type { AgentButtonOpts, SessionState } from "./composer.tsx";
 import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { AMBIENT_MS } from "../ui/active.ts";
-import { snapshotView } from "../ui/snapshot-state.ts";
+import type { Pushed } from "../ui/snapshot-state.ts";
 // A project's workflow runs (GitHub Actions or Forgejo Actions) on its page:
 // the Actions section with each run's state and, for a running one, its
 // current job and step; a run opened shows its jobs and steps and, when it
@@ -306,9 +304,8 @@ export function makeRuns(deps: RunDeps) {
   const reading = new Set<string>();
   /// Details read ahead, a few at a time.
   const aheadQueue = new Bounded();
-  /// The next poll of a running run opened, or of the list while one goes.
+  /// The project whose opened run the desktop follows.
   let watching: string | null = null;
-  let unfollow: (() => void) | undefined;
   let hover: ReturnType<typeof setTimeout> | null = null;
 
   /// A project's runs, from the cache until they are read.
@@ -333,6 +330,8 @@ export function makeRuns(deps: RunDeps) {
 
   const loads = new Map<string, Promise<void>>();
   const reloadAgain = new Map<string, boolean>();
+  /// How many pushes each project's runs took, so a read out meanwhile does not replace them.
+  const pushes = new Map<string, number>();
   function load(id: string, refresh = false): Promise<void> {
     const pending = loads.get(id);
     if (pending) {
@@ -358,23 +357,59 @@ export function makeRuns(deps: RunDeps) {
     if (s.loading) return;
     s.loading = true;
     tried.set(id, Date.now());
+    const before = pushes.get(id);
     const was = JSON.stringify([s.data, s.error]), hostsWere = JSON.stringify(s.data?.hosts ?? []);
 
     try {
-      s.data = await invoke<RunsRow>("center_project_runs", { projectId: id, refresh });
-      s.error = "";
-      kept.put(id, s.data);
+      const data = await invoke<RunsRow>("center_project_runs", { projectId: id, refresh });
+      // A push that came while the read was out is newer than its answer.
+      if (pushes.get(id) === before) keepList(id, s, data);
     } catch (e) {
-      s.error = reason(e);
-      if (s.data === undefined) s.data = { runs: [], checks: [], synced_at: null, error: null, rate_limited_until: null };
+      if (pushes.get(id) === before) failList(s, reason(e));
     } finally {
       s.loading = false;
     }
 
+    settle(id, s, was, hostsWere);
+  }
+
+  function keepList(id: string, s: ProjectRuns, data: RunsRow) {
+    s.data = data;
+    s.error = "";
+    kept.put(id, data);
+  }
+
+  function failList(s: ProjectRuns, error: string) {
+    s.error = error;
+    if (s.data === undefined) s.data = { runs: [], checks: [], synced_at: null, error: null, rate_limited_until: null };
+  }
+
+  /// After the list changed: reads ahead, and draws when it differs from `was`.
+  function settle(id: string, s: ProjectRuns, was: string, hostsWere: string) {
     if (s.data) readAhead(id, s.data);
     // A read that changed nothing draws nothing.
     if (JSON.stringify([s.data, s.error]) !== was) redraw();
     if (JSON.stringify(s.data?.hosts ?? []) !== hostsWere) deps.hostsChanged?.();
+  }
+
+  /// Takes the runs, and the opened run's details, that a project update pushed, as the newest.
+  function take(id: string, runs: Pushed<RunsRow> | null, detail: (run: Pick<RunRow, "id" | "host">) => Pushed<RunDetail> | null) {
+    const s = of(id), open = s.openRun, pushed = open && detail(open);
+
+    if (open && pushed) {
+      const key = detailKey(id, open);
+      if ("error" in pushed) detailErrors.set(key, pushed.error);
+      else { details.put(key, pushed.value, Date.now()); detailErrors.delete(key); }
+      if (!runs) redraw();
+    }
+
+    if (!runs) return;
+    pushes.set(id, (pushes.get(id) ?? 0) + 1);
+    const was = JSON.stringify([s.data, s.error]), hostsWere = JSON.stringify(s.data?.hosts ?? []);
+    if ("error" in runs) failList(s, runs.error);
+    else keepList(id, s, runs.value);
+
+    settle(id, s, was, hostsWere);
   }
 
   /// Reads run `run` from the host it ran on and keeps it; `refresh` reads
@@ -452,21 +487,12 @@ export function makeRuns(deps: RunDeps) {
     })).then(() => {}, error => console.warn("following workflow detail:", error));
   }
 
-  /// The visible section follows provider changes over the node stream.
+  /// The visible section follows its opened run over the project's updates.
   function schedule(id: string) {
     if (watching === id) return;
     if (watching) watchDetail(watching, null);
     watching = id;
-    unfollow?.();
     if (of(id).openRun) watchDetail(id, of(id).openRun);
-    unfollow = subscribeChanges(topic("forge", id), { deliver: "latest", receive: async () => {
-      if (!snapshotView("center_project_runs", { projectId: id })) return;
-      await loads.get(id);
-      await load(id);
-      const run = of(id).openRun;
-      if (run && snapshotView("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null })) await loadDetail(id, run);
-      if (of(id).error) throw new Error(of(id).error);
-    } }, { wait: AMBIENT_MS });
   }
 
   function openDetail(id: string) {
@@ -509,10 +535,11 @@ export function makeRuns(deps: RunDeps) {
 
   return {
     load,
+    take,
     stop: () => {
       if (hover) { clearTimeout(hover); hover = null; }
       if (watching) watchDetail(watching, null);
-      unfollow?.(); unfollow = undefined; watching = null;
+      watching = null;
     },
     section,
     /// The runs of project `id` and why they could not be read, reading

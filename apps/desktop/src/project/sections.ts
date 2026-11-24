@@ -23,9 +23,9 @@ import { makeGitHistory } from "../review/history.tsx";
 import { sessions } from "../agents/sessions.ts";
 import { showChanges } from "../agentpane/media.ts";
 import { makeFileSync } from "./filesync.ts";
-import { makeThreads, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
+import { makeThreads, type ListsRow, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
 import { makeThreadDetail } from "./threaddetail.tsx";
-import { makeRuns, type RunDetail } from "./runs.tsx";
+import { makeRuns, type RunDetail, type RunsRow } from "./runs.tsx";
 import { state, keptSection } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
 import { currentLocation, go, drawTop } from "../center/views.tsx";
@@ -69,9 +69,13 @@ export const gitHistory = makeGitHistory({
 export const liveMode = makeProjectLive({
   invoke,
   redraw: () => redrawProjects(),
-  reload: (id: string, lists: boolean, ran: boolean) => {
-    if (lists) thr.load(id);
-    if (ran) runs.load(id);
+  reload: (id, update) => {
+    const lists = update.lists && update.view<ListsRow | null>("center_project_lists", { projectId: id });
+    if (lists) thr.take(id, lists);
+    else if (update.lists) void thr.load(id);
+
+    if (update.runs) runs.take(id, update.view<RunsRow>("center_project_runs", { projectId: id }),
+      run => update.view<RunDetail>("center_project_run", { projectId: id, runId: run.id, host: run.host ?? null }));
   },
 });
 listen<LiveRow>("project-live", e => liveMode.heard(e.payload));

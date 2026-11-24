@@ -4,6 +4,7 @@ import type { Ago } from "../ui/format.ts";
 import { plural, reason } from "../ui/format.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
+import type { Pushed } from "../ui/snapshot-state.ts";
 import type { ThreadAction, ThreadActions } from "./threaddetail-view.tsx";
 import type { AgentState, PickButton } from "../review/feedback-view.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
@@ -102,7 +103,7 @@ export function issueBranch(number: number, title: string) {
 }
 
 /// The project's lists as last read (ListsRow).
-interface ListsRow {
+export interface ListsRow {
   prs: PullRequestRow[];
   prs_error: string | null;
   issues: ReadIssue[];
@@ -185,6 +186,8 @@ export function makeThreads(deps: ThreadDeps) {
   const reading = new Set<string>();
   const reloadAgain = new Map<string, boolean>();
   const tried = new Map<string, number>();
+  /// How many pushes each project's lists took, so a read out meanwhile does not replace them.
+  const pushes = new Map<string, number>();
 
   /// Reads `id` when it is due: never read, or `every` passed since the last
   /// try (the page cache's refresh time by default; opening the project asks
@@ -210,19 +213,14 @@ export function makeThreads(deps: ThreadDeps) {
         // Kept lists stay up meanwhile, with a spinner in their header.
         if (s.issues !== undefined) queueMicrotask(redraw);
 
+        const before = pushes.get(id);
+
         try {
           const lists = await invoke<ListsRow | null>("center_project_lists", { projectId: id, refresh: force });
-          // Why the host could not be read shows in each section, in place of an empty list.
-          s.issuesError = lists?.issues_error ?? "";
-          s.prsError = lists?.prs_error ?? "";
-          s.issues = lists && !lists.issues_error ? withAssignees(lists.issues) : s.issues ?? [];
-          s.prs = lists && !lists.prs_error ? lists.prs : s.prs ?? null;
-          // Kept once the host answered; a failed read keeps the last good lists.
-          if (lists && !lists.issues_error && !lists.prs_error) kept.put(id, { issues: s.issues, prs: s.prs });
+          // A push that came while the read was out is newer than its answer.
+          if (pushes.get(id) === before) apply(id, s, lists);
         } catch (e) {
-          s.issuesError = s.prsError = reason(e);
-          s.issues ??= [];
-          s.prs ??= null;
+          if (pushes.get(id) === before) fail(s, reason(e));
         }
 
         const next = reloadAgain.get(id);
@@ -233,6 +231,32 @@ export function makeThreads(deps: ThreadDeps) {
     } finally {
       reading.delete(id);
     }
+
+    redraw();
+  }
+
+  /// Takes the lists as `lists`: the answer of a read or a push.
+  function apply(id: string, s: ProjectThreads, lists: ListsRow | null) {
+    // Why the host could not be read shows in each section, in place of an empty list.
+    s.issuesError = lists?.issues_error ?? "";
+    s.prsError = lists?.prs_error ?? "";
+    s.issues = lists && !lists.issues_error ? withAssignees(lists.issues) : s.issues ?? [];
+    s.prs = lists && !lists.prs_error ? lists.prs : s.prs ?? null;
+    // Kept once the host answered; a failed read keeps the last good lists.
+    if (lists && !lists.issues_error && !lists.prs_error) kept.put(id, { issues: s.issues, prs: s.prs });
+  }
+
+  function fail(s: ProjectThreads, error: string) {
+    s.issuesError = s.prsError = error;
+    s.issues ??= [];
+    s.prs ??= null;
+  }
+
+  /// Takes the lists a project update pushed, as the newest.
+  function take(id: string, pushed: Pushed<ListsRow | null>) {
+    pushes.set(id, (pushes.get(id) ?? 0) + 1);
+    if ("error" in pushed) fail(of(id), pushed.error);
+    else apply(id, of(id), pushed.value);
 
     redraw();
   }
@@ -337,6 +361,7 @@ export function makeThreads(deps: ThreadDeps) {
 
   return {
     load,
+    take,
     ensure,
     issues: (id: string) => of(id).issues,
     issuesError: (id: string) => of(id).issuesError,
