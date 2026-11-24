@@ -14,13 +14,15 @@ use crate::{
     palette::lists::PaletteCache,
     tray::waiting::WaitingList,
 };
+use beep_mesh::machine::listing::Linked;
 use beep_proto::{
     AgentStatus, MachineSession, SessionId,
-    node::agent::{ExternalSession, Presence},
+    node::agent::{ExternalSession, ParentLink, Presence},
     watched,
 };
 use futures::FutureExt;
 use iroh::EndpointId;
+use serde::Serialize;
 use std::{
     collections::{HashMap, HashSet},
     future::Future,
@@ -56,10 +58,60 @@ const WAITING: usize = 256;
 pub(crate) struct Machine {
     /// Beep's own sessions on it.
     beep: Vec<MachineSession>,
+    /// The sessions its agents started and the temporary reviewers, which the
+    /// parent agent panel shows and the lists leave out.
+    children: Vec<MachineSession>,
+    /// How each of `children` hangs under its parent, by session.
+    links: HashMap<SessionId, Link>,
     /// The sessions started outside Beep, and the assistant's ended
     /// conversations, found by scanning it.
     scans: Vec<MachineSession>,
     source: Source,
+}
+
+/// How a child session hangs under its parent.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Link {
+    parent: Option<ParentLink>,
+    /// A temporary reviewer of its parent's changes.
+    pub(crate) reviewer: bool,
+}
+
+/// The session that started another: where it runs and the ids it may be
+/// listed under.
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SessionParent {
+    pub(crate) machine_id: String,
+    /// The agent's own id for the parent.
+    pub(crate) id: SessionId,
+    /// The id its node listed it under before the agent's own replaced it.
+    pub(crate) key: SessionId,
+}
+
+impl Link {
+    /// The session that started it, when an agent did; `machine_id` is the
+    /// machine the child runs on, where a parent without a machine runs too.
+    pub(crate) fn parent(&self, machine_id: &str) -> Option<SessionParent> {
+        let parent = self.parent.as_ref()?;
+
+        Some(SessionParent {
+            machine_id: parent
+                .machine
+                .map_or_else(|| machine_id.to_owned(), |id| id.to_string()),
+            id: parent.session.clone(),
+            key: parent.key.clone(),
+        })
+    }
+
+    /// An agent started it.
+    pub(crate) fn has_parent(&self) -> bool {
+        self.parent.is_some()
+    }
+
+    /// Started in the background by its parent, so no thread of its chat.
+    pub(crate) fn background(&self) -> bool {
+        self.parent.as_ref().is_some_and(|parent| parent.background)
+    }
 }
 
 /// Where a machine's Beep rows come from.
@@ -126,6 +178,35 @@ impl Rows {
         self.machines.is_empty()
     }
 
+    /// The child and reviewer sessions of the `shown` machines, of every
+    /// machine when `None`, with how each hangs under its parent.
+    pub(crate) fn children_of<'a>(
+        &'a self,
+        shown: Option<&'a HashSet<EndpointId>>,
+    ) -> impl Iterator<Item = (&'a MachineSession, &'a Link)> {
+        self.machines
+            .iter()
+            .filter(move |(machine, _)| shown.is_none_or(|shown| shown.contains(*machine)))
+            .flat_map(|(_, machine)| {
+                machine
+                    .children
+                    .iter()
+                    .filter_map(|child| Some((child, machine.links.get(&child.id)?)))
+            })
+    }
+
+    /// How `session` on `machine_id` hangs under its parent, when it is a
+    /// child or a reviewer.
+    pub(crate) fn link(&self, machine_id: &str, session: &SessionId) -> Option<&Link> {
+        let machine = self.machines.get(&machine_id.parse::<EndpointId>().ok()?)?;
+
+        machine
+            .children
+            .iter()
+            .any(|child| child.id == *session)
+            .then(|| machine.links.get(session))?
+    }
+
     /// Whether `machine` listed its Beep sessions in this run.
     fn live(&self, machine: EndpointId) -> bool {
         self.machines
@@ -143,8 +224,7 @@ pub(crate) trait Outside: Send + Sync + 'static {
     /// The machines of the mesh, this Mac among them; `None` until the mesh opens.
     fn members(&self) -> Option<HashSet<EndpointId>>;
     /// Beep's sessions on `machine`; `None` when it did not answer.
-    fn list(&self, machine: EndpointId)
-    -> impl Future<Output = Option<Vec<MachineSession>>> + Send;
+    fn list(&self, machine: EndpointId) -> impl Future<Output = Option<Vec<Linked>>> + Send;
     /// What a scan of `machine` finds; `None` when it did not answer.
     fn scan(&self, machine: EndpointId)
     -> impl Future<Output = Option<Vec<MachineSession>>> + Send;
@@ -172,12 +252,12 @@ enum Message {
     /// A machine pushed its Beep rows.
     Pushed {
         machine: EndpointId,
-        rows: Vec<MachineSession>,
+        rows: Vec<Linked>,
     },
     /// A listing of one machine came back.
     Listed {
         machine: EndpointId,
-        rows: Option<Vec<MachineSession>>,
+        rows: Option<Vec<Linked>>,
     },
     /// A scan of one machine came back.
     Scanned {
@@ -301,7 +381,7 @@ impl SessionMirror {
     }
 
     /// `machine` pushed its Beep rows: they replace the ones held.
-    pub(crate) fn pushed(&self, machine: EndpointId, rows: Vec<MachineSession>) {
+    pub(crate) fn pushed(&self, machine: EndpointId, rows: Vec<Linked>) {
         self.send(Message::Pushed { machine, rows });
     }
 
@@ -547,12 +627,12 @@ impl<O: Outside> Actor<O> {
 
     /// Takes what `machine` pushed as its Beep rows. A listing under way may
     /// hold older rows, so it is dropped and runs again.
-    fn pushed(&mut self, machine: EndpointId, rows: Vec<MachineSession>) {
+    fn pushed(&mut self, machine: EndpointId, rows: Vec<Linked>) {
         if let Some(relist) = self.relisting.get_mut(&machine) {
             relist.edited = true;
         }
 
-        if self.replace(machine, rows, false) {
+        if self.replace_listed(machine, rows) {
             self.outside.drawn(Drawn::Machine(machine));
         }
 
@@ -600,7 +680,7 @@ impl<O: Outside> Actor<O> {
         });
     }
 
-    fn listed(&mut self, machine: EndpointId, rows: Option<Vec<MachineSession>>) {
+    fn listed(&mut self, machine: EndpointId, rows: Option<Vec<Linked>>) {
         let mut relist = self.relisting.remove(&machine).unwrap_or_else(Relist::new);
         let mut drawn = false;
 
@@ -612,7 +692,7 @@ impl<O: Outside> Actor<O> {
         }
 
         match rows {
-            Some(rows) => drawn = self.replace(machine, rows, false),
+            Some(rows) => drawn = self.replace_listed(machine, rows),
             // One that does not answer keeps its rows and is asked again while
             // it is online, waiting longer each time.
             None if relist.pause <= RELIST_LAST && self.outside.online().contains(&machine) => {
@@ -641,31 +721,63 @@ impl<O: Outside> Actor<O> {
         self.reads.entry(machine).or_default().scans = Some(Instant::now());
 
         if let Some(rows) = rows
-            && self.replace(machine, rows, true)
+            && self.replace_scans(machine, rows)
         {
             self.outside.drawn(Drawn::Listed);
         }
     }
 
-    /// Takes `rows` as all of `machine`'s, for its Beep sessions or its scan.
-    /// True when what the windows draw differs.
-    fn replace(&self, machine: EndpointId, rows: Vec<MachineSession>, scans: bool) -> bool {
+    /// Takes `linked` as all of `machine`'s Beep sessions: the top-level
+    /// ones are its rows, the children are kept beside them. True when what
+    /// the windows draw differs.
+    fn replace_listed(&self, machine: EndpointId, linked: Vec<Linked>) -> bool {
+        let (children, rows): (Vec<Linked>, Vec<Linked>) = linked
+            .into_iter()
+            .partition(|linked| linked.parent.is_some() || linked.reviewer);
+        let links: HashMap<SessionId, Link> = children
+            .iter()
+            .map(|child| {
+                let link = Link {
+                    parent: child.parent.clone(),
+                    reviewer: child.reviewer,
+                };
+
+                (child.session.id.clone(), link)
+            })
+            .collect();
+        let children: Vec<MachineSession> =
+            children.into_iter().map(|child| child.session).collect();
+        let rows: Vec<MachineSession> = rows.into_iter().map(|linked| linked.session).collect();
         let mut drawn = false;
 
         self.revise(|all| {
             let held = all.machines.entry(machine).or_default();
-            let was = if scans {
-                &mut held.scans
-            } else {
-                &mut held.beep
-            };
-            drawn = was.len() != rows.len() || was.iter().zip(&rows).any(|(a, b)| !same(a, b));
-            let changed = *was != rows || (!scans && held.source != Source::Live);
-            *was = rows;
+            drawn = differ(&held.beep, &rows);
+            let changed = held.beep != rows
+                || held.children != children
+                || held.links != links
+                || held.source != Source::Live;
+            held.beep = rows;
+            held.children = children;
+            held.links = links;
+            held.source = Source::Live;
 
-            if !scans {
-                held.source = Source::Live;
-            }
+            changed
+        });
+
+        drawn
+    }
+
+    /// Takes `rows` as all of `machine`'s found by a scan. True when what the
+    /// windows draw differs.
+    fn replace_scans(&self, machine: EndpointId, rows: Vec<MachineSession>) -> bool {
+        let mut drawn = false;
+
+        self.revise(|all| {
+            let held = all.machines.entry(machine).or_default();
+            drawn = differ(&held.scans, &rows);
+            let changed = held.scans != rows;
+            held.scans = rows;
 
             changed
         });
@@ -680,6 +792,7 @@ impl<O: Outside> Actor<O> {
 
             for machine in rows.machines.values_mut() {
                 changed |= change(&mut machine.beep);
+                changed |= change(&mut machine.children);
                 changed |= change(&mut machine.scans);
             }
 
@@ -773,6 +886,11 @@ fn report_in(rows: &mut [MachineSession], machine_id: &str, report: &ExternalSes
     *row != before
 }
 
+/// Whether the windows draw `new` other than `old`.
+fn differ(old: &[MachineSession], new: &[MachineSession]) -> bool {
+    old.len() != new.len() || old.iter().zip(new).any(|(a, b)| !same(a, b))
+}
+
 /// Whether two listings of a session draw the same, which leaves out what
 /// moves on every read.
 fn same(old: &MachineSession, new: &MachineSession) -> bool {
@@ -810,7 +928,7 @@ impl Outside for Desk {
         )
     }
 
-    async fn list(&self, machine: EndpointId) -> Option<Vec<MachineSession>> {
+    async fn list(&self, machine: EndpointId) -> Option<Vec<Linked>> {
         direct::sessions_of(&self.fleet, machine).await
     }
 

@@ -17,7 +17,7 @@ use crate::{
         asked::{ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT},
         node_actor::{FAST_JOB_WAIT, JobKind},
         session_lists::SessionLists,
-        session_mirror::{Rows, SessionMirror, showing},
+        session_mirror::{Link, Rows, SessionMirror, showing},
     },
     projects::known,
 };
@@ -36,8 +36,9 @@ use beep_proto::{
         mesh_state::StateValue,
     },
 };
+use iroh::EndpointId;
 use serde::Serialize;
-use std::{str::FromStr, sync::Arc, time::Instant};
+use std::{collections::HashSet, str::FromStr, sync::Arc, time::Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::broadcast;
 
@@ -254,24 +255,22 @@ pub async fn agent_hosts(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<HostRow>> {
 
 #[tauri::command]
 pub async fn agent_sessions(app: AppHandle, fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
-    let sessions = machine_sessions(&app, &fleet).await;
-    let children = fleet.children().into_iter().map(|linked| {
-        let background = linked.parent.is_some_and(|link| link.background);
-        (linked.session, linked.reviewer, background)
-    });
+    let rows = app
+        .state::<Arc<SessionMirror>>()
+        .rows_of_launch(&fleet)
+        .await;
+    let sessions = overlaid(&app, &fleet, &rows);
+    let children = overlaid_children(&fleet, &rows);
+
     Ok(sessions
         .into_iter()
-        .map(|session| (session, false, false))
-        .chain(children)
-        .map(|(session, reviewer, background)| {
-            let parent = fleet.parent_of(&session.machine_id, &session.id);
-            SessionRow {
-                parent,
-                reviewer,
-                background,
-                ..SessionRow::from(session)
-            }
-        })
+        .map(SessionRow::from)
+        .chain(children.into_iter().map(|(session, link)| SessionRow {
+            parent: link.parent(&session.machine_id),
+            reviewer: link.reviewer,
+            background: link.background(),
+            ..SessionRow::from(session)
+        }))
         .collect())
 }
 
@@ -341,38 +340,50 @@ pub(crate) async fn machine_sessions(app: &AppHandle, fleet: &Arc<Fleet>) -> Vec
 /// `rows` with what this app knows on top: presence, deletes and moves under
 /// way, the user's titles and the starts it holds.
 pub(crate) fn overlaid(app: &AppHandle, fleet: &Fleet, rows: &Rows) -> Vec<MachineSession> {
-    let mesh = fleet.mesh();
-    // Once the mesh is open, a machine that is off shows no sessions: the
-    // mirror keeps them for when it is back.
-    let shown = mesh
-        .as_ref()
-        .map(|_| showing(&fleet.online(), &fleet.status().connecting(), fleet.id()));
-    let mut sessions: Vec<MachineSession> = rows.iter_of(shown.as_ref()).cloned().collect();
+    let mut sessions: Vec<MachineSession> = rows.iter_of(shown(fleet).as_ref()).cloned().collect();
     fleet.apply_presence(&mut sessions);
-    sessions.retain(|session| {
-        !fleet
-            .node_ops()
-            .is_deleting_session(&session.machine_id, &session.id)
-    });
-
-    for session in &mut sessions {
-        if let Some(folder) = fleet
-            .node_ops()
-            .relocated_folder(&session.machine_id, &session.id)
-        {
-            session.cwd = folder;
-        }
-    }
-
-    if let Some(mesh) = &mesh {
-        for session in &mut sessions {
-            beep_fleet::session_titles::apply(mesh, session);
-        }
-    }
+    sessions.retain_mut(|session| overlay(fleet, session));
 
     sessions.extend(app.state::<Arc<Starts>>().rows());
     sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
     sessions
+}
+
+/// The child and reviewer sessions in `rows`, under the same overlays as
+/// the other rows.
+fn overlaid_children(fleet: &Fleet, rows: &Rows) -> Vec<(MachineSession, Link)> {
+    rows.children_of(shown(fleet).as_ref())
+        .map(|(session, link)| (session.clone(), link.clone()))
+        .filter_map(|(mut session, link)| overlay(fleet, &mut session).then_some((session, link)))
+        .collect()
+}
+
+/// The machines whose rows show. Once the mesh is open, a machine that is
+/// off shows no sessions: the mirror keeps them for when it is back.
+fn shown(fleet: &Fleet) -> Option<HashSet<EndpointId>> {
+    fleet
+        .mesh()
+        .map(|_| showing(&fleet.online(), &fleet.status().connecting(), fleet.id()))
+}
+
+/// Puts what this app knows on `session`: its new folder when moved and the
+/// user's title. False when it is being deleted and shows no more.
+fn overlay(fleet: &Fleet, session: &mut MachineSession) -> bool {
+    let ops = fleet.node_ops();
+
+    if ops.is_deleting_session(&session.machine_id, &session.id) {
+        return false;
+    }
+
+    if let Some(folder) = ops.relocated_folder(&session.machine_id, &session.id) {
+        session.cwd = folder;
+    }
+
+    if let Some(mesh) = fleet.mesh() {
+        beep_fleet::session_titles::apply(&mesh, session);
+    }
+
+    true
 }
 
 /// Starts a session; no `machine_id` lets the mesh pick. `model`, from

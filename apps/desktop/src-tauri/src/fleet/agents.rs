@@ -104,18 +104,19 @@ const MACHINE_LIMIT: Duration = Duration::from_secs(5);
 /// How long a scan of what a machine's agents keep may take.
 const SCAN_LIMIT: Duration = Duration::from_secs(8);
 
-/// Beep's sessions on `machine` alone, for its answer to replace only its
-/// rows; `None` when it could not be listed, so the rows held stay.
-pub(crate) async fn sessions_of(fleet: &Fleet, machine: EndpointId) -> Option<Vec<MachineSession>> {
+/// Beep's sessions on `machine` alone, children and reviewers with them, for
+/// its answer to replace only its rows; `None` when it could not be listed,
+/// so the rows held stay.
+pub(crate) async fn sessions_of(fleet: &Fleet, machine: EndpointId) -> Option<Vec<Linked>> {
     let client = fleet.client(machine).await.ok()?;
     let host = fleet.host_of(machine);
-    let linked = timeout(
+
+    timeout(
         MACHINE_LIMIT,
         listing::listed_sessions(&client, &host, true),
     )
     .await
-    .ok()??;
-    Some(noted(fleet, &host, linked))
+    .ok()?
 }
 
 /// Beep's sessions on `machine` as it pushed them, in the shape `sessions_of`
@@ -124,7 +125,7 @@ pub(crate) fn pushed_sessions(
     fleet: &Fleet,
     machine: EndpointId,
     value: &beep_proto::node::events::Value,
-) -> Option<Vec<MachineSession>> {
+) -> Option<Vec<Linked>> {
     let beep_proto::node::events::Value::Sessions(reply) = value else {
         return None;
     };
@@ -132,26 +133,17 @@ pub(crate) fn pushed_sessions(
         return None;
     };
     let host = fleet.host_of(machine);
-    let linked = sessions
-        .iter()
-        .map(|info| Linked {
-            parent: info.parent.clone(),
-            reviewer: info.reviewer,
-            session: listing::beep_session(&host, info.clone()),
-        })
-        .collect();
 
-    Some(noted(fleet, &host, linked))
-}
-
-/// Top-level sessions, after keeping children for the parent agent panel.
-fn noted(fleet: &Fleet, host: &Host, linked: Vec<Linked>) -> Vec<MachineSession> {
-    fleet.parents.note(&host.id, &linked);
-    linked
-        .into_iter()
-        .filter(|linked| linked.parent.is_none() && !linked.reviewer)
-        .map(|linked| linked.session)
-        .collect()
+    Some(
+        sessions
+            .iter()
+            .map(|info| Linked {
+                parent: info.parent.clone(),
+                reviewer: info.reviewer,
+                session: listing::beep_session(&host, info.clone()),
+            })
+            .collect(),
+    )
 }
 
 /// What only a scan of `machine` finds: the sessions started outside Beep

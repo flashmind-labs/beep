@@ -3,8 +3,13 @@
 
 use super::{history, notify};
 use crate::{
-    bar, beep::state::Prefs, center, center::home::HOME_CHANGED, fleet::Fleet,
-    fleet::alerts::Direct, tray::waiting::WaitingList,
+    bar,
+    beep::state::Prefs,
+    center,
+    center::home::HOME_CHANGED,
+    fleet::Fleet,
+    fleet::{alerts::Direct, session_mirror::SessionMirror},
+    tray::waiting::WaitingList,
 };
 use beep_fleet::Read;
 use beep_proto::{AgentNoticeKey, Notice};
@@ -80,12 +85,11 @@ fn agent_notice(
     settle: Instant,
 ) {
     let fleet = app.state::<Arc<Fleet>>();
-    let reviewer = fleet.is_reviewer(&key.machine_id, &key.session);
+    let rows = app.state::<Arc<SessionMirror>>().current();
+    let link = rows.link(&key.machine_id, &key.session);
+    let reviewer = link.is_some_and(|link| link.reviewer);
 
-    if key.question.is_none()
-        && !reviewer
-        && fleet.parent_of(&key.machine_id, &key.session).is_some()
-    {
+    if key.question.is_none() && !reviewer && link.is_some_and(|link| link.has_parent()) {
         return;
     }
 

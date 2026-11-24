@@ -616,7 +616,7 @@ async fn one_peer_that_never_answers_does_not_hold_the_others() {
     );
     let quick = quick.expect("the quick peer answers");
     assert_eq!(quick.len(), 1, "{quick:?}");
-    assert_eq!(quick[0].machine_name, "Quick");
+    assert_eq!(quick[0].session.machine_name, "Quick");
     assert!(slow.is_none());
 }
 

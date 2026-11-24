@@ -15,7 +15,6 @@ pub(crate) mod files;
 #[cfg(desktop)]
 mod mesh;
 pub(crate) mod node_actor;
-mod parents;
 pub(crate) mod phone;
 mod presence;
 pub(crate) mod projects;
@@ -39,7 +38,7 @@ use beep_proto::watched;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 #[cfg(desktop)]
 use mesh::Serving;
-pub(crate) use parents::SessionParent;
+pub(crate) use session_mirror::SessionParent;
 pub use status::{ClockOff, Status};
 #[cfg(mobile)]
 use std::time::SystemTime;
@@ -203,7 +202,6 @@ pub struct Fleet {
     /// The newest release of each tool a node installs.
     releases: ToolReleases,
     /// Who started each session the nodes listed, to nest them.
-    parents: parents::Parents,
     /// Native session reports, overlaid on the slower transcript scans.
     presence: presence::Presence,
     snapshots: Arc<events::Snapshots>,
@@ -244,7 +242,6 @@ impl Fleet {
             joining: AsyncMutex::new(()),
             copies: Copies::default(),
             releases: ToolReleases::default(),
-            parents: parents::Parents::default(),
             presence: presence::Presence::default(),
             snapshots: Arc::new(events::Snapshots::default()),
             projections: node_actor::Projections::default(),
@@ -269,27 +266,11 @@ impl Fleet {
             joining: AsyncMutex::new(()),
             copies: Copies::default(),
             releases: ToolReleases::default(),
-            parents: parents::Parents::default(),
             presence: presence::Presence::default(),
             snapshots: Arc::new(events::Snapshots::default()),
             projections: node_actor::Projections::default(),
             node_ops: Arc::new(node_actor::NodeOps::default()),
         }
-    }
-
-    /// The session that started `session` on `machine`, when an agent did.
-    pub(crate) fn parent_of(&self, machine: &str, session: &SessionId) -> Option<SessionParent> {
-        self.parents.of(machine, session)
-    }
-
-    /// Whether `session` on `machine` is a temporary reviewer, as last listed.
-    pub(crate) fn is_reviewer(&self, machine: &str, session: &SessionId) -> bool {
-        self.parents.is_reviewer(machine, session)
-    }
-
-    /// Child sessions, kept for the parent agent panel.
-    pub(crate) fn children(&self) -> Vec<beep_mesh::machine::listing::Linked> {
-        self.parents.children()
     }
 
     /// `serve`, then `start_services`. Takes the time it takes and is meant

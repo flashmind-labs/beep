@@ -1,5 +1,5 @@
 use super::*;
-use beep_proto::AgentQuestion;
+use beep_proto::{AgentQuestion, node::agent::ParentLink};
 use iroh::SecretKey;
 use std::sync::Mutex;
 use tokio::sync::oneshot;
@@ -16,6 +16,8 @@ struct Fake {
     members: Arc<Mutex<Option<HashSet<EndpointId>>>>,
     asks: mpsc::UnboundedSender<Ask>,
     drawn: mpsc::UnboundedSender<Drawn>,
+    /// Child sessions every listing holds besides the rows the test answers.
+    children: Arc<Mutex<Vec<Linked>>>,
 }
 
 impl Fake {
@@ -43,8 +45,11 @@ impl Outside for Fake {
         self.members.lock().unwrap().clone()
     }
 
-    async fn list(&self, machine: EndpointId) -> Option<Vec<MachineSession>> {
-        self.ask(machine, false).await
+    async fn list(&self, machine: EndpointId) -> Option<Vec<Linked>> {
+        let rows = self.ask(machine, false).await?;
+        let children = self.children.lock().unwrap().clone();
+
+        Some(rows.into_iter().map(top).chain(children).collect())
     }
 
     async fn scan(&self, machine: EndpointId) -> Option<Vec<MachineSession>> {
@@ -58,6 +63,7 @@ impl Outside for Fake {
 
 struct Rig {
     mirror: SessionMirror,
+    children: Arc<Mutex<Vec<Linked>>>,
     members: Arc<Mutex<Option<HashSet<EndpointId>>>>,
     asks: mpsc::UnboundedReceiver<Ask>,
     drawn: mpsc::UnboundedReceiver<Drawn>,
@@ -67,18 +73,30 @@ fn rig(online: Vec<EndpointId>, kept: Vec<MachineSession>) -> Rig {
     let (asks, asked) = mpsc::unbounded_channel();
     let (drawn, told) = mpsc::unbounded_channel();
     let members = Arc::new(Mutex::new(None));
+    let children = Arc::new(Mutex::new(Vec::new()));
     let fake = Fake {
         online: Mutex::new(online),
         members: members.clone(),
         asks,
         drawn,
+        children: children.clone(),
     };
 
     Rig {
         mirror: SessionMirror::start(fake, kept),
+        children,
         members,
         asks: asked,
         drawn: told,
+    }
+}
+
+/// A session no agent started.
+fn top(session: MachineSession) -> Linked {
+    Linked {
+        session,
+        parent: None,
+        reviewer: false,
     }
 }
 
@@ -255,7 +273,7 @@ async fn a_push_replaces_the_rows_without_asking_the_machine() {
     let mut rig = rig(vec![a], vec![session(a, "a1", AgentStatus::Running {})]);
 
     rig.mirror
-        .pushed(a, vec![session(a, "a2", AgentStatus::Running {})]);
+        .pushed(a, vec![top(session(a, "a2", AgentStatus::Running {}))]);
     assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
     let rows = rig.mirror.current();
 
@@ -276,7 +294,7 @@ async fn a_push_during_a_listing_is_not_undone_by_the_older_answer() {
     rig.mirror.moved(a);
     let first = next(&mut rig.asks).await;
     rig.mirror
-        .pushed(a, vec![session(a, "new", AgentStatus::Running {})]);
+        .pushed(a, vec![top(session(a, "new", AgentStatus::Running {}))]);
     rows_where(&rig.mirror, |rows| rows.live(a)).await;
     // The listing was asked before the push and answers with the older rows.
     first
@@ -292,6 +310,59 @@ async fn a_push_during_a_listing_is_not_undone_by_the_older_answer() {
     assert_eq!(rig.drawn.recv().await, Some(Drawn::Machine(a)));
 
     assert_eq!(ids(&rig.mirror.current(), a), ["new"]);
+}
+
+#[tokio::test]
+async fn children_and_reviewers_stay_out_of_the_rows_and_are_edited_with_them() {
+    let a = machine(1);
+    let rig = rig(vec![a], Vec::new());
+    let child = Linked {
+        session: session(a, "kid", AgentStatus::Working {}),
+        parent: Some(ParentLink {
+            machine: None,
+            session: "parent".into(),
+            key: "parent".into(),
+            root_machine: None,
+            root: "parent".into(),
+            depth: 1,
+            others: 0,
+            agent: "claude".into(),
+            mode: None,
+            background: true,
+        }),
+        reviewer: false,
+    };
+    let reviewer = Linked {
+        session: session(a, "review", AgentStatus::Working {}),
+        parent: None,
+        reviewer: true,
+    };
+
+    rig.mirror.pushed(
+        a,
+        vec![
+            top(session(a, "top", AgentStatus::Running {})),
+            child,
+            reviewer,
+        ],
+    );
+    let rows = rows_where(&rig.mirror, |rows| rows.live(a)).await;
+    let machine_id = a.to_string();
+
+    assert_eq!(ids(&rows, a), ["top"]);
+    assert_eq!(rows.children_of(None).count(), 2);
+    assert!(rows.link(&machine_id, &"review".into()).unwrap().reviewer);
+    let parent = rows
+        .link(&machine_id, &"kid".into())
+        .and_then(|link| link.parent(&machine_id))
+        .unwrap();
+    assert_eq!(parent.id, "parent".into());
+    assert_eq!(parent.machine_id, machine_id);
+
+    // A delete takes a child with the rows.
+    rig.mirror.deleted(&machine_id, &"kid".into());
+    let rows = rows_where(&rig.mirror, |rows| rows.children_of(None).count() == 1).await;
+    assert!(rows.link(&machine_id, &"kid".into()).is_none());
 }
 
 #[tokio::test(start_paused = true)]
