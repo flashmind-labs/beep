@@ -26,7 +26,7 @@ use beep_proto::{AccountName, CustomAgent, ModelId};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration};
 use tokio::time::{Instant, sleep};
 
 mod peer;
@@ -73,6 +73,9 @@ pub(crate) struct ChildView {
     /// The project whose checkout holds its folder, in a list of every agent.
     #[serde(default)]
     pub(crate) project: Option<String>,
+    /// The branch of the checkout it works in, as its node last read it.
+    #[serde(default)]
+    pub(crate) branch: Option<String>,
 }
 
 impl ChildView {
@@ -105,10 +108,11 @@ impl ChildView {
             error: info.state.error.clone(),
             note: None,
             project: None,
+            branch: info.place.as_ref().and_then(|place| place.branch.clone()),
         }
     }
 
-    fn named(mut self, machine: &str) -> Self {
+    pub(crate) fn named(mut self, machine: &str) -> Self {
         self.machine = machine.to_owned();
         self.id = full_id(&self.id, machine);
         self
@@ -357,17 +361,24 @@ impl Reach<'_> {
 
     /// `child` as it stands on this machine, which the caller has now seen.
     fn view_here(&self, child: &Session) -> ChildView {
-        self.shown(child);
+        self.shown([child]);
         ChildView::of(&child.info(), &Agents::name_of(child)).named(&self.my_name())
     }
 
-    /// Notes that the caller was shown `child` as it stands, so its next
-    /// turn is not told of it again.
-    fn shown(&self, child: &Session) {
+    /// Notes that the caller was shown `children` as they stand, so its next
+    /// turn is not told of them again.
+    fn shown<'a>(&self, children: impl IntoIterator<Item = &'a Session>) {
         if let Some(caller) = self.agents.get(&self.who.session) {
-            caller.see(
-                &child.id,
-                watched::read(&child.live, |live| Into::<Mark>::into(live)),
+            caller.see_soon(
+                children
+                    .into_iter()
+                    .map(|child| {
+                        (
+                            child.id.clone(),
+                            watched::read(&child.live, |live| Into::<Mark>::into(live)),
+                        )
+                    })
+                    .collect(),
             );
         }
     }
@@ -723,38 +734,12 @@ impl Reach<'_> {
                 Some(super::projects::project_name(mesh, &name)?)
             }
         };
-        let here = self.my_name();
-        let mut views: Vec<ChildView> = agents_here(self.agents)
-            .into_iter()
-            .filter(|view| view.id != self.who.session)
-            .map(|view| view.named(&here))
-            .collect();
-
-        if let Some(mesh) = &self.mesh {
-            let others: Vec<Machine> = mesh
-                .code_hosts()
+        let mut views: Vec<ChildView> =
+            in_the_mesh(self.agents, self.mesh.as_ref(), &self.who.session, None, None)
+                .await
                 .into_iter()
-                .filter(|status| status.online && status.device.id != mesh.me())
-                .map(Machine::from)
+                .map(|listed| listed.view)
                 .collect();
-            let none = json!({});
-            let lists = futures::future::join_all(others.iter().map(|machine| async {
-                Call::to_machine(mesh, &self.who.session, machine)
-                    .ask_ok(Tool::ListAgents, &none, LIST_LIMIT)
-                    .await
-            }))
-            .await;
-
-            // A machine that does not answer, or an older one that lists
-            // no agents for others, adds none.
-            for (machine, answer) in others.iter().zip(lists) {
-                let Ok(text) = answer else { continue };
-                let Ok(there) = serde_json::from_str::<Vec<ChildView>>(&text) else {
-                    continue;
-                };
-                views.extend(there.into_iter().map(|view| view.named(&machine.name)));
-            }
-        }
 
         if let Some(project) = project {
             views.retain(|view| view.project.as_ref() == Some(&project));
@@ -785,12 +770,11 @@ impl Reach<'_> {
     /// Every child of the caller, here and elsewhere.
     async fn list(&self) -> Reply {
         let here = self.my_name();
-        let mut views: Vec<ChildView> = self
-            .agents
-            .children_of(self.who)
+        let children = self.agents.children_of(self.who);
+        self.shown(children.iter().map(|child| &**child));
+        let mut views: Vec<ChildView> = children
             .iter()
             .filter_map(|child| {
-                self.shown(child);
                 watched::read(&child.live, |live| {
                     let id = live.agent_session.as_ref()?;
                     Some(ChildView::of(&live.info, id).named(&here))
@@ -856,12 +840,40 @@ impl Reach<'_> {
     }
 }
 
-/// The agents this node runs that others may list, each with its project.
-fn agents_here(agents: &Agents) -> Vec<ChildView> {
+/// What another machine asks of this one's agents: `ended_since`, Unix
+/// seconds, lists the sessions that ended then or later too. An older node
+/// sends none.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct PeerList {
+    ended_since: Option<u64>,
+}
+
+/// The agents this node runs that other machines may list, as `args` asks,
+/// each with its project.
+pub(crate) fn listed(agents: &Agents, args: &str) -> Reply {
+    let PeerList { ended_since } = serde_json::from_str(args).unwrap_or_default();
+    let views: Vec<ChildView> = listed_here(agents, ended_since)
+        .into_iter()
+        .map(|listed| listed.view)
+        .collect();
+
+    json_of(&views)
+}
+
+/// An agent, its machine's display name, and the folder it works in
+/// when it runs on this machine: the worktree Beep made for it, or its own.
+pub(crate) struct Listed {
+    pub(crate) view: ChildView,
+    pub(crate) machine: String,
+    pub(crate) folder: Option<String>,
+}
+
+fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<Listed> {
     let mesh = agents.mesh();
 
     agents
-        .peers()
+        .peers(ended_since)
         .iter()
         .map(|session| {
             let info = session.info();
@@ -869,9 +881,78 @@ fn agents_here(agents: &Agents) -> Vec<ChildView> {
             view.project = mesh
                 .as_ref()
                 .and_then(|mesh| super::projects::of_folder(mesh, &info.cwd, mesh.me()));
-            view
+            let worktree = info.worktrees.first().cloned();
+            Listed {
+                view,
+                machine: String::new(),
+                folder: Some(worktree.unwrap_or(info.cwd)),
+            }
         })
         .collect()
+}
+
+/// Every live agent but `caller`, the session asking: this machine's, then
+/// those of every other online machine of `mesh`, or of `only` those, that
+/// answers in time, each named by its machine. With `ended_since`, Unix
+/// seconds, the sessions that ended then or later too.
+pub(crate) async fn in_the_mesh(
+    agents: &Agents,
+    mesh: Option<&Mesh>,
+    caller: &SessionId,
+    only: Option<&BTreeSet<EndpointId>>,
+    ended_since: Option<u64>,
+) -> Vec<Listed> {
+    let here = machine_name(mesh);
+    let display = mesh
+        .and_then(|mesh| mesh.code_hosts().into_iter().find(|status| status.device.id == mesh.me()))
+        .map(|status| status.device.name)
+        .unwrap_or_default();
+    let mut listed: Vec<Listed> = listed_here(agents, ended_since)
+        .into_iter()
+        .filter(|listed| listed.view.id != *caller)
+        .map(|listed| Listed {
+            view: listed.view.named(&here),
+            machine: display.clone(),
+            ..listed
+        })
+        .collect();
+    let Some(mesh) = mesh else {
+        return listed;
+    };
+
+    let others: Vec<(Machine, String)> = mesh
+        .code_hosts()
+        .into_iter()
+        .filter(|status| status.online && status.device.id != mesh.me())
+        .filter(|status| only.is_none_or(|only| only.contains(&status.device.id)))
+        .map(|status| {
+            let display = status.device.name.clone();
+            (Machine::from(status), display)
+        })
+        .collect();
+    let asked = json!(PeerList { ended_since });
+    let lists = futures::future::join_all(others.iter().map(|(machine, _)| async {
+        Call::to_machine(mesh, caller, machine)
+            .ask_ok(Tool::ListAgents, &asked, LIST_LIMIT)
+            .await
+    }))
+    .await;
+
+    // A machine that does not answer, or an older one that lists no agents
+    // for others, adds none.
+    for ((machine, display), answer) in others.iter().zip(lists) {
+        let Ok(text) = answer else { continue };
+        let Ok(there) = serde_json::from_str::<Vec<ChildView>>(&text) else {
+            continue;
+        };
+        listed.extend(there.into_iter().map(|view| Listed {
+            view: view.named(&machine.name),
+            machine: display.clone(),
+            folder: None,
+        }));
+    }
+
+    listed
 }
 
 /// The custom agent called `name` for the folder `at` and the user's own,
@@ -1007,7 +1088,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
                 .to_string()))
         }
         // Another machine's agent lists the agents here.
-        Tool::ListAgents => Ok(json_of(&agents_here(agents))),
+        Tool::ListAgents => Ok(listed(agents, &request.args)),
         // To its own child, or to any agent here as a message from another.
         Tool::SendToAgent => {
             let call: PeerCall = parse(&request.args)?;

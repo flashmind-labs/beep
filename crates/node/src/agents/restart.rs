@@ -166,7 +166,7 @@ impl Agents {
     pub(crate) async fn until_idle(&self) {
         loop {
             let mut busy: Vec<_> = self
-                .lock()
+                .session_map()
                 .values()
                 .map(|session| session.live.clone())
                 .collect();
@@ -200,10 +200,8 @@ impl Agents {
     /// the user closed or that failed stays ended. A reviewer is temporary:
     /// its review ends with the node.
     pub(crate) fn open_sessions(&self) -> Vec<OpenSession> {
-        // Copied out, so no request that lists the sessions waits on the
-        // reads below.
         let sessions: Vec<Arc<Session>> = self
-            .lock()
+            .session_map()
             .values()
             .filter(|session| !session.reviewer)
             .cloned()
@@ -222,8 +220,7 @@ impl Agents {
     /// kept from before. Reviewers are kept too, so one taken over after a
     /// restart is still known as one.
     pub(crate) fn saved_sessions(&self) -> Vec<SavedSession> {
-        // Copied out, as in `open_sessions`.
-        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+        let sessions: Vec<Arc<Session>> = self.session_map().values().cloned().collect();
         let now: Vec<SavedSession> = sessions
             .iter()
             .filter_map(|session| Self::saved_of(session))
@@ -449,7 +446,7 @@ impl Agents {
                 persona: open.persona,
                 ..Begin::default()
             },
-        )?;
+        ).await?;
         self.watch_parent(&session);
 
         if open.device.is_some() {

@@ -119,7 +119,7 @@ cat > /dev/null
         ])
     );
     assert!(
-        node.offers.agents.lock().is_empty(),
+        node.offers.agents.session_map().is_empty(),
         "discovery starts no coding session"
     );
 

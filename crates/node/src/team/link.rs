@@ -1,0 +1,539 @@
+//! `beep-team/1`: the link between the meshes of a team. A connection is
+//! served only for a device on one of this mesh's rosters, or one that opens
+//! with `Join` or, from a contact, `Invite`; anything else is closed. Every
+//! message names its repo, and one about a team its sender is not on is
+//! refused.
+
+use super::{
+    asks::{Asks, Sessions, not_served},
+    board::{self, Boards},
+    cards::Teammates,
+    home::{Home, Invites},
+    proof::{PROOF_CONTEXTS, ProofError},
+    roster::{Refusal, Rosters},
+};
+use beep_mesh::TeamTicket;
+use beep_projects::commands::OpenIssue;
+use beep_proto::{
+    node::{LinkRx, LinkTx, link, tools::TeamInviteArgs},
+    team::{ALPN, ForgeLogin, Member, Removed, TeamMsg, TeamRecord, TeamRepo},
+};
+use futures::future::BoxFuture;
+use iroh::{
+    Endpoint, EndpointAddr, EndpointId,
+    endpoint::Connection,
+    protocol::{AcceptError, ProtocolHandler},
+};
+use std::{
+    collections::BTreeMap,
+    fmt,
+    sync::{Arc, Mutex, OnceLock},
+    time::{Duration, SystemTime},
+};
+use tokio::{
+    sync::Notify,
+    time::{sleep, timeout},
+};
+
+/// How long a device gets to connect when dialed.
+const DIAL: Duration = Duration::from_secs(5);
+/// How long a peer gets to open its stream and send its first message.
+pub(super) const READ: Duration = Duration::from_secs(10);
+/// The largest first message: a stranger's `Join` or `Invite` is small.
+const FIRST_FRAME: usize = 16 * 1024;
+/// How long the forge gets to say whether a login may push.
+const VOUCH_LIMIT: Duration = Duration::from_secs(20);
+/// How often a removal goes again to the members it did not reach. Short in tests.
+const RESEND: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 * 60 });
+
+/// What the forge says about a team's people. In tests it answers without one.
+pub(crate) trait TeamForge: Send + Sync + 'static {
+    /// Whether `login` may push to `repo`.
+    fn collaborator<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        login: &'a ForgeLogin,
+    ) -> BoxFuture<'a, Result<bool, String>>;
+
+    /// The account this machine is signed in with on `repo`'s host.
+    fn login<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<ForgeLogin, String>>;
+
+    /// `repo`'s open issues.
+    fn open_issues<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+    ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>>;
+
+    /// `repo`'s open issues assigned to `login`, every page.
+    fn assigned_issues<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        login: &'a ForgeLogin,
+    ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>>;
+
+    /// The branches of `repo`'s pull requests, open or closed, that may come from `branch`:
+    /// `branch` among them when one does.
+    fn pull_heads<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        branch: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<String>, String>>;
+
+    /// Marks commit `sha` of `repo` with the status `context`, as this
+    /// machine's account: only one who may push can.
+    fn stamp<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        sha: &'a str,
+        context: &'a str,
+    ) -> BoxFuture<'a, Result<(), String>>;
+
+    /// The logins that marked commit `sha` of `repo` with a status whose
+    /// context starts with `context`.
+    fn stampers<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        sha: &'a str,
+        context: &'a str,
+    ) -> BoxFuture<'a, Result<Vec<String>, String>>;
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum TeamError {
+    #[error("{0}")]
+    Refused(String),
+    #[error("No device of the team answered")]
+    Unreachable,
+    #[error("Joining took longer than a minute")]
+    TimedOut,
+    #[error("This device is in no mesh")]
+    NoMesh,
+    #[error("Import {0} first")]
+    NotImported(TeamRepo),
+    #[error(transparent)]
+    Proof(#[from] ProofError),
+    #[error("{0}")]
+    Forge(String),
+    #[error("The team link failed: {0:#}")]
+    Link(#[from] anyhow::Error),
+}
+
+/// What the link knows of this mesh's teams.
+#[derive(Default)]
+pub(crate) struct Teams {
+    pub(crate) rosters: Rosters,
+    pub(crate) home: Home,
+    /// Contacts' invites to other teams, for a desktop to show.
+    pub(crate) invites: Invites,
+    /// The boards this device serves as its mesh's gateway.
+    pub(crate) boards: Boards,
+    /// The machine of this mesh that acts for each team, as this device
+    /// elected it.
+    pub(crate) gateways: BTreeMap<TeamRepo, EndpointId>,
+    /// The teammates' cards this device follows as its mesh's gateway.
+    pub(crate) teammates: BTreeMap<TeamRepo, Teammates>,
+    /// The asks this device's sessions sent, and those it keeps as gateway.
+    pub(crate) asks: Asks,
+    /// The pickup queues the gateways handed this device, for it to keep.
+    pub(crate) queues: BTreeMap<TeamRepo, Vec<u64>>,
+}
+
+/// The team link of this device, shared by its handler, its dialing and the
+/// task that follows the mesh.
+#[derive(Clone)]
+pub(crate) struct TeamLink {
+    inner: Arc<Inner>,
+}
+
+struct Inner {
+    endpoint: Endpoint,
+    forge: Arc<dyn TeamForge>,
+    teams: Mutex<Teams>,
+    /// Where asks and their answers are handed, once the node runs sessions.
+    sessions: OnceLock<Arc<dyn Sessions>>,
+    /// Rings when a roster or an invite waits for a desktop.
+    waiting: Notify,
+}
+
+impl TeamLink {
+    pub(crate) fn new(endpoint: Endpoint, forge: Arc<dyn TeamForge>) -> Self {
+        let inner = Inner {
+            endpoint,
+            forge,
+            teams: Mutex::new(Teams::default()),
+            sessions: OnceLock::new(),
+            waiting: Notify::new(),
+        };
+
+        Self {
+            inner: Arc::new(inner),
+        }
+    }
+
+    /// This device's id.
+    pub(crate) fn me(&self) -> EndpointId {
+        self.inner.endpoint.id()
+    }
+
+    pub(crate) fn handler(&self) -> TeamAlpn {
+        TeamAlpn(self.clone())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn endpoint(&self) -> &Endpoint {
+        &self.inner.endpoint
+    }
+
+    pub(crate) fn forge(&self) -> &dyn TeamForge {
+        self.inner.forge.as_ref()
+    }
+
+    /// Hands asks and their answers to `sessions` from now on.
+    pub(crate) fn serve_sessions(&self, sessions: Arc<dyn Sessions>) {
+        if self.inner.sessions.set(sessions).is_err() {
+            log::warn!("the team link already serves sessions");
+        }
+    }
+
+    pub(super) fn sessions(&self) -> Option<&dyn Sessions> {
+        self.inner.sessions.get().map(Arc::as_ref)
+    }
+
+    /// Reads or changes what the link knows. Keep `f` short: it holds the lock.
+    pub(crate) fn with<R>(&self, f: impl FnOnce(&mut Teams) -> R) -> R {
+        f(&mut crate::lock(&self.inner.teams))
+    }
+
+    /// Returns once a roster or an invite waits for a desktop.
+    pub(crate) async fn waiting(&self) {
+        self.inner.waiting.notified().await;
+    }
+
+    pub(super) fn wake(&self) {
+        self.inner.waiting.notify_one();
+    }
+
+    /// A stream to the first of `addrs` that answers, each tried for 5 s.
+    /// Dialed directly: the mesh's own connections refuse other meshes.
+    pub(crate) async fn dial(&self, addrs: &[EndpointAddr]) -> Result<(LinkTx, LinkRx), TeamError> {
+        for addr in addrs {
+            let opening = async {
+                let connection = self.inner.endpoint.connect(addr.clone(), ALPN).await?;
+                anyhow::Ok(connection.open_bi().await?)
+            };
+
+            match timeout(DIAL, opening).await {
+                Ok(Ok((send, recv))) => return Ok(link(send, recv)),
+                Ok(Err(e)) => log::debug!("team link to {}: {e:#}", addr.id.fmt_short()),
+                Err(_) => log::debug!("team link to {}: no answer", addr.id.fmt_short()),
+            }
+        }
+
+        Err(TeamError::Unreachable)
+    }
+
+    /// Sends `record`'s roster to the members of other meshes, but not to
+    /// `except`'s, in the background.
+    pub(super) fn spread(&self, record: TeamRecord, except: EndpointId) {
+        let mesh = self.with(|teams| teams.home.mesh);
+        let roster = TeamMsg::Roster {
+            repo: record.repo.clone(),
+            members: record.members.clone(),
+        };
+        let others = record
+            .members
+            .into_iter()
+            .filter(|member| Some(member.mesh) != mesh && member.mesh != except)
+            .collect();
+
+        self.tell(others, roster);
+    }
+
+    /// Sends `msg` to each of `members`, in the background. A removal goes
+    /// again every `RESEND` to those it did not reach, for as long as they
+    /// still owe it: a member offline then would keep the removed one on.
+    pub(super) fn tell(&self, members: Vec<Member>, msg: TeamMsg) {
+        let link = self.clone();
+
+        tokio::spawn(async move {
+            let mut unreached = members;
+
+            loop {
+                let mut missed = Vec::new();
+
+                for member in unreached {
+                    if let Err(e) = link.send(&member, &msg).await {
+                        log::info!("a team message did not reach {}: {e}", member.login);
+                        missed.push(member);
+                    }
+                }
+
+                if missed.is_empty() || !matches!(msg, TeamMsg::Remove { .. }) {
+                    return;
+                }
+
+                sleep(RESEND).await;
+                unreached = link.with(|teams| {
+                    let owed = missed.into_iter().filter(|member| owes(teams, member, &msg));
+                    owed.collect()
+                });
+            }
+        });
+    }
+
+    /// Sends `msg` to the first of `member`'s devices that answers; an error
+    /// unless it took it.
+    pub(super) async fn send(&self, member: &Member, msg: &TeamMsg) -> Result<(), TeamError> {
+        match self.offer(&member.devices, msg).await? {
+            None => Ok(()),
+            Some(reason) => Err(TeamError::Refused(reason)),
+        }
+    }
+
+    async fn serve(&self, connection: &Connection) -> Result<(), TeamError> {
+        let peer = connection.remote_id();
+        let (send, recv) = timeout(READ, connection.accept_bi())
+            .await
+            .map_err(|_| TeamError::Refused("no stream".to_owned()))?
+            .map_err(anyhow::Error::from)?;
+        let (mut tx, mut rx) = link(send, recv);
+
+        // A stranger's first message is small; a member's may be a whole roster.
+        if !self.with(|teams| teams.rosters.knows(peer)) {
+            rx.set_max_frame(FIRST_FRAME);
+        }
+
+        let first = timeout(READ, rx.recv::<TeamMsg>())
+            .await
+            .map_err(|_| TeamError::Refused("no message".to_owned()))??;
+
+        match first {
+            None => Ok(()),
+            Some(TeamMsg::Join {
+                secret,
+                repo,
+                login,
+                mesh,
+                devices,
+            }) => {
+                let join = super::join::Join {
+                    secret,
+                    repo,
+                    login,
+                    mesh,
+                    devices,
+                };
+                self.admit(peer, join, tx, rx).await
+            }
+            Some(TeamMsg::Invite { repo, ticket }) => {
+                if let Some(refused) = self.invited(peer, repo, ticket) {
+                    tx.send(&refused).await?;
+                }
+                finish(tx).await?;
+                Ok(())
+            }
+            Some(first) if self.with(|teams| teams.rosters.knows(peer)) => {
+                self.serve_member(peer, first, tx, rx).await
+            }
+            Some(_) => {
+                connection.close(1u32.into(), b"not on a team");
+                Ok(())
+            }
+        }
+    }
+
+    /// Answers a member's messages until they finish the stream.
+    async fn serve_member(
+        &self,
+        peer: EndpointId,
+        first: TeamMsg,
+        mut tx: LinkTx,
+        mut rx: LinkRx,
+    ) -> Result<(), TeamError> {
+        let mut next = Some(first);
+
+        while let Some(msg) = next {
+            if let TeamMsg::Subscribe { repo } = &msg
+                && self.with(|teams| teams.rosters.allows(peer, repo) && teams.boards.serves(repo))
+            {
+                return board::serve(self, peer, repo.clone(), tx, rx).await;
+            }
+
+            if let Some(answer) = self.answer(peer, &msg).await {
+                tx.send(&answer).await?;
+            }
+            next = rx.recv().await?;
+        }
+
+        finish(tx).await?;
+        Ok(())
+    }
+
+    /// The answer to one message from a member's device, if any. A roster's
+    /// newcomers are added once the forge says they may push.
+    pub(super) async fn answer(&self, peer: EndpointId, msg: &TeamMsg) -> Option<TeamMsg> {
+        let refused = |reason: String| Some(TeamMsg::Refused { reason });
+
+        // An invite is to a team the contact is not on yet.
+        if let TeamMsg::Invite { repo, ticket } = msg {
+            return self.invited(peer, repo.clone(), ticket.clone());
+        }
+
+        let own = self.with(|teams| teams.home.mesh);
+        let applied = match self.with(|teams| teams.rosters.apply(peer, own, msg)) {
+            Ok(applied) => applied,
+            Err(refusal) => return refused(refusal.to_string()),
+        };
+
+        if applied.changed.is_some() {
+            self.wake();
+        }
+
+        if let TeamMsg::Roster { repo, .. } = msg {
+            for newcomer in applied.newcomers {
+                if let Err(reason) = self.vouch(repo, &newcomer).await {
+                    return refused(reason);
+                }
+
+                match self.with(|teams| teams.rosters.add(repo, peer, own, newcomer)) {
+                    Ok(Some(_)) => self.wake(),
+                    Ok(None) => {}
+                    Err(refusal) => return refused(refusal.to_string()),
+                }
+            }
+        }
+
+        match msg {
+            TeamMsg::Join { .. } => refused("A join opens its own link".to_owned()),
+            TeamMsg::Subscribe { repo } => refused(not_served(repo)),
+            TeamMsg::Ask { .. } => self.asked(peer, msg).await,
+            TeamMsg::Reply { id, text } => self.answered(peer, id, text).await,
+            _ => None,
+        }
+    }
+
+    /// Whether the forge lets `newcomer`, a member another mesh admitted, on
+    /// `repo`'s team: only a definite yes does. When the forge cannot tell,
+    /// as Forgejo for anyone but a repository's admins, the status they put
+    /// on their proof commit does: only those who may push mark a commit. The
+    /// reason to give when not, which says nothing of this machine; the
+    /// sender offers the roster again later.
+    pub(super) async fn vouch(&self, repo: &TeamRepo, newcomer: &Member) -> Result<(), String> {
+        let login = &newcomer.login;
+        let vouched = async {
+            match (self.may_push(repo, login).await, &newcomer.proof) {
+                (Some(pushes), _) => Some(pushes),
+                (None, Some(sha)) => {
+                    let marked = self.marked(repo, sha, PROOF_CONTEXTS, login).await;
+                    marked.filter(|marked| *marked)
+                }
+                (None, None) => None,
+            }
+        };
+
+        match timeout(VOUCH_LIMIT, vouched).await {
+            Ok(Some(true)) => Ok(()),
+            Ok(Some(false)) => Err(format!("{login} is not a collaborator on {repo}")),
+            Ok(None) | Err(_) => Err(format!("Could not check {login} on {repo}'s forge")),
+        }
+    }
+
+    /// Whether the forge says `login` may push to `repo`; `None`, logged,
+    /// when it cannot tell within `VOUCH_LIMIT`.
+    pub(super) async fn may_push(&self, repo: &TeamRepo, login: &ForgeLogin) -> Option<bool> {
+        match timeout(VOUCH_LIMIT, self.forge().collaborator(repo, login)).await {
+            Ok(Ok(pushes)) => Some(pushes),
+            Ok(Err(e)) => {
+                log::info!("could not check {login} on {repo}: {e}");
+                None
+            }
+            Err(_) => {
+                log::info!("the forge took too long to check {login} on {repo}");
+                None
+            }
+        }
+    }
+
+    /// Keeps a contact's invite for a desktop to show; refuses anyone else's,
+    /// and invites that do not read or are for another repository.
+    fn invited(&self, peer: EndpointId, repo: TeamRepo, ticket: String) -> Option<TeamMsg> {
+        let kept = self.with(|teams| {
+            let from = *teams
+                .home
+                .contacts
+                .get(&peer)
+                .ok_or_else(|| Refusal::Stranger.to_string())?;
+            let read = TeamTicket::parse(&ticket).map_err(|_| "The invite does not read")?;
+
+            if read.repo != repo {
+                return Err("The invite is for another repository".to_owned());
+            }
+
+            let invite = TeamInviteArgs { from, repo, ticket };
+            teams.invites.keep(invite, SystemTime::now())
+        });
+
+        match kept {
+            Ok(()) => {
+                self.wake();
+                None
+            }
+            Err(reason) => Some(TeamMsg::Refused { reason }),
+        }
+    }
+}
+
+/// Whether `member` still owes `msg`, a removal: they are on its team here
+/// or are the one it removed, and its login is removed here and held by no
+/// member. A readmission ends it, so that it never takes off the member let
+/// back in.
+fn owes(teams: &Teams, member: &Member, msg: &TeamMsg) -> bool {
+    let TeamMsg::Remove { repo, login } = msg else {
+        return false;
+    };
+
+    teams.rosters.get(repo).is_some_and(|record| {
+        let removed = |gone: &Removed| gone.login == *login;
+        let on = record.members.iter().any(|on| on.mesh == member.mesh);
+        let them = record.removed.iter().any(|gone| removed(gone) && gone.mesh == member.mesh);
+        let back = record.members.iter().any(|on| on.login == *login);
+
+        (on || them) && record.removed.iter().any(removed) && !back
+    })
+}
+
+/// Finishes `tx` once the peer read it, or after `READ`: a peer that holds
+/// the link without reading does not hold this side with it.
+pub(super) async fn finish(tx: LinkTx) -> Result<(), TeamError> {
+    timeout(READ, tx.finish())
+        .await
+        .map_err(|_| TeamError::Refused("the peer stopped reading".to_owned()))??;
+
+    Ok(())
+}
+
+/// Serves `beep-team/1`.
+pub struct TeamAlpn(TeamLink);
+
+impl fmt::Debug for TeamAlpn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("TeamAlpn")
+    }
+}
+
+impl ProtocolHandler for TeamAlpn {
+    async fn accept(&self, connection: Connection) -> Result<(), AcceptError> {
+        if let Err(e) = self.0.serve(&connection).await {
+            log::debug!(
+                "a team link from {} ended: {e}",
+                connection.remote_id().fmt_short()
+            );
+        }
+
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+#[path = "../tests/team_link.rs"]
+mod tests;

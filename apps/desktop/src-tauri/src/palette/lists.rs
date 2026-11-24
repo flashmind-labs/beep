@@ -8,9 +8,9 @@ use super::{
     places::{Place, retired},
 };
 use crate::{
+    agents::sessions::machine_sessions,
     center::{
-        home::mesh_imports,
-        home_sessions::{AgentSessions, HOME_CHANGED},
+        home::{HOME_CHANGED, mesh_imports},
         lock, section,
         view_cache::{View, ViewCache, cache_view},
     },
@@ -380,12 +380,7 @@ async fn follow_sessions(app: &AppHandle) {
 
 /// Every machine is asked.
 async fn read_sessions(app: &AppHandle) {
-    let agents = app.state::<Arc<AgentSessions>>();
-    let views = app.state::<Arc<ViewCache>>();
-    let listed = agents.list(app, &views).await;
-    let Some(sessions) = section("agent sessions", listed) else {
-        return;
-    };
+    let sessions = machine_sessions(app, &app.state::<Arc<Fleet>>()).await;
     app.state::<PaletteCache>()
         .update(app, |lists| lists.sessions = Some(sessions));
 }

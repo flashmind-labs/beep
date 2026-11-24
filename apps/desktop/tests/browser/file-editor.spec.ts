@@ -112,6 +112,14 @@ test("complete a local name and insert a matching bracket", async ({ page }) => 
   await expect(editor.locator(".cm-line").last()).toHaveText("totalScore");
 });
 
+test("the editor colours a file's types, functions and macros", async ({ page }) => {
+  await openFile(page, true, "lib.rs", "pub struct Point { x: i32 }\nfn main() { println!(\"{}\", 42); }\n");
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  const editor = page.locator(".agcm .cm-content");
+  await expect(editor.locator(".ty")).toHaveText(["Point", "i32"]);
+  await expect(editor.locator(".fn")).toContainText(["main", "println"]);
+});
+
 test("replace two occurrences with multiple cursors", async ({ page }) => {
   await openFile(page, true, "notes.txt", "one two one");
   await page.getByRole("button", { name: "Edit", exact: true }).click();

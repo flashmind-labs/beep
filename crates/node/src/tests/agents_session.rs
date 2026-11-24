@@ -278,8 +278,8 @@ async fn an_agent_that_takes_a_system_prompt_gets_the_brief_in_session_new() {
     assert_eq!(sent[1]["method"], "session/new");
     let brief = format!(
         "Worktree first.\n\n{}\n\n{}",
-        crate::agents::mcp::BRIEF,
-        crate::agents::mcp::CHAT
+        crate::agents::brief::environment(&crate::agents::brief::Context::default()),
+        crate::agents::brief::chat(true)
     );
     assert_eq!(
         sent[1]["params"]["systemPrompt"],
@@ -311,7 +311,7 @@ async fn a_resumed_session_gets_the_tools_in_session_load_and_the_brief_in_its_p
         sent[1]["params"]["systemPrompt"],
         serde_json::json!({
             "mode": "append",
-            "content": [{"type": "text", "text": format!("{}\n\n{}", crate::agents::mcp::BRIEF, crate::agents::mcp::CHAT)}],
+            "content": [{"type": "text", "text": format!("{}\n\n{}", crate::agents::brief::environment(&crate::agents::brief::Context::default()), crate::agents::brief::chat(false))}],
         })
     );
     assert_eq!(
@@ -341,8 +341,8 @@ async fn an_agent_without_a_system_prompt_gets_the_whole_brief_in_its_first_prom
     assert!(sent[1]["params"].get("systemPrompt").is_none());
     let brief = format!(
         "Worktree first.\n\n{}\n\n{}",
-        crate::agents::mcp::BRIEF,
-        crate::agents::mcp::CHAT
+        crate::agents::brief::environment(&crate::agents::brief::Context::default()),
+        crate::agents::brief::chat(true)
     );
     assert_eq!(
         prompt_texts(&sent[2]),
@@ -987,12 +987,14 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         rule: None,
         skills: None,
         mcp: None,
+        context: crate::agents::brief::Context::default(),
         assistant: false,
         account: None,
         persona: None,
         images: Arc::default(),
         usage: Arc::default(),
         alerts: Arc::default(),
+        checkouts: Arc::default(),
         stopping: Arc::default(),
     }
 }
@@ -1390,12 +1392,13 @@ reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"model-small"}],
 
 #[cfg(unix)]
 #[tokio::test]
-async fn an_agent_without_a_system_prompt_hears_the_rule_again_after_compacting() {
+async fn an_agent_without_a_system_prompt_hears_instructions_again_after_compacting() {
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let log = dir.join("sent.jsonl");
     let kind = script("pi", COMPACTING_ADAPTER, &log);
     let session = Session::start(Start {
+        instructions: Some("Use plain words.".into()),
         rule: Some("Worktree first.".into()),
         ..start_on(&kind, dir, None)
     })
@@ -1409,7 +1412,7 @@ async fn an_agent_without_a_system_prompt_hears_the_rule_again_after_compacting(
         live.info.turns >= 2 || live.status() == Status::Ended
     })
     .await;
-    let rule = crate::agents::tags::context("Worktree first.");
+    let rule = crate::agents::tags::context("Use plain words.\n\nWorktree first.");
     let sent = sent(&log);
     let prompts: Vec<Vec<&str>> = sent
         .iter()
@@ -1444,9 +1447,9 @@ async fn a_resumed_session_keeps_the_rule_in_its_system_prompt() {
     let sent = sent(&log);
     assert_eq!(sent[1]["method"], "session/load");
     let system = format!(
-        "Worktree first.\n\n{}\n\n{}",
-        crate::agents::mcp::BRIEF,
-        crate::agents::mcp::CHAT
+        "{}\n\nWorktree first.\n\n{}",
+        crate::agents::brief::environment(&crate::agents::brief::Context::default()),
+        crate::agents::brief::chat(false)
     );
     assert_eq!(
         sent[1]["params"]["systemPrompt"]["content"][0]["text"],
@@ -2639,7 +2642,7 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
                     ..Begin::default()
                 },
             )
-            .unwrap();
+            .await.unwrap();
         settle(&session).await;
         let sent = sent(&log);
         assert_eq!(
@@ -2704,16 +2707,20 @@ cat > /dev/null
 
 #[cfg(unix)]
 #[tokio::test]
-async fn saved_instructions_stop_an_unsupported_adapter_before_open_or_prompt() {
-    for resume in [None, Some(SessionId::from("s"))] {
+async fn an_adapter_without_system_prompts_gets_saved_instructions_on_start_and_resume() {
+    for (resume, method) in [(None, "session/new"), (Some("s".into()), "session/load")] {
         let temp = tempfile::tempdir().unwrap();
         let log = temp.path().join("sent.jsonl");
         let adapter = r#"
 read -r line; log "$1"
 reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
-while read -r line; do log "$1"; done
+read -r line; log "$1"
+reply '{"sessionId":"s"}'
+read -r line; log "$1"
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
 "#;
-        let kind = script("pi", adapter, &log);
+        let kind = script("custom", adapter, &log);
         let session = Session::start(Start {
             instructions: Some("Use plain words.".into()),
             resume,
@@ -2722,11 +2729,85 @@ while read -r line; do log "$1"; done
         .unwrap();
 
         settle(&session).await;
-        assert_eq!(session.info().state.status, Status::Ended);
-        assert!(session.info().state.error.unwrap().contains("cannot apply saved instructions"));
+        assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
         let requests = sent(&log);
-        assert_eq!(requests.len(), 1);
-        assert_eq!(requests[0]["method"], "initialize");
+        assert_eq!(requests[1]["method"], method);
+        assert!(requests[1]["params"].get("systemPrompt").is_none());
+        let instructions = crate::agents::tags::context("Use plain words.");
+        assert_eq!(prompt_texts(&requests[2]), [instructions.as_str(), "go"]);
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn pi_acp_appends_to_the_system_prompt_on_start_and_resume() {
+    use std::os::unix::fs::PermissionsExt;
+
+    for (resume, method, has_append_file) in [
+        (None, "session/new", false),
+        (Some("s".into()), "session/load", false),
+        (Some("s".into()), "session/load", true),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path();
+        let adapter = dir.join("pi-acp");
+        let pi = dir.join("custom pi");
+        let log = dir.join("sent.jsonl");
+        let script_body = r#"
+read -r line; log sent.jsonl
+reply '{"protocolVersion":1,"agentCapabilities":{"loadSession":true}}'
+read -r line; log sent.jsonl
+"$PI_ACP_PI_COMMAND" --mode rpc --session 'session path.jsonl' || exit 1
+reply '{"sessionId":"s"}'
+read -r line; log sent.jsonl
+reply '{"stopReason":"end_turn"}'
+cat > /dev/null
+"#;
+        std::fs::write(&adapter, format!("#!/bin/sh\n{REPLY}{script_body}")).unwrap();
+        std::fs::write(
+            &pi,
+            "#!/bin/sh\nprintf '%s' \"$1\" > flag\ncp \"$2\" captured\nshift 2\nprintf '%s\\n' \"$@\" > args\n",
+        )
+        .unwrap();
+        for path in [&adapter, &pi] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let mut kind = fake("pi", &log);
+        kind.program = adapter.display().to_string();
+        kind.args.clear();
+        kind.env.insert("PI_ACP_PI_COMMAND".into(), pi.display().to_string());
+        kind.env.insert("PI_CODING_AGENT_DIR".into(), dir.display().to_string());
+        if has_append_file {
+            std::fs::write(dir.join("APPEND_SYSTEM.md"), "Keep Pi's own instructions.").unwrap();
+        }
+        let instructions = "Use plain words.\nKeep `quotes`, $variables and spaces.";
+        let session = Session::start(Start {
+            instructions: Some(instructions.into()),
+            resume,
+            ..start_on(&kind, dir, None)
+        })
+        .unwrap();
+
+        settle(&session).await;
+        assert_eq!(session.info().turns, 1, "{:?}", session.info().state.error);
+        let flag = std::fs::read_to_string(dir.join("flag")).unwrap();
+        let captured = std::fs::read_to_string(dir.join("captured")).unwrap();
+        if has_append_file {
+            assert_eq!(flag, "--extension");
+            assert!(captured.contains("before_agent_start"));
+            assert!(captured.contains(&serde_json::to_string(instructions).unwrap()));
+        } else {
+            assert_eq!(flag, "--append-system-prompt");
+            assert_eq!(captured, instructions);
+        }
+        assert_eq!(
+            std::fs::read_to_string(dir.join("args")).unwrap(),
+            "--mode\nrpc\n--session\nsession path.jsonl\n"
+        );
+        let requests = sent(&log);
+        assert_eq!(requests[1]["method"], method);
+        assert!(requests[1]["params"].get("systemPrompt").is_none());
+        assert_eq!(prompt_texts(&requests[2]), ["go"]);
     }
 }
 

@@ -295,7 +295,6 @@ interface AgentState {
   link: Link;
   hosts: AgentHost[] | null;
   error: string;
-  busy: boolean;
   form: AgentForm;
   open: OpenAgent | null;
   /// The project whose empty view shows (no session yet), else null.
@@ -348,7 +347,7 @@ interface AgentState {
 
 export const AG: AgentState = {
   readError: "", link: LINKED,
-  hosts: null, error: "", busy: false,
+  hosts: null, error: "",
   form: { prompt: "", assistant: false, machine: "", machinePicked: false, agent: null, cwd: "" },
   open: null, draft: null, page: null, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
@@ -419,11 +418,13 @@ let namedAccounts: readonly NamedAccount[] = [];
 
 /// Reads the named accounts again, from this device alone. One that cannot
 /// be read keeps the last list.
-export async function loadAccountNames(): Promise<void> {
+export async function loadAccountNames(): Promise<readonly NamedAccount[]> {
   try {
     const named = await invoke<NamedAccount[]>("agent_account_names");
     namedAccounts = Array.isArray(named) ? named : [];
   } catch (e) { console.warn("account names:", e); }
+
+  return namedAccounts;
 }
 
 /// The names of `agent`'s named accounts.
@@ -670,7 +671,8 @@ export function agentBack(closed = false) {
   // Esc from a child opens its parent; otherwise it returns to the previous page.
   const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;
   if (up) return openAgent(up, { back: AG.back });
-  if (S.view === "agent" && windowHooks && !closed && (leavePane() || windowHooks.stepOut?.())) return;
+  if (!closed && S.view === "agent" && leavePane()) return;
+  if (!closed && (S.view === "agent" || S.view === "agentnew") && windowHooks?.stepOut?.()) return;
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back, !closed);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "waiting") return renderWaiting();

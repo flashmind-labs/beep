@@ -4,10 +4,13 @@ use super::*;
 fn caller(table: Table) -> Caller {
     Caller {
         table,
+        desktop_here: false,
         commands_off: None,
         transfers: None,
         agents: None,
         project_tools: None,
+        team: None,
+        mesh: None,
     }
 }
 
@@ -238,4 +241,58 @@ async fn a_node_gets_a_projects_answer_from_a_desktop_and_a_refusal_otherwise() 
         panic!("not done");
     };
     assert!(failed && text.contains("only the Beep desktop"), "{text}");
+}
+
+/// A team's gateway starts issue sessions on any machine of the mesh with
+/// the project: from a desktop's own node, and on a desktop.
+#[tokio::test]
+async fn team_pickup_is_taken_from_a_desktop_and_on_one() {
+    let pickup = Request {
+        session: SessionId::default(),
+        tool: Tool::TeamPickup,
+        args: "{}".to_owned(),
+        approved: Default::default(),
+    };
+    let node = Table::Peer(iroh::SecretKey::generate().public());
+    let desktop = Caller {
+        desktop_here: true,
+        ..caller(node)
+    };
+
+    for caller in [caller(Table::Shared), desktop] {
+        let Reply::Done { text, failed } = answer(pickup.clone(), caller).await else {
+            panic!("not done");
+        };
+        // Past the gate: this test machine acts for no team.
+        assert!(failed);
+        assert_eq!(text, "This machine does not act for a team.");
+    }
+}
+
+/// A desktop that acts for a team lists a node's agents through its
+/// controller connection.
+#[tokio::test]
+async fn a_desktop_lists_a_nodes_agents() {
+    let dir = tempfile::tempdir().unwrap();
+    let offers = Offers::local(&[], crate::machine::provision::Provision::new(dir.path()));
+    let request = |tool, args: &str| Request {
+        session: SessionId::default(),
+        tool,
+        args: args.to_owned(),
+        approved: Default::default(),
+    };
+
+    let Reply::Done { text, failed } =
+        answer(request(Tool::ListAgents, "{}"), Caller::local(&offers)).await
+    else {
+        panic!("not done");
+    };
+    assert!(!failed, "{text}");
+    assert_eq!(text, "[]");
+
+    let start = request(Tool::StartAgent, r#"{"harness":"codex","prompt":"hi"}"#);
+    let Reply::Done { failed, .. } = answer(start, Caller::local(&offers)).await else {
+        panic!("not done");
+    };
+    assert!(failed);
 }

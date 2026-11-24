@@ -4,6 +4,7 @@
 use super::worktree::{Moved, Placed};
 use crate::agents::OpenSession;
 use beep_proto::SessionId;
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     fs, io,
@@ -41,7 +42,25 @@ pub(super) struct Saved {
     /// runs on the target.
     #[serde(default)]
     pub(super) sent: Vec<SentTree>,
+    /// Where a source sent the session. A target leaves this empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) destination: Option<EndpointId>,
 }
+
+#[derive(Clone, Copy)]
+pub(super) struct Outgoing {
+    pub(super) at: u64,
+    pub(super) to: EndpointId,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Previous {
+    Released,
+    Settling,
+    Departed,
+}
+
+pub(super) const MOVED_AWAY: &str = "the previous move may still run this session on its target";
 
 /// A worktree a source sent for a move, and what it held then
 /// (`worktree::fingerprint`).
@@ -66,6 +85,18 @@ pub(super) struct PlacedTree {
 }
 
 impl Saved {
+    pub(super) fn before(&self, next: Outgoing) -> Previous {
+        if self.at == next.at && self.destination.is_none_or(|to| to == next.to) {
+            return Previous::Released;
+        }
+
+        match self.phase {
+            Phase::Closed => Previous::Settling,
+            Phase::Done if self.destination.is_some() => Previous::Departed,
+            _ => Previous::Released,
+        }
+    }
+
     /// A move that ended as `phase`.
     pub(super) fn over(at: u64, phase: Phase, reason: Option<String>) -> Self {
         Self {
@@ -75,6 +106,7 @@ impl Saved {
             open: None,
             placed: Vec::new(),
             sent: Vec::new(),
+            destination: None,
         }
     }
 
@@ -130,12 +162,14 @@ impl Folder {
         self.save(id, &saved)
     }
 
-    /// Takes the copy away, and the saved state with `state`.
-    pub(super) fn clear(&self, id: &SessionId, state: bool) {
+    pub(super) fn clear_copy(&self, id: &SessionId) {
         // Gone already is as good as removed.
         let _ = fs::remove_dir_all(self.dir.join(id.as_ref()));
+    }
 
-        if state {
+    pub(super) fn clear(&self, id: &SessionId, at: u64) {
+        if self.load(id).is_none_or(|saved| saved.at == at) {
+            self.clear_copy(id);
             let _ = fs::remove_file(self.file(id));
         }
     }

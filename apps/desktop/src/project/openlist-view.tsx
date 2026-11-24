@@ -28,7 +28,7 @@ export function OpenListStart({ list, shown, redraw, flexItem = false }: { list:
     if (starting.has(list)) return;
     starting.add(list); redraw();
     const outcome = await startIssues(plan, redraw);
-    starting.delete(list); outcomes.set(list, { ...outcome, left: plan.filter(row => row.skip) });
+    starting.delete(list); outcomes.set(list, outcome);
     choice.picked.clear(); choice.confirming = false; choice.selecting = !!outcome.error; redraw();
   };
   return <div className="pj-start ask" style={flexItem ? { flex: "none" } : undefined}><b>{startLabel(runnable.length)}?</b><span>One new worktree each, started one after another. Each runs on your plan.</span>{plan.map(row => <span key={row.entry.key} className={row.skip !== null ? "skip" : ""}>{row.entry.project ?? "No project"} #{row.entry.number} {row.entry.title}{row.skip !== null ? ` (${row.skip})` : ` on ${agentLabel(row.agent)}, ${row.machine_name}`}</span>)}<span className="acts"><Button look="primary" small disabled={busy || !runnable.length} onClick={() => { void start(); }}>{busy ? "Starting…" : startLabel(runnable.length)}</Button><Button look="quiet" small disabled={busy} onClick={() => { choice.confirming = false; redraw(); }}>Cancel</Button></span></div>;

@@ -144,7 +144,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
             Some(root.path().to_str().expect("a UTF-8 path")),
             begin,
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -229,7 +229,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     };
     let session = agents
         .start(&kind, Some(dir.to_str().unwrap()), begin)
-        .unwrap();
+        .await.unwrap();
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -382,8 +382,8 @@ async fn one_session_cannot_be_taken_over_twice() {
         resume: Some(SessionId::from(id)),
         ..Begin::default()
     };
-    let first = agents.start(&kind, Some("/"), begin()).unwrap();
-    let second = agents.start(&kind, Some("/"), begin()).err().unwrap();
+    let first = agents.start(&kind, Some("/"), begin()).await.unwrap();
+    let second = agents.start(&kind, Some("/"), begin()).await.err().unwrap();
     assert!(
         second
             .to_string()
@@ -403,7 +403,7 @@ async fn an_ended_node_session_resumes_from_the_agents_session() {
         resume: Some(SessionId::from(id)),
         ..Begin::default()
     };
-    let first = agents.start(&kind, Some("/"), begin).unwrap();
+    let first = agents.start(&kind, Some("/"), begin).await.unwrap();
     first.close().await;
     // Nothing on this machine has the agent's session, so it is the
     // agent's id that the node looks for, not its own.
@@ -449,7 +449,7 @@ done
                 ..Begin::default()
             },
         )
-        .unwrap();
+        .await.unwrap();
     let mut live = first.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -521,7 +521,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     let kind = sh_agent("codex", NAMING_ADAPTER);
     let agents = Agents::new(vec![kind.clone()]);
     let begin = Begin::default();
-    let session = agents.start(&kind, Some("/"), begin).unwrap();
+    let session = agents.start(&kind, Some("/"), begin).await.unwrap();
     assert!(session.info().id.is_empty());
     assert!(
         agents.list().is_empty(),
@@ -567,7 +567,7 @@ done"#,
         );
     let kind = sh_agent("codex", &script);
     let agents = Agents::new(vec![kind.clone()]);
-    let first = agents.start(&kind, Some("/"), Begin::default()).unwrap();
+    let first = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
     first.named_info().await.unwrap();
     assert_ne!(first.id, AGENT_ID);
     first.close().await;
@@ -581,7 +581,7 @@ done"#,
                 ..Begin::default()
             },
         )
-        .unwrap();
+        .await.unwrap();
     let mut live = resumed.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -653,6 +653,64 @@ async fn a_refused_start_makes_no_branch() {
 
 #[cfg(unix)]
 #[tokio::test]
+async fn a_start_git_sync_holds_back_makes_no_worktree() {
+    let (_dir, work) = checkout::tests::repo("held");
+    let kind = sh_agent("codex", "cat > /dev/null");
+    let agents = Arc::new(Agents::new(vec![kind.clone()]));
+    let _hold = agents.reserve_repository(&work).await.unwrap();
+    let plan = CheckoutPlan::NamedWorktree {
+        base: None,
+        branch: "issue-7-fix".to_owned(),
+    };
+    let begin = Begin {
+        prompt: Some("Work on issue #7".into()),
+        ..Begin::default()
+    };
+    let refused = agents
+        .start_in(&kind, work.to_str(), Some(plan), begin)
+        .await
+        .err();
+
+    assert!(refused.is_some_and(|e| e.to_string().contains("preserving local edits")));
+    let trees = checkout::tests::run(&work, &["worktree", "list", "--porcelain"]);
+    assert_eq!(trees.matches("worktree ").count(), 1);
+    assert!(checkout::tests::run(&work, &["branch", "--list", "issue-7*"]).is_empty());
+}
+
+/// An issue's session is known by the agent's id and its worktree, whose
+/// branch is the issue's.
+#[cfg(unix)]
+#[tokio::test]
+async fn an_issue_session_reports_its_agents_id_and_worktree() {
+    const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
+    let (_dir, work) = checkout::tests::repo("issue");
+    let agents = Agents::new(vec![sh_agent("codex", NAMING_ADAPTER)]);
+    let plan = CheckoutPlan::NamedWorktree {
+        base: None,
+        branch: "issue-7-fix-it".to_owned(),
+    };
+    let started = agents.start_on_issue(
+        work.to_str().unwrap(),
+        plan,
+        "#7 Fix it".to_owned(),
+        "Work on issue #7".to_owned(),
+    );
+    let (id, worktree) = tokio::time::timeout(Duration::from_secs(10), started)
+        .await
+        .expect("the agent names the session")
+        .unwrap();
+
+    assert_eq!(id, AGENT_ID);
+    assert_ne!(Path::new(&worktree), work);
+    assert_eq!(
+        crate::team::gateway::branch_of(&worktree).await.as_deref(),
+        Some("issue-7-fix-it")
+    );
+    agents.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
 async fn a_session_resumes_only_on_its_own_agent() {
     let kind = |name: &str| sh_agent(name, "cat > /dev/null");
     let (claude, codex) = (kind("claude"), kind("codex"));
@@ -661,7 +719,7 @@ async fn a_session_resumes_only_on_its_own_agent() {
         resume: Some(SessionId::from("0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b").to_owned()),
         ..Begin::default()
     };
-    let running = agents.start(&codex, Some("/"), begin).unwrap();
+    let running = agents.start(&codex, Some("/"), begin).await.unwrap();
     let err = agents.resume(&claude, &running.id, None, None).await.err();
     assert!(
         err.is_some_and(|e| e.to_string().contains("runs codex")),
@@ -708,7 +766,7 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
     let kind = sh_agent("codex", THINKING_ADAPTER);
     let session = agents
         .start(&kind, root.path().to_str(), Begin::default())
-        .unwrap();
+        .await.unwrap();
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(10),
@@ -815,7 +873,7 @@ mod actor_tests {
         let agents = Arc::new(Agents::new(vec![kind.clone()]));
         let session = agents
             .start(&kind, root.path().to_str(), Begin::default())
-            .unwrap();
+            .await.unwrap();
         let public_id = session.named_info().await.unwrap().id;
         let mut live = session.live.clone();
         timeout(
@@ -1003,7 +1061,7 @@ while read -r line; do :; done
             Some(repo.to_str().unwrap()),
             Begin::default(),
         )
-        .unwrap();
+        .await.unwrap();
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -1133,7 +1191,7 @@ done
                     ..Begin::default()
                 },
             )
-            .unwrap();
+            .await.unwrap();
         let mut live = session.live.clone();
         tokio::time::timeout(
             Duration::from_secs(10),

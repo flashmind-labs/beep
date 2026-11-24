@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { openDesktop } from "./harness.ts";
+import { openDesktop, projectName } from "./harness.ts";
 
 const host = { machine_id: "build-box", machine_name: "build-box", agents: ["claude", "flsh"], workspace: null, home: "/srv", capabilities: [], assistant: true, moves_chats: true };
 const folder = "/srv/.beep/assistant/chat-one";
@@ -8,9 +8,11 @@ const under = { machine_id: "build-box", id: "chat-one", key: "" };
 const research = { ...chat, id: "thread-one", agent: "claude", title: "Pricing research", cwd: `${folder}/pricing`, status: "working", doing: "Reading the price list", started_at: 2, assistant: false, parent: under };
 const notes = { ...chat, id: "thread-two", agent: "claude", title: "Competitor notes", cwd: `${folder}/notes`, status: "ended", started_at: 3, last_activity: 4, assistant: false, parent: under };
 const view = (row: typeof chat) => ({ session: row, plan: [], files: [], entries: [{ kind: "agent", text: "On it." }], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 1 });
+const entry = (name: string, folder = false) => ({ name, folder, size: 1, ignored: false, change: null });
+const tree = (...entries: ReturnType<typeof entry>[]) => ({ folders: [{ path: "", entries, more: 0, git: false }], truncated: false });
 
-async function openChat(page: Page, sessions: (typeof chat)[]) {
-  await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: sessions, agent_view: view(chat) });
+async function openChat(page: Page, sessions: (typeof chat)[], listing = tree()) {
+  await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: sessions, agent_view: view(chat), agent_tree: listing });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();
 }
@@ -45,7 +47,7 @@ test("a chat with threads lists them in place of the sidebar, and ⌘E lays the 
   await expect(page.locator(".asst-list")).toBeHidden();
 });
 
-test("Esc beside a chat's threads shows all the chats, then the sidebar beside them", async ({ page }) => {
+test("Esc beside a chat's threads shows the sidebar and chats together, then goes straight to Home", async ({ page }) => {
   await openChat(page, [chat, research, notes]);
   const win = page.locator(".cwin");
   await expect(win).toHaveClass(/rail-on/);
@@ -53,16 +55,32 @@ test("Esc beside a chat's threads shows all the chats, then the sidebar beside t
 
   await page.keyboard.press("Escape");
   await expect(win).not.toHaveClass(/rail-on/);
+  await expect(page.locator("#side")).toBeVisible();
   await expect(page.locator(".asst-list")).toBeVisible();
-  await expect(page.locator("#side")).toBeHidden();
   await expect(page.getByText("On it.")).toBeVisible();
-  // With no sidebar under them, the title row keeps clear of the window's controls.
-  await expect(page.locator(".cc-top")).toHaveCSS("padding-left", "84px");
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#title")).toHaveText("Home");
+  await expect(page.locator("#side").getByRole("button", { name: "Home", exact: true })).toHaveAttribute("aria-current", "true");
+  await expect(page.locator("#agmsg")).toBeHidden();
+});
+
+test("Esc from a threaded chat opened over a project reaches Home in two presses instead of returning to the project", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat, research, notes], agent_view: view(chat) });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  await expect(page.locator("#title")).toContainText(projectName);
+
+  await page.evaluate(row => window.__navigation.open({ agent: { kind: "agent", ...row } }), chat);
+  await expect(page.locator(".cwin")).toHaveClass(/rail-on/);
+  await page.locator("#agmsg").focus();
 
   await page.keyboard.press("Escape");
   await expect(page.locator("#side")).toBeVisible();
   await expect(page.locator(".asst-list")).toBeVisible();
-  await expect(page.getByText("On it.")).toBeVisible();
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator("#title")).toHaveText("Home");
+  await expect(page.locator("#side").getByRole("button", { name: "Home", exact: true })).toHaveAttribute("aria-current", "true");
 });
 
 test("a detached chat keeps its full height after pressing Escape twice", async ({ page }) => {
@@ -79,6 +97,7 @@ test("a detached chat keeps its full height after pressing Escape twice", async 
     await page.keyboard.press("Escape");
     await expect(page.locator(".asst-list")).toBeVisible();
     await expect(page.getByText("On it.")).toBeVisible();
+    await expect(page.locator(".cc-top")).toHaveCSS("padding-left", "84px");
     await expect.poll(() => main.evaluate(el => el.getBoundingClientRect().height)).toBe(height);
   }
 });
@@ -190,10 +209,9 @@ test("a chat's move counts its files as they come, with the bar over the input, 
 });
 
 test("a file opened from a chat's Files sits beside the chat, and Markdown opens in its preview", async ({ page }) => {
-  const entry = (name: string, folder: boolean) => ({ name, folder, size: 1, ignored: false, change: null });
   await openDesktop(page, false, {
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat], agent_view: view(chat),
-    agent_tree: { folders: [{ path: "", entries: [entry("notes.md", false)], more: 0, git: false }], truncated: false },
+    agent_tree: tree(entry("notes.md")),
     agent_artifact: { kind: "html", html: "<h1>Notes</h1>" },
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
@@ -212,6 +230,7 @@ test("a chat's pane lists the agents its folder defines in an Agents tab", async
   await openDesktop(page, false, {
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat], agent_view: view(chat),
     custom_agents: [agent("evidence-verifier", "project"), agent("mine-everywhere", "user")],
+    agent_tree: tree(entry(".claude", true)),
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();
@@ -244,20 +263,23 @@ test("a chat's window shows the chat beside its threads, and ⌘N there asks for
   await expect(page.locator("#agmsg")).toHaveValue(/^New thread: /);
 });
 
-test("a chat shows what its threads do, and the Assistant link counts the chats waiting on an answer", async ({ page }) => {
+test("chat and thread activity updates badges without reordering chats", async ({ page }) => {
   const asks = { ...research, id: "thread-asks", title: "Budget check", status: "asking", last_activity: 50 };
-  const other = { ...chat, id: "chat-two", title: "Write the post", last_activity: 9 };
-  await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat, other, research, asks], agent_view: view(chat) });
+  const other = { ...chat, id: "chat-two", title: "Write the post", started_at: 4, last_activity: 9 };
+  await openDesktop(page, false, { agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat, other, research], agent_view: view(chat) });
   const link = page.locator("#side").getByRole("button", { name: /^Assistant/ });
-  await expect(link).toContainText("1");
   await link.click();
 
   const list = page.locator(".asst-list");
-  // The chat whose thread asked last comes first, though the other one spoke after it did.
-  await expect(list.getByRole("button", { name: /Plan the launch|Write the post/ }).first()).toContainText("Plan the launch");
-  const first = list.getByRole("button", { name: /Plan the launch/ });
-  await expect(first).toContainText("thread needs you");
-  await expect(first).toContainText("1 thread working");
+  const chats = list.getByRole("button", { name: /Plan the launch|Write the post/ });
+  await expect(chats).toHaveText([/Write the post/, /Plan the launch/]);
+
+  await page.evaluate(rows => {
+    window.__navigation.respond("agent_sessions", rows);
+    window.__navigation.emit("sessions-changed", null);
+  }, [other, { ...chat, last_activity: 25 }, research, asks]);
+  await expect(link).toContainText("1");
+  await expect(chats).toHaveText([/Write the post/, /Plan the launch.*1 thread working.*thread needs you/]);
 });
 
 test("moving the assistant pane also moves Changes when opening a project session", async ({ page }) => {
@@ -266,7 +288,7 @@ test("moving the assistant pane also moves Changes when opening a project sessio
     dock: "right", tabs: { changes: "right" },
   })));
   const project = { ...chat, id: "project-session", assistant: false, cwd: "/srv/project" };
-  await openChat(page, [chat, project]);
+  await openChat(page, [chat, project], tree(entry("notes.txt")));
   await expect(page.getByRole("tab", { name: "Changes", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: "Dock these tabs at the bottom" }).click();
   await page.evaluate(row => {
@@ -278,10 +300,9 @@ test("moving the assistant pane also moves Changes when opening a project sessio
 });
 
 test("a chat's pane folded once opens beside the chat again", async ({ page }) => {
-  const entry = (name: string, folder: boolean) => ({ name, folder, size: 1, ignored: false, change: null });
   await openDesktop(page, false, {
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null }, agent_sessions: [chat], agent_view: view(chat),
-    agent_tree: { folders: [{ path: "", entries: [entry("notes.txt", false), entry("plan.txt", false)], more: 0, git: false }], truncated: false },
+    agent_tree: tree(entry("notes.txt"), entry("plan.txt")),
   });
   await page.locator("#side").getByRole("button", { name: /^Assistant/ }).click();
   await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();
@@ -301,15 +322,53 @@ test("a chat's pane folded once opens beside the chat again", async ({ page }) =
   await expect(page.locator(".agshell")).not.toHaveClass(/zoomed/);
 });
 
-test("a thread the chat starts joins its rail while the chat is open", async ({ page }) => {
-  await openChat(page, [chat, research]);
+test("an empty chat shows its right pane when a thread starts and hides it when the thread ends", async ({ page }) => {
+  await openChat(page, [chat, notes], tree(entry("notes", true)));
   const rail = page.locator("#rail");
+  const pane = page.locator("#agpane-right");
+  await expect(rail.locator(".rail-scroll > .pj-li")).toContainText("Competitor notes");
+  await expect(pane.getByText("This folder is empty.")).toHaveCount(1);
+  await expect(pane).toBeHidden();
+
+  const sessions = (rows: (typeof chat)[]) => page.evaluate(list => {
+    window.__navigation.respond("agent_sessions", list);
+    window.__navigation.emit("sessions-changed", null);
+  }, rows);
+  await sessions([chat, notes, research]);
   await expect(rail.locator(".rail-threads .pj-li")).toHaveText([/Pricing research/]);
+  await expect(pane).toBeVisible();
 
-  const started = { ...research, id: "thread-three", title: "Skill repo", started_at: 6, last_activity: 6 };
-  await page.evaluate(list => { window.__navigation.respond("agent_sessions", list); window.__navigation.emit("sessions-changed", null); }, [chat, research, started]);
+  await sessions([chat, notes, { ...research, status: "ended" }]);
+  await expect(pane).toBeHidden();
+});
 
-  await expect(rail.locator(".rail-threads .pj-li")).toHaveText([/Pricing research/, /Skill repo/]);
+test("files show and hide an empty chat's right pane while a command is running", async ({ page }, info) => {
+  await page.setViewportSize({ width: 1800, height: 900 });
+  await openChat(page, [chat]);
+  const pane = page.locator("#agpane-right");
+  const strip = page.locator("#agpstrip-right");
+  const topic = "files.%2Fsrv%2F%2Ebeep%2Fassistant%2Fchat-one";
+  await expect.poll(() => page.evaluate(topic => window.__navigation.calls().some(call => call.command === "mesh_topics" && JSON.stringify(call.args.topics).includes(topic)), topic)).toBe(true);
+  await page.evaluate(id => window.__navigation.processes([{ pid: 41, command: "Read notes", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] }], id), chat.id);
+  await expect(pane).toBeHidden();
+  await expect(strip).toBeHidden();
+
+  const update = (listing: ReturnType<typeof tree>) => page.evaluate(({ listing, topic }) => {
+    window.__navigation.respond("agent_tree", listing);
+    window.__navigation.publish(topic, null);
+  }, { listing, topic });
+  await update(tree(entry("summary.txt")));
+  await expect(pane.getByText("summary.txt", { exact: true })).toBeVisible();
+  await expect(pane.getByRole("tab", { name: /Running/ })).toBeVisible();
+
+  await pane.getByRole("textbox", { name: "Filter files" }).fill("Missing filename");
+  await expect(pane.getByText("No files match.")).toBeVisible();
+  await update(tree());
+  await expect(pane).toBeHidden();
+  await expect(strip).toBeHidden();
+
+  await page.keyboard.press(`${mod(info)}+2`);
+  await expect(pane.getByRole("tab", { name: "Files" })).toBeVisible();
 });
 
 test("a chat picks library skills for its folder and its threads", async ({ page }) => {

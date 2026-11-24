@@ -63,7 +63,7 @@ pub(in crate::agents) fn read(root: &Path, ask: &DiffAsk) -> Result<WorkDiff> {
     };
     let from = merge_base.as_deref().unwrap_or(EMPTY_TREE);
     let (mut parser, caps) = super::parser(ask);
-    let context = format!("--unified={}", ask.context.clamp(3, 50_000));
+    let context = format!("--unified={}", super::context(ask));
     let mut args = vec![
         "-c",
         "core.quotepath=off",

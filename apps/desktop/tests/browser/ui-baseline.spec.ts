@@ -225,12 +225,15 @@ test("assistant page", async ({ page }) => {
     center_home: assistantHome, agent_sessions: assistantSessions, agent_hosts: [assistantHost],
     assistant_settings_get: { agent: "flsh", model: null, effort: "high", fast: null },
     agent_view: { ...agentView, session: { ...chat, question: null }, entries: transcript },
+    agent_tree: { folders: [{ path: "", entries: [], more: 0, git: false }], truncated: false },
   });
   await page.locator("#side").getByRole("button", { name: /^Assistant/ }).click();
   const list = page.locator(".asst-list");
   await list.getByRole("button", { name: /Set up the widget project/ }).click();
   await expect(page.getByText("Cloned example/widget")).toBeVisible();
   await expect(list.locator('[aria-current="true"]')).toContainText("Set up the widget project");
+  await expect(page.locator("#agpane-right")).toBeHidden();
+  await expect(page.locator("#agpstrip-right")).toBeHidden();
   await baseline(page, "assistant-page");
 });
 
@@ -449,6 +452,36 @@ test("projects overview empty", async ({ page }) => {
 test("project page", async ({ page }) => {
   await openProject(page);
   await baseline(page, "project-page");
+});
+
+/// A team of three on the project: one teammate's agent works on an issue, another's waits in review, and one asks the user.
+const team = {
+  team_record: { repo: "example.test/example/widget", me: "dana", pickup: true, pickup_limit: 2, asks: true, removed: [], members: [
+    { login: "dana", mesh: "mesh-a", joined_at: NOW - 86_400_000 }, { login: "kim", mesh: "mesh-b", joined_at: NOW - 3_600_000 }, { login: "lee", mesh: "mesh-c", joined_at: NOW - 1_800_000 }] },
+  team_cards: {
+    needs_you: [{ id: "ask:a1", title: "Can someone take #52, the fee model? I'm blocked on it for #48.", lane: "needs_you", login: "kim", machine: "kim-laptop", issue: 52, pr: null, updated_at: NOW - 600_000 }],
+    teammates: [
+      { id: "k1", title: "Backtest the crossover", lane: "working", login: "kim", machine: "kim-laptop", issue: 47, pr: null, updated_at: NOW - 300_000 },
+      { id: "l1", title: "Signal schema v2", lane: "ready_to_review", login: "lee", machine: "gpu-box", issue: null, pr: 60, updated_at: NOW - 10_800_000 },
+      { id: "queued:51", title: "Funding rate cache", lane: "queued", login: "lee", machine: "gpu-box", issue: 51, pr: null, updated_at: NOW - 900_000 },
+    ],
+    own_queued: [{ id: "queued:53", title: "Plot export to PDF", lane: "queued", login: "dana", machine: "build-box", issue: 53, pr: null, updated_at: NOW - 600_000 }],
+    online: ["kim", "lee"],
+  },
+  contacts: [{ mesh: "mesh-d", logins: [{ repo: "example.test/example/gadget", login: "ana" }] }],
+};
+
+test("project board with a team", async ({ page }) => {
+  await openProject(page, team);
+  await expect(page.locator(".bd-card.theirs").first()).toBeVisible();
+  await baseline(page, "project-board-team");
+});
+
+test("project team", async ({ page }) => {
+  await openProject(page, team);
+  await page.locator(".pj-strip button").filter({ hasText: "Team" }).click();
+  await expect(page.locator(".tm-members .cc-line")).toHaveCount(3);
+  await baseline(page, "project-team");
 });
 
 test("project with nothing on its board", async ({ page }) => {
@@ -740,6 +773,16 @@ test("agent file being edited", async ({ page }) => {
   const editor = await page.locator(".agcm .cm-editor").evaluate(element => element.getBoundingClientRect().height);
   expect(Math.abs(box - editor)).toBeLessThan(1);
   expect(await page.locator(".agcm .cm-scroller").evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  // Sticky line numbers keep an opaque fill matching the pane so horizontally scrolled code never shows behind them.
+  const { gutterBg, paneBg } = await page.locator(".agcm .cm-gutters").evaluate(element => {
+    const pane = element.closest(".agpane");
+    return {
+      gutterBg: getComputedStyle(element).backgroundColor,
+      paneBg: pane ? getComputedStyle(pane).backgroundColor : "",
+    };
+  });
+  expect(gutterBg).toBe(paneBg);
+  expect(gutterBg).toMatch(/^rgb\(/);
   await baseline(page, "agent-file-edit");
 });
 
@@ -748,6 +791,27 @@ test("agent changes", async ({ page }) => {
   await page.getByRole("tab", { name: "Changes", exact: true }).click();
   await expect(page.locator('.dv-file[data-path="sample.ts"]')).toBeVisible();
   await baseline(page, "agent-changes");
+});
+
+test("the diff filter marks what it finds in the code and steps between the places", async ({ page }) => {
+  await openAgent(page);
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  await expect(page.locator('.dv-file[data-path="sample.ts"] .dv-c span.k').first()).toHaveText("const");
+  const find = page.locator(".dv-find"), count = page.locator(".dv-found-n");
+  await find.fill("VALUE2");
+  const total = Number(await count.textContent());
+  expect(total).toBeGreaterThan(1);
+  await expect(page.locator(".dv-c mark").first()).toHaveText("value2");
+
+  await find.press("Enter");
+  await expect(count).toHaveText(`1/${total}`);
+  await expect(page.locator(".dv-c mark.cur")).toHaveCount(1);
+  await expect(page.locator(".dv-c mark.cur")).toBeInViewport();
+  await find.press("Shift+Enter");
+  await expect(count).toHaveText(`${total}/${total}`);
+  await page.getByRole("button", { name: "Next match" }).click();
+  await expect(count).toHaveText(`1/${total}`);
+  await page.screenshot({ path: "test-results/diff-filter-step.png" });
 });
 
 test("the changed files list shows only with the pane full size, and folds", async ({ page }) => {

@@ -164,6 +164,14 @@ impl LinkRx {
         self.0.get_mut().as_mut().set_timeout_pinned(Some(idle));
     }
 
+    /// Limits the frames read from here on to `max` bytes, at most
+    /// `MAX_FRAME`, such as for a stranger's first message.
+    pub fn set_max_frame(&mut self, max: usize) {
+        self.0
+            .decoder_mut()
+            .set_max_frame_length(max.min(MAX_FRAME));
+    }
+
     /// The next message, `None` once the peer finished the stream.
     pub async fn recv<T: DeserializeOwned>(&mut self) -> Result<Option<T>> {
         self.recv_with(lenient::from_slice).await

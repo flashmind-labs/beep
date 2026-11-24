@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, type MouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { plural } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
-import { compactFolders, grouped, lineMatches, matchesFilter, splitPath, STATUS_LETTER, type DiffFile, type LineMatch } from "./diff-state.ts";
+import { compactFolders, grouped, lineMatches, matchesFilter, occurrences, splitPath, STATUS_LETTER, type DiffFile, type LineMatch } from "./diff-state.ts";
 
 /// Matching lines listed under each file while filtering.
 const LINES_PER_FILE = 50;
@@ -160,10 +160,10 @@ export function DiffTree(props: DiffTreeProps) {
 
 /// `text` with each place it holds `query`, any case, marked.
 function Marked({ text, query }: { text: string; query: string }) {
-  const lower = text.toLowerCase(), want = query.toLowerCase(), parts = [];
+  const want = query.toLowerCase(), parts = [];
   let at = 0;
 
-  for (let i = lower.indexOf(want); want && i >= 0; i = lower.indexOf(want, at)) {
+  for (const i of occurrences(text, want)) {
     parts.push(text.slice(at, i), <mark key={i}>{text.slice(i, i + want.length)}</mark>);
     at = i + want.length;
   }

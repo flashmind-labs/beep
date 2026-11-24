@@ -1,6 +1,6 @@
 use beep_mesh::MeshError;
 use beep_projects::{imports::ImportError, issues::SourceError};
-use beep_proto::ApiError;
+use beep_proto::{ApiError, team::TeamRepo};
 use thiserror::Error;
 
 /// Why a call to the mesh, a machine or a git host failed. The text is what the user is told.
@@ -24,6 +24,9 @@ pub enum FleetError {
     Conflict(String),
     #[error("not found")]
     NotFound,
+    /// A team's repository this mesh has no project of.
+    #[error("Import {0} first")]
+    NotImported(TeamRepo),
     #[error("{0:#}")]
     Other(#[from] anyhow::Error),
 }

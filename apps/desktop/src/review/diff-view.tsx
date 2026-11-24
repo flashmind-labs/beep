@@ -9,9 +9,9 @@ import { DiffTree } from "./diff-tree.tsx";
 import { DiffKeys } from "./diff-status.tsx";
 import { DiffFiles, fileMenu } from "./diff-files.tsx";
 import { FeedbackBox, FeedbackNoteBox } from "./feedback-view.tsx";
-import { allFolded, commentCounts, type DiffFile } from "./diff-state.ts";
-import { NARROW, WIDE, type Viewer, keepCurrent, remeasure, remember, saveFlag, shown, FILES_KEY, SPLIT_KEY } from "./diff-viewer.ts";
-import { foldAll, jump, jumpToLine, markCurrent, onKey } from "./diff-keys.ts";
+import { allFolded, commentCounts, sameHit, type DiffFile } from "./diff-state.ts";
+import { NARROW, WIDE, type Viewer, hits, keepCurrent, remeasure, remember, saveFlag, shown, FILES_KEY, SPLIT_KEY } from "./diff-viewer.ts";
+import { foldAll, jump, jumpToLine, markCurrent, onKey, stepHit } from "./diff-keys.ts";
 import { load, sendReview } from "./diff.tsx";
 import { useTreeWidth } from "./treewidth.ts";
 
@@ -84,17 +84,19 @@ const Toolbar = memo(function Toolbar({ v, files }: { v: Viewer; files: Files })
   const s = useStore(v.store, useShallow(s => ({
     view: s.view, loading: s.loading, filter: s.filter, split: s.split, uncommitted: s.uncommitted, flash: s.flash,
     comments: s.draft.length, sending: s.sending, allFolded: allFolded(shown(s), s.folded),
+    found: hits(s).length, foundAt: hits(s).findIndex(hit => sameHit(hit, s.hit)),
   })));
   const findRef = useCallback((find: HTMLInputElement | null) => { v.find = find; }, [v]);
   return <DiffToolbar {...s} files={files.open} filesZoom={!files.zoomed} onFiles={files.toggle} showUncommitted={!!v.src.uncommitted} readOnly={!!v.src.readOnly}
     feedback={v.feedback ? <FeedbackBox feedback={v.feedback} /> : <span />} findRef={findRef}
     onFilter={filter => {
-      v.set({ filter, filteredClosedFolders: new Set() });
+      v.set({ filter, hit: null, filteredClosedFolders: new Set() });
       remeasure(v);
       if (v.files) v.files.scrollTop = 0;
       markCurrent(v, false);
       remember(v);
     }}
+    onStep={step => stepHit(v, step)}
     onSplit={() => {
       const split = !v.state.split;
       saveFlag(SPLIT_KEY, split);

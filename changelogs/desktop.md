@@ -7,6 +7,123 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.26] - 2026-11-24
+
+### Changed
+
+- Desktop: pressing Escape from a threaded Assistant chat now returns to Home in two presses instead of multiple intermediate steps.
+
+### Fixed
+
+- Desktop: a question you answered leaves "Needs you" on Home and the tray
+  at once, where it could stay for up to a minute.
+- Desktop: a session you close on this Mac shows as ended at once in every
+  list.
+- Desktop: after a restart, the sessions of a machine that is still
+  connecting stay on Home until it answers, where they used to disappear.
+- Desktop: a deleted session does not come back in Home or the session lists
+  while its machine is being listed.
+
+## [0.10.25] - 2026-11-23
+
+### Added
+
+- Desktop: SVG and PDF downloads from HTML previews save on this device and open in a new Beep tab.
+
+## [0.10.24] - 2026-11-23
+
+### Changed
+
+- Desktop: the right pane in Assistant appears when the chat has files or active threads.
+- Desktop: assistant chats stay in creation order when chats or threads receive updates.
+
+### Performance
+
+- Desktop: the Running tab of a conversation shows its last list of commands
+  and ports as soon as you switch back to it, and then keeps up to date
+  from changes the machine reports instead of reloading after every change.
+
+## [0.10.23] - 2026-11-23
+
+### Fixed
+
+- Desktop: Pi models show their provider beside the model name.
+- Desktop: saved instructions now work with Pi and agents without system-prompt support.
+
+## [0.10.22] - 2026-11-23
+
+### Added
+
+- Desktop: The diff viewer colours code by its language, in both the
+  unified and side by side views.
+- Desktop: The diff filter marks every match in the code and shows its
+  position, such as 3/17. Enter and Shift+Enter, n and N, or the up and
+  down buttons jump to the next or previous match, scrolling to it and
+  unfolding its file.
+
+### Fixed
+
+- Desktop: Sidebar, project page and Done today lists no longer flash a
+  shorter list while a slower machine answers. Lists keep showing until
+  every machine replies; a failing machine keeps its sessions.
+- Desktop: a long project name in Home's idle list is cut with an ellipsis
+  instead of running into the time column.
+- Desktop: new agent launches keep their account and attachments when navigating.
+- Desktop: Stop All restores queued messages to the correct session and finishes after navigation.
+- Desktop: closing a terminal pane keeps it detached.
+- Desktop: queued machine list refreshes run as requested.
+- Desktop: cancelling Claude Code sign-in no longer cancels the next attempt.
+- Desktop: failed plugins stop consuming CPU, and interrupted plugin updates restore the previous version.
+
+## [0.10.21] - 2026-11-23
+
+### Added
+
+- Desktop: teams per project. Invite people who can push to the
+  project's repository with a code that is valid for a day. They join
+  from the Team page, and joining proves they have push access to the
+  repository.
+- Desktop: the project board shows teammates' agent cards beside yours,
+  with a filter for everyone, mine, or one teammate. A teammate's card
+  opens its issue or pull request, never their session.
+- Desktop: the Team page lists members and their machines, the invite
+  code, and contacts to invite to other projects. Switches let you pick
+  up assigned issues and let teammates' agents message yours. You can
+  leave, remove a member, or allow them back.
+- Desktop: removing a contact from the Team page takes them off every
+  team you share with them.
+- Desktop: issues show who they are assigned to, with Mine and
+  Unassigned filters and an Assign menu. In a team project, Work on it
+  assigns the issue to you first, and asks before taking one someone
+  else holds.
+- Desktop: Needs you lists teammates' questions, invites from contacts,
+  and issues that could not start or ended without a pull request.
+
+### Changed
+
+- Desktop: detached project and assistant windows keep plan usage in the header at narrow widths, show local requests for input in their lists, and leave global notifications in the main window.
+- Desktop: agent edit diffs in the chat use the same syntax colours as the file viewer, with the +/- marks coloured.
+- Desktop: the file editor colours types, functions, macros, properties, tags, attributes, constants, headings and links, not only keywords, strings, comments and numbers.
+
+### Fixed
+
+- Desktop: switching projects no longer leaves draft text over the task placeholder.
+- Desktop: double or triple clicks on timestamps or between messages no longer select conversation text.
+- Desktop: show Antigravity's five-hour quotas alongside its weekly quotas when reported.
+- Desktop: detached chats load automatically when their machine reconnects after an update, and HTML tabs reopen in their saved preview or source view.
+- Desktop: Delivered messages no longer reappear as sending in the chat queue.
+- Desktop: Antigravity sessions start and resume with saved instructions.
+- Desktop: attachments in the first message of a new Assistant or project chat use the machine cache, leaving project folders untouched.
+- Desktop: paste images directly into chats on Linux.
+- Desktop: agents on enrolled nodes can start linked agents on a desktop when machine sharing allows it.
+- Desktop: Files and Changes follow a Flashmind session’s worktree again after
+  a node restart.
+- Desktop: the project session list stays scrollable without a visible scrollbar.
+- Desktop: in a narrow window, folders under "Found on your machines" on Home no longer draw their machine names over their agents and activity. Each folder takes two lines.
+- Desktop: the task and assistant boxes no longer show a scrollbar that cuts off their text when macOS is set to always show scroll bars.
+- Desktop: in a narrow window, the task box on a project's page keeps a margin from the panel's edges.
+- Desktop: in a narrow window, the harness, model and thinking picker fits inside the panel it opens from instead of being cut off at its edge.
+
 ## [0.10.20] - 2026-11-23
 
 ### Added

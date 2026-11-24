@@ -71,6 +71,11 @@ impl Desk {
         })
     }
 
+    /// The mesh's id: what other meshes know it by.
+    pub fn mesh_id(&self) -> EndpointId {
+        self.mesh.id()
+    }
+
     /// Asks GitHub's API at `base` instead of github.com.
     pub fn github_api(mut self, base: &str) -> Self {
         self.github_api = Some(base.to_owned());

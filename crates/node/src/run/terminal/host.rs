@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::{
-    SecretText, lenient,
+    SecretText, lenient, watched,
     node::{
         EnvSecret, MAX_FRAME,
         terminal::{Reply, Request},
@@ -29,7 +29,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use tokio::{process::Command, time::timeout};
+use tokio::{process::Command, sync::Notify, time::timeout};
 use tokio_util::{
     bytes::Bytes,
     codec::{Framed, LengthDelimitedCodec},
@@ -139,6 +139,8 @@ pub fn in_process(dir: &Path) -> Result<impl Future<Output = Result<()>> + use<>
 struct Host<'a> {
     terminals: &'a Terminals,
     connections: AtomicUsize,
+    /// Woken when a connection ends.
+    disconnected: Notify,
     /// Terminals the last host died with, until a node says hello.
     noted: Mutex<Option<Vec<OpenTerminal>>>,
 }
@@ -146,10 +148,7 @@ struct Host<'a> {
 impl Host<'_> {
     fn idle(&self) -> bool {
         self.connections.load(Ordering::Relaxed) == 0
-            && !lock(&self.terminals.inner)
-                .terms
-                .iter()
-                .any(|term| term.live.is_running())
+            && !self.terminals.any_running()
     }
 }
 
@@ -166,7 +165,7 @@ impl<'a> Connected<'a> {
 impl Drop for Connected<'_> {
     fn drop(&mut self) {
         self.0.connections.fetch_sub(1, Ordering::Relaxed);
-        self.0.terminals.changed.notify_one();
+        self.0.disconnected.notify_one();
     }
 }
 
@@ -175,6 +174,7 @@ async fn serve(dir: &Path, mut listener: Listener, terminals: &Terminals) -> Res
     let host = Host {
         terminals,
         connections: AtomicUsize::new(0),
+        disconnected: Notify::new(),
         noted: Mutex::new((!noted.is_empty()).then_some(noted)),
     };
     let keeping = keep(dir, &host);
@@ -208,13 +208,15 @@ async fn connection(stream: Stream, host: &Host<'_>) {
         let Some(hello) = conn.read::<Hello>().await? else {
             return Ok(());
         };
-        *lock(&host.terminals.env) = Some(hello.env);
+        host.terminals.set_env(hello.env);
         // Opened only now, with the node's environment.
         let noted = lock(&host.noted).take();
 
         for open in noted.into_iter().flatten() {
-            if let Err(e) = host.terminals.reopen(&open) {
-                log::warn!("could not reopen terminal {}: {e:#}", open.id);
+            let id = open.id;
+
+            if let Err(e) = host.terminals.reopen(open).await {
+                log::warn!("could not reopen terminal {id}: {e:#}");
             }
         }
 
@@ -229,6 +231,8 @@ async fn connection(stream: Stream, host: &Host<'_>) {
 /// Keeps the note to what runs, and returns once the host stayed idle for
 /// `IDLE_EXIT`.
 async fn keep(dir: &Path, host: &Host<'_>) {
+    let mut terminals = host.terminals.subscribe();
+
     loop {
         // Terminals waiting to open again stay noted as they were.
         if lock(&host.noted).is_none()
@@ -237,7 +241,14 @@ async fn keep(dir: &Path, host: &Host<'_>) {
             log::warn!("terminals would not open again after a reboot: {e:#}");
         }
 
-        let change = host.terminals.changed.notified();
+        // Marked seen before the check, so a change after it wakes the wait.
+        watched::read_and_update(&mut terminals, |_| ());
+        let change = async {
+            tokio::select! {
+                _ = terminals.changed() => {}
+                () = host.disconnected.notified() => {}
+            }
+        };
         if !host.idle() {
             change.await;
         } else if timeout(IDLE_EXIT, change).await.is_err() && host.idle() {

@@ -18,22 +18,22 @@ use anyhow::Context;
 use beep_fleet::Session;
 use beep_proto::{
     AccountName, AgentAccount, AgentAccounts, AgentMachine, AgentToken, CodexLogin,
-    CodexLoginState, NamedAgentToken, SecretText,
+    CodexLoginState, NamedAgentToken, SecretText, watched,
 };
 use serde::Serialize;
 use std::{
     path::Path,
     process::Stdio,
     str::FromStr,
-    sync::{Arc, Mutex, PoisonError},
+    sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
 use tauri::State;
 use tokio::{
     io::AsyncReadExt,
-    process::{Child, ChildStdout, Command},
+    process::{ChildStdout, Command},
     select,
-    sync::oneshot,
+    sync::watch,
     time::timeout,
 };
 
@@ -249,29 +249,54 @@ pub async fn codex_login_cancel(fleet: Machines<'_>, machine_id: String, task: u
 
 /// The Claude Code sign-in under way, if any: one at a time.
 #[derive(Default)]
-pub struct ClaudeSignIn(Mutex<Option<oneshot::Sender<()>>>);
+pub struct ClaudeSignIn(Arc<Mutex<Option<watch::Sender<bool>>>>);
+
+/// Owns the slot until the process task finishes. Only this attempt can free it.
+struct SignInAttempt {
+    sign_in: ClaudeSignIn,
+    cancelled: watch::Receiver<bool>,
+}
+
+impl Drop for SignInAttempt {
+    fn drop(&mut self) {
+        *self.sign_in.lock() = None;
+    }
+}
 
 impl ClaudeSignIn {
-    fn start(&self) -> Result<oneshot::Receiver<()>> {
-        let mut slot = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+    fn lock(&self) -> MutexGuard<'_, Option<watch::Sender<bool>>> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 
-        if slot.as_ref().is_some_and(|cancel| !cancel.is_closed()) {
+    fn start(&self) -> Result<SignInAttempt> {
+        let mut slot = self.lock();
+
+        if slot.is_some() {
             return Err(refused("A Claude Code sign-in is already under way"));
         }
 
-        let (cancel, cancelled) = oneshot::channel();
+        let (cancel, cancelled) = watch::channel(false);
         *slot = Some(cancel);
-        Ok(cancelled)
+        Ok(SignInAttempt {
+            sign_in: Self(self.0.clone()),
+            cancelled,
+        })
     }
 
-    /// Stops the sign-in under way, which kills `claude`.
-    pub fn stop(&self) {
-        let cancel = self.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+    /// Asks the sign-in to stop and gives callers a way to await teardown.
+    fn stop(&self) -> Option<watch::Sender<bool>> {
+        let cancel = self.lock().as_ref()?.clone();
+        let _ = cancel.send(true);
+        Some(cancel)
+    }
 
-        if let Some(cancel) = cancel
-            && cancel.send(()).is_err()
-        {
-            log::debug!("the Claude Code sign-in had already ended");
+    pub(crate) fn stop_and_wait(&self) -> impl Future<Output = ()> + Send + 'static {
+        let stopping = self.stop();
+        async move {
+            if let Some(stopping) = stopping {
+                // The process task owns the only receiver until the child is gone.
+                stopping.closed().await;
+            }
         }
     }
 }
@@ -293,21 +318,34 @@ pub async fn claude_sign_in(
     let claude = find_tool("claude").ok_or_else(|| {
         refused("Claude Code is not installed on this computer. Install it in Coding agents, or paste a token.")
     })?;
-    let cancelled = sign_in.start()?;
-    let token = setup_token(&claude, cancelled).await;
-    sign_in.stop();
-    save(&fleet, AgentAccount::Claude, name.as_deref(), token?).await
+    let attempt = sign_in.start()?;
+    let token = tauri::async_runtime::spawn(async move {
+        // A command cancelled by its window must leave the child with an owner.
+        let mut attempt = attempt;
+        setup_token(&claude, &mut attempt.cancelled).await
+    })
+    .await
+    .map_err(anyhow::Error::from)??;
+
+    save(&fleet, AgentAccount::Claude, name.as_deref(), token).await
 }
 
 #[tauri::command]
-pub fn cancel_claude_sign_in(sign_in: State<'_, ClaudeSignIn>) {
-    sign_in.stop();
+pub async fn cancel_claude_sign_in(sign_in: State<'_, ClaudeSignIn>) -> Result<()> {
+    sign_in.stop_and_wait().await;
+    Ok(())
 }
 
 /// Runs `claude setup-token` in a terminal of its own (it draws its prompt
 /// only on one), wide enough that the token is printed on one line, until
 /// it prints the token, ends, times out or is cancelled.
-async fn setup_token(claude: &Path, cancelled: oneshot::Receiver<()>) -> Result<SecretText> {
+async fn setup_token(claude: &Path, cancelled: &mut watch::Receiver<bool>) -> Result<SecretText> {
+    let cancelled_error = || refused("Sign-in cancelled");
+
+    if watched::read(cancelled, |cancelled| *cancelled) {
+        return Err(cancelled_error());
+    }
+
     let mut child = Command::new("/usr/bin/script")
         .args(["-q", "/dev/null", "/bin/sh", "-c"])
         .arg("stty cols 1000 rows 50 2>/dev/null; exec \"$0\" setup-token")
@@ -323,35 +361,34 @@ async fn setup_token(claude: &Path, cancelled: oneshot::Receiver<()>) -> Result<
         .stdout
         .take()
         .context("claude's output was not piped")?;
-    let stopped = select! {
-        found = timeout(SIGN_IN_LIMIT, read_token(stdout)) => match found {
-            Ok(Ok(token)) => {
-                finish(&mut child).await;
-                return Ok(token);
+    let found = select! {
+        biased;
+        _ = watched::wait_for(cancelled, |cancelled| *cancelled) => Err(cancelled_error()),
+        found = timeout(SIGN_IN_LIMIT, read_token(stdout)) => {
+            found.map_err(|_| refused("The sign-in was not approved within 10 minutes"))
+        }
+    };
+
+    let token = match found {
+        Ok(token) => select! {
+            biased;
+            _ = watched::wait_for(cancelled, |cancelled| *cancelled) => Err(cancelled_error()),
+            exited = timeout(EXIT_WAIT, child.wait()) => {
+                if matches!(exited, Ok(Ok(_))) {
+                    return token;
+                }
+
+                token
             }
-            Ok(Err(e)) => {
-                finish(&mut child).await;
-                return Err(e);
-            }
-            Err(_) => "The sign-in was not approved within 10 minutes",
         },
-        _ = cancelled => "Sign-in cancelled",
+        Err(error) => Err(error),
     };
 
     if let Err(e) = child.kill().await {
         log::warn!("stopping claude setup-token: {e}");
     }
 
-    Err(refused(stopped))
-}
-
-/// Lets `claude` exit on its own for a moment, then kills it.
-async fn finish(child: &mut Child) {
-    if timeout(EXIT_WAIT, child.wait()).await.is_err()
-        && let Err(e) = child.kill().await
-    {
-        log::warn!("stopping claude setup-token: {e}");
-    }
+    token
 }
 
 /// Reads `claude`'s output until the token is in it.
@@ -385,3 +422,7 @@ async fn read_token(mut stdout: ChildStdout) -> Result<SecretText> {
 /// Reading the token out of what `claude setup-token` drew on its
 /// terminal. Plain functions, so they test without a terminal.
 mod parse;
+
+#[cfg(test)]
+#[path = "../tests/agents_accounts.rs"]
+mod tests;

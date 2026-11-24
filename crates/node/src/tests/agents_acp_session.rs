@@ -83,6 +83,53 @@ fn codex_offers_its_model_selector() {
 }
 
 #[test]
+fn antigravity_offers_per_model_thinking_levels() {
+    let answer = serde_json::json!({
+        "sessionId": "s1",
+        "models": {
+            "availableModels": [
+                {"modelId": "gemini-4-neon-high", "name": "Gemini 4 Neon (High)"},
+                {"modelId": "gemini-4-neon-xhigh", "name": "Gemini 4 Neon (XHigh)"},
+                {"modelId": "gemini-4-neon-medium", "name": "Gemini 4 Neon (Medium)"},
+                {"modelId": "gemini-4-neon-low", "name": "Gemini 4 Neon (Low)"},
+                {"modelId": "gemini-4-carbon-medium", "name": "Gemini 4 Carbon (Medium)"},
+                {"modelId": "gemini-4-carbon-high", "name": "Gemini 4 Carbon (High)"},
+                {"modelId": "gemini-4-carbon-low", "name": "Gemini 4 Carbon (Low)"},
+                {"modelId": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)"},
+            ],
+            "currentModelId": "gemini-4-neon-high",
+        },
+        "configOptions": [
+            {"id": "model", "name": "Model", "category": "model", "type": "select",
+             "currentValue": "gemini-4-neon", "options": [
+                {"value": "gemini-4-neon", "name": "Gemini 4 Neon"},
+                {"value": "gemini-4-carbon", "name": "Gemini 4 Carbon"},
+                {"value": "gpt-oss-120b-medium", "name": "GPT-OSS 120B (Medium)"}]},
+            {"id": "thought_level", "name": "Thinking Level", "category": "thought_level",
+             "type": "select", "currentValue": "high", "options": [
+                {"value": "low", "name": "Low"},
+                {"value": "medium", "name": "Medium"},
+                {"value": "high", "name": "High"},
+                {"value": "xhigh", "name": "Extra"}]},
+        ],
+    });
+    let (_, offered) = session_created(answer).unwrap();
+    assert_eq!(
+        offered.thinking,
+        Some(SessionConfigId::new("thought_level"))
+    );
+    assert_eq!(
+        offered.models[0].efforts,
+        vec![Effort::Low, Effort::Medium, Effort::High, Effort::Xhigh]
+    );
+    assert_eq!(
+        offered.models[1].efforts,
+        vec![Effort::Low, Effort::Medium, Effort::High]
+    );
+    assert!(offered.models[2].efforts.is_empty());
+}
+
+#[test]
 fn an_agent_without_models_offers_none() {
     let offered = offered_models(&serde_json::json!({"sessionId": "s1"}));
     assert_eq!(offered, Offered::default());

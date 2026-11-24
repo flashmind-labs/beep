@@ -48,6 +48,15 @@ async fn the_api_hands_one_project_between_syncthing_and_beep() {
             }
 
             let request = header.lines().next().unwrap();
+
+            // The process tests of this binary look for a page on every port it holds.
+            if !request.contains(" /rest/") {
+                let _ = stream
+                    .write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n")
+                    .await;
+                continue;
+            }
+
             let body = if request.starts_with("GET /rest/config/folders ") {
                 serde_json::to_string(
                     &serde_json::json!([{"id":"share", "label":"Projects", "path":serving}]),

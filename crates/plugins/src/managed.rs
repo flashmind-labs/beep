@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Mutex;
@@ -8,6 +9,7 @@ use log::warn;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::install::{InstallSwap, ManageError, PendingInstall, clean_leftovers};
 use crate::manifest::{Manifest, Permission, PluginId};
 use crate::sandbox::locked;
 
@@ -130,10 +132,22 @@ pub struct Record {
     pub origin: Origin,
 }
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 struct StateFile {
     version: u32,
     plugins: BTreeMap<PluginId, Record>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pending_install: Option<PendingInstall>,
+}
+
+impl Default for StateFile {
+    fn default() -> Self {
+        Self {
+            version: STATE_VERSION,
+            plugins: BTreeMap::new(),
+            pending_install: None,
+        }
+    }
 }
 
 /// Whether a plugin may run, from its record and manifest.
@@ -159,25 +173,25 @@ pub(crate) struct Managed {
     policy: Policy,
     /// The ids of the plugins that ship with the app.
     builtins: BTreeSet<PluginId>,
-    records: Mutex<BTreeMap<PluginId, Record>>,
+    state: Mutex<StateFile>,
 }
 
 impl Managed {
     /// Reads the records of the plugins folder. A missing file means none; a
     /// file that cannot be read or parsed is logged and treated as empty.
     pub(crate) fn load(dir: &Path, policy: Policy) -> Self {
-        let records = match std::fs::read_to_string(dir.join(STATE_FILE)) {
+        let state = match std::fs::read_to_string(dir.join(STATE_FILE)) {
             Ok(text) => match serde_json::from_str::<StateFile>(&text) {
-                Ok(file) => file.plugins,
+                Ok(file) => file,
                 Err(error) => {
                     warn!("ignoring a corrupt {STATE_FILE}: {error}");
-                    BTreeMap::new()
+                    StateFile::default()
                 }
             },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => BTreeMap::new(),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => StateFile::default(),
             Err(error) => {
                 warn!("cannot read {STATE_FILE}: {error}");
-                BTreeMap::new()
+                StateFile::default()
             }
         };
 
@@ -185,7 +199,7 @@ impl Managed {
             dir: dir.to_path_buf(),
             policy,
             builtins: BTreeSet::new(),
-            records: Mutex::new(records),
+            state: Mutex::new(state),
         }
     }
 
@@ -204,7 +218,7 @@ impl Managed {
     }
 
     pub(crate) fn record(&self, id: &PluginId) -> Option<Record> {
-        locked(&self.records).get(id).cloned()
+        locked(&self.state).plugins.get(id).cloned()
     }
 
     /// Whether the plugin may run, and what its status says about it.
@@ -257,9 +271,10 @@ impl Managed {
         id: &PluginId,
         manifest: Option<&Manifest>,
         change: impl FnOnce(&mut Record),
-    ) -> std::io::Result<()> {
-        let mut records = locked(&self.records);
-        let before = records.get(id).cloned();
+    ) -> io::Result<()> {
+        let mut state = locked(&self.state);
+        self.rollback_install(&mut state)?;
+        let before = state.plugins.get(id).cloned();
         let mut record = before.clone().unwrap_or_else(|| match manifest {
             Some(manifest) => self.default_for(manifest),
             None => Record {
@@ -269,13 +284,13 @@ impl Managed {
             },
         });
         change(&mut record);
-        records.insert(id.clone(), record);
+        state.plugins.insert(id.clone(), record);
 
-        let saved = self.write(&records);
+        let saved = self.write(&state);
         if saved.is_err() {
             match before {
-                Some(record) => records.insert(id.clone(), record),
-                None => records.remove(id),
+                Some(record) => state.plugins.insert(id.clone(), record),
+                None => state.plugins.remove(id),
             };
         }
 
@@ -283,28 +298,92 @@ impl Managed {
     }
 
     /// Forgets a plugin's record and writes the file.
-    pub(crate) fn forget(&self, id: &PluginId) -> std::io::Result<()> {
-        let mut records = locked(&self.records);
-        let Some(before) = records.remove(id) else {
+    pub(crate) fn forget(&self, id: &PluginId) -> io::Result<()> {
+        let mut state = locked(&self.state);
+        self.rollback_install(&mut state)?;
+        let Some(before) = state.plugins.remove(id) else {
             return Ok(());
         };
 
-        let saved = self.write(&records);
+        let saved = self.write(&state);
         if saved.is_err() {
-            records.insert(id.clone(), before);
+            state.plugins.insert(id.clone(), before);
         }
 
         saved
     }
 
+    pub(crate) fn recover_installs(&self) -> io::Result<()> {
+        self.rollback_install(&mut locked(&self.state))?;
+        clean_leftovers(&self.dir);
+        Ok(())
+    }
+
+    pub(crate) fn commit_install(
+        &self,
+        id: &PluginId,
+        staged: &Path,
+        record: impl FnOnce(Option<&Record>, bool) -> Result<Record, ManageError>,
+    ) -> Result<(), ManageError> {
+        let mut state = locked(&self.state);
+        let swap = InstallSwap::new(&self.dir, id);
+        self.rollback_install(&mut state)
+            .and_then(|()| swap.recover_backup())
+            .map_err(ManageError::io("cannot recover the previous install"))?;
+        let replacing = swap
+            .replacing()
+            .map_err(ManageError::io("cannot inspect the plugin's folder"))?;
+        let record = record(state.plugins.get(id), replacing)?;
+
+        state.pending_install = Some(PendingInstall {
+            id: id.clone(),
+            replacing,
+        });
+        if let Err(error) = self.write(&state) {
+            state.pending_install = None;
+            return Err(ManageError::io("cannot record the pending install")(error));
+        }
+
+        let installed = swap.place(staged, replacing).and_then(|()| {
+            let mut committed = state.clone();
+            committed.plugins.insert(id.clone(), record);
+            committed.pending_install = None;
+            self.write(&committed)
+                .map_err(ManageError::io("cannot save the plugin's record"))?;
+            *state = committed;
+            Ok(())
+        });
+
+        if installed.is_err() {
+            if let Err(error) = self.rollback_install(&mut state) {
+                warn!("cannot roll back the install of {id}: {error}");
+            }
+        } else if let Err(error) = swap.recover_backup() {
+            warn!("cannot clear the backup of {id}: {error}");
+        }
+
+        installed
+    }
+
+    fn rollback_install(&self, state: &mut StateFile) -> io::Result<()> {
+        let Some(pending) = &state.pending_install else {
+            return Ok(());
+        };
+        InstallSwap::new(&self.dir, &pending.id).rollback(pending.replacing)?;
+        let pending = state.pending_install.take();
+
+        if let Err(error) = self.write(state) {
+            state.pending_install = pending;
+            return Err(error);
+        }
+
+        Ok(())
+    }
+
     /// Writes a temporary file next to the state file, then renames it over, so
     /// a crash leaves the old file or the new one.
-    fn write(&self, records: &BTreeMap<PluginId, Record>) -> std::io::Result<()> {
-        let file = StateFile {
-            version: STATE_VERSION,
-            plugins: records.clone(),
-        };
-        let text = serde_json::to_vec_pretty(&file).map_err(std::io::Error::other)?;
+    fn write(&self, state: &StateFile) -> io::Result<()> {
+        let text = serde_json::to_vec_pretty(state).map_err(io::Error::other)?;
         let temporary = self.dir.join(STATE_TMP);
 
         std::fs::write(&temporary, text)?;

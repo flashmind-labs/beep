@@ -8,6 +8,24 @@ pub fn json(out: &str) -> Result<Value> {
     serde_json::from_str(out.trim()).context("the host did not print JSON")
 }
 
+/// The items of every page of a list, as `gh api --paginate` prints them:
+/// one JSON array after another. teacli prints `null` for an empty one.
+fn pages(out: &str, what: &str) -> Result<Vec<Value>> {
+    let mut items = Vec::new();
+    let mut read = false;
+
+    for page in serde_json::Deserializer::from_str(out).into_iter::<Value>() {
+        let page = page.context("the host did not print JSON")?;
+        items.extend_from_slice(list_of(&page, what)?);
+        read = true;
+    }
+
+    match read {
+        true => Ok(items),
+        false => bail!("the host did not print JSON"),
+    }
+}
+
 /// The items of a list. teacli prints `null` for an empty one.
 fn list_of<'a>(value: &'a Value, what: &str) -> Result<&'a [Value]> {
     if value.is_null() {
@@ -41,6 +59,8 @@ pub struct OpenIssue {
     pub url: String,
     /// A pull request is linked to it, to close it.
     pub linked_pr: bool,
+    /// The logins it is assigned to.
+    pub assignees: Vec<String>,
 }
 
 /// The issue's web page: Forgejo's `url` is its API address.
@@ -90,10 +110,25 @@ pub(super) fn label_names(item: &Value) -> Vec<String> {
     }
 }
 
-/// Parses [`HostCommand::ListOpenIssues`], skipping the pull requests Forgejo lists with issues.
+/// The assignee logins of an issue: gh's jq gives logins, Forgejo and the GitHub API user objects.
+pub(super) fn assignee_logins(item: &Value) -> Vec<String> {
+    match item.get("assignees") {
+        Some(Value::Array(assignees)) => assignees
+            .iter()
+            .map(|assignee| match assignee {
+                Value::String(login) => login.clone(),
+                other => text(other, "login"),
+            })
+            .filter(|login| !login.is_empty())
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// Parses [`HostCommand::ListOpenIssues`], one page or several, skipping the pull requests
+/// Forgejo lists with issues.
 pub fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
-    let value = json(out)?;
-    let items = list_of(&value, "issues")?;
+    let items = pages(out, "issues")?;
     items
         .iter()
         .filter(|item| item.get("pull_request").is_none_or(Value::is_null))
@@ -119,6 +154,7 @@ pub fn parse_open_issues(out: &str) -> Result<Vec<OpenIssue>> {
                 comments: comment_count(item),
                 url: web_url(item),
                 linked_pr: false,
+                assignees: assignee_logins(item),
             })
         })
         .collect()
@@ -158,10 +194,10 @@ pub(super) fn time_of(
         .with_timezone(&Utc))
 }
 
-/// Parses [`HostCommand::ListOpenPrs`] from gh (camelCase) or Forgejo (snake_case).
+/// Parses [`HostCommand::ListOpenPrs`] from gh (camelCase) or Forgejo (snake_case), every
+/// page of it.
 pub fn parse_open_prs(out: &str) -> Result<Vec<OpenPr>> {
-    let value = json(out)?;
-    let items = list_of(&value, "pull requests")?;
+    let items = pages(out, "pull requests")?;
     items
         .iter()
         .map(|item| {

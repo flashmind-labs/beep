@@ -1,10 +1,10 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Answered, Asking, Command, MAX_KEPT, Prompt, Session, Start, checkout,
+    AgentKind, Agents, Answered, Asking, Command, Prompt, Session, Start, checkout,
     harnesses,
     live::{Live, Sent},
-    models, plans,
+    models, plans, sessions,
 };
 use crate::{
     agents::mcp::{self, Launch},
@@ -22,16 +22,16 @@ use beep_proto::node::{
     usage::PlanUsage,
 };
 use beep_proto::watched;
-use beep_proto::{AccountName, AgentAccount, AgentSlug, ModelId, Upload};
+use beep_proto::{AccountName, AgentAccount, AgentHost, AgentSlug, ModelId, Upload};
 use std::time::Duration;
 use std::{
     borrow::Cow,
-    collections::{HashMap, hash_map::RandomState},
+    collections::{HashMap, HashSet, hash_map::RandomState},
     env,
     hash::BuildHasher,
     path::{Component, Path, PathBuf},
     str::FromStr,
-    sync::{Arc, MutexGuard, atomic::Ordering},
+    sync::{Arc, atomic::Ordering},
 };
 use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::{
@@ -78,8 +78,7 @@ impl Agents {
 
     /// The folders this node's sessions work in, the ended ones it keeps too.
     pub(crate) fn folders(&self) -> std::collections::BTreeSet<PathBuf> {
-        // Read once the lock is released: `info` reads each session's state.
-        let sessions: Vec<Arc<Session>> = self.lock().values().cloned().collect();
+        let sessions: Vec<Arc<Session>> = self.session_map().values().cloned().collect();
 
         sessions
             .iter()
@@ -496,7 +495,7 @@ impl Agents {
     pub async fn shutdown(&self) {
         self.begin_stopping();
         let running: Vec<Arc<Session>> = self
-            .lock()
+            .session_map()
             .values()
             .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
             .cloned()
@@ -510,8 +509,9 @@ impl Agents {
         self.stopping.store(true, Ordering::Relaxed);
     }
 
-    pub(super) fn lock(&self) -> MutexGuard<'_, HashMap<SessionId, Arc<Session>>> {
-        crate::lock(&self.sessions)
+    /// The sessions now, as last published.
+    pub(super) fn session_map(&self) -> Arc<sessions::Map> {
+        self.sessions.read()
     }
 
     /// The protocols to offer: one per agent, and `agents/1` always, so the
@@ -585,7 +585,7 @@ impl Agents {
     /// The session `id` names: by the id it started under or by the
     /// agent's own id.
     pub(super) fn get(&self, id: &SessionId) -> Option<Arc<Session>> {
-        find_session(&self.lock(), id)
+        find_session(&self.session_map(), id)
     }
 
     /// Every named session but the reviewers, oldest first.
@@ -644,28 +644,20 @@ impl Agents {
 
     fn listed_where(&self, reviewers: bool, id: Option<&SessionId>) -> Vec<SessionInfo> {
         let mut sessions: Vec<SessionInfo> = self
-            .lock()
+            .session_map()
             .values()
             .filter_map(|s| {
-                // Released before `info` reads the state again: a second read
-                // while this one is held waits behind any write queued in
-                // between, which waits on this one, and the node stops.
-                let listed = {
-                    watched::read(&s.live, |live| {
-                        live.agent_session.is_some()
-                            && id.is_none_or(|id| live.info.id == *id)
-                            && (!s.reviewer || reviewers && live.info.parent.is_some())
-                    })
-                };
+                // One read: a second while this one is held waits behind any
+                // write queued in between, which waits on this one, and the
+                // node stops.
+                let info = watched::read(&s.live, |live| {
+                    (live.agent_session.is_some()
+                        && id.is_none_or(|id| live.info.id == *id)
+                        && (!s.reviewer || reviewers && live.info.parent.is_some()))
+                    .then(|| live.info.clone())
+                })?;
 
-                if !listed {
-                    return None;
-                }
-
-                Some(SessionInfo {
-                    reviewer: s.reviewer,
-                    ..s.info()
-                })
+                Some(s.listed(info))
             })
             .collect();
         sessions.sort_by_key(|info| info.started_at);
@@ -683,13 +675,69 @@ impl Agents {
         mut begin: Begin,
     ) -> Result<Arc<Session>> {
         self.prepare(kind).await?;
+        self.admits(kind, cwd, &begin)?;
 
         let prompt = begin.prompt.as_deref().unwrap_or_default();
         let place = checkout::place(cwd.map(str::to_owned), checkout, prompt).await?;
         begin.note = place.note;
         begin.brief = place.brief.map(Cow::Owned);
         begin.worktrees.extend(place.worktree);
-        self.start(kind, place.folder.as_deref(), begin)
+        self.start(kind, place.folder.as_deref(), begin).await
+    }
+
+    /// Refuses what `start` refuses of a session asked to run in `cwd`,
+    /// beyond what `prepare` refuses, so that `start_in` makes nothing for
+    /// it: an account `kind` lacks here, or a checkout git sync is
+    /// preserving local edits in.
+    fn admits(&self, kind: &AgentKind, cwd: Option<&str>, begin: &Begin) -> Result<()> {
+        signs_in(&kind.name, begin.account.as_ref())?;
+        let (cwd, _) = in_project(cwd, begin.resume.is_some(), None)?;
+
+        not_recovering(&crate::lock(&self.recovering), &cwd)
+    }
+
+    /// The harness Auto starts here, as a desktop picks one when the start
+    /// names none.
+    pub(crate) fn auto_harness(&self) -> Option<AgentKind> {
+        let kinds = self.kinds();
+        let host = AgentHost {
+            machine_id: String::new(),
+            machine_name: String::new(),
+            agents: kinds.iter().map(|kind| kind.name.clone()).collect(),
+            workspace: None,
+            home: None,
+            capabilities: Vec::new(),
+        };
+        let name = beep_mesh::machine::pick_agent(&host, None).ok()?;
+
+        kinds.iter().find(|kind| kind.name == name).cloned()
+    }
+
+    /// Starts an issue's automatic session: the `auto_harness`, on the
+    /// worktree `plan` makes in `cwd`, titled `title`. Its id, once the
+    /// agent names it as listings and cards do, and the worktree it works
+    /// in (the session itself runs in the project folder).
+    pub(crate) async fn start_on_issue(
+        &self,
+        cwd: &str,
+        plan: CheckoutPlan,
+        title: String,
+        prompt: String,
+    ) -> Result<(SessionId, String)> {
+        let kind = self
+            .auto_harness()
+            .context("this machine has no coding agent")?;
+        let begin = Begin {
+            prompt: Some(prompt),
+            title: Some(title),
+            ..Begin::default()
+        };
+        let session = self.start_in(&kind, Some(cwd), Some(plan), begin).await?;
+        let named = session.named_info().await.map_err(anyhow::Error::msg)?;
+
+        let worktree = named.worktrees.into_iter().next();
+
+        Ok((named.id, worktree.unwrap_or(named.cwd)))
     }
 
     /// Readies what `kind` reads before it starts: for flsh, the user's
@@ -699,7 +747,7 @@ impl Agents {
         self.settings.prepare(&configured).await
     }
 
-    pub(super) fn start(
+    pub(super) async fn start(
         &self,
         kind: &AgentKind,
         cwd: Option<&str>,
@@ -713,76 +761,48 @@ impl Agents {
             Some(instructions) => super::session::standing(brief.map(Cow::into_owned), Some(&instructions)).map(Cow::Owned),
             None => brief,
         };
+        let brief = match self.mesh().is_some_and(|mesh| crate::team::home::in_team(&mesh, &cwd)) {
+            true => Some(Cow::Owned(match brief {
+                Some(brief) => format!("{brief}\n\n{}", super::brief::TEAM),
+                None => super::brief::TEAM.to_owned(),
+            })),
+            false => brief,
+        };
 
         if let Some(mesh) = self.mesh() {
             mcp::projects::may_run(&mesh, &cwd, &kind.name).map_err(anyhow::Error::msg)?;
         }
 
-        let recovery_cwd = crate::files::paths::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
-        let recovering = crate::lock(&self.recovering);
-        anyhow::ensure!(
-            !recovering.iter().any(|root| recovery_cwd.starts_with(root)),
-            "Git sync is preserving local edits in this checkout; try starting the session again shortly."
-        );
+        let resume = begin.resume.clone();
+        // The id is taken first, so no other start takes it while this one
+        // spawns. Recovery reads the starts under way.
+        let reservation = self.sessions.reserve(resume.clone(), cwd.clone())?;
+        let id = reservation.id.clone();
+        not_recovering(&crate::lock(&self.recovering), &cwd)?;
         let assistant = begin.assistant;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
         let instructions = crate::lock(&self.instructions)
             .clone()
             .filter(|text| !text.trim().is_empty());
-        let mut sessions = self.lock();
-        // Checked under the lock: two takeovers of one session must not
-        // both start it.
-        if let Some(resume) = &begin.resume
-            && let Some(running) = sessions.values().find(|session| {
-                watched::read(&session.live, |live| {
-                    live.status() != Status::Ended && live.agent_session.as_ref() == Some(resume)
-                })
-            })
-        {
-            anyhow::bail!("session {resume} already runs here as {}", running.id);
-        }
-
-        if sessions.len() >= MAX_KEPT {
-            let oldest = sessions
-                .values()
-                .filter(|session| {
-                    watched::read(&session.live, |live| live.status() == Status::Ended)
-                })
-                .min_by_key(|session| watched::read(&session.live, |live| live.info.started_at))
-                .map(|session| session.id.clone());
-            if let Some(oldest) = oldest {
-                sessions.remove(&oldest);
-            }
-        }
-        // A new process needs a private handle before ACP names its session.
-        // Only ACP's id is published in SessionInfo.
-        let id = match &begin.resume {
-            Some(resume) => {
-                // The ended run may be keyed by its original private handle.
-                // Remove it too, so listings cannot shadow the resumed run.
-                sessions.retain(|handle, session| {
-                    handle != resume
-                        && watched::read(&session.live, |live| {
-                            live.agent_session.as_ref() != Some(resume)
-                        })
-                });
-                resume.clone()
-            }
-            None => loop {
-                let id = new_id();
-
-                if !sessions.contains_key(&id) {
-                    break id;
-                }
-            },
-        };
         let resumed = begin.resume.is_some();
         // A reviewer tells the user nothing itself: the review does.
         let alerts = if begin.review {
             Arc::default()
         } else {
             self.alerts.clone()
+        };
+        let mesh = self.mesh();
+        let context = super::brief::Context {
+            machine: mesh
+                .as_ref()
+                .map(|mesh| mcp::children::machine_name(Some(mesh)))
+                .filter(|name| !name.is_empty()),
+            project: mesh.as_ref().and_then(|mesh| {
+                mcp::projects::of_folder(mesh, &cwd.to_string_lossy(), mesh.me())
+            }),
+            multi_machine: mesh.as_ref().is_some_and(|mesh| !mcp::alone(mesh)),
+            rust_or_c: super::brief::has_native_build(&cwd),
         };
         let mut session = Session::start(Start {
             id: id.clone(),
@@ -814,12 +834,14 @@ impl Agents {
                 .get()
                 .and_then(|dir| crate::machine::provision::skills_brief(dir)),
             mcp: self.mcp.get().map(|launch| launch.server(&id)),
+            context,
             assistant,
             account: begin.account,
             persona: begin.persona,
             images: self.images.clone(),
             usage: self.usage.clone(),
             alerts,
+            checkouts: self.checkouts.clone(),
             stopping: self.stopping.clone(),
         })?;
         session.reviewer = begin.review;
@@ -881,7 +903,7 @@ impl Agents {
                 }
             }
         }));
-        sessions.insert(id, session.clone());
+        self.sessions.insert(reservation, resume, session.clone());
         crate::link::restart::changed();
         Ok(session)
     }
@@ -966,6 +988,18 @@ fn signs_in(agent: &str, account: Option<&AccountName>) -> Result<()> {
         spawn_env::has_account(keeps, account),
         "this machine does not have {agent}'s account {account} yet; try again once it has synced, or add it in Agent accounts"
     );
+    Ok(())
+}
+
+/// Refuses a session in `cwd` while git sync preserves the local edits of
+/// its checkout, one of `recovering`.
+fn not_recovering(recovering: &HashSet<PathBuf>, cwd: &Path) -> Result<()> {
+    let real = crate::files::paths::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+    anyhow::ensure!(
+        !recovering.iter().any(|root| real.starts_with(root)),
+        "Git sync is preserving local edits in this checkout; try starting the session again shortly."
+    );
+
     Ok(())
 }
 
@@ -1087,7 +1121,7 @@ pub(super) fn home_twins(path: &Path, home: &Path) -> Vec<PathBuf> {
 }
 
 /// Six hex digits, random enough to tell sessions apart.
-fn new_id() -> SessionId {
+pub(super) fn new_id() -> SessionId {
     let random = RandomState::new().hash_one(std::time::SystemTime::now());
     SessionId::new(format!("{:06x}", random & 0xff_ffff))
 }

@@ -2,7 +2,11 @@
 //! work across the user's machines. The node runs each `Request` itself,
 //! reaching the machine it names over the mesh, and answers with a `Reply`.
 
-use crate::SessionId;
+use crate::{
+    SessionId,
+    team::{Card, ForgeLogin, TeamRecord, TeamRepo},
+};
+use iroh::{EndpointAddr, EndpointId};
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumString, IntoStaticStr};
 
@@ -88,6 +92,32 @@ pub enum Tool {
     /// desktop does: its `args` hold the `projects` tool's arguments. A node
     /// forwards it to a desktop of the mesh.
     Projects,
+    /// A desktop asks the machine with a project's checkout to join that
+    /// project's team: `TeamJoinArgs`, then `Done` with the `TeamRecord` as JSON.
+    TeamJoin,
+    /// A node hands a team record it changed to a desktop, which writes it:
+    /// `TeamRosterArgs`. Nodes cannot write the mesh's state.
+    TeamRoster,
+    /// A node hands a contact's invite to a team to a desktop, to show with
+    /// Accept: `TeamInviteArgs`.
+    TeamInvite,
+    /// The team of the calling session's project: its members, their
+    /// cards and the open issues with their assignees. A node forwards it to
+    /// its mesh's gateway for the team: `TeamArgs`.
+    Team,
+    /// Sends a teammate's agent or a teammate an ask, or answers one. A
+    /// node forwards it to its mesh's gateway for the team: `TeamAskArgs`.
+    TeamAsk,
+    /// A gateway hands an ask or its answer to the session it is for, on
+    /// the machine that runs it: `TeamDeliverArgs`. Between nodes only.
+    TeamDeliver,
+    /// A gateway starts an agent on an issue assigned to the user, on a
+    /// machine of the mesh with the project: `PickupStart`, then `Done`
+    /// with the session's card id. Between nodes only.
+    TeamPickup,
+    /// What this mesh's apps ask of its teams: `TeamAppArgs`. A node sends
+    /// what only a team's gateway knows or may send on to that gateway.
+    TeamApp,
     /// A tool a newer node calls that this one does not know.
     #[serde(other)]
     Unknown,
@@ -188,4 +218,86 @@ impl HostReach {
             self.failures = self.failures.saturating_add(1);
         }
     }
+}
+
+/// `Tool::TeamJoin`'s arguments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamJoinArgs {
+    /// The `beepteam1` ticket.
+    pub ticket: String,
+}
+
+/// `Tool::TeamRoster`'s arguments.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TeamRosterArgs {
+    pub record: TeamRecord,
+}
+
+/// `Tool::TeamInvite`'s arguments.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamInviteArgs {
+    /// The contact's mesh.
+    pub from: EndpointId,
+    pub repo: TeamRepo,
+    /// The `beepteam1` ticket accepting runs.
+    pub ticket: String,
+}
+
+/// `Tool::TeamApp`'s arguments, by `action`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum TeamAppArgs {
+    /// `repo`'s Needs you cards and teammates' cards: `Done` with
+    /// `TeamCards` as JSON.
+    Cards { repo: TeamRepo },
+    /// Drops the Needs you card `card` of `repo`.
+    Dismiss { repo: TeamRepo, card: String },
+    /// Tells every member of another mesh that `login` is off `repo`'s team.
+    Remove { repo: TeamRepo, login: ForgeLogin },
+    /// Tells every member of another mesh that this mesh leaves `repo`'s team.
+    Leave { repo: TeamRepo },
+    /// Sends a contact, at `devices`, an invite to `repo`. It goes from the
+    /// gateway of `via`, a team shared with them, whose devices they know.
+    Invite {
+        via: TeamRepo,
+        repo: TeamRepo,
+        ticket: String,
+        devices: Vec<EndpointAddr>,
+    },
+    /// The contacts' invites this device keeps: `Done` with the
+    /// `TeamInviteArgs` as JSON.
+    Invites,
+    /// Drops a contact's invite this device keeps.
+    DropInvite { invite: TeamInviteArgs },
+    /// The assigned `issues` the gateway's pickup holds back for room, sent
+    /// to the other machines with `repo`'s checkout, which keep them: the
+    /// one that takes over starts them rather than take them for backlog.
+    Queued { repo: TeamRepo, issues: Vec<u64> },
+}
+
+/// `Tool::TeamApp` as it goes: the call, and whether a node sent it on to
+/// the team's gateway, which then answers it or refuses it, never sends it on.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TeamAppCall {
+    #[serde(flatten)]
+    pub args: TeamAppArgs,
+    #[serde(default)]
+    pub forwarded: bool,
+}
+
+/// What `TeamAppArgs::Cards` answers.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TeamCards {
+    /// Asks for the user, and automatic sessions that ended without a pull
+    /// request: this mesh's own, never shown to teammates.
+    pub needs_you: Vec<Card>,
+    pub teammates: Vec<Card>,
+    /// This mesh's own issues the pickup limit holds back, as its board
+    /// shows them to teammates. Missing from an older node's answer.
+    #[serde(default)]
+    pub own_queued: Vec<Card>,
+    /// The teammates whose board this mesh follows now, cards or none.
+    /// Missing from an older node's answer.
+    #[serde(default)]
+    pub online: Vec<ForgeLogin>,
 }

@@ -116,7 +116,7 @@ const DIFF = /^\[diff\] (\S.*?) \+\d+ -\d+$/;
 const NESTED = /^(.*?\/(?:\.worktrees|\.claude\/worktrees)\/[^/]+)/;
 const WORKTREE_WORD = /\bworktree\b/i;
 const MOVES = /^(Enter|Exit)Worktree\b/;
-const FLASHMIND_WORKTREE = /^worktree: Worktree (?:create|switch|list|status)$/;
+const FLASHMIND_WORKTREE = /^worktree(?:: Worktree (?:create|switch|list|status))?$/;
 
 /// Flashmind reports the active worktree as one record or as part of a list.
 function currentWorktree(output: string): string | null {

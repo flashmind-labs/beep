@@ -40,14 +40,8 @@ export function makeTerminals(deps: TerminalDeps) {
   // where each screen got to when it shows, so nothing is lost or repeated.
   if (typeof document !== "undefined") onShownChange(on => {
     for (const live of lives.values()) {
-      if (!on && (live.link === "attached" || live.link === "attaching")) {
-        detach(live);
-        live.paused = true;
-      } else if (on && live.paused) {
-        live.paused = false;
-        live.tries = 0;
-        if (live.link === "detached") attach(ALL, live);
-      }
+      if (!on && terminalFollowing(live.link)) detach(live, "paused");
+      else if (on && live.link.kind === "paused") attach(ALL, live);
     }
   });
 
@@ -145,17 +139,17 @@ export function makeTerminals(deps: TerminalDeps) {
 
     if (!live) {
       const screen = makeScreen();
-      live = { id, screen, link: "attaching", next: 0, watching: false, tries: 0, view: newView(), attaches: 0, sent: null, replay: new Replay(opened.delete(id)) };
+      live = { id, screen, link: { kind: "detached" }, next: 0, watching: false, view: newView(), sent: null, replay: new Replay(opened.delete(id)) };
       lives.set(id, live);
       const l = live;
       const input = (data: string) => {
-        if (l.link !== "attached" || l.watching) return;
+        if (l.link.kind !== "attached" || l.watching) return;
         invoke("terminal_input", { id, view: l.view, data }).catch(e => { of(name).error = reason(e); redraw(); });
       };
       screen.onData(input);
       // The node does not answer queries yet: the screen's answers go as input.
       screen.onReply(input);
-      screen.onResize(() => { if (l.link === "attached") sendSize(l); });
+      screen.onResize(() => { if (l.link.kind === "attached") sendSize(l); });
       attach(name, live);
     }
 
@@ -173,12 +167,11 @@ export function makeTerminals(deps: TerminalDeps) {
   /// Follows `live` from where its screen got to, until it ends or is
   /// detached; a dropped stream is attached again after a wait, shown in
   /// the footer rather than on the screen.
-  function attach(name: string, live: Live) {
-    clearTimeout(live.timer);
-    live.link = "attaching";
-    const attempt = ++live.attaches;
-    // Whether this is still the view's stream: one it replaced says nothing.
-    const current = () => lives.get(live.id) === live && live.attaches === attempt;
+  function attach(name: string, live: Live, tries = 0) {
+    if (live.link.kind === "disposed") return;
+    const attempt = { cancel: () => {} };
+    changeTerminalLink(live, { kind: "attaching", attempt, tries });
+    const current = () => terminalAttempt(live.link) === attempt;
     const show = (message: unknown) => {
       const ev = readTermMessage(message);
       if (ev === null) {
@@ -189,8 +182,7 @@ export function makeTerminals(deps: TerminalDeps) {
       if (ev.kind === "attached") {
         log(`terminal ${live.id}: attached`, true);
         live.replay.start(performance.now());
-        live.link = "attached";
-        live.tries = 0;
+        changeTerminalLink(live, { kind: "attached", attempt });
         live.screen.setInput(!live.watching);
         // The screen may have been fitted while it attached.
         sendSize(live);
@@ -204,7 +196,7 @@ export function makeTerminals(deps: TerminalDeps) {
         live.next = Math.max(live.next, ev.at + bytes.length);
       } else if (ev.kind === "ended") {
         log(`terminal ${live.id}: ended (${ev.state})`, true);
-        live.link = "ended";
+        changeTerminalLink(live, { kind: "ended" });
         live.screen.setInput(false);
         // Its shell exited: the terminal goes from the list and its view
         // closes. One whose machine went away may still run there.
@@ -214,30 +206,29 @@ export function makeTerminals(deps: TerminalDeps) {
         redraw();
       } else {
         log(`terminal ${live.id}: view only`, true);
-        live.link = "view_only";
+        changeTerminalLink(live, { kind: "view_only" });
         live.screen.setInput(false);
         readOutput(name);
         redraw();
       }
     };
-    const channel = inOrderChannel(streamChannel, current, show, missing => {
+    const stream = inOrderChannel(streamChannel, current, show, missing => {
       log(`terminal ${live.id}: stream message ${missing} was lost; attaching again`, false);
-      attach(name, live);
+      attach(name, live, live.link.kind === "attaching" ? live.link.tries : 0);
     });
+    attempt.cancel = stream.cancel;
     // The attach carries the size, so the node has it from here on.
     const size = live.screen.size();
     live.sent = size;
-    invoke("terminal_attach", { id: live.id, view: live.view, from: live.next, ...size, onEvent: channel })
-      .then(() => {
-        // Ended, view only or detached on purpose; else the stream dropped.
-        if (current() && (live.link === "attached" || live.link === "attaching")) retry(name, live, "");
-      })
+    invoke("terminal_attach", { id: live.id, view: live.view, from: live.next, ...size, onEvent: stream.channel })
+      .then(() => { if (current()) retry(name, live, ""); })
       .catch(e => {
-        if (!current() || live.link === "detached") return;
+        if (!current()) return;
         const why = reason(e);
 
         if (/needs an update/i.test(why)) {
-          live.link = "view_only";
+          changeTerminalLink(live, { kind: "view_only" });
+          live.screen.setInput(false);
           readOutput(name);
           redraw();
           return;
@@ -248,26 +239,24 @@ export function makeTerminals(deps: TerminalDeps) {
   }
 
   function retry(name: string, live: Live, why: string) {
-    log(`terminal ${live.id}: stream dropped, try ${live.tries + 1}${why ? `: ${why}` : ""}`, true);
-    live.tries += 1;
+    const tries = (live.link.kind === "attaching" ? live.link.tries : 0) + 1;
+    log(`terminal ${live.id}: stream dropped, try ${tries}${why ? `: ${why}` : ""}`, true);
     live.screen.setInput(false);
-    live.link = "attaching";
-    live.timer = setTimeout(() => attach(name, live), RETRY_MS);
+    changeTerminalLink(live, { kind: "retrying", tries, timer: setTimeout(() => attach(name, live, tries), RETRY_MS) });
     redraw();
   }
 
-  function detach(live: Live) {
-    clearTimeout(live.timer);
-    live.link = "detached";
-    live.paused = false;
+  function detach(live: Live, kind: "detached" | "paused" | "disposed" = "detached") {
+    const following = terminalFollowing(live.link);
+    changeTerminalLink(live, { kind });
     live.screen.setInput(false);
-    invoke("terminal_detach", { id: live.id, view: live.view }).catch(() => {});
+    if (following) invoke("terminal_detach", { id: live.id, view: live.view }).catch(() => {});
   }
 
   /// Detaches and drops every live view, such as when the view closes.
   function dropAll() {
     for (const live of lives.values()) {
-      if (live.link === "attached" || live.link === "attaching") detach(live);
+      detach(live, "disposed");
       live.screen.dispose();
     }
 
@@ -315,7 +304,7 @@ export function makeTerminals(deps: TerminalDeps) {
     const live = lives.get(id);
 
     if (live) {
-      clearTimeout(live.timer);
+      changeTerminalLink(live, { kind: "disposed" });
       live.screen.dispose();
       lives.delete(id);
     }
@@ -338,7 +327,7 @@ export function makeTerminals(deps: TerminalDeps) {
       const live = lives.get(id);
 
       if (live) {
-        detach(live);
+        detach(live, "disposed");
         live.screen.dispose();
         lives.delete(id);
       }
@@ -374,19 +363,20 @@ export function makeTerminals(deps: TerminalDeps) {
   function openView(name: string, open: TerminalRow) {
     const t = of(name);
     const live = liveOf(name, open.id);
+    const link = viewLink(live.link);
     const items: MenuItem[] = [];
     const toggleTyping = () => {
       live.watching = !live.watching;
-      live.screen.setInput(live.link === "attached" && !live.watching);
+      live.screen.setInput(live.link.kind === "attached" && !live.watching);
       if (!live.watching) live.screen.focus();
       redraw();
     };
     const detachHere = () => { detach(live); redraw(); };
-    const attachHere = () => { live.tries = 0; attach(name, live); redraw(); };
+    const attachHere = () => { attach(name, live); redraw(); };
 
-    if (live.link === "attached" || live.link === "attaching") {
+    if (link === "attached" || link === "attaching") {
       items.push({ label: live.watching ? "Take control" : "View only", on: toggleTyping }, { label: "Detach", on: detachHere });
-    } else if (live.link === "detached" || (live.link === "ended" && open.state === "offline")) {
+    } else if (link === "detached" || (link === "ended" && open.state === "offline")) {
       items.push({ label: "Attach", on: attachHere });
     }
 
@@ -403,7 +393,7 @@ export function makeTerminals(deps: TerminalDeps) {
     items.push({ label: running ? "Kill" : "Close", warn: true, on: stop });
     let body: ReactNode;
 
-    if (live.link === "view_only") {
+    if (link === "view_only") {
       const o = t.output;
       body = <TerminalOutput command={`${open.machine_name} ${open.cwd} $ ${open.command}`} earlier={!!o?.earlier} lines={o ? o.lines : []} />;
       watch(name);
@@ -419,11 +409,11 @@ export function makeTerminals(deps: TerminalDeps) {
 
     return <div className="cc-panel tm-panel" key={open.id}>
       <div className="tm-head" onContextMenu={(event: ReactMouseEvent) => { event.preventDefault(); openMenu(event.nativeEvent, open.name, items); }}>
-        <TerminalHeader terminal={open} state={stateLabel(open)} link={live.link} watching={live.watching}
+        <TerminalHeader terminal={open} state={stateLabel(open)} link={link} watching={live.watching}
           focus={() => { focusOpen(); }} toggle={toggleTyping} detach={detachHere} attach={attachHere} stop={stop} />
       </div>
       {body}
-      <div className="tm-foot"><TerminalFooter active={live.link === "attached" && open.state === "running"} label={linkLabel(live.link, live.watching, open.machine_name, live.tries)} started={ago(open.started_at)} /></div>
+      <div className="tm-foot"><TerminalFooter active={link === "attached" && open.state === "running"} label={linkLabel(link, live.watching, open.machine_name, "tries" in live.link ? live.link.tries : 0)} started={ago(open.started_at)} /></div>
     </div>;
   }
 
@@ -454,7 +444,7 @@ export function makeTerminals(deps: TerminalDeps) {
     const live = lives.get(t.open);
     if (!live) return false;
 
-    if (live.link === "view_only") {
+    if (live.link.kind === "view_only") {
       const output = terminalOutput.current;
       if (!output?.isConnected) return false;
       output.focus();
@@ -714,28 +704,47 @@ interface TerminalForm {
 /// How an open terminal's live view stands.
 type Link = "attaching" | "attached" | "detached" | "ended" | "view_only";
 
+interface TerminalAttempt { cancel(): void }
+
+export type TerminalLink =
+  | { kind: "attaching"; attempt: TerminalAttempt; tries: number }
+  | { kind: "attached"; attempt: TerminalAttempt }
+  | { kind: "retrying"; timer: ReturnType<typeof setTimeout>; tries: number }
+  | { kind: "closing"; completion: Promise<void> }
+  | { kind: "paused" | "detached" | "ended" | "view_only" | "disposed" };
+
+export const terminalAttempt = (link: TerminalLink) => "attempt" in link ? link.attempt : null;
+export const terminalFollowing = (link: TerminalLink) => terminalAttempt(link) !== null || link.kind === "retrying";
+
+/// Leaves the old attempt and its timers before a different stream can start.
+export function changeTerminalLink(target: { link: TerminalLink }, link: TerminalLink) {
+  const before = target.link, attempt = terminalAttempt(before);
+  target.link = link;
+  if (before.kind === "retrying") clearTimeout(before.timer);
+  if (attempt && attempt !== terminalAttempt(link)) attempt.cancel();
+}
+
+function viewLink(link: TerminalLink): Link {
+  if (link.kind === "retrying") return "attaching";
+  if (link.kind === "paused" || link.kind === "closing" || link.kind === "disposed") return "detached";
+  return link.kind;
+}
+
 /// The open terminal's live view: its screen and how far its output got.
 interface Live {
   id: string;
   screen: Screen;
-  link: Link;
+  link: TerminalLink;
   /// Bytes of output on the screen so far: where a reattach starts.
   next: number;
   /// Typing is off by choice ("View only").
   watching: boolean;
-  /// Failed attaches in a row, for the wait before the next.
-  tries: number;
-  timer?: ReturnType<typeof setTimeout>;
   /// This view's name for its stream.
   view: string;
-  /// Counts attaches, so a stream that an attach replaced is ignored.
-  attaches: number;
   /// The size the node last got from this view.
   sent: TermSize | null;
   /// Which output replays what the node kept.
   replay: Replay;
-  /// Let go while the window was hidden, to follow again when it shows.
-  paused?: boolean;
 }
 
 /// One project's terminals: `list` is undefined while it loads.
@@ -928,13 +937,17 @@ export function inOrderChannel(
     timer = setTimeout(() => { if (current()) lost(missing); }, LOST_MS);
   };
 
-  return open((message, index) => {
+  const channel = open((message, index) => {
+    if (!current()) return;
+
     for (const next of order.take(message, index)) {
       if (!current()) return;
       show(next);
     }
-    watchGap();
+    if (current()) watchGap();
   });
+
+  return { channel, cancel: () => clearTimeout(timer) };
 }
 
 /// Whether a terminal that ended in `state` is done for good: it exited or was

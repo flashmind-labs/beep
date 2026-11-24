@@ -1,5 +1,6 @@
 use super::*;
 use crate::agents::{AgentKind, OpenSession, SavedSession};
+use crate::team::{asks::Delivery, link::TeamLink};
 use beep_proto::node::agent::{Persona, Request};
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path};
@@ -67,7 +68,7 @@ async fn root(agents: &Agents, harness: &AgentKind, dir: &Path) -> Arc<Session> 
                 ..Begin::default()
             },
         )
-        .expect("the session starts");
+        .await.expect("the session starts");
     until(&session, |live| {
         live.agent_session.is_some() && live.info.turns == 1
     })
@@ -518,7 +519,7 @@ async fn news_for_a_message_a_session_did_not_take_comes_with_the_next() {
     })
     .await;
     // Worked out for a message the session then refuses: not seen yet.
-    let (refused, _) = rig.agents.heard(&parent, String::from("go").into());
+    let (refused, _) = rig.agents.heard(&parent, String::from("go").into()).await;
     assert!(refused.context.is_some());
     rig.agents
         .send_session("top", &parent.id, said("go"))
@@ -569,8 +570,6 @@ async fn the_words_that_resume_an_ended_thread_are_the_users() {
 
 #[tokio::test]
 async fn a_parents_message_makes_the_turn_its_own() {
-    use std::sync::atomic::Ordering;
-
     let rig = Rig::new();
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
@@ -582,12 +581,29 @@ async fn a_parents_message_makes_the_turn_its_own() {
         .send_session("kid", &child.id, said("hang on"))
         .await
         .expect("the thread takes the user's message");
-    assert!(child.user_turn.load(Ordering::Relaxed));
+    assert!(child.user_turn());
     // What the parent now asks of it is the parent's to hear the end of.
     Agents::tell_child(&child, "more".to_owned())
         .await
         .expect("the thread takes its parent's message");
-    assert!(!child.user_turn.load(Ordering::Relaxed));
+    assert!(!child.user_turn());
+    rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_thread_that_ended_still_tells_whether_the_user_began_its_last_turn() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
+    until(&child, |live| {
+        live.info.turns == 1 && live.status() == Status::Idle
+    })
+    .await;
+    child.set_user_turn(true).await;
+    child.close().await;
+    // The session's task is gone, so the order is refused: the follower
+    // that asks after the turn still finds the turn the user's.
+    assert!(child.take_user_turn().await);
     rig.agents.shutdown().await;
 }
 
@@ -1400,4 +1416,124 @@ async fn a_prompt_to_a_session_that_ended_resumes_it() {
     assert!(rig.read("top.log").contains("carry on"));
 
     rig.agents.shutdown().await;
+}
+
+#[tokio::test]
+async fn a_teammate_reaches_no_session_the_user_stopped() {
+    let rig = Rig::new();
+    let session = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    session
+        .order(Command::Prompt("hang on".to_owned().into()))
+        .await
+        .expect("the session takes the prompt");
+    until(&session, |live| live.status() == Status::Working).await;
+    session
+        .order(Command::Cancel { by_user: true })
+        .await
+        .expect("the session takes the stop");
+    until(&session, |live| live.status() == Status::Idle).await;
+    let id = Agents::name_of(&session);
+    let card = format!("{id}@build-box");
+
+    for delivery in [Delivery::Ask, Delivery::Reply] {
+        let given = rig
+            .agents
+            .deliver_from_teammate(&id, &card, delivery, "Can I take #52?".to_owned())
+            .await;
+        assert_eq!(given, Err(format!("{card} was stopped by its user")));
+    }
+
+    let log = rig.read("top.log");
+    assert!(!log.contains("Can I take #52?"), "{log}");
+    rig.agents.shutdown().await;
+}
+
+/// What this machine answers when `from` hands `text` to the session on `card`.
+async fn handed(
+    link: &TeamLink,
+    agents: &Agents,
+    from: Option<EndpointId>,
+    card: &str,
+    delivery: Delivery,
+) -> (String, bool) {
+    let args = serde_json::json!({ "card": card, "delivery": delivery, "text": "Can I take #52?" });
+    let request = beep_proto::node::tools::Request {
+        session: SessionId::default(),
+        tool: beep_proto::node::tools::Tool::TeamDeliver,
+        args: args.to_string(),
+        approved: Default::default(),
+    };
+
+    match crate::agents::mcp::answer_team(link, agents, from, &request).await {
+        beep_proto::node::tools::Reply::Done { text, failed } => (text, failed),
+        other => panic!("not done: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_teammate_reaches_only_a_team_session_through_its_gateway() {
+    use crate::team::home::{Checkout, ForgeCli, Project};
+    use beep_proto::team::{TeamRecord, TeamRepo};
+
+    let rig = Rig::new();
+    let session = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let card = format!("{}@build-box", Agents::name_of(&session));
+    let endpoint = iroh::Endpoint::builder(iroh::endpoint::presets::Minimal)
+        .bind()
+        .await
+        .expect("an endpoint");
+    // Handing a text on asks the forge nothing.
+    let link = TeamLink::new(endpoint, Arc::new(ForgeCli));
+    let repo = || "github.com/org/repo".parse::<TeamRepo>().expect("a repo");
+    let elected = iroh::SecretKey::generate().public();
+    let gateway = Some(elected);
+    let agents = &rig.agents;
+
+    let (text, failed) = handed(&link, agents, gateway, &card, Delivery::Ask).await;
+    assert!(failed && text.contains("works on no team's project"), "{text}");
+
+    let mut record = TeamRecord::new(repo(), Vec::new());
+    record.asks = false;
+    let folder = rig.dir.path().to_owned();
+    link.with(|teams| {
+        teams.rosters.refresh([(repo(), record)].into());
+        teams.gateways.insert(repo(), elected);
+        let checkout = Some(Checkout {
+            folder,
+            remote: String::new(),
+        });
+        let project = Project {
+            name: "org/repo".to_owned(),
+            checkout,
+            devices: Vec::new(),
+        };
+        teams.home.projects.insert(repo(), project);
+    });
+
+    let elsewhere = Some(iroh::SecretKey::generate().public());
+    let (text, failed) = handed(&link, agents, elsewhere, &card, Delivery::Reply).await;
+    assert!(failed && text.contains("does not act for the team"), "{text}");
+
+    let (text, failed) = handed(&link, agents, gateway, &card, Delivery::Ask).await;
+    assert!(failed && text.contains("takes no messages"), "{text}");
+    assert!(!rig.read("top.log").contains("Can I take #52?"));
+
+    let (text, failed) = handed(&link, agents, gateway, &card, Delivery::Reply).await;
+    assert!(!failed, "{text}");
+    rig.agents.shutdown().await;
+}
+
+#[test]
+fn a_teammate_s_words_never_answer_what_the_user_is_asked() {
+    let mut live = Live::default();
+    live.info.state.status = Status::Asking;
+    assert_eq!(
+        notes::open_to_teammates(&live, "s1@build-box"),
+        Err("s1@build-box is waiting on its user".to_owned())
+    );
+
+    live.info.state.status = Status::Working;
+    assert_eq!(notes::open_to_teammates(&live, "s1@build-box"), Ok(false));
+    live.info.state.status = Status::Idle;
+    assert_eq!(notes::open_to_teammates(&live, "s1@build-box"), Ok(true));
 }

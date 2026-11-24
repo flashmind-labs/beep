@@ -3,24 +3,21 @@
 
 use super::{
     lock,
-    screen::Screen,
-    terminals::{Live, Term, Terminals},
+    screen::{Phase, Screen},
+    terminals::{Live, Opener, Term},
 };
 use crate::machine::provision::spawn_env::{self, Scope};
 use anyhow::{Context, Result};
+use beep_proto::watched;
 use beep_proto::node::{
     process::{TaskId, TaskState},
     terminal::Size,
 };
-use portable_pty::{Child, CommandBuilder, PtySize, native_pty_system};
+use portable_pty::{Child, CommandBuilder, ExitStatus, PtySize, native_pty_system};
 use std::{
-    io::{Read, Write},
+    io::{self, Read, Write},
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-        mpsc as std_mpsc,
-    },
+    sync::{Arc, Mutex, mpsc as std_mpsc},
     thread,
     time::Duration,
 };
@@ -77,7 +74,7 @@ fn shell_command(command: Option<&str>) -> (String, CommandBuilder) {
         (program, builder)
     }
 }
-impl Terminals {
+impl Opener {
     /// Opens a pseudo-terminal of `size` and starts the shell in it, its
     /// output starting with `banner` when given.
     pub(super) fn open(
@@ -99,7 +96,7 @@ impl Terminals {
         builder.env("TERM", "xterm-256color");
         builder.env("COLORTERM", "truecolor");
 
-        match &*lock(&self.env) {
+        watched::read_sent(&self.env, |env| match env {
             Some(env) => {
                 for var in env {
                     builder.env(&var.name, var.value.expose());
@@ -110,7 +107,7 @@ impl Terminals {
                     builder.env(name, value);
                 }
             }
-        }
+        });
 
         let pair = native_pty_system()
             .openpty(pty_size(size))
@@ -132,6 +129,15 @@ impl Terminals {
             .context("writing to the terminal")?;
         let killer = child.clone_killer();
         let pid = child.process_id();
+        #[cfg(windows)]
+        let process = child.as_raw_handle().and_then(|raw| {
+            use std::os::windows::io::BorrowedHandle;
+
+            // SAFETY: The child owns the handle until the duplicate is made.
+            unsafe { BorrowedHandle::borrow_raw(raw) }
+                .try_clone_to_owned()
+                .ok()
+        });
         #[cfg(unix)]
         let group = pid.and_then(crate::run::process::Group::led_by);
         let name = match command {
@@ -152,7 +158,8 @@ impl Terminals {
             changed: watch::channel(0).0,
             input: input_tx,
             master: Mutex::new(pair.master),
-            stopping: AtomicBool::new(false),
+            #[cfg(windows)]
+            process,
             started_or_ended: self.changed.clone(),
         });
         let (drained_tx, drained_rx) = std_mpsc::sync_channel(1);
@@ -169,7 +176,7 @@ impl Terminals {
         live.started_or_ended();
         Ok(Term {
             live,
-            killer,
+            killer: Mutex::new(killer),
             #[cfg(unix)]
             group,
             pid,
@@ -228,29 +235,100 @@ fn wait_exit(
     mut child: Box<dyn Child + Send + Sync>,
     drained: &std_mpsc::Receiver<()>,
 ) {
-    let status = child.wait();
+    reap(live, &mut *child);
+    live.changed.send_modify(|n| *n += 1);
+    live.started_or_ended();
     // Something the child started may hold the terminal open; its output
     // then keeps coming, but the terminal counts as ended.
     if drained.recv_timeout(DRAIN_WAIT).is_err() {
         log::debug!("terminal {} ended with its output still open", live.id);
     }
 
-    let state = if live.stopping.load(Ordering::Acquire) {
-        TaskState::Stopped
-    } else {
-        match status {
-            Ok(status) if status.signal().is_some() => TaskState::Exited { code: None },
-            Ok(status) => TaskState::Exited {
-                code: i32::try_from(status.exit_code()).ok(),
-            },
-            Err(e) => {
-                log::warn!("could not wait for terminal {}: {e}", live.id);
-                TaskState::Exited { code: None }
-            }
+    {
+        let mut screen = lock(&live.screen);
+        if let Phase::Draining(state) = screen.phase {
+            screen.phase = Phase::Ended(state);
         }
-    };
-    lock(&live.screen).state = state;
+    }
     live.changed.send_modify(|n| *n += 1);
     crate::events::system().changed(beep_proto::node::events::Topic::new("terminal-output"));
     live.started_or_ended();
+}
+
+fn reap(live: &Live, child: &mut dyn Child) {
+    #[cfg(windows)]
+    if live.process.is_some() {
+        // Stop checks the same process object's signaled state before changing
+        // the phase. Waiting on it can block without holding the screen lock.
+        let status = child.wait();
+        mark_draining(&mut lock(&live.screen), live.id, status);
+        return;
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    if let Some(pid) = child
+        .process_id()
+        .and_then(|pid| i32::try_from(pid).ok())
+        .and_then(rustix::process::Pid::from_raw)
+        && wait_to_reap(pid)
+    {
+        // The child is a zombie, so `wait` returns at once. Hold the same
+        // lock as signal delivery until the phase no longer permits signals.
+        let mut screen = lock(&live.screen);
+        mark_draining(&mut screen, live.id, child.wait());
+        return;
+    }
+
+    // Fall back to checking under the signal lock if the OS exit wait is unavailable.
+    loop {
+        {
+            let mut screen = lock(&live.screen);
+            match child.try_wait() {
+                Ok(None) => {}
+                Ok(Some(status)) => {
+                    mark_draining(&mut screen, live.id, Ok(status));
+                    return;
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                Err(error) => {
+                    mark_draining(&mut screen, live.id, Err(error));
+                    return;
+                }
+            }
+        }
+
+        thread::sleep(Duration::from_millis(25));
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn wait_to_reap(pid: rustix::process::Pid) -> bool {
+    use rustix::process::{WaitId, WaitIdOptions, waitid};
+
+    loop {
+        match waitid(
+            WaitId::Pid(pid),
+            WaitIdOptions::EXITED | WaitIdOptions::NOWAIT,
+        ) {
+            Ok(Some(_)) => return true,
+            Err(rustix::io::Errno::INTR) => {}
+            _ => return false,
+        }
+    }
+}
+
+fn mark_draining(screen: &mut Screen, id: TaskId, status: io::Result<ExitStatus>) {
+    let stopped = matches!(screen.phase, Phase::Stopping);
+    let state = match status {
+        _ if stopped => TaskState::Stopped,
+        Ok(status) if status.signal().is_some() => TaskState::Exited { code: None },
+        Ok(status) => TaskState::Exited {
+            code: i32::try_from(status.exit_code()).ok(),
+        },
+        Err(e) => {
+            log::warn!("could not wait for terminal {id}: {e}");
+            TaskState::Exited { code: None }
+        }
+    };
+    screen.phase = Phase::Draining(state);
 }

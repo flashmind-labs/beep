@@ -6,13 +6,15 @@
 use crate::{
     agents::{
         Agents,
-        mcp::{ProjectTools, answer_projects, children, harness},
+        mcp::{ProjectTools, answer_projects, answer_team, children, harness},
     },
     files::transfer::{Incoming, Transfers},
     link::Offers,
     run::tasks::{self, Table},
+    team::link::TeamLink,
 };
 use anyhow::{Context, Result};
+use beep_mesh::Mesh;
 use beep_proto::node::{
     LinkRx, LinkTx,
     process::{Reply as TaskReply, Request as TaskRequest, TaskId},
@@ -38,6 +40,8 @@ const DEFAULT_RUN_SECS: u64 = 600;
 pub(crate) struct Caller {
     /// The tasks the caller's jobs live in and can see.
     pub table: Table,
+    /// Whether this device is a desktop, used for team roster and invite writes.
+    pub desktop_here: bool,
     /// Why a node may not run commands or start agents here, if the host
     /// does not share this machine with other devices.
     pub commands_off: Option<String>,
@@ -49,6 +53,11 @@ pub(crate) struct Caller {
     /// This machine's answer to the assistant's project tools, when it is a
     /// desktop.
     pub project_tools: Option<Arc<dyn ProjectTools>>,
+    /// This device's team link: for its own desktops' joins, and the team
+    /// tools of the mesh's sessions.
+    pub team: Option<TeamLink>,
+    /// The mesh this device is in.
+    pub mesh: Option<Mesh>,
 }
 
 impl Caller {
@@ -56,10 +65,13 @@ impl Caller {
     pub(crate) fn local(offers: &Offers) -> Self {
         Self {
             table: Table::Shared,
+            desktop_here: false,
             commands_off: None,
             transfers: offers.transfers.get(),
             agents: Some(offers.agents.clone()),
             project_tools: offers.project_tools.clone(),
+            team: offers.reach.peers().map(|peers| peers.team()),
+            mesh: offers.mesh.get(),
         }
     }
 }
@@ -90,6 +102,41 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
 
     if request.tool == Tool::Projects {
         return answer_projects(caller.project_tools.as_ref(), &request).await;
+    }
+
+    // Only the user's desktops join teams; nodes ask and deliver.
+    if request.tool == Tool::TeamJoin {
+        let team = caller
+            .team
+            .as_ref()
+            .filter(|_| !matches!(caller.table, Table::Peer(_)));
+        return crate::team::join::answer(team, &request).await;
+    }
+
+    if matches!(
+        request.tool,
+        Tool::TeamRoster | Tool::TeamInvite | Tool::TeamApp
+    ) {
+        return crate::team::apps::answer(&caller, &request).await;
+    }
+
+    if matches!(
+        request.tool,
+        Tool::Team | Tool::TeamAsk | Tool::TeamDeliver | Tool::TeamPickup
+    ) {
+        return match (&caller.team, &caller.agents) {
+            (Some(team), Some(agents)) => {
+                let from = match caller.table {
+                    Table::Peer(peer) => Some(peer),
+                    Table::Shared => None,
+                };
+                answer_team(team, agents, from, &request).await
+            }
+            _ => Reply::Done {
+                text: "This machine does not act for a team.".to_owned(),
+                failed: true,
+            },
+        };
     }
 
     if matches!(
@@ -150,7 +197,15 @@ async fn agent_call(request: Request, caller: &Caller) -> Reply {
         text: text.to_owned(),
         failed: true,
     };
-    let (Table::Peer(peer), Some(agents)) = (caller.table, &caller.agents) else {
+    let Some(agents) = &caller.agents else {
+        return failed("Agents are started through the node's own Beep MCP server.");
+    };
+
+    if request.tool == Tool::ListAgents {
+        return children::listed(agents, &request.args);
+    }
+
+    let Table::Peer(peer) = caller.table else {
         return failed("Agents are started through the node's own Beep MCP server.");
     };
 
@@ -197,7 +252,7 @@ async fn run_on(args: RunOn, table: Table) -> Outcome {
     let limit = Duration::from_secs(secs);
 
     if args.background {
-        return match tasks::start_for(table, command, args.cwd, limit) {
+        return match tasks::start_for(table, command, args.cwd, limit).await {
             TaskReply::Started { id } => Ok(format!(
                 "Started it in the background. Job id: {id}. Check it with remote_run_status, \
                  stop it with remote_run_cancel."

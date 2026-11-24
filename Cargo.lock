@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "beep-desktop"
-version = "0.10.20"
+version = "0.10.26"
 dependencies = [
  "ammonia",
  "anyhow",
@@ -664,6 +664,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -711,6 +712,7 @@ dependencies = [
  "anyhow",
  "beep-node",
  "beep-proto",
+ "blake3",
  "bytes",
  "crc32fast",
  "fastrand",
@@ -736,7 +738,7 @@ dependencies = [
 
 [[package]]
 name = "beep-node"
-version = "0.8.15"
+version = "0.8.19"
 dependencies = [
  "agent-client-protocol",
  "anyhow",
@@ -810,6 +812,7 @@ dependencies = [
  "tonic-prost-build",
  "tower",
  "tracing",
+ "tracing-subscriber",
  "url",
  "uuid",
  "which",

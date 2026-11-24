@@ -12,7 +12,7 @@ use crate::agents::{acp::Prompt, cut};
 use beep_proto::SessionId;
 use beep_proto::node::agent::{SessionInfo, Status, StopReason};
 use beep_proto::watched;
-use std::sync::{Arc, atomic::Ordering};
+use std::sync::Arc;
 
 /// How the context starts.
 const HEAD: &str = "Since your last turn in this chat, as context and not a request \
@@ -89,33 +89,31 @@ impl Agents {
     ) -> Result<(), String> {
         let (command, news) = match command {
             Command::Prompt(prompt) => {
-                let (prompt, news) = self.heard(session, prompt);
+                let (prompt, news) = self.heard(session, prompt).await;
                 (Command::Prompt(prompt), news)
             }
             Command::Steer(prompt) => {
-                let (prompt, news) = self.heard(session, prompt);
+                let (prompt, news) = self.heard(session, prompt).await;
                 (Command::Steer(prompt), news)
             }
             other => (other, News::default()),
         };
         session.order(command).await?;
 
-        for (id, mark) in news.seen {
-            session.see(&id, mark);
-        }
+        session.see(news.seen).await;
 
         Ok(())
     }
 
     /// The user's `prompt` to `session` with what its relatives came to,
     /// which it has not seen until it takes the prompt.
-    pub(super) fn heard(&self, session: &Arc<Session>, mut prompt: Prompt) -> (Prompt, News) {
+    pub(super) async fn heard(&self, session: &Arc<Session>, mut prompt: Prompt) -> (Prompt, News) {
         session.user_wrote();
         let status = watched::read(&session.live, Live::status);
 
         // A message to an idle session starts a turn that is the user's.
         if status == Status::Idle {
-            session.user_turn.store(true, Ordering::Relaxed);
+            session.set_user_turn(true).await;
         }
 
         // Words sent while it asks may be the answer, and a command is the

@@ -141,6 +141,8 @@ body.cbody
               b "0 agents"
               span "running"
             button.m [type="button"]
+              b "Team"
+            button.m [type="button"]
               b "Machines"
               span "1/1"
             button.m [type="button"]

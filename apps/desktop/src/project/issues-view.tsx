@@ -6,6 +6,8 @@ import { Checkbox } from "../ui/kit.tsx";
 interface Props {
   items: readonly SplitItem[];
   filter: LabelFilter;
+  /// The team's All, Mine and Unassigned chips; null without a team.
+  owners: ReactNode;
   controls: ReactNode;
   start: ReactNode;
   selection: (id: string) => boolean | null;
@@ -13,9 +15,10 @@ interface Props {
   openTile: (key: string) => void;
 }
 
-export function ProjectIssues({ items, filter, controls, start, selection, pick, openTile }: Props) {
+export function ProjectIssues({ items, filter, owners, controls, start, selection, pick, openTile }: Props) {
   return <>
     {controls}
+    {owners}
     <LabelGroup filter={filter}/>
     <div className="pj-rows">{items.map(item => {
       const checked = item.start ? selection(item.key) : null;

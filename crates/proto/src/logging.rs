@@ -99,17 +99,27 @@ where
 /// A request that takes this long is logged at `INFO` however it ends.
 pub(crate) const SLOW_REQUEST: Duration = Duration::from_secs(1);
 
+/// A reason is cut to this many characters in the log.
+const REASON_CHARS: usize = 120;
+
 /// Logs a request's phases at `DEBUG`, and its end, including when its
-/// future is dropped: at `INFO` only when it failed, was dropped or took
-/// `SLOW_REQUEST`, as most requests take a few milliseconds and a busy app
-/// makes thousands a minute. Pass operation labels only, never request
-/// bodies or credentials.
+/// future is dropped: at `INFO` only when it failed, was refused, was dropped
+/// or took `SLOW_REQUEST`, as most requests take a few milliseconds and a busy
+/// app makes thousands a minute. A stream that lives as long as its
+/// connection is marked with `stream`: its normal end is `DEBUG` with outcome
+/// `closed`. Pass operation labels only, never request bodies or credentials.
+///
+/// Outcomes: `ok`, `refused` (the handler answered an error, see `refuse`),
+/// `error` (see `fail`), `cancelled` (dropped before it finished) and
+/// `closed` (a stream that ended).
 pub struct RequestTrace {
     id: uuid::Uuid,
     operation: String,
     started: Instant,
     phase: &'static str,
     outcome: &'static str,
+    reason: Option<String>,
+    stream: bool,
 }
 
 impl RequestTrace {
@@ -120,6 +130,8 @@ impl RequestTrace {
             started: Instant::now(),
             phase: "received",
             outcome: "cancelled",
+            reason: None,
+            stream: false,
         };
         trace.record();
         trace
@@ -134,22 +146,91 @@ impl RequestTrace {
         self.outcome = if success { "ok" } else { "error" };
     }
 
+    /// The request failed for `reason`.
+    pub fn fail(&mut self, reason: impl fmt::Display) {
+        self.outcome = "error";
+        self.reason = Some(cut(reason));
+    }
+
+    /// The handler answered an error, `reason`, and the answer was sent.
+    pub fn refuse(&mut self, reason: impl fmt::Display) {
+        self.outcome = "refused";
+        self.reason = Some(cut(reason));
+    }
+
+    /// Marks this request as a stream that lives as long as its connection.
+    pub fn long_lived(&mut self) {
+        self.stream = true;
+    }
+
+    /// Marks this request a stream and runs it: its end is `ok`, or `error`
+    /// with the reason, and a stream that is dropped counts as closed.
+    pub async fn stream<T, E: fmt::Display>(
+        &mut self,
+        stream: impl Future<Output = Result<T, E>>,
+    ) -> Result<T, E> {
+        self.long_lived();
+        let result = stream.await;
+        self.end(&result);
+
+        result
+    }
+
+    /// Ends the request as `ok`, or as `error` with the reason.
+    pub fn end<T, E: fmt::Display>(&mut self, result: &Result<T, E>) {
+        match result {
+            Ok(_) => self.finish(true),
+            Err(e) => self.fail(format!("{e:#}")),
+        }
+    }
+
+    /// Whether the end is quiet: a request that went well and was quick, or
+    /// a stream that ended without an error.
+    fn ends_quietly(&self, elapsed: Duration) -> bool {
+        match self.outcome {
+            "ok" => self.stream || elapsed < SLOW_REQUEST,
+            "cancelled" => self.stream,
+            _ => false,
+        }
+    }
+
     fn record(&self) {
         tracing::debug!(request = %self.id, operation = self.operation, phase = self.phase,
             elapsed_ms = self.started.elapsed().as_millis(), "request progress");
     }
 }
 
+/// Only the outermost part of `reason`, the text before the first `: `: the
+/// rest of an error chain can hold paths and git's output, which can hold a
+/// remote's credentials, and logs end up in problem reports.
+fn cut(reason: impl fmt::Display) -> String {
+    let reason = reason.to_string();
+    let outer = reason
+        .split_once(": ")
+        .map_or(reason.as_str(), |(outer, _)| outer);
+
+    outer.chars().take(REASON_CHARS).collect()
+}
+
 impl Drop for RequestTrace {
     fn drop(&mut self) {
         let elapsed = self.started.elapsed();
+        let quiet = self.ends_quietly(elapsed);
+        let outcome = if quiet && self.stream {
+            "closed"
+        } else {
+            self.outcome
+        };
 
-        if self.outcome == "ok" && elapsed < SLOW_REQUEST {
+        if quiet {
             tracing::debug!(request = %self.id, operation = self.operation, phase = self.phase,
-                outcome = self.outcome, elapsed_ms = elapsed.as_millis(), "request ended");
+                outcome, elapsed_ms = elapsed.as_millis(), "request ended");
+        } else if let Some(reason) = &self.reason {
+            tracing::info!(request = %self.id, operation = self.operation, phase = self.phase,
+                outcome, reason, elapsed_ms = elapsed.as_millis(), "request ended");
         } else {
             tracing::info!(request = %self.id, operation = self.operation, phase = self.phase,
-                outcome = self.outcome, elapsed_ms = elapsed.as_millis(), "request ended");
+                outcome, elapsed_ms = elapsed.as_millis(), "request ended");
         }
     }
 }

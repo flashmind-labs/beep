@@ -178,6 +178,8 @@ body.cbody
               b "1 agent"
               span "running"
             button.m [type="button"]
+              b "Team"
+            button.m [type="button"]
               b "Machines"
               span "1/1"
             button.m [type="button"]
@@ -307,6 +309,9 @@ body.cbody
                       kbd "x"
                     span "filter"
                       kbd "/"
+                    span "next, previous match"
+                      kbd "n"
+                      kbd "N"
         form.cc-pjc
           div.box
             div.cx-layer [aria-hidden="true" hidden]

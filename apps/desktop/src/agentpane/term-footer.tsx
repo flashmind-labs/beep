@@ -1,9 +1,10 @@
 import { useLayoutEffect, useRef, type MouseEvent } from "react";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
-import { closeTab, type MediaTab } from "./media.ts";
+import { stopTerminalTab, type MediaTab } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
 import { readError } from "./read.ts";
-import { attach, detachTerm, killTerm, termStatus, type PaneTerm } from "./terminal.ts";
+import { attach, detachTerm, termStatus, type PaneTerm } from "./terminal.ts";
+import { terminalFollowing } from "../terminals/terminals.tsx";
 import { Button } from "../ui/kit.tsx";
 
 /// A terminal tab: its live screen, and a footer to attach again or stop it.
@@ -23,10 +24,11 @@ export function TermView({ tab, term, hidden }: { tab: MediaTab; term: PaneTerm;
 }
 
 function TermFooter({ tab, term }: { tab: MediaTab; term: PaneTerm }) {
-  const reattach = () => { term.tries = 0; attach(term); };
-  const kill = () => killTerm(term).then(() => { tab.term = undefined; closeTab(tab.id); });
+  const reattach = () => attach(term);
+  const kill = () => stopTerminalTab(tab);
   const close = () => {
-    if (term.row.state !== "running" || term.link === "ended") {
+    if (tab.closed) return;
+    if (term.row.state !== "running" || term.link.kind === "ended") {
       void kill().catch(error => noteTab(tab, readError(error)));
       return;
     }
@@ -34,10 +36,10 @@ function TermFooter({ tab, term }: { tab: MediaTab; term: PaneTerm }) {
   };
   const menu = (event: MouseEvent) => {
     const items: MenuItem[] = [];
-    if (term.link === "detached") items.push({ label: "Attach", on: reattach });
-    if (term.link === "attached" || term.link === "attaching") items.push({ label: "Detach", on: () => { detachTerm(term); touchTab(tab); } });
-    items.push({ label: term.row.state === "running" && term.link !== "ended" ? "Kill" : "Close", warn: true, on: close });
-    openMenu(event.nativeEvent, tab.name, items);
+    if (term.link.kind === "detached") items.push({ label: "Attach", on: reattach });
+    if (terminalFollowing(term.link)) items.push({ label: "Detach", on: () => { detachTerm(term); touchTab(tab); } });
+    if (!tab.closed) items.push({ label: term.row.state === "running" && term.link.kind !== "ended" ? "Kill" : "Close", warn: true, on: close });
+    if (items.length) openMenu(event.nativeEvent, tab.name, items);
   };
-  return <div className="agpacts" onContextMenu={menu}><span className="meta mono">{tab.note ?? termStatus(term, term.row.machine_name)}</span><span className="sp" /><Button data-tattach="1" hidden={term.link !== "detached"} onClick={reattach}>Attach</Button><Button danger data-tkill="1" onClick={close}>Close</Button></div>;
+  return <div className="agpacts" onContextMenu={menu}><span className="meta mono">{tab.note ?? termStatus(term, term.row.machine_name)}</span><span className="sp" /><Button data-tattach="1" hidden={term.link.kind !== "detached"} onClick={reattach}>Attach</Button><Button danger disabled={tab.closed === true} data-tkill="1" onClick={close}>Close</Button></div>;
 }

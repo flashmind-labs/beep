@@ -105,16 +105,21 @@ reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
 read -r line
 reply '{"protocolVersion":1,"agentCapabilities":{}}'
 read -r line
-reply '{"sessionId":"s","models":{"availableModels":[{"modelId":"sonnet","name":"Sonnet"},{"modelId":"opus","name":"Opus"}],"currentModelId":"sonnet"}}'
+reply "$1"
 cat > /dev/null
 "#;
 
 #[cfg(unix)]
-fn adapter(name: &str, script: &str) -> AgentKind {
+fn adapter(name: &str, response: serde_json::Value) -> AgentKind {
     AgentKind {
         name: name.into(),
         program: "sh".into(),
-        args: vec!["-c".into(), script.into(), "fake-adapter".into()],
+        args: vec![
+            "-c".into(),
+            MODELS_ADAPTER.into(),
+            "fake-adapter".into(),
+            response.to_string(),
+        ],
         env: Default::default(),
         compact: None,
         compact_models: Vec::new(),
@@ -126,11 +131,56 @@ fn adapter(name: &str, script: &str) -> AgentKind {
 #[cfg(unix)]
 #[tokio::test]
 async fn an_acp_agent_lists_the_models_its_session_offers() {
-    let listing = find(adapter("claude", MODELS_ADAPTER)).await;
+    let response = serde_json::json!({
+        "sessionId": "s",
+        "models": {
+            "availableModels": [
+                {"modelId": "sonnet", "name": "Sonnet"},
+                {"modelId": "opus", "name": "Opus"}
+            ],
+            "currentModelId": "sonnet"
+        }
+    });
+    let listing = find(adapter("claude", response)).await;
     assert_eq!(listing.pick, ModelPick::Listed);
     assert_eq!(listing.current.as_deref(), Some("sonnet"));
     let names: Vec<&str> = listing.models.iter().map(|m| m.name.as_str()).collect();
     assert_eq!(names, ["Sonnet", "Opus"]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn pi_lists_the_provider_separately_from_the_model_name() {
+    let id = "openrouter/vendor/model:batch";
+    let response = serde_json::json!({
+        "sessionId": "s",
+        "configOptions": [{
+            "id": "model",
+            "name": "Model",
+            "category": "model",
+            "type": "select",
+            "currentValue": id,
+            "options": [
+                {"value": id, "name": "openrouter/Vendor: Model (batch)"},
+                {"value": "custom/model", "name": "Family/Model"},
+                {"value": "default", "name": "Default"}
+            ]
+        }]
+    });
+    let listing = find(adapter("pi", response)).await;
+
+    assert_eq!(listing.pick, ModelPick::Listed);
+    assert_eq!(listing.current.as_deref(), Some(id));
+    let models: Vec<_> = listing
+        .models
+        .iter()
+        .map(|model| (model.id.as_str(), model.name.as_str(), model.provider.as_deref()))
+        .collect();
+    assert_eq!(models, [
+        (id, "Vendor: Model (batch)", Some("openrouter")),
+        ("custom/model", "Family/Model", Some("custom")),
+        ("default", "Default", None),
+    ]);
 }
 
 #[cfg(unix)]

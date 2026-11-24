@@ -300,6 +300,17 @@ pub async fn agent_tree_upload(
     }
 }
 
+/// Removes a temporary upload from a new chat's draft.
+#[tauri::command]
+pub async fn agent_discard_draft_attachment(
+    fleet: Machines<'_>,
+    machine_id: String,
+    draft: SessionId,
+    path: String,
+) -> Result<()> {
+    direct::discard_draft_attachment(&fleet, fleet.machine(&machine_id)?, draft, path).await
+}
+
 /// File browser edits require a direct mesh connection to the owning machine.
 #[tauri::command]
 pub async fn agent_tree_edit(

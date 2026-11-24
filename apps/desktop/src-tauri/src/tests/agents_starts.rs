@@ -5,7 +5,7 @@ use std::collections::VecDeque;
 fn starts() -> (tempfile::TempDir, PathBuf, Arc<Starts>) {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kept = dir.path().join("starts");
-    let starts = Arc::new(Starts::load(kept.clone()));
+    let starts = Arc::new(Starts::load(kept.clone(), dir.path().join("cache")));
     (dir, kept, starts)
 }
 
@@ -240,7 +240,7 @@ async fn a_start_cancelled_while_its_machine_starts_it_has_its_session_closed() 
 
 #[tokio::test]
 async fn a_removed_start_forgets_its_images_and_is_not_sent() {
-    let (_dir, kept, starts) = starts();
+    let (dir, kept, starts) = starts();
     let with_image = Start {
         images: vec![KeptImage {
             name: "shot.png".into(),
@@ -251,8 +251,13 @@ async fn a_removed_start_forgets_its_images_and_is_not_sent() {
     };
     let id = keep(&starts, with_image);
     starts.sync();
-    let file = kept.join(IMAGES).join(image_file(id.images(), 0));
+    let file = dir
+        .path()
+        .join("cache")
+        .join(IMAGES)
+        .join(image_file(id.images(), 0));
     assert!(file.exists());
+    assert!(!kept.join(IMAGES).exists());
 
     assert!(starts.with(|held| held.remove(id)).is_some());
     let mut link = Fake::new(&starts, []);
@@ -265,13 +270,13 @@ async fn a_removed_start_forgets_its_images_and_is_not_sent() {
 
 #[test]
 fn a_start_sent_when_the_app_quit_comes_back_failed_and_a_waiting_one_runs() {
-    let (_dir, kept, starts) = starts();
+    let (dir, kept, starts) = starts();
     let sent = keep(&starts, start(Stage::Starting));
     let waiting = keep(&starts, start(Stage::Waiting));
     starts.sync();
     drop(starts);
 
-    let again = Starts::load(kept);
+    let again = Starts::load(kept, dir.path().join("cache"));
 
     assert_eq!(
         shown(&again, sent),

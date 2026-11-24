@@ -21,14 +21,14 @@ use crate::{
         Fleet, agents as direct, alerts,
         asked::{ORDER_LIMIT, READ_LIMIT},
         events::Events,
+        session_mirror::SessionMirror,
     },
-    machines::list::MachineLists,
 };
 use beep_mesh::RETRY;
 use beep_proto::SessionId;
 use beep_proto::{
-    AgentEntry, AgentEntryKind, AgentNoticeKey, AgentStatus, AgentSteer, ApiError, GetAgentSession,
-    ModelId, SteerAgentSession,
+    AgentEntry, AgentEntryKind, AgentNoticeKey, AgentSteer, ApiError, GetAgentSession, ModelId,
+    SteerAgentSession,
     node::agent::{Effort, Request as AgentRequest, SessionDevice},
     node::events::{CallReply, Operation, Topic},
 };
@@ -816,8 +816,8 @@ pub struct Outbox {
 
 impl Outbox {
     /// The outbox kept in `dir`, or an empty one.
-    pub fn load(dir: PathBuf) -> Self {
-        let folder = KeptFolder::open(dir, MESSAGES, "outbox");
+    pub fn load(dir: PathBuf, cache: PathBuf) -> Self {
+        let folder = KeptFolder::open(dir, cache, MESSAGES, "outbox");
         let messages = read_messages(&folder);
         Self {
             held: Mutex::new(Held::from_messages(messages)),
@@ -1246,31 +1246,9 @@ async fn send_node_order(app: &AppHandle, machine: EndpointId, order: &Order) ->
 pub(crate) fn answered_locally(app: &AppHandle, key: &AgentNoticeKey) {
     crate::notices::history::answered(app, key);
 
-    if let Some(lists) = app.try_state::<MachineLists>() {
-        let clear = |rows: &mut [beep_proto::MachineSession]| {
-            for row in rows {
-                if row.machine_id == key.machine_id
-                    && row.id == key.session
-                    && key
-                        .question
-                        .is_none_or(|qid| row.question.as_ref().is_some_and(|q| q.id == qid))
-                {
-                    row.question = None;
-                    if matches!(row.status, AgentStatus::Asking {}) {
-                        row.status = AgentStatus::Working {};
-                    }
-                }
-            }
-        };
-        lists.local.edit(clear);
-        lists.sessions.edit(clear);
+    if let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
+        mirror.answered(&key.machine_id, &key.session, key.question);
     }
-
-    if let Some(waiting) = app.try_state::<crate::tray::waiting::WaitingList>() {
-        waiting.poke();
-    }
-
-    crate::fleet::event_views::sessions_changed(app.clone(), Topic::new("agents"));
 }
 
 /// The part of a session read back after a dropped send.

@@ -40,14 +40,14 @@ const MAX_LINE: usize = 256 * 1024;
 
 /// Where a project's runs are.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct Target {
+pub(crate) struct Target {
     /// `owner/name`.
-    pub(super) repo: String,
-    pub(super) host: Host,
+    pub(crate) repo: String,
+    pub(crate) host: Host,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum Host {
+pub(crate) enum Host {
     GitHub,
     /// A Forgejo or Gitea server: its base URL, as teacli takes it, and its
     /// host name with the port, as the Actions tile names it.
@@ -59,7 +59,7 @@ pub(super) enum Host {
 
 impl Target {
     /// The host's name, such as `github.com`: what its reach is kept under.
-    pub(super) fn host_name(&self) -> &str {
+    pub(crate) fn host_name(&self) -> &str {
         match &self.host {
             Host::GitHub => beep_projects::git_items::github::HOST,
             Host::Forgejo { name, .. } => name,
@@ -342,7 +342,7 @@ async fn read_watch(output: impl AsyncRead + Unpin) -> Watched {
 
 /// `program` with `args`, the tools' folders on `PATH` and the GitHub token,
 /// killed when dropped.
-pub(super) fn command(program: &str, args: &[String]) -> Command {
+pub(crate) fn command(program: &str, args: &[String]) -> Command {
     let mut command = crate::run::process::command(program);
     command.args(args).stdin(Stdio::null()).kill_on_drop(true);
     spawn_env::apply(&mut command, Scope::Agent(None));
@@ -350,7 +350,7 @@ pub(super) fn command(program: &str, args: &[String]) -> Command {
 }
 
 /// The end of what a CLI said, on one line.
-pub(super) fn tail(text: &str) -> String {
+pub(crate) fn tail(text: &str) -> String {
     let text = text.trim().replace('\n', " ");
     let start = text
         .char_indices()

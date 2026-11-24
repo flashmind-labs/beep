@@ -2,7 +2,7 @@
 // unified or side by side view that scrolls sideways on its own. Only the
 // files near the viewport have sections, laid out by a TanStack virtualizer;
 // within a section, only the chunks of rows near the viewport draw their rows.
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
@@ -11,11 +11,12 @@ import { writeClipboard } from "../ui/parts.tsx";
 import { plural } from "../ui/format.ts";
 import { DiffFileHeader } from "./diff-file-header.tsx";
 import { DiffContext, DiffOmitted } from "./diff-body-controls.tsx";
-import { DiffRows } from "./diff-chunk.tsx";
+import { DiffRows, type Look } from "./diff-chunk.tsx";
+import type { Span } from "../ui/syntax.ts";
 import { DiffComment } from "./diff-comment.tsx";
 import { DiffMessage, DiffMore } from "./diff-status.tsx";
 import {
-  type ContextEdit, type DiffFile, type DiffRow, type PlacedFile, type ReviewComment, type SplitRow, commentCounts, diffRows, isFolded, leftOutNote, lineLabel, matchesFilter,
+  type ContextEdit, type DiffFile, type DiffRow, type PlacedFile, type ReviewComment, type SplitRow, commentCounts, diffRows, diffSpans, isFolded, leftOutNote, lineLabel, matchesFilter,
   numberWidth, placeComments, splitHeight, splitRows,
 } from "./diff-state.ts";
 import { CH, CHUNK, GAP, MARGIN, type Viewer, indexOf, reasonOf, remember, say, selected, shown } from "./diff-viewer.ts";
@@ -309,6 +310,10 @@ interface BodyProps { v: Viewer; file: DiffFile; split: boolean; busy: boolean; 
 const FileBody = memo(function FileBody({ v, file, split, busy, comments }: BodyProps) {
   const layout = useMemo(() => leftOutNote(file) ? null : bodyLayout(v, file, split), [v, file, split]);
   const note = leftOutNote(file);
+  const spans = useSpans(file);
+  const want = useStore(v.store, s => s.filter.trim().toLowerCase());
+  const hit = useStore(v.store, s => s.hit?.path === file.path ? s.hit : null);
+  const look = useMemo(() => ({ spans, want, hit }), [spans, want, hit]);
 
   if (note) {
     return <div style={{ display: "contents" }}>
@@ -323,11 +328,36 @@ const FileBody = memo(function FileBody({ v, file, split, busy, comments }: Body
   return <div className="dv-scroll">
     <div className={split ? "dv-lines split" : "dv-lines"} style={layout.vars}>
       <div style={{ display: "contents" }}><DiffContext direction="above" hunk={0} expanded={!!extents?.[0]?.above} edit={edit} /></div>
-      {layout.chunks.map((chunk, index) => <Chunk key={index} v={v} file={file} rows={chunk.rows} estimate={chunk.height} comments={comments} />)}
+      {layout.chunks.map((chunk, index) => <Chunk key={index} v={v} file={file} rows={chunk.rows} estimate={chunk.height} comments={comments} look={look} />)}
       <div style={{ display: "contents" }}><DiffContext direction="below" hunk={last} expanded={!!extents?.[last]?.below} edit={edit} /></div>
     </div>
   </div>;
 });
+
+/// The coloured spans of `file`'s lines, none until its language's parser
+/// loads. The parsers load in their own chunks, on the first file shown.
+function useSpans(file: DiffFile) {
+  const [spans, setSpans] = useState(() => coloured.get(file) ?? NO_SPANS);
+
+  useEffect(() => {
+    const kept = coloured.get(file);
+    if (kept) { setSpans(kept); return; }
+    let live = true;
+
+    void import("../ui/syntax.ts").then(({ colourFor }) => colourFor(file.path)).then(colour => {
+      const found = colour ? diffSpans(file, colour) : NO_SPANS;
+      coloured.set(file, found);
+      if (live) setSpans(found);
+    }, () => {});
+
+    return () => { live = false; };
+  }, [file]);
+
+  return spans;
+}
+
+const coloured = new WeakMap<DiffFile, ReadonlyMap<string, readonly Span[]>>();
+const NO_SPANS: ReadonlyMap<string, readonly Span[]> = new Map();
 
 /// A file's rows in chunks, each with the height it has before it draws.
 function bodyLayout(v: Viewer, file: DiffFile, split: boolean) {
@@ -356,11 +386,11 @@ function bodyLayout(v: Viewer, file: DiffFile, split: boolean) {
   return { vars, chunks };
 }
 
-interface ChunkProps { v: Viewer; file: DiffFile; rows: readonly (DiffRow | SplitRow)[]; estimate: number; comments: ReadonlyMap<string, readonly ReviewComment[]> }
+interface ChunkProps { v: Viewer; file: DiffFile; rows: readonly (DiffRow | SplitRow)[]; estimate: number; comments: ReadonlyMap<string, readonly ReviewComment[]>; look: Look }
 
 /// A run of rows, drawn only while it is near the viewport; off screen it is
 /// an empty box as tall as it last was.
-const Chunk = memo(function Chunk({ v, file, rows, estimate, comments }: ChunkProps) {
+const Chunk = memo(function Chunk({ v, file, rows, estimate, comments, look }: ChunkProps) {
   const [state, setState] = useState({ live: false, height: estimate });
   const box = useRef<HTMLDivElement>(null);
 
@@ -373,7 +403,7 @@ const Chunk = memo(function Chunk({ v, file, rows, estimate, comments }: ChunkPr
   }, [v]);
 
   return <div ref={box} className="dv-chunk" style={state.live ? undefined : { height: `${state.height}px` }}>
-    {state.live && <DiffRows rows={rows} comments={comments}
+    {state.live && <DiffRows rows={rows} comments={comments} look={look}
       gutter={(side, line) => openEditor(v, { path: file.path, side, line, text: "" }, true)}
       edit={edits => void editContext(v, file, edits)} readOnly={!!v.src.readOnly}
       comment={comment => <CommentSlot key={commentKey(comment)} v={v} comment={comment} label="" />} />}

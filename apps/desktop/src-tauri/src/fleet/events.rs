@@ -1,6 +1,6 @@
 //! All windows share one duplex stream per subscription on each demanded node.
 
-use super::{Fleet, Machines, Opened};
+use super::{Fleet, Machines, Opened, session_mirror::SessionMirror};
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
 use beep_proto::watched;
@@ -1434,18 +1434,10 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
     match topic.name() {
         // One machine's list changed: its rows alone are listed again, then Home draws.
         "agents" if value.is_some() => {
-            let (app, topic) = (app.clone(), topic.clone());
-            tauri::async_runtime::spawn(async move {
-                crate::agents::sessions::machine_changed(&app, machine).await;
-                super::event_views::sessions_changed(app, topic);
-            });
+            app.state::<Arc<SessionMirror>>().changed(machine);
         }
         name if lists_sessions_again(name) => {
-            let lists = app.state::<crate::machines::list::MachineLists>();
-            lists.sessions.stale();
-            lists.scans.stale();
-            app.state::<Arc<crate::center::home_sessions::AgentSessions>>()
-                .stale();
+            app.state::<Arc<SessionMirror>>().stale();
             app.state::<crate::palette::lists::PaletteCache>()
                 .sessions_changed();
         }
@@ -1453,17 +1445,11 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
             if let Some(events::Value::Sessions(reply)) = value
                 && let beep_proto::node::agent::SessionsReply::Live { status } = reply.as_ref()
             {
-                app.state::<Arc<crate::center::home_sessions::AgentSessions>>()
-                    .live(&machine.to_string(), &status.session);
+                app.state::<Arc<SessionMirror>>()
+                    .reported(&machine.to_string(), &status.session);
             }
         }
         _ => {}
-    }
-
-    if matches!(topic.name(), "terminals" | "*") {
-        app.state::<crate::machines::list::MachineLists>()
-            .terminals
-            .stale();
     }
 }
 

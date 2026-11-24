@@ -10,6 +10,7 @@ pub mod machine;
 mod mesh;
 mod state;
 mod store;
+mod team;
 mod wire;
 
 pub(crate) use client::CALL_TIMEOUT;
@@ -20,12 +21,14 @@ pub use client::{
 pub use devices::{Device, DeviceKind, MeshError};
 pub(crate) use devices::{DeviceOp, Devices, Merged, WriteLimit};
 pub use join::{Invitation, JoinSecret, JoinTicket, ShortTicket, TicketError};
+pub use mesh::values;
 pub use mesh::{
     DEFAULT_TICKET_TTL, DeviceStatus, InUse, JOIN_ALPN, JoinProtocol, Mesh, MeshProtocol,
     PEER_ALPN, PeerStream, StreamHandler, router, transport_config, ways,
 };
 pub use state::Key;
 pub(crate) use state::{Applied, Entry, Heads, State};
+pub use team::{TeamTicket, TeamWrites, keep_contacts, secret_hash, take_roster};
 
 #[cfg(test)]
 mod tests;

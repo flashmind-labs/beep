@@ -23,6 +23,7 @@ pub mod port;
 mod projects;
 pub mod report;
 pub mod secret;
+pub mod team;
 pub mod watched;
 
 pub use agents::*;

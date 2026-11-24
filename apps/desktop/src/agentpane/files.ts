@@ -18,6 +18,7 @@ import { mentioned } from "./worktree-state.ts";
 import { sessions } from "../agents/sessions.ts";
 import { threadFolders } from "../agents/threads-state.ts";
 import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
+import { desktopChatPane, place } from "./media-layout.ts";
 import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
 import { hideDropOverlay } from "../chat/attach.tsx";
@@ -163,6 +164,14 @@ const treeKey = () => {
   return s?.cwd && paneRoot() ? `${s.machine_id}\n${paneRoot()}` : "";
 };
 
+/// Whether the working folder has anything to show before applying the file filter.
+export function hasFolderEntries() {
+  const top = current.listings.get("");
+  if (!top?.entries || current.key !== treeKey()) return false;
+  const threads = threadsHere();
+  return top.more > 0 || top.entries.some(entry => !entry.folder || !threads.has(entry.name));
+}
+
 /// Saves scroll and unfinished reads on the outgoing tree and switches to `key`.
 function showTree(key: string) {
   closeFilesMenu();
@@ -188,7 +197,7 @@ function showTree(key: string) {
   Object.assign(view, { reading: new Set<string>(), again: new Set<string>(), walking: false, capped: false, busy: false, fresh: false, generation: view.generation + 1, reveal: null });
   restoring = true;
   setModel({ label: "", active: null, status: "" });
-  filesOnScreen = false;
+  watchingFiles = false;
   trim();
   draw();
   if (!entry) return;
@@ -242,17 +251,16 @@ function trim() {
   }
 }
 
-/// Whether the tree was on screen when last asked.
-let filesOnScreen = false;
-/// A folder that changes while its tree shows is read again at most this often.
-const revalidate = ambient(() => (current.key && current.dirty ? refresh() : undefined), AMBIENT_MS, () => filesShown());
+/// Whether the tree was being watched when last asked.
+let watchingFiles = false;
+/// Recheck on changes while the tree shows or Assistant needs to decide whether to show it.
+const revalidate = ambient(() => (current.key && current.dirty ? refresh() : undefined), AMBIENT_MS, () =>
+  filesShown() || (paneShown() && !!desktopChatPane()));
 
-/// The tab drew; `visible` says whether the tree is on screen. A tree that
-/// comes on screen reads its folders again at once when the folder changed
-/// since, one already on screen at a slower pace while the agent works.
+/// Pick up pending changes immediately when this tree starts being watched again.
 function revalidateFiles(visible: boolean) {
-  const now = visible && paneShown(), appeared = now && !filesOnScreen;
-  filesOnScreen = now;
+  const now = paneShown() && (visible || !!desktopChatPane()), appeared = now && !watchingFiles;
+  watchingFiles = now;
   if (now && current.key && current.dirty) revalidate(appeared);
 }
 
@@ -294,7 +302,7 @@ async function refresh() {
   const tree = current, generation = view.generation;
   if (tree.key) tree.dirty = false;
   view.fresh = true;
-  const roots = [...new Set([...tree.roots, ...view.reading])];
+  const roots = [...new Set(["", ...tree.roots, ...view.reading])];
   let read = false;
 
   try {
@@ -373,6 +381,8 @@ async function readFolder(tree: FolderTree, generation: number, dir: string, dee
   const s = paneSession();
   if (!s?.cwd) return;
   const had = tree.listings.get(dir);
+  const layoutDependsOnFiles = dir === "" && !!desktopChatPane();
+  const hadEntries = layoutDependsOnFiles && hasFolderEntries();
   tree.listings.set(dir, { entries: had?.entries ?? null, more: had?.more ?? 0, error: "" });
   view.reading.add(dir);
   // A folder shown stays as it is while it is read again.
@@ -395,6 +405,7 @@ async function readFolder(tree: FolderTree, generation: number, dir: string, dee
   }
 
   if (changed || !had?.entries) draw();
+  if (layoutDependsOnFiles && hadEntries !== hasFolderEntries()) place();
   if (isCurrent(tree, generation) && tree.filter.trim()) readAll();
 }
 

@@ -30,16 +30,19 @@ export interface BoardCard {
   /// True for a session, whose card grows into the session's head.
   session: boolean;
   dim: boolean;
+  /// A teammate's card, a shade dimmer than the user's own.
+  theirs: boolean;
   hint: string | null;
   open(): void;
   menu: ((event: MouseEvent) => void) | null;
 }
 
 /// What a card's button does: one thing, a menu of them, an agent button
-/// whose model pick starts a session, the answers to an agent's question, or
-/// closing the session.
-type CardAction =
+/// whose model pick starts a session, the answers to an agent's question,
+/// closing the session, or several of these side by side.
+export type CardAction =
   | { kind: "run"; label: string; primary: boolean; run(): void; windowProps?: ProjectWindowProps }
+  | { kind: "several"; actions: readonly CardAction[] }
   | { kind: "menu"; label: string; items: readonly MenuAction[] }
   | { kind: "agent"; item: AgentButtonItem }
   | { kind: "answer"; question: AgentQuestion; answer(reply: string): Promise<void> }
@@ -53,6 +56,7 @@ function ActionButton({ action, title }: { action: CardAction; title: string }) 
     case "run": return <Button {...action.windowProps?.clicks} {...action.windowProps?.menu} look={action.primary ? "primary" : "secondary"} small onClick={event => { event.stopPropagation(); action.run(); }}>{action.label}</Button>;
     case "answer": return <Answers key={action.question.id} question={action.question} answer={action.answer}/>;
     case "close": return <Button look="quiet" small className="bd-close" onClick={event => { event.stopPropagation(); action.run(); }}>Close</Button>;
+    case "several": return <span className="bd-acts">{action.actions.map((each, index) => <ActionButton key={index} action={each} title={title}/>)}</span>;
   }
 }
 
@@ -138,7 +142,7 @@ export function Card({ card, open }: { card: BoardCard; open(): void }) {
   const style = { opacity: card.dim ? .55 : undefined, viewTransitionName: heroCard() === card.key ? "board-hero" : undefined };
   const action = card.action;
 
-  return <div {...card.windowProps?.clicks} {...card.windowProps?.menu} className="bd-card" data-card={card.key} role="button" tabIndex={0} title={card.hint ?? undefined} style={style}
+  return <div {...card.windowProps?.clicks} {...card.windowProps?.menu} className={card.theirs ? "bd-card theirs" : "bd-card"} data-card={card.key} role="button" tabIndex={0} title={card.hint ?? undefined} style={style}
     onClick={open} onKeyDown={onRowKey(open)} onContextMenu={card.menu ? event => card.menu?.(event.nativeEvent) : card.windowProps?.menu.onContextMenu}>
     <b>{card.title}</b>
     <span className="sub">{card.lead}{dot(card)}<span>{card.sub}</span></span>

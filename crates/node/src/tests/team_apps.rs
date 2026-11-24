@@ -1,0 +1,364 @@
+use super::*;
+use crate::{
+    run::tasks::Table,
+    team::board::tests::{Forge, member, repo},
+};
+use beep_proto::{
+    SessionId,
+    team::{Card, Lane, TeamRecord},
+};
+use iroh::{Endpoint, SecretKey, endpoint::presets};
+use std::sync::Arc;
+
+async fn link() -> TeamLink {
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .expect("an endpoint");
+
+    TeamLink::new(endpoint, Arc::new(Forge))
+}
+
+fn caller(link: &TeamLink, table: Table, desktop_here: bool) -> Caller {
+    Caller {
+        table,
+        desktop_here,
+        commands_off: None,
+        transfers: None,
+        agents: None,
+        project_tools: None,
+        team: Some(link.clone()),
+        mesh: None,
+    }
+}
+
+fn request(tool: Tool, args: serde_json::Value) -> Request {
+    Request {
+        session: SessionId::default(),
+        tool,
+        args: args.to_string(),
+        approved: Default::default(),
+    }
+}
+
+fn cards(forwarded: bool) -> Request {
+    let repo = serde_json::to_value(repo()).expect("a repo");
+    let args = serde_json::json!({ "action": "cards", "repo": repo, "forwarded": forwarded });
+
+    request(Tool::TeamApp, args)
+}
+
+fn ask_card() -> Card {
+    Card {
+        id: "ask:a1".into(),
+        title: "Which branch?".into(),
+        lane: Lane::NeedsYou {},
+        login: "bob".parse().expect("a login"),
+        machine: String::new(),
+        issue: None,
+        pr: None,
+        updated_at: SystemTime::now(),
+    }
+}
+
+fn done(reply: Reply) -> (String, bool) {
+    match reply {
+        Reply::Done { text, failed } => (text, failed),
+        other => panic!("not done: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn a_forwarded_call_is_answered_on_the_gateway() {
+    let link = link().await;
+    let me = link.endpoint().id();
+    let card = ask_card();
+    link.with(|teams| {
+        teams.gateways.insert(repo(), me);
+        teams.asks.cards.insert(repo(), vec![card.clone()]);
+    });
+
+    let (text, failed) = done(answer(&caller(&link, Table::Shared, false), &cards(true)).await);
+
+    assert!(!failed, "{text}");
+    let read: TeamCards = serde_json::from_str(&text).expect("cards");
+    assert_eq!(read.needs_you, vec![card]);
+}
+
+#[tokio::test]
+async fn cards_carry_this_meshs_own_queued_issues() {
+    let link = link().await;
+    let me = link.endpoint().id();
+    let queued = Card {
+        id: "queued:51".into(),
+        lane: Lane::Queued {},
+        issue: Some(51),
+        ..ask_card()
+    };
+    let working = Card {
+        id: "s1@build-box".into(),
+        lane: Lane::Working {},
+        ..ask_card()
+    };
+    link.with(|teams| {
+        teams.gateways.insert(repo(), me);
+        teams.boards.set(&repo(), vec![working, queued.clone()]);
+    });
+
+    let (text, failed) = done(answer(&caller(&link, Table::Shared, false), &cards(false)).await);
+
+    assert!(!failed, "{text}");
+    let read: TeamCards = serde_json::from_str(&text).expect("cards");
+    assert_eq!(read.own_queued, vec![queued]);
+}
+
+#[tokio::test]
+async fn a_followed_teammate_with_no_cards_is_online() {
+    let link = link().await;
+    let me = link.endpoint().id();
+    let device = || SecretKey::generate().public();
+    let (bob, carol) = (member("bob", device()), member("carol", device()));
+    let team = TeamRecord::new(repo(), vec![bob.clone(), carol]);
+    link.with(|teams| {
+        teams.gateways.insert(repo(), me);
+        teams.rosters.refresh([(repo(), team)].into());
+        let teammates = teams.teammates.entry(repo()).or_default();
+        teammates.board(bob.mesh, &bob.login, Vec::new());
+    });
+
+    let (text, failed) = done(answer(&caller(&link, Table::Shared, false), &cards(false)).await);
+
+    assert!(!failed, "{text}");
+    let read: TeamCards = serde_json::from_str(&text).expect("cards");
+    assert!(read.teammates.is_empty());
+    assert_eq!(read.online, vec![bob.login]);
+}
+
+#[tokio::test]
+async fn a_forwarded_call_is_refused_off_the_gateway() {
+    let link = link().await;
+    let elsewhere = SecretKey::generate().public();
+    link.with(|teams| {
+        teams.gateways.insert(repo(), elsewhere);
+        teams.asks.cards.insert(repo(), vec![ask_card()]);
+    });
+
+    for table in [Table::Shared, Table::Peer(elsewhere)] {
+        let (text, failed) = done(answer(&caller(&link, table, false), &cards(true)).await);
+
+        assert!(failed, "{text}");
+        assert_eq!(text, "The team's gateway moved; try again");
+    }
+}
+
+/// Only the node this machine elects for the team, or a desktop, starts
+/// sessions on its issues here.
+#[tokio::test]
+async fn pickup_is_taken_only_from_the_gateway() {
+    let link = link().await;
+    let dir = tempfile::tempdir().expect("a folder");
+    let offers = crate::link::Offers::local(&[], crate::machine::provision::Provision::new(dir.path()));
+    let gateway = SecretKey::generate().public();
+    link.with(|teams| teams.gateways.insert(repo(), gateway));
+    let order = serde_json::json!({
+        "repo": serde_json::to_value(repo()).expect("a repo"),
+        "number": 52,
+        "title": "Fix it",
+        "url": "https://github.com/org/repo/issues/52",
+    });
+    let pickup = |table| {
+        let caller = Caller {
+            agents: Some(offers.agents.clone()),
+            ..caller(&link, table, true)
+        };
+        crate::link::peer_tools::answer(request(Tool::TeamPickup, order.clone()), caller)
+    };
+
+    let (text, failed) = done(pickup(Table::Peer(SecretKey::generate().public())).await);
+    assert!(failed && text.contains("does not act for the team"), "{text}");
+
+    // Past the gate: this test machine is in no mesh.
+    for table in [Table::Peer(gateway), Table::Shared] {
+        let (text, failed) = done(pickup(table).await);
+        assert!(failed && text == "This machine is in no mesh.", "{text}");
+    }
+}
+
+#[tokio::test]
+async fn rosters_and_invites_are_taken_only_on_a_desktop() {
+    let link = link().await;
+    let peer = Table::Peer(SecretKey::generate().public());
+
+    for tool in [Tool::TeamRoster, Tool::TeamInvite] {
+        let (text, failed) = done(
+            answer(
+                &caller(&link, peer, false),
+                &request(tool, serde_json::json!({})),
+            )
+            .await,
+        );
+
+        assert!(
+            failed && text == "Only a desktop records teams.",
+            "{tool}: {text}"
+        );
+    }
+}
+
+/// A desktop's mesh, and a node of it with its own team link.
+struct Pair {
+    desktop: beep_mesh::Mesh,
+    desktop_link: TeamLink,
+    node: crate::link::peers::Peers,
+    _routers: (iroh::protocol::Router, iroh::protocol::Router),
+    _dirs: (tempfile::TempDir, tempfile::TempDir),
+}
+
+async fn pair() -> Pair {
+    use beep_mesh::{DeviceKind, JOIN_ALPN, Mesh, PEER_ALPN};
+    use iroh::protocol::Router;
+    use iroh_tickets::Ticket;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    let bind = || async {
+        Endpoint::builder(presets::Minimal)
+            .secret_key(SecretKey::generate())
+            .transport_config(beep_mesh::transport_config())
+            .bind()
+            .await
+            .expect("an endpoint")
+    };
+    let (desktop_endpoint, endpoint) = (bind().await, bind().await);
+    let dirs = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let desktop = Mesh::create(dirs.0.path(), desktop_endpoint.clone(), "desktop")
+        .await
+        .expect("a mesh");
+    let (peer, join) = desktop.protocols();
+    let desktop_router = Router::builder(desktop_endpoint.clone())
+        .accept(PEER_ALPN, peer)
+        .accept(JOIN_ALPN, join)
+        .spawn();
+    let ticket = desktop
+        .invite(DeviceKind::Node, Duration::from_secs(60))
+        .await
+        .expect("a ticket");
+    let node = crate::link::peers::Peers::new(
+        endpoint.clone(),
+        dirs.1.path().to_owned(),
+        "node".into(),
+        crate::link::Offers::default(),
+    );
+    let node_router = Router::builder(endpoint.clone())
+        .accept(PEER_ALPN, node.peer_handler())
+        .accept(JOIN_ALPN, node.join_handler())
+        .spawn();
+    node.join(&ticket.encode_string()).await.expect("joined");
+    let mut changes = desktop.updates();
+    timeout(Duration::from_secs(30), async {
+        while desktop.peer(endpoint.id()).is_none() {
+            changes.changed().await.unwrap();
+        }
+    })
+    .await
+    .expect("the node is online");
+
+    Pair {
+        desktop,
+        desktop_link: TeamLink::new(desktop_endpoint, Arc::new(Forge)),
+        node,
+        _routers: (desktop_router, node_router),
+        _dirs: dirs,
+    }
+}
+
+#[tokio::test]
+async fn an_apps_call_goes_on_to_the_gateway_once() {
+    let pair = pair().await;
+    let gateway = pair.node.team();
+    let node_id = gateway.me();
+    let card = ask_card();
+    gateway.with(|teams| {
+        teams.gateways.insert(repo(), node_id);
+        teams.asks.cards.insert(repo(), vec![card.clone()]);
+    });
+    pair.desktop_link
+        .with(|teams| teams.gateways.insert(repo(), node_id));
+    let desktop = Caller {
+        mesh: Some(pair.desktop.clone()),
+        ..caller(&pair.desktop_link, Table::Shared, false)
+    };
+
+    let (text, failed) = done(answer(&desktop, &cards(false)).await);
+
+    assert!(!failed, "{text}");
+    let read: TeamCards = serde_json::from_str(&text).expect("cards");
+    assert_eq!(read.needs_you, vec![card]);
+
+    // The node holds the desktop for the gateway: the call stops there.
+    let desktop_id = pair.desktop_link.me();
+    gateway.with(|teams| teams.gateways.insert(repo(), desktop_id));
+
+    let (text, failed) = done(answer(&desktop, &cards(false)).await);
+
+    assert!(failed, "{text}");
+    assert_eq!(text, "The team's gateway moved; try again");
+}
+
+#[tokio::test]
+async fn roster_from_node_is_written_once() {
+    use beep_mesh::{Key, Mesh};
+    use beep_proto::{
+        node::mesh_state::StateValue,
+        team::{Member, TeamRecord},
+    };
+
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .bind()
+        .await
+        .expect("an endpoint");
+    let mesh = Mesh::create(dir.path(), endpoint, "desktop")
+        .await
+        .expect("a mesh");
+    let member = |login: &str| Member {
+        login: login.parse().expect("a login"),
+        mesh: SecretKey::generate().public(),
+        devices: vec![iroh::EndpointAddr::new(SecretKey::generate().public())],
+        joined_at: SystemTime::UNIX_EPOCH,
+        admitted_by: None,
+        proof: None,
+    };
+    // This mesh's own entry: a record without it is a team that removed it.
+    let mut dana = member("dana");
+    dana.mesh = mesh.id();
+    let mut team = TeamRecord::new(repo(), vec![dana]);
+    team.pickup = false;
+    let key = Key::Team(repo());
+    mesh.set(key.clone(), Some(team.to_bytes().unwrap()))
+        .await
+        .expect("written");
+    let mut changed = TeamRecord::new(repo(), team.members.clone());
+    changed.members.push(member("alice"));
+    let args = serde_json::to_value(TeamRosterArgs { record: changed }).unwrap();
+    let link = link().await;
+    let on_desktop = Caller {
+        mesh: Some(mesh.clone()),
+        ..caller(&link, Table::Peer(SecretKey::generate().public()), true)
+    };
+
+    let mut changes = mesh.changes();
+
+    for _ in 0..2 {
+        let (text, failed) =
+            done(answer(&on_desktop, &request(Tool::TeamRoster, args.clone())).await);
+        assert!(!failed, "{text}");
+    }
+
+    assert_eq!(changes.try_recv().expect("one change"), key);
+    assert!(changes.try_recv().is_err(), "written once");
+    let written = TeamRecord::from_bytes(&mesh.get(&key).expect("a team")).unwrap();
+    assert_eq!(written.members.len(), 2);
+    assert!(!written.pickup, "the desktop's settings stay");
+}

@@ -15,7 +15,7 @@
   function openLink(event) {
     if (!event.isTrusted || event.defaultPrevented || event.button !== (event.type === "auxclick" ? 1 : 0)) return;
     const link = event.composedPath().find(el => el instanceof Element && el.matches("a[href], area[href]"));
-    if (!link) return;
+    if (!link || link.hasAttribute("download")) return;
 
     const href = link.getAttribute("href").trim();
     // A protocol-relative web link has no HTTP scheme to inherit from beepview.
@@ -32,6 +32,74 @@
     parent.postMessage({ beep: "link", url: url.href }, "*");
   }
 
+  // WebKit can lose a blob fetch if the page revokes the URL after clicking.
+  const blobs = new Map();
+  const createUrl = URL.createObjectURL, revokeUrl = URL.revokeObjectURL;
+  URL.createObjectURL = function(object) {
+    const url = createUrl.call(this, object);
+    if (object instanceof Blob) blobs.set(url, object);
+    return url;
+  };
+  URL.revokeObjectURL = function(url) {
+    blobs.delete(String(url));
+    return revokeUrl.call(this, url);
+  };
+
+  function download(event) {
+    if (event.defaultPrevented || event.button !== 0 || !navigator.userActivation.isActive) return;
+    const link = event.composedPath().find(el => el instanceof Element && el.matches("a[href][download]"));
+    if (!link) return;
+
+    let url;
+    try { url = new URL(link.href); } catch { return; }
+    const besidePage = url.protocol === location.protocol && url.host === location.host;
+    if (!besidePage && !["blob:", "data:", "https:"].includes(url.protocol)) return;
+
+    event.preventDefault();
+    const { port1, port2 } = new MessageChannel();
+    parent.postMessage({ beep: "export" }, "*", [port2]);
+    const name = link.download || (["blob:", "data:"].includes(url.protocol) ? "" : url.pathname.split("/").pop() || "");
+    const limit = 16 * 1024 * 1024;
+    const send = blob => port1.postMessage(blob.size > limit ? { error: "too-large" } : { name, blob });
+    const blob = blobs.get(url.href);
+    if (blob) {
+      send(blob);
+      port1.close();
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    void fetch(url, { credentials: "omit", signal: controller.signal }).then(async response => {
+      if (!response.ok) throw new Error("Could not read the export.");
+      if (Number(response.headers.get("content-length")) > limit) {
+        port1.postMessage({ error: "too-large" });
+        controller.abort();
+        return;
+      }
+      send(await response.blob());
+    }).catch(() => port1.postMessage({ error: "read" }))
+      .finally(() => { clearTimeout(timeout); port1.close(); });
+  }
+
+  // Export libraries also click anchors they never add to the document.
+  const anchor = HTMLAnchorElement.prototype;
+  const click = anchor.click, dispatch = anchor.dispatchEvent;
+  function detachedClick(link, run) {
+    if (link.isConnected || !link.hasAttribute("download")) return run();
+    link.addEventListener("click", download);
+    try { return run(); } finally { link.removeEventListener("click", download); }
+  }
+  anchor.click = function() {
+    return detachedClick(this, () => click.call(this));
+  };
+  anchor.dispatchEvent = function(event) {
+    return event instanceof MouseEvent && event.type === "click"
+      ? detachedClick(this, () => dispatch.call(this, event))
+      : dispatch.call(this, event);
+  };
+
+  addEventListener("click", download);
   addEventListener("click", openLink);
   addEventListener("auxclick", openLink);
 })();

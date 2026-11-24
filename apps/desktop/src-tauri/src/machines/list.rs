@@ -3,31 +3,27 @@
 
 use crate::{
     beep::{epoch_ms, state::Prefs},
-    center::{home_sessions::HOME_CHANGED, lock},
+    center::{home::HOME_CHANGED, lock},
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
     fleet::{ClockOff, Fleet, Machines, files as direct},
 };
 use beep_projects::imports::found::MachineFound;
 use beep_proto::{
-    Machine, MachineEnv, MachineSession, MachineTraffic, MachineUpdate, Terminal, TrafficCounter,
-    UpdatableMachine,
+    Machine, MachineEnv, MachineTraffic, MachineUpdate, Terminal, TrafficCounter, UpdatableMachine,
     node::{AdapterInstall, logs::MAX_LINES},
 };
+use futures::future::BoxFuture;
 use iroh::EndpointId;
 use serde::Serialize;
 use std::{
-    collections::HashMap,
     fs,
     future::Future,
     path::PathBuf,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::{Duration, Instant},
+    sync::{Arc, Mutex},
 };
 use tauri::{AppHandle, Emitter, State};
+use tokio::sync::mpsc::{self, error::TrySendError};
 
 /// A machine as the bar shows it.
 #[derive(Debug, Serialize)]
@@ -66,17 +62,13 @@ impl From<Machine> for MachineView {
 
 struct HeldState<T> {
     list: Vec<T>,
-    /// When the list was last read, for `refreshed_after`.
-    read_at: Option<Instant>,
+    refresh: Option<mpsc::Sender<BoxFuture<'static, ()>>>,
 }
 
 /// What the machines last listed for one request. Read at once, and
 /// refreshed in the background, so a slow machine delays nothing.
 pub struct Held<T> {
     state: Mutex<HeldState<T>>,
-    refreshing: AtomicBool,
-    /// Set when another refresh is requested while one is still in flight on a slow machine.
-    again: AtomicBool,
 }
 
 impl<T> Default for Held<T> {
@@ -84,48 +76,38 @@ impl<T> Default for Held<T> {
         Self {
             state: Mutex::new(HeldState {
                 list: Vec::new(),
-                read_at: None,
+                refresh: None,
             }),
-            refreshing: AtomicBool::new(false),
-            again: AtomicBool::new(false),
         }
-    }
-}
-
-/// A refresh in progress; the next may start once it is dropped, however
-/// its task ended.
-struct Refresh<T>(Arc<Held<T>>);
-
-impl<T> Drop for Refresh<T> {
-    fn drop(&mut self) {
-        self.0.refreshing.store(false, Ordering::Relaxed);
     }
 }
 
 impl<T: Clone + Send + 'static> Held<T> {
-    pub(crate) fn last(&self) -> Vec<T> {
+    fn last(&self) -> Vec<T> {
         lock(&self.state).list.clone()
     }
 
-    /// Changes the list as held, for what this app knows before the next read.
-    pub(crate) fn edit(&self, change: impl FnOnce(&mut [T])) {
-        change(&mut lock(&self.state).list);
-    }
+    /// The worker runs one refresh at a time. Further requests share the queued pass.
+    fn queue_refresh(&self, refresh: BoxFuture<'static, ()>) {
+        let mut held = lock(&self.state);
+        let refresh = match &held.refresh {
+            Some(queue) => match queue.try_send(refresh) {
+                Ok(()) | Err(TrySendError::Full(_)) => return,
+                Err(TrySendError::Closed(refresh)) => refresh,
+            },
+            None => refresh,
+        };
 
-    /// Allows a refresh, unless one runs: one at a time, with a follow-up pass queued if asked
-    /// again while a slow machine is still answering.
-    fn begin(self: &Arc<Self>) -> Option<Refresh<T>> {
-        if self.refreshing.swap(true, Ordering::AcqRel) {
-            self.again.store(true, Ordering::Release);
-            None
-        } else {
-            self.again.store(false, Ordering::Release);
-            Some(Refresh(self.clone()))
-        }
-    }
-
-    fn take_again(&self) -> bool {
-        self.again.swap(false, Ordering::AcqRel)
+        let (queue, mut requests) = mpsc::channel(1);
+        held.refresh = Some(queue);
+        drop(held);
+        // Only the individual requests hold the app or list. Closing the queue ends the worker.
+        tauri::async_runtime::spawn(async move {
+            refresh.await;
+            while let Some(refresh) = requests.recv().await {
+                refresh.await;
+            }
+        });
     }
 
     /// Keeps `listed`; a list that could not be read keeps the last one.
@@ -135,7 +117,6 @@ impl<T: Clone + Send + 'static> Held<T> {
         match listed {
             Ok(listed) => {
                 let mut held = lock(&self.state);
-                held.read_at = Some(Instant::now());
                 let changed = held.list.len() != listed.len()
                     || held
                         .list
@@ -154,71 +135,31 @@ impl<T: Clone + Send + 'static> Held<T> {
 
     /// Reads the list again with `ask` in the background, one at a time;
     /// the windows redraw when `same` tells the new list from the last.
-    fn refresh_with<F, Fut>(self: &Arc<Self>, app: &AppHandle, mut ask: F, same: fn(&T, &T) -> bool)
-    where
-        F: FnMut() -> Fut + Send + 'static,
-        Fut: Future<Output = Result<Vec<T>>> + Send + 'static,
-    {
-        let Some(refresh) = self.begin() else {
-            return;
-        };
+    fn refresh_with(
+        self: &Arc<Self>,
+        app: &AppHandle,
+        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
+        same: fn(&T, &T) -> bool,
+    ) {
         let (held, app) = (self.clone(), app.clone());
-        // Ends with `ask`, which the caller bounds; nothing else owns it.
-        tauri::async_runtime::spawn(async move {
-            let _refresh = refresh;
-
-            loop {
-                let listed = ask().await;
-
-                if held.finish(listed, same)
-                    && let Err(e) = app.emit(HOME_CHANGED, ())
-                {
-                    log::warn!("telling the windows a list changed: {e}");
-                }
-
-                if !held.take_again() {
-                    break;
-                }
+        self.queue_refresh(Box::pin(async move {
+            if held.finish(ask.await, same)
+                && let Err(e) = app.emit(HOME_CHANGED, ())
+            {
+                log::warn!("telling the windows a list changed: {e}");
             }
-        });
+        }));
     }
 
     /// What `ask` listed last, at once, and `ask` run again in the
     /// background for the next call.
-    pub(crate) fn refreshed<F, Fut>(
+    pub(crate) fn refreshed(
         self: &Arc<Self>,
         app: &AppHandle,
-        ask: F,
+        ask: impl Future<Output = Result<Vec<T>>> + Send + 'static,
         same: fn(&T, &T) -> bool,
-    ) -> Vec<T>
-    where
-        F: FnMut() -> Fut + Send + 'static,
-        Fut: Future<Output = Result<Vec<T>>> + Send + 'static,
-    {
+    ) -> Vec<T> {
         self.refresh_with(app, ask, same);
-        self.last()
-    }
-
-    /// As `refreshed`, but `ask` runs only once the last read is `fresh`
-    /// old, so the callers in between share it.
-    pub(crate) fn refreshed_after<F, Fut>(
-        self: &Arc<Self>,
-        app: &AppHandle,
-        ask: F,
-        same: fn(&T, &T) -> bool,
-        fresh: Duration,
-    ) -> Vec<T>
-    where
-        F: FnMut() -> Fut + Send + 'static,
-        Fut: Future<Output = Result<Vec<T>>> + Send + 'static,
-    {
-        if lock(&self.state)
-            .read_at
-            .is_none_or(|at| at.elapsed() >= fresh)
-        {
-            self.refresh_with(app, ask, same);
-        }
-
         self.last()
     }
 
@@ -229,41 +170,16 @@ impl<T: Clone + Send + 'static> Held<T> {
         held.list.retain(|row| !of(row));
         held.list.extend(rows);
     }
-
-    /// Whether the list was read since it started or was last made stale.
-    pub(crate) fn was_read(&self) -> bool {
-        lock(&self.state).read_at.is_some()
-    }
-
-    /// Keeps `listed`, read by the caller.
-    pub(crate) fn keep(&self, listed: Vec<T>) {
-        let mut held = lock(&self.state);
-        held.read_at = Some(Instant::now());
-        held.list = listed;
-    }
-
-    /// The next `refreshed_after` reads again, however recent the last read.
-    pub(crate) fn stale(&self) {
-        lock(&self.state).read_at = None;
-    }
 }
 
-/// What the machines of the mesh last listed, per kind of list.
+/// What the machines of the mesh last listed, per kind of list. Their
+/// sessions are the session mirror's.
 #[derive(Default)]
 pub struct MachineLists {
-    /// Beep's sessions on this Mac, from the node in this process.
-    pub(crate) local: Arc<Held<MachineSession>>,
-    /// Beep's sessions on the other machines of the mesh.
-    pub(crate) sessions: Arc<Held<MachineSession>>,
-    /// The sessions started outside Beep, found by scanning every machine.
-    pub(crate) scans: Arc<Held<MachineSession>>,
     /// The terminals on the other machines of the mesh, as they stand.
     pub(crate) terminals: Arc<Held<Terminal>>,
     /// The checkouts each machine of the mesh named last.
     pub(crate) found: FoundOn,
-    /// The machines whose sessions are listed again now, and whether another
-    /// change came meanwhile.
-    pub(crate) relisting: Mutex<HashMap<String, bool>>,
 }
 
 /// What each machine named last when asked for its checkouts.

@@ -399,8 +399,8 @@ pub struct Starts {
 
 impl Starts {
     /// The starts kept in `dir`, or none.
-    pub fn load(dir: PathBuf) -> Self {
-        let folder = KeptFolder::open(dir, STARTS, "starts");
+    pub fn load(dir: PathBuf, cache: PathBuf) -> Self {
+        let folder = KeptFolder::open(dir, cache, STARTS, "starts");
         let mut starts: Vec<Start> = folder.read();
 
         for start in &mut starts {

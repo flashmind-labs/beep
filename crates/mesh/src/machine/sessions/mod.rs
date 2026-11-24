@@ -12,8 +12,8 @@ pub use actions::{
     start_review, update_harness,
 };
 pub use files::{
-    custom_agents, edit_files, folder, hashes, image, media, present, read_file, share, thumb,
-    tree, upload_file, write_file,
+    custom_agents, discard_draft_attachment, edit_files, folder, hashes, image, media, present,
+    read_file, share, thumb, tree, upload_file, write_file,
 };
 pub use moves::{MoveState, move_progress, worktrees};
 pub use query::{

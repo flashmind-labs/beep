@@ -7,7 +7,7 @@
 //! mesh, so `join` takes effect without a restart.
 
 use crate::{
-    agents::SessionsAlpn,
+    agents::{SessionsAlpn, mcp::TeamSessions},
     files::transfer::Transfers,
     link::Protocol,
     link::from_mesh,
@@ -18,6 +18,10 @@ use crate::{
     link::serve::{Offers, Who, read_open, serve_open, withheld},
     link::watchdog::{self, Step},
     machine::{env, stats},
+    team::{
+        home::ForgeCli,
+        link::{TeamAlpn, TeamLink, Teams},
+    },
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
@@ -94,6 +98,8 @@ struct Inner {
     active: Mutex<Option<Active>>,
     /// Applies the mesh's state to the node while it is a member.
     follower: Mutex<Option<AbortOnDropHandle<()>>>,
+    /// `beep-team/1`, served whether or not the node is in a mesh.
+    team: TeamLink,
 }
 
 impl Inner {
@@ -171,7 +177,7 @@ impl Inner {
         let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
         trace.phase("waiting for protocol readiness");
         let result = self.serve_protocol(tx, rx, protocol, who, &mut trace).await;
-        trace.finish(result.is_ok());
+        trace.end(&result);
         result
     }
 
@@ -196,6 +202,7 @@ impl Inner {
         }
 
         trace.phase("serving");
+        trace.long_lived();
         let offers = self.offers().clone();
         // Diagnostics are open to every machine of the mesh, even when not lent.
         let diagnostic = matches!(
@@ -267,6 +274,8 @@ impl Reach {
 impl Peers {
     pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
         let reach = offers.reach.clone();
+        let team = TeamLink::new(endpoint.clone(), Arc::new(ForgeCli));
+        team.serve_sessions(Arc::new(TeamSessions(offers.clone())));
         let inner = Arc::new(Inner {
             endpoint,
             dir,
@@ -276,6 +285,7 @@ impl Peers {
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
             follower: Mutex::new(None),
+            team,
         });
         *crate::lock(&reach.0) = Arc::downgrade(&inner);
         Self { inner }
@@ -318,6 +328,8 @@ impl Peers {
             transfers.syncs().unfollow();
         }
 
+        // The gateway stopped with the follower: no team is served from here.
+        self.inner.team.with(|teams| *teams = Teams::default());
         crate::lock(&self.inner.active).take();
     }
 
@@ -350,7 +362,7 @@ impl Peers {
             .inner
             .serve_protocol(tx, rx, protocol, who, &mut trace)
             .await;
-        trace.finish(result.is_ok());
+        trace.end(&result);
         result
     }
 
@@ -360,6 +372,15 @@ impl Peers {
 
     pub fn forward_handler(&self) -> super::forward::ForwardAlpn {
         super::forward::ForwardAlpn(self.clone())
+    }
+
+    /// The `beep-team/1` handler.
+    pub fn team_handler(&self) -> TeamAlpn {
+        self.inner.team.handler()
+    }
+
+    pub(crate) fn team(&self) -> TeamLink {
+        self.inner.team.clone()
     }
 
     pub fn subscriptions_handler(&self) -> super::subscriptions::SubscriptionsAlpn {
@@ -400,16 +421,21 @@ impl Peers {
             return None;
         }
 
-        let kind = active
-            .mesh
-            .devices()
+        let devices = active.mesh.devices();
+        let kind = devices
             .iter()
             .find(|status| status.device.id == peer)?
             .device
             .kind;
         Some(match kind {
             DeviceKind::Desktop => Who::Everything(peer),
-            DeviceKind::Node => Who::Node(peer),
+            DeviceKind::Node => Who::Node {
+                peer,
+                desktop_here: devices.iter().any(|status| {
+                    status.device.id == active.mesh.me()
+                        && status.device.kind == DeviceKind::Desktop
+                }),
+            },
         })
     }
 
@@ -604,6 +630,14 @@ impl Peers {
             offers.skills.clone(),
             offers.agents.clone(),
         );
+        let team = crate::team::home::follow(active.mesh.clone(), self.inner.team.clone());
+        let gateway = crate::team::gateway::run(
+            active.mesh.clone(),
+            self.inner.endpoint.id(),
+            self.inner.team.clone(),
+            offers.clone(),
+            self.inner.dir.clone(),
+        );
         let search = crate::agents::follow_search(
             active.mesh.clone(),
             self.inner.dir.clone(),
@@ -616,7 +650,7 @@ impl Peers {
             offers.agents.clone(),
         );
         *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
-            tokio::join!(follow, moves, runs, skills, libraries, search);
+            tokio::join!(follow, moves, runs, skills, libraries, search, team, gateway);
         })));
     }
 
@@ -654,6 +688,10 @@ impl Peers {
                 let Some(inner) = peers.upgrade() else {
                     return;
                 };
+                let desktop_here = Peers {
+                    inner: inner.clone(),
+                }
+                .is_desktop();
                 let PeerStream {
                     peer,
                     kind,
@@ -662,7 +700,7 @@ impl Peers {
                 } = stream;
                 let who = match kind {
                     DeviceKind::Desktop => Who::Everything(peer),
-                    DeviceKind::Node => Who::Node(peer),
+                    DeviceKind::Node => Who::Node { peer, desktop_here },
                 };
                 let (tx, rx) = link(send, recv);
 

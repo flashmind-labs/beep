@@ -375,6 +375,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agpstage video { max-width: 100%; max-height: 100%; outline: 0 }
 .agpstage.audio audio { width: min(100% - 24px, 520px); outline: 0 }
 .agpstage.pdf { display: flex } .agpstage.pdf iframe { flex: 1; border: 0; background: #fff }
+.agpstage.pdf-export { display: block; overflow: auto }
+.agpstage.pdf-export canvas:not([hidden]) { display: block; width: 100%; height: auto }
 .agpstage.model canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none }
 .agpmsg { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; padding: 20px; font-size: 13px; color: var(--muted); text-align: center }
 .agpmsg.derr { color: var(--hot) }
@@ -458,7 +460,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agcode .ln { display: inline-block; width: var(--lnw, 3ch); margin-right: 12px; text-align: right; color: var(--dim); -webkit-user-select: none; user-select: none }
 .agcode .ln.on { color: var(--accent); font-weight: 600 }
 /* Token colours, darker on a light skin. */
-.agcode .k, .dcoderen .cmd .k { color: light-dark(#7c3aad, #C792EA) } .agcode .s, .dcoderen .cmd .s { color: light-dark(#2e7d32, #A5D6A7) } .agcode .c, .dcoderen .cmd .c { color: var(--dim); font-style: italic } .agcode .n, .dcoderen .cmd .n { color: light-dark(#b45309, #F2B482) }
+.agcode .k, .dcoderen .cmd .k, .ddiff .k, .dv-c .k { color: light-dark(#7c3aad, #C792EA) } .agcode .s, .dcoderen .cmd .s, .ddiff .s, .dv-c .s { color: light-dark(#2e7d32, #A5D6A7) } .agcode .c, .dcoderen .cmd .c, .ddiff .c, .dv-c .c { color: var(--dim); font-style: italic } .agcode .n, .dcoderen .cmd .n, .ddiff .n, .dv-c .n { color: light-dark(#b45309, #F2B482) }
+.agcm .ty, .dv-c .ty { color: light-dark(#8a6100, #FFCB6B) } .agcm .fn, .dv-c .fn { color: light-dark(#1d4ed8, #82AAFF) } .agcm .pr, .dv-c .pr { color: light-dark(#0e7490, #89DDFF) } .agcm .tg, .dv-c .tg { color: light-dark(#c2410c, #F07178) }
+.agcm .hd { color: light-dark(#1d4ed8, #82AAFF); font-weight: 600 } .agcm .lk { color: var(--accent); text-decoration: underline } .agcm .em { font-style: italic } .agcm .st { font-weight: 600 }
 .agpview.term .tm-term { flex: 1; min-height: 0; height: auto; padding: 6px 8px; background: var(--deep) }
 /* A terminal screen (terminals/termview.ts): its canvas, and the hidden field keys and IME type into. */
 .tm-term { position: relative; overflow: hidden; cursor: text }
@@ -553,7 +557,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .ddiff + .ddiff { margin-top: 6px }
 .ddiff .dh { padding: 3px 10px; border-bottom: 1px solid var(--border); background: var(--surface); color: var(--dim) }
 .ddiff > div:not(.dh) { padding: 0 10px; white-space: pre; color: var(--muted); min-width: max-content }
-.ddiff .da { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ok) } .ddiff .dr { background: color-mix(in srgb, var(--hot) 12%, transparent); color: var(--err) }
+.ddiff .da { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--fg) } .ddiff .dr { background: color-mix(in srgb, var(--hot) 12%, transparent); color: var(--fg) }
+.ddiff .da .dk { color: var(--ok) } .ddiff .dr .dk { color: var(--err) }
 .ddiff .dm { color: var(--dim); font-family: var(--body); font-size: 11.5px }
 /* Calls of one kind in a row as one line that opens to them. */
 .dtrun { display: grid; margin-inline: -6px }
@@ -808,7 +813,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .cc-pjc { flex: none; margin: 0 max(16px, calc((100% - 760px) / 2)) 14px; display: grid; gap: 6px }
 .cc-pjc .box { position: relative; border: 1px solid var(--border); border-radius: var(--radius); background: color-mix(in srgb, var(--elev) 92%, transparent); padding: 10px 10px 8px 12px; display: grid; gap: 8px }
 .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
-.cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 1.25em; max-height: 200px; line-height: 1.25; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
+.cc-pjc textarea { display: block; width: 100%; resize: none; min-height: 1.25em; max-height: 200px; line-height: 1.25; overflow-x: hidden; overflow-y: hidden; white-space: pre-wrap; overflow-wrap: anywhere; scrollbar-width: thin }
 .cc-pjc input, .cc-pjc textarea { border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; caret-color: var(--accent); padding: 0; min-width: 0; -webkit-user-select: text; user-select: text }
 .cc-pjc input::placeholder, .cc-pjc textarea::placeholder { color: var(--dim) }
 .cc-pjc .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap }
@@ -1079,7 +1084,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .chip.term { color: var(--fg) }
 .chip.dropped { color: var(--dim); text-decoration: line-through }
 /* ⇧esc: a dock fills the session over the conversation; its width and place are untouched. */
-.agpane.zoomed > .agpane-content { position: absolute; inset: 0; z-index: 3; background: var(--surface) }
+.agpane.zoomed > .agpane-content { position: absolute; inset: 0; z-index: 3; --pane-bg: var(--surface); background: var(--pane-bg) }
 .agshell.zoomed .agdiv { visibility: hidden; pointer-events: none }
 #agtasks:empty { display: none }
 /* Queued steers never take more than about a third of the session. */
@@ -1383,3 +1388,27 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 .dcoderen.tool.beep > .entry-time { grid-column: 4; grid-row: 1; }
 
 .dcoderen.agent > .reply-body { display: contents; }
+
+/* A project's team: teammates' cards and logins, the filters, the Team page and the join sheet. */
+.bd-acts { display: flex; flex-wrap: wrap; justify-content: end; gap: 6px }
+.bd-card .ft:has(> .bd-acts) { flex-wrap: wrap }
+.bd-card .ft > .bd-acts { flex: 1 1 100%; justify-content: start }
+.bd-card.theirs > b { color: color-mix(in srgb, var(--fg) 86%, var(--ink)) }
+.bd-who { flex: none; padding: 0 4px; border-radius: var(--radius-sm); background: color-mix(in srgb, currentColor 14%, transparent); white-space: nowrap }
+.tm-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 4px }
+.tm-page { display: flex; flex-direction: column; gap: 8px; min-width: 0 }
+.tm-face { flex: none; width: 26px; height: 26px; display: grid; place-items: center; border-radius: var(--radius-sm); color: var(--ink); font-weight: 600 }
+:is(.tm-members, .tm-contacts) .r { display: flex; align-items: center; gap: 6px; color: var(--muted) }
+.tm-invite { display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: var(--radius-sm) }
+.tm-code { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 9px; border-radius: var(--radius-sm); overflow-wrap: anywhere }
+.tm-note { font-size: 12px; color: var(--muted) }
+.tm-limit { width: 6em; height: var(--ctl-h); padding: 0 8px; box-sizing: border-box }
+.tm-owners { display: inline-flex; align-items: center; gap: 6px; color: var(--muted) }
+.tm-steps { display: flex; flex-direction: column; gap: 2px; margin-bottom: 12px }
+.tm-step { display: flex; align-items: center; gap: 10px; min-height: 28px }
+.tm-step.waiting { color: var(--muted) }
+.tm-mark { flex: none; width: 14px; display: inline-grid; place-items: center }
+.tm-mark.done { color: var(--ok) }
+.tm-mark.failed { color: var(--err) }
+.tm-join .tm-note { margin-bottom: 14px }
+.tm-end { justify-content: flex-end; margin-bottom: 0 }

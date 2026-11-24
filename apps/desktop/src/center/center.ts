@@ -1,6 +1,6 @@
 // The window renders first, so modules that load after it find its elements.
 import "./window-root.tsx";
-import { onPhone, WINDOWS } from "../ui/platform.ts";
+import { isMobile, onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.tsx";
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
@@ -14,7 +14,7 @@ import { isNewKey } from "../terminals/newkey-state.ts";
 import { allTerms } from "../terminals/view.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.tsx";
-import type { BackTo } from "../bar/core.ts";
+import { type BackTo, S } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
 import { savedWindowSession, windowTitle, type Alone, type CenterTarget } from "../project/projectwindow.ts";
 import { ensureSessions } from "../agents/sessions.ts";
@@ -24,13 +24,14 @@ import { pairing } from "./pairing.tsx";
 import { windowCommand } from "../ui/windowkeys.ts";
 import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { draw, homeTab, jump } from "./home.tsx";
-import { currentLocation, openDetachedWindow, windowAlone, aloneProject, go, goHistory, hasHistory, goTo } from "./views.tsx";
+import { asBack, currentLocation, openDetachedWindow, windowAlone, aloneProject, go, goHistory, hasHistory, goTo } from "./views.tsx";
 import { reloadGroup, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject, openAddMachine } from "./sidebar.tsx";
 import { escUp } from "./escup-state.ts";
 import { nextRunning } from "../project/loads.tsx";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
 import { pa } from "../project/sections.ts";
 import { AG, newThreadHere } from "../agents/agents.ts";
+import { ASSISTANT_CHATS } from "../agents/assistant-page.tsx";
 import { pane } from "../bar/pane.ts";
 import { debugWithAgent, initPaneView, readPending, showPending } from "./pane.tsx";
 import { homeCached, refresh } from "./refresh.ts";
@@ -178,14 +179,23 @@ pane.connect({
   },
   embedView,
   newAgent: newAgentHere,
-  stepOut: stepOutOfRail,
-  // The session shrinks back into its card on the board.
-  goBack(from: BackTo, move: boolean) {
-    if (!move) return void goTo(from);
-    const session = AG.page?.session;
-    if (session) setHeroCard(runningKey(session));
-    withMove("back", () => { goTo(from); });
+  stepOut() {
+    if (S.view === "agent" && stepOutOfRail()) return true;
+
+    const { assistant } = shell.getState();
+    if (!assistant) return false;
+    if (windowAlone?.kind === "chat") return true;
+
+    if (isMobile()) {
+      asBack(() => { goTo(assistant.picked ? ASSISTANT_CHATS : { view: "home", arg: null }); });
+      return true;
+    }
+
+    goBack({ view: "home", arg: null }, S.view === "agent");
+
+    return true;
   },
+  goBack,
   openStarted(session) {
     if (currentLocation()?.view === "pane") go("pane", { agent: session, adopt: true });
   },
@@ -209,6 +219,15 @@ pane.connect({
     return { label: repoOf(s, projects) || p.name, name: p.name, open, afterClose };
   },
 });
+
+// The session shrinks back into its card on the board.
+function goBack(from: BackTo, move: boolean) {
+  if (!move) return void goTo(from);
+
+  const session = AG.page?.session;
+  if (session) setHeroCard(runningKey(session));
+  withMove("back", () => { goTo(from); });
+}
 
 /// What the window opens on: its project or chat, with the chat's row as far as the sessions
 /// know it, or for the main window what the bar or tray asked for. Asked at load, beside the

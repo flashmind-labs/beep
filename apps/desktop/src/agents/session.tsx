@@ -14,7 +14,6 @@ import { agentKey, conversationHistory, conversationKey, retitle, sessionKey, ty
 import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
 import { $, type AgentReturn, bar, S, windowHooks } from "../bar/core.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
-import { readRunning } from "../agentpane/running.ts";
 import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
@@ -302,7 +301,7 @@ export async function pollAgent(readNow = false) {
   const version = feed.version(o);
   AG.inflight = o;
   const read = ++AG.polls;
-  const current = { open: o, at: Date.now(), pending: new Set(["view", "modes", "tasks", "processes"]) };
+  const current = { open: o, at: Date.now(), pending: new Set(["view", "modes", "tasks"]) };
   reading = current;
   if (trace) traceSession("read-started", o, { readNow });
   const tracked = <T,>(name: string, call: Promise<T>) => call.finally(() => {
@@ -311,10 +310,9 @@ export async function pollAgent(readNow = false) {
   });
 
   const still = () => isOpen(o) && feed.version(o) === version;
-  // The page shows as soon as it comes; modes, tasks and processes join it as each arrives.
+  // The page shows as soon as it comes; modes and tasks join it as each arrives.
   void tracked("modes", readModes(o)).then(modes => { if (still()) { AG.modes = modes; drawRest(); } });
   void tracked("tasks", readTasks(o)).then(tasks => { if (still()) { AG.tasks = tasks; drawRest(); } });
-  void tracked("processes", readRunning());
 
   try {
     const page = await tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST, window.innerHeight) }, AGENT_READ_WAIT_MS));

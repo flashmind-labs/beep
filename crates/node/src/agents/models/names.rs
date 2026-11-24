@@ -2,6 +2,27 @@
 //! `openrouter:deepseek/deepseek-v4.1-flash-1017`, which reads
 //! `DeepSeek V4.1 Flash 1017` from `openrouter`.
 
+use beep_proto::node::agent::ModelOption;
+
+/// pi-acp prefixes both the selection ID and the display name with `provider/`.
+pub(super) fn split_pi_name(model: &mut ModelOption) {
+    let Some((provider, id)) = model.id.split_once('/') else {
+        return;
+    };
+
+    if provider.is_empty() || id.is_empty() {
+        return;
+    }
+
+    if let Some((prefix, name)) = model.name.split_once('/')
+        && prefix == provider
+    {
+        model.name = if name.is_empty() { id } else { name }.to_owned();
+    }
+
+    model.provider = Some(provider.to_owned());
+}
+
 /// Words with a fixed spelling, in lower case and as written.
 const WORDS: &[(&str, &str)] = &[
     ("claude", "Claude"),

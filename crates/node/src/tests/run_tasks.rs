@@ -9,16 +9,7 @@ fn started(reply: Reply) -> TaskId {
 }
 
 async fn wait_done(tasks: &Tasks, id: TaskId) -> Reply {
-    let mut done = {
-        let inner = lock(&tasks.inner);
-        inner
-            .jobs
-            .iter()
-            .find(|job| job.id == id)
-            .expect("the task is kept")
-            .done
-            .clone()
-    };
+    let mut done = tasks.entry(id).expect("the task is kept").done.clone();
     timeout(
         Duration::from_secs(20),
         watched::wait_for(&mut done, |done| *done),
@@ -134,13 +125,43 @@ async fn stopping_a_task_stops_its_whole_group() {
 #[tokio::test]
 async fn background_timeout_still_applies_after_stdout_closes() {
     let tasks = Tasks::default();
-    let id = started(tasks.start_limited(
-        "exec >/dev/null 2>&1; sleep 300".to_owned(),
-        None,
-        Some(Duration::from_millis(100)),
-    ));
+    let id = started(
+        tasks
+            .start_limited(
+                "exec >/dev/null 2>&1; sleep 300".to_owned(),
+                None,
+                Some(Duration::from_millis(100)),
+            )
+            .await,
+    );
     let Reply::Status { task, .. } = wait_done(&tasks, id).await else {
         panic!("no status");
     };
     assert_eq!(task.state, TaskState::Stopped);
+}
+
+// A spawn in flight is not in the list yet, so `kill_all` cannot reach it:
+// the task is killed as it lands.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_task_spawned_after_kill_all_is_killed() {
+    let tasks = Tasks::default();
+    let (reached, reached_rx) = oneshot::channel();
+    let (release_tx, release) = oneshot::channel();
+    *lock(&tasks.gate) = Some(Gate { reached, release });
+    let start = tasks.start("sleep 300".to_owned(), None);
+    tokio::pin!(start);
+    let id = tokio::select! {
+        _ = &mut start => panic!("the spawn was not held"),
+        reached = reached_rx => {
+            reached.expect("the spawn reports it is held");
+            tasks.kill_all();
+            release_tx.send(()).expect("the spawn waits");
+            started(start.await)
+        }
+    };
+    let Reply::Status { task, .. } = wait_done(&tasks, id).await else {
+        panic!("no status");
+    };
+    assert!(!task.state.is_running());
 }

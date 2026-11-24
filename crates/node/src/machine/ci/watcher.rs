@@ -8,7 +8,6 @@
 //! `MAX_WAITS` CLI processes at once, owned here and killed when the role
 //! moves away or the node stops.
 
-use beep_proto::SessionId;
 use super::{
     Ci,
     book::{self, Books},
@@ -16,17 +15,19 @@ use super::{
     forge::{Cli, Forge, Host, Target},
     projects::{self, Project},
 };
-use crate::agents::{mcp::over_the_mesh, project_folder};
-use anyhow::{Result, anyhow, bail};
+use crate::{
+    agents::project_folder,
+    machine::elect::{ask_reach, gather, online},
+};
+use anyhow::{Result, bail};
 use beep_mesh::Mesh;
 use beep_proto::{
     RunState, WorkflowRun,
     node::{
         agent::RunNews,
-        tools::{ForgeReach, HostReach, Reply, Request, Tool},
+        tools::ForgeReach,
     },
 };
-use futures::future::join_all;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
@@ -52,8 +53,6 @@ pub(super) const QUIET: Duration = Duration::from_secs(10 * 60);
 const BUSY: Duration = Duration::from_secs(10 * 60);
 /// How long a list, a read or a login may take, on top of the CLI's own limit.
 const CALL_LIMIT: Duration = Duration::from_secs(45);
-/// How long another machine has to say how it reaches the hosts.
-const ASK_LIMIT: Duration = Duration::from_secs(10);
 /// The most runs waited on at once.
 pub(super) const MAX_WAITS: usize = 4;
 /// The most runs waiting for a wait; the rest are seen by the next list.
@@ -89,34 +88,6 @@ pub(crate) async fn watch(mesh: Mesh, me: EndpointId, dir: PathBuf, ci: Arc<Ci>)
         .await
         .run()
         .await;
-}
-
-/// The machine that watches `project`, as this node sees it: `reach` is how
-/// this machine reaches the host, `peers` what the online machines that
-/// answered said. Every node works it out from the same facts, so all pick
-/// the same one: the candidate (an online machine of the project, with its
-/// checkout, that answered how it reaches the host) with the best
-/// `HostReach::rank`, then the smallest id. Machines that keep failing
-/// still watch when no other is left, so a host that is down for everyone
-/// is tried again.
-pub(super) fn watcher_of(
-    project: &Project,
-    me: EndpointId,
-    reach: HostReach,
-    peers: &BTreeMap<EndpointId, ForgeReach>,
-) -> Option<EndpointId> {
-    let host = project.target.host_name();
-    let candidates = project.machines.iter().filter_map(|machine| {
-        if *machine == me {
-            return Some((me, reach));
-        }
-
-        let said = peers.get(machine)?;
-        Some((*machine, said.hosts.get(host).copied().unwrap_or_default()))
-    });
-    candidates
-        .min_by_key(|(id, reach)| (reach.rank(), *id))
-        .map(|(id, _)| id)
 }
 
 /// A run of a project, as waits are kept.
@@ -260,24 +231,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
             .collect();
         self.asked = Some((Instant::now(), online));
         let world = &self.world;
-        let answers = join_all(asked.into_iter().map(|peer| async move {
-            let said = match timeout(ASK_LIMIT, world.ask(peer)).await {
-                Ok(said) => said,
-                Err(_) => Err(anyhow!("it did not answer in time")),
-            };
-            (peer, said)
-        }))
-        .await;
-        self.peers = answers
-            .into_iter()
-            .filter_map(|(peer, said)| match said {
-                Ok(reach) => Some((peer, reach)),
-                Err(e) => {
-                    log::debug!("CI watch: {peer} says nothing of its reach: {e:#}");
-                    None
-                }
-            })
-            .collect();
+        self.peers = gather("CI watch", asked, |peer| world.ask(peer)).await;
     }
 
     /// Elects the watcher of every pinned project; the projects this machine
@@ -295,10 +249,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
         let held: BTreeSet<String> = self
             .projects
             .iter()
-            .filter(|project| {
-                let reach = self.ci.reach_of(project.target.host_name());
-                watcher_of(project, me, reach, &peers) == Some(me)
-            })
+            .filter(|project| project.elected(me, &self.ci, &peers) == Some(me))
             .map(|project| project.name.clone())
             .collect();
         let lost: Vec<String> = self.held.difference(&held).cloned().collect();
@@ -612,30 +563,11 @@ impl World for MeshWorld {
     }
 
     fn online(&self) -> BTreeSet<EndpointId> {
-        self.mesh
-            .code_hosts()
-            .into_iter()
-            .filter(|status| status.online && status.device.id != self.me)
-            .map(|status| status.device.id)
-            .collect()
+        online(&self.mesh)
     }
 
     async fn ask(&self, peer: EndpointId) -> Result<ForgeReach> {
-        let request = Request {
-            session: SessionId::default(),
-            tool: Tool::ForgeReach,
-            args: "{}".to_owned(),
-            approved: Default::default(),
-        };
-
-        match over_the_mesh(&self.mesh, peer, &request).await? {
-            Reply::Done {
-                text,
-                failed: false,
-            } => Ok(serde_json::from_str(&text)?),
-            Reply::Done { text, .. } => bail!("{text}"),
-            _ => bail!("it answered something else"),
-        }
+        ask_reach(&self.mesh, peer).await
     }
 
     async fn changed(&mut self) -> bool {

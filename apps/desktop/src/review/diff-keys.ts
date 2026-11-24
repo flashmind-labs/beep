@@ -1,9 +1,10 @@
 // The diff's keyboard, its current file and its folds: j and k step between
-// files, x folds one, / finds; the current file is marked in the list and its
+// files, x folds one, / finds, n and N or enter step between the places
+// found; the current file is marked in the list and its
 // section as the view scrolls.
 import { glide } from "../ui/motion.ts";
-import { currentFile, diffRows, inView, isFolded, estimateHeight, lineKey, matchesFilter, splitRows, stepFile, type DiffFile, type LineMatch } from "./diff-state.ts";
-import { CHUNK, GAP, type Viewer, indexOf, itemAt, keepCurrent, remeasure, remember, shown } from "./diff-viewer.ts";
+import { currentFile, diffRows, inView, isFolded, estimateHeight, lineKey, matchesFilter, sameHit, splitRows, stepFile, type DiffFile, type LineMatch } from "./diff-state.ts";
+import { CHUNK, GAP, type Viewer, hits, indexOf, itemAt, keepCurrent, remeasure, remember, shown } from "./diff-viewer.ts";
 
 export function onKey(v: Viewer, e: KeyboardEvent) {
   // ⌘F in the diff is its filter, not the chat's find.
@@ -20,12 +21,13 @@ export function onKey(v: Viewer, e: KeyboardEvent) {
 
   if (t === find) {
     if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); find.blur(); v.root.focus(); }
+    if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); e.stopPropagation(); stepHit(v, e.shiftKey ? -1 : 1); }
     return;
   }
 
   if (t.closest("input, textarea, [contenteditable='true']")) return;
   const list = shown(v.state);
-  if (["j", "k", "x", "/"].includes(e.key)) e.stopPropagation();
+  if (["j", "k", "x", "/", "n", "N"].includes(e.key)) e.stopPropagation();
   const at = list.findIndex(f => f.path === v.state.cur);
 
   if (e.key === "j" || e.key === "k") {
@@ -45,7 +47,20 @@ export function onKey(v: Viewer, e: KeyboardEvent) {
   } else if (e.key === "/") {
     e.preventDefault();
     find?.focus();
+  } else if (e.key === "n" || e.key === "N") {
+    e.preventDefault();
+    stepHit(v, e.key === "n" ? 1 : -1);
   }
+}
+
+/// Goes to the next place the filter finds, or the previous one with a
+/// negative `step`, round from the last to the first.
+export function stepHit(v: Viewer, step: 1 | -1) {
+  const all = hits(v.state);
+  if (!all.length) return;
+  const at = all.findIndex(hit => sameHit(hit, v.state.hit));
+  const next = all[at < 0 ? (step > 0 ? 0 : all.length - 1) : (at + step + all.length) % all.length];
+  jumpToLine(v, next.path, next);
 }
 
 /// Scrolls file `path` to the top and makes it current.
@@ -59,14 +74,18 @@ export function jump(v: Viewer, path: string) {
   glide(files, item.start, "snap", { landed: null, done: () => virtual.scrollToIndex(index, { align: "start" }) });
 }
 
-/// Scrolls line `match` of file `path` to the middle and marks it a moment.
-/// Its chunk draws its rows only once near, so it goes there first.
+/// Scrolls line `match` of file `path` to the middle, marks it a moment and
+/// makes the place found in it current. Its chunk draws its rows only once
+/// near, so it goes there first.
 export function jumpToLine(v: Viewer, path: string, match: LineMatch) {
   const f = v.state.view?.files.find(x => x.path === path);
   if (!f) return;
+  v.set({ hit: { ...match, path } });
   if (isFolded(f, v.state.folded)) setFolded(v, [path], false);
-  jump(v, path);
   const key = lineKey(match.side, match.line), chunk = Math.floor(rowIndex(v, f, match) / CHUNK);
+  // A row drawn already is near the viewport: going to its file first would jump away and back.
+  if (!v.sections.get(path)?.querySelector(`[data-at="${key}"]`)) jump(v, path);
+  else v.store.setState({ cur: path });
   let frames = 60, near = false;
 
   const step = () => {
@@ -75,7 +94,8 @@ export function jumpToLine(v: Viewer, path: string, match: LineMatch) {
     const row = section?.querySelector<HTMLElement>(`[data-at="${key}"]`);
 
     if (row) {
-      row.scrollIntoView({ block: "center" });
+      // In side by side, an unchanged line's two cells share its key; the mark is in one.
+      (section?.querySelector("mark.cur") ?? row).scrollIntoView({ block: "center", inline: "nearest" });
       row.classList.add("dv-hit");
       window.setTimeout(() => row.classList.remove("dv-hit"), 1500);
       return;

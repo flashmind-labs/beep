@@ -17,8 +17,9 @@
 .dv-head > .dv-sum { flex: 0 1 auto; display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums }
 .dv-head > .dv-find { flex: 0 1 160px; max-width: 160px; min-width: 80px }
 .dv-head > .dv-sp { flex: 1 1 0; min-width: 0 }
-.dv-tools { display: inline-flex; gap: 2px }
-.dv-tools .dv-btn.icon { border-color: transparent }
+.dv-tools, .dv-found { display: inline-flex; align-items: center; gap: 2px }
+.dv-tools .dv-btn.icon, .dv-found .dv-btn.icon { border-color: transparent }
+.dv-found-n { min-width: 4ch; padding-right: 2px; color: var(--muted); font: 11px var(--mono); font-variant-numeric: tabular-nums; text-align: right }
 .dv-filesbtn { display: none } .dv.wide .dv-filesbtn { display: inline-grid }
 .dv-tools .dv-btn.icon[aria-pressed="true"] { background: color-mix(in srgb, var(--fg) 10%, transparent); color: var(--fg) }
 .dv-pm { display: inline-block; width: 14px; text-align: center; font-size: 15px; line-height: 14px; font-weight: 500 }
@@ -165,5 +166,7 @@
 .dv-fbnote .a { display: flex; gap: 8px }
 .dv-tr.dv-match { grid-template-columns: auto minmax(0, 1fr); color: var(--muted) }
 .dv-tr.dv-match .nm i { color: var(--muted) }
-.dv-tr.dv-match mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--fg); border-radius: 2px }
+.dv-tr.dv-match mark, .dv-c mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--fg); border-radius: 2px }
+.dv-c mark.cur { background: var(--accent); color: var(--ink) }
+.dv-c mark.cur > span { color: inherit }
 .dv-l.dv-hit { box-shadow: inset 2px 0 0 var(--accent); background: color-mix(in srgb, var(--accent) 18%, transparent) }

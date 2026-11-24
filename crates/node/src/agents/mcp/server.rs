@@ -3,7 +3,7 @@
 //! `remote_run` does not hold up the next call.
 
 use super::{
-    catalog::{self, ASK_USER, DEVICE, PROJECTS, READ_TRANSCRIPT, REMOTE_RUN},
+    catalog::{self, ASK_USER, DEVICE, PROJECTS, READ_TRANSCRIPT, REMOTE_RUN, TEAM},
     media::Media,
 };
 use crate::{
@@ -68,6 +68,10 @@ pub(crate) trait Backend: Sync {
     /// Whether the mesh has no other machine to run on, so the tools that
     /// reach one are left out.
     fn alone(&self) -> bool {
+        false
+    }
+    /// Whether `session` works in a team project, which gets the team tools.
+    fn team(&self, _session: &SessionId) -> bool {
         false
     }
     /// The media tools `session` gets from the saved API keys.
@@ -165,21 +169,15 @@ async fn answer<B: Backend>(
                 .and_then(Value::as_str)
                 .filter(|asked| VERSIONS.contains(asked))
                 .unwrap_or(VERSIONS[0]);
-            let assistant = if backend.assistant(session) {
-                format!("\n\n{}", super::ASSISTANT)
-            } else {
-                String::new()
-            };
-            let brief = media.as_deref().and_then(Media::brief).unwrap_or_default();
-            success(
-                id,
-                json!({
-                    "protocolVersion": version,
-                    "capabilities": { "tools": { "listChanged": true } },
-                    "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
-                    "instructions": format!("{}{assistant}{brief}", super::BRIEF),
-                }),
-            )
+            let mut result = json!({
+                "protocolVersion": version,
+                "capabilities": { "tools": { "listChanged": true } },
+                "serverInfo": { "name": super::SERVER_NAME, "version": env!("CARGO_PKG_VERSION") },
+            });
+            if let Some(brief) = media.as_deref().and_then(Media::brief) {
+                result["instructions"] = json!(brief);
+            }
+            success(id, result)
         }
         "ping" => success(id, json!({})),
         "tools/list" => {
@@ -189,8 +187,13 @@ async fn answer<B: Backend>(
                 backend.assistant(session),
             );
 
-            if let (Some(listed), Some(media)) = (tools.as_array_mut(), media.as_deref()) {
-                listed.extend(media.listed());
+            if let Some(listed) = tools.as_array_mut() {
+                if backend.team(session) {
+                    listed.extend(catalog::team());
+                }
+                if let Some(media) = media.as_deref() {
+                    listed.extend(media.listed());
+                }
             }
 
             success(id, json!({ "tools": tools }))
@@ -290,6 +293,10 @@ async fn call<B: Backend>(backend: &B, session: &SessionId, name: &str, args: Va
         || (name == "submit_review" && !backend.reviewer(session));
 
     if hidden {
+        return Called::failed(format!("There is no tool {name}."));
+    }
+    // Only sessions in a team project reach the team.
+    if TEAM.contains(&name) && !backend.team(session) {
         return Called::failed(format!("There is no tool {name}."));
     }
 

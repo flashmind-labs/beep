@@ -66,6 +66,7 @@ pub struct PluginStatus {
 pub(crate) enum Lifecycle {
     Waiting,
     Running,
+    IdleGrace(Instant),
     Stopped(String),
     Disabled,
     NeedsApproval(Vec<Permission>),
@@ -137,6 +138,16 @@ impl Registry {
         self.entries.get(id).map(|entry| &entry.lifecycle)
     }
 
+    pub(crate) fn next_idle_stop(&self) -> Option<Instant> {
+        self.entries
+            .values()
+            .filter_map(|entry| match entry.lifecycle {
+                Lifecycle::IdleGrace(deadline) => Some(deadline),
+                _ => None,
+            })
+            .min()
+    }
+
     pub(crate) fn set_visible(&mut self, visible: bool) {
         self.visible = visible;
     }
@@ -161,8 +172,8 @@ impl Registry {
     fn state_of(&self, entry: &Entry) -> PluginState {
         match &entry.lifecycle {
             Lifecycle::Waiting => PluginState::Waiting,
-            Lifecycle::Running if self.visible => PluginState::Running,
-            Lifecycle::Running => PluginState::Paused,
+            Lifecycle::Running | Lifecycle::IdleGrace(_) if self.visible => PluginState::Running,
+            Lifecycle::Running | Lifecycle::IdleGrace(_) => PluginState::Paused,
             Lifecycle::Stopped(reason) => PluginState::Stopped {
                 reason: reason.clone(),
             },

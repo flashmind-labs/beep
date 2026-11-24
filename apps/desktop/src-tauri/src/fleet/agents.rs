@@ -104,94 +104,7 @@ const MACHINE_LIMIT: Duration = Duration::from_secs(5);
 /// How long a scan of what a machine's agents keep may take.
 const SCAN_LIMIT: Duration = Duration::from_secs(8);
 
-/// What each online machine of `machines` gives from `ask`, concurrently
-/// and a few at a time. One that is slow or off is left out after `limit`.
-async fn each<T, F, Fut>(
-    fleet: &Fleet,
-    machines: Vec<EndpointId>,
-    limit: Duration,
-    ask: F,
-) -> Vec<T>
-where
-    F: Fn(PeerClient, Host) -> Fut,
-    Fut: Future<Output = Vec<T>>,
-{
-    let ask = &ask;
-    let asks: Vec<_> = machines
-        .into_iter()
-        .map(|machine| async move {
-            let one = async {
-                match fleet.client(machine).await {
-                    Ok(client) => ask(client, fleet.host_of(machine)).await,
-                    Err(_) => Vec::new(),
-                }
-            };
-            timeout(limit, one).await.unwrap_or_default()
-        })
-        .collect();
-    stream::iter(asks)
-        .buffer_unordered(IN_FLIGHT)
-        .collect::<Vec<_>>()
-        .await
-        .into_iter()
-        .flatten()
-        .collect()
-}
-
-/// Beep's sessions on this Mac, from the node in this process.
-pub(crate) async fn local_sessions(fleet: &Fleet) -> Vec<MachineSession> {
-    each(
-        fleet,
-        vec![fleet.id()],
-        MACHINE_LIMIT,
-        |client, host| async move { listed(fleet, &client, &host).await },
-    )
-    .await
-}
-
-/// Beep's sessions on the other machines of the mesh, and the machines that
-/// may have some but did not say: online ones that did not answer in time,
-/// and those still being connected to.
-pub(crate) struct PeerSessions {
-    pub(crate) sessions: Vec<MachineSession>,
-    pub(crate) unanswered: Vec<EndpointId>,
-    pub(crate) connecting: Vec<EndpointId>,
-}
-
-/// Beep's sessions on the other online machines of the mesh, a few machines
-/// at once.
-pub(crate) async fn peer_sessions(fleet: &Fleet) -> PeerSessions {
-    let me = fleet.id();
-    let asks: Vec<_> = fleet
-        .online()
-        .into_iter()
-        .filter(|machine| *machine != me)
-        .map(|machine| async move {
-            let listed = timeout(MACHINE_LIMIT, sessions_of(fleet, machine)).await;
-            (machine, listed.ok().flatten())
-        })
-        .collect();
-    let answers: Vec<_> = stream::iter(asks)
-        .buffer_unordered(IN_FLIGHT)
-        .collect()
-        .await;
-    let mut found = PeerSessions {
-        sessions: Vec::new(),
-        unanswered: Vec::new(),
-        connecting: fleet.status().connecting(),
-    };
-
-    for (machine, listed) in answers {
-        match listed {
-            Some(sessions) => found.sessions.extend(sessions),
-            None => found.unanswered.push(machine),
-        }
-    }
-
-    found
-}
-
-/// Beep's sessions on `machine` alone, for its change to replace only its
+/// Beep's sessions on `machine` alone, for its answer to replace only its
 /// rows; `None` when it could not be listed, so the rows held stay.
 pub(crate) async fn sessions_of(fleet: &Fleet, machine: EndpointId) -> Option<Vec<MachineSession>> {
     let client = fleet.client(machine).await.ok()?;
@@ -205,13 +118,6 @@ pub(crate) async fn sessions_of(fleet: &Fleet, machine: EndpointId) -> Option<Ve
     Some(noted(fleet, &host, linked))
 }
 
-/// Beep's sessions on one machine, noting which an agent started. Its
-/// children are only noted: they open from the parent agent panel.
-async fn listed(fleet: &Fleet, client: &PeerClient, host: &Host) -> Vec<MachineSession> {
-    let linked = listing::linked_sessions(client, host, true).await;
-    noted(fleet, host, linked)
-}
-
 /// Top-level sessions, after keeping children for the parent agent panel.
 fn noted(fleet: &Fleet, host: &Host, linked: Vec<Linked>) -> Vec<MachineSession> {
     fleet.parents.note(&host.id, &linked);
@@ -222,34 +128,33 @@ fn noted(fleet: &Fleet, host: &Host, linked: Vec<Linked>) -> Vec<MachineSession>
         .collect()
 }
 
-/// What only a scan of each online machine finds: the sessions started
-/// outside Beep that run now, and the assistant's conversations that ended,
-/// with their threads.
-pub(crate) async fn scanned_sessions(fleet: &Fleet) -> Vec<MachineSession> {
-    each(
-        fleet,
-        fleet.online(),
-        SCAN_LIMIT,
-        |client, host| async move {
-            let home = host
-                .id
-                .parse()
-                .ok()
-                .and_then(|machine| fleet.status().last_env(machine))
-                .map(|env| env.home)
-                .filter(|home| !home.is_empty());
-            let ended = async {
-                match &home {
-                    Some(home) => listing::ended_conversations(&client, &host, home).await,
-                    None => Vec::new(),
-                }
-            };
-            let (mut found, ended) = tokio::join!(listing::outside_sessions(&client, &host), ended);
-            found.extend(ended);
-            found
-        },
-    )
-    .await
+/// What only a scan of `machine` finds: the sessions started outside Beep
+/// that run now, and the assistant's conversations that ended, with their
+/// threads. `None` when it did not answer in time.
+pub(crate) async fn scanned_sessions_of(
+    fleet: &Fleet,
+    machine: EndpointId,
+) -> Option<Vec<MachineSession>> {
+    let scan = async {
+        let client = fleet.client(machine).await.ok()?;
+        let host = fleet.host_of(machine);
+        let home = fleet
+            .status()
+            .last_env(machine)
+            .map(|env| env.home)
+            .filter(|home| !home.is_empty());
+        let ended = async {
+            match &home {
+                Some(home) => listing::ended_conversations(&client, &host, home).await,
+                None => Vec::new(),
+            }
+        };
+        let (mut found, ended) = tokio::join!(listing::outside_sessions(&client, &host), ended);
+        found.extend(ended);
+        Some(found)
+    };
+
+    timeout(SCAN_LIMIT, scan).await.ok().flatten()
 }
 
 /// One session in full; a transcript that cannot be read leaves `entries` empty.

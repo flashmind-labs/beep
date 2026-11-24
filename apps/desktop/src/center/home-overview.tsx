@@ -31,6 +31,7 @@ import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { LineCounts, RunningStatus, workLine } from "../project/split-view.tsx";
 import { sessions } from "../agents/sessions.ts";
 import { isAssistant } from "../agents/assistant-state.ts";
+import { inviteCard, useInvites } from "../project/teamjoin.tsx";
 
 /// What a running row says at its end: a move or a close, that it asks, or since when. `doing`
 /// puts its step there while it works.
@@ -65,7 +66,7 @@ function needsCards(home: HomeView): BoardCard[] {
       lead: <HarnessIcon agent={need.agent} />, title: details.title, sub: [project, details.sub].filter(Boolean).join(" · "), foot: null,
       // A question answered in words, with nothing to allow, is answered in its chat.
       action: need.question.options.some(option => option.allow) ? { kind: "answer", question: need.question, answer: reply => answerNeed(need, reply) } : { kind: "run", label: "Answer", primary: true, run: open },
-      dim: false, hint: null, open, menu: null,
+      dim: false, theirs: false, hint: null, open, menu: null,
     });
   }
 
@@ -83,7 +84,7 @@ function needsCards(home: HomeView): BoardCard[] {
 
     cards.push({ key: item.url, lane: "needs", project: project?.name ?? item.repo, color: projectColor(project?.name ?? null), session: false, lead: <span style={{ display: "contents" }}><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>,
       title: `#${item.number} ${item.title}`, sub: [item.repo, itemChips(item).map(c => c.text).join(", ")].filter(Boolean).join(" · "), foot: null,
-      action: agent ? { kind: "agent", item: agent } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, hint: item.url, open, menu: null });
+      action: agent ? { kind: "agent", item: agent } : { kind: "run", label: "Open", primary: false, run: open }, dim: false, theirs: false, hint: item.url, open, menu: null });
   }
 
   // A project's conflicts share one card: its Machines section lists them.
@@ -93,7 +94,7 @@ function needsCards(home: HomeView): BoardCard[] {
     const one = conflicts.length === 1, open = () => go("projects", { project, tile: "machines" });
     cards.push({ windowProps: projectWindowProps(project), key: `${project}:conflicts`, lane: "needs", project, color: projectColor(project), session: false, lead: <span style={{ display: "contents" }}><Icon name="sync" /></span>,
       title: one ? first.path : `${conflicts.length} files have two copies`, sub: one ? conflictSub(project, first, detail?.machines ?? []) : project, foot: null,
-      action: { kind: "run", label: "Resolve", primary: false, run: open, windowProps: projectWindowProps(project) }, dim: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open, menu: null });
+      action: { kind: "run", label: "Resolve", primary: false, run: open, windowProps: projectWindowProps(project) }, dim: false, theirs: false, hint: conflicts.map(conflict => conflict.path).join("\n"), open, menu: null });
   }
 
   return cards;
@@ -110,7 +111,7 @@ function runningCards(home: HomeView, assistants: ReadonlySet<string>, grouped: 
     // A finished turn can be closed from its lane's card, so Ready to review empties.
     const close = () => { closeSession(row).catch(error => console.warn("close:", error)); };
     return { key: runningKey(row), lane, project, color: projectColor(project), session: true, lead: <HarnessIcon agent={row.agent} />,
-      title, sub, foot: status.foot, action: lane === "review" && !grouped ? { kind: "close", run: close } as const : null, dim: status.waiting, hint: status.why,
+      title, sub, foot: status.foot, action: lane === "review" && !grouped ? { kind: "close", run: close } as const : null, dim: status.waiting, theirs: false, hint: status.why,
       open: () => go("pane", { agent: row }),
       menu: event => { void sessionMenu(event, row, s => go("pane", { agent: s })); } };
   });
@@ -134,7 +135,7 @@ function boardCards(home: HomeView, needs: BoardCard[], running: BoardCard[], as
     const { title, sub } = runningLine(session, projects);
     const project = sessionProject(session, home);
     cards.push({ key, lane: "done", project, color: projectColor(project), session: true, lead: <HarnessIcon agent={session.agent} />, title, sub, foot: formatAgo(session.last_activity, "since"),
-      action: null, dim: false, hint: null, open: () => go("pane", { agent: { kind: "agent", ...session } }), menu: null });
+      action: null, dim: false, theirs: false, hint: null, open: () => go("pane", { agent: { kind: "agent", ...session } }), menu: null });
   }
 
   return cards;
@@ -151,7 +152,8 @@ const QUEUED_LANES = LANES.filter(({ lane }) => lane !== "needs");
 export function HomeOverview({ home, review }: { home: HomeView; review: boolean }) {
   // The assistant's chats have their own page.
   const assistants = new Set(sessions.filter(isAssistant).map(runningKey));
-  const cards = boardCards(home, needsCards(home), runningCards(home, assistants, false), assistants);
+  const invites = useInvites();
+  const cards = boardCards(home, [...invites.map(inviteCard), ...needsCards(home)], runningCards(home, assistants, false), assistants);
   // The review is of the open sessions: the ended ones are in the lanes.
   const queue = cards.filter(card => card.lane === "needs"), lanes = cards.filter(card => card.lane !== "needs" && !(review && card.lane === "done"));
 
@@ -250,7 +252,7 @@ function Deck({ card, row, done, open, step }: { card: BoardCard; row: RunningAg
 
 /// A session's project, with its colour.
 function ProjectTag({ card }: { card: BoardCard }) {
-  return <span className="bd-tag">{card.color !== null && <span className="pj-swatch" style={{ "--c": card.color } as CSSProperties}/>}{card.project}</span>;
+  return <span className="bd-tag">{card.color !== null && <span className="pj-swatch" style={{ "--c": card.color } as CSSProperties}/>}<span className="bd-tag-name">{card.project}</span></span>;
 }
 
 /// The left and right arrows step back and on while the review shows and nothing else takes them.

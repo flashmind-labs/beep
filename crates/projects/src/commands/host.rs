@@ -109,24 +109,9 @@ impl HostCommand<'_> {
 
         match *self {
             Self::ListOpenIssues => {
-                // Only what the list shows, so a long list stays small.
-                let jq = "[.[] | {number, title, labels: [.labels[].name], \
-                          author: .author.login, createdAt, \
-                          comments: (.comments | length), url}]";
                 let limit = GH_OPEN_LIMIT.to_string();
-                gh(
-                    &["issue", "list"],
-                    &[
-                        "--state",
-                        "open",
-                        "--limit",
-                        &limit,
-                        "--json",
-                        "number,title,labels,author,createdAt,comments,url",
-                        "--jq",
-                        jq,
-                    ],
-                )
+                let flags = [&["--state", "open", "--limit", &limit][..], &GH_ISSUES].concat();
+                gh(&["issue", "list"], &flags)
             }
             Self::ListLinkedIssues => {
                 let limit = GH_OPEN_LIMIT.to_string();
@@ -147,23 +132,9 @@ impl HostCommand<'_> {
                 )
             }
             Self::ListOpenPrs => {
-                let jq = "[.[] | {number, title, url, author: .author.login, \
-                          isDraft, createdAt, updatedAt, headRefName, \
-                          labels: [.labels[].name]}]";
                 let limit = GH_OPEN_LIMIT.to_string();
-                gh(
-                    &["pr", "list"],
-                    &[
-                        "--state",
-                        "open",
-                        "--limit",
-                        &limit,
-                        "--json",
-                        "number,title,url,author,isDraft,createdAt,updatedAt,headRefName,labels",
-                        "--jq",
-                        jq,
-                    ],
-                )
+                let flags = [&["--state", "open", "--limit", &limit][..], &GH_PRS].concat();
+                gh(&["pr", "list"], &flags)
             }
             Self::ViewPrHead { number } => number_command(
                 &["pr", "view"],
@@ -269,4 +240,23 @@ const LINKED_PRS_JQ: &str = ".data.repository.issue | [.closedByPullRequestsRefe
     (.timelineItems.nodes[].source | select(.number != null))] | unique_by(.url)";
 
 /// Most open issues or pull requests one gh list reads; gh fetches the pages itself.
-const GH_OPEN_LIMIT: usize = 1000;
+pub(crate) const GH_OPEN_LIMIT: usize = 1000;
+
+/// What `gh issue list` keeps of each issue: only what the list shows, so a long list stays
+/// small.
+pub(crate) const GH_ISSUES: [&str; 4] = [
+    "--json",
+    "number,title,labels,author,createdAt,comments,url,assignees",
+    "--jq",
+    "[.[] | {number, title, labels: [.labels[].name], author: .author.login, createdAt, \
+     comments: (.comments | length), url, assignees: [.assignees[].login]}]",
+];
+
+/// What `gh pr list` keeps of each pull request.
+pub(crate) const GH_PRS: [&str; 4] = [
+    "--json",
+    "number,title,url,author,isDraft,createdAt,updatedAt,headRefName,labels",
+    "--jq",
+    "[.[] | {number, title, url, author: .author.login, isDraft, createdAt, updatedAt, \
+     headRefName, labels: [.labels[].name]}]",
+];

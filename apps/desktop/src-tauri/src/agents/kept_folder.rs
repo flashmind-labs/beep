@@ -1,7 +1,5 @@
-//! A folder in the app data folder for what waits on this device for a
-//! machine: the records in one JSON file, each image in a file of its own,
-//! written in order by the folder's own thread. The outbox keeps its
-//! messages in one, and the starts theirs.
+//! Records waiting on another machine live in app data. Their image files
+//! live in the app cache. Each queue has a thread that writes them in order.
 
 use crate::agents::steer::PastedImage;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -14,7 +12,7 @@ use std::{
     thread,
 };
 
-/// The folder images are kept in, inside the kept folder.
+/// Image subfolder in the cache, formerly under the records folder.
 pub(crate) const IMAGES: &str = "images";
 
 /// An image of a kept record. Its bytes, in base64, are kept in a file of
@@ -67,6 +65,7 @@ pub(crate) enum Write {
 /// A kept folder and the thread that writes it.
 pub(crate) struct KeptFolder {
     dir: PathBuf,
+    images: PathBuf,
     records: &'static str,
     writes: mpsc::Sender<Write>,
 }
@@ -74,12 +73,14 @@ pub(crate) struct KeptFolder {
 impl KeptFolder {
     /// The folder `dir`, whose records are in its file `records`, with its
     /// writer thread `name` started.
-    pub(crate) fn open(dir: PathBuf, records: &'static str, name: &str) -> Self {
+    pub(crate) fn open(dir: PathBuf, cache: PathBuf, records: &'static str, name: &str) -> Self {
         let (writes, queue) = mpsc::channel();
         let writer = dir.clone();
+        let images = cache.join(IMAGES);
+        let cached = images.clone();
         let spawned = thread::Builder::new()
             .name(name.into())
-            .spawn(move || write_all(&writer, records, &queue));
+            .spawn(move || write_all(&writer, &cached, records, &queue));
 
         if let Err(e) = spawned {
             log::warn!("starting the {name} writer: {e}");
@@ -87,6 +88,7 @@ impl KeptFolder {
 
         Self {
             dir,
+            images,
             records,
             writes,
         }
@@ -115,7 +117,15 @@ impl KeptFolder {
         let mut whole = true;
 
         for (at, image) in images.iter_mut().enumerate() {
-            match fs::read_to_string(self.dir.join(IMAGES).join(image_file(&id, at))) {
+            let file = image_file(&id, at);
+            let data = fs::read_to_string(self.images.join(&file)).or_else(|error| {
+                if error.kind() == ErrorKind::NotFound {
+                    return fs::read_to_string(self.dir.join(IMAGES).join(file));
+                }
+                Err(error)
+            });
+
+            match data {
                 Ok(data) => image.data = data,
                 Err(_) => whole = false,
             }
@@ -168,8 +178,8 @@ pub(crate) fn forget_images(id: impl Display, count: usize) -> Option<Write> {
 
 /// Does each change asked for, in order. Of several records' files asked
 /// for together only the newest is written, after the images it names.
-fn write_all(dir: &Path, records: &str, queue: &mpsc::Receiver<Write>) {
-    let images = dir.join(IMAGES);
+fn write_all(dir: &Path, images: &Path, records: &str, queue: &mpsc::Receiver<Write>) {
+    let legacy = dir.join(IMAGES);
     let mut synced = Vec::new();
 
     while let Ok(first) = queue.recv() {
@@ -179,13 +189,16 @@ fn write_all(dir: &Path, records: &str, queue: &mpsc::Receiver<Write>) {
             match write {
                 Write::Records(bytes) => latest = Some(bytes),
                 Write::Image { file, data } => {
-                    if let Err(e) = replace(&images, &file, data.as_bytes()) {
+                    if let Err(e) = replace(images, &file, data.as_bytes()) {
                         log::warn!("keeping an image in {}: {e}", dir.display());
                     }
                 }
                 Write::Forget(files) => {
-                    for file in files {
-                        match fs::remove_file(images.join(&file)) {
+                    for path in files
+                        .iter()
+                        .flat_map(|file| [images.join(file), legacy.join(file)])
+                    {
+                        match fs::remove_file(path) {
                             Ok(()) => {}
                             Err(e) if e.kind() == ErrorKind::NotFound => {}
                             Err(e) => log::warn!("removing an image in {}: {e}", dir.display()),

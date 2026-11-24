@@ -6,38 +6,36 @@ use crate::{
     fleet::{
         Machines, files as direct,
         projects::{FleetState, desk},
+        session_lists::{ListId, SessionLists},
+        session_mirror::SessionMirror,
     },
-    machines::list::MachineLists,
 };
 use beep_proto::{ProjectMachine, SyncthingPlace};
 use serde::Serialize;
+use std::sync::Arc;
 use tauri::{AppHandle, Manager, State};
 
-/// The sessions coding agents ran in `project`'s folders, newest first.
+/// The sessions coding agents ran in `project`'s folders, newest first. `None` until every
+/// machine with a checkout answered once; the list then comes as a `session-list` event.
 #[tauri::command]
 pub async fn project_sessions(
-    app: AppHandle,
+    lists: State<'_, SessionLists>,
     fleet: Machines<'_>,
     project: String,
-) -> Result<Vec<SessionRow>> {
+) -> Result<Option<Vec<SessionRow>>> {
     let places = super::branches::placed(&fleet, &project)?;
-    let mut sessions = direct::project_sessions_with(Some(&app), &fleet, &places).await;
-
-    if let Some(mesh) = fleet.mesh() {
-        for session in &mut sessions {
-            beep_fleet::session_titles::apply(&mesh, session);
-        }
-    }
-
-    Ok(sessions.into_iter().map(SessionRow::from).collect())
+    Ok(lists.want(ListId::Project(project), places).await)
 }
 
 /// The sessions coding agents ran in every project of the mesh on the
-/// machines online, newest first, each machine asked once: Home's Done today.
+/// machines online, newest first: Home's Done today. `None` as for `project_sessions`.
 #[tauri::command]
-pub async fn projects_sessions(app: AppHandle, fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
+pub async fn projects_sessions(
+    lists: State<'_, SessionLists>,
+    fleet: Machines<'_>,
+) -> Result<Option<Vec<SessionRow>>> {
     let Some(mesh) = fleet.mesh() else {
-        return Ok(Vec::new());
+        return Ok(Some(Vec::new()));
     };
     let online = fleet.online();
     let places: Vec<direct::Place> = beep_fleet::project_names(&mesh)
@@ -46,13 +44,8 @@ pub async fn projects_sessions(app: AppHandle, fleet: Machines<'_>) -> Result<Ve
         .filter(|(machine, _)| online.contains(machine))
         .map(|(machine, folder)| direct::Place { machine, folder })
         .collect();
-    let mut sessions = direct::project_sessions_with(Some(&app), &fleet, &places).await;
 
-    for session in &mut sessions {
-        beep_fleet::session_titles::apply(&mesh, session);
-    }
-
-    Ok(sessions.into_iter().map(SessionRow::from).collect())
+    Ok(lists.want(ListId::Home, places).await)
 }
 
 /// One of the user's machines as a project's page lists it.
@@ -129,7 +122,7 @@ pub async fn project_remove_from_machine(
     app: AppHandle,
     fleet: FleetState<'_>,
     machines: Machines<'_>,
-    held: State<'_, MachineLists>,
+    mirror: State<'_, Arc<SessionMirror>>,
     project: String,
     machine_id: String,
     delete_folder: Option<bool>,
@@ -145,7 +138,7 @@ pub async fn project_remove_from_machine(
         .filter(|(machine, _)| *machine == id)
         .map(|(_, folder)| folder)
         .collect();
-    let open = direct::has_open_project_session(&machines, id, &folders, &held).await?;
+    let open = direct::has_open_project_session(&machines, id, &folders, &mirror.rows()).await?;
     if open {
         return Err(DesktopError::BadRequest(format!(
             "An agent is working in {project} on {}. Stop it first.",

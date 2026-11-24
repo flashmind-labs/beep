@@ -37,6 +37,7 @@ import { ensureSessions, sessions } from "../agents/sessions.ts";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { issueBranch, issuePrompt, type DiscussionTopic, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
 import { planStarts, type StartEntry, type StartRow } from "./openlist-state.ts";
+import type { Outcome } from "./openlist.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.tsx";
 import { conflictPrompt, type Conflict } from "./filesync.ts";
 import { type Started, state } from "../center/state.ts";
@@ -51,6 +52,7 @@ import { projectsIn } from "../addproject/importproject.tsx";
 import { refresh } from "../center/refresh.ts";
 import { redrawSync } from "./syncpage.ts";
 import { startAttachments } from "../agents/start-attachments.tsx";
+import { heldBy, takeFree, takeIssue } from "./team-view.tsx";
 
 let finishCopy: (() => void) | undefined;
 
@@ -374,7 +376,7 @@ type IssueStart = Pick<IssueRow, "number" | "title" | "url">;
 /// branch, with the issue's prompt.
 export function workOnIssue(name: string, issue: IssueStart) {
   const task = issueTask(name, issue);
-  fillBar(name, task.prompt, task.target);
+  takeIssue(name, issue, () => fillBar(name, task.prompt, task.target)).catch(error => projectComp.update({ error: reason(error) }));
 }
 
 /// Work on it's task: a new worktree for the issue, from the default branch.
@@ -390,7 +392,7 @@ export const issueSession = (name: string, issue: IssueRow) => sessionFor(name, 
 export const fixSession = (name: string, detail: RunDetail) => sessionFor(name, { kind: "run", workflow: detail.run.workflow, number: detail.run.number }, runTarget(detail.run, pc.branches.get(name)));
 
 /// Work on it on the issue's page: starts the agent at once.
-export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, machine: string | null) => startTask(name, issueTask(name, issue), pick, machine);
+export const startIssue = (name: string, issue: IssueRow, pick: ProjectPick, machine: string | null) => takeIssue(name, issue, () => startTask(name, issueTask(name, issue), pick, machine));
 
 /// Prefills the project composer with a discussion prompt.
 export function discussThread(name: string, topic: DiscussionTopic) {
@@ -407,7 +409,12 @@ export function issueStartPlan(entries: readonly StartEntry[]) {
   if (!pc.hosts) return null;
   const projects = projectRows() || [];
   const places = (name: string) => { const p = projects.find(x => x.name === name); return p ? projectPlaces(p) : []; };
-  return planStarts(entries, places, pc.hosts, name => (pc.project === name ? pc.machine : lastMachine(name)), pc.picked.agent || null, AGENT_ORDER);
+  const rows = planStarts(entries, places, pc.hosts, name => (pc.project === name ? pc.machine : lastMachine(name)), pc.picked.agent || null, AGENT_ORDER);
+  // An issue a teammate has is left out: its own page asks them first.
+  return rows.map((row): StartRow => {
+    const held = row.skip === null && row.entry.project ? heldBy(row.entry.project, row.entry.number) : null;
+    return held ? { entry: row.entry, skip: held } : row;
+  });
 }
 
 /// Reads the machines when no project's bar has.
@@ -416,10 +423,11 @@ export async function loadStartHosts() {
 }
 
 /// Starts one agent per row, one at a time in a new worktree each, waiting
-/// for each to be accepted; stops at the first that fails. `done` runs after
-/// each start with those started so far.
-export async function startIssues(rows: readonly StartRow[], done: (started: StartRow[]) => void) {
-  const started: StartRow[] = [];
+/// for each to be accepted; stops at the first that fails. A row found held
+/// by a teammate only now is left out too. `done` runs after each start with
+/// those started so far.
+export async function startIssues(rows: readonly StartRow[], done: (started: StartRow[]) => void): Promise<Outcome> {
+  const started: StartRow[] = [], left = rows.filter(row => row.skip !== null);
 
   for (const row of rows) {
     if (row.skip !== null) continue;
@@ -433,6 +441,11 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
     try {
       const effort = same ? pc.picked.effort : null;
       const fast = same && agent === "codex" ? pc.picked.fast : null;
+      const held = entry.project ? await takeFree(entry.project, entry.number) : null;
+      if (held !== null) {
+        left.push({ entry, skip: held });
+        continue;
+      }
       const prompt = issuePrompt(entry);
       await loadAccountNames();
       const account = startAccount(accountsOf(agent), entry.project ?? null, agent);
@@ -441,14 +454,14 @@ export async function startIssues(rows: readonly StartRow[], done: (started: Sta
       startedWith(session.session, prompt, []);
       nameSession(session.session, task);
     } catch (e) {
-      return { started, failed: row, error: reason(e) };
+      return { started, failed: row, error: reason(e), left };
     }
 
     started.push(row);
     done(started);
   }
 
-  return { started, failed: null, error: null };
+  return { started, failed: null, error: null, left };
 }
 
 /// Work on PR from the menu fills the bar to start on its branch.
@@ -540,7 +553,7 @@ export function startConflictFix(name: string, c: Conflict, pick: ProjectPick) {
 export async function startSyncRepair(name: string, machine: string, error: string, pick: ProjectPick) {
   const p = projectRows()?.find(p => p.name === name);
   if (!p) throw new Error(`${name} is not on a machine.`);
-  const sessions = await invoke<SessionRow[]>("project_sessions", { project: name }).catch(e => { console.warn("repair sessions:", e); return []; });
+  const sessions = await invoke<SessionRow[] | null>("project_sessions", { project: name }).then(rows => rows ?? state.sessions.get(name) ?? [], e => { console.warn("repair sessions:", e); return []; });
   const prompt = syncRepairPrompt({ project: name, machine, error, checkouts: p.machines, git: state.gitsync.get(name) ?? [], sessions });
   await startTask(name, { prompt, target: null }, pick, machine);
 }

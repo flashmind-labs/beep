@@ -356,7 +356,7 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
     // session list finds it on disk afterwards.
     if let Err(e) = agents.delete_session(&session.agent, &id).await {
         log::warn!("reviewer {id} not deleted: {e:#}");
-        agents.lock().remove(&id);
+        agents.sessions.remove(std::slice::from_ref(&id));
     }
 
     crate::link::restart::changed();

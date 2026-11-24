@@ -141,8 +141,9 @@ body.cbody
                     div.bar [aria-hidden="true"]
                       i style(width)
                     div.meta
-                      span.bd-tag "example/gadget"
+                      span.bd-tag
                         span.pj-swatch style(--c)
+                        span.bd-tag-name "example/gadget"
                       span.bd-deck-end
                         span "10m ago"
                     b "Update the changelog"
@@ -203,8 +204,9 @@ body.cbody
                         b "Update the changelog"
                         span
                       span.r "10m ago"
-                        span.bd-tag "example/gadget"
+                        span.bd-tag
                           span.pj-swatch style(--c)
+                          span.bd-tag-name "example/gadget"
                     div.cc-line.cc-row
                       span.cc-ag.codex.mark
                         svg [aria-hidden="true" viewBox="0 0 24 24"]
@@ -212,8 +214,9 @@ body.cbody
                         b "Add CSV export to reports"
                         span
                       span.r "20m ago"
-                        span.bd-tag "example/widget"
+                        span.bd-tag
                           span.pj-swatch style(--c)
+                          span.bd-tag-name "example/widget"
       div#pane-box.cc-box [hidden]
         div#bar.dbar [aria-label="Session" data-mode="window" data-view="waiting"]
         div.asst-list.pj-list [hidden]

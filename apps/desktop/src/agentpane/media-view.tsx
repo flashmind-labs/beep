@@ -2,14 +2,18 @@ import { Button, Spinner } from "../ui/kit.tsx";
 import { useCallback, useLayoutEffect, useRef, useState, type SyntheticEvent } from "react";
 import { ModelControls } from "./model-controls.tsx";
 import { fileSize } from "../chat/media.tsx";
+import { revealLabel } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
 import { resolvePath } from "./media-state.ts";
 import { transferSpeed } from "./files-state.ts";
 import { P, saveFile, type MediaTab } from "./media.ts";
 import { readError, readFile } from "./read.ts";
 import { noteTab } from "./media-draw.ts";
+import { PdfExportView } from "./pdf-export-view.tsx";
 
 export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: string | null; label: string }) {
+  const saved = tab.exported;
+  if (saved) return <Button onClick={() => void invoke("reveal_file", { path: saved.path }).catch(error => noteTab(tab, readError(error)))}>{revealLabel() === "Share" ? "Share" : "Show in folder"}</Button>;
   if (!tab.path) return null;
   const path = tab.path;
   const note = (text: string) => noteTab(tab, text);
@@ -60,6 +64,9 @@ function duration(length: number) {
 }
 
 export function PdfView({ tab, machine }: { tab: MediaTab; machine: string | null }) {
+  if (tab.exported) return <PdfExportView blob={tab.exported.blob} name={tab.name} note={tab.note}>
+    <FileActions tab={tab} machine={machine} label="Open in Preview" />
+  </PdfExportView>;
   return <><div className="agpstage pdf"><iframe title={tab.name} src={tab.url ?? undefined} /></div><div className="agpacts"><span className="meta">{tab.note ?? `PDF · ${fileSize(tab.size)}`}</span><span className="sp" /><FileActions tab={tab} machine={machine} label="Open in Preview" /></div></>;
 }
 

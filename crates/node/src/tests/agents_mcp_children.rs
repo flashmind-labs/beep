@@ -4,7 +4,7 @@ use crate::{
     machine::provision::Provision,
 };
 use beep_proto::AgentSlug;
-use beep_proto::node::agent::{Question, State};
+use beep_proto::node::agent::{Question, State, WorkPlace};
 use serde_json::Value;
 use beep_proto::watched;
 use std::{collections::BTreeMap, time::Duration};
@@ -104,6 +104,25 @@ fn what_an_agent_reads_of_a_child_says_when_it_waits_on_the_user() {
 }
 
 #[test]
+fn another_machine_reads_the_branch_a_session_works_on_from_its_listing() {
+    let info = SessionInfo {
+        id: "c1".into(),
+        place: Some(WorkPlace {
+            branch: Some("issue-52-fix".into()),
+            ..WorkPlace::default()
+        }),
+        ..SessionInfo::default()
+    };
+    let listed = serde_json::to_string(&[ChildView::of(&info, &SessionId::from("c1"))]).unwrap();
+    let read: Vec<ChildView> = serde_json::from_str(&listed).unwrap();
+    assert_eq!(read[0].branch.as_deref(), Some("issue-52-fix"));
+
+    // An older machine lists no branch.
+    let older: Vec<ChildView> = serde_json::from_str(r#"[{"id":"c1","harness":"codex","machine":"","state":"idle","title":null,"last_message":"","files_changed":0,"question":null,"turns":0,"tokens":0,"cost_usd":null,"error":null}]"#).unwrap();
+    assert_eq!(older[0].branch, None);
+}
+
+#[test]
 fn a_childs_id_names_its_machine() {
     let id = ChildId::from(" a3f9c1@build-box ");
     assert_eq!((id.session, id.machine), (SessionId::from("a3f9c1"), Some("build-box")));
@@ -129,6 +148,7 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
         error: None,
         note: None,
         project: None,
+        branch: None,
     };
     let call = format!(
         "Beep: Start codex agent on mac-box: Build the iOS app [completed]\n{}",
@@ -278,7 +298,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
                 ..Begin::default()
             },
         )
-        .unwrap();
+        .await.unwrap();
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -392,7 +412,7 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
                 ..Begin::default()
             },
         )
-        .expect("the chat starts");
+        .await.expect("the chat starts");
     let mut live = chat.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -458,7 +478,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
                 ..Begin::default()
             },
         )
-        .expect("the chat starts");
+        .await.expect("the chat starts");
     let mut live = chat.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -507,7 +527,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let mut offers = Offers::local(&[], Provision::new(dir.path()));
     offers.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")]));
     let cwd = dir.path().to_string_lossy().into_owned();
-    let start = |name: &str| {
+    let start = async |name: &str| {
         offers
             .agents
             .start(
@@ -518,9 +538,9 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
                     ..Begin::default()
                 },
             )
-            .expect("a session starts")
+            .await.expect("a session starts")
     };
-    let (mine, theirs) = (start("mine"), start("theirs"));
+    let (mine, theirs) = (start("mine").await, start("theirs").await);
 
     for session in [&mine, &theirs] {
         let mut live = session.live.clone();
@@ -580,7 +600,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
                 ..Begin::default()
             },
         )
-        .unwrap();
+        .await.unwrap();
     assert_eq!(offers.agents.children_of(&who).len(), 3);
     let (_, text) = tool(&offers, &mine, Tool::ListAgents, json!({})).await;
     let listed: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
@@ -668,7 +688,7 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
                 ..Begin::default()
             },
         )
-        .expect("a session starts");
+        .await.expect("a session starts");
     let mut live = parent.live.clone();
     tokio::time::timeout(
         Duration::from_secs(20),
@@ -697,4 +717,48 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     .await;
     assert!(!failed, "{text}");
     offers.agents.shutdown().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
+    let dir = tempfile::tempdir().expect("a temporary folder");
+    let agents = Agents::new(vec![kind("top")]);
+    let cwd = dir.path().to_string_lossy().into_owned();
+    let start = async || {
+        let begin = Begin {
+            prompt: Some("hello".to_owned()),
+            ..Begin::default()
+        };
+        agents.start(&agents.kinds()[0], Some(&cwd), begin).await.expect("a session starts")
+    };
+    let (ended, running) = (start().await, start().await);
+
+    for session in [&ended, &running] {
+        let mut live = session.live.clone();
+        tokio::time::timeout(
+            Duration::from_secs(20),
+            watched::wait_for(&mut live, |live| live.info.turns == 1),
+        )
+        .await
+        .expect("the session settles")
+        .expect("the session is kept");
+    }
+    ended.close().await;
+    let ended_at = ended.info().last_activity;
+    let names = |args: &str| {
+        let Reply::Done { text, .. } = listed(&agents, args) else {
+            panic!("not done");
+        };
+        let views: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
+        let mut states: Vec<String> = views.into_iter().map(|view| view.state).collect();
+        // Started in the same second, they list in either order.
+        states.sort();
+        states
+    };
+
+    assert_eq!(names("{}"), ["idle"]);
+    assert_eq!(names(&format!(r#"{{"ended_since":{ended_at}}}"#)), ["ended", "idle"]);
+    assert_eq!(names(&format!(r#"{{"ended_since":{}}}"#, ended_at + 1)), ["idle"]);
+    agents.shutdown().await;
 }

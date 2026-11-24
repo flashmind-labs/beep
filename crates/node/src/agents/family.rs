@@ -18,7 +18,7 @@ use iroh::EndpointId;
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{Arc, Mutex, OnceLock, atomic::Ordering},
+    sync::{Arc, Mutex, OnceLock},
     time::Duration,
 };
 use tokio::sync::watch;
@@ -106,7 +106,7 @@ impl Agents {
     }
 
     /// The mesh, when this node belongs to one.
-    pub(super) fn mesh(&self) -> Option<beep_mesh::Mesh> {
+    pub(crate) fn mesh(&self) -> Option<beep_mesh::Mesh> {
         self.family.membership.get().and_then(Membership::get)
     }
 
@@ -192,7 +192,7 @@ impl Agents {
 
     /// The live sessions here that descend from the root `root`.
     pub(crate) fn live_descendants(&self, root_machine: Option<EndpointId>, root: &SessionId) -> usize {
-        self.lock()
+        self.session_map()
             .values()
             .filter(|session| {
                 watched::read(&session.live, |live| {
@@ -208,7 +208,7 @@ impl Agents {
     /// The live children of `who` that run here.
     pub(super) fn children_of(&self, who: &Who) -> Vec<Arc<Session>> {
         let mut kids: Vec<Arc<Session>> = self
-            .lock()
+            .session_map()
             .values()
             .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
             .cloned()
@@ -241,15 +241,21 @@ impl Agents {
     }
 
     /// The live sessions here that other agents may list and message: every
-    /// one the user sees, oldest first.
-    pub(super) fn peers(&self) -> Vec<Arc<Session>> {
+    /// one the user sees, oldest first; with those that ended and were last
+    /// active at or after `ended_since`, Unix seconds, when given.
+    pub(super) fn peers(&self, ended_since: Option<u64>) -> Vec<Arc<Session>> {
         let mut peers: Vec<Arc<Session>> = self
-            .lock()
+            .session_map()
             .values()
             .filter(|session| {
                 !session.reviewer
                     && watched::read(&session.live, |live| {
-                        live.agent_session.is_some() && live.status() != Status::Ended
+                        let shown = match live.status() {
+                            Status::Ended => ended_since
+                                .is_some_and(|since| live.info.last_activity >= since),
+                            _ => true,
+                        };
+                        live.agent_session.is_some() && shown
                     })
             })
             .cloned()
@@ -262,7 +268,7 @@ impl Agents {
     /// which counts it against `PEER_MESSAGES`.
     pub(super) async fn message(&self, from: &SessionId, id: &SessionId, text: String) -> Result<(), String> {
         let session = self
-            .peers()
+            .peers(None)
             .into_iter()
             .find(|session| session.id == *id || Self::name_of(session) == *id)
             .filter(|session| Self::name_of(session) != *from)
@@ -276,7 +282,7 @@ impl Agents {
     /// child does with it is the parent's to hear the end of, whoever began
     /// the turn it joins.
     pub(super) async fn tell_child(child: &Session, text: String) -> Result<(), String> {
-        child.user_turn.store(false, Ordering::Relaxed);
+        child.set_user_turn(false).await;
         child.order(Command::Steer(text.into())).await
     }
 
@@ -338,10 +344,12 @@ impl Agents {
 
         // Its prompt says what the parent knew: it has seen the parent so far.
         if let Some(parent) = parent {
-            session.see(
-                &parent.id,
-                watched::read(&parent.live, |live| Into::<Mark>::into(live)),
-            );
+            session
+                .see(vec![(
+                    parent.id.clone(),
+                    watched::read(&parent.live, |live| Into::<Mark>::into(live)),
+                )])
+                .await;
         }
 
         session.named_info().await?;
@@ -352,7 +360,7 @@ impl Agents {
     /// cannot be deleted is still dropped from the node's sessions.
     pub(super) async fn delete_closed_background(&self) {
         let closed: Vec<(String, SessionId)> = self
-            .lock()
+            .session_map()
             .iter()
             .filter(|(_, session)| {
                 watched::read(&session.live, |live| {
@@ -373,7 +381,7 @@ impl Agents {
         for (agent, id) in closed {
             if let Err(e) = self.delete_session(&agent, &id).await {
                 log::warn!("background child {id} was not deleted: {e:#}");
-                self.lock().remove(&id);
+                self.sessions.remove(std::slice::from_ref(&id));
             }
         }
 

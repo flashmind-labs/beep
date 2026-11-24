@@ -1,14 +1,14 @@
 // CodeMirror for a text tab being edited; loaded in its own chunk on the first edit.
 import { indentWithTab } from "@codemirror/commands";
-import { HighlightStyle, LanguageDescription, syntaxHighlighting, toggleFold } from "@codemirror/language";
+import { LanguageDescription, syntaxHighlighting, toggleFold } from "@codemirror/language";
 import { languages } from "@codemirror/language-data";
 import { openSearchPanel, search, searchKeymap, searchPanelOpen } from "@codemirror/search";
 import { Compartment, EditorState } from "@codemirror/state";
 import { drawSelection, EditorView, keymap, lineNumbers } from "@codemirror/view";
-import { tags as t } from "@lezer/highlight";
 import { getCM, Vim, vim } from "@replit/codemirror-vim";
 import { basicSetup } from "codemirror";
 import { useLayoutEffect, useRef } from "react";
+import { tokens } from "../ui/syntax.ts";
 import type { FileEdit } from "./media.ts";
 
 export default function CodeEditor({ edit, rel, changed, save, vimKeys, findRequest, closeSearch }: {
@@ -104,14 +104,6 @@ const vimBindings = vim({ status: true });
 const fileSearch = search({ top: true });
 const language = new Compartment();
 
-/// The token classes the read-only view colours, so both look the same.
-const tokens = HighlightStyle.define([
-  { tag: t.keyword, class: "k" },
-  { tag: [t.string, t.special(t.string), t.regexp], class: "s" },
-  { tag: t.comment, class: "c" },
-  { tag: [t.number, t.bool, t.null], class: "n" },
-]);
-
 const theme = EditorView.theme({
   "&": { height: "100%", color: "var(--fg)", backgroundColor: "transparent", font: "11.5px/17px var(--mono)" },
   "&.cm-focused": { outline: "none" },
@@ -123,7 +115,7 @@ const theme = EditorView.theme({
   ".cm-searchMatch": { backgroundColor: "color-mix(in srgb, var(--accent) 28%, transparent)" },
   ".cm-searchMatch-selected": { backgroundColor: "color-mix(in srgb, var(--accent) 52%, transparent)" },
   ".cm-cursor": { borderLeftColor: "var(--fg)" },
-  ".cm-gutters": { backgroundColor: "transparent", color: "var(--dim)", border: "none" },
+  ".cm-gutters": { backgroundColor: "var(--pane-bg, var(--ink))", color: "var(--dim)", border: "none" },
   ".cm-tooltip": { color: "var(--fg)", backgroundColor: "var(--glass-solid)", borderColor: "var(--border)" },
   ".cm-tooltip-autocomplete ul li[aria-selected]": { backgroundColor: "var(--ctl-fill-hi)", color: "var(--ink)" },
   ".cm-foldPlaceholder": { backgroundColor: "var(--ctl-fill)", color: "var(--muted)", border: "none" },

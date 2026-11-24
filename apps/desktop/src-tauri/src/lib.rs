@@ -200,6 +200,7 @@ pub fn run() {
             agents::artifacts::agent_artifact,
             agents::artifacts::agent_artifacts_present,
             agents::artifacts::agent_page_files,
+            agents::artifacts::agent_preview_export,
             agents::custom::custom_agents,
             agents::diff::work_diff,
             agents::review::agent_review_start,
@@ -208,7 +209,6 @@ pub fn run() {
             agents::diff::agent_places,
             agents::diff::agent_worktrees,
             agents::diff::agent_commands,
-            agents::processes::agent_processes,
             agents::processes::agent_stop_process,
             machines::forwards::machine_forward_port,
             agents::processes::agent_close_external,
@@ -225,6 +225,7 @@ pub fn run() {
             agents::files::agent_tree_text,
             agents::files::agent_file_hashes,
             agents::files::agent_tree_upload,
+            agents::files::agent_discard_draft_attachment,
             agents::flsh_settings::flsh_settings_get,
             agents::flsh_settings::flsh_settings_save,
             agents::harnesses::agent_adapters_install,
@@ -295,6 +296,7 @@ pub fn run() {
             bar::app::set_mac_control,
             bar::app::settings,
             bar::pasted_image::read_pasted_image,
+            chat::clipboard::read_clipboard_image,
             bar::window::hide_bar,
             bar::window::resize_bar,
             bar::zoom::set_zoom_level,
@@ -457,6 +459,22 @@ pub fn run() {
             projects::runs::center_project_lists,
             projects::runs::center_project_run,
             projects::runs::center_project_runs,
+            projects::team::contact_remove,
+            projects::team::contacts,
+            projects::team::issue_assign,
+            projects::team::team_cards,
+            projects::team::team_dismiss,
+            projects::team::team_invite,
+            projects::team::team_invite_contact,
+            projects::team::team_invite_drop,
+            projects::team::team_invites,
+            projects::team::team_join,
+            projects::team::team_leave,
+            projects::team::team_readmit,
+            projects::team::team_record,
+            projects::team::team_remove,
+            projects::team::team_settings,
+            projects::team::team_ticket,
             projects::threads::center_pull_request_head,
             projects::threads::center_thread_detail,
             projects::threads::center_comment_thread,
@@ -566,7 +584,16 @@ fn quit(app: &AppHandle) {
     hide_windows(app);
     // The size of a project window still open.
     app.state::<Prefs>().save();
-    app.state::<agents::accounts::ClaudeSignIn>().stop();
+    // The sessions as they stand now, for the next start.
+    fleet::session_mirror::save(
+        app.state::<Arc<center::view_cache::ViewCache>>().inner(),
+        &app.state::<Arc<fleet::session_mirror::SessionMirror>>()
+            .current()
+            .sessions(),
+    );
+    let claude = app
+        .state::<agents::accounts::ClaudeSignIn>()
+        .stop_and_wait();
     let gh = app.state::<settings::gh_sign_in::GhSignIn>().stop_on_quit();
     // The router stops, and the sync and transfer services save their state,
     // while an update installs.
@@ -574,7 +601,7 @@ fn quit(app: &AppHandle) {
     // What this Mac has open is noted for the next start.
     let noting = app.state::<machines::this_mac::Machine>().quit();
     let stopping = tauri::async_runtime::spawn(async move {
-        tokio::join!(noting, fleet.stop(), gh);
+        tokio::join!(noting, fleet.stop(), claude, gh);
     });
     // However Beep quits, a downloaded update is installed for next time.
     // With none this returns at once.
@@ -650,7 +677,6 @@ fn setup(
         env!("CARGO_PKG_VERSION"),
     ));
 
-    app.manage(Arc::new(center::home_sessions::AgentSessions::new(&views)));
     app.manage(palette::PaletteCache::load(&views)?);
     #[cfg(desktop)]
     app.manage(Arc::new(palette::copies::Copies::load(&dir)));
@@ -658,8 +684,15 @@ fn setup(
     app.manage(Arc::new(agents::kept_transcripts::KeptTranscripts::new(
         dir.join("transcripts"),
     )));
-    app.manage(Arc::new(agents::outbox::Outbox::load(dir.join("outbox"))));
-    app.manage(Arc::new(agents::starts::Starts::load(dir.join("starts"))));
+    let cache = app.path().app_cache_dir()?;
+    app.manage(Arc::new(agents::outbox::Outbox::load(
+        dir.join("outbox"),
+        cache.join("outbox"),
+    )));
+    app.manage(Arc::new(agents::starts::Starts::load(
+        dir.join("starts"),
+        cache.join("starts"),
+    )));
     let endpoint = tauri::async_runtime::block_on(bind_endpoint(
         beep::identity::secret_key(&identity),
         beep_mesh::transport_config(),
@@ -733,6 +766,10 @@ fn setup(
         Arc::new(Fleet::observer(endpoint, &mesh))
     };
     app.manage(fleet.clone());
+    app.manage(fleet::session_lists::SessionLists::start(
+        handle.clone(),
+        fleet.clone(),
+    ));
     let opened_files = handle.path().app_cache_dir()?.join("agent-files");
     let files = {
         let files = Arc::new(agents::file_cache::FileCache::new(
@@ -761,6 +798,24 @@ fn setup(
     tauri::async_runtime::spawn(async move { opening.run().await });
     app.manage(machine);
     app.manage(machines::list::MachineLists::default());
+    let cache = handle
+        .state::<Arc<center::view_cache::ViewCache>>()
+        .inner()
+        .clone();
+    let mirror = tauri::async_runtime::block_on(async {
+        fleet::session_mirror::SessionMirror::start(
+            fleet::session_mirror::Desk {
+                app: handle.clone(),
+                fleet: fleet.clone(),
+            },
+            fleet::session_mirror::kept(&cache),
+        )
+    });
+    let kept = cache.clone();
+    tauri::async_runtime::spawn(fleet::session_mirror::keep(mirror.watch(), move |rows| {
+        fleet::session_mirror::save(&kept, rows)
+    }));
+    app.manage(Arc::new(mirror));
     app.manage(projects::live::Followed::default());
     app.manage(settings::gh_sign_in::GhSignIn::default());
     app.manage(agents::accounts::ClaudeSignIn::default());

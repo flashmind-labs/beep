@@ -18,17 +18,14 @@
 
 use beep_proto::SessionId;
 use super::{Agents, Command, Live, Mark, Session, children};
-use crate::{agents::tags, link::Membership};
+use crate::{agents::tags, link::Membership, team::asks::Delivery};
 use beep_proto::node::agent::{Status, StopReason};
 use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    sync::{
-        Arc, Mutex, OnceLock, Weak,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Mutex, OnceLock, Weak},
 };
 use tokio::sync::watch;
 
@@ -167,7 +164,7 @@ impl Agents {
         let child = Child {
             id: session.id.clone(),
             live: session.live.clone(),
-            user_turn: session.user_turn.clone(),
+            session: Arc::downgrade(session),
         };
         let task = follow(child, to, self.family.membership.clone());
         session.keep(tokio::spawn(task));
@@ -196,13 +193,61 @@ impl Agents {
     }
 }
 
+impl Agents {
+    /// Puts `text` from a teammate's agent into the live session `id` here,
+    /// which the team knows as `card`: an ask as a message from an agent, an
+    /// answer as a note, the way a child's notes go in. Neither goes in while
+    /// the session waits on its user, who alone answers it there, nor into
+    /// a session the user stopped.
+    pub(crate) async fn deliver_from_teammate(
+        &self,
+        id: &SessionId,
+        card: &str,
+        delivery: Delivery,
+        text: String,
+    ) -> Result<(), String> {
+        let session = self
+            .teammates_session(id)
+            .ok_or_else(|| format!("{card} no longer runs"))?;
+        let idle = watched::read(&session.live, |live| open_to_teammates(live, card))?;
+
+        match delivery {
+            Delivery::Ask => self.message(&SessionId::default(), id, text).await,
+            Delivery::Reply => put(&session, idle, text).await,
+        }
+    }
+
+    /// The live session here a team knows by `id`: its own id or its agent's.
+    pub(in crate::agents) fn teammates_session(&self, id: &SessionId) -> Option<Arc<Session>> {
+        self.peers(None)
+            .into_iter()
+            .find(|session| session.id == *id || Self::name_of(session) == *id)
+    }
+}
+
+/// Whether `live`, the session a team knows as `card`, is idle; or why a
+/// teammate's words may not go in now.
+pub(super) fn open_to_teammates(live: &Live, card: &str) -> Result<bool, String> {
+    let (idle, stopped) = idle_or_stopped(live);
+
+    if live.status() == Status::Asking {
+        return Err(format!("{card} is waiting on its user"));
+    }
+    if stopped {
+        return Err(format!("{card} was stopped by its user"));
+    }
+
+    Ok(idle)
+}
+
 /// The child `follow` follows.
 struct Child {
     /// Its id on this node, which its parent here keeps what it saw of it by.
     id: SessionId,
     live: watch::Receiver<Live>,
-    /// Whether the user's message began its turn (`Session::user_turn`).
-    user_turn: Arc<AtomicBool>,
+    /// Whom `Session::take_user_turn` asks whether the user's message began
+    /// its turn. Weak: the session keeps this task.
+    session: Weak<Session>,
 }
 
 /// Follows a child's state and sends a note for each turn it finishes, each
@@ -211,7 +256,7 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
     let Child {
         id: key,
         mut live,
-        user_turn,
+        session,
     } = child;
     // A session counts its turns from its start, so one that ended before
     // this first look is told too.
@@ -221,6 +266,8 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
     while std::mem::take(&mut first) || live.changed().await.is_ok() {
         let mut ended = false;
         let mut quiet = false;
+        // The turn it ends is the user's if so marked, and the mark ends with it.
+        let mut take = false;
         let told = watched::read_and_update(&mut live, |now| {
             let note = match now.status() {
                 Status::Ended => {
@@ -230,7 +277,7 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
                 }
                 Status::Asking if !asking => {
                     asking = true;
-                    quiet = user_turn.load(Ordering::Relaxed);
+                    quiet = now.user_turn;
                     Some(note_of(now, NoteState::Asking))
                 }
                 Status::Asking => None,
@@ -244,11 +291,11 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
                         None
                     } else if now.info.state.last_stop == Some(StopReason::Cancelled) {
                         quiet = true;
-                        user_turn.store(false, Ordering::Relaxed);
+                        take = true;
                         now.stopped_by_user
                             .then(|| note_of(now, NoteState::Stopped))
                     } else if now.info.state.queued == 0 {
-                        quiet = user_turn.swap(false, Ordering::Relaxed);
+                        take = true;
                         Some(note_of(now, NoteState::Finished))
                     } else {
                         None
@@ -265,6 +312,14 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
                 mark: Into::<Mark>::into(&*now),
                 quiet,
             })
+        });
+        let user = take && match session.upgrade() {
+            Some(session) => session.take_user_turn().await,
+            None => false,
+        };
+        let told = told.map(|told| Told {
+            quiet: told.quiet || user,
+            ..told
         });
         let Some(Told { note, mark, quiet }) = told else {
             if ended {
@@ -347,14 +402,7 @@ async fn deliver(
     note: &ChildNote,
     seen: Option<Seen<'_>>,
 ) -> Result<(), String> {
-    let (idle, stopped) = {
-        watched::read(&parent.live, |live| {
-            let status = live.status();
-            let stopped = status == Status::Ended
-                || (status == Status::Idle && live.info.state.last_stop == Some(StopReason::Cancelled));
-            (status == Status::Idle, stopped)
-        })
-    };
+    let (idle, stopped) = watched::read(&parent.live, idle_or_stopped);
 
     if stopped || waits.holds(&Agents::name_of(parent), id) {
         return Ok(());
@@ -365,14 +413,28 @@ async fn deliver(
             return Ok(());
         }
 
-        parent.see(seen.child, seen.mark);
+        parent.see(vec![(seen.child.clone(), seen.mark)]).await;
     }
 
-    let text = note.text_for(id).into();
+    put(parent, idle, note.text_for(id)).await
+}
+
+/// Whether a session is idle, and whether it ended or the user stopped it.
+fn idle_or_stopped(live: &Live) -> (bool, bool) {
+    let status = live.status();
+    let stopped = status == Status::Ended
+        || (status == Status::Idle && live.info.state.last_stop == Some(StopReason::Cancelled));
+
+    (status == Status::Idle, stopped)
+}
+
+/// Puts `text` into `session`: a prompt when it is `idle`, else a steer.
+async fn put(session: &Session, idle: bool, text: String) -> Result<(), String> {
+    let text = text.into();
     let command = if idle {
         Command::Prompt(text)
     } else {
         Command::Steer(text)
     };
-    parent.order(command).await
+    session.order(command).await
 }

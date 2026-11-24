@@ -750,6 +750,37 @@ fn a_plugin_stops_after_its_slots_were_gone_for_the_grace_period() {
 }
 
 #[test]
+fn a_plugin_failure_clears_its_idle_deadline() {
+    let root = tempfile::tempdir().unwrap();
+    write_lazy(root.path(), "lazy-one", r#"["slot:composer"]"#, LAZY);
+    let (mut supervisor, published, _events) = driven(root.path());
+    let now = Instant::now();
+    supervisor.load_all(now);
+    show_composer(&mut supervisor);
+    supervisor.reconcile(now);
+
+    hide_composer(&mut supervisor);
+    supervisor.reconcile(now);
+    assert_eq!(supervisor.next_idle_stop(), Some(now + IDLE_GRACE));
+
+    let id: PluginId = "lazy-one".parse().unwrap();
+    let generation = supervisor.running[&id].generation;
+    supervisor.handle(Event::Stopped {
+        id,
+        generation,
+        reason: "stopped".into(),
+    });
+    supervisor.reconcile(now + IDLE_GRACE);
+
+    assert_eq!(supervisor.next_idle_stop(), None);
+    assert!(supervisor.running.is_empty());
+    assert!(matches!(
+        state_of(&published, "lazy-one"),
+        PluginState::Stopped { .. }
+    ));
+}
+
+#[test]
 fn a_slot_that_comes_back_in_time_restarts_the_grace_period() {
     let root = tempfile::tempdir().unwrap();
     write_lazy(root.path(), "lazy-one", r#"["slot:composer"]"#, LAZY);

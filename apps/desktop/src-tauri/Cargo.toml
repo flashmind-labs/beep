@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.10.20"
+version = "0.10.26"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -57,6 +57,7 @@ tauri = { workspace = true, features = ["wry", "dynamic-acl", "tray-icon", "maco
 tauri-plugin-opener.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "time"] }
 tracing.workspace = true
 tracing-appender.workspace = true

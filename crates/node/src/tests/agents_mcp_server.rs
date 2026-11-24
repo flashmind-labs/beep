@@ -15,6 +15,8 @@ struct Fake {
     alone: bool,
     /// The session is the home assistant.
     assistant: bool,
+    /// The session works in a team project.
+    team: bool,
 }
 
 impl Fake {
@@ -27,6 +29,7 @@ impl Fake {
             media: None,
             alone: false,
             assistant: false,
+            team: false,
         }
     }
 }
@@ -86,6 +89,11 @@ impl Backend for Fake {
 
     fn alone(&self) -> bool {
         self.alone
+    }
+
+    fn team(&self, session: &SessionId) -> bool {
+        assert_eq!(*session, "a3f9c1");
+        self.team
     }
 
     fn media(&self, _session: &SessionId) -> Option<Media> {
@@ -555,19 +563,25 @@ fn assistant_session_lists_the_project_tools_in_place_of_review() {
 }
 
 #[tokio::test]
-async fn assistant_initialize_has_brief() {
+async fn initialize_omits_instructions_without_media_tools() {
     let initialize = || [request(1, "initialize", json!({}))];
     let assistant = Fake {
         assistant: true,
         ..Fake::new("allow")
     };
     let out = exchange(&assistant, &initialize()).await;
-    let instructions = out[0]["result"]["instructions"].as_str().unwrap();
-    assert!(instructions.contains(super::super::ASSISTANT), "{instructions}");
+    assert!(
+        out[0]["result"].get("instructions").is_none(),
+        "{}",
+        out[0]["result"]
+    );
 
     let out = exchange(&Fake::new("allow"), &initialize()).await;
-    let instructions = out[0]["result"]["instructions"].as_str().unwrap();
-    assert!(!instructions.contains(super::super::ASSISTANT), "{instructions}");
+    assert!(
+        out[0]["result"].get("instructions").is_none(),
+        "{}",
+        out[0]["result"]
+    );
 }
 
 #[tokio::test]
@@ -621,8 +635,17 @@ fn the_tool_definitions_fit_the_budget() {
         let tokens = listed.len() / 4;
         assert!(tokens <= budget, "{tokens} tokens, assistant {assistant}");
     }
-    let brief = (super::super::BRIEF.len() + super::super::ASSISTANT.len()) / 4;
-    assert!(brief <= 700, "the assistant's brief is {brief} tokens");
+    let full = crate::agents::brief::Context {
+        machine: Some("workstation".into()),
+        project: Some("project".into()),
+        multi_machine: true,
+        rust_or_c: true,
+    };
+    let brief = (crate::agents::brief::environment(&full).len()
+        + crate::agents::brief::ASSISTANT.len()
+        + crate::agents::brief::chat(true).len())
+        / 4;
+    assert!(brief <= 1_000, "the assistant's brief is {brief} tokens");
 }
 
 #[test]
@@ -857,4 +880,33 @@ async fn a_saved_key_tells_the_agent_its_tools_changed() {
     };
     tokio::join!(served, client);
     spawn_env::set_vars(Vec::new());
+}
+
+#[tokio::test]
+async fn only_sessions_in_a_team_project_get_the_team_tools() {
+    let ask = || {
+        let args = json!({ "name": "team_ask", "arguments": { "to": "bob", "text": "Can I take #52?" } });
+        [request(1, "tools/list", json!({})), request(2, "tools/call", args)]
+    };
+    let listed = |out: &[Value]| -> Vec<String> {
+        let tools = out[0]["result"]["tools"].as_array().unwrap();
+        tools.iter().map(|tool| tool["name"].as_str().unwrap().to_owned()).collect()
+    };
+
+    let alone = Fake::new("allow");
+    let out = exchange(&alone, &ask()).await;
+    assert!(!listed(&out).iter().any(|name| name.starts_with("team")));
+    assert_eq!(out[1]["result"]["isError"], true);
+    assert!(alone.calls.lock().unwrap().is_empty());
+
+    let teamed = Fake {
+        team: true,
+        ..Fake::new("allow")
+    };
+    let out = exchange(&teamed, &ask()).await;
+    let names = listed(&out);
+    assert!(names.ends_with(&["team".to_owned(), "team_ask".to_owned()]));
+    let calls = teamed.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].tool, Tool::TeamAsk);
 }

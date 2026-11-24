@@ -20,7 +20,7 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     let blocked = agents.start(&kind, root.to_str(), Begin::default());
     assert!(
         blocked
-            .err()
+            .await.err()
             .unwrap()
             .to_string()
             .contains("preserving local edits")
@@ -30,7 +30,7 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     let blocked = agents.start(&kind, alias.to_str(), Begin::default());
     assert!(
         blocked
-            .err()
+            .await.err()
             .unwrap()
             .to_string()
             .contains("preserving local edits")
@@ -38,7 +38,7 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     drop(hold);
     let session = agents
         .start(&kind, alias.to_str(), Begin::default())
-        .unwrap();
+        .await.unwrap();
     let blocked = agents.reserve_repository(root).await;
     assert!(
         blocked

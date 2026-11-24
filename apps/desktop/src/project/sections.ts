@@ -32,6 +32,7 @@ import { barOn, drawProjectComp, workOnIssue, startIssue, discussThread, workOnP
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { redrawSync } from "./syncpage.ts";
 import { drawProjects } from "./page.tsx";
+import { assign, teamLogins } from "./team-view.tsx";
 
 /// The row of the project's list picked, null for the first, and a run to
 /// open on the Actions tile.
@@ -149,6 +150,8 @@ export function repoActs(p: Project): RepoActs {
     button: start => pickButton(p.name, start),
     reviewOf: (pr: PullRequestRow) => earlierReview(p.name, pr.number),
     issueSession: (issue: IssueRow) => sessionState(issueSession(p.name, issue), "Working"),
+    assignees: () => teamLogins(p.name),
+    assign: (issue: IssueRow, login: string) => assign(p.name, issue.number, [login]),
   };
 }
 

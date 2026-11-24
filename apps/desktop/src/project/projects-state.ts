@@ -123,6 +123,13 @@ export interface SessionRow {
   persona: Persona | null;
 }
 
+/// A session list as the desktop sends it when it changes: a project's, or Home's of every
+/// project.
+export interface SessionList {
+  list: { project: string } | "home";
+  sessions: SessionRow[];
+}
+
 /// Whether `cwd` is `folder` or inside it.
 function within(cwd: string, folder: string) {
   const f = String(folder || "").replace(/[\\/]+$/, "");

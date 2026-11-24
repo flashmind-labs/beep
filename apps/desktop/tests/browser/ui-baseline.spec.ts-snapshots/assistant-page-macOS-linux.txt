@@ -364,17 +364,13 @@ body.cbody
                           input.dcheck [type="checkbox"] value="on" unchecked
                         button.agpbtn [data-frefresh="1" title="Read the folders again"] "↻"
                       div.agtree [aria-busy="false" aria-label="Working files" aria-multiselectable="true" role="tree" tabindex="0"]
-                        div.agpmsg.derr "The machine sent no file listing."
+                        div.agpmsg "This folder is empty."
                       div.agpacts
                         span.meta.mono [title="/srv"] "/srv"
                         span [data-fstatus="true" role="status"]
                         span.sp
                         span.hint "Cmd-click to select, Shift-click for a range. Cmd+Delete asks before deleting."
-              div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" role="tablist"]
-                button.agtab.on [aria-selected="true" data-mtab="files" role="tab" title="Files" type="button"]
-                  i style(display)
-                    svg [fill="none" height="13" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="13"]
-                  span "Files"
+              div#agpstrip-right.agpstrip.tabs [aria-orientation="vertical" data-dock="right" hidden role="tablist"]
               div#agdropzone.agdropzone [hidden]
         div.asst-list.pj-list
           div.asst-head

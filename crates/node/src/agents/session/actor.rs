@@ -7,6 +7,7 @@ use super::{
 use crate::agents::{
     acp::{self, AsyncTask, ModelSwitch, Offered, Prompt},
     alerts::AlertHub,
+    checkouts::Checkouts,
     compaction::{Compactor, TurnEnd},
     images::Picture,
     known,
@@ -183,6 +184,7 @@ impl Waiting {
 pub(super) struct Actor {
     pub(super) live: watch::Sender<Live>,
     pub(super) alerts: Arc<AlertHub>,
+    pub(super) checkouts: Arc<Checkouts>,
     /// Set once the node is stopping.
     pub(super) node_stopping: Arc<AtomicBool>,
     /// A move to another machine waits for the turn: queued prompts wait
@@ -269,11 +271,9 @@ pub(super) struct Actor {
     /// Beep's word to the agent from whoever started the session; once
     /// `initialize` is answered, what the first prompt still carries.
     pub(super) brief: Option<String>,
-    /// Saved instructions still to be delivered through ACP.
-    pub(super) instructions: Option<String>,
-    /// What holds for the whole session: the git rule for its folder and
-    /// what the Beep tools are. In the system prompt of an agent that takes
-    /// one; for the others, said again after the agent compacts.
+    /// Saved instructions and Beep guidance for the whole session. Goes in
+    /// the system prompt when supported, or with the first prompt and again
+    /// after the agent compacts.
     pub(super) standing: Option<String>,
     /// The MCP servers the agent's session gets.
     pub(super) mcp_servers: Vec<McpServer>,
@@ -331,7 +331,7 @@ impl Actor {
     pub(super) async fn run(
         mut self,
         agent: Started,
-        mut orders: mpsc::Receiver<Order>,
+        mut orders: crate::actor::Receiver<Order>,
         processes: Arc<super::Processes>,
     ) {
         let _cleanup = super::super::processes::Cleanup(processes.clone());
@@ -487,7 +487,7 @@ impl Actor {
         stderr: &mut mpsc::Receiver<String>,
         running: &mut Running,
         processes: &super::Processes,
-        orders: &mut mpsc::Receiver<Order>,
+        orders: &mut crate::actor::Receiver<Order>,
     ) -> Result<End> {
         let (events_tx, events) = mpsc::channel(EVENTS);
         let (oversized_tx, oversized) = mpsc::channel(1);
@@ -543,7 +543,7 @@ impl Actor {
         &mut self,
         cx: &ConnectionTo<Agent>,
         inputs: &mut Inputs<'_>,
-        orders: &mut mpsc::Receiver<Order>,
+        orders: &mut crate::actor::Receiver<Order>,
     ) -> Result<End> {
         let async_tasks = known(&self.agent).is_some_and(|known| known.async_tasks);
         let protocol = self.protocol;
@@ -579,7 +579,7 @@ impl Actor {
                     self.held_end.as_ref().map_or_else(tokio::time::Instant::now, |held| held.due)
                 ), if self.held_end.is_some() => self.subagents_quiet(),
                 order = orders.recv() => {
-                    let Some(Order { command, done }) = order else {
+                    let Some((Order { command, done }, _timing)) = order else {
                         return Ok(End::Closed);
                     };
 
@@ -1074,16 +1074,8 @@ impl Actor {
         let system_format = initialized.system_prompt;
         let takes_system = system_format.is_some();
         let append = |text| system_format.map(|format| format.append(text));
-        if self.instructions.is_some() && !takes_system {
-            return Some(End::Failed(format!(
-                "{} cannot apply saved instructions. Use an adapter that supports ACP system prompts.",
-                self.agent
-            )));
-        }
-
-        // Only Beep's built-in guidance can be repeated in user prompts.
         let standing = if takes_system {
-            joined(self.instructions.take(), self.standing.take().as_deref())
+            self.standing.take()
         } else {
             self.standing.clone()
         };

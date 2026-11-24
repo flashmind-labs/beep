@@ -2,7 +2,7 @@
 //! built from the agent's `session/update` notifications, and the
 //! transcript, which stays here.
 
-use super::{acp::Prompt, images::Images, usage::UsageHub};
+use super::{acp::Prompt, family::Mark, images::Images, usage::UsageHub};
 use agent_client_protocol::v1::schema::{CompactionId, MessageId, ToolCallId, ToolKind};
 use beep_proto::SessionId;
 use beep_proto::node::{
@@ -154,6 +154,13 @@ pub(crate) struct Live {
     /// The thinking level the agent took, which `SessionInfo` does not carry.
     pub(crate) effort: Option<Effort>,
     pub(crate) fast: Option<bool>,
+    /// What it last saw of each relative in its chat (`family::changes`),
+    /// by the relative's `id` here. Only the session's task writes it, and
+    /// watchers are not woken by it. Not kept over a restart.
+    pub(in crate::agents) seen: HashMap<SessionId, Mark>,
+    /// The user's message began the turn that runs or ran last, so its end
+    /// is no news to its parent (`family::notes`). Written like `seen`.
+    pub(in crate::agents) user_turn: bool,
 }
 
 /// A thought still arriving.

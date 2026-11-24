@@ -227,6 +227,10 @@ function ask(keys: string[]) {
 
 export function followAgent(entries: Entry[], earlier: number, steps: string[] | null) {
   if (!view.place?.cwd) return;
+  if (earlier < current.log.earlier) {
+    current.next = earlier;
+    current.last = current.cwd;
+  }
   current.log = { entries, earlier };
   const finished = finishedTools(entries, earlier);
   const changed = finished.some(index => !current.finished.has(index));

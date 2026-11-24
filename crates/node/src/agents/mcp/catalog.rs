@@ -16,6 +16,8 @@ pub(super) const DEVICE: &str = "device_";
 /// action. A desktop answers them, as `Tool::Projects` with the action in
 /// the arguments.
 pub(super) const PROJECTS: &str = "projects_";
+/// The tools of sessions in a team project.
+pub(super) const TEAM: [&str; 2] = ["team", "team_ask"];
 /// The tool that has an agent's changes reviewed.
 const REVIEW: &str = "review";
 const JOB_ID: &str = "The job id remote_run gave";
@@ -170,7 +172,8 @@ pub(super) fn validate(name: &str, args: &Value) -> Result<(), String> {
 
             for (reviewer, assistant) in [(false, false), (true, false), (false, true)] {
                 let listed = tools(reviewer, false, assistant);
-                for tool in listed.as_array().ok_or("Invalid tool catalog")? {
+                let listed = listed.as_array().ok_or("Invalid tool catalog")?;
+                for tool in listed.iter().chain(&team()) {
                     let name = tool["name"].as_str().ok_or("Tool has no name")?;
                     let v = jsonschema::validator_for(&tool["inputSchema"])
                         .map_err(|e| e.to_string())?;
@@ -274,6 +277,22 @@ fn threads() -> Vec<Value> {
         spec! { "stop_thread", Act("End a thread"), ["id"], { "id": Desc(THREAD_ID) },
         "End a thread. It stays in the user's list." },
         spec! { "list_threads", Read("List threads"), [], {}, "This chat's threads." },
+    ]
+}
+
+/// The team tools, which only sessions in a team project get.
+pub(super) fn team() -> Vec<Value> {
+    vec![
+        spec! { TEAM[0], Read("See the team"), [], {},
+        "Your project's team: its members, the cards of their agents' sessions and yours (id, \
+         title, lane, login, issue), and the open issues with their assignees." },
+        spec! { TEAM[1], OpenAct("Ask a teammate"), ["text"], {
+            "to": Desc("A card id or a teammate's login, as team lists them; left out with reply_to"),
+            "text": Desc("At most 4000 characters"),
+            "reply_to": Desc("The id of the ask this answers"),
+        }, "Ask a teammate's agent (to: a card id from team) or a teammate (to: their login), \
+            at most 10 asks an hour. Returns once sent; the answer arrives in this session. To \
+            answer an ask, give its id as reply_to, once, and no to: it goes to whoever asked." },
     ]
 }
 

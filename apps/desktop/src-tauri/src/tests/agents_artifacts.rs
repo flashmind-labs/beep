@@ -1,5 +1,30 @@
 use super::*;
 
+#[test]
+fn preview_exports_save_under_safe_names_without_overwriting() {
+    let dir = tempfile::tempdir().expect("download folder");
+    let pdf = b"%PDF-1.7\n%%EOF";
+    let data = STANDARD.encode(pdf);
+    let save = || {
+        save_preview_export(dir.path(), "../sub\\graph?.pdf", PreviewExport::Pdf, &data)
+            .expect("saved PDF")
+    };
+    let first = save();
+    let second = save();
+    assert_eq!(first, dir.path().join("graph_.pdf"));
+    assert_eq!(second, dir.path().join("graph_ 2.pdf"));
+    assert_eq!(std::fs::read(first).expect("read PDF"), pdf);
+    assert_eq!(std::fs::read(second).expect("read copy"), pdf);
+}
+
+#[test]
+fn preview_export_rejects_invalid_pdf() {
+    let dir = tempfile::tempdir().expect("download folder");
+    let data = STANDARD.encode(b"<h1>Not a PDF</h1>");
+    assert!(save_preview_export(dir.path(), "graph.pdf", PreviewExport::Pdf, &data).is_err());
+    assert_eq!(dir.path().read_dir().expect("download entries").count(), 0);
+}
+
 const PAGE: &str = "/srv/project/reports/usage.html";
 
 fn place() -> Place {

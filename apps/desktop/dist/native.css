@@ -153,7 +153,7 @@ body:not(.mobile) .agshell > .agdiv::after { inset: 20% 2px; border-radius: 1px;
 
 /* ----- Every screen: the title row lies on the window and the screen below it is a card ----- */
 body:not(.mobile) .cc-top { min-height: 34px; padding: 0 4px 0 6px; border-bottom: 0 }
-body:not(.mobile).pw .cwin:not(.rail-on) .cc-top, body:not(.mobile) .cwin.side-away .cc-top { padding-left: 84px }
+body:not(.mobile).pw .cwin:not(.rail-on) .cc-top { padding-left: 84px }
 body:not(.mobile) .cc-top h2 { font-size: 14px; font-weight: 600; letter-spacing: -.01em }
 body:not(.mobile) .cc-box:not(:has(> .dbar[data-view="agent"])) { border: 1px solid var(--border); border-radius: var(--radius); background: var(--ink); overflow: hidden }
 body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 1px 0 color-mix(in srgb, var(--fg) 6%, transparent) inset }
@@ -271,6 +271,8 @@ body:not(.mobile) .cc-side > .painted-art { display: var(--paintings); position:
    so its mask fades out before the edges instead of being cut. ----- */
 .painted-art { display: none; image-rendering: pixelated }
 .cc-pjc.centered { position: relative; isolation: isolate }
+/* Narrower than its width, the composer keeps a margin from the panel's edges. */
+body:not(.mobile) .cc-pjc.centered { max-width: 800px; padding-inline: 20px }
 .agc-intro > .painted-art { display: var(--paintings); position: absolute; z-index: -1; left: 50%; top: -290px; width: min(1500px, 100cqw); height: 640px; opacity: .9; transform: translateX(-50%); pointer-events: none; -webkit-mask-image: radial-gradient(closest-side, #000 45%, transparent); mask-image: radial-gradient(closest-side, #000 45%, transparent) }
 .cc-pjc.centered .agc-intro h3 { text-shadow: 0 2px 24px var(--ink) }
 .cc-pjc.centered .agc-intro p { font-family: var(--mono); font-size: 12px; color: color-mix(in srgb, var(--fg) 78%, transparent); text-shadow: 0 1px 12px var(--ink) }
@@ -351,12 +353,13 @@ body:not(.mobile) .agpstrip[data-dock="right"] .agtab { width: var(--ctl-h); hei
 /* ----- Boards, the projects page and lists: lit cards without rules, mono labels and details ----- */
 body:not(.mobile) .cc-mstrip { gap: 4px; border: 0; background: none; overflow: visible }
 body:not(.mobile) .cc-mstrip > .m { height: var(--ctl-h); padding: 0 9px; border: 0; border-radius: var(--radius-sm); background: var(--ctl-fill) }
-body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p, .bd-tag, .bd-deck > .meta) { font-family: var(--mono); font-size: 11px }
+body:not(.mobile) .cc-mstrip > .m > span, body:not(.mobile) :is(.bd-card .sub, .bd-card .ft, .pj-card .f, .pj-card .h .run, .pj-org h3 small, .pj-li.nav .c, .pj-list .note, .tl-it small, .tl-m h5, .tl-empty, .tl-m > p, .bd-tag, .bd-deck > .meta, .bd-who, .tm-owners, .tm-note, .tm-step) { font-family: var(--mono); font-size: 11px }
 body:not(.mobile) .cc-mstrip > button.m:hover { background: var(--ctl-fill-hi) }
 body:not(.mobile) .bd-lane > h4 { font-family: var(--mono); font-size: 10.5px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase }
 body:not(.mobile) :is(.bd-card, .pj-card) { border-color: transparent }
 body:not(.mobile) :is(.bd-card, .pj-card, .pm-machine, .mcard), body:not(.mobile) :is(.cc-panel.fs-list, .bd-projects .cc-panel, #sec-needs .cc-panel, .bd-review .cc-panel) { background: var(--lit), var(--card-fill) }
 body:not(.mobile) :is(.bd-card, .pj-card, .bd-deck):hover, body:not(.mobile) :is(.bd-card, .bd-deck):focus-visible { border-color: transparent; background: var(--lit), var(--card-fill-hi) }
+body:not(.mobile) .bd-card.theirs:not(:hover, :focus-visible) { background: var(--lit), color-mix(in srgb, var(--fg) 2.5%, transparent) }
 body:not(.mobile) :is(.pj-list, .tl-list) { border-right-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) .pj-list hr { border-top-color: color-mix(in srgb, var(--fg) 6%, transparent) }
 body:not(.mobile) :is(.pj-li[aria-current="true"], .tl-it[aria-current="true"]) { border-color: transparent; background: var(--ctl-fill-hi) }
@@ -385,7 +388,7 @@ body:not(.mobile) :is(.bd-projects, #sec-needs) .cc-row + .cc-row { border-top: 
 body:not(.mobile) :is(.bd-projects, .bd-review) .cc-ag { border: 0; background: none }
 /* The list's rows keep their projects and their times in two columns. */
 body:not(.mobile) .bd-review .cc-row .r { grid-template-columns: 200px 72px }
-body:not(.mobile) .bd-tag { max-width: none; justify-self: start }
+body:not(.mobile) .bd-tag { max-width: 100%; justify-self: start }
 /* The review's two columns: the side stays while the list scrolls, and scrolls in itself when it is taller than the window. */
 body:not(.mobile) .bd-review { grid-template-columns: 400px minmax(0, 1fr); gap: 22px; align-items: start }
 body:not(.mobile) .bd-side { position: sticky; top: 38px; max-height: calc(100vh - 120px); overflow-y: auto; scrollbar-width: none }
@@ -448,7 +451,7 @@ body:not(.mobile) .cc-view:has(.painted-art.haze) { position: relative; isolatio
 body:not(.mobile) .cc-view .painted-art.haze { display: var(--paintings); position: absolute; z-index: -1; top: 0; left: 0; width: 100%; height: 130px; opacity: .4; pointer-events: none; -webkit-mask-image: linear-gradient(#000, transparent); mask-image: linear-gradient(#000, transparent) }
 body:not(.mobile) #view > .painted-art.haze { height: 58px }
 body:not(.mobile) .bd-lane > h4:has(> span:empty) { opacity: .5 }
-@media (hover: hover) { body:not(.mobile) .bd-card:not(:hover, :focus-within) .bd-close { visibility: hidden } }
+@media (hover: hover) { body:not(.mobile) .bd-card:not(:hover, :focus-within) .bd-close, body:not(.mobile) .cc-line:not(:hover, :focus-within) .tm-remove { visibility: hidden } }
 body:not(.mobile) .bd-answers { display: flex; flex-wrap: wrap; justify-content: end; gap: 6px }
 body:not(.mobile) .cc-row:has(> .r > .bd-answers) { grid-template-columns: 28px minmax(0, 1fr) fit-content(50%) }
 /* The queue's own buttons (Review, Continue, Open, Resolve) share one width; a question's answers keep theirs. */
@@ -464,3 +467,22 @@ body:not(.mobile) .pj-org ~ .pj-add { display: none }
 /* A machine card's actions show when it is pointed at or focused. */
 body:not(.mobile) .mcard .act:not(.keep) { opacity: 0; transition: opacity .12s }
 body:not(.mobile) .mcard:is(:hover, :focus-within) .act { opacity: 1 }
+
+/* A found folder's machines and activity give way to each other on one line, never overlap. */
+body:not(.mobile) .pl-row.found .where { flex-wrap: nowrap; overflow: hidden }
+body:not(.mobile) .pl-row.found .where .chip { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+body:not(.mobile) .pl-row.found .r .dim { min-width: 0; overflow: hidden; text-overflow: ellipsis }
+/* A found folder in a narrow window: its name and Import, then where it is and its activity. */
+@container (max-width: 640px) {
+  body:not(.mobile) .pl-row.found { grid-template-columns: minmax(0, 1fr) minmax(0, max-content); row-gap: 2px; padding-block: 6px }
+  body:not(.mobile) .pl-row.found .r { display: contents }
+  body:not(.mobile) .pl-row.found .acts { grid-area: 1 / 2 }
+  body:not(.mobile) .pl-row.found .where { grid-area: 2 / 1 }
+  body:not(.mobile) .pl-row.found .r .dim { grid-area: 2 / 2; text-align: right }
+}
+
+/* A project's team: the board's filter chips, the Team page and the join sheet. */
+body:not(.mobile) .tm-filter .dchip { min-height: 22px; padding: 0 8px; font-family: var(--mono); font-size: 11px; color: var(--muted) }
+body:not(.mobile) .tm-filter .dchip[aria-pressed="true"] { color: var(--fg); box-shadow: none }
+body:not(.mobile) :is(.tm-invite, .tm-code) { background: var(--lit), var(--card-fill) }
+body:not(.mobile) .tm-code { background: color-mix(in srgb, var(--ink) 60%, transparent) }

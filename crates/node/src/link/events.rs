@@ -374,7 +374,7 @@ async fn watch(
 
                     let mut dependencies = vec![root.clone()];
 
-                    match git::watch_paths(&root).await {
+                    match crate::agents::checkouts::watch_paths(&root).await {
                         Ok(paths) => dependencies.extend(paths),
                         Err(error) => {
                             log::debug!("Git metadata notifications unavailable: {error:#}")

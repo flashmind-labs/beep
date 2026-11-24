@@ -193,6 +193,8 @@ body.cbody
               b "1 agent"
               span "running"
             button.m [type="button"]
+              b "Team"
+            button.m [type="button"]
               b "Machines"
               span "1/1"
             button.m [type="button"]
@@ -215,6 +217,10 @@ body.cbody
                   b "Running"
                 span.c "1"
               hr
+              button.nav.pj-li [title="Team" type="button"]
+                span.t
+                  b "Team"
+                span.c
               button.nav.pj-li [title="Actions" type="button"]
                 span.t
                   b "Actions"

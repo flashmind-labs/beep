@@ -140,3 +140,94 @@ fn quick_requests_that_end_well_write_nothing_at_info() {
     assert!(text.contains("outcome=\"error\""), "{text}");
     assert!(text.contains("outcome=\"cancelled\""), "{text}");
 }
+
+fn trace_in(outcome: &'static str, stream: bool) -> RequestTrace {
+    let mut trace = RequestTrace::new("op");
+    trace.outcome = outcome;
+    trace.stream = stream;
+    trace
+}
+
+#[test]
+fn a_stream_ends_quietly_unless_it_failed() {
+    let long = SLOW_REQUEST * 10;
+    // A stream's end is not news, however long it lived.
+    assert!(trace_in("cancelled", true).ends_quietly(long));
+    assert!(trace_in("ok", true).ends_quietly(long));
+    assert!(!trace_in("error", true).ends_quietly(Duration::ZERO));
+    assert!(!trace_in("refused", true).ends_quietly(Duration::ZERO));
+    // A request is.
+    assert!(!trace_in("cancelled", false).ends_quietly(Duration::ZERO));
+    assert!(!trace_in("ok", false).ends_quietly(long));
+    assert!(trace_in("ok", false).ends_quietly(Duration::ZERO));
+}
+
+/// A subscriber that captures what is logged at `INFO` and above.
+fn capture_info() -> (Captured, tracing::subscriber::DefaultGuard) {
+    let output = Captured::default();
+    let writer = output.clone();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .event_format(TextLayout)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
+    );
+
+    (output, tracing::subscriber::set_default(subscriber))
+}
+
+#[test]
+fn a_refused_request_logs_its_reason_cut_short_and_a_failed_one_its_error() {
+    let (output, _guard) = capture_info();
+    let mut refused = RequestTrace::new("InFoldersPage");
+    refused.refuse(format!(
+        "{}: git said https://user:secret@host/repo",
+        "x".repeat(500)
+    ));
+    drop(refused);
+    let mut failed = RequestTrace::new("External");
+    failed.fail("the caller left: /srv/project/file");
+    drop(failed);
+    let mut plain = RequestTrace::new("Live");
+    plain.finish(false);
+    drop(plain);
+    let bytes = output.0.lock().unwrap();
+    let text = std::str::from_utf8(&bytes).unwrap();
+    // A failure with no reason logs none, not an empty one.
+    assert_eq!(
+        text.lines().filter(|line| line.contains("reason=")).count(),
+        2,
+        "{text}"
+    );
+    assert_eq!(text.lines().count(), 3, "{text}");
+    let refused = text.lines().find(|line| line.contains("refused")).unwrap();
+    assert!(refused.contains(&"x".repeat(120)), "{text}");
+    assert!(!refused.contains(&"x".repeat(121)), "{text}");
+    assert!(
+        !text.contains("secret") && !text.contains("/srv/project"),
+        "{text}"
+    );
+    assert!(text.contains("outcome=\"error\""), "{text}");
+    assert!(text.contains("reason=\"the caller left\""), "{text}");
+}
+
+#[tokio::test]
+async fn a_stream_that_ends_writes_nothing_at_info_and_its_error_one_line() {
+    let (output, _guard) = capture_info();
+
+    RequestTrace::new("FollowUsage")
+        .stream(async { Ok::<(), String>(()) })
+        .await
+        .unwrap();
+    assert!(output.0.lock().unwrap().is_empty());
+
+    RequestTrace::new("FollowUsage")
+        .stream(async { Err::<(), _>("the link reset") })
+        .await
+        .unwrap_err();
+    let bytes = output.0.lock().unwrap();
+    let text = std::str::from_utf8(&bytes).unwrap();
+    assert_eq!(text.lines().count(), 1, "{text}");
+    assert!(text.contains("reason=\"the link reset\""), "{text}");
+}

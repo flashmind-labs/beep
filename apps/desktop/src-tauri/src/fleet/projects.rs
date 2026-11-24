@@ -6,7 +6,7 @@ use crate::error::{DesktopError, Result};
 use async_trait::async_trait;
 use beep_fleet::{Desk, FleetError, Peers, Session};
 use beep_mesh::{Mesh, PeerClient};
-use beep_proto::node::EnvReport;
+use beep_proto::{ApiError, node::EnvReport};
 use iroh::EndpointId;
 use std::sync::Arc;
 use tauri::State;
@@ -61,4 +61,11 @@ pub(crate) async fn mesh_project(
 ) -> Result<Option<(Desk, String)>> {
     let desk = desk(session).await?;
     Ok(desk.project_name(id).map(|name| (desk, name)))
+}
+
+/// The desk and the name of the mesh project `id` is the id of, which the mesh must know.
+pub(crate) async fn named(session: &Arc<Session>, id: Uuid) -> Result<(Desk, String)> {
+    mesh_project(session, id)
+        .await?
+        .ok_or(DesktopError::Api(ApiError::NotFound {}))
 }

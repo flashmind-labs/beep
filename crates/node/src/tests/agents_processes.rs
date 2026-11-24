@@ -131,28 +131,129 @@ fn following_processes_holds_demand_until_dropped() {
     assert!(seen.has_changed().unwrap());
 }
 
-#[cfg(target_os = "linux")]
-#[tokio::test]
-async fn a_port_opened_or_closed_after_the_last_list_is_a_change() {
+/// Processes of this test's parent, watched by a poll task of their own.
+/// The sender keeps the session alive.
+fn watched(
+    id: &str,
+) -> (
+    Arc<Processes>,
+    AbortOnDropHandle<()>,
+    watch::Sender<crate::agents::live::Live>,
+) {
     // The session's root is the agent, left out of the list: this test is its child.
     let processes = Processes::new(Some(std::os::unix::process::parent_id()));
-    let listed = |port| {
-        crate::lock(&processes.known)
-            .ports
-            .iter()
-            .any(|(pid, open, _)| (*pid, *open) == (std::process::id(), port))
-    };
-    processes.list().await.unwrap();
+    let (session, live) = watch::channel(crate::agents::live::Live::default());
+    session.send_modify(|live| live.info.id = id.into());
+    let task = processes.watch(live);
+    (processes, task, session)
+}
 
-    // Other tests in this process may open ports too, so only changes are asserted.
+fn listening(rows: &[RunningProcess], port: u16) -> bool {
+    rows.iter()
+        .any(|row| row.pid == std::process::id() && row.ports.contains(&port))
+}
+
+#[tokio::test]
+async fn a_list_that_is_published_is_read_without_asking_for_a_poll() {
+    let processes = Processes::new(Some(1));
+    let Some(Inbox { mut polls, publish }) = crate::lock(&processes.inbox).take() else {
+        panic!("nothing watches yet");
+    };
+    let row = RunningProcess {
+        pid: 7,
+        command: "sleep 300".into(),
+        started_at: 1,
+        ports: vec![],
+        left_group: false,
+        parent: 0,
+        pages: vec![],
+    };
+    let mut first = std::pin::pin!(processes.list());
+    // Nothing is published yet, so the read waits for the first poll.
+    assert!(futures::poll!(&mut first).is_pending());
+
+    publish.send_replace(Some(Published {
+        at: Instant::now(),
+        listing: Ok(Listing {
+            rows: vec![row.clone()],
+            ours: vec![],
+        }),
+    }));
+    assert_eq!(first.await.unwrap(), vec![row.clone()]);
+    assert_eq!(processes.list().await.unwrap(), vec![row]);
+    // No reader asked the task to read the table, and none could scan itself.
+    assert!(polls.try_recv().is_none());
+
+    // An old list is not served: the reader asks for a read with a port scan.
+    publish.send_replace(Some(Published {
+        at: Instant::now() - FRESH * 2,
+        listing: Ok(Listing {
+            rows: vec![],
+            ours: vec![],
+        }),
+    }));
+    let mut stale = std::pin::pin!(processes.list());
+    assert!(futures::poll!(&mut stale).is_pending());
+    let (poll, _timing) = polls.recv().await.unwrap();
+    assert!(poll.scan);
+    publish.send_replace(Some(Published {
+        at: Instant::now(),
+        listing: Ok(Listing {
+            rows: vec![],
+            ours: vec![],
+        }),
+    }));
+    poll.done.send(Ok(())).unwrap();
+    assert!(stale.await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_failed_read_is_the_readers_error() {
+    let processes = Processes::new(Some(1));
+    let Some(Inbox { publish, .. }) = crate::lock(&processes.inbox).take() else {
+        panic!("nothing watches yet");
+    };
+    publish.send_replace(Some(Published {
+        at: Instant::now(),
+        listing: Err("table unreadable".into()),
+    }));
+    let error = processes.list().await.unwrap_err();
+    assert!(format!("{error:#}").contains("table unreadable"));
+}
+
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_port_opened_after_a_reader_listed_reaches_the_next_reader() {
+    let id = "ports-reach-every-reader";
+    let (processes, _task, _session) = watched(id);
+    let mut changes = crate::events::system().subscribe();
+    let signalled = |changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>| {
+        let mut seen = false;
+
+        while let Ok(change) = changes.try_recv() {
+            seen |= change.topic == Topic::keyed("processes", id);
+        }
+
+        seen
+    };
+    // The first reader lists before the port exists.
+    let first = processes.list().await.unwrap();
+
+    // Other tests in this process may open ports too, so only this one is asserted.
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
-    assert!(processes.ports_changed().await.unwrap());
-    assert!(listed(port));
+    assert!(!listening(&first, port));
+    // A second reader lists between the bind and the poll. It must not
+    // swallow the change the poll finds.
+    assert!(!listening(&processes.list().await.unwrap(), port));
+    processes.poll(true).await.unwrap();
+    assert!(listening(&processes.list().await.unwrap(), port));
+    assert!(signalled(&mut changes));
 
     drop(listener);
-    assert!(processes.ports_changed().await.unwrap());
-    assert!(!listed(port));
+    processes.poll(true).await.unwrap();
+    assert!(!listening(&processes.list().await.unwrap(), port));
+    assert!(signalled(&mut changes));
 }
 
 #[cfg(target_os = "linux")]
@@ -160,7 +261,7 @@ async fn a_port_opened_or_closed_after_the_last_list_is_a_change() {
 async fn a_port_that_answers_with_a_page_is_one_of_its_pages_once_it_is_ready() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    let processes = Processes::new(Some(std::os::unix::process::parent_id()));
+    let (processes, _task, _session) = watched("pages-test-session");
     // One port answers like a web server that is still starting at first,
     // the other closes without a word.
     let web = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
@@ -208,7 +309,7 @@ async fn a_port_that_answers_with_a_page_is_one_of_its_pages_once_it_is_ready() 
     assert!(starting.ports.contains(&web_port) && starting.ports.contains(&silent_port));
     assert!(!starting.pages.contains(&web_port));
     ready.store(true, Ordering::Relaxed);
-    assert!(processes.ports_changed().await.unwrap());
+    processes.poll(true).await.unwrap();
 
     let serving = me().await;
     assert!(serving.pages.contains(&web_port));

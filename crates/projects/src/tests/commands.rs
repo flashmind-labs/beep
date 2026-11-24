@@ -143,6 +143,7 @@ fn open_issues_parse_from_gh_and_teacli() {
             comments: 2,
             url: "https://github.com/acme/widget/issues/12".into(),
             linked_pr: false,
+            assignees: Vec::new(),
         }]
     );
     let tea = r#"[
@@ -164,6 +165,56 @@ fn open_issues_parse_from_gh_and_teacli() {
         "https://git.example.com/acme/widget/issues/4"
     );
     assert!(parse_open_issues("gh: not logged in").is_err());
+}
+
+#[test]
+fn gh_issue_json_reads_assignees() {
+    let gh = r#"[{"number":1,"title":"x","labels":[],"author":"sam",
+        "createdAt":"2026-10-30T08:00:00Z","comments":0,"url":"u",
+        "assignees":["alice"]}]"#;
+    assert_eq!(
+        parse_open_issues(gh).expect("issues")[0].assignees,
+        ["alice"]
+    );
+
+    let api = r#"[{"number":1,"title":"x","labels":[],"user":{"login":"sam"},
+        "created_at":"2026-10-30T08:00:00Z","comments":0,"html_url":"u",
+        "assignees":[{"login":"alice"}]}]"#;
+    assert_eq!(
+        parse_open_issues(api).expect("issues")[0].assignees,
+        ["alice"]
+    );
+}
+
+#[test]
+fn forgejo_issue_json_reads_assignees() {
+    let tea = r#"[{"number":4,"title":"Slow","labels":[],"user":{"login":"kim"},
+        "created_at":"2026-10-29T10:00:00Z","comments":0,"html_url":"u",
+        "assignees":[{"login":"alice"},{"login":"bob"}]}]"#;
+
+    assert_eq!(
+        parse_open_issues(tea).expect("issues")[0].assignees,
+        ["alice", "bob"]
+    );
+}
+
+#[test]
+fn missing_assignees_is_empty() {
+    let tea = r#"[{"number":4,"title":"Slow","labels":[],"user":{"login":"kim"},
+        "created_at":"2026-10-29T10:00:00Z","comments":0,"html_url":"u","assignees":null}]"#;
+    assert!(
+        parse_open_issues(tea).expect("issues")[0]
+            .assignees
+            .is_empty()
+    );
+
+    let gh = r#"[{"number":4,"title":"x","labels":[],"author":"s",
+        "createdAt":"2026-10-29T10:00:00Z","comments":0,"url":"u"}]"#;
+    assert!(
+        parse_open_issues(gh).expect("issues")[0]
+            .assignees
+            .is_empty()
+    );
 }
 
 #[test]

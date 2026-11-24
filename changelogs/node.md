@@ -2,6 +2,84 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.19] - 2026-11-24
+
+### Added
+
+- Node: metrics for how long each internal worker's messages wait and take
+  to handle, and how long its background jobs take (process scans, git
+  reads, sync changes). `beep_metrics` shows them as `beep_actor_wait_seconds`,
+  `beep_actor_handle_seconds` and `beep_actor_job_seconds`.
+- Node: a log line when one of those messages waits or runs long, naming the
+  worker and the kind of message.
+
+### Changed
+
+- Node: the log of a failed request now says whether the node refused it,
+  with the reason, or could not send the answer. A stream that ends is no
+  longer logged as a slow or cancelled request.
+
+## [0.8.18] - 2026-11-23
+
+### Fixed
+
+- Node: if the desktop or phone disconnected while a project's file sync was
+  starting over, the project stayed off until the node restarted. The start
+  over now finishes.
+- Node: a project no longer disappears from the sync status for a moment
+  while its sync is stopped and started again.
+- Node: a terminal that exits stays in the list for 30 seconds, so every
+  connected desktop and phone sees that it ended. Before, only the first
+  one to look saw it, and it vanished for the others.
+- Node: a background command that was still starting when the desktop app
+  quit is now stopped with the others instead of running on.
+- Node: a port that a session's command opens after one desktop or phone
+  already looked is now shown to the others too.
+
+### Performance
+
+- Node: sessions in one folder and every connected desktop or phone now
+  share a single git read of its changes, instead of each running git for
+  the same diff. Opening Changes again answers without running git until
+  the folder changes.
+- Node: refreshing a conversation's Files tree no longer runs git once per
+  open folder for each connected desktop or phone. Git's status is read once
+  per change of the checkout and shared.
+- Node: a change in one session's running commands no longer makes the
+  other sessions' Running lists read again.
+
+## [0.8.17] - 2026-11-23
+
+### Fixed
+
+- Node: Pi model lists include provider metadata for model pickers.
+- Node: saved instructions now work with Pi and agents without system-prompt support.
+
+## [0.8.16] - 2026-11-23
+
+### Added
+
+- Node: beep-node serves a team's board to teammates over a new peer-to-peer
+  link, with no server in between.
+- Node: agents get `team` and `team_ask` tools. `team` shows the
+  team's work. `team_ask` messages a teammate's agent, at most 10
+  messages an hour per session.
+- Node: beep-node starts an agent on each issue newly assigned to you on
+  GitHub or Forgejo, once per issue. An optional limit caps how many
+  of these agents run at once.
+- Node: everyone on a team must be able to push to the repository, when
+  they join and after. A teammate is taken on only when GitHub or Forgejo
+  confirms they can push (on Forgejo, where only admins see others'
+  access, their push proof counts). Once a day beep-node checks you can
+  still push, and leaves the team for you when you can't.
+
+### Fixed
+
+- Node: report each model group's five-hour quota when Antigravity provides it.
+- Node: Antigravity sessions start and resume with saved instructions.
+- Node: replacing a move rolls back the earlier uncommitted attempt first.
+- Node: stopping a terminal after its process exits preserves the actual exit result.
+
 ## [0.8.15] - 2026-11-23
 
 ### Added

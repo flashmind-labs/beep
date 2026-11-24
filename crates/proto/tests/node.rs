@@ -881,6 +881,7 @@ mod tools {
             (Tool::ListProjects, "list_projects"),
             (Tool::Plugins, "plugins"),
             (Tool::Projects, "projects"),
+            (Tool::TeamApp, "team_app"),
         ] {
             assert_eq!(tool.to_string(), name);
             assert_eq!(name.parse::<Tool>(), Ok(tool));
@@ -895,6 +896,69 @@ mod tools {
         assert_eq!(
             rmp_serde::from_slice::<Tool>(&bytes).expect("decodes"),
             Tool::Unknown
+        );
+    }
+
+    #[test]
+    fn an_apps_team_call_reads_as_not_sent_on() {
+        let repo: beep_proto::team::TeamRepo = "github.com/org/web".parse().expect("a repo");
+        for args in [TeamAppArgs::Invites, TeamAppArgs::Cards { repo }] {
+            let text = serde_json::to_string(&args).expect("encodes");
+            let call: TeamAppCall = serde_json::from_str(&text).expect("decodes");
+
+            assert_eq!(
+                call,
+                TeamAppCall {
+                    args,
+                    forwarded: false
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn team_cards_go_as_json_in_every_lane() {
+        use beep_proto::team::{Card, Lane};
+
+        let card = |lane| Card {
+            id: "s1@build-box".into(),
+            title: "Fix the login".into(),
+            lane,
+            login: "dana".parse().expect("a login"),
+            machine: "build-box".into(),
+            issue: Some(52),
+            pr: None,
+            updated_at: std::time::SystemTime::UNIX_EPOCH,
+        };
+        let cards = TeamCards {
+            needs_you: vec![card(Lane::NeedsYou {})],
+            teammates: [
+                Lane::Working {},
+                Lane::ReadyToReview {},
+                Lane::DoneToday {},
+                Lane::Queued {},
+            ]
+            .into_iter()
+            .map(card)
+            .collect(),
+            own_queued: vec![card(Lane::Queued {})],
+            online: vec!["dana".parse().expect("a login")],
+        };
+        let text = serde_json::to_string(&cards).expect("encodes");
+
+        assert_eq!(
+            serde_json::from_str::<TeamCards>(&text).expect("decodes"),
+            cards
+        );
+    }
+
+    #[test]
+    fn team_cards_from_an_older_node_have_no_own_queued() {
+        let text = r#"{"needs_you":[],"teammates":[]}"#;
+
+        assert_eq!(
+            serde_json::from_str::<TeamCards>(text).expect("decodes"),
+            TeamCards::default()
         );
     }
 
@@ -1360,6 +1424,7 @@ mod agent {
         fn each_agent_takes_the_thinking_levels_its_cli_does() {
             use Effort::*;
             assert_eq!(efforts("claude"), [Low, Medium, High, Xhigh, Max]);
+            assert_eq!(efforts("agy"), [Low, Medium, High, Xhigh, Max]);
             assert_eq!(
                 efforts("codex"),
                 [None, Minimal, Low, Medium, High, Xhigh, Max, Ultra]
@@ -1367,7 +1432,7 @@ mod agent {
             assert_eq!(efforts("pi"), [Off, Minimal, Low, Medium, High, Xhigh, Max]);
             assert_eq!(efforts("flsh"), [Off, Low, Medium, High]);
 
-            for agent in ["agy", "opencode", "other"] {
+            for agent in ["opencode", "other"] {
                 assert!(efforts(agent).is_empty(), "{agent}");
             }
 

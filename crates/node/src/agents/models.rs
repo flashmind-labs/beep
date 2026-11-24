@@ -105,8 +105,9 @@ impl ModelCache {
 /// say gives a list without models.
 pub(super) async fn find(kind: AgentKind) -> ModelList {
     let flag = known(&kind.name).is_some_and(|known| known.model_flag);
+    let agent = kind.name.parse::<Agent>().ok();
 
-    if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {
+    if agent == Some(Agent::Flsh) {
         return flsh(&kind).await;
     }
 
@@ -125,6 +126,12 @@ pub(super) async fn find(kind: AgentKind) -> ModelList {
         }
     };
     let mut list = listed(offered, flag);
+    if agent == Some(Agent::Pi) {
+        for model in &mut list.models {
+            names::split_pi_name(model);
+        }
+    }
+
     context::enrich(&kind, &mut list).await;
     list
 }

@@ -3,7 +3,7 @@
 use beep_proto::SessionId;
 use super::{
     Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
-    custom_agents, harnesses, media_file, reach, unix_now, work_diff, work_folder, worktrees,
+    custom_agents, harnesses, media_file, reach, unix_now, work_folder, worktrees,
 };
 use crate::files::transfer::Transfers;
 use anyhow::{Context, Result};
@@ -220,29 +220,33 @@ pub async fn serve_sessions(
             live_reply(&agents, &session, Some(steer)).await
         }
         SessionsRequest::Watch { sessions } => {
-            return agents.external.watch(tx, rx, sessions).await;
+            return trace.stream(agents.external.watch(tx, rx, sessions)).await;
         }
         SessionsRequest::FollowImages {} => failed("this node does not send pictures"),
         SessionsRequest::FollowPresence {} => {
-            return super::presence::follow(tx, rx, &agents).await;
+            return trace.stream(super::presence::follow(tx, rx, &agents)).await;
         }
         SessionsRequest::FollowAlerts {} => {
-            return send_alerts(tx, rx, &agents.alerts, caller, |alert| {
-                SessionsReply::Alert { alert }
-            })
-            .await;
+            return trace
+                .stream(send_alerts(tx, rx, &agents.alerts, caller, |alert| {
+                    SessionsReply::Alert { alert }
+                }))
+                .await;
         }
         SessionsRequest::FollowRuns {} => {
-            return send_alerts(tx, rx, &agents.ci.runs, caller, |news| SessionsReply::Run {
-                news,
-            })
-            .await;
+            return trace
+                .stream(send_alerts(tx, rx, &agents.ci.runs, caller, |news| {
+                    SessionsReply::Run { news }
+                }))
+                .await;
         }
         SessionsRequest::FollowUsage { history } => {
-            return send_usage(tx, rx, &agents, history).await;
+            return trace.stream(send_usage(tx, rx, &agents, history)).await;
         }
         SessionsRequest::FollowIndex { epoch, after } => {
-            return send_index(tx, rx, &agents, &epoch, after).await;
+            return trace
+                .stream(send_index(tx, rx, &agents, &epoch, after))
+                .await;
         }
         SessionsRequest::Search { query, sessions } => match agents.search.get().cloned() {
             Some(index) => index
@@ -291,17 +295,7 @@ pub async fn serve_sessions(
             ignored,
             depth,
         } => {
-            work_request(&agents, &root, reach::Access::Read, move |real| {
-                let root = work_folder::WorkRoot::at(&real)?;
-                Ok(if depth == 0 {
-                    let folder = work_folder::list(&root, &path, ignored)?;
-                    SessionsReply::Folder { folder }
-                } else {
-                    let tree = work_folder::tree(&root, &path, ignored, depth)?;
-                    SessionsReply::Tree { tree }
-                })
-            })
-            .await
+            folder_reply(&agents, &root, path, ignored, depth).await
         }
         SessionsRequest::ReadFile {
             root,
@@ -342,7 +336,8 @@ pub async fn serve_sessions(
             data,
         } => {
             let running = agents.get(&session);
-            work_request(&agents, &root, reach::Access::Write, move |_real| {
+            let draft = root.is_empty() && super::uploads::is_draft(&agent, &session);
+            let write = move || {
                 let path = super::uploads::write(
                     &agent,
                     &session,
@@ -353,6 +348,18 @@ pub async fn serve_sessions(
                     running.as_deref(),
                 )?;
                 Ok(SessionsReply::Written { path })
+            };
+
+            if draft {
+                file_job(write).await
+            } else {
+                work_request(&agents, &root, reach::Access::Write, move |_| write()).await
+            }
+        }
+        SessionsRequest::DiscardDraftAttachment { draft, path } => {
+            file_job(move || {
+                super::uploads::discard_draft(&draft, &path)?;
+                Ok(SessionsReply::FilesEdited {})
             })
             .await
         }
@@ -373,12 +380,17 @@ pub async fn serve_sessions(
             .await
         }
         SessionsRequest::Diff { ask } => {
-            let root = ask.root.clone();
-            work_request(&agents, &root, reach::Access::Diff, move |real| {
-                let diff = work_diff::read(&real, &ask)?;
-                Ok(SessionsReply::Diff { diff })
-            })
-            .await
+            let read = async {
+                let real = agents.reachable(&ask.root, reach::Access::Diff).await?;
+                agents.checkouts.diff(real, ask).await
+            };
+
+            match read.await {
+                Ok(diff) => SessionsReply::Diff {
+                    diff: Arc::unwrap_or_clone(diff),
+                },
+                Err(e) => failed(e),
+            }
         }
         SessionsRequest::Worktrees { folder, session } => {
             let created = session
@@ -522,11 +534,10 @@ pub async fn serve_sessions(
     let computed = started.elapsed();
     trace.phase("sending");
     let result = tx.send(&reply).await;
-    trace.finish(result.is_ok() && !matches!(reply, SessionsReply::Error { .. }));
+    let outcome = end_trace(&mut trace, &result, &reply);
 
     if let Some(operation) = operation {
         let elapsed = started.elapsed();
-        let outcome = if result.is_ok() { "ok" } else { "error" };
         metrics::counter!("beep_agent_requests_total", "operation" => operation, "outcome" => outcome).increment(1);
         metrics::histogram!("beep_agent_request_seconds", "operation" => operation)
             .record(elapsed.as_secs_f64());
@@ -542,6 +553,29 @@ pub async fn serve_sessions(
     }
 
     result
+}
+
+/// Records how the request ended and returns its metric label: `error` when
+/// the answer could not be sent, `refused` when the handler answered an error.
+fn end_trace(
+    trace: &mut beep_proto::logging::RequestTrace,
+    sent: &Result<()>,
+    reply: &SessionsReply,
+) -> &'static str {
+    match (sent, reply) {
+        (Err(e), _) => {
+            trace.fail(format!("{e:#}"));
+            "error"
+        }
+        (Ok(()), SessionsReply::Error { message }) => {
+            trace.refuse(message);
+            "refused"
+        }
+        (Ok(()), _) => {
+            trace.finish(true);
+            "ok"
+        }
+    }
 }
 
 async fn live_reply(agents: &Agents, session: &SessionId, steer: Option<agent::Steer>) -> SessionsReply {
@@ -599,6 +633,40 @@ async fn share_reply(
     }
 }
 
+/// The folder `path` in `root` as a `Folder` request asks for it. Its git
+/// marks come from the checkout's kept status when the checkout has one.
+async fn folder_reply(
+    agents: &Agents,
+    root: &str,
+    path: String,
+    ignored: bool,
+    depth: u32,
+) -> SessionsReply {
+    let real = match agents.reachable(root, reach::Access::Read).await {
+        Ok(real) => real,
+        Err(e) => return failed(e),
+    };
+    let checkouts = agents.checkouts.clone();
+    let runtime = tokio::runtime::Handle::current();
+
+    file_job(move || {
+        let root = work_folder::WorkRoot::at(&real)?;
+        // A path that is no folder is refused before any status is asked.
+        work_folder::open_folder(&root, &path)?;
+        let kept = runtime.block_on(checkouts.status(real));
+        let kept = kept.as_deref();
+
+        Ok(if depth == 0 {
+            let folder = work_folder::list(&root, &path, ignored, kept)?;
+            SessionsReply::Folder { folder }
+        } else {
+            let tree = work_folder::tree(&root, &path, ignored, depth, kept)?;
+            SessionsReply::Tree { tree }
+        })
+    })
+    .await
+}
+
 /// The reply carrying a chunk of a file.
 fn file_reply(chunk: media_file::Chunk) -> SessionsReply {
     SessionsReply::File {
@@ -621,7 +689,13 @@ async fn work_request(
         Err(e) => return failed(e),
     };
 
-    match spawn_blocking(move || job(real)).await {
+    file_job(move || job(real)).await
+}
+
+async fn file_job(
+    job: impl FnOnce() -> Result<SessionsReply> + Send + 'static,
+) -> SessionsReply {
+    match spawn_blocking(job).await {
         Ok(Ok(reply)) => reply,
         Ok(Err(e)) => failed(e),
         Err(e) => SessionsReply::Error {

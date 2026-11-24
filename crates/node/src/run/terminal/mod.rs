@@ -76,8 +76,10 @@ pub(crate) async fn reopen(dir: &Path, terminals: Vec<OpenTerminal>) {
         let _ = dir;
 
         for open in terminals {
-            if let Err(e) = TERMINALS.reopen(&open) {
-                log::warn!("could not reopen terminal {}: {e:#}", open.id);
+            let id = open.id;
+
+            if let Err(e) = TERMINALS.reopen(open).await {
+                log::warn!("could not reopen terminal {id}: {e:#}");
             }
         }
     }
@@ -149,7 +151,7 @@ async fn attach(live: Arc<Live>, from: u64, peer: &mut impl Peer) -> Result<()> 
         watched::read_and_update(&mut changed, |_| ());
         let (chunk, state) = {
             let screen = lock(&live.screen);
-            (screen.read_from(next), screen.state)
+            (screen.read_from(next), screen.phase.state())
         };
 
         if let Some((at, data)) = chunk {

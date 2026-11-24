@@ -10,7 +10,7 @@ import { NEW_THREAD } from "./threads-state.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
-import { MN, currentMentions, mentionImages, setMentionImages, type MentionState } from "./workdrop.ts";
+import { MN, currentMentions, mentionImages, mentionsOf, setMentionImages, type MentionState } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue, showUploadPending } from "./composer-ui.tsx";
 import { type AgentQuestion, type AgentRow, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
@@ -24,6 +24,7 @@ import { reopened } from "./closing.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
+import { clearHeldSteers, heldSteers } from "./session-follow.ts";
 
 export function disposeQueue() { disposeComposerUi(); closeMove(); }
 
@@ -104,14 +105,14 @@ function prepareMessage(input: HTMLTextAreaElement | null): Waiting | null | Pro
     if (currentMentions() === state) drawAgentAttached();
 
     if (batches.some(batch => batch.failed)) {
-      restoreUploadDraft(draft, state, session);
+      restoreDraft(draft, state, session);
       return null;
     }
 
     try {
       draft.images = await fitAttachedImages(draft.images);
     } catch (e) {
-      restoreUploadDraft(draft, state, session);
+      restoreDraft(draft, state, session);
       if (currentMentions() === state) MN.error(String(e));
       return null;
     }
@@ -133,8 +134,9 @@ function backInField(q: Draft, sep = "\n") {
   input?.focus();
 }
 
-function restoreUploadDraft(draft: Draft, state: MentionState, session: OpenAgent | null) {
-  if (currentMentions() === state && S.view === "agent" && agentMessage.current?.isConnected) {
+function restoreDraft(draft: Draft, state: MentionState, session: OpenAgent | null) {
+  const target = session ? { ...session, id: session.session } : null;
+  if ((!target || sameSession(AG.open, target)) && currentMentions() === state && S.view === "agent" && agentMessage.current?.isConnected) {
     AG.attError = state.error;
     backInField(draft);
     return;
@@ -142,7 +144,7 @@ function restoreUploadDraft(draft: Draft, state: MentionState, session: OpenAgen
   state.paths = [...draft.paths, ...state.paths.filter(path => !draft.paths.includes(path))];
   for (const { path, file } of draft.files ?? []) state.files.set(path, file);
   setMentionImages(state, [...draft.images, ...mentionImages(state)]);
-  if (session) prependDraft(conversationKey({ ...session, id: session.session }), draft.typed);
+  if (target && draft.typed) prependDraft(conversationKey(target), draft.typed);
 }
 
 async function sendBackground(session: OpenAgent, draft: Waiting, state: MentionState, ended: boolean) {
@@ -157,11 +159,11 @@ async function sendBackground(session: OpenAgent, draft: Waiting, state: Mention
     const error = await sendOnce(target, { steer: outgoing(draft.text, draft.images) }, null);
     if (error && error.kind !== "waiting" && error.kind !== "timeout") {
       state.error = error.message;
-      restoreUploadDraft(draft, state, session);
+      restoreDraft(draft, state, session);
     }
   } catch (error) {
     state.error = sendError(error).message;
-    restoreUploadDraft(draft, state, session);
+    restoreDraft(draft, state, session);
   }
 }
 
@@ -244,24 +246,74 @@ export function interruptAgent() {
   return true;
 }
 
-/// Stop all on the open session: the turn, its subagents, background commands and the agents
-/// it started. The node drops the steers it holds, so those not yet delivered go back in the field.
-export async function stopAllWork(target: { machine_id: string; agent: string; id: string }) {
-  const s = AG.page?.session, o = AG.open;
-  if (!o || !sameSession(o, target) || !s) return;
-  // What waits on this device comes back too, after what the node held,
-  // taken out in one step so none of it starts going meanwhile.
-  const kept = await drainOutbox(o);
-  if (AG.open !== o) return;
-  const unsent: Draft[] = [...AG.queue.filter(q => q.state !== "delivered"), ...kept];
-  AG.queue.splice(0, AG.queue.length);
-  // Each goes in front of what the field holds: the newest first, so the oldest leads.
-  for (const q of unsent.reverse()) backInField(q);
-  if (turnRuns()) AG.stopping = { id: s.id, turns: AG.page?.turns ?? 0 };
-  drawQueue();
-  redrawAgentHints();
-  drawAgentBody();
-  await steerAgent({ stop_all: null });
+type StopAllPhase = { kind: "draining" } | { kind: "stopping"; drafts: Draft[] };
+const stoppingSessions = new Map<string, StopAllPhase>();
+
+/// Stops the session and its side work, returning the pending messages to its draft.
+export async function stopAllWork(target: Pick<AgentRow, "machine_id" | "agent" | "id">) {
+  const key = conversationKey(target), o = openOf(target);
+  if (stoppingSessions.has(key)) return;
+
+  const showing = () => S.view === "agent" && sameSession(AG.open, target);
+  const queueAtStart = showing() ? AG.queue : null;
+  const mentions = showing() ? currentMentions() : mentionsOf(target);
+  stoppingSessions.set(key, { kind: "draining" });
+  let stoppedSteers: Draft[] = [];
+
+  try {
+    const drafts = await drainOutbox(o);
+    stoppingSessions.set(key, { kind: "stopping", drafts });
+
+    const queue = showing() ? AG.queue : queueAtStart;
+    const waiting = queue?.filter(q => q.state !== "delivered");
+    const held = waiting ? [] : heldSteers(o);
+    const stopping = showing() && turnRuns() ? { id: target.id, turns: AG.page?.turns ?? 0 } : null;
+
+    if (stopping) {
+      AG.stopping = stopping;
+      drawQueue();
+      redrawAgentHints();
+      drawAgentBody();
+    }
+
+    const failed = await sendOnce(o, { stop_all: null }, null);
+    if (!failed) {
+      clearHeldSteers(o);
+
+      if (queue && waiting) {
+        stoppedSteers = waiting.filter(q => q.state !== "delivered");
+        for (const q of waiting) {
+          const at = queue.indexOf(q);
+          if (at >= 0) queue.splice(at, 1);
+        }
+      } else {
+        stoppedSteers = held.map(typed => ({ typed, paths: [], images: [] }));
+      }
+    }
+
+    if (showing()) {
+      if (failed && AG.stopping === stopping) AG.stopping = null;
+      AG.note = failed?.message ?? "";
+    } else if (failed) {
+      throw new Error(failed.message);
+    }
+  } finally {
+    const phase = stoppingSessions.get(key);
+    stoppingSessions.delete(key);
+
+    if (phase?.kind === "stopping") {
+      const state = showing() ? currentMentions() : mentions;
+      // Prepend newest first so the field keeps the original order.
+      for (const q of [...stoppedSteers, ...phase.drafts].reverse()) restoreDraft(q, state, o);
+    }
+
+    if (showing()) {
+      drawQueue();
+      redrawAgentHints();
+      drawAgentBody();
+      resumeAgent();
+    }
+  }
 }
 
 /// Binds an approval action to the question and options shown to the user,
@@ -555,7 +607,7 @@ async function takeOutbox(id: number): Promise<Draft | null> {
 }
 
 /// Takes every message waiting on this device for `o` out, oldest first.
-export async function drainOutbox(o: OpenAgent): Promise<Draft[]> {
+async function drainOutbox(o: OpenAgent): Promise<Draft[]> {
   try {
     const taken = await invoke<Taken[] | null>("outbox_drain", where(o));
     return (taken ?? []).map(draftOf);

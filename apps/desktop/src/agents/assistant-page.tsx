@@ -42,7 +42,7 @@ let lastRow: AgentRow | null = null;
 export function openAssistantPage(open: AssistantOpen) {
   listing = open === "chats";
   return import("./agentnew.tsx").then(({ renderAgentNew }) => {
-    renderAgentNew("", isMobile() ? ASSISTANT_CHATS : { view: "home", arg: null }, null, true);
+    renderAgentNew("", isMobile() && !listing ? ASSISTANT_CHATS : { view: "home", arg: null }, null, true);
     syncAssistantPage();
   });
 }
@@ -115,9 +115,8 @@ export function AssistantList() {
 
   if (!on) return <div className="pj-list asst-list" hidden />;
   const listed = sessions.filter(sessionVisible);
-  // A chat rises with its newest thread.
-  const threadsOf = threadsByChat(listed), activity = (session: AgentSession) => chatActivity(session, threadsOf.get(session) ?? []);
-  const { running, ended } = assistantRows(listed, session => activity(session).last);
+  const threadsOf = threadsByChat(listed);
+  const { running, ended } = assistantRows(listed);
   const item = (session: AgentSession, title: string, lead: ReactNode, sub: ReactNode, right: ReactNode = null) => <Row key={runningKey(session)} picked={chat} nav={false} openTile={() => {}} item={{
     key: runningKey(session), lead, title, sub,
     right: right ?? (session.status === "ended" ? formatAgo(session.last_activity, "since") : <RunningStatus row={{ kind: "agent", ...session }} />),
@@ -135,7 +134,7 @@ export function AssistantList() {
     const fold = () => setUnfolded(open => new Set(open.has(key) ? [...open].filter(one => one !== key) : [...open, key]));
 
     // What its threads do shows on the chat: one asking, and how many work.
-    const { asking, working } = activity(session);
+    const { asking, working } = chatActivity(threads);
     const sub = working ? `${session.machine_name} · ${working} ${working === 1 ? "thread" : "threads"} working` : session.machine_name;
     const right = asking && session.status !== "asking" ? <span className="chip wait">{asking === 1 ? "thread needs you" : `${asking} threads need you`}</span> : null;
 

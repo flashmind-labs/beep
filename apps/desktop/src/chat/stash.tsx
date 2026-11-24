@@ -6,6 +6,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { hasStashMessage, type StashEntry, type StashMessage } from "./stash-state.ts";
 
 interface StashBinding {
+  canUse?(): boolean;
   project(): string | null;
   hasAttachments(): boolean;
   capture(): Promise<StashMessage>;
@@ -156,7 +157,7 @@ function outside(target: EventTarget | null) {
 
 async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: string) {
   const binding = bindings.get(field), project = binding?.project();
-  if (!binding || busy) return;
+  if (!binding || busy || binding.canUse?.() === false) return;
   if (!project) { note(field, "Choose a project before using the stash"); return; }
   const live = () => field.isConnected && binding.project() === project && bindings.get(field) === binding;
   const shown = opened() ? panelOpened : null;

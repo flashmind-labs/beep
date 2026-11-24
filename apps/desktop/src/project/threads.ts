@@ -12,6 +12,7 @@ import { agentLabel } from "./projects-state.ts";
 import type { TaskSession } from "./projectbar.ts";
 import type { SessionState } from "./composer.tsx";
 import type { ProjectRef } from "./localid.ts";
+import { sameLogin } from "./team-state.ts";
 
 /// An open issue (IssueRow).
 export interface IssueRow {
@@ -25,7 +26,15 @@ export interface IssueRow {
   url: string;
   /// A pull request is linked to it, to close it. Missing from a list kept by an older app.
   linked_pr?: boolean;
+  /// The forge logins it is assigned to.
+  assignees: string[];
 }
+
+/// An issue as the desktop sends it or an older app kept it, maybe without its assignees.
+type ReadIssue = Omit<IssueRow, "assignees"> & { assignees?: string[] };
+
+/// `issues` with their assignees, none where a list kept by an older app has no field for them.
+const withAssignees = (issues: readonly ReadIssue[]): IssueRow[] => issues.map(issue => ({ ...issue, assignees: issue.assignees ?? [] }));
 
 /// An open pull request of the project's, anyone's (PullRequestRow).
 export interface PullRequestRow {
@@ -98,7 +107,7 @@ export function issueBranch(number: number, title: string) {
 interface ListsRow {
   prs: PullRequestRow[];
   prs_error: string | null;
-  issues: IssueRow[];
+  issues: ReadIssue[];
   issues_error: string | null;
 }
 
@@ -123,6 +132,9 @@ export interface RepoActs {
   openSession: (s: TaskSession) => void;
   /// The session working on the issue, which its button opens.
   issueSession: (issue: IssueRow) => SessionState | null;
+  /// The team's logins an issue can be assigned to; none without a team.
+  assignees: () => readonly string[];
+  assign: (issue: IssueRow, login: string) => Promise<void>;
 }
 
 /// What the window hands `makeThreads`.
@@ -136,7 +148,7 @@ export interface ThreadDeps {
 
 /// A project's lists as the page cache keeps them.
 export interface KeptThreads {
-  issues: IssueRow[] | null;
+  issues: ReadIssue[] | null;
   prs: PullRequestRow[] | null;
 }
 
@@ -163,7 +175,7 @@ export function makeThreads(deps: ThreadDeps) {
 
     if (!s) {
       const k = kept.get(id);
-      s = { issues: k?.issues, prs: k?.prs, issuesError: "", prsError: "", busy: new Set(), failed: new Map(), buttons: new Map() };
+      s = { issues: k === undefined ? undefined : k.issues && withAssignees(k.issues), prs: k?.prs, issuesError: "", prsError: "", busy: new Set(), failed: new Map(), buttons: new Map() };
       all.set(id, s);
     }
 
@@ -197,7 +209,7 @@ export function makeThreads(deps: ThreadDeps) {
       // Why the host could not be read shows in each section, in place of an empty list.
       s.issuesError = lists?.issues_error ?? "";
       s.prsError = lists?.prs_error ?? "";
-      s.issues = lists && !lists.issues_error ? lists.issues : s.issues ?? [];
+      s.issues = lists && !lists.issues_error ? withAssignees(lists.issues) : s.issues ?? [];
       s.prs = lists && !lists.prs_error ? lists.prs : s.prs ?? null;
       // Kept once the host answered; a failed read keeps the last good lists.
       if (lists && !lists.issues_error && !lists.prs_error) kept.put(id, { issues: s.issues, prs: s.prs });
@@ -266,7 +278,7 @@ export function makeThreads(deps: ThreadDeps) {
     const key = `w${i.number}`;
     const button = buttonOf(s, key, () => ctx.button((pick, machine) => void act(project.project_id, key, () => ctx.startIssue(s.issues?.find(x => x.number === i.number) ?? i, pick, machine))));
     const state: AgentState = ctx.issueSession(i) ?? (s.busy.has(key) ? { kind: "starting" } : { kind: "ready", label: "Work on it", hint: "Pick a model: an agent starts on a new branch for this issue" });
-    return actsEl(s, [key], [{ kind: "agent", key: "work", button, state }, discussionButton(ctx, { ...i, kind: "issue" })]);
+    return actsEl(s, [key, `g${i.number}`], [{ kind: "agent", key: "work", button, state }, discussionButton(ctx, { ...i, kind: "issue" })]);
   }
 
   /// Fills the agent composer with a prompt about the thread.
@@ -300,10 +312,13 @@ export function makeThreads(deps: ThreadDeps) {
   }
 
   /// An issue row's right-click menu: what its buttons do.
-  function issueMenu(e: MouseEvent, ctx: RepoActs, i: IssueRow) {
+  function issueMenu(e: MouseEvent, project: ProjectRef, ctx: RepoActs, i: IssueRow) {
+    const logins = ctx.assignees().filter(login => !i.assignees.some(assignee => sameLogin(assignee, login)));
+    const assign: MenuItem[] = logins.length ? [{ kind: "section", label: "Assign to", items: logins.map(login => ({ label: login, on: () => void act(project.project_id, `g${i.number}`, () => ctx.assign(i, login)) })) }] : [];
     openMenu(e, `#${i.number} ${i.title}`, [
       { label: "Open on forge", on: () => openUrl(i.url) },
       { label: "Work on it", on: () => ctx.workOn(i) },
+      ...assign,
     ]);
   }
 

@@ -4,7 +4,6 @@
 //! of a chat has a folder of its own in place of a checkout: what it holds
 //! comes over, and a session that had ended is kept ended.
 
-use beep_proto::SessionId;
 use super::{
     Env, Harness,
     dial::with_stream,
@@ -18,6 +17,7 @@ use super::{
 };
 use crate::agents::{SavedSession, conversation, found::Agent};
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
 use beep_proto::node::{agent::MovePhase, mesh_state::SessionMove};
 use std::{
     path::{Component, Path, PathBuf},
@@ -50,29 +50,34 @@ pub(super) async fn run(env: &Env, record: &SessionMove, tracker: &Tracker) -> R
     }
 
     let result = move_here(env, record, tracker).await;
+    if !tracker.settle() {
+        // The follower claimed cancellation and owns the take-back.
+        return Ok(());
+    }
+
     let (phase, reason) = match &result {
         Ok(()) => (Phase::Done, None),
         Err(e) => {
-            take_back(env, &record.id).await;
+            take_back(env, &record.id, record.at).await;
             (Phase::Failed, Some(format!("{e:#}")))
         }
     };
-    show_end(tracker, &phase, reason.clone());
-    env.state.clear(&record.id, false);
-    env.state
-        .save(&record.id, &Saved::over(record.at, phase, reason))
-        .context("keeping how the move ended")?;
+    let saved = env
+        .state
+        .save(&record.id, &Saved::over(record.at, phase, reason.clone()));
+    env.state.clear_copy(&record.id);
+    show_end(tracker, &phase, reason);
+    saved.context("keeping how the move ended")?;
     result
 }
 
 fn show_end(tracker: &Tracker, phase: &Phase, reason: Option<String>) {
-    show(tracker, |progress| match phase {
-        Phase::Done => progress.phase = MovePhase::Done,
-        _ => {
-            progress.phase = MovePhase::Failed;
-            progress.reason = reason;
-        }
-    });
+    let phase = if *phase == Phase::Done {
+        MovePhase::Done
+    } else {
+        MovePhase::Failed
+    };
+    tracker.finish(phase, reason);
 }
 
 async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result<()> {
@@ -115,10 +120,14 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
     );
     let copy = env.state.copy(&record.id);
     let copied = conversation(env, record, tracker, &copy).await?;
-    let (saved, moved) = match chat {
+    let (saved, moved, archive) = match chat {
         Some(_) => {
-            log::info!("session {}: the conversation is here, bringing its files", record.id);
-            (chat_files(env, record, tracker, &folders.new).await?, Vec::new())
+            log::info!(
+                "session {}: the conversation is here, bringing its files",
+                record.id
+            );
+            let (saved, archive) = chat_files(env, record, tracker).await?;
+            (saved, Vec::new(), Some(archive))
         }
         None => {
             log::info!(
@@ -133,11 +142,21 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
                 .map(|tree| roots.new.join(&tree.path).to_string_lossy().into_owned())
                 .collect();
             worktrees(env, record, tracker, &roots.new, checkout).await?;
-            (saved, moved)
+            (saved, moved, None)
         }
     };
+    anyhow::ensure!(tracker.resume(), "the move was cancelled");
+    if let Some(archive) = archive {
+        let folder = folders.new.clone();
+        spawn_blocking(move || {
+            let archive = std::fs::File::open(archive)?;
+            files::unpack(archive, &folder)
+        })
+        .await?
+        .context("unpacking the chat's files")?;
+    }
+
     log::info!("session {}: its files are here, resuming", record.id);
-    show(tracker, |progress| progress.phase = MovePhase::Resuming);
     let arrival = Arrival {
         id: &record.id,
         mode: record.mode.clone(),
@@ -159,7 +178,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         return Ok(());
     }
 
-    resume(env, &arrival, &kind, &folders)
+    resume(env, &arrival, &kind, &folders).await
 }
 
 /// The session's folder in the source's checkout and in this machine's, and
@@ -250,7 +269,7 @@ async fn conversation(
                     reached = Some(true);
                 }
                 // The source let a read through: the session can move.
-                env.agents.moves.take(&record.id);
+                tracker.take();
                 show(tracker, |progress| {
                     progress.source_away = false;
                     progress.copied = pulled.size;
@@ -317,7 +336,10 @@ async fn checkouts(
             Ok(theirs) => theirs,
             Err(e) if e.is::<Refused>() => return Err(e),
             Err(e) => {
-                log::debug!("session {}: the source's checkout not read: {e:#}", record.id);
+                log::debug!(
+                    "session {}: the source's checkout not read: {e:#}",
+                    record.id
+                );
                 show(tracker, |progress| progress.source_away = true);
                 sleep(wait).await;
                 wait = (wait * 2).min(LAST_WAIT);
@@ -359,7 +381,10 @@ fn short(head: Option<&str>) -> String {
 }
 
 async fn ask_checkout(env: &Env, record: &SessionMove) -> Result<Checkout> {
-    with_stream(env, record.from, |tx, rx| read::checkout(tx, rx, &record.id)).await
+    with_stream(env, record.from, |tx, rx| {
+        read::checkout(tx, rx, &record.id)
+    })
+    .await
 }
 
 /// Brings each of the session's worktrees from the source and makes it
@@ -386,9 +411,10 @@ async fn worktrees(
             bail!("the worktree {} is not inside the project", tree.path);
         }
 
-        let name = relative
-            .file_name()
-            .map_or_else(|| tree.path.clone(), |name| name.to_string_lossy().into_owned());
+        let name = relative.file_name().map_or_else(
+            || tree.path.clone(),
+            |name| name.to_string_lossy().into_owned(),
+        );
         show(tracker, |progress| {
             progress.worktree = Some(name.clone());
             progress.worktree_at = at;
@@ -434,7 +460,13 @@ async fn worktrees(
 
             if let Err(e) = keep_placed(&state, &id, at, tree.clone()) {
                 // Not noted, so taken back now: nothing else would.
-                let PlacedTree { main, path, placed, applied, moved } = &tree;
+                let PlacedTree {
+                    main,
+                    path,
+                    placed,
+                    applied,
+                    moved,
+                } = &tree;
                 let _ = worktree::take_back(main, path, placed, applied, moved.as_ref());
                 return Err(e);
             }
@@ -464,10 +496,15 @@ fn keep_placed(state: &Folder, id: &SessionId, at: u64, placed: PlacedTree) -> R
 
 /// Takes back the worktrees placed for the move of session `id`, which did
 /// not happen. One that changed since stays, and is logged.
-pub(super) async fn take_back(env: &Env, id: &SessionId) {
+pub(super) async fn take_back(env: &Env, id: &SessionId, at: u64) {
     // A worktree being placed is noted first.
     let _placing = env.agents.moves.placing.lock().await;
-    let placed = env.state.load(id).map(|saved| saved.placed).unwrap_or_default();
+    let placed = env
+        .state
+        .load(id)
+        .filter(|saved| saved.at == at)
+        .map(|saved| saved.placed)
+        .unwrap_or_default();
 
     for tree in placed {
         let shown = tree.path.display().to_string();
@@ -485,19 +522,19 @@ pub(super) async fn take_back(env: &Env, id: &SessionId) {
     }
 }
 
-/// What the source saved of a chat's session, with what the session's
-/// folder holds there unpacked into `folder` here, made if it is missing.
+/// What the source saved of a chat's session, and the downloaded file archive.
 async fn chat_files(
     env: &Env,
     record: &SessionMove,
     tracker: &Tracker,
-    folder: &Path,
-) -> Result<Option<SavedSession>> {
+) -> Result<(Option<SavedSession>, PathBuf)> {
     show(tracker, |progress| progress.phase = MovePhase::Files);
     let archive = env.state.copy(&record.id).with_file_name("files.tar");
     let saved = from_source(record, tracker, "its files", || async {
         let checkout = ask_checkout(env, record).await?;
-        show(tracker, |progress| (progress.files_copied, progress.files_total) = (0, checkout.files));
+        show(tracker, |progress| {
+            (progress.files_copied, progress.files_total) = (0, checkout.files)
+        });
         // Chunks come hundreds a second: each percent, or a quarter second, is told.
         let (step, mut told) = ((checkout.files / 100).max(1), (Instant::now(), 0));
         let came = move |held: u64| {
@@ -506,22 +543,14 @@ async fn chat_files(
                 show(tracker, |progress| progress.files_copied = held);
             }
         };
-        with_stream(env, record.from, |tx, rx| read::files(tx, rx, &record.id, &archive, came))
-            .await
-            .map(|()| checkout.session)
+        with_stream(env, record.from, |tx, rx| {
+            read::files(tx, rx, &record.id, &archive, came)
+        })
+        .await
+        .map(|()| checkout.session)
     })
     .await?;
-    let folder = folder.to_owned();
-    spawn_blocking(move || {
-        let unpacked = std::fs::File::open(&archive)
-            .map_err(anyhow::Error::from)
-            .and_then(|archive| files::unpack(archive, &folder));
-        let _ = std::fs::remove_file(&archive);
-        unpacked
-    })
-    .await?
-    .context("unpacking the chat's files")?;
-    Ok(saved)
+    Ok((saved, archive))
 }
 
 /// One worktree from the source.
@@ -555,7 +584,10 @@ async fn from_source<T, F: Future<Output = Result<T>>>(
             }
             Err(e) if e.is::<Refused>() => return Err(e),
             Err(e) => {
-                log::warn!("session {}: {what} not read yet, asking again in {wait:?}: {e:#}", record.id);
+                log::warn!(
+                    "session {}: {what} not read yet, asking again in {wait:?}: {e:#}",
+                    record.id
+                );
                 show(tracker, |progress| progress.source_away = true);
                 sleep(wait).await;
                 wait = (wait * 2).min(LAST_WAIT);

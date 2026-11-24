@@ -6,6 +6,7 @@ use super::{
     AgentKind,
     acp::Prompt,
     alerts::AlertHub,
+    checkouts::Checkouts,
     compaction::{Compactor, Policy, Route},
     family::Mark,
     images::Images,
@@ -31,7 +32,7 @@ use beep_proto::watched;
 use futures::stream::FuturesUnordered;
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     path::Path,
     sync::{
         Arc, Mutex,
@@ -39,12 +40,13 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::{mpsc, oneshot, watch};
+use tokio::sync::{oneshot, watch};
 use tokio_util::task::AbortOnDropHandle;
 
 mod actor;
 mod cargo;
 mod orders;
+mod pi;
 mod turns;
 mod v2;
 
@@ -77,7 +79,7 @@ const STOP_WITHIN: Duration = Duration::from_secs(10);
 const MAX_RUNNING_TOOLS: usize = 256;
 
 /// What a stream asks of a session.
-#[derive(Debug)]
+#[derive(Debug, strum::IntoStaticStr)]
 pub(super) enum Command {
     RecoverCodexChildren(Vec<crate::agents::SubagentRun>),
     Prompt(Prompt),
@@ -145,6 +147,12 @@ pub(super) enum Command {
     /// Its parent ended for good, so it closes: unless it is moving, when
     /// its parent may have left first for the machine it goes to.
     ParentGone,
+    /// Notes what it now saw of relatives, by each one's `id` here.
+    Saw(Vec<(SessionId, Mark)>),
+    /// Sets whether the user's message began the turn that runs or ran last.
+    UserTurn(bool),
+    /// Gives that and clears it.
+    TakeUserTurn(oneshot::Sender<bool>),
 }
 
 /// A question the node asks in a session.
@@ -169,11 +177,17 @@ struct Order {
     done: oneshot::Sender<Result<(), String>>,
 }
 
+impl From<&Order> for &'static str {
+    fn from(order: &Order) -> Self {
+        (&order.command).into()
+    }
+}
+
 pub(super) struct Session {
     /// Private handle for the process and its MCP connection, never a public session id.
     pub(super) id: SessionId,
     pub(super) agent: String,
-    orders: mpsc::Sender<Order>,
+    orders: crate::actor::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
     /// Where the retained live replay begins in Claude's saved transcript.
     pub(super) history: Option<crate::AsyncMutex<Option<super::running::History>>>,
@@ -193,12 +207,6 @@ pub(super) struct Session {
     /// Messages from agents that are not its parent since the user last
     /// wrote, so two agents cannot keep each other talking.
     peer_messages: AtomicU32,
-    /// What it last saw of each relative in its chat (`family::changes`),
-    /// by the relative's `id` here. Not kept over a restart.
-    seen: Mutex<HashMap<SessionId, Mark>>,
-    /// The user's message began the turn that runs or ran last, so its end
-    /// is no news to its parent (`family::notes`).
-    pub(super) user_turn: Arc<AtomicBool>,
 }
 
 /// The most messages a session takes from other agents between two of the
@@ -248,15 +256,17 @@ pub(super) struct Start<'a> {
     /// Beep's word to the agent, kept out of the transcript: in its system
     /// prompt when it takes one, else ahead of the first prompt.
     pub(super) brief: Option<Cow<'static, str>>,
-    /// Saved user instructions, delivered only through a system prompt.
+    /// Saved user instructions, delivered through a system prompt when supported.
     pub(super) instructions: Option<String>,
     /// Beep's checkout rule for the whole session.
     pub(super) rule: Option<String>,
     /// The skills Beep keeps in its own folder, listed for the agent.
     pub(super) skills: Option<String>,
     /// The Beep MCP server for the agent, passed in `session/new` and
-    /// `session/load`. With it the brief also says what its tools are.
+    /// `session/load`. With it the standing prompt also frames Beep and its tools.
     pub(super) mcp: Option<McpServer>,
+    /// Runtime context woven into Beep's standing prompt when `mcp` is set.
+    pub(super) context: super::brief::Context,
     /// The home assistant, whose standing text adds the assistant's brief.
     pub(super) assistant: bool,
     /// The named account it runs signed in as; `None` for the default one.
@@ -269,13 +279,15 @@ pub(super) struct Start<'a> {
     pub(super) usage: Arc<UsageHub>,
     /// Where what the user would want to hear about goes.
     pub(super) alerts: Arc<AlertHub>,
+    /// What git says of the folder it works in.
+    pub(super) checkouts: Arc<Checkouts>,
     /// Set once the node is stopping: an agent that ends then ended with
     /// the node, whatever its exit says.
     pub(super) stopping: Arc<AtomicBool>,
 }
 
 /// Closes a child session once its parent ends for good.
-async fn follow_parent(mut parent: watch::Receiver<Live>, orders: mpsc::Sender<Order>) {
+async fn follow_parent(mut parent: watch::Receiver<Live>, orders: crate::actor::Sender<Order>) {
     if super::family::parent_gone(&mut parent).await {
         let (done, _) = oneshot::channel();
         // Refused when the child ended first.
@@ -318,12 +330,14 @@ impl Session {
             rule,
             skills,
             mcp,
+            context,
             assistant,
             account,
             persona,
             images,
             usage,
             alerts,
+            checkouts,
             stopping,
         } = start;
         let protocol = super::acp::Protocol::from_env(&kind.env)?;
@@ -358,16 +372,19 @@ impl Session {
         // An off switch the node inherited, such as `DISABLE_AUTO_COMPACT`
         // from the shell that started it, would beat the setting.
         let cleared = native_policy.and_then(|policy| policy.cleared(route, &kind.env));
+        let image_titling = resume.is_none() && title.is_none() && !named;
+        let environment = mcp.is_some().then(|| super::brief::environment(&context));
+        let chat = mcp.is_some().then(|| super::brief::chat(image_titling));
         let own_folder = (assistant && mcp.is_some())
             .then(dirs::home_dir)
             .flatten()
             .and_then(|home| super::conversation::brief(&home, cwd));
         let mut standing = [
+            environment.as_deref(),
             rule.as_deref(),
-            mcp.is_some().then_some(super::mcp::BRIEF),
-            (assistant && mcp.is_some()).then_some(super::mcp::ASSISTANT),
+            (assistant && mcp.is_some()).then_some(super::brief::ASSISTANT),
             own_folder,
-            mcp.is_some().then_some(super::mcp::CHAT),
+            chat.as_deref(),
             skills.as_deref(),
         ]
         .into_iter()
@@ -438,6 +455,10 @@ impl Session {
         }
 
         let in_wsl = super::kinds::in_wsl(kind);
+        let pi_files = pi::instructions(kind, &mut process, cwd, &mut instructions)?;
+        if instructions.is_some() {
+            standing = actor::joined(instructions, standing.as_deref());
+        }
 
         // A WSL agent cannot use a Windows path as its Cargo target.
         if !in_wsl && let Some(target) = cargo::target_dir(cwd, &kind.env) {
@@ -487,11 +508,12 @@ impl Session {
         // Known from the start, so a second takeover of it is refused.
         first.agent_session = resume.clone();
         let (live_tx, live) = watch::channel(first);
-        let (orders, orders_rx) = mpsc::channel(ORDERS);
+        let (orders, orders_rx) = crate::actor::channel("session", ORDERS);
         let history = (kind.name == "claude").then(Default::default);
         let actor = Actor {
             live: live_tx,
             alerts,
+            checkouts,
             node_stopping: stopping,
             moving: false,
             agent: kind.name.clone(),
@@ -522,7 +544,6 @@ impl Session {
             stop_within,
             running: HashSet::new(),
             brief,
-            instructions,
             standing,
             mcp_servers: mcp.into_iter().collect(),
             subagents: !assistant,
@@ -548,7 +569,11 @@ impl Session {
         let guard = follows.map(|parent| {
             AbortOnDropHandle::new(tokio::spawn(follow_parent(parent, orders.clone())))
         });
-        let task = tokio::spawn(actor.run(agent, orders_rx, processes.clone()));
+        let actor_processes = processes.clone();
+        let task = tokio::spawn(async move {
+            let _pi_files = pi_files;
+            actor.run(agent, orders_rx, actor_processes).await;
+        });
         Ok(Self {
             id,
             agent: kind.name.clone(),
@@ -563,8 +588,6 @@ impl Session {
             _task: AbortOnDropHandle::new(task),
             guards: Mutex::new(guard.into_iter().collect()),
             peer_messages: AtomicU32::new(0),
-            seen: Mutex::default(),
-            user_turn: Arc::default(),
         })
     }
 
@@ -596,15 +619,49 @@ impl Session {
             })
     }
 
-    /// Notes what it now saw of the relative `id`, and gives what it saw
-    /// of it before.
-    pub(super) fn see(&self, id: &SessionId, mark: Mark) -> Option<Mark> {
-        crate::lock(&self.seen).insert(id.clone(), mark)
+    /// Notes what it now saw of relatives, once the session's task has
+    /// taken it.
+    pub(super) async fn see(&self, marks: Vec<(SessionId, Mark)>) {
+        // Refused when the session ended, which keeps no more of it.
+        let _ = self.order(Command::Saw(marks)).await;
+    }
+
+    /// `see` for a caller that cannot wait. A full queue drops the notes, so
+    /// the relatives' news is told once more.
+    pub(super) fn see_soon(&self, marks: Vec<(SessionId, Mark)>) {
+        let (done, _) = oneshot::channel();
+        let _ = self.orders.try_send(Order {
+            command: Command::Saw(marks),
+            done,
+        });
     }
 
     /// What it last saw of the relative `id`.
     pub(super) fn saw(&self, id: &SessionId) -> Option<Mark> {
-        crate::lock(&self.seen).get(id).copied()
+        watched::read(&self.live, |live| live.seen.get(id).copied())
+    }
+
+    /// Marks whether the user's message began the turn that runs or ran
+    /// last, once the session's task has taken it.
+    pub(super) async fn set_user_turn(&self, user: bool) {
+        // Refused when the session ended, whose turns no longer end.
+        let _ = self.order(Command::UserTurn(user)).await;
+    }
+
+    /// Whether the user's message began the turn that runs or ran last.
+    pub(super) fn user_turn(&self) -> bool {
+        watched::read(&self.live, |live| live.user_turn)
+    }
+
+    /// Whether it did, and clears it for the next turn. A session that ended
+    /// takes no order: what it last published answers.
+    pub(super) async fn take_user_turn(&self) -> bool {
+        let (reply, taken) = oneshot::channel();
+
+        match self.order(Command::TakeUserTurn(reply)).await {
+            Ok(()) => taken.await.unwrap_or_else(|_| self.user_turn()),
+            Err(_) => self.user_turn(),
+        }
     }
 
     /// The user wrote: other agents may message the session again.
@@ -613,13 +670,28 @@ impl Session {
     }
 
     pub(super) fn info(&self) -> SessionInfo {
-        let mut info = watched::read(&self.live, |live| live.info.clone());
+        self.refiled(watched::read(&self.live, |live| live.info.clone()))
+    }
+
+    /// `info`, read from the session's state already, as its list shows it.
+    pub(super) fn listed(&self, info: SessionInfo) -> SessionInfo {
+        SessionInfo {
+            reviewer: self.reviewer,
+            ..self.refiled(info)
+        }
+    }
+
+    fn refiled(&self, mut info: SessionInfo) -> SessionInfo {
         if let Some(folder) = crate::lock(&self.moved_cwd).as_ref() {
             info.cwd.clone_from(folder);
         }
+
         info
     }
 
+    /// Shows the folder its conversation was refiled in. Only a closed
+    /// session is refiled (`relocate_session`), whose task has ended and
+    /// can take no order, so the handle keeps this one.
     pub(super) fn moved_to(&self, folder: &str) {
         *crate::lock(&self.moved_cwd) = Some(folder.to_owned());
     }

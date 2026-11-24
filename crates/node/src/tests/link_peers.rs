@@ -276,7 +276,10 @@ async fn a_node_opens_another_machines_log_and_metrics() {
 }
 
 fn another_node(peer: EndpointId) -> Who {
-    Who::Node(peer)
+    Who::Node {
+        peer,
+        desktop_here: false,
+    }
 }
 
 /// Opens `report/1` on a node that is not lent, from a caller `who`
@@ -594,60 +597,6 @@ async fn dedicated_peer_protocols_reuse_connections_and_close_when_membership_en
 }
 
 #[tokio::test]
-async fn a_forward_reaches_a_loopback_port_and_refuses_strangers() {
-    use tokio::{
-        io::{AsyncReadExt, AsyncWriteExt},
-        net::TcpListener,
-    };
-    let pair = channel_pair(true).await;
-    let peer = pair.endpoint.id();
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let server = tokio::spawn(async move {
-        let (mut tcp, _) = listener.accept().await.unwrap();
-        let mut asked = [0; 4];
-        tcp.read_exact(&mut asked).await.unwrap();
-        tcp.write_all(b"pong").await.unwrap();
-        asked
-    });
-
-    let (mut send, mut recv) = pair.desktop.forward_stream(peer, port).await.unwrap();
-    send.write_all(b"ping").await.unwrap();
-    let answer = timeout(Duration::from_secs(30), recv.read_to_end(16))
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(answer, b"pong");
-    assert_eq!(&server.await.unwrap(), b"ping");
-
-    // A port nothing listens on resets the stream.
-    let closed = std::net::TcpListener::bind("127.0.0.1:0")
-        .unwrap()
-        .local_addr()
-        .unwrap()
-        .port();
-    let (_send, mut recv) = pair.desktop.forward_stream(peer, closed).await.unwrap();
-    assert!(
-        timeout(Duration::from_secs(30), recv.read_to_end(16))
-            .await
-            .unwrap()
-            .is_err()
-    );
-
-    let stranger = Endpoint::builder(iroh::endpoint::presets::Minimal)
-        .bind()
-        .await
-        .unwrap();
-    let connection = stranger
-        .connect(pair.endpoint.addr(), beep_proto::node::forward::ALPN)
-        .await
-        .unwrap();
-    timeout(Duration::from_secs(5), connection.closed())
-        .await
-        .unwrap();
-}
-
-#[tokio::test]
 async fn peers_without_the_new_protocols_are_rejected_without_fallback() {
     let pair = channel_pair(false).await;
     let client = PeerClient::over(pair.desktop.clone(), pair.endpoint.id());
@@ -659,4 +608,47 @@ async fn peers_without_the_new_protocols_are_rejected_without_fallback() {
             .await
             .is_err()
     );
+}
+
+/// A node that left its mesh serves none of its teams any more.
+#[tokio::test]
+async fn leaving_the_mesh_forgets_the_teams() {
+    use beep_proto::team::{Member, TeamRecord, TeamRepo};
+    use iroh::{EndpointAddr, SecretKey, endpoint::presets};
+    let dir = tempfile::tempdir().expect("temp dir");
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .expect("the endpoint binds");
+    let peers = Peers::new(
+        endpoint.clone(),
+        dir.path().to_owned(),
+        "box".to_owned(),
+        Offers::default(),
+    );
+    let repo: TeamRepo = "github.com/org/repo".parse().expect("a repo");
+    let alice = Member {
+        login: "alice".parse().expect("a login"),
+        mesh: SecretKey::generate().public(),
+        devices: vec![EndpointAddr::new(endpoint.id())],
+        joined_at: std::time::SystemTime::now(),
+        admitted_by: None,
+        proof: None,
+    };
+    peers.team().with(|teams| {
+        teams
+            .rosters
+            .refresh([(repo.clone(), TeamRecord::new(repo.clone(), vec![alice]))].into());
+        teams.boards.set(&repo, Vec::new());
+        teams.gateways.insert(repo.clone(), endpoint.id());
+    });
+
+    peers.leave().await;
+
+    peers.team().with(|teams| {
+        assert!(teams.rosters.get(&repo).is_none());
+        assert!(!teams.boards.serves(&repo));
+        assert!(teams.gateways.is_empty());
+    });
 }

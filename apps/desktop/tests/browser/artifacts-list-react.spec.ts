@@ -1,8 +1,13 @@
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
 test("artifact list updates retain focus and the selected preview frame", async ({ page }) => {
-  await openDesktop(page, true, { agent_artifact: { kind: "html", size: 30, src: "data:text/html,%3Cp%3EPreview%3C%2Fp%3E" } });
+  const paneScript = readFileSync(new URL("../../src-tauri/src/agents/preview-script.html", import.meta.url), "utf8");
+  const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>').toString("base64");
+  const html = paneScript + `<a href="data:image/svg+xml;base64,${svg}" download="graph.svg">Export SVG</a>`;
+  const src = `data:text/html,${encodeURIComponent(html)}`;
+  await openDesktop(page, true, { agent_artifact: { kind: "html", size: html.length, src }, agent_preview_export: "/home/user/Downloads/graph.svg" });
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
@@ -48,6 +53,15 @@ test("artifact list updates retain focus and the selected preview frame", async 
   await expect(frame).toBeVisible();
   await expect(frame).toHaveAttribute("data-identity", "kept");
   await expect(frame).toHaveAttribute("src", /data:text\/html/);
+  const exportLink = page.frameLocator(".agartframe").getByRole("link", { name: "Export SVG" });
+  await exportLink.evaluate(el => { el.textContent = "Export current graph"; });
+  await page.frameLocator(".agartframe").getByRole("link", { name: "Export current graph" }).click();
+  const exported = page.getByRole("tab", { name: /^graph.svg Close/ });
+  await expect(exported).toHaveAttribute("aria-selected", "true");
+  await expect(frame).toHaveAttribute("src", /data:text\/html/);
+  await exported.locator("[data-mclose]").click();
+  await expect(page.getByRole("tab", { name: /Artifacts/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.frameLocator(".agartframe").getByRole("link", { name: "Export current graph" })).toBeVisible();
   await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: async (value: string) => { Reflect.set(window, "artifactCopied", value); } } }));
   const copy = page.getByRole("button", { name: "Copy path", exact: true });
   await copy.evaluate(element => { element.dataset.identity = "kept"; });

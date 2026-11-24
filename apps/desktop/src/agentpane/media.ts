@@ -6,6 +6,7 @@
 // layout and dividers in media-layout.ts.
 import { readWindowPreference, writeWindowPreference, windowPreferenceKey } from "../ui/window-layout.ts";
 import { shownMessage } from "../agents/session-frame.tsx";
+import type { AgentSession } from "../agents/agents.ts";
 import { type SubagentRow } from "./subagents-view.tsx";
 import { readView, writeView, viewKey } from "./view-memory.ts";
 import { hasPreview } from "./html-preview-state.ts";
@@ -27,8 +28,8 @@ import { readError, loadText, startTerminal, load } from "./read.ts";
 import { togglePreview } from "./text-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { invoke } from "../ui/tauri.ts";
-import { draw, flipTab, noteTab, pickPhoneTab } from "./media-draw.ts";
-import { dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
+import { draw, flipTab, noteTab, pickPhoneTab, touchTab } from "./media-draw.ts";
+import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, paneModel, paneOf, place, setPaneModel, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { savedIn } from "../ui/platform.ts";
 import { confirmSheet } from "../ui/menu.tsx";
 
@@ -109,6 +110,8 @@ export interface MediaTab {
   viewHidden: boolean;
   /// What a save or copy said, shown in its footer.
   note: string | null;
+  /// Local copy of an HTML export, and the preview it came from.
+  exported?: { path: string; blob: Blob; source: { tab: string; url: string } };
   /// A video or audio tab's element, and where it stood when its view went.
   player: HTMLMediaElement | null;
   playerAt: number;
@@ -151,7 +154,7 @@ export interface MediaTab {
 }
 
 /// The session the pane belongs to.
-interface PaneSession {
+interface PaneSession extends Partial<Pick<AgentSession, "assistant" | "reviewer" | "parent">> {
   id: string;
   machine_id: string;
   machine_name: string;
@@ -191,6 +194,8 @@ export const P = {
   zoom: null as Dock | null,
   /// The wide layout's fold of the right pane while a narrow window keeps it folded.
   wideFolded: null as boolean | null,
+  /// The user opened a tab while Assistant's right pane was hidden for lack of content.
+  rightRequested: false,
   /// The session drew on a phone, which shows the conversation first.
   phoneShown: false,
 };
@@ -216,6 +221,7 @@ export function startPane(s: PaneSession) {
   P.moved.clear();
   P.zoom = null;
   P.wideFolded = null;
+  P.rightRequested = false;
   P.phoneShown = false;
   const el = shell();
   if (!el) return;
@@ -301,6 +307,17 @@ export function openPicture(url: string, name: string) {
   open({ id: url, kind: "image", name: baseName(name), path: null, url });
 }
 
+export function openPreviewExport(path: string, blob: Blob, source: { tab: string; url: string }) {
+  const name = baseName(path.replaceAll("\\", "/"));
+  const id = `export:${path}`;
+  if (P.tabs.some(tab => tab.id === id)) return focusTab(id);
+
+  const kind = blob.type === "application/pdf" ? "pdf" : "image";
+  const url = kind === "image" ? URL.createObjectURL(blob) : null;
+  P.moved.set(id, dockOf(source.tab));
+  open({ id, kind, name, path: null, url, size: blob.size, note: `Saved to ${savedIn(path)}`, exported: { path, blob, source } });
+}
+
 /// Opens the file at `path` (relative to the session's folder, absolute, or
 /// under `~/`) on the session's machine, when it is one the pane shows.
 export function openPath(path: string) {
@@ -319,7 +336,7 @@ function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Parti
     if (!tab.error) {
       if (tab.kind === "text") loadText(tab);
       else if (tab.kind === "term") startTerminal(tab);
-      else if (!tab.url) load(tab);
+      else if (!tab.url && !tab.exported) load(tab);
     }
   }
 
@@ -331,6 +348,7 @@ function open(t: Pick<MediaTab, "id" | "kind" | "name" | "path" | "url"> & Parti
 /// list steps aside for it; one hidden there leaves the wide layout's choice as it was.
 export function setFolded(d: Dock, folded: boolean) {
   P.layout.hidden[d] = folded;
+  if (d === "right" && folded) P.rightRequested = false;
   if (d === "right" && !folded && P.wideFolded !== null) P.wideFolded = false;
 }
 
@@ -531,15 +549,7 @@ export function closeTab(id: string) {
 
   if (tab.term) {
     if (tab.closed) return;
-    tab.closed = true;
-    const term = tab.term;
-    noteTab(tab, "Closing…");
-    killTerm(term).then(() => {
-      if (tab.term !== term) return;
-      tab.term = undefined;
-      closeTab(id);
-    }, e => {
-      tab.closed = false;
+    void stopTerminalTab(tab).catch(e => {
       noteTab(tab, `Could not stop it: ${e instanceof Error ? e.message : e}`);
     });
     return;
@@ -555,11 +565,33 @@ export function closeTab(id: string) {
   // The neighbour in the same dock shows next.
   if (P.on[d] === id) {
     const left = docked()[d];
-    P.on[d] = P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES;
+    const source = tab.exported?.source.tab;
+    P.on[d] = source && left.includes(source) ? source : P.tabs.slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES;
   }
 
   rememberPane();
   draw();
+}
+
+/// Stops a terminal and removes its tab after the machine acknowledges.
+export async function stopTerminalTab(tab: MediaTab) {
+  const term = tab.term;
+  if (!term) return;
+  tab.closed = true;
+
+  try {
+    await killTerm(term);
+  } catch (e) {
+    if (tab.term === term) {
+      tab.closed = false;
+      touchTab(tab);
+    }
+    throw e;
+  }
+
+  if (tab.term !== term) return;
+  tab.term = undefined;
+  closeTab(tab.id);
 }
 
 /// Closes the tab on screen in the focused pane (⌘W); false when no pane is
@@ -607,6 +639,7 @@ export function openSessionBeside(s: SplitSession, dock: Dock = "right") {
 export function showFiles() {
   const d = dockOf(FILES);
   leaveLog();
+  requestRightPane(d);
   P.on[d] = FILES;
   setFolded(d, false);
   draw();
@@ -632,6 +665,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
 export function showDevice() {
   if (!shell() || paneModel.getState().phone || !tabIds().includes(DEVICE)) return;
   const d = dockOf(DEVICE);
+  requestRightPane(d);
   setFolded(d, false);
   saveLayout();
   P.on[d] = DEVICE;
@@ -646,6 +680,7 @@ export function showArtifact(path?: string) {
   if (!artifactCount()) return false;
   const d = dockOf(ARTS);
   leaveLog();
+  requestRightPane(d);
   P.on[d] = ARTS;
   setFolded(d, false);
   saveLayout();
@@ -687,10 +722,16 @@ export function leavePane() {
 }
 
 export function showTab(d: Dock, id: string) {
+  requestRightPane(d);
   P.on[d] = id;
   rememberPane();
   if (!flipTab(d)) draw();
   paneOf(d)?.focus({ preventScroll: true });
+}
+
+function requestRightPane(d: Dock) {
+  const right = paneModel.getState().docks?.right;
+  if (d === "right" && right && !right.shown && !right.strip && desktopChatPane()) P.rightRequested = true;
 }
 
 /// Files and Changes read the folder of session `s`.
@@ -706,7 +747,7 @@ export function rememberPane() {
   const key = viewKey(P.session.machine_id, P.session.id);
   const pending = P.tabs.filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
   if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  writeView(windowPreferenceKey(key), { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed).map(savedTab) });
+  writeView(windowPreferenceKey(key), { on: P.on, layout: keptLayout(), zoom: P.zoom, tabs: P.tabs.filter(t => !t.closed && !t.exported).map(savedTab) });
 }
 
 function savedTab(t: MediaTab) {

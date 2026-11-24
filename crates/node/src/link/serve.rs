@@ -192,7 +192,8 @@ pub async fn serve(
             beep_proto::node::subscriptions::ALPN,
             peers.subscriptions_handler(),
         )
-        .accept(beep_proto::node::forward::ALPN, peers.forward_handler());
+        .accept(beep_proto::node::forward::ALPN, peers.forward_handler())
+        .accept(beep_proto::team::ALPN, peers.team_handler());
     if let Some(served) = served {
         router = served.add_to(router);
     }
@@ -453,14 +454,19 @@ pub(crate) enum Who {
     Everything(EndpointId),
     /// Another node of the mesh: its status, agent tools and devices,
     /// nothing else.
-    Node(EndpointId),
+    Node {
+        peer: EndpointId,
+        /// This device is a desktop, read from the device list when the
+        /// stream opened.
+        desktop_here: bool,
+    },
 }
 
 impl Who {
     /// The key of the caller.
     pub(crate) fn id(self) -> EndpointId {
         match self {
-            Self::Everything(id) | Self::Node(id) => id,
+            Self::Everything(id) | Self::Node { peer: id, .. } => id,
         }
     }
 }
@@ -546,7 +552,7 @@ pub(super) async fn serve_open(
     offers: Offers,
     who: Who,
 ) -> Result<()> {
-    if matches!(who, Who::Node(_)) && !node_may_open(&protocol) {
+    if matches!(who, Who::Node { .. }) && !node_may_open(&protocol) {
         let reason = format!("a node may not open {}", protocol);
         return tx.send(&Opened::Refused { reason }).await;
     }
@@ -581,12 +587,15 @@ pub(super) async fn serve_open(
             SessionProtocol::Tools => {
                 let caller = match who {
                     Who::Everything(_) => Caller::local(&offers),
-                    Who::Node(peer) => Caller {
+                    Who::Node { peer, desktop_here } => Caller {
                         table: tasks::Table::Peer(peer),
+                        desktop_here,
                         commands_off: commands_off(&offers),
                         transfers: offers.transfers.get(),
                         agents: Some(offers.agents.clone()),
                         project_tools: offers.project_tools.clone(),
+                        team: offers.reach.peers().map(|peers| peers.team()),
+                        mesh: offers.mesh.get(),
                     },
                 };
                 peer_tools::serve(tx, rx, caller).await

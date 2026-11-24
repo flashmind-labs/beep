@@ -38,59 +38,32 @@ test("running process rows retain focus through updates and stop safely", async 
   await expect(page.locator(".agrunningrow").filter({ hasText: "newer process" })).toBeVisible();
 });
 
-test("a pending process read cannot update a different session", async ({ page }) => {
+test("a process list pushed for another session does not show", async ({ page }) => {
   await openDesktop(page, true);
-  await page.evaluate(() => {
-    const invoke = window.__TAURI__.core.invoke;
-    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
-      if (command !== "agent_processes") return invoke<T>(command, args);
-      if (args?.session === "notice-one") {
-        Reflect.set(window, "processReadPending", true);
-        await new Promise<void>(resolve => window.addEventListener("test-release-process", () => resolve(), { once: true }));
-        return { processes: [{ pid: 41, command: "old process", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] }] } as T;
-      }
-      return { processes: [] } as T;
-    };
-  });
   const open = async (id: string) => page.evaluate(session => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: session, agent: "codex", title: session, cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }), id);
-  await open("notice-one");
-  await expect.poll(() => page.evaluate(() => Reflect.get(window, "processReadPending"))).toBe(true);
   await open("notice-two");
-  await page.evaluate(() => window.dispatchEvent(new Event("test-release-process")));
+  await page.evaluate(() => window.__navigation.processes([{ pid: 41, command: "old process", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] }], "notice-one"));
   await expect(page.getByText("old process")).toHaveCount(0);
   await expect(page.getByRole("tab", { name: /Running/ })).toHaveCount(0);
 });
 
-test("an older process read cannot replace a newer result in the same session", async ({ page }) => {
+test("the last process list shows at once when a session opens again, with no read", async ({ page }) => {
   await openDesktop(page, true);
   const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
   await page.evaluate(value => window.__navigation.open({ agent: value }), agent);
-  await page.evaluate(() => window.__navigation.processes([{ pid: 41, command: "initial process", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] }]));
+  await page.evaluate(() => window.__navigation.processes([{ pid: 41, command: "first process", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] }]));
   await page.getByRole("tab", { name: /Running/ }).click();
-  await expect(page.getByText("initial process")).toBeVisible();
-  await page.evaluate(() => {
-    const invoke = window.__TAURI__.core.invoke;
-    let reads = 0;
-    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
-      if (command !== "agent_processes") return invoke<T>(command, args);
-      const read = ++reads;
-      Reflect.set(window, "orderedProcessReads", read);
-      if (read === 1) {
-        await new Promise<void>(resolve => Reflect.set(window, "releaseOldProcesses", resolve));
-        Reflect.set(window, "oldProcessesDelivered", true);
-      }
-      return { processes: [{ pid: 41, command: read === 1 ? "old process" : "new process", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] }] } as T;
-    };
-    window.dispatchEvent(new Event("agent-pane-shown"));
-  });
-  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "releaseOldProcesses"))).toBe("function");
-  await page.evaluate(() => window.dispatchEvent(new Event("agent-pane-shown")));
-  await expect(page.getByText("new process")).toBeVisible();
-  await page.evaluate(() => Reflect.get(window, "releaseOldProcesses")());
-  await expect.poll(() => page.evaluate(() => Reflect.get(window, "oldProcessesDelivered"))).toBe(true);
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
-  await expect(page.getByText("new process")).toBeVisible();
-  await expect(page.getByText("old process")).toHaveCount(0);
+  await expect(page.getByText("first process")).toBeVisible();
+  // Another conversation takes the pane and the topic is dropped; the node sends nothing when this one returns.
+  await page.evaluate(() => { window.__navigation.quietNode(true); });
+  await page.evaluate(value => window.__navigation.open({ agent: value }), { ...agent, id: "notice-two" });
+  await expect(page.getByText("first process")).toHaveCount(0);
+  await page.evaluate(value => window.__navigation.open({ agent: value }), agent);
+  await page.getByRole("tab", { name: /Running/ }).click();
+  await expect(page.getByText("first process")).toBeVisible();
+  await page.evaluate(() => window.__navigation.processes([{ pid: 42, command: "second process", started_at: 1, ports: [], left_group: false, parent: 0, pages: [] }]));
+  await expect(page.getByText("second process")).toBeVisible();
+  await expect(page.getByText("first process")).toHaveCount(0);
 });
 
 test("running pane keeps its scroll and handlers after leaving and reopening the session", async ({ page }) => {

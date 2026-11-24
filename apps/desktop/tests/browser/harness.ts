@@ -35,7 +35,10 @@ type ProjectTileTarget = { projects: { project: string; tile: string } };
 interface NavigationHarness {
   open(target: CenterTarget | ProjectTileTarget): void;
   ready(): boolean;
-  processes(rows: RunningProcess[]): void;
+  /// The node pushes a session's whole process list; a view that subscribes later is sent the last one, as native code does.
+  processes(rows: RunningProcess[], session?: string): void;
+  /// While quiet, the node sends no snapshot to a topic taken anew: only what native code still retains arrives.
+  quietNode(on: boolean): void;
   worktrees(rows: Tree[]): void;
   sessionUsage(id: string, usage: AgentUsage): void;
   calls(): NativeCall[];
@@ -49,6 +52,8 @@ interface NavigationHarness {
   release(command: string): void;
   /// Fails the next `command` with `error`, a plain test failure when none is given.
   rejectOnce(command: string, error?: string): void;
+  /// Every later call of `command` fails.
+  rejectAll(command: string): void;
 }
 type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
@@ -144,17 +149,34 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   interface EventChannel { onmessage(event: unknown): void }
   const channel = (value: unknown): value is EventChannel => value !== null && typeof value === "object" && "onmessage" in value && typeof value.onmessage === "function";
   const rejected = new Map<string, string>();
+  const failing = new Set<string>();
   const held = new Set<string>();
   const heldOnce = new Set<string>();
   const releases = new Map<string, () => void>();
   const readers = new Map<string, { channel: EventChannel; topics: { machine: string | null; topic: string }[] }>();
   const follows = new Map<string, EventChannel>();
-  let processes: RunningProcess[] = [];
+  /// The node's current list per session topic, and the part of it native code retains for its windows.
+  const pushed = new Map<string, MeshEvent>();
+  const retained = new Map<string, MeshEvent>();
+  let quiet = false;
   let revision = 0;
   const agentPage = (id: unknown) => ({ session: data.sessions.find(row => row.id === id) ?? data.sessions[0], plan: [], files: [], entries: [], earlier: 0, last_message: "", error: null, queued: 0, queued_messages: [], turns: 0, usage: null });
   const empty = { start: 0, next: 0, fingerprint: "empty" };
   const interests = (value: unknown): { machine: string | null; topic: string }[] => Array.isArray(value) ? value.filter((v: unknown): v is { machine: string | null; topic: string } => v !== null && typeof v === "object" && "machine" in v && (v.machine === null || typeof v.machine === "string") && "topic" in v && typeof v.topic === "string") : [];
   const calls: NativeCall[] = [];
+  const covers = (topics: { topic: string }[], event: MeshEvent) => topics.some(interest => interest.topic === event.topic || interest.topic === "processes.*");
+  /// Native code drops a retained update once no window wants its topic; the node sends a fresh one later.
+  const forget = () => {
+    for (const [topic, event] of retained) if (![...readers.values()].some(reader => covers(reader.topics, event))) retained.delete(topic);
+  };
+  /// What a window newly interested in a topic is sent from what native code retained.
+  const prime = (reader: { channel: EventChannel; topics: { machine: string | null; topic: string }[] }, before: { topic: string }[]) => {
+    for (const event of pushed.values()) {
+      if (!covers(reader.topics, event) || covers(before, event) || (quiet && !retained.has(event.topic))) continue;
+      retained.set(event.topic, event);
+      reader.channel.onmessage(structuredClone(event));
+    }
+  };
   const handlers = new Map<string, Set<NativeHandler>>();
   let pending: CenterTarget | ProjectTileTarget | null = null;
   let pendingReads = 0;
@@ -181,16 +203,27 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
         if (held.has(command) || heldOnce.delete(command)) await new Promise<void>(resolve => { releases.set(command, resolve); });
         const failure = rejected.get(command);
         if (rejected.delete(command)) throw new Error(failure);
+        if (failing.has(command)) throw new Error("Requested test failure");
         if (command === "center_pending") { pendingReads++; const target = pending; pending = null; return target; }
 
         if (command === "mesh_watch") {
-          if (typeof args.id === "string" && channel(args.onEvent)) readers.set(args.id, { channel: args.onEvent, topics: interests(args.topics) });
+          if (typeof args.id === "string" && channel(args.onEvent)) {
+            const reader = { channel: args.onEvent, topics: interests(args.topics) };
+            readers.set(args.id, reader);
+            prime(reader, []);
+            forget();
+          }
           return new Promise<never>(() => {});
         }
 
         if (command === "mesh_topics" && typeof args.id === "string") {
           const reader = readers.get(args.id);
-          if (reader) reader.topics = interests(args.topics);
+          if (reader) {
+            const before = reader.topics;
+            reader.topics = interests(args.topics);
+            prime(reader, before);
+            forget();
+          }
           return null;
         }
 
@@ -224,7 +257,6 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
           return structuredClone(command === "list_machine_tree" ? (listing ? [listing] : []) : listing);
         }
 
-        if (command === "agent_processes") { return { processes: structuredClone(processes) }; }
         if (command === "machine_forward_port") { return args.port; }
 
         if (command === "work_diff") {
@@ -257,17 +289,21 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   Object.defineProperty(window, "__TAURI_INTERNALS__", { value: { transformCallback: () => nextCallback++, unregisterCallback() {} } });
   const harness: NavigationHarness = {
     open(target) { pending = target; for (const handler of handlers.get("center-open") ?? []) handler({ payload: target }); },
-    processes(rows) {
-      processes = rows;
-      const event: MeshEvent = { machine_id: data.project.machine_id, topic: "processes.notice-one", revision: ++revision, initial: false };
-      for (const reader of readers.values()) if (reader.topics.some(interest => interest.topic === event.topic || interest.topic === "processes.*")) reader.channel.onmessage(event);
+    processes(rows, session = "notice-one") {
+      const event: MeshEvent = { machine_id: data.project.machine_id, topic: `processes.${session}`, revision: ++revision, initial: false, data: { Sessions: { Processes: { processes: rows } } } };
+      pushed.set(event.topic, event);
+      const wanted = [...readers.values()].filter(reader => covers(reader.topics, event));
+      if (wanted.length) retained.set(event.topic, event);
+      for (const reader of wanted) reader.channel.onmessage(structuredClone(event));
     },
+    quietNode(on) { quiet = on; },
     worktrees(rows) { answers.agent_worktrees = rows; },
     sessionUsage(id, usage) {
       follows.get(id)?.onmessage({ kind: "delta", resumed: false, cursor: empty, page: { ...agentPage(id), usage }, modes: null, tasks: [] });
     },
     emit(name, payload) { for (const handler of handlers.get(name) ?? []) handler({ payload }); },
     rejectOnce(command, error = "Requested test failure") { rejected.set(command, error); },
+    rejectAll(command) { failing.add(command); },
     hold(command) { held.add(command); },
     holdNext(command) { heldOnce.add(command); },
     release(command) { held.delete(command); releases.get(command)?.(); releases.delete(command); },

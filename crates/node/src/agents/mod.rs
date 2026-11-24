@@ -34,6 +34,7 @@ host! {
     mod adapters;
     mod alerts;
     mod checkout;
+    pub(crate) mod checkouts;
     mod compaction;
     mod conversation;
     pub(crate) mod custom_agents;
@@ -70,6 +71,7 @@ host! {
     mod running;
     mod session;
     mod session_stream;
+    mod sessions;
     mod spend;
     mod subagent;
     mod tool_diff;
@@ -167,7 +169,7 @@ host! {
         kinds: watch::Sender<Arc<Vec<AgentKind>>>,
         /// The adapters the node installs itself.
         adapters: adapters::Installs,
-        sessions: Mutex<HashMap<SessionId, Arc<Session>>>,
+        sessions: sessions::Sessions,
         /// Serializes changes to stored sessions against resuming them.
         session_store: AsyncMutex<()>,
         /// Claude Code sessions started outside Beep.
@@ -182,6 +184,8 @@ host! {
         usage: Arc<UsageHub>,
         /// What sessions did that the user would want to hear about.
         alerts: Arc<AlertHub>,
+        /// What git says of the folders sessions and peers read.
+        checkouts: Arc<checkouts::Checkouts>,
         /// The CI runs this node tells, and how it reaches the hosts.
         pub(crate) ci: Arc<crate::machine::ci::Ci>,
         /// What sessions spent, from the agents' own logs.

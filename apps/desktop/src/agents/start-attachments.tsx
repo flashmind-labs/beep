@@ -1,4 +1,4 @@
-import { fileBase64 } from "../chat/attach.tsx";
+import { fileBase64, type PastedFiles } from "../chat/attach.tsx";
 import { draftText } from "../chat/compose.tsx";
 import { bindPromptStash } from "../chat/stash.tsx";
 import { stashFile } from "../chat/stash-state.ts";
@@ -12,10 +12,11 @@ import { StartFiles } from "./start-files.ts";
 export function startAttachments(c: StartComposer, error: (text: string) => void, changed: () => void) {
   const images: Attached[] = [];
   const files = new StartFiles(() => draw(), error);
-  let reading = 0, locked = false;
+  let reading = 0, starting = false, stashing = false;
+  const locked = () => starting || stashing;
   let serial = Promise.resolve();
   const remove = (kind: "image" | "file", index: number) => {
-    if (locked) return;
+    if (locked()) return;
     if (kind === "image") {
       const [image] = images.splice(index, 1);
       const at = files.pending.findIndex(entry => entry.file === image.original);
@@ -29,25 +30,30 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
       ? <StartAttachmentChips images={[...images]} files={[...files.pending]} progress={files.progress} remove={remove} />
       : null });
   };
-  const add = (input: Iterable<File>) => {
-    if (locked) return Promise.resolve();
-    const dropped = [...input];
+  const add = (input: PastedFiles) => {
+    if (locked()) return Promise.resolve();
+    const field = c.input;
     error("");
     reading++;
     changed();
     serial = serial.then(async () => {
+      const dropped = await input;
+      if (!field.isConnected || !dropped.length) return;
       files.add(dropped);
       for (const file of dropped) if (file.type.startsWith("image/") && files.pending.some(entry => entry.file === file)) await attachPreview(images, file, file);
       draw();
     }).catch(e => error(String(e))).finally(() => { reading--; changed(); });
     return serial;
   };
-  const drawPicker = () => c.update({ uploadPicker: <FilePicker attach={add} disabled={locked} /> });
+  const drawPicker = () => c.update({ uploadPicker: <FilePicker attach={add} disabled={locked()} /> });
   drawPicker();
   return {
     add, images, files,
     /// Files pasted or dropped on the composer, which keeps the focus.
-    take(dropped: File[]) { void add(dropped).then(() => c.input.focus()); },
+    take(dropped: PastedFiles) {
+      const field = c.input;
+      void add(dropped).then(() => { if (field.isConnected) field.focus(); });
+    },
     /// Takes the last chip off the composer.
     removeLast() {
       const loose = files.pending.findLastIndex(entry => !images.some(image => image.original === entry.file));
@@ -56,17 +62,18 @@ export function startAttachments(c: StartComposer, error: (text: string) => void
     },
     get reading() { return reading > 0; },
     get count() { return images.length + files.pending.length; },
-    setBusy(value: boolean) { locked = value; drawPicker(); },
+    setBusy(value: boolean) { starting = value; drawPicker(); },
     /// After a start: the agent reads the uploaded files, so they stay.
     clear() { images.length = 0; files.forget(); draw(); },
     /// The draft is abandoned: its uploads are deleted.
     discard() { images.length = 0; files.discardAll(); draw(); },
     bindStash(project: () => string | null) {
       bindPromptStash(c.input, {
+        canUse: () => !starting,
         project,
         hasAttachments: () => !!images.length || !!files.pending.length,
         lock: value => {
-          locked = value; drawPicker();
+          stashing = value; drawPicker();
           c.update({ stashLocked: value });
         },
         capture: async () => {

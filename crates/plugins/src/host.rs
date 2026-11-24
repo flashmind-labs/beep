@@ -13,7 +13,7 @@ use thiserror::Error;
 use crate::asset::{Asset, AssetHash};
 use crate::console::emit;
 use crate::event::{EventError, Limiter, Mailbox, UiEvent};
-use crate::install::{Builtin, ManageError, Preview, clean_leftovers};
+use crate::install::{Builtin, ManageError, Preview};
 use crate::instance::{InstanceBatch, InstanceError, Instances};
 use crate::job::PluginJob;
 use crate::managed::{Managed, Origin, Policy, Record, Verdict};
@@ -82,6 +82,7 @@ pub(crate) struct Published {
 pub struct Host {
     dir: PathBuf,
     managed: Arc<Managed>,
+    managing: Mutex<()>,
     published: Arc<Published>,
     events: Sender<Event>,
     supervisor: Option<JoinHandle<()>>,
@@ -154,9 +155,9 @@ impl Host {
         };
         std::fs::create_dir_all(&dir).map_err(folder)?;
         let dir = dir.canonicalize().map_err(folder)?;
-        clean_leftovers(&dir);
         let managed =
             Managed::load(&dir, policy).with_builtins(builtins.iter().map(|b| b.id.clone()));
+        managed.recover_installs().map_err(folder)?;
         managed.sync_builtins(&dir, builtins);
         let managed = Arc::new(managed);
 
@@ -197,6 +198,7 @@ impl Host {
         Ok(Host {
             dir,
             managed,
+            managing: Mutex::new(()),
             published,
             events,
             supervisor: Some(handle),
@@ -263,10 +265,12 @@ impl Host {
 
     /// Turns a plugin on or off. Its status shows the change when this returns.
     pub fn set_enabled(&self, id: &PluginId, enabled: bool) -> Result<(), ManageError> {
+        let managing = locked(&self.managing);
         let manifest = self.installed_manifest(id)?;
         self.managed
             .update(id, Some(&manifest), |record| record.enabled = enabled)
             .map_err(ManageError::io("cannot save the plugin's record"))?;
+        drop(managing);
         self.refresh(id);
 
         Ok(())
@@ -275,6 +279,7 @@ impl Host {
     /// Allows every permission the plugin's manifest asks for, and turns it on.
     /// Only the user may call this, from the page that shows what is asked.
     pub fn approve(&self, id: &PluginId) -> Result<(), ManageError> {
+        let managing = locked(&self.managing);
         let manifest = self.installed_manifest(id)?;
         let approved = crate::managed::sorted(&manifest.permissions);
         self.managed
@@ -283,6 +288,7 @@ impl Host {
                 record.approved = approved;
             })
             .map_err(ManageError::io("cannot save the plugin's record"))?;
+        drop(managing);
         self.refresh(id);
 
         Ok(())
@@ -290,6 +296,7 @@ impl Host {
 
     /// Stops a plugin, then deletes its folder and its record.
     pub fn remove(&self, id: &PluginId) -> Result<(), ManageError> {
+        let managing = locked(&self.managing);
         let folder = self.dir.join(id.to_string());
         let record = self.managed.record(id);
         if !folder.is_dir() && record.is_none() {
@@ -323,6 +330,7 @@ impl Host {
         self.managed
             .forget(id)
             .map_err(ManageError::io("cannot save the plugin's record"))?;
+        drop(managing);
         self.refresh(id);
 
         Ok(())
@@ -342,7 +350,9 @@ impl Host {
     /// Moves a prepared folder in as a new plugin, or as the update of one from the
     /// same source, and records the permissions the user allowed in the preview.
     pub fn install(&self, staged: &Path, origin: Origin) -> Result<PluginId, ManageError> {
-        let id = self.managed.install(&self.dir, staged, origin)?;
+        let managing = locked(&self.managing);
+        let id = self.managed.install(staged, origin)?;
+        drop(managing);
         self.refresh(&id);
 
         Ok(id)
@@ -506,8 +516,6 @@ struct Wanted {
 /// What the supervisor knows of a plugin from its manifest.
 struct Plan {
     activation: Vec<Activation>,
-    /// Since when a running plugin's slots have all been off the page.
-    idle_since: Option<Instant>,
 }
 
 impl Plan {
@@ -677,11 +685,7 @@ impl Supervisor {
 
     /// When the first plugin that lost its slots is due to stop.
     fn next_idle_stop(&self) -> Option<Instant> {
-        self.plans
-            .values()
-            .filter_map(|plan| plan.idle_since)
-            .min()
-            .map(|since| since + IDLE_GRACE)
+        locked(&self.published.registry).next_idle_stop()
     }
 
     fn load_all(&mut self, now: Instant) {
@@ -772,6 +776,7 @@ impl Supervisor {
         }
 
         locked(&self.published.registry).move_to(id, Lifecycle::Stopped(reason));
+        self.stop_plugin(id);
         self.clear(id);
     }
 
@@ -947,7 +952,6 @@ impl Supervisor {
                     id.clone(),
                     Plan {
                         activation: manifest.activation,
-                        idle_since: None,
                     },
                 );
                 locked(&self.published.registry).set(
@@ -971,7 +975,8 @@ impl Supervisor {
                 let current = locked(&self.published.registry).lifecycle(&id).cloned();
                 if !matches!(
                     current,
-                    Some(Lifecycle::Running | Lifecycle::Stopped(_)) | None
+                    Some(Lifecycle::Running | Lifecycle::IdleGrace(_) | Lifecycle::Stopped(_))
+                        | None
                 ) {
                     self.clear(&id);
                 }
@@ -1016,7 +1021,7 @@ impl Supervisor {
     }
 
     fn reconcile_one(&mut self, id: &PluginId, now: Instant) {
-        let Some(plan) = self.plans.get_mut(id) else {
+        let Some(plan) = self.plans.get(id) else {
             return;
         };
         let lifecycle = locked(&self.published.registry).lifecycle(id).cloned();
@@ -1027,22 +1032,21 @@ impl Supervisor {
                     self.start_plugin(id);
                 }
             }
-            Some(Lifecycle::Running) if plan.idles() => {
-                if plan.holds(&self.instances) {
-                    plan.idle_since = None;
-                    return;
-                }
-
-                let since = *plan.idle_since.get_or_insert(now);
-                if now.saturating_duration_since(since) >= IDLE_GRACE {
-                    plan.idle_since = None;
-                    self.stop_plugin(id);
-                    locked(&self.published.registry).move_to(id, Lifecycle::Waiting);
-                    self.clear(id);
-                }
+            Some(Lifecycle::Running) if plan.idles() && !plan.holds(&self.instances) => {
+                locked(&self.published.registry)
+                    .move_to(id, Lifecycle::IdleGrace(now + IDLE_GRACE));
+            }
+            Some(Lifecycle::IdleGrace(_)) if plan.holds(&self.instances) => {
+                locked(&self.published.registry).move_to(id, Lifecycle::Running);
+            }
+            Some(Lifecycle::IdleGrace(deadline)) if deadline <= now => {
+                self.stop_plugin(id);
+                locked(&self.published.registry).move_to(id, Lifecycle::Waiting);
+                self.clear(id);
             }
             Some(
                 Lifecycle::Running
+                | Lifecycle::IdleGrace(_)
                 | Lifecycle::Stopped(_)
                 | Lifecycle::Disabled
                 | Lifecycle::NeedsApproval(_),

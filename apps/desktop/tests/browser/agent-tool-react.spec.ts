@@ -166,3 +166,23 @@ test("each prompt has a copy button on its finished reply, clear of the timestam
   await expect(currentCopy).toHaveAttribute("aria-label", "Copied");
   await expect(currentCopy).toHaveAttribute("aria-label", "Copy");
 });
+
+test("an edit's diff colours the file's code", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const value = await invoke<T>(command, args);
+      if (command !== "agent_view" || !value || typeof value !== "object") return value;
+      return { ...value, entries: [{ kind: "user", text: "Raise it" }, { kind: "tool", text: "Edit `src/limits.rs` [completed]\n[diff] src/limits.rs +1 -1\n fn limit() {\n-    3 // old\n+    5 // new" }] } as T;
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await page.getByRole("button", { name: "Edited 1 file" }).click();
+  await page.locator(".dcoderen.tool").filter({ hasText: "src/limits.rs" }).click();
+  const diff = page.locator(".ddiff");
+  await expect(diff.locator(".k")).toHaveText("fn");
+  await expect(diff.locator(".n")).toHaveText(["3", "5"]);
+  await expect(diff.locator(".c")).toHaveText(["// old", "// new"]);
+  await expect(diff.locator(".da .dk")).toHaveText("+");
+});

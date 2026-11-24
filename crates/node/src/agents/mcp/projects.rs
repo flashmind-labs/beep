@@ -146,7 +146,7 @@ pub(super) fn folder(mesh: &Mesh, name: &str, machine: EndpointId) -> Result<Str
 
 /// The project whose checkout on `machine` holds `cwd`, the innermost when
 /// checkouts nest.
-pub(super) fn of_folder(mesh: &Mesh, cwd: &str, machine: EndpointId) -> Option<String> {
+pub(crate) fn of_folder(mesh: &Mesh, cwd: &str, machine: EndpointId) -> Option<String> {
     names(mesh)
         .into_keys()
         .filter_map(|name| {

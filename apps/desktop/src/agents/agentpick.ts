@@ -52,11 +52,12 @@ const OFF = level("off", "Off"), MINIMAL = level("minimal", "Minimal"), LOW = le
   MEDIUM = level("medium", "Medium"), HIGH = level("high", "High"), XHIGH = level("xhigh", "Extra high"), MAX = level("max", "Max");
 
 /// The levels each harness takes, as the server's `efforts` lists them: Claude
-/// Code's `--effort`, Codex's `model_reasoning_effort`, pi's `--thinking` and
-/// flsh's `thought_level` (0.2.7 and later).
+/// Code's `--effort`, Codex's `model_reasoning_effort`, Antigravity's
+/// `--effort`, pi's `--thinking` and flsh's `thought_level` (0.2.7 and later).
 const EFFORTS: Record<string, readonly Effort[]> = {
   claude: [LOW, MEDIUM, HIGH, XHIGH, MAX],
   codex: [NONE, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX, ULTRA],
+  agy: [LOW, MEDIUM, HIGH, XHIGH, MAX],
   pi: [OFF, MINIMAL, LOW, MEDIUM, HIGH, XHIGH, MAX],
   flsh: [OFF, LOW, MEDIUM, HIGH],
 };

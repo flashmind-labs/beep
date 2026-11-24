@@ -9,8 +9,7 @@ async fn ended() -> Running {
     }
     Running {
         at: 1,
-        target: true,
-        to: iroh::SecretKey::generate().public(),
+        side: Side::Target(Arc::default()),
         task,
     }
 }
@@ -18,8 +17,9 @@ async fn ended() -> Running {
 fn going() -> Running {
     Running {
         at: 1,
-        target: false,
-        to: iroh::SecretKey::generate().public(),
+        side: Side::Source {
+            to: iroh::SecretKey::generate().public(),
+        },
         task: AbortOnDropHandle::new(tokio::spawn(pending::<()>())),
     }
 }

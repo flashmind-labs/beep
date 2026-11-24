@@ -4,23 +4,14 @@
 use crate::{
     beep::epoch_ms,
     chat::markdown::untrusted_html,
-    error::{DesktopError, Result},
-    fleet::projects::{FleetState, mesh_project},
+    error::Result,
+    fleet::projects::{FleetState, named},
 };
-use beep_fleet::Desk;
 use beep_proto::{
-    ApiError, GitItemKind, LinkedPr, ProjectIssue, ProjectPullRequest, PullRequestHead,
-    ThreadDetail,
+    GitItemKind, LinkedPr, ProjectIssue, ProjectPullRequest, PullRequestHead, ThreadDetail,
 };
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-/// The desk and the name of the mesh project `project_id` is the id of.
-async fn named(fleet: &FleetState<'_>, project_id: Uuid) -> Result<(Desk, String)> {
-    mesh_project(fleet, project_id)
-        .await?
-        .ok_or(DesktopError::Api(ApiError::NotFound {}))
-}
 
 /// An open issue no task tracks yet.
 #[derive(Debug, Serialize)]
@@ -35,6 +26,8 @@ pub struct IssueRow {
     url: String,
     /// A pull request is linked to it, to close it.
     linked_pr: bool,
+    /// The forge logins it is assigned to.
+    assignees: Vec<String>,
 }
 
 impl From<ProjectIssue> for IssueRow {
@@ -48,6 +41,7 @@ impl From<ProjectIssue> for IssueRow {
             comments: i.comments,
             url: i.url,
             linked_pr: i.linked_pr,
+            assignees: i.assignees,
         }
     }
 }
@@ -206,3 +200,7 @@ pub async fn center_comment_thread(
     };
     Ok(desk.comment_thread(&name, kind, number, &body).await?)
 }
+
+#[cfg(test)]
+#[path = "../tests/projects_threads.rs"]
+mod tests;

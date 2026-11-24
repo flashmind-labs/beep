@@ -27,6 +27,7 @@ fn issue(number: u64, opened: u64) -> ProjectIssue {
         comments: 3,
         url: format!("https://forge.example.com/acme/widget/issues/{number}"),
         linked_pr: false,
+        assignees: Vec::new(),
     }
 }
 
