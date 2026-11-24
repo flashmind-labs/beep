@@ -1,5 +1,4 @@
 // Tauri's global API (`withGlobalTauri`), typed for the pages.
-import { dropViews, takeSnapshotView, writeScope } from "./snapshot-state.ts";
 import { create } from "zustand";
 
 /// A channel Rust streams events into, passed as an `invoke` argument.
@@ -199,14 +198,6 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
     if (traceCommands) logInfo(`command trace: ${JSON.stringify({ request, command: cmd, stage, outcome, ms: Math.round(performance.now() - started) })}`);
   };
   trace("requested", "pending");
-  const snapshot = takeSnapshotView(cmd, args);
-  if (snapshot) {
-    trace("snapshot", snapshot.kind === "value" ? "ok" : "error");
-    return snapshot.kind === "value" ? Promise.resolve(snapshot.value as T) : Promise.reject(snapshot.error);
-  }
-  // A write drops only the rendered views it can change, before and after it runs.
-  const writing = writeScope(cmd);
-  dropViews(writing);
   const lifecycle = cmd === "agent_start" || cmd === "agent_begin" || cmd === "agent_resume";
   const at = Date.now();
   const measure = TIMED_COMMANDS.has(cmd) ? performance.now() : null;
@@ -231,7 +222,6 @@ export function invoke<T = unknown>(cmd: string, args?: Record<string, unknown>,
     return value;
   }).finally(() => {
     if (timer !== null) clearTimeout(timer);
-    dropViews(writing);
   }).catch((e: unknown) => {
     trace("returned", timedOut ? "timeout" : "error");
     if (measure !== null) recordTiming("command", cmd, performance.now() - measure, timedOut ? "timeout" : "error");

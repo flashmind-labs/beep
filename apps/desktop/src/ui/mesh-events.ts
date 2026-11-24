@@ -1,7 +1,6 @@
 // Views and plugins share topic subscriptions over the window's duplex node connections.
 import { onShownChange, pageShown } from "./active.ts";
 import { matchesTopic, normalizeTopic, type Topic } from "./topic-state.ts";
-import { clearViews, installViews } from "./snapshot-state.ts";
 export { topic, type Topic } from "./topic-state.ts";
 
 /// `seq` orders the updates native code retains, so a reader that attaches again asks only for newer ones.
@@ -112,7 +111,6 @@ async function flush() {
   const key = JSON.stringify(topics);
   const since = resumeFrom?.topics === key ? resumeFrom.seq : null;
   resumeFrom = null;
-  if (since === null) clearViews();
   const current: Reader = { id: crypto.randomUUID(), wanted: topics, sent: key, paused: false, updating: false, seq: since ?? 0 };
   reader = current;
   const onEvent = new Channel<MeshEvent>();
@@ -125,7 +123,6 @@ async function flush() {
 
     if (typeof event.seq === "number" && event.seq > current.seq) current.seq = event.seq;
     if (first) { first = false; current.sent = null; current.paused = false; refreshTopicSubscriptions(); }
-    installViews(event.data);
 
     // An update sent just before a pause is kept; hidden views read it once shown.
     for (const subscriber of subscribers) {
@@ -268,7 +265,6 @@ function stop() {
   const current = reader;
   reader = null;
   resumeFrom = null;
-  clearViews();
   if (current) void import("./tauri.ts").then(({ invoke }) => invoke("mesh_topics", { id: current.id, topics: null })).catch(() => {});
 }
 

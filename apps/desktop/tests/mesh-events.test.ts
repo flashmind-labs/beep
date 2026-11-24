@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { type MeshEvent, refreshTopicSubscriptions, subscribeChanges, subscribeEach, topic } from "../src/ui/mesh-events.ts";
 import { invoke } from "../src/ui/tauri.ts";
-import { clearViews, installViews, snapshotView } from "../src/ui/snapshot-state.ts";
+import { pushedView } from "../src/ui/snapshot-state.ts";
 
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));
 type Reader = { id: string; topics: unknown[]; onEvent: { onmessage(event: MeshEvent): void } };
@@ -308,10 +308,10 @@ test("distinct projections sharing a topic survive coalescing", async t => {
   assert.deepEqual(heard.map(event => [event.query, event.revision]), [[2, 2], [1, 3]]);
 });
 
-test("controller view snapshots are installed before callbacks and kept while hidden", async t => {
+test("controller view snapshots reach subscribers as they arrive, with no read", async t => {
   nativeEvent("center-shown");
   const heard: unknown[] = [];
-  const stop = subscribeEach("home.*", async () => heard.push(await invoke("center_home")));
+  const stop = subscribeEach("home.*", event => heard.push(pushedView(event.data, "center_home")));
   t.after(() => { stop(); nativeEvent("center-shown"); });
   await settle();
   const reader = latestReader();
@@ -320,18 +320,15 @@ test("controller view snapshots are installed before callbacks and kept while hi
     data: { views: [{ command: "center_home", args: {}, value: { machines: ["example"] } }] },
   });
   await settle();
-  assert.deepEqual(heard, [{ machines: ["example"] }]);
+  assert.deepEqual(heard, [{ value: { machines: ["example"] } }]);
   assert.equal(calls.some(call => call.cmd === "center_home"), false);
   nativeEvent("home-changed");
   reader.onEvent.onmessage({ machine_id: "controller", topic: "home.*", revision: 2,
-    data: { views: [{ command: "center_home", args: {}, value: { machines: ["example"], sessions: ["late"] } }] },
+    data: { views: [{ command: "center_home", args: {}, error: "temporary source failure" }] },
   });
   await settle();
-  assert.deepEqual(heard, [{ machines: ["example"] }, { machines: ["example"], sessions: ["late"] }]);
+  assert.deepEqual(heard, [{ value: { machines: ["example"] } }, { error: "temporary source failure" }]);
   assert.equal(calls.some(call => call.cmd === "center_home"), false, "late source completion publishes a new projection instead of a UI refetch");
-  nativeEvent("center-hidden");
-  await settle();
-  assert.deepEqual(snapshotView("center_home"), { kind: "value", value: { machines: ["example"], sessions: ["late"] } });
 });
 
 test("hiding pauses the reader and showing again reads only what changed", async t => {
@@ -362,7 +359,6 @@ test("hiding pauses the reader and showing again reads only what changed", async
   assert.equal(paused.length, 1);
   assert.equal((paused[0].args as { paused: boolean }).paused, true);
   assert.notEqual((paused[0].args as { topics: unknown }).topics, null, "hiding keeps the native reader");
-  assert.ok(snapshotView("center_home"), "hiding keeps rendered views");
 
   nativeEvent("center-shown");
   await settle();
@@ -376,60 +372,40 @@ test("hiding pauses the reader and showing again reads only what changed", async
   assert.deepEqual(reads, { files: 1, reviews: 2, home: 1 });
 });
 
-test("explicit refreshes bypass view snapshots and writes discard stale views", async t => {
-  t.mock.timers.enable({ apis: ["setTimeout"] });
-  t.after(() => { clearViews(); delete answers.save_credential; delete answers.agent_steer; });
-  installViews({ views: [{ command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } }] });
+test("a command always reaches the source, whatever a push carried", async t => {
+  t.after(() => { delete answers.center_project_runs; });
+  nativeEvent("center-shown");
+  const stop = subscribeEach("forge.*", () => {});
+  t.after(stop);
+  await settle();
+  latestReader().onEvent.onmessage({ machine_id: "controller", topic: "forge.*", revision: 1,
+    data: { views: [{ command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } }] } });
   calls.length = 0;
-  await invoke("center_project_runs", { projectId: "example", refresh: true });
+  answers.center_project_runs = { runs: [2] };
+  assert.deepEqual(await invoke("center_project_runs", { projectId: "example" }), { runs: [2] });
   assert.equal(calls.filter(call => call.cmd === "center_project_runs").length, 1);
-  let finish!: () => void;
-  answers.save_credential = new Promise<void>(resolve => { finish = resolve; });
-  const write = invoke("save_credential", { name: "example", secret: "fixture" });
-  installViews({ views: [{ command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } }] });
-  finish();
-  await write;
-  assert.equal(snapshotView("center_project_runs", { projectId: "example" }), null, "an unlisted write drops every view");
-
-  installViews({ views: [
-    { command: "center_project_runs", args: { projectId: "example" }, value: { runs: [1] } },
-    { command: "center_home", args: {}, value: { sessions: [] } },
-  ] });
-  await invoke("agent_steer", { session: "example", text: "fixture" });
-  assert.equal(snapshotView("center_home"), null, "a steer drops the sessions view");
-  assert.ok(snapshotView("center_project_runs", { projectId: "example" }), "and keeps the others");
-  t.mock.timers.tick(5000);
 });
 
-test("source errors invalidate rendered views and retries can read recovered state", async t => {
+test("a subscriber that fails reads again with a delay, and the recovered state reaches it", async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   t.mock.method(console, "warn", () => {});
   nativeEvent("center-shown");
   const heard: unknown[] = [];
   let errors = 0;
-  const stop = subscribeChanges("home.*", { deliver: "latest", receive: async () => {
-    try { heard.push(await invoke("center_home")); }
-    catch (error) { errors++; throw error; }
+  const stop = subscribeChanges("home.*", { deliver: "latest", receive: () => {
+    if (errors++ === 0) throw new Error("temporary source failure");
+    heard.push("recovered");
   } });
-  t.after(() => { stop(); delete answers.center_home; });
+  t.after(stop);
   await settle();
-  const reader = latestReader();
-  reader.onEvent.onmessage({ machine_id: "controller", topic: "home.*", revision: 1,
-    data: { views: [{ command: "center_home", args: {}, value: { machines: ["before"] } }] },
-  });
-  t.mock.timers.tick(100);
-  await settle();
-  reader.onEvent.onmessage({ machine_id: "controller", topic: "home.*", revision: 2,
-    data: { views: [{ command: "center_home", args: {}, error: "temporary source failure" }] },
-  });
+  latestReader().onEvent.onmessage({ machine_id: "controller", topic: "home.*", revision: 1, data: {} });
   t.mock.timers.tick(100);
   await settle();
   assert.equal(errors, 1);
-  assert.equal(snapshotView("center_home"), null);
-  answers.center_home = { machines: ["after"] };
+  assert.deepEqual(heard, []);
   t.mock.timers.tick(1000);
   await settle();
-  assert.deepEqual(heard, [{ machines: ["before"] }, { machines: ["after"] }]);
+  assert.deepEqual(heard, ["recovered"]);
   t.mock.timers.tick(5000);
 });
 

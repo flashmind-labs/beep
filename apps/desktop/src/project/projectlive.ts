@@ -1,7 +1,7 @@
 // Whether the project page shown updates live or by polling, and the reads
 // it starts.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { installViews, pushedView, type Pushed, type ViewSnapshot } from "../ui/snapshot-state.ts";
+import { pushedView, type Pushed, type ViewSnapshot } from "../ui/snapshot-state.ts";
 
 /// What the desktop says of a followed project (LiveRow).
 export interface LiveRow {
@@ -89,7 +89,6 @@ export function makeProjectLive(deps: LiveDeps) {
   function heard(row: LiveRow) {
     const id = row.project_id;
     if (id !== current) return;
-    installViews(row);
     modes.set(id, { live: row.live, why: row.polling_why });
     if (row.lists || row.runs) reload(id, { lists: row.lists, runs: row.runs, view: (command, args) => pushedView(row, command, args) });
     redraw();
