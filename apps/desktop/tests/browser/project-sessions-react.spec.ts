@@ -93,11 +93,11 @@ test("newer sessions keep the visible session anchored", async ({ page }) => {
   const anchor = detail.locator(`.pv-row[data-key="${key}"]`);
   await expect(anchor).toBeVisible();
   const before = await anchor.evaluate(el => el.getBoundingClientRect().top);
-  await page.evaluate(rows => {
-    window.__navigation.respond('project_sessions', [{ ...rows[0], id: 'newer', title: 'Newer', last_activity: 2000 }, ...rows]);
-    window.__navigation.emit('agent-title-changed', {});
-  }, sessions);
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'project_sessions').length)).toBeGreaterThan(1);
+  const index = Number(await anchor.getAttribute('data-index'));
+  await page.evaluate(({ rows, project }) => {
+    window.__navigation.emit('session-list', { list: { project }, sessions: [{ ...rows[0], id: 'newer', title: 'Newer', last_activity: 2000 }, ...rows] });
+  }, { rows: sessions, project: projectName });
+  await expect(anchor).toHaveAttribute('data-index', String(index + 1));
   await expect(anchor).toBeVisible();
   await expect.poll(() => anchor.evaluate((el, top) => Math.abs(el.getBoundingClientRect().top - top), before)).toBeLessThan(2);
 });
@@ -113,13 +113,25 @@ test("closed sessions appear in project history as soon as the machine reports e
   await page.getByRole("menuitem", { name: "Close session", exact: true }).click();
   await expect(row).toHaveCount(0);
 
-  await page.evaluate(ended => {
-    window.__navigation.respond("project_sessions", [ended]);
+  await page.evaluate(({ ended, project }) => {
     window.__navigation.respond("agent_sessions", [ended]);
     window.__navigation.emit("sessions-changed", ended.id);
-    window.__navigation.emit("agent-title-changed", {});
-  }, { ...session, status: "ended" });
+    window.__navigation.emit("session-list", { list: { project }, sessions: [ended] });
+  }, { ended: { ...session, status: "ended" }, project: projectName });
   await page.locator('.pj-list .pj-li[title="Sessions"]').click();
   await expect(page.locator('.pj-det .pv-row').filter({ hasText: session.title })).toBeVisible();
   await expect(page.locator('.pj-list .pj-li[title="Sessions"]')).toContainText("1 past");
+});
+
+test("a saved title shows in the project's sessions from the event", async ({ page }) => {
+  const row = { machine_id: "build-box", machine_name: "build-box", id: "past-1", agent: "codex", title: "First session", cwd: "/srv/project", status: "ended", doing: null, started_at: 1, last_activity: 100, external: false, question: null };
+  await openDesktop(page, false, { project_sessions: [row] });
+  await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "agents" } }), projectName);
+  await expect(page.getByText("First session", { exact: true })).toBeVisible();
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sessions").length);
+  const before = await reads();
+
+  await page.evaluate(() => window.__navigation.emit("agent-title-changed", { machine_id: "build-box", agent: "codex", session: "past-1", title: "Renamed session" }));
+  await expect(page.getByText("Renamed session", { exact: true })).toBeVisible();
+  expect(await reads()).toBe(before);
 });

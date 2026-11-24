@@ -1,3 +1,4 @@
+import { retitled, type Retitled } from "../agents/conversation-state.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { retainedHost } from "./page-view.tsx";
@@ -55,7 +56,7 @@ const sessionChanges = new Changes();
 const termChanges = new Changes();
 const foundChanges = new Changes();
 subscribeEach([topic("projects"), topic("machines"), topic("sync")], () => whereChanges.changed());
-for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, () => sessionChanges.changed());
+for (const name of ["sessions-changed", "reconnected"]) listen(name, () => sessionChanges.changed());
 listen("project-git-changed", () => {
   if (currentLocation()?.view === "projects" && state.picked) void readGit(state.picked, false);
 });
@@ -465,6 +466,16 @@ async function refreshProjectSessions() {
   if (name) { sessionsDue.add(name); await loadSessions(name); }
 }
 // The lists themselves come as `session-list` events, also for agents and moves.
-listen("agent-title-changed", () => {
-  if (projectSessionsShown()) void refreshProjectSessions().catch(e => console.warn("project session titles:", e));
+// A title saved comes with its value: every kept list takes it, and only a cleared title reads.
+listen<Retitled>("agent-title-changed", ({ payload }) => {
+  if (payload.title === null) {
+    sessionChanges.changed();
+    if (projectSessionsShown()) void refreshProjectSessions().catch(e => console.warn("project session titles:", e));
+    return;
+  }
+
+  for (const [name, list] of state.sessions) {
+    const next = retitled(list, payload);
+    if (next) showSessions(name, next, true);
+  }
 });

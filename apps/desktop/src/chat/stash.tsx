@@ -146,7 +146,7 @@ function pop(id: string) {
 
 function remove(project: string, id: string) {
   if (busy) return;
-  void invoke("prompt_stash_remove", { project, id }).then(() => reload(project)).catch(error => { const field = active(project); if (field) note(field, String(error)); });
+  void invoke("prompt_stash_remove", { project, id }).catch(error => { const field = active(project); if (field) note(field, String(error)); });
 }
 
 /// The indicators and hint actions toggle or act on the panel themselves.
@@ -189,8 +189,8 @@ async function act(action: "save" | "pop", field: HTMLTextAreaElement, id?: stri
       else await invoke("prompt_stash_put", { project, message });
     }
 
+    // A write that went through says so in `prompt-stash-changed`, which reads the list.
     if (opened() && panelOpened === shown) close();
-    await reload(project);
   } catch (error) {
     note(field, String(error));
     await reload(project);

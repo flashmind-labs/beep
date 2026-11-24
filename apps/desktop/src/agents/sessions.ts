@@ -2,7 +2,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { Changes } from "../ui/pagecache.ts";
 import type { AgentRow, AgentSession } from "./agents.ts";
-import { sessionKey } from "./conversation-state.ts";
+import { retitled, sessionKey, type Retitled } from "./conversation-state.ts";
 import { parentRow } from "./nesting-state.ts";
 import { refreshMoves, withoutCopies } from "./move-store.ts";
 
@@ -40,7 +40,14 @@ const changes = new Changes();
 export const sessionsChanged = new Set<() => void>();
 const changed = () => { changes.changed(); for (const f of sessionsChanged) f(); };
 subscribeEach(topic("home"), changed);
-for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, changed);
+for (const name of ["sessions-changed", "reconnected"]) listen(name, changed);
+// A title saved comes with its value: the kept rows take it, and only a cleared title reads.
+listen<Retitled>("agent-title-changed", ({ payload }) => {
+  const next = retitled(sessions, payload);
+  if (!next) { if (payload.title === null) changed(); return; }
+  sessions = next;
+  for (const f of sessionsRead) f();
+});
 
 /// The sessions every page shares: the last read while nothing changed
 /// since, otherwise a read.

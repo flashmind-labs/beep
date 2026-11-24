@@ -86,6 +86,8 @@ test("a pending pop does not close another project's stash", async ({ page }) =>
   await expect(panel).toContainText(second.name);
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'prompt_stash_list').length);
   await page.evaluate(() => window.__navigation.release('prompt_stash_take'));
+  // The write says so in an event, which reads the list.
+  await page.evaluate(project => window.__navigation.emit('prompt-stash-changed', project), first.name);
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === 'prompt_stash_list').length)).toBeGreaterThan(reads);
   await expect(panel).toBeVisible();
   await expect(panel).toContainText(second.name);

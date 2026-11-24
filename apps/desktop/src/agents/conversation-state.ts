@@ -49,6 +49,15 @@ export function retitle(s: AgentRow, change: Retitled, listed: readonly AgentRow
   return { ...s, title };
 }
 
+/// `rows` with the title `change` saved on its session, or null when it clears the title (the
+/// agent's own comes from a read) or no row is that session.
+export function retitled<T extends SessionId & { title: string | null }>(rows: readonly T[], change: Retitled): T[] | null {
+  if (change.title === null) return null;
+  const key = conversationKey({ machine_id: change.machine_id, agent: change.agent, id: change.session });
+  if (!rows.some(row => conversationKey(row) === key && row.title !== change.title)) return null;
+  return rows.map(row => (conversationKey(row) === key ? { ...row, title: change.title } : row));
+}
+
 /// A row of the switcher, and how deep it sits under the session that started it.
 export interface ConversationChoice {
   row: AgentRow;

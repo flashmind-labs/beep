@@ -591,7 +591,7 @@ async function retitleOpen(change: Retitled) {
 }
 
 const titlesChanged = ambient(() => S.view === "agents" ? ensureSessions().then(() => drawAgents(false)) : undefined, AMBIENT_MS);
-listen<Retitled>("agent-title-changed", e => { void retitleOpen(e.payload); titlesChanged(); });
+listen<Retitled>("agent-title-changed", e => { void retitleOpen(e.payload); if (e.payload.title === null) titlesChanged(); });
 
 // A notice about a session that asks may mean it was answered elsewhere, and a start says so
 // when it waits, starts or fails.

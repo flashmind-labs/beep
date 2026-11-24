@@ -1,4 +1,5 @@
 // Home: its tabs and the board.
+import { retitled, type Retitled } from "../agents/conversation-state.ts";
 import { conflicted, invoke, listen } from "../ui/tauri.ts";
 import { isMobile } from "../ui/platform.ts";
 import { Button } from "../ui/kit.tsx";
@@ -145,7 +146,12 @@ const readSessions = ambient(() => {
 listen<SessionList>("session-list", ({ payload }) => { if (payload.list === "home") showSessions(payload.sessions); });
 function showSessions(rows: SessionRow[]) { projectSessions = rows; draw(); }
 // The list itself follows as `session-list` events; these say it may be out of step.
-for (const name of ["sessions-changed", "agent-title-changed", "reconnected"]) listen(name, () => { sessionsStale = true; readSessions(); });
+for (const name of ["sessions-changed", "reconnected"]) listen(name, () => { sessionsStale = true; readSessions(); });
+listen<Retitled>("agent-title-changed", ({ payload }) => {
+  const next = retitled(projectSessions, payload);
+  if (next) showSessions(next);
+  else if (payload.title === null) { sessionsStale = true; readSessions(); }
+});
 sessionsRead.add(() => draw());
 onPlaces(() => draw());
 onMoves(() => draw());
