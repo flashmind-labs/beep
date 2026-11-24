@@ -17,7 +17,6 @@ async function open(page: Page, status = "idle", responses: Record<string, unkno
 
 const calls = (page: Page, command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name), command);
 const picker = (page: Page) => page.locator('#agfield input[type="file"]');
-const rows = (page: Page) => page.locator(".ag-queue .it.steer");
 
 const where = { machine_id: "build-box", agent: "codex", session: "send-one" };
 const notes = { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("notes") };
