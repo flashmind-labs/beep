@@ -22,8 +22,6 @@ pub enum RepoNameError {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RepoName {
     name: String,
-    /// Where the `/` is.
-    slash: usize,
 }
 
 impl FromStr for RepoName {
@@ -51,19 +49,18 @@ impl FromStr for RepoName {
 
         Ok(Self {
             name: text.to_owned(),
-            slash: owner.len(),
         })
     }
 }
 
 impl RepoName {
     pub fn owner(&self) -> &str {
-        &self.name[..self.slash]
+        self.name.split_once('/').map_or("", |(owner, _)| owner)
     }
 
     /// The repository part, without its owner.
     pub fn repo(&self) -> &str {
-        &self.name[self.slash + 1..]
+        self.name.split_once('/').map_or("", |(_, repo)| repo)
     }
 }
 
