@@ -1,6 +1,5 @@
 use super::*;
 use metrics_exporter_prometheus::PrometheusBuilder;
-use std::sync::{Arc, Mutex};
 
 #[derive(strum::IntoStaticStr)]
 enum Msg {
@@ -14,37 +13,6 @@ fn value(text: &str, prefix: &str) -> f64 {
         .and_then(|line| line.rsplit_once(' '))
         .and_then(|(_, value)| value.parse().ok())
         .unwrap_or_else(|| panic!("no {prefix} in\n{text}"))
-}
-
-/// What is logged at `INFO` and above, while the guard lives.
-#[derive(Clone, Default)]
-struct Logged(Arc<Mutex<Vec<u8>>>);
-
-impl Logged {
-    fn capture(&self) -> tracing::subscriber::DefaultGuard {
-        let writer = self.clone();
-        tracing::subscriber::set_default(
-            tracing_subscriber::fmt()
-                .with_max_level(tracing::Level::INFO)
-                .with_ansi(false)
-                .with_writer(move || writer.clone())
-                .finish(),
-        )
-    }
-
-    fn text(&self) -> String {
-        String::from_utf8(self.0.lock().unwrap().clone()).unwrap()
-    }
-}
-
-impl std::io::Write for Logged {
-    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().write(bytes)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
 }
 
 #[tokio::test(start_paused = true)]
