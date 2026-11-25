@@ -1401,3 +1401,37 @@ async fn a_project_that_never_arrives_is_not_imported() {
 
     assert!(crate::team::join::checkout_for(&link, &repo()).await.is_none());
 }
+
+#[tokio::test]
+async fn a_message_goes_to_all_members_at_once() {
+    let link = joiner_link(&EndpointAddr::new(mesh_id()), Forge::signed_in("bob", Answer::Yes)).await;
+    // Machines that take the packets and never answer: each dial runs for DIAL.
+    let silent = [
+        tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+        tokio::net::UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+    ];
+    let members: Vec<Member> = silent
+        .iter()
+        .enumerate()
+        .map(|(n, socket)| {
+            let device = SecretKey::generate().public();
+            let addr = EndpointAddr::new(device).with_ip_addr(socket.local_addr().unwrap());
+            Member {
+                devices: vec![addr],
+                ..member(&format!("member{n}"), mesh_id(), device)
+            }
+        })
+        .collect();
+
+    link.tell(members, invite(repo()));
+
+    // One after the other, the second would hear nothing before the first
+    // dial gave up, 5 s on.
+    let mut buffer = [0u8; 64];
+    for socket in &silent {
+        timeout(Duration::from_secs(2), socket.recv_from(&mut buffer))
+            .await
+            .expect("every member is dialed at once")
+            .unwrap();
+    }
+}

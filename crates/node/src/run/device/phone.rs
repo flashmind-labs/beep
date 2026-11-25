@@ -22,7 +22,10 @@ use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     process::Stdio,
-    sync::{LazyLock, Mutex},
+    sync::{
+        LazyLock, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::{io::AsyncReadExt, sync::watch};
@@ -49,8 +52,21 @@ static PHONES: LazyLock<watch::Sender<Vec<Device>>> =
 /// Each phone's Android release, by serial, asked once.
 static RELEASES: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(Mutex::default);
 
-/// The phones adb reaches and the user allowed.
+/// Whether `follow_adb` keeps `PHONES` current, so a list need not ask adb.
+static TRACKING: AtomicBool = AtomicBool::new(false);
+
+/// The phones adb reaches and the user allowed: as `track_phones` last saw
+/// them while it follows adb, else as adb says now.
 pub(super) async fn list() -> Vec<Device> {
+    if TRACKING.load(Ordering::Acquire) {
+        return PHONES.borrow().clone();
+    }
+
+    read().await
+}
+
+/// The phones `adb devices -l` lists.
+async fn read() -> Vec<Device> {
     let Some(adb) = env::adb() else {
         return Vec::new();
     };
@@ -126,17 +142,25 @@ async fn follow_adb(adb: &Path) -> Result<()> {
     let mut out = child.stdout.take().context("adb gave no output")?;
     let mut read = [0; 4096];
 
-    while out.read(&mut read).await? > 0 {
-        super::CHANGED.send_replace(());
-        let phones = list().await;
-        PHONES.send_if_modified(|known| {
-            let changed = *known != phones;
-            *known = phones;
-            changed
-        });
-    }
+    let result = async {
+        while out.read(&mut read).await? > 0 {
+            let phones = self::read().await;
+            PHONES.send_if_modified(|known| {
+                let changed = *known != phones;
+                *known = phones;
+                changed
+            });
+            // The list reads `PHONES` from here on, which is current now.
+            TRACKING.store(true, Ordering::Release);
+            super::CHANGED.send_replace(());
+        }
 
-    Ok(())
+        anyhow::Ok(())
+    }
+    .await;
+    TRACKING.store(false, Ordering::Release);
+
+    result
 }
 
 /// Sends the phones here now and again on every change, until the caller

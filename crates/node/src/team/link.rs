@@ -20,7 +20,7 @@ use beep_proto::{
     node::{LinkRx, LinkTx, link, tools::TeamInviteArgs},
     team::{ALPN, ForgeLogin, Member, Removed, TeamMsg, TeamRecord, TeamRepo},
 };
-use futures::future::BoxFuture;
+use futures::future::{BoxFuture, join_all};
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
     endpoint::Connection,
@@ -476,14 +476,18 @@ impl TeamLink {
             let mut unreached = members;
 
             loop {
-                let mut missed = Vec::new();
-
-                for member in unreached {
-                    if let Err(e) = link.send(&member, &msg).await {
-                        log::info!("a team message did not reach {}: {e}", member.login);
-                        missed.push(member);
-                    }
-                }
+                let sent = join_all(unreached.iter().map(|member| link.send(member, &msg))).await;
+                let missed: Vec<Member> = unreached
+                    .into_iter()
+                    .zip(sent)
+                    .filter_map(|(member, sent)| match sent {
+                        Ok(()) => None,
+                        Err(e) => {
+                            log::info!("a team message did not reach {}: {e}", member.login);
+                            Some(member)
+                        }
+                    })
+                    .collect();
 
                 if missed.is_empty() || !matches!(msg, TeamMsg::Remove { .. }) {
                     return;
