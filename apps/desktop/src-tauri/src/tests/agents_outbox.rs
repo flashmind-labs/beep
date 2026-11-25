@@ -726,6 +726,9 @@ struct Slow {
     /// Holds the resume the same way, and says when it began.
     resume_started: Option<oneshot::Sender<()>>,
     resume_release: Option<oneshot::Receiver<()>>,
+    /// The same for applying the pick.
+    configure_started: Option<oneshot::Sender<()>>,
+    configure_release: Option<oneshot::Receiver<()>>,
     lanes: Vec<SessionKey>,
 }
 
@@ -747,6 +750,14 @@ impl Link for Slow {
     }
 
     async fn configure(&mut self, message: &Message, pick: &Pick) -> Result<()> {
+        if let Some(started) = self.configure_started.take() {
+            let _ = started.send(());
+        }
+
+        if let Some(release) = self.configure_release.take() {
+            let _ = release.await;
+        }
+
         self.inner.configure(message, pick).await
     }
 
@@ -791,6 +802,8 @@ fn held_up(release: Option<oneshot::Receiver<()>>) -> (Slow, oneshot::Receiver<(
         release,
         resume_started: None,
         resume_release: None,
+        configure_started: None,
+        configure_release: None,
         lanes: Vec::new(),
     };
     (slow, began)
@@ -878,6 +891,64 @@ async fn a_close_pressed_while_the_session_resumes_waits_and_closes_the_one_that
     assert_eq!(slow.inner.ordered, [OrderKind::Close]);
     assert_eq!(slow.inner.ordered_on, ["s2"]);
     assert_eq!(slow.inner.went_to, ["s2"]);
+}
+
+/// A message to an ended session with a pick, whose session gets `order` while it resumes. The
+/// order waits for the new session, goes out on the urgent lane while the pick is applied, and
+/// the message must then never be sent.
+async fn an_order_while_the_session_resumes_and_a_pick_applies(order: OrderKind) {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    let pick = Pick {
+        model: None,
+        effort: Some(Effort::High),
+        fast: None,
+    };
+    let message = Draft {
+        resume: Some(Resume {
+            pick: Some(pick),
+            ..Resume::default()
+        }),
+        ..draft("first")
+    };
+    outbox.with(|held| held.push(&s1, message, None));
+    let (release_resume, resume_held) = oneshot::channel();
+    let (release_pick, pick_held) = oneshot::channel();
+    let (mut slow, _) = held_up(None);
+    let (resume_began, resume_started) = oneshot::channel();
+    let (pick_began, pick_started) = oneshot::channel();
+    slow.resume_started = Some(resume_began);
+    slow.resume_release = Some(resume_held);
+    slow.configure_started = Some(pick_began);
+    slow.configure_release = Some(pick_held);
+    let mut free = Fake::default();
+
+    let flusher = flush(&outbox, &s1, &mut slow);
+    let pressed = async {
+        resume_started.await.expect("the resume began");
+        outbox.with(|held| held.push_order(&s1, order.clone(), Instant::now(), None));
+        release_resume.send(()).expect("the resume waits");
+        pick_started.await.expect("the pick is being applied");
+        // The lane runs now, on the new session, while the message still waits on its pick.
+        flush_urgent(&outbox, &key("s2"), &mut free).await;
+        release_pick.send(()).expect("the pick waits");
+    };
+    tokio::join!(flusher, pressed);
+
+    assert_eq!(free.ordered, [order]);
+    assert_eq!(free.ordered_on, ["s2"]);
+    assert!(slow.inner.sent.is_empty(), "the message must not be sent");
+    assert!(texts(&outbox, "s2").is_empty(), "no failed row is left");
+}
+
+#[tokio::test]
+async fn a_close_while_the_session_resumes_takes_the_message_with_it_whatever_it_still_has_to_do() {
+    an_order_while_the_session_resumes_and_a_pick_applies(OrderKind::Close).await;
+}
+
+#[tokio::test]
+async fn a_stop_while_the_session_resumes_takes_back_what_was_sent_to_it() {
+    an_order_while_the_session_resumes_and_a_pick_applies(OrderKind::Cancel).await;
 }
 
 #[tokio::test]

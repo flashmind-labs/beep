@@ -867,33 +867,54 @@ impl Held {
     }
 
     pub(crate) fn order_sent(&mut self, id: u64) -> Option<Changed> {
-        let close_key = self
+        let sent = self
             .orders
             .iter()
-            .find(|o| o.id == id && matches!(o.kind, OrderKind::Close))
-            .map(|o| o.key.clone());
+            .find(|o| o.id == id)
+            .map(|o| (o.key.clone(), o.kind.clone()));
         self.remove_order(id, OrderAnswer::Sent);
+        let (key, kind) = sent?;
+        let resuming = self.messages.iter().any(|m| {
+            m.key() == key && m.resume.is_some() && !matches!(m.state, Stage::Failed { .. })
+        });
+        let dropped = match kind {
+            // A closed session takes its undelivered messages with it, whatever they do now.
+            OrderKind::Close => self.drop_undelivered(&key, true),
+            // A Stop while the session resumes is for what was just sent: it goes unsent.
+            OrderKind::Cancel | OrderKind::StopAll if resuming => {
+                self.drop_undelivered(&key, false)
+            }
+            _ => false,
+        };
 
-        if let Some(key) = close_key {
-            let (drained, _) = self.drain(&key);
-            // One still uploading goes with its session: its upload ends as taken back.
-            let uploading: Vec<u64> = self
-                .messages
-                .iter()
-                .filter(|m| m.key() == key && m.state == Stage::Sending && !m.files.is_empty())
-                .map(|m| m.id)
-                .collect();
+        dropped.then(|| self.changed(&key))
+    }
 
-            for id in &uploading {
-                self.remove(*id);
+    /// Removes the messages of `key` that were not delivered, those being sent included:
+    /// the flusher finds its message gone after its next await and stops. `failed` takes
+    /// the ones kept with a reason too.
+    fn drop_undelivered(&mut self, key: &SessionKey, failed: bool) -> bool {
+        let ids: Vec<u64> = self
+            .messages
+            .iter()
+            .filter(|m| m.key() == *key && (failed || !matches!(m.state, Stage::Failed { .. })))
+            .map(|m| m.id)
+            .collect();
+
+        for id in &ids {
+            if let Some(reply) = self.replies.remove(id) {
+                let _ = reply.send(Answer::Waiting);
             }
 
-            if !drained.is_empty() || !uploading.is_empty() {
-                return Some(self.changed(&key));
-            }
+            self.remove(*id);
         }
 
-        None
+        !ids.is_empty()
+    }
+
+    /// Whether message `id` is still kept.
+    pub(crate) fn holds(&self, id: u64) -> bool {
+        self.messages.iter().any(|m| m.id == id)
     }
 
     pub(crate) fn order_wait(&mut self, id: u64, now: Instant) -> Option<Changed> {
@@ -1074,11 +1095,14 @@ impl Held {
     }
 
     /// The pick of message `id`'s resumed session is applied: nothing is left to do first.
-    pub(crate) fn resume_done(&mut self, id: u64) {
-        if let Some(message) = self.messages.iter_mut().find(|m| m.id == id) {
-            message.resume = None;
-            self.dirty = true;
-        }
+    /// False when it is gone.
+    pub(crate) fn resume_done(&mut self, id: u64) -> bool {
+        let Some(message) = self.messages.iter_mut().find(|m| m.id == id) else {
+            return false;
+        };
+        message.resume = None;
+        self.dirty = true;
+        true
     }
 
     /// Message `id` could not reach its machine: it and those after it wait,
@@ -1571,7 +1595,10 @@ async fn try_message(
             return stopped(e);
         }
 
-        outbox.with(|held| held.resume_done(message.id));
+        // A Close or a Stop may have taken the message back while the session resumed.
+        if !outbox.with(|held| held.resume_done(message.id)) {
+            return Tried::Refused("The message was taken back.".into());
+        }
     }
 
     if message.files.is_empty() {
@@ -1692,6 +1719,17 @@ impl Link for MeshLink {
             let mut offset = 0u64;
 
             for part in parts {
+                // A message taken back, with its session closed, uploads no further.
+                if !self
+                    .app
+                    .state::<Arc<Outbox>>()
+                    .read(|held| held.holds(message.id))
+                {
+                    return Err(DesktopError::BadRequest(
+                        "The message was taken back.".into(),
+                    ));
+                }
+
                 let data = STANDARD.decode(part).map_err(|_| {
                     DesktopError::BadRequest(format!("{} could not be read", file.name))
                 })?;
