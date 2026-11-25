@@ -288,6 +288,7 @@ test("two files with one name sent from this window open as what the machine hol
   const active = { ...session, status: "idle", external: false };
   const paths = ["/cache/uploads/one/recording.webm", "/cache/uploads/two/recording.webm"];
   await openDesktop(page, false, { agent_view: view(active), agent_steer: [], agent_file: { size: 3, mime: "video/webm", data: btoa("abc") } });
+  await page.clock.install();
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
   await expect(page.locator("#agbody")).toContainText("Message 39");
   for (const [i, text] of ["First video", "Second video"].entries()) {
@@ -301,6 +302,8 @@ test("two files with one name sent from this window open as what the machine hol
     window.__navigation.respond("agent_view", next);
     window.__navigation.emit("outbox-changed", { machine_id: active.machine_id, agent: active.agent, session: active.id, revision: 1, rows: [], sent: [], resumed: null, uploaded });
   }, { active, next: { ...view(active), entries: [...view(active).entries, ...entries] }, uploaded: paths.map(path => ({ name: "recording.webm", path })) });
+  // No follow here: the page is read again when the follow is tried again.
+  await page.clock.runFor(5000);
   const buttons = page.locator("#agbody").getByRole("button", { name: "recording.webm", exact: true });
   await expect(buttons).toHaveCount(2);
   await buttons.nth(0).click();

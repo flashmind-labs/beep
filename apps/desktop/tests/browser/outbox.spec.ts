@@ -14,6 +14,8 @@ declare global { interface Window { __outbox: { reconnect(): void; listed(): voi
 /// reconnect each goes, in order, and the node holds it as a queued steer.
 async function openUnreachable(page: Page) {
   await openDesktop(page, false, { agent_steer: [] });
+  // The session has no follow here, so its page is read again when the follow is tried again.
+  await page.clock.install();
   await page.evaluate(() => {
     type Row = { id: number; how: string; text: string; images: string[]; state: string; reason: string | null; keys: string[] };
     const invoke = window.__TAURI__.core.invoke;
@@ -117,6 +119,7 @@ test("a late sending event cannot put a delivered image prompt back in the queue
       { kind: "agent", text: "The diagram is ready." },
     ],
   }), session);
+  await page.clock.runFor(5000);
   await expect(page.getByText("The diagram is ready.", { exact: true })).toBeVisible();
   // The delivery was pushed first, as revision 2.
   await page.evaluate(() => window.__navigation.emit("outbox-changed", { machine_id: "build-box", agent: "codex", session: "notice-one", revision: 2, rows: [], sent: [] }));
@@ -194,6 +197,7 @@ test("on reconnect the message stays as sent until the node lists it, and its qu
   await expect(steers(page)).toHaveCount(0);
 
   await page.evaluate(() => window.__outbox.listed());
+  await page.clock.runFor(5000);
   await expect(waiting(page)).toHaveCount(0);
   await expect(steers(page)).toHaveCount(1);
   await expect(steers(page)).toContainText("Use the fixture instead");
@@ -209,6 +213,7 @@ test("two waiting messages keep the order typed, before and after reconnecting",
   await page.evaluate(() => window.__outbox.reconnect());
   await expect(waiting(page).locator(".t")).toHaveText(["First message", "Second message"]);
   await page.evaluate(() => window.__outbox.listed());
+  await page.clock.runFor(5000);
   await expect(steers(page).locator(".t")).toHaveText(["First message", "Second message"]);
 });
 
