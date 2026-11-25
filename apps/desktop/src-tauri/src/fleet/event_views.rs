@@ -299,6 +299,7 @@ fn commands(name: &str) -> &'static [&'static str] {
             "updatable_machines",
             "agent_hosts",
             "device_hosts",
+            "machine_clocks",
         ],
         "tools" => &["tool_updates"],
         "projects" => &["projects_on_top", "project_groups"],
@@ -507,6 +508,12 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 "device_hosts",
                 json!({}),
                 crate::machines::list::device_hosts(app.state()),
+            ));
+            // The clocks follow the same status change as the list.
+            views.extend(View::new(
+                "machine_clocks",
+                json!({}),
+                app.state::<Arc<Fleet>>().status().clocks_off(),
             ));
         }
         "tools" => {
