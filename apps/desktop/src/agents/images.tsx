@@ -1,13 +1,9 @@
 // Images for a coding agent: attached to a message, and shown in its log.
 import type { Attached } from "./agentqueue.ts";
 import { AGENT_IMAGE_BYTES, AGENT_IMAGES_BYTES, fileBase64, picPreview } from "../chat/pics.ts";
-import { S } from "../bar/core.ts";
 import { GONE } from "../chat/media.tsx";
-import { MN, setAttachError } from "./mentions.ts";
-import { AgentAttachments } from "./attachments-view.tsx";
-import { showAgentAttachments } from "./composer-ui.tsx";
+import { MN } from "./mentions.ts";
 import { type OpenAgent, AG, AGENT_MAX_IMAGES, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents-state.ts";
-import { redrawAgentHints } from "./session-head.tsx";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { fillInlineImages } from "./inline-images.ts";
@@ -26,13 +22,6 @@ function agentImageName(f: File, list: Attached[]) {
   let name = base;
   for (let n = 2; list.some(a => a.name === name); n++) name = dot > 0 ? `${base.slice(0, dot)} ${n}${base.slice(dot)}` : `${base} ${n}`;
   return name;
-}
-
-export function agentAttachError(text: string) {
-  setAttachError(text);
-  drawAgentAttached();
-  clearTimeout(AG.attTimer);
-  AG.attTimer = setTimeout(() => { setAttachError(""); drawAgentAttached(); }, 5000);
 }
 
 /// Whether `file` goes to the agent as the image it is, byte for byte: a
@@ -100,13 +89,6 @@ async function fullOf({ original, url }: Attached) {
   const file = typeof original === "string" ? MN.files.get(original) : undefined;
 
   return file ? `data:${file.mime};base64,${file.data}` : url;
-}
-
-/// The chips of waiting images above the field, as in the mock.
-export function drawAgentAttached() {
-  const visible = !!(AG.att.length || AG.attError || MN.paths.length || MN.uploads.length || MN.ask);
-  showAgentAttachments(visible ? <AgentAttachments /> : null);
-  if (S.view === "agent") redrawAgentHints();
 }
 
 /// The thumbnails that failed for a reason other than being gone: failures

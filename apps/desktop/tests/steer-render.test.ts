@@ -11,7 +11,7 @@ import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { askUpload, MN } from "../src/agents/mentions.ts";
 import { drawTasks } from "../src/agents/tasks.tsx";
 import { transcriptKey, transcripts } from "../src/agents/transcript-cache-state.ts";
-import { drawAgentAttached } from "../src/agents/images.tsx";
+import { drawAgentAttached } from "../src/agents/attachments-view.tsx";
 import { createElement } from "react";
 import { FieldControl, showAgentControl } from "../src/agents/composer-ui.tsx";
 import { flushSync } from "react-dom";

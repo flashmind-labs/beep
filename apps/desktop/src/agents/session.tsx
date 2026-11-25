@@ -22,8 +22,7 @@ import { MN, activateMentions, rememberMentionImages, setAttachError } from "./m
 import { agentBack } from "./agents.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, sessionUsage, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, canTakeOver, openOf, where } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";
-import { agentAttachError, drawAgentAttached } from "./images.tsx";
-import { removeLastAttachment } from "./attachments-view.tsx";
+import { agentAttachError, drawAgentAttached, removeLastAttachment } from "./attachments-view.tsx";
 import { keepNativeSession, sessions, sessionsRead } from "./sessions.ts";
 import { closeSession, shownStatus } from "./closing.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";

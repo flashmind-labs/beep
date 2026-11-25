@@ -8,15 +8,32 @@ import { paneSession } from "../agentpane/media.ts";
 import { Icon } from "../ui/icons.tsx";
 import { AG } from "./agents-state.ts";
 import { folderName } from "./agent-kind.ts";
-import { drawAgentAttached, previewsOf } from "./images.tsx";
+import { previewsOf } from "./images.tsx";
 import { answerUpload } from "./workdrop.ts";
-import { MN, removeAttached, removeMention } from "./mentions.ts";
+import { MN, removeAttached, removeMention, setAttachError } from "./mentions.ts";
+import { showAgentAttachments } from "./composer-ui.tsx";
+import { S } from "../bar/core.ts";
+import { redrawAgentHints } from "./session-head.tsx";
 
 /// " · 4.2 MB/s" after a slow transfer's percentage, or nothing.
 export const speedNote = (transfer: Transfer) => {
   const speed = transferSpeed(transfer);
   return speed ? ` · ${speed}` : "";
 };
+
+/// The chips of waiting images above the field, as in the mock.
+export function drawAgentAttached() {
+  const visible = !!(AG.att.length || AG.attError || MN.paths.length || MN.uploads.length || MN.ask);
+  showAgentAttachments(visible ? <AgentAttachments /> : null);
+  if (S.view === "agent") redrawAgentHints();
+}
+
+export function agentAttachError(text: string) {
+  setAttachError(text);
+  drawAgentAttached();
+  clearTimeout(AG.attTimer);
+  AG.attTimer = setTimeout(() => { setAttachError(""); drawAgentAttached(); }, 5000);
+}
 
 /// Takes image `i` off the message, with the file it is a preview of.
 function removeImage(i: number) {
