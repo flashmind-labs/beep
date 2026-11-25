@@ -134,11 +134,11 @@ test("holding cycles without actions, release opens once, Escape and blur cancel
 test("a saved title retitles only its own session, and a cleared one takes the agent's title back", () => {
   const open = session("a", { title: "add an issue about router actions" });
   const change = { machine_id: "machine", agent: "codex", session: "a", title: "Router actions" };
-  assert.equal(retitle(open, change, [])?.title, "Router actions");
-  assert.equal(retitle(open, { ...change, session: "b" }, []), null);
-  assert.equal(retitle(open, { ...change, agent: "claude" }, []), null);
-  assert.equal(retitle(open, { ...change, machine_id: "other" }, []), null);
-  const listed = [session("b", { title: "Other" }), session("a", { title: "Generated title" })];
-  assert.equal(retitle(open, { ...change, title: null }, listed)?.title, "Generated title");
-  assert.equal(retitle(open, { ...change, title: null }, [])?.title, null);
+  assert.equal(retitle(open, change)?.title, "Router actions");
+  assert.equal(retitle(open, { ...change, session: "b" }), null);
+  assert.equal(retitle(open, { ...change, agent: "claude" }), null);
+  assert.equal(retitle(open, { ...change, machine_id: "other" }), null);
+  // A cleared title comes with the agent's own.
+  assert.equal(retitle(open, { ...change, title: "Generated title" })?.title, "Generated title");
+  assert.equal(retitle(open, { ...change, title: null })?.title, null);
 });

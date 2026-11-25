@@ -37,22 +37,20 @@ export class ConversationHistory {
 }
 export const conversationHistory = new ConversationHistory();
 
-/// A title saved for a session, here or on another app: null shows the agent's own title again.
+/// The title a session shows after it changed, here or on another app: null when it has none.
 export interface Retitled extends OpenAgent { title: string | null }
 
-/// Session `s` under the title `change` saved for it, or null when `change` is for another
-/// session. A cleared title takes the agent's own from `listed`, the sessions read after it.
-export function retitle(s: AgentRow, change: Retitled, listed: readonly AgentRow[]): AgentRow | null {
+/// Session `s` under the title `change` shows for it, or null when `change` is for another
+/// session.
+export function retitle(s: AgentRow, change: Retitled): AgentRow | null {
   const key = conversationKey({ machine_id: change.machine_id, agent: change.agent, id: change.session });
   if (conversationKey(s) !== key) return null;
-  const title = change.title ?? listed.find(row => conversationKey(row) === key)?.title ?? null;
-  return { ...s, title };
+  return { ...s, title: change.title };
 }
 
-/// `rows` with the title `change` saved on its session, or null when it clears the title (the
-/// agent's own comes from a read) or no row is that session.
+/// `rows` with the title `change` shows on its session, or null when no row is that session or
+/// it shows that title already.
 export function retitled<T extends SessionId & { title: string | null }>(rows: readonly T[], change: Retitled): T[] | null {
-  if (change.title === null) return null;
   const key = conversationKey({ machine_id: change.machine_id, agent: change.agent, id: change.session });
   if (!rows.some(row => conversationKey(row) === key && row.title !== change.title)) return null;
   return rows.map(row => (conversationKey(row) === key ? { ...row, title: change.title } : row));

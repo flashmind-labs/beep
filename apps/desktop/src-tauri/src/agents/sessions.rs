@@ -258,7 +258,8 @@ pub async fn agent_title_save(
 }
 
 /// Tells the windows of each title saved here or on another app, with the
-/// session and its title, so an open session retitles in place.
+/// session and the title it shows (the agent's own once the user's is cleared), so an open
+/// session retitles in place.
 pub(crate) async fn follow_titles(app: AppHandle, fleet: Arc<Fleet>) {
     let mesh = match fleet.ready().await {
         Ok(mesh) => mesh,
@@ -275,9 +276,22 @@ pub(crate) async fn follow_titles(app: AppHandle, fleet: Arc<Fleet>) {
             Err(broadcast::error::RecvError::Lagged(_)) => continue,
             Err(broadcast::error::RecvError::Closed) => return,
         };
-        let Some(retitled) = beep_fleet::session_titles::changed(&mesh, &key) else {
+        let Some(mut retitled) = beep_fleet::session_titles::changed(&mesh, &key) else {
             continue;
         };
+
+        // A cleared title shows the agent's own, which the mirror's rows hold.
+        if retitled.title.is_none() {
+            let rows = app.state::<Arc<SessionMirror>>().current();
+            retitled.title = rows
+                .iter_of(None)
+                .find(|row| {
+                    row.machine_id == retitled.machine_id
+                        && row.agent == retitled.agent
+                        && row.id == retitled.session
+                })
+                .and_then(|row| row.title.clone());
+        }
 
         if let Err(e) = app.emit("agent-title-changed", retitled) {
             log::warn!("could not tell the windows a session title changed: {e}");

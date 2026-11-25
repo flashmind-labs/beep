@@ -17,10 +17,10 @@ import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/med
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, activateMentions, rememberMentionImages, setAttachError } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, drawAgents, sessionUsage, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
+import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, sessionUsage, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
 import { agentAttachError, drawAgentAttached } from "./images.tsx";
 import { removeLastAttachment } from "./attachments-view.tsx";
-import { keepNativeSession, ensureSessions, loadSessions, sessions, sessionsRead } from "./sessions.ts";
+import { keepNativeSession, sessions, sessionsRead } from "./sessions.ts";
 import { closeSession, shownStatus } from "./closing.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
 import { drawAgentBody, syncJump, scrolledLog } from "./logview.tsx";
@@ -31,7 +31,7 @@ import { disposeQueue, interruptAgent, readOutbox, sendAgentMessage, steerMessag
 import type { ChatBody } from "../ui/turn.ts";
 import { invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { perfFresh } from "../ui/perf.ts";
-import { AMBIENT_MS, ambient, onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
+import { onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
 import { onPhone } from "../ui/platform.ts";
 import { readError } from "../agentpane/read.ts";
 import { loadOlder } from "./older.ts";
@@ -531,20 +531,15 @@ onShownChange(shown => {
 });
 
 /// Shows the title saved for the open session in its head, and in the switcher, which lists it.
-/// A followed session pushes only when it works, so a read would not bring the title.
-async function retitleOpen(change: Retitled) {
-  const s = AG.page?.session;
-  if (!s || !retitle(s, change, [])) return;
-  const listed = change.title === null ? await loadSessions().catch(e => { console.warn("session titles:", e); return []; }) : [];
-  const now = AG.page?.session;
-  const shown = now && retitle(now, change, listed);
+/// A followed session pushes only when it works, so the change brings the title.
+function retitleOpen(change: Retitled) {
+  const shown = AG.page && retitle(AG.page.session, change);
   if (!shown || !AG.page) return;
   setPageSession(shown);
   drawAgentHeading();
 }
 
-const titlesChanged = ambient(() => S.view === "agents" ? ensureSessions().then(() => drawAgents(false)) : undefined, AMBIENT_MS);
-listen<Retitled>("agent-title-changed", e => { void retitleOpen(e.payload); if (e.payload.title === null) titlesChanged(); });
+listen<Retitled>("agent-title-changed", e => retitleOpen(e.payload));
 
 // A notice about a session that asks may mean it was answered elsewhere, and a start says so
 // when it waits, starts or fails.

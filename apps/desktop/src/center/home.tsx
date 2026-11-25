@@ -153,7 +153,6 @@ listen("reconnected", () => { sessionsStale = true; readSessions(); });
 listen<Retitled>("agent-title-changed", ({ payload }) => {
   const next = retitled(projectSessions, payload);
   if (next) showSessions(next);
-  else if (payload.title === null) { sessionsStale = true; readSessions(); }
 });
 sessionsRead.add(() => draw());
 onPlaces(() => draw());

@@ -71,10 +71,10 @@ moveStore.subscribe(state => { if (state.records !== moves) { moves = state.reco
 // A reconnect says a push may have been missed: the sessions are read again, once a second at most.
 const reread = ambient(() => loadSessions().catch(e => console.warn("sessions:", e)), AMBIENT_MS);
 listen("reconnected", () => reread());
-// A title saved comes with its value: the kept rows take it, and only a cleared title reads.
+// A title comes with its value, a cleared one with the agent's own: the kept rows take it.
 listen<Retitled>("agent-title-changed", ({ payload }) => {
   const next = retitled(sessions, payload);
-  if (!next) { if (payload.title === null) reread(); return; }
+  if (!next) return;
   if (listed) listed = retitled(listed, payload) ?? listed;
   sessions = next;
   for (const f of sessionsRead) f();

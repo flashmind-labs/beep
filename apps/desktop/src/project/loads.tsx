@@ -535,23 +535,9 @@ export function elsewhereSection(rows: Project[], enabled: boolean) {
   return <div id="sec-elsewhere"><RepoSection id="section:elsewhere" title="Your PRs and issues elsewhere" note="in repos without a project" repos={body} sort="default" open={openUrl} /></div>;
 }
 
-// Reopened sessions and moves change independently of project membership. The project's page
-// shows them, and the rail beside one of its sessions.
-const shownSessions = () => currentLocation()?.view === "projects" ? state.picked : railProject(shell.getState().side.rail);
-const projectSessionsShown = () => !!shownSessions();
-async function refreshProjectSessions() {
-  const name = shownSessions();
-  if (name) { sessionsDue.add(name); await loadSessions(name); }
-}
 // The lists themselves come as `session-list` events, also for agents and moves.
-// A title saved comes with its value: every kept list takes it, and only a cleared title reads.
+// A title comes with its value, a cleared one with the agent's own: every kept list takes it.
 listen<Retitled>("agent-title-changed", ({ payload }) => {
-  if (payload.title === null) {
-    sessionChanges.changed();
-    if (projectSessionsShown()) void refreshProjectSessions().catch(e => console.warn("project session titles:", e));
-    return;
-  }
-
   for (const name of pages.ids("sessions")) {
     const next = retitled(peekSessions(name) ?? [], payload);
     if (next) showSessions(name, next, true);
