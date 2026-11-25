@@ -334,7 +334,6 @@ fn demanded(source: &Topic, wanted: &[Topic]) -> bool {
                 ("agents", "agent" | "moves")
                     | ("agent", "agents")
                     | ("processes", "process-output")
-                    | ("terminals", "terminal-output")
             )
             || (source.name() == "files"
                 && wanted.name() == "files"

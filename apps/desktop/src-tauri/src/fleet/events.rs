@@ -918,9 +918,7 @@ impl Events {
             .filter(|interest| {
                 matches!(
                     (update.topic.name(), interest.topic.name()),
-                    ("agents", "agent")
-                        | ("processes", "process-output")
-                        | ("terminals", "terminal-output")
+                    ("agents", "agent") | ("processes", "process-output")
                 )
             })
             .map(|interest| interest.topic.clone())
@@ -950,9 +948,7 @@ impl Events {
                     && (interest.topic.matches(topic)
                         || matches!(
                             (topic.name(), interest.topic.name()),
-                            ("agents", "agent")
-                                | ("processes", "process-output")
-                                | ("terminals", "terminal-output")
+                            ("agents", "agent") | ("processes", "process-output")
                         ))
             })
     }

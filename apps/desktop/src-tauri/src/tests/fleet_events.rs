@@ -1005,3 +1005,23 @@ fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
     );
     assert!(events.node_wanted(machine, &Topic::new("agents")));
 }
+
+#[test]
+fn a_terminal_list_is_not_taken_for_a_terminals_output() {
+    let events = Events::default();
+    let machine = iroh::SecretKey::generate().public();
+    let output = Interest {
+        machine: None,
+        topic: Topic::keyed("terminal-output", "7"),
+    };
+    let _window = register(
+        &events,
+        "one",
+        Uuid::new_v4(),
+        vec![output],
+        Arc::new(|_| true),
+    );
+
+    assert!(!events.node_wanted(machine, &Topic::new("terminals")));
+    assert!(events.node_wanted(machine, &Topic::keyed("terminal-output", "7")));
+}
