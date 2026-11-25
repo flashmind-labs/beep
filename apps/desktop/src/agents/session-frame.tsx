@@ -1,5 +1,5 @@
 import { readWindowPreference, writeWindowPreference } from "../ui/window-layout.ts";
-import { ComposeField } from "../chat/compose.tsx";
+import { appendQuote, ComposeField } from "../chat/compose.tsx";
 import { FilePicker } from "./file-picker.tsx";
 import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
@@ -229,7 +229,88 @@ export function SessionField({ mode, name, banner, moveKey, machine, session, co
   if (mode === "native") return <div className="dinput small" id="agfield"><textarea id="agnativemsg" rows={1} aria-label="Messages are sent from the parent conversation" disabled placeholder="Open the parent conversation to send a message" /><span id="agmodel"><FieldControl slot="model" /></span><Button id="agnativeparent" onClick={openParent}>Open parent</Button></div>;
   if (mode === "starting") return <div className="dmuted dbanner dtakeover"><span>{banner}</span>{retry && <Button onClick={retry}>Retry</Button>}<Button look="quiet" onClick={cancel}>Cancel</Button></div>;
   if (mode === "readonly") return continueHere ? <div className="dmuted dbanner dtakeover"><span>{banner}</span><ContinueHere {...continueHere} /></div> : <div className="dmuted dblock dbanner">{banner}</div>;
-  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><FieldControl slot="steps" /><div id="agtasks"><FieldControl slot="tasks" /></div><RunningPages /><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><ComposerPresence machine={machine} session={session} /><PluginSlot name="composer" /><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><MoveBar moveKey={moveKey} /><FieldGrip key={fieldPreference} preference={fieldPreference} /><FilePicker attach={attach} /><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><ComposeField key={draft} ref={input} draft={draft} images={attach} removeLast={removeLast} grow={156} id="agmsg" rows={1} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
+  return <><MoveBox moveKey={moveKey} /><div id="agplan"><FieldControl slot="plan" /></div><div className="ag-work"><div className="ag-worklist" onMouseDown={keepPhoneField}><FieldControl slot="steps" /><div id="agtasks"><FieldControl slot="tasks" /></div><RunningPages /><div data-agent-queue-slot style={{ display: "contents" }}><FieldQueue /></div></div><div data-agent-work-line style={{ display: "contents" }}><WorkLine /></div></div><ComposerPresence machine={machine} session={session} /><PluginSlot name="composer" /><QuoteSelection /><div className={dropping ? "dinput small dropping" : "dinput small"} id="agfield"><MoveBar moveKey={moveKey} /><FieldGrip key={fieldPreference} preference={fieldPreference} /><FilePicker attach={attach} /><div data-agent-attachment-slot style={{ display: "contents" }}><FieldAttachments /></div><ComposeField key={draft} ref={input} draft={draft} images={attach} removeLast={removeLast} grow={156} id="agmsg" rows={1} placeholder={`Message ${name}`} /><span id="agmode"><FieldControl slot="mode" /></span><span id="agmodel"><FieldControl slot="model" /></span><StopButton stop={stop} /><Button id="agsend" aria-label="Send" onClick={() => { if (input.current) send(input.current); }}><Icon name="send" /></Button><div data-agent-menu-slot style={{ display: "contents" }}><FieldMenu /></div></div><div id="agpickm" ref={modelPickHost}><FieldControl slot="pick" /></div></>;
+}
+
+/// The range selected inside the open conversation when it has text and lies
+/// wholly within a single agent reply.
+function selectedAgentRange(selection: Selection | null): Range | null {
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!range.toString().trim()) return null;
+
+  const body = sessionBody();
+  const replyOf = (node: Node) => {
+    const el = node instanceof Element ? node : node.parentElement;
+    if (!el || el.closest("button, summary, [role='button']")) return null;
+    return el.closest<HTMLElement>(".dcoderen.agent");
+  };
+  const start = replyOf(range.startContainer);
+  if (!start || start !== replyOf(range.endContainer) || (body && !body.contains(start))) return null;
+  return range;
+}
+
+function quoteSelectedReply(): boolean {
+  const field = agentMessage.current;
+  if (!field || !field.isConnected || field.readOnly) return false;
+
+  const selection = getSelection(), range = selectedAgentRange(selection);
+  const text = range?.toString() ?? "";
+  if (!text.trim()) return false;
+
+  // Clear the DOM selection before focusing the textarea: in WebKit,
+  // removeAllRanges() after focus blurs the textarea's caret.
+  selection?.removeAllRanges();
+  return appendQuote(field, text);
+}
+
+/// Floating Quote button over a selection in an agent reply; Q while shown.
+function QuoteSelection() {
+  const [rect, setRect] = useState<DOMRect | null>(null);
+
+  useEffect(() => {
+    const update = () => {
+      const field = agentMessage.current;
+      if (!field || !field.isConnected || field.readOnly) { setRect(null); return; }
+
+      const range = selectedAgentRange(getSelection());
+      const box = range?.getBoundingClientRect() ?? null;
+      const body = sessionBody()?.getBoundingClientRect();
+      const visible = box && (box.width > 0 || box.height > 0)
+        && (!body || (box.bottom > body.top && box.top < body.bottom));
+      setRect(visible ? box : null);
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "q" || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target && target !== agentMessage.current && target.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (quoteSelectedReply()) event.preventDefault();
+    };
+
+    document.addEventListener("selectionchange", update);
+    window.addEventListener("scroll", update, { capture: true, passive: true });
+    window.addEventListener("resize", update);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("selectionchange", update);
+      window.removeEventListener("scroll", update, { capture: true });
+      window.removeEventListener("resize", update);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  if (!rect) return null;
+
+  const left = Math.round(Math.min(Math.max(8, rect.left + rect.width / 2 - 38), window.innerWidth - 84));
+  const below = rect.bottom + 6;
+  const top = Math.round(below + 34 <= window.innerHeight ? below : Math.max(8, rect.top - 36));
+  return createPortal(
+    <div className="agquote-pop" role="toolbar" aria-label="Selection actions" style={{ left, top }} onMouseDown={e => e.preventDefault()}>
+      <Button small look="quiet" onClick={() => { quoteSelectedReply(); }} title="Quote selection in message (Q)">Quote<kbd>Q</kbd></Button>
+    </div>,
+    document.body,
+  );
 }
 
 // A draft and the session it starts share the same dock nodes. Their terminals

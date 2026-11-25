@@ -253,7 +253,8 @@ body:not(.mobile) :is(.cc-pal, .cc-menu, .agctx, .agc-pick, .agc-menu, .us-pop, 
 /* The two composers hold the model picker, which is placed against the window. A blur on the
    composer itself would become what the picker is placed against, so the glass is a layer behind it. */
 body:not(.mobile) .cc-pjc .box, body:not(.mobile) .cc-pjc.centered .box { position: relative; isolation: isolate; border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit) }
-body:not(.mobile) #agfield#agfield.dinput.small::before, body:not(.mobile) .cc-pjc .box::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--elev) max(72%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass) }
+body:not(.mobile) .agquote-pop { border-color: color-mix(in srgb, var(--fg) 16%, transparent); background: var(--lit) }
+body:not(.mobile) #agfield#agfield.dinput.small::before, body:not(.mobile) .cc-pjc .box::before, body:not(.mobile) .agquote-pop::before { content: ""; position: absolute; inset: 0; z-index: -1; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--elev) max(72%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass) }
 /* While you type, the field glows. */
 body:not(.mobile) #agfield#agfield.dinput.small:focus-within, body:not(.mobile) .cc-pjc .box:focus-within { border-color: color-mix(in srgb, var(--accent) 70%, transparent); box-shadow: 0 10px 30px -8px color-mix(in srgb, var(--shade) 70%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 40px -6px color-mix(in srgb, var(--accent) 50%, transparent) }
 /* The main action glows too. */

@@ -48,6 +48,25 @@ export function fenceAfterBlankLine(text: string) {
   return out.join(TRIPLE);
 }
 
+/// Formats `selected` as a Markdown blockquote (`> ...`) to append to
+/// `existing`, replacing trailing whitespace from `from` so one blank line
+/// sits before and after the quote without triggering `fenceAfterBlankLine`.
+export function quoteAppend(existing: string, selected: string): { from: number; text: string } | null {
+  const trimmed = normalizeNewlines(selected).trim();
+  if (!trimmed) return null;
+
+  const block = trimmed
+    .replace(/\n(?:[ \t]*\n)+/g, "\n\n")
+    .split("\n")
+    .map(line => line.trim() ? `> ${line.trimEnd()}` : ">")
+    .join("\n");
+
+  if (!existing.trim()) return { from: 0, text: `${block}\n\n` };
+
+  const from = existing.replace(/\s+$/, "").length;
+  return { from, text: `\n\n${block}\n\n` };
+}
+
 // ----- Pasted text pills -----
 
 // A pill is its label in the field's text: "Pasted text · 42 lines" between

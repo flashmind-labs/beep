@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Ref, type TextareaHTMLAttributes } from "react";
 import { NO_AUTO } from "../ui/kit.tsx";
 import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
-import { composeMessage as compose, expandPills, fenceSpans, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, snapCaret, snapSelection } from "./compose-text.ts";
+import { composeMessage as compose, expandPills, fenceSpans, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, quoteAppend, snapCaret, snapSelection } from "./compose-text.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { sessionBody } from "../agents/session-frame.tsx";
@@ -63,6 +63,18 @@ export function startField(field: HTMLTextAreaElement, text: string) {
   }
 
   field.setSelectionRange(field.value.length, field.value.length);
+}
+
+/// Appends `selected` to `field` as a Markdown blockquote (`> ...`) and
+/// focuses `field` on the blank line below it, keeping undo intact.
+export function appendQuote(field: HTMLTextAreaElement, selected: string): boolean {
+  const edit = quoteAppend(field.value, selected);
+  if (!edit) return false;
+
+  field.setSelectionRange(edit.from, field.value.length);
+  insert(field, edit.text);
+  field.setSelectionRange(field.value.length, field.value.length);
+  return true;
 }
 
 /// A composer's field: a textarea with the layer behind it that draws its

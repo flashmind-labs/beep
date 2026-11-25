@@ -764,6 +764,9 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dcoderen.agent.md > .reply-body > :first-child { margin-top: 0 } .dcoderen.agent.md > .reply-body > :last-child { margin-bottom: 0 }
 .dcoderen.agent.md pre { font-size: 12px; line-height: 18px }
 .dcoderen.agent.md img { max-width: 100%; height: auto }
+/* Floating Quote action over selected text in an agent reply. */
+.agquote-pop { position: fixed; z-index: 45; isolation: isolate; display: flex; padding: 3px; border-radius: var(--radius); border: 1px solid var(--border); background: var(--elev); box-shadow: 0 10px 30px -8px rgb(0 0 0 / .5) }
+.agquote-pop kbd { margin-inline-start: 6px; padding: 0 4px; border-radius: 3px; font: 10.5px var(--mono); color: var(--dim); background: color-mix(in srgb, var(--fg) 6%, transparent) }
 /* A tool call: its mark, its title in mono, then its output folded to a few lines. */
 .dcoderen.tool { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; column-gap: 8px; align-items: start; white-space: normal; font-size: 12px; line-height: 20px; color: var(--muted) }
 .dcoderen.tool + .dcoderen.tool { margin-top: -9px }

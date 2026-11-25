@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { composeMessage, fenceAfterBlankLine, fenceSpans, imagePath, pillAt, pillLabel, pillsIn, Pastes, snapCaret, snapSelection } from "../src/chat/compose-text.ts";
+import { composeMessage, fenceAfterBlankLine, fenceSpans, imagePath, pillAt, pillLabel, pillsIn, Pastes, quoteAppend, snapCaret, snapSelection } from "../src/chat/compose-text.ts";
 
 // The fence cases are flsh's own (flashmind-tui repl/input.rs), same
 // inputs and outputs.
@@ -103,4 +103,24 @@ test("a pasted path to a picture is found", () => {
   assert.equal(imagePath("/tmp/notes.txt"), null);
   assert.equal(imagePath("/tmp/a.png\n/tmp/b.png"), null);
   assert.equal(imagePath("look at /tmp/a.png"), null);
+});
+
+test("quoteAppend formats selections as blockquotes without triggering triple-newline fences", () => {
+  assert.equal(quoteAppend("existing", "   "), null);
+  assert.deepEqual(quoteAppend("", "  keep the query string. \n"), { from: 0, text: "> keep the query string.\n\n" });
+  assert.deepEqual(quoteAppend("   \n", "first"), { from: 0, text: "> first\n\n" });
+
+  // Quoting a second selection right after the first replaces trailing newlines so no \n\n\n forms.
+  const first = quoteAppend("", "first line");
+  assert.ok(first);
+  const second = quoteAppend(first.text, "second line");
+  assert.ok(second);
+  const joined = first.text.slice(0, second.from) + second.text;
+  assert.equal(joined, "> first line\n\n> second line\n\n");
+  assert.equal(fenceAfterBlankLine(`${joined}Why does this happen?`), "> first line\n\n> second line\n\nWhy does this happen?");
+
+  // Multiple blank lines inside a selection become a single quoted blank line.
+  const multi = quoteAppend("Question:", "para one\n\n\npara two");
+  assert.ok(multi);
+  assert.equal("Question:".slice(0, multi.from) + multi.text, "Question:\n\n> para one\n>\n> para two\n\n");
 });
