@@ -10,6 +10,7 @@ import { Board } from "../center/lanes-view.tsx";
 import { frontLayout } from "../ui/skin.ts";
 import { ProjectIssues } from "./issues-view.tsx";
 import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
+import { issueStartPlan, loadStartHosts, startIssues } from "./composer.tsx";
 // A project page's split: the list of PRs, issues and machines on the
 // left, the picked row's view on the right.
 import { sessionVisible } from "../agents/closing.ts";
@@ -205,7 +206,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   }));
   const prKey = `${p.name}:prs`;
   const prFilter = labelFilter(prKey, prItems, i => i.tags, redrawProjects);
-  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: <OpenListControls list={prKey} redraw={redrawProjects} issues={false} />, labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
+  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: <OpenListControls list={prKey} redraw={redrawProjects} issues={false} loadHosts={loadStartHosts} />, labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
   const issueItems: SplitItem[] = teamIssues(p.name, issues || []).map(issue => ({
     key: `issue:${issue.number}`, opened: issue.opened_at, start: { key: `issue:${issue.number}`, project: p.name, number: issue.number, title: issue.title, url: issue.url },
     title: issue.title, sub: <>{num(issue.number)} · {issueMeta(issue, ms => formatAgo(ms, "short"))}</>, tags: issue.labels,
@@ -240,8 +241,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const showIssues = pa.tile === "issues";
   const issuesView = showIssues ? <div className="pj-det"><ProjectIssues
     items={issueShown} filter={issueFilter.labels} owners={<IssueOwners project={p.name} issues={issues || []}/>}
-    controls={<OpenListControls list={issueKey} redraw={redrawProjects} issues flexItem />}
-    start={<OpenListStart list={issueKey} shown={issueShown.flatMap(item => item.start ?? [])} redraw={redrawProjects} flexItem />}
+    controls={<OpenListControls list={issueKey} redraw={redrawProjects} issues loadHosts={loadStartHosts} flexItem />}
+    start={<OpenListStart list={issueKey} shown={issueShown.flatMap(item => item.start ?? [])} redraw={redrawProjects} plan={issueStartPlan} run={startIssues} flexItem />}
     selection={(id: string) => issueSelection(issueKey, id)}
     pick={(id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, redrawProjects)}
     openTile={openTile}
