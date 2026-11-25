@@ -35,7 +35,7 @@ import { invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts"
 import { perfFresh } from "../ui/perf.ts";
 import { onShownChange, paneShown, visibilitySnapshot } from "../ui/active.ts";
 import { onPhone } from "../ui/platform.ts";
-import { readError } from "../agentpane/read.ts";
+import { readError } from "../agentpane/read-file.ts";
 import { loadOlder } from "./older.ts";
 import { joinRuns, newestRead } from "./older-state.ts";
 import { adoptKeptPage, endPage, mergePage, openPage, setFirstMessage, setPageSession } from "./open-page.ts";

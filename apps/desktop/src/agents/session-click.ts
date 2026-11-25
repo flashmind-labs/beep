@@ -15,7 +15,7 @@ import { toggleModelPicker, closeModelPicker, retryWithModel } from "./modelpill
 import { cycleMode } from "./modepill.tsx";
 import { answerAgentQuestion, interruptAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
-import { readError } from "../agentpane/read.ts";
+import { readError } from "../agentpane/read-file.ts";
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { continuedFrom, continuedIn } from "./continue-state.ts";
 import { nativeSession } from "./native-session-state.ts";

@@ -16,7 +16,7 @@ import {
 } from "./lsp-state.ts";
 import { type MediaTab, type TextPlace, type TreeText, discardSheet, newFileEdit, openLocation, P, rememberPane, saveWorkFile, openTabs } from "./media.ts";
 import { noteTab, touchTab } from "./media-draw.ts";
-import { fileError, readError } from "./read.ts";
+import { fileError, readError } from "./read-file.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
 

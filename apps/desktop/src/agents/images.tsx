@@ -11,7 +11,7 @@ import { redrawAgentHints } from "./session-head.tsx";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { fillInlineImages } from "./inline-images.ts";
-import { readFile } from "../agentpane/read.ts";
+import { readFile } from "../agentpane/read-file.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
 import type { Preview } from "./composer-ui.tsx";
 

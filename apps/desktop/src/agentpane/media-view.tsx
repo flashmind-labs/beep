@@ -7,7 +7,7 @@ import { invoke } from "../ui/tauri.ts";
 import { resolvePath } from "./media-state.ts";
 import { transferSpeed } from "./files-state.ts";
 import { P, saveFile, type MediaTab, openTabs } from "./media.ts";
-import { readError, readFile } from "./read.ts";
+import { readError, readFile } from "./read-file.ts";
 import { noteTab } from "./media-draw.ts";
 import { PdfExportView } from "./pdf-export-view.tsx";
 

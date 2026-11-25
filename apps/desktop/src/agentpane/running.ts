@@ -13,7 +13,7 @@ import { paneShown } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { AgentTask } from "../agents/agents-state.ts";
 import { runs, transcriptKey, transcripts } from "../agents/transcript-cache-state.ts";
-import { readError } from "./read.ts";
+import { readError } from "./read-file.ts";
 
 let key = "";
 let unfollow: (() => void) | undefined;

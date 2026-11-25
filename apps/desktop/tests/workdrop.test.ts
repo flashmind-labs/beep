@@ -1,7 +1,7 @@
 import { answers, calls, nativeEvent } from "./bar-env.ts";
 import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "../src/agentpane/read.ts";
+import { readFile } from "../src/agentpane/read-file.ts";
 import { type FilePart, P } from "../src/agentpane/media.ts";
 import { UPLOAD_PART } from "../src/agentpane/files-state.ts";
 import { MN, MAX_ATTACH_BYTES, attachReads, uploadDropped, activateMentions, rememberMentionImages, resetMentions, currentMentions } from "../src/agents/workdrop.ts";

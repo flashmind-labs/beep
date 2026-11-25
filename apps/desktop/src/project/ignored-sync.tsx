@@ -5,7 +5,7 @@ import { invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 import { gitignoreSuggestions, ignoredSelection, listedFolders, type GitignoreSuggestions, type IgnoredSync } from "./ignored-sync-state.ts";
 import { Button, Checkbox, ChipToggle, NO_AUTO, SheetHead } from "../ui/kit.tsx";
-import { readFile } from "../agentpane/read.ts";
+import { readFile } from "../agentpane/read-file.ts";
 import type { ProjectPlace } from "./projects-state.ts";
 
 /// `places` are where the project is: the first `.gitignore` read there

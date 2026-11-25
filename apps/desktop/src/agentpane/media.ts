@@ -23,7 +23,8 @@ import { unfollowFiles } from "./reload.ts";
 import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
 import type { TerminalRow } from "../terminals/terminals.tsx";
 import { newTermLike } from "../terminals/newkey-state.ts";
-import { readError, loadText, startTerminal, load } from "./read.ts";
+import { loadText, startTerminal, load } from "./read.ts";
+import { readError, readingFrom } from "./read-file.ts";
 import { togglePreview } from "./text-view.tsx";
 import type { LspLocation } from "./lsp-state.ts";
 import { frameResize } from "../ui/dom.ts";
@@ -206,6 +207,7 @@ function savedPane(key: string): unknown {
 export function startPane(s: PaneSession) {
   closePaneTabs();
   P.session = s;
+  readingFrom.machine = s.machine_name;
   paneReleased = true;
   const key = viewKey(s.machine_id, s.id);
   const saved = savedPane(key);
@@ -268,6 +270,7 @@ function inBar(layout: PaneLayout): PaneLayout {
 export function rebindPane(s: PaneSession) {
   const was = P.session;
   P.session = s;
+  readingFrom.machine = s.machine_name;
   if (was && was.machine_id !== s.machine_id) for (const t of openTabs().filter(x => x.kind !== "term")) closeTab(t.id);
   readWorktrees(s);
   pointFilesAt();
