@@ -271,6 +271,8 @@ fn watch(dir: &Path) -> Result<()> {
     let path = dir.join(NOTE);
     let mut current = read_note(&dir);
     let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        crate::events::paths::counted("terminal-host", &event);
+
         match event {
             Ok(event)
                 if !event.need_rescan()

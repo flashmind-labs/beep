@@ -67,6 +67,8 @@ struct Readers {
 }
 
 struct Reader {
+    /// Who asked, for the metrics.
+    label: &'static str,
     roots: Vec<PathBuf>,
     changed: Changed,
 }
@@ -104,15 +106,23 @@ const UNWATCHED: &[&str] = &[
     ".parcel-cache",
 ];
 
+/// Folders under `.git` that change on every Git command and that no reader
+/// follows. `.git` itself stays watched: Git replaces `.git/index` by rename.
+const GIT_QUIET: &[&str] = &["objects", "logs", "lfs"];
+
 static SHARED: Mutex<Option<Arc<Shared>>> = Mutex::new(None);
 static NEXT_READER: AtomicU64 = AtomicU64::new(0);
 
 impl Paths {
-    pub(crate) fn new(changed: impl Fn(Vec<PathBuf>) + Send + Sync + 'static) -> Result<Self> {
-        Self::with_structure(move |roots, _| changed(roots))
+    pub(crate) fn new(
+        reader: &'static str,
+        changed: impl Fn(Vec<PathBuf>) + Send + Sync + 'static,
+    ) -> Result<Self> {
+        Self::with_structure(reader, move |roots, _| changed(roots))
     }
 
     pub(crate) fn with_structure(
+        reader: &'static str,
         changed: impl Fn(Vec<PathBuf>, bool) + Send + Sync + 'static,
     ) -> Result<Self> {
         let shared = Shared::get()?;
@@ -121,6 +131,7 @@ impl Paths {
         crate::lock(&shared.state.readers).held.insert(
             id,
             Reader {
+                label: reader,
                 roots: Vec::new(),
                 changed: changed.clone(),
             },
@@ -315,10 +326,21 @@ impl State {
                         .collect(),
                     _ => reader.roots.clone(),
                 };
-                (reader.changed.clone(), roots)
+                (reader.label, reader.changed.clone(), roots)
             })
-            .filter(|(_, roots): &(Changed, Vec<PathBuf>)| !roots.is_empty())
+            .filter(|(_, _, roots): &(_, Changed, Vec<PathBuf>)| !roots.is_empty())
             .collect();
+        let kind = kind_of(&event);
+
+        if reached.is_empty() {
+            metrics::counter!("beep_watch_reached_total", "reader" => "none", "kind" => kind)
+                .increment(1);
+        }
+
+        for (label, _, _) in &reached {
+            metrics::counter!("beep_watch_reached_total", "reader" => *label, "kind" => kind)
+                .increment(1);
+        }
 
         match &event {
             Ok(event) if !event.need_rescan() => {
@@ -352,7 +374,7 @@ impl State {
             return;
         }
 
-        for (changed, roots) in reached {
+        for (_, changed, roots) in reached {
             changed(roots, structural);
         }
 
@@ -647,10 +669,11 @@ fn watch_folders(
                 .flatten()
                 .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
                 .filter(|entry| {
-                    !entry
-                        .file_name()
-                        .to_str()
-                        .is_some_and(|name| UNWATCHED.contains(&name))
+                    !entry.file_name().to_str().is_some_and(|name| {
+                        UNWATCHED.contains(&name)
+                            || (folder.file_name().is_some_and(|parent| parent == ".git")
+                                && GIT_QUIET.contains(&name))
+                    })
                 })
                 .map(|entry| entry.path()),
         );
@@ -661,7 +684,12 @@ fn watch_folders(
 
 /// Counts one filesystem notification by the watcher that took it.
 pub(crate) fn counted(watcher: &'static str, event: &notify::Result<notify::Event>) {
-    let kind = match event {
+    metrics::counter!("beep_watch_events_total", "watcher" => watcher, "kind" => kind_of(event))
+        .increment(1);
+}
+
+fn kind_of(event: &notify::Result<notify::Event>) -> &'static str {
+    match event {
         Ok(event) if event.need_rescan() => "rescan",
         Ok(event) => match event.kind {
             EventKind::Create(_) => "create",
@@ -671,9 +699,7 @@ pub(crate) fn counted(watcher: &'static str, event: &notify::Result<notify::Even
             EventKind::Any | EventKind::Other => "other",
         },
         Err(_) => "error",
-    };
-    metrics::counter!("beep_watch_events_total", "watcher" => watcher, "kind" => kind)
-        .increment(1);
+    }
 }
 
 /// Git's own folder is left out of a checkout's root: objects, logs and
@@ -711,11 +737,14 @@ pub(crate) fn reports(parent: &Path, path: &Path) -> bool {
 
 /// Whether a relative path passes through an `UNWATCHED` folder.
 fn unwatched(relative: &Path) -> bool {
+    let mut after_git = false;
+
     relative.components().any(|component| {
-        component
-            .as_os_str()
-            .to_str()
-            .is_some_and(|name| UNWATCHED.contains(&name))
+        let name = component.as_os_str().to_str();
+        let quiet = after_git && name.is_some_and(|name| GIT_QUIET.contains(&name));
+        after_git = name == Some(".git");
+
+        quiet || name.is_some_and(|name| UNWATCHED.contains(&name))
     })
 }
 

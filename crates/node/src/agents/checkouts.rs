@@ -466,7 +466,7 @@ impl Checkout {
                 }
 
                 paths.push(root.clone());
-                let watch = Paths::new(move |_| changed.notify_one())?;
+                let watch = Paths::new("checkouts", move |_| changed.notify_one())?;
                 watch.replace(paths).await?;
                 anyhow::Ok(Some(watch))
             };

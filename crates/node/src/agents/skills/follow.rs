@@ -142,7 +142,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
 /// Watches the skills folders under `home`, sending on `edited` when a file
 /// under one changes. None when the watcher could not start.
 async fn watch(home: &Path, edited: mpsc::Sender<()>) -> Option<Paths> {
-    let watcher = Paths::new(move |_| {
+    let watcher = Paths::new("skills", move |_| {
         let _ = edited.try_send(());
     });
     let watching = match watcher {

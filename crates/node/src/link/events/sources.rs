@@ -225,7 +225,7 @@ fn file_watcher(offers: &Offers) -> Result<FileWatcher> {
     let bindings = Arc::new(Mutex::new(FileBindings::new()));
     let changed_roots = bindings.clone();
     let hub = offers.agents.events.clone();
-    let paths = crate::events::paths::Paths::new(move |paths| {
+    let paths = crate::events::paths::Paths::new("link-events", move |paths| {
         let held = crate::lock(&changed_roots);
 
         for (topic, dependencies) in held.iter() {

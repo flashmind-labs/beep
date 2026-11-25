@@ -7,7 +7,7 @@ use tokio::sync::mpsc;
 async fn a_missing_directory_only_watches_its_parent_non_recursively() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("new/store");
-    let watcher = Paths::new(|_| {}).unwrap();
+    let watcher = Paths::new("test", |_| {}).unwrap();
     watcher.replace(vec![path.clone()]).await.unwrap();
     let held = crate::lock(&watcher.shared.inner);
     assert!(!held.installed.contains_key(&path));
@@ -31,7 +31,7 @@ async fn aliases_share_one_watch_and_removing_one_keeps_the_directory_watched() 
         (directory, vec![root.path().to_owned(), alias])
     };
     let (changed, mut changes) = mpsc::channel(8);
-    let watcher = Paths::new(move |paths| {
+    let watcher = Paths::new("test", move |paths| {
         let _ = changed.try_send(paths);
     })
     .unwrap();
@@ -51,7 +51,7 @@ async fn renaming_and_recreating_a_root_rearms_the_replacement_directory() {
     let root = directory.path().join("watched");
     std::fs::create_dir(&root).unwrap();
     let (changed, mut changes) = mpsc::channel(32);
-    let watcher = Paths::new(move |paths| {
+    let watcher = Paths::new("test", move |paths| {
         let _ = changed.try_send(paths);
     })
     .unwrap();
@@ -96,7 +96,7 @@ async fn a_directory_created_after_subscribing_becomes_recursive() {
     let root = tempfile::tempdir().unwrap();
     let path = root.path().join("new/store");
     let (changed, mut changes) = mpsc::channel(32);
-    let watcher = Paths::new(move |paths| {
+    let watcher = Paths::new("test", move |paths| {
         let _ = changed.try_send(paths);
     })
     .unwrap();
@@ -175,7 +175,7 @@ async fn the_walk_skips_build_output_and_keeps_a_worktree_inside_as_its_own_root
     let worktree = root.join(".worktrees/fix");
     std::fs::create_dir_all(worktree.join("src")).unwrap();
     let (changed, mut changes) = mpsc::channel(32);
-    let watcher = Paths::new(move |paths| {
+    let watcher = Paths::new("test", move |paths| {
         let _ = changed.try_send(paths);
     })
     .unwrap();
@@ -209,7 +209,7 @@ async fn a_folder_made_after_the_walk_is_watched_and_one_removed_is_let_go() {
     let root = tempfile::tempdir().unwrap();
     let root = crate::agents::reach::real(root.path()).unwrap();
     let (changed, mut changes) = mpsc::channel(32);
-    let watcher = Paths::new(move |paths| {
+    let watcher = Paths::new("test", move |paths| {
         let _ = changed.try_send(paths);
     })
     .unwrap();
@@ -248,10 +248,10 @@ async fn until_reconciled(watcher: &Paths, done: impl Fn(&Inner) -> bool) {
 async fn readers_share_a_root_and_it_stays_watched_after_the_last_lets_go() {
     let root = tempfile::tempdir().unwrap();
     let root = crate::agents::reach::real(root.path()).unwrap();
-    let first = Paths::new(|_| {}).unwrap();
+    let first = Paths::new("test", |_| {}).unwrap();
     first.replace(vec![root.clone()]).await.unwrap();
     let (changed, mut changes) = mpsc::channel(32);
-    let second = Paths::new(move |paths| {
+    let second = Paths::new("test", move |paths| {
         let _ = changed.try_send(paths);
     })
     .unwrap();
@@ -276,10 +276,10 @@ async fn a_root_that_stops_lingering_leaves_other_readers_alone() {
     let gone = tempfile::tempdir().unwrap();
     let gone = crate::agents::reach::real(gone.path()).unwrap();
     let kept = tempfile::tempdir().unwrap();
-    let first = Paths::new(|_| {}).unwrap();
+    let first = Paths::new("test", |_| {}).unwrap();
     first.replace(vec![gone.clone()]).await.unwrap();
     let (changed, mut changes) = mpsc::channel(32);
-    let second = Paths::new(move |paths| {
+    let second = Paths::new("test", move |paths| {
         let _ = changed.try_send(paths);
     })
     .unwrap();
@@ -302,4 +302,15 @@ async fn a_root_that_stops_lingering_leaves_other_readers_alone() {
     .await
     .unwrap();
     assert!(changes.try_recv().is_err());
+}
+
+#[test]
+fn git_folders_that_change_on_every_command_are_not_watched() {
+    let root = Path::new("/srv/project");
+
+    assert!(!reports(root, &root.join(".git/objects/ab/cdef")));
+    assert!(!reports(root, &root.join(".git/logs/HEAD")));
+    assert!(reports(root, &root.join(".git/index")));
+    assert!(reports(root, &root.join("src/logs/today")));
+    assert!(reports(root, &root.join("objects/model")));
 }

@@ -300,6 +300,11 @@ fn is_change(kind: &EventKind) -> bool {
 }
 
 fn route(routes: &Mutex<HashMap<Key, Route>>, announcer: &Announcer, event: &Event) {
+    // Most events are opens and reads: leave them before the lock.
+    if !event.need_rescan() && !is_change(&event.kind) {
+        return;
+    }
+
     let mut routes = lock(routes);
     // The system dropped events (a full inotify queue, an FSEvents
     // overflow): any folder may have changed, so every project scans.
@@ -310,10 +315,6 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, announcer: &Announcer, event: &Eve
             announcer.changed(&route.root, ChangeKind::Any);
         }
 
-        return;
-    }
-
-    if !is_change(&event.kind) {
         return;
     }
 

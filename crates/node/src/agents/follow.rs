@@ -254,7 +254,7 @@ async fn follow(
     } else {
         let presence_path = agents.external.presence_path();
         let presence_changed = stale.clone();
-        let watcher = crate::events::paths::Paths::new(move |roots| {
+        let watcher = crate::events::paths::Paths::new("agent-presence", move |roots| {
             if presence_path
                 .as_ref()
                 .is_some_and(|path| roots.contains(path))

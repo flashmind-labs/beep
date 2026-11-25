@@ -292,7 +292,7 @@ impl Agents {
             // The first read, so readers have a value to take.
             let _ = dirty.try_send(());
             let paths =
-                crate::events::paths::Paths::with_structure(move |changed_roots, _| {
+                crate::events::paths::Paths::with_structure("agent-sessions", move |changed_roots, _| {
                     let mut pending = crate::lock(&changed);
                     pending.record(&roots, &changed_roots);
                     drop(pending);
