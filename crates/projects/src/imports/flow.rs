@@ -149,7 +149,7 @@ pub async fn import(env: &Env<'_>, job: Import<'_>) -> Result<ImportedProject, I
         Some(picked) => Some(look(machine.shell()?, &machine.name, picked).await?),
         None => None,
     };
-    let existing = if seen.as_ref().is_none_or(|seen| !seen.exists) {
+    let existing = if seen.is_none() {
         existing_checkout(machine, &repo, fork.as_ref().map(|fork| &fork.repo)).await
     } else {
         None

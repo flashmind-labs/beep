@@ -41,10 +41,43 @@ function orgAndName(repo: string) {
   return parts.length >= 2 ? parts.slice(-2) : null;
 }
 
+/// Strips whitespace and trailing slashes from a folder path, keeping `/`.
+export function cleanFolder(path: string | null | undefined) {
+  return String(path || "").trim().replace(/(.)\/+$/, "$1");
+}
+
+/// The folder typed in Clone into when it differs from the machine's default
+/// projects root; null while untouched, blank, or equal to `defaultRoot`.
+export function typedFolder(typed: string | null | undefined, defaultRoot: string | null | undefined): string | null {
+  if (typed == null) return null;
+  const clean = cleanFolder(typed);
+  if (!clean || clean === cleanFolder(defaultRoot)) return null;
+  return clean;
+}
+
+/// True when a folder was picked or typed away from the machine's default root.
+export function hasCustomFolder(
+  state: Pick<ImportState, "machine" | "chosen">,
+  typed: string | null | undefined,
+  defaultRoot: string | null | undefined,
+) {
+  if (!state.machine) return false;
+  if (state.chosen) return true;
+  if (typed == null) return false;
+  return cleanFolder(typed) !== cleanFolder(defaultRoot);
+}
+
 /// The folder `repo` goes in under `root`: `<root>/<org>/<repo>`.
 export function folderUnder(root: string, repo: string): string | null {
   const parts = orgAndName(repo);
-  return parts ? `${root.replace(/\/+$/, "")}/${parts[0]}/${parts[1]}` : null;
+  return parts ? `${cleanFolder(root)}/${parts[0]}/${parts[1]}` : null;
+}
+
+/// The destination preview under Clone into before a folder listing is read.
+export function goesInText(repo: string, target: string | null, parent: string | null) {
+  if (target) return `Goes in ${target}.`;
+  if (!parent) return "";
+  return `Goes in ${folderUnder(parent, repo) ?? `${cleanFolder(parent)}/<org>/<repo>`}.`;
 }
 
 /// Where the project `project` goes under `root`: `<root>/<org>/<repo>`, or
@@ -96,10 +129,10 @@ export function folderNote(listing: MachineFolder | null | undefined, repo: stri
 type Named = { id: string; name: string };
 
 /// The help line under the folder.
-export function folderHelp(state: Pick<ImportState, "machine" | "chosen">, machines: readonly Named[] | null | undefined) {
+export function folderHelp(state: Pick<ImportState, "machine" | "chosen">, machines: readonly Named[] | null | undefined, custom = false) {
   const tokens = "Private repositories use your tokens from Settings > Credentials.";
   if (!state.machine) return `Beep picks a machine and its default folder. ${tokens}`;
-  if (state.chosen) return tokens;
+  if (state.chosen || custom) return tokens;
   const m = (machines || []).find(x => x.id === state.machine);
   return `The default on ${m ? m.name : "that machine"}. ${tokens}`;
 }
@@ -183,9 +216,13 @@ export function cleanError(message: string | null | undefined) {
 
 /// What shows while it clones: "Cloning org/repo onto build-box…", or
 /// "Importing" for a checkout already there.
-export function progressText(state: Pick<ImportState, "machine" | "chosen" | "repo">, machines: readonly Named[] | null | undefined) {
+export function progressText(
+  state: Pick<ImportState, "machine" | "chosen" | "repo">,
+  machines: readonly Named[] | null | undefined,
+  listing: MachineFolder | null = state.chosen ?? null,
+) {
   const m = (machines || []).find(x => x.id === state.machine);
-  const how = state.chosen && state.chosen.origin != null ? "Importing" : "Cloning";
+  const how = listing?.origin != null ? "Importing" : "Cloning";
   return `${how} ${state.repo} onto ${m ? m.name : "your machine"}…`;
 }
 

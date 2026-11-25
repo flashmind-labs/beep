@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";
 import { plainPath } from "../src/project/filesync.ts";
-import { START, folderUnder, projectUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
+import { START, folderHelp, folderUnder, goesInText, hasCustomFolder, projectUnder, next, looksLikeRepo, progressText, doneText, cleanError, typedFolder } from "../src/addproject/importproject-state.ts";
 import { foundFor, mergeProjects, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
 import { overviewGroups, overviewSub } from "../src/project/overview-state.ts";
 import type { RunningAgent } from "../src/agents/running-state.ts";
@@ -206,6 +206,22 @@ test("a project goes under its org in the folder, a local one by name", () => {
   assert.equal(folderUnder("/srv/projects/", "n0-computer/iroh"), "/srv/projects/n0-computer/iroh");
   assert.equal(folderUnder("/srv/projects", "https://git.example.com/acme/relay.git"), "/srv/projects/acme/relay");
   assert.equal(folderUnder("/srv/projects", "nope"), null);
+});
+
+test("typing a Clone into path treats it as the target folder unless it is the default root", () => {
+  const onBox = next(START, { type: "pick", machine: "a" });
+  assert.equal(typedFolder(null, "~"), null);
+  assert.equal(typedFolder("", "~"), null);
+  assert.equal(typedFolder("~/", "~"), null);
+  assert.equal(typedFolder("~/work/widget/", "~"), "~/work/widget");
+  assert.equal(hasCustomFolder(onBox, null, "~"), false);
+  assert.equal(hasCustomFolder(onBox, "~", "~"), false);
+  assert.equal(hasCustomFolder(onBox, "~/work/widget", "~"), true);
+  assert.equal(hasCustomFolder(onBox, "", "~"), true, "Default restores the root after clearing");
+  assert.equal(goesInText("acme/widget", "~/work/widget", null), "Goes in ~/work/widget.");
+  assert.equal(goesInText("acme/widget", null, "~"), "Goes in ~/acme/widget.");
+  assert.match(folderHelp(onBox, [{ id: "a", name: "build-box" }], false), /^The default on build-box\./);
+  assert.doesNotMatch(folderHelp(onBox, [{ id: "a", name: "build-box" }], true), /The default on/);
 });
 
 test("a folded heading stands alone and names what it hides; loose projects stay", () => {

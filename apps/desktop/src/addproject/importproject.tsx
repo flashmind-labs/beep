@@ -4,14 +4,14 @@ import { ImportProjectView } from "./importproject-view.tsx";
 import { pickFolder } from "./folderbrowser.tsx";
 import { syncthingImportChoice } from "../project/syncthing.ts";
 // The "Import a project" sheet: one field for org/repo or a URL, a chip per
-// online machine (Auto lets Beep pick), the parent folder a clone goes
-// under as <parent>/<org>/<repo> (the machine's Projects in folder), then Import.
+// online machine (Auto lets Beep pick), the folder a clone goes into (by
+// default <Projects in>/<org>/<repo>), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
-import { START, next, looksLikeRepo, folderNote, folderUnder, keepLastImport, lastImport } from "./importproject-state.ts";
+import { START, next, looksLikeRepo, folderNote, goesInText, hasCustomFolder, keepLastImport, lastImport, typedFolder } from "./importproject-state.ts";
 export { keepLastImport, lastImport };
 import type { ImportEvent } from "./importproject-state.ts";
-import type { ProjectRow } from "../project/projects-state.ts";
+import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
 import { defaultPlaces, worktreesToAsk } from "../review/branchwork.ts";
 import type { BranchPicks, ImportFork, PreviewView } from "../review/branchwork.ts";
 import { reason } from "../ui/format.ts";
@@ -48,9 +48,12 @@ let previewTimer: ReturnType<typeof setTimeout> | undefined;
 let fork: ImportFork | null | undefined = undefined;
 /// Each machine's Projects in folder, by id, once read.
 const roots = new Map<string, string>();
-/// The parent field's text once the user types in it; null while it shows
+/// The folder field's text once the user types in it; null while it shows
 /// the folder chosen or the default parent.
 let folderText: string | null = null;
+/// What `list_machine_folder` read for the typed folder, keyed by `machine\npath`.
+let typedListing: MachineFolder | null = null, typedFor = "";
+let typedTimer: ReturnType<typeof setTimeout> | undefined;
 let view: ((content: ReactNode) => void) | null = null, opening = 0;
 
 /// Opens the sheet.
@@ -79,6 +82,7 @@ export function openImportProject(options: ImportProjectOptions = {}) {
   roots.clear();
   draw();
   learnBase();
+  if (options.folder) scheduleTypedFolder();
   schedulePreview();
 }
 
@@ -142,16 +146,59 @@ function update(event: ImportEvent) {
   if (root) draw();
 }
 
-/// Syncthing is asked about the folder chosen, else the parent a clone goes under.
+/// Syncthing is asked about the target folder chosen or typed, else the default parent.
 function followSyncthing() {
-  void syncthing.follow(state.machine, state.chosen?.path ?? parentFolder());
+  void syncthing.follow(state.machine, targetFolder() ?? parentFolder());
 }
 
-/// The parent a clone goes under: the one typed, else the default; null on
-/// Auto or with a folder chosen.
+/// The folder chosen or typed, when not the machine's default parent.
+function targetFolder() {
+  if (!state.machine) return null;
+  return state.chosen?.path ?? typedFolder(folderText, defaultParent());
+}
+
+/// The parent a clone goes under when no target folder was chosen or typed.
 function parentFolder() {
-  if (!state.machine || state.chosen) return null;
-  return (folderText ?? defaultParent())?.trim() || null;
+  if (!state.machine || targetFolder()) return null;
+  return defaultParent()?.trim() || null;
+}
+
+/// The listing read for the chosen or typed target folder, when current.
+function activeListing() {
+  if (state.chosen) return state.chosen;
+  const target = targetFolder();
+  return state.machine && target && typedFor === `${state.machine}\n${target}` ? typedListing : null;
+}
+
+/// Reads the typed folder and its Syncthing state once typing pauses.
+function scheduleTypedFolder(immediate = false) {
+  clearTimeout(typedTimer);
+  const machine = state.machine, target = state.chosen ? null : targetFolder(), mine = opening;
+  if (!machine || !target) {
+    typedListing = null;
+    typedFor = "";
+    followSyncthing();
+    return;
+  }
+  const key = `${machine}\n${target}`;
+  if (typedFor !== key) {
+    typedListing = null;
+    typedFor = "";
+  }
+  const run = () => {
+    if (mine !== opening || !root || state.machine !== machine || state.chosen || targetFolder() !== target) return;
+    followSyncthing();
+    if (typedFor === key) return;
+    if (!target.startsWith("/") && target !== "~" && !target.startsWith("~/")) return;
+    void invoke<MachineFolder>("list_machine_folder", { machineId: machine, path: target }).then(got => {
+      if (mine !== opening || !root || state.machine !== machine || state.chosen || targetFolder() !== target) return;
+      typedListing = got;
+      typedFor = key;
+      draw();
+    }, () => {});
+  };
+  if (immediate) run();
+  else typedTimer = setTimeout(run, 150);
 }
 
 async function submit() {
@@ -163,7 +210,7 @@ async function submit() {
   const mine = opening, then = onDone;
 
   try {
-    const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: state.chosen?.path ?? null, worktrees, parent: parentFolder(), syncthingFiles: syncthing.value() });
+    const project = await invoke<ProjectRow>("import_project", { repo: state.repo, machineId: state.machine, folder: targetFolder(), worktrees, parent: parentFolder(), syncthingFiles: syncthing.value() });
     keepLastImport(project);
     if (mine !== opening || !root) { then?.(project); return; }
     update({ type: "done", project });
@@ -177,14 +224,17 @@ function draw() {
   if (!view) return;
   const current = view;
   const folder = state.machine ? folderText ?? state.chosen?.path ?? defaultParent() ?? "" : "";
+  const customFolder = hasCustomFolder(state, folderText, defaultParent());
   flushSync(() => current(<ImportProjectView
-    state={state} machines={machines} preview={preview} previewFor={previewFor} previewError={previewError} fork={fork} picks={picks} folder={folder} goes={goesIn()} syncChoice={syncthing}
+    state={state} machines={machines} preview={preview} previewFor={previewFor} previewError={previewError} fork={fork} picks={picks} folder={folder} goes={goesIn()} listing={activeListing()} customFolder={customFolder} syncChoice={syncthing}
     edit={(repo: string) => { update({ type: "edit", repo }); schedulePreview(); }}
     pick={(machine: string | null) => { update({ type: "pick", machine }); learnBase(); }}
     submit={() => void submit()} close={closeImportProject} choose={choose} unchoose={() => update({ type: "unchoose" })}
     folderInput={(value: string) => {
-      if (state.chosen) { resetFolder(); state = next(state, { type: "unchoose" }); followSyncthing(); }
-      folderText = value; draw();
+      if (state.chosen) state = next(state, { type: "unchoose" });
+      folderText = value;
+      scheduleTypedFolder();
+      draw();
     }}
     pickBranch={(branch: string, machine: string | null) => { if (machine === null) delete picks[branch]; else picks[branch] = machine; draw(); }}
   />));
@@ -196,7 +246,7 @@ function learnBase() {
   if (!machine || roots.has(machine)) return;
   void projectsIn(machine).then(folder => {
     roots.set(machine, folder);
-    if (mine === opening && root && state.machine === machine) { followSyncthing(); draw(); }
+    if (mine === opening && root && state.machine === machine) { scheduleTypedFolder(true); draw(); }
   });
 }
 
@@ -217,8 +267,11 @@ function choose() {
 
   const machine = state.machine, mine = opening;
   if (!machine) return;
-  void pickFolder({ machine, start: state.chosen?.path ?? parentFolder(), heading: "Choose a folder", noteFor: async listing => folderNote(listing, state.repo) }).then(listing => {
-    if (listing && mine === opening && root && state.machine === machine) update({ type: "choose", listing });
+  void pickFolder({ machine, start: targetFolder() ?? parentFolder(), heading: "Choose a folder", noteFor: async listing => folderNote(listing, state.repo) }).then(listing => {
+    if (listing && mine === opening && root && state.machine === machine) {
+      update({ type: "choose", listing });
+      schedulePreview();
+    }
   });
 }
 
@@ -227,14 +280,15 @@ function defaultParent() {
   return state.machine ? roots.get(state.machine) ?? null : null;
 }
 
-/// "Goes in <parent>/<org>/<repo>." under the parent field.
+/// Destination line under Clone into before a folder listing is read.
 function goesIn() {
-  const parent = parentFolder();
-  if (!parent) return "";
-  return `Goes in ${folderUnder(parent, state.repo) ?? `${parent.replace(/\/+$/, "")}/<org>/<repo>`}.`;
+  return goesInText(state.repo, targetFolder(), parentFolder());
 }
 
 /// Forgets the folder typed.
 function resetFolder() {
+  clearTimeout(typedTimer);
   folderText = null;
+  typedListing = null;
+  typedFor = "";
 }

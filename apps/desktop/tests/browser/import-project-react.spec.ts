@@ -60,6 +60,30 @@ test("branch choices and selected folder reach the import command", async ({ pag
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args))).toEqual([{ repo: "example/project", machineId: "one", folder: "/srv", worktrees: [{ branch: "feature", machine_id: null }], parent: null, syncthingFiles: null }]);
 });
 
+test("typing a Clone into path submits that folder rather than nesting org/repo, and Default resets", async ({ page }) => {
+  const missing = { path: "/home/user/work/project", parent: "/home/user/work", exists: false, folders: [], more: 0, empty: true, origin: null, repos: [] };
+  await openDesktop(page, false, { center_home: home, machine_search: "/srv/projects", list_machine_folder: missing, preview_import: null, find_import_fork: null, project_syncthing_files: { available: true, enabled: true, label: "Work" } });
+  await page.locator("#side").getByRole("button", { name: "Add a project", exact: true }).click();
+  await page.getByRole("dialog", { name: "Add a project" }).getByRole("button", { name: "Clone repository", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Import a project" });
+  await sheet.getByRole("textbox", { name: "Repository" }).fill("example/project");
+  await sheet.getByRole("button", { name: "Build box", exact: true }).click();
+  const path = sheet.getByRole("combobox", { name: "Clone into" });
+  await expect(path).toHaveValue("/srv/projects");
+  await expect(sheet.getByText("Goes in /srv/projects/example/project.")).toBeVisible();
+  await path.fill("~/work/project");
+  await expect(sheet.getByRole("button", { name: "Default", exact: true })).toBeVisible();
+  await expect(sheet.getByText("Not there yet: the clone makes it.")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_syncthing_files").map(call => call.args.folder))).toContain("~/work/project");
+  await sheet.getByRole("button", { name: "Default", exact: true }).click();
+  await expect(path).toHaveValue("/srv/projects");
+  await expect(sheet.getByText("Goes in /srv/projects/example/project.")).toBeVisible();
+  await path.fill("~/work/project");
+  await page.evaluate(() => window.__navigation.hold("import_project"));
+  await sheet.getByRole("button", { name: "Import", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "import_project").map(call => call.args))).toEqual([{ repo: "example/project", machineId: "one", folder: "~/work/project", worktrees: [], parent: null, syncthingFiles: null }]);
+});
+
 test("the folder picker and import progress restore keyboard focus", async ({ page }) => {
   const sheet = await openImport(page);
   await sheet.getByRole("textbox", { name: "Repository" }).fill("example/project");
