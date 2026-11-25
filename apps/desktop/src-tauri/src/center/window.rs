@@ -2,9 +2,9 @@
 //! one per project or assistant chat, labelled by what it shows. Entry
 //! points: `open`, `center_open_window`, `hide_on_close`, `is_center`.
 
+use super::window_session::{Alone, alone};
 use crate::{bar, beep::state::Prefs, error::Result};
 use beep_proto::watched;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     sync::{Mutex, MutexGuard},
@@ -26,9 +26,6 @@ const MIN_HEIGHT: f64 = 640.0;
 /// Share of the screen the window opens at.
 #[cfg_attr(mobile, allow(dead_code))]
 const SHARE: f64 = 0.95;
-/// Labels of the windows that each show one project, or one chat.
-const PROJECT_PREFIX: &str = "project-";
-const CHAT_PREFIX: &str = "chat-";
 /// How far each project or chat window opens down and right of the one before.
 const CASCADE: f64 = 28.0;
 /// Told to a command center page when its window hides, minimizes, is
@@ -265,82 +262,6 @@ pub(crate) fn closed<R: Runtime>(app: &AppHandle<R>, label: &str) {
 /// Whether `label` is a command center window: the main one, a project's or a chat's.
 pub(crate) fn is_center(label: &str) -> bool {
     label == LABEL || alone(label)
-}
-
-/// What a window apart from the main one shows alone: a project, or an
-/// assistant chat with its threads. Its label says which.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum Alone {
-    Project { project: String },
-    Chat { machine_id: String, session: String },
-}
-
-impl Alone {
-    /// The window's label: a prefix, then the name in hex, since a label
-    /// takes only letters, digits and a few signs.
-    pub(super) fn label(&self) -> String {
-        match self {
-            Self::Project { project } => format!("{PROJECT_PREFIX}{}", hex(project)),
-            Self::Chat {
-                machine_id,
-                session,
-            } => format!("{CHAT_PREFIX}{}", hex(&format!("{machine_id}\n{session}"))),
-        }
-    }
-
-    /// What window `label` shows, `None` for the main one and any other.
-    pub(super) fn of(label: &str) -> Option<Self> {
-        if let Some(name) = label.strip_prefix(PROJECT_PREFIX) {
-            return Some(Self::Project {
-                project: unhex(name)?,
-            });
-        }
-
-        let chat = unhex(label.strip_prefix(CHAT_PREFIX)?)?;
-        let (machine_id, session) = chat.split_once('\n')?;
-        Some(Self::Chat {
-            machine_id: machine_id.to_owned(),
-            session: session.to_owned(),
-        })
-    }
-
-    /// The window's title until its page names it.
-    fn title(&self) -> &str {
-        match self {
-            Self::Project { project } => project,
-            Self::Chat { .. } => "Assistant",
-        }
-    }
-}
-
-/// Whether `label` is a window showing a project or a chat alone.
-pub(super) fn alone(label: &str) -> bool {
-    label.starts_with(PROJECT_PREFIX) || label.starts_with(CHAT_PREFIX)
-}
-
-fn hex(text: &str) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut hex = String::with_capacity(text.len() * 2);
-
-    for byte in text.bytes() {
-        hex.push(char::from(DIGITS[usize::from(byte >> 4)]));
-        hex.push(char::from(DIGITS[usize::from(byte & 0xf)]));
-    }
-
-    hex
-}
-
-fn unhex(hex: &str) -> Option<String> {
-    if hex.is_empty() || !hex.len().is_multiple_of(2) {
-        return None;
-    }
-
-    let bytes = (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
-        .collect::<Option<Vec<u8>>>()?;
-    String::from_utf8(bytes).ok()
 }
 
 /// What opening a project or a chat in its own window does.
