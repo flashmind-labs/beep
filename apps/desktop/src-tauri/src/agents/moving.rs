@@ -206,7 +206,8 @@ fn pushed_progress(
     record: &MoveView,
     pushed: &HashMap<EndpointId, Vec<MoveEntry>>,
 ) -> Option<MoveProgressView> {
-    let entries = pushed.get(&record.to.parse().ok()?)?;
+    let target: EndpointId = record.to.parse().ok()?;
+    let entries = pushed.get(&target)?;
     let state = entries
         .iter()
         .find(|entry| entry.session == record.session && entry.at == record.at)
