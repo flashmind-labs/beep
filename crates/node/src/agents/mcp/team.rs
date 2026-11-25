@@ -218,7 +218,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
 
     // Only new asks count against the limit, and only once they are sent.
     let counted = match asking {
-        true => link.with(|teams| teams.asks.limit.take(&request.session, Instant::now())),
+        true => link.asks(|asks| asks.limit.take(&request.session, Instant::now())),
         false => Ok(()),
     };
     if let Err(e) = counted {
@@ -241,7 +241,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
     };
 
     if asking && matches!(reply, Reply::Done { failed: true, .. }) {
-        link.with(|teams| teams.asks.limit.give_back(&request.session));
+        link.asks(|asks| asks.limit.give_back(&request.session));
     }
 
     reply

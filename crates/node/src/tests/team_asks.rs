@@ -133,9 +133,9 @@ async fn ask_to_person_without_session_is_needs_you_card() {
 
     // The card is for this mesh's apps: the board teammates see never shows it.
     let board = pair.gateway.served(|served| served.boards.cards(&repo())).unwrap();
-    let (cards, waiting) = pair.gateway.with(|teams| {
-        let cards = teams.asks.cards(&repo(), SystemTime::now());
-        (cards, teams.asks.taken.len())
+    let (cards, waiting) = pair.gateway.asks(|asks| {
+        let cards = asks.cards(&repo(), SystemTime::now());
+        (cards, asks.taken.len())
     });
     assert!(board.is_empty());
     assert_eq!(waiting, 1);
@@ -150,9 +150,9 @@ async fn ask_to_person_without_session_is_needs_you_card() {
 
     // Dismissed, the card and its ask go.
     pair.gateway.dismiss_card(&repo(), "ask:00000000000000a1");
-    let (cards, waiting) = pair.gateway.with(|teams| {
-        let cards = teams.asks.cards(&repo(), SystemTime::now());
-        (cards, teams.asks.taken.len())
+    let (cards, waiting) = pair.gateway.asks(|asks| {
+        let cards = asks.cards(&repo(), SystemTime::now());
+        (cards, asks.taken.len())
     });
     assert!(cards.is_empty());
     assert_eq!(waiting, 0);
@@ -206,7 +206,7 @@ async fn ask_to_a_card_reaches_its_session_and_only_it_answers() {
 async fn reply_reaches_asking_session() {
     let (pair, kept) = served().await;
     let bob = pair.bob.clone();
-    pair.gateway.with(|teams| {
+    pair.gateway.asks(|asks| {
         let sent = Sent {
             repo: repo(),
             asker: "s1@alices-box".to_owned(),
@@ -214,7 +214,7 @@ async fn reply_reaches_asking_session() {
             asked: BOBS.to_owned(),
             at: SystemTime::now(),
         };
-        teams.asks.sent.insert("00000000000000a3".to_owned(), sent);
+        asks.sent.insert("00000000000000a3".to_owned(), sent);
     });
     let reply = TeamMsg::Reply {
         id: "00000000000000a3".to_owned(),
@@ -264,7 +264,7 @@ async fn a_reply_that_did_not_reach_the_asking_session_can_be_sent_again() {
     let flaky = Arc::new(Flaky::default());
     let pair = serving(flaky.clone()).await;
     let bob = pair.bob.clone();
-    pair.gateway.with(|teams| {
+    pair.gateway.asks(|asks| {
         let sent = Sent {
             repo: repo(),
             asker: "s1@alices-box".to_owned(),
@@ -272,7 +272,7 @@ async fn a_reply_that_did_not_reach_the_asking_session_can_be_sent_again() {
             asked: BOBS.to_owned(),
             at: SystemTime::now(),
         };
-        teams.asks.sent.insert("00000000000000b1".to_owned(), sent);
+        asks.sent.insert("00000000000000b1".to_owned(), sent);
     });
     let reply = TeamMsg::Reply {
         id: "00000000000000b1".to_owned(),
@@ -341,7 +341,7 @@ async fn an_ask_in_another_members_name_is_refused() {
     }
 
     assert!(pair.bob_link.reach(&pair.alice, &msg).await.is_err());
-    assert_eq!(pair.gateway.with(|teams| teams.asks.taken.len()), 0);
+    assert_eq!(pair.gateway.asks(|asks| asks.taken.len()), 0);
 }
 
 #[tokio::test]
@@ -360,7 +360,7 @@ async fn an_ask_from_a_session_not_on_the_senders_board_is_refused() {
         refused,
         Err("An ask comes from a session on its sender's board".to_owned())
     );
-    assert_eq!(pair.gateway.with(|teams| teams.asks.taken.len()), 0);
+    assert_eq!(pair.gateway.asks(|asks| asks.taken.len()), 0);
 }
 
 #[tokio::test]
@@ -399,7 +399,7 @@ async fn an_ask_id_other_than_the_generated_hex_is_refused() {
     let refused = pair.bob_link.reach(&pair.alice, &ask(id, to, "Hi")).await;
 
     assert_eq!(refused, Err("An ask needs a new short id".to_owned()));
-    assert_eq!(pair.gateway.with(|teams| teams.asks.taken.len()), 0);
+    assert_eq!(pair.gateway.asks(|asks| asks.taken.len()), 0);
     assert!(kept.taken().is_empty());
 }
 
@@ -414,7 +414,7 @@ async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() 
         .await
         .unwrap();
     let card = |link: &TeamLink| {
-        link.with(|teams| teams.asks.cards(&repo(), SystemTime::now()))
+        link.asks(|asks| asks.cards(&repo(), SystemTime::now()))
             .iter()
             .any(|card| card.id == "ask:00000000000000a9")
     };
@@ -433,8 +433,8 @@ async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() 
         .with(|teams| teams.rosters.refresh([(repo(), team.clone())].into()));
     let alice = pair.alice.clone();
     pair.bob_link.edit_home(|home| home.mesh = Some(bob.mesh));
-    pair.bob_link.with(|teams| {
-        teams.rosters.refresh([(repo(), team)].into());
+    pair.bob_link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
+    pair.bob_link.asks(|asks| {
         let sent = Sent {
             repo: repo(),
             asker: BOBS.to_owned(),
@@ -442,7 +442,7 @@ async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() 
             asked: "alice".to_owned(),
             at: SystemTime::now(),
         };
-        teams.asks.sent.insert("00000000000000a9".to_owned(), sent);
+        asks.sent.insert("00000000000000a9".to_owned(), sent);
     });
 
     // An agent alice started from the card answers.
@@ -463,5 +463,24 @@ async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() 
     assert_eq!((taken[0].0.as_str(), taken[0].1), (BOBS, Delivery::Reply));
     assert!(taken[0].2.contains("I do"));
     assert!(!card(&pair.gateway));
-    assert!(pair.gateway.with(|teams| teams.asks.taken.is_empty()));
+    assert!(pair.gateway.asks(|asks| asks.taken.is_empty()));
+}
+
+#[tokio::test]
+async fn asks_are_kept_apart_from_the_rosters() {
+    let (pair, _kept) = served().await;
+    let link = pair.gateway.clone();
+    let (done, finished) = std::sync::mpsc::channel();
+
+    // The asks are read while the rosters are held: one lock for both would
+    // never let go.
+    std::thread::spawn(move || {
+        let waiting = link.with(|_| link.asks(|asks| asks.taken.len()));
+        let _ = done.send(waiting);
+    });
+
+    assert_eq!(
+        finished.recv_timeout(std::time::Duration::from_secs(20)),
+        Ok(0)
+    );
 }

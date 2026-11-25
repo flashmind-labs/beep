@@ -545,8 +545,8 @@ fn needs_you(round: &Round<'_>, n: u64, title: String) -> bool {
         updated_at: SystemTime::now(),
     };
 
-    round.link.with(|teams| {
-        let cards = teams.asks.cards.entry(round.team.repo.clone()).or_default();
+    round.link.asks(|asks| {
+        let cards = asks.cards.entry(round.team.repo.clone()).or_default();
         add_card(cards, card)
     })
 }

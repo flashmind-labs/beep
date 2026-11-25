@@ -117,14 +117,12 @@ pub(crate) enum TeamError {
     Link(#[from] anyhow::Error),
 }
 
-/// What the link keeps of this mesh's teams: the rosters, and the asks that
-/// wait on them. The rest has its own owner: `Home` (the home task), `Served`
+/// What the link keeps of this mesh's teams: the rosters. The rest has its
+/// own owner: `Asks` (a lock of its own), `Home` (the home task), `Served`
 /// (the gateway), `Invites` and the handed queues (small locks).
 #[derive(Default)]
 pub(crate) struct Teams {
     pub(crate) rosters: Rosters,
-    /// The asks this device's sessions sent, and those it keeps as gateway.
-    pub(crate) asks: Asks,
 }
 
 /// What this device serves as its mesh's gateway, as the gateway loop
@@ -159,6 +157,8 @@ struct Inner {
     endpoint: Endpoint,
     forge: Arc<dyn TeamForge>,
     teams: Mutex<Teams>,
+    /// The asks this device's sessions sent, and those it keeps as gateway.
+    asks: Mutex<Asks>,
     /// This mesh as the mesh says it, published by the home task.
     home: watch::Sender<Home>,
     /// What the gateway serves, published by the gateway loop.
@@ -180,6 +180,7 @@ impl TeamLink {
             endpoint,
             forge,
             teams: Mutex::new(Teams::default()),
+            asks: Mutex::default(),
             home: watch::channel(Home::default()).0,
             served: watch::channel(Served::default()).0,
             invites: Mutex::default(),
@@ -225,6 +226,19 @@ impl TeamLink {
     /// Reads or changes what the link knows. Keep `f` short: it holds the lock.
     pub(crate) fn with<R>(&self, f: impl FnOnce(&mut Teams) -> R) -> R {
         f(&mut crate::lock(&self.inner.teams))
+    }
+
+    /// Reads or changes the asks. Keep `f` short: it holds the lock.
+    pub(crate) fn asks<R>(&self, f: impl FnOnce(&mut Asks) -> R) -> R {
+        f(&mut crate::lock(&self.inner.asks))
+    }
+
+    /// Reads or changes the rosters and the asks together, for what checks one
+    /// against the other. Rosters are locked first, always.
+    pub(crate) fn both<R>(&self, f: impl FnOnce(&mut Teams, &mut Asks) -> R) -> R {
+        let mut teams = crate::lock(&self.inner.teams);
+
+        f(&mut teams, &mut crate::lock(&self.inner.asks))
     }
 
     /// `f` of this mesh as the mesh says it. Not inside another watch read.
@@ -297,6 +311,7 @@ impl TeamLink {
     /// owned it are gone.
     pub(crate) fn reset(&self) {
         *crate::lock(&self.inner.teams) = Teams::default();
+        *crate::lock(&self.inner.asks) = Asks::default();
         *crate::lock(&self.inner.invites) = Invites::default();
         crate::lock(&self.inner.queues).clear();
         self.inner.home.send_replace(Home::default());

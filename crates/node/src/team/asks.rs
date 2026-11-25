@@ -179,13 +179,13 @@ impl TeamLink {
         };
         let seen = self.seen(&ask.repo, card, None);
         let (member, msg, id, answering) =
-            self.with(|teams| outgoing(teams, &seen, ask, now))?;
+            self.both(|teams, asks| outgoing(teams, asks, &seen, ask, now))?;
 
         if let Err(e) = self.reach(&member, &msg).await {
             // An answer not sent still waits; an ask not sent waits for nothing.
-            self.with(|teams| match answering {
-                Some(taken) => drop(teams.asks.taken.insert(id, taken)),
-                None => drop(teams.asks.sent.remove(&id)),
+            self.asks(|asks| match answering {
+                Some(taken) => drop(asks.taken.insert(id, taken)),
+                None => drop(asks.sent.remove(&id)),
             });
             return Err(e);
         }
@@ -193,8 +193,8 @@ impl TeamLink {
         // An ask for the person is answered: its Needs you card goes.
         if let Some(taken) = answering {
             let card = format!("{ASK_CARD}{id}");
-            self.with(|teams| {
-                if let Some(cards) = teams.asks.cards.get_mut(&taken.repo) {
+            self.asks(|asks| {
+                if let Some(cards) = asks.cards.get_mut(&taken.repo) {
                     cards.retain(|kept| kept.id != card);
                 }
             });
@@ -207,12 +207,12 @@ impl TeamLink {
     /// ask with it, or that of an automatic session that ended without a
     /// pull request (`pickup`).
     pub(crate) fn dismiss_card(&self, repo: &TeamRepo, id: &str) {
-        self.with(|teams| {
-            if let Some(cards) = teams.asks.cards.get_mut(repo) {
+        self.asks(|asks| {
+            if let Some(cards) = asks.cards.get_mut(repo) {
                 cards.retain(|card| card.id != id);
             }
             if let Some(ask) = id.strip_prefix(ASK_CARD) {
-                teams.asks.taken.remove(ask);
+                asks.taken.remove(ask);
             }
         });
     }
@@ -268,7 +268,8 @@ impl TeamLink {
 /// `ask` made a message to a teammate: the member it goes to, the message,
 /// its id, and the ask it answers, taken off what waits.
 fn outgoing(
-    teams: &mut Teams,
+    teams: &Teams,
+    asks: &mut Asks,
     seen: &Seen,
     ask: Outgoing,
     now: SystemTime,
@@ -285,7 +286,7 @@ fn outgoing(
         return Err("This machine no longer acts for the team; try again in a minute".to_owned());
     }
 
-    teams.asks.expire(now);
+    asks.expire(now);
     let own = seen.own;
     let record = teams.rosters.get(&repo).ok_or("This project has no team")?;
     let mut others = record
@@ -299,8 +300,7 @@ fn outgoing(
             taken.repo == repo && (taken.card == from.card || taken.card.starts_with(ASK_CARD))
         };
         let no_ask = || format!("No ask {id} waits for an answer from this session");
-        let taken = teams
-            .asks
+        let taken = asks
             .taken
             .get(&id)
             .filter(|taken| waits(taken))
@@ -309,7 +309,7 @@ fn outgoing(
             .find(|member| member.mesh == taken.mesh)
             .ok_or_else(no_ask)?
             .clone();
-        let taken = teams.asks.taken.remove(&id);
+        let taken = asks.taken.remove(&id);
         let reply = TeamMsg::Reply {
             id: id.clone(),
             text,
@@ -334,7 +334,7 @@ fn outgoing(
         })?
         .clone();
 
-    if teams.asks.sent.len() >= MAX_WAITING {
+    if asks.sent.len() >= MAX_WAITING {
         return Err("Too many asks wait for answers; try again later".to_owned());
     }
 
@@ -346,7 +346,7 @@ fn outgoing(
         asked,
         at: now,
     };
-    teams.asks.sent.insert(id.clone(), sent);
+    asks.sent.insert(id.clone(), sent);
     let msg = TeamMsg::Ask {
         id: id.clone(),
         repo,

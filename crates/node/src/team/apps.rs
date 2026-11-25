@@ -157,7 +157,7 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
                     cards.into_iter().filter(queued).collect(),
                 )
             });
-            let (online, needs_you) = link.with(|teams| {
+            let (online, needs_you) = link.both(|teams, asks| {
                 let members = teams.rosters.get(&repo).map(|record| record.members.iter());
                 let online = members
                     .into_iter()
@@ -166,7 +166,7 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
                     .map(|member| member.login.clone())
                     .collect();
 
-                (online, teams.asks.cards(&repo, now))
+                (online, asks.cards(&repo, now))
             });
 
             TeamCards {

@@ -6,7 +6,7 @@
 
 use super::{
     asks::{
-        ASK_CARD, Delivery, MAX_CARD, MAX_CARDS, MAX_TEXT, MAX_WAITING, NOT_WAITING, Taken,
+        ASK_CARD, Asks, Delivery, MAX_CARD, MAX_CARDS, MAX_TEXT, MAX_WAITING, NOT_WAITING, Taken,
         is_ask_id, not_served, too_long,
     },
     link::{Seen, TeamLink, Teams},
@@ -37,7 +37,7 @@ impl TeamLink {
             Target::Person { .. } => None,
         };
         let seen = self.seen(repo, Some(&from.card), to_card);
-        let taken = self.with(|teams| take(teams, &seen, peer, ask, SystemTime::now()));
+        let taken = self.both(|teams, asks| take(teams, asks, &seen, peer, ask, SystemTime::now()));
         let (repo, card) = match taken {
             Ok(Some(taken)) => taken,
             Ok(None) => return None,
@@ -52,16 +52,16 @@ impl TeamLink {
         let delivered = self.deliver(&card, Delivery::Ask, words).await;
 
         delivered.err().map(|reason| {
-            self.with(|teams| teams.asks.taken.remove(id));
+            self.asks(|asks| asks.taken.remove(id));
             refused(reason)
         })
     }
 
     /// Takes `peer`'s answer to an ask this mesh sent, into the asking session.
     pub(super) async fn answered(&self, peer: EndpointId, id: &str, text: &str) -> Option<TeamMsg> {
-        let sent = self.with(|teams| {
-            teams.asks.expire(SystemTime::now());
-            let sent = teams.asks.sent.get(id).ok_or(NOT_WAITING)?;
+        let sent = self.both(|teams, asks| {
+            asks.expire(SystemTime::now());
+            let sent = asks.sent.get(id).ok_or(NOT_WAITING)?;
             let from = teams.rosters.get(&sent.repo).and_then(|record| {
                 let mut members = record.members.iter();
                 members.find(|member| member.devices.iter().any(|device| device.id == peer))
@@ -70,7 +70,7 @@ impl TeamLink {
             match from {
                 Some(member) if member.mesh == sent.mesh && text.chars().count() <= MAX_TEXT => {
                     let login = member.login.clone();
-                    Ok((teams.asks.sent.remove(id).ok_or(NOT_WAITING)?, login))
+                    Ok((asks.sent.remove(id).ok_or(NOT_WAITING)?, login))
                 }
                 Some(_) => Err("Only the one asked answers an ask, within 4000 characters"),
                 None => Err(NOT_WAITING),
@@ -87,7 +87,7 @@ impl TeamLink {
 
         delivered.err().map(|reason| {
             // Not handed on: it waits for the teammate to send it again.
-            self.with(|teams| teams.asks.sent.insert(id.to_owned(), sent));
+            self.asks(|asks| asks.sent.insert(id.to_owned(), sent));
             refused(reason)
         })
     }
@@ -103,7 +103,8 @@ impl TeamLink {
 /// Checks `ask` from `peer` and keeps it: its repository and the card of the
 /// session to hand it to, `None` once it is a Needs you card, or the refusal.
 fn take(
-    teams: &mut Teams,
+    teams: &Teams,
+    asks: &mut Asks,
     seen: &Seen,
     peer: EndpointId,
     ask: &TeamMsg,
@@ -155,12 +156,12 @@ fn take(
         return Err(too_long());
     }
 
-    teams.asks.expire(now);
+    asks.expire(now);
 
-    if !is_ask_id(id) || teams.asks.taken.contains_key(id) {
+    if !is_ask_id(id) || asks.taken.contains_key(id) {
         return Err("An ask needs a new short id".to_owned());
     }
-    if teams.asks.taken.len() >= MAX_WAITING {
+    if asks.taken.len() >= MAX_WAITING {
         return Err("Too many asks wait here for answers".to_owned());
     }
 
@@ -183,11 +184,11 @@ fn take(
     };
 
     if !card.starts_with(ASK_CARD) {
-        teams.asks.taken.insert(id.clone(), taken);
+        asks.taken.insert(id.clone(), taken);
         return Ok(Some((repo.clone(), card)));
     }
 
-    let cards = teams.asks.cards.entry(repo.clone()).or_default();
+    let cards = asks.cards.entry(repo.clone()).or_default();
 
     if cards.len() >= MAX_CARDS {
         return Err(format!("Too many asks wait for {login}"));
@@ -205,7 +206,7 @@ fn take(
         pr: None,
         updated_at: now,
     });
-    teams.asks.taken.insert(id.clone(), taken);
+    asks.taken.insert(id.clone(), taken);
 
     Ok(None)
 }

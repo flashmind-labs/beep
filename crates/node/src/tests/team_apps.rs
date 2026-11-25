@@ -77,7 +77,7 @@ async fn a_forwarded_call_is_answered_on_the_gateway() {
     link.publish(|served| {
         served.gateways.insert(repo(), me);
     });
-    link.with(|teams| teams.asks.cards.insert(repo(), vec![card.clone()]));
+    link.asks(|asks| asks.cards.insert(repo(), vec![card.clone()]));
 
     let (text, failed) = done(answer(&caller(&link, Table::Shared, false), &cards(true)).await);
 
@@ -142,7 +142,7 @@ async fn a_forwarded_call_is_refused_off_the_gateway() {
     link.publish(|served| {
         served.gateways.insert(repo(), elsewhere);
     });
-    link.with(|teams| teams.asks.cards.insert(repo(), vec![ask_card()]));
+    link.asks(|asks| asks.cards.insert(repo(), vec![ask_card()]));
 
     for table in [Table::Shared, Table::Peer(elsewhere)] {
         let (text, failed) = done(answer(&caller(&link, table, false), &cards(true)).await);
@@ -284,7 +284,7 @@ async fn an_apps_call_goes_on_to_the_gateway_once() {
     gateway.publish(|served| {
         served.gateways.insert(repo(), node_id);
     });
-    gateway.with(|teams| teams.asks.cards.insert(repo(), vec![card.clone()]));
+    gateway.asks(|asks| asks.cards.insert(repo(), vec![card.clone()]));
     pair.desktop_link.publish(|served| {
         served.gateways.insert(repo(), node_id);
     });
