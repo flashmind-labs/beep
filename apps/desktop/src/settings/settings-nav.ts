@@ -45,6 +45,7 @@ export function pageGroup(page: SettingsPage): SettingsGroup {
 export const SETTING_ROWS: readonly (readonly [SettingsPage, string])[] = [
   ["general", "Launch at login"],
   ["general", "Coding agent notifications"],
+  ["general", "Voice dictation"],
   ["general", "Sync coding agent skills"],
   ["general", "Project sync"],
   ["general", "Save files to"],

@@ -231,6 +231,20 @@ body.cbody
                   b "Docker containers in Running"
                   small "Sessions list the containers their agent starts, with their ports. Applies to new sessions."
                 button.dswitch [aria-checked="true" aria-label="Docker containers in Running" role="switch" type="button"]
+              div#dictationSetting.dtoggle
+                span
+                  b "Voice dictation"
+                  small "Add an ElevenLabs, Mistral or OpenRouter API key in Credentials to start dictating"
+                  span.dict-sub
+                    select#dictationModel [aria-label="Dictation model"] value=""
+                      option [value] "Automatic: first provider with a key"
+                      option [value="elevenlabs:scribe_v3_live"] "ElevenLabs · Scribe v3 Live"
+                      option [value="elevenlabs:scribe_v2_realtime"] "ElevenLabs · Scribe v2 Realtime"
+                      option [value="mistral:voxtral-mini-transcribe-realtime-3-0"] "Mistral · Voxtral Mini Realtime"
+                      option [value="openrouter:openai/whisper-large-v3-turbo"] "OpenRouter · Whisper Large v3 Turbo"
+                      option [value="openrouter:deepgram/nova-3"] "OpenRouter · Deepgram Nova-3"
+                    button.dbtn.small [type="button"] "Add API key…"
+                button.dswitch [aria-checked="true" aria-label="Voice dictation" role="switch" type="button"]
               div#skillSyncSetting.dtoggle
                 span
                   b "Sync coding agent skills"

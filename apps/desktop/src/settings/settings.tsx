@@ -350,7 +350,8 @@ function localView(kind: LocalView): ReactNode {
       chooseSaves={() => void pickHere("Save files to", local.set.save_folder).then(folder => { if (folder !== null) void change(generalPending, "saves", "set_save_folder", { folder }); }, e => console.warn(e))}
       useDownloads={() => void change(generalPending, "saves", "use_downloads", {})}
       shortcuts={() => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts()}
-      report={() => windowHooks ? windowHooks.openReport() : toWindow("report")} /> : null;
+      report={() => windowHooks ? windowHooks.openReport() : toWindow("report")}
+      credentials={() => goTo(selectPage("creds"))} /> : null;
     case "appearance": return <AppearanceView />;
     case "assistant": return <AssistantView />;
     case "mac": return local?.mac ? <ComputerView

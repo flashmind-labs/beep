@@ -47,7 +47,7 @@ test("Escape returns from a nested page before closing Settings", async ({ page 
 });
 
 test("Settings load failure replaces the placeholder and can recover in the same dialog", async ({ page }) => {
-  await openDesktop(page, false, { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, list_machines: [] });
+  await openDesktop(page, false, { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, list_machines: [], dictation_settings_get: { enabled: false, model: null } });
   await page.evaluate(() => window.__navigation.rejectOnce("settings"));
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });

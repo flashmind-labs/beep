@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const responses = { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false, developer: false }, mac_control: { id: "one", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [], skill_sync_get: true, project_sync_get: true, docker_containers_get: true };
+const responses = { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false, developer: false }, mac_control: { id: "one", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [], skill_sync_get: true, project_sync_get: true, docker_containers_get: true, dictation_settings_get: { enabled: false, model: null } };
 test("skill sync preserves state and serializes a save across Settings reopening", async ({ page }) => {
   await openDesktop(page, false, responses);
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
@@ -91,4 +91,22 @@ test("project sync stays serialized across reopening and rereads partial failure
   await expect(settings.getByRole("alert")).toContainText("Requested test failure");
   await expect(toggle).toHaveAttribute("aria-checked", "true");
   await expect(toggle).toBeEnabled();
+});
+
+test("voice dictation turns on, picks a model and points to the key in Credentials", async ({ page }) => {
+  await openDesktop(page, false, { ...responses, list_credentials: [{ id: "k1", kind: "api_key", provider: "openrouter", last4: "9c12", account: null, env_var: "OPENROUTER_API_KEY", created_at: 0 }] });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  const toggle = settings.getByRole("switch", { name: "Voice dictation" });
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(settings.getByRole("combobox", { name: "Dictation model" })).toHaveCount(0);
+  await toggle.click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_settings_save" && JSON.stringify(call.args.settings) === JSON.stringify({ enabled: true, model: null })))).toBe(true);
+  await expect(settings.getByText("OpenRouter · default model · mic button in prompt composers")).toBeVisible();
+  await expect(settings.getByText("OpenRouter key …9c12")).toBeVisible();
+  await settings.getByRole("combobox", { name: "Dictation model" }).selectOption("elevenlabs:scribe_v3_live");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_settings_save" && JSON.stringify(call.args.settings) === JSON.stringify({ enabled: true, model: "elevenlabs:scribe_v3_live" })))).toBe(true);
+  await expect(settings.getByText("Add your ElevenLabs API key in Credentials to start dictating")).toBeVisible();
+  await settings.getByRole("button", { name: "Add API key…" }).click();
+  await expect(settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Credentials", exact: true })).toHaveAttribute("aria-current", "true");
 });
