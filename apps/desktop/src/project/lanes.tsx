@@ -1,6 +1,6 @@
 // A project's board: its sessions by lane, with the sync conflicts and
 // questions that wait on the user.
-import { projectWindowProps } from "../center/sidebar.tsx";
+import { projectWindowProps } from "./projectops.ts";
 import { byRecent, runningKey, runningLine, type RunningAgent } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";

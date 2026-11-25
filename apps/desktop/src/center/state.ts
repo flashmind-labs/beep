@@ -98,6 +98,8 @@ export const state = {
 /// What each project's page last read, section by section: drawn at once when a
 /// project opens, then read again quietly.
 export const pages = new PageCache(null);
+/// Projects whose sessions are read again when opened, though their kept list shows meanwhile.
+export const sessionsDue = new Set<string>();
 /// The saved cache from `center_cached`, until this Mac's account is known.
 let pagesFile: unknown;
 export function keepPagesFile(file: unknown) { pagesFile = file; }
@@ -172,3 +174,6 @@ export interface GroupSlot<T> extends SidebarGroup<T> {
 }
 
 export const groups = new Map<string, SidebarGroup<unknown>>();
+
+/// True once the first Home has been waited for too long.
+export function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }

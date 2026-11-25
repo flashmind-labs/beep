@@ -1,34 +1,28 @@
-import { projectName } from "../project/projects-state.ts";
+import { projectName, foldKey, parseFolded, sideProjects, splitOnTop, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
 import { MACHINES } from "../machines/machine-store.ts";
-import { WINDOWS, isMobile, onPhone } from "../ui/platform.ts";
-// The sidebar: its groups (pinned, views, projects, machines) and the
-// sheets that add a machine or a project.
+import { WINDOWS, onPhone, isMobile } from "../ui/platform.ts";
+// The sidebar: its groups (pinned, views, projects, machines).
 import { onClosing } from "../agents/closing.ts";
-import { plural, reason } from "../ui/format.ts";
-import { invoke, openUrl } from "../ui/tauri.ts";
+import { plural } from "../ui/format.ts";
 import { openPalette } from "./palette.tsx";
 import { pane } from "../bar/pane.ts";
 import type { PaneNow } from "../bar/core.ts";
-import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removeProjectSheet, REMOVE_PROJECT, type FoundRow, type GroupHeading, type OrgHeading, type Placed, type Project } from "../project/projects-state.ts";
-import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
-import { openInEditor } from "../project/editors.ts";
-import { whereRows, openOnLabel } from "../project/projects-state.ts";
-import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
+import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { ALL } from "../terminals/terminal-list.ts";
-import { state, pages, whereOf, type SidebarGroup, groups } from "./state.ts";
-import { stuck, draw } from "./home.tsx";
-import { allTerms } from "../terminals/view.tsx";
+import { state, stuck, type SidebarGroup, groups } from "./state.ts";
+import { allTerms } from "./allterms.ts";
 import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./nav.ts";
-import { fsync, redrawProjects, redrawProjectsPage, syncProjectFollow } from "../project/sections.ts";
+import { fsync, syncProjectFollow } from "../project/sections.ts";
 import { conflictList } from "../project/filesync.ts";
-import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
-import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
+import { projectRail, railSessions } from "../project/loads.tsx";
+import { openAddMachine, openProjects, addProject } from "../project/addflow.ts";
+import { projectRows } from "../project/projectrows.ts";
+import { openWindow, projectWindowProps, setProjectOnTop } from "../project/projectops.ts";
 import type { AgentRow } from "../agents/agents-state.ts";
-import { forgetProject } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
-import type { HomeView } from "./home-state.ts";
-import { type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
+import { type ReactNode } from "react";
+import { redraws } from "./redraw.ts";
 import { placeWindowParts } from "./window-root.tsx";
 import { type Rail, railProject, setRail, shell } from "./window-shell.tsx";
 import { chatRail, chatsAsking } from "../agents/threads-state.ts";
@@ -37,7 +31,6 @@ import { sessionVisible } from "../agents/closing.ts";
 import { ChatRail } from "../agents/assistant-page.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarProjectRow } from "./sidebar-rows.tsx";
-import { single } from "../ui/active.ts";
 import { AG } from "../agents/agents-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { newChatTarget } from "../project/agent.ts";
@@ -155,93 +148,10 @@ function pinnedProjects(): Placed<Project>[] {
   return splitOnTop(rows, state.top).onTop;
 }
 
-/// Pins project `name` to the top of the sidebar, or unpins it. Not the
-/// file sync pin, which keeps a project on the machines it is on.
-export async function setProjectOnTop(name: string, pinned: boolean) {
-  const before = state.top;
-  state.top = pinned ? [...before.filter(n => n !== name), name] : before.filter(n => n !== name);
-  redrawProjectPins();
-
-  try {
-    await invoke("pin_project_to_top", { project: name, pinned });
-  } catch (e) {
-    console.warn("pinning a project:", e);
-    state.top = before;
-    redrawProjectPins();
-  }
-}
-
-function redrawProjectPins() {
-  drawSide();
-  redrawProjectsPage();
-}
-
-/// Opens project `name` in a window of its own, or brings up the one it
-/// already has.
-export function openProjectWindow(name: string) {
-  openWindow({ kind: "project", project: name });
-}
-
 /// Opens assistant chat `chat` with its threads in a window of its own, or brings up the one it
 /// already has.
 export function openChatWindow(chat: Pick<AgentRow, "machine_id" | "id">) {
   openWindow({ kind: "chat", machine_id: chat.machine_id, session: chat.id });
-}
-
-function openWindow(alone: Alone) {
-  invoke("center_open_window", { alone }).catch(e => console.warn("opening a window:", e));
-}
-
-/// What lets project `name` open in a window of its own: ⌘-click or middle-click on the
-/// element given `clicks`, which also reads the project ahead on hover, or "Open in New Window"
-/// from a right-click on the one given `menu`. The capture runs before the click opens it here.
-export function projectWindowProps(name: string): ProjectWindowProps {
-  const open = (e: ReactMouseEvent) => {
-    if (onPhone() || !opensNewWindow(e)) return;
-    e.preventDefault();
-    e.stopPropagation();
-    openProjectWindow(name);
-  };
-  return {
-    clicks: { onClickCapture: open, onAuxClick: open, ...prefetchOnHover(name) },
-    menu: { onContextMenu: (e: ReactMouseEvent) => { e.stopPropagation(); openProjectMenu(e.nativeEvent, name); } },
-  };
-}
-
-/// The right-click menu of project `name`: a window of its own, and
-/// removing it once it is imported (one from running agents only has
-/// nothing to remove).
-function openProjectMenu(e: MouseEvent, name: string) {
-  const p = projectRows()?.find(x => x.name === name);
-  const on = state.top.includes(name);
-  const items: MenuItem[] = [
-    ...(onPhone() ? [] : [{ label: NEW_WINDOW, icon: "openWindow" as const, on: () => openProjectWindow(name) }]),
-    { label: on ? "Unpin" : "Pin to top", icon: "pin", on: () => setProjectOnTop(name, !on) },
-  ];
-  const folder = p && whereRows(p, whereOf(name) || null, MACHINES.mac?.id || null).find(r => r.mac && r.folder)?.folder;
-  if (folder && !onPhone()) items.push({ label: "Open in editor", icon: "paneText", on: () => void openInEditor(folder) });
-  const label = p?.url ? openOnLabel(p.url) : null;
-  if (p?.url && label) items.push({ label, icon: "openWindow", on: () => openUrl(p.url!) });
-  if (p?.imported) items.push({ label: "Rename", icon: "edit", on: () => void import("../project/rename.tsx").then(m => m.renameProject(p)) });
-  if (p?.imported) items.push({ kind: "separator" }, { label: REMOVE_PROJECT, icon: "remove", warn: true, on: () => removeProject(name) });
-  openMenu(e, name, items);
-}
-
-/// Asks, then removes project `name` from Beep. Its files stay on every
-/// machine.
-export function removeProject(name: string) {
-  confirmSheet({
-    ...removeProjectSheet(name),
-    run: async () => {
-      await invoke("remove_project", { project: name });
-      forgetProject(name);
-
-      if (currentLocation()?.view === "projects" && state.picked === name) openProjects();
-      else { draw(); redrawProjectsPage(); }
-
-      loadFound();
-    },
-  });
 }
 
 function projectReact(project: Placed<Project>, label: string, pinned: boolean, indented: boolean) {
@@ -266,19 +176,6 @@ registerSidebarGroup("views", {
   render: v => <SidebarItem svg={IC.gear} label="Settings" shortcut={shortcut("Ctrl+,", "⌘,")} open={() => go("pane", v)} />,
 });
 
-/// Imported projects merged with the folders agents run in.
-export function projectRows() {
-  const home = state.home;
-  if (!home || (!home.running && !home.projects)) return null;
-  // Home, the sidebar and the pages all ask on each draw; the answer only
-  // changes with the lists it is made from.
-  if (merged?.projects !== home.projects || merged.running !== home.running) {
-    merged = { projects: home.projects, running: home.running, rows: mergeProjects(home.projects, home.running) };
-  }
-  return merged.rows;
-}
-let merged: { projects: HomeView["projects"]; running: HomeView["running"]; rows: Project[] } | undefined;
-
 /// The project headings folded in the sidebar, kept between launches. Only
 /// the main window has a sidebar.
 const FOLDED_KEY = "beep.sideFolded";
@@ -296,102 +193,6 @@ function toggleFold(p: OrgHeading | GroupHeading) {
 
 function foldItem(p: OrgHeading | GroupHeading): MenuItem {
   return { label: p.folded ? "Unfold" : "Fold", on: () => toggleFold(p) };
-}
-
-/// Opens the Add a machine sheet; the machines topic brings the new one.
-export function openAddMachine() {
-  void import("../machines/addmachine.tsx").then(m => m.openAddMachine());
-}
-
-/// Opens the Projects page, filtered to `name` when given.
-export function openProjects(name?: string | null) {
-  return go("projects", { project: name || null });
-}
-
-/// Opens a project once it is in: the projects topic brings Home, and the found folders load again.
-function landed(p: { name: string }) {
-  state.picked = p.name;
-  sessionsDue.add(p.name);
-  pages.drop("where", p.name);
-  loadFound();
-  openProjects(p.name);
-}
-
-/// Opens the Import a project sheet; the project is selected once it is in.
-export function importSheet(repo: string | null = null, machine: string | null = null) {
-  void import("../addproject/importproject.tsx").then(m => m.openImportProject({
-    machines: state.home?.machines || [],
-    macId: MACHINES.mac?.id || null,
-    repo,
-    machine,
-    onDone: landed,
-  }));
-}
-
-/// Opens the Add a project sheet: found folders, a folder, a clone, or a new project.
-export function addProject() {
-  void import("../addproject/addproject.tsx").then(m => m.openAddProject({
-    machines: (state.home?.machines || []).filter(mac => mac.can_host !== false),
-    onImported: landed,
-    onChoose: () => void import("../addproject/addfolder.tsx").then(f => f.openAddFolder({
-      machines: state.home?.machines || [],
-      macId: MACHINES.mac?.id || null,
-      onDone: landed,
-      onBack: addProject,
-    })),
-    onClone: repo => importSheet(repo ?? null),
-    onNew: () => void import("../addproject/newproject.tsx").then(n => n.openNewProject({
-      machines: state.home?.machines || [],
-      onDone: landed,
-      onBack: addProject,
-      onClone: repo => importSheet(repo),
-    })),
-  }));
-}
-
-/// The checkouts the machines named last, for the Projects page, then each
-/// machine's look again as it answers; it redraws each time.
-export const loadFound = single(async () => {
-  try {
-    state.found = await invoke<FoundRow[]>("found_projects");
-  } catch (e) {
-    console.warn("found projects:", e);
-    state.found = state.found || [];
-  }
-
-  drawFound();
-  const { rescanAll } = await import("../addproject/addproject.tsx");
-  await rescanAll(() => {}, (_, after) => {
-    if (!after.rows) return;
-    state.found = after.rows;
-    drawFound();
-  });
-});
-
-/// The Projects overview and a first start Home, which list the found checkouts.
-function drawFound() {
-  if (!state.picked) redrawProjects();
-  draw();
-}
-
-/// Imports a found row from the Projects page and opens it.
-export async function importFromPage(row: FoundRow) {
-  if (state.importing) return;
-  state.importing = row.name;
-  state.foundError = null;
-  redrawProjects();
-  draw();
-
-  try {
-    const { importFound } = await import("../addproject/addproject.tsx");
-    const project = await importFound(row);
-    state.importing = null;
-    landed(project);
-  } catch (e) {
-    state.importing = null;
-    state.foundError = { name: row.name, message: reason(e) };
-    drawFound();
-  }
 }
 
 // Imported projects and the folders agents run in. It shows once Home has
@@ -427,6 +228,8 @@ registerSidebarGroup("projects", {
 });
 
 onClosing(() => drawSide());
+redraws.side.add(drawSide);
+redraws.rail.add(drawRail);
 
 /// A sidebar item's key hint: none on a phone, whose keyboard rarely has the keys.
 function shortcut(windows: string, apple: string): string | undefined {

@@ -5,18 +5,18 @@ import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
 import { applyTelemetry, keepUnchanged, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
-import { CONNECT_STUCK_MS, state, heldHome, pages, pagesAccount } from "./state.ts";
-import { draw } from "./home.tsx";
-import { readAllTerms } from "../terminals/view.tsx";
+import { CONNECT_STUCK_MS, state, heldHome, pagesAccount } from "./state.ts";
+import { readAllTerms } from "./allterms.ts";
 import { takeGit } from "./openitems.ts";
 import type { GitItemsView } from "./openitems-state.ts";
 import { currentLocation } from "./nav.ts";
-import { drawRail, drawSide } from "./sidebar.tsx";
-import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
+import { redraw } from "./redraw.ts";
+import { liveMode, runs } from "../project/sections.ts";
 import { ensureMac, MACHINES, machinesChanged, takeTraffic } from "../machines/machine-store.ts";
 import { keepConnecting } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
 import { readSync } from "../project/syncpage.ts";
+import { read } from "./homeedit.ts";
 import { perfFresh } from "../ui/perf.ts";
 
 /// The mesh answered for Home in this window; until then Home may be
@@ -31,10 +31,6 @@ let telemetry: Telemetry | undefined;
 /// The newest Home the `home` push carried and no read took yet.
 let pushedHome: Pushed<HomeView> | null = null;
 let homeRead: Promise<void> | undefined;
-/// The last answer, before telemetry, and the Home it made: a Home put in
-/// place elsewhere is compared whole.
-let lastRead: HomeView | null = null;
-let shown: HomeView | null = null;
 let undrawn = false;
 /// Times Home from its kept draw to the first fresh one.
 let homeFresh: (() => void) | null = null;
@@ -44,43 +40,16 @@ export function homeCached() {
   if (!fresh) homeFresh = perfFresh("home");
 }
 
-/// Every write to the window's Home, pins, groups, `where` and Mac comes
-/// through here. A local edit goes to `lastRead` too, so the next read still
-/// compares against what Home shows and an unchanged Home draws nothing.
-function editHome(edit: (home: HomeView) => HomeView) {
-  const held = heldHome();
-  if (!held) return;
-  const kept = held === shown;
-  state.home = edit(held);
-
-  if (kept) {
-    shown = state.home;
-    if (lastRead) lastRead = edit(lastRead);
-  }
-}
-
-/// A project the user removed: the topics push the new lists.
-export function forgetProject(name: string) {
-  state.top = state.top.filter(n => n !== name);
-  editHome(home => home.projects ? { ...home, projects: home.projects.filter(p => p.name !== name) } : home);
-  for (const section of ["where", "sessions", "gitsync"] as const) pages.drop(section, name);
-}
-
-/// Forgets where every project was read: a removed machine changes each one.
-export function dropWhere() {
-  pages.drop("where");
-}
-
 /// The Home held for what it read, with telemetry. `state.home` names the cards from the machine
 /// list and drops a machine removed here whenever it is read.
-function shownHome(read: HomeView): HomeView {
-  return telemetry ? applyTelemetry(read, telemetry) : read;
+function shownHome(got: HomeView): HomeView {
+  return telemetry ? applyTelemetry(got, telemetry) : got;
 }
 
 // Home's cards take their names from the machine list as they draw.
 machinesChanged.add(() => {
   pagesAccount(MACHINES.mac);
-  if (onScreen()) { draw(); drawSide(); }
+  if (onScreen()) { redraw("home"); redraw("side"); }
 });
 
 /// Takes the newest pushed Home, or reads it when none came yet: membership, running sessions
@@ -95,7 +64,7 @@ async function readHome(): Promise<void> {
 
       try {
         const home = await takeHome();
-        before = heldHome() === shown ? lastRead : null;
+        before = heldHome() === read.shown ? read.last : null;
         next = keepUnchanged(before, home);
         fresh = true;
         failed = state.error !== null;
@@ -107,8 +76,8 @@ async function readHome(): Promise<void> {
       }
 
       if (next) {
-        lastRead = next;
-        state.home = shown = shownHome(next);
+        read.last = next;
+        state.home = read.shown = shownHome(next);
         keepConnecting(next.machines);
       }
 
@@ -120,12 +89,12 @@ async function readHome(): Promise<void> {
       homeFresh?.();
       homeFresh = null;
 
-      if (onScreen()) drawSide();
+      if (onScreen()) redraw("side");
     } while (again && onScreen());
   })();
 
   try { await homeRead; }
-  finally { homeRead = undefined; if (onScreen() && (!state.home || state.error !== null)) draw(); }
+  finally { homeRead = undefined; if (onScreen() && (!state.home || state.error !== null)) redraw("home"); }
 }
 
 async function takeHome(): Promise<HomeView> {
@@ -139,14 +108,14 @@ async function takeHome(): Promise<HomeView> {
 
 /// Home, the projects page while it shows, and the sidebar unless it draws later.
 function drawHome(side = true) {
-  draw();
-  redrawProjectsPage();
-  if (side) drawSide();
+  redraw("home");
+  redraw("projectsPage");
+  if (side) redraw("side");
 }
 
 /// Whether a pushed Home asks something new of the user, or no longer asks it.
 function needsChanged(home: HomeView): boolean {
-  return JSON.stringify(home.needs_you) !== JSON.stringify(lastRead?.needs_you ?? []);
+  return JSON.stringify(home.needs_you) !== JSON.stringify(read.last?.needs_you ?? []);
 }
 
 /// Agents, processes and moves change Home many times a second during turns.
@@ -160,7 +129,7 @@ async function takeSync(next: SyncRow[]) {
   state.sync = rows;
   if (!onScreen()) return;
 
-  if (changed.size) { draw(); drawSide(); }
+  if (changed.size) { redraw("home"); redraw("side"); }
 }
 
 const refreshSync = single(async () => takeSync(await invoke<SyncRow[]>("project_sync")));
@@ -170,8 +139,8 @@ async function takeProjects(top: string[], groups: ProjectGroup[] | null) {
   state.groups = groups;
 
   if (onScreen()) {
-    drawSide();
-    redrawProjectsPage();
+    redraw("side");
+    redraw("projectsPage");
   }
 }
 
@@ -226,7 +195,7 @@ export async function refresh() {
 }
 
 // "Still connecting" takes over once the wait passes its limit.
-setTimeout(() => { if (!state.home) draw(); }, CONNECT_STUCK_MS);
+setTimeout(() => { if (!state.home) redraw("home"); }, CONNECT_STUCK_MS);
 
 /// Hidden windows rejoin their subscriptions when shown.
 export const onScreen = pageShown;
@@ -235,7 +204,7 @@ export const onScreen = pageShown;
 onShownChange(visible => {
   if (!visible) { runs.stop(); liveMode.follow(null); return; }
 
-  if (state.home) { redrawProjectsPage(); drawRail(); }
+  if (state.home) { redraw("projectsPage"); redraw("rail"); }
 });
 
 // These are state changes. Agent tokens and terminal output have their own topics.
@@ -276,6 +245,6 @@ subscribeChanges(topic("telemetry"), { deliver: "each", receive: event => {
   telemetry = event.data as Telemetry;
   takeTraffic(telemetry);
   const held = heldHome();
-  if (held) { state.home = applyTelemetry(held, telemetry); if (held === shown) shown = heldHome(); }
-  draw();
+  if (held) { state.home = applyTelemetry(held, telemetry); if (held === read.shown) read.shown = heldHome(); }
+  redraw("home");
 } }, { when: () => currentLocation()?.view === "home", wait: SLOW_MS });

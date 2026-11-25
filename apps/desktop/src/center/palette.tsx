@@ -11,7 +11,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import type { AgentRow } from "../agents/agents-state.ts";
 import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
 import { PaletteSearch } from "./palette-search.ts";
-import { projectWindowProps } from "./sidebar.tsx";
+import { projectWindowProps } from "../project/projectops.ts";
 import { opensNewWindow, projectFirst } from "../project/projectwindow.ts";
 import { HarnessIcon, IC } from "../ui/icons.tsx";
 

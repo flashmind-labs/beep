@@ -7,15 +7,16 @@ import { Button } from "../ui/kit.tsx";
 import { Segmented } from "../ui/aria-kit.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { homeForDisplay, type HomeView, type NeedsYou } from "./home-state.ts";
-import { type CenterView, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
+import { type CenterView, OFFLINE_NOTE_MS, state, stuck } from "./state.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
+import { redraws } from "./redraw.ts";
 import { currentLocation, go } from "./nav.ts";
-import { projectRows } from "./sidebar.tsx";
+import { projectRows } from "../project/projectrows.ts";
 import { ensureHome, refresh } from "./refresh.ts";
 import { ConnectingView } from "./connecting-view.tsx";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
-import { ensureAllTerms } from "../terminals/view.tsx";
+import { ensureAllTerms } from "./allterms.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { onPlaces } from "../agents/place.ts";
 import { sessionsRead } from "../agents/sessions.ts";
@@ -108,9 +109,6 @@ function page(home: HomeView) {
     tabs: shownTabs, selected: tab.key, open: openHomeTab };
 }
 
-/// True once the first Home has been waited for too long.
-export function stuck() { return !state.home && Date.now() - state.since >= CONNECT_STUCK_MS; }
-
 /// Before Home first loads: the dots, then Retry and Show log once the wait is long.
 function drawConnecting() {
   const secs = Math.round((Date.now() - state.since) / 1000);
@@ -130,6 +128,8 @@ export function draw() {
   applyScroll();
   scrollTarget = null;
 }
+
+redraws.home.add(draw);
 
 // The Done today lane: the sessions of every project, ended ones included, which the
 // running list drops; and every session, for the Assistant list. Read when they changed,

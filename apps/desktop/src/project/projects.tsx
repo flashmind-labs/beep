@@ -19,7 +19,7 @@ import { showMachineMenu } from "../machines/table.ts";
 import { MachinesSection, type ProjectMachineItem } from "./machines-section-view.tsx";
 import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
-import { addProject } from "../center/sidebar.tsx";
+import { addProject } from "./addflow.ts";
 import { splitOn, projectSplit, disposeProjectShell } from "./split.tsx";
 import { hostPart, retainedHost, viewPart, type PagePart } from "./page-view.tsx";
 import { redrawProjects, pc, terms, fsync } from "./sections.ts";

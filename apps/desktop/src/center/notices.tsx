@@ -1,4 +1,4 @@
-import { projectWindowProps } from "./sidebar.tsx";
+import { projectWindowProps } from "../project/projectops.ts";
 import { placeWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { NoticesView } from "./notices-view.tsx";

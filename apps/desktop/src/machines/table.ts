@@ -2,12 +2,11 @@
 // under it, and the menu that renames or removes one.
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, renameSheet, type MenuItem } from "../ui/menu.tsx";
-import { state } from "../center/state.ts";
+import { pages, state } from "../center/state.ts";
 import { currentLocation } from "../center/nav.ts";
-import { draw } from "../center/home.tsx";
-import { openTerminals } from "../terminals/view.tsx";
+import { redraw } from "../center/redraw.ts";
+import { openTerminals } from "../center/allterms.ts";
 import { fsync } from "../project/sections.ts";
-import { dropWhere } from "../center/refresh.ts";
 import { removeListed, renameListed, MACHINES, takeMac } from "./machine-store.ts";
 import { type MacControl } from "./machine-state.ts";
 
@@ -17,7 +16,7 @@ import { type MacControl } from "./machine-state.ts";
 export function readSyncDetails() {
   if (currentLocation()?.view !== "home") return;
   const reads = [...new Set(state.sync.map(r => r.project))].map(p => fsync.ensure(p)).filter(r => r);
-  if (reads.length) Promise.all(reads).then(draw);
+  if (reads.length) Promise.all(reads).then(() => redraw("home"));
 }
 
 /// Turns on Let Beep use this Mac, so it joins as a machine.
@@ -28,7 +27,7 @@ export async function useThisMac() {
     console.warn("turning on this computer:", e);
   }
 
-  draw();
+  redraw("home");
 }
 
 /// A machine the menu can rename, or remove unless it is this Mac, which
@@ -73,7 +72,7 @@ function removeMachine(m: Removable) {
     run: async () => {
       await invoke("remove_machine", { id: m.id });
       removeListed(m.id);
-      dropWhere();
+      pages.drop("where");
     },
   });
 }

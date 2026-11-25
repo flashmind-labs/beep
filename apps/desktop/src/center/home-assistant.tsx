@@ -13,7 +13,7 @@ import type { FoundRow } from "../project/projects-state.ts";
 import { PaintedEmpty } from "../ui/painted-art.tsx";
 import { Button } from "../ui/kit.tsx";
 import { reason } from "../ui/format.ts";
-import { addProject, importFromPage } from "./sidebar.tsx";
+import { addProject, importFromPage } from "../project/addflow.ts";
 import { state } from "./state.ts";
 import { go } from "./nav.ts";
 

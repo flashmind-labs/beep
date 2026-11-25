@@ -7,7 +7,8 @@ import { RepoCards, type RepoLine } from "../project/outside-lists.tsx";
 import { GIT_SORTS, dayLabel, inPeriod, itemTime, parseGitSort, projectsWithOpen, type GitItemRow, type GitItemsView, type GitPeriod, type GitSort } from "./openitems-state.ts";
 import { continueButton, itemMenu, quickImport, reviewButton, rowImports } from "./openitems.ts";
 import { openUrl } from "../ui/tauri.ts";
-import { projectRows, projectWindowProps } from "./sidebar.tsx";
+import { projectRows } from "../project/projectrows.ts";
+import { projectWindowProps } from "../project/projectops.ts";
 import { state } from "./state.ts";
 import { go } from "./nav.ts";
 

@@ -46,14 +46,14 @@ import { fixPrompt, runTarget, type RunDetail } from "./runs.tsx";
 import { conflictPrompt, type Conflict } from "./filesync.ts";
 import { type Started, state, sessionsOf, gitOf } from "../center/state.ts";
 import { currentLocation, go } from "../center/nav.ts";
-import { projectRows } from "../center/sidebar.tsx";
+import { projectRows } from "./projectrows.ts";
 import { redrawProjects, pa, pc } from "./sections.ts";
 import { loadSessions, projectPlaces } from "./loads.tsx";
 import { copyLine, shortName } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
 import { projectsIn } from "../addproject/importproject.tsx";
-import { redrawSync } from "./syncpage.ts";
+import { redrawSync } from "../center/redraw.ts";
 import { startAttachments } from "../agents/start-attachments.tsx";
 import { heldBy, takeFree, takeIssue } from "./team-view.tsx";
 

@@ -1,7 +1,8 @@
 import { prSession } from "./pr-session.ts";
 // A project page's sections (terminals, file sync, Git history, pull
 // requests and issues, runs).
-import { drawRail, projectRows } from "../center/sidebar.tsx";
+import { drawRail } from "../center/sidebar.tsx";
+import { projectRows } from "./projectrows.ts";
 import { railProject, shell } from "../center/window-shell.tsx";
 import { pageShown } from "../ui/active.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
@@ -34,7 +35,7 @@ import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents-state.ts";
 import { barOn, drawProjectComp, workOnIssue, startIssue, discussThread, workOnPr, startPrWork, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
-import { redrawSync } from "./syncpage.ts";
+import { redrawSync } from "../center/redraw.ts";
 import { drawProjects } from "./page.tsx";
 import { rememberGitRow } from "./loads.tsx";
 import { assign, teamLogins } from "./team-view.tsx";

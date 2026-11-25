@@ -23,10 +23,12 @@ import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { localProjectId, projectRef } from "./localid.ts";
 import { machineTile } from "./board.ts";
-import { state, pages, keep, pageFresh, whereOf, sessionsOf, peekSessions, gitOf } from "../center/state.ts";
+import { state, pages, keep, pageFresh, whereOf, sessionsOf, peekSessions, gitOf, sessionsDue } from "../center/state.ts";
 import { refreshGit } from "../center/openitems.ts";
 import { currentLocation, go, windowAlone } from "../center/nav.ts";
-import { projectRows, importSheet, addProject, importFromPage, loadFound, drawRail, openProjects } from "../center/sidebar.tsx";
+import { drawRail } from "../center/sidebar.tsx";
+import { projectRows } from "./projectrows.ts";
+import { importSheet, addProject, importFromPage, loadFound, openProjects } from "./addflow.ts";
 import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButton } from "./sections.ts";
 import { drawProjects } from "./page.tsx";
 import { onScreen } from "../center/refresh.ts";
@@ -419,7 +421,6 @@ export function nextRunning(name: string, s: { machine_id: string; id: string; s
 /// The projects whose sessions are being read, and those to read again on the
 /// next draw.
 const readingSessions = new Set<string>();
-export const sessionsDue = new Set<string>();
 const sessionReads = new Map<string, Promise<void>>();
 export async function loadSessions(name: string): Promise<void> {
   const pending = sessionReads.get(name);

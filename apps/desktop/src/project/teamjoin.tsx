@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import type { BoardCard } from "../center/lanes-view.tsx";
-import { importSheet, loadFound, openProjects } from "../center/sidebar.tsx";
+import { importSheet, loadFound, openProjects } from "./addflow.ts";
 import { state } from "../center/state.ts";
 import { reason } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
