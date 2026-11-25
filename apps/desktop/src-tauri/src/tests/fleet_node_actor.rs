@@ -325,8 +325,7 @@ fn a_machine_that_pushes_its_tool_updates_is_not_asked() {
         panic!("the list was not kept");
     };
     assert_eq!(updates.len(), 1);
-    assert_eq!(updates[0].tool, "gh");
-    assert_eq!(updates[0].machine_id, machine.to_string());
+    assert_eq!(updates[0].tool, Tool::Gh);
     // The same list again changes nothing.
     assert!(!pushes.heard(machine, Some(&found_gh())));
     // Before its first check ends the node says nothing is found.
@@ -353,7 +352,7 @@ fn an_installed_tool_leaves_the_pushed_list_until_the_node_pushes_again() {
     let machine = sample_machine(3);
     pushes.heard(machine, Some(&found_gh()));
 
-    pushes.installed(machine, "gh");
+    pushes.installed(machine, Tool::Gh);
 
     assert_eq!(pushes.get(machine), Some(ToolPush::Pushed(Vec::new())));
 }

@@ -23,9 +23,10 @@ const RELEASES_FOR: Duration = Duration::from_secs(55 * 60);
 /// How long one npm registry lookup may take.
 const NPM_TIMEOUT: Duration = Duration::from_secs(15);
 
-/// The newest npm release of each coding agent package, and when they were
-/// looked up.
-static AGENT_RELEASES: Mutex<Option<(Instant, HashMap<&'static str, String>)>> = Mutex::new(None);
+/// The newest npm release of each coding agent package, `None` for one the lookup missed, and
+/// when they were looked up.
+static AGENT_RELEASES: Mutex<Option<(Instant, HashMap<&'static str, Option<String>>)>> =
+    Mutex::new(None);
 
 /// The updates found by each connected node, and its coding agents behind
 /// their newest release. A node that pushes its list is not asked; one that
@@ -54,7 +55,17 @@ async fn node_updates(fleet: &Arc<Fleet>, machines: Vec<Machine>) -> Vec<ToolUpd
             let id = fleet.member(&machine.id)?;
 
             match fleet.projections().tool_pushes.get(id) {
-                Some(ToolPush::Pushed(updates)) => Some(updates),
+                Some(ToolPush::Pushed(found)) => Some(
+                    found
+                        .into_iter()
+                        .map(|update| ToolUpdate {
+                            machine_id: machine.id.clone(),
+                            tool: update.tool.to_string(),
+                            version: update.version,
+                            latest: update.latest,
+                        })
+                        .collect(),
+                ),
                 // Its first list is on its way.
                 None => None,
                 Some(ToolPush::Refused) => Some(asked_updates(fleet, id, machine.id).await),
@@ -129,7 +140,7 @@ async fn agent_updates(machines: &[Machine]) -> Vec<ToolUpdate> {
     coders
         .into_iter()
         .filter_map(|coder| {
-            let latest = releases.get(coder.package)?;
+            let latest = releases.get(coder.package)?.as_ref()?;
             is_newer(latest, &coder.version).then(|| ToolUpdate {
                 machine_id: coder.machine.id.clone(),
                 tool: coder.agent.to_owned(),
@@ -140,9 +151,11 @@ async fn agent_updates(machines: &[Machine]) -> Vec<ToolUpdate> {
         .collect()
 }
 
-/// The newest release of each of `packages`, looked up again when the last
-/// look is old or missed one.
-async fn agent_releases(packages: &BTreeSet<&'static str>) -> HashMap<&'static str, String> {
+/// The newest release of each of `packages`, looked up again when the last look is old. A
+/// package the look missed stays missed until then.
+async fn agent_releases(
+    packages: &BTreeSet<&'static str>,
+) -> HashMap<&'static str, Option<String>> {
     {
         let found = AGENT_RELEASES
             .lock()
@@ -186,10 +199,20 @@ async fn agent_releases(packages: &BTreeSet<&'static str>) -> HashMap<&'static s
     *at = Instant::now();
 
     for (package, latest) in looked {
-        if let Some(latest) = latest {
-            releases.insert(package, latest);
+        // A miss does not replace a release found before.
+        match latest {
+            Some(latest) => {
+                releases.insert(package, Some(latest));
+            }
+            None => {
+                releases.entry(package).or_insert(None);
+            }
         }
     }
 
     releases.clone()
 }
+
+#[cfg(test)]
+#[path = "../tests/fleet_tool_updates.rs"]
+mod tests;

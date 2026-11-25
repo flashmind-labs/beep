@@ -26,6 +26,7 @@ use beep_proto::{
             Harness as McpHarness, NativeServer, PROTOCOL as MCP_PROTOCOL, Reply as McpReply,
             Request as McpRequest,
         },
+        tool_update::{Available, Tool},
     },
 };
 use futures::{
@@ -468,7 +469,7 @@ pub(crate) struct Projections {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum ToolPush {
     /// The node pushes its list, so the check call is not made.
-    Pushed(Vec<ToolUpdate>),
+    Pushed(Vec<Available>),
     /// The node answered the topic with an error, as one that predates it does: its list
     /// comes from the check call.
     Refused,
@@ -487,17 +488,7 @@ impl ToolPushes {
         let push = match answer {
             // The node has not finished its first check, or runs none.
             Some(Value::Missing) => ToolPush::Pushed(Vec::new()),
-            Some(Value::ToolUpdates(found)) => ToolPush::Pushed(
-                found
-                    .iter()
-                    .map(|update| ToolUpdate {
-                        machine_id: machine.to_string(),
-                        tool: update.tool.to_string(),
-                        version: update.version.clone(),
-                        latest: update.latest.clone(),
-                    })
-                    .collect(),
-            ),
+            Some(Value::ToolUpdates(found)) => ToolPush::Pushed(found.clone()),
             _ => ToolPush::Refused,
         };
 
@@ -518,7 +509,7 @@ impl ToolPushes {
 
     /// Drops `tool` from the list `machine` pushed, once it was installed there; the node's
     /// next list replaces it.
-    pub(crate) fn installed(&self, machine: EndpointId, tool: &str) {
+    pub(crate) fn installed(&self, machine: EndpointId, tool: Tool) {
         if let Some(ToolPush::Pushed(list)) = self
             .held
             .lock()

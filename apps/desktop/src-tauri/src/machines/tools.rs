@@ -22,7 +22,7 @@ pub async fn update_machine_tool(
     let latest = match fleet.projections().tool_pushes.get(machine) {
         Some(ToolPush::Pushed(updates)) => updates
             .into_iter()
-            .find(|update| update.tool == tool)
+            .find(|update| update.tool == named)
             .map(|update| update.latest),
         // A node that does not push its list is asked.
         _ => {
@@ -38,7 +38,7 @@ pub async fn update_machine_tool(
     .ok_or_else(|| DesktopError::BadRequest(format!("No update found for {named}.")))?;
     direct::update_tool(&fleet, machine, named, &latest).await?;
     fleet.projections().tool_updates.forget(&machine);
-    fleet.projections().tool_pushes.installed(machine, &tool);
+    fleet.projections().tool_pushes.installed(machine, named);
     beep_node::events::system().changed(Topic::new("tools"));
     Ok(latest)
 }
