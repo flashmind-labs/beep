@@ -110,6 +110,24 @@ impl Desk {
         Ok(())
     }
 
+    /// How long until the soonest library is due its daily check; zero when one is due now,
+    /// `None` when there are no libraries.
+    pub fn next_library_check_in(&self) -> Option<Duration> {
+        let now = now_ms();
+
+        self.skill_libraries()
+            .into_iter()
+            .map(|(name, library)| {
+                let due = self
+                    .library_check(&name, &library)
+                    .filter(|check| check.revision == library.revision)
+                    .map_or(0, |check| check.checked_ms.saturating_add(DAY_MS));
+
+                Duration::from_millis(due.saturating_sub(now))
+            })
+            .min()
+    }
+
     fn is_library_checker(&self) -> bool {
         self.mesh
             .devices()

@@ -23,20 +23,21 @@ use std::{
 };
 use tauri::State;
 
-/// A library is due a day after its last check; the repository is outside the mesh, so a pass
-/// also runs this often.
-const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
-
 /// Checks the libraries when the app starts, when a machine comes or goes (a controller that
-/// connected, or one that failed before, may be the one to check), and every `CHECK_EVERY`.
+/// connected, or one that failed before, may be the one to check), and when the soonest one is
+/// due again. Nothing wakes it while every library is due and unchecked here: a change does.
 pub(crate) async fn follow(fleet: Arc<Fleet>, session: Arc<Session>) {
     let mut changes = fleet.changes();
 
     loop {
-        if let Ok(desk) = session.desk().await
-            && let Err(error) = desk.check_skill_libraries().await
-        {
-            log::warn!("could not check skill libraries: {error}");
+        let mut due = None;
+
+        if let Ok(desk) = session.desk().await {
+            if let Err(error) = desk.check_skill_libraries().await {
+                log::warn!("could not check skill libraries: {error}");
+            }
+
+            due = desk.next_library_check_in().filter(|wait| !wait.is_zero());
         }
 
         tokio::select! {
@@ -45,7 +46,12 @@ pub(crate) async fn follow(fleet: Arc<Fleet>, session: Arc<Session>) {
                     return;
                 }
             }
-            () = tokio::time::sleep(CHECK_EVERY) => {}
+            () = async {
+                match due {
+                    Some(wait) => tokio::time::sleep(wait).await,
+                    None => std::future::pending().await,
+                }
+            } => {}
         }
     }
 }
