@@ -1,6 +1,6 @@
-//! A notification when a newer beep-node is out and machines of the mesh
-//! run an older one. Its Update button updates them all; a click opens
-//! Machines. Entry point: `follow`.
+//! Updates machines of the mesh that run an older beep-node than the newest release, as
+//! they are seen online. With auto-update off, a notification says so instead; its Update
+//! button updates them all and a click opens Machines. Entry point: `follow`.
 
 use crate::{
     beep::state::Prefs,
@@ -9,22 +9,48 @@ use crate::{
 };
 use beep_mesh::Device;
 use futures::{StreamExt, stream::FuturesUnordered};
+use iroh::EndpointId;
 use semver::Version;
-use std::{sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex, PoisonError},
+    time::Duration,
+};
 use tauri::{AppHandle, Manager};
+use tokio::time::MissedTickBehavior;
 
 /// Long enough after launch for the machines to say their versions.
 const FIRST_CHECK: Duration = Duration::from_secs(2 * 60);
 /// As often as the newest release is looked up.
 const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
 
-/// Announces each new beep-node release once while machines run an older one.
+/// Updates machines that are behind as they are seen online, and as each new release
+/// comes out. With auto-update off, announces each new beep-node release once instead.
 pub(crate) async fn follow(app: AppHandle) {
-    tokio::time::sleep(FIRST_CHECK).await;
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    let mut changes = fleet.changes();
+    let mut checks =
+        tokio::time::interval_at(tokio::time::Instant::now() + FIRST_CHECK, CHECK_EVERY);
+    checks.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let asked = Arc::new(Mutex::new(Asked::default()));
     let mut announced: Option<Version> = None;
 
     loop {
-        if let Some((latest, behind)) = behind(&app).await
+        let release_check = tokio::select! {
+            _ = checks.tick() => true,
+            more = changes.changed() => {
+                if !more {
+                    return;
+                }
+
+                false
+            }
+        };
+
+        if app.state::<Prefs>().node_auto_update() {
+            update_each(&app, &fleet, &asked).await;
+        } else if release_check
+            && let Some((latest, behind)) = behind(&app).await
             && announced.as_ref() != Some(&latest)
         {
             let names: Vec<&str> = behind.iter().map(|device| device.name.as_str()).collect();
@@ -35,8 +61,66 @@ pub(crate) async fn follow(app: AppHandle) {
             );
             announced = Some(latest);
         }
+    }
+}
 
-        tokio::time::sleep(CHECK_EVERY).await;
+/// What the auto-update asked of each machine.
+#[derive(Default)]
+struct Asked {
+    /// Machines with an update in flight: one at a time for each.
+    busy: HashSet<EndpointId>,
+    /// Machines the node took the request of for a release, so it is not asked again.
+    done: HashSet<(EndpointId, Version)>,
+}
+
+impl Asked {
+    /// Marks `machine` as being updated to `latest`; false when it already is or was.
+    fn claim(&mut self, machine: EndpointId, latest: &Version) -> bool {
+        !self.done.contains(&(machine, latest.clone())) && self.busy.insert(machine)
+    }
+
+    /// The request for `machine` ended. A failed one is asked again on the next change.
+    fn finish(&mut self, machine: EndpointId, latest: &Version, taken: bool) {
+        self.busy.remove(&machine);
+
+        if taken {
+            self.done.insert((machine, latest.clone()));
+        }
+    }
+}
+
+/// Asks each machine that is behind and not already asked to update. The node waits for its
+/// agent sessions to be idle before it restarts, so a busy machine is not interrupted.
+async fn update_each(app: &AppHandle, fleet: &Arc<Fleet>, asked: &Arc<Mutex<Asked>>) {
+    let Some((latest, behind)) = behind(app).await else {
+        return;
+    };
+    let channel = app.state::<Prefs>().node_release_channel();
+
+    for device in behind {
+        let claimed = asked
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .claim(device.id, &latest);
+
+        if !claimed {
+            continue;
+        }
+
+        let (fleet, asked, latest) = (fleet.clone(), asked.clone(), latest.clone());
+        tauri::async_runtime::spawn(async move {
+            let updated = files::update_machine(&fleet, device.id, false, channel).await;
+
+            if let Err(e) = &updated {
+                log::info!("updating {} to beep-node {latest}: {e}", device.name);
+            }
+
+            asked.lock().unwrap_or_else(PoisonError::into_inner).finish(
+                device.id,
+                &latest,
+                updated.is_ok(),
+            );
+        });
     }
 }
 
@@ -96,3 +180,7 @@ async fn behind(app: &AppHandle) -> Option<(Version, Vec<Device>)> {
 
     (!behind.is_empty()).then_some((latest, behind))
 }
+
+#[cfg(test)]
+#[path = "../tests/machines_node_updates.rs"]
+mod tests;
