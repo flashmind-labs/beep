@@ -55,7 +55,8 @@ const hooks = registerHooks({
     return source === undefined ? next(url, context) : { format: "module", source, shortCircuit: true };
   },
 });
-const { go, goHistory } = await import("../src/center/views.tsx");
+await import("../src/center/views.tsx");
+const { go, goHistory } = await import("../src/center/nav.ts");
 // The router loads the project page on its first visit.
 await import("../src/project/page.tsx");
 hooks.deregister();

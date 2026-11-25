@@ -12,7 +12,7 @@ import { agentLabel } from "../project/projects-state.ts";
 import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import { state } from "./state.ts";
 import { draw } from "./home.tsx";
-import { currentLocation, go } from "./views.tsx";
+import { currentLocation, go } from "./nav.ts";
 import { loadFound } from "./sidebar.tsx";
 import { single } from "../ui/active.ts";
 import type { Pushed } from "../ui/snapshot-state.ts";

@@ -2,7 +2,7 @@ import { Button, EmptyPanel } from "../ui/kit.tsx";
 import { projectName } from "../project/projects-state.ts";
 import { Fragment, memo, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
-import { createStore, useStore } from "zustand";
+import { useStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { shownChanged } from "../ui/active.ts";
 // The window's views: their boxes, going to one, and the header it draws.
@@ -13,22 +13,20 @@ import { keepWindowSession, mainTarget, route, type Alone, type CenterTarget, ty
 import { ensureSessions, sessions, sessionsRead } from "../agents/sessions.ts";
 import { threadsByChat } from "../agents/threads-state.ts";
 import { shortName } from "../project/agent.ts";
-import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName } from "./state.ts";
+import { type Location, type ViewHead, type CenterView, type ViewName } from "./state.ts";
 import { drawSide, openProjects, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { instructionsView, openSettings, providersView } from "../settings/sheet.ts";
 import { paneView } from "./pane.tsx";
 import { homeView } from "./home.tsx";
 import { TerminalsPage, terminalsView } from "../terminals/view.tsx";
-import { windowHistory } from "./window-router.ts";
+import { boxOf, drawTop, go, goTo, keepBox, nav, pages, router, setWindowAlone, shown, windowAlone, aloneProject, currentLocation, PAGES, type Page } from "./nav.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { S } from "../bar/core.ts";
 import { isStarting } from "../agents/starting-state.ts";
 import { canGoBack, syncMobile } from "./mobile.tsx";
 import { placeWindowParts } from "./window-root.tsx";
-import { closeSideOver, shell, windowHost } from "./window-shell.tsx";
+import { closeSideOver, shell } from "./window-shell.tsx";
 import { movePlaying, swipePlaying, type Swipe } from "../ui/motion.ts";
-
-let currentPage: Location | null = null;
 
 let loadedProjects: typeof import("../project/page.tsx") | null = null;
 const projectsView: CenterView<"projects"> = {
@@ -37,7 +35,7 @@ const projectsView: CenterView<"projects"> = {
   async mount(el, arg) {
     loadedProjects ??= await import("../project/page.tsx");
     await loadedProjects.projectsView.mount(el, arg);
-    if (currentPage?.view === "projects") drawTop();
+    if (nav.page?.view === "projects") drawTop();
   },
   unmount: () => loadedProjects?.projectsView.unmount?.(),
 };
@@ -52,21 +50,6 @@ function viewOf(name: ViewName): CenterView {
     case "providers": return providersView;
     case "terminals": return terminalsView;
   }
-}
-
-/// The pages after Home and the pane, in the order their boxes follow them in `#main`.
-const PAGES = ["projects", "instructions", "providers", "terminals"] as const;
-type Page = typeof PAGES[number];
-const boxes = new Map<Page, HTMLElement>();
-const keepBox = Object.fromEntries(PAGES.map(name => [name, (el: HTMLDivElement | null) => { if (el) boxes.set(name, el); else boxes.delete(name); }]));
-/// How often each page drew; 0 leaves its box empty.
-const shown = createStore<{ drawn: Record<Page, number> }>(() => ({
-  drawn: { projects: 0, instructions: 0, providers: 0, terminals: 0 },
-}));
-
-/// Draws page `name` in its box again, or empties the box.
-export function drawPage(name: Page, on = true) {
-  flushSync(() => shown.setState(s => ({ drawn: { ...s.drawn, [name]: on ? s.drawn[name] + 1 : 0 } })));
 }
 
 /// Every page's box, the one showing unhidden. Hidden pages stay drawn, so
@@ -92,14 +75,7 @@ const PageContent = memo(function PageContent({ name }: { name: Page; drawn: num
 
 placeWindowParts({ pages: <CenterPages /> });
 
-/// The element view `name` draws in; Home and the pane have theirs in the page.
-export function boxOf(name: ViewName): HTMLElement | null {
-  switch (name) {
-    case "home": return windowHost("home-box");
-    case "pane": return windowHost("pane-box");
-    default: return boxes.get(name) ?? null;
-  }
-}
+Object.assign(router, { goTo: openPage, drawTop: drawHead, projectArg: () => projectsView.currentArg?.() });
 
 function show(name: ViewName) {
   flushSync(() => shell.setState({ view: name }));
@@ -110,11 +86,8 @@ function opensAgent(arg: PaneTarget): arg is Extract<PaneTarget, { agent: unknow
   return !!arg && typeof arg === "object" && ("agent" in arg || "agentnew" in arg);
 }
 
-/// The project or chat a window shows alone; null in the main window.
-export let windowAlone: Alone | null = null;
-
 export function openDetachedWindow(alone: Alone, saved: { machine_id: string; id: string } | null) {
-  windowAlone = alone;
+  setWindowAlone(alone);
   document.body.classList.add("pw");
 
   const savedThread = alone.kind === "chat" && saved !== null
@@ -156,11 +129,6 @@ function WaitingForChat({ open, savedThread }: { open(chatOnly: boolean): boolea
     : "Waiting for the machine to list this chat…"} />;
 }
 
-/// The project a project's window shows; null in any other.
-export function aloneProject() {
-  return windowAlone?.kind === "project" ? windowAlone.project : null;
-}
-
 /// What a project's or chat's window keeps for itself; null in the main window.
 function windowScope(): WindowScope | null {
   const alone = windowAlone;
@@ -185,72 +153,10 @@ export function toMain(target: CenterTarget) {
   invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
 }
 
-const pages = windowHistory;
-/// Set while ⌘[ or ⌘] moves, so the move is not a new visit.
-let moving = false;
-/// Set while a Back moves, so the page comes in from the left on the phone.
-let goingBack = false;
-
-/// Runs `step` as a Back: the phone's Back goes up a level without a history step.
-export function asBack(step: () => void) {
-  goingBack = true;
-
-  try {
-    step();
-  } finally {
-    goingBack = false;
-  }
-}
 const pageTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { recordTiming("page", page, ms); perfOpened(perfViewOf(page), ms); });
 
-/// The page showing, as `go` opens it again.
-export function currentLocation(): Location | null {
-  if (!currentPage) return null;
-
-  // Project sections change without mounting the page again.
-  if (currentPage.view === "projects") {
-    const arg = projectsView.currentArg?.();
-    if (arg && typeof arg === "object" && "project" in arg) return { view: "projects", arg };
-  }
-
-  return currentPage;
-}
-
-/// Whether there is a page to go back or forward to.
-export function hasHistory(forward: boolean) {
-  return pages.has(forward);
-}
-
-/// Goes one page back (⌘[) or forward (⌘]), if there is one; false when there is none.
-export function goHistory(forward: boolean): boolean {
-  const current = currentLocation();
-  if (!current) return false;
-  const page = forward ? pages.forward(current) : pages.back(current);
-  if (!page) return false;
-  moving = true;
-
-  try {
-    if (forward) goTo(page); else asBack(() => goTo(page));
-  } finally {
-    moving = false;
-  }
-
-  return true;
-}
-
-/// Shows view `name`, passing `arg` to its mount.
-export function go(...[name, arg]: NavigationArgs): boolean {
-  switch (name) {
-    case "home": return goTo({ view: name, arg: null });
-    case "terminals": return goTo({ view: name, arg: null });
-    case "pane": return goTo({ view: name, arg: arg ?? null });
-    case "projects": return goTo({ view: name, arg: arg ?? null });
-    case "providers": return goTo({ view: name, arg: arg ?? null });
-    case "instructions": return goTo({ view: name, arg: arg ?? null });
-  }
-}
-
-export function goTo(target: Location): boolean {
+/// Shows `target`; what `goTo` runs.
+function openPage(target: Location): boolean {
   closeSideOver();
   const page = withReturnTarget(target, currentLocation());
   const { view: name, arg } = page;
@@ -262,7 +168,7 @@ export function goTo(target: Location): boolean {
 
   // Settings open over whatever shows, which stays as it is.
   if (name === "pane" && arg === "settings") {
-    if (!currentPage) go("home");
+    if (!nav.page) go("home");
     openSettings();
     return true;
   }
@@ -272,14 +178,14 @@ export function goTo(target: Location): boolean {
   const afterMount = pageTiming.start(pageName(name, arg));
   // Sending from a draft turns it into the session, and a start becomes the session its
   // machine names: Back skips the spent page.
-  const spent = currentPage?.view === "pane" && !!currentPage.arg && typeof currentPage.arg === "object"
-    && ("draft" in currentPage.arg || ("agent" in currentPage.arg && isStarting(currentPage.arg.agent.id)));
+  const spent = nav.page?.view === "pane" && !!nav.page.arg && typeof nav.page.arg === "object"
+    && ("draft" in nav.page.arg || ("agent" in nav.page.arg && isStarting(nav.page.arg.agent.id)));
   const replaceSpent = spent && name === "pane" && !!arg && typeof arg === "object" && "agent" in arg && arg.adopt === true;
   const previous = currentLocation();
   const next: Location = page.view === "projects" ? { view: "projects", arg: { project: page.arg?.project ?? null, tile: page.arg?.tile ?? null } } : page;
-  if (!moving) { if (previous) pages.visit(previous, next, replaceSpent); else pages.start(next); }
+  if (!nav.moving) { if (previous) pages.visit(previous, next, replaceSpent); else pages.start(next); }
   if (previous && previous.view !== name) viewOf(previous.view).unmount?.();
-  currentPage = page;
+  nav.page = page;
   if (windowAlone) keepWindowSession(page);
   perfView(perfViewOf(pageName(name, arg)));
   show(name);
@@ -288,7 +194,7 @@ export function goTo(target: Location): boolean {
   shownChanged();
   drawTop();
   drawSide();
-  if (previous && JSON.stringify(previous) !== JSON.stringify(next)) animateIn(box, goingBack);
+  if (previous && JSON.stringify(previous) !== JSON.stringify(next)) animateIn(box, nav.goingBack);
   if (mounted) void mounted.then(() => afterMount(name === "pane" ? pageName(name, S.view) : undefined)).catch(e => console.warn("mounting page:", e));
   else afterMount();
   return true;
@@ -342,17 +248,18 @@ function withReturnTarget(page: Location, current: Location | null): Location {
   return page;
 }
 
-export function drawTop() {
-  const view = currentPage ? viewOf(currentPage.view) : null;
+/// Draws the head of the page showing; what `drawTop` runs.
+function drawHead() {
+  const view = nav.page ? viewOf(nav.page.view) : null;
   const head: ViewHead = typeof view?.title === "function" ? view.title() : { title: view?.title ?? "Beep" };
   const project = aloneProject(), alone = windowAlone;
   const row = projectRows()?.find(row => row.name === project);
   const label = row ? projectName(row) : project;
   if (project) document.title = label ?? project;
   if (alone?.kind === "chat") document.title = sessions.find(row => row.machine_id === alone.machine_id && row.id === alone.session)?.title || "Assistant";
-  const page = JSON.stringify([currentPage, currentPage?.view === "pane" ? S.view : null]);
+  const page = JSON.stringify([nav.page, nav.page?.view === "pane" ? S.view : null]);
   placeWindowParts({
-    "project-back": project ? <Button {...projectWindowProps(project).clicks} {...projectWindowProps(project).menu} small className="pw-back" id="pw-back" title={`Back to ${label} (esc)`} hidden={currentPage?.view === "projects"} onClick={() => void openProjects(project)}>{shortName(label ?? project)}</Button> : null,
+    "project-back": project ? <Button {...projectWindowProps(project).clicks} {...projectWindowProps(project).menu} small className="pw-back" id="pw-back" title={`Back to ${label} (esc)`} hidden={nav.page?.view === "projects"} onClick={() => void openProjects(project)}>{shortName(label ?? project)}</Button> : null,
     title: head.title || "Beep",
     date: head.sub || "",
     scope: head.reactScope ? <Fragment key={page}>{head.reactScope}</Fragment> : null,

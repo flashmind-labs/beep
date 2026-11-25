@@ -15,7 +15,7 @@ import { Button } from "../ui/kit.tsx";
 import { reason } from "../ui/format.ts";
 import { addProject, importFromPage } from "./sidebar.tsx";
 import { state } from "./state.ts";
-import { go } from "./views.tsx";
+import { go } from "./nav.ts";
 
 const SUGGESTION = "Import my projects";
 

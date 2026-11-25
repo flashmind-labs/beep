@@ -6,7 +6,7 @@ import { runningLineAt } from "../agents/place.ts";
 import { moveLabel } from "../agents/move-store.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { state } from "../center/state.ts";
-import { go } from "../center/views.tsx";
+import { go } from "../center/nav.ts";
 
 export function ProjectRunning({ running }: { running: RunningAgent[] }) {
   return <><SectionHead title="Agents" count={running.length} />{running.length ? <div className="cc-panel">{byRecent(running).map(row => {

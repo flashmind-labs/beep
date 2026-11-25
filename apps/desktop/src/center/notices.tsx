@@ -13,7 +13,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { openSettings } from "../settings/sheet.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { type Held, type Note, conflictProject, find, fromNote, markRead, opens, skillName, unreadIds, without } from "./notices-state.ts";
-import { go } from "./views.tsx";
+import { go } from "./nav.ts";
 import { sessions } from "../agents/sessions.ts";
 import { chatOf } from "../agents/threads-state.ts";
 

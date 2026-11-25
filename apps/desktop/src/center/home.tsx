@@ -10,7 +10,7 @@ import { homeForDisplay, type HomeView, type NeedsYou } from "./home-state.ts";
 import { type CenterView, CONNECT_STUCK_MS, OFFLINE_NOTE_MS, state } from "./state.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
-import { currentLocation, go } from "./views.tsx";
+import { currentLocation, go } from "./nav.ts";
 import { projectRows } from "./sidebar.tsx";
 import { ensureHome, refresh } from "./refresh.ts";
 import { ConnectingView } from "./connecting-view.tsx";

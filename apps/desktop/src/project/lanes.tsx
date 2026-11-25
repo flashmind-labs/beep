@@ -7,7 +7,7 @@ import { sessionMenu } from "../agents/sessionmenu.ts";
 import type { BoardCard } from "../center/lanes-view.tsx";
 import { endedToday, laneOf, withoutProject } from "../center/lanes-state.ts";
 import { state } from "../center/state.ts";
-import { go } from "../center/views.tsx";
+import { go } from "../center/nav.ts";
 import { formatAgo } from "../ui/format.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { conflictList, conflictSub } from "./filesync.ts";

@@ -16,7 +16,7 @@ import { sessionMenu } from "../agents/sessionmenu.ts";
 import { sessionOffers } from "../agents/sessionmenu-state.ts";
 import { closeAgentSession } from "../agents/session.tsx";
 import type { AgentRow, AgentSession } from "../agents/agents.ts";
-import { go } from "../center/views.tsx";
+import { go } from "../center/nav.ts";
 import { FreshNote } from "./page-view.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { PersonaTag } from "./customagents-view.tsx";

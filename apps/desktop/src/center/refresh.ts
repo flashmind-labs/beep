@@ -10,7 +10,7 @@ import { draw } from "./home.tsx";
 import { readAllTerms } from "../terminals/view.tsx";
 import { takeGit } from "./openitems.ts";
 import type { GitItemsView } from "./openitems-state.ts";
-import { currentLocation } from "./views.tsx";
+import { currentLocation } from "./nav.ts";
 import { drawRail, drawSide } from "./sidebar.tsx";
 import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
 import { ensureMac, MACHINES, machinesChanged, takeTraffic } from "../machines/machine-store.ts";

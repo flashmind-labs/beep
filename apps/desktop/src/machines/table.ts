@@ -3,7 +3,7 @@
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, renameSheet, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
-import { currentLocation } from "../center/views.tsx";
+import { currentLocation } from "../center/nav.ts";
 import { draw } from "../center/home.tsx";
 import { openTerminals } from "../terminals/view.tsx";
 import { fsync } from "../project/sections.ts";

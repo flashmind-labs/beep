@@ -6,7 +6,7 @@ import { changeListeners, type View } from "../bar/core.ts";
 import { pane } from "../bar/pane.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { type CenterView, type ViewHead } from "./state.ts";
-import { currentLocation, drawTop, go } from "./views.tsx";
+import { currentLocation, drawTop, go } from "./nav.ts";
 import { shell } from "./window-shell.tsx";
 import { drawSide, paneOn } from "./sidebar.tsx";
 import { ensureHome } from "./refresh.ts";

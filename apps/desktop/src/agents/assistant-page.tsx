@@ -1,6 +1,7 @@
 // The Assistant page: the assistant's chats, each with its threads under it,
 // beside the pane, which shows the open chat or thread or the assistant's
 // start composer.
+import { go } from "../center/nav.ts";
 import { Fragment, type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import { createStore, useStore } from "zustand";
 import { AG, type AgentRow, type AgentSession } from "./agents.ts";
@@ -170,7 +171,7 @@ export function ChatRail({ rail, current }: { rail: NonNullable<ReturnType<typeo
 
 /// The Assistant's chats, beside its start composer.
 function goChats() {
-  void import("../center/views.tsx").then(({ go }) => go("pane", { assistant: "chats" }));
+  go("pane", { assistant: "chats" });
 }
 
 function Detail({ detail }: { detail: ThreadDetail }) {
@@ -190,9 +191,7 @@ export function newThread(chat: AgentRow) {
 
 /// Opens `session`'s chat on the page, or a new chat.
 function goChat(session: AgentRow | null) {
-  // Loaded when used: the window's navigation loads this module.
-  void import("../center/views.tsx").then(({ go }) => session
-    ? go("pane", { agent: session, from: ASSISTANT_CHATS })
-    : go("pane", { assistant: "new" }));
+  if (session) go("pane", { agent: session, from: ASSISTANT_CHATS });
+  else go("pane", { assistant: "new" });
 }
 

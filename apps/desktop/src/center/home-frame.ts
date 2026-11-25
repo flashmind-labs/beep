@@ -4,7 +4,7 @@ import { onPhone } from "../ui/platform.ts";
 import { dialogOpen } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { state } from "./state.ts";
-import { currentLocation } from "./views.tsx";
+import { currentLocation } from "./nav.ts";
 import { frameOf } from "./home-frame-state.ts";
 
 /// Keeps what Home shows now, when it is Home on a desktop window with its answer drawn.

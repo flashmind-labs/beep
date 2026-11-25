@@ -6,7 +6,7 @@ import { groupMatches, type ProjectGroup } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
-import { currentLocation } from "../center/views.tsx";
+import { currentLocation } from "../center/nav.ts";
 import { registerSidebarGroup, drawSide, projectRows, openAddMachine, openProjects } from "../center/sidebar.tsx";
 import { redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { jump } from "../center/home.tsx";

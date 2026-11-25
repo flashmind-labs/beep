@@ -6,7 +6,7 @@ import { placeOf } from "../agents/place.ts";
 import { placeSub } from "../agents/place-state.ts";
 import { agentLabel, type SessionRow } from "./projects-state.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { go } from "../center/views.tsx";
+import { go } from "../center/nav.ts";
 
 /// A project's past sessions: five rows tall in a scroll box, or `all` of
 /// them, virtual once there are many. Each opens its agent.

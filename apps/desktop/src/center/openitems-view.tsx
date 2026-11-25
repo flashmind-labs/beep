@@ -9,7 +9,7 @@ import { continueButton, itemMenu, quickImport, reviewButton, rowImports } from 
 import { openUrl } from "../ui/tauri.ts";
 import { projectRows, projectWindowProps } from "./sidebar.tsx";
 import { state } from "./state.ts";
-import { go } from "./views.tsx";
+import { go } from "./nav.ts";
 
 const SORT_KEY = "beep.git.sort";
 

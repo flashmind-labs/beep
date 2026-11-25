@@ -45,7 +45,7 @@ import type { Outcome } from "./openlist.ts";
 import { fixPrompt, runTarget, type RunDetail } from "./runs.tsx";
 import { conflictPrompt, type Conflict } from "./filesync.ts";
 import { type Started, state, sessionsOf, gitOf } from "../center/state.ts";
-import { currentLocation, go } from "../center/views.tsx";
+import { currentLocation, go } from "../center/nav.ts";
 import { projectRows } from "../center/sidebar.tsx";
 import { redrawProjects, pa, pc } from "./sections.ts";
 import { loadSessions, projectPlaces } from "./loads.tsx";

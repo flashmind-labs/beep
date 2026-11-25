@@ -25,7 +25,7 @@ import { localProjectId, projectRef } from "./localid.ts";
 import { machineTile } from "./board.ts";
 import { state, pages, keep, pageFresh, whereOf, sessionsOf, peekSessions, gitOf } from "../center/state.ts";
 import { refreshGit } from "../center/openitems.ts";
-import { currentLocation, go, windowAlone } from "../center/views.tsx";
+import { currentLocation, go, windowAlone } from "../center/nav.ts";
 import { projectRows, importSheet, addProject, importFromPage, loadFound, drawRail, openProjects } from "../center/sidebar.tsx";
 import { terms, fsync, thr, runs, redrawProjects, redrawProjectsPage, repairButton } from "./sections.ts";
 import { drawProjects } from "./page.tsx";

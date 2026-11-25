@@ -10,7 +10,7 @@ import { allTerms } from "../terminals/view.tsx";
 import { openTile } from "../project/split.tsx";
 import { pa } from "../project/sections.ts";
 import { HOME_TAB_EVENT, homeTab, jump } from "./home.tsx";
-import { currentLocation, go, goHistory, asBack } from "./views.tsx";
+import { currentLocation, go, goHistory, asBack } from "./nav.ts";
 import { drawRail, openProjects, paneOn } from "./sidebar.tsx";
 import { openSettings } from "../settings/sheet.ts";
 import { activeTab, backTo, fullScreen, type MobileAt, type MobileTab } from "./mobile-state.ts";

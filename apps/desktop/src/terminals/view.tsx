@@ -6,7 +6,7 @@ import { lazyScreen, makeTerminals } from "./terminals.tsx";
 import { ALL, byMachine, terminalsCount } from "./terminal-list.ts";
 import { type CenterView, keptSection, state } from "../center/state.ts";
 import { draw } from "../center/home.tsx";
-import { currentLocation, drawPage, go, drawTop } from "../center/views.tsx";
+import { currentLocation, drawPage, go, drawTop } from "../center/nav.ts";
 import { drawSide } from "../center/sidebar.tsx";
 import { ensureHome } from "../center/refresh.ts";
 

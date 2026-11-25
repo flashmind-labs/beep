@@ -29,7 +29,7 @@ import { makeThreads, type ListsRow, type IssueRow, type PullRequestRow, type Re
 import { makeThreadDetail } from "./threaddetail.tsx";
 import { makeRuns, type RunDetail, type RunsRow } from "./runs.tsx";
 import { state, keptSection, sessionsOf } from "../center/state.ts";
-import { currentLocation, go, drawTop } from "../center/views.tsx";
+import { currentLocation, go, drawTop } from "../center/nav.ts";
 import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";
 import { barOn, drawProjectComp, workOnIssue, startIssue, discussThread, workOnPr, startPrWork, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";

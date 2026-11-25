@@ -17,7 +17,7 @@ import { continueButton, reviewButton } from "./openitems.ts";
 import { loadFound, projectRows, projectWindowProps } from "./sidebar.tsx";
 import { HomeAssistant } from "./home-assistant.tsx";
 import { state } from "./state.ts";
-import { go } from "./views.tsx";
+import { go } from "./nav.ts";
 import { formatAgo, reason } from "../ui/format.ts";
 import { conflicted, invoke, openUrl } from "../ui/tauri.ts";
 import { machinesReach } from "../machines/machine-state.ts";

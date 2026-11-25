@@ -18,7 +18,7 @@ import { ALL } from "../terminals/terminal-list.ts";
 import { state, pages, whereOf, type SidebarGroup, groups } from "./state.ts";
 import { stuck, draw } from "./home.tsx";
 import { allTerms } from "../terminals/view.tsx";
-import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./views.tsx";
+import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./nav.ts";
 import { fsync, redrawProjects, redrawProjectsPage, syncProjectFollow } from "../project/sections.ts";
 import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";

@@ -18,7 +18,7 @@ import { NEW_WINDOW } from "./projectwindow.ts";
 import { localProjectId } from "./localid.ts";
 import { type CenterView, state, whereOf } from "../center/state.ts";
 import { openUrl } from "../ui/tauri.ts";
-import { boxOf, drawPage, go, windowAlone } from "../center/views.tsx";
+import { boxOf, drawPage, go, windowAlone } from "../center/nav.ts";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, addProject } from "../center/sidebar.tsx";
 import { editGroup } from "./groups.tsx";
 import { disposeOverview, overviewSection, projectDetail } from "./projects.tsx";

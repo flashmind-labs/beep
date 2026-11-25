@@ -10,6 +10,7 @@ import { menuPlaceFor } from "./mentionmenu.ts";
 import { FolderChoice, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { AccountChoice, BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
+import { go } from "../center/nav.ts";
 import { AG, accountsOf, type AgentHost, ensureAgentHosts, loadAccountNames, onAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
 import { agentKind } from "./agent-kind.ts";
 import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./assistant-state.ts";
@@ -281,7 +282,7 @@ function drawParts() {
 export function openMachines() { void import("../machines/machines.tsx").then(m => m.renderMachines()); }
 /// Opens machine `id`'s page in Settings.
 export function openMachine(id: string) { void import("../settings/sheet.ts").then(m => m.openMachineSettings(id)); }
-export function openAgents() { void import("../center/views.tsx").then(v => v.go("providers")); }
+export function openAgents() { go("providers"); }
 
 function drawPill(c: StartComposer, none: boolean) {
   const f = AG.form;
