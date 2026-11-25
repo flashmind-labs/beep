@@ -7,10 +7,10 @@ import { openGroupSheet } from "./groupsheet.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
 import { currentLocation } from "../center/nav.ts";
-import { registerSidebarGroup, drawSide } from "../center/sidebar.tsx";
+import { registerSidebarGroup } from "../center/sidebar.tsx";
 import { projectRows } from "./projectrows.ts";
 import { openAddMachine, openProjects } from "./addflow.ts";
-import { redrawProjects, redrawProjectsPage } from "./sections.ts";
+import { redraw } from "../center/redraw.ts";
 import { jump } from "../center/home.tsx";
 import { type MachineCard, type MacRow, thisMacRow } from "../machines/machine-state.ts";
 
@@ -41,13 +41,13 @@ export function editGroup(g: ProjectGroup | null = null) {
 export function startRename(g: ProjectGroup) {
   state.renaming = { id: g.id, draft: g.name };
   if (currentLocation()?.view !== "projects" || state.picked) openProjects();
-  else redrawProjects();
+  else redraw("projects");
 }
 
 export async function renameGroup(g: ProjectGroup, name: string) {
   state.renaming = null;
   const to = name.trim();
-  if (!to || to === g.name) return redrawProjects();
+  if (!to || to === g.name) return redraw("projects");
   const before = state.groups;
   state.groups = (before || []).map(x => (x.id === g.id ? { ...x, name: to } : x));
   redrawGroups();
@@ -76,8 +76,8 @@ export function removeGroup(g: ProjectGroup) {
 }
 
 function redrawGroups() {
-  drawSide();
-  redrawProjectsPage();
+  redraw("side");
+  redraw("projectsPage");
 }
 
 // The machines Home lists, each with its online dot. It shows once Home has
@@ -99,5 +99,5 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
 });
 
 // This computer's row waits for the build to say it can host.
-useBuildCapabilities.subscribe(() => drawSide());
+useBuildCapabilities.subscribe(() => redraw("side"));
 

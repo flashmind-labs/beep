@@ -1,7 +1,6 @@
 import { prSession } from "./pr-session.ts";
 // A project page's sections (terminals, file sync, Git history, pull
 // requests and issues, runs).
-import { drawRail } from "../center/sidebar.tsx";
 import { projectRows } from "./projectrows.ts";
 import { railProject, shell } from "../center/window-shell.tsx";
 import { pageShown } from "../ui/active.ts";
@@ -16,10 +15,7 @@ import { invoke, indexedChannel, listen, openUrl } from "../ui/tauri.ts";
 import { localProjectId } from "./localid.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { followedProject, makeProjectLive, type LiveRow } from "./projectlive.ts";
-import type { BarTarget, TaskSession } from "./projectbar.ts";
-import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
-import type { Picked } from "../agents/agentpicker.tsx";
-import type { AgentHost } from "../agents/agents-state.ts";
+import type { TaskSession } from "./projectbar.ts";
 import { lazyScreen, makeTerminals } from "../terminals/terminals.tsx";
 import type { BranchSessionRow } from "../review/history-state.ts";
 import { makeGitHistory } from "../review/history.tsx";
@@ -30,25 +26,17 @@ import { makeThreads, type ListsRow, type IssueRow, type PullRequestRow, type Re
 import { makeThreadDetail } from "./threaddetail.tsx";
 import { makeRuns, type RunDetail, type RunsRow } from "./runs.tsx";
 import { state, keptSection, sessionsOf } from "../center/state.ts";
-import { currentLocation, go, drawTop } from "../center/nav.ts";
+import { currentLocation, go } from "../center/nav.ts";
 import { openTile } from "./split.tsx";
-import { AG } from "../agents/agents-state.ts";
-import { barOn, drawProjectComp, workOnIssue, startIssue, discussThread, workOnPr, startPrWork, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
+import { workOnIssue, startIssue, discussThread, workOnPr, startPrWork, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
-import { redrawSync } from "../center/redraw.ts";
-import { drawProjects } from "./page.tsx";
+import { redraw, redrawSync } from "../center/redraw.ts";
 import { rememberGitRow } from "./loads.tsx";
 import { assign, teamLogins } from "./team-view.tsx";
 
-/// The row of the project's list picked, null for the first, and a run to
-/// open on the Actions tile.
-/// The tile picked, a run to open, and whether the project's board is blank,
-/// which centers the agent bar on the page under the day's painting.
-export const pa = { tile: null as string | null, run: null as { project: string; id: number; host: string } | null, blank: false };
-
-export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redrawProjects(), kept: keptSection("terminals") });
+export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redraw("projects"), kept: keptSection("terminals") });
 export const fsync = makeFileSync({
-  invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, kept: keptSection("filesync"),
+  invoke, redraw: () => { redraw("projects"); redrawSync(); }, fix: fixConflict, kept: keptSection("filesync"),
   fixButton: (project, c) => projectButtons(`conflict ${project}\n${c.path}`, { project, machine: c.holder, choose: false, label: "Fix with an agent", hint: "Pick a model: an agent merges the two copies on the machine that has them", session: null, start: pick => startConflictFix(project, c, pick) }),
   repairButton: (project, machine, error) => repairButton(project, machine, error),
 });
@@ -70,14 +58,14 @@ export const gitHistory = makeGitHistory({
   back: () => openTile("overview"),
   sessions: projectSessions,
   openSession: openBranchSession,
-  changedCheckout: (project, row) => { rememberGitRow(project, row); redrawProjectsPage(); },
+  changedCheckout: (project, row) => { rememberGitRow(project, row); redraw("projectsPage"); },
 });
 
 /// Whether the project shown is live or polling; what its host changed is
 /// read again as the mesh says.
 export const liveMode = makeProjectLive({
   invoke,
-  redraw: () => redrawProjects(),
+  redraw: () => redraw("projects"),
   reload: (id, update) => {
     const lists = update.lists && update.view<ListsRow | null>("center_project_lists", { projectId: id });
     if (lists) thr.take(id, lists);
@@ -91,18 +79,18 @@ listen<LiveRow>("project-live", e => liveMode.heard(e.payload));
 /// The project's open pull requests and issues, for the project page's list.
 export const thr = makeThreads({
   invoke,
-  redraw: () => redrawProjects(),
+  redraw: () => redraw("projects"),
   openUrl,
   kept: keptSection("threads"),
 });
 
 /// A pull request or issue read in full, in the split's right column.
-export const details = makeThreadDetail({ redraw: () => redrawProjects() });
+export const details = makeThreadDetail({ redraw: () => redraw("projects") });
 
 /// The project's workflow runs: the Actions section and each PR's checks.
 export const runs = makeRuns({
   invoke,
-  redraw: () => redrawProjects(),
+  redraw: () => redraw("projects"),
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
   startFix: (name, detail, pick, machine) => startFix(name, detail, pick, machine),
@@ -110,13 +98,13 @@ export const runs = makeRuns({
   button: (key, o) => projectButtons(key, o),
   mode: liveMode.mode,
   kept: keptSection("runs"),
-  hostsChanged: () => redrawProjectsPage(),
+  hostsChanged: () => redraw("projectsPage"),
 });
 
-layoutChanged.add(() => redrawProjects());
-onPlaces(() => redrawProjects());
-onMoves(() => redrawProjects());
-onClosing(() => redrawProjects());
+layoutChanged.add(() => redraw("projects"));
+onPlaces(() => redraw("projects"));
+onMoves(() => redraw("projects"));
+onClosing(() => redraw("projects"));
 
 /// Follows the imported project this window shows, on its page or in its rail, while visible.
 export function syncProjectFollow() {
@@ -128,16 +116,6 @@ export function syncProjectFollow() {
     projectRows(),
   );
   void liveMode.follow(project ? localProjectId(project) : null);
-}
-
-export function redrawProjects() {
-  const view = currentLocation()?.view;
-  if (view === "projects") drawProjects();
-
-  // The project's sessions beside one of them or beside its page show its card.
-  if (view === "pane" || railProject(shell.getState().side.rail)) drawRail();
-  // The empty agent view has the same bar.
-  if (view !== "projects" && AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
 }
 
 /// The project's sessions with their latest status and reported worktree.
@@ -156,11 +134,6 @@ function projectSessions(project: string): BranchSessionRow[] | undefined {
 function openBranchSession(session: SessionRow, changes = false) {
   go("pane", { agent: session });
   if (changes) showChanges();
-}
-
-/// The Projects page and its header, while it shows.
-export function redrawProjectsPage() {
-  if (currentLocation()?.view === "projects") { drawProjects(); drawTop(); }
 }
 
 /// What the Pull requests and Issues sections do on project `p`'s page:
@@ -183,28 +156,3 @@ export function repoActs(p: Project): RepoActs {
     assign: (issue: IssueRow, login: string) => assign(p.name, issue.number, [login]),
   };
 }
-
-/// The bar under a project: it starts a coding agent in the project's checkout,
-/// by default as it is (the agent makes its own branch), and opens its session.
-export const pc = {
-  project: null as string | null,
-  /// The machine picked; the bar starts on another while it has no checkout
-  /// and agent there.
-  machine: "",
-  /// The machine the project is being added to, until it is ready.
-  adding: null as AgentHost | null,
-  checkout: DEFAULT_CHECKOUT,
-  branches: new Map<string, BaseBranches | null>(),
-  /// True while the bar's files upload and its start is handed over.
-  starting: false,
-  /// The harness, model and thinking picked, and the machine and harness
-  /// the model was picked for, as `machine/agent`.
-  picked: { agent: "", model: "", effort: null, fast: null, query: "" } as Picked,
-  modelFor: "",
-  /// Whether the picker shows.
-  open: false,
-  /// What Work on it or Work on PR put in the bar, until it starts or is
-  /// cleared.
-  target: null as BarTarget | null,
-};
-

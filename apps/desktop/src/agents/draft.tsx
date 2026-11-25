@@ -7,7 +7,7 @@ import { S, windowHooks, setView } from "../bar/core.ts";
 import { rebindPane, startPane } from "../agentpane/media.ts";
 import { drawProjectComp, pointBar, projectComp } from "../project/composer.tsx";
 import type { BarPlace } from "../project/projectbar.ts";
-import { pc } from "../project/sections.ts";
+import { pc } from "../project/barstate.ts";
 import { AG } from "./agents-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { DraftHead, draftMessage, showSessionFrame } from "./session-frame.tsx";

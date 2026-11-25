@@ -14,6 +14,8 @@ export const redraws = {
   projects: new Set<() => void>(),
   /// The Projects page and its header, while it shows.
   projectsPage: new Set<() => void>(),
+  /// The Projects page alone.
+  projectsBody: new Set<() => void>(),
 };
 
 export function redraw(name: keyof typeof redraws) {

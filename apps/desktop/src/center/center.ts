@@ -35,7 +35,7 @@ import { projectWindowProps, openProjectWindow } from "../project/projectops.ts"
 import { escUp } from "./escup-state.ts";
 import { nextRunning } from "../project/loads.tsx";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
-import { pa } from "../project/sections.ts";
+import { pa } from "../project/barstate.ts";
 import { newThreadHere } from "../agents/agents.ts";
 import { AG } from "../agents/agents-state.ts";
 import { ASSISTANT_CHATS } from "../agents/assistant-page.tsx";

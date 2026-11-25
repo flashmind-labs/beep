@@ -16,7 +16,8 @@ import { AgentButton } from "../review/feedback-view.tsx";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { issueSession, projectButtons, startTask } from "./composer.tsx";
 import { localProjectId } from "./localid.ts";
-import { redrawProjects, thr } from "./sections.ts";
+import { thr } from "./sections.ts";
+import { redraw } from "../center/redraw.ts";
 import { openTile } from "./split.tsx";
 import { askPrompt, askWorkPrompt, cardLane, claim, filterCards, heldText, needKind, onlineCount, ownedIssues, repoPath, replyPrompt, sameLogin, teammates, teamView,
   type BoardFilter, type Claim, type IssueOwner, type TeamCard, type TeamCards, type TeamRecord, type TeamView } from "./team-state.ts";
@@ -76,7 +77,7 @@ function takeTeam(name: string, record: TeamRecord | null, held: TeamCards) {
   views.set(name, teamView(record));
   cards.set(name, held);
   kept.put(projectId, { record, cards: held });
-  redrawProjects();
+  redraw("projects");
 }
 
 /// Reads project `name`'s team and, when it has one, its cards, once; the pushes follow after.
@@ -116,7 +117,7 @@ interface TeamChanged { project_id: string; record: TeamRecord | null; cards: Te
 subscribeEach(topic("projects"), () => {
   if (!failed.size) return;
   failed.clear();
-  redrawProjects();
+  redraw("projects");
 });
 
 listen<TeamChanged>("team-changed", ({ payload }) => {
@@ -248,7 +249,7 @@ export function TeamFilter({ project, view }: { project: string; view: Team }) {
   if (!others.length) return null;
 
   const filter = boardFilter(project);
-  const pick = (next: BoardFilter) => { filters.set(project, next); redrawProjects(); };
+  const pick = (next: BoardFilter) => { filters.set(project, next); redraw("projects"); };
   const on = (login: string) => filter.kind === "member" && sameLogin(filter.login, login);
 
   return <div className="tm-filter">
@@ -276,7 +277,7 @@ export function IssueOwners({ project, issues }: { project: string; issues: read
 
   const owner = owners.get(project) ?? "all";
   const chip = (each: IssueOwner, label: string) => <ChipToggle label={`${label} ${ownedIssues(issues, each, view.me).length}`} selected={owner === each}
-    onToggle={() => { owners.set(project, each); redrawProjects(); }}/>;
+    onToggle={() => { owners.set(project, each); redraw("projects"); }}/>;
 
   return <div className="tm-filter">{chip("all", "All")}{chip("mine", "Mine")}{chip("unassigned", "Unassigned")}</div>;
 }

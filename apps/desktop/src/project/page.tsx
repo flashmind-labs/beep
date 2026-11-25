@@ -18,7 +18,9 @@ import { NEW_WINDOW } from "./projectwindow.ts";
 import { localProjectId } from "./localid.ts";
 import { type CenterView, state, whereOf } from "../center/state.ts";
 import { openUrl } from "../ui/tauri.ts";
-import { boxOf, drawPage, go, windowAlone } from "../center/nav.ts";
+import { boxOf, currentLocation, drawPage, drawTop, go, windowAlone } from "../center/nav.ts";
+import { railProject, shell as windowShell } from "../center/window-shell.tsx";
+import { AG } from "../agents/agents-state.ts";
 import { setProjectOnTop, openProjectWindow, removeProject } from "./projectops.ts";
 import { projectRows } from "./projectrows.ts";
 import { addProject } from "./addflow.ts";
@@ -26,8 +28,10 @@ import { editGroup } from "./groups.tsx";
 import { disposeOverview, overviewSection, projectDetail } from "./projects.tsx";
 import { NoProjects, Parts, viewPart, type PagePart } from "./page-view.tsx";
 import { splitOn, openTile } from "./split.tsx";
-import { pa, redrawProjectsPage, runs, syncProjectFollow, terms } from "./sections.ts";
-import { projectComp, drawProjectComp } from "./composer.tsx";
+import { runs, syncProjectFollow, terms } from "./sections.ts";
+import { pa } from "./barstate.ts";
+import { redraw, redraws } from "../center/redraw.ts";
+import { barOn, projectComp, drawProjectComp } from "./composer.tsx";
 import { noteRecent, revalidate, revalidateOverview, markDue, prefetchRecentSoon, whereDue, foundSection, elsewhereSection, disposeSessionPanel, releaseSessions } from "./loads.tsx";
 import { ensureHome } from "../center/refresh.ts";
 import { Icon } from "../ui/icons.tsx";
@@ -44,6 +48,21 @@ let shown: { project: string; split: boolean; blank: boolean; parts: PagePart[] 
 export function ProjectsPage() {
   return shown && <Parts key={shown.project} className={`cc-view${shown.split ? " split" : ""}${shown.blank ? " blank" : ""}`} project={shown.project} parts={shown.parts} />;
 }
+
+// The project page, its sessions beside it and the empty agent view's bar draw again together.
+redraws.projects.add(() => {
+  const view = currentLocation()?.view;
+  if (view === "projects") drawProjects();
+
+  // The project's sessions beside one of them or beside its page show its card.
+  if (view === "pane" || railProject(windowShell.getState().side.rail)) redraw("rail");
+  // The empty agent view has the same bar.
+  if (view !== "projects" && AG.draft && barOn(AG.draft)) drawProjectComp(AG.draft);
+});
+redraws.projectsPage.add(() => {
+  if (currentLocation()?.view === "projects") { drawProjects(); drawTop(); }
+});
+redraws.projectsBody.add(drawProjects);
 
 export function drawProjects() {
   const el = boxOf("projects");
@@ -157,7 +176,7 @@ export const projectsView: CenterView<"projects"> = {
       }
 
       const here = whereRows(p, whereOf(p.name) || null, MACHINES.mac?.id || null).find(r => r.mac && r.folder);
-      const editors = editorsFor(here?.folder, redrawProjectsPage);
+      const editors = editorsFor(here?.folder, () => redraw("projectsPage"));
       if (here?.folder && editors.length) tools.push(<ProjectEditors key="editors" editors={editors} folder={here.folder} />);
       // The rest goes in one menu, so the header keeps to a line.
       tools.push(<Button key="more" look="quiet" small title="More" aria-label="More" onClick={(event: React.MouseEvent) => {

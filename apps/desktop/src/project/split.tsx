@@ -31,7 +31,9 @@ import { boxOf, go } from "../center/nav.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.tsx";
 import { openUrl } from "../ui/tauri.ts";
-import { pa, terms, fsync, gitHistory, thr, details, runs, redrawProjects, repoActs } from "./sections.ts";
+import { terms, fsync, gitHistory, thr, details, runs, repoActs } from "./sections.ts";
+import { pa } from "./barstate.ts";
+import { redraw } from "../center/redraw.ts";
 import { sessionsHost, sessionsList, loadSessions } from "./loads.tsx";
 import { sessionsDue } from "../center/state.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
@@ -92,7 +94,7 @@ export function openTile(key: string | null, draw = true) {
   if (pa.tile !== "machines") terms.stop();
   if (key !== "branches") gitHistory.stop();
   if (!draw) return;
-  redrawProjects();
+  redraw("projects");
   boxOf("projects")?.querySelector(":scope > .cc-view .pj-det")?.scrollTo({ top: 0 });
   if ((key === "overview" || key === null) && current) for (const selector of scrolls) {
     const element = current.overview.querySelector<HTMLElement>(selector), top = current.overviewScroll.get(selector);
@@ -206,8 +208,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     detail: () => [viewPart("thread", details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, pr), openLink))],
   }));
   const prKey = `${p.name}:prs`;
-  const prFilter = labelFilter(prKey, prItems, i => i.tags, redrawProjects);
-  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: <OpenListControls list={prKey} redraw={redrawProjects} issues={false} loadHosts={loadStartHosts} />, labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
+  const prFilter = labelFilter(prKey, prItems, i => i.tags, () => redraw("projects"));
+  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: <OpenListControls list={prKey} redraw={() => redraw("projects")} issues={false} loadHosts={loadStartHosts} />, labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
   const issueItems: SplitItem[] = teamIssues(p.name, issues || []).map(issue => ({
     key: `issue:${issue.number}`, opened: issue.opened_at, start: { key: `issue:${issue.number}`, project: p.name, number: issue.number, title: issue.title, url: issue.url },
     title: issue.title, sub: <>{num(issue.number)} · {issueMeta(issue, ms => formatAgo(ms, "short"))}</>, tags: issue.labels,
@@ -216,7 +218,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     detail: () => [viewPart("thread", details.pane(pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(agent, acts, issue), openLink))],
   }));
   const issueKey = `${p.name}:issues`;
-  const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, redrawProjects);
+  const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, () => redraw("projects"));
   const issueShown = arranged(issueKey, issueFilter.items, i => i.opened);
   const issueNote = hostNote(issues, thr.issuesError(pid), "No open issues.");
   // Too many to list at the left: the row opens them at the right.
@@ -242,10 +244,10 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const showIssues = pa.tile === "issues";
   const issuesView = showIssues ? <div className="pj-det"><ProjectIssues
     items={issueShown} filter={issueFilter.labels} owners={<IssueOwners project={p.name} issues={issues || []}/>}
-    controls={<OpenListControls list={issueKey} redraw={redrawProjects} issues loadHosts={loadStartHosts} flexItem />}
-    start={<OpenListStart list={issueKey} shown={issueShown.flatMap(item => item.start ?? [])} redraw={redrawProjects} plan={issueStartPlan} run={startIssues} flexItem />}
+    controls={<OpenListControls list={issueKey} redraw={() => redraw("projects")} issues loadHosts={loadStartHosts} flexItem />}
+    start={<OpenListStart list={issueKey} shown={issueShown.flatMap(item => item.start ?? [])} redraw={() => redraw("projects")} plan={issueStartPlan} run={startIssues} flexItem />}
     selection={(id: string) => issueSelection(issueKey, id)}
-    pick={(id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, redrawProjects)}
+    pick={(id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, () => redraw("projects"))}
     openTile={openTile}
   /></div> : null;
   const det = history ? hostPart(history.detail) : issuesView ? viewPart("issues", issuesView) : viewPart("detail", <Parts className="pj-det" parts={picked.detail?.() ?? []} />);
@@ -286,7 +288,7 @@ let sessionTab: "sessions" | "agents" = "sessions";
 function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): PagePart[] {
   const list = sessionsList(p, running);
   const tabs = viewPart("session-tabs", <div className="cc-tabs pj-tabs" role="tablist"><SessionTabs
-    selected={sessionTab} sessions={list.count} agents={customAgentsCount(rows)} select={tab => { sessionTab = tab; redrawProjects(); }} /></div>);
+    selected={sessionTab} sessions={list.count} agents={customAgentsCount(rows)} select={tab => { sessionTab = tab; redraw("projects"); }} /></div>);
   if (sessionTab === "agents") return [tabs, viewPart("custom-agents", customAgentsSection(rows))];
 
   const note = list.freshness && (list.freshness.spin || list.freshness.text) ? [viewPart("session-note", <FreshNote freshness={list.freshness} className=" ss-updating" />)] : [];

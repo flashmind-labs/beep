@@ -8,7 +8,7 @@ import { placeWindowParts, removeWindowPart, showWindowParts } from "./window-ro
 import { windowHost } from "./window-shell.tsx";
 import { allTerms } from "./allterms.ts";
 import { openTile } from "../project/split.tsx";
-import { pa } from "../project/sections.ts";
+import { pa } from "../project/barstate.ts";
 import { HOME_TAB_EVENT, homeTab, jump } from "./home.tsx";
 import { currentLocation, go, goHistory, asBack } from "./nav.ts";
 import { drawRail, paneOn } from "./sidebar.tsx";

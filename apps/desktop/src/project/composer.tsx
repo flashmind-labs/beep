@@ -47,13 +47,13 @@ import { conflictPrompt, type Conflict } from "./filesync.ts";
 import { type Started, state, sessionsOf, gitOf } from "../center/state.ts";
 import { currentLocation, go } from "../center/nav.ts";
 import { projectRows } from "./projectrows.ts";
-import { redrawProjects, pa, pc } from "./sections.ts";
+import { redraw, redrawSync } from "../center/redraw.ts";
+import { pa, pc } from "./barstate.ts";
 import { loadSessions, projectPlaces } from "./loads.tsx";
 import { copyLine, shortName } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
 import { projectsIn } from "../addproject/importproject.tsx";
-import { redrawSync } from "../center/redraw.ts";
 import { startAttachments } from "../agents/start-attachments.tsx";
 import { heldBy, takeFree, takeIssue } from "./team-view.tsx";
 
@@ -71,7 +71,7 @@ export const projectComp = (() => {
     folder: openFolderMenu,
     account: openAccountMenu,
     branch: (value: string) => { if (pc.target?.kind === "issue") pc.target.branch = value; },
-    clear: () => { pc.target = null; composer.setText(""); redrawProjects(); },
+    clear: () => { pc.target = null; composer.setText(""); redraw("projects"); },
   };
   const renderChoices = (value: ComposerChoicesState) => {
     composer.setMachine(<ComposerMachine value={value} open={actions.machine} />);
@@ -118,7 +118,7 @@ function switchMachine(e: KeyboardEvent) {
   e.preventDefault();
   pc.machine = next.machine_id;
   keepMachine(p.name, next.machine_id);
-  redrawProjects();
+  redraw("projects");
   projectComp.input.focus();
 }
 
@@ -126,7 +126,7 @@ function switchMachine(e: KeyboardEvent) {
 function toggleBarPicker() {
   pc.open = !pc.open;
   pc.picked.query = "";
-  redrawProjects();
+  redraw("projects");
   if (!pc.open) projectComp.input.focus();
 }
 
@@ -139,14 +139,14 @@ function openMachineMenu(e: MouseEvent) {
     return;
   }
   const able = addHosts(hosts).filter(m => p.places.some(x => x.machine === m.machine_id));
-  openMenu(e, "Machine", able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; keepMachine(p.name, m.machine_id); redrawProjects(); } })));
+  openMenu(e, "Machine", able.map(m => ({ label: m.machine_name, on: () => { pc.machine = m.machine_id; keepMachine(p.name, m.machine_id); redraw("projects"); } })));
 }
 
 function openFolderMenu(e: MouseEvent) {
   const p = barProject(), place = p && barPlace(p.places, AG.hosts ?? [], pc.machine);
   if (!place) return;
   const trees = knownWorktrees(sessions, place.machine_id, place.cwd);
-  const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; redrawProjects(); };
+  const pick = (to: CheckoutPick) => () => { pc.checkout = to; pc.target = null; redraw("projects"); };
   openMenu(e, "Folder", [
     { label: `Current checkout (${place.cwd.split("/").pop()})`, on: pick("current") },
     { label: "New worktree", on: pick("new") },
@@ -160,7 +160,7 @@ function openAccountMenu(e: MouseEvent) {
   const p = barProject(), agent = barAgent();
   if (!p || !agent) return;
   const names = accountsOf(agent), picked = startAccount(names, p.name, agent);
-  const line = (name: string | null) => ({ kind: "toggle", label: name ?? "Default", checked: picked === name, on: () => { keepProjectAccount(p.name, agent, name); redrawProjects(); } }) as const;
+  const line = (name: string | null) => ({ kind: "toggle", label: name ?? "Default", checked: picked === name, on: () => { keepProjectAccount(p.name, agent, name); redraw("projects"); } }) as const;
   openMenu(e, "Account", [line(null), ...names.map(line)]);
 }
 
@@ -177,7 +177,7 @@ const barAttachments = startAttachments(projectComp, error => projectComp.update
 
 function closeBarPicker() {
   pc.open = false;
-  redrawProjects();
+  redraw("projects");
 }
 
 /// The machine the bar starts on (or is adding the project to, or would add
@@ -227,7 +227,7 @@ async function readProjectHosts() {
   } catch (error) {
     console.warn("agent hosts:", error);
   }
-  if (pc.project && barOn(pc.project)) redrawProjects();
+  if (pc.project && barOn(pc.project)) redraw("projects");
 }
 
 // A host can return after the project opened during its update. Followed
@@ -238,15 +238,15 @@ subscribeChanges([topic("machines"), topic("accounts")], { deliver: "latest", re
 /// Reads what the bar needs for project `name`: the machines that run
 /// agents, the sessions (for worktrees) and the project's branches.
 function loadProjectBar(name: string) {
-  const redraw = () => { if (barOn(name)) redrawProjects(); };
+  const redrawBar = () => { if (barOn(name)) redraw("projects"); };
   void readProjectHosts();
-  void readProjectHarnesses(name).then(redraw);
-  ensureSessions().then(redraw).catch(e => console.warn("agent sessions:", e));
+  void readProjectHarnesses(name).then(redrawBar);
+  ensureSessions().then(redrawBar).catch(e => console.warn("agent sessions:", e));
 
   if (!pc.branches.has(name)) {
     invoke<BaseBranches | null>("project_branches", { project: name })
       .catch(() => null)
-      .then(list => { pc.branches.set(name, list); redraw(); });
+      .then(list => { pc.branches.set(name, list); redrawBar(); });
   }
 }
 
@@ -287,7 +287,7 @@ export function drawProjectComp(name: string) {
     barAttachments.bindStash(() => name);
     fitted = null;
     loadProjectBar(name);
-    void loadAccountNames().then(() => { if (barOn(name)) redrawProjects(); });
+    void loadAccountNames().then(() => { if (barOn(name)) redraw("projects"); });
   }
 
   const p = barProject();
@@ -311,7 +311,7 @@ export function drawProjectComp(name: string) {
   });
 
   if (agent && host) {
-    modelsOn(host.machine_id, agent, () => { if (barOn(name)) redrawProjects(); });
+    modelsOn(host.machine_id, agent, () => { if (barOn(name)) redraw("projects"); });
     c.setHarness(pillContent(agent, pc.picked.model, pc.picked.effort, host.machine_id));
   } else {
     c.setHarness("Coding agent");
@@ -354,8 +354,8 @@ export function fillBar(name: string, text: string, target: BarTarget | null) {
   projectComp.setText(text);
   projectComp.update({ error: "" });
   // A session may have started in the worktree since.
-  ensureSessions().then(redrawProjects).catch(e => console.warn("agent sessions:", e));
-  redrawProjects();
+  ensureSessions().then(() => redraw("projects")).catch(e => console.warn("agent sessions:", e));
+  redraw("projects");
   // A phone's project page has no bar: the empty agent view shows it.
   if (isMobile() && !projectComp.form.isConnected) return go("pane", { draft: { project: name, machine: null } });
   projectComp.form.scrollIntoView({ block: "nearest" });
@@ -538,7 +538,7 @@ export function fixConflict(name: string, c: Conflict) {
   go("projects", { project: name });
   fillBar(name, conflictPrompt(c), null);
   pc.machine = c.holder;
-  redrawProjects();
+  redraw("projects");
 }
 
 /// Fix with an agent on a conflict: starts the agent at once in the
@@ -580,8 +580,8 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
         p.effort = keepEffort(p.agent, p.effort);
         keepProjectPick(pc.project, p);
       }
-      if (what === "model") { pc.open = false; redrawProjects(); return projectComp.input.focus(); }
-      if (what !== "models") redrawProjects();
+      if (what === "model") { pc.open = false; redraw("projects"); return projectComp.input.focus(); }
+      if (what !== "models") redraw("projects");
       else if (pc.project) drawProjectComp(pc.project);
       if (what === "agent") focusSearch(el);
     },
@@ -606,7 +606,7 @@ async function startFromBar() {
   c.update({ error: "" });
   pc.starting = true;
   pc.open = false;
-  redrawProjects();
+  redraw("projects");
 
   try {
     const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd);
@@ -622,7 +622,7 @@ async function startFromBar() {
   } finally {
     c.update({ progress: "" });
     pc.starting = false;
-    redrawProjects();
+    redraw("projects");
   }
 }
 
@@ -739,7 +739,7 @@ function projectMachines(name: string): MachineRow[] {
 }
 
 /// The agent buttons of project pages: Fix this, and Fix with an agent in sync.
-export const projectButtons = agentButtons(() => { redrawProjects(); redrawSync(); });
+export const projectButtons = agentButtons(() => { redraw("projects"); redrawSync(); });
 
 /// What one agent button starts, as its owner draws it now.
 export interface AgentButtonOpts {
@@ -855,7 +855,7 @@ async function continueInBar(earlier: TaskSession, text: string, send: (prompt: 
   const c = projectComp;
   c.update({ error: "" });
   pc.starting = true;
-  redrawProjects();
+  redraw("projects");
 
   try {
     const root = sameSession(earlier)?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
@@ -869,7 +869,7 @@ async function continueInBar(earlier: TaskSession, text: string, send: (prompt: 
     c.update({ error: reason(e) });
   } finally {
     pc.starting = false;
-    redrawProjects();
+    redraw("projects");
   }
 }
 
@@ -910,7 +910,7 @@ async function addToMachine(project: string, m: AgentHost) {
   pc.machine = m.machine_id;
   keepMachine(project, m.machine_id);
   say(`Adding ${shortName(project)} to ${m.machine_name}…`);
-  redrawProjects();
+  redraw("projects");
 
   try {
     const folder = projectUnder(await projectsIn(m.machine_id), project);
@@ -938,6 +938,6 @@ async function addToMachine(project: string, m: AgentHost) {
     if (here()) say(reason(e));
   } finally {
     if (pc.adding === m) pc.adding = null;
-    redrawProjects();
+    redraw("projects");
   }
 }

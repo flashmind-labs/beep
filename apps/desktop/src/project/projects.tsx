@@ -22,7 +22,9 @@ import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { addProject } from "./addflow.ts";
 import { splitOn, projectSplit, disposeProjectShell } from "./split.tsx";
 import { hostPart, retainedHost, viewPart, type PagePart } from "./page-view.tsx";
-import { redrawProjects, pc, terms, fsync } from "./sections.ts";
+import { terms, fsync } from "./sections.ts";
+import { redraw } from "../center/redraw.ts";
+import { pc } from "./barstate.ts";
 import { drawProjectComp, fillBar } from "./composer.tsx";
 import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.tsx";
 import { terminalNote, terminalWhere } from "../terminals/terminal-list.ts";
@@ -61,7 +63,7 @@ function changeSort(sort: ProjectSort) {
   projectSort = sort;
   ranked = null;
   saveProjectSort("projects", sort);
-  redrawProjects();
+  redraw("projects");
 }
 
 /// The overview's recency, taken once per look at it: when projects come or
@@ -107,7 +109,7 @@ export function projectDetail(p: Project): PagePart[] {
 
 /// The project's custom agents: the named agents its folder defines for
 /// each harness on one machine, and the user's own there.
-const cags = makeCustomAgents({ redraw: () => redrawProjects(), start: startWithAgent, own: false });
+const cags = makeCustomAgents({ redraw: () => redraw("projects"), start: startWithAgent, own: false });
 
 /// "Custom agents", read on this Mac's checkout or else the first machine
 /// with one. Named apart from "Agents", the ones running now.

@@ -13,7 +13,7 @@ import { PROJECT_SORTS, searchOverview, type ProjectSort, type OverviewGroup } f
 import { OverviewCardView, overviewCardModel } from "./overview-card.tsx";
 import { editGroup, groupMenu, removeGroup, renameGroup, startRename } from "./groups.tsx";
 import { state } from "../center/state.ts";
-import { redrawProjects } from "./sections.ts";
+import { redraw } from "../center/redraw.ts";
 import { dialogOpen } from "../ui/parts.tsx";
 import { Button, NO_AUTO, useLazyCount } from "../ui/kit.tsx";
 
@@ -83,7 +83,7 @@ function OverviewGroupView({ group, sync, editing, folded, fold }: { group: Grou
   const finish = (save: boolean) => {
     if (!g || !editing || state.renaming !== editing) return;
     if (save) void renameGroup(g, input.current?.value ?? editing.draft);
-    else { state.renaming = null; redrawProjects(); }
+    else { state.renaming = null; redraw("projects"); }
   };
   const icon = g ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"><path d="M3 6.5A1.5 1.5 0 014.5 5H10l2 2.5h7.5A1.5 1.5 0 0121 9v9.5a1.5 1.5 0 01-1.5 1.5h-15A1.5 1.5 0 013 18.5z" /></svg> : null;
   const label = g ? g.name : group.org ? `${group.org}/` : "Other folders";
