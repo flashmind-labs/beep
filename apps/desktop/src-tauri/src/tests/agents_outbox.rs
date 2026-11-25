@@ -86,6 +86,8 @@ struct Fake {
     checks: VecDeque<Result<bool>>,
     sent: Vec<String>,
     ordered: Vec<OrderKind>,
+    /// The sessions the orders went to.
+    ordered_on: Vec<SessionId>,
     events: Vec<String>,
     checked: Vec<String>,
     waits: usize,
@@ -133,6 +135,7 @@ impl Link for Fake {
 
         if answer.is_ok() {
             self.ordered.push(order.kind.clone());
+            self.ordered_on.push(order.key.session.clone());
             self.events.push(format!("ord:{:?}", order.kind));
         }
 
@@ -405,6 +408,8 @@ fn kept(text: &str, images: &[&str], seen: Option<Seen>) -> Message {
         root: String::new(),
         mentions: Vec::new(),
         resume: None,
+        resumed_from: None,
+        resumed_from: None,
         state: Stage::Waiting,
         unsure: true,
         seen,
@@ -719,6 +724,9 @@ struct Slow {
     inner: Fake,
     started: Option<oneshot::Sender<()>>,
     release: Option<oneshot::Receiver<()>>,
+    /// Holds the resume the same way, and says when it began.
+    resume_started: Option<oneshot::Sender<()>>,
+    resume_release: Option<oneshot::Receiver<()>>,
     lanes: Vec<SessionKey>,
 }
 
@@ -728,6 +736,14 @@ impl Link for Slow {
     }
 
     async fn resume(&mut self, message: &Message) -> Result<Resumed> {
+        if let Some(started) = self.resume_started.take() {
+            let _ = started.send(());
+        }
+
+        if let Some(release) = self.resume_release.take() {
+            let _ = release.await;
+        }
+
         self.inner.resume(message).await
     }
 
@@ -774,6 +790,8 @@ fn held_up(release: Option<oneshot::Receiver<()>>) -> (Slow, oneshot::Receiver<(
         inner: Fake::default(),
         started: Some(started),
         release,
+        resume_started: None,
+        resume_release: None,
         lanes: Vec::new(),
     };
     (slow, began)
@@ -832,6 +850,106 @@ async fn an_order_kept_behind_a_message_is_given_an_urgent_lane_when_that_messag
     assert_eq!(slow.inner.ordered, [OrderKind::StopAll]);
 }
 
+#[tokio::test]
+async fn a_close_pressed_while_the_session_resumes_waits_and_closes_the_one_that_resumed() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    outbox.with(|held| held.push(&s1, resuming("first"), None));
+    let (release, held_until) = oneshot::channel();
+    let (mut slow, _) = held_up(None);
+    let (began, resume_began) = oneshot::channel();
+    slow.resume_started = Some(began);
+    slow.resume_release = Some(held_until);
+
+    let flusher = flush(&outbox, &s1, &mut slow);
+    let close = async {
+        resume_began.await.expect("the resume began");
+        outbox.with(|held| held.push_order(&s1, OrderKind::Close, Instant::now(), None));
+        // The session has no final id yet: no lane may send it to the ended one.
+        assert!(!outbox.with(|held| held.start_urgent(&s1)));
+        assert!(
+            outbox
+                .with(|held| held.begin_urgent(&s1, Instant::now()))
+                .is_none()
+        );
+        release.send(()).expect("the resume waits");
+    };
+    tokio::join!(flusher, close);
+
+    assert_eq!(slow.inner.ordered, [OrderKind::Close]);
+    assert_eq!(slow.inner.ordered_on, ["s2"]);
+    assert_eq!(slow.inner.went_to, ["s2"]);
+}
+
+#[tokio::test]
+async fn a_close_during_an_upload_takes_the_uploading_message_with_the_session() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    outbox.with(|held| held.push(&s1, with_files("Read these", &["a.txt"]), None));
+    push(&outbox, "s1", "Then this");
+    let (release, held_until) = oneshot::channel();
+    let (mut slow, began) = held_up(Some(held_until));
+    let mut free = Fake::default();
+
+    let flusher = flush(&outbox, &s1, &mut slow);
+    let close = async {
+        began.await.expect("the upload began");
+        outbox.with(|held| held.push_order(&s1, OrderKind::Close, Instant::now(), None));
+        assert!(outbox.with(|held| held.start_urgent(&s1)));
+        flush_urgent(&outbox, &s1, &mut free).await;
+        release.send(()).expect("the upload waits");
+    };
+    tokio::join!(flusher, close);
+
+    assert_eq!(free.ordered, [OrderKind::Close]);
+    // Nothing goes to the closed session, and no failed message is left on it.
+    assert!(slow.inner.sent.is_empty());
+    assert!(texts(&outbox, "s1").is_empty());
+}
+
+#[test]
+fn an_order_expires_in_the_urgent_lane_too_and_its_time_starts_when_its_session_resumed() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    let start = Instant::now();
+    outbox.with(|held| held.push(&s1, with_files("Read these", &["a.txt"]), None));
+    outbox.with(|held| held.begin_step(&s1, start));
+    outbox.with(|held| held.push_order(&s1, OrderKind::Cancel, start, None));
+
+    // Held for longer than its time, it is not sent late.
+    assert!(
+        outbox
+            .with(|held| held.begin_urgent(&s1, start + ORDER_TTL * 2))
+            .is_none()
+    );
+
+    // One that waited for a resume has its whole time once it could go.
+    let s2 = key("s2");
+    outbox.with(|held| held.push(&s2, resuming("first"), None));
+    outbox.with(|held| held.begin_step(&s2, start));
+    outbox.with(|held| held.push_order(&s2, OrderKind::Cancel, start, None));
+    outbox.with(|held| held.resumed(1, "s3".into()));
+    assert!(
+        outbox
+            .with(|held| held.begin_urgent(&key("s3"), start + ORDER_TTL))
+            .is_some()
+    );
+}
+
+#[test]
+fn the_redirect_to_a_resumed_session_survives_a_restart_while_its_messages_are_kept() {
+    let (dir, kept, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.begin_step(&key("s1"), Instant::now()));
+    outbox.with(|held| held.resumed(0, "s2".into()));
+    outbox.sync();
+
+    let again = Outbox::load(kept, dir.path().join("cache"));
+
+    assert_eq!(again.read(|held| held.resolve(&key("s1"))), key("s2"));
+    assert_eq!(again.read(|held| held.listed(&key("s1"))).rows.len(), 1);
+}
+
 #[test]
 fn only_stops_closes_and_answers_skip_a_resume_or_an_upload() {
     let (_dir, _, outbox) = outbox();
@@ -839,7 +957,7 @@ fn only_stops_closes_and_answers_skip_a_resume_or_an_upload() {
     let configure = OrderKind::Mode {
         mode: "plan".into(),
     };
-    outbox.with(|held| held.push(&s1, resuming("first"), None));
+    outbox.with(|held| held.push(&s1, with_files("first", &["a.txt"]), None));
     outbox.with(|held| held.begin_step(&s1, Instant::now()));
     outbox.with(|held| held.push_order(&s1, configure, Instant::now(), None));
     assert!(!outbox.with(|held| held.start_urgent(&s1)));
@@ -847,10 +965,14 @@ fn only_stops_closes_and_answers_skip_a_resume_or_an_upload() {
     outbox.with(|held| held.push_order(&s1, OrderKind::Cancel, Instant::now(), None));
     assert!(outbox.with(|held| held.start_urgent(&s1)));
     let order = outbox
-        .with(|held| held.begin_urgent(&s1))
+        .with(|held| held.begin_urgent(&s1, Instant::now()))
         .expect("the cancel");
     assert_eq!(order.kind, OrderKind::Cancel);
-    assert!(outbox.with(|held| held.begin_urgent(&s1)).is_none());
+    assert!(
+        outbox
+            .with(|held| held.begin_urgent(&s1, Instant::now()))
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -1006,6 +1128,7 @@ fn a_read_or_a_take_back_for_the_ended_session_reaches_the_one_that_resumed() {
     // The window still on the ended id lists what waits on the new one.
     let listed = outbox.read(|held| held.listed(&key("s1")));
     assert_eq!(listed.rows.len(), 1);
+    assert_eq!(listed.session, "s2".into());
     // The one being sent is left to go; once it waits again it comes back.
     let drain = || {
         outbox

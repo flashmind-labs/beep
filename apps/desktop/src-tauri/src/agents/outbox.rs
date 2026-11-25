@@ -174,6 +174,10 @@ pub(crate) struct Message {
     /// Its session ended: it resumes before the message goes.
     #[serde(default)]
     pub(crate) resume: Option<Resume>,
+    /// The session this one went on from, when its session was resumed for a message: kept
+    /// so that after a restart an order or a read for the ended session still finds this one.
+    #[serde(default)]
+    pub(crate) resumed_from: Option<SessionId>,
     pub(crate) state: Stage,
     /// A send of it may have reached the machine before the link dropped,
     /// so the session is read before it is sent again.
@@ -274,6 +278,8 @@ pub(crate) struct Changed {
 #[derive(Debug, Serialize)]
 pub(crate) struct Listed {
     pub(crate) revision: u64,
+    /// The session the rows are of: the one asked for, or the one it was resumed as.
+    pub(crate) session: SessionId,
     pub(crate) rows: Vec<Row>,
 }
 
@@ -435,9 +441,20 @@ impl Held {
         }
 
         let next = messages.iter().map(|m| m.id).max().map_or(0, |id| id + 1);
+        let redirects = messages
+            .iter()
+            .filter_map(|m| {
+                let from = SessionKey {
+                    session: m.resumed_from.clone()?,
+                    ..m.key()
+                };
+                Some((from, m.key()))
+            })
+            .collect();
         Self {
             messages,
             next,
+            redirects,
             ..Self::default()
         }
     }
@@ -479,6 +496,7 @@ impl Held {
             root: draft.root,
             mentions: draft.mentions,
             resume,
+            resumed_from: None,
             state: Stage::Waiting,
             unsure: false,
             seen: draft.seen,
@@ -750,16 +768,7 @@ impl Held {
 
     /// Next order or message for `key` in `id` order; `None` ends its flusher.
     pub(crate) fn begin_step(&mut self, key: &SessionKey, now: Instant) -> Option<Step> {
-        let expired: Vec<u64> = self
-            .orders
-            .iter()
-            .filter(|o| o.key == *key && !o.sending && o.deadline.is_some_and(|d| now >= d))
-            .map(|o| o.id)
-            .collect();
-
-        for id in expired {
-            self.remove_order(id, OrderAnswer::Queued);
-        }
+        self.expire(key, now);
 
         if let Some(close_id) = self
             .orders
@@ -792,11 +801,29 @@ impl Held {
         }
     }
 
-    /// Whether a message of `key` is resuming its session or uploading its files.
+    /// Drops the orders of `key` that waited out their time: a Stop pressed long ago
+    /// must not stop a turn started since.
+    fn expire(&mut self, key: &SessionKey, now: Instant) {
+        let expired: Vec<u64> = self
+            .orders
+            .iter()
+            .filter(|o| o.key == *key && !o.sending && o.deadline.is_some_and(|d| now >= d))
+            .map(|o| o.id)
+            .collect();
+
+        for id in expired {
+            self.remove_order(id, OrderAnswer::Queued);
+        }
+    }
+
+    /// Whether a message of `key` is uploading its files, or applying its picks, in the
+    /// session it has: one still resuming has no final session yet, so the orders wait
+    /// for `resumed` to move them.
     fn slow(&self, key: &SessionKey) -> bool {
         self.messages.iter().any(|m| {
             m.key() == *key
                 && m.state == Stage::Sending
+                && m.resume.as_ref().is_none_or(|r| r.resumed)
                 && (m.resume.is_some() || !m.files.is_empty())
         })
     }
@@ -814,8 +841,9 @@ impl Held {
 
     /// The oldest urgent order of `key`, while its flusher is held up; `None`
     /// ends the urgent lane, and the flusher takes what is left.
-    pub(crate) fn begin_urgent(&mut self, key: &SessionKey) -> Option<Order> {
+    pub(crate) fn begin_urgent(&mut self, key: &SessionKey, now: Instant) -> Option<Order> {
         let key = self.resolve(key);
+        self.expire(&key, now);
         let id = self
             .orders
             .iter()
@@ -847,9 +875,21 @@ impl Held {
         self.remove_order(id, OrderAnswer::Sent);
 
         if let Some(key) = close_key {
-            let (drained, changed) = self.drain(&key);
-            if !drained.is_empty() {
-                return Some(changed);
+            let (drained, _) = self.drain(&key);
+            // One still uploading goes with its session: its upload ends as taken back.
+            let uploading: Vec<u64> = self
+                .messages
+                .iter()
+                .filter(|m| m.key() == key && m.state == Stage::Sending && !m.files.is_empty())
+                .map(|m| m.id)
+                .collect();
+
+            for id in &uploading {
+                self.remove(*id);
+            }
+
+            if !drained.is_empty() || !uploading.is_empty() {
+                return Some(self.changed(&key));
             }
         }
 
@@ -992,6 +1032,7 @@ impl Held {
 
         if from != to {
             for message in self.messages.iter_mut().filter(|m| m.key() == from) {
+                message.resumed_from = Some(from.session.clone());
                 message.session = to.session.clone();
                 message.resume = if message.id == id {
                     message.resume.take().map(|r| Resume { resumed: true, ..r })
@@ -1012,6 +1053,12 @@ impl Held {
             }
 
             self.redirects.insert(from.clone(), to.clone());
+
+            // An order of the old session could not go until now: its time starts here.
+            let now = Instant::now();
+            for order in self.orders.iter_mut().filter(|o| o.key == to) {
+                order.deadline = order.kind.ttl().map(|ttl| now + ttl);
+            }
         } else if let Some(resume) = self
             .messages
             .iter_mut()
@@ -1165,9 +1212,11 @@ impl Held {
 
     /// What `outbox_list` answers for `key`, or the session it went on in.
     pub(crate) fn listed(&self, key: &SessionKey) -> Listed {
+        let key = self.resolve(key);
         Listed {
             revision: self.revision,
-            rows: self.rows(&self.resolve(key)),
+            rows: self.rows(&key),
+            session: key.session,
         }
     }
 
@@ -1406,7 +1455,7 @@ pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Lin
 /// so a Stop or an answer does not wait behind it. Ends once there is none, or
 /// the flusher is free again.
 pub(crate) async fn flush_urgent(outbox: &Outbox, key: &SessionKey, link: &mut impl Link) {
-    while let Some(order) = outbox.with(|held| held.begin_urgent(key)) {
+    while let Some(order) = outbox.with(|held| held.begin_urgent(key, Instant::now())) {
         run_order(outbox, link, order).await;
     }
 }
@@ -1509,6 +1558,11 @@ async fn try_message(
             link.changed(to);
             *key = now.key();
             message = now;
+
+            // Orders that waited for the new session may go beside what is left to do.
+            if outbox.with(|held| held.start_urgent(key)) {
+                link.urgent(key);
+            }
         }
 
         if let Some(pick) = &resume.pick
