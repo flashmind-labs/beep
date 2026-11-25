@@ -25,7 +25,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, InUse, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerClient,
+    DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerClient,
     PeerStream, SessionFn, StreamHandler,
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, report, status::Report};
@@ -844,26 +844,13 @@ async fn send_env(tx: &mut LinkTx, reported: &mut Option<EnvReport>, now: EnvRep
 
 /// How long a close waits for the tasks that still hold the mesh to let go.
 const CLOSE_WAIT: Duration = Duration::from_secs(5);
-/// How often a close looks again while it waits.
-const CLOSE_POLL: Duration = Duration::from_millis(25);
 
-/// Closes `mesh`, trying again while a task that was just stopped still holds
-/// a handle, for at most `CLOSE_WAIT`.
-async fn close_within(mut mesh: Mesh) -> Result<()> {
-    let deadline = tokio::time::Instant::now() + CLOSE_WAIT;
+/// Closes `mesh` once the tasks that were just stopped let go of their
+/// handles, waiting at most `CLOSE_WAIT` for them.
+async fn close_within(mesh: Mesh) -> Result<()> {
+    let _ = timeout(CLOSE_WAIT, mesh.released()).await;
 
-    loop {
-        match mesh.close().await {
-            Ok(()) => return Ok(()),
-            Err(in_use) if tokio::time::Instant::now() >= deadline => {
-                bail!("{in_use}")
-            }
-            Err(InUse(back)) => {
-                mesh = back;
-                tokio::time::sleep(CLOSE_POLL).await;
-            }
-        }
-    }
+    mesh.close().await.map_err(|in_use| anyhow::anyhow!("{in_use}"))
 }
 
 /// Takes the mesh commands on the node's socket until the node stops.

@@ -300,6 +300,8 @@ impl Inner {
 }
 
 struct Guard {
+    /// How many `Handle`s to this guard are alive.
+    handles: watch::Sender<usize>,
     inner: Arc<Inner>,
     owner: AbortHandle,
     _supervisor: JoinHandle<()>,
@@ -324,12 +326,29 @@ impl Drop for Guard {
     }
 }
 
+/// A `Mesh`'s share of its guard, counted so `Mesh::released` can say when
+/// the others are gone.
+struct Handle(Arc<Guard>);
+
+impl Clone for Handle {
+    fn clone(&self) -> Self {
+        self.0.handles.send_modify(|handles| *handles += 1);
+        Self(self.0.clone())
+    }
+}
+
+impl Drop for Handle {
+    fn drop(&mut self) {
+        self.0.handles.send_modify(|handles| *handles -= 1);
+    }
+}
+
 /// One device's membership in a mesh. Cheap to clone; the last clone to
 /// drop stops the background tasks and closes every connection.
 #[derive(Clone)]
 pub struct Mesh {
     inner: Arc<Inner>,
-    _guard: Arc<Guard>,
+    _guard: Handle,
 }
 
 impl Debug for Mesh {
@@ -393,11 +412,12 @@ impl Mesh {
             }
         });
         Ok(Mesh {
-            _guard: Arc::new(Guard {
+            _guard: Handle(Arc::new(Guard {
+                handles: watch::Sender::new(1),
                 inner: inner.clone(),
                 owner: stop,
                 _supervisor: supervisor,
-            }),
+            })),
             inner,
         })
     }

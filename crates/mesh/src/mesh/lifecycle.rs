@@ -4,7 +4,6 @@ use super::{AddrNote, Core, InUse, Mesh, blocking};
 use crate::{DeviceKind, Devices, Invitation, MeshError};
 use iroh::{Endpoint, SecretKey};
 use std::path::Path;
-use std::sync::Arc;
 
 impl Mesh {
     /// The mesh in `dir`, or `None` when this directory is not in one.
@@ -86,11 +85,18 @@ impl Mesh {
         blocking(move || Core::forget(&dir)).await
     }
 
+    /// Returns once this is the only handle to the mesh, which is when
+    /// `close` can take it: the others drop with the tasks that held them.
+    pub async fn released(&self) {
+        let mut handles = self._guard.0.handles.subscribe();
+        let _ = beep_proto::watched::wait_for(&mut handles, |handles| *handles <= 1).await;
+    }
+
     /// Stops this mesh and waits until its files are no longer written, so
     /// another can take the directory. It must be the only handle: with
     /// another clone alive the mesh is handed back in `InUse`, still running.
     pub async fn close(self) -> Result<(), InUse> {
-        if Arc::strong_count(&self._guard) > 1 {
+        if beep_proto::watched::read_sent(&self._guard.0.handles, |handles| *handles) > 1 {
             return Err(InUse(self));
         }
 

@@ -477,6 +477,35 @@ async fn a_mesh_closes_once_it_is_the_only_handle_and_not_before() {
 }
 
 #[tokio::test]
+async fn a_mesh_says_when_the_other_handles_are_gone() {
+    let key = SecretKey::generate();
+    let dir = TempDir::new().expect("temp dir");
+    let mesh = Mesh::create(dir.path(), bind(&key).await, "a")
+        .await
+        .expect("created");
+    let held = mesh.clone();
+    let waiting = {
+        let mesh = mesh.clone();
+        tokio::spawn(async move {
+            mesh.released().await;
+            mesh
+        })
+    };
+
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished());
+    drop(held);
+    drop(mesh);
+
+    waiting
+        .await
+        .expect("released")
+        .close()
+        .await
+        .expect("the only handle closes");
+}
+
+#[tokio::test]
 async fn only_the_issued_ticket_works_and_only_once() {
     let a = create("a").await;
     let ticket = a

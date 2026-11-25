@@ -51,7 +51,7 @@ use std::{
 use tauri::State;
 use tokio::{
     sync::watch,
-    time::{Instant, sleep, timeout},
+    time::timeout,
 };
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
@@ -74,27 +74,15 @@ const CLOSE_WAIT: Duration = Duration::from_secs(5);
 #[cfg(test)]
 const CLOSE_WAIT: Duration = Duration::from_millis(300);
 
-/// How often a join looks again while it waits.
-const CLOSE_POLL: Duration = Duration::from_millis(25);
-
 /// The longest name a machine can be given, in characters.
 const MAX_MACHINE_NAME: usize = 64;
 
-/// Closes `mesh`, trying again while another handle is alive, for at most
-/// `wait`. Handed back, still running, when one stays.
-async fn close_within(mut mesh: Mesh, wait: Duration) -> Result<(), InUse> {
-    let deadline = Instant::now() + wait;
+/// Closes `mesh` once the other handles are gone, waiting at most `wait`
+/// for them. Handed back, still running, when one stays.
+async fn close_within(mesh: Mesh, wait: Duration) -> Result<(), InUse> {
+    let _ = timeout(wait, mesh.released()).await;
 
-    loop {
-        match mesh.close().await {
-            Ok(()) => return Ok(()),
-            Err(in_use) if Instant::now() >= deadline => return Err(in_use),
-            Err(InUse(back)) => {
-                mesh = back;
-                sleep(CLOSE_POLL).await;
-            }
-        }
-    }
+    mesh.close().await
 }
 
 /// Where the mesh stands.
