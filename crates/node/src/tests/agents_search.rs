@@ -148,3 +148,10 @@ fn a_transcript_numbered_again_is_read_again_from_the_start() {
         }
     );
 }
+
+#[test]
+fn a_store_write_wakes_a_pass_with_no_timer_behind_it() {
+    assert!(reads_stores("agent"));
+    assert!(reads_stores("agents"));
+    assert!(!reads_stores("terminals"));
+}

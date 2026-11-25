@@ -35,8 +35,6 @@ const MOST_TEXT: usize = 256 * 1024;
 const IN_FLIGHT: usize = 4;
 /// Pages saved before this keep their progress when it runs out.
 const SESSION_WAIT: Duration = Duration::from_secs(60);
-/// How often the agents' stores are looked at again for new activity.
-const LOOK_EVERY: Duration = Duration::from_secs(300);
 
 pub(crate) struct SearchIndex {
     store: Mutex<Store>,
@@ -45,7 +43,7 @@ pub(crate) struct SearchIndex {
     epoch: String,
     /// The newest row, for the copies that follow.
     newest: watch::Sender<u64>,
-    /// Wakes a pass before `LOOK_EVERY`.
+    /// Wakes a pass.
     changed: Notify,
     schedule: Mutex<Schedule>,
     /// Sessions deleted while the node runs: a page read before the delete
@@ -192,17 +190,22 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, agents: Arc<Agents>) {
             }
         },
     };
+    // Held for the node's life: its watch rings `agent` when a store changes.
+    let _stores = match agents.watch_event_sources().await {
+        Ok(sources) => Some(sources),
+        Err(e) => {
+            log::warn!("the agents' stores are not watched for search: {e:#}");
+            None
+        }
+    };
     let mut pacer = Pacer::default();
     let mut wake = None;
     let wakes = wake_on_changes(&index, &agents, &mesh);
     tokio::pin!(wakes);
 
     loop {
-        let look = Instant::now() + LOOK_EVERY;
-        let due = Some(wake.map_or(look, |at: Instant| at.min(look)));
-
         tokio::select! {
-            () = pacer.next_pass(&index.changed, due) => {}
+            () = pacer.next_pass(&index.changed, wake) => {}
             () = &mut wakes => return,
         }
 
@@ -256,6 +259,12 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, agents: Arc<Agents>) {
     }
 }
 
+/// Whether a change under this topic name can mean new conversation text:
+/// a store written (`agent`), the session list, or everything.
+fn reads_stores(topic: &str) -> bool {
+    matches!(topic, "agent" | "agents" | "*")
+}
+
 /// Wakes a pass on session or mesh changes. Ends when the node's events
 /// or the mesh close.
 async fn wake_on_changes(index: &SearchIndex, agents: &Agents, mesh: &Mesh) {
@@ -265,7 +274,7 @@ async fn wake_on_changes(index: &SearchIndex, agents: &Agents, mesh: &Mesh) {
     loop {
         tokio::select! {
             event = events.recv() => match event {
-                Ok(change) if !matches!(change.topic.name(), "agents" | "*") => continue,
+                Ok(change) if !reads_stores(change.topic.name()) => continue,
                 Ok(_) | Err(broadcast::error::RecvError::Lagged(_)) => {}
                 Err(broadcast::error::RecvError::Closed) => return,
             },
