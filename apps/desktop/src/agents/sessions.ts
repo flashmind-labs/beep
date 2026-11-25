@@ -78,20 +78,31 @@ listen<Retitled>("agent-title-changed", ({ payload }) => {
   for (const f of sessionsRead) f();
 });
 
+/// Resolves at the next change of the sessions, or after `ms`: for a page that looks for a row
+/// the machine has not listed yet.
+export function nextSessions(ms: number): Promise<void> {
+  return new Promise(done => {
+    const finish = () => { clearTimeout(timer); sessionsRead.delete(finish); done(); };
+    const timer = setTimeout(finish, ms);
+    sessionsRead.add(finish);
+  });
+}
+
 /// The sessions every page shares: the list held from the pushes, or one read before the first.
 export function ensureSessions(): Promise<AgentSession[]> {
   return loading ?? (listed ? Promise.resolve(sessions) : loadSessions());
 }
 
 /// Reads the sessions into `sessions` and returns them, for the first draw and after events that
-/// carry no list. A call made while another read is out waits for that one. A list pushed while
+/// carry no list. The moves are read beside it and join the list when they arrive. A call made while another read is out waits for that one. A list pushed while
 /// the read is out is newer, and the read's answer is dropped. A failed read rejects and leaves
 /// `sessions` as it was.
 export function loadSessions() {
   if (loading) return loading;
   const at = taken;
-  loading = Promise.all([invoke<AgentSession[]>("agent_sessions"), refreshMoves()])
-    .then(([list]) => {
+  void refreshMoves();
+  loading = invoke<AgentSession[]>("agent_sessions")
+    .then(list => {
       if (at === taken) take(list);
       return sessions;
     })

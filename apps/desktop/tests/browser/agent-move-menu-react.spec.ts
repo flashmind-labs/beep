@@ -37,13 +37,20 @@ test("a closed move menu ignores its late discovery", async ({ page }) => {
   await expect(page.locator(".mvm")).toHaveCount(0);
 });
 
-test("a move change reads the sessions without an ambient wait", async ({ page }) => {
+test("a move pushed with the home lists shows at once and reads no sessions", async ({ page }) => {
   await openAgent(page);
   const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_sessions").length);
-  await page.waitForTimeout(300);
   const before = await reads();
-  await page.evaluate(() => window.__navigation.publish("moves.*", null));
-  await expect.poll(reads, { timeout: 1000 }).toBeGreaterThan(before);
+  const session = { kind: "agent", machine_id: "build-box", machine_name: "Build box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
+  const record = { session: "notice-one", agent: "codex", from: "build-box", to: "other", project: "", at: Date.now() };
+  const progress = { answer: "known", phase: "conversation", copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false, files_copied: 0, files_total: 0 };
+  await page.evaluate(answer => window.__navigation.respond("session_move_progress", answer), progress);
+  await page.evaluate(views => window.__navigation.notify("home", views), [
+    { command: "agent_sessions", args: {}, value: [session] },
+    { command: "session_moves", args: {}, value: [record] },
+  ]);
+  await expect(page.locator("#agmovebox")).toContainText("Moving to");
+  expect(await reads()).toBe(before);
 });
 
 test("Esc closes the move menu first, and a session left and opened again shows it closed", async ({ page }) => {

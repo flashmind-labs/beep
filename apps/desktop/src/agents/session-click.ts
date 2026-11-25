@@ -9,7 +9,7 @@ import { copyCode } from "./turnrows.ts";
 import { AG, openOf, where } from "./agents.ts";
 import { fullPic } from "./images.tsx";
 import { childRow } from "./nesting-state.ts";
-import { parentSession, keepNativeSession, loadSessions, sessions } from "./sessions.ts";
+import { parentSession, keepNativeSession, nextSessions, sessions } from "./sessions.ts";
 import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.tsx";
 import { toggleModelPicker, closeModelPicker, retryWithModel } from "./modelpill.tsx";
 import { cycleMode } from "./modepill.tsx";
@@ -20,6 +20,9 @@ import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent, setNote } from "./session.tsx";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
+
+/// How long a card waits for the machine to list a child that is not in the list yet.
+const KID_WAIT_MS = 3000;
 
 /// A chat on the Assistant page without a pane beside it opens its files over
 /// the window, read from its machine. False elsewhere: the pane shows them.
@@ -218,12 +221,12 @@ function toggleRow(opened: Set<number>, at: number) {
   drawAgentBody(`[data-row="${at}"]`);
 }
 
-/// Opens the agent a card names. A child started after the list was read is not in it yet, so a miss reads it again;
-/// one still missing is gone, which the log says.
+/// Opens the agent a card names. A child started after the list was pushed is not in it yet, so a miss waits for the
+/// next list; one still missing is gone, which the log says.
 async function kidSession(id: string, key?: string) {
   const row = childRow(sessions, id, key);
   if (row) return row;
-  try { await loadSessions(); } catch { /* the note says it */ }
+  await nextSessions(KID_WAIT_MS);
   const found = childRow(sessions, id, key);
   if (!found) { setNote("That agent's session is no longer on its machine."); drawAgentBody(); }
   return found;

@@ -9,7 +9,7 @@ import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
 import { chatFolder } from "./nesting-state.ts";
 import type { AgentRow } from "./agents.ts";
-import { parentSession, loadSessions, sessions } from "./sessions.ts";
+import { parentSession, sessions } from "./sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
 import { AG, AGENT_ACTIVE, openOf, where } from "./agents.ts";
 import { sameSession } from "./running-state.ts";
@@ -91,7 +91,6 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
             action: "Move",
             run: async () => {
               await invoke("agent_relocate", { ...at, folder: target.folder });
-              await loadSessions();
             },
           }) })),
         ]);
@@ -117,7 +116,6 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
             forgetView(s.machine_id, s.id);
             forgetTranscript(openOf(s));
             forgetLog(s);
-            await loadSessions().catch(err => console.warn("agent sessions:", err));
           },
         }),
       });

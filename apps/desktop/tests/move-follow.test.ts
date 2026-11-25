@@ -3,7 +3,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { setView } from "../src/bar/core.ts";
-import { SLOW_MS } from "../src/ui/active.ts";
 import { drawMove } from "../src/agents/move.ts";
 import { moveStore } from "../src/agents/move-store.ts";
 import { drawAgentFrame } from "../src/agents/session.tsx";
@@ -39,19 +38,19 @@ test("the open conversation follows a completed move even when its target lists 
   await settle();
   const stream = calls.find(c => c.cmd === "mesh_watch")?.args as { onEvent: { onmessage(event: unknown): void } };
   assert.ok(stream);
-  const notify = async () => {
-    stream.onEvent.onmessage({ machine_id: "studio", topic: "moves.*", revision: 1, data: {} });
-    t.mock.timers.tick(SLOW_MS);
+  let revision = 0;
+  const push = async (list: AgentRow[]) => {
+    stream.onEvent.onmessage({ machine_id: "studio", topic: "home.*", revision: ++revision, data: { views: [{ command: "agent_sessions", args: {}, value: list }] } });
     await settle();
   };
-  await notify();
-  assert.ok(calls.some(c => c.cmd === "agent_sessions"));
+  calls.length = 0;
+  await push([source]);
   assert.equal(AG.open?.machine_id, source.machine_id);
-  answers.agent_sessions = [source, target];
-  await notify();
+  await push([source, target]);
   assert.equal(AG.open?.machine_id, target.machine_id);
   assert.equal(AG.page?.session.machine_name, target.machine_name);
   assert.equal(bar.querySelector("#aghere")?.textContent, target.machine_name);
+  assert.equal(calls.some(c => c.cmd === "agent_sessions"), false);
   clearTimeout(AG.timer);
 });
 

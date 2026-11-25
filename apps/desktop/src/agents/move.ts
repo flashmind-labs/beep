@@ -1,5 +1,4 @@
 import { moveViews, type MoveStatus, type MoveView } from "./move-view.tsx";
-import { refreshTopicSubscriptions, subscribeChanges, topic } from "../ui/mesh-events.ts";
 // Moving the open session to another machine: the machine name in the head is
 // a menu, a turn that runs waits (or is stopped), steps tick above the
 // composer, and the lists say "laptop to studio". The records are in the
@@ -11,11 +10,11 @@ import { type MoveProgress, type MoveRecord, type MoveTarget, canMove, chatSessi
 import { isAssistant } from "./assistant-state.ts";
 import { isStarting } from "./starting-state.ts";
 import { moveStore, nameOf, onMoves, refreshMoves, stateOf } from "./move-store.ts";
-import { loadSessions, sessions } from "./sessions.ts";
+import { sessions, sessionsRead } from "./sessions.ts";
 import { S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { invoke } from "../ui/tauri.ts";
-import { AMBIENT_MS, ambient, latest, onShownChange, paneShown, SLOW_MS, STALE } from "../ui/active.ts";
+import { ambient, latest, onShownChange, paneShown, SLOW_MS, STALE } from "../ui/active.ts";
 import type { ProjectMachineRow } from "../project/projects-state.ts";
 
 /// `agents`: the harnesses the session uses, with a chat's threads.
@@ -89,14 +88,9 @@ const following = () => {
 };
 // How far a move is, the target says, not the mesh: asked again while one shows.
 const readProgress = ambient(async () => { await refreshMoves(); drawMove(); }, SLOW_MS, () => viewing());
-// A move is rare and reads at once; the sessions' frequent changes matter only while one runs.
-subscribeChanges(topic("moves"), { deliver: "latest", receive: () => poll() }, { when: viewing });
-subscribeChanges(topic("agents"), { deliver: "latest", receive: () => poll() }, { when: () => viewing() && following(), wait: AMBIENT_MS });
-onMoves(refreshTopicSubscriptions);
-async function poll() {
-  try { await loadSessions(); } catch (e) { console.warn("sessions not read after a move", e); }
-  drawMove();
-}
+// The lists arrive by the home push: a move or a session change draws the move again while one shows.
+sessionsRead.add(() => { if (viewing() && following()) drawMove(); });
+onMoves(() => { if (viewing()) drawMove(); });
 const outside = () => { UI.open = false; menuRead.cancel(); closeOutside(); drawMove(); };
 
 /// Closes the machine menu; false when it was not open.

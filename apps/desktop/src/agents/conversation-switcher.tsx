@@ -1,7 +1,7 @@
 import { AG, type AgentRow } from "./agents.ts";
 import { sessionVisible } from "./closing.ts";
 import { type ConversationChoice, conversationHistory, conversationKey, firstConversation, groupConversations, isConversationKey, nextConversation } from "./conversation-state.ts";
-import { loadSessions, parentSession, sessions } from "./sessions.ts";
+import { ensureSessions, parentSession, sessions } from "./sessions.ts";
 import { withoutCopies } from "./move-store.ts";
 import { S } from "../bar/core.ts";
 import { flushSync } from "react-dom";
@@ -23,8 +23,7 @@ export function initConversationSwitcher(options: SwitcherOptions) {
     const rows = conversationHistory.order(withoutCopies([...(options.rows?.() ?? []), ...sessions, ...(on ? [on] : [])]).filter(sessionVisible), on);
     return groupConversations(rows, row => parentSession(row) ?? null);
   };
-  const refresh = () => { void loadSessions().catch(e => console.warn("reading active conversations:", e)); };
-  refresh();
+  ensureSessions().catch(e => console.warn("reading active conversations:", e));
 
   function finish(commit: boolean) {
     const p = picker;
@@ -40,7 +39,6 @@ export function initConversationSwitcher(options: SwitcherOptions) {
   function begin() {
     if (dialogOpen()) return false;
     const rows = available();
-    refresh();
     if (!rows.length) return false;
     let open = true;
     const { close, render } = openSheet("Switch active conversation", "am-sheet conversation-switcher", { scrim: "conversation-scrim", onClose: () => { open = false; picker = null; } });

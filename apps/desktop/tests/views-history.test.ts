@@ -40,7 +40,7 @@ const stubs = new Map(Object.entries({
   "project/page.tsx": page("export const projectsView = v('projects'); export const ProjectsPage = () => null;"),
   "terminals/view.tsx": page("export const terminalsView = v('terminals'); export const TerminalsPage = () => null;"),
   "bar/core.ts": "export const S = { view: null };",
-  "agents/sessions.ts": "export const sessions = []; export const loadSessions = async () => sessions; export const sessionsRead = new Set();",
+  "agents/sessions.ts": "export const sessions = []; export const loadSessions = async () => sessions; export const ensureSessions = loadSessions; export const sessionsRead = new Set();",
   "center/mobile.tsx": "export const syncMobile = () => {}; export const canGoBack = () => false;",
   // The window's tree without the router.
   "center/window-root.tsx": `import { createElement } from "react"; import { flushSync } from "react-dom"; import { createRoot } from "react-dom/client";

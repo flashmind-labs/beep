@@ -4,13 +4,13 @@ import { Fragment, memo, useEffect, useState } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
-import { pageShown, shownChanged } from "../ui/active.ts";
+import { shownChanged } from "../ui/active.ts";
 // The window's views: their boxes, going to one, and the header it draws.
 import { invoke, recordTiming } from "../ui/tauri.ts";
 import { perfOpened, perfView, perfViewOf } from "../ui/perf.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import { keepWindowSession, mainTarget, route, type Alone, type CenterTarget, type WindowScope } from "../project/projectwindow.ts";
-import { loadSessions, sessions, sessionsRead } from "../agents/sessions.ts";
+import { ensureSessions, sessions, sessionsRead } from "../agents/sessions.ts";
 import { threadsByChat } from "../agents/threads-state.ts";
 import { shortName } from "../project/agent.ts";
 import { type Location, type NavigationArgs, type ViewHead, type CenterView, type ViewName } from "./state.ts";
@@ -22,7 +22,6 @@ import { TerminalsPage, terminalsView } from "../terminals/view.tsx";
 import { windowHistory } from "./window-router.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { S } from "../bar/core.ts";
-import { RETRY_MS } from "../agents/reconnect-state.ts";
 import { isStarting } from "../agents/starting-state.ts";
 import { canGoBack, syncMobile } from "./mobile.tsx";
 import { placeWindowParts } from "./window-root.tsx";
@@ -143,18 +142,12 @@ function WaitingForChat({ open, savedThread }: { open(chatOnly: boolean): boolea
   useEffect(() => {
     let waiting = true;
     const check = () => { if (waiting && !currentLocation()) open(chatOnly); };
-    const read = async () => {
-      await loadSessions().catch(() => {});
-      check();
-    };
     sessionsRead.add(check);
-    const timer = setInterval(() => { if (pageShown()) void read(); }, RETRY_MS);
-    void read();
+    ensureSessions().then(check, () => {});
 
     return () => {
       waiting = false;
       sessionsRead.delete(check);
-      clearInterval(timer);
     };
   }, [open, chatOnly]);
 
