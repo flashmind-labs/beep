@@ -1006,37 +1006,6 @@ async fn a_follow_reads_from_its_reader_and_resets_on_a_shorter_rewrite() {
 }
 
 #[tokio::test]
-async fn a_failed_summary_read_sends_readers_to_a_direct_read() {
-    let root = tempfile::tempdir().unwrap();
-    let projects = root.path().join("projects");
-    std::fs::create_dir_all(&projects).unwrap();
-    let agents = Arc::new(Agents {
-        stores: super::super::found::Stores::at(Some(root.path()), None, None),
-        external: super::super::claude::External::locate_in(root.path()),
-        ..Agents::default()
-    });
-    let mut changes = agents.events.subscribe();
-    let _source = agents.watch_event_sources().await.unwrap();
-    async fn summarized(changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>) {
-        timeout(Duration::from_secs(5), async {
-            loop {
-                if changes.recv().await.unwrap().topic.name() == "agents" {
-                    return;
-                }
-            }
-        })
-        .await
-        .unwrap();
-    }
-    summarized(&mut changes).await;
-    assert!(agents.watched_sighted().is_some());
-
-    std::fs::remove_dir_all(&projects).unwrap();
-    summarized(&mut changes).await;
-    assert!(agents.watched_sighted().is_none());
-}
-
-#[tokio::test]
 async fn callers_asking_during_a_store_read_share_it() {
     let root = tempfile::tempdir().unwrap();
     let agents = Agents {

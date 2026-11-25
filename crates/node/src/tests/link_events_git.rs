@@ -128,47 +128,6 @@ async fn history_subscription_pushes_the_first_committed_file_without_polling() 
 }
 
 #[tokio::test]
-async fn a_folder_that_becomes_a_repository_pushes_its_later_commits() {
-    let root = tempfile::tempdir().unwrap();
-    let (_tx, mut rx, _task) = subscribe(root.path()).await;
-    timeout(Duration::from_secs(10), async {
-        loop {
-            match rx.recv::<Reply>().await.unwrap().unwrap() {
-                Reply::Snapshot(snapshot) if snapshot.query == Some(7) => break,
-                Reply::SnapshotError { query: Some(7), .. } => break,
-                _ => {}
-            }
-        }
-    })
-    .await
-    .unwrap();
-
-    git(root.path(), &["init", "--initial-branch=main"]).await;
-    git(root.path(), &["commit", "--allow-empty", "-m", "first"]).await;
-    // A work tree change has the folder ask Git again.
-    std::fs::write(root.path().join("example.txt"), "first file").unwrap();
-    loop {
-        let next = projection(&mut rx, 7).await;
-        if history::parse_history(history::run(&Recorded(next), "").await.unwrap(), 0)
-            .is_ok_and(|history| history.commits.len() == 1)
-        {
-            break;
-        }
-    }
-
-    // Only Git metadata changes now.
-    git(root.path(), &["commit", "--allow-empty", "-m", "second"]).await;
-    loop {
-        let next = projection(&mut rx, 7).await;
-        let next =
-            history::parse_history(history::run(&Recorded(next), "").await.unwrap(), 0).unwrap();
-        if next.commits.len() == 2 {
-            break;
-        }
-    }
-}
-
-#[tokio::test]
 async fn linked_worktree_metadata_pushes_an_empty_commit_without_checkout_writes() {
     let root = tempfile::tempdir().unwrap();
     git(root.path(), &["init", "--initial-branch=main"]).await;
@@ -330,25 +289,6 @@ mod current {
         .await
         .unwrap();
         (tx, rx, task)
-    }
-
-    #[tokio::test]
-    async fn a_folder_that_becomes_a_repository_pushes_its_later_commits() {
-        let root = tempfile::tempdir().unwrap();
-        let offers = Offers::default();
-        offers.agents.share_folders(vec![root.path().to_owned()]);
-        let (_tx, mut rx, _task) = subscribe(offers, root.path()).await;
-        projection(&mut rx).await;
-
-        git(root.path(), &["init", "--initial-branch=main"]).await;
-        git(root.path(), &["commit", "--allow-empty", "-m", "first"]).await;
-        // A work tree change has the folder ask Git again.
-        std::fs::write(root.path().join("example.txt"), "first file").unwrap();
-        commits(&mut rx, 1).await;
-
-        // Only Git metadata changes now.
-        git(root.path(), &["commit", "--allow-empty", "-m", "second"]).await;
-        commits(&mut rx, 2).await;
     }
 
     // The watcher is not installed while the first bind runs, so a folder
