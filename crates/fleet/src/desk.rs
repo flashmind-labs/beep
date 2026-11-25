@@ -64,7 +64,7 @@ impl Desk {
             peers,
             mesh,
             hosts,
-            settle: crate::usage::SETTLE,
+            settle: crate::usage_cache::SETTLE,
             github_api: None,
         })
     }
@@ -262,7 +262,7 @@ pub(crate) struct DesktopHosts {
     /// What nodes that push no sync status last said of it.
     direct_syncs: Arc<crate::direct_syncs::DirectSyncs>,
     /// Per-machine spend cache, so a degraded node keeps its last spend instead of dropping to 0.
-    usage: Arc<crate::usage::UsageCache>,
+    usage: Arc<crate::usage_cache::UsageCache>,
     /// Last move state reported by each target machine, used when a link glitches momentarily.
     moves: Arc<Mutex<HashMap<SessionId, MoveState>>>,
 }
@@ -299,7 +299,7 @@ impl DesktopHosts {
         &self.direct_syncs
     }
 
-    pub(crate) fn usage(&self) -> &Arc<crate::usage::UsageCache> {
+    pub(crate) fn usage(&self) -> &Arc<crate::usage_cache::UsageCache> {
         &self.usage
     }
 

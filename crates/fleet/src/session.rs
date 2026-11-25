@@ -3,13 +3,13 @@
 //! the background when it is stale, then tells the page it changed. A project checked out on this
 //! Mac is read from this Mac alone, so nothing waits on another machine.
 
-use crate::usage::{PlanFollow, freshest};
 use crate::{
     AsyncMutex,
     desk::{Desk, DesktopHosts},
     error::{FleetError, Result},
     peer::Peers,
 };
+use crate::{usage::freshest, usage_cache::PlanFollow};
 use beep_proto::watched;
 use beep_proto::{
     HostedRuns, LabeledProjectLists, PlanLimits, ProjectRunDetail, SpendPeriod, SpendReport,
@@ -224,7 +224,7 @@ pub struct Options {
 impl Default for Options {
     fn default() -> Self {
         Self {
-            settle: crate::usage::SETTLE,
+            settle: crate::usage_cache::SETTLE,
             github_api: None,
             fresh: FRESH,
             mesh_wait: MESH_WAIT,

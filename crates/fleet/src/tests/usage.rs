@@ -1,5 +1,7 @@
 use super::*;
+use crate::usage_cache::UsageCache;
 use beep_proto::{CreditScope, CreditUnit, ProviderCredits, node::usage::Billing};
+use beep_proto::{SessionId, node::usage::PlanUsage};
 
 fn hour(billing: Billing) -> HourSpend {
     HourSpend {
