@@ -16,7 +16,7 @@ import { placeName, placeRepo } from "./place-state.ts";
 import { agentKey } from "./conversation-state.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { isStarting } from "./starting-state.ts";
-import { followsOnly, stoppingNow, turnRuns } from "./session.tsx";
+import { followsOnly, stoppingNow, turnRuns } from "./open-state.ts";
 
 /// The session's keys on one small line.
 export function agentHints() {

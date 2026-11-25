@@ -10,7 +10,7 @@ import { closedPicker, drawPicker, type Picked, pillContent } from "./agentpicke
 import { knownModels, modelsOn } from "./model-store.ts";
 import { type AgentRow, AG, canTakeOver, ensureAgentHosts } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";
-import { SWITCHES, sessionPicks, setNote } from "./session.tsx";
+import { SWITCHES, sessionPicks, setNote } from "./open-state.ts";
 import { drawAgentBody } from "./logview.tsx";
 import { resendPrompt, steerAgent } from "./messages.ts";
 import { perfLayer, perfOpen } from "../ui/perf.ts";

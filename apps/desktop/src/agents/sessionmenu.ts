@@ -20,7 +20,7 @@ import { draftNewThread, resumeEndedSession, stopAllWork } from "./messages.ts";
 import { runs, transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
 import { forgetTranscript } from "./session-follow.ts";
-import { forgetLog } from "./session.tsx";
+import { forgetLog } from "./open-state.ts";
 
 /// Stops the turn of `s`, its subagents, background commands and the agents it started; asks
 /// first while any of those run.

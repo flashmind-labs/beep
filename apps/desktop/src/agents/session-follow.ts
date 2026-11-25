@@ -10,7 +10,8 @@ import { Channel, invoke } from "../ui/tauri.ts";
 import { joinRuns, viewRead } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
 import { mergePage } from "./open-page.ts";
-import { applyAgentPage, isOpen, pollAgent, setReadNote } from "./session.tsx";
+import { applyAgentPage, pollAgent } from "./session.tsx";
+import { isOpen, setReadNote } from "./open-state.ts";
 import { paneShown } from "../ui/active.ts";
 import { publishTurn } from "../plugins/plugins-state.ts";
 

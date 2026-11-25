@@ -1,11 +1,12 @@
 // One coding agent session in the bar: opening it, drawing its frame and
 // reading it while it shows. Following it is in session-follow.ts, its head
 // in session-head.ts and what a click in it does in session-click.ts.
-import { SessionPicks } from "./agentmodels.ts";
-import { sentText } from "./agentlog.ts";
 import { SessionField, SessionHead } from "./session-frame.tsx";
 import { agentMessage, sessionBody, showSessionFrame } from "./session-frame-state.ts";
-import { disposeLogShell } from "./log-shell.tsx";
+import { followsOnly, isOpen, keepLog, keptLogs, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
+
+// Outside importers keep this path until they import the state module.
+export { sessionPicks, startedWith } from "./open-state.ts";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.tsx";
@@ -51,12 +52,6 @@ import { feed, flushDraw, forgetUnfollowedExtras, keptTranscript } from "./sessi
 import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./session-head.tsx";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
-
-/// Session `s` was started with `prompt` and `images`: its log shows them until its machine
-/// logs the prompt, which it sends only once the model and thinking are set.
-export function startedWith(s: AgentRow, prompt: string, images: readonly { name: string }[]) {
-  setFirstMessage(s, sentText(prompt, images));
-}
 
 /// The session each start kept on this device became, by the start's id: a page that still
 /// names the start opens the session.
@@ -362,27 +357,6 @@ sessionsRead.add(() => {
   if (there) openAgent(there, { back: AG.back });
 });
 
-/// The logs drawn last, by session, to go back to as they were: switching
-/// between them puts their turns back without drawing them again. Out of the
-/// page they do no work; their clocks stop (`Since`).
-/// Each keeps the page it was drawn from, older entries read while it showed included.
-interface KeptLog { body: ChatBody; page: AgentPage }
-const keptLogs = new Map<string, KeptLog>();
-const KEPT_LOGS = 3;
-
-function keepLog(key: string, b: ChatBody, page: AgentPage) {
-  const prior = keptLogs.get(key);
-  if (prior && prior.body !== b) disposeLogShell(prior.body);
-  keptLogs.delete(key);
-  keptLogs.set(key, { body: b, page });
-
-  for (const [old, log] of keptLogs) {
-    if (keptLogs.size <= KEPT_LOGS) break;
-    keptLogs.delete(old);
-    disposeLogShell(log.body);
-  }
-}
-
 /// The open session's kept log takes its page as the reader leaves it.
 export function leaveLog() {
   const log = AG.open && keptLogs.get(sessionKey({ machine_id: AG.open.machine_id, id: AG.open.session }));
@@ -396,23 +370,6 @@ function keptPage(log: KeptLog | null, held: AgentPage | null): AgentPage | null
   if (!log || (held && held.earlier <= log.page.earlier)) return held;
   return held ? joinRuns(log.page, held) : log.page;
 }
-
-/// Drops the kept log of a deleted session.
-export function forgetLog(s: { machine_id: string; id: string }) {
-  const key = sessionKey(s);
-  const log = keptLogs.get(key);
-  if (!log) return;
-  keptLogs.delete(key);
-  disposeLogShell(log.body);
-}
-
-/// The note under the log: the one place that sets `AG.note`.
-export function setNote(text: string) { AG.note = text; }
-
-/// What a failed read said, which the note repeats until a read succeeds.
-export function setReadNote(text: string) { AG.readError = AG.note = text; }
-
-export const isOpen = (o: OpenAgent | null) => S.view === "agent" && AG.open && o === AG.open;
 
 /// A `pushed` update always holds something new; a polled one is compared
 /// with the last read.
@@ -576,28 +533,11 @@ function leaveStart(start: string) {
   else openAgent(row, { back: AG.back, adopt: true });
 }
 
-/// Whether the open session's turn runs, so Enter steers and ⌘. stops.
-export const turnRuns = () => {
-  const s = AG.page?.session;
-  return !!s && !s.external && !s.question && !isStarting(s.id) && AGENT_ACTIVE.has(s.status);
-};
-
 /// Sends what the field holds: while the turn runs it steers it after its current tool call.
 export function submitAgentMessage(input: HTMLTextAreaElement) {
   if (turnRuns()) steerMessage(input);
   else void sendAgentMessage();
 }
-
-/// Whether the user stopped the open session's turn and it has not ended.
-export const stoppingNow = () => {
-  const s = AG.page?.session;
-  return !!s && AG.stopping?.id === s.id && AGENT_ACTIVE.has(s.status);
-};
-
-/// The harnesses that switch models in a running session.
-export const SWITCHES = new Set(["claude", "codex", "agy", "opencode", "pi", "flsh", "hermes"]);
-/// The model and thinking switched to in each session from here, by session.
-export const sessionPicks = new SessionPicks();
 
 /// Closes the open session, preserving its conversation for later.
 export async function closeOpenSession() {
@@ -641,8 +581,3 @@ async function retryStart() {
   if (isOpen(o)) void pollAgent(true);
 }
 
-/// A session started outside Beep that only shows here: still running there,
-/// or of an agent Beep cannot take over. A closed one continues from the field.
-export function followsOnly(s: AgentRow) {
-  return isNativeSession(s.id) || (s.external && !(s.status === "ended" && canTakeOver(s.agent)));
-}

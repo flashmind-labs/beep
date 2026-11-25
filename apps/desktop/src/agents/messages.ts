@@ -4,7 +4,6 @@ import { appendEntry, clearQuestion, removeEntry } from "./open-page.ts";
 import { type Attached, attachOf, heldMessage, type Extras, type OutboxRow, type Resume, type Waiting } from "./agentqueue.ts";
 import { continuePicks, resumePicks } from "./modelpill.tsx";
 import { canContinueElsewhere } from "./continue-state.ts";
-import { sessionPicks } from "./session.tsx";
 import { imageLines, sentText } from "./agentlog.ts";
 import { promptParts } from "./promptparts-state.ts";
 import { composeMessage, prependDraft, startField } from "../chat/compose.tsx";
@@ -19,7 +18,8 @@ import { MN, attachReads, attachmentKey, currentMentions, mentionImages, mention
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentQuestion, type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents-state.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
-import { openAgent, isOpen, resumeAgent, setNote, startedWith, turnRuns } from "./session.tsx";
+import { openAgent, resumeAgent } from "./session.tsx";
+import { isOpen, sessionPicks, setNote, startedWith, turnRuns } from "./open-state.ts";
 import { redrawAgentHints } from "./session-head.tsx";
 import { drawAgentAttached, fitAttachedImages, keepSentImages, keepAgentPics } from "./images.tsx";
 import { drawAgentBody } from "./logview.tsx";

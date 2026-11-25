@@ -28,7 +28,7 @@ import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
 import { type AgentEntry, type AgentPage, AG, openModes, openTasks, openOf, agentPics, agentThumbs, AGENT_ACTIVE } from "./agents-state.ts";
 import { agentKind, folderName } from "./agent-kind.ts";
 import { continuedFrom, continuedIn, continuedLine } from "./continue-state.ts";
-import { stoppingNow } from "./session.tsx";
+import { stoppingNow } from "./open-state.ts";
 import { redrawAgentHints } from "./session-head.tsx";
 import { promptParts } from "./promptparts-state.ts";
 import { childRow } from "./nesting-state.ts";
