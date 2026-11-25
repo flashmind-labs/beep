@@ -18,6 +18,7 @@
 
 use beep_proto::SessionId;
 use super::{Agents, Command, Live, Mark, Session, children};
+use children::NoteFailed;
 use crate::{agents::tags, link::Membership, team::asks::Delivery};
 use beep_proto::node::agent::{Status, StopReason};
 use beep_proto::watched;
@@ -25,9 +26,14 @@ use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    future::Future,
     sync::{Arc, Mutex, OnceLock, Weak},
+    time::Duration,
 };
-use tokio::sync::{Notify, watch};
+use tokio::{
+    sync::{Notify, watch},
+    time::sleep,
+};
 
 /// What a child came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::AsRefStr)]
@@ -379,10 +385,10 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
             }
             continue;
         };
-        let mesh = membership.get().and_then(Membership::get);
         let sent = match &to {
             To::Here { parent, waits } => match parent.upgrade() {
                 Some(parent) => {
+                    let mesh = membership.get().and_then(Membership::get);
                     let id = children::full_id(note.id.as_ref(), &children::machine_name(mesh.as_ref()));
                     let seen = Seen {
                         child: &key,
@@ -393,10 +399,15 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
                 }
                 None => return,
             },
-            To::There { peer, parent } => match &mesh {
-                Some(mesh) => children::note_parent(mesh, *peer, parent, &note).await,
-                None => Err("this machine is in no mesh".to_owned()),
-            },
+            To::There { peer, parent } => {
+                tell_until_heard(|| async {
+                    match membership.get().and_then(Membership::get) {
+                        Some(mesh) => children::note_parent(&mesh, *peer, parent, &note).await,
+                        None => Err(NoteFailed::Silent("this machine is in no mesh".to_owned())),
+                    }
+                })
+                .await
+            }
         };
 
         if let Err(e) = sent {
@@ -406,6 +417,27 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
         if ended {
             return;
         }
+    }
+}
+
+/// How long a note that got no answer waits before it is sent again.
+const NOTE_RETRY: Duration = Duration::from_secs(5);
+
+/// Sends a note with `send` until the parent's node answers: a note that
+/// went unheard is the only news a waiting parent gets of a settle, so it is
+/// not dropped. A node that answers and refuses is not asked again.
+pub(in crate::agents) async fn tell_until_heard<F>(send: impl Fn() -> F) -> Result<(), String>
+where
+    F: Future<Output = Result<(), NoteFailed>>,
+{
+    loop {
+        match send().await {
+            Ok(()) => return Ok(()),
+            Err(NoteFailed::Refused(why)) => return Err(why),
+            Err(NoteFailed::Silent(why)) => log::info!("a parent was not told, trying again: {why}"),
+        }
+
+        sleep(NOTE_RETRY).await;
     }
 }
 

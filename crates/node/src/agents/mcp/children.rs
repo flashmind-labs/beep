@@ -34,7 +34,7 @@ mod peer;
 
 use peer::{Answer, Call, GONE, KEPT, REMOTE_LIMIT, fetch_view, parse_view};
 pub(crate) use peer::{
-    CountCall, Views, ask_parent, count_on, note_parent, stop_remote, stop_remote_retrying,
+    CountCall, Views, ask_parent, count_on, NoteFailed, note_parent, stop_remote, stop_remote_retrying,
 };
 
 /// The longest title or message the agent reads back.
@@ -809,8 +809,7 @@ impl Reach<'_> {
     /// call must come back before its client gives up, so a long job is
     /// checked with agent_status instead. A child here wakes the wait through
     /// its `live`, one on another machine through its note; a node too old to
-    /// note every settle is also read every `WAIT_RECHECK`, and one that does,
-    /// every `NOTED_RECHECK`, in case a note was lost.
+    /// note every settle is also read every `WAIT_RECHECK`.
     async fn waited(&self, view: ChildView) -> ChildView {
         // What this wait answers goes in no note.
         let waiting = self.agents.family.waits.hold(&self.who.session, &view.id);
@@ -834,13 +833,10 @@ impl Reach<'_> {
 }
 
 /// How often a wait on a child on another machine that does not note every
-/// settle reads its view: a turn that ends without a note (`family::notes`)
-/// costs at most this much.
+/// settle (an older node) reads its view: a turn that ends without a note
+/// (`family::notes`) costs at most this much. A node that does note retries
+/// a note it could not send, so its wait is never read on a timer.
 const WAIT_RECHECK: Duration = Duration::from_secs(5);
-/// How often a wait on a child that does note every settle reads its view
-/// anyway: a note that never arrives (the link dropped, the child's node
-/// restarted) costs at most this much, not the whole wait.
-const NOTED_RECHECK: Duration = Duration::from_secs(15);
 
 /// Reads `view` again with `read` each time `waiting`, `live` or, for a
 /// `remote` child, the recheck says to,
@@ -872,11 +868,7 @@ where
             break;
         }
 
-        let recheck = remote.then_some(if view.notes_settles {
-            NOTED_RECHECK
-        } else {
-            WAIT_RECHECK
-        });
+        let recheck = (remote && !view.notes_settles).then_some(WAIT_RECHECK);
         let gone = tokio::select! {
             () = waiting.woken() => false,
             changed = async {

@@ -1674,3 +1674,41 @@ async fn parallel_waits_on_one_child_wake_together_and_end_apart() {
     drop(second);
     assert!(!waits.wake(&parent, "k0@build-box"), "both ended");
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_note_the_parents_node_did_not_hear_is_sent_again_until_it_does() {
+    use crate::agents::family::notes::tell_until_heard;
+    use crate::agents::mcp::children::NoteFailed;
+
+    let tries = std::cell::Cell::new(0);
+    let started = tokio::time::Instant::now();
+    let sent = tell_until_heard(|| {
+        tries.set(tries.get() + 1);
+        std::future::ready(if tries.get() < 3 {
+            Err(NoteFailed::Silent("no link".to_owned()))
+        } else {
+            Ok(())
+        })
+    })
+    .await;
+
+    assert_eq!(sent, Ok(()));
+    assert_eq!(tries.get(), 3);
+    assert_eq!(started.elapsed(), std::time::Duration::from_secs(10));
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_note_the_parents_node_refuses_is_not_sent_again() {
+    use crate::agents::family::notes::tell_until_heard;
+    use crate::agents::mcp::children::NoteFailed;
+
+    let tries = std::cell::Cell::new(0);
+    let sent = tell_until_heard(|| {
+        tries.set(tries.get() + 1);
+        std::future::ready(Err(NoteFailed::Refused("no such child".to_owned())))
+    })
+    .await;
+
+    assert_eq!(sent, Err("no such child".to_owned()));
+    assert_eq!(tries.get(), 1);
+}

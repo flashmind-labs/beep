@@ -245,6 +245,14 @@ pub(crate) async fn ask_parent(
     }
 }
 
+/// Why a note did not reach the parent's node.
+pub(crate) enum NoteFailed {
+    /// The node answered and did not take it: asking again says the same.
+    Refused(String),
+    /// No answer: the link is down or the node is off.
+    Silent(String),
+}
+
 /// Tells `peer`, the machine of the session `parent`, that its child here
 /// finished a turn or asks the user.
 pub(crate) async fn note_parent(
@@ -252,11 +260,15 @@ pub(crate) async fn note_parent(
     peer: EndpointId,
     parent: &SessionId,
     note: &ChildNote,
-) -> Result<(), String> {
-    Call::to_peer(mesh, parent, peer)
-        .ask_ok(Tool::AgentNote, note, REMOTE_LIMIT)
+) -> Result<(), NoteFailed> {
+    match Call::to_peer(mesh, parent, peer)
+        .ask(Tool::AgentNote, note, REMOTE_LIMIT)
         .await
-        .map(drop)
+    {
+        Answer::Text(_) => Ok(()),
+        Answer::Refused(why) => Err(NoteFailed::Refused(why)),
+        Answer::Silent(why) => Err(NoteFailed::Silent(why)),
+    }
 }
 
 /// How a child on another machine stands, asked of it now.
