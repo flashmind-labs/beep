@@ -202,8 +202,12 @@ pub(crate) async fn follow_changes(app: AppHandle, mut changes: mpsc::UnboundedR
                     app.state::<Events>().dispatch_node(update);
                 }
             }
-            Change::FilesKept { wanted, windows } => {
-                app.state::<files_live::FilesLive>().keep(&wanted, &windows);
+            Change::FilesKept => {
+                let events = app.state::<Events>();
+                app.state::<files_live::FilesLive>().keep(
+                    |machine, root| events.node_wanted(machine, &Topic::keyed("files", root)),
+                    &events.window_labels(),
+                );
             }
             Change::Mesh => team_live::mesh_changed(&app),
         }

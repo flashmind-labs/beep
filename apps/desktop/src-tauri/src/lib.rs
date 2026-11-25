@@ -854,7 +854,6 @@ fn setup(
     ));
     app.manage(home_signal);
     let (views_signal, changes) = fleet::view_signal::ViewSignal::new();
-    tauri::async_runtime::spawn(fleet::event_views::follow_changes(handle.clone(), changes));
     app.manage(views_signal);
     tauri::async_runtime::spawn(fleet::event_views::follow_rows(
         handle.clone(),
@@ -875,6 +874,8 @@ fn setup(
     app.manage(fleet::events::Events::default());
     app.manage(fleet::event_views::Views::default());
     app.manage(center::home::HomeReads::default());
+    // What it applies is managed above: a change handled before that would panic it.
+    tauri::async_runtime::spawn(fleet::event_views::follow_changes(handle.clone(), changes));
     fleet::event_views::listen(&handle);
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());

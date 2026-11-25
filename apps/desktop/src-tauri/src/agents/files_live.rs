@@ -10,7 +10,7 @@ use crate::fleet::{
     agents::PlaceAsk,
     asked::{BEFORE_WORKTREE_CREATORS, newer_than},
     events::Events,
-    view_signal::{Update, View},
+    view_signal::{Update, View, changed_paths, join_changed},
 };
 use beep_proto::{
     SessionId,
@@ -136,40 +136,6 @@ impl Held {
     }
 }
 
-/// The most paths an update names, as the node does.
-const MAX_CHANGED: usize = 256;
-
-/// The paths the node says changed in the folder, from the listing a `files` update carries;
-/// empty when it does not say.
-fn changed_paths(update: &Update) -> Vec<String> {
-    update
-        .data
-        .as_ref()
-        .and_then(|data| data.pointer("/Sessions/Tree/changed"))
-        .and_then(|paths| serde_json::from_value(paths.clone()).ok())
-        .unwrap_or_default()
-}
-
-/// Gives `update` the paths of `earlier` too; unknown when either is.
-fn join_changed(earlier: &Update, update: &mut Update) {
-    let (before, now) = (changed_paths(earlier), changed_paths(update));
-    let mut joined: Vec<String> = before.into_iter().chain(now.iter().cloned()).collect();
-    joined.sort();
-    joined.dedup();
-
-    if changed_paths(earlier).is_empty() || now.is_empty() || joined.len() > MAX_CHANGED {
-        joined.clear();
-    }
-
-    if let Some(slot) = update
-        .data
-        .as_mut()
-        .and_then(|data| data.pointer_mut("/Sessions/Tree/changed"))
-    {
-        *slot = json!(joined);
-    }
-}
-
 /// Keeps `item` as the newest of `items`, at most `most` of them.
 fn keep<T: PartialEq>(items: &mut Vec<T>, item: T, most: usize) {
     items.retain(|kept| *kept != item);
@@ -225,22 +191,17 @@ impl FilesLive {
         keep(sets, (window.to_owned(), asks.to_vec()), PLACES_KEPT);
     }
 
-    /// Ends what no window follows now: `wanted` is each machine's node topics, as the windows'
-    /// subscriptions leave them. A folder whose `files` topic is gone is forgotten, and a
-    /// machine's places with them when none of its `files` topics is left.
+    /// Ends what no window follows now: `followed` says whether a window follows a folder's
+    /// `files` topic. A folder none follows is forgotten, and a machine's places with them when
+    /// none of its folders is left.
     pub(crate) fn keep(
         &self,
-        wanted: &std::collections::BTreeMap<EndpointId, Vec<Topic>>,
+        followed: impl Fn(EndpointId, &str) -> bool,
         windows: &HashSet<String>,
     ) {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         held.forget_windows(windows);
-        held.keep(|machine, root| {
-            wanted.get(&machine).is_some_and(|topics| {
-                let topic = Topic::keyed("files", root);
-                topics.iter().any(|wanted| wanted.matches(&topic))
-            })
-        });
+        held.keep(followed);
     }
 
     /// Starts reading for `update` unless a read is running, which takes it up when it is done.

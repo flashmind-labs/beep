@@ -4,7 +4,7 @@ use super::{
     Fleet, Machines, Opened, agents as direct,
     session_mirror::SessionMirror,
     terminal_rows,
-    view_signal::{Change, Interest, Update, View, ring},
+    view_signal::{Change, Interest, Update, View, join_changed, ring},
 };
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
@@ -188,12 +188,21 @@ impl Latest {
 
     /// Retains `update` and returns the updates it pushed out of the memory budget, itself
     /// included when it is too large to keep.
-    fn insert(&mut self, update: Update, bytes: usize) -> Vec<Update> {
+    fn insert(&mut self, mut update: Update, mut bytes: usize) -> Vec<Update> {
         let key = (
             update.machine_id.clone(),
             update.topic.clone(),
             update.query,
         );
+
+        // A window shown later gets the last update only: it names the paths of those it replaces.
+        if update.topic.name() == "files"
+            && let Some(earlier) = self.entries.get(&key)
+        {
+            join_changed(&earlier.update, &mut update);
+            bytes = serde_json::to_vec(&update).map_or(usize::MAX, |bytes| bytes.len());
+        }
+
         self.remove(&key);
 
         if bytes > MAX_NODE_SNAPSHOT_BYTES {
@@ -1403,13 +1412,7 @@ async fn run(
             subscriptions.clear();
             workers.abort_all();
             fleet.snapshots.reconcile(&BTreeMap::new());
-            ring(
-                &app,
-                Change::FilesKept {
-                    wanted: BTreeMap::new(),
-                    windows: HashSet::new(),
-                },
-            );
+            ring(&app, Change::FilesKept);
             materialized.clear();
 
             if watched::wait_for(&mut demand, |interests| !interests.is_empty())
@@ -1443,13 +1446,7 @@ async fn run(
             })
             .collect();
         fleet.snapshots.reconcile(&wanted);
-        ring(
-            &app,
-            Change::FilesKept {
-                wanted: wanted.clone(),
-                windows: app.state::<Events>().window_labels(),
-            },
-        );
+        ring(&app, Change::FilesKept);
         command_workers.retain(|machine, task| {
             if wanted.contains_key(machine) {
                 true

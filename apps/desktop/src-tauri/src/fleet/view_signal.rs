@@ -7,8 +7,7 @@ use beep_proto::{
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::{BTreeMap, HashSet};
+use serde_json::{Value, json};
 use tauri::{AppHandle, Manager};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -31,6 +30,40 @@ pub struct Update {
     pub(crate) data: Option<serde_json::Value>,
     /// Local order of retained updates, for priming a window with only what it has not seen.
     pub(crate) seq: u64,
+}
+
+/// The most paths an update names, as the node does.
+const MAX_CHANGED: usize = 256;
+
+/// The paths the node says changed in the folder, from the listing a `files` update carries;
+/// empty when it does not say.
+pub(crate) fn changed_paths(update: &Update) -> Vec<String> {
+    update
+        .data
+        .as_ref()
+        .and_then(|data| data.pointer("/Sessions/Tree/changed"))
+        .and_then(|paths| serde_json::from_value(paths.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Gives `update` the paths of `earlier` too; unknown when either is.
+pub(crate) fn join_changed(earlier: &Update, update: &mut Update) {
+    let (before, now) = (changed_paths(earlier), changed_paths(update));
+    let mut joined: Vec<String> = before.into_iter().chain(now.iter().cloned()).collect();
+    joined.sort();
+    joined.dedup();
+
+    if changed_paths(earlier).is_empty() || now.is_empty() || joined.len() > MAX_CHANGED {
+        joined.clear();
+    }
+
+    if let Some(slot) = update
+        .data
+        .as_mut()
+        .and_then(|data| data.pointer_mut("/Sessions/Tree/changed"))
+    {
+        *slot = json!(joined);
+    }
 }
 
 /// What changed, in the order it was rung.
@@ -65,11 +98,10 @@ pub(crate) enum Change {
     },
     /// A node pushed a folder's `files` topic; what is followed there is read again.
     FilesHeard { machine: EndpointId, update: Update },
-    /// The windows' subscriptions changed: what no window follows any more is forgotten.
-    FilesKept {
-        wanted: BTreeMap<EndpointId, Vec<Topic>>,
-        windows: HashSet<String>,
-    },
+    /// The windows' subscriptions changed: what no window follows any more is forgotten. What
+    /// the windows follow is read when this is applied, not when it was rung: terminal output
+    /// may have kept it waiting while a window followed a folder again.
+    FilesKept,
     /// The mesh's members changed: a team's record or a contact may have.
     Mesh,
 }
@@ -86,8 +118,9 @@ impl ViewSignal {
 
 /// Rings `change`.
 pub(crate) fn ring(app: &AppHandle, change: Change) {
-    // The receiver lives as long as the app.
-    let _ = app.state::<ViewSignal>().0.send(change);
+    if app.state::<ViewSignal>().0.send(change).is_err() {
+        log::warn!("a change was rung after the views stopped following");
+    }
 }
 
 /// What the page hears of one project.

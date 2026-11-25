@@ -479,6 +479,24 @@ fn retained_snapshots_bound_each_node_and_all_nodes_and_remove_oversized_replace
 }
 
 #[test]
+fn a_folder_update_kept_for_a_hidden_window_names_the_paths_of_those_it_replaced() {
+    use crate::fleet::view_signal::changed_paths;
+
+    let machine = iroh::SecretKey::generate().public();
+    let mut latest = Latest::default();
+    let listing = |paths: &[&str]| Update {
+        data: Some(serde_json::json!({ "Sessions": { "Tree": { "tree": {}, "changed": paths } } })),
+        ..update(machine, 1, "files")
+    };
+
+    latest.insert(listing(&["a.md"]), 10);
+    latest.insert(listing(&["b.ts"]), 10);
+
+    let kept = latest.values().next().unwrap();
+    assert_eq!(changed_paths(kept), ["a.md", "b.ts"]);
+}
+
+#[test]
 fn resource_directories_remove_absent_defaults_without_removing_queries_or_other_scopes() {
     let machine = iroh::SecretKey::generate().public();
     let peer = iroh::SecretKey::generate().public();
