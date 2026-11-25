@@ -34,12 +34,12 @@ use std::{
 use tokio::{
     sync::broadcast::error::{RecvError, TryRecvError},
     task::spawn_blocking,
-    time::{MissedTickBehavior, interval, sleep, timeout},
+    time::{Instant, sleep, sleep_until, timeout},
 };
 
 /// How long changes settle before a pass, so a desktop's few writes make one pass.
 const SETTLE: Duration = Duration::from_millis(300);
-/// How often a pass runs with nothing changed, to retry what could not be fetched.
+/// How soon a pass runs again with nothing changed, while something could not be fetched.
 const EVERY: Duration = Duration::from_secs(15 * 60);
 /// The most libraries fetched at once.
 const FETCHES: usize = 4;
@@ -50,7 +50,7 @@ const INSPECT_LIMIT: Duration = Duration::from_secs(5 * 60);
 
 /// Installs the libraries' skills now, whenever a library, a project's checkouts or its skill
 /// settings change, a session starts in a folder none worked in, a machine comes or goes, and
-/// every `EVERY`, until the mesh stops. Nothing when the host keeps Beep out of the skills
+/// every `EVERY` while a pass had problems, until the mesh stops. Nothing when the host keeps Beep out of the skills
 /// folders.
 pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills, agents: Arc<Agents>) {
     let libraries = skills.libraries().clone();
@@ -75,9 +75,6 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills, agents: Arc
         }
     };
     libraries.shared.global.send_replace(Some(record.global_names()));
-    let mut tick = interval(EVERY);
-    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    tick.tick().await;
     let mut said = None;
 
     loop {
@@ -101,9 +98,12 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills, agents: Arc
             said = Some(summary);
         }
 
+        // Only a failed fetch is worth trying again with nothing changed.
+        let retry = (!problems.is_empty()).then(|| Instant::now() + EVERY);
+
         loop {
             tokio::select! {
-                _ = tick.tick() => break,
+                () = sleep_until(retry.unwrap_or_else(Instant::now)), if retry.is_some() => break,
                 change = changes.recv() => match change {
                     Ok(key) if relevant(&key) => break,
                     Err(RecvError::Lagged(_)) => break,
