@@ -307,6 +307,26 @@ async fn a_machine_that_pushes_is_not_listed_again_when_its_rows_age() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_waiting_outside_session_leaves_when_its_day_ends_though_nothing_is_pushed() {
+    let a = machine(1);
+    let mut rig = rig(vec![a], Vec::new());
+    rig.mirror.pushed(a, Vec::new());
+    rig.mirror.rows();
+    let mut waiting = external(a, "x", AgentStatus::Waiting {});
+    waiting.last_activity = SystemTime::now() - IDLE_SHOWN + Duration::from_secs(60);
+    let ask = next(&mut rig.asks).await;
+    ask.reply.send(Some(vec![waiting])).unwrap();
+    rows_where(&rig.mirror, |rows| ids(rows, a) == ["x"]).await;
+
+    // Nothing was pushed; the minute passes and the machine is scanned again.
+    tokio::time::sleep(Duration::from_secs(70)).await;
+    let ask = next(&mut rig.asks).await;
+    assert!(ask.scan);
+    ask.reply.send(Some(Vec::new())).unwrap();
+    rows_where(&rig.mirror, |rows| ids(rows, a).is_empty()).await;
+}
+
+#[tokio::test(start_paused = true)]
 async fn a_stale_machine_does_not_make_a_pushing_one_listed() {
     let (a, b) = (machine(1), machine(2));
     let mut rig = rig(vec![a, b], Vec::new());

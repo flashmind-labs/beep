@@ -11,7 +11,7 @@ use crate::{
         view_cache::{View, ViewCache},
     },
 };
-use beep_mesh::machine::listing::{Host, Linked, apply_presence};
+use beep_mesh::machine::listing::{Host, IDLE_SHOWN, Linked, apply_presence};
 use beep_proto::{
     AgentStatus, MachineSession, SessionId,
     node::agent::{ExternalSession, ParentLink, Presence},
@@ -25,12 +25,12 @@ use std::{
     future::Future,
     panic::AssertUnwindSafe,
     sync::Arc,
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter};
 use tokio::{
     sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch},
-    task::JoinSet,
+    task::{AbortHandle, JoinSet},
     time::{Instant, sleep, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -380,6 +380,7 @@ impl SessionMirror {
             reads: HashMap::new(),
             relisting: HashMap::new(),
             scanning: HashMap::new(),
+            expiries: HashMap::new(),
             list_slots: Arc::new(Semaphore::new(IN_FLIGHT)),
             scan_slots: Arc::new(Semaphore::new(IN_FLIGHT)),
             tasks: JoinSet::new(),
@@ -565,6 +566,8 @@ struct Actor<O> {
     relisting: HashMap<EndpointId, Relist>,
     /// The machines scanned now, and whether an edit came meanwhile.
     scanning: HashMap<EndpointId, bool>,
+    /// The scan each machine has waiting for the hour a session it shows leaves the list.
+    expiries: HashMap<EndpointId, AbortHandle>,
     list_slots: Arc<Semaphore>,
     scan_slots: Arc<Semaphore>,
     tasks: JoinSet<Message>,
@@ -580,6 +583,7 @@ impl<O: Outside> Actor<O> {
                 },
                 Some(done) = self.tasks.join_next() => match done {
                     Ok(message) => message,
+                    Err(e) if e.is_cancelled() => continue,
                     Err(e) => {
                         log::warn!("asking a machine for its sessions stopped: {e}");
                         continue;
@@ -856,6 +860,37 @@ impl<O: Outside> Actor<O> {
             && self.replace_scans(machine, rows)
         {
             self.outside.drawn(Drawn::Listed);
+        }
+
+        self.expire_scans(machine);
+    }
+
+    /// A session that waits for its user stays in the scan for `IDLE_SHOWN` after its last
+    /// entry, and the node pushes nothing when that passes: the machine is scanned again then.
+    fn expire_scans(&mut self, machine: EndpointId) {
+        if let Some(earlier) = self.expiries.remove(&machine) {
+            earlier.abort();
+        }
+
+        let now = SystemTime::now();
+        let left = watched::read_sent(&self.rows, |rows| {
+            rows.machines.get(&machine).and_then(|held| {
+                held.scans
+                    .iter()
+                    .filter(|row| row.status == AgentStatus::Waiting {})
+                    .filter_map(|row| (row.last_activity + IDLE_SHOWN).duration_since(now).ok())
+                    .min()
+            })
+        });
+
+        if let Some(left) = left {
+            let wait = left + Duration::from_secs(1);
+            let handle = self.tasks.spawn(async move {
+                sleep(wait).await;
+
+                Message::Rescan(machine)
+            });
+            self.expiries.insert(machine, handle);
         }
     }
 

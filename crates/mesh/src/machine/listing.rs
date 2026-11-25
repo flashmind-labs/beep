@@ -328,7 +328,7 @@ pub struct Host {
 
 /// How long a session waiting for the user stays among those running now
 /// after its last entry.
-const IDLE_SHOWN: Duration = Duration::from_secs(24 * 60 * 60);
+pub const IDLE_SHOWN: Duration = Duration::from_secs(24 * 60 * 60);
 
 fn unix(seconds: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(seconds)
