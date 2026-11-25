@@ -60,7 +60,7 @@ function closeViewer() {
   viewerFocus = null;
 }
 
-type ViewerAct = "prev" | "next" | "close" | "save" | "copy" | "open";
+export type ViewerAct = "prev" | "next" | "close" | "save" | "copy" | "open";
 
 /// Shows `path`, a file in or under `cwd` on `machine`, over the window while it is read.
 export function openFileViewer(machine: string, session: string, cwd: string, path: string) {
@@ -101,7 +101,7 @@ export function openFileElsewhere(file: ViewerFile) {
 /// The open picture over the whole bar, with arrows when there are more.
 function drawViewer() {
   viewerOpen = true;
-  const content = V.file ? <FileViewer key={V.file.path} file={{ ...V.file }} /> : <Viewer pictures={V.pics} at={V.at} />;
+  const content = V.file ? <FileViewer key={V.file.path} file={{ ...V.file }} act={viewerAct} open={openFileElsewhere} /> : <Viewer pictures={V.pics} at={V.at} act={viewerAct} onKey={viewerKeys} />;
   overlays.set([{ slot: "viewer", host: viewerHost, content }]);
 }
 
