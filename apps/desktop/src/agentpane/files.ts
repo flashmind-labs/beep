@@ -22,15 +22,12 @@ import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } f
 import { desktopChatPane, place } from "./media-layout.ts";
 import { localFileItems } from "./localfile.ts";
 import { addMention, askUpload } from "../agents/workdrop.ts";
-import { hideDropOverlay } from "../chat/attach.tsx";
+import { hideDropOverlay, PATH_TYPE } from "../chat/drop-overlay.tsx";
 import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
 import { confirmSheet, renameSheet } from "../ui/menu.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { AMBIENT_MS, ambient, paneShown } from "../ui/active.ts";
 import { savedIn } from "../ui/platform.ts";
-
-/// The type a row of the tree drags as, its path relative to the session's folder.
-export const PATH_TYPE = "application/x-beep-path";
 
 /// How many folders keep their tree.
 const KEPT = 4;

@@ -4,7 +4,7 @@
 import { createRef, type RefObject } from "react";
 import { flushSync } from "react-dom";
 import { createStore } from "zustand";
-import { fileBase64 } from "../chat/attach.tsx";
+import { fileBase64 } from "../chat/pics.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { invoke } from "../ui/tauri.ts";

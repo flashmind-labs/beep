@@ -1,4 +1,4 @@
-import { fileBase64, type PastedFiles } from "../chat/attach.tsx";
+import { fileBase64, type PastedFiles } from "../chat/pics.ts";
 import { draftText } from "../chat/compose.tsx";
 import { bindPromptStash } from "../chat/stash.tsx";
 import { stashFile } from "../chat/stash-state.ts";

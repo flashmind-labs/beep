@@ -1,7 +1,7 @@
 import { bindMentionMenu, type MenuPlace } from "./mentionmenu.ts";
 import { ComposeField } from "../chat/compose.tsx";
 import { DictateButton } from "../chat/dictation.tsx";
-import { pastedFiles, type PastedFiles } from "../chat/attach.tsx";
+import { pastedFiles, type PastedFiles } from "../chat/pics.ts";
 import { DailyArt } from "../ui/painted-art.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { createPortal } from "react-dom";

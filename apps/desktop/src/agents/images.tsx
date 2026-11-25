@@ -1,6 +1,6 @@
 // Images for a coding agent: attached to a message, and shown in its log.
 import type { Attached } from "./agentqueue.ts";
-import { AGENT_IMAGE_BYTES, AGENT_IMAGES_BYTES, fileBase64, picPreview } from "../chat/attach.tsx";
+import { AGENT_IMAGE_BYTES, AGENT_IMAGES_BYTES, fileBase64, picPreview } from "../chat/pics.ts";
 import { S } from "../bar/core.ts";
 import { GONE } from "../chat/media.tsx";
 import { MN, setAttachError } from "./workdrop.ts";

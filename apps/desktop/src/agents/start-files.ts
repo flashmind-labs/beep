@@ -1,5 +1,5 @@
 import { uploadParts, withMentions } from "../agentpane/files-state.ts";
-import { fileBase64 } from "../chat/attach.tsx";
+import { fileBase64 } from "../chat/pics.ts";
 import { invoke } from "../ui/tauri.ts";
 
 /// The machine holding the cache, and the work folder older nodes check.

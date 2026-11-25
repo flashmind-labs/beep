@@ -8,7 +8,7 @@ import type { Attached } from "./agentqueue.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { agentMessage } from "./session-frame-state.ts";
 import { joinPath, uploadParts, type Transfer } from "../agentpane/files-state.ts";
-import { fileBase64, type PastedFiles } from "../chat/attach.tsx";
+import { fileBase64, type PastedFiles } from "../chat/pics.ts";
 import { reloadFolder } from "../agentpane/files.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
