@@ -1,4 +1,4 @@
-import { answers, bar, calls } from "./steer-env.ts";
+import { answers, bar, calls, emit } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setView } from "../src/bar/core.ts";
@@ -241,6 +241,8 @@ test("editing a steer the node holds drops the node's steers, sends the others a
   t.after(() => { forgetAgentFollows(); delete answers.agent_steer; });
   page.queued = 3;
   page.queued_messages = ["First one", "Use the existing fixture\n[Image: shot.png]", "Third one"];
+  const sent = (id: number, text: string, images: string[]) => ({ id, how: "steer", text, images, keys: images, state: "sent", reason: null });
+  emit("outbox-changed", { machine_id: "m1", agent: "claude", session: "steer-render", revision: 1, rows: [], sent: [sent(1, "First one", []), sent(2, "Use the existing fixture", ["shot.png"]), sent(3, "Third one", [])], resumed: null, pick: null });
   drawQueue();
   assert.equal(bar.querySelectorAll("#agqueue .it.steer").length, 3);
   calls.length = 0;
@@ -253,34 +255,45 @@ test("editing a steer the node holds drops the node's steers, sends the others a
   assert.equal(input.value, "Use the existing fixture");
 });
 
-test("editing a queued steer keeps the pictures of every steer, the edited one and the ones sent again", async t => {
+test("editing a queued steer sends the others again with their own pictures, though the pictures share a name", async t => {
   const { page, input } = setup();
-  const picture = (name: string) => ({ name, mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null });
+  const picture = (data: string) => ({ name: "image.jpg", mime: "image/jpeg", size: 8, data, url: `data:image/jpeg;base64,${data}`, original: null });
   answers.agent_steer = [];
   t.after(() => { forgetAgentFollows(); delete answers.agent_steer; AG.att = []; });
-  const sentAs = () => calls.filter(call => call.cmd === "agent_steer").map(call => (call.args as { steer: { steer?: { text: string; images?: { name: string }[] } } }).steer.steer);
+  const sentAs = () => calls.filter(call => call.cmd === "agent_steer").map(call => (call.args as { steer: { steer?: { text: string; images?: { name: string; data: string }[] } } }).steer.steer);
+  const where = { machine_id: "m1", agent: "claude", session: "steer-render" };
 
-  for (const [words, name] of [["First", "a.png"], ["Second", "b.png"]]) {
-    input.value = words;
-    AG.att = [picture(name)];
+  for (const data of ["AAAA", "BBBB", "CCCC"]) {
+    input.value = "look";
+    AG.att = [picture(data)];
     steerMessage(input);
     await settle();
   }
 
-  // The node lists each as its words and a line per picture.
-  const [first, second] = sentAs();
-  page.queued_messages = [`${first?.text}\n[Image: a.png]`, `${second?.text}\n[Image: b.png]`];
-  page.queued = 2;
+  // The outbox hands them over in order, each under its own key; the node lists those.
+  const [first] = sentAs();
+  const row = (id: number, key: string) => ({ id, how: "steer", text: first?.text ?? "", images: ["image.jpg"], keys: [key], state: "sent", reason: null });
+  emit("outbox-changed", { ...where, revision: 1, rows: [], sent: [row(1, "k1"), row(2, "k2"), row(3, "k3")], resumed: null, pick: null });
+  page.queued_messages = [1, 2, 3].map(n => `${first?.text}\n[Image: k${n}]`);
+  page.queued = 3;
   AG.att = [];
   calls.length = 0;
-  await editQueued(0, true);
+  await editQueued(1, true);
 
   const again = sentAs().filter(Boolean);
-  assert.equal(again.length, 1);
-  assert.equal(again[0]?.text, second?.text);
-  assert.deepEqual(again[0]?.images?.map(image => image.name), ["b.png"]);
-  assert.equal(input.value, "First");
-  assert.deepEqual(AG.att.map(image => image.name), ["a.png"]);
+  assert.deepEqual(again.map(one => one?.images?.[0]?.data), ["AAAA", "CCCC"]);
+  assert.equal(input.value, "look");
+  assert.deepEqual(AG.att.map(image => image.data), ["BBBB"]);
+});
+
+test("an entry the node lists that this app did not send as a steer is not edited or sent again", async t => {
+  setup();
+  answers.agent_steer = [];
+  t.after(() => { forgetAgentFollows(); delete answers.agent_steer; });
+  hold("A queued prompt");
+  calls.length = 0;
+  await editQueued(0, true);
+  assert.equal(calls.filter(call => call.cmd === "agent_steer").length, 0);
 });
 
 test("a pending steer returns after switching conversations without sending it again", async t => {

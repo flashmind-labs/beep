@@ -2,6 +2,9 @@ import { JSDOM } from "jsdom";
 
 export const calls: { cmd: string; args: unknown }[] = [];
 export const answers: Record<string, unknown> = {};
+const listeners = new Map<string, ((event: { payload: unknown }) => void)[]>();
+/// Delivers an event to what the app listens with.
+export const emit = (name: string, payload: unknown) => { for (const listener of listeners.get(name) ?? []) listener({ payload }); };
 const dom = new JSDOM("<!doctype html><html><body><div id='bar'></div></body></html>", { url: "https://app.test" });
 const view = dom.window;
 Object.defineProperty(view.document, "hasFocus", { value: () => false });
@@ -18,5 +21,5 @@ Object.assign(globalThis, {
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: view.navigator });
 Object.defineProperty(view, "__TAURI__", { value: {
   core: { invoke: async (cmd: string, args: unknown) => { calls.push({ cmd, args }); if (cmd === "mesh_watch" && !(cmd in answers)) return new Promise(() => {}); return answers[cmd] ?? null; }, Channel: class {} },
-  event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) },
+  event: { listen: async (name: string, listener: (event: { payload: unknown }) => void) => { listeners.set(name, [...(listeners.get(name) ?? []), listener]); return () => {}; } }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) },
 } });
