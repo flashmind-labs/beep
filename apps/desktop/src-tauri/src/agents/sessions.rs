@@ -5,8 +5,8 @@
 use crate::{
     agents::{
         kept_folder::PastedImage,
-        starts::{Start, Starts},
-        steer::{DevicePick, uploads},
+        starts::{Start, Started, Starts},
+        steering::{DevicePick, uploads},
     },
     center::AgentsShown,
     chat::markdown,
@@ -138,12 +138,6 @@ impl From<AgentSessionView> for SessionPage {
     }
 }
 
-#[derive(Debug, Serialize)]
-pub struct Started {
-    pub(crate) session: SessionRow,
-    pub(crate) why: String,
-}
-
 #[tauri::command]
 pub async fn agent_sessions(app: AppHandle, fleet: Machines<'_>) -> Result<Vec<SessionRow>> {
     let rows = app
@@ -220,14 +214,6 @@ pub(crate) async fn follow_titles(app: AppHandle, fleet: Arc<Fleet>) {
             log::warn!("could not tell the windows a session title changed: {e}");
         }
     }
-}
-
-/// Shows a session its machine said ended as ended in the mirror's rows, so
-/// Home and the session lists drop it from Running at once rather than on a
-/// later read, and has the windows read them again.
-pub(crate) fn closed(app: &AppHandle, machine_id: &str, session: &SessionId) {
-    app.state::<Arc<SessionMirror>>()
-        .closed(machine_id, session);
 }
 
 /// `rows` with what this app knows on top: presence, deletes and moves under

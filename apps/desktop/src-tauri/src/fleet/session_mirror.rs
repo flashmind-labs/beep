@@ -1208,6 +1208,14 @@ fn kept_between(old: &[MachineSession], new: &[MachineSession]) -> bool {
         })
 }
 
+/// Shows a session its machine said ended as ended in the mirror's rows, so
+/// Home and the session lists drop it from Running at once rather than on a
+/// later read, and has the windows read them again.
+pub(crate) fn closed(app: &AppHandle, machine_id: &str, session: &SessionId) {
+    app.state::<Arc<SessionMirror>>()
+        .closed(machine_id, session);
+}
+
 /// A start's id, as the windows know it until its machine names the
 /// session: `start:<uuid>`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

@@ -12,8 +12,7 @@
 use crate::{
     agents::{
         kept_folder::{KeptFolder, KeptImage, PastedImage, Write, forget_images, image_writes},
-        sessions::{Started, closed},
-        steer::{Steer, SteerError, uploads},
+        steering::{Steer, SteerError, uploads},
     },
     beep::epoch_ms,
     error::{DesktopError, Result},
@@ -21,7 +20,7 @@ use crate::{
         Fleet, Machines,
         agents::{self as direct, StartFailed},
         session_lists::SessionRow,
-        session_mirror::{NotAStart, StartId},
+        session_mirror::{NotAStart, StartId, closed},
     },
 };
 use beep_mesh::RETRY;
@@ -339,6 +338,12 @@ impl Held {
     pub(crate) fn rows(&self) -> Vec<MachineSession> {
         self.starts.iter().map(Start::row).collect()
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct Started {
+    pub(crate) session: SessionRow,
+    pub(crate) why: String,
 }
 
 /// The kept starts and the thread that writes them.
