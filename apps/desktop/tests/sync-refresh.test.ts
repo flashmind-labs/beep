@@ -1,4 +1,4 @@
-import test, { mock } from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import { makeFileSync, mergeSyncRows, type SyncDetail, type SyncRow } from "../src/project/filesync.ts";
 
@@ -7,7 +7,7 @@ type Deps = Parameters<typeof makeFileSync>[0];
 const row = (project: string, machine_id: string, over: Partial<SyncRow> = {}): SyncRow =>
   ({ project, machine_id, status: "in_sync", files: 10, pending: 0, error: null, ...over });
 
-const detailOf = (project: string): SyncDetail => ({ project, pinned: false, paused: false, machines: [] });
+const detailOf = (project: string, over: Partial<SyncDetail> = {}): SyncDetail => ({ project, pinned: false, paused: false, machines: [], ...over });
 
 /// A file sync whose reads are counted by command and project.
 function counted() {
@@ -28,74 +28,27 @@ test("added and removed machines change their projects", () => {
   assert.deepEqual([...changed].sort(), ["a", "b"]);
 });
 
-test("one summary change reads the detail of that project only", async () => {
-  const { sync, details } = counted();
-  await Promise.all(["a", "b", "c"].map(p => sync.ensure(p, 0)));
-  assert.equal(details().length, 3);
-
-  const before = [row("a", "m1"), row("b", "m1"), row("c", "m1")];
-  const { rows, changed } = mergeSyncRows(before, [row("a", "m1"), row("b", "m1", { files: 11 }), row("c", "m1")]);
-  assert.deepEqual(rows.map(row => row.files), [10, 11, 10]);
-  mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
-  await sync.follow(changed, [], 60_000);
-  assert.equal(details().length, 3);
-  mock.timers.tick(60_000);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.deepEqual(details().slice(3), ["project_sync_detail:b"]);
-  mock.timers.reset();
-});
-
-test("a busy sync reads a changed project once per bound, then once after", async () => {
-  const { sync, details } = counted();
-  mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
-  await sync.follow(new Set(["a"]), [], 10_000);
-  for (let i = 0; i < 10; i++) {
-    mock.timers.tick(500);
-    await sync.follow(new Set(["a"]), [], 10_000);
-  }
-  assert.equal(details().length, 1);
-  mock.timers.tick(10_000);
-  await new Promise(resolve => setImmediate(resolve));
-  assert.equal(details().length, 2);
-  mock.timers.reset();
-});
-
-test("an unchanged summary reads nothing and draws nothing while details are fresh", async () => {
+test("a project's detail is read once, then comes with the sync updates", async () => {
   const { sync, details, redraws } = counted();
-  await sync.ensure("a", 0);
+  await Promise.all(["a", "b", "c"].map(p => sync.ensure(p)));
+  assert.equal(details().length, 3);
+
+  for (let i = 0; i < 20; i++) await Promise.all(["a", "b", "c"].map(p => sync.ensure(p)));
+  assert.equal(details().length, 3, "ensuring a project already read asks nothing");
+
   const drawn = redraws();
-  const reads = details().length;
-
-  const before = [row("a", "m1")];
-  const { changed } = mergeSyncRows(before, [row("a", "m1")]);
-  for (let i = 0; i < 20; i++) await sync.follow(changed, ["a"], 60_000);
-  assert.equal(details().length, reads);
-  assert.equal(redraws(), drawn);
+  sync.take("b", detailOf("b", { paused: true }));
+  assert.equal(sync.detail("b")?.paused, true);
+  assert.equal(redraws(), drawn + 1);
+  assert.equal(details().length, 3);
 });
 
-test("a viewed project is read again once its detail is older than the bound", async () => {
-  const { sync, details } = counted();
-  mock.timers.enable({ apis: ["Date"], now: Date.now() });
-  sync.watch("a");
-  await sync.ensure("a", 0);
-  await sync.follow(new Set(), [], 1000);
-  assert.equal(details().length, 1);
-  mock.timers.tick(1001);
-  await sync.follow(new Set(), [], 1000);
-  assert.deepEqual(details(), ["project_sync_detail:a", "project_sync_detail:a"]);
-  sync.stop();
-  mock.timers.tick(1001);
-  await sync.follow(new Set(), [], 1000);
-  assert.equal(details().length, 2);
-  mock.timers.reset();
-});
-
-test("a read that finds the same detail keeps its object and draws nothing", async () => {
+test("a pushed detail that is the one held keeps its object and draws nothing", async () => {
   const { sync, redraws } = counted();
-  await sync.ensure("a", 0);
+  await sync.ensure("a");
   const first = sync.detail("a");
   const drawn = redraws();
-  await sync.follow(new Set(["a"]), [], 0);
+  sync.take("a", detailOf("a"));
   assert.equal(sync.detail("a"), first);
   assert.equal(redraws(), drawn);
 });

@@ -4,6 +4,8 @@ import { prSession } from "./pr-session.ts";
 import { drawRail, projectRows } from "../center/sidebar.tsx";
 import { railProject, shell } from "../center/window-shell.tsx";
 import { pageShown } from "../ui/active.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedEach } from "../ui/snapshot-state.ts";
 import { layoutChanged } from "../ui/skin.ts";
 import { formatAgo } from "../ui/format.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
@@ -22,7 +24,7 @@ import type { BranchSessionRow } from "../review/history-state.ts";
 import { makeGitHistory } from "../review/history.tsx";
 import { sessions } from "../agents/sessions.ts";
 import { showChanges } from "../agentpane/media.ts";
-import { makeFileSync } from "./filesync.ts";
+import { makeFileSync, type SyncDetail } from "./filesync.ts";
 import { makeThreads, type ListsRow, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
 import { makeThreadDetail } from "./threaddetail.tsx";
 import { makeRuns, type RunDetail, type RunsRow } from "./runs.tsx";
@@ -49,6 +51,13 @@ export const fsync = makeFileSync({
   invoke, redraw: () => { redrawProjects(); redrawSync(); }, fix: fixConflict, kept: keptSection("filesync"),
   fixButton: (project, c) => projectButtons(`conflict ${project}\n${c.path}`, { project, machine: c.holder, choose: false, label: "Fix with an agent", hint: "Pick a model: an agent merges the two copies on the machine that has them", session: null, start: pick => startConflictFix(project, c, pick) }),
   repairButton: (project, machine, error) => repairButton(project, machine, error),
+});
+
+// Each project's sync detail comes with the `sync` updates, as the machines hold it.
+subscribeEach(topic("sync"), event => {
+  for (const { args, pushed } of pushedEach<SyncDetail | null>(event.data, "project_sync_detail")) {
+    if (typeof args.project === "string" && "value" in pushed && pushed.value) fsync.take(args.project, pushed.value);
+  }
 });
 
 /// Fix with an agent on a blocked Git sync of `project` on `machine`.

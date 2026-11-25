@@ -12,14 +12,11 @@ import { removeListed, renameListed, MACHINES, takeMac } from "./machine-store.t
 import { type MacControl } from "./machine-state.ts";
 
 /// How old the table lets a moving project's detail get.
-const MOVING_MAX_AGE_MS = 5000;
-
-/// Reads the sync detail of the projects in `state.sync` that are due, then
+/// Reads the sync detail of the projects in `state.sync` not read yet, then
 /// draws them, while Home shows.
 export function readSyncDetails() {
   if (currentLocation()?.view !== "home") return;
-  const moving = new Set(state.sync.filter(r => r.status === "syncing" || r.status === "scanning").map(r => r.project));
-  const reads = [...new Set(state.sync.map(r => r.project))].map(p => fsync.ensure(p, moving.has(p) ? MOVING_MAX_AGE_MS : undefined)).filter(r => r);
+  const reads = [...new Set(state.sync.map(r => r.project))].map(p => fsync.ensure(p)).filter(r => r);
   if (reads.length) Promise.all(reads).then(draw);
 }
 

@@ -1,4 +1,4 @@
-import test, { mock } from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
 import { conflictList, conflictPrompt, fileSyncTile, machineMeta, originalOf, stateChip, stateNote, syncSummary, waitingList } from "../src/project/filesync.ts";
 import type { MachineDetail, SyncDetail } from "../src/project/filesync.ts";
@@ -113,27 +113,24 @@ test("a Windows folder shows without its prefix", () => {
   assert.equal(tile.rows[0].title, "win: C:\\Users\\me\\widget");
 });
 
-test("a sync update during its initial read reconciles the new snapshot before completing", async () => {
+test("a sync detail pushed during the initial read is not undone by its answer", async () => {
   const { makeFileSync } = await import("../src/project/filesync.ts");
   let finish!: (value: SyncDetail) => void;
   const initial = new Promise<SyncDetail>(done => { finish = done; });
   let reads = 0;
   const invoke = (async (command: string) => {
     if (command !== "project_sync_detail") return [];
-    return ++reads === 1 ? initial : detail([machine({ pending: 2 })]);
+    reads++;
+    return initial;
   }) as Parameters<typeof makeFileSync>[0]["invoke"];
   const sync = makeFileSync({ invoke, redraw() {} });
-  mock.timers.enable({ apis: ["Date", "setTimeout"], now: Date.now() });
   const first = sync.ensure("example");
-  const changed = sync.follow(new Set(["example"]), [], 5000);
-  assert.equal(reads, 1);
+  sync.take("example", detail([machine({ pending: 2 })]));
   finish(detail([machine({ pending: 0 })]));
-  await Promise.all([first, changed]);
-  mock.timers.tick(5000);
-  await new Promise(resolve => setImmediate(resolve));
-  mock.timers.reset();
-  assert.equal(reads, 2);
+  await first;
+  assert.equal(reads, 1);
   assert.equal(sync.detail("example")!.machines[0].pending, 2);
+  assert.equal(sync.ensure("example"), undefined, "a project read in this launch is not read again");
 });
 
 test("automatic Git divergence has a warning chip until repaired", () => {

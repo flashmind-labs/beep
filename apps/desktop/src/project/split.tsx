@@ -86,7 +86,7 @@ export function openTile(key: string | null, draw = true) {
   }
   pa.tile = key === "sync" || key === "terminals" ? "machines" : key;
   if (key !== "actions") runs.stop();
-  if (pa.tile !== "machines") { fsync.stop(); terms.stop(); }
+  if (pa.tile !== "machines") terms.stop();
   if (key !== "branches") gitHistory.stop();
   if (!draw) return;
   redrawProjects();

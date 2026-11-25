@@ -98,8 +98,6 @@ interface ProjectSyncState {
   detail: SyncDetail | undefined;
   error: string;
   busy: string | null;
-  /// When the detail was last read, in milliseconds.
-  read_at: number;
 }
 
 type CompareEntry =
@@ -111,9 +109,11 @@ export function makeFileSync(deps: FileSyncDeps) {
   const { invoke, redraw } = deps;
   const all = new Map<string, ProjectSyncState>();
   const loads = new Map<string, Promise<void>>();
-  const trailing = new Map<string, ReturnType<typeof setTimeout>>();
+  /// The projects whose detail this launch has read or been pushed.
+  const current = new Set<string>();
+  /// How many details each project was pushed.
+  const pushed = new Map<string, number>();
   const compared = new Map<string, CompareEntry>();
-  let watched: string | null = null;
 
   const kept = deps.kept ?? new PageCache(null).section<SyncDetail>("filesync");
 
@@ -121,7 +121,7 @@ export function makeFileSync(deps: FileSyncDeps) {
   /// old as the cache says.
   const of = (name: string) => {
     let s = all.get(name);
-    if (!s) all.set(name, s = { detail: kept.get(name), error: "", busy: null, read_at: kept.at(name) ?? 0 });
+    if (!s) all.set(name, s = { detail: kept.get(name), error: "", busy: null });
     return s;
   };
 
@@ -134,7 +134,7 @@ export function makeFileSync(deps: FileSyncDeps) {
   }
 
   async function readList(name: string) {
-    const s = of(name);
+    const s = of(name), pushes = pushed.get(name);
     const was = JSON.stringify([s.detail, s.error]);
     const wasDetail = JSON.stringify(s.detail);
 
@@ -143,62 +143,46 @@ export function makeFileSync(deps: FileSyncDeps) {
       await loadClocks(invoke);
       s.error = "";
 
-      // An unchanged detail keeps its object, so what shows it can skip a draw.
-      if (JSON.stringify(detail) !== wasDetail) s.detail = detail;
-      kept.put(name, detail);
+      // A detail pushed while this was read is newer than its answer.
+      if (pushed.get(name) === pushes) {
+        // An unchanged detail keeps its object, so what shows it can skip a draw.
+        if (JSON.stringify(detail) !== wasDetail) s.detail = detail;
+        kept.put(name, detail);
+      }
+
+      current.add(name);
     } catch (e) {
       s.error = reason(e);
     } finally {
       loads.delete(name);
-      s.read_at = Date.now();
     }
 
     // A read that found nothing new draws nothing.
     if (was !== JSON.stringify([s.detail, s.error])) redraw();
   }
 
-  /// Reads `name` once its detail is `every` old. The read, when one
-  /// starts. A phone shows no project sync, so it reads none: each read
-  /// waits on every machine of the project.
-  function ensure(name: string, every = TILE_MAX_AGE_MS): Promise<void> | undefined {
-    const s = of(name);
-    if (!onPhone() && Date.now() - s.read_at > every && !loads.has(name)) return load(name);
+  /// Reads `name` once in this launch, as a phone shows no project sync, so it reads none: each
+  /// read waits on every machine of the project. The `sync` updates carry it after that.
+  function ensure(name: string): Promise<void> | undefined {
+    if (!onPhone() && !current.has(name) && !loads.has(name)) return load(name);
   }
 
-  /// The detail for the board's tile, read again once it is old.
   function forTile(name: string) {
     ensure(name);
     return of(name).detail;
   }
 
-  /// Marks the project whose view shows, so sync changes keep it fresh;
-  /// null stops.
-  function watch(name: string | null) {
-    watched = name;
-  }
-
-  /// Answers a sync change: the `changed` projects, whose summary differs,
-  /// and the projects on screen (`viewed` and the watched one) are read
-  /// once their detail is `age` old. Each read asks every machine, so a
-  /// busy sync reads a changed project at most once per `age`, and once
-  /// more after it to show where it settled.
-  async function follow(changed: ReadonlySet<string>, viewed: readonly string[], age: number) {
-    const shown = new Set(viewed);
-    if (watched) shown.add(watched);
-    const due = [...shown].filter(p => !changed.has(p)).map(p => ensure(p, age));
-    await Promise.all([...[...changed].map(p => throttled(p, age)), ...due]);
-  }
-
-  function throttled(name: string, age: number): Promise<void> | undefined {
-    if (trailing.has(name)) return;
+  /// Takes the detail a `sync` update pushes for `name`; what shows it draws when it differs.
+  function take(name: string, detail: SyncDetail) {
     const s = of(name);
-    const wait = loads.has(name) ? age : s.read_at + age - Date.now();
-    if (wait <= 0) return load(name);
+    current.add(name);
+    pushed.set(name, (pushed.get(name) ?? 0) + 1);
+    if (JSON.stringify(detail) === JSON.stringify(s.detail) && !s.error) return;
 
-    trailing.set(name, setTimeout(() => {
-      trailing.delete(name);
-      void load(name);
-    }, Math.max(wait, 0)));
+    s.detail = detail;
+    s.error = "";
+    kept.put(name, detail);
+    redraw();
   }
 
   async function act(name: string, what: string, run: () => Promise<unknown>) {
@@ -272,8 +256,8 @@ export function makeFileSync(deps: FileSyncDeps) {
   }
 
   return {
-    follow,
     ensure,
+    take,
     detail: (name: string) => of(name).detail,
     forTile,
     page: (name: string) => { const s = of(name); if (s.detail === undefined) void load(name); return { detail: s.detail, error: s.error, busy: s.busy }; },
@@ -281,16 +265,12 @@ export function makeFileSync(deps: FileSyncDeps) {
       const entry = compared.get(`${name}\n${path}`);
       return !entry ? undefined : entry.kind === "reading" ? null : entry.kind === "note" ? entry.text : entry.view.el;
     },
-    pause, startOver, resolve, compare, watch,
+    pause, startOver, resolve, compare,
     fix: deps.fix ? (name: string, conflict: Conflict) => deps.fix?.(name, conflict) : null,
     fixButton: deps.fixButton ?? null,
     repairButton: deps.repairButton ?? null,
-    stop: () => watch(null),
   };
 }
-
-/// How old the board's tile lets the sync get before it reads it again.
-const TILE_MAX_AGE_MS = 30_000;
 
 /// "2.1 MB/s", or "" before the rate is known.
 export function rateText(rate: number | null | undefined) {

@@ -16,7 +16,7 @@ import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
 import { ensureMac, MACHINES, machinesChanged, takeTraffic } from "../machines/machine-store.ts";
 import { keepConnecting } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
-import { followSync, readSync } from "../project/syncpage.ts";
+import { readSync } from "../project/syncpage.ts";
 import { perfFresh } from "../ui/perf.ts";
 
 /// The mesh answered for Home in this window; until then Home may be
@@ -154,15 +154,13 @@ function needsChanged(home: HomeView): boolean {
 /// user shows at once.
 const homeChanged = ambient(readHome, AMBIENT_MS);
 
-/// Takes the new sync summary; only projects whose rows changed are drawn and
-/// read again.
+/// Takes the new sync summary; only projects whose rows changed are drawn.
 async function takeSync(next: SyncRow[]) {
   const { rows, changed } = mergeSyncRows(state.sync, next);
   state.sync = rows;
   if (!onScreen()) return;
 
   if (changed.size) { draw(); drawSide(); }
-  await followSync(changed);
 }
 
 const refreshSync = single(async () => takeSync(await invoke<SyncRow[]>("project_sync")));

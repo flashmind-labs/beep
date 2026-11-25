@@ -129,7 +129,6 @@ function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
 export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
   if (terms.list(p.name) === undefined) void terms.load(p.name);
   terms.follow(p.name);
-  if (p.imported) fsync.watch(p.name);
   const model = p.imported ? fsync.page(p.name) : null;
   const all = terms.list(p.name);
   const items: ProjectMachineItem[] = [];

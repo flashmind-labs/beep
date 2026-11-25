@@ -92,7 +92,7 @@ export function revalidate(name: string) {
   runs.ensure(id);
 
   loadTerms(name);
-  fsync.ensure(name, UNWATCHED_MS);
+  fsync.ensure(name);
   if (sessionsDue.has(name) || sessionsOf(name) === undefined) reads.push(loadSessions(name));
   const fresh = reads.filter(read => read !== undefined);
   if (kept && fresh.length) void Promise.allSettled(fresh).then(perfFresh("project"));
@@ -112,7 +112,7 @@ function prefetch(name: string): Promise<unknown> {
   if (!p?.imported) return Promise.resolve();
   const id = localProjectId(name);
   // The code host's lists at their own pace.
-  const reads: (Promise<unknown> | undefined)[] = [pages.due("terminals", name) ? loadTerms(name) : undefined, fsync.ensure(name, UNWATCHED_MS), thr.ensure(id), runs.ensure(id)];
+  const reads: (Promise<unknown> | undefined)[] = [pages.due("terminals", name) ? loadTerms(name) : undefined, fsync.ensure(name), thr.ensure(id), runs.ensure(id)];
 
   if (whereChanges.dirty(name) && pages.due("where", name)) reads.push(loadWhere(name));
   if (sessionChanges.dirty(name) && pages.due("sessions", name)) reads.push(loadSessions(name));
