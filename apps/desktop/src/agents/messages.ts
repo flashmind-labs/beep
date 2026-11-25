@@ -104,10 +104,6 @@ async function sendBackground(session: OpenAgent, draft: Waiting, state: Mention
   }
 }
 
-/// The picks each ended session was resumed with, until the new session is announced: what the
-/// machine was sent, not what the picker says by then.
-const resumedWith = new Map<string, NonNullable<Resume["pick"]>>();
-
 /// The resume of the ended session `o`: on the model its picks name, and then the picks.
 function resumeFor(o: OpenAgent): Resume {
   const pick = resumePicks.get(o.session);
@@ -118,10 +114,7 @@ function resumeFor(o: OpenAgent): Resume {
 
 /// What goes beside the message to `o`: its files, and the resume when its session ended.
 function extrasOf(o: OpenAgent, q: Pick<Waiting, "paths" | "files" | "root"> | null, ended: boolean): Extras {
-  const resume = ended ? resumeFor(o) : null;
-  if (resume?.pick) resumedWith.set(o.session, resume.pick); else resumedWith.delete(o.session);
-
-  return { attach: q ? attachOf(q) : null, resume };
+  return { attach: q ? attachOf(q) : null, resume: ended ? resumeFor(o) : null };
 }
 
 /// Takes waiting message `i` out; to edit, it goes back in the field.
@@ -425,9 +418,7 @@ async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen:
 /// One `agent_steer` call: null when the node took it, else why not.
 export async function sendOnce(o: OpenAgent, steer: Steer, seen: Seen | null, extras: Extras = {}): Promise<SendError | null> {
   try {
-    const keys = await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0], seen, ...(extras.attach ? { attach: extras.attach } : {}), ...(extras.resume ? { resume: extras.resume } : {}) }, AGENT_SEND_WAIT_MS);
-    const sent = "prompt" in steer ? steer.prompt : "steer" in steer ? steer.steer : null;
-    if (sent?.images) keepSentImages(keys, sent.images);
+    await invoke<string[]>("agent_steer", { ...where(o), steer: "prompt" in steer || "steer" in steer || "configure" in steer || "mode" in steer || "stop_task" in steer ? steer : Object.keys(steer)[0], seen, ...(extras.attach ? { attach: extras.attach } : {}), ...(extras.resume ? { resume: extras.resume } : {}) }, AGENT_SEND_WAIT_MS);
     return null;
   } catch (e) {
     return sendError(e);
@@ -538,7 +529,7 @@ interface Taken { text: string; images: SentImage[]; files: SentImage[]; mention
 
 /// What `outbox-changed` tells every window. A session that ended and was
 /// resumed for a message comes as `resumed`, the session that goes on from it.
-interface OutboxChanged extends OpenAgent { revision: number; rows: OutboxRow[]; sent: OutboxRow[]; resumed: AgentSession | null }
+interface OutboxChanged extends OpenAgent { revision: number; rows: OutboxRow[]; sent: OutboxRow[]; resumed: AgentSession | null; pick: { model: string | null; effort: string | null; fast: boolean | null } | null }
 
 /// Draws `rows` as of `revision`, unless the window already drew a newer set.
 function showOutbox(rows: OutboxRow[], revision: number) {
@@ -569,13 +560,13 @@ export async function readOutbox(o: OpenAgent) {
 
 listen<OutboxChanged>("outbox-changed", ({ payload }) => {
   const from = { machine_id: payload.machine_id, id: payload.session };
+  for (const row of payload.sent) keepSentImages(payload, row.images, row.keys);
 
   if (payload.resumed) {
-    const pick = resumedWith.get(payload.session);
+    const { pick } = payload;
     reopened(from);
     reopened(payload.resumed);
     if (pick) sessionPicks.set(payload.resumed.id, { model: pick.model ?? "", effort: pick.effort, fast: pick.fast });
-    resumedWith.delete(payload.session);
     resumePicks.delete(payload.session);
   }
 

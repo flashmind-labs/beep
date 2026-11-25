@@ -63,11 +63,11 @@ test("an imported session with an unknown model can choose before continuing", a
   const calls = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_resume" || c.command === "agent_steer"));
   expect(calls.map(c => c.command)).toEqual(["agent_steer"]);
   expect(calls[0].args).toMatchObject({ session: session.id, steer: { steer: { text: "Continue with this model" } }, resume: { model: "test-model", pick: { model: "test-model", effort: null, fast: null } } });
-  await page.evaluate(({ session, resumed }) => window.__navigation.emit("outbox-changed", { machine_id: session.machine_id, agent: session.agent, session: session.id, revision: 1, rows: [], sent: [], resumed, uploaded: [] }), { session, resumed });
+  await page.evaluate(({ session, resumed }) => window.__navigation.emit("outbox-changed", { machine_id: session.machine_id, agent: session.agent, session: session.id, revision: 1, rows: [], sent: [], resumed, pick: { model: "test-model", effort: null, fast: null } }), { session, resumed });
   await expect(page.locator("#agmodelb")).toContainText("Test model");
 });
 
-test("a resumed session takes the model sent with the message, not one picked after Enter", async ({ page }) => {
+test("a resumed session takes the model sent with the message, the pick the app says it applied, not one picked after Enter", async ({ page }) => {
   const resumed = { ...session, id: "resumed-session", external: false, status: "idle" };
   const models = [{ id: "test-model", name: "Test model", description: null }, { id: "later-model", name: "Later model", description: null }];
   await openDesktop(page, false, { agent_view: view(), agent_resume: { session: resumed, why: "" }, agent_steer: [], agent_models: { pick: "listed", current: null, models } });
@@ -84,7 +84,7 @@ test("a resumed session takes the model sent with the message, not one picked af
   await expect(page.locator("#agmodelb")).toContainText("Later model");
   await page.evaluate(({ session, resumed, next }) => {
     window.__navigation.respond("agent_view", next);
-    window.__navigation.emit("outbox-changed", { machine_id: session.machine_id, agent: session.agent, session: session.id, revision: 1, rows: [], sent: [], resumed, uploaded: [] });
+    window.__navigation.emit("outbox-changed", { machine_id: session.machine_id, agent: session.agent, session: session.id, revision: 1, rows: [], sent: [], resumed, pick: { model: "test-model", effort: null, fast: null } });
   }, { session, resumed, next: view(resumed) });
   await expect(page.locator("#agmodelb")).toContainText("Test model");
 });

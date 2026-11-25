@@ -95,7 +95,7 @@ test("a steer another app sent shows on a later read and leaves when the node dr
   assert.deepEqual(queue, []);
 });
 
-const out: OutboxRow = { id: 0, how: "steer", text: "hello", images: [], state: "sending", reason: null };
+const out: OutboxRow = { id: 0, how: "steer", text: "hello", images: [], state: "sending", reason: null, keys: [] };
 const run = { earlier: 0, entries: [] };
 
 test("an outbox event after the page applied the turn adds no row", () => {
@@ -140,5 +140,5 @@ test("files go to the outbox with the paths the message mentions beside them", (
 });
 
 test("an outbox row that uploads says so", () => {
-  assert.equal(outboxNote({ id: 1, how: "prompt", text: "t", images: [], state: "uploading", reason: null }), "uploading");
+  assert.equal(outboxNote({ id: 1, how: "prompt", text: "t", images: [], state: "uploading", reason: null, keys: [] }), "uploading");
 });

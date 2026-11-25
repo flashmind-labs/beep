@@ -47,6 +47,8 @@ export interface OutboxRow {
   state: "waiting" | "resuming" | "uploading" | "sending" | "failed";
   /// Why the machine refused a failed one.
   reason: string | null;
+  /// For a row the outbox just handed to the machine: the keys it gave the images.
+  keys: string[];
 }
 
 /// What a waiting row says after its text.

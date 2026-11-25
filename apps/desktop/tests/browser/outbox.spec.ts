@@ -26,7 +26,7 @@ async function openUnreachable(page: Page) {
       if (command.startsWith("outbox_") || command === "agent_steer") asked.push({ command, seen: args?.seen ?? null });
 
       if (command === "agent_steer" && steer?.steer && (slow || !online || rows.length)) {
-        rows = [...rows, { id: next++, how: "steer", text: steer.steer.text, images: [], state: slow ? "sending" : "waiting", reason: null }];
+        rows = [...rows, { id: next++, how: "steer", text: steer.steer.text, images: [], state: slow ? "sending" : "waiting", reason: null, keys: [] }];
         changed([]);
         // A first try that outlasts the page's wait: the outbox shows it, the page gives up.
         if (slow) throw "no answer in 40 s. Try again.";
@@ -134,7 +134,7 @@ test("an outbox event after the page took the message adds no Steer row", async 
   await expect(page.getByText("Hi.", { exact: true })).toBeVisible();
   await page.evaluate(() => window.__navigation.emit("outbox-changed", {
     machine_id: "build-box", agent: "codex", session: "notice-one", revision: 1, rows: [],
-    sent: [{ id: 0, how: "steer", text: "Hello there", images: [], state: "sending", reason: null }],
+    sent: [{ id: 0, how: "steer", text: "Hello there", images: [], state: "sending", reason: null, keys: [] }],
   }));
   // A single look: a retrying check would pass once the next page clears the row.
   expect(await steers(page).count()).toBe(0);

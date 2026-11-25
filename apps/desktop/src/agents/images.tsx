@@ -204,8 +204,11 @@ function fillLater(b: HTMLElement, ms: number) {
 
 /// The images a message sent from here carried, under the keys the log
 /// will name them by, so they show without asking the machine.
-export function keepSentImages(keys: string[], images: { mime: string; data: string }[]) {
-  keys.forEach((key, i) => { if (images[i]) agentImages.set(key, `data:${images[i].mime};base64,${images[i].data}`); });
+export function keepSentImages(o: OpenAgent, names: readonly string[], keys: readonly string[]) {
+  keys.forEach((key, i) => {
+    const url = agentPics.get(`${o.session}\n${names[i]}`);
+    if (url) agentImages.set(key, url);
+  });
 }
 
 /// Keeps the thumbnails of images just sent, for the transcript.
