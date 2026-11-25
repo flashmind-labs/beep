@@ -11,7 +11,7 @@ use super::{
     server::ASK_LIMIT,
 };
 use crate::agents::reply::{fail, json_of, ok, parse};
-use crate::agents::child_view::{ChildView, full_id};
+use crate::agents::child_view::full_id;
 use crate::agents::machine_list::{find, machine_name};
 use crate::peer_stream::over_the_mesh;
 use crate::{
@@ -20,17 +20,15 @@ use crate::{
     team::{
         asks::{Delivery, MAX_TEXT, Outgoing, Sessions},
         cards::Teammates,
-        gateway::branch_of,
-        home,
         link::TeamLink,
-        pickup::{Auto, issue_branch, issue_of_repo, issue_prompt},
+        pickup::{PickupStart, start_issue},
     },
 };
 use beep_mesh::{Mesh, TeamTicket};
 use beep_proto::{
     SessionId,
     node::{
-        agent::{AnswerOption, CheckoutPlan, OptionKind},
+        agent::{AnswerOption, OptionKind},
         tools::{Approved, Reply, Request, Tool},
     },
     team::{AgentRef, Card, Target, TeamRepo},
@@ -75,16 +73,6 @@ const JOIN_PRIVACY: &str = "Teammates see your cards on this project's board and
 #[derive(Serialize, Deserialize)]
 struct TeamArgs {
     repo: TeamRepo,
-}
-
-/// `Tool::TeamPickup`: an issue a gateway has a machine with the project's
-/// checkout start a session on (`team::pickup`).
-#[derive(Debug, Serialize, Deserialize)]
-pub(crate) struct PickupStart {
-    pub(crate) repo: TeamRepo,
-    pub(crate) number: u64,
-    pub(crate) title: String,
-    pub(crate) url: String,
 }
 
 /// `Tool::TeamDeliver`: a text for the session on the card `card`, which
@@ -393,88 +381,6 @@ fn acts_for(link: &TeamLink, repo: &TeamRepo, from: Option<EndpointId>) -> Resul
             from.fmt_short()
         )),
     }
-}
-
-/// Starts `order`'s session in a new worktree of this machine's checkout,
-/// on the branch Work on it names, when the mesh's team of its repository
-/// picks up issues and the order names one of its issues.
-pub(crate) async fn start_issue(
-    agents: &Agents,
-    mesh: &Mesh,
-    order: &PickupStart,
-) -> Result<Auto, String> {
-    let PickupStart {
-        repo,
-        number,
-        title,
-        url,
-    } = order;
-    if !home::picks_up(mesh, repo) {
-        return Err(format!("{repo} has no team that picks up issues here."));
-    }
-    if !issue_of_repo(repo, *number, url) {
-        return Err(format!("{url} is not issue #{number} of {repo}."));
-    }
-
-    let checkout = home::read(mesh)
-        .checkout(repo)
-        .ok_or_else(|| format!("This machine has no checkout of {repo}."))?;
-    let branch = issue_branch(*number, title);
-    let plan = CheckoutPlan::NamedWorktree {
-        base: None,
-        branch: branch.clone(),
-    };
-    let (id, worktree) = agents
-        .start_on_issue(
-            &checkout.folder.to_string_lossy(),
-            plan,
-            format!("#{number} {title}"),
-            issue_prompt(*number, title, url),
-        )
-        .await
-        .map_err(|e| format!("{e:#}"))?;
-    let branch = branch_of(&worktree).await.unwrap_or(branch);
-
-    Ok(Auto {
-        card: full_id(id.as_ref(), &machine_name(Some(mesh))),
-        branch,
-    })
-}
-
-/// Whether the session on `card` (`<session>@<machine>`) still runs, as
-/// its machine lists its agents; `None` when that machine does not answer.
-/// This machine's own list is always at hand, so a card of it that is not
-/// on the board no longer runs.
-pub(crate) async fn still_runs(mesh: &Mesh, card: &str) -> Option<bool> {
-    let (session, name) = card.split_once('@')?;
-    let Some(machine) = find(mesh, name) else {
-        return Some(false);
-    };
-
-    if machine.id == mesh.me() {
-        return Some(false);
-    }
-
-    let request = Request {
-        session: SessionId::default(),
-        tool: Tool::ListAgents,
-        args: "{}".to_owned(),
-        approved: Approved::No,
-    };
-    let reply = timeout(LIMIT, over_the_mesh(mesh, machine.id, &request))
-        .await
-        .ok()?
-        .ok()?;
-    let Reply::Done {
-        text,
-        failed: false,
-    } = reply
-    else {
-        return None;
-    };
-    let views: Vec<ChildView> = serde_json::from_str(&text).ok()?;
-
-    Some(views.iter().any(|view| view.id == session))
 }
 
 /// The team of `repo`: its members, this mesh's and the teammates' cards,

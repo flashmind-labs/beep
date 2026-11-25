@@ -5,14 +5,11 @@
 //! without a pull request becomes a Needs you card for this mesh's apps.
 
 use super::{
-    asks::MAX_CARDS, cards::TITLE, gateway::FORGE_LIMIT, home::Project, link::TeamLink,
+    asks::MAX_CARDS, cards::TITLE, gateway::{FORGE_LIMIT, branch_of}, home::{self, Project}, link::TeamLink,
     membership::Team,
 };
 use crate::{
-    agents::{
-        Agents,
-        mcp::{PickupStart, start_issue, still_runs},
-    },
+    agents::{Agents, child_view::{ChildView, full_id}, machine_list::{find, machine_name}},
     link::note,
     peer_stream::{CallFailed, over_the_mesh},
 };
@@ -20,7 +17,7 @@ use beep_mesh::Mesh;
 use beep_projects::commands::OpenIssue;
 use beep_proto::{
     SessionId,
-    node::tools::{Approved, Reply, Request, TeamAppArgs, TeamAppCall, Tool},
+    node::{agent::CheckoutPlan, tools::{Approved, Reply, Request, TeamAppArgs, TeamAppCall, Tool}},
     team::{Card, Lane, TeamRepo},
 };
 use futures::future::join_all;
@@ -739,6 +736,101 @@ fn started_there(answer: Option<Result<Reply, CallFailed>>) -> Result<Auto, Unst
         Some(Err(CallFailed::Sent(e))) => Err(Unstarted::Unknown(format!("{e:#}"))),
         None => Err(Unstarted::Unknown("it did not answer in time".to_owned())),
     }
+}
+
+/// How long reading another machine's agents may take.
+const LIMIT: Duration = Duration::from_secs(30);
+
+/// `Tool::TeamPickup`: an issue a gateway has a machine with the project's
+/// checkout start a session on (`team::pickup`).
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) struct PickupStart {
+    pub(crate) repo: TeamRepo,
+    pub(crate) number: u64,
+    pub(crate) title: String,
+    pub(crate) url: String,
+}
+
+/// Starts `order`'s session in a new worktree of this machine's checkout,
+/// on the branch Work on it names, when the mesh's team of its repository
+/// picks up issues and the order names one of its issues.
+pub(crate) async fn start_issue(
+    agents: &Agents,
+    mesh: &Mesh,
+    order: &PickupStart,
+) -> Result<Auto, String> {
+    let PickupStart {
+        repo,
+        number,
+        title,
+        url,
+    } = order;
+    if !home::picks_up(mesh, repo) {
+        return Err(format!("{repo} has no team that picks up issues here."));
+    }
+    if !issue_of_repo(repo, *number, url) {
+        return Err(format!("{url} is not issue #{number} of {repo}."));
+    }
+
+    let checkout = home::read(mesh)
+        .checkout(repo)
+        .ok_or_else(|| format!("This machine has no checkout of {repo}."))?;
+    let branch = issue_branch(*number, title);
+    let plan = CheckoutPlan::NamedWorktree {
+        base: None,
+        branch: branch.clone(),
+    };
+    let (id, worktree) = agents
+        .start_on_issue(
+            &checkout.folder.to_string_lossy(),
+            plan,
+            format!("#{number} {title}"),
+            issue_prompt(*number, title, url),
+        )
+        .await
+        .map_err(|e| format!("{e:#}"))?;
+    let branch = branch_of(&worktree).await.unwrap_or(branch);
+
+    Ok(Auto {
+        card: full_id(id.as_ref(), &machine_name(Some(mesh))),
+        branch,
+    })
+}
+
+/// Whether the session on `card` (`<session>@<machine>`) still runs, as
+/// its machine lists its agents; `None` when that machine does not answer.
+/// This machine's own list is always at hand, so a card of it that is not
+/// on the board no longer runs.
+pub(crate) async fn still_runs(mesh: &Mesh, card: &str) -> Option<bool> {
+    let (session, name) = card.split_once('@')?;
+    let Some(machine) = find(mesh, name) else {
+        return Some(false);
+    };
+
+    if machine.id == mesh.me() {
+        return Some(false);
+    }
+
+    let request = Request {
+        session: SessionId::default(),
+        tool: Tool::ListAgents,
+        args: "{}".to_owned(),
+        approved: Approved::No,
+    };
+    let reply = timeout(LIMIT, over_the_mesh(mesh, machine.id, &request))
+        .await
+        .ok()?
+        .ok()?;
+    let Reply::Done {
+        text,
+        failed: false,
+    } = reply
+    else {
+        return None;
+    };
+    let views: Vec<ChildView> = serde_json::from_str(&text).ok()?;
+
+    Some(views.iter().any(|view| view.id == session))
 }
 
 #[cfg(test)]
