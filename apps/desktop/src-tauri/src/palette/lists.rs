@@ -3,7 +3,8 @@
 //! the index on each answer. The lists are saved in the views file, so a new
 //! launch finds them before the machines answer. The sessions are not kept
 //! here: the index takes them from the session mirror each time it is built,
-//! and adds the few the user opened that the mirror does not hold.
+//! which is when a window asks for it or opens the palette, and adds the few
+//! the user opened that the mirror does not hold.
 
 use super::{
     index::build_index,
@@ -16,7 +17,7 @@ use crate::{
         lock, section,
         view_cache::{View, ViewCache, cache_view},
     },
-    fleet::{Fleet, home_signal::HomeSignal, session_mirror::SessionMirror},
+    fleet::{Fleet, session_mirror::SessionMirror},
     projects::branches::read_branches as read_project_branches,
 };
 use beep_fleet::Session as FleetSession;
@@ -31,18 +32,15 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State, ipc::Response};
-use tokio::{join, select, sync::Notify, task::JoinSet, time::sleep};
+use tokio::{join, sync::Notify, task::JoinSet, time::sleep};
+use tokio_util::task::AbortOnDropHandle;
 
 /// Tells the windows the index changed, with the index as JSON text.
 const PALETTE_CHANGED: &str = "palette-changed";
-/// The branches are read again this often, and whenever the palette opens.
-const READ_EVERY: Duration = Duration::from_secs(300);
 /// The least time between two reads of the branches, however often it opens.
 const READ_GAP: Duration = Duration::from_secs(10);
 /// The least time between two reads of the mesh's projects and machines.
 const LOCAL_GAP: Duration = Duration::from_secs(2);
-/// The least time between two builds of the index for the sessions.
-const SESSIONS_GAP: Duration = Duration::from_secs(5);
 /// The most projects whose branches are read.
 const BRANCH_PROJECTS: usize = 8;
 /// The most sessions kept that the user opened and the mirror does not hold.
@@ -175,6 +173,9 @@ struct Held {
 pub(crate) struct PaletteCache {
     held: Mutex<Held>,
     read_lists: Notify,
+    /// Waits for the rows the opening of the palette asked for, which end with the palette's next
+    /// build of the index.
+    settling: Mutex<Option<AbortOnDropHandle<()>>>,
     /// Counts the reads of the mesh's projects and the removals, so a read
     /// taken before a removal cannot bring the project back.
     tickets: AtomicU64,
@@ -202,6 +203,7 @@ impl PaletteCache {
         Ok(Self {
             held: Mutex::new(Held { lists, index }),
             read_lists: Notify::new(),
+            settling: Mutex::new(None),
             tickets: AtomicU64::new(0),
         })
     }
@@ -326,18 +328,33 @@ impl PaletteCache {
     }
 }
 
-/// The index as JSON.
+/// The index as JSON, with the sessions the mirror holds now.
 #[tauri::command]
-pub fn center_palette_index(cache: State<'_, PaletteCache>) -> Response {
+pub fn center_palette_index(app: AppHandle, cache: State<'_, PaletteCache>) -> Response {
+    cache.update(&app, |_| {});
+
     Response::new(cache.held().index.clone())
 }
 
-/// The palette opened: read the lists again, without anyone waiting for it.
+/// The palette opened: read the lists again, without anyone waiting for it. The windows get
+/// the index with the sessions now held, and again once the rows this asks for arrive.
 #[tauri::command]
-pub fn center_palette_refresh(app: AppHandle, cache: State<'_, PaletteCache>) {
+pub async fn center_palette_refresh(app: AppHandle) {
+    let cache = app.state::<PaletteCache>();
+    let mirror = app.state::<Arc<SessionMirror>>();
+    let mut rows = mirror.watch();
     cache.read_lists.notify_one();
     // Lists what is old; the mirror's rows follow into the index.
-    app.state::<Arc<SessionMirror>>().rows();
+    mirror.rows();
+    cache.update(&app, |_| {});
+
+    let handle = app.clone();
+    let settling = tokio::spawn(async move {
+        if rows.changed().await.is_ok() {
+            handle.state::<PaletteCache>().update(&handle, |_| {});
+        }
+    });
+    *lock(&cache.settling) = Some(AbortOnDropHandle::new(settling));
 }
 
 /// Keeps the index current for the app's life.
@@ -348,12 +365,7 @@ pub(crate) async fn follow(app: AppHandle) {
     #[cfg(mobile)]
     let copies = std::future::ready(());
 
-    join!(
-        follow_local(&app),
-        follow_branches(&app),
-        follow_sessions(&app),
-        copies
-    );
+    join!(follow_local(&app), follow_branches(&app), copies);
 }
 
 async fn follow_branches(app: &AppHandle) {
@@ -362,10 +374,7 @@ async fn follow_branches(app: &AppHandle) {
     loop {
         read_branches(app).await;
         sleep(READ_GAP).await;
-        select! {
-            () = sleep(READ_EVERY) => {}
-            () = cache.read_lists.notified() => {}
-        }
+        cache.read_lists.notified().await;
     }
 }
 
@@ -377,14 +386,8 @@ async fn follow_local(app: &AppHandle) {
         // Changes come in bursts: one read covers the rest of the burst.
         sleep(LOCAL_GAP).await;
 
-        select! {
-            changed = changes.changed() => {
-                if !changed {
-                    return;
-                }
-            }
-            // Machine details that change with no mesh change.
-            () = sleep(READ_EVERY) => {}
+        if !changes.changed().await {
+            return;
         }
     }
 }
@@ -407,22 +410,6 @@ async fn read_local_lists(app: &AppHandle) {
     app.state::<PaletteCache>().update(app, |lists| {
         lists.machines = Some(machines);
     });
-}
-
-/// Builds the index again when the mirror's rows change, or the signal Home follows says the
-/// starts, deletes or moves changed. `SESSIONS_GAP` keeps a burst to one build.
-async fn follow_sessions(app: &AppHandle) {
-    let mut rows = app.state::<Arc<SessionMirror>>().watch();
-    let mut pokes = app.state::<Arc<HomeSignal>>().follow();
-
-    loop {
-        app.state::<PaletteCache>().update(app, |_| {});
-        sleep(SESSIONS_GAP).await;
-        select! {
-            changed = rows.changed() => if changed.is_err() { return },
-            changed = pokes.changed() => if changed.is_err() { return },
-        }
-    }
 }
 
 /// Each project's are read on a machine.
