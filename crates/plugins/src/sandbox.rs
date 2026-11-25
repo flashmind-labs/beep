@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cpu_time::ThreadTime;
@@ -14,6 +14,7 @@ use crate::asset::{Asset, Assets, ImageError};
 use crate::console::Console;
 use crate::event::UiEvent;
 use crate::instance::Instance;
+use crate::lock::locked;
 use crate::manifest::{Manifest, ManifestError, Permission, PluginId};
 use crate::meter::Meter;
 use crate::source::{Imports, Sources};
@@ -569,10 +570,6 @@ impl Drop for Sandbox {
     fn drop(&mut self) {
         locked(&self.store).flush();
     }
-}
-
-pub(crate) fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// What a render has used so far: nodes, and the images they name.

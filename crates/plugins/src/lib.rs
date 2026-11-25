@@ -8,6 +8,7 @@ mod host;
 mod install;
 mod instance;
 mod job;
+mod lock;
 mod managed;
 mod manifest;
 mod meter;

@@ -9,12 +9,61 @@ use log::Level;
 use crate::asset::Asset;
 use crate::console::emit;
 use crate::event::Mailbox;
-use crate::host::Event;
+use crate::event::UiEvent;
+use crate::instance::InstanceBatch;
 use crate::manifest::PluginId;
 use crate::meter::Meter;
 use crate::sandbox::{Sandbox, SandboxError};
-use crate::topic::{Inbox, Topic};
+use crate::tool::ToolCall;
+use crate::topic::{Delivery, Inbox, Topic};
 use crate::ui::Placement;
+
+pub(crate) enum Event {
+    /// A path changed under the plugins folder.
+    Fs(PathBuf),
+    /// A plugin's record or folder changed: read both again now, then answer.
+    Refresh {
+        id: PluginId,
+        done: Sender<()>,
+    },
+    /// A plugin's render result.
+    Shown {
+        id: PluginId,
+        generation: u64,
+        placements: Vec<Placement>,
+        /// The images the placements use.
+        assets: Vec<Asset>,
+    },
+    /// The topics a plugin follows now.
+    Wanted {
+        id: PluginId,
+        generation: u64,
+        topics: Vec<Topic>,
+    },
+    /// A plugin failed or went over its budget, and its thread is done.
+    Stopped {
+        id: PluginId,
+        generation: u64,
+        reason: String,
+    },
+    /// An update from the page.
+    Publish(Delivery),
+    /// What changed about the slots on the page.
+    Instances(InstanceBatch),
+    /// A window showed or hid.
+    Visible {
+        window: String,
+        visible: bool,
+    },
+    /// The user used a control a plugin drew.
+    Ui(UiEvent),
+    /// A coding agent called a tool of a plugin.
+    Tool {
+        id: PluginId,
+        call: ToolCall,
+    },
+    Stop,
+}
 
 /// One plugin's thread: render, wait for the next timer or a wake, fire.
 /// While no window is visible it renders nothing, fires no timers and takes

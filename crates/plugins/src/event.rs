@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::instance::Instance;
+use crate::lock::locked;
 use crate::manifest::PluginId;
-use crate::sandbox::locked;
 use crate::tool::{MAX_PENDING as MAX_CALLS, ToolCall};
 use crate::ui::CallbackId;
 

@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::sandbox::locked;
+use crate::lock::locked;
 
 /// The window the CPU figure covers.
 pub(crate) const WINDOW: Duration = Duration::from_secs(60);

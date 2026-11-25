@@ -15,11 +15,11 @@ use crate::console::emit;
 use crate::event::{EventError, Limiter, Mailbox, UiEvent};
 use crate::install::{Builtin, ManageError, Preview};
 use crate::instance::{InstanceBatch, InstanceError, Instances};
-use crate::job::PluginJob;
+use crate::job::{Event, PluginJob};
+use crate::lock::locked;
 use crate::managed::{Managed, Origin, Policy, Record, Verdict};
 use crate::manifest::{Activation, Manifest, PluginId};
 use crate::meter::{BUDGET, Meter};
-use crate::sandbox::locked;
 use crate::status::{Info, Lifecycle, PluginState, PluginStatus, Registry};
 use crate::store::DATA_DIR;
 use crate::style::Style;
@@ -87,53 +87,6 @@ pub struct Host {
     events: Sender<Event>,
     supervisor: Option<JoinHandle<()>>,
     _watcher: RecommendedWatcher,
-}
-
-pub(crate) enum Event {
-    /// A path changed under the plugins folder.
-    Fs(PathBuf),
-    /// A plugin's record or folder changed: read both again now, then answer.
-    Refresh {
-        id: PluginId,
-        done: Sender<()>,
-    },
-    /// A plugin's render result.
-    Shown {
-        id: PluginId,
-        generation: u64,
-        placements: Vec<Placement>,
-        /// The images the placements use.
-        assets: Vec<Asset>,
-    },
-    /// The topics a plugin follows now.
-    Wanted {
-        id: PluginId,
-        generation: u64,
-        topics: Vec<Topic>,
-    },
-    /// A plugin failed or went over its budget, and its thread is done.
-    Stopped {
-        id: PluginId,
-        generation: u64,
-        reason: String,
-    },
-    /// An update from the page.
-    Publish(Delivery),
-    /// What changed about the slots on the page.
-    Instances(InstanceBatch),
-    /// A window showed or hid.
-    Visible {
-        window: String,
-        visible: bool,
-    },
-    /// The user used a control a plugin drew.
-    Ui(UiEvent),
-    /// A coding agent called a tool of a plugin.
-    Tool {
-        id: PluginId,
-        call: ToolCall,
-    },
-    Stop,
 }
 
 impl Host {
