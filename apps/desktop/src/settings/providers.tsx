@@ -372,7 +372,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
       inSettings = want?.settings === true;
       draw();
       // What the page showed last draws at once; it reads only what it never had.
-      if (!machines()) void loadMachines();
+      if (!machines() || !st.machine) void loadMachines();
       else ensure(st.machine);
     },
     unmount() { removeWindowPart("settings-page:providers"); root = null; },

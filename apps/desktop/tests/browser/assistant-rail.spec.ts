@@ -197,16 +197,19 @@ test("a chat's move counts its files as they come, with the bar over the input, 
   await openDesktop(page, false, {
     agent_hosts: [host, { ...host, machine_id: "other", machine_name: "Other box" }], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
     list_machines: [{ id: "build-box", name: "build-box", online: true, seen_at: 0, version: "", env: null }, { id: "other", name: "Other box", online: true, seen_at: 0, version: "", env: null }],
-    agent_sessions: [chat], agent_view: view(chat), session_moves: [record], session_move_progress: progress({}),
+    agent_sessions: [chat], agent_view: view(chat), session_moves: [record],
   });
+  const push = (over: object) => page.evaluate(views => window.__navigation.notify("moves", views), [{ command: "session_move_progress", args: { session: "chat-one" }, value: progress(over) }]);
+  await push({});
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   await page.locator(".asst-list").getByRole("button", { name: /Plan the launch/ }).click();
   await expect(page.locator("#agmovebox")).toContainText("Waiting for Other box");
 
-  // Only the target knows how far it is: the window asks it again while the move shows.
-  await page.evaluate(next => window.__navigation.respond("session_move_progress", next), progress({ phase: "files", total: 1_000_000, files_copied: 120_000_000, files_total: 551_000_000 }));
+  // Only the target knows how far it is: its progress comes with the moves push, and nothing asks for it.
+  await push({ phase: "files", total: 1_000_000, files_copied: 120_000_000, files_total: 551_000_000 });
   await expect(page.locator("#agmovebox")).toContainText("Files 120.0 MB of 551.0 MB · 22%");
   await expect(page.locator("#agfield").getByRole("progressbar", { name: "Moving to Other box" })).toHaveAttribute("aria-valuenow", "22");
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "session_move_progress").length)).toBe(0);
 });
 
 test("a file opened from a chat's Files sits beside the chat, and Markdown opens in its preview", async ({ page }) => {

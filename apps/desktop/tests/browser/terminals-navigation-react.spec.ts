@@ -93,8 +93,9 @@ test("new terminal form retains draft and caret through refresh and starts once"
   await command.focus();
   await command.evaluate(element => { if (element instanceof HTMLInputElement) element.setSelectionRange(3, 3); });
   const reads = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminals_all").length);
-  await page.evaluate(() => window.__navigation.notify("terminals"));
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminals_all").length)).toBeGreaterThan(reads);
+  await page.evaluate(next => { window.__navigation.respond("terminals_all", next); window.__navigation.notify("terminals"); }, [{ ...terminal, id: "pushed", name: "pushed shell" }]);
+  await expect(page.locator(".tl-list").getByRole("button", { name: /pushed shell/ })).toBeVisible();
+  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminals_all").length)).toBe(reads);
   await expect(command).toHaveAttribute("data-identity", "kept");
   await expect(command).toBeFocused();
   await expect(command).toHaveJSProperty("selectionStart", 3);
@@ -167,13 +168,14 @@ test("view-only output keeps its screen, focus, selection and scroll across read
     if (text) getSelection()?.setBaseAndExtent(text, 0, text, 6);
   });
 
-  await page.evaluate(() => window.__navigation.notify("terminals"));
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "terminals_all").length)).toBeGreaterThan(1);
+  await page.evaluate(next => { window.__navigation.respond("terminals_all", next); window.__navigation.notify("terminals"); }, [terminal, { ...terminal, id: "pushed", name: "pushed shell" }]);
+  await expect(page.locator(".tl-list").getByRole("button", { name: /pushed shell/ })).toBeVisible();
   await expect(screen).toHaveAttribute("data-identity", "kept");
   await expect(screen).toBeFocused();
   expect(await page.evaluate(() => getSelection()?.toString())).toBe("line 0");
 
-  await page.evaluate(value => { window.__navigation.respond("terminal_output", value); window.__navigation.notify("terminal-output"); }, output(101));
+  // The open terminal's own topic pushes its screen.
+  await page.evaluate(value => window.__navigation.publish("terminal-output.watched", null, { views: [{ command: "terminal_output", args: { id: "watched" }, value }] }), output(101));
   await expect(screen).toContainText("line 100");
   await expect(screen).toHaveAttribute("data-identity", "kept");
   await expect(screen).toBeFocused();

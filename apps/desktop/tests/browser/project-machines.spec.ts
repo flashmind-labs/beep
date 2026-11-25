@@ -115,7 +115,7 @@ test("sync and terminal events refresh the combined machine sections", async ({ 
     const now = Date.now(); Date.now = () => now + 61000;
     window.__navigation.respond("project_sync_detail", sync);
     window.__navigation.respond("project_sync", [{ project: sync.project, machine_id: "studio", status: "in_sync", files: 0, pending: 0, error: null }]);
-    window.__navigation.respond("terminals_list", [terminal]);
+    window.__navigation.respond("terminals_all", [terminal]);
     window.__navigation.notify("sync");
     window.__navigation.notify("terminals");
   }, { sync: { ...detail, machines: detail.machines.map(m => m.machine_id === "studio" ? { ...m, status: "in_sync", error: null } : m) }, terminal: { ...terminal, machine_id: "studio", machine_name: "studio" } });

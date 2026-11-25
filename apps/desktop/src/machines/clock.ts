@@ -21,7 +21,8 @@ export function loadClocks(invoke: typeof Invoke): Promise<void> {
   if (reading) return reading;
 
   reading = invoke<ClockOff[]>("machine_clocks")
-    .then(list => { if (!known) takeClocks(list); }, e => { console.warn("machine clocks:", e); })
+    .then(list => { if (!known) takeClocks(list); })
+    .catch(e => { console.warn("machine clocks:", e); })
     .finally(() => { reading = null; });
 
   return reading;

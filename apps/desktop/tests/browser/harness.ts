@@ -197,8 +197,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   /// The views each topic's push carries (fleet/event_views.rs).
   const pushedViews: Record<string, string[]> = {
     home: ["center_home", "agent_sessions"],
-    machines: ["list_machines", "mac_control", "updatable_machines", "agent_hosts", "device_hosts"],
-    tools: ["tool_updates"],
+    machines: ["list_machines", "mac_control", "updatable_machines", "agent_hosts", "device_hosts", "machine_clocks"],
+    tools: ["tool_updates"], terminals: ["terminals_all"],
     projects: ["projects_on_top", "project_groups"],
     sync: ["project_sync"], usage: ["usage_get"], accounts: ["agent_accounts"], forge: ["git_items"],
   };
