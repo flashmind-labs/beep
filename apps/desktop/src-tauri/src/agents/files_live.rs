@@ -8,7 +8,7 @@ use super::file_reads::{places_of, tree_of};
 use crate::fleet::{
     Fleet,
     agents::PlaceAsk,
-    asked::newer_than,
+    asked::{BEFORE_WORKTREE_CREATORS, newer_than},
     events::Events,
     view_signal::{Update, View},
 };
@@ -362,11 +362,11 @@ pub(crate) fn heard(app: &AppHandle, machine: EndpointId, update: &Update) -> bo
 /// Whether `machine`'s node says which sessions created each worktree: the released ones
 /// do not.
 fn lists_creators(fleet: &Fleet, machine: EndpointId) -> bool {
-    machine == fleet.id()
-        || newer_than(
-            fleet.status().version(machine).as_deref(),
-            &semver::Version::new(0, 8, 26),
-        )
+    machine == fleet.id() || names_creators(fleet.status().version(machine).as_deref())
+}
+
+fn names_creators(version: Option<&str>) -> bool {
+    newer_than(version, &BEFORE_WORKTREE_CREATORS)
 }
 
 /// `list` as asked for `session`: the worktrees it created are marked.

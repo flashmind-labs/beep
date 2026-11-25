@@ -31,6 +31,8 @@ pub(crate) const BEFORE_ACCOUNTS: Version = Version::new(0, 8, 4);
 /// The last released node, which moves no chat. This computer's own node is
 /// the desktop's build and is not held to it.
 pub(crate) const BEFORE_CHAT_MOVES: Version = Version::new(0, 8, 8);
+/// The last released node, which does not say which session created a worktree.
+pub(crate) const BEFORE_WORKTREE_CREATORS: Version = Version::new(0, 8, 27);
 
 /// Whether a node of `version` is newer than `last`, the last release
 /// without a request. A node that has not said its version is taken as older.

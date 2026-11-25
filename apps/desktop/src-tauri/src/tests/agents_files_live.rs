@@ -82,7 +82,11 @@ fn the_reads_of_a_closed_window_go_and_a_read_two_windows_asked_stays_until_both
     keep(&mut folder.trees, ("one".into(), read("src")), KEPT);
     keep(&mut folder.trees, ("two".into(), read("src")), KEPT);
     keep(&mut folder.trees, ("two".into(), read("docs")), KEPT);
-    keep(held.places.entry(machine).or_default(), ("two".into(), Vec::new()), PLACES_KEPT);
+    keep(
+        held.places.entry(machine).or_default(),
+        ("two".into(), Vec::new()),
+        PLACES_KEPT,
+    );
 
     // Window two closes: the read it shared with window one stays, its own goes.
     held.forget_windows(&HashSet::from(["one".to_owned()]));
@@ -138,4 +142,11 @@ fn the_update_that_waits_names_the_paths_of_those_it_replaced() {
     assert!(!held.begin(at.clone(), listing(5, &[])));
     assert!(!held.begin(at.clone(), listing(6, &["b.txt"])));
     assert!(changed_paths(&held.next(&at).expect("the last update waits")).is_empty());
+}
+
+#[test]
+fn a_released_node_is_not_taken_to_name_who_created_a_worktree() {
+    assert!(!names_creators(Some("0.8.27")));
+    assert!(!names_creators(None));
+    assert!(names_creators(Some("0.8.28")));
 }
