@@ -80,7 +80,7 @@ impl Views {
     }
 
     fn wants(&self) -> Arc<Wants> {
-        self.wants.borrow().clone()
+        beep_proto::watched::read(&self.wants, Arc::clone)
     }
 
     /// The projects to push the sync detail of: those copying now, and those that were at the last

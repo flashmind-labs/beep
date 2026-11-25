@@ -1,4 +1,5 @@
 use super::*;
+use crate::fleet::view_signal::changed_paths;
 
 fn key(root: &str) -> (EndpointId, Topic) {
     let machine = iroh::SecretKey::from_bytes(&[7; 32]).public();

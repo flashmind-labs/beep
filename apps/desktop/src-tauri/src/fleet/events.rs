@@ -11,7 +11,7 @@ use beep_proto::node::events::{self, CallReply, Operation, Topic};
 use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
     sync::{Arc, Mutex, OnceLock, PoisonError},
     time::{Duration, Instant},
 };
@@ -1007,19 +1007,6 @@ impl Events {
             .unwrap_or_else(PoisonError::into_inner)
             .latest
             .resources(&machine.to_string(), scope, resources);
-    }
-
-    /// Whether a shown window wants the controller view `topic`, so it is drawn now. The standing
-    /// interests keep the streams on and take no view.
-    pub(crate) fn controller_wanted(&self, topic: &Topic) -> bool {
-        self.registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .windows
-            .iter()
-            .filter(|(label, window)| !standing(label) && window.live())
-            .flat_map(|(_, window)| &window.topics)
-            .any(|interest| interest.wants_view(topic))
     }
 
     /// Whether a shown or briefly hidden window wants the controller view `topic`, so a

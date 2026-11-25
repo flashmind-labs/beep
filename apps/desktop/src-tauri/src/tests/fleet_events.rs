@@ -789,7 +789,7 @@ fn a_window_shown_again_within_grace_gets_only_what_changed_without_a_refresh() 
         demand,
         "node streams stay open while hidden"
     );
-    assert!(!events.controller_wanted(&Topic::new("home")));
+    assert!(!wanted(&events, &Topic::new("home")));
 
     assert_eq!(
         events.resume("one", id, None).unwrap(),
@@ -1049,13 +1049,13 @@ fn a_standing_interest_in_a_view_has_it_neither_drawn_nor_kept() {
         )
         .unwrap();
 
-    assert!(!events.controller_wanted(&Topic::new("sync")));
+    assert!(!wanted(&events, &Topic::new("sync")));
     assert!(!events.controller_held(&Topic::new("moves")));
 
     let _window = heard_window(&events, "one", Uuid::new_v4(), vec![interest("sync", None)]);
-    assert!(events.controller_wanted(&Topic::new("sync")));
+    assert!(wanted(&events, &Topic::new("sync")));
     assert!(events.controller_held(&Topic::new("sync")));
-    assert!(!events.controller_wanted(&Topic::new("moves")));
+    assert!(!wanted(&events, &Topic::new("moves")));
 }
 
 #[test]
@@ -1076,4 +1076,9 @@ fn a_terminal_list_is_not_taken_for_a_terminals_output() {
 
     assert!(!events.node_wanted(machine, &Topic::new("terminals")));
     assert!(events.node_wanted(machine, &Topic::keyed("terminal-output", "7")));
+}
+
+/// Whether a shown window wants the controller view `topic`, as `Views` hears it.
+fn wanted(events: &Events, topic: &Topic) -> bool {
+    watched::read_sent(&events.wants, |wants| wants.controller_wanted(topic))
 }
