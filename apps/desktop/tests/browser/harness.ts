@@ -44,7 +44,7 @@ interface NavigationHarness {
   calls(): NativeCall[];
   respond(command: string, value: unknown): void;
   /// An update on `topic`, carrying `views` the way a topic push carries its values.
-  notify(topic: string, views?: { command: string; value: unknown }[]): void;
+  notify(topic: string, views?: { command: string; args?: Record<string, unknown>; value: unknown }[]): void;
   /// One event on exactly `topic`, at `revision` or the next one, carrying `data` from `machine` when given.
   publish(topic: string, revision: number | null, data?: unknown, machine?: string): void;
   emit(name: string, payload: unknown): void;
