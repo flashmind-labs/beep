@@ -173,7 +173,7 @@ export const providersView: CenterView<"providers"> = {
   async mount(el, arg) {
     loadedProviders ??= (await import("./providers.tsx")).providersPage({ invoke, openSettings, redrawTop: () => {
       if (currentLocation()?.view === "providers") drawTop();
-    }, follow: changed => { subscribeEach([topic("machines"), topic("accounts")], changed); } });
+    }, follow: take => { subscribeEach([topic("machines"), topic("accounts")], event => take(event.data)); } });
     await loadedProviders.mount(el, arg);
     if (currentLocation()?.view === "providers") drawTop();
   },

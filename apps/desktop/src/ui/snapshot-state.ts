@@ -29,6 +29,19 @@ export function pushedView<T>(data: unknown, command: string, args?: Record<stri
   return null;
 }
 
+/// Every view of `command` an update pushed, each with the arguments it was read with: for a
+/// command read per project, machine or session, where the update carries those it follows.
+export function pushedEach<T>(data: unknown, command: string): { args: Record<string, unknown>; pushed: Pushed<T> }[] {
+  if (!record(data) || !Array.isArray(data.views)) return [];
+
+  return data.views.flatMap(value => {
+    const snapshot = readSnapshot(value);
+    if (snapshot?.command !== command) return [];
+
+    return [{ args: snapshot.args, pushed: snapshot.result.kind === "error" ? { error: snapshot.result.error } : { value: snapshot.result.value as T } }];
+  });
+}
+
 /// The list a topic update pushed for `command`: the
 /// error text when that view failed, null when the update does not carry the view.
 export function pushedList<T>(data: unknown, command: string): { list: T[] } | { error: string } | null {

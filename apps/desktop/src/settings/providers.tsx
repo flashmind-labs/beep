@@ -4,7 +4,7 @@ import { ProviderHeader, ProvidersView, type SharedProviderSettings } from "./pr
 // ...) with its version, sign-in and an on/off switch, and the picked one's
 // runtime settings.
 import type { invoke as Invoke } from "../ui/tauri.ts";
-import { Changes } from "../ui/pagecache.ts";
+import { pushedEach } from "../ui/snapshot-state.ts";
 import { checkedLabel, compactDraftOf, compactOf, compactProblem, draftOf, hasCompact, listRows, savedToLabel, settingsInput, toggledInput, updatable } from "./providers-state.ts";
 import type { AutoCompactDraft, Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings } from "./providers-state.ts";
 import type { CenterView } from "../center/state.ts";
@@ -23,8 +23,8 @@ interface ProvidersDeps {
   openSettings: (section?: string) => void;
   /// Redraws the window's header, where the machine chips are.
   redrawTop: () => void;
-  /// Calls `changed` whenever a machine or an account changes.
-  follow: (changed: () => void) => void;
+  /// Calls `take` with every `machines` and `accounts` update, which carry each machine's harnesses.
+  follow: (take: (data: unknown) => void) => void;
 }
 
 /// The page's state.
@@ -68,12 +68,22 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
   let inSettings = false;
   const contexts = modelContextPanel(invoke);
   const flsh = flshPanel(invoke);
-  /// The machine list (id "") and each machine's agents stand until a
-  /// machine or an account changes.
-  const changes = new Changes();
-  deps.follow(() => changes.changed());
-  /// Reads machine `id`'s agents unless the ones shown are still current.
-  const ensure = (id: string | null) => { if (id && (!st.views.has(id) || st.views.get(id) === null || changes.dirty(id))) void load(false, id); };
+  /// A machine's agents stand until the push brings them again.
+  deps.follow(data => {
+    for (const { args, pushed } of pushedEach<HarnessesView>(data, "agent_harnesses")) {
+      const machine = args.machineId;
+      if (typeof machine !== "string" || (args.refresh === true)) continue;
+      // A read of this machine that is out answers older than the push.
+      readVersion.set(machine, (readVersion.get(machine) ?? 0) + 1);
+
+      if ("error" in pushed) { st.errors.set(machine, fail(pushed.error)); if (!st.views.get(machine)) st.views.set(machine, null); }
+      else { st.views.set(machine, pushed.value); st.errors.delete(machine); }
+    }
+
+    if (root) { deps.redrawTop(); draw(); }
+  });
+  /// Reads machine `id`'s agents the first time; after that the push keeps them.
+  const ensure = (id: string | null) => { if (id && (!st.views.has(id) || st.views.get(id) === null)) void load(false, id); };
 
   const fail = (e: unknown) => String(e).replace(/^(bad request|not found|error):\s*/i, "");
   const view = () => (st.machine ? st.views.get(st.machine) : undefined);
@@ -81,15 +91,12 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
   const machineName = () => machines()?.find(m => m.id === st.machine)?.name ?? "this machine";
 
   async function loadMachines() {
-    changes.read("");
-
     try {
       await ensureMachines();
       const online = (machines() ?? []).filter(m => m.online);
       if (!st.machine || !online.some(m => m.id === st.machine)) st.machine = online[0]?.id ?? null;
     } catch (e) {
       st.note = fail(e);
-      changes.changed();
     }
 
     deps.redrawTop();
@@ -99,7 +106,6 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
 
   async function load(refresh: boolean, machine = st.machine) {
     if (!machine) return;
-    changes.read(machine);
     const version = (readVersion.get(machine) ?? 0) + 1;
     readVersion.set(machine, version);
     loading.set(machine, (loading.get(machine) ?? 0) + 1);
@@ -112,7 +118,6 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
       if (readVersion.get(machine) === version) {
         if (!st.views.get(machine)) st.views.set(machine, null);
         st.errors.set(machine, fail(e));
-        changes.changed();
       }
     } finally {
       const remaining = (loading.get(machine) ?? 1) - 1;
@@ -366,8 +371,8 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
       if (want?.agent) st.picked = want.agent;
       inSettings = want?.settings === true;
       draw();
-      // What the page showed last draws at once; it reads only after a change.
-      if (!machines() || changes.dirty("")) void loadMachines();
+      // What the page showed last draws at once; it reads only what it never had.
+      if (!machines()) void loadMachines();
       else ensure(st.machine);
     },
     unmount() { removeWindowPart("settings-page:providers"); root = null; },
