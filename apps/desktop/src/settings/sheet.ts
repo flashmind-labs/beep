@@ -10,7 +10,7 @@ import { pane } from "../bar/pane.ts";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import type { CenterView, ViewArg, ViewName } from "../center/state.ts";
-import { toMain } from "../center/views.tsx";
+import { toMain } from "../center/nav.ts";
 import { boxOf, currentLocation, windowAlone, drawTop } from "../center/nav.ts";
 
 let settingsMod: typeof import("./settings.tsx") | null = null;

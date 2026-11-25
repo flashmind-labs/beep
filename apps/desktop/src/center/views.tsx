@@ -6,10 +6,10 @@ import { useStore } from "zustand";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { shownChanged } from "../ui/active.ts";
 // The window's views: their boxes, going to one, and the header it draws.
-import { invoke, recordTiming } from "../ui/tauri.ts";
+import { recordTiming } from "../ui/tauri.ts";
 import { perfOpened, perfView, perfViewOf } from "../ui/perf.ts";
 import type { PaneTarget } from "../bar/pane.ts";
-import { keepWindowSession, mainTarget, route, type Alone, type CenterTarget, type WindowScope } from "../project/projectwindow.ts";
+import { keepWindowSession, mainTarget, route, type Alone, type WindowScope } from "../project/projectwindow.ts";
 import { ensureSessions, sessions, sessionsRead } from "../agents/sessions.ts";
 import { threadsByChat } from "../agents/threads-state.ts";
 import { shortName } from "../project/agent.ts";
@@ -19,7 +19,7 @@ import { instructionsView, openSettings, providersView } from "../settings/sheet
 import { paneView } from "./pane.tsx";
 import { homeView } from "./home.tsx";
 import { TerminalsPage, terminalsView } from "../terminals/view.tsx";
-import { boxOf, drawTop, go, goTo, keepBox, nav, pages, router, setWindowAlone, shown, windowAlone, aloneProject, currentLocation, PAGES, type Page } from "./nav.ts";
+import { boxOf, drawTop, toMain, go, goTo, keepBox, nav, pages, router, setWindowAlone, shown, windowAlone, aloneProject, currentLocation, PAGES, type Page } from "./nav.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { S } from "../bar/core.ts";
 import { isStarting } from "../agents/starting-state.ts";
@@ -148,10 +148,6 @@ function opensHere(page: Location): boolean {
   return route(windowScope(), page) === "here";
 }
 
-/// Shows `target` in the main window, bringing it up.
-export function toMain(target: CenterTarget) {
-  invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
-}
 
 const pageTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { recordTiming("page", page, ms); perfOpened(perfViewOf(page), ms); });
 

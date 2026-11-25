@@ -2,6 +2,8 @@
 // views.tsx draws the pages and installs what `go` and `drawTop` run, so every
 // view can send the window somewhere without importing the router.
 import { flushSync } from "react-dom";
+import { invoke } from "../ui/tauri.ts";
+import type { CenterTarget } from "../project/projectwindow.ts";
 import { createStore } from "zustand";
 import type { Alone } from "../project/projectwindow.ts";
 import type { Location, NavigationArgs, ViewName } from "./state.ts";
@@ -132,3 +134,7 @@ export function go(...[name, arg]: NavigationArgs): boolean {
   }
 }
 
+/// Shows `target` in the main window, bringing it up.
+export function toMain(target: CenterTarget) {
+  invoke("center_open", { target }).catch(e => console.warn("opening in the main window:", e));
+}
