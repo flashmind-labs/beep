@@ -1,6 +1,6 @@
 //! All windows share one duplex stream per subscription on each demanded node.
 
-use super::{Fleet, Machines, Opened, agents as direct, session_mirror::SessionMirror};
+use super::{Fleet, Machines, Opened, agents as direct, session_mirror::SessionMirror, terminals};
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
 use beep_proto::watched;
@@ -933,6 +933,17 @@ impl Events {
         }
     }
 
+    /// The terminals whose screen a window follows.
+    pub(crate) fn terminals_followed(&self) -> BTreeSet<Uuid> {
+        self.registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .receiving()
+            .flat_map(|window| &window.topics)
+            .filter_map(|interest| terminals::followed(&interest.topic))
+            .collect()
+    }
+
     fn node_wanted(&self, machine: EndpointId, topic: &Topic) -> bool {
         let id = machine.to_string();
         self.registry
@@ -1357,6 +1368,11 @@ async fn run(
             continue;
         }
 
+        // A window follows a terminal by its id, its node knows it by number.
+        let interests =
+            terminals::node_interests(interests, &terminals::places(&fleet), |machine| {
+                terminals::old_node(&fleet, machine)
+            });
         let mut machines = if mesh_is_open(&mesh) {
             fleet.online()
         } else {

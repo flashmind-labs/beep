@@ -200,11 +200,14 @@ impl SubscriptionWorker {
                                 super::super::event_views::sessions_changed(app.clone(), snapshot.topic.clone());
                             }
 
-                            if snapshot.topic.name() == "terminal-output" {
+                            // A node from before the topics of one screen says only that a list changed.
+                            if !initial && matches!(snapshot.topic.name(), "terminals" | "processes") {
+                                crate::machines::terminals::list_changed(app, machine, &snapshot.topic);
+                            }
+
+                            if matches!(snapshot.topic.name(), "terminal-output" | "process-output") && snapshot.topic.key().is_some() {
                                 // The windows get the screen as the view the command gives.
-                                if app.state::<Events>().node_wanted(machine, &snapshot.topic) {
-                                    crate::machines::terminals::output_pushed(app, &snapshot.topic);
-                                }
+                                crate::machines::terminals::output_pushed(app, machine, &snapshot.topic, &snapshot.value);
                             } else if (machine != fleet.me || !controller_topic(&snapshot.topic))
                                 && app.state::<Events>().node_wanted(machine, &snapshot.topic) {
                                 let data = serde_json::to_value(&snapshot.value).ok();

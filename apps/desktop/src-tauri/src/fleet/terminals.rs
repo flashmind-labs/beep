@@ -8,8 +8,10 @@ use super::{
     node_actor::{FAST_JOB_WAIT, JobKind},
 };
 use crate::{
+    agents::steer::newer_than,
     beep::epoch_ms,
     error::{DesktopError, Result},
+    fleet::events::Interest,
 };
 use beep_mesh::{
     Key,
@@ -22,13 +24,15 @@ use beep_proto::{
     ApiError, OpenTerminal, Terminal, TerminalEvent, TerminalOutput, TerminalState,
     node::{
         LinkRx, LinkTx,
+        events::{Topic, Value},
         mesh_state::{StateValue, TerminalRecord},
         process::{Reply as TaskReply, Request as TaskRequest, Task, TaskId},
-        terminal::Size,
+        terminal::{Reply as PtyReply, Size},
     },
 };
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
+use semver::Version;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -43,6 +47,10 @@ const HOME: &str = "~";
 const MACHINE_LIMIT: Duration = Duration::from_secs(5);
 /// Machines asked at once.
 const IN_FLIGHT: usize = 4;
+
+/// The last released node, which pushes no terminal's screen on a topic of its own: the windows
+/// following one are sent it again when that node's terminal or task list changes instead.
+const BEFORE_OUTPUT_TOPICS: Version = Version::new(0, 8, 25);
 
 /// One terminal a desktop keeps, as the mesh holds it under `terminal/<id>`.
 #[derive(Debug, Clone)]
@@ -467,3 +475,111 @@ pub(crate) async fn attach(
     .map_err(|e| DesktopError::BadRequest(format!("{}: {e:#}", fleet.name_of(machine))))?;
     Ok(Opened::Live { tx, rx })
 }
+
+/// Where a terminal runs: its machine, and its number there among the node's terminals (`pty`)
+/// or among its background tasks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Place {
+    pub(crate) id: Uuid,
+    pub(crate) machine: EndpointId,
+    pub(crate) task: u32,
+    pub(crate) pty: bool,
+}
+
+/// Where each terminal the mesh holds runs.
+pub(crate) fn places(fleet: &Fleet) -> Vec<Place> {
+    rows(fleet)
+        .into_iter()
+        .map(|row| Place {
+            id: row.id,
+            machine: row.record.machine,
+            task: row.record.task,
+            pty: row.record.pty,
+        })
+        .collect()
+}
+
+/// The terminal a window's topic follows the output of, when it names one.
+pub(crate) fn followed(topic: &Topic) -> Option<Uuid> {
+    if topic.name() != "terminal-output" || topic.is_pattern() {
+        return None;
+    }
+
+    topic.key()?.parse().ok()
+}
+
+/// Whether `machine` is a node from before the topics of one terminal's screen. This computer's
+/// own node is the desktop's build.
+pub(crate) fn old_node(fleet: &Fleet, machine: EndpointId) -> bool {
+    machine != fleet.me
+        && !newer_than(
+            fleet.status().version(machine).as_deref(),
+            &BEFORE_OUTPUT_TOPICS,
+        )
+}
+
+/// The topic a node pushes `place`'s screen on, or the list that changes with it on a node from
+/// before.
+fn node_topic(place: &Place, old: bool) -> Topic {
+    match (old, place.pty) {
+        (true, true) => Topic::new("terminals"),
+        (true, false) => Topic::new("processes"),
+        (false, true) => Topic::keyed("terminal-output", place.task.to_string()),
+        (false, false) => Topic::keyed("process-output", place.task.to_string()),
+    }
+}
+
+/// What the nodes are asked for, given what the windows follow: a window follows a terminal by its
+/// id, and its node knows it by number, so each such interest becomes the node's topic on the
+/// terminal's machine. A terminal the mesh does not hold yet is left out until it does.
+pub(crate) fn node_interests(
+    interests: Vec<Interest>,
+    places: &[Place],
+    old: impl Fn(EndpointId) -> bool,
+) -> Vec<Interest> {
+    interests
+        .into_iter()
+        .filter_map(|interest| {
+            let Some(id) = followed(&interest.topic) else {
+                return Some(interest);
+            };
+            let place = places.iter().find(|place| place.id == id)?;
+
+            Some(Interest {
+                machine: Some(place.machine.to_string()),
+                topic: node_topic(place, old(place.machine)),
+            })
+        })
+        .collect()
+}
+
+/// The screen of terminal `id` as its node pushed it on its topic.
+pub(crate) fn pushed(fleet: &Fleet, id: Uuid, value: &Value) -> Result<TerminalOutput> {
+    let row = find(fleet, id).ok_or_else(not_found)?;
+    let gone = |fleet: &Fleet| bare(view(fleet, &row, TerminalState::Gone {}));
+
+    Ok(match value {
+        Value::Terminals(PtyReply::Terminals { terminals }) => {
+            bare(view(fleet, &row, state_of(&row.kept(), terminals)))
+        }
+        Value::Process(TaskReply::Status {
+            task,
+            lines,
+            earlier,
+        }) if task.command == row.record.command => TerminalOutput {
+            terminal: view(fleet, &row, terminals::state(task.state)),
+            lines: lines.clone(),
+            earlier: *earlier,
+        },
+        Value::Missing | Value::Terminals(_) | Value::Process(_) => gone(fleet),
+        _ => {
+            return Err(DesktopError::BadRequest(
+                "a node pushed another value than a terminal's screen".into(),
+            ));
+        }
+    })
+}
+
+#[cfg(test)]
+#[path = "../tests/fleet_terminals.rs"]
+mod tests;

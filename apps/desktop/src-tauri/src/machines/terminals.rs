@@ -7,6 +7,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
+        events::Events,
         terminals::{self as direct, Opened},
     },
     machines::{Registry, Unfollow, list::MachineLists},
@@ -17,9 +18,11 @@ use beep_proto::{
     TerminalState,
     node::{
         LinkTx,
+        events::{Topic, Value},
         terminal::{Reply as PtyReply, Request as PtyRequest, Size},
     },
 };
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_bytes::ByteBuf;
 use std::{
@@ -199,38 +202,105 @@ pub async fn terminal_open(fleet: Machines<'_>, terminal: NewShell) -> Result<Op
     Ok(Some(direct::open(&fleet, request).await?.into()))
 }
 
-/// A terminal's screen was pushed on its topic: the windows that follow it are sent the view
-/// `terminal_output` gives, on that topic.
-pub(crate) fn output_pushed(app: &AppHandle, topic: &beep_proto::node::events::Topic) {
-    let Some(id) = topic.key().and_then(|key| key.parse::<Uuid>().ok()) else {
+/// A node pushed the screen of one of its terminals or tasks on `topic`: the windows that follow
+/// that terminal are sent it as the view `terminal_output` gives.
+pub(crate) fn output_pushed(app: &AppHandle, machine: EndpointId, topic: &Topic, value: &Value) {
+    let Some(task) = topic.key().and_then(|key| key.parse::<u32>().ok()) else {
         return;
     };
-    let (app, topic) = (app.clone(), topic.clone());
+    let pty = topic.name() == "terminal-output";
+    let fleet = app.state::<Arc<Fleet>>();
+    let followed = app.state::<Events>().terminals_followed();
+
+    for place in direct::places(&fleet) {
+        if place.machine == machine
+            && place.task == task
+            && place.pty == pty
+            && followed.contains(&place.id)
+        {
+            publish_output(
+                app,
+                &fleet,
+                place.id,
+                direct::pushed(&fleet, place.id, value),
+            );
+        }
+    }
+}
+
+/// Machines whose followed terminals are being read after a change, and whether another change
+/// came meanwhile: the reads of a machine go one after the other, so the last change shows last.
+static REREADS: LazyLock<Mutex<HashMap<(EndpointId, bool), bool>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// A node from before the topics of one screen said its terminals or its tasks changed: the
+/// windows following one of them on that node read it again, as they did before.
+pub(crate) fn list_changed(app: &AppHandle, machine: EndpointId, topic: &Topic) {
+    let fleet = app.state::<Arc<Fleet>>();
+
+    if !direct::old_node(&fleet, machine) {
+        return;
+    }
+
+    let pty = topic.name() == "terminals";
+    let key = (machine, pty);
+    {
+        let mut running = REREADS.lock().unwrap_or_else(PoisonError::into_inner);
+
+        if let Some(again) = running.get_mut(&key) {
+            *again = true;
+            return;
+        }
+
+        running.insert(key, false);
+    }
+    let app = app.clone();
+
     tauri::async_runtime::spawn(async move {
-        let fleet = app.state::<Arc<Fleet>>();
-        let args = serde_json::json!({ "id": id });
-        let view = match direct::get(&fleet, id).await {
-            Ok(output) => crate::fleet::event_views::View::new(
-                "terminal_output",
-                args,
-                OutputView {
-                    terminal: output.terminal.into(),
-                    lines: output.lines,
-                    earlier: output.earlier,
-                },
-            ),
-            Err(error) => Some(crate::fleet::event_views::View::failed(
-                "terminal_output",
-                args,
-                &error.to_string(),
-            )),
-        };
-        app.state::<crate::fleet::events::Events>().publish_views(
-            fleet.id(),
-            topic,
-            serde_json::json!({ "views": view.into_iter().collect::<Vec<_>>() }),
-        );
+        loop {
+            let fleet = app.state::<Arc<Fleet>>();
+            let followed = app.state::<Events>().terminals_followed();
+
+            for place in direct::places(&fleet) {
+                if place.machine == machine && place.pty == pty && followed.contains(&place.id) {
+                    let output = direct::get(&fleet, place.id).await;
+                    publish_output(&app, &fleet, place.id, output);
+                }
+            }
+            let mut running = REREADS.lock().unwrap_or_else(PoisonError::into_inner);
+
+            if running.insert(key, false) != Some(true) {
+                running.remove(&key);
+                return;
+            }
+        }
     });
+}
+
+/// Sends the windows following terminal `id` what `output` says of it.
+fn publish_output(app: &AppHandle, fleet: &Arc<Fleet>, id: Uuid, output: Result<TerminalOutput>) {
+    let args = serde_json::json!({ "id": id });
+    let view = match output {
+        Ok(output) => crate::fleet::event_views::View::new(
+            "terminal_output",
+            args,
+            OutputView {
+                terminal: output.terminal.into(),
+                lines: output.lines,
+                earlier: output.earlier,
+            },
+        ),
+        Err(error) => Some(crate::fleet::event_views::View::failed(
+            "terminal_output",
+            args,
+            &error.to_string(),
+        )),
+    };
+    app.state::<Events>().publish_views(
+        fleet.id(),
+        Topic::keyed("terminal-output", id.to_string()),
+        serde_json::json!({ "views": view.into_iter().collect::<Vec<_>>() }),
+    );
 }
 
 #[tauri::command]
