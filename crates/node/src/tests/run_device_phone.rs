@@ -1,5 +1,20 @@
 use super::*;
 
+#[tokio::test(start_paused = true)]
+async fn adb_installed_after_the_node_started_is_found_on_the_next_look() {
+    let looks = std::cell::Cell::new(0);
+    let started = tokio::time::Instant::now();
+    let path = found(|| {
+        looks.set(looks.get() + 1);
+        (looks.get() == 3).then(|| PathBuf::from("/opt/sdk/platform-tools/adb"))
+    })
+    .await;
+
+    assert_eq!(path, PathBuf::from("/opt/sdk/platform-tools/adb"));
+    assert_eq!(looks.get(), 3);
+    assert_eq!(started.elapsed(), TRACK_RETRY * 2);
+}
+
 #[test]
 fn adb_lists_ready_phones_by_model_without_emulators() {
     let text = "List of devices attached\n\

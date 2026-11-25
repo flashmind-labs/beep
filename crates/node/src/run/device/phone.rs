@@ -77,11 +77,10 @@ pub(super) async fn list() -> Vec<Device> {
 
 /// Rings `CHANGED` each time adb sees a phone or emulator come, go or change
 /// state, for as long as the node runs, so the list is read then and not on
-/// a timer. Nothing to follow without adb.
+/// a timer. Without adb it looks for it every `TRACK_RETRY`: adb is a tool
+/// outside the node, which does not say when it is installed.
 pub async fn track_phones() {
-    let Some(adb) = env::adb() else {
-        return;
-    };
+    let adb = found(env::adb).await;
     let mut wait = TRACK_RETRY;
 
     loop {
@@ -97,6 +96,17 @@ pub async fn track_phones() {
 
         tokio::time::sleep(wait).await;
         wait = (wait * 2).min(TRACK_RETRY_MAX);
+    }
+}
+
+/// The path `find` gives once it gives one, asked again every `TRACK_RETRY` until then.
+async fn found(find: impl Fn() -> Option<PathBuf>) -> PathBuf {
+    loop {
+        if let Some(path) = find() {
+            return path;
+        }
+
+        tokio::time::sleep(TRACK_RETRY).await;
     }
 }
 
