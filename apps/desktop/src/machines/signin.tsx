@@ -17,8 +17,8 @@ const ask = (machineId: string, tool: string, step: Step) => invoke<SignInView>(
 let open = false;
 
 /// Opens the sheet for `tool` on `machine` and starts its sign-in; `done`
-/// runs once the sheet closes, so the row can read the machine again.
-export function openSignIn(machine: { id: string; name: string }, tool: string, done: () => void) {
+/// runs once the sheet closes, for a screen the `accounts` push does not reach.
+export function openSignIn(machine: { id: string; name: string }, tool: string, done?: () => void) {
   if (open) return;
   open = true;
   let view: SignInView | null = null;
@@ -37,7 +37,7 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
       unfollow();
       // Left before it ended: the machine stops it.
       if (view && stillRunning(view)) void ask(machine.id, tool, { step: "cancel" }).catch(console.warn);
-      done();
+      done?.();
     },
   });
 

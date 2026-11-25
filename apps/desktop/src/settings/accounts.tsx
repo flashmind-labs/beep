@@ -243,24 +243,19 @@ function pollCodex() {
         return { id, f, error: String(e) };
       }
     }));
-    let done = false;
-
     for (const answer of answers) {
       const { id, f } = answer;
       if (ACC.codex[id] !== f) continue;
 
       if ("error" in answer) {
         ACC.codex[id] = { error: answer.error };
-        done = true;
       } else if (answer.st.state !== "waiting") {
-        done = true;
         if (answer.st.state === "failed") ACC.codex[id] = { error: answer.st.message || "Codex could not sign in." };
         else delete ACC.codex[id];
       }
     }
 
-    if (done) await loadAgentAccounts();
-    else redrawAgents();
+    redrawAgents();
   };
   ACC.poll = { stop: subscribeChanges([topic("processes"), topic("accounts")], { deliver: "latest", receive: () => check() }, { when: setShown }), check };
   void check();
@@ -337,7 +332,7 @@ const agentActions: AgentAccountActions = {
   machineSign(tool, machine) {
     if (!machine.online) return;
 
-    openSignIn(machine, tool, () => { void loadAgentAccounts(); });
+    openSignIn(machine, tool);
   },
   async codexSign(id) {
     if (ACC.codex[id]?.starting || ACC.codex[id]?.task !== undefined) return;
