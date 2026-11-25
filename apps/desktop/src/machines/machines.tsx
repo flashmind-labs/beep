@@ -150,7 +150,8 @@ function readList(): Promise<void> {
 export function followToolUpdates() {
   // Opened before the machines connected: the page follows them as they come.
   listen("reconnected", () => { if (shown()) void readList(); });
-  subscribeChanges(topic("machines"), { deliver: "latest", receive: () => readList() }, { when: shown, wait: AMBIENT_MS });
+  // The list, the clocks and this computer's state come in the push, which the store takes first.
+  subscribeChanges(topic("machines"), { deliver: "latest", receive: () => { if (shown()) drawMachines(); } }, { when: shown, wait: AMBIENT_MS });
   // The tools behind their newest release come in the `tools` push, which the machines ask their nodes for.
   subscribeEach(topic("tools"), event => {
     const pushed = pushedList<ToolUpdate>(event.data, "tool_updates");

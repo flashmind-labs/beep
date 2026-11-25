@@ -2,6 +2,8 @@
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList, pushedView } from "../ui/snapshot-state.ts";
 import { invoke } from "../ui/tauri.ts";
+import { takeClocks } from "./clock.ts";
+import type { ClockOff } from "./clock-state.ts";
 import type { MacControl } from "./machine-state.ts";
 import type { Machine } from "./machines.tsx";
 import type { MachineTraffic } from "./traffic-state.ts";
@@ -77,6 +79,10 @@ subscribeEach(topic("machines"), event => {
   if (mac && "error" in mac) console.warn("this computer's state:", mac.error);
   if (mac && "value" in mac) takeMac(mac.value);
   if (updatable && "list" in updatable) MACHINES.updatable = new Set(updatable.list.map(u => u.id));
+
+  const clocks = pushedList<ClockOff>(event.data, "machine_clocks");
+  if (clocks && "error" in clocks) console.warn("machine clocks:", clocks.error);
+  if (clocks && "list" in clocks) takeClocks(clocks.list);
 
   const pushed = pushedList<Machine>(event.data, "list_machines");
   if (!pushed) return;
