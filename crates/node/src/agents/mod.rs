@@ -60,7 +60,6 @@ host! {
     mod moving;
     mod picture;
     mod pipe;
-    mod place;
     mod plans;
     pub mod presence;
     mod prices;

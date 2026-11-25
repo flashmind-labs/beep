@@ -2,7 +2,8 @@
 //! keeps on this machine (`Stores`), for suggesting projects to import and
 //! listing an imported project's sessions.
 
-use crate::agents::{place::of_folder, tags::title as prompt_title};
+use crate::agents::tags::title as prompt_title;
+use folder_place::of_folder;
 use beep_proto::SessionId;
 use beep_proto::{
     AgentSlug,
@@ -37,6 +38,7 @@ pub(crate) use flsh::sessions_dir as flsh_sessions_dir;
 pub(crate) use opencode::databases_at as opencode_databases;
 mod pi;
 pub(crate) use pi::{agent_dir_in as pi_agent_dir, configured as pi_sessions};
+pub(in crate::agents) mod folder_place;
 mod transcript;
 
 pub(crate) use delete::{remove_dir_in, remove_file_in};

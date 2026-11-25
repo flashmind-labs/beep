@@ -1,7 +1,7 @@
 //! Deleting an ended session: the agent's own files and the node's record.
 
 use beep_proto::SessionId;
-use super::{Agents, found::Agent};
+use super::{Agents, found::Agent, text::valid_id};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::{SessionInfo, Status};
 use beep_proto::watched;
@@ -10,19 +10,6 @@ use tokio::{
     task::spawn_blocking,
     time::timeout,
 };
-
-/// The longest session id accepted.
-const MAX_ID: usize = 128;
-
-/// An id that cannot name anything outside a store: letters, digits, `-`
-/// and `_`, so no separator, no dot and no `..`.
-pub(super) fn valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= MAX_ID
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
-}
 
 impl Agents {
     /// Deletes session `id` of the harness `agent`, the agent's own id or

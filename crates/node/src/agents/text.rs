@@ -15,3 +15,16 @@ pub(crate) fn push_cut(out: &mut String, text: &str, max: usize) {
 pub(crate) fn cut_str(text: &str, max: usize) -> &str {
     &text[..text.floor_char_boundary(max)]
 }
+
+/// The longest session id accepted.
+const MAX_ID: usize = 128;
+
+/// An id that cannot name anything outside a store: letters, digits, `-`
+/// and `_`, so no separator, no dot and no `..`.
+pub(crate) fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= MAX_ID
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}

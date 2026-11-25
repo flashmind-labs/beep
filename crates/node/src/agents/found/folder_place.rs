@@ -3,7 +3,7 @@
 //! kept while its `HEAD` and config files keep their times, so a session's
 //! updates do not each start git.
 
-use super::found::place;
+use super::place;
 use beep_proto::node::agent::WorkPlace;
 use std::{
     collections::HashMap,
@@ -125,5 +125,5 @@ pub(crate) fn call_folder(
 }
 
 #[cfg(test)]
-#[path = "../tests/agents_place.rs"]
+#[path = "../../tests/agents_place.rs"]
 mod tests;

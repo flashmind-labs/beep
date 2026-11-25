@@ -4,8 +4,9 @@
 
 use super::{procs::Process, transcript};
 use crate::agents::{
-    found::{Agent, Memo, Seen as Sighting, is_jsonl, quiet_presence, unix_secs},
-    place::of_folder,
+    found::{
+        Agent, Memo, Seen as Sighting, folder_place::of_folder, is_jsonl, quiet_presence, unix_secs,
+    },
 };
 use beep_proto::SessionId;
 use beep_proto::node::agent::{ExternalSession, Presence};

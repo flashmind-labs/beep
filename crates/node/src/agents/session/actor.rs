@@ -14,7 +14,7 @@ use crate::agents::{
     launch::{AgentIn, AgentOut, Running, Started},
     live::{Live, TurnTokens, cut},
     made_files,
-    place::of_folder,
+    found::folder_place::of_folder,
 };
 use crate::run::process::STOP_GRACE;
 use agent_client_protocol::{

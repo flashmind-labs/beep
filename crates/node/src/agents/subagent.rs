@@ -3,7 +3,7 @@
 //! `super::live`).
 
 use beep_proto::SessionId;
-use crate::agents::delete::valid_id;
+use crate::agents::text::valid_id;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{Entry, EntryKind};
 use serde_json::Value;

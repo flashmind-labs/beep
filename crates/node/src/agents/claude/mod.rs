@@ -3,7 +3,7 @@
 //! Taking one over runs it through the ACP adapter.
 
 use crate::{
-    agents::{found::Seen as Sighting, place::of_folder},
+    agents::found::{Seen as Sighting, folder_place::of_folder},
     machine::wsl::{self, DistroName},
 };
 use anyhow::{Context, Result, bail};
