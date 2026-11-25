@@ -12,11 +12,18 @@ struct Ask {
     reply: oneshot::Sender<Option<Vec<MachineSession>>>,
 }
 
+/// One hold on what a scan reads, which the test ends.
+struct Hold {
+    machine: EndpointId,
+    ends: oneshot::Sender<bool>,
+}
+
 struct Fake {
     online: Mutex<Vec<EndpointId>>,
     members: Arc<Mutex<Option<HashSet<EndpointId>>>>,
     asks: mpsc::UnboundedSender<Ask>,
     drawn: mpsc::UnboundedSender<Drawn>,
+    holds: mpsc::UnboundedSender<Hold>,
 }
 
 impl Fake {
@@ -57,6 +64,16 @@ impl Outside for Fake {
     fn drawn(&self, drawn: Drawn) {
         let _ = self.drawn.send(drawn);
     }
+
+    async fn hold(&self, machine: EndpointId) -> bool {
+        let (ends, ended) = oneshot::channel();
+        let _ = self.holds.send(Hold { machine, ends });
+
+        match ended.await {
+            Ok(held) => held,
+            Err(_) => std::future::pending().await,
+        }
+    }
 }
 
 struct Rig {
@@ -64,17 +81,20 @@ struct Rig {
     members: Arc<Mutex<Option<HashSet<EndpointId>>>>,
     asks: mpsc::UnboundedReceiver<Ask>,
     drawn: mpsc::UnboundedReceiver<Drawn>,
+    holds: mpsc::UnboundedReceiver<Hold>,
 }
 
 fn rig(online: Vec<EndpointId>, kept: Vec<MachineSession>) -> Rig {
     let (asks, asked) = mpsc::unbounded_channel();
     let (drawn, told) = mpsc::unbounded_channel();
+    let (holds, held) = mpsc::unbounded_channel();
     let members = Arc::new(Mutex::new(None));
     let fake = Fake {
         online: Mutex::new(online),
         members: members.clone(),
         asks,
         drawn,
+        holds,
     };
 
     Rig {
@@ -82,6 +102,7 @@ fn rig(online: Vec<EndpointId>, kept: Vec<MachineSession>) -> Rig {
         members,
         asks: asked,
         drawn: told,
+        holds: held,
     }
 }
 
@@ -374,6 +395,48 @@ async fn a_machine_whose_push_ended_is_listed_again_when_its_rows_age() {
     let first = next(&mut rig.asks).await;
     let second = next(&mut rig.asks).await;
     assert!(first.scan != second.scan);
+}
+
+#[tokio::test(start_paused = true)]
+async fn outside_sessions_are_scanned_again_after_their_stream_ends_and_comes_back() {
+    let a = machine(1);
+    let mut rig = rig(vec![a], Vec::new());
+
+    rig.mirror.pushed(a, Vec::new());
+    rig.mirror.rows();
+    let ask = next(&mut rig.asks).await;
+    assert!(ask.scan);
+    ask.reply.send(Some(Vec::new())).unwrap();
+    // The scan's reads are held while the stream runs.
+    let hold = rig.holds.recv().await.expect("the scan's reads are held");
+    assert_eq!(hold.machine, a);
+
+    // The node restarts: the stream ends and what the scan read is no longer pushed.
+    hold.ends.send(true).unwrap();
+    // The paused clock moves once the mirror has taken it.
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    rig.mirror.rows();
+
+    assert!(next(&mut rig.asks).await.scan);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_scan_made_before_the_stream_opened_is_made_again_when_it_opens() {
+    let a = machine(1);
+    let mut rig = rig(vec![a], Vec::new());
+
+    rig.mirror.rows();
+    let _listing = next(&mut rig.asks).await;
+    let scan = next(&mut rig.asks).await;
+    assert!(scan.scan);
+    scan.reply.send(Some(Vec::new())).unwrap();
+    // No stream was open to hold the reads on.
+    rig.holds.recv().await.unwrap().ends.send(false).unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+
+    rig.mirror.pushed(a, Vec::new());
+
+    assert!(next(&mut rig.asks).await.scan);
 }
 
 #[tokio::test]

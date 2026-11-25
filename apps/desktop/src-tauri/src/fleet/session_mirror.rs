@@ -295,6 +295,9 @@ pub(crate) trait Outside: Send + Sync + 'static {
     -> impl Future<Output = Option<Vec<MachineSession>>> + Send;
     /// Tells the windows, and the lists that follow, what changed.
     fn drawn(&self, drawn: Drawn);
+    /// Holds what a scan of `machine` reads, so its node keeps pushing it, until the stream
+    /// that carries it ends: true then, false when no stream was open to hold it on.
+    fn hold(&self, machine: EndpointId) -> impl Future<Output = bool> + Send;
 }
 
 /// A change in what the windows draw.
@@ -311,6 +314,9 @@ enum Message {
     Read,
     /// The next read lists this machine again.
     Stale(EndpointId),
+    /// The hold on what a scan of this machine reads ended: `held` when its stream ended, not
+    /// when none was open.
+    Released { machine: EndpointId, held: bool },
     /// What a scan of this machine reads changed: it is scanned again.
     Rescan(EndpointId),
     /// A machine's `agents` subscription ended: its rows age again.
@@ -380,6 +386,7 @@ impl SessionMirror {
             reads: HashMap::new(),
             relisting: HashMap::new(),
             scanning: HashMap::new(),
+            holding: HashSet::new(),
             expiries: HashMap::new(),
             list_slots: Arc::new(Semaphore::new(IN_FLIGHT)),
             scan_slots: Arc::new(Semaphore::new(IN_FLIGHT)),
@@ -566,6 +573,8 @@ struct Actor<O> {
     relisting: HashMap<EndpointId, Relist>,
     /// The machines scanned now, and whether an edit came meanwhile.
     scanning: HashMap<EndpointId, bool>,
+    /// The machines whose scanned reads are held, so their node pushes them.
+    holding: HashSet<EndpointId>,
     /// The scan each machine has waiting for the hour a session it shows leaves the list.
     expiries: HashMap<EndpointId, AbortHandle>,
     list_slots: Arc<Semaphore>,
@@ -601,11 +610,16 @@ impl<O: Outside> Actor<O> {
             Message::Stale(machine) => {
                 self.reads.remove(&machine);
             }
-            Message::Rescan(machine) => match self.scanning.get_mut(&machine) {
-                // What the scan under way read may be older than the push.
-                Some(edited) => *edited = true,
-                None => self.scan(machine),
-            },
+            Message::Released { machine, held } => {
+                self.holding.remove(&machine);
+
+                // The node no longer pushes what the scan read: it is scanned again on the
+                // next read, and when the machine pushes again.
+                if held {
+                    self.reads.entry(machine).or_default().scanned = false;
+                }
+            }
+            Message::Rescan(machine) => self.rescan(machine),
             Message::Unpushed(machine) => {
                 if let Some(reads) = self.reads.get_mut(&machine) {
                     reads.pushed = false;
@@ -752,7 +766,22 @@ impl<O: Outside> Actor<O> {
 
         let reads = self.reads.entry(machine).or_default();
         reads.beep = Some(Instant::now());
-        reads.pushed = true;
+        let streamed = !std::mem::replace(&mut reads.pushed, true);
+        let scanned = reads.scanned;
+
+        // Its stream just opened, so what a scan read before may have changed unheard.
+        if streamed && scanned {
+            self.rescan(machine);
+        }
+    }
+
+    /// Scans `machine` again from a push of what a scan reads.
+    fn rescan(&mut self, machine: EndpointId) {
+        match self.scanning.get_mut(&machine) {
+            // What the scan under way read may be older than the push.
+            Some(edited) => *edited = true,
+            None => self.scan(machine),
+        }
     }
 
     fn list(&mut self, machine: EndpointId, after: Duration) {
@@ -773,6 +802,23 @@ impl<O: Outside> Actor<O> {
                     None
                 }),
             }
+        });
+    }
+
+    /// Holds what a scan of `machine` reads, once, so the node pushes it when it changes.
+    fn hold(&mut self, machine: EndpointId) {
+        if !self.holding.insert(machine) {
+            return;
+        }
+
+        let outside = self.outside.clone();
+        self.tasks.spawn(async move {
+            let held = AssertUnwindSafe(outside.hold(machine))
+                .catch_unwind()
+                .await
+                .unwrap_or(false);
+
+            Message::Released { machine, held }
         });
     }
 
@@ -845,6 +891,8 @@ impl<O: Outside> Actor<O> {
         if drawn {
             self.outside.drawn(Drawn::Listed);
         }
+
+        self.expire_scans(machine);
     }
 
     fn scanned(&mut self, machine: EndpointId, rows: Option<Vec<MachineSession>>) {
@@ -856,10 +904,12 @@ impl<O: Outside> Actor<O> {
 
         self.reads.entry(machine).or_default().scanned = rows.is_some();
 
-        if let Some(rows) = rows
-            && self.replace_scans(machine, rows)
-        {
-            self.outside.drawn(Drawn::Listed);
+        if let Some(rows) = rows {
+            if self.replace_scans(machine, rows) {
+                self.outside.drawn(Drawn::Listed);
+            }
+
+            self.hold(machine);
         }
 
         self.expire_scans(machine);
@@ -1107,6 +1157,10 @@ impl Outside for Desk {
 
     async fn scan(&self, machine: EndpointId) -> Option<Vec<MachineSession>> {
         direct::scanned_sessions_of(&self.fleet, machine).await
+    }
+
+    async fn hold(&self, machine: EndpointId) -> bool {
+        direct::hold_scanned_reads(&self.fleet, machine).await
     }
 
     fn drawn(&self, drawn: Drawn) {

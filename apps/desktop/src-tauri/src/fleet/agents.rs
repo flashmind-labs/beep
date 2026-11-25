@@ -28,7 +28,8 @@ use beep_proto::{
     ListAgentModels, MachineSession, ResumeAgentSession, StartAgentSession, StartedAgent,
     SteerAgentSession, Upload, agent_name, image_key, media_mime,
     node::{
-        agent::{self, AgentCommand, Request, WorkPlace, Worktree},
+        agent::{self, AgentCommand, Request, SessionsRequest, WorkPlace, Worktree},
+        events::Read,
         harness::{HarnessConfig, HarnessInfo, harness},
         mesh_state::StateValue,
     },
@@ -204,6 +205,57 @@ pub(crate) async fn scanned_sessions_of(
     };
 
     timeout(SCAN_LIMIT, scan).await.ok().flatten()
+}
+
+/// What `listing::outside_sessions` and `listing::ended_conversations` ask a node for.
+const SCANNED_AGENTS: [&str; 3] = ["claude", "codex", "flsh"];
+const EXTERNAL_LIMIT: u32 = 20;
+const CONVERSATIONS_LIMIT: u32 = 100;
+
+/// Holds the reads a scan of `machine` makes, so its node keeps pushing them, until the
+/// stream that carries them ends. False when no stream was open to hold them on.
+pub(crate) async fn hold_scanned_reads(fleet: &Fleet, machine: EndpointId) -> bool {
+    let conversations = fleet
+        .status()
+        .last_env(machine)
+        .map(|env| env.home)
+        .filter(|home| !home.is_empty())
+        .map(|home| {
+            let separator = if home.contains('\\') { '\\' } else { '/' };
+            let folder = format!(
+                "{}{separator}.beep{separator}assistant",
+                home.trim_end_matches(separator)
+            );
+
+            SessionsRequest::InFolders {
+                folders: vec![folder],
+                limit: CONVERSATIONS_LIMIT,
+            }
+        });
+    let requests = SCANNED_AGENTS
+        .iter()
+        .map(|agent| SessionsRequest::External {
+            agent: (*agent).to_owned(),
+            limit: EXTERNAL_LIMIT,
+            session: None,
+        })
+        .chain(conversations);
+    let held: Vec<_> = requests
+        .filter_map(|request| {
+            fleet
+                .snapshots_follow(machine, Read::Sessions(Box::new(request)))?
+                .ok()
+        })
+        .map(|mut held| Box::pin(async move { while held.changed().await.is_ok() {} }))
+        .collect();
+
+    if held.is_empty() {
+        return false;
+    }
+
+    futures::future::select_all(held).await;
+
+    true
 }
 
 /// One session in full; a transcript that cannot be read leaves `entries` empty.
