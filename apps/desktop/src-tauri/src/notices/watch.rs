@@ -50,6 +50,10 @@ const RETRY: Duration = Duration::from_secs(60);
 const AWAY: Duration = Duration::from_secs(120);
 /// How old a move may be and still be asked about.
 const MOVES_FOR_MS: u64 = 24 * 3600 * 1000;
+/// How long after a move started its machine, which pushes its moves, may leave it out before
+/// the machine is asked: a node that restarted, or kept the outcome for a short while only,
+/// does not say how the move ended.
+const LOST_AFTER_MS: u64 = 5 * 60 * 1000;
 
 /// The conflicts of each project on one machine, as its node pushed them.
 type Said = Vec<(String, BTreeSet<String>)>;
@@ -477,9 +481,11 @@ enum Heard {
     Going,
     /// The machine pushes no moves: it is from before that.
     Silent,
+    /// The machine pushes its moves but not this one, long after it began: it is asked once.
+    Lost,
 }
 
-fn heard_of(record: &SessionMove, pushed: &HashMap<EndpointId, Vec<MoveEntry>>) -> Heard {
+fn heard_of(record: &SessionMove, pushed: &HashMap<EndpointId, Vec<MoveEntry>>, now: u64) -> Heard {
     let Some(entries) = pushed.get(&record.to) else {
         return Heard::Silent;
     };
@@ -487,7 +493,11 @@ fn heard_of(record: &SessionMove, pushed: &HashMap<EndpointId, Vec<MoveEntry>>) 
         .iter()
         .find(|entry| entry.session == record.id && entry.at == record.at)
     else {
-        return Heard::Going;
+        return if now.saturating_sub(record.at) > LOST_AFTER_MS {
+            Heard::Lost
+        } else {
+            Heard::Going
+        };
     };
 
     match entry.progress.phase {
@@ -521,7 +531,7 @@ async fn failed_moves(
     let mut silent = Vec::new();
 
     for (record, id) in open {
-        match heard_of(&record, pushed) {
+        match heard_of(&record, pushed, now) {
             Heard::Failed(reason) => {
                 tell_failed(app, fleet, &record, id.clone(), reason);
                 told.insert(id);
@@ -530,7 +540,8 @@ async fn failed_moves(
                 told.insert(id);
             }
             Heard::Going => {}
-            Heard::Silent => silent.push((record, id)),
+            Heard::Silent => silent.push((record, id, false)),
+            Heard::Lost => silent.push((record, id, true)),
         }
     }
 
@@ -539,12 +550,22 @@ async fn failed_moves(
     }
 
     // Each target is asked at once: a slow one holds up no other.
-    let states = join_all(silent.iter().map(|(record, _)| desk.move_state(&record.id))).await;
+    let states = join_all(
+        silent
+            .iter()
+            .map(|(record, _, _)| desk.move_state(&record.id)),
+    )
+    .await;
 
-    for ((record, id), state) in silent.into_iter().zip(states) {
+    for ((record, id, lost), state) in silent.into_iter().zip(states) {
         let progress = match state {
             Ok(MoveState::Known(progress)) => progress,
             Ok(MoveState::NeedsUpdate) => {
+                told.insert(id);
+                continue;
+            }
+            // A move the machine does not know long after it began has no outcome to tell.
+            Ok(MoveState::Unknown) if lost => {
                 told.insert(id);
                 continue;
             }

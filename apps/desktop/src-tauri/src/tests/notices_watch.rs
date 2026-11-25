@@ -202,21 +202,28 @@ fn a_machine_s_pushed_moves_say_which_failed_and_a_machine_that_pushes_none_is_a
         }))
     };
 
-    assert_eq!(heard_of(&record, &looks.pushed_moves()), Heard::Silent);
+    assert_eq!(heard_of(&record, &looks.pushed_moves(), 10), Heard::Silent);
     // A machine that pushes its moves needs no read of the moves ring.
     looks.hear(to, "move-progress", &entry(9, MovePhase::Files, ""));
     looks.hear(to, "moves", &Value::Missing);
     assert!(!looks.moved.load(Ordering::Relaxed));
-    assert_eq!(heard_of(&record, &looks.pushed_moves()), Heard::Going);
+    assert_eq!(heard_of(&record, &looks.pushed_moves(), 10), Heard::Going);
 
     // The outcome of an earlier move of the session is not this move's.
     looks.hear(to, "move-progress", &entry(8, MovePhase::Failed, "old"));
-    assert_eq!(heard_of(&record, &looks.pushed_moves()), Heard::Going);
+    assert_eq!(heard_of(&record, &looks.pushed_moves(), 10), Heard::Going);
     looks.hear(to, "move-progress", &entry(9, MovePhase::Failed, "no room"));
     assert_eq!(
-        heard_of(&record, &looks.pushed_moves()),
+        heard_of(&record, &looks.pushed_moves(), 10),
         Heard::Failed("no room".into())
     );
     looks.hear(to, "move-progress", &entry(9, MovePhase::Done, ""));
-    assert_eq!(heard_of(&record, &looks.pushed_moves()), Heard::Over);
+    assert_eq!(heard_of(&record, &looks.pushed_moves(), 10), Heard::Over);
+
+    // An outcome the machine no longer holds, long after the move began, is asked for.
+    looks.hear(to, "move-progress", &entry(8, MovePhase::Failed, "old"));
+    assert_eq!(
+        heard_of(&record, &looks.pushed_moves(), 9 + LOST_AFTER_MS + 1),
+        Heard::Lost
+    );
 }
