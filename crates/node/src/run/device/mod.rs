@@ -204,9 +204,11 @@ pub(crate) async fn current() -> Vec<Device> {
     }
 
     let mut listed = LISTED.subscribe();
-    let read = listed.wait_for(Option::is_some).await;
 
-    read.ok().and_then(|read| read.clone()).unwrap_or_default()
+    match watched::wait_for(&mut listed, Option::is_some).await {
+        Ok(()) => watched::read_sent(&LISTED, Clone::clone).unwrap_or_default(),
+        Err(_) => Vec::new(),
+    }
 }
 
 /// Reads the list at the start and after each change of `changed`, stores it

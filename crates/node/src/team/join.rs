@@ -7,7 +7,7 @@
 
 use super::{
     gateway::FORGE_LIMIT,
-    home::Checkout,
+    home::{Checkout, Home},
     link::{TeamError, TeamLink, finish},
     proof::{Nonce, ProofError, drop_proof, proof_context, proof_seen, push_proof},
     roster::vet_roster,
@@ -20,6 +20,7 @@ use beep_proto::{
     },
     team::{ForgeLogin, Member, TeamMsg, TeamRecord, TeamRepo},
 };
+use beep_proto::watched;
 use futures::future::join_all;
 use iroh::{EndpointAddr, EndpointId};
 use std::{
@@ -91,10 +92,14 @@ pub(crate) async fn answer(link: Option<&TeamLink>, request: &Request) -> Reply 
 /// its `Key::Project` can still be replicating or waiting for `home::follow`,
 /// so this waits briefly for the home task to publish it.
 pub(super) async fn checkout_for(link: &TeamLink, repo: &TeamRepo) -> Option<Checkout> {
-    let mut home = link.home_changes();
-    let seen = timeout(CHECKOUT_WAIT, home.wait_for(|home| home.checkout(repo).is_some())).await;
+    let mut changes = link.home_changes();
+    let ready = |home: &Home| home.checkout(repo).is_some();
+    timeout(CHECKOUT_WAIT, watched::wait_for(&mut changes, ready))
+        .await
+        .ok()?
+        .ok()?;
 
-    seen.ok()?.ok()?.checkout(repo)
+    link.home(|home| home.checkout(repo))
 }
 
 impl TeamLink {

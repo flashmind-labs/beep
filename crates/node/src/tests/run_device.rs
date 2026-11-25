@@ -432,7 +432,7 @@ fn followed(first: Vec<Device>) -> Followed {
         listed,
         rings,
         move || {
-            let _ = ping.send(listed.borrow().clone());
+            let _ = ping.send(watched::read_sent(listed, Clone::clone));
         },
     ));
 
@@ -449,9 +449,8 @@ fn followed(first: Vec<Device>) -> Followed {
 impl Followed {
     /// Waits for the first read to be stored.
     async fn started(&self) {
-        self.listed
-            .subscribe()
-            .wait_for(Option::is_some)
+        let mut listed = self.listed.subscribe();
+        watched::wait_for(&mut listed, Option::is_some)
             .await
             .expect("the list is stored");
     }

@@ -491,7 +491,7 @@ async fn a_busy_desktop_write_does_not_hold_up_the_home() {
 
     let seen = timeout(
         Duration::from_secs(20),
-        home.wait_for(|home| home.projects.contains_key(&repo())),
+        beep_proto::watched::wait_for(&mut home, |home| home.projects.contains_key(&repo())),
     )
     .await;
     drop(writing);
