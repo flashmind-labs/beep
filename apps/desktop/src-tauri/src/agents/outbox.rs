@@ -928,8 +928,14 @@ impl Held {
             }
             // A Stop while the session resumes is for what was just sent: it goes unsent.
             // Stop all also drops the steers the machine holds.
+            // A plain Stop keeps the steers the node holds but clears its queued prompts, so no
+            // later push lists a sent prompt: its row goes now.
             OrderKind::Cancel | OrderKind::StopAll => {
-                let sent = matches!(kind, OrderKind::StopAll) && self.forget_delivered(&key);
+                let sent = if matches!(kind, OrderKind::StopAll) {
+                    self.forget_delivered(&key)
+                } else {
+                    self.forget_delivered_prompts(&key)
+                };
                 (resuming && self.drop_undelivered(&key, false)) || sent
             }
             _ => false,
@@ -1028,6 +1034,16 @@ impl Held {
 
     /// The machine took message `id`: it goes.
     pub(crate) fn sent(&mut self, id: u64, keys: Vec<String>) -> Option<Changed> {
+        self.hand_over(id, keys, true)
+    }
+
+    /// A read of the session shows the machine already had message `id`: it goes with no
+    /// sent row, as no push is left to list it.
+    pub(crate) fn found(&mut self, id: u64) -> Option<Changed> {
+        self.hand_over(id, Vec::new(), false)
+    }
+
+    fn hand_over(&mut self, id: u64, keys: Vec<String>, keep: bool) -> Option<Changed> {
         let message = self.remove(id)?;
         let key = message.key();
         let row = Row {
@@ -1035,7 +1051,7 @@ impl Held {
             ..message.row()
         };
         // A resume with no words has nothing for the session to list.
-        if !message.bare() {
+        if keep && !message.bare() {
             self.delivered.push(message);
         }
 
@@ -1106,6 +1122,14 @@ impl Held {
     /// Forgets the sent rows of `key`: the machine dropped what it held, or the session closed.
     pub(crate) fn dropped(&mut self, key: &SessionKey) -> Option<Changed> {
         self.forget_delivered(key).then(|| self.changed(key))
+    }
+
+    fn forget_delivered_prompts(&mut self, key: &SessionKey) -> bool {
+        let before = self.delivered.len();
+        self.delivered
+            .retain(|message| message.key() != *key || message.how != Kind::Prompt);
+
+        self.delivered.len() != before
     }
 
     fn forget_delivered(&mut self, key: &SessionKey) -> bool {
@@ -1506,6 +1530,8 @@ pub(crate) struct Resumed {
 /// What became of one try at the oldest waiting message.
 enum Tried {
     Sent(Vec<String>),
+    /// The session already showed the machine had it.
+    Found,
     /// A resume that may have gone: its message and those behind it fail.
     Uncertain(String),
     Lost {
@@ -1542,6 +1568,7 @@ pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Lin
                 let lost = matches!(tried, Tried::Lost { .. });
                 let change = outbox.with(|held| match tried {
                     Tried::Sent(keys) => held.sent(id, keys),
+                    Tried::Found => held.found(id),
                     Tried::Lost { unsure } => held.wait(id, unsure),
                     Tried::Refused(reason) => held.refused(id, reason),
                     Tried::Uncertain(reason) => held.uncertain(id, reason),
@@ -1722,7 +1749,7 @@ async fn try_message(
 async fn try_once(link: &mut impl Link, message: &Message) -> Tried {
     if message.unsure {
         match link.took(message).await {
-            Ok(true) => return Tried::Sent(Vec::new()),
+            Ok(true) => return Tried::Found,
             Ok(false) => {}
             Err(e) if e.is_transport() => return Tried::Lost { unsure: true },
             Err(DesktopError::Api(ApiError::NotFound {})) => {
@@ -2135,7 +2162,8 @@ fn is_message(entry: &str, message: &Message) -> bool {
             .to_ascii_lowercase()
             .starts_with("[image:")
     });
-    words.join("\n").trim() == message.text.trim() && images.len() == message.images.len()
+    // The node drops the pictures for an agent that takes none: fewer lines still match.
+    words.join("\n").trim() == message.text.trim() && images.len() <= message.images.len()
 }
 
 /// Whether a session, read after a send that may have gone, shows the

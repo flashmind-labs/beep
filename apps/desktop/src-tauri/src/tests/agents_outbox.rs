@@ -322,6 +322,50 @@ async fn sent_rows_go_when_the_machine_drops_its_steers() {
     assert!(outbox.with(|held| held.dropped(&key("s1"))).is_none());
 }
 
+#[tokio::test]
+async fn a_plain_stop_takes_the_sent_prompts_off_the_list_but_not_the_steers() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    outbox.with(|held| {
+        held.push(
+            &s1,
+            Draft {
+                how: Kind::Prompt,
+                ..draft("queued prompt")
+            },
+        );
+        held.push(&s1, draft("steer"));
+    });
+    let mut link = Fake::default();
+    flush(&outbox, &s1, &mut link).await;
+    assert_eq!(texts(&outbox, "s1"), ["queued prompt", "steer"]);
+
+    outbox.with(|held| held.push_order(&s1, OrderKind::Cancel, Instant::now(), None));
+    flush(&outbox, &s1, &mut link).await;
+
+    assert_eq!(link.ordered, [OrderKind::Cancel]);
+    assert_eq!(texts(&outbox, "s1"), ["steer"]);
+}
+
+#[tokio::test]
+async fn a_message_the_session_already_showed_leaves_no_sent_row_behind() {
+    let (_dir, _, outbox) = outbox();
+    let id = push(&outbox, "s1", "one");
+    outbox.with(|held| held.begin(&key("s1")));
+
+    outbox.with(|held| held.found(id)).expect("it goes");
+
+    assert!(texts(&outbox, "s1").is_empty());
+}
+
+#[test]
+fn a_user_entry_the_node_stored_without_the_pictures_is_still_the_message() {
+    let message = kept("look", &["image.jpg"], Some(Seen::default()));
+
+    assert!(holds(&log(&[], 0, &[user("look")]), &message));
+    assert!(!holds(&log(&[], 0, &[user("looks")]), &message));
+}
+
 fn reading(text: &str, token: &str) -> Draft {
     Draft {
         reading: Some(token.into()),
