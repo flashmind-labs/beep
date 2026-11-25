@@ -2,11 +2,39 @@
 //! machines, and installing them.
 
 use crate::{
+    beep::state::Prefs,
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, ToolPush, agents, files as direct},
 };
-use beep_proto::node::{events::Topic, harness::harness, setup::Need, tool_update::Tool};
+use beep_proto::{
+    MachineUpdate,
+    node::{events::Topic, harness::harness, logs::MAX_LINES, setup::Need, tool_update::Tool},
+};
 use iroh::EndpointId;
+use tauri::State;
+
+/// The recent log of one of the account's machines.
+#[tauri::command]
+pub async fn machine_log(fleet: Machines<'_>, id: String) -> Result<String> {
+    direct::machine_log(&fleet, fleet.machine(&id)?, MAX_LINES).await
+}
+
+/// Has one of the account's machines update its beep-node and restart
+/// once its agent sessions are idle.
+#[tauri::command]
+pub async fn update_machine(
+    fleet: Machines<'_>,
+    prefs: State<'_, Prefs>,
+    id: String,
+) -> Result<MachineUpdate> {
+    direct::update_machine(
+        &fleet,
+        fleet.machine(&id)?,
+        false,
+        prefs.node_release_channel(),
+    )
+    .await
+}
 
 /// Installs the newest `tool` on `machine_id`; gives the version installed.
 #[tauri::command]

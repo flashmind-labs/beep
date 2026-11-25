@@ -107,6 +107,22 @@ pub(crate) fn agent_item(machine_id: &str, session: &SessionId, question: u32) -
     format!("{ITEM}agent:{machine_id}:{session}:{question}")
 }
 
+/// What the tray listed as waiting and no longer does, by its menu ids:
+/// those questions were answered, here or anywhere.
+pub(crate) fn no_longer_waiting(app: &AppHandle, gone: &[String]) {
+    if gone.is_empty() {
+        return;
+    }
+
+    history::finish(app, |note| {
+        history::asked(note).is_some_and(|key| {
+            key.question.is_some_and(|question| {
+                gone.contains(&agent_item(&key.machine_id, &key.session, question))
+            })
+        })
+    });
+}
+
 /// `text` on one line, cut to `LABEL_MAX` characters.
 fn shorten(text: &str) -> String {
     let line = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -173,7 +189,7 @@ pub async fn follow(app: AppHandle) {
 
         if list.set(entries) {
             crate::tray::refresh(&app);
-            history::no_longer_waiting(&app, &gone);
+            no_longer_waiting(&app, &gone);
         }
 
         sleep(GAP).await;

@@ -63,6 +63,22 @@ pub async fn center_answer_agent(
     crate::agents::outbox::answer(window.app_handle(), &fleet, window.label(), &key, reply).await
 }
 
+/// Answers the question ask note `id` is about, as Allow and Deny on its
+/// macOS notification do. One answered elsewhere counts as answered.
+#[tauri::command]
+pub async fn notes_answer(app: AppHandle, id: String, allow: bool) -> Result<()> {
+    let key: AgentNoticeKey = id
+        .parse()
+        .map_err(|_| DesktopError::BadRequest("not a question".into()))?;
+    match crate::notices::answer_agent(&app, key.clone(), allow).await {
+        Ok(()) | Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) => {
+            crate::notices::history::answered(&app, &key);
+            Ok(())
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// What Home shows. A section is `None` when it cannot be listed.
 #[derive(Debug, Serialize)]
 pub struct HomeView {

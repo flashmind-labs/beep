@@ -321,7 +321,7 @@ pub fn run() {
             bar::window::resize_bar,
             bar::zoom::set_zoom_level,
             bar::zoom::zoom_level,
-            notices::history::notes_answer,
+            center::home::notes_answer,
             notices::history::notes_dismiss,
             notices::history::skill_keep,
             notices::history::skill_reveal,
@@ -356,13 +356,13 @@ pub fn run() {
             bar::app::open_log,
             machines::add::set_machine_search,
             machines::list::list_machines,
-            machines::list::machine_log,
+            machines::tools::machine_log,
             machines::list::machine_clocks,
             machines::list::node_release,
             machines::list::remove_machine,
             machines::list::rename_machine,
             machines::list::save_machine_log,
-            machines::list::update_machine,
+            machines::tools::update_machine,
             machines::devices::device_attach,
             machines::devices::device_boot,
             machines::devices::device_detach,
@@ -659,6 +659,9 @@ fn setup(
     {
         app.manage(std::sync::Mutex::new(guard));
     }
+    let (actions, asked) = notices::notify::Actions::new();
+    tauri::async_runtime::spawn(notices::follow_actions(app.handle().clone(), asked));
+    app.manage(actions);
     #[cfg(target_os = "macos")]
     notices::notify::init(app.handle());
     #[cfg(all(unix, desktop))]

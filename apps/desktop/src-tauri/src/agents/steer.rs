@@ -3,6 +3,7 @@
 
 use crate::{
     agents::{
+        kept_folder::PastedImage,
         kept_transcripts::SessionKey,
         outbox::{self, OrderKind},
         sessions::closed,
@@ -126,14 +127,6 @@ impl From<DesktopError> for SteerError {
             Self::Failed { message }
         }
     }
-}
-
-/// An image as the page sends it: its bytes in base64.
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PastedImage {
-    pub(crate) name: String,
-    pub(crate) mime: String,
-    pub(crate) data: String,
 }
 
 impl TryFrom<Steer> for AgentSteer {

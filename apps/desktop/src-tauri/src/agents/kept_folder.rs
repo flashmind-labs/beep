@@ -3,7 +3,6 @@
 //! order, and a second that writes the large files and removes the forgotten
 //! ones, so a record never waits on a file of hundreds of megabytes.
 
-use crate::agents::steer::PastedImage;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{
     fmt::Display,
@@ -13,6 +12,14 @@ use std::{
     sync::{Arc, mpsc},
     thread,
 };
+
+/// An image as the page sends it: its bytes in base64.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PastedImage {
+    pub(crate) name: String,
+    pub(crate) mime: String,
+    pub(crate) data: String,
+}
 
 /// Image subfolder in the cache, formerly under the records folder.
 pub(crate) const IMAGES: &str = "images";

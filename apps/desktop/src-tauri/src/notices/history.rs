@@ -3,19 +3,17 @@
 //! it at once. Coding agents' notices and CI runs come from `route`;
 //! sync conflicts, failed moves and machines that went away from `watch`.
 
-use super::notify;
 use crate::{
     beep::epoch_ms,
     center::{AgentTarget, CenterTarget, RunAt, lock, write_part},
     chat::markdown::inline_html,
     error::{DesktopError, Result},
     fleet::Fleet,
-    tray::waiting,
 };
 use beep_fleet::{Read, digest};
 use beep_proto::SessionId;
 use beep_proto::{
-    AgentNoticeKey, ApiError, Notice, RunState,
+    AgentNoticeKey, Notice, RunState,
     node::{
         agent::RunNews,
         skills::{self, Held},
@@ -405,7 +403,7 @@ pub(crate) fn open_of(app: &AppHandle, kind: NoteKind) -> Vec<Note> {
 }
 
 /// The agent question an ask note is about.
-fn asked(note: &Note) -> Option<AgentNoticeKey> {
+pub(crate) fn asked(note: &Note) -> Option<AgentNoticeKey> {
     if note.kind != NoteKind::Asks {
         return None;
     }
@@ -553,26 +551,6 @@ pub(crate) fn answered(app: &AppHandle, key: &AgentNoticeKey) {
     });
 }
 
-/// What the tray listed as waiting and no longer does, by its menu ids:
-/// those questions were answered, here or anywhere.
-pub(crate) fn no_longer_waiting(app: &AppHandle, gone: &[String]) {
-    if gone.is_empty() {
-        return;
-    }
-
-    finish(app, |note| {
-        asked(note).is_some_and(|key| {
-            key.question.is_some_and(|question| {
-                gone.contains(&waiting::agent_item(
-                    &key.machine_id,
-                    &key.session,
-                    question,
-                ))
-            })
-        })
-    });
-}
-
 /// The notes, newest first.
 #[tauri::command]
 pub fn notes_list(notes: State<'_, Arc<Notes>>) -> Vec<Note> {
@@ -677,22 +655,6 @@ pub async fn skill_keep(
         .call::<_, skills::Reply>(skills::PROTOCOL, &skills::Request::Keep { name, hash })
         .await?;
     Ok(())
-}
-
-/// Answers the question ask note `id` is about, as Allow and Deny on its
-/// macOS notification do. One answered elsewhere counts as answered.
-#[tauri::command]
-pub async fn notes_answer(app: AppHandle, id: String, allow: bool) -> Result<()> {
-    let key: AgentNoticeKey = id
-        .parse()
-        .map_err(|_| DesktopError::BadRequest("not a question".into()))?;
-    match notify::answer_agent(&app, key.clone(), allow).await {
-        Ok(()) | Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) => {
-            answered(&app, &key);
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
 }
 
 #[cfg(test)]

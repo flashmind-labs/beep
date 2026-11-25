@@ -1,11 +1,16 @@
 //! What each notice a machine of the mesh sends does to the tray and the
 //! windows, and when it shows as a macOS notification.
 
-use super::{history, notify};
+use super::{
+    history,
+    notify::{self, Action},
+};
 use crate::{
+    agents::outbox,
     bar,
     beep::state::Prefs,
     center,
+    error::Result,
     fleet::Fleet,
     fleet::{alerts::Direct, session_mirror::SessionMirror},
 };
@@ -23,6 +28,38 @@ use tokio::{sync::mpsc, time::sleep_until};
 /// a machine sends first may be news it held while this app was away, such as a phone in the
 /// background, and another app may have read it meanwhile.
 const SETTLE: Duration = Duration::from_secs(5);
+
+/// Carries out what a notification's button asked for, in the order asked. A failure shows as
+/// another notification, since nothing else is on screen; one already answered elsewhere only
+/// goes to the log.
+pub(crate) async fn follow_actions(app: AppHandle, mut actions: mpsc::UnboundedReceiver<Action>) {
+    while let Some(action) = actions.recv().await {
+        match action {
+            Action::Answer(key, allow) => {
+                if let Err(e) = answer_agent(&app, key, allow).await {
+                    log::warn!("answering from a notification: {e}");
+                    notify::text(&app, "Beep could not send your answer", &e.to_string());
+                }
+            }
+            #[cfg(desktop)]
+            Action::UpdateNodes => {
+                tauri::async_runtime::spawn(crate::machines::node_updates::update_behind(
+                    app.clone(),
+                ));
+            }
+            #[cfg(mobile)]
+            Action::UpdateNodes => {}
+        }
+    }
+}
+
+/// Answers the question `key` names on the machine of the mesh that asked
+/// it, as Allow or Deny on its notification do. The machine refuses an
+/// answer to a question the session no longer asks, as a conflict.
+pub(crate) async fn answer_agent(app: &AppHandle, key: AgentNoticeKey, allow: bool) -> Result<()> {
+    let fleet = app.state::<Arc<Fleet>>().inner().clone();
+    outbox::answer(app, &fleet, "", &key, notify::agent_reply(allow).to_owned()).await
+}
 
 /// Routes what the machines of the mesh send.
 pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {

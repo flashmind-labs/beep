@@ -6,5 +6,5 @@ pub(crate) mod notify;
 mod route;
 mod watch;
 
-pub(crate) use route::serve;
+pub(crate) use route::{answer_agent, follow_actions, serve};
 pub(crate) use watch::{Looks, follow, heard};

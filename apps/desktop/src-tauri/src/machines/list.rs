@@ -6,14 +6,10 @@ use crate::{
     center::lock,
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
-    fleet::{ClockOff, Fleet, Machines, files as direct},
+    fleet::{ClockOff, Fleet, Machines},
 };
 use beep_projects::imports::found::MachineFound;
-use beep_proto::{
-    Machine, MachineEnv, MachineUpdate, Terminal,
-    node::device::PROTOCOL,
-    node::{AdapterInstall, logs::MAX_LINES},
-};
+use beep_proto::{Machine, MachineEnv, Terminal, node::AdapterInstall, node::device::PROTOCOL};
 use futures::future::BoxFuture;
 use iroh::EndpointId;
 use serde::Serialize;
@@ -300,12 +296,6 @@ pub async fn node_release(fleet: Machines<'_>, prefs: State<'_, Prefs>) -> Resul
         .await)
 }
 
-/// The recent log of one of the account's machines.
-#[tauri::command]
-pub async fn machine_log(fleet: Machines<'_>, id: String) -> Result<String> {
-    direct::machine_log(&fleet, fleet.machine(&id)?, MAX_LINES).await
-}
-
 /// Saves a machine's log to Downloads for a report and returns where it went.
 #[tauri::command]
 pub fn save_machine_log(app: AppHandle, name: String, text: String) -> Result<PathBuf> {
@@ -315,23 +305,6 @@ pub fn save_machine_log(app: AppHandle, name: String, text: String) -> Result<Pa
     );
     fs::write(&to, text).map_err(anyhow::Error::from)?;
     Ok(to)
-}
-
-/// Has one of the account's machines update its beep-node and restart
-/// once its agent sessions are idle.
-#[tauri::command]
-pub async fn update_machine(
-    fleet: Machines<'_>,
-    prefs: State<'_, Prefs>,
-    id: String,
-) -> Result<MachineUpdate> {
-    direct::update_machine(
-        &fleet,
-        fleet.machine(&id)?,
-        false,
-        prefs.node_release_channel(),
-    )
-    .await
 }
 
 #[cfg(test)]

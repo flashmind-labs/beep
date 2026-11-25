@@ -4,8 +4,9 @@
 
 use crate::{
     agents::{
+        kept_folder::PastedImage,
         starts::{Start, StartId, Starts},
-        steer::{self, DevicePick, PastedImage, uploads},
+        steer::{self, DevicePick, uploads},
     },
     beep::epoch_ms,
     center::AgentsShown,

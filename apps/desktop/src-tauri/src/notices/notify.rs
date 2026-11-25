@@ -7,17 +7,15 @@
 use crate::{
     center::{self, AgentTarget, CenterTarget},
     chat::markdown::plain_text,
-    error::Result,
-    fleet::Fleet,
 };
 use beep_proto::{
     AgentNoticeKey, Notice,
     node::agent::{AnswerOption, OptionKind},
 };
-use std::sync::Arc;
 use tauri::{AppHandle, Manager};
 #[cfg(not(target_os = "macos"))]
 use tauri_plugin_notification::NotificationExt;
+use tokio::sync::mpsc;
 
 /// Whether the phone app is on screen, where a notice is already in the bell
 /// and a system notification only repeats it. Android skips the first resume.
@@ -170,26 +168,30 @@ fn open(app: &AppHandle, target: CenterTarget) {
     }
 }
 
-/// Answers `key` from a notification's button. A failure shows as another
-/// notification, since nothing else is on screen; one already answered
-/// elsewhere only goes to the log.
-async fn answer(app: AppHandle, key: AgentNoticeKey, allow: bool) {
-    if let Err(e) = answer_agent(&app, key, allow).await {
-        log::warn!("answering from a notification: {e}");
-        text(&app, "Beep could not send your answer", &e.to_string());
+/// What a notification's button asks for, which `route::follow_actions` carries out.
+pub(crate) enum Action {
+    Answer(AgentNoticeKey, bool),
+    UpdateNodes,
+}
+
+/// Takes the actions to `route::follow_actions`.
+pub(crate) struct Actions(mpsc::UnboundedSender<Action>);
+
+impl Actions {
+    pub(crate) fn new() -> (Self, mpsc::UnboundedReceiver<Action>) {
+        let (sender, actions) = mpsc::unbounded_channel();
+        (Self(sender), actions)
     }
 }
 
-/// Answers the question `key` names on the machine of the mesh that asked
-/// it, as Allow or Deny on its notification do. The machine refuses an
-/// answer to a question the session no longer asks, as a conflict.
-pub(crate) async fn answer_agent(app: &AppHandle, key: AgentNoticeKey, allow: bool) -> Result<()> {
-    let fleet = app.state::<Arc<Fleet>>().inner().clone();
-    crate::agents::outbox::answer(app, &fleet, "", &key, agent_reply(allow).to_owned()).await
+/// Asks for `action`.
+fn ring(app: &AppHandle, action: Action) {
+    // The receiver lives as long as the app.
+    let _ = app.state::<Actions>().0.send(action);
 }
 
 /// The reply that picks the agent's allow-once or reject-once option.
-fn agent_reply(allow: bool) -> &'static str {
+pub(crate) fn agent_reply(allow: bool) -> &'static str {
     if allow { "allow" } else { "deny" }
 }
 
@@ -258,8 +260,7 @@ pub(crate) use mac::init;
 #[cfg(target_os = "macos")]
 #[allow(deprecated)] // Keep the existing notification presentation and development identity.
 mod mac {
-    use super::{Interaction, Response, Route, answer, notification_icon, open, response};
-    use crate::machines::node_updates;
+    use super::{Action, Interaction, Response, Route, notification_icon, open, response, ring};
     use objc2::{
         AnyThread, DefinedClass, define_class, msg_send,
         rc::Retained,
@@ -333,12 +334,8 @@ mod mac {
 
             match response(route, interaction) {
                 Response::Open(target) => open(self.ivars(), target),
-                Response::Answer(key, allow) => {
-                    tauri::async_runtime::spawn(answer(self.ivars().clone(), key, allow));
-                }
-                Response::UpdateNodes => {
-                    tauri::async_runtime::spawn(node_updates::update_behind(self.ivars().clone()));
-                }
+                Response::Answer(key, allow) => ring(self.ivars(), Action::Answer(key, allow)),
+                Response::UpdateNodes => ring(self.ivars(), Action::UpdateNodes),
                 Response::Nothing => {}
             }
         }

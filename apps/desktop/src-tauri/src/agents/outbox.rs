@@ -11,10 +11,10 @@
 
 use crate::{
     agents::{
-        kept_folder::{KeptFolder, KeptImage, Write, forget_images, image_writes},
+        kept_folder::{KeptFolder, KeptImage, PastedImage, Write, forget_images, image_writes},
         kept_transcripts::SessionKey,
         sessions::{SessionRow, closed, resume_session},
-        steer::{BEFORE_STOP_ALL, PastedImage, Steer, SteerError, newer_than, sent},
+        steer::{BEFORE_STOP_ALL, Steer, SteerError, newer_than, sent},
     },
     error::{DesktopError, Result},
     fleet::{

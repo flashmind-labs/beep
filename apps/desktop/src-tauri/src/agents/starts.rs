@@ -11,9 +11,9 @@
 
 use crate::{
     agents::{
-        kept_folder::{KeptFolder, KeptImage, Write, forget_images, image_writes},
+        kept_folder::{KeptFolder, KeptImage, PastedImage, Write, forget_images, image_writes},
         sessions::{SessionRow, Started, closed},
-        steer::{PastedImage, Steer, SteerError, uploads},
+        steer::{Steer, SteerError, uploads},
     },
     beep::epoch_ms,
     error::{DesktopError, Result},
