@@ -153,6 +153,19 @@ impl Asks {
         self.cards.get(repo).cloned().unwrap_or_default()
     }
 
+    /// When the oldest ask or card expires.
+    pub(super) fn due(&self) -> Option<SystemTime> {
+        let cards = self.cards.values().flatten().map(|card| card.updated_at);
+
+        self.sent
+            .values()
+            .map(|sent| sent.at)
+            .chain(self.taken.values().map(|taken| taken.at))
+            .chain(cards)
+            .map(|at| at + KEPT_FOR)
+            .min()
+    }
+
     pub(super) fn expire(&mut self, now: SystemTime) {
         let fresh = |at: SystemTime| now.duration_since(at).map_or(true, |age| age < KEPT_FOR);
         self.sent.retain(|_, sent| fresh(sent.at));

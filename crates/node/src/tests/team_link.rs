@@ -696,6 +696,43 @@ fn contact_invites_expire_after_a_day() {
 }
 
 #[tokio::test]
+async fn an_invite_that_outlives_its_day_goes_by_its_own_deadline() {
+    let pair = Pair::new(SystemTime::now() + DAY).await;
+    let args = TeamInviteArgs {
+        from: mesh_id(),
+        repo: repo(),
+        ticket: ticket_to(repo()),
+    };
+    assert_eq!(pair.inviter.next_expiry(), None);
+
+    let taken = SystemTime::now() - DAY + Duration::from_secs(60);
+    pair.inviter
+        .inner
+        .invites
+        .lock()
+        .unwrap()
+        .keep(args, taken)
+        .unwrap();
+    // The deadline is the oldest invite's day.
+    assert_eq!(pair.inviter.next_expiry(), Some(taken + DAY));
+    assert_eq!(pair.inviter.invites_waiting().len(), 1);
+
+    // Past it, the sweep the home task runs at the deadline drops the invite.
+    let past = SystemTime::now() - DAY - Duration::from_secs(1);
+    let waiting = pair.inviter.invites_waiting()[0].clone();
+    pair.inviter.inner.invites.lock().unwrap().remove(&waiting);
+    let args = TeamInviteArgs {
+        from: mesh_id(),
+        repo: repo(),
+        ticket: ticket_to(repo()),
+    };
+    pair.inviter.inner.invites.lock().unwrap().keep(args, past).unwrap();
+    assert_eq!(pair.inviter.next_expiry(), Some(past + DAY));
+    pair.inviter.expire_now();
+    assert_eq!(pair.inviter.next_expiry(), None);
+}
+
+#[tokio::test]
 async fn join_cannot_claim_a_member() {
     // Bob signs in as alice, who is already on the team from another mesh.
     let pair = Pair::with(SystemTime::now() + DAY, Answer::Yes, "alice").await;

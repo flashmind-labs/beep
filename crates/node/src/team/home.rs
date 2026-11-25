@@ -45,7 +45,7 @@ use tokio::{
     select,
     sync::broadcast::error::RecvError,
     task::JoinSet,
-    time::{Instant, sleep_until, timeout},
+    time::{Instant, sleep, sleep_until, timeout},
 };
 
 /// How often what waits for a desktop is offered again.
@@ -115,9 +115,14 @@ impl Invites {
         self.0.retain(|(kept, _)| kept != invite);
     }
 
-    fn expire(&mut self, now: SystemTime) {
+    pub(crate) fn expire(&mut self, now: SystemTime) {
         self.0
             .retain(|(_, at)| now.duration_since(*at).map_or(true, |age| age < INVITE_AGE));
+    }
+
+    /// When the oldest invite expires.
+    pub(crate) fn due(&self) -> Option<SystemTime> {
+        self.0.iter().map(|(_, at)| *at + INVITE_AGE).min()
     }
 }
 
@@ -173,7 +178,17 @@ pub(crate) async fn follow(mesh: Mesh, link: TeamLink) {
             }
         };
 
+        let expiry = async {
+            match link.next_expiry() {
+                Some(at) => sleep(at.duration_since(SystemTime::now()).unwrap_or_default()).await,
+                None => pending().await,
+            }
+        };
+
         select! {
+            // An invite or a card that outlives its day goes, and its topic says so.
+            () = expiry => link.expire_now(),
+            () = link.expiry_changed() => {}
             change = changes.recv() => match change {
                 Ok(Key::Team(_) | Key::Contact(_) | Key::Project(_)) | Err(RecvError::Lagged(_)) => {
                     refresh(&mesh, &link);

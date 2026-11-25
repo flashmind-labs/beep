@@ -173,6 +173,8 @@ struct Inner {
     sessions: OnceLock<Arc<dyn Sessions>>,
     /// Rings when a roster or an invite waits for a desktop.
     waiting: Notify,
+    /// Rings when an invite or a card was added, which may expire sooner than the next to.
+    expiring: Notify,
     /// Rises whenever a roster is edited, for the gateway to elect again.
     rostered: watch::Sender<u64>,
 }
@@ -190,6 +192,7 @@ impl TeamLink {
             queues: Mutex::default(),
             sessions: OnceLock::new(),
             waiting: Notify::new(),
+            expiring: Notify::new(),
             rostered: watch::channel(0).0,
         };
 
@@ -325,6 +328,34 @@ impl TeamLink {
         if let Some(project) = project {
             crate::events::system().changed(Topic::keyed(TEAM_CARDS_TOPIC, project));
         }
+
+        self.inner.expiring.notify_one();
+    }
+
+    /// When the oldest invite or card expires by age.
+    pub(crate) fn next_expiry(&self) -> Option<SystemTime> {
+        let invites = crate::lock(&self.inner.invites).due();
+        let asks = crate::lock(&self.inner.asks).due();
+
+        invites.into_iter().chain(asks).min()
+    }
+
+    /// Resolves when an invite or a card was added.
+    pub(crate) async fn expiry_changed(&self) {
+        self.inner.expiring.notified().await;
+    }
+
+    /// Drops what expired by age and says the topics of the invites and the cards changed.
+    pub(crate) fn expire_now(&self) {
+        let now = SystemTime::now();
+        let repos: Vec<TeamRepo> = self.asks(|asks| asks.cards.keys().cloned().collect());
+        crate::lock(&self.inner.invites).expire(now);
+        self.asks(|asks| asks.expire(now));
+        crate::events::system().changed(Topic::new(TEAM_INVITES_TOPIC));
+
+        for repo in &repos {
+            self.cards_changed(repo);
+        }
     }
 
     /// The invites waiting for a desktop now.
@@ -336,6 +367,7 @@ impl TeamLink {
     /// `team-invites` topic changed.
     pub(crate) fn keep_invite(&self, invite: TeamInviteArgs) -> Result<(), String> {
         crate::lock(&self.inner.invites).keep(invite, SystemTime::now())?;
+        self.inner.expiring.notify_one();
         crate::events::system().changed(Topic::new(TEAM_INVITES_TOPIC));
 
         Ok(())
