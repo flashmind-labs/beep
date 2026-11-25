@@ -4,7 +4,10 @@
 use super::{Fleet, asked::newer_than, view_signal::Interest};
 use crate::error::Result;
 use beep_mesh::{Key, machine::terminals::Kept};
-use beep_proto::node::{events::Topic, mesh_state::TerminalRecord};
+use beep_proto::node::{
+    events::Topic,
+    mesh_state::{StateValue, TerminalRecord},
+};
 use iroh::EndpointId;
 use semver::Version;
 use uuid::Uuid;

@@ -10,7 +10,6 @@ use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
 use beep_proto::watched;
 use iroh::EndpointId;
-use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, OnceLock, PoisonError},

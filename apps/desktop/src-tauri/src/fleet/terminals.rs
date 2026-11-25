@@ -21,7 +21,7 @@ use beep_proto::{
     node::{
         LinkRx, LinkTx,
         events::Value,
-        mesh_state::{StateValue, TerminalRecord},
+        mesh_state::TerminalRecord,
         process::{Reply as TaskReply, Request as TaskRequest, Task, TaskId},
         terminal::{Reply as PtyReply, Size},
     },
