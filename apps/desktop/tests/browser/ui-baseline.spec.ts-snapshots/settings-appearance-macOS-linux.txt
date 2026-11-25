@@ -260,6 +260,9 @@ body.cbody
                 span
                   b "Projects"
                   small "A project's front page"
+                div.hv-seg [aria-label="Projects layout" aria-orientation="horizontal" data-orientation="horizontal" data-rac role="radiogroup"]
+                  button.react-aria-ToggleButton [aria-checked="true" data-rac data-react-aria-pressable="true" data-selected="true" role="radio" tabindex="0" type="button"] "Board"
+                  button.react-aria-ToggleButton [aria-checked="false" data-rac data-react-aria-pressable="true" role="radio" tabindex="0" type="button"] "List"
               div.dtoggle
                 span
                   b "Conversation scrollbar"

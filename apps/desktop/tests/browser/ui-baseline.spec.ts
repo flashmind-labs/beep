@@ -715,6 +715,8 @@ for (const section of [null, "Agents", "Appearance"] as const) {
       await nav.getByRole("button", { name: section, exact: true }).click();
       await expect(nav.getByRole("button", { name: section, exact: true })).toHaveAttribute("aria-current", "true");
     }
+    // The Board and List pick loads on its own: the page is whole once it shows.
+    if (section === "Appearance") await expect(page.getByRole("radiogroup", { name: "Projects layout" })).toBeVisible();
 
     await baseline(page, name);
   });
