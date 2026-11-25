@@ -15,7 +15,12 @@ use beep_fleet::{
 };
 use beep_proto::{
     AgentNoticeKey,
-    node::{agent::MovePhase, events::Value, mesh_state::SessionMove, skills, sync},
+    node::{
+        agent::{MoveEntry, MovePhase, SessionsReply},
+        events::{MOVE_PROGRESS_TOPIC, Value},
+        mesh_state::SessionMove,
+        skills, sync,
+    },
 };
 use futures::future::join_all;
 use iroh::EndpointId;
@@ -50,10 +55,14 @@ const MOVES_FOR_MS: u64 = 24 * 3600 * 1000;
 type Said = Vec<(String, BTreeSet<String>)>;
 
 /// What the machines pushed that the bell takes news from: each machine's latest sync, whose
-/// conflicts it tells without asking anyone, and whether a move changed.
+/// conflicts it tells without asking anyone, how the moves to each machine stand, and whether
+/// a move of a machine that does not push them changed.
 pub(crate) struct Looks {
     pushed: watch::Sender<u64>,
     said: Mutex<HashMap<EndpointId, Said>>,
+    /// A machine's latest `move-progress`; a node from before it has none.
+    moves: Mutex<HashMap<EndpointId, Vec<MoveEntry>>>,
+    moves_pushed: AtomicBool,
     moved: AtomicBool,
 }
 
@@ -62,6 +71,8 @@ impl Looks {
         Self {
             pushed: watch::channel(0).0,
             said: Mutex::default(),
+            moves: Mutex::default(),
+            moves_pushed: AtomicBool::new(false),
             moved: AtomicBool::new(false),
         }
     }
@@ -86,12 +97,41 @@ impl Looks {
                     .unwrap_or_else(PoisonError::into_inner)
                     .insert(machine, said);
             }
-            ("moves", _) => self.moved.store(true, Ordering::Relaxed),
+            (MOVE_PROGRESS_TOPIC, Value::Sessions(reply)) => {
+                let SessionsReply::Moves { moves } = reply.as_ref() else {
+                    return;
+                };
+                self.moves
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(machine, moves.clone());
+                self.moves_pushed.store(true, Ordering::Relaxed);
+            }
+            // A machine that pushes its moves says what changed itself.
+            ("moves", _) => {
+                if self
+                    .moves
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .contains_key(&machine)
+                {
+                    return;
+                }
+
+                self.moved.store(true, Ordering::Relaxed);
+            }
             _ => return,
         }
 
         self.pushed
             .send_modify(|count| *count = count.wrapping_add(1));
+    }
+
+    fn pushed_moves(&self) -> HashMap<EndpointId, Vec<MoveEntry>> {
+        self.moves
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// The syncs pushed since the last call, the latest of each machine.
@@ -131,17 +171,25 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
             sync(&app, &fleet, machine, said, &mut conflicts);
         }
 
+        let moves_pushed = looks.moves_pushed.swap(false, Ordering::Relaxed);
         slow.wanted |= looks.moved.swap(false, Ordering::Relaxed);
+        let reads = slow.due(now);
 
-        if slow.due(now) {
+        if moves_pushed || reads {
             match session.desk().await {
                 Ok(desk) => {
-                    skill_conflicts(&app, &fleet, &mut conflicts).await;
-                    failed_moves(&app, &fleet, &desk, &mut moves).await;
+                    if reads {
+                        skill_conflicts(&app, &fleet, &mut conflicts).await;
+                    }
+
+                    let pushed = looks.pushed_moves();
+                    failed_moves(&app, &fleet, &desk, &mut moves, &pushed, reads).await;
                 }
                 Err(e) => log::debug!("the bell does not read the mesh: {e}"),
             }
+        }
 
+        if reads {
             slow.read(now);
         }
 
@@ -222,7 +270,7 @@ fn hold_pushes(app: &AppHandle, fleet: &Arc<Fleet>) -> Option<()> {
     use beep_proto::node::events::Topic;
 
     let events = app.state::<Events>();
-    let interests = ["sync", "moves"]
+    let interests = ["sync", "moves", MOVE_PROGRESS_TOPIC]
         .map(|name| Interest {
             machine: None,
             topic: Topic::new(name),
@@ -416,7 +464,44 @@ fn skill_note(name: &str) -> String {
     format!("skill:{name}")
 }
 
-async fn failed_moves(app: &AppHandle, fleet: &Fleet, desk: &Desk, told: &mut HashSet<String>) {
+/// What a machine pushed of a move to it.
+#[derive(Debug, PartialEq, Eq)]
+enum Heard {
+    Failed(String),
+    Over,
+    Going,
+    /// The machine pushes no moves: it is from before that.
+    Silent,
+}
+
+fn heard_of(record: &SessionMove, pushed: &HashMap<EndpointId, Vec<MoveEntry>>) -> Heard {
+    let Some(entries) = pushed.get(&record.to) else {
+        return Heard::Silent;
+    };
+    let Some(entry) = entries
+        .iter()
+        .find(|entry| entry.session == record.id && entry.at == record.at)
+    else {
+        return Heard::Going;
+    };
+
+    match entry.progress.phase {
+        MovePhase::Failed => Heard::Failed(entry.progress.reason.clone().unwrap_or_default()),
+        MovePhase::Done | MovePhase::Cancelled => Heard::Over,
+        _ => Heard::Going,
+    }
+}
+
+/// Tells the moves that failed, from what the target machines pushed. A target from before
+/// that is asked, when `ask` allows it.
+async fn failed_moves(
+    app: &AppHandle,
+    fleet: &Fleet,
+    desk: &Desk,
+    told: &mut HashSet<String>,
+    pushed: &HashMap<EndpointId, Vec<MoveEntry>>,
+    ask: bool,
+) {
     let now = now_ms();
     let open: Vec<(SessionMove, String)> = desk
         .moves()
@@ -428,10 +513,30 @@ async fn failed_moves(app: &AppHandle, fleet: &Fleet, desk: &Desk, told: &mut Ha
         })
         .filter(|(_, id)| !told.contains(id) && history::get(app, id).is_none())
         .collect();
-    // Each target is asked at once: a slow one holds up no other.
-    let states = join_all(open.iter().map(|(record, _)| desk.move_state(&record.id))).await;
+    let mut silent = Vec::new();
 
-    for ((record, id), state) in open.into_iter().zip(states) {
+    for (record, id) in open {
+        match heard_of(&record, pushed) {
+            Heard::Failed(reason) => {
+                tell_failed(app, fleet, &record, id.clone(), reason);
+                told.insert(id);
+            }
+            Heard::Over => {
+                told.insert(id);
+            }
+            Heard::Going => {}
+            Heard::Silent => silent.push((record, id)),
+        }
+    }
+
+    if !ask {
+        return;
+    }
+
+    // Each target is asked at once: a slow one holds up no other.
+    let states = join_all(silent.iter().map(|(record, _)| desk.move_state(&record.id))).await;
+
+    for ((record, id), state) in silent.into_iter().zip(states) {
         let progress = match state {
             Ok(MoveState::Known(progress)) => progress,
             Ok(MoveState::NeedsUpdate) => {
@@ -444,11 +549,13 @@ async fn failed_moves(app: &AppHandle, fleet: &Fleet, desk: &Desk, told: &mut Ha
 
         match progress.phase {
             MovePhase::Failed => {
-                let note = Note {
-                    text: progress.reason.unwrap_or_default(),
-                    ..moved(fleet, &record, id.clone())
-                };
-                history::record(app, note);
+                tell_failed(
+                    app,
+                    fleet,
+                    &record,
+                    id.clone(),
+                    progress.reason.unwrap_or_default(),
+                );
                 told.insert(id);
             }
             MovePhase::Done | MovePhase::Cancelled => {
@@ -457,6 +564,16 @@ async fn failed_moves(app: &AppHandle, fleet: &Fleet, desk: &Desk, told: &mut Ha
             _ => {}
         }
     }
+}
+
+fn tell_failed(app: &AppHandle, fleet: &Fleet, record: &SessionMove, id: String, reason: String) {
+    history::record(
+        app,
+        Note {
+            text: reason,
+            ..moved(fleet, record, id)
+        },
+    );
 }
 
 /// The note of `record`'s failed move, which opens the session where it

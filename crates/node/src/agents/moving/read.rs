@@ -9,13 +9,13 @@
 
 use super::{
     Harness, files,
-    progress::Target,
+    progress::{Landing, Target},
     saved::{MOVED_AWAY, Outgoing, Previous, SentTree},
     worktree::{self, Work},
 };
 use crate::agents::{Agents, SavedSession, found::Agent};
 use anyhow::{Context, Result, bail};
-use beep_proto::SessionId;
+use beep_proto::{SessionId, watched};
 use beep_proto::{
     AgentSlug,
     node::{LinkRx, LinkTx},
@@ -63,6 +63,12 @@ pub(crate) enum Request {
         /// before worktree moves were removed. Sent false, ignored.
         #[serde(default)]
         worktree: bool,
+        /// Keep the stream open after an `End` of a session that still
+        /// runs, and send a second `End` once it does not. A source from
+        /// before this closes the stream after the first. Added after
+        /// `worktree`.
+        #[serde(default)]
+        follow: bool,
     },
     /// Asked by nodes from before background copies were removed; refused.
     /// Kept so the requests after it keep their place on the wire.
@@ -99,6 +105,10 @@ pub(crate) enum Request {
     /// then `End`. The folders of the chat's threads that move themselves
     /// are left out.
     Files { id: SessionId },
+    /// As `State`, kept open: the target sends a `State` each time the move
+    /// stands differently, until it landed or failed. Sent by the source;
+    /// a target from before this closes the stream without answering.
+    Follow { id: SessionId, at: u64 },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -328,7 +338,7 @@ pub(super) async fn serve(
         | Request::Checkout { id }
         | Request::Worktree { id, .. }
         | Request::Files { id } => Some((Asked::Read, id, "no move of that session to you")),
-        Request::State { id, at } => {
+        Request::State { id, at } | Request::Follow { id, at } => {
             Some((Asked::State(*at), id, "no move of that session from you"))
         }
         Request::WorktreeBundle { .. } | Request::List {} | Request::Copy { .. } => None,
@@ -359,6 +369,7 @@ pub(super) async fn serve(
             from,
             prefix_hash,
             worktree: _,
+            follow,
         } => {
             if let Some(why) = agents.moves.refusal(&id) {
                 return tx.send(&refuse(&why)).await;
@@ -374,13 +385,19 @@ pub(super) async fn serve(
             // restart, or that the source is still finishing with, counts
             // as running.
             let mut live = !agents.reopened() || agents.runs(&id) || agents.moves.holds(&id);
+            // Whether the source says when it is done: not for a move still
+            // settling from an earlier one, which the target asks again.
+            let mut settling = false;
             if let Some(outgoing) = access.outgoing {
                 let Some(generation) = outgoing(&id) else {
                     return tx.send(&refuse("no move of that session to you")).await;
                 };
                 match agents.moves.preceding(&id, generation).await {
                     Previous::Departed => return tx.send(&refuse(MOVED_AWAY)).await,
-                    Previous::Settling => live = true,
+                    Previous::Settling => {
+                        live = true;
+                        settling = true;
+                    }
                     Previous::Released => {
                         // A cancelled move may have reopened it during the read.
                         live |= agents.runs(&id) || agents.moves.holds(&id);
@@ -389,7 +406,18 @@ pub(super) async fn serve(
             }
 
             match send_after(&mut tx, &found, from, &prefix_hash, live).await {
-                Ok(()) => tx.finish().await,
+                Ok(()) => {
+                    if follow && live && !settling {
+                        until_done(agents, &id).await;
+                        tx.send(&Reply::End {
+                            size: 0,
+                            live: false,
+                        })
+                        .await?;
+                    }
+
+                    tx.finish().await
+                }
                 Err(e) => {
                     let message = format!("{e:#}");
                     tx.send(&Reply::Refused { message }).await
@@ -519,22 +547,64 @@ pub(super) async fn serve(
             tx.send(&refuse("this machine no longer makes background copies"))
                 .await
         }
-        Request::State { id, at } => {
-            let (taken, failed, landed, starting) = match agents.moves.target(&id, at) {
-                Target::Unknown => (false, None, false, false),
-                Target::Taken => (true, None, false, false),
-                Target::Starting => (true, None, false, true),
-                Target::Failed(reason) => (false, Some(reason), false, false),
-                Target::Landed => (true, None, true, false),
+        Request::Follow { id, at } => {
+            let Some(tracker) = agents.moves.tracker(&id, at) else {
+                // The move is not here yet: it is asked again.
+                tx.send(&state(&Target::Unknown)).await?;
+                return tx.finish().await;
             };
-            tx.send(&Reply::State {
-                taken,
-                failed,
-                landed,
-                starting,
-            })
-            .await?;
+            let mut landing = tracker.follow();
+            let mut told = None;
+
+            loop {
+                let now = watched::read_and_update(&mut landing, Landing::target);
+
+                if told.as_ref() != Some(&now) {
+                    tx.send(&state(&now)).await?;
+                }
+
+                let over = matches!(now, Target::Landed | Target::Failed(_));
+                told = Some(now);
+
+                if over || landing.changed().await.is_err() {
+                    return tx.finish().await;
+                }
+            }
+        }
+        Request::State { id, at } => {
+            tx.send(&state(&agents.moves.target(&id, at))).await?;
             tx.finish().await
+        }
+    }
+}
+
+/// What a target says of a move, as `State` carries it.
+fn state(target: &Target) -> Reply {
+    let (taken, failed, landed, starting) = match target {
+        Target::Unknown => (false, None, false, false),
+        Target::Taken => (true, None, false, false),
+        Target::Starting => (true, None, false, true),
+        Target::Failed(reason) => (false, Some(reason.clone()), false, false),
+        Target::Landed => (true, None, true, false),
+    };
+    Reply::State {
+        taken,
+        failed,
+        landed,
+        starting,
+    }
+}
+
+/// Waits until session `id` no longer runs here and the source is done with it.
+async fn until_done(agents: &Agents, id: &SessionId) {
+    // Subscribed before the check, so a change between the two is not missed.
+    let mut released = agents.moves.released();
+
+    loop {
+        agents.until_reopened().await;
+
+        if !(agents.runs(id) || agents.moves.holds(id)) || released.changed().await.is_err() {
+            return;
         }
     }
 }
@@ -692,6 +762,9 @@ pub(crate) struct Pulled {
     pub(crate) live: bool,
     /// The name the source keeps the file under.
     pub(crate) file_name: String,
+    /// The source said on the stream that the session ended since: a read
+    /// now brings the rest.
+    pub(crate) ended: bool,
 }
 
 /// What `pull` asks for.
@@ -703,16 +776,39 @@ pub(crate) struct Ask<'a> {
 
 /// Brings the copy at `ask.copy` up to date from the stream of a source.
 /// A copy that diverged is kept beside it as `<name>.diverged`.
+#[cfg(test)]
 pub(crate) async fn pull(tx: LinkTx, rx: LinkRx, ask: Ask<'_>) -> Result<Pulled> {
     pull_within(tx, rx, ask, QUIET_FOR).await
 }
 
+/// `pull`, asking a source that still runs the session to say when it ended
+/// on this stream. `told` hears what came by the first `End`, before the wait.
+pub(crate) async fn pull_following(
+    tx: LinkTx,
+    rx: LinkRx,
+    ask: Ask<'_>,
+    told: impl FnOnce(&Pulled),
+) -> Result<Pulled> {
+    pull_with(tx, rx, ask, QUIET_FOR, Some(told)).await
+}
+
 /// `pull`, failing when the source sends nothing for `quiet`.
+#[cfg(test)]
 pub(super) async fn pull_within(
+    tx: LinkTx,
+    rx: LinkRx,
+    ask: Ask<'_>,
+    quiet: Duration,
+) -> Result<Pulled> {
+    pull_with(tx, rx, ask, quiet, None::<fn(&Pulled)>).await
+}
+
+async fn pull_with(
     mut tx: LinkTx,
     mut rx: LinkRx,
     ask: Ask<'_>,
     quiet: Duration,
+    told: Option<impl FnOnce(&Pulled)>,
 ) -> Result<Pulled> {
     let Ask { agent, id, copy } = ask;
     let (from, prefix_hash) = held(copy).await?;
@@ -722,6 +818,7 @@ pub(super) async fn pull_within(
         from,
         prefix_hash,
         worktree: false,
+        follow: told.is_some(),
     };
     tx.send(&request).await?;
     let Some(Reply::Head {
@@ -762,11 +859,28 @@ pub(super) async fn pull_within(
                     bail!("the copy is {held} bytes, the source said {size}");
                 }
 
-                return Ok(Pulled {
+                let mut pulled = Pulled {
                     size,
                     live,
                     file_name,
-                });
+                    ended: false,
+                };
+
+                if let Some(told) = told
+                    && live
+                {
+                    told(&pulled);
+
+                    // A source that follows keeps the stream and ends it
+                    // with a second `End`; an older one has closed it.
+                    match rx.recv::<Reply>().await? {
+                        Some(Reply::End { .. }) => pulled.ended = true,
+                        Some(Reply::Refused { message }) => return Err(Refused(message).into()),
+                        _ => {}
+                    }
+                }
+
+                return Ok(pulled);
             }
             _ => bail!("the source stopped before the end"),
         }

@@ -867,6 +867,20 @@ pub enum SessionsReply {
     LspLocations {
         result: LspDefinitions,
     },
+    /// Every move this node is the target of, as the `move-progress` topic
+    /// pushes them. Added after `LspLocations`.
+    Moves {
+        moves: Vec<MoveEntry>,
+    },
+}
+
+/// How the move of one session to a node stands.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MoveEntry {
+    pub session: SessionId,
+    /// The unix milliseconds of the move's record.
+    pub at: u64,
+    pub progress: MoveProgress,
 }
 
 /// What `SessionsRequest::LspDefinition` returns.

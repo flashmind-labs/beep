@@ -5,8 +5,9 @@
 
 use super::saved::{Folder, Outgoing, Previous, SentTree, valid_id};
 use crate::{AsyncMutex, lock};
-use beep_proto::SessionId;
-use beep_proto::node::agent::{MovePhase, MoveProgress};
+use beep_proto::{SessionId, watched};
+use beep_proto::node::events::{MOVE_PROGRESS_TOPIC, Topic};
+use beep_proto::node::agent::{MoveEntry, MovePhase, MoveProgress};
 use iroh::EndpointId;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -23,11 +24,13 @@ use tokio_util::task::AbortOnDropHandle;
 const KEEP_OUTCOMES: Duration = Duration::from_secs(120);
 const MAX_OUTCOMES: usize = 128;
 
+/// How a move stands on its target. Each change reaches whoever follows it:
+/// the source of the move, and the node's `move-progress` push.
 #[derive(Default)]
-pub(super) struct Tracker(Mutex<Landing>);
+pub(super) struct Tracker(watch::Sender<Landing>);
 
 #[derive(Default)]
-struct Landing {
+pub(super) struct Landing {
     state: LandingState,
     progress: MoveProgress,
 }
@@ -48,75 +51,98 @@ impl Default for LandingState {
 
 impl Tracker {
     pub(super) fn take(&self) {
-        let mut landing = lock(&self.0);
+        let told = self.0.send_if_modified(|landing| match &mut landing.state {
+            LandingState::Preparing { taken } if !*taken => {
+                *taken = true;
+                true
+            }
+            _ => false,
+        });
 
-        if let LandingState::Preparing { taken } = &mut landing.state {
-            *taken = true;
+        if told {
+            changed();
         }
+    }
+
+    /// Follows what the target says of the move, and how far it is.
+    pub(super) fn follow(&self) -> watch::Receiver<Landing> {
+        self.0.subscribe()
     }
 
     /// Claims the move before the task is aborted and its work is undone.
     pub(super) fn request_cancel(&self) -> bool {
-        let mut landing = lock(&self.0);
-        if !matches!(landing.state, LandingState::Preparing { .. }) {
-            return false;
-        }
+        let mut claimed = false;
+        self.0.send_if_modified(|landing| {
+            claimed = matches!(landing.state, LandingState::Preparing { .. });
 
-        landing.state = LandingState::Cancelling;
-        true
+            if claimed {
+                landing.state = LandingState::Cancelling;
+            }
+
+            false
+        });
+        claimed
     }
 
     /// The target owns the move from here until it has resumed or rolled back.
     pub(super) fn resume(&self) -> bool {
-        {
-            let mut landing = lock(&self.0);
-            if !matches!(landing.state, LandingState::Preparing { .. }) {
-                return false;
-            }
+        let mut resumed = false;
+        self.0.send_modify(|landing| {
+            resumed = matches!(landing.state, LandingState::Preparing { .. });
 
-            landing.state = LandingState::Settling;
-            landing.progress.phase = MovePhase::Resuming;
+            if resumed {
+                landing.state = LandingState::Settling;
+                landing.progress.phase = MovePhase::Resuming;
+            }
+        });
+
+        if resumed {
+            changed();
         }
-        changed();
-        true
+
+        resumed
     }
 
     pub(super) fn settle(&self) -> bool {
-        let mut landing = lock(&self.0);
-        match landing.state {
-            LandingState::Preparing { .. } => landing.state = LandingState::Settling,
-            LandingState::Settling => {}
-            LandingState::Cancelling | LandingState::Finished => return false,
-        }
-        true
+        let mut settled = true;
+        self.0.send_if_modified(|landing| {
+            match landing.state {
+                LandingState::Preparing { .. } => landing.state = LandingState::Settling,
+                LandingState::Settling => {}
+                LandingState::Cancelling | LandingState::Finished => settled = false,
+            }
+
+            false
+        });
+        settled
     }
 
     pub(super) fn finish(&self, phase: MovePhase, reason: Option<String>) {
-        {
-            let mut landing = lock(&self.0);
+        self.0.send_modify(|landing| {
             landing.state = LandingState::Finished;
             if phase == MovePhase::Cancelled {
                 landing.progress = MoveProgress::default();
             }
             landing.progress.phase = phase;
             landing.progress.reason = reason;
-        }
+        });
         changed();
     }
+}
 
-    fn target(&self) -> Target {
-        let landing = lock(&self.0);
-        match landing.progress.phase {
+impl Landing {
+    /// What the target tells its source.
+    pub(super) fn target(&self) -> Target {
+        match self.progress.phase {
             MovePhase::Resuming => Target::Starting,
             MovePhase::Done => Target::Landed,
             MovePhase::Failed | MovePhase::Cancelled => Target::Failed(
-                landing
-                    .progress
+                self.progress
                     .reason
                     .clone()
                     .unwrap_or_else(|| "the move did not finish".to_owned()),
             ),
-            _ if matches!(landing.state, LandingState::Preparing { taken: true }) => Target::Taken,
+            _ if matches!(self.state, LandingState::Preparing { taken: true }) => Target::Taken,
             _ => Target::Unknown,
         }
     }
@@ -189,6 +215,9 @@ pub(crate) struct Moves {
     /// Told each time a move ends on this side, which leaves room for one
     /// that found none: a chat moves as many sessions at once.
     pub(super) ended: Notify,
+    /// Counts each time a session stops being held for a move, or a move is
+    /// given up, for a target that waits for the source to be done.
+    released: watch::Sender<u64>,
 }
 
 /// A take-back going, and the signal that it ended: the sender lives in the
@@ -208,6 +237,7 @@ pub(super) struct Held<'a> {
 impl Drop for Held<'_> {
     fn drop(&mut self) {
         lock(&self.moves.held).remove(&self.id);
+        self.moves.release();
     }
 }
 
@@ -276,20 +306,49 @@ impl Moves {
         lock(&self.tracked)
             .latest
             .get(id)
-            .map(|one| lock(&one.tracker.0).progress.clone())
+            .map(|one| watched::read_sent(&one.tracker.0, |landing| landing.progress.clone()))
+    }
+
+    /// How each move this node is the target of stands, as it pushes it.
+    pub(crate) fn entries(&self) -> Vec<MoveEntry> {
+        lock(&self.tracked)
+            .latest
+            .iter()
+            .map(|(session, one)| MoveEntry {
+                session: session.clone(),
+                at: one.at,
+                progress: watched::read_sent(&one.tracker.0, |landing| landing.progress.clone()),
+            })
+            .collect()
+    }
+
+    /// The tracker of the move of `id` made at `at`, kept after it ended
+    /// for a while.
+    pub(super) fn tracker(&self, id: &SessionId, at: u64) -> Option<Arc<Tracker>> {
+        lock(&self.tracked)
+            .find(id, at)
+            .map(|one| one.tracker.clone())
     }
 
     /// What the target of the move made at `at` tells its source.
     pub(super) fn target(&self, id: &SessionId, at: u64) -> Target {
         lock(&self.tracked)
             .find(id, at)
-            .map_or(Target::Unknown, |one| one.tracker.target())
+            .map_or(Target::Unknown, |one| watched::read_sent(&one.tracker.0, Landing::target))
     }
 
     pub(super) fn owns_target(&self, id: &SessionId, at: u64, source: EndpointId) -> bool {
         lock(&self.tracked)
             .find(id, at)
             .is_some_and(|one| one.source == source)
+    }
+
+    pub(super) fn released(&self) -> watch::Receiver<u64> {
+        self.released.subscribe()
+    }
+
+    fn release(&self) {
+        self.released.send_modify(|count| *count = count.wrapping_add(1));
     }
 
     /// Serves session `id` as running until the guard drops.
@@ -308,6 +367,7 @@ impl Moves {
     /// The source gave the move of `id` up; a target that asks hears why.
     pub(super) fn refuse(&self, id: &SessionId, reason: &str) {
         lock(&self.refused).insert(id.to_owned(), reason.to_owned());
+        self.release();
     }
 
     pub(super) fn refusal(&self, id: &SessionId) -> Option<String> {
@@ -360,16 +420,23 @@ impl Moves {
 
 /// Changes the progress shown, keeping what `change` leaves alone.
 pub(super) fn show(tracker: &Tracker, change: impl FnOnce(&mut MoveProgress)) {
-    {
-        let mut landing = lock(&tracker.0);
+    let shown = tracker.0.send_if_modified(|landing| {
         if !matches!(landing.state, LandingState::Preparing { .. }) {
-            return;
+            return false;
         }
+
+        let before = landing.progress.clone();
         change(&mut landing.progress);
+        landing.progress != before
+    });
+
+    if shown {
+        changed();
     }
-    changed();
 }
 
 fn changed() {
-    crate::events::system().changed(beep_proto::node::events::Topic::new("moves"));
+    let events = crate::events::system();
+    events.changed(Topic::new("moves"));
+    events.changed(Topic::new(MOVE_PROGRESS_TOPIC));
 }

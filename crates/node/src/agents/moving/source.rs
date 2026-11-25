@@ -7,7 +7,7 @@
 
 use super::{
     Env,
-    dial::ask,
+    dial::outcome,
     progress::Target,
     saved::{MOVED_AWAY, Outgoing, Phase, Previous, Saved, SentTree},
     worktree,
@@ -323,9 +323,9 @@ pub(super) async fn cancel(env: &Env, id: &SessionId, at: u64, to: EndpointId) -
 async fn target_outcome(env: &Env, id: &SessionId, at: u64, to: EndpointId) -> Option<Target> {
     timeout(ASK_WITHIN, async {
         loop {
-            match ask(env, to, id, at).await {
-                Ok(outcome @ (Target::Landed | Target::Failed(_))) => return outcome,
-                _ => sleep(ASK_AGAIN).await,
+            match outcome(env, to, id, at).await {
+                Ok(ended) => return ended,
+                Err(_) => sleep(ASK_AGAIN).await,
             }
         }
     })

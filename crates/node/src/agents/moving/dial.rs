@@ -18,8 +18,11 @@ use tokio::{
 
 /// How long to wait for a connection.
 const CONNECT_WITHIN: Duration = Duration::from_secs(15);
-/// How soon a source asks its target again after it said something new;
-/// each answer with nothing new doubles the wait, up to `MAX_ASK_EVERY`.
+/// How soon a source follows a target it lost again.
+const RECONNECT: Duration = Duration::from_secs(5);
+/// How soon a source asks a target from before `Request::Follow` again after
+/// it said something new; each answer with nothing new doubles the wait, up
+/// to `MAX_ASK_EVERY`.
 const ASK_EVERY: Duration = Duration::from_secs(2);
 const MAX_ASK_EVERY: Duration = Duration::from_secs(10);
 /// How long the target has to answer once reached.
@@ -54,6 +57,7 @@ pub(super) async fn with_stream<T, F: Future<Output = Result<T>>>(
 }
 
 /// What the target `to` says of the move of session `id` made at `at`.
+/// Asked once: for a target from before `Request::Follow`.
 pub(super) async fn ask(env: &Env, to: EndpointId, id: &SessionId, at: u64) -> Result<Target> {
     let answer = with_stream(env, to, |mut tx, mut rx| async move {
         tx.send(&Request::State {
@@ -68,59 +72,130 @@ pub(super) async fn ask(env: &Env, to: EndpointId, id: &SessionId, at: u64) -> R
     .await?;
 
     match answer {
-        Some(Reply::State {
-            failed: Some(reason),
-            ..
-        }) => Ok(Target::Failed(reason)),
-        Some(Reply::State { landed: true, .. }) => Ok(Target::Landed),
-        Some(Reply::State { starting: true, .. }) => Ok(Target::Starting),
-        Some(Reply::State { taken: true, .. }) => Ok(Target::Taken),
-        Some(Reply::State { .. }) => Ok(Target::Unknown),
+        Some(reply @ Reply::State { .. }) => Ok(target_of(&reply)),
         Some(Reply::Refused { message }) => bail!("the target refused: {message}"),
         _ => bail!("the target ended without answering"),
     }
 }
 
+fn target_of(state: &Reply) -> Target {
+    match state {
+        Reply::State {
+            failed: Some(reason),
+            ..
+        } => Target::Failed(reason.clone()),
+        Reply::State { landed: true, .. } => Target::Landed,
+        Reply::State { starting: true, .. } => Target::Starting,
+        Reply::State { taken: true, .. } => Target::Taken,
+        _ => Target::Unknown,
+    }
+}
+
+/// How a followed stream ended.
+enum Followed {
+    /// The target landed the session or gave the move up.
+    Over,
+    /// The target closed the stream with the move still going, such as
+    /// before it took the move up.
+    Closed,
+    /// The target closed it without a word: it is from before `Follow`.
+    Old,
+}
+
+/// Hears each state of the move the target `to` pushes, until it landed or
+/// gave the move up.
+async fn follow(
+    env: &Env,
+    to: EndpointId,
+    id: &SessionId,
+    at: u64,
+    mut told: impl FnMut(Target),
+) -> Result<Followed> {
+    let connection = dial(env, to).await?;
+    let followed = async {
+        let (send, recv) = connection.open_bi().await?;
+        let (mut tx, mut rx) = link(send, recv);
+        tx.send(&Request::Follow {
+            id: id.to_owned(),
+            at,
+        })
+        .await?;
+        let mut heard = false;
+
+        loop {
+            match rx.recv::<Reply>().await {
+                Ok(Some(reply @ Reply::State { .. })) => {
+                    heard = true;
+                    let now = target_of(&reply);
+                    let over = matches!(now, Target::Landed | Target::Failed(_));
+                    told(now);
+
+                    if over {
+                        return Ok(Followed::Over);
+                    }
+                }
+                Ok(Some(Reply::Refused { message })) => bail!("the target refused: {message}"),
+                Ok(Some(_)) => bail!("the target answered something else"),
+                Ok(None) if heard => return Ok(Followed::Closed),
+                Ok(None) => return Ok(Followed::Old),
+                // A stream the target reset while the connection stands: it
+                // could not read the request.
+                Err(_) if !heard && connection.close_reason().is_none() => {
+                    return Ok(Followed::Old);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+    .await;
+    connection.close(0u32.into(), b"done");
+    followed
+}
+
 /// Keeps `said` at what the target of `record` says, for as long as it runs.
-/// A target out of reach, or one from before moves, says nothing new. Each
-/// change, reaching it or not, is logged once.
+/// A target out of reach says nothing new. Each change, reaching it or not,
+/// is logged once.
 pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::Sender<Target>) {
+    let mut reached = None;
+    let mut old = false;
+
+    while !old {
+        let followed = follow(env, record.to, &record.id, record.at, |now| {
+            tell(&said, record, now);
+        })
+        .await;
+
+        match followed {
+            Ok(Followed::Over) => {
+                // The source ends on what it was told.
+                std::future::pending::<()>().await;
+            }
+            Ok(Followed::Closed) => note_reached(record, &mut reached, true, None),
+            Ok(Followed::Old) => old = true,
+            Err(e) => note_reached(record, &mut reached, false, Some(&e)),
+        }
+
+        if !old {
+            sleep(RECONNECT).await;
+        }
+    }
+
+    poll_target(env, record, said).await;
+}
+
+/// What a target from before `Request::Follow` says, asked again and again.
+async fn poll_target(env: &Env, record: &SessionMove, said: watch::Sender<Target>) {
     let mut wait = ASK_EVERY;
-    // `Some(true)` once the last ask reached the target, `Some(false)` once
-    // it did not.
     let mut reached = None;
 
     loop {
         let more = match ask(env, record.to, &record.id, record.at).await {
             Ok(now) => {
-                if reached != Some(true) {
-                    log::info!(
-                        "session {}: asked the target how the move stands",
-                        record.id
-                    );
-                    reached = Some(true);
-                }
-
-                said.send_if_modified(|before| {
-                    // What was told stays told, unless the target says more.
-                    let more = now != Target::Unknown && *before != now;
-
-                    if more {
-                        log::info!("session {}: the target says {now:?}", record.id);
-                        *before = now;
-                    }
-
-                    more
-                })
+                note_reached(record, &mut reached, true, None);
+                tell(&said, record, now)
             }
             Err(e) => {
-                if reached != Some(false) {
-                    log::warn!("session {}: cannot ask the target: {e:#}", record.id);
-                    reached = Some(false);
-                } else {
-                    log::debug!("session {} target not asked: {e:#}", record.id);
-                }
-
+                note_reached(record, &mut reached, false, Some(&e));
                 false
             }
         };
@@ -130,5 +205,59 @@ pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::S
             (wait * 2).min(MAX_ASK_EVERY)
         };
         sleep(wait).await;
+    }
+}
+
+/// What was told stays told, unless the target says more.
+fn tell(said: &watch::Sender<Target>, record: &SessionMove, now: Target) -> bool {
+    said.send_if_modified(|before| {
+        let more = now != Target::Unknown && *before != now;
+
+        if more {
+            log::info!("session {}: the target says {now:?}", record.id);
+            *before = now;
+        }
+
+        more
+    })
+}
+
+/// Logs once each time reaching the target changes.
+fn note_reached(
+    record: &SessionMove,
+    reached: &mut Option<bool>,
+    now: bool,
+    error: Option<&anyhow::Error>,
+) {
+    if *reached == Some(now) {
+        if let Some(e) = error {
+            log::debug!("session {} target not asked: {e:#}", record.id);
+        }
+
+        return;
+    }
+
+    *reached = Some(now);
+
+    match error {
+        None => log::info!("session {}: asked the target how the move stands", record.id),
+        Some(e) => log::warn!("session {}: cannot ask the target: {e:#}", record.id),
+    }
+}
+
+/// How the move made at `at` ended on the target `to`, once it did.
+pub(super) async fn outcome(env: &Env, to: EndpointId, id: &SessionId, at: u64) -> Result<Target> {
+    let mut ended = None;
+    let followed = follow(env, to, id, at, |now| {
+        if matches!(now, Target::Landed | Target::Failed(_)) {
+            ended = Some(now);
+        }
+    })
+    .await?;
+
+    match (followed, ended) {
+        (_, Some(ended)) => Ok(ended),
+        (Followed::Old, None) => ask(env, to, id, at).await,
+        _ => bail!("the target has not ended the move"),
     }
 }

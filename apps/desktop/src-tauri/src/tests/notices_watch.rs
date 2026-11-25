@@ -124,7 +124,10 @@ fn conflicts_a_kept_note_holds_are_not_raised_again_at_start() {
 
 #[test]
 fn a_machine_s_pushed_sync_gives_its_conflicts_without_asking_anyone() {
-    use beep_proto::node::{events::Value, sync::{ProjectStatus, Reply}};
+    use beep_proto::node::{
+        events::Value,
+        sync::{ProjectStatus, Reply},
+    };
 
     let looks = Looks::new();
     let machine = iroh::SecretKey::from_bytes(&[3; 32]).public();
@@ -141,7 +144,10 @@ fn a_machine_s_pushed_sync_gives_its_conflicts_without_asking_anyone() {
     looks.hear(machine, "sync", &pushed(&["a.txt"]));
     looks.hear(machine, "sync", &pushed(&["a.txt", "b.txt"]));
     let said = looks.take_said();
-    assert_eq!(said[&machine], vec![("acme/widget".to_owned(), set(&["a.txt", "b.txt"]))]);
+    assert_eq!(
+        said[&machine],
+        vec![("acme/widget".to_owned(), set(&["a.txt", "b.txt"]))]
+    );
     assert!(looks.take_said().is_empty(), "taken once");
 
     // A change of the moves reads for a failed move; any other topic says nothing.
@@ -150,4 +156,67 @@ fn a_machine_s_pushed_sync_gives_its_conflicts_without_asking_anyone() {
     assert!(!looks.moved.load(Ordering::Relaxed));
     looks.hear(machine, "moves", &Value::Missing);
     assert!(looks.moved.load(Ordering::Relaxed));
+}
+
+#[test]
+fn a_machine_s_pushed_moves_say_which_failed_and_a_machine_that_pushes_none_is_asked() {
+    use beep_proto::{
+        AgentSlug, SessionId,
+        node::{
+            agent::{MoveEntry, MovePhase, MoveProgress, SessionsReply},
+            events::Value,
+        },
+    };
+
+    let looks = Looks::new();
+    let (to, other) = (
+        iroh::SecretKey::from_bytes(&[4; 32]).public(),
+        iroh::SecretKey::from_bytes(&[5; 32]).public(),
+    );
+    let record = SessionMove {
+        agent: AgentSlug::from("codex"),
+        id: SessionId::from("s1"),
+        from: other,
+        to,
+        project: "acme/widget".into(),
+        path: String::new(),
+        mode: None,
+        stop: false,
+        at: 9,
+        worktree: None,
+        model: None,
+        worktrees: Vec::new(),
+        conversation: None,
+    };
+    let entry = |at, phase, reason: &str| {
+        Value::Sessions(Box::new(SessionsReply::Moves {
+            moves: vec![MoveEntry {
+                session: SessionId::from("s1"),
+                at,
+                progress: MoveProgress {
+                    phase,
+                    reason: Some(reason.to_owned()),
+                    ..MoveProgress::default()
+                },
+            }],
+        }))
+    };
+
+    assert_eq!(heard_of(&record, &looks.pushed_moves()), Heard::Silent);
+    // A machine that pushes its moves needs no read of the moves ring.
+    looks.hear(to, "move-progress", &entry(9, MovePhase::Files, ""));
+    looks.hear(to, "moves", &Value::Missing);
+    assert!(!looks.moved.load(Ordering::Relaxed));
+    assert_eq!(heard_of(&record, &looks.pushed_moves()), Heard::Going);
+
+    // The outcome of an earlier move of the session is not this move's.
+    looks.hear(to, "move-progress", &entry(8, MovePhase::Failed, "old"));
+    assert_eq!(heard_of(&record, &looks.pushed_moves()), Heard::Going);
+    looks.hear(to, "move-progress", &entry(9, MovePhase::Failed, "no room"));
+    assert_eq!(
+        heard_of(&record, &looks.pushed_moves()),
+        Heard::Failed("no room".into())
+    );
+    looks.hear(to, "move-progress", &entry(9, MovePhase::Done, ""));
+    assert_eq!(heard_of(&record, &looks.pushed_moves()), Heard::Over);
 }

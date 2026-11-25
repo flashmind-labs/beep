@@ -3,7 +3,7 @@ use beep_proto::node::agent::SessionInfo;
 use super::*;
 use crate::events::ChangeKind;
 use beep_proto::node::events::{
-    Query, Read, Snapshot, SessionsDelta, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Value,
+    MOVE_PROGRESS_TOPIC, Query, Read, Snapshot, SessionsDelta, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Value,
 };
 use beep_proto::node::process::TaskId;
 use beep_proto::node::subscriptions::Reply;
@@ -53,6 +53,8 @@ enum Source {
     Terminal(TaskId),
     /// One background task: its state and last lines.
     Task(TaskId),
+    /// How each move to this node stands.
+    Moves,
 }
 
 impl Source {
@@ -345,6 +347,10 @@ impl Snapshots {
         if selected("sync") {
             wanted.push((Topic::new("sync"), Source::Read(Read::SyncList)));
         }
+        // Only a topic that names it gets it, never `*`.
+        if topics.iter().any(|topic| topic.name() == MOVE_PROGRESS_TOPIC) {
+            wanted.push((Topic::new(MOVE_PROGRESS_TOPIC), Source::Moves));
+        }
         if selected("moves") {
             wanted.push((
                 Topic::new("moves"),
@@ -411,6 +417,7 @@ impl Snapshots {
                         | "terminal-output"
                         | "sync"
                         | "moves"
+                        | MOVE_PROGRESS_TOPIC
                         | "reviews"
                         | "sign-in"
                         | crate::run::device::LIST_TOPIC
@@ -581,6 +588,9 @@ impl Snapshots {
                             .reach
                             .peers()
                             .map_or(Value::Missing, |peers| Value::TeamInvites(peers.team().invites_waiting()))),
+                        Source::Moves => Ok(Value::Sessions(Box::new(SessionsReply::Moves {
+                            moves: offers.agents.move_entries(),
+                        }))),
                         Source::ToolUpdates => Ok(offers
                             .provision
                             .as_ref()

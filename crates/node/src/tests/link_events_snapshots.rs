@@ -567,6 +567,19 @@ fn a_projects_team_cards_have_a_source_of_their_own() {
 }
 
 #[test]
+fn move_progress_has_a_source_of_its_own() {
+    let topic = Topic::new(MOVE_PROGRESS_TOPIC);
+
+    assert_eq!(
+        sources(std::slice::from_ref(&topic)),
+        vec![(topic.clone(), Source::Moves)]
+    );
+    // Not for `*`: released readers cannot decode it.
+    assert!(sources(&[Topic::new("*")]).iter().all(|(topic, _)| topic.name() != MOVE_PROGRESS_TOPIC));
+    assert!(affected(&topic, &topic));
+}
+
+#[test]
 fn the_invites_have_a_source_of_their_own() {
     let topic = Topic::new(TEAM_INVITES_TOPIC);
 

@@ -992,3 +992,79 @@ async fn a_project_sessions_folder_is_not_sent_as_a_chats_files() {
         .expect_err("a project is no chat");
     assert!(refused.is::<super::read::Refused>(), "{refused:#}");
 }
+
+async fn stream_to(
+    server: &Router,
+) -> (beep_proto::node::LinkTx, beep_proto::node::LinkRx, (Endpoint, Connection)) {
+    let client = endpoint().await;
+    let connection = client
+        .connect(server.endpoint().addr(), ALPN)
+        .await
+        .expect("connects");
+    let (send, recv) = connection.open_bi().await.expect("a stream");
+    let (tx, rx) = link(send, recv);
+    (tx, rx, (client, connection))
+}
+
+fn state(taken: bool, starting: bool, landed: bool) -> super::read::Reply {
+    super::read::Reply::State {
+        taken,
+        failed: None,
+        landed,
+        starting,
+    }
+}
+
+#[tokio::test]
+async fn a_followed_move_pushes_each_state_on_one_stream() {
+    use beep_proto::node::agent::MovePhase;
+    use super::read::{Reply, Request};
+
+    let source = source(&header(""));
+    let id = SessionId::from(ID);
+    let tracker = source
+        .agents
+        .moves
+        .begin(&id, 7, SecretKey::generate().public());
+    let server = serving(&source.agents).await;
+    let (mut tx, mut rx, _connection) = stream_to(&server).await;
+    tx.send(&Request::Follow { id, at: 7 }).await.expect("sent");
+
+    assert_eq!(rx.recv::<Reply>().await.expect("a reply"), Some(state(false, false, false)));
+    tracker.take();
+    assert_eq!(rx.recv::<Reply>().await.expect("a reply"), Some(state(true, false, false)));
+    assert!(tracker.resume());
+    assert_eq!(rx.recv::<Reply>().await.expect("a reply"), Some(state(true, true, false)));
+    tracker.finish(MovePhase::Done, None);
+    assert_eq!(rx.recv::<Reply>().await.expect("a reply"), Some(state(true, false, true)));
+    assert_eq!(rx.recv::<Reply>().await.expect("the end"), None);
+    server.shutdown().await.expect("the test router shuts down");
+}
+
+#[tokio::test]
+async fn a_source_that_follows_says_on_the_stream_when_it_is_done_with_the_session() {
+    let source = source(&header("{\"a\":1}\n"));
+    let held = source.agents.moves.hold(&SessionId::from(ID));
+    let server = serving(&source.agents).await;
+    let (tx, rx, _connection) = stream_to(&server).await;
+    let mine = TempDir::new().expect("a temp folder");
+    let copy = mine.path().join("copy.jsonl");
+    let ask = super::read::Ask {
+        agent: AgentSlug::CODEX,
+        id: &SessionId::from(ID),
+        copy: &copy,
+    };
+    let (told, heard) = tokio::sync::oneshot::channel();
+    let follow = super::read::pull_following(tx, rx, ask, move |pulled| {
+        let _ = told.send(pulled.live);
+    });
+    let release = async {
+        assert!(heard.await.expect("told"), "the session still ran when it was read");
+        drop(held);
+    };
+    let (pulled, ()) = tokio::join!(follow, release);
+    let pulled = pulled.expect("a read");
+
+    assert!(pulled.live && pulled.ended);
+    server.shutdown().await.expect("the test router shuts down");
+}

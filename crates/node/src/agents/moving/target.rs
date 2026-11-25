@@ -15,21 +15,25 @@ use super::{
     saved::{Folder, Phase, PlacedTree, Saved},
     worktree,
 };
-use crate::agents::{SavedSession, conversation, found::Agent};
+use crate::agents::{SavedSession, checkouts::watch_paths, conversation, found::Agent};
+use crate::events::paths::Paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::SessionId;
 use beep_proto::node::{agent::MovePhase, mesh_state::SessionMove};
 use std::{
     path::{Component, Path, PathBuf},
+    sync::Arc,
     time::{Duration, Instant},
 };
-use tokio::{task::spawn_blocking, time::sleep};
+use tokio::{
+    sync::Notify,
+    task::spawn_blocking,
+    time::sleep,
+};
 
 /// The waits between tries to reach the source, doubling up to the last.
 const FIRST_WAIT: Duration = Duration::from_secs(1);
 const LAST_WAIT: Duration = Duration::from_secs(10);
-/// How often the checkouts are compared while they differ.
-const CHECKOUT_LOOK: Duration = Duration::from_secs(2);
 /// The longest a chat's files go untold while they come in.
 const TELL_EVERY: Duration = Duration::from_millis(250);
 
@@ -247,7 +251,7 @@ async fn conversation(
             }
         });
 
-        match pull_once(env, record, copy).await {
+        match pull_once(env, record, copy, tracker).await {
             Ok(pulled) => {
                 wait = FIRST_WAIT;
 
@@ -264,19 +268,16 @@ async fn conversation(
                     );
                     reached = Some(true);
                 }
-                // The source let a read through: the session can move.
-                tracker.take();
-                show(tracker, |progress| {
-                    progress.source_away = false;
-                    progress.copied = pulled.size;
-                    progress.total = pulled.size;
-                    if !pulled.live {
-                        progress.phase = MovePhase::Conversation;
-                    }
-                });
+
+                pulled_shown(tracker, &pulled);
 
                 if !pulled.live {
                     return Ok(pulled.file_name);
+                }
+
+                // The source said it ended the session: read the rest now.
+                if pulled.ended {
+                    continue;
                 }
             }
             // The source will not serve it, as it is: waiting changes nothing.
@@ -298,9 +299,30 @@ async fn conversation(
     }
 }
 
-async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read::Pulled> {
+/// Tells that the source let a read through, so the session can move, and
+/// how much came.
+fn pulled_shown(tracker: &Tracker, pulled: &read::Pulled) {
+    tracker.take();
+    show(tracker, |progress| {
+        progress.source_away = false;
+        progress.copied = pulled.size;
+        progress.total = pulled.size;
+        if !pulled.live {
+            progress.phase = MovePhase::Conversation;
+        }
+    });
+}
+
+/// One read of the transcript. While the source still runs the session, it
+/// keeps the stream and says when it ended.
+async fn pull_once(
+    env: &Env,
+    record: &SessionMove,
+    copy: &Path,
+    tracker: &Tracker,
+) -> Result<read::Pulled> {
     with_stream(env, record.from, |tx, rx| {
-        read::pull(
+        read::pull_following(
             tx,
             rx,
             read::Ask {
@@ -308,6 +330,7 @@ async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read:
                 id: &record.id,
                 copy,
             },
+            |pulled| pulled_shown(tracker, pulled),
         )
     })
     .await
@@ -315,6 +338,7 @@ async fn pull_once(env: &Env, record: &SessionMove, copy: &Path) -> Result<read:
 
 /// Waits until this machine's checkout of the project is at the source's
 /// commit, saying both while they differ, and answers what the source said.
+/// The source is asked again when this machine's commit moves.
 async fn checkouts(
     env: &Env,
     record: &SessionMove,
@@ -323,25 +347,33 @@ async fn checkouts(
 ) -> Result<Checkout> {
     show(tracker, |progress| progress.phase = MovePhase::Files);
     let from = env.name_of(&record.from);
+    let moved = Arc::new(Notify::new());
+    let _watch = watch_head(root, moved.clone()).await?;
     let mut wait = FIRST_WAIT;
+    // What the source said, and this machine's commit when it did.
+    let mut said: Option<(Checkout, Option<String>)> = None;
 
     loop {
-        let theirs = match ask_checkout(env, record).await {
-            Ok(theirs) => theirs,
-            Err(e) if e.is::<Refused>() => return Err(e),
-            Err(e) => {
-                log::debug!(
-                    "session {}: the source's checkout not read: {e:#}",
-                    record.id
-                );
-                show(tracker, |progress| progress.source_away = true);
-                sleep(wait).await;
-                wait = (wait * 2).min(LAST_WAIT);
-                continue;
-            }
-        };
         let dir = root.to_owned();
         let ours = spawn_blocking(move || worktree::head(&dir)).await??;
+
+        let theirs = match said.take() {
+            Some((theirs, at)) if at == ours => theirs,
+            _ => match ask_checkout(env, record).await {
+                Ok(theirs) => theirs,
+                Err(e) if e.is::<Refused>() => return Err(e),
+                Err(e) => {
+                    log::debug!(
+                        "session {}: the source's checkout not read: {e:#}",
+                        record.id
+                    );
+                    show(tracker, |progress| progress.source_away = true);
+                    sleep(wait).await;
+                    wait = (wait * 2).min(LAST_WAIT);
+                    continue;
+                }
+            },
+        };
 
         if theirs.head == ours {
             show(tracker, |progress| {
@@ -362,8 +394,24 @@ async fn checkouts(
             progress.reason = Some(reason);
         });
         wait = FIRST_WAIT;
-        sleep(CHECKOUT_LOOK).await;
+        said = Some((theirs, ours));
+        moved.notified().await;
     }
+}
+
+/// Rings `moved` when the commit of the checkout at `root` may have changed.
+/// A folder that is no repository yet is watched itself, for the repository
+/// to appear in it.
+async fn watch_head(root: &Path, moved: Arc<Notify>) -> Result<Paths> {
+    let mut paths = watch_paths(root).await?;
+
+    if paths.is_empty() {
+        paths.push(root.to_owned());
+    }
+
+    let watch = Paths::new(move |_| moved.notify_one())?;
+    watch.replace(paths).await?;
+    Ok(watch)
 }
 
 /// A commit as people read it, or that there is none.
