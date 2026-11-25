@@ -1,5 +1,7 @@
 //! Records waiting on another machine live in app data. Their image files
-//! live in the app cache. Each queue has a thread that writes them in order.
+//! live in the app cache. Each queue has a thread that writes the records in
+//! order, and a second that writes the large files and removes the forgotten
+//! ones, so a record never waits on a file of hundreds of megabytes.
 
 use crate::agents::steer::PastedImage;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -14,6 +16,11 @@ use std::{
 
 /// Image subfolder in the cache, formerly under the records folder.
 pub(crate) const IMAGES: &str = "images";
+
+/// The bytes of an image from which the records' thread leaves its write to the files' thread:
+/// a record is written at once, and may name such an image a moment before it is on disk. A
+/// crash between the two shows as a message whose image could not be read, never as a lost one.
+const LARGE_IMAGE: usize = 1024 * 1024;
 
 /// An image of a kept record. Its bytes, in base64, are kept in a file of
 /// their own, not in the records' file.
@@ -51,6 +58,13 @@ pub(crate) fn image_file(id: impl Display, at: usize) -> String {
     format!("{id}-{at}")
 }
 
+/// What the records' thread hands on to the files' thread, in the order it came.
+enum Later {
+    Image { file: String, data: Arc<str> },
+    Forget(Vec<String>),
+    Synced(mpsc::Sender<()>),
+}
+
 /// A change to the folder, done in order by its thread.
 pub(crate) enum Write {
     /// The records' file, as it is now.
@@ -79,9 +93,16 @@ impl KeptFolder {
         let writer = dir.clone();
         let images = cache.join(IMAGES);
         let cached = images.clone();
+        let (later, files) = mpsc::channel();
+        let (files_dir, files_images) = (dir.clone(), images.clone());
         let spawned = thread::Builder::new()
             .name(name.into())
-            .spawn(move || write_all(&writer, &cached, records, &queue));
+            .spawn(move || write_all(&writer, &cached, records, &queue, &later))
+            .and_then(|_| {
+                thread::Builder::new()
+                    .name(format!("{name}-files"))
+                    .spawn(move || write_files(&files_dir, &files_images, &files))
+            });
 
         if let Err(e) = spawned {
             log::warn!("starting the {name} writer: {e}");
@@ -183,26 +204,35 @@ pub(crate) fn forget_images(id: impl Display, count: usize) -> Option<Write> {
 }
 
 /// Does each change asked for, in order. Of several records' files asked
-/// for together only the newest is written, after the images it names, and the images
-/// forgotten meanwhile are removed after it: a crash between the two leaves files no
-/// record names, never a record whose files are gone.
-fn write_all(dir: &Path, images: &Path, records: &str, queue: &mpsc::Receiver<Write>) {
-    let mut synced = Vec::new();
-
+/// for together only the newest is written, after the small images it names. Large images,
+/// the images forgotten and what waits to be answered go on to `write_files` after it, in
+/// order: a crash between a record and its large image leaves a message whose image is
+/// missing, which shows as a failed row, and a removed message never leaves a record that
+/// names files already deleted.
+fn write_all(
+    dir: &Path,
+    images: &Path,
+    records: &str,
+    queue: &mpsc::Receiver<Write>,
+    later: &mpsc::Sender<Later>,
+) {
     while let Ok(first) = queue.recv() {
         let mut latest = None;
-        let mut forgotten = Vec::new();
+        let mut behind = Vec::new();
 
         for write in std::iter::once(first).chain(queue.try_iter()) {
             match write {
                 Write::Records(bytes) => latest = Some(bytes),
+                Write::Image { file, data } if data.len() > LARGE_IMAGE => {
+                    behind.push(Later::Image { file, data });
+                }
                 Write::Image { file, data } => {
                     if let Err(e) = replace(images, &file, data.as_bytes()) {
                         log::warn!("keeping an image in {}: {e}", dir.display());
                     }
                 }
-                Write::Forget(files) => forgotten.extend(files),
-                Write::Synced(done) => synced.push(done),
+                Write::Forget(files) => behind.push(Later::Forget(files)),
+                Write::Synced(done) => behind.push(Later::Synced(done)),
             }
         }
 
@@ -212,10 +242,25 @@ fn write_all(dir: &Path, images: &Path, records: &str, queue: &mpsc::Receiver<Wr
             log::warn!("writing {}: {e}", dir.display());
         }
 
-        forget(dir, images, &forgotten);
+        for write in behind {
+            let _ = later.send(write);
+        }
+    }
+}
 
-        for done in synced.drain(..) {
-            let _ = done.send(());
+/// Writes the large images and removes the forgotten ones, in the order `write_all` hands them on.
+fn write_files(dir: &Path, images: &Path, queue: &mpsc::Receiver<Later>) {
+    while let Ok(write) = queue.recv() {
+        match write {
+            Later::Image { file, data } => {
+                if let Err(e) = replace(images, &file, data.as_bytes()) {
+                    log::warn!("keeping an image in {}: {e}", dir.display());
+                }
+            }
+            Later::Forget(files) => forget(dir, images, &files),
+            Later::Synced(done) => {
+                let _ = done.send(());
+            }
         }
     }
 }
