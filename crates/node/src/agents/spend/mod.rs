@@ -11,9 +11,9 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 use tokio::{
-    sync::watch,
+    sync::{broadcast, broadcast::error::{RecvError, TryRecvError}, watch},
     task::spawn_blocking,
-    time::{MissedTickBehavior, interval},
+    time::{Instant, sleep_until},
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -30,7 +30,8 @@ pub(crate) use pi::session_cost as pi_session_cost;
 pub(crate) use scan::Roots;
 
 use crate::{
-    agents::{SPEND_EVERY, found::Agent, prices::Tokens, unix_now},
+    agents::{SPEND_GAP, found::Agent, prices::Tokens, unix_now},
+    events::Change,
     lock,
 };
 
@@ -87,6 +88,46 @@ pub(crate) struct Scan {
     _task: AbortOnDropHandle<()>,
 }
 
+/// Tells the scan the agents' logs changed: the rings of the agents' event
+/// hub, while the file watcher behind them runs.
+pub(crate) struct LogChanges {
+    rings: broadcast::Receiver<Change>,
+    _watching: Option<Arc<dyn std::any::Any + Send + Sync>>,
+}
+
+impl LogChanges {
+    /// Follows `rings`, keeping `watching` (the watcher that makes them) alive.
+    pub(crate) fn new(
+        rings: broadcast::Receiver<Change>,
+        watching: Option<Arc<dyn std::any::Any + Send + Sync>>,
+    ) -> Self {
+        Self {
+            rings,
+            _watching: watching,
+        }
+    }
+
+    /// Returns once a log changed since the last call; rings missed count.
+    async fn changed(&mut self) {
+        loop {
+            match self.rings.recv().await {
+                Ok(change) if change.topic.name() != "agent" && change.topic.name() != "*" => {}
+                Ok(_) | Err(RecvError::Lagged(_)) => return,
+                // The hub lives as long as the node.
+                Err(RecvError::Closed) => std::future::pending::<()>().await,
+            }
+        }
+    }
+
+    /// Forgets the rings so far: a read that starts now covers them.
+    fn settle(&mut self) {
+        while !matches!(
+            self.rings.try_recv(),
+            Err(TryRecvError::Empty | TryRecvError::Closed)
+        ) {}
+    }
+}
+
 /// What the scan has reported to the scan's followers: each session at the
 /// number of its latest change.
 #[derive(Debug, Default)]
@@ -129,14 +170,14 @@ impl Spend {
         }
     }
 
-    /// Follows what sessions spent. One task reads the logs every
-    /// `SPEND_EVERY` for all followers while any holds the returned `Scan`;
-    /// the reports are as the last pass left them.
-    pub(crate) fn follow(self: &Arc<Self>) -> (Arc<Scan>, watch::Receiver<Reports>) {
+    /// Follows what sessions spent. One task reads the logs when `logs` says
+    /// they changed, at most every `SPEND_GAP`, for all followers while any
+    /// holds the returned `Scan`; the reports are as the last pass left them.
+    pub(crate) fn follow(self: &Arc<Self>, logs: LogChanges) -> (Arc<Scan>, watch::Receiver<Reports>) {
         let mut running = lock(&self.scan);
         let scan = running.upgrade().unwrap_or_else(|| {
             let scan = Arc::new(Scan {
-                _task: AbortOnDropHandle::new(tokio::spawn(self.clone().scan_every())),
+                _task: AbortOnDropHandle::new(tokio::spawn(self.clone().scan_on(logs))),
             });
             *running = Arc::downgrade(&scan);
             scan
@@ -145,16 +186,17 @@ impl Spend {
         (scan, self.reports.subscribe())
     }
 
-    /// Reads the logs on a timer and publishes what changed. A pass runs on
-    /// the blocking pool: dropped with the task, it still finishes and saves
-    /// what it read.
-    async fn scan_every(self: Arc<Self>) {
-        let mut every = interval(SPEND_EVERY);
-        every.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    /// Reads the logs once, then whenever they change, and publishes what
+    /// changed. A pass runs on the blocking pool: dropped with the task, it
+    /// still finishes and saves what it read.
+    async fn scan_on(self: Arc<Self>, mut logs: LogChanges) {
         let mut heard = Heard::default();
+        let mut next = Instant::now();
 
         loop {
-            every.tick().await;
+            sleep_until(next).await;
+            logs.settle();
+            next = Instant::now() + SPEND_GAP;
             let spend = self.clone();
             let read = spawn_blocking(move || {
                 let reports = spend.pass(unix_now(), &mut heard);
@@ -172,6 +214,8 @@ impl Spend {
                     heard = Heard::default();
                 }
             }
+
+            logs.changed().await;
         }
     }
 

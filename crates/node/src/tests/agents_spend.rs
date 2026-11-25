@@ -492,8 +492,9 @@ fn resuming_a_legacy_flsh_session_corrects_its_cached_hour() {
 async fn streams_share_one_scan_and_each_sees_what_it_reported() {
     let fixture = fixture();
     let spend = Arc::new(Spend::at(fixture.roots.clone(), fixture.ledger.clone()));
-    let (first, mut first_reports) = spend.follow();
-    let (second, mut second_reports) = spend.follow();
+    let (changes, _) = tokio::sync::broadcast::channel(8);
+    let (first, mut first_reports) = spend.follow(LogChanges::new(changes.subscribe(), None));
+    let (second, mut second_reports) = spend.follow(LogChanges::new(changes.subscribe(), None));
 
     assert!(Arc::ptr_eq(&first, &second));
 
@@ -515,6 +516,28 @@ async fn streams_share_one_scan_and_each_sees_what_it_reported() {
     assert!(!first_reports.has_changed().unwrap());
 
     drop((first, second));
-    let (again, _) = spend.follow();
+    let (again, _) = spend.follow(LogChanges::new(changes.subscribe(), None));
     assert_eq!(Arc::strong_count(&again), 1);
+}
+
+#[tokio::test]
+async fn only_a_change_of_the_agents_logs_wakes_the_scan() {
+    use beep_proto::node::events::Topic;
+
+    let hub = crate::events::Hub::default();
+    let mut logs = LogChanges::new(hub.subscribe(), None);
+    hub.changed(Topic::new("terminals"));
+    hub.changed(Topic::new("agents"));
+    let mut waiting = Box::pin(logs.changed());
+    assert!(futures::poll!(&mut waiting).is_pending());
+    drop(waiting);
+
+    hub.changed(Topic::new("agent"));
+    logs.changed().await;
+
+    // Rings that came before a read that covers them are forgotten.
+    hub.changed(Topic::keyed("agent", "s1"));
+    logs.settle();
+    let mut waiting = Box::pin(logs.changed());
+    assert!(futures::poll!(&mut waiting).is_pending());
 }
