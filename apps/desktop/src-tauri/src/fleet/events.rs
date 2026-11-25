@@ -7,7 +7,7 @@ use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, OnceLock, PoisonError},
     time::{Duration, Instant},
 };
@@ -959,6 +959,17 @@ impl Events {
             .collect()
     }
 
+    /// The windows that have a reader attached, hidden ones too.
+    pub(crate) fn window_labels(&self) -> HashSet<String> {
+        self.registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .windows
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     pub(crate) fn node_wanted(&self, machine: EndpointId, topic: &Topic) -> bool {
         let id = machine.to_string();
         self.registry
@@ -1406,7 +1417,8 @@ async fn run(
             subscriptions.clear();
             workers.abort_all();
             fleet.snapshots.reconcile(&BTreeMap::new());
-            app.state::<crate::agents::files_live::FilesLive>().keep(&BTreeMap::new());
+            app.state::<crate::agents::files_live::FilesLive>()
+                .keep(&BTreeMap::new(), &HashSet::new());
             materialized.clear();
 
             if watched::wait_for(&mut demand, |interests| !interests.is_empty())
@@ -1440,7 +1452,8 @@ async fn run(
             })
             .collect();
         fleet.snapshots.reconcile(&wanted);
-        app.state::<crate::agents::files_live::FilesLive>().keep(&wanted);
+        app.state::<crate::agents::files_live::FilesLive>()
+            .keep(&wanted, &app.state::<Events>().window_labels());
         command_workers.retain(|machine, task| {
             if wanted.contains_key(machine) {
                 true

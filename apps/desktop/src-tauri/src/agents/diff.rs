@@ -16,7 +16,7 @@ use beep_proto::{
     node::agent::{AgentCommand, DiffAsk, WorkPlace, Worktree},
 };
 use serde::Serialize;
-use tauri::State;
+use tauri::{State, WebviewWindow};
 
 /// A diff for the web view (DiffView).
 #[derive(Debug, Serialize)]
@@ -175,6 +175,7 @@ pub enum Places {
 /// the checkout, whether it is a linked worktree, the branch.
 #[tauri::command]
 pub async fn agent_places(
+    window: WebviewWindow,
     fleet: Machines<'_>,
     live: State<'_, FilesLive>,
     machine_id: String,
@@ -182,7 +183,7 @@ pub async fn agent_places(
 ) -> Result<Places> {
     // Asking makes the window follow the machine's folders: a change comes as a view.
     if let Some(machine) = fleet.member(&machine_id) {
-        live.follow_places(machine, &asks);
+        live.follow_places(window.label(), machine, &asks);
     }
 
     places_of(&fleet, &machine_id, &asks).await
@@ -228,6 +229,7 @@ pub async fn agent_commands(
 /// outside the mesh.
 #[tauri::command]
 pub async fn agent_worktrees(
+    window: WebviewWindow,
     fleet: Machines<'_>,
     live: State<'_, FilesLive>,
     machine_id: String,
@@ -237,7 +239,7 @@ pub async fn agent_worktrees(
     match fleet.member(&machine_id) {
         Some(machine) => {
             // Asking makes the window follow the folder: a change comes as a view.
-            live.follow_worktrees(machine, &folder, session.as_ref());
+            live.follow_worktrees(window.label(), machine, &folder, session.as_ref());
             agent_nodes::worktrees(&fleet, machine, &folder, session.as_ref()).await
         }
         None => Ok(Vec::new()),

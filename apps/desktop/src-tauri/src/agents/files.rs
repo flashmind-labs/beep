@@ -18,7 +18,7 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, State, WebviewWindow};
 
 /// The most of a file the text view shows.
 const TEXT_CAP: u32 = 512 * 1024;
@@ -89,6 +89,7 @@ const TREE_DEPTH: u32 = 3;
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn agent_tree(
+    window: WebviewWindow,
     fleet: Machines<'_>,
     live: State<'_, FilesLive>,
     machine_id: String,
@@ -100,7 +101,7 @@ pub async fn agent_tree(
 ) -> Result<Tree> {
     // Asking makes the window follow the folder: a change comes as a view.
     if let Some(machine) = fleet.member(&machine_id) {
-        live.follow_tree(machine, &root, &path, ignored, deep);
+        live.follow_tree(window.label(), machine, &root, &path, ignored, deep);
     }
 
     tree_of(

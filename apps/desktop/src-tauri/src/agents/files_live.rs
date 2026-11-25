@@ -5,8 +5,16 @@
 //! topic, so the window takes them from the push instead of asking again.
 
 use super::{diff::places_of, files::tree_of};
-use crate::fleet::{Fleet, agents::PlaceAsk, event_views::View, events::{Events, Update}};
-use beep_proto::{SessionId, node::events::Topic};
+use crate::fleet::{
+    Fleet,
+    agents::PlaceAsk,
+    event_views::View,
+    events::{Events, Update},
+};
+use beep_proto::{
+    SessionId,
+    node::{agent::Worktree, events::Topic},
+};
 use iroh::EndpointId;
 use serde_json::json;
 use std::{
@@ -28,11 +36,30 @@ struct TreeRead {
     deep: bool,
 }
 
-/// What is followed in one folder of one machine.
+/// What is followed in one folder of one machine, each read with the window that asked it.
 #[derive(Default)]
 struct Folder {
-    trees: Vec<TreeRead>,
-    worktrees: Vec<Option<SessionId>>,
+    trees: Vec<(String, TreeRead)>,
+    worktrees: Vec<(String, Option<SessionId>)>,
+}
+
+impl Folder {
+    fn is_empty(&self) -> bool {
+        self.trees.is_empty() && self.worktrees.is_empty()
+    }
+}
+
+/// `items` without the window that asked each, each once.
+fn distinct<T: PartialEq + Clone>(items: &[(String, T)]) -> Vec<T> {
+    let mut out: Vec<T> = Vec::new();
+
+    for (_, item) in items {
+        if !out.contains(item) {
+            out.push(item.clone());
+        }
+    }
+
+    out
 }
 
 #[derive(Default)]
@@ -41,7 +68,7 @@ pub(crate) struct FilesLive(Mutex<Held>);
 #[derive(Default)]
 struct Held {
     folders: HashMap<(EndpointId, String), Folder>,
-    places: HashMap<EndpointId, Vec<Vec<PlaceAsk>>>,
+    places: HashMap<EndpointId, Vec<(String, Vec<PlaceAsk>)>>,
     /// The topics whose reads are being made now, and the update that came meanwhile, which
     /// they are made again for.
     reading: HashMap<(EndpointId, Topic), Option<Update>>,
@@ -51,9 +78,29 @@ impl Held {
     /// Drops the folders `followed` says no window follows, and the places of the machines left
     /// with no followed folder.
     fn keep(&mut self, followed: impl Fn(EndpointId, &str) -> bool) {
-        self.folders.retain(|(machine, root), _| followed(*machine, root));
-        let machines: HashSet<EndpointId> = self.folders.keys().map(|(machine, _)| *machine).collect();
+        self.folders
+            .retain(|(machine, root), _| followed(*machine, root));
+        let machines: HashSet<EndpointId> =
+            self.folders.keys().map(|(machine, _)| *machine).collect();
         self.places.retain(|machine, _| machines.contains(machine));
+    }
+
+    /// Drops the reads of windows that are gone, and the folders and machines left with none.
+    fn forget_windows(&mut self, windows: &HashSet<String>) {
+        for folder in self.folders.values_mut() {
+            folder.trees.retain(|(window, _)| windows.contains(window));
+            folder
+                .worktrees
+                .retain(|(window, _)| windows.contains(window));
+        }
+
+        self.folders.retain(|_, folder| !folder.is_empty());
+
+        for sets in self.places.values_mut() {
+            sets.retain(|(window, _)| windows.contains(window));
+        }
+
+        self.places.retain(|_, sets| !sets.is_empty());
     }
 
     /// Whether the caller reads for `update` now: false when a read is running, which takes
@@ -96,6 +143,7 @@ fn keep<T: PartialEq>(items: &mut Vec<T>, item: T, most: usize) {
 impl FilesLive {
     pub(crate) fn follow_tree(
         &self,
+        window: &str,
         machine: EndpointId,
         root: &str,
         path: &str,
@@ -109,11 +157,12 @@ impl FilesLive {
             ignored,
             deep,
         };
-        keep(&mut folder.trees, read, KEPT);
+        keep(&mut folder.trees, (window.to_owned(), read), KEPT);
     }
 
     pub(crate) fn follow_worktrees(
         &self,
+        window: &str,
         machine: EndpointId,
         folder: &str,
         session: Option<&SessionId>,
@@ -123,20 +172,29 @@ impl FilesLive {
             .folders
             .entry((machine, folder.to_owned()))
             .or_default();
-        keep(&mut at.worktrees, session.cloned(), KEPT);
+        keep(
+            &mut at.worktrees,
+            (window.to_owned(), session.cloned()),
+            KEPT,
+        );
     }
 
-    pub(crate) fn follow_places(&self, machine: EndpointId, asks: &[PlaceAsk]) {
+    pub(crate) fn follow_places(&self, window: &str, machine: EndpointId, asks: &[PlaceAsk]) {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         let sets = held.places.entry(machine).or_default();
-        keep(sets, asks.to_vec(), PLACES_KEPT);
+        keep(sets, (window.to_owned(), asks.to_vec()), PLACES_KEPT);
     }
 
     /// Ends what no window follows now: `wanted` is each machine's node topics, as the windows'
     /// subscriptions leave them. A folder whose `files` topic is gone is forgotten, and a
     /// machine's places with them when none of its `files` topics is left.
-    pub(crate) fn keep(&self, wanted: &std::collections::BTreeMap<EndpointId, Vec<Topic>>) {
+    pub(crate) fn keep(
+        &self,
+        wanted: &std::collections::BTreeMap<EndpointId, Vec<Topic>>,
+        windows: &HashSet<String>,
+    ) {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        held.forget_windows(windows);
         held.keep(|machine, root| {
             wanted.get(&machine).is_some_and(|topics| {
                 let topic = Topic::keyed("files", root);
@@ -174,23 +232,28 @@ impl FilesLive {
 
     /// What is followed for `topic`: the listings and worktrees of its folder, and the places
     /// of the machine.
-    fn followed(&self, machine: EndpointId, topic: &Topic) -> (String, Folder, Vec<Vec<PlaceAsk>>) {
+    fn followed(
+        &self,
+        machine: EndpointId,
+        topic: &Topic,
+    ) -> (String, Followed, Vec<Vec<PlaceAsk>>) {
         let held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         let root = topic.key().unwrap_or_default().to_owned();
         let folder = held
             .folders
             .get(&(machine, root.clone()))
-            .map(|folder| Folder {
-                trees: folder.trees.clone(),
-                worktrees: folder.worktrees.clone(),
+            .map(|folder| Followed {
+                trees: distinct(&folder.trees),
+                worktrees: distinct(&folder.worktrees),
             })
             .unwrap_or_default();
+        let places = held
+            .places
+            .get(&machine)
+            .map(|sets| distinct(sets))
+            .unwrap_or_default();
 
-        (
-            root,
-            folder,
-            held.places.get(&machine).cloned().unwrap_or_default(),
-        )
+        (root, folder, places)
     }
 
     /// The update that came while reading, if one did; else the reading ends.
@@ -198,6 +261,13 @@ impl FilesLive {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         held.next(&(machine, topic.clone()))
     }
+}
+
+/// What the windows follow in a folder, each read once.
+#[derive(Default)]
+struct Followed {
+    trees: Vec<TreeRead>,
+    worktrees: Vec<Option<SessionId>>,
 }
 
 /// What `reserve` found.
@@ -249,6 +319,27 @@ pub(crate) fn heard(app: &AppHandle, machine: EndpointId, update: &Update) -> bo
     taken
 }
 
+/// Whether `machine`'s node says which sessions created each worktree: the released ones
+/// do not.
+fn lists_creators(fleet: &Fleet, machine: EndpointId) -> bool {
+    machine == fleet.id()
+        || crate::agents::steer::newer_than(
+            fleet.status().version(machine).as_deref(),
+            &semver::Version::new(0, 8, 26),
+        )
+}
+
+/// `list` as asked for `session`: the worktrees it created are marked.
+fn created_by(list: &[Worktree], session: Option<&SessionId>) -> Vec<Worktree> {
+    list.iter()
+        .map(|tree| Worktree {
+            created: session.is_some_and(|session| tree.created_by.contains(session)),
+            created_by: Vec::new(),
+            ..tree.clone()
+        })
+        .collect()
+}
+
 /// The views of everything followed for `topic`, each as the command it answers.
 async fn read(app: &AppHandle, machine: EndpointId, topic: &Topic) -> Vec<View> {
     let fleet = app.state::<std::sync::Arc<Fleet>>();
@@ -280,13 +371,26 @@ async fn read(app: &AppHandle, machine: EndpointId, topic: &Topic) -> Vec<View> 
             }
         }
     });
+    // A node that says who created each worktree lists a folder once for every session.
+    let listed = match folder.worktrees.is_empty() || !lists_creators(&fleet, machine) {
+        true => None,
+        false => Some(crate::fleet::agents::worktrees(&fleet, machine, &root, None).await),
+    };
     let worktrees = folder.worktrees.into_iter().map(|session| {
         let args = json!({ "machineId": machine_id, "folder": root, "session": session });
-        let (fleet, root) = (&fleet, &root);
+        let (fleet, root, listed) = (&fleet, &root, &listed);
         async move {
-            match crate::fleet::agents::worktrees(fleet, machine, root, session.as_ref()).await {
+            let answer = match listed {
+                Some(Ok(list)) => Ok(created_by(list, session.as_ref())),
+                Some(Err(error)) => Err(error.to_string()),
+                None => crate::fleet::agents::worktrees(fleet, machine, root, session.as_ref())
+                    .await
+                    .map_err(|error| error.to_string()),
+            };
+
+            match answer {
                 Ok(list) => View::new("agent_worktrees", args, list),
-                Err(error) => Some(View::failed("agent_worktrees", args, &error.to_string())),
+                Err(error) => Some(View::failed("agent_worktrees", args, &error)),
             }
         }
     });
