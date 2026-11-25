@@ -293,6 +293,15 @@ impl Registry {
             .filter(|window| window.demands(self.grace))
     }
 
+    /// Windows that are sent updates and keep them: the demanding ones but the tray's standing
+    /// interest, which only keeps the node streams on and takes none of what they push.
+    fn receiving(&self) -> impl Iterator<Item = &Window> {
+        self.windows
+            .iter()
+            .filter(|(label, window)| label.as_str() != STANDING && window.demands(self.grace))
+            .map(|(_, window)| window)
+    }
+
     /// A paused window that had not been sent a dropped update must be primed in full.
     fn note_lost(&mut self, removed: &[Update], controller: Option<&EndpointId>) {
         for window in self.windows.values_mut() {
@@ -836,7 +845,7 @@ impl Events {
             let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
 
             if !registry
-                .demanding()
+                .receiving()
                 .any(|window| receives(&window.topics, &update, controller))
             {
                 return;
@@ -879,7 +888,7 @@ impl Events {
             .registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .demanding()
+            .receiving()
             .flat_map(|window| &window.topics)
             .filter(|interest| {
                 interest
@@ -912,7 +921,7 @@ impl Events {
         self.registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .demanding()
+            .receiving()
             .flat_map(|window| &window.topics)
             .any(|interest| {
                 interest

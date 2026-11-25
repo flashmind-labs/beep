@@ -947,3 +947,34 @@ fn the_tray_keeps_the_agents_topic_subscribed_with_every_window_hidden_past_grac
     drop(standing);
     assert!(watched::read_sent(&events.demand, |demand| demand.is_empty()));
 }
+
+#[test]
+fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
+    let events = Events::default();
+    let machine = iroh::SecretKey::generate().public();
+    let _standing = events.hold(vec![interest("agents", None)]).unwrap();
+
+    assert!(!events.node_wanted(machine, &Topic::new("agents")));
+    events.dispatch(Update {
+        machine_id: machine.to_string(),
+        topic: Topic::new("agents"),
+        revision: 1,
+        query: None,
+        initial: false,
+        data: None,
+        seq: 0,
+    });
+    assert_eq!(events.registry.lock().unwrap().latest.values().count(), 0);
+    assert_eq!(
+        watched::read_sent(&events.demand, Clone::clone),
+        [interest("agents", None)]
+    );
+
+    let _window = heard_window(
+        &events,
+        "one",
+        Uuid::new_v4(),
+        vec![interest("agents", None)],
+    );
+    assert!(events.node_wanted(machine, &Topic::new("agents")));
+}
