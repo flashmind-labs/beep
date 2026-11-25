@@ -223,6 +223,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   const emptyLists = ["list_machines", "agent_hosts", "agent_reviews", "agent_tasks", "agent_artifacts", "agent_running", "agent_editors", "editors", "project_groups", "projects_on_top", "project_sync", "found_projects", "project_syncthing", "notes_list", "terminal_list", "terminals_list", "terminals_all"];
   for (const command of emptyLists) answers[command] = [];
   Object.assign(answers, data.responses);
+  // `failing` in the responses names commands that fail from the first call, until `allow`.
+  if (Array.isArray(answers.failing)) for (const command of answers.failing) if (typeof command === "string") failing.add(command);
   const boundary: NativeBoundary = {
     core: {
       async invoke(command, args = {}) {

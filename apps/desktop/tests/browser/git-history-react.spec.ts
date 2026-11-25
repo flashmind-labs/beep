@@ -925,3 +925,23 @@ test("a review arriving after its diff closes is saved for reopening", async ({ 
   await expect(page.locator(".dv")).toContainText("Background finding");
   expect(errors).toEqual([]);
 });
+
+test("the session's reviews come from the reviews update, not from reading them again", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.open({ agent: {
+    kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "notice-one",
+    cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false,
+  } }));
+  await page.getByRole("tab", { name: "Changes", exact: true }).click();
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_reviews" || call.command === "agent_review").length);
+  await expect.poll(reads).toBe(1);
+  await expect(page.locator(".dv")).toContainText("sample.ts");
+  const run = { id: "review-one", parent: "notice-one", cwd: "/srv/project", base: "main", agent: "codex", started_at: 1, error: null,
+    review: { verdict: "changes", summary: "Review", findings: [{ file: "sample.ts", line: 20, severity: "high", summary: "Pushed finding", scenario: "" }] } };
+  // The subscription reaches native code a moment after the diff opens, so the update repeats until drawn.
+  await expect(async () => {
+    await page.evaluate(data => window.__navigation.publish("reviews.*", null, data, "build-box"), { Sessions: { Reviews: { runs: [run] } } });
+    await expect(page.locator(".dv-cmt")).toContainText("Pushed finding", { timeout: 300 });
+  }).toPass();
+  expect(await reads()).toBe(1);
+});
