@@ -1007,6 +1007,25 @@ fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
 }
 
 #[test]
+fn a_standing_interest_in_a_view_has_it_neither_drawn_nor_kept() {
+    let events = Events::default();
+    let _standing = events
+        .hold(
+            "notices",
+            vec![interest("sync", None), interest("moves", None)],
+        )
+        .unwrap();
+
+    assert!(!events.controller_wanted(&Topic::new("sync")));
+    assert!(!events.controller_held(&Topic::new("moves")));
+
+    let _window = heard_window(&events, "one", Uuid::new_v4(), vec![interest("sync", None)]);
+    assert!(events.controller_wanted(&Topic::new("sync")));
+    assert!(events.controller_held(&Topic::new("sync")));
+    assert!(!events.controller_wanted(&Topic::new("moves")));
+}
+
+#[test]
 fn a_terminal_list_is_not_taken_for_a_terminals_output() {
     let events = Events::default();
     let machine = iroh::SecretKey::generate().public();

@@ -993,15 +993,16 @@ impl Events {
             .resources(&machine.to_string(), scope, resources);
     }
 
-    /// Whether a shown window wants the controller view `topic`, so it is drawn now.
+    /// Whether a shown window wants the controller view `topic`, so it is drawn now. The standing
+    /// interests keep the streams on and take no view.
     pub(crate) fn controller_wanted(&self, topic: &Topic) -> bool {
         self.registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .windows
-            .values()
-            .filter(|window| window.live())
-            .flat_map(|window| &window.topics)
+            .iter()
+            .filter(|(label, window)| !standing(label) && window.live())
+            .flat_map(|(_, window)| &window.topics)
             .any(|interest| interest.machine.is_none() && interest.topic.matches(topic))
     }
 
@@ -1011,7 +1012,7 @@ impl Events {
         self.registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .demanding()
+            .receiving()
             .flat_map(|window| &window.topics)
             .any(|interest| interest.machine.is_none() && interest.topic.matches(topic))
     }
