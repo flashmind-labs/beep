@@ -14,7 +14,7 @@ import { ICON } from "../ui/icons.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import { $, bar, newChat, PANE, S, setView } from "./core.ts";
 import { hintModel } from "./hints.ts";
-import { type BarPageSlot, openBarPage } from "./bar-app.tsx";
+import { type BarPageSlot, openBarPage } from "./bar-page.ts";
 import { waitingSessions, type WaitingSession } from "./waiting-state.ts";
 import { sessionKey } from "../agents/conversation-state.ts";
 import type { WaitingRow } from "./waiting-view.tsx";

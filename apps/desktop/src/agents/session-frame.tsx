@@ -1,51 +1,40 @@
+import type { HintViewModel } from "../bar/hints-view.tsx";
 import { readWindowPreference, writeWindowPreference } from "../ui/window-layout.ts";
 import { appendQuote, ComposeField } from "../chat/compose.tsx";
 import { DictateButton } from "../chat/dictation.tsx";
 import { FilePicker } from "./file-picker.tsx";
-import { StashActions, StashIndicator } from "../chat/stash-hints.tsx";
-import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
-import { SHORTCUTS } from "../ui/shortcuts.ts";
-import { cloneElement, createRef, isValidElement, memo, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { cloneElement, createRef, isValidElement, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { createStore, useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
 import { fixedTitle } from "../project/projectbar.ts";
 import { createPortal, flushSync } from "react-dom";
-import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-page.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
-import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-view.tsx";
 import { RunningPages } from "../agentpane/running-view.tsx";
 import { MoveBar, MoveBox, MoveHere } from "./move-view.tsx";
 import { FieldAttachments, FieldControl, FieldMenu, FieldQueue, modelPickHost, StopButton, useFieldDrop, WorkLine } from "./composer-ui.tsx";
 import { cancelContinue, continuing } from "./continue-here.ts";
-import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.tsx";
-import { conversationAppearance } from "../ui/conversation-appearance.ts";
-import { syncJump } from "./logview.tsx";
 import { ComposerPresence, PluginSlot, SessionHeaderSlot } from "../plugins/slot-view.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import type { Persona, SessionUsage } from "./agents.ts";
 import { PersonaTag } from "../project/customagents-view.tsx";
 
-interface AgentHintsModel { value: HintViewModel; project: string | null }
-interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
+export interface AgentHintsModel { value: HintViewModel; project: string | null }
+export interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
 /// What the session page draws: the frame, and the views put in it.
-interface FrameState { frame: Frame; revision: number; slots: readonly Slot[] }
+export interface FrameState { frame: Frame; revision: number; slots: readonly Slot[] }
 interface Owner { page: BarPageSlot; store: StoreApi<FrameState>; revision: number; frame: Frame; portals: Map<HTMLElement, Slot>; children: Map<string, Slot>; next: number; release(): void }
 let current: Owner | null = null;
 
 // Each child and portal is its own store, so a pane redrawing one tab strip
 // renders that strip alone instead of the whole session frame.
-interface Slot { key: number; host: HTMLElement | null; view: StoreApi<ReactNode> }
+export interface Slot { key: number; host: HTMLElement | null; view: StoreApi<ReactNode> }
 
 function slot(owner: Owner, host: HTMLElement | null, view: ReactNode): Slot {
   return { key: ++owner.next, host, view: createStore<ReactNode>(() => view) };
 }
-
-const SlotView = memo(function SlotView({ slot }: { slot: Slot }) {
-  const view = useStore(slot.view);
-  return slot.host ? createPortal(view, slot.host) : view;
-});
 
 function draw(owner: Owner) {
   // Something replaced the bar's contents: the page box mounts again.
@@ -53,11 +42,6 @@ function draw(owner: Owner) {
   flushSync(() => owner.store.setState({ frame: owner.frame, revision: owner.revision, slots: [...owner.children.values(), ...owner.portals.values()] }));
 }
 
-/// The bar's session page, drawn from its frame's store.
-export function SessionFrame({ store }: { store: StoreApi<FrameState> }) {
-  const { frame, revision, slots } = useStore(store);
-  return <><FrameView frame={frame} revision={revision} />{slots.map(entry => <SlotView key={entry.key} slot={entry} />)}</>;
-}
 
 function update(entry: Slot, view: ReactNode) {
   if (entry.view.getState() === view) return;
@@ -335,87 +319,6 @@ export function showSessionFrame(frame: Frame, inPlace: boolean, release: () => 
   draw(owner);
 }
 
-function BodySlot({ body }: { body: ChatBody }) {
-  const host = useRef<HTMLDivElement>(null);
-  const scrollbar = useStore(conversationAppearance, state => state.scrollbar);
-  useLayoutEffect(() => { const slot = host.current; slot?.prepend(body); return () => body.remove(); }, [body]);
-  return <div ref={host} className="agbodyw">{scrollbar && <ConversationRail body={body}/>}</div>;
-}
-
-/// The conversation's scrollbar: where the view is, and a tick at each message
-/// the user sent. A tick jumps to its message; the thumb drags.
-interface RailView { thumb: { top: number; height: number } | null; ticks: { key: string; top: number; prompt: string }[] }
-const NO_RAIL: RailView = { thumb: null, ticks: [] };
-/// The thumb's least height, in pixels, so a long log keeps one to grab.
-const THUMB_MIN = 24;
-
-function ConversationRail({ body }: { body: ChatBody }) {
-  const rail = useRef<HTMLDivElement>(null);
-  const promptMarksEnabled = useStore(conversationAppearance, state => state.promptMarks);
-  const [view, setView] = useState(NO_RAIL);
-  const [peek, setPeek] = useState<string | null>(null);
-
-  useEffect(() => {
-    let frame = 0;
-    const read = () => {
-      frame = 0;
-      const box = rail.current, total = body.scrollHeight, shown = body.clientHeight;
-      if (!box || total <= shown + 1) return setView(NO_RAIL);
-      const height = box.clientHeight, scale = height / total;
-      const thumbHeight = Math.max(THUMB_MIN, shown * scale);
-      const thumbTop = (body.scrollTop / (total - shown)) * (height - thumbHeight);
-      const ticks = (promptMarksEnabled ? promptMarks(body) : []).map(mark => ({ key: mark.key, prompt: mark.prompt, top: Math.min(height - 2, mark.top * scale) }));
-      setView({ thumb: { top: thumbTop, height: thumbHeight }, ticks });
-    };
-    const later = () => { frame ||= requestAnimationFrame(read); };
-    const sized = new ResizeObserver(later);
-    sized.observe(body);
-    body.addEventListener("scroll", later, { passive: true });
-    const drawn = onLogDrawn(body, later);
-    later();
-    return () => { cancelAnimationFrame(frame); sized.disconnect(); body.removeEventListener("scroll", later); drawn(); };
-  }, [body, promptMarksEnabled]);
-
-  const jump = (key: string) => {
-    revealLogUnit(body, key);
-    syncJump(body);
-  };
-
-  // A press on the track brings that part of the log into view; one on the thumb drags it.
-  const press = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const box = rail.current, thumb = view.thumb;
-    if (!box || !thumb || event.button !== 0 || (event.target as HTMLElement).closest(".tk")) return;
-    event.preventDefault();
-    const top = box.getBoundingClientRect().top, travel = box.clientHeight - thumb.height;
-    const room = body.scrollHeight - body.clientHeight;
-    const onThumb = event.clientY - top >= thumb.top && event.clientY - top <= thumb.top + thumb.height;
-    const grab = onThumb ? event.clientY - top - thumb.top : thumb.height / 2;
-    const follow = (y: number) => {
-      body.stuck = false;
-      body.scrollTop = travel > 0 ? ((y - top - grab) / travel) * room : 0;
-    };
-    if (!onThumb) follow(event.clientY);
-    const target = event.currentTarget;
-    target.setPointerCapture(event.pointerId);
-    const move = (moved: PointerEvent) => follow(moved.clientY);
-    const up = () => { target.removeEventListener("pointermove", move); target.removeEventListener("pointerup", up); target.removeEventListener("pointercancel", up); };
-    target.addEventListener("pointermove", move);
-    target.addEventListener("pointerup", up);
-    target.addEventListener("pointercancel", up);
-  };
-
-  // The message under the pointer, beside its tick.
-  const ticks = promptMarksEnabled ? view.ticks : [];
-  const shown = ticks.find(tick => tick.key === peek) ?? null;
-
-  return <div className={view.thumb ? "agrail" : "agrail off"} ref={rail} onPointerDown={press}>
-    {view.thumb && <div className="th" style={{ top: view.thumb.top, height: view.thumb.height }}/>}
-    {ticks.map(tick => <button type="button" className="tk" key={tick.key} style={{ top: tick.top }} aria-label={`Jump to your message: ${tick.prompt.slice(0, 80)}`}
-      onClick={() => jump(tick.key)} onPointerEnter={() => setPeek(tick.key)} onPointerLeave={() => setPeek(null)} onFocus={() => setPeek(tick.key)} onBlur={() => setPeek(null)}/>)}
-    {shown && <div className="agpeek" style={{ top: shown.top }} aria-hidden="true">{shown.prompt}</div>}
-  </div>;
-}
-
 const sameHints = (a: AgentHintsModel, b: AgentHintsModel) => a.project === b.project && a.value.window === b.value.window
   && a.value.items.length === b.value.items.length && a.value.items.every((item, i) => item.join("\n") === b.value.items[i].join("\n"));
 
@@ -424,12 +327,3 @@ export function updateSessionHints(hints: AgentHintsModel) {
   current.frame = { ...current.frame, hints };
   draw(current);
 }
-
-const AgentHints = memo(function AgentHints({ value }: { value: AgentHintsModel }) {
-  const sections = SHORTCUTS.filter(section => ["Agent session", "Side pane", "Terminals"].includes(section.title));
-  return <div className="agkeys"><HintView value={value.value} slim /><StashIndicator project={value.project} /><details id="agshortcuts"><summary>Show more</summary><div className="agkeys-list">{sections.map(section => <section key={section.title}><b>{section.title}</b>{section.rows.map(row => <span key={`${row.keys}:${row.does}`}><kbd>{row.keys}</kbd>{row.does}</span>)}</section>)}<StashActions /></div></details></div>;
-});
-
-const FrameView = memo(function FrameView({ frame, revision }: { frame: Frame; revision: number }) {
-  return <><div className="dhead ag-head" data-tauri-drag-region="" key={`head:${revision}`}>{frame.head}</div><PaneShell><PaneMain><div className="agconv" id="agconv" key={`conversation:${revision}`}><BodySlot body={frame.body} />{frame.field}<AgentHints value={frame.hints} /></div><PaneDock dock="bottom" /></PaneMain><PaneDock dock="right" /><PaneDropZone /></PaneShell></>;
-});

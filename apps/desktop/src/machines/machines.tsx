@@ -12,7 +12,7 @@ import { ensureMachines, MACHINES, removeListed, renameListed, takeTraffic } fro
 import { openJoinTicket } from "./jointicket.tsx";
 import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-state.ts";
 import { S, setView } from "../bar/core.ts";
-import { type BarPage, type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
+import { type BarPage, type BarPageSlot, openBarPage } from "../bar/bar-page.ts";
 import { hintModel } from "../bar/hints.ts";
 import { notice } from "../chat/media.tsx";
 import { invoke, listen } from "../ui/tauri.ts";

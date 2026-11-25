@@ -1,7 +1,7 @@
 import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { flushSync } from "react-dom";
 import { createStore } from "zustand/vanilla";
-import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-page.ts";
 import type { AgentListRow } from "./agents-list-view.tsx";
 import { cap, formatAgo, plural } from "../ui/format.ts";
 import { machineConnecting, machinesReachNow, onConnecting, type MachinesReach } from "../machines/machine-state.ts";

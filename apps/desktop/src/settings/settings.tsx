@@ -14,7 +14,7 @@ import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection,
 import { onPhone } from "../ui/platform.ts";
 import { agentAccountsContent, credentialsContent, renderCreds, CRED, ensureAgentAccounts, loadCreds } from "./accounts.tsx";
 import { bar, S, toWindow, windowHooks, setView } from "../bar/core.ts";
-import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-page.ts";
 import { hintModel } from "../bar/hints.ts";
 import { machinesIn, machinesOut, renderMachines } from "../machines/machines.tsx";
 import { ensureMac, ensureMachines, MACHINES, takeMac } from "../machines/machine-store.ts";

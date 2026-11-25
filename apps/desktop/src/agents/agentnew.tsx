@@ -3,7 +3,7 @@ import { keepProjectAccount, keepProjectPick, lastProjectPick, projectAccount, s
 import { Spinner } from "../ui/kit.tsx";
 import { createRef, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { flushSync } from "react-dom";
-import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
+import { type BarPageSlot, openBarPage } from "../bar/bar-page.ts";
 import { startAttachments } from "./start-attachments.tsx";
 import { makeStartComposer, type StartComposer } from "./start-composer.tsx";
 import { menuPlaceFor } from "./mentionmenu.ts";
