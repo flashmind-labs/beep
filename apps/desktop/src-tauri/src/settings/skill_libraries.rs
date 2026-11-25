@@ -19,25 +19,56 @@ use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use tauri::State;
+
+/// How long after a failed check the libraries are not checked again, whatever changes.
+const RETRY_AFTER: Duration = Duration::from_secs(5 * 60);
+
+/// When a failed check may run again.
+#[derive(Default)]
+struct Retry(Option<Instant>);
+
+impl Retry {
+    fn failed(&mut self, now: Instant) {
+        self.0 = Some(now + RETRY_AFTER);
+    }
+
+    /// How long until the check may run again; `None` when it may now.
+    fn left(&mut self, now: Instant) -> Option<Duration> {
+        match self.0.map(|at| at.saturating_duration_since(now)) {
+            Some(left) if !left.is_zero() => Some(left),
+            _ => {
+                self.0 = None;
+                None
+            }
+        }
+    }
+}
 
 /// Checks the libraries when the app starts, when a machine comes or goes (a controller that
 /// connected, or one that failed before, may be the one to check), and when the soonest one is
 /// due again. Nothing wakes it while every library is due and unchecked here: a change does.
+/// A check that failed is not repeated for `RETRY_AFTER`, so a library that always fails does
+/// not keep a busy mesh reading it.
 pub(crate) async fn follow(fleet: Arc<Fleet>, session: Arc<Session>) {
     let mut changes = fleet.changes();
+    let mut retry = Retry::default();
 
     loop {
-        let mut due = None;
+        let mut due = retry.left(Instant::now());
 
-        if let Ok(desk) = session.desk().await {
+        if due.is_none()
+            && let Ok(desk) = session.desk().await
+        {
             if let Err(error) = desk.check_skill_libraries().await {
                 log::warn!("could not check skill libraries: {error}");
+                retry.failed(Instant::now());
+                due = retry.left(Instant::now());
+            } else {
+                due = desk.next_library_check_in().filter(|wait| !wait.is_zero());
             }
-
-            due = desk.next_library_check_in().filter(|wait| !wait.is_zero());
         }
 
         tokio::select! {

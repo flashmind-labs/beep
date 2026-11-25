@@ -24,3 +24,19 @@ fn repository_urls_compare_loosely() {
         same_repo("https://host/org/repo")
     );
 }
+
+#[test]
+fn a_failed_check_waits_before_it_runs_again_whatever_changes() {
+    let now = Instant::now();
+    let mut retry = Retry::default();
+
+    assert_eq!(retry.left(now), None);
+
+    retry.failed(now);
+    assert_eq!(
+        retry.left(now + Duration::from_secs(60)),
+        Some(RETRY_AFTER - Duration::from_secs(60))
+    );
+    assert_eq!(retry.left(now + RETRY_AFTER), None);
+    assert_eq!(retry.left(now + RETRY_AFTER + Duration::from_secs(1)), None);
+}
