@@ -15,6 +15,7 @@ use beep_proto::node::{
     skills::{Conflict, Listed, PROTOCOL, Reply, Request, SkillFile},
 };
 use beep_proto::watched;
+use futures::{StreamExt, stream::FuturesUnordered};
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -25,18 +26,14 @@ use std::{
 use tokio::{
     sync::{broadcast::error::RecvError, mpsc},
     task::spawn_blocking,
-    time::{Instant, MissedTickBehavior, interval, timeout},
+    time::{Instant, MissedTickBehavior, interval, sleep_until, timeout},
 };
 
-/// How often the skills here are looked at when no file under them changed.
-/// A look reads only the files' metadata unless one changed. Without a
-/// file watcher they are looked at every `UNWATCHED_EVERY`.
-const EVERY: Duration = Duration::from_secs(30 * 60);
+/// How often the skills here are looked at without a file watcher. A look
+/// reads only the files' metadata unless one changed.
 const UNWATCHED_EVERY: Duration = Duration::from_secs(120);
-/// How often the other machines' lists are read when none came, went or
-/// said its skills changed: each says so itself, so this only catches a
-/// word that was lost.
-const ASK_EVERY: Duration = Duration::from_secs(15 * 60);
+/// How soon a machine that did not answer, or was not told, is tried again.
+const RETRY: Duration = Duration::from_secs(5);
 /// The most skills taken in one pass; the rest wait for the next.
 const MAX_TAKEN: usize = 32;
 /// How long a peer has to send its request.
@@ -45,8 +42,7 @@ const READ_LIMIT: Duration = Duration::from_secs(10);
 const SEEN: &str = "skills-seen";
 
 /// Compares this machine's skills with every other machine's now, when a
-/// machine comes or goes or says its skills changed, and every `EVERY`,
-/// until the mesh stops. Nothing when the host does not sync skills.
+/// machine comes or goes or says its skills changed, until the mesh stops. Nothing when the host does not sync skills.
 pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     let Some(home) = skills.home().cloned() else {
         return;
@@ -71,7 +67,9 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
         dir,
         seen,
         hashes: Hashes::default(),
-        asked: None,
+        asked: false,
+        unread: false,
+        unheard: false,
         compared: 0,
         lists: HashMap::new(),
         sent: HashMap::new(),
@@ -83,13 +81,17 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
     // A skill written here is looked at once its files settle in a pass.
     let (edited, mut edits) = mpsc::channel(1);
     let watcher = watch(&pass.home, edited).await;
-    let mut tick = interval(if watcher.is_some() {
-        EVERY
-    } else {
-        UNWATCHED_EVERY
+    // Only without a watcher: with one, every change to the files says so.
+    let mut tick = watcher.is_none().then(|| {
+        let mut tick = interval(UNWATCHED_EVERY);
+        tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        tick
     });
-    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    tick.tick().await;
+
+    if let Some(tick) = &mut tick {
+        tick.tick().await;
+    }
+
     let mut ask = true;
     let mut syncing = None;
 
@@ -112,12 +114,26 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
             pass.tell(Vec::new());
             pass.lists.clear();
             pass.sent.clear();
-            pass.asked = None;
+            pass.asked = false;
+            pass.unread = false;
+            pass.unheard = false;
             pass.said = None;
         }
+        // A machine that did not answer or hear is tried again, not left for
+        // the next change.
+        let retry = (pass.unread || pass.unheard).then(|| Instant::now() + RETRY);
+        let reread = pass.unread;
         ask = loop {
             tokio::select! {
-                _ = tick.tick() => break false,
+                () = async {
+                    match &mut tick {
+                        Some(tick) => {
+                            tick.tick().await;
+                        }
+                        None => std::future::pending().await,
+                    }
+                } => break false,
+                () = async { sleep_until(retry.unwrap_or_else(Instant::now)).await }, if retry.is_some() => break reread,
                 Some(()) = edits.recv() => break false,
                 () = nudge.notified() => break true,
                 change = changes.recv() => match change {
@@ -178,8 +194,12 @@ struct Passes {
     seen: Seen,
     /// The skill folders' hashes, so an unchanged one is not read again.
     hashes: Hashes,
-    /// When the other machines' lists were last read.
-    asked: Option<Instant>,
+    /// Whether the other machines' lists were read since sync was enabled.
+    asked: bool,
+    /// A machine did not answer the last read of lists.
+    unread: bool,
+    /// A machine did not take the last word that this one's skills changed.
+    unheard: bool,
     /// How many of them answered then.
     compared: usize,
     /// Each other machine's last list, kept while it is offline so its
@@ -207,7 +227,7 @@ struct Summary {
 
 impl Passes {
     /// One pass; whether it wrote a skill. The other machines' lists are
-    /// read again when `ask`, or when they were last read `ASK_EVERY` ago.
+    /// read again when `ask`, and the first time.
     async fn run(&mut self, online: &BTreeSet<EndpointId>, ask: bool) -> bool {
         if !enabled(&self.mesh) {
             return false;
@@ -219,7 +239,7 @@ impl Passes {
         let here = self.listing(&scan);
         self.skills.listed.send_replace(Some(here.clone()));
 
-        if ask || self.asked.is_none_or(|at| at.elapsed() >= ASK_EVERY) {
+        if ask || !self.asked {
             self.ask(online).await;
         }
 
@@ -346,18 +366,27 @@ impl Passes {
         wrote
     }
 
-    /// Reads each online machine's list.
+    /// Reads each online machine's list, all at once.
     async fn ask(&mut self, online: &BTreeSet<EndpointId>) {
+        if !enabled(&self.mesh) {
+            return;
+        }
+
+        let mut asking: FuturesUnordered<_> = online
+            .iter()
+            .map(|&peer| {
+                let client = PeerClient::over(self.mesh.clone(), peer);
+                async move {
+                    let answer = client.call::<_, Reply>(PROTOCOL, &Request::List {}).await;
+                    (peer, answer)
+                }
+            })
+            .collect();
         let mut compared = 0;
+        self.unread = false;
 
-        for &peer in online {
-            if !enabled(&self.mesh) {
-                return;
-            }
-
-            let client = PeerClient::over(self.mesh.clone(), peer);
-
-            match client.call(PROTOCOL, &Request::List {}).await {
+        while let Some((peer, answer)) = asking.next().await {
+            match answer {
                 Ok(Reply::Skills { skills }) => {
                     self.lists.insert(peer, skills);
                     compared += 1;
@@ -367,12 +396,15 @@ impl Passes {
                 Err(MeshError::Declined { .. }) => {
                     self.lists.remove(&peer);
                 }
-                Err(e) => log::debug!("skills: {peer} not read: {e}"),
+                Err(e) => {
+                    self.unread = true;
+                    log::debug!("skills: {peer} not read: {e}");
+                }
             }
         }
 
         self.compared = compared;
-        self.asked = Some(Instant::now());
+        self.asked = true;
     }
 
     /// The skills on disk now, without the ones a skill library installed.
@@ -598,25 +630,32 @@ impl Passes {
     /// Tells each machine online whose last word from here is older than
     /// `here` that this machine's skills changed, so it compares again.
     async fn say_changed(&mut self, online: &BTreeSet<EndpointId>, here: &[Listed]) {
-        for &peer in online {
-            if !enabled(&self.mesh) {
-                return;
-            }
+        if !enabled(&self.mesh) {
+            return;
+        }
 
-            if self.sent.get(&peer).is_some_and(|sent| sent == here) {
-                continue;
-            }
+        let mut telling: FuturesUnordered<_> = online
+            .iter()
+            .filter(|peer| self.sent.get(*peer).is_none_or(|sent| sent != here))
+            .map(|&peer| {
+                let client = PeerClient::over(self.mesh.clone(), peer);
+                async move {
+                    let told = client.call::<_, Reply>(PROTOCOL, &Request::Changed {}).await;
+                    (peer, told)
+                }
+            })
+            .collect();
+        self.unheard = false;
 
-            let client = PeerClient::over(self.mesh.clone(), peer);
-
-            match client
-                .call::<_, Reply>(PROTOCOL, &Request::Changed {})
-                .await
-            {
+        while let Some((peer, told)) = telling.next().await {
+            match told {
                 Ok(_) => {
                     self.sent.insert(peer, here.to_vec());
                 }
-                Err(e) => log::debug!("skills: {peer} not told: {e}"),
+                Err(e) => {
+                    self.unheard = true;
+                    log::debug!("skills: {peer} not told: {e}");
+                }
             }
         }
 
