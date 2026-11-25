@@ -71,6 +71,17 @@ fn texts(outbox: &Outbox, session: &str) -> Vec<String> {
     })
 }
 
+/// The rows of a session that are still the outbox's to send: not the sent ones, which stay until
+/// the session lists them.
+fn unsent(outbox: &Outbox, session: &str) -> Vec<Row> {
+    outbox.read(|held| {
+        held.rows(&key(session))
+            .into_iter()
+            .filter(|row| row.state != "sent")
+            .collect()
+    })
+}
+
 /// What the fake machine answers, one per call, and what it was sent.
 #[derive(Default)]
 struct Fake {
@@ -169,7 +180,7 @@ async fn messages_go_in_the_order_typed_after_the_machine_comes_back() {
 
     assert_eq!(link.sent, ["first", "second"]);
     assert_eq!(link.waits, 1);
-    assert!(texts(&outbox, "s1").is_empty());
+    assert!(unsent(&outbox, "s1").is_empty());
     let sent: Vec<&str> = link
         .changes
         .iter()
@@ -209,7 +220,7 @@ async fn a_refused_message_keeps_its_reason_and_the_next_goes() {
     flush(&outbox, &key("s1"), &mut link).await;
 
     assert_eq!(link.sent, ["second"]);
-    let rows = outbox.read(|held| held.rows(&key("s1")));
+    let rows = unsent(&outbox, "s1");
     assert_eq!(rows.len(), 1);
     assert_eq!(
         (rows[0].state, rows[0].reason.as_deref()),
@@ -846,7 +857,7 @@ async fn files_upload_before_their_message_goes_and_a_second_message_waits_behin
         (first.state, first.text.as_str()),
         ("uploading", "Read these")
     );
-    assert!(texts(&outbox, "s1").is_empty());
+    assert!(unsent(&outbox, "s1").is_empty());
 }
 
 #[tokio::test]
@@ -1318,7 +1329,7 @@ async fn an_ended_session_resumes_once_then_the_messages_go_on_in_the_new_one_in
     assert_eq!(link.went_to, ["s2", "s2"]);
     // Its first row said what was being done, and the window was sent to the new session.
     assert_eq!(link.changes[0].rows[0].state, "resuming");
-    assert!(outbox.read(|held| held.rows(&key("s2"))).is_empty());
+    assert!(unsent(&outbox, "s2").is_empty());
 }
 
 #[tokio::test]
@@ -1479,7 +1490,7 @@ async fn a_message_behind_a_refused_resume_resumes_in_its_place_once() {
     assert_eq!(link.resumed, 1);
     assert_eq!(link.went_to, ["s2"]);
     // The refused one goes on with the session, failed, for the user to Edit.
-    let rows = outbox.read(|held| held.rows(&key("s2")));
+    let rows = unsent(&outbox, "s2");
     assert_eq!((rows.len(), rows[0].state), (1, "failed"));
 }
 

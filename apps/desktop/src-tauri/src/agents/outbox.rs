@@ -410,7 +410,7 @@ pub(crate) enum OrderAnswer {
 #[derive(Clone, Debug)]
 pub(crate) enum Step {
     Order(Order),
-    Message(Message),
+    Message(Box<Message>),
 }
 
 /// The kept messages, transient session orders, and what is being done with them.
@@ -823,7 +823,9 @@ impl Held {
         match (order_id, msg_id) {
             (Some(oid), Some(mid)) if oid < mid => self.begin_order(oid).map(Step::Order),
             (Some(oid), None) => self.begin_order(oid).map(Step::Order),
-            (_, Some(_)) => self.begin(key).map(Step::Message),
+            (_, Some(_)) => self
+                .begin(key)
+                .map(|message| Step::Message(Box::new(message))),
             (None, None) => {
                 self.flushing.remove(key);
                 None
@@ -1536,7 +1538,7 @@ pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Lin
                     link.urgent(&key);
                 }
 
-                let tried = try_message(outbox, link, &mut key, message).await;
+                let tried = try_message(outbox, link, &mut key, *message).await;
                 let lost = matches!(tried, Tried::Lost { .. });
                 let change = outbox.with(|held| match tried {
                     Tried::Sent(keys) => held.sent(id, keys),
