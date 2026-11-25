@@ -3,7 +3,8 @@ use beep_proto::node::agent::SessionInfo;
 use super::*;
 use crate::events::ChangeKind;
 use beep_proto::node::events::{
-    MOVE_PROGRESS_TOPIC, Query, Read, Snapshot, SessionsDelta, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Value,
+    FORGE_REACH_TOPIC, MOVE_PROGRESS_TOPIC, Query, Read, Snapshot, SessionsDelta, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC,
+    Value,
 };
 use beep_proto::node::process::TaskId;
 use beep_proto::node::subscriptions::Reply;
@@ -45,6 +46,8 @@ enum Source {
     Resources(Vec<Topic>),
     Devices,
     ToolUpdates,
+    /// How this node's calls to each code host went.
+    ForgeReach,
     /// The cards of the team of the project with this name.
     TeamCards(String),
     /// The invites waiting for a desktop on this node.
@@ -320,6 +323,13 @@ impl Snapshots {
 
         for topic in topics
             .iter()
+            .filter(|topic| topic.name() == FORGE_REACH_TOPIC)
+        {
+            wanted.push((topic.clone(), Source::ForgeReach));
+        }
+
+        for topic in topics
+            .iter()
             .filter(|topic| topic.name() == crate::machine::provision::UPDATES_TOPIC)
         {
             wanted.push((topic.clone(), Source::ToolUpdates));
@@ -424,6 +434,7 @@ impl Snapshots {
                         | crate::machine::provision::UPDATES_TOPIC
                         | TEAM_CARDS_TOPIC
                         | TEAM_INVITES_TOPIC
+                        | FORGE_REACH_TOPIC
                 )
         }) {
             wanted.push((topic.clone(), Source::Plugin));
@@ -591,6 +602,7 @@ impl Snapshots {
                         Source::Moves => Ok(Value::Sessions(Box::new(SessionsReply::Moves {
                             moves: offers.agents.move_entries(),
                         }))),
+                        Source::ForgeReach => Ok(Value::ForgeReach(offers.agents.ci.reach())),
                         Source::ToolUpdates => Ok(offers
                             .provision
                             .as_ref()

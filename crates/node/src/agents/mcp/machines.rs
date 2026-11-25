@@ -14,7 +14,7 @@ use crate::{
     },
     machine::env,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use beep_mesh::{DeviceStatus, Mesh, machine::Device};
 use beep_proto::SessionId;
 use beep_proto::node::{
@@ -616,9 +616,14 @@ pub(crate) enum CallFailed {
     Sent(anyhow::Error),
 }
 
+/// The machine turned a stream away, which trying again does not change.
+#[derive(Debug, thiserror::Error)]
+#[error("the machine refused the call: {0}")]
+pub(crate) struct Refused(pub(crate) String);
+
 /// Opens `protocol` on `peer`. A link replaced while it opens (two machines
 /// dialing each other keep one) is tried again; nothing has run yet.
-pub(super) async fn handshake(
+pub(crate) async fn handshake(
     mesh: &Mesh,
     peer: EndpointId,
     protocol: &str,
@@ -634,7 +639,7 @@ pub(super) async fn handshake(
                 }
                 Err(e) => return Err(e),
                 Ok(Ok(streams)) => return Ok(streams),
-                Ok(Err(reason)) => bail!("the machine refused the call: {reason}"),
+                Ok(Err(reason)) => return Err(Refused(reason).into()),
             }
         }
     };

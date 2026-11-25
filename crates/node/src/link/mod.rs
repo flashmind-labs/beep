@@ -21,6 +21,7 @@ host! {
     pub mod local_status;
     pub(crate) mod note;
     pub(crate) mod peer_tools;
+    pub(crate) mod peer_watch;
     pub mod peers;
     mod report;
     mod metrics;

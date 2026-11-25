@@ -55,6 +55,27 @@ enum Wire {
     Subscriptions,
 }
 
+/// What a caller of a subscription stream may watch.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Reach {
+    /// Any topic: a controller.
+    Whole,
+    /// Only what another node of the mesh already reads with a one-off ask:
+    /// the `agents` list and how code hosts are reached.
+    Node,
+}
+
+impl Reach {
+    fn allows(self, topics: &[Topic], queries: &[events::Query]) -> bool {
+        self == Self::Whole
+            || queries.is_empty()
+                && topics.iter().all(|topic| {
+                    topic.resource_segments().is_empty()
+                        && matches!(topic.name(), "agents" | events::FORGE_REACH_TOPIC)
+                })
+    }
+}
+
 /// A watch being looked up: its sources are found while the stream goes on.
 struct Watched {
     id: u64,
@@ -77,6 +98,7 @@ struct Queued {
 async fn begin_watch(
     tx: &mut LinkTx,
     wire: Wire,
+    reach: Reach,
     offers: &Offers,
     stream: &uuid::Uuid,
     queued: Queued,
@@ -89,7 +111,9 @@ async fn begin_watch(
         tracing::info!(%stream, watch = id, query = query.id, topic = query.topic.name(), "subscription query received");
     }
 
-    let valid = if wanted.len() > events::MAX_TOPICS {
+    let valid = if !reach.allows(&wanted, &wanted_queries) {
+        Err(anyhow::anyhow!("a node may watch only the agents and forge-reach topics"))
+    } else if wanted.len() > events::MAX_TOPICS {
         Err(anyhow::anyhow!("too many subscription topics"))
     } else if wanted.iter().any(|topic| !topic.valid()) {
         Err(anyhow::anyhow!("invalid subscription topics"))
@@ -121,7 +145,7 @@ pub(crate) async fn serve(
     offers: Offers,
     caller: iroh::EndpointId,
 ) -> Result<()> {
-    run(Wire::Events, tx, rx, offers, caller).await
+    run(Wire::Events, tx, rx, offers, caller, Reach::Whole).await
 }
 
 pub(super) async fn serve_subscriptions(
@@ -129,8 +153,9 @@ pub(super) async fn serve_subscriptions(
     rx: LinkRx,
     offers: Offers,
     caller: iroh::EndpointId,
+    reach: Reach,
 ) -> Result<()> {
-    run(Wire::Subscriptions, tx, rx, offers, caller).await
+    run(Wire::Subscriptions, tx, rx, offers, caller, reach).await
 }
 
 async fn run(
@@ -139,6 +164,7 @@ async fn run(
     mut rx: LinkRx,
     offers: Offers,
     caller: iroh::EndpointId,
+    reach: Reach,
 ) -> Result<()> {
     let mut snapshots = Snapshots::new();
     let stream = snapshots.stream();
@@ -178,7 +204,7 @@ async fn run(
         while watching.is_empty()
             && let Some(next) = queued.pop_front()
         {
-            begin_watch(&mut tx, wire, &offers, &stream, next, &mut watching).await?;
+            begin_watch(&mut tx, wire, reach, &offers, &stream, next, &mut watching).await?;
         }
 
         snapshots.start(&offers, caller);

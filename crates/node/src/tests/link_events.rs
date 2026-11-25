@@ -350,3 +350,79 @@ async fn a_ping_is_answered_while_a_watch_is_looked_up_and_watches_keep_their_or
 
     assert_eq!(acknowledged, [1, 2]);
 }
+
+mod node_caller {
+    use super::*;
+    use beep_proto::node::{
+        events::FORGE_REACH_TOPIC,
+        subscriptions::{Reply, Request},
+    };
+
+    async fn reply(rx: &mut LinkRx) -> Reply {
+        loop {
+            let reply = timeout(Duration::from_secs(10), rx.recv::<Reply>())
+                .await
+                .unwrap()
+                .unwrap()
+                .unwrap();
+
+            if !matches!(reply, Reply::Pong { .. }) {
+                return reply;
+            }
+        }
+    }
+
+    fn watch(id: u64, topic: Topic) -> Request {
+        Request::Watch {
+            id,
+            topic,
+            queries: Vec::new(),
+            deltas: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_node_is_refused_every_topic_but_agents_and_forge_reach() {
+        let offers = Offers::default();
+        let link = local_link();
+        let _task = AbortOnDropHandle::new(tokio::spawn(serve_subscriptions(
+            link.node.0,
+            link.node.1,
+            offers.clone(),
+            iroh::SecretKey::generate().public(),
+            Reach::Node,
+        )));
+        let (mut tx, mut rx) = link.caller;
+        assert!(matches!(reply(&mut rx).await, Reply::Ready));
+
+        for (id, topic) in [
+            (1, Topic::keyed("files", "/srv/project")),
+            (2, Topic::new("terminals")),
+            (3, Topic::keyed("agent", "s1")),
+            (4, Topic::new("*")),
+        ] {
+            tx.send(&watch(id, topic)).await.unwrap();
+            assert!(matches!(reply(&mut rx).await, Reply::Error { id: refused, .. } if refused == id));
+        }
+
+        tx.send(&watch(5, Topic::new(FORGE_REACH_TOPIC))).await.unwrap();
+        let mut said = false;
+
+        // How a host is reached is pushed when it changes, not asked for.
+        while !said {
+            match reply(&mut rx).await {
+                Reply::Snapshot(snapshot) => {
+                    if let Value::ForgeReach(reach) = snapshot.value {
+                        said = reach.hosts.get("github.com").is_some_and(|host| host.reached);
+                    }
+
+                    if !said {
+                        offers.agents.ci.record_reach("github.com", true);
+                    }
+                }
+                Reply::Error { reason, .. } => panic!("{reason}"),
+                _ => {}
+            }
+        }
+    }
+}

@@ -544,7 +544,8 @@ fn commands_off(offers: &Offers) -> Option<String> {
 
 /// Whether another node of the mesh may open `protocol` here: status and
 /// agent tools, and the devices its agents boot and drive (`device/1`, kept
-/// off by `withheld` while this machine is not lent).
+/// off by `withheld` while this machine is not lent). A node reads only some
+/// topics of `peer-subscriptions/1` (see `events::Reach`).
 fn node_may_open(protocol: &SessionProtocol) -> bool {
     matches!(
         protocol,
@@ -553,6 +554,7 @@ fn node_may_open(protocol: &SessionProtocol) -> bool {
             | SessionProtocol::Skills
             | SessionProtocol::SkillLibrary
             | SessionProtocol::Transcripts
+            | SessionProtocol::Subscriptions
             | SessionProtocol::Device
             | SessionProtocol::DeviceVideo
     )
@@ -635,7 +637,11 @@ pub(super) async fn serve_open(
                 super::commands::serve_open(tx, rx, offers, who.id()).await
             }
             SessionProtocol::Subscriptions => {
-                super::subscriptions::serve_open(tx, rx, offers, who.id()).await
+                let reach = match who {
+                    Who::Everything(_) => super::events::Reach::Whole,
+                    Who::Node { .. } => super::events::Reach::Node,
+                };
+                super::subscriptions::serve_open(tx, rx, offers, who.id(), reach).await
             }
             SessionProtocol::Events => super::events::serve(tx, rx, offers, who.id()).await,
             SessionProtocol::AgentFollow => {

@@ -265,6 +265,7 @@ mod current {
             link.node.1,
             offers,
             iroh::SecretKey::generate().public(),
+            crate::link::events::Reach::Whole,
         )));
         let (mut tx, mut rx) = link.caller;
         assert_eq!(rx.recv::<Reply>().await.unwrap(), Some(Reply::Ready));

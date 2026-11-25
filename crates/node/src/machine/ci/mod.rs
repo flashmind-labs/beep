@@ -23,6 +23,7 @@ mod tests;
 use crate::agents::AlertHub;
 use beep_proto::node::{
     agent::RunNews,
+    events::{FORGE_REACH_TOPIC, Topic},
     tools::{ForgeReach, HostReach},
 };
 use beep_proto::watched;
@@ -64,14 +65,18 @@ impl Ci {
         })
     }
 
-    fn record_reach(&self, host: &str, ok: bool) {
+    pub(crate) fn record_reach(&self, host: &str, ok: bool) {
         // Only a call that changes how the host is reached wakes the gateway.
-        self.reach.send_if_modified(|reach| {
+        let changed = self.reach.send_if_modified(|reach| {
             let host = reach.hosts.entry(host.to_owned()).or_default();
             let before = *host;
             host.record(ok);
 
             *host != before
         });
+
+        if changed {
+            crate::events::system().changed(Topic::new(FORGE_REACH_TOPIC));
+        }
     }
 }

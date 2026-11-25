@@ -375,12 +375,14 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
     let me = mesh.me();
     let (link, _router) = device().await;
     let (heard, hearing) = mpsc::channel(8);
+    let (sighted, sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
         mesh,
         me,
         link.clone(),
         Offers::default(),
         heard.clone(),
+        sighted,
         dir.path().join("node"),
     );
     let bob = member("bob", SecretKey::generate().public());
@@ -401,7 +403,7 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
     };
     // The first tick is due at once, once the timer has run.
     tokio::time::pause();
-    let mut running = Box::pin(gateway.drive(hearing));
+    let mut running = Box::pin(gateway.drive(hearing, sighting));
     assert!(futures::poll!(&mut running).is_pending());
     tokio::time::advance(Duration::from_millis(1)).await;
     assert!(futures::poll!(&mut running).is_pending());
@@ -429,12 +431,14 @@ async fn the_gateway_elects_when_the_home_changes() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, hearing) = mpsc::channel(8);
+    let (sighted, sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
         mesh,
         me,
         link.clone(),
         Offers::default(),
         heard,
+        sighted,
         dir.path().join("node"),
     );
     gateway.answered = true;
@@ -442,7 +446,7 @@ async fn the_gateway_elects_when_the_home_changes() {
     let team = TeamRecord::new(repo(), vec![alice.clone()]);
     link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
     tokio::time::pause();
-    let mut running = Box::pin(gateway.drive(hearing));
+    let mut running = Box::pin(gateway.drive(hearing, sighting));
     assert!(futures::poll!(&mut running).is_pending());
     assert!(link.served(|served| served.gateways.is_empty()));
 
@@ -472,12 +476,14 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, hearing) = mpsc::channel(8);
+    let (sighted, sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
         mesh,
         me,
         link.clone(),
         Offers::default(),
         heard,
+        sighted,
         dir.path().join("node"),
     );
     gateway.answered = true;
@@ -492,7 +498,7 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
         home.projects.insert(repo(), project);
     });
     tokio::time::pause();
-    let mut running = Box::pin(gateway.drive(hearing));
+    let mut running = Box::pin(gateway.drive(hearing, sighting));
     assert!(futures::poll!(&mut running).is_pending());
     assert!(link.served(|served| served.gateways.is_empty()), "no team yet");
 
@@ -562,4 +568,55 @@ async fn a_busy_desktop_write_does_not_hold_up_the_home() {
 
 fn in_team(mesh: &Mesh, folder: &std::path::Path) -> bool {
     team_repo_of(mesh, folder).is_some()
+}
+
+/// A machine's pushed session list makes the cards again after `SETTLE`, not
+/// at the next round, and a machine that refuses to push brings the round
+/// back to `ROUND`.
+#[tokio::test(start_paused = true)]
+async fn a_pushed_session_change_makes_the_cards_again_without_a_round() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let me = mesh.me();
+    let (link, _router) = crate::team::board::tests::device().await;
+    let (heard, _hearing) = mpsc::channel(8);
+    let (sighted, _sighting) = mpsc::channel(8);
+    let mut gateway = Gateway::new(
+        mesh,
+        me,
+        link,
+        Offers::default(),
+        heard,
+        sighted,
+        dir.path().join("node"),
+    );
+    let peer = SecretKey::generate().public();
+    gateway.held.insert(repo());
+    gateway
+        .sightings
+        .insert(peer, AbortOnDropHandle::new(tokio::spawn(std::future::pending())));
+    // The last round ended long ago and the next is due in a minute.
+    gateway.round_due = Some(Instant::now() + BUSY);
+
+    gateway.sighted(Sighted {
+        peer,
+        sight: Sight::Rows(Vec::new()),
+    });
+
+    assert_eq!(gateway.round_due, Some(Instant::now() + SETTLE));
+    assert!(gateway.rows.contains_key(&peer));
+
+    // The machine that refuses is asked for its sessions, on a round.
+    gateway.sighted(Sighted {
+        peer,
+        sight: Sight::Refused,
+    });
+    gateway.served(Ok((Cards::new(dir.path().join("node")), Vec::new())));
+
+    assert!(gateway.refused.contains(&peer));
+    assert!(gateway.rows.is_empty());
+    assert_eq!(gateway.round_due, Some(Instant::now() + ROUND));
 }

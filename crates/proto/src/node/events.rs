@@ -14,6 +14,10 @@ pub const MOVE_PROGRESS_TOPIC: &str = "move-progress";
 /// The topic of the contacts' team invites waiting for a desktop on this
 /// node: `Value::TeamInvites`.
 pub const TEAM_INVITES_TOPIC: &str = "team-invites";
+/// The topic of how this node's calls to each code host went:
+/// `Value::ForgeReach`. A node of the mesh may read it, and `agents`, and no
+/// other topic.
+pub const FORGE_REACH_TOPIC: &str = "forge-reach";
 
 mod git;
 pub use git::{GitOutput, GitRead};
@@ -106,6 +110,8 @@ pub enum Value {
     /// `after` names, for a follower that asked for deltas. Never in a
     /// snapshot of any other topic or query.
     SessionsDelta(Box<SessionsDelta>),
+    /// How this node's calls to each code host went, under `forge-reach`.
+    ForgeReach(tools::ForgeReach),
 }
 
 /// The rows of the `agents` list that changed, by session id, and the ids

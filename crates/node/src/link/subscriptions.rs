@@ -1,7 +1,7 @@
 //! Topic subscriptions on their own authenticated QUIC connection.
 
 use super::{
-    Offers, Session, channels, events,
+    Offers, Session, channels, events::{self, Reach},
     peers::{CHANNEL_OPEN_WAIT, Peers},
 };
 use anyhow::{Context, Result};
@@ -43,7 +43,7 @@ fn serve_stream(
             peers.controller_allowed(peer, mesh),
             "only a controller may subscribe"
         );
-        serve_open(tx, rx, offers, peer).await
+        serve_open(tx, rx, offers, peer, Reach::Whole).await
     })
 }
 
@@ -52,9 +52,10 @@ pub(super) async fn serve_open(
     mut rx: LinkRx,
     offers: Offers,
     caller: EndpointId,
+    reach: Reach,
 ) -> Result<()> {
     timeout(CHANNEL_OPEN_WAIT, rx.recv::<Open>())
         .await??
         .context("the subscription stream closed before opening")?;
-    events::serve_subscriptions(tx, rx, offers, caller).await
+    events::serve_subscriptions(tx, rx, offers, caller, reach).await
 }

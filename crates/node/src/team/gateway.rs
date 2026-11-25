@@ -12,6 +12,7 @@ use super::{
     link::TeamLink,
     membership::{self, Membership, Team},
     pickup::{Pickups, Round, read_assigned},
+    sightings::{self, Sight, Sighted},
 };
 use crate::{
     agents::mcp::children::{Listed, in_the_mesh},
@@ -25,31 +26,35 @@ use beep_mesh::Mesh;
 use beep_projects::commands::OpenIssue;
 use beep_proto::{
     SessionId,
-    node::tools::ForgeReach,
+    node::{agent::SessionInfo, tools::ForgeReach},
     team::{Card, Lane, Member, TeamRepo},
 };
 use futures::future::join_all;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    mem::take,
     path::PathBuf,
     time::{Duration, SystemTime},
 };
 use tokio::{
     select,
-    sync::mpsc,
+    sync::{broadcast, mpsc},
     task::{JoinError, JoinSet},
     time::{Instant, sleep_until, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 
-/// How often the boards are made again while this machine acts for a team:
-/// the sessions of other machines have no push to follow. Elections wait on
-/// what changes them, not on this.
+/// How soon the cards are made again after a session changed, so that a burst
+/// of changes makes them once.
+const SETTLE: Duration = Duration::from_secs(3);
+/// How often the cards are made again while a machine refuses to push its
+/// sessions, as one from before it: they are listed from it then.
 const ROUND: Duration = Duration::from_secs(10);
 /// How often the issue titles, and the issues pickup starts sessions on,
 /// are read while a team session works, and otherwise; the machines are
-/// asked how they reach the hosts every `QUIET`.
+/// asked how they reach the hosts every `QUIET`. The cards are also made
+/// again every `BUSY`, as the forge says nothing of its own.
 const BUSY: Duration = Duration::from_secs(60);
 const QUIET: Duration = Duration::from_secs(10 * 60);
 /// How long a forge call or a branch read may take.
@@ -84,9 +89,10 @@ pub(crate) fn elected(
 /// Pickup keeps what it remembers in `dir`, the node's folder.
 pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offers, dir: PathBuf) {
     let (heard, hearing) = mpsc::channel(CHANGES);
+    let (sighted, sighting) = mpsc::channel(CHANGES);
 
-    Gateway::new(mesh, me, link, offers, heard, dir)
-        .drive(hearing)
+    Gateway::new(mesh, me, link, offers, heard, sighted, dir)
+        .drive(hearing, sighting)
         .await;
 }
 
@@ -108,6 +114,15 @@ struct Gateway {
     /// reach to go on.
     answered: bool,
     held: BTreeSet<TeamRepo>,
+    /// What each other machine of a held team pushed of its sessions, and the
+    /// follows that hear it.
+    rows: BTreeMap<EndpointId, Vec<SessionInfo>>,
+    sightings: BTreeMap<EndpointId, AbortOnDropHandle<()>>,
+    sighted: mpsc::Sender<Sighted>,
+    /// The machines that do not push their sessions.
+    refused: BTreeSet<EndpointId>,
+    /// A session changed while the cards were made.
+    stale: bool,
     /// When the next round of cards is due; none while no team is held or a
     /// round is still going.
     round_due: Option<Instant>,
@@ -143,6 +158,8 @@ struct Job {
     teams: Vec<Team>,
     projects: BTreeMap<TeamRepo, Project>,
     peers: BTreeMap<EndpointId, ForgeReach>,
+    rows: BTreeMap<EndpointId, Vec<SessionInfo>>,
+    refused: BTreeSet<EndpointId>,
 }
 
 /// The cards a round made for a team's board.
@@ -159,6 +176,7 @@ impl Gateway {
         link: TeamLink,
         offers: Offers,
         heard: mpsc::Sender<Followed>,
+        sighted: mpsc::Sender<Sighted>,
         dir: PathBuf,
     ) -> Self {
         Self {
@@ -172,6 +190,11 @@ impl Gateway {
             asking: JoinSet::new(),
             answered: false,
             held: BTreeSet::new(),
+            rows: BTreeMap::new(),
+            sightings: BTreeMap::new(),
+            sighted,
+            refused: BTreeSet::new(),
+            stale: false,
             round_due: None,
             handed: BTreeMap::new(),
             cards: Some(Cards::new(dir.clone())),
@@ -188,11 +211,16 @@ impl Gateway {
     /// tasks beside it, and teammates' updates are taken meanwhile. It
     /// elects when the mesh, a roster, the home or a host's reach changes;
     /// a machine that acts for no team has no timer.
-    async fn drive(mut self, mut hearing: mpsc::Receiver<Followed>) {
+    async fn drive(
+        mut self,
+        mut hearing: mpsc::Receiver<Followed>,
+        mut sighting: mpsc::Receiver<Sighted>,
+    ) {
         let mut updates = self.mesh.updates();
         let mut home = self.link.home_changes();
         let mut edits = self.link.roster_edits();
         let mut reaches = self.offers.agents.ci.reaches();
+        let mut sessions = self.offers.agents.events.subscribe();
 
         self.step();
 
@@ -227,6 +255,14 @@ impl Gateway {
                     Err(_) => return,
                 },
                 Some(followed) = hearing.recv() => self.heard(followed),
+                Some(sighted) = sighting.recv() => self.sighted(sighted),
+                // This machine's own sessions.
+                change = sessions.recv() => match change {
+                    Ok(change) if change.topic.name() == "agents" => self.cards_stale(),
+                    Ok(_) => {}
+                    Err(broadcast::error::RecvError::Lagged(_)) => self.cards_stale(),
+                    Err(broadcast::error::RecvError::Closed) => return,
+                },
                 // The mesh's teams or projects changed: elect on them now.
                 changed = home.changed() => match changed {
                     Ok(()) => self.step(),
@@ -243,7 +279,6 @@ impl Gateway {
                 }
                 Some(done) = self.serving.join_next(), if !self.serving.is_empty() => {
                     self.served(done);
-                    self.round_due = Some(Instant::now() + ROUND);
                 }
                 Some(_) = self.checking.join_next(), if !self.checking.is_empty() => {}
                 changed = updates.changed() => match changed {
@@ -324,6 +359,7 @@ impl Gateway {
         self.membership
             .announce(&self.link, &machines, member, &teams, &home.projects);
         self.follow_teammates(&teams);
+        self.follow_machines(&teams, &home.projects);
         self.check_members(&teams);
         self.serve_cards(teams, home.projects);
     }
@@ -371,6 +407,7 @@ impl Gateway {
         }
 
         let Some(mut cards) = self.cards.take() else {
+            self.stale = true;
             return;
         };
         self.round_due = None;
@@ -382,6 +419,8 @@ impl Gateway {
             teams,
             projects,
             peers: self.peers.clone(),
+            rows: self.rows.clone(),
+            refused: self.refused.clone(),
         };
         self.serving.spawn(async move {
             let made = cards.make(&job).await;
@@ -402,6 +441,12 @@ impl Gateway {
         };
         self.cards = Some(cards);
         self.keep_cards();
+        let wait = match (take(&mut self.stale), self.refused.is_empty()) {
+            (true, _) => SETTLE,
+            (false, true) => BUSY,
+            (false, false) => ROUND,
+        };
+        self.round_due = Some(Instant::now() + wait);
         let held = &self.held;
 
         self.link.publish(|served| {
@@ -466,6 +511,70 @@ impl Gateway {
         }
     }
 
+    /// Starts making the cards again soon: a session of this mesh changed.
+    /// One that changes while the cards are made makes them again after.
+    fn cards_stale(&mut self) {
+        if self.held.is_empty() {
+            return;
+        }
+
+        if self.cards.is_none() {
+            self.stale = true;
+            return;
+        }
+
+        let due = Instant::now() + SETTLE;
+        self.round_due = Some(self.round_due.map_or(due, |at| at.min(due)));
+    }
+
+    /// Takes what a follow heard of another machine's sessions.
+    fn sighted(&mut self, sighted: Sighted) {
+        let Sighted { peer, sight } = sighted;
+
+        if !self.sightings.contains_key(&peer) {
+            return;
+        }
+
+        match sight {
+            Sight::Rows(rows) => {
+                self.rows.insert(peer, rows);
+            }
+            Sight::Gone => {
+                self.rows.remove(&peer);
+            }
+            Sight::Refused => {
+                self.rows.remove(&peer);
+                self.refused.insert(peer);
+            }
+        }
+
+        self.cards_stale();
+    }
+
+    /// Follows the sessions of the other online machines of the held teams,
+    /// and stops following those that went offline or left them.
+    fn follow_machines(&mut self, teams: &[Team], projects: &BTreeMap<TeamRepo, Project>) {
+        let online = online(&self.mesh);
+        let wanted: BTreeSet<EndpointId> = teams
+            .iter()
+            .flat_map(|team| &projects[&team.repo].devices)
+            .map(|device| device.id)
+            .filter(|machine| *machine != self.me && online.contains(machine))
+            .collect();
+
+        self.sightings.retain(|peer, _| wanted.contains(peer));
+        self.rows.retain(|peer, _| wanted.contains(peer));
+        self.refused.retain(|peer| wanted.contains(peer));
+
+        for peer in wanted {
+            self.sightings.entry(peer).or_insert_with(|| {
+                let task = sightings::follow(self.mesh.clone(), peer, self.sighted.clone());
+
+                AbortOnDropHandle::new(tokio::spawn(task))
+            });
+        }
+    }
+
     /// Takes what a follow heard, for this mesh's apps.
     fn heard(&mut self, followed: Followed) {
         let Followed { repo, mesh, heard } = followed;
@@ -510,6 +619,8 @@ impl Cards {
             offers,
             teams,
             projects,
+            rows,
+            refused,
             ..
         } = job;
         let mut picking = BTreeMap::new();
@@ -534,23 +645,23 @@ impl Cards {
             return Vec::new();
         }
 
-        let machines: BTreeSet<EndpointId> = teams
-            .iter()
-            .flat_map(|team| &projects[&team.repo].devices)
-            .map(|device| device.id)
-            .collect();
         let due: Vec<&Team> = teams
             .iter()
             .filter(|team| self.titles_due(link, &team.repo))
             .collect();
         let caller = SessionId::default();
-        let sessions = in_the_mesh(
-            &offers.agents,
-            Some(mesh),
-            &caller,
-            Some(&machines),
-            Some(midnight(SystemTime::now())),
-        );
+        let ended_since = midnight(SystemTime::now());
+        // The machines that push their sessions are heard; the others are asked.
+        let sessions = async {
+            let mut listed =
+                in_the_mesh(&offers.agents, Some(mesh), &caller, Some(refused), Some(ended_since)).await;
+            listed.extend(
+                rows.iter()
+                    .flat_map(|(peer, rows)| sightings::listed(mesh, *peer, rows, ended_since)),
+            );
+
+            listed
+        };
         let titles = join_all(due.iter().map(|team| read_titles(link, &team.repo)));
         let assigned = join_all(
             teams
