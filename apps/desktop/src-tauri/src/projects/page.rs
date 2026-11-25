@@ -4,14 +4,18 @@ use crate::{
     agents::sessions::SessionRow,
     error::{DesktopError, Result},
     fleet::{
-        Machines, files as direct,
+        Machines,
+        event_views::View,
+        files as direct,
         projects::{FleetState, desk},
         session_lists::{ListId, SessionLists},
         session_mirror::SessionMirror,
     },
 };
+use beep_fleet::Session;
 use beep_proto::{ProjectMachine, SyncthingPlace};
 use serde::Serialize;
+use serde_json::json;
 use std::sync::Arc;
 use tauri::{AppHandle, Manager, State, Window};
 
@@ -57,6 +61,60 @@ pub async fn projects_sessions(
         .collect();
 
     Ok(lists.want(ListId::Home, window.label(), places).await)
+}
+
+/// What the pages of the projects a window follows read: `project_machines` when `places`,
+/// and `project_syncthing`, each for the project it is asked for. They ride the views of the
+/// topics that change them, so a page takes them from the push instead of asking again.
+pub(crate) async fn page_views(app: &AppHandle, places: bool) -> Vec<View> {
+    let ids = app.state::<super::live::Followed>().ids();
+
+    if ids.is_empty() {
+        return Vec::new();
+    }
+
+    let Ok(desk) = desk(&app.state::<Arc<Session>>()).await else {
+        return Vec::new();
+    };
+    let desk = &desk;
+    let reads = ids
+        .into_iter()
+        .filter_map(|id| desk.project_name(id))
+        .map(|project| async move {
+            let args = json!({ "project": project });
+            let mut views = Vec::new();
+
+            if places {
+                match desk.project_machines(&project).await {
+                    Ok(machines) => views.extend(View::new(
+                        "project_machines",
+                        args.clone(),
+                        machines
+                            .into_iter()
+                            .map(ProjectMachineRow::from)
+                            .collect::<Vec<_>>(),
+                    )),
+                    Err(error) => views.push(View::failed(
+                        "project_machines",
+                        args.clone(),
+                        &error.to_string(),
+                    )),
+                }
+            }
+
+            views.extend(View::new(
+                "project_syncthing",
+                args,
+                desk.syncthing(&project).await,
+            ));
+            views
+        });
+
+    futures::future::join_all(reads)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 /// One of the user's machines as a project's page lists it.

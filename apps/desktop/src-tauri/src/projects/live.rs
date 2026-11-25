@@ -95,6 +95,16 @@ impl Followed {
         }
     }
 
+    /// Every project a window follows.
+    pub(crate) fn ids(&self) -> BTreeSet<Uuid> {
+        self.tasks
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .iter()
+            .map(|following| following.project_id)
+            .collect()
+    }
+
     pub(crate) fn contains(&self, project_id: Uuid) -> bool {
         self.tasks
             .lock()
