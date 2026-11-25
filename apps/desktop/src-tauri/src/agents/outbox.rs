@@ -2068,7 +2068,7 @@ pub(crate) async fn send(
     });
 
     if flusher {
-        start(app, key, window.to_string());
+        start(app, key.clone(), window.to_string());
     }
 
     let answer = match timeout(ANSWER_WAIT, &mut answer).await {
