@@ -94,15 +94,15 @@ impl Serving {
             .accept(SESSIONS_ALPN, peers.sessions_handler())
             .accept(
                 beep_proto::node::commands::ALPN,
-                beep_node::link::commands::CommandsAlpn::new(&peers),
+                beep_node::link::commands::CommandsAlpn::new(peers),
             )
             .accept(
                 beep_proto::node::subscriptions::ALPN,
-                beep_node::link::subscriptions::SubscriptionsAlpn::new(&peers),
+                beep_node::link::subscriptions::SubscriptionsAlpn::new(peers),
             )
             .accept(
                 beep_proto::node::forward::ALPN,
-                beep_node::link::forward::ForwardAlpn::new(&peers),
+                beep_node::link::forward::ForwardAlpn::new(peers),
             )
             .accept(beep_proto::team::ALPN, peers.team_handler());
         let late = Late::default();
