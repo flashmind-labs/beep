@@ -630,6 +630,26 @@ fn a_target_that_resumes_the_session_reads_as_landed() {
     assert!(matches!(moves.target(&id, 8), Target::Failed(_)));
 }
 
+/// A desktop that connects after a move failed still reads the failure from the push.
+#[test]
+fn a_failed_move_stays_in_the_push_after_the_session_moves_again() {
+    let moves = crate::agents::moving::Moves::default();
+    let id = SessionId::from("held-2");
+    let source = SecretKey::generate().public();
+    moves
+        .begin(&id, 7, source)
+        .finish(MovePhase::Failed, Some("no room".to_owned()));
+    moves.begin(&id, 8, source);
+
+    let failed = moves
+        .entries()
+        .into_iter()
+        .find(|entry| entry.at == 7)
+        .expect("the failed move is still pushed");
+
+    assert_eq!(failed.progress.phase, MovePhase::Failed);
+}
+
 #[tokio::test]
 async fn the_source_waits_for_a_starting_target_to_run_the_session() {
     let source = source_env().await;

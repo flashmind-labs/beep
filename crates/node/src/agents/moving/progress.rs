@@ -12,7 +12,6 @@ use iroh::EndpointId;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     sync::{Arc, Mutex, OnceLock},
-    time::{Duration, Instant},
 };
 use tokio::{
     sync::{Notify, watch},
@@ -20,8 +19,8 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
-/// Old sources can ask how a move ended after its record was replaced.
-const KEEP_OUTCOMES: Duration = Duration::from_secs(120);
+/// How many ended moves are kept after their record was replaced, for old
+/// sources that ask how one ended and for the push to a desktop that connects late.
 const MAX_OUTCOMES: usize = 128;
 
 /// How a move stands on its target. Each change reaches whoever follows it:
@@ -173,26 +172,25 @@ struct Tracked {
 #[derive(Default)]
 struct Targets {
     latest: HashMap<SessionId, Tracked>,
-    history: VecDeque<(Instant, SessionId, Tracked)>,
+    history: VecDeque<(SessionId, Tracked)>,
 }
 
 impl Targets {
     fn archive(&mut self, id: &SessionId) {
         if let Some(old) = self.latest.remove(id) {
-            self.history
-                .retain(|(when, _, _)| when.elapsed() < KEEP_OUTCOMES);
             if self.history.len() >= MAX_OUTCOMES {
                 self.history.pop_front();
             }
-            self.history.push_back((Instant::now(), id.clone(), old));
+            self.history.push_back((id.clone(), old));
         }
     }
 
     fn find(&self, id: &SessionId, at: u64) -> Option<&Tracked> {
         self.latest.get(id).filter(|one| one.at == at).or_else(|| {
-            self.history.iter().rev().find_map(|(when, session, one)| {
-                (session == id && one.at == at && when.elapsed() < KEEP_OUTCOMES).then_some(one)
-            })
+            self.history
+                .iter()
+                .rev()
+                .find_map(|(session, one)| (session == id && one.at == at).then_some(one))
         })
     }
 }
@@ -316,9 +314,13 @@ impl Moves {
 
     /// How each move this node is the target of stands, as it pushes it.
     pub(crate) fn entries(&self) -> Vec<MoveEntry> {
-        lock(&self.tracked)
+        let targets = lock(&self.tracked);
+        let kept = targets.history.iter().map(|(session, one)| (session, one));
+
+        targets
             .latest
             .iter()
+            .chain(kept)
             .map(|(session, one)| MoveEntry {
                 session: session.clone(),
                 at: one.at,
