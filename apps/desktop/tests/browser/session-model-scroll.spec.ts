@@ -67,6 +67,28 @@ test("an imported session with an unknown model can choose before continuing", a
   await expect(page.locator("#agmodelb")).toContainText("Test model");
 });
 
+test("a resumed session takes the model sent with the message, not one picked after Enter", async ({ page }) => {
+  const resumed = { ...session, id: "resumed-session", external: false, status: "idle" };
+  const models = [{ id: "test-model", name: "Test model", description: null }, { id: "later-model", name: "Later model", description: null }];
+  await openDesktop(page, false, { agent_view: view(), agent_resume: { session: resumed, why: "" }, agent_steer: [], agent_models: { pick: "listed", current: null, models } });
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  await page.locator("#agmodelb").click();
+  await page.locator('[data-agmo="test-model"]').click();
+  await page.locator("#agmsg").fill("Continue with this model");
+  await page.locator("#agmsg").press("Enter");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_steer").length)).toBe(1);
+
+  // Another pick before the app says it resumed the session does not change what was sent.
+  await page.locator("#agmodelb").click();
+  await page.locator('[data-agmo="later-model"]').click();
+  await expect(page.locator("#agmodelb")).toContainText("Later model");
+  await page.evaluate(({ session, resumed, next }) => {
+    window.__navigation.respond("agent_view", next);
+    window.__navigation.emit("outbox-changed", { machine_id: session.machine_id, agent: session.agent, session: session.id, revision: 1, rows: [], sent: [], resumed, uploaded: [] });
+  }, { session, resumed, next: view(resumed) });
+  await expect(page.locator("#agmodelb")).toContainText("Test model");
+});
+
 test("a failed turn runs its prompt again on the model picked from its error", async ({ page }) => {
   const idle = { ...session, agent: "claude", status: "idle", external: false };
   const entries = [{ kind: "user", text: "<beep-context>\nContext\n</beep-context>\nCheck the alerts" }];

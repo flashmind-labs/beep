@@ -104,6 +104,10 @@ async function sendBackground(session: OpenAgent, draft: Waiting, state: Mention
   }
 }
 
+/// The picks each ended session was resumed with, until the new session is announced: what the
+/// machine was sent, not what the picker says by then.
+const resumedWith = new Map<string, NonNullable<Resume["pick"]>>();
+
 /// The resume of the ended session `o`: on the model its picks name, and then the picks.
 function resumeFor(o: OpenAgent): Resume {
   const pick = resumePicks.get(o.session);
@@ -114,7 +118,10 @@ function resumeFor(o: OpenAgent): Resume {
 
 /// What goes beside the message to `o`: its files, and the resume when its session ended.
 function extrasOf(o: OpenAgent, q: Pick<Waiting, "paths" | "files" | "root"> | null, ended: boolean): Extras {
-  return { attach: q ? attachOf(q) : null, resume: ended ? resumeFor(o) : null };
+  const resume = ended ? resumeFor(o) : null;
+  if (resume?.pick) resumedWith.set(o.session, resume.pick); else resumedWith.delete(o.session);
+
+  return { attach: q ? attachOf(q) : null, resume };
 }
 
 /// Takes waiting message `i` out; to edit, it goes back in the field.
@@ -512,9 +519,7 @@ export async function sendPrompt(text: string) {
 
 /// Resumes with the composer's selection. Older nodes still need the configure order.
 export async function resumeEndedSession(session: OpenAgent): Promise<Started> {
-  const pick = resumePicks.get(session.session);
-  const configure = pick && (pick.model || pick.effort || pick.fast !== null) ? { model: pick.model || null, effort: pick.effort, fast: pick.fast } : null;
-  const model = session.agent === "codex" ? configure?.model ?? null : null;
+  const pick = resumePicks.get(session.session), { model, pick: configure } = resumeFor(session);
   const started = await invoke<Started>("agent_resume", { ...where(session), prompt: null, model }, AGENT_SEND_WAIT_MS);
   reopened({ machine_id: session.machine_id, id: session.session });
   reopened(started.session);
@@ -566,10 +571,11 @@ listen<OutboxChanged>("outbox-changed", ({ payload }) => {
   const from = { machine_id: payload.machine_id, id: payload.session };
 
   if (payload.resumed) {
-    const pick = resumePicks.get(payload.session);
+    const pick = resumedWith.get(payload.session);
     reopened(from);
     reopened(payload.resumed);
-    if (pick && (pick.model || pick.effort || pick.fast !== null)) sessionPicks.set(payload.resumed.id, pick);
+    if (pick) sessionPicks.set(payload.resumed.id, { model: pick.model ?? "", effort: pick.effort, fast: pick.fast });
+    resumedWith.delete(payload.session);
     resumePicks.delete(payload.session);
   }
 
