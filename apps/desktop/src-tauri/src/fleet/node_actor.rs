@@ -26,6 +26,8 @@ use beep_proto::{
             Harness as McpHarness, NativeServer, PROTOCOL as MCP_PROTOCOL, Reply as McpReply,
             Request as McpRequest,
         },
+        process::Task,
+        terminal::Reply as PtyReply,
         tool_update::{Available, Tool},
     },
 };
@@ -463,6 +465,7 @@ pub(crate) struct Projections {
     /// What nodes without the `tool-updates` topic answer to the check call.
     pub(crate) tool_updates: Arc<Projected<EndpointId, Vec<ToolUpdate>>>,
     pub(crate) tool_pushes: ToolPushes,
+    pub(crate) terminal_pushes: TerminalPushes,
 }
 
 /// What a node said on its `tool-updates` topic.
@@ -521,6 +524,46 @@ impl ToolPushes {
     }
 }
 
+/// The interactive terminals each machine last pushed on its `terminals` topic. A machine
+/// not here has pushed none on this connection, so its terminals are asked for.
+#[derive(Default)]
+pub(crate) struct TerminalPushes {
+    held: Mutex<HashMap<EndpointId, Vec<Task>>>,
+}
+
+impl TerminalPushes {
+    /// Takes the list a node pushed; anything else it said on the topic (an error from a node
+    /// that predates it) leaves the machine without one.
+    pub(crate) fn heard(&self, machine: EndpointId, value: Option<&Value>) {
+        let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
+
+        match value {
+            Some(Value::Terminals(PtyReply::Terminals { terminals })) => {
+                held.insert(machine, terminals.clone());
+            }
+            _ => {
+                held.remove(&machine);
+            }
+        }
+    }
+
+    pub(crate) fn get(&self, machine: EndpointId) -> Option<Vec<Task>> {
+        self.held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&machine)
+            .cloned()
+    }
+
+    /// The machine's subscription ended: what it pushed may be out of date.
+    pub(crate) fn forget(&self, machine: EndpointId) {
+        self.held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&machine);
+    }
+}
+
 impl Default for Projections {
     fn default() -> Self {
         Self {
@@ -565,6 +608,7 @@ impl Default for Projections {
                 Duration::from_secs(8),
             ),
             tool_pushes: ToolPushes::default(),
+            terminal_pushes: TerminalPushes::default(),
         }
     }
 }

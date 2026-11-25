@@ -357,6 +357,38 @@ fn an_installed_tool_leaves_the_pushed_list_until_the_node_pushes_again() {
     assert_eq!(pushes.get(machine), Some(ToolPush::Pushed(Vec::new())));
 }
 
+#[test]
+fn a_machine_that_pushes_its_terminals_is_not_asked_until_its_stream_ends() {
+    let pushes = TerminalPushes::default();
+    let machine = sample_machine(4);
+    let shell = Task {
+        id: beep_proto::node::process::TaskId(1),
+        command: "zsh".into(),
+        state: beep_proto::node::process::TaskState::Running,
+    };
+
+    assert!(pushes.get(machine).is_none());
+    pushes.heard(
+        machine,
+        Some(&Value::Terminals(PtyReply::Terminals {
+            terminals: vec![shell],
+        })),
+    );
+    assert_eq!(pushes.get(machine).map(|list| list.len()), Some(1));
+
+    // An error from a node that predates the topic, or the end of the stream, ask again.
+    pushes.heard(machine, None);
+    assert!(pushes.get(machine).is_none());
+    pushes.heard(
+        machine,
+        Some(&Value::Terminals(PtyReply::Terminals {
+            terminals: Vec::new(),
+        })),
+    );
+    pushes.forget(machine);
+    assert!(pushes.get(machine).is_none());
+}
+
 fn listed() -> AgentModels {
     AgentModels {
         pick: beep_proto::AgentModelPick::Listed {},

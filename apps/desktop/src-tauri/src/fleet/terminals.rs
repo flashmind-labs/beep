@@ -133,12 +133,42 @@ fn view(fleet: &Fleet, row: &Row, state: TerminalState) -> Terminal {
 struct Listed {
     tasks: Option<Vec<Task>>,
     ptys: Option<Vec<Task>>,
+    /// `ptys` is what the machine pushed, not read from it now.
+    pushed: bool,
 }
 
-/// Asks one machine for the lists `rows` need, on one client, within `MACHINE_LIMIT`.
+/// Asks one machine for the lists `rows` need, on one client, within `MACHINE_LIMIT`. Its
+/// terminals are not asked for when it pushed them.
 #[tracing::instrument(skip_all, fields(peer = %machine.fmt_short()))]
 async fn ask_machine(fleet: &Fleet, machine: EndpointId, want: &Want) -> Listed {
+    let pushed = fleet.projections().terminal_pushes.get(machine);
+    ask_with(fleet, machine, want, pushed).await
+}
+
+/// As `ask_machine`, whatever the machine pushed.
+async fn ask_fresh(fleet: &Fleet, machine: EndpointId, want: &Want) -> Listed {
+    ask_with(fleet, machine, want, None).await
+}
+
+async fn ask_with(
+    fleet: &Fleet,
+    machine: EndpointId,
+    want: &Want,
+    pushed: Option<Vec<Task>>,
+) -> Listed {
+    let want = Want {
+        tasks: want.tasks,
+        ptys: want.ptys && pushed.is_none(),
+    };
     let asked = async {
+        if !want.tasks && !want.ptys {
+            return Listed {
+                ptys: pushed,
+                pushed: true,
+                ..Listed::default()
+            };
+        }
+
         let Ok(client) = fleet.client(machine).await else {
             return Listed::default();
         };
@@ -158,7 +188,12 @@ async fn ask_machine(fleet: &Fleet, machine: EndpointId, want: &Want) -> Listed 
                 }
             }
         );
-        Listed { tasks, ptys }
+        let pushed_ptys = pushed.is_some() && ptys.is_none();
+        Listed {
+            tasks,
+            ptys: ptys.or(pushed),
+            pushed: pushed_ptys,
+        }
     };
     timeout(MACHINE_LIMIT, asked).await.unwrap_or_default()
 }
@@ -196,24 +231,34 @@ async fn with_states(fleet: &Fleet, rows: Vec<Row>) -> Result<Vec<Terminal>> {
             (*machine, listed)
         })
         .collect();
-    let listed: HashMap<EndpointId, Listed> = stream::iter(asks)
+    let mut listed: HashMap<EndpointId, Listed> = stream::iter(asks)
         .buffer_unordered(IN_FLIGHT)
         .collect()
         .await;
     let mut out = Vec::with_capacity(rows.len());
 
     for row in rows {
-        let answer = listed.get(&row.record.machine).and_then(|listed| {
-            if row.record.pty {
-                listed.ptys.as_ref()
-            } else {
-                listed.tasks.as_ref()
+        let mut state = state_of_row(&row, listed.get(&row.record.machine));
+
+        // A push may come after a terminal was opened, so one that reads as ended is
+        // read from its machine before its row goes.
+        if terminals::ended_for_good(&row.kept(), &state)
+            && listed.get(&row.record.machine).is_some_and(|l| l.pushed)
+        {
+            let want = Want {
+                tasks: false,
+                ptys: true,
+            };
+            let fresh = ask_fresh(fleet, row.record.machine, &want).await;
+
+            if let Some(held) = listed.get_mut(&row.record.machine) {
+                held.ptys = fresh.ptys;
+                held.pushed = false;
             }
-        });
-        let state = match answer {
-            Some(tasks) => state_of(&row.kept(), tasks),
-            None => TerminalState::Offline {},
-        };
+
+            state = state_of_row(&row, listed.get(&row.record.machine));
+        }
+
         // The node drops an exited interactive terminal, so its row goes too.
         if terminals::ended_for_good(&row.kept(), &state) {
             if let Err(e) = forget(fleet, row.id).await {
@@ -227,6 +272,22 @@ async fn with_states(fleet: &Fleet, rows: Vec<Row>) -> Result<Vec<Terminal>> {
     }
 
     Ok(out)
+}
+
+/// How `row` stands in what its machine listed, offline when it did not answer.
+fn state_of_row(row: &Row, listed: Option<&Listed>) -> TerminalState {
+    let answer = listed.and_then(|listed| {
+        if row.record.pty {
+            listed.ptys.as_ref()
+        } else {
+            listed.tasks.as_ref()
+        }
+    });
+
+    match answer {
+        Some(tasks) => state_of(&row.kept(), tasks),
+        None => TerminalState::Offline {},
+    }
 }
 
 /// The terminals the mesh holds that are on this Mac, or on the others,
@@ -335,6 +396,18 @@ pub(crate) async fn get(fleet: &Fleet, id: Uuid) -> Result<TerminalOutput> {
     let Some(machine) = fleet.member(&row.record.machine.to_string()) else {
         return Ok(offline(fleet, &row));
     };
+
+    // A terminal's machine that pushes its list is not read: the screen comes on its own topic.
+    if row.record.pty
+        && let Some(tasks) = fleet.projections().terminal_pushes.get(machine)
+    {
+        let state = state_of(&row.kept(), &tasks);
+
+        if !terminals::ended_for_good(&row.kept(), &state) {
+            return Ok(bare(view(fleet, &row, state)));
+        }
+    }
+
     let Ok(Ok(client)) = timeout(MACHINE_LIMIT, fleet.client(machine)).await else {
         return Ok(offline(fleet, &row));
     };

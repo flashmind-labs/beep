@@ -193,6 +193,10 @@ impl SubscriptionWorker {
 
                             team_heard(app, machine, &snapshot.topic, Some(&snapshot.value));
 
+                            if snapshot.topic.name() == "terminals" {
+                                fleet.projections().terminal_pushes.heard(machine, Some(&snapshot.value));
+                            }
+
                             crate::notices::heard(app, machine, snapshot.topic.name(), &snapshot.value);
 
                             if let events::Value::Resources(resources) = &snapshot.value {
@@ -241,6 +245,10 @@ impl SubscriptionWorker {
                             }
                             invalidate(app, machine, &topic, None);
                             team_heard(app, machine, &topic, None);
+
+                            if topic.name() == "terminals" {
+                                fleet.projections().terminal_pushes.heard(machine, None);
+                            }
 
                             if machine == fleet.me || matches!(topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync") {
                                 super::super::event_views::failed(app, &topic, &reason);
@@ -303,6 +311,14 @@ struct SnapshotConnection<'a> {
 
 impl Drop for SnapshotConnection<'_> {
     fn drop(&mut self) {
+        if self.topic.name() == "terminals" {
+            self.app
+                .state::<Arc<Fleet>>()
+                .projections()
+                .terminal_pushes
+                .forget(self.machine);
+        }
+
         self.snapshots.end(self.machine, self.generation);
 
         // Its rows are no longer pushed: the mirror lists the machine again when they age.
