@@ -65,8 +65,13 @@ impl Ci {
     }
 
     fn record_reach(&self, host: &str, ok: bool) {
-        self.reach.send_modify(|reach| {
-            reach.hosts.entry(host.to_owned()).or_default().record(ok);
+        // Only a call that changes how the host is reached wakes the gateway.
+        self.reach.send_if_modified(|reach| {
+            let host = reach.hosts.entry(host.to_owned()).or_default();
+            let before = *host;
+            host.record(ok);
+
+            *host != before
         });
     }
 }
