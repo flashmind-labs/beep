@@ -1,14 +1,10 @@
 // The Plugins page: what it holds, what its buttons do and the consent sheet.
 // plugins-settings-state.ts has its words and flow; plugins-settings-view.tsx draws it.
-import { createElement } from "react";
 import { pickHere } from "../addproject/folderbrowser.tsx";
 import { createStore } from "zustand/vanilla";
-import { confirmSheet } from "../ui/menu.tsx";
-import { openSheet } from "../ui/parts.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
-import { ConsentView } from "./plugins-settings-view.tsx";
 import {
-  IDLE, UNEXPECTED, consentTitle, flowStep, openStage, parseFailure, parsePreview, parseRows, parseStaged, parseUpdateCheck,
+  IDLE, UNEXPECTED, flowStep, openStage, parseFailure, parsePreview, parseRows, parseStaged, parseUpdateCheck,
   type Flow, type FlowEvent, type GitField, type PluginFailure, type PluginRow, type StagedPlugin, type UpdateState,
 } from "./plugins-settings-state.ts";
 
@@ -210,45 +206,3 @@ export function createPluginsSettings(call: Call, hear: Listen) {
 export type PluginsSettings = ReturnType<typeof createPluginsSettings>;
 
 export const pluginsSettings = createPluginsSettings(invoke, listen);
-
-/// Asks before removing a plugin, naming it.
-export function askRemove(store: PluginsSettings, row: PluginRow) {
-  confirmSheet({
-    title: `Remove ${row.name}?`,
-    text: "Beep stops the plugin and deletes its folder from the plugins folder.",
-    note: "You can install it again later.",
-    action: "Remove",
-    run: () => store.remove(row.id),
-  });
-}
-
-/// Keeps the consent sheet open while the flow holds a consent, and draws it from the store.
-export function showConsentSheets(store: PluginsSettings) {
-  let sheet: ReturnType<typeof openSheet> | null = null;
-  const draw = () => {
-    const { flow } = store.state.getState();
-    if (flow.kind !== "consent") {
-      const open = sheet;
-      sheet = null;
-      open?.close();
-      return;
-    }
-
-    sheet ??= openSheet("Plugin permissions", "am-sheet", {
-      canClose: () => { const now = store.state.getState().flow; return now.kind !== "consent" || !now.busy; },
-      onClose: () => { if (sheet !== null) { sheet = null; store.close(); } },
-    });
-    sheet.render(createElement(ConsentView, { flow, confirm: () => { void store.confirm(); }, cancel: store.close }), consentTitle(flow.consent.preview));
-  };
-
-  draw();
-  const stop = store.state.subscribe(draw);
-
-  return () => {
-    stop();
-    if (sheet !== null) store.close();
-    const open = sheet;
-    sheet = null;
-    open?.close();
-  };
-}
