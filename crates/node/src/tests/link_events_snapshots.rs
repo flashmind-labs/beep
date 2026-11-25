@@ -577,3 +577,24 @@ fn the_invites_have_a_source_of_their_own() {
     // A ring of the topic reads the invites again.
     assert!(affected(&topic, &topic));
 }
+
+#[test]
+fn a_topic_naming_one_terminal_reads_that_terminal_alone() {
+    use beep_proto::node::process::TaskId;
+
+    let one = Topic::keyed("terminal-output", "7");
+
+    assert_eq!(
+        sources(std::slice::from_ref(&one)),
+        vec![(one.clone(), Source::Terminal(TaskId(7)))]
+    );
+    // A desktop from before follows every terminal's output and still gets the list.
+    let every = Topic::new("terminal-output");
+    assert_eq!(
+        sources(std::slice::from_ref(&every)),
+        vec![(Topic::new("terminals"), Source::Read(Read::TerminalList))]
+    );
+    // A terminal starting or ending reads that terminal again, and so does its own output.
+    assert!(affected(&one, &Topic::new("terminals")));
+    assert!(affected(&one, &one));
+}

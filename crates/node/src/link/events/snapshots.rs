@@ -2,6 +2,7 @@ use beep_proto::SessionId;
 use super::*;
 use crate::events::ChangeKind;
 use beep_proto::node::events::{Query, Read, Snapshot, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Value};
+use beep_proto::node::process::TaskId;
 use beep_proto::node::subscriptions::Reply;
 
 const MAX_READS: usize = 4;
@@ -45,6 +46,8 @@ enum Source {
     TeamCards(String),
     /// The invites waiting for a desktop on this node.
     TeamInvites,
+    /// One terminal, as the list of them holds it.
+    Terminal(TaskId),
 }
 
 impl Source {
@@ -246,8 +249,27 @@ impl Snapshots {
                 Source::Read(Read::Process(beep_proto::node::process::Request::List {})),
             ));
         }
-        if selected("terminals") || selected("terminal-output") {
+        // A topic naming one terminal gets that terminal alone; the others,
+        // for desktops from before, get the whole list.
+        let one = |topic: &Topic| {
+            if topic.name() != "terminal-output" || topic.is_pattern() {
+                return None;
+            }
+
+            topic.key()?.parse().ok().map(TaskId)
+        };
+        let listed = topics.iter().any(|topic| match topic.name() {
+            "terminals" | "*" => true,
+            "terminal-output" => one(topic).is_none(),
+            _ => false,
+        });
+        if listed {
             wanted.push((Topic::new("terminals"), Source::Read(Read::TerminalList)));
+        }
+        for topic in topics {
+            if let Some(id) = one(topic) {
+                wanted.push((topic.clone(), Source::Terminal(id)));
+            }
         }
 
         // These carry values released readers cannot decode, so `*` leaves them out.
@@ -505,6 +527,25 @@ impl Snapshots {
                             .peers()
                             .and_then(|peers| crate::team::apps::cards_of(&peers.team(), &project))
                             .map_or(Value::Missing, Value::TeamCards)),
+                        Source::Terminal(id) => {
+                            let list = super::ask(
+                                &beep_proto::node::terminal::Request::List {},
+                                crate::run::terminal::serve,
+                            )
+                            .await?;
+
+                            Ok(match list.context("terminal list closed without state")? {
+                                beep_proto::node::terminal::Reply::Terminals { terminals } => terminals
+                                    .into_iter()
+                                    .find(|task| task.id == id)
+                                    .map_or(Value::Missing, |task| {
+                                        Value::Terminals(beep_proto::node::terminal::Reply::Terminals {
+                                            terminals: vec![task],
+                                        })
+                                    }),
+                                other => Value::Terminals(other),
+                            })
+                        }
                         Source::TeamInvites => Ok(offers
                             .reach
                             .peers()
@@ -650,6 +691,7 @@ fn affected(read: &Topic, change: &Topic) -> bool {
             ("agents", "agent" | "moves")
                 | ("agent", "agents")
                 | ("processes", "process-output")
+                | ("terminal-output", "terminals")
                 | (crate::run::device::LIST_TOPIC, crate::run::device::TOPIC)
         )
 }
