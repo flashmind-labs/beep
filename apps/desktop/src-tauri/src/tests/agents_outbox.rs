@@ -58,9 +58,7 @@ fn image(name: &str) -> PastedImage {
 }
 
 fn push(outbox: &Outbox, session: &str, text: &str) -> u64 {
-    outbox
-        .with(|held| held.push(&key(session), draft(text), None))
-        .0
+    outbox.with(|held| held.push(&key(session), draft(text))).0
 }
 
 fn texts(outbox: &Outbox, session: &str) -> Vec<String> {
@@ -219,63 +217,45 @@ async fn a_refused_message_keeps_its_reason_and_the_next_goes() {
 }
 
 #[tokio::test]
-async fn the_window_that_sent_is_answered_by_the_first_try() {
+async fn a_message_is_shown_at_once_and_its_image_keys_come_with_the_sent_row() {
     let (_dir, _, outbox) = outbox();
-    let (reply, answer) = oneshot::channel();
-    let (behind, later) = oneshot::channel();
-    outbox.with(|held| {
-        held.push(&key("s1"), draft("first"), Some(reply));
-        held.push(&key("s1"), draft("second"), Some(behind));
-    });
-    // Sent windows show their own rows.
-    assert!(texts(&outbox, "s1").is_empty());
+    push(&outbox, "s1", "first");
+    // No window waits on a first try: the row shows from the start.
+    assert_eq!(texts(&outbox, "s1"), ["first"]);
     let mut link = Fake {
-        sends: VecDeque::from([Err(DesktopError::Lost("build-box".into()))]),
+        sends: VecDeque::from([Ok(vec!["k1".into()])]),
         ..Fake::default()
     };
 
     flush(&outbox, &key("s1"), &mut link).await;
 
-    assert!(matches!(answer.await, Ok(Answer::Waiting)));
-    assert!(matches!(later.await, Ok(Answer::Waiting)));
+    let sent: Vec<&Row> = link.changes.iter().flat_map(|c| &c.sent).collect();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].keys, ["k1"]);
 }
 
 #[tokio::test]
-async fn a_message_behind_one_waiting_for_the_machine_is_answered_at_once_and_shown() {
+async fn a_refused_first_try_stays_as_a_failed_row() {
     let (_dir, _, outbox) = outbox();
-    let first = push(&outbox, "s1", "first");
-    outbox.with(|held| {
-        held.begin(&key("s1"));
-        held.wait(first, false)
-    });
+    push(&outbox, "s1", "first");
+    let mut link = Fake {
+        sends: VecDeque::from([Err(DesktopError::BadRequest("refused".into()))]),
+        ..Fake::default()
+    };
 
-    let (reply, answer) = oneshot::channel();
-    outbox.with(|held| held.push(&key("s1"), draft("second"), Some(reply)));
+    flush(&outbox, &key("s1"), &mut link).await;
 
-    assert!(matches!(answer.await, Ok(Answer::Waiting)));
-    assert_eq!(texts(&outbox, "s1"), ["first", "second"]);
-}
-
-#[test]
-fn a_window_that_stopped_waiting_hands_its_message_to_the_outbox() {
-    let (_dir, _, outbox) = outbox();
-    let (reply, _answer) = oneshot::channel();
-    let (id, _) = outbox.with(|held| held.push(&key("s1"), draft("slow"), Some(reply)));
-    assert!(texts(&outbox, "s1").is_empty());
-
-    let changed = outbox
-        .with(|held| held.hand_over(id))
-        .expect("the window waited");
-    assert_eq!(changed.rows.len(), 1);
-    assert_eq!(texts(&outbox, "s1"), ["slow"]);
+    let rows = outbox.read(|held| held.rows(&key("s1")));
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].state, "failed");
 }
 
 #[test]
 fn a_new_message_waits_behind_one_not_sent_and_one_flusher_runs() {
     let (_dir, _, outbox) = outbox();
-    let (_, first) = outbox.with(|held| held.push(&key("s1"), draft("a"), None));
-    let (_, second) = outbox.with(|held| held.push(&key("s1"), draft("b"), None));
-    let (_, other) = outbox.with(|held| held.push(&key("s2"), draft("c"), None));
+    let (_, first) = outbox.with(|held| held.push(&key("s1"), draft("a")));
+    let (_, second) = outbox.with(|held| held.push(&key("s1"), draft("b")));
+    let (_, other) = outbox.with(|held| held.push(&key("s2"), draft("c")));
     assert!(first);
     assert!(!second);
     assert!(other);
@@ -340,7 +320,7 @@ fn images_are_cached_and_go_with_their_message() {
         images: vec![image("shot.png")],
         ..draft("look")
     };
-    let (id, _) = outbox.with(|held| held.push(&key("s1"), with_image, None));
+    let (id, _) = outbox.with(|held| held.push(&key("s1"), with_image));
     outbox.sync();
 
     let messages = fs::read_to_string(kept.join(MESSAGES)).expect("the messages' file");
@@ -365,7 +345,7 @@ fn an_image_queued_before_the_cache_move_can_still_be_loaded() {
         images: vec![image("shot.png")],
         ..draft("look")
     };
-    let (id, _) = outbox.with(|held| held.push(&key("s1"), with_image, None));
+    let (id, _) = outbox.with(|held| held.push(&key("s1"), with_image));
     outbox.sync();
 
     let cache = dir.path().join("cache");
@@ -504,7 +484,7 @@ async fn coalesced_orders_precede_later_messages_across_a_degraded_link() {
             now,
             Some(r2),
         );
-        held.push(&s1, draft("run tests"), None);
+        held.push(&s1, draft("run tests"));
     });
 
     // Two Configure orders before the prompt coalesce, superseding the first waiter immediately.
@@ -671,7 +651,7 @@ async fn configure_stays_ordered_around_queued_prompts_and_stops_do_not_replay()
 #[tokio::test]
 async fn files_upload_before_their_message_goes_and_a_second_message_waits_behind() {
     let (_dir, _, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None));
+    outbox.with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"])));
     push(&outbox, "s1", "Then this");
     // Its row says what is being done, from the first change.
     assert_eq!(
@@ -701,7 +681,7 @@ async fn files_upload_before_their_message_goes_and_a_second_message_waits_behin
 #[tokio::test]
 async fn every_change_takes_a_newer_revision_and_a_list_says_which_it_is_as_of() {
     let (_dir, _, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None));
+    outbox.with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"])));
     push(&outbox, "s1", "Then this");
     let mut link = Fake::default();
 
@@ -813,7 +793,7 @@ fn held_up(release: Option<oneshot::Receiver<()>>) -> (Slow, oneshot::Receiver<(
 async fn a_stop_goes_out_while_a_file_uploads_and_the_message_keeps_its_place() {
     let (_dir, _, outbox) = outbox();
     let s1 = key("s1");
-    outbox.with(|held| held.push(&s1, with_files("Read these", &["a.txt"]), None));
+    outbox.with(|held| held.push(&s1, with_files("Read these", &["a.txt"])));
     push(&outbox, "s1", "Then this");
     let (release, held_until) = oneshot::channel();
     let (mut slow, began) = held_up(Some(held_until));
@@ -851,7 +831,7 @@ async fn an_order_kept_behind_a_message_is_given_an_urgent_lane_when_that_messag
     let (_dir, _, outbox) = outbox();
     let s1 = key("s1");
     outbox.with(|held| {
-        held.push(&s1, with_files("Read these", &["a.txt"]), None);
+        held.push(&s1, with_files("Read these", &["a.txt"]));
         held.push_order(&s1, OrderKind::StopAll, Instant::now(), None);
     });
     let (mut slow, _) = held_up(None);
@@ -866,7 +846,7 @@ async fn an_order_kept_behind_a_message_is_given_an_urgent_lane_when_that_messag
 async fn a_close_pressed_while_the_session_resumes_waits_and_closes_the_one_that_resumed() {
     let (_dir, _, outbox) = outbox();
     let s1 = key("s1");
-    outbox.with(|held| held.push(&s1, resuming("first"), None));
+    outbox.with(|held| held.push(&s1, resuming("first")));
     let (release, held_until) = oneshot::channel();
     let (mut slow, _) = held_up(None);
     let (began, resume_began) = oneshot::channel();
@@ -911,7 +891,7 @@ async fn an_order_while_the_session_resumes_and_a_pick_applies(order: OrderKind)
         }),
         ..draft("first")
     };
-    outbox.with(|held| held.push(&s1, message, None));
+    outbox.with(|held| held.push(&s1, message));
     let (release_resume, resume_held) = oneshot::channel();
     let (release_pick, pick_held) = oneshot::channel();
     let (mut slow, _) = held_up(None);
@@ -955,7 +935,7 @@ async fn a_stop_while_the_session_resumes_takes_back_what_was_sent_to_it() {
 async fn a_close_during_an_upload_takes_the_uploading_message_with_the_session() {
     let (_dir, _, outbox) = outbox();
     let s1 = key("s1");
-    outbox.with(|held| held.push(&s1, with_files("Read these", &["a.txt"]), None));
+    outbox.with(|held| held.push(&s1, with_files("Read these", &["a.txt"])));
     push(&outbox, "s1", "Then this");
     let (release, held_until) = oneshot::channel();
     let (mut slow, began) = held_up(Some(held_until));
@@ -982,7 +962,7 @@ fn an_order_expires_in_the_urgent_lane_too_and_its_time_starts_when_its_session_
     let (_dir, _, outbox) = outbox();
     let s1 = key("s1");
     let start = Instant::now();
-    outbox.with(|held| held.push(&s1, with_files("Read these", &["a.txt"]), None));
+    outbox.with(|held| held.push(&s1, with_files("Read these", &["a.txt"])));
     outbox.with(|held| held.begin_step(&s1, start));
     outbox.with(|held| held.push_order(&s1, OrderKind::Cancel, start, None));
 
@@ -995,7 +975,7 @@ fn an_order_expires_in_the_urgent_lane_too_and_its_time_starts_when_its_session_
 
     // One that waited for a resume has its whole time once it could go.
     let s2 = key("s2");
-    outbox.with(|held| held.push(&s2, resuming("first"), None));
+    outbox.with(|held| held.push(&s2, resuming("first")));
     outbox.with(|held| held.begin_step(&s2, start));
     outbox.with(|held| held.push_order(&s2, OrderKind::Cancel, start, None));
     outbox.with(|held| held.resumed(2, "s3".into()));
@@ -1009,7 +989,7 @@ fn an_order_expires_in_the_urgent_lane_too_and_its_time_starts_when_its_session_
 #[test]
 fn the_redirect_to_a_resumed_session_survives_a_restart_while_its_messages_are_kept() {
     let (dir, kept, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("first")));
     outbox.with(|held| held.begin_step(&key("s1"), Instant::now()));
     outbox.with(|held| held.resumed(0, "s2".into()));
     outbox.sync();
@@ -1027,7 +1007,7 @@ fn only_stops_closes_and_answers_skip_a_resume_or_an_upload() {
     let configure = OrderKind::Mode {
         mode: "plan".into(),
     };
-    outbox.with(|held| held.push(&s1, with_files("first", &["a.txt"]), None));
+    outbox.with(|held| held.push(&s1, with_files("first", &["a.txt"])));
     outbox.with(|held| held.begin_step(&s1, Instant::now()));
     outbox.with(|held| held.push_order(&s1, configure, Instant::now(), None));
     assert!(!outbox.with(|held| held.start_urgent(&s1)));
@@ -1049,7 +1029,7 @@ fn only_stops_closes_and_answers_skip_a_resume_or_an_upload() {
 async fn a_refused_upload_leaves_a_failed_row_with_its_files_and_sends_nothing_of_it() {
     let (_dir, _, outbox) = outbox();
     let id = outbox
-        .with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None))
+        .with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"])))
         .0;
     push(&outbox, "s1", "Then this");
     let mut link = Fake {
@@ -1076,7 +1056,7 @@ async fn a_refused_upload_leaves_a_failed_row_with_its_files_and_sends_nothing_o
 #[tokio::test]
 async fn a_dropped_link_during_an_upload_waits_and_the_message_goes_once() {
     let (_dir, _, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None));
+    outbox.with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"])));
     let mut link = Fake {
         uploads: VecDeque::from([Err(DesktopError::Offline("build-box".into()))]),
         ..Fake::default()
@@ -1096,7 +1076,7 @@ async fn a_dropped_link_during_an_upload_waits_and_the_message_goes_once() {
 fn files_not_uploaded_yet_survive_a_restart_and_are_not_read_as_sent() {
     let (dir, kept, outbox) = outbox();
     let id = outbox
-        .with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None))
+        .with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"])))
         .0;
     outbox.with(|held| held.begin(&key("s1")));
     outbox.sync();
@@ -1113,7 +1093,7 @@ fn files_not_uploaded_yet_survive_a_restart_and_are_not_read_as_sent() {
 fn a_file_lost_from_the_cache_fails_its_message_instead_of_sending_it_without() {
     let (dir, kept, outbox) = outbox();
     let id = outbox
-        .with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None))
+        .with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"])))
         .0;
     outbox.sync();
     fs::remove_file(
@@ -1152,9 +1132,9 @@ fn mentions_follow_the_typed_words_and_pictures_alone_get_a_request() {
 #[tokio::test]
 async fn an_ended_session_resumes_once_then_the_messages_go_on_in_the_new_one_in_order() {
     let (_dir, _, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("first")));
     // The window still shows the session as ended: this one asks to resume too.
-    outbox.with(|held| held.push(&key("s1"), resuming("second"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("second")));
     let rows = outbox.read(|held| held.rows(&key("s1")));
     assert_eq!(rows.len(), 2);
     assert!(outbox.read(|held| held.messages[1].resume.is_none()));
@@ -1173,12 +1153,12 @@ async fn an_ended_session_resumes_once_then_the_messages_go_on_in_the_new_one_in
 #[tokio::test]
 async fn a_send_to_the_old_session_after_it_resumed_is_sent_on_and_never_resumes_again() {
     let (_dir, _, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("first")));
     let mut link = Fake::default();
     flush(&outbox, &key("s1"), &mut link).await;
 
     // A window that has not opened the new session yet sends once more to the old one.
-    let (_, flusher) = outbox.with(|held| held.push(&key("s1"), resuming("late"), None));
+    let (_, flusher) = outbox.with(|held| held.push(&key("s1"), resuming("late")));
     assert!(flusher);
     assert_eq!(outbox.read(|held| held.resolve(&key("s1"))), key("s2"));
     assert!(outbox.read(|held| held.messages[0].resume.is_none()));
@@ -1191,7 +1171,7 @@ async fn a_send_to_the_old_session_after_it_resumed_is_sent_on_and_never_resumes
 #[test]
 fn a_read_or_a_take_back_for_the_ended_session_reaches_the_one_that_resumed() {
     let (_dir, _, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("first")));
     outbox.with(|held| held.begin_step(&key("s1"), Instant::now()));
     outbox.with(|held| held.resumed(0, "s2".into()));
 
@@ -1215,7 +1195,7 @@ fn a_read_or_a_take_back_for_the_ended_session_reaches_the_one_that_resumed() {
 async fn a_refused_resume_leaves_a_failed_row_and_sends_nothing() {
     let (_dir, _, outbox) = outbox();
     let id = outbox
-        .with(|held| held.push(&key("s1"), resuming("first"), None))
+        .with(|held| held.push(&key("s1"), resuming("first")))
         .0;
     let mut link = Fake {
         resumes: VecDeque::from([Err(DesktopError::BadRequest("Could not resume".into()))]),
@@ -1232,14 +1212,14 @@ async fn a_refused_resume_leaves_a_failed_row_and_sends_nothing() {
     );
     // Edit gives the words back; sending again asks to resume again.
     outbox.with(|held| held.take(id)).expect("taken");
-    outbox.with(|held| held.push(&key("s1"), resuming("again"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("again")));
     assert!(outbox.read(|held| held.messages[0].resume.is_some()));
 }
 
 #[tokio::test]
 async fn a_dropped_link_before_the_resume_waits_and_the_session_resumes_once() {
     let (_dir, _, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("first")));
     let mut link = Fake {
         resumes: VecDeque::from([Err(DesktopError::Offline("build-box".into()))]),
         ..Fake::default()
@@ -1265,7 +1245,7 @@ async fn the_picks_apply_to_the_resumed_session_before_the_message_and_its_files
         pick: Some(pick),
         ..Resume::default()
     });
-    outbox.with(|held| held.push(&key("s1"), draft, None));
+    outbox.with(|held| held.push(&key("s1"), draft));
     let mut link = Fake::default();
 
     flush(&outbox, &key("s1"), &mut link).await;
@@ -1284,7 +1264,7 @@ async fn the_picks_apply_to_the_resumed_session_before_the_message_and_its_files
 #[test]
 fn a_resume_cut_short_by_a_restart_fails_its_message_and_those_behind_instead_of_resuming_again() {
     let (dir, kept, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("first")));
     push(&outbox, "s1", "behind");
     push(&outbox, "s9", "elsewhere");
     outbox.with(|held| held.begin(&key("s1")));
@@ -1308,8 +1288,8 @@ fn a_resume_cut_short_by_a_restart_fails_its_message_and_those_behind_instead_of
 #[tokio::test]
 async fn a_message_behind_a_refused_resume_resumes_in_its_place_once() {
     let (_dir, _, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
-    outbox.with(|held| held.push(&key("s1"), resuming("second"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("first")));
+    outbox.with(|held| held.push(&key("s1"), resuming("second")));
     let mut link = Fake {
         resumes: VecDeque::from([Err(DesktopError::BadRequest("Could not resume".into()))]),
         ..Fake::default()
@@ -1329,9 +1309,9 @@ async fn a_message_behind_a_refused_resume_resumes_in_its_place_once() {
 async fn a_message_behind_one_taken_back_before_it_resumed_carries_the_resume() {
     let (_dir, _, outbox) = outbox();
     let first = outbox
-        .with(|held| held.push(&key("s1"), resuming("first"), None))
+        .with(|held| held.push(&key("s1"), resuming("first")))
         .0;
-    outbox.with(|held| held.push(&key("s1"), resuming("second"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("second")));
     outbox.with(|held| held.take(first)).expect("taken");
     assert!(outbox.read(|held| held.messages[0].resume.is_some()));
     let mut link = Fake::default();
@@ -1345,8 +1325,8 @@ async fn a_message_behind_one_taken_back_before_it_resumed_carries_the_resume() 
 #[tokio::test]
 async fn a_resume_whose_answer_never_came_fails_every_message_waiting_for_that_session() {
     let (_dir, _, outbox) = outbox();
-    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
-    outbox.with(|held| held.push(&key("s1"), resuming("second"), None));
+    outbox.with(|held| held.push(&key("s1"), resuming("first")));
+    outbox.with(|held| held.push(&key("s1"), resuming("second")));
     let mut link = Fake {
         resumes: VecDeque::from([Err(DesktopError::TimedOut("build-box".into()))]),
         ..Fake::default()

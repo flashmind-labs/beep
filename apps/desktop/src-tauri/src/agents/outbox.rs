@@ -51,7 +51,7 @@ use tokio::{
 const CHANGED: &str = "outbox-changed";
 /// How many entries a check after a dropped send reads.
 const CHECK_LAST: u32 = 60;
-/// How long a send or session order waits for a healthy local/fast node before handing
+/// How long a session order waits for a healthy local/fast node before handing
 /// off to the session's background actor so a degraded link never stalls the UI.
 const ANSWER_WAIT: Duration = Duration::from_millis(250);
 /// How long transient interrupt orders (`Cancel`, `StopAll`, `StopTask`) stay queued if
@@ -226,6 +226,7 @@ impl Message {
                 .collect(),
             state,
             reason,
+            keys: Vec::new(),
         }
     }
 
@@ -254,6 +255,8 @@ pub(crate) struct Row {
     /// "waiting", "resuming", "uploading", "sending" or "failed".
     pub(crate) state: &'static str,
     pub(crate) reason: Option<String>,
+    /// For a row in `Changed.sent`: the keys the machine gave its images.
+    pub(crate) keys: Vec<String>,
 }
 
 /// What a session's outbox holds now, and the kept messages that went to
@@ -288,17 +291,6 @@ pub(crate) struct Listed {
 pub(crate) struct Uploaded {
     pub(crate) name: String,
     pub(crate) path: String,
-}
-
-/// The answer to the window that sent a message, after its first try.
-#[derive(Debug)]
-pub(crate) enum Answer {
-    /// The machine took it; the keys of its images.
-    Sent(Vec<String>),
-    /// It waits here for the machine.
-    Waiting,
-    /// The machine refused it, and it is no longer kept.
-    Refused(String),
 }
 
 /// A non-message session control action or question answer handled by the session actor.
@@ -391,9 +383,6 @@ pub(crate) struct Held {
     /// Where a session that was resumed went on: a window that has not
     /// opened that yet still sends to the old one, and is sent on.
     redirects: HashMap<SessionKey, SessionKey>,
-    /// The windows waiting on a message's first try. A message with one is
-    /// not shown in the outbox: the window shows it as sending.
-    replies: HashMap<u64, oneshot::Sender<Answer>>,
     /// Callers waiting briefly on an order's first try.
     order_replies: HashMap<u64, oneshot::Sender<OrderAnswer>>,
     /// Folder changes not yet handed to the writer, and whether the
@@ -462,12 +451,7 @@ impl Held {
     /// Keeps a message for `key`; true when its session needs a flusher
     /// started. A message behind others waiting for the machine is answered
     /// at once: it waits too.
-    pub(crate) fn push(
-        &mut self,
-        key: &SessionKey,
-        draft: Draft,
-        reply: Option<oneshot::Sender<Answer>>,
-    ) -> (u64, bool) {
+    pub(crate) fn push(&mut self, key: &SessionKey, draft: Draft) -> (u64, bool) {
         let resolved = self.resolve(key);
         // One resume however many messages wait: a message behind another
         // that resumes, or to a session already resumed, never does.
@@ -483,7 +467,6 @@ impl Held {
         let files = draft.files;
         self.writes.extend(image_writes(files_id(id), &files));
 
-        let stuck = self.is_stuck(key);
         self.messages.push(Message {
             id,
             machine_id: key.machine_id.clone(),
@@ -502,14 +485,6 @@ impl Held {
             seen: draft.seen,
         });
         self.dirty = true;
-
-        if let Some(reply) = reply {
-            if stuck {
-                let _ = reply.send(Answer::Waiting);
-            } else {
-                self.replies.insert(id, reply);
-            }
-        }
 
         (id, self.flushing.insert(key.clone()))
     }
@@ -563,10 +538,7 @@ impl Held {
             .collect();
 
         for id in ids {
-            if let Some(reply) = self.replies.remove(&id) {
-                self.remove(id);
-                let _ = reply.send(Answer::Refused(reason.clone()));
-            } else if let Some(message) = self.messages.iter_mut().find(|m| m.id == id) {
+            if let Some(message) = self.messages.iter_mut().find(|m| m.id == id) {
                 message.state = Stage::Failed {
                     reason: reason.clone(),
                 };
@@ -584,15 +556,6 @@ impl Held {
                 && !matches!(m.state, Stage::Failed { .. })
                 && m.resume.as_ref().is_some_and(|r| !r.resumed)
         })
-    }
-
-    fn is_stuck(&self, key: &SessionKey) -> bool {
-        self.messages.iter().any(|m| {
-            m.key() == *key && m.state == Stage::Waiting && !self.replies.contains_key(&m.id)
-        }) || self
-            .orders
-            .iter()
-            .any(|o| o.key == *key && !o.sending && !self.order_replies.contains_key(&o.id))
     }
 
     /// Enqueues or coalesces a control `Order` for `key`, ordered with any queued messages.
@@ -735,6 +698,17 @@ impl Held {
         self.replace_order_reply(id, reply, stuck);
 
         (id, outbox_changed, self.flushing.insert(key.clone()))
+    }
+
+    /// Whether a message or an order of `key` waits for its machine, so a new order waits too.
+    fn is_stuck(&self, key: &SessionKey) -> bool {
+        self.messages
+            .iter()
+            .any(|m| m.key() == *key && m.state == Stage::Waiting)
+            || self
+                .orders
+                .iter()
+                .any(|o| o.key == *key && !o.sending && !self.order_replies.contains_key(&o.id))
     }
 
     fn replace_order_reply(
@@ -902,10 +876,6 @@ impl Held {
             .collect();
 
         for id in &ids {
-            if let Some(reply) = self.replies.remove(id) {
-                let _ = reply.send(Answer::Waiting);
-            }
-
             self.remove(*id);
         }
 
@@ -917,8 +887,15 @@ impl Held {
         self.messages.iter().any(|m| m.id == id)
     }
 
-    pub(crate) fn order_wait(&mut self, id: u64, now: Instant) -> Option<Changed> {
-        let key = self.orders.iter().find(|o| o.id == id)?.key.clone();
+    pub(crate) fn order_wait(&mut self, id: u64, now: Instant) {
+        let Some(key) = self
+            .orders
+            .iter()
+            .find(|o| o.id == id)
+            .map(|o| o.key.clone())
+        else {
+            return;
+        };
 
         if let Some(order) = self.orders.iter_mut().find(|o| o.id == id) {
             if order.deadline.is_some_and(|d| now >= d) {
@@ -940,23 +917,6 @@ impl Held {
                 let _ = waiter.send(OrderAnswer::Queued);
             }
         }
-
-        let msg_ids: Vec<u64> = self
-            .messages
-            .iter()
-            .filter(|m| m.key() == key)
-            .map(|m| m.id)
-            .collect();
-        let mut handed_message = false;
-
-        for mid in msg_ids {
-            if let Some(waiter) = self.replies.remove(&mid) {
-                let _ = waiter.send(Answer::Waiting);
-                handed_message = true;
-            }
-        }
-
-        handed_message.then(|| self.changed(&key))
     }
 
     /// Removes a refused order; returns `true` if no foreground caller was still waiting.
@@ -996,14 +956,11 @@ impl Held {
     /// The machine took message `id`: it goes.
     pub(crate) fn sent(&mut self, id: u64, keys: Vec<String>) -> Option<Changed> {
         let message = self.remove(id)?;
-
-        if let Some(reply) = self.replies.remove(&id) {
-            let _ = reply.send(Answer::Sent(keys));
-            return None;
-        }
-
         let mut changed = self.changed(&message.key());
-        changed.sent.push(message.row());
+        changed.sent.push(Row {
+            keys,
+            ..message.row()
+        });
         Some(changed)
     }
 
@@ -1120,37 +1077,16 @@ impl Held {
             .map(|m| m.id)
             .collect();
 
-        for id in ids {
-            if let Some(reply) = self.replies.remove(&id) {
-                let _ = reply.send(Answer::Waiting);
-            }
-        }
-
         Some(self.changed(&key))
     }
 
-    /// The machine refused message `id`. The window that just sent it puts
-    /// it back in its field; one kept from before stays with the reason.
+    /// The machine refused message `id`: it stays with the reason.
     pub(crate) fn refused(&mut self, id: u64, reason: String) -> Option<Changed> {
-        if let Some(reply) = self.replies.remove(&id) {
-            self.remove(id)?;
-            let _ = reply.send(Answer::Refused(reason));
-            return None;
-        }
-
         let message = self.messages.iter_mut().find(|m| m.id == id)?;
         message.state = Stage::Failed { reason };
         self.dirty = true;
         let (key, resume) = (message.key(), message.resume.clone());
         self.hand_on_resume(&key, resume);
-        Some(self.changed(&key))
-    }
-
-    /// The window that sent message `id` stopped waiting for its first try:
-    /// from now on the outbox shows it.
-    pub(crate) fn hand_over(&mut self, id: u64) -> Option<Changed> {
-        self.replies.remove(&id)?;
-        let key = self.messages.iter().find(|m| m.id == id)?.key();
         Some(self.changed(&key))
     }
 
@@ -1170,7 +1106,6 @@ impl Held {
         let message = self
             .remove(id)
             .ok_or_else(|| DesktopError::BadRequest("That message is no longer waiting.".into()))?;
-        self.replies.remove(&id);
         self.hand_on_resume(&message.key(), message.resume.clone());
         let changed = self.changed(&message.key());
         Ok((message, changed))
@@ -1185,15 +1120,7 @@ impl Held {
             .filter(|m| m.key() == *key && m.state != Stage::Sending)
             .map(|m| m.id)
             .collect();
-        let taken = ids
-            .into_iter()
-            .filter_map(|id| {
-                if let Some(reply) = self.replies.remove(&id) {
-                    let _ = reply.send(Answer::Waiting);
-                }
-                self.remove(id)
-            })
-            .collect();
+        let taken = ids.into_iter().filter_map(|id| self.remove(id)).collect();
         (taken, self.changed(key))
     }
 
@@ -1214,7 +1141,7 @@ impl Held {
     pub(crate) fn rows(&self, key: &SessionKey) -> Vec<Row> {
         self.messages
             .iter()
-            .filter(|m| m.key() == *key && !self.replies.contains_key(&m.id))
+            .filter(|m| m.key() == *key)
             .map(Message::row)
             .collect()
     }
@@ -1492,7 +1419,10 @@ async fn run_order(outbox: &Outbox, link: &mut impl Link, order: Order) {
     let mut refused_bg = None;
     let change = outbox.with(|held| match tried {
         TriedOrder::Sent => held.order_sent(id),
-        TriedOrder::Lost => held.order_wait(id, Instant::now()),
+        TriedOrder::Lost => {
+            held.order_wait(id, Instant::now());
+            None
+        }
         TriedOrder::Refused(reason) => {
             if held.order_refused(id, reason.clone()) {
                 refused_bg = Some(reason);
@@ -2099,10 +2029,11 @@ pub fn resume(app: &AppHandle) {
     });
 }
 
-/// Sends a message to `key`'s session through the outbox, after the ones
-/// waiting there: the machine's answer to its first try, or `Waiting` when
-/// it waits for the machine or the try takes longer than `ANSWER_WAIT`.
-pub(crate) async fn send(
+/// Keeps a message for `key`'s session in the outbox, after the ones waiting there, and
+/// tells the windows its row. Every message is the outbox's from the start: its row says what
+/// is done, and the window waits on nothing. Always `Waiting` for the caller, unless the
+/// steer is not a message.
+pub(crate) fn send(
     app: &AppHandle,
     window: &str,
     key: SessionKey,
@@ -2110,14 +2041,14 @@ pub(crate) async fn send(
     seen: Option<Seen>,
     attach: Attach,
     resume: Option<Resume>,
-) -> std::result::Result<Vec<String>, SteerError> {
+) -> SteerError {
     let (how, text, images) = match steer {
         Steer::Prompt { text, images } => (Kind::Prompt, text, images),
         Steer::InTurn { text, images } => (Kind::Steer, text, images),
         _ => {
-            return Err(SteerError::Failed {
+            return SteerError::Failed {
                 message: "only messages wait for their machine".into(),
-            });
+            };
         }
     };
     let draft = Draft {
@@ -2131,61 +2062,20 @@ pub(crate) async fn send(
         seen,
     };
     let outbox = app.state::<Arc<Outbox>>();
-
-    // A message that resumes its session or uploads files is the outbox's
-    // from the start: its row says what is done, and no window waits on the
-    // machine for it.
-    if draft.resume.is_some() || !draft.files.is_empty() {
-        let (key, flusher, changed) = outbox.with(|held| {
-            let (_, flusher) = held.push(&key, draft, None);
-            let key = held.resolve(&key);
-            let changed = held.changed(&key);
-            (key, flusher, changed)
-        });
-        emit(app, changed);
-
-        if flusher {
-            start(app, key, window.to_string());
-        }
-
-        return Err(SteerError::Waiting {
-            message: "Waiting for the connection".into(),
-        });
-    }
-
-    let (reply, mut answer) = oneshot::channel();
-    let (id, key, flusher) = outbox.with(|held| {
-        let (id, flusher) = held.push(&key, draft, Some(reply));
-        (id, held.resolve(&key), flusher)
+    let (key, flusher, changed) = outbox.with(|held| {
+        let (_, flusher) = held.push(&key, draft);
+        let key = held.resolve(&key);
+        let changed = held.changed(&key);
+        (key, flusher, changed)
     });
+    emit(app, changed);
 
     if flusher {
-        start(app, key.clone(), window.to_string());
+        start(app, key, window.to_string());
     }
 
-    let answer = match timeout(ANSWER_WAIT, &mut answer).await {
-        Ok(answer) => answer.ok(),
-        Err(_) => {
-            // The outbox shows it from now on; an answer that came meanwhile still counts.
-            if let Some(changed) = outbox.with(|held| held.hand_over(id)) {
-                emit(app, changed);
-            }
-
-            answer.try_recv().ok()
-        }
-    };
-
-    // A message behind others that wait is answered at once and shown: tell the windows its row.
-    if let Some(Answer::Waiting) = answer {
-        emit(app, outbox.with(|held| held.changed(&key)));
-    }
-
-    match answer {
-        Some(Answer::Sent(keys)) => Ok(keys),
-        Some(Answer::Refused(message)) => Err(SteerError::Failed { message }),
-        Some(Answer::Waiting) | None => Err(SteerError::Waiting {
-            message: "Waiting for the connection".into(),
-        }),
+    SteerError::Waiting {
+        message: "Waiting for the connection".into(),
     }
 }
 

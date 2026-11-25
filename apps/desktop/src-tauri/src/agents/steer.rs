@@ -257,7 +257,7 @@ pub async fn agent_steer(
     if matches!(steer, Steer::Prompt { .. } | Steer::InTurn { .. }) {
         fleet.machine(&key.machine_id)?;
         AgentSteer::try_from(steer.clone())?;
-        return outbox::send(
+        return Err(outbox::send(
             &app,
             window.label(),
             key,
@@ -265,8 +265,7 @@ pub async fn agent_steer(
             seen,
             attach.unwrap_or_default(),
             resume,
-        )
-        .await;
+        ));
     }
 
     if let Some(kind) = actor_order(&fleet, &key.machine_id, &steer)? {
