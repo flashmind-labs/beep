@@ -50,14 +50,17 @@ test("a burst of Home changes draws the newest pushed Home and the sidebar once,
   expect(await sidebarDraws(page)).toBe(1);
 });
 
-test("a first Home that failed to load is not tried again on a timer: its first push loads it", async ({ page }) => {
+test("a first Home that failed to load is read again after five seconds while it shows, or by its first push", async ({ page }) => {
   await page.clock.install();
   await openDesktop(page, false, { failing: ["center_home"] });
   await page.clock.runFor(1000);
   const before = await reads(page);
   expect(before).toBeGreaterThan(0);
-  await page.clock.runFor(20_000);
-  expect(await reads(page)).toBe(before);
+  await page.clock.runFor(4000);
+  expect(await reads(page)).toBeGreaterThan(before);
+  const retried = await reads(page);
+  await page.clock.runFor(1000);
+  expect(await reads(page)).toBe(retried);
   await page.evaluate(value => { window.__navigation.allow("center_home"); window.__navigation.respond("center_home", value); window.__navigation.notify("home"); }, home(1));
   await expect(page.getByRole("tab", { name: "Board" })).toBeVisible();
   await expect(page.locator("#sec-running .bd-lane > h4", { hasText: "Working" })).toHaveText("Working1");

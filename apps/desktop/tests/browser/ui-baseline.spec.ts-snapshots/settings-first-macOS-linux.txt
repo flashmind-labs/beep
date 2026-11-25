@@ -270,7 +270,7 @@ body.cbody
                 span
                   b "Update machines automatically"
                   small "A notification says when a machine is behind"
-                button#nodeAutoUpdate.dswitch [aria-checked="false" aria-label="Update machines automatically" role="switch" type="button"]
+                button#nodeAutoUpdate.dswitch [aria-label="Update machines automatically" role="switch" type="button"]
               div.dtoggle
                 span
                   b "Developer mode"
