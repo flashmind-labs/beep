@@ -3,7 +3,7 @@ use super::*;
 use crate::agents::{
     compaction::COMPACTED_ENTRY,
     image_files,
-    images::Picture,
+    picture::Picture,
     subagent::{Run, RunStep},
 };
 use agent_client_protocol::v1::schema::SessionUpdate;

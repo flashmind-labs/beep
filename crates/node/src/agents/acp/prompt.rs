@@ -1,6 +1,6 @@
 //! Prompt contents, image validation and steering requests.
 
-use crate::agents::images::{Picture, image_line};
+use crate::agents::picture::{Picture, image_line};
 use agent_client_protocol::{
     UntypedMessage,
     v1::schema::{

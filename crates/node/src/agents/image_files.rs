@@ -2,7 +2,7 @@
 //! (`named_in`), written by its edits or saved by its commands, read when
 //! the turn ends (`read`, `read_since`), only inside the session's folder.
 
-use super::images::Picture;
+use super::picture::Picture;
 use crate::files::paths;
 use beep_proto::sniff_image;
 use std::{

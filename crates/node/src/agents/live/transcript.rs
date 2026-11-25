@@ -8,7 +8,8 @@ use super::{
 use crate::agents::mcp::calls::Tool as BeepTool;
 use crate::agents::{
     acp::wire_name,
-    images::{Images, Picture},
+    images::Images,
+    picture::Picture,
     subagent::Run,
     unix_now,
     usage::{UsageHub, claude_rate_limit, flsh_credits},

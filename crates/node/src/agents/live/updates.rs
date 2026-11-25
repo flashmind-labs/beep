@@ -9,7 +9,7 @@ use super::{
 use crate::agents::{
     compaction::{CLAUDE_CONTINUATION, COMPACTED_ENTRY, MAX_SUMMARY, summary_note},
     image_files,
-    images::Picture,
+    picture::Picture,
 };
 use agent_client_protocol::{
     schema::MaybeUndefined,

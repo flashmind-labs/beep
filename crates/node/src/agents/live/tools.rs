@@ -8,7 +8,7 @@ use crate::agents::mcp::calls::Tool as BeepTool;
 use crate::agents::place::call_folder;
 use crate::agents::{
     acp::wire_name,
-    images::{Picture, picture_of},
+    picture::{Picture, picture_of},
     subagent::{Activity, Conversation, Run, Subagent},
     tool_details,
     tool_diff::diff_text,

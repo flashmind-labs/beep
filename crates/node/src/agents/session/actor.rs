@@ -9,7 +9,7 @@ use crate::agents::{
     alerts::AlertHub,
     checkouts::Checkouts,
     compaction::{Compactor, TurnEnd},
-    images::Picture,
+    picture::Picture,
     known,
     launch::{AgentIn, AgentOut, Running, Started},
     live::{Live, TurnTokens, cut},

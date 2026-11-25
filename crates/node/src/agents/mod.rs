@@ -56,6 +56,7 @@ host! {
     mod media_file;
     mod models;
     mod moving;
+    mod picture;
     mod pipe;
     mod place;
     mod plans;
@@ -86,7 +87,7 @@ host! {
     pub use work_folder::{local_hashes, local_read, local_tree};
 
     pub(crate) use acp::{Line, LineReader, MAX_MESSAGE};
-    pub(crate) use images::{Picture, block_picture};
+    pub(crate) use picture::{Picture, block_picture};
     pub use kinds::{AgentKind, Bridge, detect};
     pub use launch::{AgentIn, AgentOut, Running, Started, start};
     pub(crate) use kinds::adapter_bins;

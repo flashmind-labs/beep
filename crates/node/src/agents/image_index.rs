@@ -2,7 +2,7 @@
 //! a file that can be hundreds of MiB. One scan per file: lookups during it
 //! wait for it, and later ones read only what was appended.
 
-use super::images::{MAX_LINE, Picture, each_picture, find_in, has_base64};
+use super::picture::{MAX_LINE, Picture, each_picture, find_in, has_base64};
 use crate::lock;
 use beep_proto::image_key;
 use serde_json::Value;

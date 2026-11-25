@@ -261,7 +261,7 @@ impl Live {
                             use base64::{Engine, engine::general_purpose::STANDARD};
                             match STANDARD.decode(&image.data) {
                                 Ok(data) => {
-                                    let picture = crate::agents::images::Picture {
+                                    let picture = crate::agents::picture::Picture {
                                         mime: image.mime_type.to_string(),
                                         data,
                                     };
