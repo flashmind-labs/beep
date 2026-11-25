@@ -927,7 +927,7 @@ fn an_order_expires_in_the_urgent_lane_too_and_its_time_starts_when_its_session_
     outbox.with(|held| held.push(&s2, resuming("first"), None));
     outbox.with(|held| held.begin_step(&s2, start));
     outbox.with(|held| held.push_order(&s2, OrderKind::Cancel, start, None));
-    outbox.with(|held| held.resumed(1, "s3".into()));
+    outbox.with(|held| held.resumed(2, "s3".into()));
     assert!(
         outbox
             .with(|held| held.begin_urgent(&key("s3"), start + ORDER_TTL))
