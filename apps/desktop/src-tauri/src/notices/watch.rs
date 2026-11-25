@@ -14,15 +14,18 @@ use beep_fleet::{
     temporary::{Leftovers, sweep},
 };
 use beep_proto::{
-    AgentNoticeKey, SyncStatus,
-    node::{agent::MovePhase, mesh_state::SessionMove, skills},
+    AgentNoticeKey,
+    node::{agent::MovePhase, events::Value, mesh_state::SessionMove, skills, sync},
 };
 use futures::future::join_all;
 use iroh::EndpointId;
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
     hash::Hash,
-    sync::Arc,
+    sync::{
+        Arc, Mutex, PoisonError,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant, SystemTime},
 };
 use tauri::{AppHandle, Manager};
@@ -43,22 +46,64 @@ const AWAY: Duration = Duration::from_secs(120);
 /// How old a move may be and still be asked about.
 const MOVES_FOR_MS: u64 = 24 * 3600 * 1000;
 
-/// Counts the sync and move snapshots the machines pushed, which the bell reads again for.
-pub(crate) struct Looks(watch::Sender<u64>);
+/// The conflicts of each project on one machine, as its node pushed them.
+type Said = Vec<(String, BTreeSet<String>)>;
+
+/// What the machines pushed that the bell takes news from: each machine's latest sync, whose
+/// conflicts it tells without asking anyone, and whether a move changed.
+pub(crate) struct Looks {
+    pushed: watch::Sender<u64>,
+    said: Mutex<HashMap<EndpointId, Said>>,
+    moved: AtomicBool,
+}
 
 impl Looks {
     pub(crate) fn new() -> Self {
-        Self(watch::channel(0).0)
+        Self {
+            pushed: watch::channel(0).0,
+            said: Mutex::default(),
+            moved: AtomicBool::new(false),
+        }
+    }
+
+    fn hear(&self, machine: EndpointId, topic: &str, value: &Value) {
+        match (topic, value) {
+            ("sync", Value::Sync(reply)) => {
+                let sync::Reply::Status { projects } = reply.as_ref() else {
+                    return;
+                };
+                let said = projects
+                    .iter()
+                    .map(|project| {
+                        (
+                            project.name.clone(),
+                            project.conflicts.iter().cloned().collect(),
+                        )
+                    })
+                    .collect();
+                self.said
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(machine, said);
+            }
+            ("moves", _) => self.moved.store(true, Ordering::Relaxed),
+            _ => return,
+        }
+
+        self.pushed
+            .send_modify(|count| *count = count.wrapping_add(1));
+    }
+
+    /// The syncs pushed since the last call, the latest of each machine.
+    fn take_said(&self) -> HashMap<EndpointId, Said> {
+        std::mem::take(&mut *self.said.lock().unwrap_or_else(PoisonError::into_inner))
     }
 }
 
-/// A machine pushed its sync or its moves: conflicts or a failed move may have come.
-pub(crate) fn heard(app: &AppHandle, topic: &str) {
-    if matches!(topic, "sync" | "moves") {
-        app.state::<Looks>()
-            .0
-            .send_modify(|count| *count = count.wrapping_add(1));
-    }
+/// A machine pushed `value` on `topic`: its sync carries its conflicts, and a change of the
+/// moves says a move may have failed.
+pub(crate) fn heard(app: &AppHandle, machine: EndpointId, topic: &str, value: &Value) {
+    app.state::<Looks>().hear(machine, topic, value);
 }
 
 /// Looks at the mesh while the app runs: again on each change to it, to
@@ -72,7 +117,7 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
     let mut changes = fleet.changes();
     let mut local = beep_node::events::system().subscribe();
     let mut slow = Slow::default();
-    let mut pushed = app.state::<Looks>().0.subscribe();
+    let mut pushed = app.state::<Looks>().pushed.subscribe();
     #[cfg(desktop)]
     let _standing = hold_pushes(&app, &fleet);
 
@@ -80,11 +125,17 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
         machines(&app, &fleet, &mut away);
         temporaries(&app, &fleet, &mut leftovers).await;
         let now = Instant::now();
+        let looks = app.state::<Looks>();
+
+        for (machine, said) in looks.take_said() {
+            sync(&app, &fleet, machine, said, &mut conflicts);
+        }
+
+        slow.wanted |= looks.moved.swap(false, Ordering::Relaxed);
 
         if slow.due(now) {
             match session.desk().await {
                 Ok(desk) => {
-                    sync(&app, &desk, &mut conflicts).await;
                     skill_conflicts(&app, &fleet, &mut conflicts).await;
                     failed_moves(&app, &fleet, &desk, &mut moves).await;
                 }
@@ -110,7 +161,6 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
                 slow.wanted = true;
             }
             heard = local.recv() => match heard {
-                Ok(change) if change.topic.name() == "sync" => slow.wanted = true,
                 Ok(_) | Err(RecvError::Closed) => {}
                 Err(RecvError::Lagged(_)) => slow.wanted = true,
             },
@@ -118,8 +168,6 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
                 if changed.is_err() {
                     return;
                 }
-
-                slow.wanted = true;
             }
             () = async {
                 match wake {
@@ -276,31 +324,31 @@ fn kept_lines(app: &AppHandle, id: &str) -> BTreeSet<String> {
         .unwrap_or_default()
 }
 
-async fn sync(app: &AppHandle, desk: &Desk, conflicts: &mut Conflicts) {
-    for project in desk.sync().await {
-        for machine in project.machines {
-            // An offline machine says nothing of its conflicts.
-            if machine.status == (SyncStatus::Offline {}) {
-                continue;
-            }
-
-            let id = format!("conflict:{}:{}", project.project, machine.machine_id);
-            let paths: BTreeSet<String> = machine.conflicts.into_iter().collect();
-            match conflicts.step(&id, &paths, || kept_lines(app, &id)) {
-                Settle::Same => {}
-                Settle::Settled => history::finish(app, |note| note.id == id),
-                Settle::Raise => {
-                    let title = match paths.len() {
-                        1 => format!("Sync conflict in {}", project.project),
-                        n => format!("{n} sync conflicts in {}", project.project),
-                    };
-                    let text = paths.into_iter().collect::<Vec<_>>().join("\n");
-                    let note = Note {
-                        text,
-                        ..Note::new(NoteKind::Conflict, id, title, machine.machine_name)
-                    };
-                    history::record(app, note);
-                }
+/// Tells the conflicts `machine` pushed of its projects. A machine that says nothing of a
+/// project, as an offline one does, leaves its note as it is.
+fn sync(
+    app: &AppHandle,
+    fleet: &Fleet,
+    machine: EndpointId,
+    said: Said,
+    conflicts: &mut Conflicts,
+) {
+    for (project, paths) in said {
+        let id = format!("conflict:{project}:{machine}");
+        match conflicts.step(&id, &paths, || kept_lines(app, &id)) {
+            Settle::Same => {}
+            Settle::Settled => history::finish(app, |note| note.id == id),
+            Settle::Raise => {
+                let title = match paths.len() {
+                    1 => format!("Sync conflict in {project}"),
+                    n => format!("{n} sync conflicts in {project}"),
+                };
+                let text = paths.into_iter().collect::<Vec<_>>().join("\n");
+                let note = Note {
+                    text,
+                    ..Note::new(NoteKind::Conflict, id, title, fleet.name_of(machine))
+                };
+                history::record(app, note);
             }
         }
     }

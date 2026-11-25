@@ -121,3 +121,33 @@ fn conflicts_a_kept_note_holds_are_not_raised_again_at_start() {
     let mut fresh = Conflicts::default();
     assert_eq!(fresh.step("p", &set(&[]), || set(&["a"])), Settle::Settled);
 }
+
+#[test]
+fn a_machine_s_pushed_sync_gives_its_conflicts_without_asking_anyone() {
+    use beep_proto::node::{events::Value, sync::{ProjectStatus, Reply}};
+
+    let looks = Looks::new();
+    let machine = iroh::SecretKey::from_bytes(&[3; 32]).public();
+    let pushed = |paths: &[&str]| {
+        Value::Sync(Box::new(Reply::Status {
+            projects: vec![ProjectStatus {
+                name: "acme/widget".into(),
+                conflicts: paths.iter().map(|path| path.to_string()).collect(),
+                ..ProjectStatus::default()
+            }],
+        }))
+    };
+
+    looks.hear(machine, "sync", &pushed(&["a.txt"]));
+    looks.hear(machine, "sync", &pushed(&["a.txt", "b.txt"]));
+    let said = looks.take_said();
+    assert_eq!(said[&machine], vec![("acme/widget".to_owned(), set(&["a.txt", "b.txt"]))]);
+    assert!(looks.take_said().is_empty(), "taken once");
+
+    // A change of the moves reads for a failed move; any other topic says nothing.
+    assert!(!looks.moved.load(Ordering::Relaxed));
+    looks.hear(machine, "agents", &Value::Missing);
+    assert!(!looks.moved.load(Ordering::Relaxed));
+    looks.hear(machine, "moves", &Value::Missing);
+    assert!(looks.moved.load(Ordering::Relaxed));
+}
