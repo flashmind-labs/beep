@@ -46,6 +46,31 @@ test("transcript groups child agents and keeps their actions", async ({ page }) 
   await expect(group.locator('[data-kid="second@build-box"]')).toContainText("Inspect second");
 });
 
+test("a child started after the list was pushed is waited for through pushes that do not list it", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const value = await invoke<T>(command, args);
+      if (command !== "agent_view" || !value || typeof value !== "object") return value;
+      return { ...value, entries: [{ kind: "user", text: "Check" }, { kind: "tool", text: "Inspect first [completed]\n[steps] 0\n[child] first@build-box working key-1" }] } as T;
+    };
+  });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  const kid = page.locator(".dsubgrp").locator('[data-kid="first@build-box"]');
+  await expect(kid).toContainText("Inspect first");
+  const row = (id: string, title: string) => ({ kind: "agent", machine_id: "build-box", machine_name: "build-box", id, agent: "codex", title, cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false, question: null });
+  const push = (rows: unknown[]) => page.evaluate(value => window.__navigation.notify("home", [{ command: "agent_sessions", args: {}, value }]), rows);
+
+  await kid.locator("[data-kidstop]").click();
+  // A push that retitles another session does not list the child: the wait goes on.
+  await push([row("notice-one", "Renamed")]);
+  await expect(page.getByText("That agent's session is no longer on its machine.")).toHaveCount(0);
+  await push([row("notice-one", "Renamed"), row("first", "Child")]);
+  await expect.poll(async () => (await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_steer").length))).toBe(1);
+  await expect(page.getByText("That agent's session is no longer on its machine.")).toHaveCount(0);
+});
+
 for (const width of [1280, 390]) {
   test(`session reply cards show the source project and title with wrapping tables at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

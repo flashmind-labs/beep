@@ -221,13 +221,19 @@ function toggleRow(opened: Set<number>, at: number) {
   drawAgentBody(`[data-row="${at}"]`);
 }
 
-/// Opens the agent a card names. A child started after the list was pushed is not in it yet, so a miss waits for the
-/// next list; one still missing is gone, which the log says.
+/// Opens the agent a card names. A child started after the list was pushed is not in it yet, so a miss waits
+/// for the lists that follow, until the row is in one or `KID_WAIT_MS` passes (a retitle or another session's
+/// push does not end it); one still missing is gone, which the log says.
 async function kidSession(id: string, key?: string) {
   const row = childRow(sessions, id, key);
   if (row) return row;
-  await nextSessions(KID_WAIT_MS);
-  const found = childRow(sessions, id, key);
+  const until = Date.now() + KID_WAIT_MS;
+  let found = row;
+
+  while (!found && Date.now() < until) {
+    await nextSessions(until - Date.now());
+    found = childRow(sessions, id, key);
+  }
   if (!found) { setNote("That agent's session is no longer on its machine."); drawAgentBody(); }
   return found;
 }
