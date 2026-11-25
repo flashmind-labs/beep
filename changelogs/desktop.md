@@ -7,6 +7,14 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.37] - 2026-11-25
+
+### Fixed
+
+- Desktop: the prompt composers grow taller during voice dictation so the timer and voice animation stay clear of the text and controls, then shrink back when dictation ends.
+- Desktop: words you edit or delete while dictating stay edited when you keep speaking, instead of being overwritten by the earlier transcript.
+- Desktop: typing a folder path in Import a project's Clone into field now clones into that folder instead of appending `<org>/<repo>`, checks Syncthing for it, and offers Default to return to the machine's projects folder.
+
 ## [0.10.36] - 2026-11-25
 
 ### Added
