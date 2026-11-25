@@ -1,39 +1,24 @@
 import { lastProjectVisit, leaveProject, noteProjectVisit, readProjectSort, saveProjectSort } from "./project-preferences.ts";
 import { MACHINES } from "../machines/machine-store.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
-import { ProjectRunning } from "./running-view.tsx";
 import { ProjectsOverview } from "./overview-view.tsx";
 import { ProjectFallback } from "./split-view.tsx";
 import { moveStore } from "../agents/move-store.ts";
 // The Projects page's overview: the list, groups and cards of every
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
-import { formatAgo, plural } from "../ui/format.ts";
-import { projectRunning, whereRows, whereCount, syncedBy, type Project, type WhereRow } from "./projects-state.ts";
-import { plainPath } from "./filesync.ts";
+import { projectRunning, whereRows, syncedBy, type Project } from "./projects-state.ts";
 import { projectActivity, projectSortTime, overviewGroups, type ProjectSort } from "./overview-state.ts";
-import { makeCustomAgents } from "./customagents.tsx";
-import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
-import { state, whereOf, peekSessions, sessionsOf, gitOf, pageFresh } from "../center/state.ts";
-import { showMachineMenu } from "../machines/table.ts";
-import { MachinesSection, type ProjectMachineItem } from "./machines-section-view.tsx";
-import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
-import { changeFolder, changeFolderItems } from "./changefolder.ts";
+import { state, whereOf, peekSessions, sessionsOf, gitOf } from "../center/state.ts";
 import { addProject } from "./addflow.ts";
 import { splitOn, projectSplit } from "./split.tsx";
 import { disposeProjectShell } from "./tiles.tsx";
 import { hostPart, retainedHost, viewPart, type PagePart } from "./page-view.tsx";
-import { fsync } from "./sections.ts";
-import { terms } from "./stores.ts";
+import { agentsSection, customAgentsSection, whereSection } from "./detailsections.tsx";
 import { redraw } from "../center/redraw.ts";
-import { pc } from "./barstate.ts";
-import { drawProjectComp, fillBar } from "./composer.tsx";
-import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.tsx";
-import { terminalNote, terminalWhere } from "../terminals/terminal-list.ts";
-import { go } from "../center/nav.ts";
+import { whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.tsx";
 import { OpenProjects } from "../center/home-overview.tsx";
 import { homeForDisplay } from "../center/home-state.ts";
-import { type RunningAgent } from "../agents/running-state.ts";
 
 /// Every project as a card, grouped by org: its agents, when it was last
 /// active and where it lives. It stays in one host while the
@@ -107,63 +92,4 @@ export function projectDetail(p: Project): PagePart[] {
     session={sessionsList(p, running)}
     machines={whereSection(p, rows, !!machines)} running={agentsSection(running)} agents={customAgentsSection(rows)}
   /></div>)];
-}
-
-/// The project's custom agents: the named agents its folder defines for
-/// each harness on one machine, and the user's own there.
-const cags = makeCustomAgents({ redraw: () => redraw("projects"), start: startWithAgent, own: false });
-
-/// "Custom agents", read on this Mac's checkout or else the first machine
-/// with one. Named apart from "Agents", the ones running now.
-/// How many custom agents the project has, as far as read.
-export function customAgentsCount(rows: WhereRow[]) { return cags.count(agentsPlace(rows)); }
-export function customAgentsSection(rows: WhereRow[]) { return cags.section(agentsPlace(rows)); }
-
-/// Start on a custom agent: the bar on the machine it was read on, with
-/// its harness picked and "Use the <name> agent to " to finish.
-function startWithAgent(a: CustomAgentRow, place: AgentsPlace) {
-  const name = state.picked;
-  if (!name) return;
-  if (pc.project !== name) drawProjectComp(name);
-  pc.machine = place.id;
-  pc.picked.agent = a.harness;
-  fillBar(name, agentPrompt(a.name), null);
-}
-
-/// Each machine's checkout, sync state and terminals in one flat section.
-export function whereSection(p: Project, rows: WhereRow[], known: boolean) {
-  if (terms.list(p.name) === undefined) void terms.load(p.name);
-  terms.follow(p.name);
-  const model = p.imported ? fsync.page(p.name) : null;
-  const all = terms.list(p.name);
-  const items: ProjectMachineItem[] = [];
-
-  for (const m of rows) {
-    const host = state.home?.machines?.find(x => x.id === m.id);
-    if (host?.can_host === false && !m.folder) continue;
-    const detail = model?.detail?.machines.find(s => s.machine_id === m.id);
-    const online = host?.online ?? (detail ? detail.status !== "offline" : m.kind !== "offline");
-    const change = m.folder && p.imported && online ? () => changeFolder(p.name, m, m.folder ?? "") : null;
-    const remove = m.folder && p.imported ? { why: blocked(p.name, rows, m), run: () => confirmRemove(p.name, m) } : null;
-    const missing = m.folder ? null : missingMachine(p, m), git = m.folder ? gitControls(p, m, online) : null;
-    const menu = m.folder ? (event: MouseEvent) => {
-      const from = m.folder;
-      if (!from) return;
-      showMachineMenu({ id: m.id, name: m.name, online, can_host: host?.can_host }, () => [
-        ...checkoutItems(p, m, from), ...(p.imported ? [...changeFolderItems(p.name, m), ...removeMenuItems(p.name, rows, m)] : []),
-      ], event);
-    } : null;
-    const terminals = m.folder ? all?.filter(t => t.machine_id === m.id) ?? [] : [];
-    items.push({ id: m.id, name: m.name, online, folder: m.folder ? plainPath(m.folder) : null, change, remove, missing, git, menu,
-      terminals: terminals.map(t => ({ id: t.id, name: t.name, title: `${t.machine_name}: ${t.command} in ${t.cwd}`, sub: `${t.machine_name} · ${terminalWhere(t)}`, note: terminalNote(t, ms => formatAgo(ms, "short")), running: t.state === "running", open: () => { go("pane", { draft: { project: p.name, machine: t.machine_id, terminal: t } }); } })),
-      terminalSummary: all === undefined ? "Reading…" : !online ? "Machine offline" : terminals.length ? plural(terminals.length, "terminal", "terminals") : "None running" });
-  }
-  const note = pageFresh("where", p.name, readingWhere.has(p.name));
-  return <section key={p.name} className="pm-section"><MachinesSection sync={fsync} project={p.name} items={items} model={model} imported={p.imported} known={known}
-    count={whereCount(rows, false)} fresh={note} /></section>;
-}
-
-/// The coding agents running in the project's folders now.
-export function agentsSection(running: RunningAgent[]) {
-  return <div id="sec-project-agents"><ProjectRunning running={running} /></div>;
 }

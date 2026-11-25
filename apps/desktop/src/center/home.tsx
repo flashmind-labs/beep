@@ -1,12 +1,11 @@
 // Home: its tabs and the board.
 import { MACHINES } from "../machines/machine-store.ts";
-import { retitled, type Retitled } from "../agents/conversation-state.ts";
-import { conflicted, invoke, listen } from "../ui/tauri.ts";
+import { invoke } from "../ui/tauri.ts";
 import { isMobile } from "../ui/platform.ts";
 import { Button } from "../ui/kit.tsx";
 import { Segmented } from "../ui/aria-kit.tsx";
 import { Icon } from "../ui/icons.tsx";
-import { homeForDisplay, type HomeView, type NeedsYou } from "./home-state.ts";
+import { homeForDisplay, type HomeView } from "./home-state.ts";
 import { type CenterView, OFFLINE_NOTE_MS, state, stuck } from "./state.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
@@ -20,8 +19,7 @@ import { ensureAllTerms } from "./allterms.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { onPlaces } from "../agents/place.ts";
 import { sessionsRead } from "../agents/sessions.ts";
-import type { SessionList, SessionRow } from "../project/projects-state.ts";
-import { ambient } from "../ui/active.ts";
+import { readHomeSessionsIfStale } from "./homesessions.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing } from "../agents/closing.ts";
 import { placeWindowParts } from "./window-root.tsx";
@@ -31,24 +29,6 @@ import { HomeShell, type HomeTab } from "./home-shell.tsx";
 import { HomeOverview } from "./home-overview.tsx";
 import { HomeGit } from "./openitems-view.tsx";
 import { HomeMachines } from "../machines/home-machines-view.tsx";
-
-// ---------- Needs you ----------
-
-/// Opens the session an agent's question came from, where it is answered.
-export function openAsking(n: NeedsYou) {
-  const r = state.home?.running?.find(r => r.machine_id === n.machine_id && r.id === n.session);
-  go("pane", { agent: r || { kind: "agent", machine_id: n.machine_id, machine_name: n.machine_name, id: n.session, agent: n.agent, title: n.title, cwd: "", status: "asking", external: false } });
-}
-
-/// Answers an agent's question from Home. A conflict means another device
-/// answered it first, which is fine; any other failure is the caller's.
-export async function answerNeed(n: NeedsYou, reply: string) {
-  try {
-    await invoke("center_answer_agent", { machineId: n.machine_id, agent: n.agent, session: n.session, question: n.question.id, reply });
-  } catch (e) {
-    if (!conflicted(e)) throw e;
-  }
-}
 
 // ---------- Home ----------
 
@@ -131,29 +111,6 @@ export function draw() {
 
 redraws.home.add(draw);
 
-// The Done today lane: the sessions of every project, ended ones included, which the
-// running list drops; and every session, for the Assistant list. Read when they changed,
-// while Home shows, seldom: they are not live.
-const DONE_REREAD_MS = 5000;
-let projectSessions: SessionRow[] = [];
-let sessionsStale = true;
-export const homeSessions = () => projectSessions;
-const readSessions = ambient(() => {
-  sessionsStale = false;
-  // Null until every machine answered once: the list comes as a `session-list` event.
-  const pushes = listsPushed;
-  // A list pushed while the read is out is newer than its answer.
-  return invoke<SessionRow[] | null>("projects_sessions").then(rows => { if (rows && pushes === listsPushed) showSessions(rows); }, e => { sessionsStale = true; console.warn("sessions:", e); });
-}, DONE_REREAD_MS, () => currentLocation()?.view === "home");
-let listsPushed = 0;
-listen<SessionList>("session-list", ({ payload }) => { if (payload.list === "home") { listsPushed++; showSessions(payload.sessions); } });
-function showSessions(rows: SessionRow[]) { projectSessions = rows; draw(); }
-// The list itself follows as `session-list` events; a reconnect says it may be out of step.
-listen("reconnected", () => { sessionsStale = true; readSessions(); });
-listen<Retitled>("agent-title-changed", ({ payload }) => {
-  const next = retitled(projectSessions, payload);
-  if (next) showSessions(next);
-});
 sessionsRead.add(() => draw());
 onPlaces(() => draw());
 onMoves(() => draw());
@@ -170,7 +127,7 @@ export const homeView: CenterView<"home"> = {
     draw();
     ensureHome();
     ensureAllTerms();
-    if (sessionsStale) readSessions(true);
+    readHomeSessionsIfStale();
 
     // Forge changes reach Home only while it shows, so the open items read
     // again on opening once they are old or failed.

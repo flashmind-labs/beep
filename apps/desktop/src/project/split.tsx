@@ -31,7 +31,7 @@ import { gitOf, sessionsOf, state } from "../center/state.ts";
 import { projectBranch } from "./gitsync-state.ts";
 import { go } from "../center/nav.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
-import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.tsx";
+import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./detailsections.tsx";
 import { openUrl } from "../ui/tauri.ts";
 import { fsync, runs } from "./sections.ts";
 import { terms, thr, details } from "./stores.ts";
