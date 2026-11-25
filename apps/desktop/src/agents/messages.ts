@@ -161,7 +161,7 @@ export function steerMessage(input: HTMLTextAreaElement) {
   const session = AG.open, state = currentMentions(), ended = AG.page?.session.status === "ended";
   return submit(input, q => {
     if (session && AG.open !== session) return sendBackground(session, q, state, ended);
-    void sendSteer(q);
+    return sendSteer(q);
   });
 }
 
@@ -190,7 +190,7 @@ function submit(input: HTMLTextAreaElement | null, send: (draft: Waiting) => unk
   let sending: unknown;
   const handed = (before ?? Promise.resolve()).then(() => {
     sending = send(draft);
-    if (reads.length) void completeRead(draft, reads, state, o);
+    if (reads.length) void completeRead(draft, reads, state, o, sending);
   });
   const mine: Promise<void> = handed.catch(() => {}).then(() => { if (handing.get(key) === mine) handing.delete(key); });
   handing.set(key, mine);
@@ -201,14 +201,13 @@ function submit(input: HTMLTextAreaElement | null, send: (draft: Waiting) => unk
 /// Completes the message the outbox holds under `draft.reading` once its files are read: what
 /// came in since, then the files and pictures with its final words. A message with nothing left
 /// is taken out again.
-async function completeRead(draft: Waiting, reads: ReturnType<typeof attachReads>, state: MentionState, session: OpenAgent | null) {
+async function completeRead(draft: Waiting, reads: ReturnType<typeof attachReads>, state: MentionState, session: OpenAgent | null, sending: unknown) {
   const token = draft.reading;
-  await Promise.all(reads.map(batch => batch.ready));
 
   try {
     if (!await joinRead(draft, reads, state, session)) return void await invoke("outbox_cancel", { token });
     const files = draft.files ?? [], own = new Set(files.map(({ path }) => path));
-    await invoke("outbox_attach", {
+    const attached = await invoke<boolean>("outbox_attach", {
       token,
       read: {
         text: draft.text, root: draft.root ?? "",
@@ -257,6 +256,10 @@ async function joinRead(draft: Waiting, reads: ReturnType<typeof attachReads>, s
 /// Sends `q` as a steer of the open session: from here the outbox keeps it, and a message
 /// the machine refused goes back in the field when `back`.
 async function sendSteer(q: Waiting, back = true) {
+    // The row exists once `agent_steer` has answered: attaching earlier finds nothing. A send
+    // that failed put the message back in the field itself, and its files never left it.
+    if (await Promise.resolve(sending).catch(() => false) === false) return;
+    await Promise.all(reads.map(batch => batch.ready));
   const o = AG.open;
   if (!o) return false;
   if (q.images.length) keepAgentPics(o, q.images);
@@ -268,8 +271,13 @@ async function sendSteer(q: Waiting, back = true) {
   return sent !== "failed";
 }
 
+
+    // The row is gone, taken back meanwhile: its words are in the field, its files go back too.
+    if (!attached) restoreDraft({ ...draft, typed: "" }, state, session);
 /// ⌘. while the turn runs or asks: stop it and keep the field, so a correction can be
 /// typed and sent. The node answers an open question as cancelled. It keeps the
+    await invoke("outbox_cancel", { token }).catch(() => {});
+    restoreDraft(draft, state, session);
 /// steers it holds or still gets and sends them once the turn stops, so they
 /// stay steers here: sent again from here, one the node had just delivered
 /// would reach the agent twice (#378).

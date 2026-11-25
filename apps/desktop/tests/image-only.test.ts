@@ -15,6 +15,7 @@ import type { Attached } from "../src/agents/agentqueue.ts";
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null };
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
 function openSession(status: string): AgentPage {
+  answers.outbox_attach = true;
   disposeComposerUi();
   resetMentions();
   const previous = bar.querySelector<HTMLElement>("#agbody");
@@ -177,6 +178,22 @@ test("leaving the conversation while its files are read still completes the mess
   assert.equal(attached()[0].read.files.length, 1);
   assert.equal(field().value, "Other conversation");
   assert.deepEqual(MN.paths, []);
+});
+
+test("files read for a message the outbox no longer holds go back in the field, not away", async t => {
+  openSession("idle");
+  answers.agent_steer = [];
+  answers.outbox_attach = false;
+  t.after(() => { answers.outbox_attach = true; });
+  const read = pendingRead();
+  field().value = "Describe this";
+  await sendAgentMessage();
+
+  read.attach("attachment:1:report.txt");
+  read.finish();
+  await later();
+  assert.equal(attached().length, 1);
+  assert.deepEqual(MN.paths, ["attachment:1:report.txt"]);
 });
 
 test("Stop all returns text and images to its session when navigation interrupts the drain", async t => {
