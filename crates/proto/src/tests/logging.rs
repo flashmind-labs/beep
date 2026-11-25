@@ -161,18 +161,3 @@ fn a_stream_ends_quietly_unless_it_failed() {
     assert!(!trace_in("ok", false).ends_quietly(long));
     assert!(trace_in("ok", false).ends_quietly(Duration::ZERO));
 }
-
-/// A subscriber that captures what is logged at `INFO` and above.
-fn capture_info() -> (Captured, tracing::subscriber::DefaultGuard) {
-    let output = Captured::default();
-    let writer = output.clone();
-    let subscriber = tracing_subscriber::registry().with(
-        tracing_subscriber::fmt::layer()
-            .event_format(TextLayout)
-            .with_ansi(false)
-            .with_writer(move || writer.clone())
-            .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
-    );
-
-    (output, tracing::subscriber::set_default(subscriber))
-}
