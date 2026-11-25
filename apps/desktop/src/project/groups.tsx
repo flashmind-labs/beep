@@ -1,18 +1,13 @@
-import { SidebarMachine } from "../machines/sidebar-machine-view.tsx";
 // Project groups in the sidebar: heading, menu, rename and remove.
-import { MACHINES } from "../machines/machine-store.ts";
-import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
+import { projectChanged } from "./barstate.ts";
+import { invoke } from "../ui/tauri.ts";
 import { groupMatches, type ProjectGroup } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
-import { state } from "../center/state.ts";
+import { state, listsChanged, projectLoaded } from "../center/state.ts";
 import { currentLocation } from "../center/nav.ts";
-import { registerSidebarGroup } from "../center/sidebar.tsx";
 import { projectRows } from "./projectrows.ts";
-import { openAddMachine, openProjects } from "./addflow.ts";
-import { redraw } from "../center/redraw.ts";
-import { jump } from "../center/home.tsx";
-import { type MachineCard, type MacRow, thisMacRow } from "../machines/machine-state.ts";
+import { openProjects } from "./addflow.ts";
 
 /// `extra` goes first, for what only the place that shows the group can do.
 export function groupMenu(e: MouseEvent, g: ProjectGroup, extra: MenuItem[] = []) {
@@ -41,13 +36,13 @@ export function editGroup(g: ProjectGroup | null = null) {
 export function startRename(g: ProjectGroup) {
   state.renaming = { id: g.id, draft: g.name };
   if (currentLocation()?.view !== "projects" || state.picked) openProjects();
-  else redraw("projects");
+  else projectChanged.notify();
 }
 
 export async function renameGroup(g: ProjectGroup, name: string) {
   state.renaming = null;
   const to = name.trim();
-  if (!to || to === g.name) return redraw("projects");
+  if (!to || to === g.name) return projectChanged.notify();
   const before = state.groups;
   state.groups = (before || []).map(x => (x.id === g.id ? { ...x, name: to } : x));
   redrawGroups();
@@ -76,28 +71,6 @@ export function removeGroup(g: ProjectGroup) {
 }
 
 function redrawGroups() {
-  redraw("side");
-  redraw("projectsPage");
+  listsChanged.notify();
+  projectLoaded.notify();
 }
-
-// The machines Home lists, each with its online dot. It shows once Home has
-// loaded, empty or not.
-registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
-  order: 5.5,
-  title: "Machines",
-  onTitle: () => jump("sec-machines"),
-  action: { label: "Add a machine", run: openAddMachine },
-  empty: "No machines yet",
-  load: () => {
-    const machines = state.home?.machines;
-    if (!machines) return null;
-    const mac = useBuildCapabilities.getState().local_host ? thisMacRow(MACHINES.mac, machines) : null;
-    return mac ? [...machines, { thisMac: mac }] : machines;
-  },
-  key: m => "thisMac" in m ? "this-mac" : m.id,
-  render: m => <SidebarMachine machine={m} />,
-});
-
-// This computer's row waits for the build to say it can host.
-useBuildCapabilities.subscribe(() => redraw("side"));
-

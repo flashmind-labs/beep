@@ -5,15 +5,17 @@ import { lazyScreen, makeTerminals } from "../terminals/terminals.tsx";
 import { ALL } from "../terminals/terminal-list.ts";
 import { keptSection, state } from "./state.ts";
 import { currentLocation, drawPage, go, drawTop } from "./nav.ts";
-import { redraw } from "./redraw.ts";
+import { signal } from "../ui/signal.ts";
+
+/// The terminals on any machine changed, for Home's section and the sidebar.
+export const termsChanged = signal();
 
 export const allTerms = makeTerminals({
   invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), kept: keptSection("terminals"),
   redraw: () => {
     if (currentLocation()?.view === "terminals") { drawPage("terminals"); drawTop(); }
-    else if (currentLocation()?.view === "home") redraw("home");
 
-    redraw("side");
+    termsChanged.notify();
   },
 });
 

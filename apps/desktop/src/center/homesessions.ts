@@ -1,9 +1,9 @@
 import { retitled, type Retitled } from "../agents/conversation-state.ts";
+import { homeDataChanged } from "./state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { ambient } from "../ui/active.ts";
 import type { SessionList, SessionRow } from "../project/projects-state.ts";
 import { currentLocation } from "./nav.ts";
-import { redraw } from "./redraw.ts";
 
 // The Done today lane: the sessions of every project, ended ones included, which the
 // running list drops; and every session, for the Assistant list. Read when they changed,
@@ -21,7 +21,7 @@ const readSessions = ambient(() => {
 }, DONE_REREAD_MS, () => currentLocation()?.view === "home");
 let listsPushed = 0;
 listen<SessionList>("session-list", ({ payload }) => { if (payload.list === "home") { listsPushed++; showSessions(payload.sessions); } });
-function showSessions(rows: SessionRow[]) { projectSessions = rows; redraw("home"); }
+function showSessions(rows: SessionRow[]) { projectSessions = rows; homeDataChanged.notify(); }
 // The list itself follows as `session-list` events; a reconnect says it may be out of step.
 listen("reconnected", () => { sessionsStale = true; readSessions(); });
 listen<Retitled>("agent-title-changed", ({ payload }) => {

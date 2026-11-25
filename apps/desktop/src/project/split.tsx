@@ -36,9 +36,8 @@ import { openUrl } from "../ui/tauri.ts";
 import { fsync, runs } from "./sections.ts";
 import { terms, thr, details } from "./stores.ts";
 import { gitHistory } from "./tiles.tsx";
-import { pa } from "./barstate.ts";
+import { pa, projectChanged } from "./barstate.ts";
 import { openTile, projectShell, renderProjectShell } from "./tiles.tsx";
-import { redraw } from "../center/redraw.ts";
 import { sessionsHost, sessionsList } from "./loads.tsx";
 import { loadSessions } from "./sessionsload.ts";
 import { sessionsDue } from "../center/state.ts";
@@ -160,8 +159,8 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     detail: () => [viewPart("thread", details.pane(pid, { ...pr, author: pr.mine ? "you" : pr.author, opened_at: pr.created_at }, thr.prButtons(agent, acts, pr), openLink))],
   }));
   const prKey = `${p.name}:prs`;
-  const prFilter = labelFilter(prKey, prItems, i => i.tags, () => redraw("projects"));
-  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: <OpenListControls list={prKey} redraw={() => redraw("projects")} issues={false} loadHosts={loadStartHosts} />, labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
+  const prFilter = labelFilter(prKey, prItems, i => i.tags, () => projectChanged.notify());
+  groups.push({ title: "Pull requests", note: hostNote(prs, thr.prsError(pid), "No open pull requests."), controls: <OpenListControls list={prKey} redraw={() => projectChanged.notify()} issues={false} loadHosts={loadStartHosts} />, labels: prFilter.labels, items: arranged(prKey, prFilter.items, i => i.opened) });
   const issueItems: SplitItem[] = teamIssues(p.name, issues || []).map(issue => ({
     key: `issue:${issue.number}`, opened: issue.opened_at, start: { key: `issue:${issue.number}`, project: p.name, number: issue.number, title: issue.title, url: issue.url },
     title: issue.title, sub: <>{num(issue.number)} · {issueMeta(issue, ms => formatAgo(ms, "short"))}</>, tags: issue.labels,
@@ -170,7 +169,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     detail: () => [viewPart("thread", details.pane(pid, { number: issue.number, title: issue.title, url: issue.url, author: issue.author, opened_at: issue.opened_at }, thr.issueButtons(agent, acts, issue), openLink))],
   }));
   const issueKey = `${p.name}:issues`;
-  const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, () => redraw("projects"));
+  const issueFilter = labelFilter(issueKey, issueItems, i => i.tags, () => projectChanged.notify());
   const issueShown = arranged(issueKey, issueFilter.items, i => i.opened);
   const issueNote = hostNote(issues, thr.issuesError(pid), "No open issues.");
   // Too many to list at the left: the row opens them at the right.
@@ -196,10 +195,10 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const showIssues = pa.tile === "issues";
   const issuesView = showIssues ? <div className="pj-det"><ProjectIssues
     items={issueShown} filter={issueFilter.labels} owners={<IssueOwners project={p.name} issues={issues || []}/>}
-    controls={<OpenListControls list={issueKey} redraw={() => redraw("projects")} issues loadHosts={loadStartHosts} flexItem />}
-    start={<OpenListStart list={issueKey} shown={issueShown.flatMap(item => item.start ?? [])} redraw={() => redraw("projects")} plan={issueStartPlan} run={startIssues} flexItem />}
+    controls={<OpenListControls list={issueKey} redraw={() => projectChanged.notify()} issues loadHosts={loadStartHosts} flexItem />}
+    start={<OpenListStart list={issueKey} shown={issueShown.flatMap(item => item.start ?? [])} redraw={() => projectChanged.notify()} plan={issueStartPlan} run={startIssues} flexItem />}
     selection={(id: string) => issueSelection(issueKey, id)}
-    pick={(id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, () => redraw("projects"))}
+    pick={(id: string, checked: boolean) => setIssueSelection(issueKey, id, checked, () => projectChanged.notify())}
     openTile={openTile}
   /></div> : null;
   const det = history ? hostPart(history.detail) : issuesView ? viewPart("issues", issuesView) : viewPart("detail", <Parts className="pj-det" parts={picked.detail?.() ?? []} />);
@@ -240,7 +239,7 @@ let sessionTab: "sessions" | "agents" = "sessions";
 function sessionTabs(p: Project, running: RunningAgent[], rows: WhereRow[]): PagePart[] {
   const list = sessionsList(p, running);
   const tabs = viewPart("session-tabs", <div className="cc-tabs pj-tabs" role="tablist"><SessionTabs
-    selected={sessionTab} sessions={list.count} agents={customAgentsCount(rows)} select={tab => { sessionTab = tab; redraw("projects"); }} /></div>);
+    selected={sessionTab} sessions={list.count} agents={customAgentsCount(rows)} select={tab => { sessionTab = tab; projectChanged.notify(); }} /></div>);
   if (sessionTab === "agents") return [tabs, viewPart("custom-agents", customAgentsSection(rows))];
 
   const note = list.freshness && (list.freshness.spin || list.freshness.text) ? [viewPart("session-note", <FreshNote freshness={list.freshness} className=" ss-updating" />)] : [];

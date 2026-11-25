@@ -4,9 +4,6 @@
 import { SessionField, SessionHead } from "./session-frame.tsx";
 import { agentMessage, sessionBody, showSessionFrame } from "./session-frame-state.ts";
 import { followsOnly, isOpen, keepLog, keptLogs, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
-
-// Outside importers keep this path until they import the state module.
-export { sessionPicks, startedWith } from "./open-state.ts";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.tsx";

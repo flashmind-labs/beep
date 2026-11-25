@@ -12,8 +12,7 @@ import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { fsync } from "./sections.ts";
 import { terms } from "./stores.ts";
-import { redraw } from "../center/redraw.ts";
-import { pc } from "./barstate.ts";
+import { pc, projectChanged } from "./barstate.ts";
 import { drawProjectComp, fillBar } from "./composer.tsx";
 import { missingMachine, gitControls, checkoutItems, readingWhere } from "./loads.tsx";
 import { terminalNote, terminalWhere } from "../terminals/terminal-list.ts";
@@ -22,7 +21,7 @@ import { type RunningAgent } from "../agents/running-state.ts";
 
 /// The project's custom agents: the named agents its folder defines for
 /// each harness on one machine, and the user's own there.
-const cags = makeCustomAgents({ redraw: () => redraw("projects"), start: startWithAgent, own: false });
+const cags = makeCustomAgents({ redraw: () => projectChanged.notify(), start: startWithAgent, own: false });
 
 /// "Custom agents", read on this Mac's checkout or else the first machine
 /// with one. Named apart from "Agents", the ones running now.

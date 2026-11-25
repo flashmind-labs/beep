@@ -5,12 +5,11 @@ import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
 import { applyTelemetry, keepUnchanged, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
-import { CONNECT_STUCK_MS, state, heldHome, pagesAccount } from "./state.ts";
+import { CONNECT_STUCK_MS, state, heldHome, pagesAccount, homeDataChanged, listsChanged, projectLoaded, sessionsChanged } from "./state.ts";
 import { readAllTerms } from "./allterms.ts";
 import { takeGit } from "./openitems.ts";
 import type { GitItemsView } from "./openitems-state.ts";
 import { currentLocation } from "./nav.ts";
-import { redraw } from "./redraw.ts";
 import { liveMode, runs } from "../project/sections.ts";
 import { ensureMac, MACHINES, machinesChanged, takeTraffic } from "../machines/machine-store.ts";
 import { keepConnecting } from "../machines/machine-state.ts";
@@ -49,7 +48,7 @@ function shownHome(got: HomeView): HomeView {
 // Home's cards take their names from the machine list as they draw.
 machinesChanged.add(() => {
   pagesAccount(MACHINES.mac);
-  if (onScreen()) { redraw("home"); redraw("side"); }
+  if (onScreen()) { homeDataChanged.notify(); listsChanged.notify(); }
 });
 
 /// Takes the newest pushed Home, or reads it when none came yet: membership, running sessions
@@ -89,12 +88,12 @@ async function readHome(): Promise<void> {
       homeFresh?.();
       homeFresh = null;
 
-      if (onScreen()) redraw("side");
+      if (onScreen()) listsChanged.notify();
     } while (again && onScreen());
   })();
 
   try { await homeRead; }
-  finally { homeRead = undefined; if (onScreen() && (!state.home || state.error !== null)) redraw("home"); }
+  finally { homeRead = undefined; if (onScreen() && (!state.home || state.error !== null)) homeDataChanged.notify(); }
 }
 
 async function takeHome(): Promise<HomeView> {
@@ -108,9 +107,9 @@ async function takeHome(): Promise<HomeView> {
 
 /// Home, the projects page while it shows, and the sidebar unless it draws later.
 function drawHome(side = true) {
-  redraw("home");
-  redraw("projectsPage");
-  if (side) redraw("side");
+  homeDataChanged.notify();
+  projectLoaded.notify();
+  if (side) listsChanged.notify();
 }
 
 /// Whether a pushed Home asks something new of the user, or no longer asks it.
@@ -129,7 +128,7 @@ async function takeSync(next: SyncRow[]) {
   state.sync = rows;
   if (!onScreen()) return;
 
-  if (changed.size) { redraw("home"); redraw("side"); }
+  if (changed.size) { homeDataChanged.notify(); listsChanged.notify(); }
 }
 
 const refreshSync = single(async () => takeSync(await invoke<SyncRow[]>("project_sync")));
@@ -139,8 +138,8 @@ async function takeProjects(top: string[], groups: ProjectGroup[] | null) {
   state.groups = groups;
 
   if (onScreen()) {
-    redraw("side");
-    redraw("projectsPage");
+    listsChanged.notify();
+    projectLoaded.notify();
   }
 }
 
@@ -195,7 +194,7 @@ export async function refresh() {
 }
 
 // "Still connecting" takes over once the wait passes its limit.
-setTimeout(() => { if (!state.home) redraw("home"); }, CONNECT_STUCK_MS);
+setTimeout(() => { if (!state.home) homeDataChanged.notify(); }, CONNECT_STUCK_MS);
 
 /// Hidden windows rejoin their subscriptions when shown.
 export const onScreen = pageShown;
@@ -204,7 +203,7 @@ export const onScreen = pageShown;
 onShownChange(visible => {
   if (!visible) { runs.stop(); liveMode.follow(null); return; }
 
-  if (state.home) { redraw("projectsPage"); redraw("rail"); }
+  if (state.home) { projectLoaded.notify(); sessionsChanged.notify(null); }
 });
 
 // These are state changes. Agent tokens and terminal output have their own topics.
@@ -246,5 +245,5 @@ subscribeChanges(topic("telemetry"), { deliver: "each", receive: event => {
   takeTraffic(telemetry);
   const held = heldHome();
   if (held) { state.home = applyTelemetry(held, telemetry); if (held === read.shown) read.shown = heldHome(); }
-  redraw("home");
+  homeDataChanged.notify();
 } }, { when: () => currentLocation()?.view === "home", wait: SLOW_MS });

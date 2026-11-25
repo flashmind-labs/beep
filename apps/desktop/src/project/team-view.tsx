@@ -1,5 +1,6 @@
 // A project's team on its page: the Team page, and teammates' and asks' cards.
 import { useEffect, useState } from "react";
+import { projectChanged } from "./barstate.ts";
 import type { BoardCard, CardAction } from "../center/lanes-view.tsx";
 import { formatAgo, plural, reason } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
@@ -10,7 +11,6 @@ import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { issueSession, projectButtons, startTask } from "./composer.tsx";
 import { localProjectId } from "./localid.ts";
 import { thr } from "./stores.ts";
-import { redraw } from "../center/redraw.ts";
 import { openTile } from "./tiles.tsx";
 import { assign, teamCardsOf, teamOf } from "./team.ts";
 import { askWorkPrompt, cardLane, filterCards, needKind, ownedIssues, repoPath, replyPrompt, sameLogin, teammates,
@@ -123,7 +123,7 @@ export function TeamFilter({ project, view }: { project: string; view: Team }) {
   if (!others.length) return null;
 
   const filter = boardFilter(project);
-  const pick = (next: BoardFilter) => { filters.set(project, next); redraw("projects"); };
+  const pick = (next: BoardFilter) => { filters.set(project, next); projectChanged.notify(); };
   const on = (login: string) => filter.kind === "member" && sameLogin(filter.login, login);
 
   return <div className="tm-filter">
@@ -151,7 +151,7 @@ export function IssueOwners({ project, issues }: { project: string; issues: read
 
   const owner = owners.get(project) ?? "all";
   const chip = (each: IssueOwner, label: string) => <ChipToggle label={`${label} ${ownedIssues(issues, each, view.me).length}`} selected={owner === each}
-    onToggle={() => { owners.set(project, each); redraw("projects"); }}/>;
+    onToggle={() => { owners.set(project, each); projectChanged.notify(); }}/>;
 
   return <div className="tm-filter">{chip("all", "All")}{chip("mine", "Mine")}{chip("unassigned", "Unassigned")}</div>;
 }

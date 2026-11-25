@@ -6,16 +6,16 @@ import { lazyScreen, makeTerminals } from "../terminals/terminals.tsx";
 import { makeThreads } from "./threads.ts";
 import { makeThreadDetail } from "./threaddetail.tsx";
 import { keptSection } from "../center/state.ts";
-import { redraw } from "../center/redraw.ts";
+import { projectChanged } from "./barstate.ts";
 
-export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => redraw("projects"), kept: keptSection("terminals") });
+export const terms = makeTerminals({ invoke, channel: indexedChannel, makeScreen: () => lazyScreen(() => import("../terminals/termview.ts").then(m => m.makeScreen)), ago: ms => formatAgo(ms, "short"), redraw: () => projectChanged.notify(), kept: keptSection("terminals") });
 /// The project's open pull requests and issues, for the project page's list.
 export const thr = makeThreads({
   invoke,
-  redraw: () => redraw("projects"),
+  redraw: () => projectChanged.notify(),
   openUrl,
   kept: keptSection("threads"),
 });
 
 /// A pull request or issue read in full, in the split's right column.
-export const details = makeThreadDetail({ redraw: () => redraw("projects") });
+export const details = makeThreadDetail({ redraw: () => projectChanged.notify() });

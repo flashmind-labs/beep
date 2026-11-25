@@ -10,10 +10,9 @@ import { NEW_WINDOW, opensNewWindow, type Alone, type ProjectWindowProps } from 
 import { prefetchOnHover } from "./loads.tsx";
 import { openProjects, loadFound } from "./addflow.ts";
 import { projectRows } from "./projectrows.ts";
-import { state, whereOf } from "../center/state.ts";
+import { state, whereOf, homeDataChanged, listsChanged, projectLoaded } from "../center/state.ts";
 import { currentLocation } from "../center/nav.ts";
 import { forgetProject } from "../center/homeedit.ts";
-import { redraw } from "../center/redraw.ts";
 
 /// Pins project `name` to the top of the sidebar, or unpins it. Not the
 /// file sync pin, which keeps a project on the machines it is on.
@@ -32,8 +31,8 @@ export async function setProjectOnTop(name: string, pinned: boolean) {
 }
 
 function redrawProjectPins() {
-  redraw("side");
-  redraw("projectsPage");
+  listsChanged.notify();
+  projectLoaded.notify();
 }
 
 /// Opens project `name` in a window of its own, or brings up the one it
@@ -91,7 +90,7 @@ export function removeProject(name: string) {
       forgetProject(name);
 
       if (currentLocation()?.view === "projects" && state.picked === name) openProjects();
-      else { redraw("home"); redraw("projectsPage"); }
+      else { homeDataChanged.notify(); projectLoaded.notify(); }
 
       loadFound();
     },

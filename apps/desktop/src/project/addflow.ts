@@ -1,12 +1,12 @@
 // The sheets that add a machine or a project, and the found checkouts the Projects page lists.
 import { invoke } from "../ui/tauri.ts";
+import { projectChanged } from "./barstate.ts";
 import { reason } from "../ui/format.ts";
 import { single } from "../ui/active.ts";
 import { MACHINES } from "../machines/machine-store.ts";
 import type { FoundRow } from "./projects-state.ts";
-import { state, pages, sessionsDue } from "../center/state.ts";
+import { state, pages, sessionsDue, homeDataChanged } from "../center/state.ts";
 import { go } from "../center/nav.ts";
-import { redraw } from "../center/redraw.ts";
 
 /// Opens the Add a machine sheet; the machines topic brings the new one.
 export function openAddMachine() {
@@ -80,8 +80,8 @@ export const loadFound = single(async () => {
 
 /// The Projects overview and a first start Home, which list the found checkouts.
 function drawFound() {
-  if (!state.picked) redraw("projects");
-  redraw("home");
+  if (!state.picked) projectChanged.notify();
+  homeDataChanged.notify();
 }
 
 /// Imports a found row from the Projects page and opens it.
@@ -89,8 +89,8 @@ export async function importFromPage(row: FoundRow) {
   if (state.importing) return;
   state.importing = row.name;
   state.foundError = null;
-  redraw("projects");
-  redraw("home");
+  projectChanged.notify();
+  homeDataChanged.notify();
 
   try {
     const { importFound } = await import("../addproject/addproject.tsx");

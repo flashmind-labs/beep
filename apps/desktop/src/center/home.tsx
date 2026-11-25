@@ -6,16 +6,15 @@ import { Button } from "../ui/kit.tsx";
 import { Segmented } from "../ui/aria-kit.tsx";
 import { Icon } from "../ui/icons.tsx";
 import { homeForDisplay, type HomeView } from "./home-state.ts";
-import { type CenterView, OFFLINE_NOTE_MS, state, stuck } from "./state.ts";
+import { type CenterView, OFFLINE_NOTE_MS, homeDataChanged, state, stuck, syncChanged } from "./state.ts";
 import { useThisMac, showMachineMenu, readSyncDetails } from "../machines/table.ts";
 import { refreshGit } from "./openitems.ts";
-import { redraws } from "./redraw.ts";
 import { currentLocation, go } from "./nav.ts";
 import { projectRows } from "../project/projectrows.ts";
 import { ensureHome, refresh } from "./refresh.ts";
 import { ConnectingView } from "./connecting-view.tsx";
 import { UNWATCHED_MS } from "../ui/pagecache.ts";
-import { ensureAllTerms } from "./allterms.ts";
+import { ensureAllTerms, termsChanged } from "./allterms.ts";
 import { thisMacRow } from "../machines/machine-state.ts";
 import { onPlaces } from "../agents/place.ts";
 import { sessionsRead } from "../agents/sessions.ts";
@@ -109,7 +108,9 @@ export function draw() {
   scrollTarget = null;
 }
 
-redraws.home.add(draw);
+homeDataChanged.follow(draw);
+termsChanged.follow(() => { if (currentLocation()?.view === "home") draw(); });
+syncChanged.follow(() => { if (currentLocation()?.view === "home") draw(); });
 
 sessionsRead.add(() => draw());
 onPlaces(() => draw());

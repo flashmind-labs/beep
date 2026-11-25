@@ -9,8 +9,8 @@ import { pane } from "../bar/pane.ts";
 import type { PaneNow } from "../bar/core.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { ALL } from "../terminals/terminal-list.ts";
-import { state, stuck, type SidebarGroup, groups } from "./state.ts";
-import { allTerms } from "./allterms.ts";
+import { state, stuck, type SidebarGroup, groups, listsChanged, sessionsChanged, syncChanged } from "./state.ts";
+import { allTerms, termsChanged } from "./allterms.ts";
 import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./nav.ts";
 import { fsync, syncProjectFollow } from "../project/sections.ts";
 import { conflictList } from "../project/filesync.ts";
@@ -23,7 +23,6 @@ import type { AgentRow } from "../agents/agents-state.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
 import { type ReactNode } from "react";
-import { redraws } from "./redraw.ts";
 import { placeWindowParts } from "./window-root.tsx";
 import { type Rail, railProject, setRail, shell } from "./window-shell.tsx";
 import { chatRail, chatsAsking } from "../agents/threads-state.ts";
@@ -33,6 +32,11 @@ import { ChatRail } from "../agents/assistant-page.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarProjectRow } from "./sidebar-rows.tsx";
 import { AG } from "../agents/agents-state.ts";
+import { projectChanged } from "../project/barstate.ts";
+import { useBuildCapabilities } from "../ui/tauri.ts";
+import { SidebarMachine } from "../machines/sidebar-machine-view.tsx";
+import { jump } from "./home.tsx";
+import { thisMacRow, type MacRow } from "../machines/machine-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { newChatTarget } from "../project/agent.ts";
 import { runningKey } from "../agents/running-state.ts";
@@ -228,9 +232,39 @@ registerSidebarGroup("projects", {
 
 });
 
+// The machines Home lists, each with its online dot. It shows once Home has
+// loaded, empty or not.
+registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
+  order: 5.5,
+  title: "Machines",
+  onTitle: () => jump("sec-machines"),
+  action: { label: "Add a machine", run: openAddMachine },
+  empty: "No machines yet",
+  load: () => {
+    const machines = state.home?.machines;
+    if (!machines) return null;
+    const mac = useBuildCapabilities.getState().local_host ? thisMacRow(MACHINES.mac, machines) : null;
+    return mac ? [...machines, { thisMac: mac }] : machines;
+  },
+  key: m => "thisMac" in m ? "this-mac" : m.id,
+  render: m => <SidebarMachine machine={m} />,
+});
+
 onClosing(() => drawSide());
-redraws.side.add(drawSide);
-redraws.rail.add(drawRail);
+listsChanged.follow(drawSide);
+termsChanged.follow(drawSide);
+syncChanged.follow(drawSide);
+
+// This computer's row in the Machines group waits for the build to say it can host.
+useBuildCapabilities.subscribe(drawSide);
+
+// The project's sessions beside one of them or beside its page show its card.
+sessionsChanged.follow(project => {
+  if (project === null || railProject(shell.getState().side.rail) === project) drawRail();
+});
+projectChanged.follow(() => {
+  if (currentLocation()?.view === "pane" || railProject(shell.getState().side.rail)) drawRail();
+});
 
 /// A sidebar item's key hint: none on a phone, whose keyboard rarely has the keys.
 function shortcut(windows: string, apple: string): string | undefined {

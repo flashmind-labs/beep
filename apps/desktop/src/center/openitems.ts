@@ -10,15 +10,14 @@ import type { MenuItem } from "../ui/menu.tsx";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { agentLabel } from "../project/projects-state.ts";
 import type { AgentButtonItem } from "../review/feedback-view.tsx";
-import { state } from "./state.ts";
-import { redraw } from "./redraw.ts";
+import { state, homeDataChanged } from "./state.ts";
 import { currentLocation, go } from "./nav.ts";
 import { loadFound } from "../project/addflow.ts";
 import { single } from "../ui/active.ts";
 import type { Pushed } from "../ui/snapshot-state.ts";
 import { prSession } from "../project/pr-session.ts";
 
-const homeButtons = agentButtons(() => redraw("home"));
+const homeButtons = agentButtons(() => homeDataChanged.notify());
 
 /// Review with agent on a PR of `project`: starts the reviewer at once in
 /// the project's checkout, on an online machine with it. Review again goes
@@ -40,7 +39,7 @@ export function reviewButton(item: GitItemRow, project: StartProject, machines: 
 /// Continue opens the session that created the PR. Work on PR starts a session on its branch.
 export function continueButton(item: GitItemRow, project: StartProject, machines: Hosts): AgentButtonItem {
   const machine = projectStart(project, machines).machine;
-  const session = prSession(item.url, () => redraw("home"));
+  const session = prSession(item.url, () => homeDataChanged.notify());
   return homeButtons(`continue ${item.url}`, {
     project: project.name, machine, choose: true, label: "Work on PR", hint: "Start an agent on this pull request's branch",
     session: session === "checking" ? { kind: "checking" } : session
@@ -87,7 +86,7 @@ export async function quickImport(p: OpenRepo) {
   const machine = importMachine();
   if (!machine) return importWithSettings(p);
   rowImports.set(p.key, "busy");
-  redraw("home");
+  homeDataChanged.notify();
 
   try {
     // A checkout the machines found imports as it is, not as a second clone.
@@ -102,7 +101,7 @@ export async function quickImport(p: OpenRepo) {
     console.warn(`importing ${p.repo}:`, error);
   }
 
-  redraw("home");
+  homeDataChanged.notify();
 }
 
 /// The Import a project sheet for the row's repository, on the last
@@ -139,5 +138,5 @@ export function takeGit(items: Pushed<GitItemsView | null>) {
     state.gitError = null;
   }
 
-  if (currentLocation()?.view === "home") redraw("home");
+  if (currentLocation()?.view === "home") homeDataChanged.notify();
 }

@@ -2,9 +2,8 @@
 // under it, and the menu that renames or removes one.
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, openMenu, renameSheet, type MenuItem } from "../ui/menu.tsx";
-import { pages, state } from "../center/state.ts";
+import { pages, state, homeDataChanged } from "../center/state.ts";
 import { currentLocation } from "../center/nav.ts";
-import { redraw } from "../center/redraw.ts";
 import { openTerminals } from "../center/allterms.ts";
 import { fsync } from "../project/sections.ts";
 import { removeListed, renameListed, MACHINES, takeMac } from "./machine-store.ts";
@@ -16,7 +15,7 @@ import { type MacControl } from "./machine-state.ts";
 export function readSyncDetails() {
   if (currentLocation()?.view !== "home") return;
   const reads = [...new Set(state.sync.map(r => r.project))].map(p => fsync.ensure(p)).filter(r => r);
-  if (reads.length) Promise.all(reads).then(() => redraw("home"));
+  if (reads.length) Promise.all(reads).then(() => homeDataChanged.notify());
 }
 
 /// Turns on Let Beep use this Mac, so it joins as a machine.
@@ -27,7 +26,7 @@ export async function useThisMac() {
     console.warn("turning on this computer:", e);
   }
 
-  redraw("home");
+  homeDataChanged.notify();
 }
 
 /// A machine the menu can rename, or remove unless it is this Mac, which

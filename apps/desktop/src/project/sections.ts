@@ -1,5 +1,6 @@
 // A project page's file sync, workflow runs and live mode, with the agent buttons they offer.
 import { projectRows } from "./projectrows.ts";
+import { projectChanged } from "./barstate.ts";
 import { railProject, shell } from "../center/window-shell.tsx";
 import { pageShown } from "../ui/active.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
@@ -14,14 +15,13 @@ import { followedProject, makeProjectLive, type LiveRow } from "./projectlive.ts
 import { makeFileSync, type SyncDetail } from "./filesync.ts";
 import type { ListsRow } from "./threads.ts";
 import { makeRuns, type RunDetail, type RunsRow } from "./runs.tsx";
-import { state, keptSection } from "../center/state.ts";
+import { state, keptSection, projectLoaded, syncChanged } from "../center/state.ts";
 import { currentLocation } from "../center/nav.ts";
 import { fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
-import { redraw, redrawSync } from "../center/redraw.ts";
 import { thr } from "./stores.ts";
 
 export const fsync = makeFileSync({
-  invoke, redraw: () => { redraw("projects"); redrawSync(); }, fix: fixConflict, kept: keptSection("filesync"),
+  invoke, redraw: () => { projectChanged.notify(); syncChanged.notify(); }, fix: fixConflict, kept: keptSection("filesync"),
   fixButton: (project, c) => projectButtons(`conflict ${project}\n${c.path}`, { project, machine: c.holder, choose: false, label: "Fix with an agent", hint: "Pick a model: an agent merges the two copies on the machine that has them", session: null, start: pick => startConflictFix(project, c, pick) }),
   repairButton: (project, machine, error) => repairButton(project, machine, error),
 });
@@ -42,7 +42,7 @@ export function repairButton(project: string, machine: string, error: string) {
 /// read again as the mesh says.
 export const liveMode = makeProjectLive({
   invoke,
-  redraw: () => redraw("projects"),
+  redraw: () => projectChanged.notify(),
   reload: (id, update) => {
     const lists = update.lists && update.view<ListsRow | null>("center_project_lists", { projectId: id });
     if (lists) thr.take(id, lists);
@@ -56,7 +56,7 @@ listen<LiveRow>("project-live", e => liveMode.heard(e.payload));
 /// The project's workflow runs: the Actions section and each PR's checks.
 export const runs = makeRuns({
   invoke,
-  redraw: () => redraw("projects"),
+  redraw: () => projectChanged.notify(),
   openUrl,
   fix: (detail: RunDetail) => { if (state.picked) fixRun(state.picked, detail); },
   startFix: (name, detail, pick, machine) => startFix(name, detail, pick, machine),
@@ -64,13 +64,13 @@ export const runs = makeRuns({
   button: (key, o) => projectButtons(key, o),
   mode: liveMode.mode,
   kept: keptSection("runs"),
-  hostsChanged: () => redraw("projectsPage"),
+  hostsChanged: () => projectLoaded.notify(),
 });
 
-layoutChanged.add(() => redraw("projects"));
-onPlaces(() => redraw("projects"));
-onMoves(() => redraw("projects"));
-onClosing(() => redraw("projects"));
+layoutChanged.add(() => projectChanged.notify());
+onPlaces(() => projectChanged.notify());
+onMoves(() => projectChanged.notify());
+onClosing(() => projectChanged.notify());
 
 /// Follows the imported project this window shows, on its page or in its rail, while visible.
 export function syncProjectFollow() {

@@ -12,12 +12,11 @@ import { placeOf } from "../agents/place.ts";
 import { sessionVisible, shownStatus } from "../agents/closing.ts";
 import { showChanges } from "../agentpane/media.ts";
 import type { SessionRow } from "./projects-state.ts";
-import { sessionsOf } from "../center/state.ts";
+import { sessionsOf, projectLoaded } from "../center/state.ts";
 import { boxOf, go } from "../center/nav.ts";
-import { redraw } from "../center/redraw.ts";
 import { terms } from "./stores.ts";
 import { runs } from "./sections.ts";
-import { pa } from "./barstate.ts";
+import { pa, projectChanged } from "./barstate.ts";
 import { rememberGitRow } from "./loads.tsx";
 
 /// The project's navigation and Overview stay mounted in their own elements while
@@ -66,7 +65,7 @@ export function openTile(key: string | null, draw = true) {
   if (pa.tile !== "machines") terms.stop();
   if (key !== "branches") gitHistory.stop();
   if (!draw) return;
-  redraw("projects");
+  projectChanged.notify();
   boxOf("projects")?.querySelector(":scope > .cc-view .pj-det")?.scrollTo({ top: 0 });
   if ((key === "overview" || key === null) && current) for (const selector of scrolls) {
     const element = current.overview.querySelector<HTMLElement>(selector), top = current.overviewScroll.get(selector);
@@ -97,5 +96,5 @@ export const gitHistory = makeGitHistory({
   back: () => openTile("overview"),
   sessions: projectSessions,
   openSession: openBranchSession,
-  changedCheckout: (project, row) => { rememberGitRow(project, row); redraw("projectsPage"); },
+  changedCheckout: (project, row) => { rememberGitRow(project, row); projectLoaded.notify(); },
 });

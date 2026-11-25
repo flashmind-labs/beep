@@ -1,4 +1,5 @@
 import { lastProjectVisit, leaveProject, noteProjectVisit, readProjectSort, saveProjectSort } from "./project-preferences.ts";
+import { projectChanged } from "./barstate.ts";
 import { MACHINES } from "../machines/machine-store.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectsOverview } from "./overview-view.tsx";
@@ -15,7 +16,6 @@ import { splitOn, projectSplit } from "./split.tsx";
 import { disposeProjectShell } from "./tiles.tsx";
 import { hostPart, retainedHost, viewPart, type PagePart } from "./page-view.tsx";
 import { agentsSection, customAgentsSection, whereSection } from "./detailsections.tsx";
-import { redraw } from "../center/redraw.ts";
 import { whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.tsx";
 import { OpenProjects } from "../center/home-overview.tsx";
 import { homeForDisplay } from "../center/home-state.ts";
@@ -50,7 +50,7 @@ function changeSort(sort: ProjectSort) {
   projectSort = sort;
   ranked = null;
   saveProjectSort("projects", sort);
-  redraw("projects");
+  projectChanged.notify();
 }
 
 /// The overview's recency, taken once per look at it: when projects come or

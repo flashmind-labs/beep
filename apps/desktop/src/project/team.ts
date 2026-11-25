@@ -1,11 +1,11 @@
 // A project's team as last read: its record and the board's team cards, who holds an issue, and
 // taking one.
 import { keptSection } from "../center/state.ts";
+import { projectChanged } from "./barstate.ts";
 import { reason } from "../ui/format.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { localProjectId } from "./localid.ts";
-import { redraw } from "../center/redraw.ts";
 import { thr } from "./stores.ts";
 import { claim, heldText, onlineCount, teamView, type TeamCards, type TeamRecord, type TeamView } from "./team-state.ts";
 
@@ -59,7 +59,7 @@ function takeTeam(name: string, record: TeamRecord | null, held: TeamCards) {
   views.set(name, teamView(record));
   cards.set(name, held);
   kept.put(projectId, { record, cards: held });
-  redraw("projects");
+  projectChanged.notify();
 }
 
 /// Reads project `name`'s team and, when it has one, its cards, once; the pushes follow after.
@@ -99,7 +99,7 @@ interface TeamChanged { project_id: string; record: TeamRecord | null; cards: Te
 subscribeEach(topic("projects"), () => {
   if (!failed.size) return;
   failed.clear();
-  redraw("projects");
+  projectChanged.notify();
 });
 
 listen<TeamChanged>("team-changed", ({ payload }) => {

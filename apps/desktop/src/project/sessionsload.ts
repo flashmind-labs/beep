@@ -7,10 +7,9 @@ import { Changes } from "../ui/pagecache.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { projectRunning, projectPastSessions, nextSessions, type SessionList, type SessionRow } from "./projects-state.ts";
 import { projectRows } from "./projectrows.ts";
-import { state, pages, keep, sessionsOf, peekSessions, sessionsDue } from "../center/state.ts";
+import { state, pages, keep, sessionsOf, peekSessions, sessionsDue, sessionsChanged } from "../center/state.ts";
 import { currentLocation } from "../center/nav.ts";
 import { railProject, shell } from "../center/window-shell.tsx";
-import { redraw } from "../center/redraw.ts";
 
 /// Whether the sessions of each project changed since they were read.
 export const sessionChanges = new Changes();
@@ -124,9 +123,7 @@ function showSessions(name: string, list: SessionRow[], read: boolean) {
 }
 
 function drawSessions(name: string) {
-  if (railProject(shell.getState().side.rail) === name) redraw("rail");
-  if (currentLocation()?.view !== "projects" || state.picked !== name) return;
-  redraw("projectsBody");
+  sessionsChanged.notify(name);
 }
 
 // The lists themselves come as `session-list` events, also for agents and moves.

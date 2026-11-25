@@ -7,8 +7,6 @@ import { useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
 import { fixedTitle } from "../project/projectbar.ts";
 import { createPortal } from "react-dom";
-// Outside importers keep this path until they import the state module.
-export { draftMessage, showSessionFrame } from "./session-frame-state.ts";
 import { agentMessage, draw, editHost, frameOwner, sessionBody } from "./session-frame-state.ts";
 
 import { HarnessIcon, Icon } from "../ui/icons.tsx";

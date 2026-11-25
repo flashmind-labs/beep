@@ -18,7 +18,8 @@ import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./
 import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
-import { openAgent, sessionPicks, startedWith } from "./session.tsx";
+import { openAgent } from "./session.tsx";
+import { sessionPicks, startedWith } from "./open-state.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, type Picked, pillContent } from "./agentpicker.tsx";
 import { knownModels, modelsOn } from "./model-store.ts";
 import { AGENT_ORDER, type BaseBranches, baseFor, baseRows, type CheckoutPick, type CheckoutPlan, DEFAULT_CHECKOUT, folderPill, modelId, harnessFor, harnessesOn, keepEffort, knownWorktrees, machineRows, makesBranch, startPlace, tildePath } from "./agentpick.ts";

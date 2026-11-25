@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 // last read, and the page cache kept between launches.
 import { PageCache, freshness, type PageSection, type SectionStore } from "../ui/pagecache.ts";
 import { invoke } from "../ui/tauri.ts";
+import { signal } from "../ui/signal.ts";
 import type { PaneTarget } from "../bar/pane.ts";
 import { withListedMachines, type HomeView } from "./home-state.ts";
 import { MACHINES, REMOVED } from "../machines/machine-store.ts";
@@ -95,6 +96,16 @@ export const state = {
   groups: undefined as ProjectGroup[] | null | undefined,
   renaming: null as { id: string; draft: string } | null,
 };
+/// Home's data changed: the read, the machines and their names, the sessions and the open items.
+export const homeDataChanged = signal();
+/// The projects, pins, groups, conflicts or machines the sidebar lists changed.
+export const listsChanged = signal();
+/// A project or the list of them was read again, for the page that shows it.
+export const projectLoaded = signal();
+/// The sessions kept for a project changed, or for every project when `null`.
+export const sessionsChanged = signal<string | null>();
+/// Conflict counts changed, in the sidebar and in Home's conflict cards.
+export const syncChanged = signal();
 /// What each project's page last read, section by section: drawn at once when a
 /// project opens, then read again quietly.
 export const pages = new PageCache(null);

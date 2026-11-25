@@ -1,4 +1,5 @@
 import { MACHINES } from "../machines/machine-store.ts";
+import { projectChanged } from "./barstate.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { retainedHost } from "./page-view.tsx";
@@ -22,7 +23,7 @@ import { repoFromRemote } from "../addproject/importproject-state.ts";
 import { outsideThreads } from "../review/branchwork.ts";
 import { localProjectId, projectRef } from "./localid.ts";
 import { machineTile } from "./board.ts";
-import { state, pages, keep, pageFresh, whereOf, sessionsOf, gitOf, sessionsDue } from "../center/state.ts";
+import { state, pages, keep, pageFresh, whereOf, sessionsOf, gitOf, sessionsDue, projectLoaded } from "../center/state.ts";
 import { refreshGit } from "../center/openitems.ts";
 import { currentLocation, go, windowAlone } from "../center/nav.ts";
 import { projectRows, projectPlaces } from "./projectrows.ts";
@@ -30,7 +31,6 @@ import { sessionChanges, loadSessions, readingSessions, railSessions } from "./s
 import { importSheet, addProject, importFromPage, loadFound, openProjects } from "./addflow.ts";
 import { fsync, runs, repairButton } from "./sections.ts";
 import { terms, thr } from "./stores.ts";
-import { redraw } from "../center/redraw.ts";
 import { onScreen } from "../center/refresh.ts";
 import { openAddToMachine } from "./addmachine.tsx";
 import { type RunningAgent } from "../agents/running-state.ts";
@@ -62,7 +62,7 @@ listen<{ project: string; row: GitRow }>("project-git-changed", ({ payload }) =>
   // A project not read yet has no list to amend; its first read has the row.
   if (gitOf(payload.project) === undefined) return;
   rememberGitRow(payload.project, payload.row);
-  if (currentLocation()?.view === "projects" && state.picked === payload.project) redraw("projectsPage");
+  if (currentLocation()?.view === "projects" && state.picked === payload.project) projectLoaded.notify();
 });
 subscribeEach(topic("projects"), () => foundChanges.changed());
 
@@ -190,7 +190,7 @@ async function readGit(name: string, fetch: boolean) {
 
   pushedDuring.delete(name);
 
-  if (currentLocation()?.view === "projects" && state.picked === name) redraw("projectsPage");
+  if (currentLocation()?.view === "projects" && state.picked === name) projectLoaded.notify();
 }
 
 /// A running move's direction and a refused one's reason, by project and machine.
@@ -206,7 +206,7 @@ async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
   const key = moveKey(p.name, m.id);
   if (moves.get(key)?.moving || !row.branch) return;
   moves.set(key, { moving: move });
-  redraw("projectsPage");
+  projectLoaded.notify();
 
   try {
     const next = await invoke<GitRow>("project_git_move", { project: p.name, machineId: m.id, branch: row.branch, direction: move });
@@ -216,7 +216,7 @@ async function gitMove(p: Project, m: WhereRow, row: GitRow, move: GitMove) {
     moves.set(key, { moving: null, failed: reason(e) });
   }
 
-  redraw("projectsPage");
+  projectLoaded.notify();
 }
 
 export function gitControls(p: Project, m: WhereRow, online: boolean) {
@@ -300,7 +300,7 @@ async function readWhere(name: string) {
   whereChanges.read(name);
   const before = whereOf(name);
   // A kept list shows a spinner in its header meanwhile.
-  if (before && state.picked === name) queueMicrotask(() => redraw("projects"));
+  if (before && state.picked === name) queueMicrotask(() => projectChanged.notify());
   let got: ProjectMachineRow[] | null = null;
 
   try {
@@ -332,7 +332,7 @@ function settleWhere(name: string, got: ProjectMachineRow[] | null, before: Proj
   }
 
   // The header's Open in follows this Mac's checkout.
-  if (state.picked === name) redraw("projectsPage");
+  if (state.picked === name) projectLoaded.notify();
 }
 
 /// The Sessions tab's list. It stays one host while the tabs switch, so its
@@ -399,7 +399,7 @@ let askedGit = false;
 export function elsewhereSection(rows: Project[], enabled: boolean) {
   if (!enabled) return null;
   if (!state.git) {
-    if (!askedGit) { askedGit = true; refreshGit().then(() => redraw("projects")); }
+    if (!askedGit) { askedGit = true; refreshGit().then(() => projectChanged.notify()); }
     return null;
   }
 
