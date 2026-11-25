@@ -208,6 +208,10 @@ pub(crate) fn sync_changed(app: AppHandle, moving: bool) {
 /// sessions for it, so it draws at most once a `HOME_GAP`.
 pub(crate) fn sessions_changed(app: AppHandle, topic: Topic) {
     if matches!(topic.name(), "agents" | "agent" | "moves") {
+        if topic.name() == "moves" {
+            changed(app.clone(), Topic::new("moves"));
+        }
+
         paced(app, "home", true);
     } else {
         changed(app, topic);
@@ -286,7 +290,10 @@ pub(crate) fn failed(app: &AppHandle, topic: &Topic, reason: &str) {
             .iter()
             .map(|&command| View::failed(command, json!({}), reason))
             .collect();
-        events.publish_views(machine, views_topic(name), json!({ "views": views }));
+
+        if !views.is_empty() {
+            events.publish_views(machine, views_topic(name), json!({ "views": views }));
+        }
     }
 }
 
@@ -367,9 +374,10 @@ fn affected(name: &str) -> &'static [&'static str] {
             "accounts",
             "forge",
             "terminals",
+            "moves",
         ],
         // Home shows no processes.
-        "agents" | "agent" | "moves" | "home" => &["home"],
+        "agents" | "agent" | "home" => &["home"],
         "machines" => &["machines", "home", "tools"],
         "tools" => &["tools"],
         "projects" => &["projects", "home"],
@@ -380,6 +388,8 @@ fn affected(name: &str) -> &'static [&'static str] {
         "forge" => &["forge"],
         // Any machine's terminals changed; the list of every terminal is read again.
         "terminals" => &["terminals"],
+        // The progress of each move, as its target says.
+        "moves" => &["moves"],
         _ => &[],
     }
 }
@@ -388,7 +398,7 @@ fn affected(name: &str) -> &'static [&'static str] {
 /// updates, so the views ride a keyed topic under it: a window that follows the topic hears both.
 fn views_topic(name: &str) -> Topic {
     match name {
-        "terminals" => Topic::keyed(name, "views"),
+        "terminals" | "moves" => Topic::keyed(name, "views"),
         _ => Topic::new(name),
     }
 }
@@ -504,13 +514,7 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 tokio::join!(reads.read(app), reads.sessions(app), reads.moves(app));
             append(&mut views, "center_home", home);
             append(&mut views, "agent_sessions", sessions);
-            // How each recent move stands, as its target says, drawn again when it rings.
-            let progress = match &moves {
-                Ok(moves) => crate::agents::moving::progress_views(&app.state(), moves).await,
-                Err(_) => Vec::new(),
-            };
             append(&mut views, "session_moves", moves);
-            views.extend(progress);
         }
         "machines" => {
             append(
@@ -545,6 +549,7 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 app.state::<Arc<Fleet>>().status().clocks_off(),
             ));
             views.extend(crate::projects::page::page_views(app, true).await);
+            views.extend(crate::fleet::agents::harness_views(&app.state::<Arc<Fleet>>()).await);
         }
         "tools" => {
             let found = crate::fleet::tool_updates::all(&app.state::<Arc<Fleet>>()).await;
@@ -576,6 +581,11 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             "usage_get",
             crate::center::usage::usage_get(app.state(), false).await,
         ),
+        "moves" => {
+            if let Ok(moves) = crate::agents::sessions::moves(app.state()).await {
+                views.extend(crate::agents::moving::progress_views(&app.state(), &moves).await);
+            }
+        }
         "terminals" => append(
             &mut views,
             "terminals_all",

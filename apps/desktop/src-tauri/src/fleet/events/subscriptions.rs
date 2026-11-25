@@ -200,7 +200,12 @@ impl SubscriptionWorker {
                                 super::super::event_views::sessions_changed(app.clone(), snapshot.topic.clone());
                             }
 
-                            if (machine != fleet.me || !controller_topic(&snapshot.topic))
+                            if snapshot.topic.name() == "terminal-output" {
+                                // The windows get the screen as the view the command gives.
+                                if app.state::<Events>().node_wanted(machine, &snapshot.topic) {
+                                    crate::machines::terminals::output_pushed(app, &snapshot.topic);
+                                }
+                            } else if (machine != fleet.me || !controller_topic(&snapshot.topic))
                                 && app.state::<Events>().node_wanted(machine, &snapshot.topic) {
                                 let data = serde_json::to_value(&snapshot.value).ok();
                                 app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic, seq: 0 });

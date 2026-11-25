@@ -199,6 +199,40 @@ pub async fn terminal_open(fleet: Machines<'_>, terminal: NewShell) -> Result<Op
     Ok(Some(direct::open(&fleet, request).await?.into()))
 }
 
+/// A terminal's screen was pushed on its topic: the windows that follow it are sent the view
+/// `terminal_output` gives, on that topic.
+pub(crate) fn output_pushed(app: &AppHandle, topic: &beep_proto::node::events::Topic) {
+    let Some(id) = topic.key().and_then(|key| key.parse::<Uuid>().ok()) else {
+        return;
+    };
+    let (app, topic) = (app.clone(), topic.clone());
+    tauri::async_runtime::spawn(async move {
+        let fleet = app.state::<Arc<Fleet>>();
+        let args = serde_json::json!({ "id": id });
+        let view = match direct::get(&fleet, id).await {
+            Ok(output) => crate::fleet::event_views::View::new(
+                "terminal_output",
+                args,
+                OutputView {
+                    terminal: output.terminal.into(),
+                    lines: output.lines,
+                    earlier: output.earlier,
+                },
+            ),
+            Err(error) => Some(crate::fleet::event_views::View::failed(
+                "terminal_output",
+                args,
+                &error.to_string(),
+            )),
+        };
+        app.state::<crate::fleet::events::Events>().publish_views(
+            fleet.id(),
+            topic,
+            serde_json::json!({ "views": view.into_iter().collect::<Vec<_>>() }),
+        );
+    });
+}
+
 #[tauri::command]
 pub async fn terminal_output(fleet: Machines<'_>, id: Uuid) -> Result<OutputView> {
     let TerminalOutput {

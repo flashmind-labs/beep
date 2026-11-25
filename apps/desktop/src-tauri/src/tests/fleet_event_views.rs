@@ -69,9 +69,13 @@ fn session_changes_pace_home_and_other_views_do_not() {
     assert_eq!(views.pace("sync").map(|(_, gap)| gap), Some(SYNC_GAP));
     assert!(views.pace("machines").is_none());
 
-    for topic in ["agents", "agent", "moves"] {
+    for topic in ["agents", "agent"] {
         assert_eq!(affected(topic), ["home"], "{topic} draws only Home");
     }
+
+    // The moves' progress is a view of its own, drawn beside Home.
+    assert_eq!(affected("moves"), ["moves"]);
+    assert_eq!(views_topic("moves"), Topic::keyed("moves", "views"));
 }
 
 #[test]
