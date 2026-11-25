@@ -25,7 +25,7 @@ mod subscriptions;
 use commands::CommandWorker;
 #[cfg(test)]
 use commands::Registered;
-pub(crate) use snapshots::Snapshots;
+pub(crate) use snapshots::{Current, Snapshots};
 use subscriptions::SubscriptionWorker;
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

@@ -9,8 +9,15 @@ use super::{
     session_mirror::{Rows, SessionMirror},
 };
 use crate::agents::sessions::{SessionRow, overlay};
-use beep_mesh::machine::listing;
-use beep_proto::{MachineSession, SessionId};
+use beep_mesh::machine::listing::{self, MAX_PROJECT_SESSIONS};
+use beep_proto::{
+    MachineSession, SessionId,
+    node::{
+        agent::{SessionsReply, SessionsRequest},
+        events::{Read, Value},
+    },
+    watched,
+};
 use iroh::EndpointId;
 use serde::Serialize;
 use std::{
@@ -24,10 +31,12 @@ use tokio::{
     sync::{mpsc, oneshot, watch},
     time::timeout,
 };
+use tokio_util::task::AbortOnDropHandle;
 
 /// The event that carries a list to the windows.
 pub(crate) const SESSION_LIST: &str = "session-list";
-/// How long another machine's answer stays fresh; this Mac is asked on every read.
+/// How long another machine's answer stays fresh when its node does not push the list; this
+/// Mac is asked on every read.
 const FRESH: Duration = Duration::from_secs(15);
 /// The least time between two redraws for the mirror's changes.
 const REDRAW_GAP: Duration = Duration::from_secs(1);
@@ -91,6 +100,14 @@ enum Ask {
     },
     /// The mirror's rows changed: the lists send again what differs.
     Mirrored,
+    /// A machine pushed its history in a list's folders.
+    Fed {
+        key: MachineFolders,
+        rows: Vec<MachineSession>,
+    },
+    /// The push of a machine's history in a list's folders ended or cannot serve the list: it
+    /// is read again, in pages, when asked for.
+    Unfed(MachineFolders),
 }
 
 impl SessionLists {
@@ -180,6 +197,8 @@ async fn serve(
     let mut lists = Lists::new(fleet.id());
     // The rows the lists were last drawn from, to tell which machines changed.
     let mut seen = Arc::new(Rows::default());
+    // One held read of each listed key's history, ended with the key's last list.
+    let mut feeds: HashMap<MachineFolders, AbortOnDropHandle<()>> = HashMap::new();
 
     while let Some(ask) = queue.recv().await {
         let now = Instant::now();
@@ -190,6 +209,7 @@ async fn serve(
         let shown = |keys: &[MachineFolders], rows: Vec<MachineSession>| {
             finish(&fleet, &mirrored, keys, rows)
         };
+        let mut started = false;
         let moved = match ask {
             Ask::Want {
                 list,
@@ -199,8 +219,11 @@ async fn serve(
             } => {
                 let (rows, moved) = lists.want(list, &holder, keys(&places), now, shown);
                 let _ = reply.send(rows.map(session_rows));
+                started = true;
                 moved
             }
+            Ask::Fed { key, rows } => lists.fed(key, rows, shown),
+            Ask::Unfed(key) => lists.unfed(&key),
             Ask::Answered { asked, rows } => lists.answered(asked, rows, now, shown),
             Ask::Forget { machine, session } => lists.forget(machine, &session, shown),
             Ask::Stale { machine } => lists.stale(machine),
@@ -224,6 +247,17 @@ async fn serve(
             }
         };
 
+        let listed = lists.keys();
+        feeds.retain(|key, _| listed.contains(key));
+
+        for key in listed {
+            if started && feeds.get(&key).is_none_or(|feed| feed.is_finished()) {
+                let feed =
+                    tauri::async_runtime::spawn(feed(fleet.clone(), asks.clone(), key.clone()));
+                feeds.insert(key, AbortOnDropHandle::new(feed));
+            }
+        }
+
         for asked in moved.fetch {
             tauri::async_runtime::spawn(ask_machine(fleet.clone(), asks.clone(), asked));
         }
@@ -235,6 +269,53 @@ async fn serve(
             }
         }
     }
+}
+
+/// Holds `key`'s history read, which the machine's node pushes as it changes, and sends each
+/// value to the lists. Ends, telling them, when the machine does not push it or the history
+/// is too long for one read.
+async fn feed(fleet: Arc<Fleet>, asks: mpsc::UnboundedSender<Ask>, key: MachineFolders) {
+    let (machine, folders) = key.clone();
+    let limit = u32::try_from(MAX_PROJECT_SESSIONS).unwrap_or(u32::MAX);
+    let read = Read::Sessions(Box::new(SessionsRequest::InFolders { folders, limit }));
+
+    if let Some(Ok(mut current)) = fleet.snapshots_follow(machine, read) {
+        let host = fleet.host_of(machine);
+
+        loop {
+            match watched::read(&current, Clone::clone) {
+                Some(Ok(Value::Sessions(reply))) => match *reply {
+                    SessionsReply::External { sessions }
+                        if sessions.len() < MAX_PROJECT_SESSIONS =>
+                    {
+                        let rows = sessions
+                            .into_iter()
+                            .map(|session| listing::past_session(&host, session))
+                            .collect();
+
+                        if asks
+                            .send(Ask::Fed {
+                                key: key.clone(),
+                                rows,
+                            })
+                            .is_err()
+                        {
+                            return;
+                        }
+                    }
+                    _ => break,
+                },
+                Some(_) => break,
+                None => {}
+            }
+
+            if current.changed().await.is_err() {
+                break;
+            }
+        }
+    }
+
+    let _ = asks.send(Ask::Unfed(key));
 }
 
 /// One machine's sessions in its folders; `None` when it failed or did not answer in time.
@@ -331,6 +412,8 @@ struct Answer {
     rows: Option<Vec<MachineSession>>,
     at: Option<Instant>,
     asking: bool,
+    /// Its node pushes the history, so it is not read again when a window asks.
+    fed: bool,
     /// Raised when its sessions change here, so an answer asked before is dropped.
     generation: u64,
 }
@@ -384,7 +467,7 @@ impl Lists {
         for key in &keys {
             let mine = key.0 == self.me;
             let answer = self.answers.entry(key.clone()).or_default();
-            if answer.at.is_none_or(|at| mine || now - at >= FRESH) {
+            if !answer.fed && answer.at.is_none_or(|at| mine || now - at >= FRESH) {
                 moved.fetch.extend(ask(key, answer));
             }
         }
@@ -426,6 +509,11 @@ impl Lists {
         let answer = self.answers.entry(asked.key.clone()).or_default();
         answer.asking = false;
 
+        // A pushed history is newer than the read that was out.
+        if answer.fed && asked.generation != answer.generation {
+            return Moved::default();
+        }
+
         if asked.generation != answer.generation {
             return Moved {
                 sent: Vec::new(),
@@ -444,6 +532,58 @@ impl Lists {
         Moved {
             sent: self.changed(|keys| keys.contains(&asked.key), &finish),
             fetch: Vec::new(),
+        }
+    }
+
+    /// The keys some list holds.
+    pub(crate) fn keys(&self) -> HashSet<MachineFolders> {
+        self.lists
+            .values()
+            .flat_map(|listed| listed.keys.iter().cloned())
+            .collect()
+    }
+
+    /// The machine pushed its history for `key`: it is the answer, and a read that was out
+    /// is dropped.
+    pub(crate) fn fed(
+        &mut self,
+        key: MachineFolders,
+        rows: Vec<MachineSession>,
+        finish: impl Fn(&[MachineFolders], Vec<MachineSession>) -> Vec<MachineSession>,
+    ) -> Moved {
+        if !self.listed(&key) {
+            return Moved::default();
+        }
+
+        let answer = self.answers.entry(key.clone()).or_default();
+        answer.fed = true;
+        answer.generation += 1;
+        answer.at = Some(Instant::now());
+        answer.rows = Some(rows);
+
+        Moved {
+            sent: self.changed(|keys| keys.contains(&key), &finish),
+            fetch: Vec::new(),
+        }
+    }
+
+    /// The push for `key` ended: the next ask reads it, and it is read now.
+    pub(crate) fn unfed(&mut self, key: &MachineFolders) -> Moved {
+        let listed = self.listed(key);
+        let Some(answer) = self.answers.get_mut(key) else {
+            return Moved::default();
+        };
+
+        if !answer.fed {
+            return Moved::default();
+        }
+
+        answer.fed = false;
+        answer.at = None;
+
+        Moved {
+            sent: Vec::new(),
+            fetch: ask(key, answer).filter(|_| listed).into_iter().collect(),
         }
     }
 

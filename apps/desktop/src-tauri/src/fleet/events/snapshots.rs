@@ -12,7 +12,7 @@ use std::{
 use tokio::sync::watch;
 use uuid::Uuid;
 
-type Current = Option<std::result::Result<Value, String>>;
+pub(crate) type Current = Option<std::result::Result<Value, String>>;
 
 /// How long a live query keeps a changed value nobody read before it is
 /// dropped and the node stops reading it. A view that follows it reads
@@ -215,6 +215,16 @@ impl Snapshots {
             snapshots: self.clone(),
             id,
         })
+    }
+
+    /// Holds `read` on machine `id` for as long as the receiver lives: its node keeps pushing
+    /// the value, and nothing sweeps it. `None` when the machine's stream for it is not open.
+    pub(crate) fn follow(
+        &self,
+        id: EndpointId,
+        read: Read,
+    ) -> Option<std::result::Result<watch::Receiver<Current>, MeshError>> {
+        self.register(id, read)
     }
 
     fn register(

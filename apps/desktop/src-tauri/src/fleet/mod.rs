@@ -452,6 +452,15 @@ impl Fleet {
         &self.releases
     }
 
+    /// Holds `read` on `machine` while the receiver lives; see `Snapshots::follow`.
+    pub(crate) fn snapshots_follow(
+        &self,
+        machine: EndpointId,
+        read: beep_proto::node::events::Read,
+    ) -> Option<std::result::Result<watch::Receiver<events::Current>, beep_mesh::MeshError>> {
+        self.snapshots.follow(machine, read)
+    }
+
     pub(crate) fn projections(&self) -> &node_actor::Projections {
         &self.projections
     }

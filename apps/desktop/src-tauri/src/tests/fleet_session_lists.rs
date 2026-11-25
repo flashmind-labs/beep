@@ -272,3 +272,45 @@ fn only_a_machine_whose_rows_changed_redraws_its_lists() {
     assert_eq!(after.changed_since(&before), HashSet::from([a]));
     assert!(after.changed_since(&after).is_empty());
 }
+
+/// A machine that pushes its history is not read again when a window asks, however old the
+/// answer, and a push replaces the rows; one that stops pushing is read again.
+#[test]
+fn a_machine_that_pushes_its_history_is_not_read_on_each_ask() {
+    let me = machine(1);
+    let other = machine(2);
+    let remote = (other, vec!["/srv/project".to_owned()]);
+    let list = ListId::Project("project".into());
+    let keep = |_: &[MachineFolders], rows: Vec<MachineSession>| rows;
+    let mut lists = Lists::new(me);
+    let long_ago = Instant::now();
+
+    let (rows, moved) = lists.want(list.clone(), "main", vec![remote.clone()], long_ago, keep);
+    assert!(rows.is_none());
+    let sent = lists
+        .answered(
+            moved.fetch[0].clone(),
+            Some(vec![session("old")]),
+            long_ago,
+            keep,
+        )
+        .sent;
+    assert_eq!(ids(&sent[0].1), ["old"]);
+
+    let sent = lists.fed(remote.clone(), vec![session("new")], keep).sent;
+    assert_eq!(ids(&sent[0].1), ["new"]);
+
+    // Long past `FRESH`, a read of the list asks nobody.
+    let later = long_ago + FRESH * 4;
+    let (rows, moved) = lists.want(list.clone(), "main", vec![remote.clone()], later, keep);
+    assert!(moved.fetch.is_empty());
+    assert_eq!(ids(&rows.unwrap_or_default()), ["new"]);
+
+    // The push ends: the machine is read now, and again when asked.
+    assert_eq!(keys(&lists.unfed(&remote).fetch), [remote.clone()]);
+    let (_, moved) = lists.want(list, "main", vec![remote.clone()], later, keep);
+    assert!(
+        moved.fetch.is_empty(),
+        "the read already out is not asked twice"
+    );
+}
