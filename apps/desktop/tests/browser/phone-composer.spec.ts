@@ -22,6 +22,11 @@ async function openBusy(page: Page) {
   await expect(page.locator("body")).toHaveClass(/mobile/);
   await expect(page.locator(".ag-tasks")).toHaveText(`${commands.length} commands running`);
   await expect(page.locator(".ag-queue .it")).toHaveCount(steers.length);
+  // The steers were sent from this app, so its queue can edit them.
+  await page.evaluate(({ agent, steers }) => window.__navigation.emit("outbox-changed", {
+    machine_id: agent.machine_id, agent: agent.agent, session: agent.id, revision: 1, rows: [], resumed: null, pick: null,
+    sent: steers.map((text, id) => ({ id, how: "steer", text, images: [], keys: [], state: "sent", reason: null })),
+  }), { agent: session, steers });
 }
 
 test("a phone folds running commands and queued steers into a line each", async ({ page }) => {
