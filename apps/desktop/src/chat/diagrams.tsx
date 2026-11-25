@@ -3,7 +3,8 @@
 import { type SyntheticEvent } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
-import { notice, saveUrl } from "./media.tsx";
+import { saveUrl } from "./media.tsx";
+import { notice } from "./viewer-overlay.tsx";
 
 interface Diagram {
   frame: HTMLIFrameElement;

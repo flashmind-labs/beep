@@ -1,5 +1,5 @@
-import { createDocumentScope } from "../ui/document-root.tsx";
-import { FileViewer, Viewer, ViewerNotice } from "./viewer-view.tsx";
+import { notice, overlays, viewer } from "./viewer-overlay.tsx";
+import { FileViewer, Viewer } from "./viewer-view.tsx";
 import { baseName, mediaKind } from "../agentpane/media-state.ts";
 import { readError, readFile } from "../agentpane/read.ts";
 import type { TreeText } from "../agentpane/media.ts";
@@ -28,14 +28,10 @@ export const GONE = "No longer available";
 
 /// The pictures the viewer goes through, and the one it shows, or the file it shows instead.
 const V: { pics: ViewerPic[]; at: number; file: ViewerFile | null } = { pics: [], at: 0, file: null };
-let viewerHost = bar;
 let viewerFocus: HTMLElement | null = null;
-/// The viewer and its notes, drawn at the end of the element they cover.
-const overlays = createDocumentScope<"viewer" | "notice">();
-let viewerOpen = false;
 
 function disposeViewer() {
-  viewerOpen = false;
+  viewer.open = false;
   if (V.file?.read.kind === "media") URL.revokeObjectURL(V.file.read.url);
   V.file = null;
   overlays.remove(["viewer"]);
@@ -51,7 +47,7 @@ export function openViewer(pics: ViewerPic[], at: number, host = bar) {
 function takeOver(host: HTMLElement) {
   viewerFocus = document.activeElement instanceof HTMLElement && document.activeElement !== document.body ? document.activeElement : null;
   disposeViewer();
-  viewerHost = host;
+  viewer.host = host;
 }
 
 function closeViewer() {
@@ -100,9 +96,9 @@ export function openFileElsewhere(file: ViewerFile) {
 
 /// The open picture over the whole bar, with arrows when there are more.
 function drawViewer() {
-  viewerOpen = true;
+  viewer.open = true;
   const content = V.file ? <FileViewer key={V.file.path} file={{ ...V.file }} act={viewerAct} open={openFileElsewhere} /> : <Viewer pictures={V.pics} at={V.at} act={viewerAct} onKey={viewerKeys} />;
-  overlays.set([{ slot: "viewer", host: viewerHost, content }]);
+  overlays.set([{ slot: "viewer", host: viewer.host, content }]);
 }
 
 export function viewerAct(a: ViewerAct) {
@@ -159,12 +155,3 @@ async function copyUrl(url: string) {
   }
 }
 
-let noticeTimer: ReturnType<typeof setTimeout> | undefined;
-/// A short note at the bottom of the bar, or over the open viewer; one that names a saved file
-/// can show it in Finder.
-export function notice(text: string, { path, bad }: { path?: string; bad?: boolean } = {}) {
-  clearTimeout(noticeTimer);
-  overlays.remove(["notice"]);
-  overlays.set([{ slot: "notice", host: viewerOpen ? viewerHost : bar, content: <ViewerNotice text={text} path={path ?? null} bad={!!bad} /> }]);
-  noticeTimer = setTimeout(() => overlays.remove(["notice"]), 5000);
-}

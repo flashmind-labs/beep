@@ -14,7 +14,7 @@ import { errorText, offeredNode, type NodeUpdate, updatedTo } from "./machines-s
 import { S, setView } from "../bar/core.ts";
 import { type BarPage, type BarPageSlot, openBarPage } from "../bar/bar-page.ts";
 import { hintModel } from "../bar/hints.ts";
-import { notice } from "../chat/media.tsx";
+import { notice } from "../chat/viewer-overlay.tsx";
 import { invoke, listen } from "../ui/tauri.ts";
 import { loadClocks } from "./clock.ts";
 import { openSignIn } from "./signin.tsx";

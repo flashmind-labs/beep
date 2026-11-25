@@ -1,7 +1,7 @@
 // "Open in" for a project's checkout on this Mac: the editors installed
 // here, read once from the app, Zed first.
 import { invoke } from "../ui/tauri.ts";
-import { notice } from "../chat/media.tsx";
+import { notice } from "../chat/viewer-overlay.tsx";
 import { onPhone } from "../ui/platform.ts";
 
 /// An installed editor (EditorRow).
