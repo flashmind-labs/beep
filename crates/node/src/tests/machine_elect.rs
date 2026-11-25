@@ -1,4 +1,7 @@
-use super::{elect, ranked};
+use super::{Reaches, elect, ranked};
+use beep_mesh::Mesh;
+use iroh::{Endpoint, endpoint::presets};
+use std::time::Duration;
 use beep_proto::node::tools::{ForgeReach, HostReach};
 use iroh::{EndpointId, SecretKey};
 use std::collections::{BTreeMap, BTreeSet};
@@ -93,4 +96,25 @@ fn the_candidates_are_ranked_as_the_election_goes() {
     assert_eq!(order, [tried, me, fresh]);
     assert!(!order.contains(&silent));
     assert_eq!(elect(&machines, me, reach(false, 0), &peers, HOST), Some(tried));
+}
+
+/// The follows of a machine's reach end with the last `Reaches`, so a node that
+/// follows a peer can still leave its mesh and join another.
+#[tokio::test]
+async fn dropping_the_reaches_ends_the_follows_and_lets_go_of_the_mesh() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let reaches = Reaches::new(mesh.clone());
+    let other = reaches.clone();
+    other.follow(SecretKey::generate().public());
+    drop(other);
+    drop(reaches);
+
+    tokio::time::timeout(Duration::from_secs(10), mesh.released())
+        .await
+        .expect("a follow still holds the mesh");
+    mesh.close().await.unwrap();
 }

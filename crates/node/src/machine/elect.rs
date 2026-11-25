@@ -135,18 +135,22 @@ pub(crate) async fn ask_reach(mesh: &Mesh, peer: EndpointId) -> Result<ForgeReac
 /// How the other machines reach the hosts, as each pushes it over
 /// `forge-reach`. A machine that does not push, as one from before it, is
 /// asked instead. Cheap to clone: the CI watcher and the team gateway share one.
+///
+/// The follow tasks hold `Hear`, never `Reaches`: they own the follow handles,
+/// so dropping the last `Reaches` aborts them and lets go of the mesh.
 #[derive(Clone)]
 pub(crate) struct Reaches {
-    mesh: Mesh,
-    held: Arc<Mutex<Held>>,
-    /// Rings when a machine pushed a reach that differs from the last.
-    changed: watch::Sender<()>,
+    hear: Hear,
+    follows: Arc<Mutex<BTreeMap<EndpointId, AbortOnDropHandle<()>>>>,
 }
 
-#[derive(Default)]
-struct Held {
-    said: BTreeMap<EndpointId, Said>,
-    follows: BTreeMap<EndpointId, AbortOnDropHandle<()>>,
+/// What a follow task needs of `Reaches`.
+#[derive(Clone)]
+struct Hear {
+    mesh: Mesh,
+    said: Arc<Mutex<BTreeMap<EndpointId, Said>>>,
+    /// Rings when a machine pushed a reach that differs from the last.
+    changed: watch::Sender<()>,
 }
 
 enum Said {
@@ -158,15 +162,18 @@ enum Said {
 impl Reaches {
     pub(crate) fn new(mesh: Mesh) -> Self {
         Self {
-            mesh,
-            held: Arc::default(),
-            changed: watch::Sender::new(()),
+            hear: Hear {
+                mesh,
+                said: Arc::default(),
+                changed: watch::Sender::new(()),
+            },
+            follows: Arc::default(),
         }
     }
 
     /// Rises when a machine pushes a reach that differs from the last.
     pub(crate) fn changes(&self) -> watch::Receiver<()> {
-        self.changed.subscribe()
+        self.hear.changed.subscribe()
     }
 
     /// How `peer` reaches the hosts: what it pushed last; asked once while it
@@ -177,48 +184,50 @@ impl Reaches {
         async move {
             reaches.follow(peer);
 
-            let pushed = match crate::lock(&reaches.held).said.get(&peer) {
+            let pushed = match crate::lock(&reaches.hear.said).get(&peer) {
                 Some(Said::Reach(reach)) => Some(reach.clone()),
                 _ => None,
             };
 
             match pushed {
                 Some(reach) => Ok(reach),
-                None => ask_reach(&reaches.mesh, peer).await,
+                None => ask_reach(&reaches.hear.mesh, peer).await,
             }
         }
     }
 
     /// Starts following `peer`, unless it is followed already.
     fn follow(&self, peer: EndpointId) {
-        let mut held = crate::lock(&self.held);
+        let mut follows = crate::lock(&self.follows);
 
-        if held.follows.get(&peer).is_some_and(|follow| !follow.is_finished()) {
+        if follows.get(&peer).is_some_and(|follow| !follow.is_finished()) {
             return;
         }
 
-        let reaches = self.clone();
-        held.said.remove(&peer);
-        held.follows.insert(
+        let hear = self.hear.clone();
+        crate::lock(&hear.said).remove(&peer);
+        follows.insert(
             peer,
-            AbortOnDropHandle::new(tokio::spawn(async move { reaches.hear(peer).await })),
+            AbortOnDropHandle::new(tokio::spawn(async move { hear.hear(peer).await })),
         );
     }
+}
 
+impl Hear {
     /// Takes what `peer` pushes until it drops, then dials again while it is online.
     async fn hear(&self, peer: EndpointId) {
         loop {
             let ended = self.listen(peer).await;
             let refused = matches!(&ended, Err(e) if e.downcast_ref::<Refused>().is_some());
             {
-                let mut held = crate::lock(&self.held);
+                let mut said = crate::lock(&self.said);
 
                 if refused {
-                    held.said.insert(peer, Said::Refused);
+                    said.insert(peer, Said::Refused);
                     return;
                 }
 
-                held.said.remove(&peer);
+                said.remove(&peer);
             }
 
             if let Err(e) = ended {
@@ -241,9 +250,9 @@ impl Reaches {
                 continue;
             };
             let changed = {
-                let mut held = crate::lock(&self.held);
-                let same = matches!(held.said.get(&peer), Some(Said::Reach(was)) if *was == reach);
-                held.said.insert(peer, Said::Reach(reach));
+                let mut said = crate::lock(&self.said);
+                let same = matches!(said.get(&peer), Some(Said::Reach(was)) if *was == reach);
+                said.insert(peer, Said::Reach(reach));
                 !same
             };
 
