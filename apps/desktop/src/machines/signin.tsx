@@ -5,8 +5,8 @@ import { flushSync } from "react-dom";
 import { reason } from "../ui/format.ts";
 import { openSheet } from "../ui/parts.tsx";
 import { invoke } from "../ui/tauri.ts";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { stillRunning, type SignInView } from "./signin-state.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { readSignIn, stillRunning, type SignInView } from "./signin-state.ts";
 import { SignInBody } from "./signin-view.tsx";
 import { harnessName } from "../settings/providers-state.ts";
 
@@ -26,10 +26,19 @@ export function openSignIn(machine: { id: string; name: string }, tool: string, 
   let sending = false;
   let active = true;
   let pending: Promise<void> = Promise.resolve();
-  const unfollow = subscribeChanges(topic("sign-in", tool), { deliver: "latest", receive: async () => {
-    await step({ step: "state" });
-    if (error) throw new Error(error);
-  } }, { machine: machine.id, when: () => active });
+  // The node pushes how the sign-in stands; an update without it is asked about.
+  const unfollow = subscribeEach(topic("sign-in", tool), event => {
+    const pushed = readSignIn(event.data);
+
+    if (pushed) {
+      error = "";
+      view = pushed;
+      draw();
+      return;
+    }
+
+    return step({ step: "state" });
+  }, { machine: machine.id, when: () => active });
   const shell = openSheet(`Sign in to ${harnessName(tool)} on ${machine.name}`, "am-sheet", {
     onClose: () => {
       open = false;
