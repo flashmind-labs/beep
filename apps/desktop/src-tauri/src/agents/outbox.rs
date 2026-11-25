@@ -2155,8 +2155,17 @@ fn queued_form(message: &Message) -> String {
         .join("\n")
 }
 
+/// The longest user entry a node keeps; it cuts a longer one on a character boundary.
+const MAX_ENTRY: usize = 16 * 1024;
+
 /// Whether a user entry is `message`: the same words, whole, and a line per image.
+/// An entry at the node's cut holds only the start of a longer message.
 fn is_message(entry: &str, message: &Message) -> bool {
+    // A cut lands within a character of the limit, so an entry this long was cut.
+    if entry.len() + 3 >= MAX_ENTRY {
+        return message.text.trim_start().starts_with(entry.trim());
+    }
+
     let (images, words): (Vec<&str>, Vec<&str>) = entry.lines().partition(|line| {
         line.trim_start()
             .to_ascii_lowercase()

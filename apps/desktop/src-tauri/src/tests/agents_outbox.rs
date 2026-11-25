@@ -681,6 +681,19 @@ fn an_image_only_message_is_found_by_its_image_lines() {
     assert!(!holds(&log(&[], 5, &[user("hello")]), &message));
 }
 
+#[test]
+fn a_message_the_node_cut_is_still_found() {
+    let long = "x".repeat(20 * 1024);
+    let cut = user(&long[..16 * 1024]);
+    let message = kept(&long, &[], None);
+
+    assert!(holds(&log(&[], 0, &[cut]), &message));
+    assert!(!holds(
+        &log(&[], 0, &[user(&"y".repeat(16 * 1024))]),
+        &message
+    ));
+}
+
 #[tokio::test]
 async fn coalesced_orders_precede_later_messages_across_a_degraded_link() {
     let (_dir, _, outbox) = outbox();
