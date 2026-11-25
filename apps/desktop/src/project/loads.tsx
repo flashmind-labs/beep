@@ -4,8 +4,8 @@ import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { retainedHost } from "./page-view.tsx";
 import { moveStore } from "../agents/move-store.ts";
-import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
-import { AMBIENT_MS } from "../ui/active.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedEach } from "../ui/snapshot-state.ts";
 // Reading a project page: its machines, lists and sessions, kept fresh
 // while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
@@ -54,9 +54,8 @@ export function noteRecent(name: string) {
 // once it is `UNWATCHED_MS` old. Sync details follow their own changes.
 const whereChanges = new Changes();
 const sessionChanges = new Changes();
-const termChanges = new Changes();
 const foundChanges = new Changes();
-subscribeEach([topic("projects"), topic("machines"), topic("sync")], () => whereChanges.changed());
+subscribeEach([topic("projects"), topic("machines"), topic("sync")], event => { whereChanges.changed(); takeWhere(event.data); });
 // The lists themselves come as `session-list` events; a reconnect says they may be out of step.
 listen("reconnected", () => sessionChanges.changed());
 // A checkout's git state changed in the background and arrives with the event.
@@ -66,7 +65,6 @@ listen<{ project: string; row: GitRow }>("project-git-changed", ({ payload }) =>
   rememberGitRow(payload.project, payload.row);
   if (currentLocation()?.view === "projects" && state.picked === payload.project) redrawProjectsPage();
 });
-subscribeEach(topic("terminals"), () => termChanges.changed());
 subscribeEach(topic("projects"), () => foundChanges.changed());
 
 /// Marks what opening project `name` reads behind its kept page.
@@ -76,10 +74,9 @@ export function markDue(name: string) {
   if (pages.due("gitsync", name, UNWATCHED_MS)) gitDue.add(name);
 }
 
-/// Reads project `name`'s terminals once they changed since the last read.
+/// Reads project `name`'s terminals the first time; the `terminals` push keeps them after.
 function loadTerms(name: string) {
-  if (!termChanges.dirty(name)) return;
-  termChanges.read(name);
+  if (terms.list(name) !== undefined) return;
   return terms.load(name);
 }
 
@@ -260,15 +257,41 @@ export function checkoutItems(p: Project, m: WhereRow, path: string): MenuItem[]
   ];
 }
 
-/// Follows changes to the selected project's checkouts on each machine.
+/// The checkouts and Syncthing places the pushes carried, by project: the pushes of the three
+/// topics each carry some of the views, and a row is drawn from both.
+const pushedMachines = new Map<string, ProjectMachineRow[]>();
+const pushedPlaces = new Map<string, SyncthingPlace[]>();
 export const readingWhere = new Set<string>();
-subscribeChanges([topic("projects"), topic("machines"), topic("sync")], { deliver: "latest", receive: async () => {
-  const name = state.picked;
-  if (name) { await whereReads.get(name); await loadWhere(name); }
-} }, { when: () => currentLocation()?.view === "projects" && !!state.picked, wait: AMBIENT_MS });
+
+/// Takes the checkouts an update pushed for the projects native follows. A project it pushed
+/// nothing for stays marked changed, and reads when opened.
+function takeWhere(data: unknown) {
+  const names = new Set<string>();
+
+  for (const { args, pushed } of pushedEach<ProjectMachineRow[]>(data, "project_machines")) {
+    if (typeof args.project !== "string") continue;
+    if ("error" in pushed) { console.warn("project machines:", pushed.error); continue; }
+    pushedMachines.set(args.project, pushed.value);
+    names.add(args.project);
+  }
+
+  for (const { args, pushed } of pushedEach<SyncthingPlace[]>(data, "project_syncthing")) {
+    if (typeof args.project !== "string") continue;
+    if ("error" in pushed) { console.warn("project syncthing:", pushed.error); pushedPlaces.set(args.project, []); } else pushedPlaces.set(args.project, pushed.value);
+    names.add(args.project);
+  }
+
+  for (const name of names) {
+    const machines = pushedMachines.get(name);
+    if (!machines) continue;
+    whereChanges.read(name);
+    settleWhere(name, withSyncthing(machines, pushedPlaces.get(name) ?? []), whereOf(name));
+  }
+}
 /// Projects whose kept places are due another read on the next draw.
 export const whereDue = new Set<string>();
 const whereReads = new Map<string, Promise<void>>();
+/// Reads project `name`'s checkouts once: the first time, before a push brings them.
 export function loadWhere(name: string): Promise<void> {
   const pending = whereReads.get(name);
   if (pending) return pending;
@@ -299,6 +322,11 @@ async function readWhere(name: string) {
     readingWhere.delete(name);
   }
 
+  settleWhere(name, got, before);
+}
+
+/// Keeps `got`, the checkouts of project `name`, over what `before` held.
+function settleWhere(name: string, got: ProjectMachineRow[] | null, before: ProjectMachineRow[] | null | undefined) {
   // A failed read keeps the last list it had.
   // Rows still checking show, and are kept once they settle.
   if (got && !got.some(m => m.checking)) keep("where", name, got);
