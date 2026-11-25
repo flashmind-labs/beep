@@ -10,7 +10,7 @@ use super::{
     compaction::{Compactor, Policy, Route},
     family::Mark,
     images::Images,
-    kinds::{CODEX_CONFIG, OPENCODE_PERMISSION, known},
+    known::{CODEX_CONFIG, OPENCODE_PERMISSION, known},
     live::{Live, Sent},
     running::Begin,
     processes::Processes,

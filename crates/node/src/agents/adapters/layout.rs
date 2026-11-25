@@ -5,7 +5,7 @@
 //! - `agent-adapters/.stage-<what>`: an install on its way, renamed into
 //!   place only once it is complete.
 
-use super::super::kinds::{Adapter, Known};
+use crate::agents::known::{Adapter, Known};
 use semver::Version;
 use serde::Deserialize;
 use std::{
