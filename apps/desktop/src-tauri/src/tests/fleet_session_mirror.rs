@@ -289,13 +289,21 @@ async fn a_machine_that_pushes_is_not_listed_again_when_its_rows_age() {
 
     rig.mirror
         .pushed(a, vec![top(session(a, "a1", AgentStatus::Running {}))]);
-    tokio::time::sleep(FRESH * 2).await;
     rig.mirror.rows();
 
-    // Only the scan runs.
-    assert!(next(&mut rig.asks).await.scan);
+    // Only the first read scans.
+    let ask = next(&mut rig.asks).await;
+    assert!(ask.scan);
+    ask.reply.send(Some(Vec::new())).unwrap();
+    rows_where(&rig.mirror, |rows| rows.live(a)).await;
+    tokio::time::sleep(FRESH * 2).await;
+    rig.mirror.rows();
     tokio::task::yield_now().await;
     assert!(rig.asks.try_recv().is_err());
+
+    // A push of what the scan reads scans again.
+    rig.mirror.rescan(a);
+    assert!(next(&mut rig.asks).await.scan);
 }
 
 #[tokio::test(start_paused = true)]

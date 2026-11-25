@@ -37,6 +37,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 /// How long a machine's rows stand before a read lists it again, when it has
 /// pushed none. Until then its pushes replace its rows alone. Nothing runs while nobody reads.
+/// Scans never age: a push of what they read scans again.
 const FRESH: Duration = Duration::from_secs(30);
 /// The first wait before a machine that did not list its sessions is asked
 /// again; it doubles up to `RELIST_LAST`.
@@ -310,6 +311,8 @@ enum Message {
     Read,
     /// The next read lists this machine again.
     Stale(EndpointId),
+    /// What a scan of this machine reads changed: it is scanned again.
+    Rescan(EndpointId),
     /// A machine's `agents` subscription ended: its rows age again.
     Unpushed(EndpointId),
     /// A machine pushed its Beep rows.
@@ -464,6 +467,11 @@ impl SessionMirror {
         self.send(Message::Stale(machine));
     }
 
+    /// `machine` pushed what a scan of it reads: it is scanned again, from the push.
+    pub(crate) fn rescan(&self, machine: EndpointId) {
+        self.send(Message::Rescan(machine));
+    }
+
     /// The session is deleted on its machine.
     pub(crate) fn deleted(&self, machine_id: &str, session: &SessionId) {
         self.send(Message::Deleted {
@@ -525,7 +533,8 @@ impl SessionMirror {
 #[derive(Default)]
 struct Reads {
     beep: Option<Instant>,
-    scans: Option<Instant>,
+    /// Its scan answered. It stays current: what it reads is pushed.
+    scanned: bool,
     /// The machine pushes its rows, so they never age: a listing would read them back.
     pushed: bool,
 }
@@ -588,6 +597,11 @@ impl<O: Outside> Actor<O> {
             Message::Stale(machine) => {
                 self.reads.remove(&machine);
             }
+            Message::Rescan(machine) => match self.scanning.get_mut(&machine) {
+                // What the scan under way read may be older than the push.
+                Some(edited) => *edited = true,
+                None => self.scan(machine),
+            },
             Message::Unpushed(machine) => {
                 if let Some(reads) = self.reads.get_mut(&machine) {
                     reads.pushed = false;
@@ -655,7 +669,7 @@ impl<O: Outside> Actor<O> {
         }
     }
 
-    /// Lists and scans each online machine whose rows are older than `FRESH`.
+    /// Lists each online machine whose rows are older than `FRESH`, and scans one not scanned yet.
     fn read(&mut self) {
         let now = Instant::now();
         self.prune();
@@ -663,7 +677,7 @@ impl<O: Outside> Actor<O> {
         for machine in self.outside.online() {
             let reads = self.reads.entry(machine).or_default();
             let list = !reads.pushed && reads.beep.is_none_or(|at| now - at >= FRESH);
-            let scan = reads.scans.is_none_or(|at| now - at >= FRESH);
+            let scan = !reads.scanned;
 
             if list && !self.relisting.contains_key(&machine) {
                 self.start_listing(machine);
@@ -836,7 +850,7 @@ impl<O: Outside> Actor<O> {
             return;
         }
 
-        self.reads.entry(machine).or_default().scans = Some(Instant::now());
+        self.reads.entry(machine).or_default().scanned = rows.is_some();
 
         if let Some(rows) = rows
             && self.replace_scans(machine, rows)
@@ -936,7 +950,7 @@ impl<O: Outside> Actor<O> {
 
     fn stale_scans(&mut self) {
         for reads in self.reads.values_mut() {
-            reads.scans = None;
+            reads.scanned = false;
         }
     }
 }

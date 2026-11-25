@@ -4,6 +4,7 @@ use super::{Events, Fleet, Snapshots, Update, commands::retrying, controller_top
 use crate::error::{DesktopError, Result};
 use crate::fleet::session_mirror::SessionMirror;
 use beep_proto::node::{
+    agent::SessionsReply,
     events::{self, Topic},
     subscriptions::{Reply, Request},
 };
@@ -199,7 +200,12 @@ impl SubscriptionWorker {
                             }
 
                             // The first agents list of a subscription is pushed to the mirror too: nothing reads it back.
-                            if !initial || snapshot.topic.name() == "agents" { invalidate(app, machine, &snapshot.topic, Some(&snapshot.value)); }
+                            if snapshot.query.is_some() && snapshot.topic.name() == "agents" {
+                                // A read someone follows, not the machine's own list: a scan of it hears the change.
+                                if !initial && matches!(&snapshot.value, events::Value::Sessions(reply) if matches!(reply.as_ref(), SessionsReply::External { .. })) {
+                                    app.state::<Arc<SessionMirror>>().rescan(machine);
+                                }
+                            } else if !initial || snapshot.topic.name() == "agents" { invalidate(app, machine, &snapshot.topic, Some(&snapshot.value)); }
                             if !initial && snapshot.topic.name() == "sync" {
                                 super::super::event_views::sync_changed(app.clone(), super::super::event_views::moving(&snapshot.value));
                             } else if !initial && snapshot.topic.name() != "agents" && (machine == fleet.me || matches!(snapshot.topic.name(), "agent" | "processes" | "terminals" | "moves")) {
