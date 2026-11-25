@@ -1,6 +1,8 @@
 use beep_proto::SessionId;
 use beep_proto::node::agent::SessionInfo;
 use super::*;
+use beep_proto::{node::device::Device, watched};
+use tokio::sync::watch;
 use crate::events::{ChangeKind, Touched};
 use beep_proto::node::events::{
     FORGE_REACH_TOPIC, MOVE_PROGRESS_TOPIC, Query, Read, Snapshot, SessionsDelta, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC,
@@ -175,6 +177,8 @@ pub(super) struct Snapshots {
     deltas: bool,
     entries: BTreeMap<Key, Projection>,
     reads: JoinSet<Completed>,
+    /// The device list the follow of the `devices` topics stores.
+    devices: watch::Receiver<Option<Vec<Device>>>,
     next_key: Option<Key>,
 }
 
@@ -187,6 +191,7 @@ impl Snapshots {
             deltas: false,
             entries: BTreeMap::new(),
             reads: JoinSet::new(),
+            devices: crate::run::device::stored(),
             next_key: None,
         }
     }
@@ -562,6 +567,7 @@ impl Snapshots {
             metrics::counter!("beep_snapshot_reads_total", "topic" => key.0.name().to_owned())
                 .increment(1);
             let offers = offers.clone();
+            let mut devices = self.devices.clone();
             let generation = self.generation;
             let stream = self.stream;
             let listed = key.clone();
@@ -582,7 +588,14 @@ impl Snapshots {
                         }))),
                         Source::Missing => Ok(Value::Missing),
                         Source::Resources(resources) => Ok(Value::Resources(resources)),
-                        Source::Devices => Ok(Value::Devices(crate::run::device::current().await)),
+                        Source::Devices => {
+                            let listed = match watched::wait_for(&mut devices, Option::is_some).await {
+                                Ok(()) => watched::read(&devices, Clone::clone).unwrap_or_default(),
+                                Err(_) => Vec::new(),
+                            };
+
+                            Ok(Value::Devices(listed))
+                        }
                         Source::TeamCards(project) => Ok(offers
                             .reach
                             .peers()

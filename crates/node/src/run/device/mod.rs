@@ -197,19 +197,10 @@ impl Drop for Follow {
     }
 }
 
-/// The list as the follower task read it, once it has.
-pub(crate) async fn current() -> Vec<Device> {
-    // With no follower nothing reads the list, and nothing would ever store it.
-    if crate::lock(&FOLLOWING).clients == 0 {
-        return Vec::new();
-    }
-
-    let mut listed = LISTED.subscribe();
-
-    match watched::wait_for(&mut listed, Option::is_some).await {
-        Ok(()) => watched::read_sent(&LISTED, Clone::clone).unwrap_or_default(),
-        Err(_) => Vec::new(),
-    }
+/// The list as `Follow` stores it: none until it read, or after the last
+/// client stopped following. Readers follow it and never ask the module.
+pub(crate) fn stored() -> watch::Receiver<Option<Vec<Device>>> {
+    LISTED.subscribe()
 }
 
 /// Reads the list at the start and after each change of `changed`, stores it

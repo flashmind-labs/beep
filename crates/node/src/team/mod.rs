@@ -13,4 +13,5 @@ pub(crate) mod membership;
 pub(crate) mod pickup;
 pub(crate) mod proof;
 pub(crate) mod roster;
+mod served;
 mod sightings;

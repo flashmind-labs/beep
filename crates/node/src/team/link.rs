@@ -8,10 +8,11 @@ mod asks_out;
 pub(super) mod board_io;
 pub(crate) mod home_io;
 
+pub(crate) use super::served::Served;
+
 use super::{
+    served::ServedBoards,
     asks::{Asks, Sessions, not_served},
-    board::Boards,
-    cards::Teammates,
     home::{Home, Invites, TeamForge},
     proof::{PROOF_CONTEXTS, ProofError},
     roster::{Refusal, Rosters},
@@ -30,7 +31,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     fmt,
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime},
@@ -77,19 +78,6 @@ pub(crate) struct Teams {
     pub(crate) rosters: Rosters,
 }
 
-/// What this device serves as its mesh's gateway, as the gateway loop
-/// publishes it (`TeamLink::publish`): nobody else changes it.
-#[derive(Default)]
-pub(crate) struct Served {
-    /// The machine of this mesh that acts for each team, as this device
-    /// elected it.
-    pub(crate) gateways: BTreeMap<TeamRepo, EndpointId>,
-    /// The boards this device serves as its mesh's gateway.
-    pub(crate) boards: Boards,
-    /// The teammates' cards this device follows as its mesh's gateway.
-    pub(crate) teammates: BTreeMap<TeamRepo, Teammates>,
-}
-
 /// What the asks read of the home and the served boards: see `TeamLink::seen`.
 pub(super) struct Seen {
     pub(super) own: Option<EndpointId>,
@@ -114,7 +102,7 @@ struct Inner {
     /// This mesh as the mesh says it, published by the home task.
     home: watch::Sender<Home>,
     /// What the gateway serves, published by the gateway loop.
-    served: watch::Sender<Served>,
+    served: ServedBoards,
     /// Contacts' invites waiting for a desktop.
     invites: Mutex<Invites>,
     /// The pickup queues the gateways handed this device, for its gateway
@@ -138,7 +126,7 @@ impl TeamLink {
             teams: Mutex::new(Teams::default()),
             asks: Mutex::default(),
             home: watch::channel(Home::default()).0,
-            served: watch::channel(Served::default()).0,
+            served: ServedBoards::default(),
             invites: Mutex::default(),
             queues: Mutex::default(),
             sessions: OnceLock::new(),
@@ -222,7 +210,7 @@ impl TeamLink {
 
     /// `f` of what the gateway serves. Not inside another watch read.
     pub(crate) fn served<R>(&self, f: impl FnOnce(&Served) -> R) -> R {
-        read_sent(&self.inner.served, f)
+        self.inner.served.read(f)
     }
 
     /// What the asks read of the home and of what the gateway serves for
@@ -247,21 +235,7 @@ impl TeamLink {
     /// Changes what the gateway serves (publishes), for its readers: the gateway loop
     /// is the only caller. Keep `f` short: it holds the value.
     pub(crate) fn publish(&self, f: impl FnOnce(&mut Served)) {
-        let me = self.me();
-        let acting_in = |served: &Served| -> BTreeSet<TeamRepo> {
-            served
-                .gateways
-                .iter()
-                .filter(|(_, gateway)| **gateway == me)
-                .map(|(repo, _)| repo.clone())
-                .collect()
-        };
-        let mut acting = BTreeSet::new();
-        self.inner.served.send_modify(|served| {
-            acting = acting_in(served);
-            f(served);
-            acting.extend(acting_in(served));
-        });
+        let acting = self.inner.served.publish(self.me(), f);
 
         // The boards and the teammates' cards are what this device serves. A
         // team it stopped acting for rings too: its readers now get nothing.
@@ -349,7 +323,7 @@ impl TeamLink {
         crate::events::system().changed(Topic::new(TEAM_INVITES_TOPIC));
         crate::lock(&self.inner.queues).clear();
         self.inner.home.send_replace(Home::default());
-        self.inner.served.send_replace(Served::default());
+        self.inner.served.clear();
     }
 
     /// Returns once a roster or an invite waits for a desktop.
