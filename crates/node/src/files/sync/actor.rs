@@ -157,7 +157,6 @@ impl Projects {
         beep_proto::watched::read_sent(&self.seen, Seen::clone)
     }
 
-    #[cfg(test)]
     pub(super) fn subscribe(&self) -> watch::Receiver<Seen> {
         self.seen.subscribe()
     }

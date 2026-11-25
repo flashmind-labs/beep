@@ -25,8 +25,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use std::{fmt::Write, sync::Arc, time::Duration};
 use tokio::{
-    sync::Semaphore,
-    time::{Instant, sleep, timeout},
+    select,
+    sync::{Semaphore, broadcast::error::RecvError},
+    time::{Instant, sleep_until, timeout},
 };
 
 /// How long a peer has to send its call.
@@ -291,7 +292,6 @@ struct SyncArgs {
 
 /// How long `sync_project` waits for the project to settle.
 const SYNC_WAIT: Duration = Duration::from_secs(90);
-const SYNC_POLL: Duration = Duration::from_millis(500);
 
 /// The most `sync_project` calls waiting on a project at once, from every
 /// peer together.
@@ -315,12 +315,28 @@ async fn sync_project(args: Value, caller: &Caller) -> Outcome {
         return Err("Sync did not start on this machine, so it syncs no projects.".to_owned());
     };
     let syncs = transfers.syncs();
+    // Listening before the scan starts, so no change in between is missed.
+    let mut rings = crate::events::system().subscribe();
+    let mut projects = syncs.changes();
     let status = syncs.rescan(&project).await.map_err(|e| format!("{e:#}"))?;
     let deadline = Instant::now() + SYNC_WAIT;
     let mut status = status;
 
-    while !settled(&status) && Instant::now() < deadline {
-        sleep(SYNC_POLL).await;
+    while !settled(&status) {
+        let woke = select! {
+            _ = sleep_until(deadline) => break,
+            ring = rings.recv() => match ring {
+                Ok(change) => change.topic.name() == "sync",
+                // Rings were missed: look again.
+                Err(RecvError::Lagged(_)) => true,
+                Err(RecvError::Closed) => break,
+            },
+            () = projects.changed() => true,
+        };
+
+        if !woke {
+            continue;
+        }
 
         match syncs.status_for(&project) {
             Some(now) => status = now,

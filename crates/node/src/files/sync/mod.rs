@@ -155,6 +155,19 @@ impl Drop for Serving {
     }
 }
 
+/// What `Syncs::changes` hands out.
+pub(crate) struct SyncChanges(tokio::sync::watch::Receiver<actor::Seen>);
+
+impl SyncChanges {
+    /// Returns when the projects changed since the last call.
+    pub(crate) async fn changed(&mut self) {
+        // The projects live as long as the node; a closed watch never wakes.
+        if self.0.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
 /// The node's synced projects.
 #[derive(Clone)]
 pub struct Syncs {
@@ -812,6 +825,12 @@ impl Syncs {
             .values()
             .map(Entry::status)
             .collect()
+    }
+
+    /// Wakes when a project is added, removed or changes phase. A status
+    /// change inside a running project rings the `sync` topic instead.
+    pub(crate) fn changes(&self) -> SyncChanges {
+        SyncChanges(self.inner.projects.subscribe())
     }
 
     /// A project's Git and selected ignored-folder datasets as one status.
