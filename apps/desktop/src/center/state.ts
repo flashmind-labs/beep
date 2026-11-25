@@ -59,9 +59,8 @@ export const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.
 
 export const OFFLINE_NOTE_MS = 60 * 60 * 1000;
 /// Before Home first loads: how long "Connecting" shows before "Still
-/// connecting", and how soon a failed try is made again.
+/// connecting".
 export const CONNECT_STUCK_MS = 15000;
-export const CONNECT_RETRY_MS = 3000;
 
 /// The Home the window holds, as it was read. `state.home` derives what Home shows from it each
 /// time it is read: the machine list's names, and no machine this window removed.

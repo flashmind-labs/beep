@@ -5,7 +5,7 @@ import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
 import { applyTelemetry, keepUnchanged, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
-import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, heldHome, pages, pagesAccount } from "./state.ts";
+import { CONNECT_STUCK_MS, state, heldHome, pages, pagesAccount } from "./state.ts";
 import { draw } from "./home.tsx";
 import { readAllTerms } from "../terminals/view.tsx";
 import { takeGit } from "./openitems.ts";
@@ -25,7 +25,7 @@ let fresh = false;
 
 // ---------- Refresh ----------
 
-let again = false, retryTimer: ReturnType<typeof setTimeout> | undefined;
+let again = false;
 
 let telemetry: Telemetry | undefined;
 /// The newest Home the `home` push carried and no read took yet.
@@ -191,7 +191,6 @@ export function ensureHome() {
 
 /// Explicit refresh and first load reconcile all Home domains.
 export async function refresh() {
-  clearTimeout(retryTimer);
   started = true;
 
   try {
@@ -203,8 +202,8 @@ export async function refresh() {
       terminals ? readAllTerms() : undefined]);
   } catch (error) {
     console.warn("Home:", error);
+    // The first Home push loads everything again.
     started = false;
-    if (!fresh && onScreen()) retryTimer = setTimeout(refresh, CONNECT_RETRY_MS);
   }
 }
 
@@ -216,7 +215,7 @@ export const onScreen = pageShown;
 /// A shown projects page draws again so its live mode and Actions polling start over, since the
 /// reader resumes with only the topics that changed.
 onShownChange(visible => {
-  if (!visible) { clearTimeout(retryTimer); runs.stop(); liveMode.follow(null); return; }
+  if (!visible) { runs.stop(); liveMode.follow(null); return; }
 
   if (state.home) { redrawProjectsPage(); drawRail(); }
 });
@@ -227,6 +226,7 @@ subscribeChanges(topic("home"), { deliver: "each", receive: event => {
   if (!pushed) return;
 
   pushedHome = pushed;
+  if (!started) { void refresh(); return; }
   homeChanged("value" in pushed && needsChanged(pushed.value));
 } });
 subscribeChanges(topic("projects"), { deliver: "each", receive: async event => {
