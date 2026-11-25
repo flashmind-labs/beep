@@ -54,6 +54,15 @@ export function ensureMachines(): Promise<Machine[]> {
   return first;
 }
 
+/// Resolves when the next list arrives, or after `ms` when the machines did not change.
+export function nextMachines(ms: number): Promise<void> {
+  return new Promise(done => {
+    const finish = () => { clearTimeout(timer); machinesChanged.delete(finish); done(); };
+    const timer = setTimeout(finish, ms);
+    machinesChanged.add(finish);
+  });
+}
+
 function take(list: Machine[]) {
   MACHINES.list = list;
   MACHINES.failed = false;

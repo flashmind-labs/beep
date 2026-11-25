@@ -3,9 +3,12 @@
 import type { Machine } from "../machines/machines.tsx";
 import { openSignIn } from "../machines/signin.tsx";
 import { reason } from "../ui/format.ts";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { ensureMac, ensureMachines, MACHINES, machinesChanged, nextMachines } from "../machines/machine-store.ts";
 import { buildCapabilities, invoke } from "../ui/tauri.ts";
 import { ITEMS, idleWork, isAgent, pending, row, type Item, type Setup, type Work } from "./firstrun-state.ts";
+
+/// How long a step waits for the machines push that follows a probe before it goes on.
+const PROBE_WAIT_MS = 5000;
 
 export interface SetupRun {
   get: () => Setup;
@@ -21,8 +24,8 @@ export interface SetupRun {
 export async function thisComputer(): Promise<Machine | null> {
   if (!(await buildCapabilities()).local_host) return null;
   const [mac, list] = await Promise.all([
-    invoke<{ id: string | null }>("mac_control").catch(e => { console.warn("this computer's state:", e); return null; }),
-    invoke<Machine[]>("list_machines").catch(e => { console.warn("listing machines:", e); return []; }),
+    ensureMac().catch(e => { console.warn("this computer's state:", e); return null; }),
+    ensureMachines().catch(e => { console.warn("listing machines:", e); return []; }),
   ]);
   const id = mac?.id ?? null;
   return id === null ? null : list.find(m => m.id === id) ?? null;
@@ -39,14 +42,20 @@ export function setupRun(machine: Machine): SetupRun {
   const working = (item: Item, work: Work) => update({ work: { ...state.work, [item]: work } });
   const installed = (item: Item) => update({ installed: new Set([...state.installed, item]), work: { ...state.work, [item]: { kind: "idle" } } });
 
-  // The node probes the machine again after each install and sign-in.
-  const reread = async () => {
-    const found = await thisComputer();
+  // The node probes the machine again after each install and sign-in, and the machines push
+  // brings the result: the held list follows it, and a step waits for the next list.
+  let heard = 0;
+  const take = () => {
+    heard++;
+    const found = MACHINES.list?.find(m => m.id === machine.id);
     if (found && !disposed) update({ env: found.env });
   };
-  const unfollow = subscribeChanges(topic("machines"), { deliver: "latest", receive: reread });
+  machinesChanged.add(take);
+  const unfollow = () => machinesChanged.delete(take);
+  const reread = (since: number) => heard > since ? Promise.resolve() : nextMachines(PROBE_WAIT_MS);
 
   async function install(item: Item) {
+    const since = heard;
     working(item, { kind: "installing" });
 
     try {
@@ -62,14 +71,15 @@ export function setupRun(machine: Machine): SetupRun {
       working(item, { kind: "failed", reason: reason(e) });
     }
 
-    await reread();
+    await reread(since);
   }
 
   const signIn = (item: Item) => new Promise<void>(done => {
+    const since = heard;
     working(item, { kind: "signing_in" });
     openSignIn(machine, item, () => {
       working(item, { kind: "idle" });
-      void reread().then(done);
+      void reread(since).then(done);
     });
   });
 
