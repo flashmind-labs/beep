@@ -56,6 +56,8 @@ test("machines contain their sync state and only their own terminals", async ({ 
 
 test("removal keeps the folder by default and sends deletion only when selected", async ({ page }) => {
   await openMachines(page);
+  const listed = () => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "project_machines").length);
+  const before = await listed();
   await page.getByRole("button", { name: "Remove from studio", exact: true }).click();
   const checkbox = page.getByRole("checkbox", { name: "Also delete the folder on studio" });
   await expect(checkbox).not.toBeChecked();
@@ -64,6 +66,8 @@ test("removal keeps the folder by default and sends deletion only when selected"
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "project_remove_from_machine"))).toEqual([
     { command: "project_remove_from_machine", args: { project: projectName, machineId: "studio", deleteFolder: true } },
   ]);
+  // The machines come as an update once the mesh changes; removing reads them no more.
+  expect(await listed()).toBe(before);
 });
 
 test("pause operates on the combined view and offline checkouts hide folder changes", async ({ page }) => {
@@ -223,6 +227,8 @@ test("adding a machine reads the sync once and follows it from the sync updates 
   await expect(sheet).toContainText("Copying to laptop: 4 of 18 files");
   const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_detail").length);
   const before = await reads();
+  const listed = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_machines").length);
+  const machinesBefore = await listed();
 
   const push = (value: SyncDetail, at: number) => page.evaluate(([view, revision]) => window.__navigation.publish("sync.*", revision, { views: [view] }), [{ command: "project_sync_detail", args: { project: projectName }, value }, at] as const);
   await push(copying(laptop(11, 7, "syncing")), 5000);
@@ -230,6 +236,7 @@ test("adding a machine reads the sync once and follows it from the sync updates 
   await push(copying(laptop(18, 0, "in_sync")), 5001);
   await expect(sheet).toHaveCount(0);
   expect(await reads()).toBe(before);
+  expect(await listed()).toBe(machinesBefore);
 });
 
 test("the project composer offers hosts that reconnect while it stays open", async ({ page }) => {

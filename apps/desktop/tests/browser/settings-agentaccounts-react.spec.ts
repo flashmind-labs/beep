@@ -95,12 +95,24 @@ test("Claude signs in on the selected machine and refreshes its account", async 
   const sheet = page.getByRole("dialog", { name: "Sign in to Claude Code on test-box", exact: true });
   await expect(sheet).toContainText("Claude Code is signed in on test-box.");
   expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "machine_sign_in").map(call => call.args))).toContainEqual({ machineId: "test-box", tool: "claude", step: { step: "start" } });
+  const count = (command: string) => page.evaluate(name => window.__navigation.calls().filter(call => call.command === name).length, command);
+  const stateReads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "machine_sign_in" && (call.args.step as { step: string }).step === "state").length);
+  const accountReads = await count("agent_accounts");
+  // The node says how the sign-in stands; the sheet draws it without asking.
+  // The sheet's subscription reaches native code a moment after it opens, so the update repeats until drawn.
+  await expect(async () => {
+    await page.evaluate(() => window.__navigation.publish("sign-in.claude", null, { SignIn: { Failed: { reason: "The sign-in timed out" } } }, "test-box"));
+    await expect(sheet).toContainText("The sign-in timed out", { timeout: 300 });
+  }).toPass();
+  expect(await stateReads()).toBe(0);
   await page.evaluate(machines => window.__navigation.notify("machines", [{ command: "list_machines", value: machines }]), [login("build-box", true, "one@example.com"), login("test-box", true, "two@example.com")]);
   await sheet.getByRole("button", { name: "Close", exact: true }).click();
   await expect(row("test-box")).toContainText("signed in as two@example.com");
   await expect(row("test-box").getByRole("button")).toHaveCount(0);
   await expect(row("build-box")).toContainText("signed in as one@example.com");
   expect(await page.evaluate(() => window.__navigation.calls().some(call => call.command === "claude_sign_in" || call.command === "save_agent_token"))).toBe(false);
+  // Closing the sheet reads no accounts: the accounts update carries a changed sign-in.
+  expect(await count("agent_accounts")).toBe(accountReads);
 });
 
 test("Antigravity signs in on the machine that is signed out", async ({ page }) => {
@@ -177,4 +189,37 @@ test("a token saved here shows from the accounts push, without reading the accou
   await page.evaluate(token => window.__navigation.notify("accounts", [{ command: "agent_accounts", value: { claude: token, codex_key: null, machines: [], named: [] } }]), token);
   await expect(settings.getByText("…cret")).toBeVisible();
   expect(await reads()).toBe(before);
+});
+
+test("a Codex sign-in is asked about only once its task has ended, from the processes update", async ({ page }) => {
+  const machines = [{ id: "test-box", name: "test-box", online: true, claude: false, codex: true, claude_sessions: 0, codex_signed_in: false }];
+  await openDesktop(page, false, {
+    settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false },
+    agent_accounts: { claude: null, codex_key: null, machines, named: [] },
+    list_machines: [], list_credentials: [], list_github_accounts: [],
+    codex_login_start: { task: 4, url: "https://auth.openai.com/codex/device", code: "ABCD-12345", expires_at: Date.now() + 900_000 },
+    codex_login_state: { state: "waiting", message: null },
+    open_url: null,
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Agents", exact: true }).click();
+  await settings.locator(".dbox").filter({ has: page.locator("b.dtitle", { hasText: /^Codex$/ }) }).getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(settings).toContainText("ABCD-12345");
+  const asked = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "codex_login_state").length);
+  const tasks = (state: unknown) => ({ Process: { Tasks: { tasks: [{ id: 4, command: "codex login --device-auth", state }] } } });
+  const before = await asked();
+
+  // While the task runs, its updates say so and nothing is asked.
+  for (const revision of [7000, 7001]) await page.evaluate(([data, at]) => window.__navigation.publish("processes.*", at, data, "test-box"), [tasks("running"), revision] as const);
+  await expect(settings).toContainText("ABCD-12345");
+  expect(await asked()).toBe(before);
+
+  // Once it ended, the state is read once and the row follows it.
+  await page.evaluate(() => window.__navigation.respond("codex_login_state", { state: "signed_in", message: null }));
+  await expect(async () => {
+    await page.evaluate(data => window.__navigation.publish("processes.*", null, data, "test-box"), tasks({ exited: { code: 0 } }));
+    await expect(settings).not.toContainText("ABCD-12345", { timeout: 300 });
+  }).toPass();
+  expect(await asked()).toBeGreaterThan(before);
 });
