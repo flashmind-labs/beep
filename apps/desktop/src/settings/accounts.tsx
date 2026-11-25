@@ -9,7 +9,7 @@ import { copy } from "../ui/clipboard.ts";
 import type { Machine } from "../machines/machines.tsx";
 import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 import { openSignIn } from "../machines/signin.tsx";
-import { redrawSettings, setShown } from "./settings.tsx";
+import { setShown, settingsChanged } from "./settings-state.ts";
 import { Mounted } from "./settings-shell-view.tsx";
 import { Channel, invoke } from "../ui/tauri.ts";
 import { AMBIENT_MS, onShownChange } from "../ui/active.ts";
@@ -112,7 +112,7 @@ export function credentialsContent() {
   return <Mounted entered={credsEntered} left={credsLeft}><CredentialsView state={CRED} machines={machines} actions={credActions} /></Mounted>;
 }
 export function renderCreds() {
-  if (credsShown) redrawSettings();
+  if (credsShown) settingsChanged();
 }
 async function useLogin(busy: string, errorKey: string, act: () => Promise<unknown>) {
   if (CRED.cliBusy) return;
@@ -276,7 +276,7 @@ export function agentAccountsContent() {
   return <Mounted entered={agentsEntered} left={agentsLeft}><AgentAccountsView state={ACC} ago={ms => formatAgo(ms, "chat")} now={Date.now()} actions={agentActions} /></Mounted>;
 }
 function renderAgents() {
-  if (agentsShown) redrawSettings();
+  if (agentsShown) settingsChanged();
 }
 const agentActions: AgentAccountActions = {
   add(agent) { agentEditVersion++; ACC.add = agent ? { agent, error: "" } : null; ACC.edit = null; renderAgents(); },

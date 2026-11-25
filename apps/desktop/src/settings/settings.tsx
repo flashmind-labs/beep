@@ -10,10 +10,10 @@ import { AssistantView } from "./assistant-view.tsx";
 import { PluginsView } from "./plugins-settings-view.tsx";
 import { pluginsSettings } from "./plugins-settings.ts";
 import { AppearanceView, ComputerView } from "./local-view.tsx";
-import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading, type AgentsTab } from "./settings-shell-view.tsx";
+import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import { agentAccountsContent, credentialsContent, renderCreds, CRED, ensureAgentAccounts, loadCreds } from "./accounts.tsx";
-import { bar, S, toWindow, windowHooks, setView } from "../bar/core.ts";
+import { bar, toWindow, windowHooks, setView } from "../bar/core.ts";
 import { type BarPageSlot, openBarPage } from "../bar/bar-page.ts";
 import { hintModel } from "../bar/hints.ts";
 import { machinesIn, machinesOut, renderMachines } from "../machines/machines.tsx";
@@ -23,6 +23,7 @@ import { harnessName } from "./providers-state.ts";
 import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
 import { invoke } from "../ui/tauri.ts";
 import { toggleShortcuts } from "../ui/shortcutsheet.tsx";
+import { SET, onSettingsChanged, setShown } from "./settings-state.ts";
 
 /// This Mac's own settings (`settings`).
 export interface MacSettings {
@@ -39,17 +40,6 @@ export interface MacSettings {
   /// Updates to every release, patches included, not just minor releases.
   developer: boolean;
 }
-
-/// Settings: drawn at once from what this Mac knows (its own settings and the
-/// last machines seen), then the machines and credentials fill in as they answer.
-export const SET: {
-  root: HTMLElement | null;
-  token: number;
-  path: SettingsPath | null;
-  agentsTab: AgentsTab;
-  local: { set: MacSettings; mac: MacControl | null } | null;
-  unembed: (() => void) | null;
-} = { root: null, token: 0, path: null, agentsTab: "accounts", local: null, unembed: null };
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
 /// The sheet opens on `page` when given, else on the page picked last.
@@ -112,15 +102,15 @@ function drawLocal() {
 }
 
 /// Draws Settings again where it is shown, the sheet or the bar.
-export function redrawSettings() {
+function redrawSettings() {
   if (!setShown()) return;
   if (SET.root) drawChrome();
   else drawBarSettings();
 }
 
+onSettingsChanged(redrawSettings);
+
 const setRoot = () => SET.root ?? bar;
-/// The sheet is open, or the bar still shows Settings.
-export const setShown = () => SET.root ? SET.root.isConnected : S.view === "settings";
 
 /// The pages the sheet lists now.
 const sheetPages = () => SET.local ? settingsSections(SET.local.mac, true).map(([id]) => id) : [];
