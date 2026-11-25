@@ -1,6 +1,8 @@
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { bar } from "../bar/core.ts";
-import { ViewerNotice } from "./viewer-view.tsx";
+import { Button } from "../ui/kit.tsx";
+import { revealLabel } from "../ui/platform.ts";
+import { invoke } from "../ui/tauri.ts";
 
 /// The viewer and its notes, drawn at the end of the element they cover.
 export const overlays = createDocumentScope<"viewer" | "notice">();
@@ -15,4 +17,8 @@ export function notice(text: string, { path, bad }: { path?: string; bad?: boole
   overlays.remove(["notice"]);
   overlays.set([{ slot: "notice", host: viewer.open ? viewer.host : bar, content: <ViewerNotice text={text} path={path ?? null} bad={!!bad} /> }]);
   noticeTimer = setTimeout(() => overlays.remove(["notice"]), 5000);
+}
+
+function ViewerNotice({ text, path, bad }: { text: string; path: string | null; bad: boolean }) {
+  return <div className={`dsaved${bad ? " bad" : ""}`} id="saved" role="status"><span>{text}</span>{path && <Button onClick={() => void invoke("reveal_file", { path }).catch(() => {})}>{revealLabel()}</Button>}</div>;
 }

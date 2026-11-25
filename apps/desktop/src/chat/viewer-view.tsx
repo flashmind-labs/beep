@@ -1,8 +1,8 @@
 import { useLayoutEffect, useRef, useState } from "react";
-import { commandKey, revealLabel } from "../ui/platform.ts";
+import { commandKey } from "../ui/platform.ts";
 import { hintModel } from "../bar/hints.ts";
 import { HintView } from "../bar/hints-view.tsx";
-import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
+import { useBuildCapabilities } from "../ui/tauri.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";
 import type { ViewerAct, ViewerFile, ViewerPic } from "./media.tsx";
 import { useDialogRef } from "../ui/parts.tsx";
@@ -111,8 +111,4 @@ export function FileViewer({ file, act, open }: { file: ViewerFile; act: (a: Vie
     <div className="vt"><span className="tt"><b>{file.name}</b><small>{read.kind === "text" && read.cut ? `${file.path}, the start of it` : file.path}</small></span><Button data-v="open" onClick={() => open(file)}>Open</Button><Button ref={close} data-v="close" aria-label="Close" onClick={() => act("close")} dangerouslySetInnerHTML={{ __html: ICON.x }} /></div>
     <div className="vi">{body}</div><HintView value={hintModel([["esc", "close"]])} />
   </div>;
-}
-
-export function ViewerNotice({ text, path, bad }: { text: string; path: string | null; bad: boolean }) {
-  return <div className={`dsaved${bad ? " bad" : ""}`} id="saved" role="status"><span>{text}</span>{path && <Button onClick={() => void invoke("reveal_file", { path }).catch(() => {})}>{revealLabel()}</Button>}</div>;
 }
