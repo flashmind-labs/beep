@@ -447,3 +447,54 @@ async fn the_gateway_elects_when_the_home_changes() {
 
     assert_eq!(link.served(|served| served.gateways.get(&repo()).copied()), Some(me));
 }
+
+#[tokio::test]
+async fn a_busy_desktop_write_does_not_hold_up_the_home() {
+    use crate::team::home::{ForgeCli, follow};
+    use beep_mesh::{DeviceKind, TeamWrites};
+    use std::sync::Arc;
+    use tokio::time::timeout;
+    use tokio_util::task::AbortOnDropHandle;
+
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint.clone(), "build-box")
+        .await
+        .unwrap();
+    let me = mesh.me();
+    assert!(
+        mesh.devices()
+            .iter()
+            .any(|status| status.device.id == me && status.device.kind == DeviceKind::Desktop),
+        "the first device of a mesh is a desktop"
+    );
+    let link = TeamLink::new(endpoint, Arc::new(ForgeCli));
+    let mut home = link.home_changes();
+
+    // Keeping the contacts waits on this lock for as long as it is held.
+    let writing = TeamWrites::lock().await;
+    let _follow = AbortOnDropHandle::new(tokio::spawn(follow(mesh.clone(), link.clone())));
+    let record = ProjectRecord {
+        url: URL.to_owned(),
+        ..ProjectRecord::default()
+    };
+    mesh.set(
+        Key::Project("org/repo".into()),
+        Some(record.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
+
+    let seen = timeout(
+        Duration::from_secs(20),
+        home.wait_for(|home| home.projects.contains_key(&repo())),
+    )
+    .await;
+    drop(writing);
+
+    assert!(seen.is_ok(), "the project reached the home while a write was held");
+}
