@@ -136,7 +136,7 @@ fn a_node_without_the_clone_installs_from_a_copy_another_node_serves() {
 
     let files = skill_at(&reader, url, &revision, "pdf").unwrap().unwrap();
     let root = ensure_git(&reader, url, &revision).unwrap();
-    assert_eq!(disk::read(&root.join("skills/pdf")).unwrap().unwrap(), files);
+    assert_eq!(skill_disk::read(&root.join("skills/pdf")).unwrap().unwrap(), files);
     let old = copy_root(&other, url, "abcdef0").unwrap();
     fs::create_dir_all(&old).unwrap();
     let root = copy_root(&other, url, &revision).unwrap();

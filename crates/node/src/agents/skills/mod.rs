@@ -1,5 +1,5 @@
 //! The user's own coding agent skills, copied to every machine of the mesh.
-//! Each node lists its skills on `skills/1` (`disk`), reads every other
+//! Each node lists its skills on `skills/1` (`skill_disk`), reads every other
 //! node's list, and takes a skill it never held, or a newer edit of one it
 //! synced (`compare`). Copies edited apart are a conflict: it is logged and
 //! told to the desktop, and no file changes until the user keeps one copy
@@ -8,10 +8,9 @@
 //! installed stay out of it.
 
 mod compare;
-pub(crate) mod disk;
 mod follow;
 
-pub(crate) use follow::{follow, online, serve};
+pub(crate) use follow::{follow, serve};
 
 use super::skill_library::Libraries;
 use beep_mesh::{Key, Mesh};

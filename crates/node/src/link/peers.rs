@@ -608,7 +608,8 @@ impl Peers {
         let libraries = crate::agents::skill_library::follow(
             active.clone(),
             self.inner.dir.clone(),
-            offers.skills.clone(),
+            offers.skills.home().cloned(),
+            offers.skills.libraries().clone(),
             offers.agents.clone(),
         );
         let team = crate::team::home::follow(active.clone(), self.inner.team.clone());

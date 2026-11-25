@@ -623,7 +623,13 @@ pub(super) async fn serve_open(
                 crate::agents::skills::serve(tx, rx, offers.skills, mesh, desktop).await
             }
             SessionProtocol::SkillLibrary => {
-                crate::agents::skill_library::serve(tx, rx, offers.skills).await
+                crate::agents::skill_library::serve(
+                    tx,
+                    rx,
+                    offers.skills.home().cloned(),
+                    offers.skills.libraries().clone(),
+                )
+                .await
             }
             SessionProtocol::Tasks => tasks::serve(tx, rx).await,
             SessionProtocol::Terminal => terminal::serve(tx, rx).await,

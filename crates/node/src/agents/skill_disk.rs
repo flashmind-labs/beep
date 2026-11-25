@@ -655,5 +655,5 @@ impl Saved {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_skills_disk.rs"]
+#[path = "../tests/agents_skills_disk.rs"]
 mod tests;

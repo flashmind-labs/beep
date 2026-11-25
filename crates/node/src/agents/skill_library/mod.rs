@@ -13,7 +13,9 @@ mod store;
 
 pub(crate) use follow::{follow, serve};
 
+use beep_mesh::Mesh;
 use beep_proto::{node::skill_library::Problem, watched};
+use iroh::EndpointId;
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -48,6 +50,16 @@ impl Default for Libraries {
             }),
         }
     }
+}
+
+/// The other members online now.
+pub(crate) fn online(mesh: &Mesh) -> BTreeSet<EndpointId> {
+    let me = mesh.me();
+    mesh.code_hosts()
+        .into_iter()
+        .filter(|status| status.online && status.device.id != me)
+        .map(|status| status.device.id)
+        .collect()
 }
 
 impl Libraries {

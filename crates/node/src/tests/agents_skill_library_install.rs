@@ -41,7 +41,7 @@ fn picked_skills_install_update_and_uninstall_without_losing_edits() {
     // Already there: the same `notes`, and a `style` of the user's own.
     put(&home.join(".claude/skills"), "notes", "The notes skill.", "v1");
     put(&home.join(".claude/skills"), "style", "Mine.", "v1");
-    let global = disk::targets(&home);
+    let global = skill_disk::targets(&home);
     let checkouts = [Checkout {
         place: Place::Project(PROJECT.into()),
         folder: checkout.clone(),
@@ -122,7 +122,7 @@ fn a_library_that_cannot_be_fetched_keeps_what_it_installed() {
     let store = temp.path().join("store");
     fs::create_dir_all(home.join(".claude")).unwrap();
     put(&store, "pdf", "The pdf skill.", "v1");
-    let global = disk::targets(&home);
+    let global = skill_disk::targets(&home);
     let mut lib = Ready {
         name: "lib".into(),
         library: library(Pick::All, Pick::None),

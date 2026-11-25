@@ -2,7 +2,7 @@
 //! Git checkouts, or links into one, grouped by the repository's remote. Blocks.
 
 use super::store;
-use crate::{agents::skills::disk, machine::provision::installed_by_beep};
+use crate::{agents::skill_disk, machine::provision::installed_by_beep};
 use beep_proto::node::skill_library::FoundLibrary;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -19,7 +19,7 @@ pub(super) fn find(home: &Path, ours: &BTreeSet<PathBuf>) -> Vec<FoundLibrary> {
     let mut remotes: HashMap<PathBuf, Option<String>> = HashMap::new();
     let mut found: BTreeMap<String, (BTreeSet<String>, BTreeSet<String>)> = BTreeMap::new();
 
-    for root in disk::roots(home) {
+    for root in skill_disk::roots(home) {
         let Ok(entries) = fs::read_dir(&root) else {
             continue;
         };
@@ -37,7 +37,7 @@ pub(super) fn find(home: &Path, ours: &BTreeSet<PathBuf>) -> Vec<FoundLibrary> {
                 continue;
             };
 
-            if !disk::valid_part(&name) || ours.contains(&path) {
+            if !skill_disk::valid_part(&name) || ours.contains(&path) {
                 continue;
             }
 

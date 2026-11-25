@@ -26,6 +26,7 @@ host! {
     mod codex_direct;
     pub(crate) mod found;
     pub mod mcp;
+    pub(crate) mod skill_disk;
     pub(crate) mod skill_library;
     pub mod skills;
 

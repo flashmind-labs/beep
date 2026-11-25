@@ -4,7 +4,7 @@
 //! user edited since is never replaced or removed. Every function here blocks.
 
 use super::store;
-use crate::agents::skills::disk;
+use crate::agents::skill_disk;
 use anyhow::{Context, Result};
 use beep_proto::node::{mesh_state::SkillLibrary, skill_library::Problem, skills::SkillFile};
 use serde::{Deserialize, Serialize};
@@ -198,8 +198,8 @@ fn at(path: &Path) -> At {
         Ok(_) => {}
     }
 
-    match disk::read(path) {
-        Ok(Some(files)) => At::Skill(disk::hash(&files)),
+    match skill_disk::read(path) {
+        Ok(Some(files)) => At::Skill(skill_disk::hash(&files)),
         _ => At::Other,
     }
 }
@@ -239,11 +239,11 @@ pub(super) fn apply(record: &mut Record, mut wants: Vec<Want>, checkouts: &[Chec
             continue;
         };
         let copy = sources.entry(source.clone()).or_insert_with(|| {
-            disk::read(source)
+            skill_disk::read(source)
                 .ok()
                 .flatten()
                 .map(|files| {
-                    let hash = disk::hash(&files);
+                    let hash = skill_disk::hash(&files);
                     (files, hash)
                 })
         });
@@ -325,12 +325,12 @@ pub(super) fn write(path: &Path, files: &[SkillFile]) -> Result<()> {
         .file_name()
         .and_then(|name| name.to_str())
         .context("a skill folder has a name")?;
-    disk::check(name, files)?;
+    skill_disk::check(name, files)?;
     fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
-    let partial = disk::stage(dir, name, files)?;
+    let partial = skill_disk::stage(dir, name, files)?;
 
     match fs::symlink_metadata(path) {
-        Ok(_) => disk::swap(&partial, dir, name),
+        Ok(_) => skill_disk::swap(&partial, dir, name),
         Err(_) => fs::rename(&partial, path).with_context(|| format!("writing {}", path.display())),
     }
 }
@@ -348,7 +348,7 @@ fn uninstall(record: &mut Record, desired: &BTreeSet<PathBuf>) {
     for install in gone {
         match at(&install.path) {
             At::Skill(found) if found == install.hash => {
-                if let Err(e) = disk::remove_entry(&install.path) {
+                if let Err(e) = skill_disk::remove_entry(&install.path) {
                     log::warn!("skill libraries: {} not removed: {e:#}", install.path.display());
                     continue;
                 }

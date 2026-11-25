@@ -11,7 +11,7 @@
 //! A copy the user kept to end a conflict is a version of its own: every
 //! copy from an older version, edited or not, takes it with no clash.
 
-use super::disk::Base;
+use crate::agents::skill_disk::Base;
 use beep_proto::node::skills::{Conflict, Held, Listed};
 use iroh::EndpointId;
 use std::collections::{BTreeMap, BTreeSet};

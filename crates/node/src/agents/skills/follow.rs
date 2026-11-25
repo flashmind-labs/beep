@@ -4,8 +4,11 @@
 use super::{
     Skills,
     compare::{Holder, Outcome, Take, compare},
-    disk::{self, Base, Hashes, Scan, Seen},
     enabled,
+};
+use crate::agents::{
+    skill_disk::{self, Base, Hashes, Scan, Seen},
+    skill_library::online,
 };
 use crate::events::paths::Paths;
 use anyhow::{Context, Result, bail};
@@ -162,7 +165,7 @@ async fn watch(home: &Path, edited: mpsc::Sender<()>) -> Option<Paths> {
         let _ = edited.try_send(());
     });
     let watching = match watcher {
-        Ok(watcher) => watcher.replace(disk::roots(home)).await.map(|()| watcher),
+        Ok(watcher) => watcher.replace(skill_disk::roots(home)).await.map(|()| watcher),
         Err(e) => Err(e),
     };
 
@@ -173,16 +176,6 @@ async fn watch(home: &Path, edited: mpsc::Sender<()>) -> Option<Paths> {
             None
         }
     }
-}
-
-/// The other members online now.
-pub(crate) fn online(mesh: &Mesh) -> BTreeSet<EndpointId> {
-    let me = mesh.me();
-    mesh.code_hosts()
-        .into_iter()
-        .filter(|status| status.online && status.device.id != me)
-        .map(|status| status.device.id)
-        .collect()
 }
 
 /// What one pass keeps for the next, owned by the `follow` task alone.
@@ -414,7 +407,7 @@ impl Passes {
         let libraries = self.skills.libraries.clone();
         let mut hashes = mem::take(&mut self.hashes);
         let scanned = spawn_blocking(move || {
-            let mut scan = disk::scan(&home, &mut hashes);
+            let mut scan = skill_disk::scan(&home, &mut hashes);
             let installed = libraries.global_names(&dir);
             scan.listed.retain(|listed| !installed.contains(&listed.name));
             (scan, hashes)
@@ -491,7 +484,7 @@ impl Passes {
             let home = self.home.clone();
             let name = take.name.clone();
             let wanted = hash.clone();
-            let files = spawn_blocking(move || disk::files_of(&home, &name, &wanted))
+            let files = spawn_blocking(move || skill_disk::files_of(&home, &name, &wanted))
                 .await
                 .ok()?;
             (files, None)
@@ -524,7 +517,7 @@ impl Passes {
             }
         };
         // Changed since it was listed: the next pass sees it anew.
-        (!files.0.is_empty() && disk::hash(&files.0) == *hash).then_some(files)
+        (!files.0.is_empty() && skill_disk::hash(&files.0) == *hash).then_some(files)
     }
 
     /// Writes `take`'s files: a new skill into the agents' folders, or in
@@ -540,13 +533,13 @@ impl Passes {
             }
 
             if old.is_empty() {
-                return disk::install(&home, &name, &files);
+                return skill_disk::install(&home, &name, &files);
             }
 
             let mut replaced = 0;
 
             for copy in &old {
-                replaced += disk::replace(&home, &name, &files, &copy.folders, &copy.hash)?;
+                replaced += skill_disk::replace(&home, &name, &files, &copy.folders, &copy.hash)?;
             }
 
             Ok(replaced > 0)
@@ -589,7 +582,7 @@ impl Passes {
                     return Ok(false);
                 }
 
-                disk::keep(&home, &key, &wanted, &old).map(|()| true)
+                skill_disk::keep(&home, &key, &wanted, &old).map(|()| true)
             })
             .await
             {
@@ -741,7 +734,7 @@ pub(crate) async fn serve(
                 let mesh = mesh.clone();
                 move || {
                     if enabled(&mesh) {
-                        disk::files_of(&home, &name, &hash)
+                        skill_disk::files_of(&home, &name, &hash)
                     } else {
                         Vec::new()
                     }

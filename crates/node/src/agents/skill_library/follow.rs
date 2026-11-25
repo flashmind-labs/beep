@@ -5,12 +5,12 @@
 use super::{
     Libraries, find,
     install::{self, Checkout, Place, Ready, Record},
-    store,
+    online, store,
 };
 use crate::{
     agents::{
         Agents, conversation, project_folder,
-        skills::{Skills, disk, online},
+        skill_disk,
     },
     events::Change,
     files::syncthing::expand,
@@ -52,11 +52,16 @@ const INSPECT_LIMIT: Duration = Duration::from_secs(5 * 60);
 /// settings change, a session starts in a folder none worked in, a machine comes or goes, and
 /// every `EVERY` while a pass had problems, until the mesh stops. Nothing when the host keeps Beep out of the skills
 /// folders.
-pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills, agents: Arc<Agents>) {
-    let libraries = skills.libraries().clone();
+pub(crate) async fn follow(
+    mesh: Mesh,
+    dir: PathBuf,
+    home: Option<PathBuf>,
+    libraries: Libraries,
+    agents: Arc<Agents>,
+) {
     // The same folder each time the task starts over.
     let _ = libraries.shared.dir.set(dir.clone());
-    let Some(home) = skills.home().cloned() else {
+    let Some(home) = home else {
         return;
     };
     let mut changes = mesh.changes();
@@ -195,7 +200,7 @@ impl Pass<'_> {
         let home = self.home.to_owned();
         let mut working = record.clone();
         let applied = spawn_blocking(move || {
-            let global = disk::targets(&home);
+            let global = skill_disk::targets(&home);
             let wants = install::wants(&ready, &global, &checkouts);
             let before = working.clone();
             let problems = install::apply(&mut working, wants, &checkouts);
@@ -283,7 +288,7 @@ impl Pass<'_> {
     /// The library's copy at its revision; with no copy and a problem when it could not be
     /// fetched.
     async fn fetch(&self, name: String, library: SkillLibrary) -> (Ready, Option<Problem>) {
-        let fetched = if disk::valid_part(&name) {
+        let fetched = if skill_disk::valid_part(&name) {
             self.copy(&library).await
         } else {
             Err(format!("{name:?} is not a library name"))
@@ -416,19 +421,22 @@ impl Pass<'_> {
 }
 
 /// Answers one `skill-library/1` request.
-pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, skills: Skills) -> Result<()> {
+pub(crate) async fn serve(
+    mut tx: LinkTx,
+    mut rx: LinkRx,
+    home: Option<PathBuf>,
+    libraries: Libraries,
+) -> Result<()> {
     let request: Request = timeout(READ_LIMIT, rx.recv())
         .await
         .context("the peer sent no request")??
         .context("the stream closed before its request")?;
-    let libraries = skills.libraries().clone();
     let dir = libraries
         .shared
         .dir
         .get()
         .cloned()
         .context("skill libraries have not started")?;
-    let home = skills.home().cloned();
 
     let reply = match request {
         Request::Inspect { url } => inspect(dir, url).await,
@@ -473,7 +481,7 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, skills: Skills) -> Res
 /// The folder of the chat named `chat` under `home`, then those of `folders` under it, which its
 /// threads work in; none when the chat's folder is not here.
 fn chat_folders(home: &Path, chat: &str, folders: &BTreeSet<PathBuf>) -> Vec<PathBuf> {
-    let Some(folder) = disk::valid_part(chat)
+    let Some(folder) = skill_disk::valid_part(chat)
         .then(|| conversation::moved(home, chat))
         .flatten()
         .filter(|folder| folder.is_dir())

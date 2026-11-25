@@ -3,7 +3,7 @@
 //! other node keeps a plain copy per revision of the skills it installs, taken from a machine that
 //! has them. Also listing a repository's skills. Every function here blocks.
 
-use crate::agents::{custom_agents::parse::skill_description, skills::disk};
+use crate::agents::{custom_agents::parse::skill_description, skill_disk};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{mesh_state::LibrarySkill, skill_library::library_name, skills::SkillFile};
 use serde_bytes::ByteBuf;
@@ -109,14 +109,14 @@ pub(super) fn skill_at(
     revision: &str,
     skill: &str,
 ) -> Result<Option<Vec<SkillFile>>> {
-    if !disk::valid_part(skill) {
+    if !skill_disk::valid_part(skill) {
         return Ok(None);
     }
 
     let copied = copy_root(node_dir, url, revision)?.join(skill);
 
     if copied.join(SKILL_MD).is_file() {
-        return disk::read(&copied);
+        return skill_disk::read(&copied);
     }
 
     let root = git_root(node_dir, url);
@@ -140,14 +140,14 @@ pub(super) fn skill_at(
             continue;
         };
 
-        if !inner.split('/').all(disk::valid_part) {
+        if !inner.split('/').all(skill_disk::valid_part) {
             continue;
         }
 
         let data = git_bytes(&root, &["cat-file", "blob", &format!("{revision}:{path}")])?;
         bytes += data.len() as u64;
 
-        if files.len() >= disk::MAX_FILES || bytes > disk::MAX_BYTES {
+        if files.len() >= skill_disk::MAX_FILES || bytes > skill_disk::MAX_BYTES {
             return Ok(None);
         }
 
@@ -250,14 +250,14 @@ fn skill_dirs<'a>(
             let parts: Vec<&str> = dir.split('/').collect();
             let plain = match parts.as_slice() {
                 [agent, "skills", rest @ ..]
-                    if agent.strip_prefix('.').is_some_and(disk::valid_part) =>
+                    if agent.strip_prefix('.').is_some_and(skill_disk::valid_part) =>
                 {
                     rest
                 }
                 all => all,
             };
 
-            parts.len() <= MAX_DEPTH && !plain.is_empty() && plain.iter().all(|part| disk::valid_part(part))
+            parts.len() <= MAX_DEPTH && !plain.is_empty() && plain.iter().all(|part| skill_disk::valid_part(part))
         })
         .collect();
     dirs.sort_by(|a, b| (a.matches('/').count(), a).cmp(&(b.matches('/').count(), b)));
@@ -273,7 +273,7 @@ fn skill_dirs<'a>(
     }
 
     let base = library_name(url);
-    if paths.any(|path| path == SKILL_MD) && disk::valid_part(&base) {
+    if paths.any(|path| path == SKILL_MD) && skill_disk::valid_part(&base) {
         let mut name = base.clone();
         let mut number = 2;
 
@@ -315,7 +315,7 @@ fn skill_files(root: &Path) -> Vec<String> {
             if name == SKILL_MD && path.is_file() {
                 out.push(rel);
             } else if depth < MAX_DEPTH && path.is_dir() {
-                if disk::valid_part(&name) {
+                if skill_disk::valid_part(&name) {
                     stack.push((path, rel, depth + 1));
                 } else if depth == 0 && path.join("skills").is_dir() {
                     // An agent's skills folder, such as `.claude/skills`.
