@@ -54,3 +54,10 @@ test("a pushed move list shows a move started elsewhere without a read", async (
   assert.equal(moveStore.getState().records.size, 0, "a move that ended leaves");
   assert.equal(reads(), 0);
 });
+
+test("the moves are read only before the first push carries them", async () => {
+  const reads = () => calls.filter(call => call.cmd === "session_moves").length;
+  takePushedSessions([]);
+  await refreshMoves();
+  assert.equal(reads(), 0);
+});

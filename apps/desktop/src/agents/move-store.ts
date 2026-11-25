@@ -20,13 +20,19 @@ export const onMoves = (f: () => void) => void moveStore.subscribe(() => f());
 
 export const nameOf = (id: string) => MACHINES.list?.find(m => m.id === id)?.name ?? id.slice(0, 8);
 
+/// Whether a `home` push carried the moves yet; later ones keep them current.
+let pushed = false;
+
 /// Takes the moves a `home` push carried, so a move started on another desktop shows at once.
 export function takePushedSessions(records: readonly MoveRecord[]) {
+  pushed = true;
   takeMoves(records);
 }
 
-/// Reads the move records once; reads at the same time share it.
+/// Reads the move records once, for the window's first draw before any push; reads at the same
+/// time share it.
 export const refreshMoves = single(async () => {
+  if (pushed) return;
   const before = moveStore.getState().records;
   let records: MoveRecord[];
   try { records = await invoke<MoveRecord[]>("session_moves"); } catch (e) { console.warn("moves not read", e); return; }
