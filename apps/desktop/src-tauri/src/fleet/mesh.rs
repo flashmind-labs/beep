@@ -92,12 +92,18 @@ impl Serving {
             .accept(PEER_ALPN, peers.peer_handler())
             .accept(JOIN_ALPN, peers.join_handler())
             .accept(SESSIONS_ALPN, peers.sessions_handler())
-            .accept(beep_proto::node::commands::ALPN, peers.commands_handler())
+            .accept(
+                beep_proto::node::commands::ALPN,
+                beep_node::link::commands::CommandsAlpn::new(&peers),
+            )
             .accept(
                 beep_proto::node::subscriptions::ALPN,
-                peers.subscriptions_handler(),
+                beep_node::link::subscriptions::SubscriptionsAlpn::new(&peers),
             )
-            .accept(beep_proto::node::forward::ALPN, peers.forward_handler())
+            .accept(
+                beep_proto::node::forward::ALPN,
+                beep_node::link::forward::ForwardAlpn::new(&peers),
+            )
             .accept(beep_proto::team::ALPN, peers.team_handler());
         let late = Late::default();
         Self {

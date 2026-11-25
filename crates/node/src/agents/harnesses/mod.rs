@@ -13,7 +13,7 @@ use super::{
 use crate::{
     AsyncMutex, lock,
     machine::env::{claude_logged_in, opencode_logged_in, output},
-    machine::provision::spawn_env::{self, Scope},
+    machine::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::harness::{

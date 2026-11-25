@@ -2,10 +2,8 @@
 //! Node.js into the node's own folder, so npm installs the coding agents
 //! without an admin password, and Git from the system's own installer.
 
-use super::{
-    spawn_env::{self, Scope},
-    tools::{curl, listed_sha256, remove_dir, unpack, verify},
-};
+use super::tools::{curl, listed_sha256, remove_dir, unpack, verify};
+use crate::machine::spawn_env::{self, Scope};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::setup::Reply;
 use serde::Deserialize;

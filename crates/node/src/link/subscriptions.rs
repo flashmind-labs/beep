@@ -15,7 +15,13 @@ use std::fmt;
 use tokio::time::timeout;
 
 #[derive(Clone)]
-pub struct SubscriptionsAlpn(pub(super) Peers);
+pub struct SubscriptionsAlpn(Peers);
+
+impl SubscriptionsAlpn {
+    pub fn new(peers: &Peers) -> Self {
+        Self(peers.clone())
+    }
+}
 
 impl fmt::Debug for SubscriptionsAlpn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     agents::kinds::{Adapter, Known},
-    machine::provision::{curl, listed_sha256, remove_dir, spawn_env, unpack, verify},
+    machine::{provision::{curl, listed_sha256, remove_dir, unpack, verify}, spawn_env},
     run::process::command,
 };
 use anyhow::{Context, Result, bail};

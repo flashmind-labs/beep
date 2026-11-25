@@ -4,7 +4,7 @@ use crate::{
     AsyncMutex,
     files::paths,
     lock,
-    machine::{env, provision::spawn_env},
+    machine::{env, spawn_env},
     run::process::{GroupLeader, STOP_GRACE, command, own_group},
 };
 use anyhow::{Context, Result, bail};

@@ -357,14 +357,6 @@ impl Peers {
         result
     }
 
-    pub fn commands_handler(&self) -> super::commands::CommandsAlpn {
-        super::commands::CommandsAlpn(self.clone())
-    }
-
-    pub fn forward_handler(&self) -> super::forward::ForwardAlpn {
-        super::forward::ForwardAlpn(self.clone())
-    }
-
     /// The `beep-team/1` handler.
     pub fn team_handler(&self) -> TeamAlpn {
         self.inner.team.handler()
@@ -372,10 +364,6 @@ impl Peers {
 
     pub(crate) fn team(&self) -> TeamLink {
         self.inner.team.clone()
-    }
-
-    pub fn subscriptions_handler(&self) -> super::subscriptions::SubscriptionsAlpn {
-        super::subscriptions::SubscriptionsAlpn(self.clone())
     }
 
     pub(super) fn channel_offers(&self) -> Offers {

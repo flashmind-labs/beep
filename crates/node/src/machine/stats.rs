@@ -150,7 +150,7 @@ fn mac_volumes(mount: &str) -> Vec<PathBuf> {
 #[derive(Debug, Default, PartialEq)]
 pub(super) struct Memory {
     used_mb: u64,
-    pub(super) total_mb: u64,
+    total_mb: u64,
 }
 
 #[cfg(unix)]
@@ -173,24 +173,10 @@ async fn memory() -> Result<Memory> {
 }
 
 #[cfg(windows)]
-pub(super) async fn memory() -> Result<Memory> {
-    use std::mem::size_of;
-    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-    let mut status = MEMORYSTATUSEX {
-        dwLength: u32::try_from(size_of::<MEMORYSTATUSEX>())?,
-        ..MEMORYSTATUSEX::default()
-    };
-    // SAFETY: `status` is the struct the call fills, with its length set
-    // as the call requires.
-    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
-        return Err(std::io::Error::last_os_error()).context("GlobalMemoryStatusEx");
-    }
+async fn memory() -> Result<Memory> {
+    let (used_mb, total_mb) = crate::machine::env::windows_memory_mb()?;
 
-    let mb = 1024 * 1024;
-    Ok(Memory {
-        used_mb: status.ullTotalPhys.saturating_sub(status.ullAvailPhys) / mb,
-        total_mb: status.ullTotalPhys / mb,
-    })
+    Ok(Memory { used_mb, total_mb })
 }
 
 #[cfg_attr(windows, allow(dead_code))]

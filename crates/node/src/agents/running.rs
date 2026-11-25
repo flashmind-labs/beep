@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     agents::mcp::{self, Launch},
-    machine::provision::spawn_env::{self, Scope},
+    machine::spawn_env::{self, Scope},
     run::process,
 };
 use anyhow::{Context, Result};

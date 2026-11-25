@@ -4,7 +4,7 @@
 use crate::{
     agents::locate,
     link::local_status::{LocalStatus, render},
-    machine::{env::os_version, provision::spawn_env, service::logs::Logs},
+    machine::{env::os_version, spawn_env, service::logs::Logs},
 };
 use anyhow::Result;
 use beep_proto::node::{

@@ -358,7 +358,7 @@ async fn a_device_screenshot_comes_as_image_content() {
 
 #[tokio::test]
 async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
-    use crate::machine::provision::spawn_env::{self, TEST_LOCK};
+    use crate::machine::spawn_env::{self, TEST_LOCK};
     use beep_proto::{SecretText, node::EnvSecret};
 
     let _env = TEST_LOCK.lock().await;
@@ -420,7 +420,7 @@ async fn a_saved_key_offers_its_media_tools_and_the_node_runs_them() {
 
 #[tokio::test]
 async fn without_keys_there_are_no_media_tools() {
-    use crate::machine::provision::spawn_env::TEST_LOCK;
+    use crate::machine::spawn_env::TEST_LOCK;
 
     let _env = TEST_LOCK.lock().await;
     let folder = tempfile::tempdir().unwrap();
@@ -735,7 +735,7 @@ fn catalog_schemas_preserve_exact_serialized_json_for_every_mode() {
 
 #[tokio::test]
 async fn a_meshy_key_offers_the_3d_tools_and_their_models() {
-    use crate::machine::provision::spawn_env::{self, TEST_LOCK};
+    use crate::machine::spawn_env::{self, TEST_LOCK};
     use beep_proto::{SecretText, node::EnvSecret};
 
     let _env = TEST_LOCK.lock().await;
@@ -855,7 +855,7 @@ async fn submit_review_rejects_unknown_and_mistyped_fields_including_findings() 
 
 #[tokio::test]
 async fn a_saved_key_tells_the_agent_its_tools_changed() {
-    use crate::machine::provision::spawn_env::{self, TEST_LOCK};
+    use crate::machine::spawn_env::{self, TEST_LOCK};
     use beep_proto::{SecretText, node::EnvSecret};
 
     let _env = TEST_LOCK.lock().await;

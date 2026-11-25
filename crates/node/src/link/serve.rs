@@ -193,12 +193,12 @@ pub async fn serve(
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler())
         .accept(SESSIONS_ALPN, peers.sessions_handler())
-        .accept(beep_proto::node::commands::ALPN, peers.commands_handler())
+        .accept(beep_proto::node::commands::ALPN, crate::link::commands::CommandsAlpn::new(&peers))
         .accept(
             beep_proto::node::subscriptions::ALPN,
-            peers.subscriptions_handler(),
+            crate::link::subscriptions::SubscriptionsAlpn::new(&peers),
         )
-        .accept(beep_proto::node::forward::ALPN, peers.forward_handler())
+        .accept(beep_proto::node::forward::ALPN, crate::link::forward::ForwardAlpn::new(&peers))
         .accept(beep_proto::team::ALPN, peers.team_handler());
     if let Some(served) = served {
         router = served.add_to(router);

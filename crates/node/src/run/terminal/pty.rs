@@ -6,7 +6,7 @@ use super::{
     screen::{Phase, Screen},
     terminals::{Live, Opener, Term},
 };
-use crate::machine::provision::spawn_env::{self, Scope};
+use crate::machine::spawn_env::{self, Scope};
 use anyhow::{Context, Result};
 use beep_proto::{node::events::Topic, watched};
 use beep_proto::node::{

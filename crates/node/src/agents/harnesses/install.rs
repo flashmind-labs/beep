@@ -3,7 +3,7 @@
 //! Nothing runs with sudo.
 
 use crate::files::paths;
-use crate::machine::provision::spawn_env::{self, Scope};
+use crate::machine::spawn_env::{self, Scope};
 use anyhow::{Result, bail};
 use beep_proto::node::harness::{clean_output, failure_line, harness};
 use std::{

@@ -32,7 +32,7 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     #[cfg(windows)]
     if let Ok(found) = which::which_in(
         program,
-        crate::machine::provision::spawn_env::search_path(),
+        crate::machine::spawn_env::search_path(),
         "/",
     ) {
         return Command::from(background_command(found));

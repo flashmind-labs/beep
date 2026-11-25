@@ -8,7 +8,7 @@ use crate::{
     agents::locate,
     lock,
     machine::env,
-    machine::provision::spawn_env::{self, Scope},
+    machine::spawn_env::{self, Scope},
     run::process::{self, GroupLeader, STOP_GRACE},
 };
 use anyhow::Result;

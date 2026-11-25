@@ -6,7 +6,7 @@ use crate::{
     AsyncMutex,
     link::local_socket::{Listener, Stream, connect, is_listening},
     link::note,
-    machine::provision::spawn_env::{self, Scope},
+    machine::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::{

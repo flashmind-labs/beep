@@ -9,7 +9,7 @@ pub(crate) use latest::{Probes, changed, fresh, machine};
 
 use crate::agents::locate;
 use crate::files::syncthing::Syncthing;
-use crate::machine::provision::spawn_env::{self, Scope};
+use crate::machine::spawn_env::{self, Scope};
 use beep_proto::node::harness::parse_version;
 use beep_proto::node::{EnvReport, Login, ToolInfo};
 use std::{
@@ -383,9 +383,32 @@ pub(crate) async fn memory_mb() -> Option<u64> {
         .copied()
 }
 
+/// Memory in use and the total, in MB, from the system's memory status.
+#[cfg(windows)]
+pub(crate) fn windows_memory_mb() -> anyhow::Result<(u64, u64)> {
+    use anyhow::Context;
+    use std::mem::size_of;
+    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
+    let mut status = MEMORYSTATUSEX {
+        dwLength: u32::try_from(size_of::<MEMORYSTATUSEX>())?,
+        ..MEMORYSTATUSEX::default()
+    };
+    // SAFETY: `status` is the struct the call fills, with its length set
+    // as the call requires.
+    if unsafe { GlobalMemoryStatusEx(&mut status) } == 0 {
+        return Err(std::io::Error::last_os_error()).context("GlobalMemoryStatusEx");
+    }
+
+    let mb = 1024 * 1024;
+    Ok((
+        status.ullTotalPhys.saturating_sub(status.ullAvailPhys) / mb,
+        status.ullTotalPhys / mb,
+    ))
+}
+
 async fn read_memory_mb() -> Option<u64> {
     #[cfg(windows)]
-    return super::stats::memory().await.ok().map(|memory| memory.total_mb);
+    return windows_memory_mb().ok().map(|(_, total_mb)| total_mb);
 
     #[cfg(not(windows))]
     match env::consts::OS {

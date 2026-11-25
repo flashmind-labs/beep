@@ -4,7 +4,7 @@
 
 use crate::{actor, lock};
 use crate::{
-    machine::provision::spawn_env::{self, Scope},
+    machine::spawn_env::{self, Scope},
     run::lines::read_piece,
     run::process::{Group, GroupLeader, STOP_GRACE, own_group},
     run::shell,

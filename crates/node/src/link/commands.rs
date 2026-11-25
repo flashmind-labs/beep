@@ -23,7 +23,13 @@ use tokio::{
 };
 
 #[derive(Clone)]
-pub struct CommandsAlpn(pub(super) Peers);
+pub struct CommandsAlpn(Peers);
+
+impl CommandsAlpn {
+    pub fn new(peers: &Peers) -> Self {
+        Self(peers.clone())
+    }
+}
 
 impl fmt::Debug for CommandsAlpn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

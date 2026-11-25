@@ -22,7 +22,13 @@ use tokio::{
 };
 
 #[derive(Clone)]
-pub struct ForwardAlpn(pub(super) Peers);
+pub struct ForwardAlpn(Peers);
+
+impl ForwardAlpn {
+    pub fn new(peers: &Peers) -> Self {
+        Self(peers.clone())
+    }
+}
 
 impl fmt::Debug for ForwardAlpn {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

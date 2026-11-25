@@ -5,7 +5,7 @@
 use super::check::{self, Answer};
 use crate::{
     lock,
-    machine::provision::spawn_env::{self, Scope},
+    machine::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result, bail};
 use beep_projects::repo_watch::actions::{HostRun, RunsReply, state_of};

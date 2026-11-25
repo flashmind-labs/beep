@@ -445,9 +445,9 @@ async fn channel_pair(dedicated: bool) -> ChannelPair {
         .accept(JOIN_ALPN, peers.join_handler());
     if dedicated {
         router = router
-            .accept(commands::ALPN, peers.commands_handler())
-            .accept(subscriptions::ALPN, peers.subscriptions_handler())
-            .accept(forward::ALPN, peers.forward_handler());
+            .accept(commands::ALPN, crate::link::commands::CommandsAlpn::new(&peers))
+            .accept(subscriptions::ALPN, crate::link::subscriptions::SubscriptionsAlpn::new(&peers))
+            .accept(forward::ALPN, crate::link::forward::ForwardAlpn::new(&peers));
     }
     let node_router = router.spawn();
     peers.join(&ticket.encode_string()).await.unwrap();

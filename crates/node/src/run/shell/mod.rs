@@ -2,7 +2,7 @@
 //! between commands so `cd` and `export` carry over.
 
 use crate::{
-    machine::provision::spawn_env::{self, Scope},
+    machine::spawn_env::{self, Scope},
     run::lines::read_piece,
     run::process::{GroupLeader, STOP_GRACE, own_group},
 };

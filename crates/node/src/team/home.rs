@@ -7,7 +7,7 @@ use crate::{
     agents::mcp::to_desktop,
     machine::{
         ci::forge::{command, tail},
-        provision::spawn_env,
+        spawn_env,
     },
 };
 use beep_mesh::{DeviceKind, Key, Mesh, TeamWrites, keep_contacts, take_roster};

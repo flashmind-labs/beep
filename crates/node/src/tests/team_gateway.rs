@@ -291,7 +291,7 @@ fn issue_sessions_start_on_any_online_machine_with_the_checkout() {
 
 #[tokio::test]
 async fn gh_runs_as_the_account_for_the_repositorys_owner() {
-    use crate::{machine::provision::spawn_env, team::home::forge_command};
+    use crate::{machine::spawn_env, team::home::forge_command};
     use beep_projects::{
         model::{IssueHost, RepoName},
         team_forge::user_call,

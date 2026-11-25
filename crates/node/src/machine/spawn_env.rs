@@ -206,5 +206,5 @@ fn merged_path(prefix: &[PathBuf], inherited: Option<&OsStr>) -> Option<OsString
 }
 
 #[cfg(test)]
-#[path = "../../tests/machine_provision_spawn_env.rs"]
+#[path = "../tests/machine_spawn_env.rs"]
 mod tests;
