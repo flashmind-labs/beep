@@ -134,16 +134,16 @@ export function paneLinked() {
 
 const heard = new Map<string, number>();
 
-/// Calls `changed` when the node says something in `root` on `machine`
+/// Calls `changed` with the update when the node says something in `root` on `machine`
 /// changed, its Git metadata included.
-export function watchRoot(machine: string, root: string, changed: () => void): () => void {
+export function watchRoot(machine: string, root: string, changed: (data: unknown) => void): () => void {
   const name = topic("files", root), id = `${machine}\n${name}`;
   let seen = heard.get(id) ?? null;
   return subscribeEach(name, event => {
     if (event.revision === seen) return;
     seen = event.revision;
     heard.set(id, seen);
-    changed();
+    changed(event.data);
   }, { machine });
 }
 

@@ -1,14 +1,16 @@
 // The `/` and `@` menus of a session's composer and of the start fields: the
 // agent's commands and skills while the message starts with `/`, the folder's
 // files after an `@`. The commands are asked of the machine when a menu
-// opens, the files are read once and kept. What opens a menu, what it lists
+// opens, the files are read once and kept
+// until their folder says it changed. What opens a menu, what it lists
 // and what its keys do is in mention-state.ts.
-import { type Tree, mergeTree, unreadFolders, type Listing } from "../agentpane/files-state.ts";
-import { paneRoot } from "../agentpane/worktree.ts";
+import { type Tree, isTree, mergeTree, unreadFolders, type Listing } from "../agentpane/files-state.ts";
+import { paneRoot, watchRoot } from "../agentpane/worktree.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
 import { showAgentMenu } from "./composer-ui.tsx";
 import { S } from "../bar/core.ts";
 import { paneShown } from "../ui/active.ts";
+import { pushedEach } from "../ui/snapshot-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { AG, type AgentSession } from "./agents.ts";
 import { sessions } from "./sessions.ts";
@@ -19,8 +21,6 @@ import {
 
 /// A list of commands this old is asked for again when a menu opens.
 const COMMANDS_FRESH_MS = 5000;
-/// Files this old are read again in the background when a menu opens.
-const FILES_FRESH_MS = 60_000;
 /// Trees read at once, and the files the walk stops at.
 const WALK_AT_ONCE = 8;
 const WALK_FILES = 50_000;
@@ -33,7 +33,13 @@ interface Cached<T> {
 
 let commands: Cached<AgentCommand[]> | null = null;
 let askedCommands = "";
-let files: Cached<FileIndex> | null = null;
+/// The files read of a folder, and whether it said it changed in a way its pushed listings did not
+/// cover: the next menu reads it again.
+let files: (Cached<FileIndex> & { stale: boolean }) | null = null;
+/// The folder listings behind `files`, kept for the updates that push them.
+let walked: { key: string; listings: Map<string, Listing> } | null = null;
+/// The watch of the folder `files` is of.
+let watched: { key: string; stop: () => void } | null = null;
 /// Where the last commands each harness reported are kept between launches.
 const REMEMBERED_KEY = "beep.agentCommands";
 let remembered: Map<string, AgentCommand[]> | null = null;
@@ -77,6 +83,8 @@ async function readFiles(key: string, machine: string, root: string, again: () =
   if (walking === key) return;
   walking = key;
   const listings = new Map<string, Listing>();
+  walked = { key, listings };
+  watchFiles(key, machine, root, again);
   let next = [""];
 
   try {
@@ -84,7 +92,7 @@ async function readFiles(key: string, machine: string, root: string, again: () =
       const got = await Promise.all(next.map(path => invoke<Tree>("agent_tree", { machineId: machine, root, path, ignored: false, deep: true })));
       for (const tree of got) mergeTree(listings, tree);
       const paths = filePaths(listings);
-      files = { key, at: Date.now(), value: indexFiles(paths) };
+      files = { key, at: Date.now(), value: indexFiles(paths), stale: false };
       again();
       if (paths.length >= WALK_FILES) break;
       next = unreadFolders(listings).slice(0, WALK_AT_ONCE);
@@ -94,6 +102,27 @@ async function readFiles(key: string, machine: string, root: string, again: () =
   }
 
   if (walking === key) walking = "";
+}
+
+/// Follows the folder `files` is of: an update that pushes its listings is merged into the index,
+/// any other marks it for a read at the next menu.
+function watchFiles(key: string, machine: string, root: string, again: () => void) {
+  if (watched?.key === key) return;
+  watched?.stop();
+  watched = { key, stop: watchRoot(machine, root, data => {
+    if (walked?.key !== key || !files || files.key !== key) return;
+    let merged = false;
+
+    for (const { args, pushed } of pushedEach<unknown>(data, "agent_tree")) {
+      if (args.machineId !== machine || args.root !== root || args.deep !== true || args.ignored !== false || !("value" in pushed) || !isTree(pushed.value)) continue;
+      mergeTree(walked.listings, pushed.value);
+      merged = true;
+    }
+
+    if (!merged) { files.stale = true; return; }
+    files = { key, at: Date.now(), value: indexFiles(filePaths(walked.listings)), stale: false };
+    again();
+  }) };
 }
 
 /// Where a field's menus look: the folder on `machine` whose files are
@@ -178,7 +207,7 @@ export function bindMentionMenu(field: HTMLTextAreaElement, place: () => MenuPla
 
     const { machine, root, cwd } = at;
     const key = `${machine}\n${root}`;
-    if (opening && (files?.key !== key || Date.now() - files.at > FILES_FRESH_MS)) void readFiles(key, machine, root, update);
+    if (opening && (files?.key !== key || files.stale)) void readFiles(key, machine, root, update);
     const found = files?.key === key ? filterFiles(files.value, t.query, path => mentioned(root, cwd, path)) : [];
     return found.length ? draw(found, t) : close();
   };

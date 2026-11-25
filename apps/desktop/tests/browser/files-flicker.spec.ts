@@ -62,6 +62,26 @@ test("the file tree changes only what changed as the agent works", async ({ page
   await expect(files).toHaveJSProperty("scrollTop", scroll);
 });
 
+test("a listing pushed with the folder's update replaces the rows without a read", async ({ page }) => {
+  await openDesktop(page, true, { agent_tree: tree([entry("src", true), entry("a.txt")], [entry("main.ts")]) });
+  await page.evaluate(value => window.__navigation.open({ agent: value }), session);
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  const files = page.getByRole("tree", { name: "Working files" });
+  await expect(files.locator('[data-fpath="a.txt"]')).toBeVisible();
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree").length);
+  const before = await reads();
+
+  const view = { command: "agent_tree", args: { machineId: "build-box", root: "/srv/project", path: "", ignored: false, deep: false }, value: tree([entry("src", true), entry("a.txt", false, "modified"), entry("b.txt", false, "untracked")], []) };
+  await page.evaluate(([topic, value]) => window.__navigation.publish(topic, 2000, { views: [value] }), [FOLDER, view] as const);
+  await expect(files.locator('[data-fpath="b.txt"] .gm')).toHaveText("U");
+  await expect(files.locator('[data-fpath="a.txt"] .gm')).toHaveText("M");
+  expect(await reads()).toBe(before);
+
+  // An update with no listing, as an older node sends, reads the folder again.
+  await page.evaluate(([topic]) => window.__navigation.publish(topic, 2001), [FOLDER] as const);
+  await expect.poll(reads).toBeGreaterThan(before);
+});
+
 test("a folder of thousands of files draws only the rows in view and reveals one further down", async ({ page }) => {
   const names = Array.from({ length: 5000 }, (_, i) => `file${String(i).padStart(4, "0")}.txt`);
   await openDesktop(page, true, { agent_tree: { folders: [{ path: "", entries: names.map(n => entry(n)), more: 0 }], truncated: false } });

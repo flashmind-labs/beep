@@ -11,6 +11,7 @@ import { writeClipboard } from "../ui/parts.tsx";
 import { hasPreview } from "./html-preview-state.ts";
 import { reloadChatAgents } from "./chat-agents.tsx";
 import { type Listing, type TreeRow, isTree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";
+import { pushedEach } from "../ui/snapshot-state.ts";
 import { relativeTo } from "./artifacts-state.ts";
 import { baseName, mediaKind, resolvePath } from "./media-state.ts";
 import { paneRoot, watchRoot, worktreesReady } from "./worktree.ts";
@@ -185,7 +186,10 @@ function showTree(key: string) {
 
   if (!entry && key && s) {
     const made = emptyTree(key, ignoredNow());
-    made.unwatch = watchRoot(s.machine_id, paneRoot(), () => {
+    const machine = s.machine_id, root = paneRoot();
+    made.unwatch = watchRoot(machine, root, data => {
+      // A node that pushes the folders it listed for this tree has nothing to be read again.
+      if (takeListings(made, machine, root, data)) return;
       made.dirty = true;
       if (current === made) revalidate();
     });
@@ -249,6 +253,25 @@ function trim() {
     entry.unwatch();
     kept.delete(entry.key);
   }
+}
+
+/// Takes the folder listings an update of `root` pushes into `tree`, as the tree read them: each
+/// view carries the folder as `agent_tree` answers it. True when every view the update carries for
+/// the tree was one it took; false when it carries none (a node that does not push them), or one
+/// that failed, so the tree reads again.
+function takeListings(tree: FolderTree, machine: string, root: string, data: unknown) {
+  let taken = false, redraw = false;
+
+  for (const { args, pushed } of pushedEach<unknown>(data, "agent_tree")) {
+    if (args.machineId !== machine || args.root !== root || args.deep === true || args.ignored !== tree.ignored || typeof args.path !== "string") continue;
+    if ("error" in pushed || !isTree(pushed.value)) return false;
+    taken = true;
+    redraw = mergeTree(tree.listings, pushed.value) || redraw;
+    tree.roots.add(args.path);
+  }
+
+  if (redraw && current === tree) draw();
+  return taken;
 }
 
 /// Whether the tree was being watched when last asked.

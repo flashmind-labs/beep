@@ -97,3 +97,28 @@ test("the project start field asks a running session of the harness on another m
   const asked = await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_commands").map(call => call.args));
   expect(asked).toContainEqual({ machineId: "gpu-box", session: "running-there" });
 });
+
+test("the file menu reads the folder once and takes its changes from the folder's updates", async ({ page }) => {
+  const listing = (...names: string[]) => ({ folders: [{ path: "", entries: names.map(name => ({ name, folder: false, size: 1, ignored: false, change: null })), more: 0 }], truncated: false });
+  await openDesktop(page, true, { agent_tree: listing("alpha.ts") });
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  const field = page.locator("#agmsg"), menu = page.locator(".cm-menu");
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree" && call.args.deep === true).length);
+  await field.fill("@");
+  await expect(menu.getByRole("option")).toHaveCount(1);
+  const first = await reads();
+
+  // A listing pushed with the folder's update joins the index without a read.
+  const view = { command: "agent_tree", args: { machineId: "build-box", root: "/srv/project", path: "", ignored: false, deep: true }, value: listing("alpha.ts", "beta.ts") };
+  await page.evaluate(([topic, value]) => window.__navigation.publish(topic, 3000, { views: [value] }), ["files.%2Fsrv%2Fproject", view] as const);
+  await field.fill("");
+  await field.fill("@");
+  await expect(menu.getByRole("option")).toHaveCount(2);
+  expect(await reads()).toBe(first);
+
+  // An update with no listing makes the next menu read the folder again.
+  await page.evaluate(() => window.__navigation.publish("files.%2Fsrv%2Fproject", 3001));
+  await field.fill("");
+  await field.fill("@");
+  await expect.poll(reads).toBeGreaterThan(first);
+});
