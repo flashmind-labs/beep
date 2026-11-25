@@ -71,7 +71,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
         seen,
         hashes: Hashes::default(),
         asked: false,
-        unread: false,
+        unread: BTreeSet::new(),
         unheard: false,
         compared: 0,
         lists: HashMap::new(),
@@ -118,14 +118,13 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
             pass.lists.clear();
             pass.sent.clear();
             pass.asked = false;
-            pass.unread = false;
+            pass.unread.clear();
             pass.unheard = false;
             pass.said = None;
         }
         // A machine that did not answer or hear is tried again, not left for
         // the next change.
-        let retry = (pass.unread || pass.unheard).then(|| Instant::now() + RETRY);
-        let reread = pass.unread;
+        let retry = (!pass.unread.is_empty() || pass.unheard).then(|| Instant::now() + RETRY);
         ask = loop {
             tokio::select! {
                 () = async {
@@ -136,7 +135,7 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
                         None => std::future::pending().await,
                     }
                 } => break false,
-                () = async { sleep_until(retry.unwrap_or_else(Instant::now)).await }, if retry.is_some() => break reread,
+                () = async { sleep_until(retry.unwrap_or_else(Instant::now)).await }, if retry.is_some() => break false,
                 Some(()) = edits.recv() => break false,
                 () = nudge.notified() => break true,
                 change = changes.recv() => match change {
@@ -189,8 +188,9 @@ struct Passes {
     hashes: Hashes,
     /// Whether the other machines' lists were read since sync was enabled.
     asked: bool,
-    /// A machine did not answer the last read of lists.
-    unread: bool,
+    /// The machines that did not answer the last read of their lists: only
+    /// they are read again.
+    unread: BTreeSet<EndpointId>,
     /// A machine did not take the last word that this one's skills changed.
     unheard: bool,
     /// How many of them answered then.
@@ -233,7 +233,9 @@ impl Passes {
         self.skills.listed.send_replace(Some(here.clone()));
 
         if ask || !self.asked {
-            self.ask(online).await;
+            self.ask(online, true).await;
+        } else if !self.unread.is_empty() {
+            self.ask(online, false).await;
         }
 
         if !enabled(&self.mesh) {
@@ -359,14 +361,16 @@ impl Passes {
         wrote
     }
 
-    /// Reads each online machine's list, all at once.
-    async fn ask(&mut self, online: &BTreeSet<EndpointId>) {
+    /// Reads the list of each online machine, or with `all` false only of
+    /// those that did not answer last time, all at once.
+    async fn ask(&mut self, online: &BTreeSet<EndpointId>, all: bool) {
         if !enabled(&self.mesh) {
             return;
         }
 
         let mut asking: FuturesUnordered<_> = online
             .iter()
+            .filter(|peer| all || self.unread.contains(*peer))
             .map(|&peer| {
                 let client = PeerClient::over(self.mesh.clone(), peer);
                 async move {
@@ -375,22 +379,32 @@ impl Passes {
                 }
             })
             .collect();
-        let mut compared = 0;
-        self.unread = false;
+        let mut compared = if all { 0 } else { self.compared };
+
+        if all {
+            self.unread.clear();
+        }
+
+        self.unread.retain(|peer| online.contains(peer));
 
         while let Some((peer, answer)) = asking.next().await {
             match answer {
                 Ok(Reply::Skills { skills }) => {
+                    self.unread.remove(&peer);
                     self.lists.insert(peer, skills);
                     compared += 1;
                 }
-                Ok(other) => log::debug!("skills: {peer} answered {other:?}"),
+                Ok(other) => {
+                    self.unread.remove(&peer);
+                    log::debug!("skills: {peer} answered {other:?}");
+                }
                 // A node from before skills/1, or one that does not sync them.
                 Err(MeshError::Declined { .. }) => {
+                    self.unread.remove(&peer);
                     self.lists.remove(&peer);
                 }
                 Err(e) => {
-                    self.unread = true;
+                    self.unread.insert(peer);
                     log::debug!("skills: {peer} not read: {e}");
                 }
             }
@@ -782,3 +796,7 @@ pub(crate) async fn serve(
     tx.send(&reply).await?;
     tx.finish().await
 }
+
+#[cfg(test)]
+#[path = "../../tests/agents_skills_follow.rs"]
+mod tests;
