@@ -45,9 +45,10 @@ async fn an_older_lookup_that_lands_last_does_not_replace_a_newer_one() {
     assert_eq!(roots.values().next(), Some(&new.canonicalize().unwrap()));
 }
 
-// The device list is followed while a stream holds its source, and by no other topic.
+// The device list is read for the two topics that say it changed, while a
+// stream holds their source, and for no other.
 #[tokio::test]
-async fn only_the_device_list_source_follows_the_devices() {
+async fn only_the_device_topics_follow_the_devices() {
     let offers = Offers::default();
     let followed = |name: &'static str| {
         let offers = offers.clone();
@@ -58,6 +59,6 @@ async fn only_the_device_list_source_follows_the_devices() {
     };
 
     assert!(followed("device-list").await);
-    assert!(!followed("devices").await);
+    assert!(followed("devices").await);
     assert!(!followed("*").await);
 }
