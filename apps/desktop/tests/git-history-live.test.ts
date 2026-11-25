@@ -25,7 +25,7 @@ test("visible Git history follows its root and stops reading when closed", async
   await settle();
   assert.equal(reads, 1);
   const reader = calls.find(call => call.cmd === "mesh_watch")!.args as { onEvent: { onmessage(event: MeshEvent): void } };
-  const send = (revision: number, root = "/srv/project") => reader.onEvent.onmessage({ revision, machine_id: "machine-a", topic: topic("files", root), data: {} });
+  const send = (revision: number, root = "/srv/project", changed?: string[]) => reader.onEvent.onmessage({ revision, machine_id: "machine-a", topic: topic("files", root), data: changed ? { Sessions: { Tree: { changed } } } : {} });
   send(1, "/srv/another");
   t.mock.timers.tick(SLOW_MS);
   await settle();
@@ -37,12 +37,21 @@ test("visible Git history follows its root and stops reading when closed", async
   t.mock.timers.tick(86_400_000);
   await settle();
   assert.equal(reads, 2, "idle history has no read timer");
+  send(3, "/srv/project", [".git/FETCH_HEAD", ".git/config"]);
+  await settle();
+  assert.equal(reads, 2, "Git files nothing reads do not reload it");
+  send(4, "/srv/project", [".git/refs/heads/main"]);
+  await settle();
+  assert.equal(reads, 3, "a moved ref reloads it at once, with no timer");
+  send(5, "/srv/project", ["src/main.rs"]);
+  await settle();
+  assert.equal(reads, 4);
   history.stop();
   panels.navigation.remove(); panels.detail.remove();
-  send(3);
+  send(6);
   t.mock.timers.tick(SLOW_MS);
   await settle();
-  assert.equal(reads, 2);
+  assert.equal(reads, 4);
 });
 
 test("refresh keeps the selected commit diff mounted and preserves its scroll", async t => {

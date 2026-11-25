@@ -7,8 +7,8 @@ import { HistoryHeader } from "./history-header.tsx";
 import { CheckoutBranch, HistoryNavigation } from "./history-navigation.tsx";
 import { HistoryPath, HistorySessions, SessionLink } from "./history-sessions.tsx";
 import { TreeNode } from "./history-tree.tsx";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { SLOW_MS } from "../ui/active.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { changedIn, touchesRepo } from "../agentpane/touched.ts";
 // The project's Git navigator and its selected commit or worktree diff.
 import { reason } from "../ui/format.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
@@ -76,11 +76,11 @@ export function makeGitHistory(deps: HistoryDeps) {
     if (watched === key) return;
     unfollow?.();
     watched = key;
-    unfollow = subscribeChanges(roots.map(root => topic("files", root)), { deliver: "latest", receive: async () => {
+    // Each push is read once, when it says a file or Git's HEAD, index or refs changed.
+    unfollow = subscribeEach(roots.map(root => topic("files", root)), async event => {
+      if (event.query != null || !touchesRepo(changedIn(event.data))) return;
       await refresh(p.name);
-      const error = list(p, null, p.query).error;
-      if (error) throw new Error(error);
-    } }, { machine: p.data.machine_id, when: () => p.nav.isConnected && p.detail.isConnected, wait: SLOW_MS });
+    }, { machine: p.data.machine_id, when: () => p.nav.isConnected && p.detail.isConnected });
   }
 
   function stop() {

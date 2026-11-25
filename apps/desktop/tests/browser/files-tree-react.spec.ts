@@ -216,7 +216,14 @@ test("a folder event refreshes the open HTML preview after a same-size agent edi
   expect(await hashReads()).toBe(before);
   await expect(body).toHaveText("first");
 
-  await page.evaluate(() => window.__navigation.publish("files.%2Fsrv%2Fproject%2F%2Eworktrees%2Fsite", 1000));
+  const site = "files.%2Fsrv%2Fproject%2F%2Eworktrees%2Fsite";
+  // A change to another file of the folder asks nothing.
+  await page.evaluate(topic => window.__navigation.publish(topic, 1000, { Sessions: { Tree: { changed: ["notes.txt"] } } }), site);
+  await page.clock.fastForward(1_000);
+  expect(await hashReads()).toBe(before);
+  await expect(body).toHaveText("first");
+
+  await page.evaluate(topic => window.__navigation.publish(topic, 1001, { Sessions: { Tree: { changed: ["index.html"] } } }), site);
   await expect(body).toHaveText("later");
 });
 

@@ -60,9 +60,16 @@ test("a files event reads the shown diff once and the tree once it shows", async
   await expect.poll(() => reads(page, "work_diff"), { timeout: 5000 }).toBe(diffs + 1);
   // The same revision again, as a new subscription is primed with it, is no change.
   await page.evaluate(topic => window.__navigation.publish(topic, 100), FOLDER);
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(500);
   expect(await reads(page, "work_diff")).toBe(diffs + 1);
   expect(await reads(page, "agent_tree")).toBe(trees);
+
+  // Git files the diff never reads change nothing in it; a file of the checkout does, at once.
+  await page.evaluate(topic => window.__navigation.publish(topic, 101, { Sessions: { Tree: { changed: [".git/FETCH_HEAD"] } } }), FOLDER);
+  await page.waitForTimeout(500);
+  expect(await reads(page, "work_diff")).toBe(diffs + 1);
+  await page.evaluate(topic => window.__navigation.publish(topic, 102, { Sessions: { Tree: { changed: ["sample.ts"] } } }), FOLDER);
+  await expect.poll(() => reads(page, "work_diff"), { timeout: 1000 }).toBe(diffs + 2);
 
   const folder = { name: "src", folder: true, size: 0, ignored: false, change: null };
   const changed = listing(["a.txt", "new.txt"]);
@@ -77,5 +84,5 @@ test("a files event reads the shown diff once and the tree once it shows", async
   await page.locator('[data-fpath="src"]').click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_tree").at(-1)?.args)).toMatchObject({ path: "src", fresh: false });
   await changes.click();
-  expect(await reads(page, "work_diff")).toBe(diffs + 1);
+  expect(await reads(page, "work_diff")).toBe(diffs + 2);
 });

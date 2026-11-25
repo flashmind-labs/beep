@@ -17,6 +17,7 @@ import { dockOf, paneModel } from "./media-layout.ts";
 import { load } from "./read.ts";
 import { type Followed, type Stamp, followedAt, folderStamp, hashedStamp, listedSize, nextStamp, splitPath, textStamp } from "./reload-state.ts";
 import { refreshPreview, takeText } from "./text-view.tsx";
+import { touches } from "./touched.ts";
 import { paneRoot, watchRoot } from "./worktree.ts";
 
 /// A file followed, how it is checked, and what reads it again.
@@ -34,9 +35,9 @@ interface Follow extends Followed {
   reload: () => Promise<boolean>;
 }
 
-/// A followed file's stamp, null until read, and whether a change was heard
-/// in its folder since it was checked.
-interface Held { stamp: Stamp | null; stale: boolean }
+/// A followed file's stamp, null until read, whether a change was heard in its folder since it
+/// was checked, and the files its page loaded when it was last stamped.
+interface Held { stamp: Stamp | null; stale: boolean; loaded: string[] }
 
 const held = new Map<string, Held>();
 /// The watch of each machine's folder that a followed file is in.
@@ -53,7 +54,7 @@ export function followFiles() {
   for (const key of held.keys()) if (!keys.has(key)) held.delete(key);
 
   const added = follows.filter(f => !held.has(f.key));
-  const first = added.map((f): [string, Held] => [f.key, { stamp: null, stale: false }]);
+  const first = added.map((f): [string, Held] => [f.key, { stamp: null, stale: false, loaded: [] }]);
   for (const [key, h] of first) held.set(key, h);
   if (added.length) void stampAll(added).then(stamps => { for (const [key, h] of first) h.stamp ??= stamps.get(key) ?? null; });
 
@@ -164,18 +165,34 @@ function watchFolders(follows: Follow[]) {
   }
 
   for (const [key, { machine, root }] of wanted) {
-    if (!watches.has(key)) watches.set(key, watchRoot(machine, root, () => heard(machine, root)));
+    if (!watches.has(key)) watches.set(key, watchRoot(machine, root, (_, paths) => heard(machine, root, paths)));
   }
 }
 
-/// Something in `root` changed: its followed files are checked.
-function heard(machine: string, root: string) {
+/// Something in `root` changed, at `paths` when the node says: the followed files it concerns
+/// are checked.
+function heard(machine: string, root: string, paths: string[]) {
+  let any = false;
+
   for (const f of followed()) {
     const h = held.get(f.key);
-    if (h && f.machine === machine && watchedRoots(f).includes(root)) h.stale = true;
+
+    if (h && f.machine === machine && watchedRoots(f).includes(root) && concerns(f, h, root, paths)) {
+      h.stale = true;
+      any = true;
+    }
   }
 
-  check();
+  if (any) check();
+}
+
+/// Whether a change at `paths` in `root` can be a change of `f`: its file, or for a page what it
+/// loaded. A page's own folder is watched as a root too, whose paths start there.
+function concerns(f: Follow, h: Held, root: string, paths: string[]) {
+  if (!paths.length) return true;
+  const dir = splitPath(f.path).dir;
+  const here = root === f.root || !dir ? paths : paths.map(path => `${dir}/${path}`);
+  return [f.path, ...(f.fallback === "page" ? h.loaded : [])].some(file => touches(here, file));
 }
 
 /// The stamps of `follows` as their files are now, by key: one hash ask per
@@ -198,6 +215,8 @@ async function stampAll(follows: Follow[]) {
     const hashes = await hashesOf(machine, root, [...new Set(group.flatMap((f, i) => [f.path, ...loaded[i]]))]);
 
     await Promise.all(group.map(async (f, i) => {
+      const h = held.get(f.key);
+      if (h) h.loaded = loaded[i];
       stamps.set(f.key, hashes ? hashedStamp(f.path, loaded[i], hashes) : await fallbackStamp(f, listings));
     }));
   }));

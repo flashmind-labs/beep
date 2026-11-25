@@ -12,12 +12,13 @@ import { sendPrompt } from "../agents/messages.ts";
 import { CHANGES, openWorkFile, paneSession, showChanges } from "./media.ts";
 import { dockOf, paneModel } from "./media-layout.ts";
 import { localFileItems } from "./localfile.ts";
+import { touchesRepo } from "./touched.ts";
 import { paneLinked, paneRoot, removedBranch, watchRoot, worktreesReady, worktreesSettled } from "./worktree.ts";
 import { reviewHeading } from "./worktree-state.ts";
 import { homeShort } from "../project/projects-state.ts";
 import { viewKey } from "./view-memory.ts";
 import { invoke } from "../ui/tauri.ts";
-import { SLOW_MS, ambient, paneShown } from "../ui/active.ts";
+import { paneShown } from "../ui/active.ts";
 import { setSessionChild } from "../agents/session-frame.tsx";
 import type { ReactNode } from "react";
 import { createStore } from "zustand";
@@ -178,7 +179,8 @@ function hide() {
 
 function watch(entry: Kept) {
   entry.unwatch();
-  entry.unwatch = watchRoot(entry.machine, entry.root, () => {
+  entry.unwatch = watchRoot(entry.machine, entry.root, (_, paths) => {
+    if (!touchesRepo(paths)) return;
     entry.dirty = true;
     if (shown === entry) changed();
   });
@@ -186,8 +188,10 @@ function watch(entry: Kept) {
 
 /// The diff's tab is picked (a view behind another keeps its layout) in a dock not folded.
 const changesShown = () => !!shown?.view.el.offsetParent && !shown.view.el.parentElement?.hidden && paneShown();
-/// A folder that changes while its diff shows is read again at most this often.
-const changed = ambient(() => { if (shown?.dirty && changesShown()) shown.view.reload(); }, SLOW_MS, changesShown);
+/// A change to the folder's checkout while its diff shows reads it again, once per push.
+function changed() {
+  if (shown?.dirty && changesShown()) shown.view.reload();
+}
 
 /// The diff lines of a read, a cheap measure of what the view holds.
 function linesOf(view: DiffView) {

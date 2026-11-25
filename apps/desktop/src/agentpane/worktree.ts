@@ -14,6 +14,7 @@ import { writingComment } from "./changes.ts";
 import { invoke } from "../ui/tauri.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedView } from "../ui/snapshot-state.ts";
+import { changedIn } from "./touched.ts";
 
 /// The session the pane belongs to.
 interface Place {
@@ -134,16 +135,16 @@ export function paneLinked() {
 
 const heard = new Map<string, number>();
 
-/// Calls `changed` with the update when the node says something in `root` on `machine`
-/// changed, its Git metadata included.
-export function watchRoot(machine: string, root: string, changed: (data: unknown) => void): () => void {
+/// Calls `changed` with the update, and the paths it says changed (none when it does not say),
+/// when the node says something in `root` on `machine` changed, its Git metadata included.
+export function watchRoot(machine: string, root: string, changed: (data: unknown, paths: string[]) => void): () => void {
   const name = topic("files", root), id = `${machine}\n${name}`;
   let seen = heard.get(id) ?? null;
   return subscribeEach(name, event => {
     if (event.revision === seen) return;
     seen = event.revision;
     heard.set(id, seen);
-    changed(event.data);
+    changed(event.data, changedIn(event.data));
   }, { machine });
 }
 
