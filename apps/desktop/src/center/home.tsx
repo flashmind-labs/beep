@@ -1,4 +1,5 @@
 // Home: its tabs and the board.
+import { MACHINES } from "../machines/machine-store.ts";
 import { retitled, type Retitled } from "../agents/conversation-state.ts";
 import { conflicted, invoke, listen } from "../ui/tauri.ts";
 import { isMobile } from "../ui/platform.ts";
@@ -98,7 +99,7 @@ function page(home: HomeView) {
   const tab = shownTabs.find(t => t.key === homeTab) || shownTabs[0];
   const offline = machines?.filter(m => m.can_host !== false && !m.online && !m.connecting && Date.now() - m.seen_at < OFFLINE_NOTE_MS).map(m => m.name) ?? [];
 
-  return { machines, mac: machines ? thisMacRow(state.mac, machines) : null, jump,
+  return { machines, mac: machines ? thisMacRow(MACHINES.mac, machines) : null, jump,
     menu: (machine: NonNullable<typeof machines>[number], event: MouseEvent) => showMachineMenu(machine, () => [], event),
     useMac: () => { void useThisMac(); }, error: state.error, unavailable: !machines && !running, offline,
     // The board's switch shows while a session is open: without one there is nothing to review.

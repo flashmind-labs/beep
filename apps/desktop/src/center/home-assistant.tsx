@@ -1,4 +1,5 @@
 import { composeMessage } from "../chat/compose.tsx";
+import { MACHINES } from "../machines/machine-store.ts";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { makeStartComposer } from "../agents/start-composer.tsx";
 import { lastAssistantMachine, startAssistant } from "../agents/agentnew.tsx";
@@ -80,7 +81,7 @@ async function showHarness() {
     return;
   }
 
-  const machine = assistantHost(hosts, lastAssistantMachine() || state.mac?.id || null, agent)?.machine_id ?? null;
+  const machine = assistantHost(hosts, lastAssistantMachine() || MACHINES.mac?.id || null, agent)?.machine_id ?? null;
   composer.setHarness(pillContent(agent, resolved.model ?? "", resolved.effort, machine));
 }
 

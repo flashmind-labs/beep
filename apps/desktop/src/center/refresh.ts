@@ -11,10 +11,10 @@ import { readAllTerms } from "../terminals/view.tsx";
 import { takeGit } from "./openitems.ts";
 import type { GitItemsView } from "./openitems-state.ts";
 import { currentLocation } from "./views.tsx";
-import { reloadGroup, drawRail, drawSide } from "./sidebar.tsx";
+import { drawRail, drawSide } from "./sidebar.tsx";
 import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
-import { MACHINES, machinesChanged, REMOVED, takeTraffic } from "../machines/machine-store.ts";
-import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
+import { ensureMac, MACHINES, machinesChanged, REMOVED, takeTraffic } from "../machines/machine-store.ts";
+import { keepConnecting } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
 import { followSync, readSync } from "../project/syncpage.ts";
 import { perfFresh } from "../ui/perf.ts";
@@ -78,9 +78,10 @@ function shownHome(read: HomeView): HomeView {
 
 // Home's cards take their names, and drop a removed machine, from the machine list.
 machinesChanged.add(() => {
+  pagesAccount(MACHINES.mac);
   if (state.home && state.home === shown && lastRead) state.home = shown = shownHome(lastRead);
   else if (state.home) state.home = withListedMachines(state.home, MACHINES.list, REMOVED);
-  if (onScreen()) draw();
+  if (onScreen()) { draw(); drawSide(); }
 });
 
 /// Takes the newest pushed Home, or reads it when none came yet: membership, running sessions
@@ -120,10 +121,6 @@ async function readHome(): Promise<void> {
       homeFresh?.();
       homeFresh = null;
 
-      // The groups load from Home without drawing; the sidebar draws once.
-      const projects = !next || next.projects !== before?.projects || next.running !== before?.running;
-      const groups = [...(!next || next.machines !== before?.machines ? ["machines"] : []), ...(projects ? ["projects", "pinned"] : [])];
-      await Promise.all(groups.map(name => reloadGroup(name, false)));
       if (onScreen()) drawSide();
     } while (again && onScreen());
   })();
@@ -174,7 +171,6 @@ const refreshSync = single(async () => takeSync(await invoke<SyncRow[]>("project
 async function takeProjects(top: string[], groups: ProjectGroup[] | null) {
   state.top = top || [];
   state.groups = groups;
-  await Promise.all(["projects", "pinned"].map(name => reloadGroup(name, false)));
 
   if (onScreen()) {
     drawSide();
@@ -185,11 +181,6 @@ async function takeProjects(top: string[], groups: ProjectGroup[] | null) {
 const refreshProjects = single(async () => takeProjects(
   ...await Promise.all([invoke<string[]>("projects_on_top"), invoke<ProjectGroup[] | null>("project_groups")]),
 ));
-
-function takeMac(mac: MacControl) {
-  state.mac = mac;
-  pagesAccount(mac);
-}
 
 /// Whether a first load ran or runs in this window.
 let started = false;
@@ -211,7 +202,7 @@ export async function refresh() {
     const view = currentLocation()?.view ?? "home";
     const terminals = onScreen() && (view === "home" || view === "terminals");
     // This computer's row in the machines group comes from `mac_control`.
-    await Promise.all([readHome(), invoke<MacControl>("mac_control").then(takeMac).then(() => reloadGroup("machines", false)), refreshSync().then(() => onScreen() ? readSync() : undefined), refreshProjects(),
+    await Promise.all([readHome(), ensureMac(), refreshSync().then(() => onScreen() ? readSync() : undefined), refreshProjects(),
       terminals ? readAllTerms() : undefined]);
   } catch (error) {
     console.warn("Home:", error);
@@ -241,14 +232,6 @@ subscribeChanges(topic("home"), { deliver: "each", receive: event => {
   pushedHome = pushed;
   homeChanged("value" in pushed && needsChanged(pushed.value));
 } });
-subscribeChanges(topic("machines"), { deliver: "each", receive: async event => {
-  const pushed = pushedView<MacControl>(event.data, "mac_control");
-  if (!pushed) return;
-  if ("error" in pushed) { console.warn("this computer's state:", pushed.error); return; }
-
-  takeMac(pushed.value);
-  await reloadGroup("machines");
-} }, { wait: AMBIENT_MS });
 subscribeChanges(topic("projects"), { deliver: "each", receive: async event => {
   const top = pushedView<string[]>(event.data, "projects_on_top"), groups = pushedView<ProjectGroup[] | null>(event.data, "project_groups");
   if (!top || !groups) return;

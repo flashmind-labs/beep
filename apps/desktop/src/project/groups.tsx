@@ -1,12 +1,13 @@
 import { SidebarMachine } from "../machines/sidebar-machine-view.tsx";
 // Project groups in the sidebar: heading, menu, rename and remove.
-import { buildCapabilities, invoke } from "../ui/tauri.ts";
+import { MACHINES } from "../machines/machine-store.ts";
+import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 import { groupMatches, type ProjectGroup } from "./projects-state.ts";
 import { openGroupSheet } from "./groupsheet.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
 import { currentLocation } from "../center/views.tsx";
-import { registerSidebarGroup, reloadGroup, projectRows, openAddMachine, openProjects } from "../center/sidebar.tsx";
+import { registerSidebarGroup, drawSide, projectRows, openAddMachine, openProjects } from "../center/sidebar.tsx";
 import { redrawProjects, redrawProjectsPage } from "./sections.ts";
 import { jump } from "../center/home.tsx";
 import { type MachineCard, type MacRow, thisMacRow } from "../machines/machine-state.ts";
@@ -73,7 +74,7 @@ export function removeGroup(g: ProjectGroup) {
 }
 
 function redrawGroups() {
-  reloadGroup("projects");
+  drawSide();
   redrawProjectsPage();
 }
 
@@ -85,14 +86,16 @@ registerSidebarGroup<MachineCard | { thisMac: MacRow }>("machines", {
   onTitle: () => jump("sec-machines"),
   action: { label: "Add a machine", run: openAddMachine },
   empty: "No machines yet",
-  load: async () => {
+  load: () => {
     const machines = state.home?.machines;
     if (!machines) return null;
-    const mac = (await buildCapabilities()).local_host ? thisMacRow(state.mac, machines) : null;
+    const mac = useBuildCapabilities.getState().local_host ? thisMacRow(MACHINES.mac, machines) : null;
     return mac ? [...machines, { thisMac: mac }] : machines;
   },
   key: m => "thisMac" in m ? "this-mac" : m.id,
   render: m => <SidebarMachine machine={m} />,
-
 });
+
+// This computer's row waits for the build to say it can host.
+useBuildCapabilities.subscribe(() => drawSide());
 

@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import type { MachineFolder } from "../project/projects-state.ts";
 import type { FolderOffer } from "../project/addmachine-state.ts";
 import { buildCapabilities, invoke } from "../ui/tauri.ts";
+import { ensureMac } from "../machines/machine-store.ts";
 import { openSheet } from "../ui/parts.tsx";
 import { NO_MENU, completed, crumbs, isOpen, matching, menuKey, menuOf, splitTyped, suggest, type FolderMenu } from "./foldercomplete.ts";
 import { Button, NO_AUTO, SkeletonRows, Spinner } from "../ui/kit.tsx";
@@ -194,7 +195,7 @@ export function pickFolder(o: { machine: string; start: string | null; heading: 
 /// Refuses while Beep does not run on this computer, as its folders are read through it.
 export async function pickHere(heading: string, start: string | null) {
   if (!(await buildCapabilities()).local_host) throw new Error("Folder browsing is not available on this device.");
-  const mac = await invoke<{ id: string | null }>("mac_control");
+  const mac = await ensureMac();
   if (!mac.id) throw new Error("Turn on “Let Beep use this computer” in Settings to choose its folders.");
 
   return (await pickFolder({ machine: mac.id, start, heading }))?.path ?? null;

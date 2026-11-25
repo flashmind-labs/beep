@@ -3,7 +3,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import type { BoardCard } from "../center/lanes-view.tsx";
-import { refresh } from "../center/refresh.ts";
 import { importSheet, loadFound, openProjects } from "../center/sidebar.tsx";
 import { state } from "../center/state.ts";
 import { reason } from "../ui/format.ts";
@@ -96,7 +95,6 @@ function JoinSheet({ invite, close, name }: { invite: TeamInvite | null; close()
       if (!live.current) return;
       if (prepared.added) {
         void loadFound();
-        void refresh();
       }
       void run(text, { ...ticket, project: prepared.project }, prepared.machine_name);
     } catch (error) {

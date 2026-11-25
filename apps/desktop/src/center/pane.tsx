@@ -1,10 +1,11 @@
 // The bar's page as a pane in the window: its header, and handoffs from
 // other windows.
+import { ensureMac } from "../machines/machine-store.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { changeListeners, type View } from "../bar/core.ts";
 import { pane } from "../bar/pane.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
-import { type CenterView, type ViewHead, state } from "./state.ts";
+import { type CenterView, type ViewHead } from "./state.ts";
 import { currentLocation, drawTop, go } from "./views.tsx";
 import { shell } from "./window-shell.tsx";
 import { drawSide, paneOn } from "./sidebar.tsx";
@@ -12,7 +13,6 @@ import { ensureHome } from "./refresh.ts";
 import { showNotices } from "./notices.tsx";
 import { openSettings } from "../settings/sheet.ts";
 import { debugPrompt } from "../report/report-state.ts";
-import type { MacControl } from "../machines/machine-state.ts";
 import { AssistantList, leaveAssistantPage, syncAssistantPage } from "../agents/assistant-page.tsx";
 import { placeWindowParts } from "./window-root.tsx";
 
@@ -71,7 +71,7 @@ changeListeners.push(() => {
 /// The Report a problem sheet's "Debug with an agent": the start form on this
 /// Mac, when Beep may use it, with a prompt to look into Beep and file a report.
 export async function debugWithAgent(text: string) {
-  const mac = state.mac ?? await invoke<MacControl>("mac_control").catch(() => null);
+  const mac = await ensureMac().catch(() => null);
   go("pane", { agentnew: { prompt: debugPrompt(text), at: mac?.enabled ? { machine: mac.id } : null, assistant: false } });
 }
 

@@ -1,14 +1,15 @@
 // The "Add a machine" sheet.
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { ensureMac, ensureMachines, MACHINES, machinesChanged, takeMac } from "./machine-store.ts";
 import { latest, onShownChange, STALE } from "../ui/active.ts";
 import { buildCapabilities, invoke } from "../ui/tauri.ts";
+import { subscribeChanges, topic } from "../ui/mesh-events.ts";
 import { START, next, machineById, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
 import { type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { openSheet } from "../ui/parts.tsx";
 import { AddMachineBody } from "./addmachine-view.tsx";
-import type { MacControl, MachineView } from "./machine-state.ts";
+import type { MacControl } from "./machine-state.ts";
 
 /// A ticket as `mesh_invite` gives it (TokenView).
 interface NodeToken {
@@ -29,7 +30,7 @@ let kind: TicketKind = "node";
 const creation = latest();
 let ticker: Timer, poller: (() => void) | undefined, close: (() => void) | null = null, onClose: (() => void) | null = null;
 // This Mac's mac_control view, and whether the sheet turned it on.
-let mac: MacSeen | null = null, macAsked = false, macPoller: (() => void) | undefined;
+let mac: MacSeen | null = null, macAsked = false;
 let render: ((content: ReactNode) => void) | null = null;
 let opening = 0;
 
@@ -55,7 +56,7 @@ export function openAddMachine(options: { onClose?: () => void } = {}) {
   mac = null;
   macAsked = false;
   loadMac();
-  macPoller = subscribeChanges(topic("machines"), { deliver: "latest", receive: () => loadMac() });
+  machinesChanged.add(macChanged);
   start();
 }
 
@@ -70,9 +71,9 @@ function closed() {
   render = null;
   clearInterval(ticker);
   poller?.();
-  macPoller?.();
   ticker = undefined;
-  poller = macPoller = undefined;
+  poller = undefined;
+  machinesChanged.delete(macChanged);
   root = sheet = close = null;
   state = START;
   const done = onClose;
@@ -112,19 +113,27 @@ async function poll() {
     }
 
     // Matched by id, so a machine set up again is found too.
-    const machine = machineById(await invoke<MachineView[]>("list_machines"), id);
+    const machine = machineById(await ensureMachines(), id);
     if (machine && state.step === "waiting" && state.token === token) update({ type: "found", machine });
   } catch {
     // A membership update or reconnect tries again.
   }
 }
 
-/// Reads where this Mac stands and redraws its option.
+/// Takes this Mac's state as the store holds it and redraws its option.
+function macChanged() {
+  if (!root || !MACHINES.mac) return;
+
+  mac = MACHINES.mac;
+  draw(false);
+}
+
+/// Reads where this Mac stands once, and redraws its option.
 async function loadMac() {
   const asked = opening;
   try {
     if (!(await buildCapabilities()).local_host) return;
-    const view = await invoke<MacControl>("mac_control");
+    const view = await ensureMac();
     if (!root || asked !== opening) return;
     mac = view;
   } catch (e) {
@@ -142,6 +151,7 @@ async function useThisMac() {
 
   try {
     const view = await invoke<MacControl>("set_mac_control", { enabled: true });
+    takeMac(view);
     if (!root || asked !== opening) return;
     mac = view;
   } catch (e) {

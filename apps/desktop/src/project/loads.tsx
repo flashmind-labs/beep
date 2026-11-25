@@ -1,4 +1,5 @@
 import { retitled, type Retitled } from "../agents/conversation-state.ts";
+import { MACHINES } from "../machines/machine-store.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";
 import { retainedHost } from "./page-view.tsx";
@@ -359,7 +360,7 @@ function railCard(p: Project): RailCard | null {
   return {
     prs: thr.prs(pid)?.length ?? null, issues: thr.issues(pid)?.length ?? null,
     actions: actions.count, failed: actions.rows[0]?.chip?.text === "failed",
-    machines: machineTile(whereRows(p, machines || null, state.mac?.id || null), sync).count,
+    machines: machineTile(whereRows(p, machines || null, MACHINES.mac?.id || null), sync).count,
   };
 }
 

@@ -1,4 +1,5 @@
 import { projectName } from "../project/projects-state.ts";
+import { MACHINES } from "../machines/machine-store.ts";
 import { WINDOWS, isMobile, onPhone } from "../ui/platform.ts";
 // The sidebar: its groups (pinned, views, projects, machines) and the
 // sheets that add a machine or a project.
@@ -15,7 +16,7 @@ import { whereRows, openOnLabel } from "../project/projects-state.ts";
 import { openUrl } from "./openitems.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
 import { ALL } from "../terminals/terminals.tsx";
-import { state, pages, whereOf, type GroupSlot, type SidebarGroup, groups } from "./state.ts";
+import { state, pages, whereOf, type SidebarGroup, groups } from "./state.ts";
 import { stuck, draw } from "./home.tsx";
 import { allTerms } from "../terminals/view.tsx";
 import { currentLocation, go, drawTop, aloneProject, windowAlone } from "./views.tsx";
@@ -44,32 +45,7 @@ import { newChatTarget } from "../project/agent.ts";
 import { runningKey } from "../agents/running-state.ts";
 
 export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
-  const slot: GroupSlot<T> = { title: "", ...group, items: null, loading: false, again: false };
-  groups.set(name, slot);
-  reloadGroup(name);
-}
-
-/// Loads a group's items again. Never two loads at once: one asked for
-/// during a load runs once more after it.
-/// The sidebar redraws once the group is in, unless `redraw` is false and the
-/// caller draws after loading several. A load asked for during another
-/// returns at once, so the one that follows always draws.
-export async function reloadGroup(name: string, redraw = true) {
-  const g = groups.get(name);
-  if (!g) return;
-  if (g.loading) { g.again = true; return; }
-  g.loading = true;
-
-  try {
-    g.items = await g.load();
-  } catch (e) {
-    console.warn(`loading the ${name} group:`, e);
-  } finally {
-    g.loading = false;
-  }
-
-  if (redraw) drawSide();
-  if (g.again) { g.again = false; reloadGroup(name); }
+  groups.set(name, group as SidebarGroup<unknown>);
 }
 
 /// What the pane shows, for the sidebar's highlight; null off the pane.
@@ -87,7 +63,7 @@ export function projectHere() {
   const target = page?.view === "pane" ? page.arg : null;
   const open = AG.page?.session ?? (target && typeof target === "object" && "agent" in target ? target.agent : null);
   const agent = on.view === "agent" && open ? { machine_id: open.machine_id, cwd: open.cwd, main: placeOf(open)?.main } : null;
-  return newChatTarget({ shown: currentLocation()?.view ?? null, picked: state.picked, view: on.view, agent, mac: state.mac?.id }, state.home?.projects);
+  return newChatTarget({ shown: currentLocation()?.view ?? null, picked: state.picked, view: on.view, agent, mac: MACHINES.mac?.id }, state.home?.projects);
 }
 
 shell.subscribe((now, was) => { if (!now.assistant !== !was.assistant) drawSide(); });
@@ -154,7 +130,8 @@ export function drawSide() {
   const side: ReactNode[] = [];
 
   for (const [name, g] of [...groups].sort((a, b) => a[1].order - b[1].order)) {
-    if (g.items != null) side.push(<SidebarGroupView key={name} name={name} group={g} />);
+    const items = g.load();
+    if (items != null) side.push(<SidebarGroupView key={name} name={name} group={{ title: "", ...g, items }} />);
   }
 
   drawRail();
@@ -196,8 +173,7 @@ export async function setProjectOnTop(name: string, pinned: boolean) {
 }
 
 function redrawProjectPins() {
-  reloadGroup("pinned");
-  reloadGroup("projects");
+  drawSide();
   redrawProjectsPage();
 }
 
@@ -243,7 +219,7 @@ function openProjectMenu(e: MouseEvent, name: string) {
     ...(onPhone() ? [] : [{ label: NEW_WINDOW, icon: "openWindow" as const, on: () => openProjectWindow(name) }]),
     { label: on ? "Unpin" : "Pin to top", icon: "pin", on: () => setProjectOnTop(name, !on) },
   ];
-  const folder = p && whereRows(p, whereOf(name) || null, state.mac?.id || null).find(r => r.mac && r.folder)?.folder;
+  const folder = p && whereRows(p, whereOf(name) || null, MACHINES.mac?.id || null).find(r => r.mac && r.folder)?.folder;
   if (folder && !onPhone()) items.push({ label: "Open in editor", icon: "paneText", on: () => void openInEditor(folder) });
   const label = p?.url ? openOnLabel(p.url) : null;
   if (p?.url && label) items.push({ label, icon: "openWindow", on: () => openUrl(p.url!) });
@@ -278,7 +254,7 @@ function projectReact(project: Placed<Project>, label: string, pinned: boolean, 
 registerSidebarGroup<Placed<Project>>("pinned", {
   order: 2,
   title: "Pinned",
-  load: async () => pinnedProjects(),
+  load: pinnedProjects,
   render: p => projectReact(p, projectName(p), true, false),
   key: p => `project:${p.name}`,
 });
@@ -286,7 +262,7 @@ registerSidebarGroup<Placed<Project>>("pinned", {
 registerSidebarGroup("views", {
   order: 6,
   title: "Beep",
-  load: async () => ["settings" as const],
+  load: () => ["settings" as const],
   key: v => v,
   render: v => <SidebarItem svg={IC.gear} label="Settings" shortcut={shortcut("Ctrl+,", "⌘,")} open={() => go("pane", v)} />,
 });
@@ -316,7 +292,7 @@ function toggleFold(p: OrgHeading | GroupHeading) {
   const key = foldKey(p);
   if (!folded.delete(key)) folded.add(key);
   try { localStorage.setItem(FOLDED_KEY, JSON.stringify([...folded])); } catch { /* kept for this launch only */ }
-  reloadGroup("projects");
+  drawSide();
 }
 
 function foldItem(p: OrgHeading | GroupHeading): MenuItem {
@@ -346,7 +322,7 @@ function landed(p: { name: string }) {
 export function importSheet(repo: string | null = null, machine: string | null = null) {
   void import("../addproject/importproject.tsx").then(m => m.openImportProject({
     machines: state.home?.machines || [],
-    macId: state.mac?.id || null,
+    macId: MACHINES.mac?.id || null,
     repo,
     machine,
     onDone: landed,
@@ -360,7 +336,7 @@ export function addProject() {
     onImported: landed,
     onChoose: () => void import("../addproject/addfolder.tsx").then(f => f.openAddFolder({
       machines: state.home?.machines || [],
-      macId: state.mac?.id || null,
+      macId: MACHINES.mac?.id || null,
       onDone: landed,
       onBack: addProject,
     })),
@@ -427,7 +403,7 @@ registerSidebarGroup("projects", {
   onTitle: () => openProjects(),
   action: { label: "Add a project", run: addProject },
   empty: "No projects yet",
-  load: async () => {
+  load: () => {
     const rows = projectRows();
     // Those pinned to the top show under Pinned instead.
     return rows ? sideProjects(splitOnTop(rows, state.top).rest, state.groups, folded) : null;

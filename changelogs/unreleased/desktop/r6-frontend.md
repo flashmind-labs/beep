@@ -4,3 +4,6 @@
 
 ### Performance
 - macOS, Windows and Linux: team cards and invites arrive as they change instead of up to 10 or 60 seconds later, and the app no longer asks for them on a timer.
+
+### Fixed
+- macOS, Windows and Linux: the sidebar groups, this computer's row and the Add a machine sheet follow the pushed machine state at once, and the sidebar marks the project you are viewing.

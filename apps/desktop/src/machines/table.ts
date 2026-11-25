@@ -6,10 +6,9 @@ import { state } from "../center/state.ts";
 import { currentLocation } from "../center/views.tsx";
 import { draw } from "../center/home.tsx";
 import { openTerminals } from "../terminals/view.tsx";
-import { reloadGroup } from "../center/sidebar.tsx";
 import { fsync } from "../project/sections.ts";
 import { dropWhere } from "../center/refresh.ts";
-import { removeListed, renameListed } from "./machine-store.ts";
+import { removeListed, renameListed, MACHINES, takeMac } from "./machine-store.ts";
 import { type MacControl } from "./machine-state.ts";
 
 /// How old the table lets a moving project's detail get.
@@ -27,14 +26,12 @@ export function readSyncDetails() {
 /// Turns on Let Beep use this Mac, so it joins as a machine.
 export async function useThisMac() {
   try {
-    state.mac = await invoke<MacControl>("set_mac_control", { enabled: true });
+    takeMac(await invoke<MacControl>("set_mac_control", { enabled: true }));
   } catch (e) {
     console.warn("turning on this computer:", e);
   }
 
   draw();
-  // The Mac joining changes the `machines` topic, which reads the machines again.
-  reloadGroup("machines");
 }
 
 /// A machine the menu can rename, or remove unless it is this Mac, which
@@ -53,7 +50,7 @@ export function showMachineMenu(m: Removable, first: () => MenuItem[], e: MouseE
   const items: MenuItem[] = [...first()];
   if (m.online !== false && m.can_host !== false) items.push({ label: "New terminal", on: () => openTerminals({ newOn: m.id }) });
   items.push({ label: "Rename", on: () => renameMachine(m) });
-  if (m.id !== state.mac?.id) items.push({ label: "Remove", warn: true, on: () => removeMachine(m) });
+  if (m.id !== MACHINES.mac?.id) items.push({ label: "Remove", warn: true, on: () => removeMachine(m) });
   if (items.length) openMenu(e, m.name, items);
 }
 
@@ -65,7 +62,6 @@ function renameMachine(m: Removable) {
     run: async name => {
       await invoke("rename_machine", { id: m.id, name });
       renameListed(m.id, name);
-      reloadGroup("machines");
     },
   });
 }
@@ -81,7 +77,6 @@ function removeMachine(m: Removable) {
       await invoke("remove_machine", { id: m.id });
       removeListed(m.id);
       dropWhere();
-      reloadGroup("machines");
     },
   });
 }

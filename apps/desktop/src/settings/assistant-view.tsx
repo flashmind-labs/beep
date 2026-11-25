@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
-import { invoke } from "../ui/tauri.ts";
+import { ensureMac } from "../machines/machine-store.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { AG, ensureAgentHosts, type AgentHost } from "../agents/agents.ts";
 import { SettingRow } from "./overview-view.tsx";
@@ -31,7 +31,7 @@ export function AssistantView() {
     ensureAgentHosts().then(() => listed(n => n + 1), e => console.warn("agent hosts:", e));
     // The hosts follow the pushes of machines and accounts.
     const stop = subscribeEach([topic("machines"), topic("accounts")], () => listed(n => n + 1));
-    invoke<{ id: string | null }>("mac_control").then(mac => setOwn(mac.id), () => setOwn(null));
+    ensureMac().then(mac => setOwn(mac.id), () => setOwn(null));
 
     return stop;
   }, []);

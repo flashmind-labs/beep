@@ -1,4 +1,5 @@
 import { projectName } from "./projects-state.ts";
+import { MACHINES } from "../machines/machine-store.ts";
 import { renameProject } from "./rename.tsx";
 import { isMobile, onPhone } from "../ui/platform.ts";
 // project/: the Projects page and one project's page (pull requests, issues,
@@ -153,7 +154,7 @@ export const projectsView: CenterView<"projects"> = {
         tools.push(<Button key={`forge:${f.url}`} small title={f.url} onClick={() => openUrl(f.url)}>{f.label}</Button>);
       }
 
-      const here = whereRows(p, whereOf(p.name) || null, state.mac?.id || null).find(r => r.mac && r.folder);
+      const here = whereRows(p, whereOf(p.name) || null, MACHINES.mac?.id || null).find(r => r.mac && r.folder);
       const editors = editorsFor(here?.folder, redrawProjectsPage);
       if (here?.folder && editors.length) tools.push(<ProjectEditors key="editors" editors={editors} folder={here.folder} />);
       // The rest goes in one menu, so the header keeps to a line.

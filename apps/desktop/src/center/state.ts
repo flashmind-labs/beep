@@ -65,7 +65,6 @@ export const CONNECT_RETRY_MS = 3000;
 /// `since` is when the window started waiting for its first Home.
 export const state = {
   home: null as HomeView | null,
-  mac: null as MacControl | null,
   error: null as string | null,
   since: Date.now(),
   picked: null as string | null,
@@ -141,7 +140,8 @@ export function pageFresh(section: PageSection, id: string, loading: boolean) {
 export interface SidebarGroup<T> {
   order: number;
   title?: string;
-  load(): Promise<T[] | null>;
+  /// The group's rows from what the window holds, read at each draw of the sidebar; null hides the group.
+  load(): T[] | null;
   key(item: T): string;
   render(item: T): ReactNode;
   onTitle?(): void;
@@ -149,11 +149,10 @@ export interface SidebarGroup<T> {
   empty?: string | (() => string);
 }
 
+/// A group as drawn: `items` is what `load` gave at this draw.
 export interface GroupSlot<T> extends SidebarGroup<T> {
   title: string;
   items: T[] | null;
-  loading: boolean;
-  again: boolean;
 }
 
-export const groups = new Map<string, GroupSlot<unknown>>();
+export const groups = new Map<string, SidebarGroup<unknown>>();

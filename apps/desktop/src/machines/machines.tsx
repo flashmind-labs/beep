@@ -399,7 +399,7 @@ function showScreen(at: MachinesHost | null, page: MachinesPage) {
 function drawList(at: MachinesHost | null) {
   const refreshAfterSheet = () => { if (shown()) void renderMachines(hosted()?.machine ?? null).then(() => hosted()?.changed()); };
   showScreen(at, { view: "machines", props: {
-    list: MACHINES.list, error: MC.error, hosted: !!at, mac: MACHINES.mac, newest: newest(), asking: MC.asking,
+    list: MACHINES.list, error: MC.error, hosted: !!at, mac: MACHINES.mac?.id ?? null, newest: newest(), asking: MC.asking,
     adapterTries: MC.adapterTries, hints: at ? null : hintModel([["esc", "back"]]), age: span,
     open: (id: string) => { if (at) { at.opened(id); void renderMachines(id); } },
     add: () => openAddMachine({ onClose: refreshAfterSheet }),
@@ -413,7 +413,7 @@ function drawList(at: MachinesHost | null) {
 
 function drawDetail(at: MachinesHost | null, machine: Machine) {
   showScreen(at, { view: "machine", props: {
-    machine, invoke, error: MC.error, mac: MACHINES.mac, newest: newest(), updatable: MACHINES.updatable.has(machine.id),
+    machine, invoke, error: MC.error, mac: MACHINES.mac?.id ?? null, newest: newest(), updatable: MACHINES.updatable.has(machine.id),
     nodeUpdate: MC.updates.get(machine.id) ?? null, search, log, tools: MC.tools, toolUps: MC.toolUps,
     installed: MC.installed, traffic: MACHINES.traffic.find(t => t.id === machine.id), asking: MC.asking, age: span,
     searchEdit: () => { if (search) { search.draft = search.folder; drawMachines(); } },

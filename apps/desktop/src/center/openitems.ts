@@ -1,4 +1,5 @@
 // Home's Open PRs and issues tab, and importing a repo from it.
+import { MACHINES } from "../machines/machine-store.ts";
 import { reason } from "../ui/format.ts";
 import { invoke } from "../ui/tauri.ts";
 import { keepLastImport, lastImport } from "../addproject/importproject-state.ts";
@@ -114,7 +115,7 @@ function importWithSettings(p: OpenRepo) {
   const machine = importMachine();
   void import("../addproject/importproject.tsx").then(m => m.openImportProject({
     machines: state.home?.machines || [],
-    macId: state.mac?.id || null,
+    macId: MACHINES.mac?.id || null,
     repo: importRepo(p),
     machine: machine?.id ?? null,
   }));

@@ -2,20 +2,43 @@
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList, pushedView } from "../ui/snapshot-state.ts";
 import { invoke } from "../ui/tauri.ts";
+import type { MacControl } from "./machine-state.ts";
 import type { Machine } from "./machines.tsx";
 import type { MachineTraffic } from "./traffic-state.ts";
 
 /// `list` is null before the first value. `failed` says the last read failed, so a missing list
 /// is not an empty mesh.
 /// `traffic` is what each machine moved, from the `telemetry` topic, whichever screen follows it.
-/// `mac` is this computer's own machine id and `updatable` the machines that update over `update/1`,
+/// `mac` is this computer's own state and `updatable` the machines that update over `update/1`,
 /// both from the `machines` push: none until it comes.
-export const MACHINES: { list: Machine[] | null; failed: boolean; traffic: MachineTraffic[]; mac: string | null; updatable: Set<string> } = { list: null, failed: false, traffic: [], mac: null, updatable: new Set() };
+export const MACHINES: { list: Machine[] | null; failed: boolean; traffic: MachineTraffic[]; mac: MacControl | null; updatable: Set<string> } = { list: null, failed: false, traffic: [], mac: null, updatable: new Set() };
 /// Machines this window removed that a pushed list still has: Home hides them until the push drops them.
 export const REMOVED = new Set<string>();
 /// Called after the list changed, from a push or a rename or removal made here.
 export const machinesChanged = new Set<() => void>();
 let first: Promise<Machine[]> | null = null;
+
+let macFirst: Promise<MacControl> | null = null;
+
+/// This computer's state; before the first push arrives, one read answers. A pushed value that
+/// comes while that read is out wins over its answer.
+export function ensureMac(): Promise<MacControl> {
+  if (MACHINES.mac) return Promise.resolve(MACHINES.mac);
+
+  macFirst ??= invoke<MacControl>("mac_control")
+    .then(mac => { if (!MACHINES.mac) takeMac(mac); return MACHINES.mac ?? mac; })
+    .finally(() => { macFirst = null; });
+
+  return macFirst;
+}
+
+/// Takes `mac` as this computer's state, from a push or from the answer to a change made here.
+export function takeMac(mac: MacControl) {
+  if (JSON.stringify(mac) === JSON.stringify(MACHINES.mac)) return;
+
+  MACHINES.mac = mac;
+  for (const f of machinesChanged) f();
+}
 
 /// The machines held; before the first push arrives, one read answers. A pushed list that comes
 /// while that read is out wins over its answer.
@@ -49,9 +72,10 @@ export function removeListed(id: string) {
 }
 
 subscribeEach(topic("machines"), event => {
-  const mac = pushedView<{ id: string | null }>(event.data, "mac_control");
+  const mac = pushedView<MacControl>(event.data, "mac_control");
   const updatable = pushedList<{ id: string }>(event.data, "updatable_machines");
-  if (mac && "value" in mac) MACHINES.mac = mac.value.id || null;
+  if (mac && "error" in mac) console.warn("this computer's state:", mac.error);
+  if (mac && "value" in mac) takeMac(mac.value);
   if (updatable && "list" in updatable) MACHINES.updatable = new Set(updatable.list.map(u => u.id));
 
   const pushed = pushedList<Machine>(event.data, "list_machines");

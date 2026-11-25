@@ -38,7 +38,7 @@ body.cbody
                 svg [fill="none" height="10" stroke-linecap="round" stroke-width="2.4" stroke="currentColor" viewBox="0 0 24 24" width="10"]
               span.tt "example/"
             div.cc-chat.cc-si.pj-repo
-              button.open [aria-label="example/widget" title="example/widget wsl-box: /srv/example/widget" type="button"]
+              button.open [aria-current="true" aria-label="example/widget" title="example/widget wsl-box: /srv/example/widget" type="button"]
                 span.cc-pdot style(background-attachment,background-clip,background-color,background-image,background-origin,background-position-x,background-position-y,background-repeat,background-size)
                 span.tt "widget"
               button.pa [aria-label="Pin to top" data-id="example/widget" type="button"]

@@ -1,4 +1,5 @@
 import { moveStore } from "../agents/move-store.ts";
+import { MACHINES } from "../machines/machine-store.ts";
 import { type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
@@ -247,7 +248,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
   const det = history ? hostPart(history.detail) : issuesView ? viewPart("issues", issuesView) : viewPart("detail", <Parts className="pj-det" parts={picked.detail?.() ?? []} />);
   const mine = myIssues(p.name, issues || []);
   const cells = [
-    { label: projectBranch(gitOf(p.name), state.mac?.id || null) || "", text: "branch", key: "branches" },
+    { label: projectBranch(gitOf(p.name), MACHINES.mac?.id || null) || "", text: "branch", key: "branches" },
     { label: "Actions", text: runs.tile(pid).count || null, key: "actions", bad: runs.tile(pid).rows[0]?.chip?.text === "failed" },
     { label: plural(running.length, "agent", "agents"), text: "running", key: "running" },
     { label: "Team", text: team, key: "team" },

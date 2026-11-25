@@ -63,7 +63,7 @@ function ThisMac({ mac }: { mac: MacRow }) {
 }
 export function HomeMachines({ machines }: { machines: MachineCard[] }) {
   const capabilities = useBuildCapabilities();
-  const unlisted = capabilities.local_host ? thisMacRow(state.mac, machines) : null;
+  const unlisted = capabilities.local_host ? thisMacRow(MACHINES.mac, machines) : null;
   if (!machines.length && !unlisted) return <div id="sec-machines"><SectionHead title="Machines"><AddMachine small /></SectionHead><div className="cc-panel cc-empty"><b>No machines linked yet</b><AddMachine look="primary" /></div></div>;
   const online = machines.filter(machine => machine.online).length, count = machines.length ? `${online} of ${machines.length} online` : "";
   const terms = byMachine(termMachines(), allTerms.list(ALL) || []);

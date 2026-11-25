@@ -13,12 +13,13 @@ test("the machines push carries this computer and the machines that update, so n
   const reader = calls.filter(call => call.cmd === "mesh_watch").at(-1)!.args as Reader;
   const views = [
     { command: "list_machines", args: {}, value: [] },
-    { command: "mac_control", args: {}, value: { id: "mac-1" } },
+    { command: "mac_control", args: {}, value: { id: "mac-1", name: "Laptop", enabled: true, status: "connected", error: null, permissions: { screen_recording: true, accessibility: true } } },
     { command: "updatable_machines", args: {}, value: [{ id: "box-1", agent_sessions: 0 }] },
   ];
   reader.onEvent.onmessage({ revision: 1, machine_id: "me", topic: "machines.*", data: { views } });
 
-  assert.equal(MACHINES.mac, "mac-1");
+  assert.equal(MACHINES.mac?.id, "mac-1");
+  assert.equal(MACHINES.mac?.status, "connected");
   assert.deepEqual([...MACHINES.updatable], ["box-1"]);
   assert.equal(calls.some(call => call.cmd === "updatable_machines" || call.cmd === "mac_control"), false);
 });

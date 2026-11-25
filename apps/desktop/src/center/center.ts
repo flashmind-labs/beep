@@ -1,4 +1,5 @@
 // The window renders first, so modules that load after it find its elements.
+import { ensureMac } from "../machines/machine-store.ts";
 import "./window-root.tsx";
 import { isMobile, onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.tsx";
@@ -25,7 +26,7 @@ import { windowCommand } from "../ui/windowkeys.ts";
 import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { draw, homeTab, jump } from "./home.tsx";
 import { asBack, currentLocation, openDetachedWindow, windowAlone, aloneProject, go, goHistory, hasHistory, goTo } from "./views.tsx";
-import { reloadGroup, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject, openAddMachine } from "./sidebar.tsx";
+import { drawSide, paneOn, projectHere, openProjects, projectWindowProps, openProjectWindow, addProject, openAddMachine } from "./sidebar.tsx";
 import { escUp } from "./escup-state.ts";
 import { nextRunning } from "../project/loads.tsx";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
@@ -38,7 +39,7 @@ import { homeCached, refresh } from "./refresh.ts";
 import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
 import { followSkin } from "../ui/skin.ts";
 import { guardClicks } from "../ui/clickguard.ts";
-import { keepConnecting, type MacControl } from "../machines/machine-state.ts";
+import { keepConnecting } from "../machines/machine-state.ts";
 import { projectOf, repoOf, runningKey } from "../agents/running-state.ts";
 import { followToolUpdates } from "../machines/machines.tsx";
 import { dialogOpen } from "../ui/parts.tsx";
@@ -259,20 +260,17 @@ function start(opening: Opening) {
 async function showCached() {
   const [cached, mac] = await Promise.all([
     invoke<CachedViews | null>("center_cached").catch(e => { console.warn("kept views:", e); return null; }),
-    invoke<MacControl>("mac_control").catch(() => null),
+    ensureMac().catch(() => null),
   ]);
   startupStage("kept views read");
   const home = seed(state, cached);
-  state.mac ??= mac;
   keepPagesFile(cached?.pages);
   pagesAccount(mac);
   if (!home) return;
   keepConnecting(state.home?.machines ?? null);
   draw();
   homeCached();
-  reloadGroup("projects");
-  reloadGroup("pinned");
-  reloadGroup("machines");
+  drawSide();
   startupStage("home drawn");
 }
 

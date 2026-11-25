@@ -17,7 +17,7 @@ import { bar, S, toWindow, windowHooks, setView } from "../bar/core.ts";
 import { type BarPageSlot, openBarPage } from "../bar/bar-app.tsx";
 import { hintModel } from "../bar/hints.ts";
 import { machinesIn, machinesOut, renderMachines } from "../machines/machines.tsx";
-import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
+import { ensureMac, ensureMachines, MACHINES, takeMac } from "../machines/machine-store.ts";
 import type { MacControl } from "../machines/machine-state.ts";
 import { harnessName } from "./providers-state.ts";
 import { back, CODING_AGENTS, fitPath, isPage, openSub, pageLabel, recallPath, rememberPath, samePath, selectPage, type SettingsPage, type SettingsPath, type SettingsSub } from "./settings-nav.ts";
@@ -73,7 +73,7 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
 
   const [got, mac] = await Promise.all([
     invoke<MacSettings>("settings"),
-    invoke<MacControl>("mac_control").catch(e => { console.warn(e); return null; }),
+    ensureMac().catch(e => { console.warn(e); return null; }),
   ]).catch((e: unknown) => [e, null] as const);
   if (!alive()) return;
 
@@ -375,7 +375,10 @@ async function change(pending: Set<string>, key: string, command: string, args: 
   pending.add(key);
   redrawSettings();
   try {
-    try { await invoke(command, args); } catch (error) { console.warn(error); }
+    try {
+      const answer = await invoke(command, args);
+      if (command === "set_mac_control") takeMac(answer as MacControl);
+    } catch (error) { console.warn(error); }
     if (setShown()) await renderSettings();
   } finally {
     pending.delete(key);

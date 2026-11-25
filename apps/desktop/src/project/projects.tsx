@@ -1,4 +1,5 @@
 import { lastProjectVisit, leaveProject, noteProjectVisit, readProjectSort, saveProjectSort } from "./project-preferences.ts";
+import { MACHINES } from "../machines/machine-store.ts";
 import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectRunning } from "./running-view.tsx";
 import { ProjectsOverview } from "./overview-view.tsx";
@@ -91,7 +92,7 @@ export function projectDetail(p: Project): PagePart[] {
   const machines = p.imported ? whereOf(p.name) : null;
   if (p.imported && (machines === undefined || whereDue.has(p.name))) loadWhere(p.name);
   if (p.imported && (gitOf(p.name) === undefined || gitDue.has(p.name))) loadGit(p.name);
-  const rows = whereRows(p, machines || null, state.mac?.id || null);
+  const rows = whereRows(p, machines || null, MACHINES.mac?.id || null);
   const running = projectRunning(p, state.home?.running, sessionsOf(p.name), [...moveStore.getState().records.values()]).filter(sessionVisible);
   if (splitOn(p)) return projectSplit(p, rows, !!machines, running);
   disposeProjectShell();
