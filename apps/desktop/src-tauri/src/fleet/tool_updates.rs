@@ -23,10 +23,12 @@ const RELEASES_FOR: Duration = Duration::from_secs(55 * 60);
 /// How long one npm registry lookup may take.
 const NPM_TIMEOUT: Duration = Duration::from_secs(15);
 
+/// The newest npm release of each package, `None` for one the lookup missed.
+type Releases = HashMap<&'static str, Option<String>>;
+
 /// The newest npm release of each coding agent package, `None` for one the lookup missed, and
 /// when they were looked up.
-static AGENT_RELEASES: Mutex<Option<(Instant, HashMap<&'static str, Option<String>>)>> =
-    Mutex::new(None);
+static AGENT_RELEASES: Mutex<Option<(Instant, Releases)>> = Mutex::new(None);
 
 /// The updates found by each connected node, and its coding agents behind
 /// their newest release. A node that pushes its list is not asked; one that
@@ -153,9 +155,7 @@ async fn agent_updates(machines: &[Machine]) -> Vec<ToolUpdate> {
 
 /// The newest release of each of `packages`, looked up again when the last look is old. A
 /// package the look missed stays missed until then.
-async fn agent_releases(
-    packages: &BTreeSet<&'static str>,
-) -> HashMap<&'static str, Option<String>> {
+async fn agent_releases(packages: &BTreeSet<&'static str>) -> Releases {
     {
         let found = AGENT_RELEASES
             .lock()
