@@ -224,7 +224,7 @@ test("adding a machine reads the sync once and follows it from the sync updates 
   const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_detail").length);
   const before = await reads();
 
-  const push = (value: SyncDetail, at: number) => page.evaluate(([view, revision]) => window.__navigation.publish("sync.*", revision, { views: [view] }, "laptop"), [{ command: "project_sync_detail", args: { project: projectName }, value }, at] as const);
+  const push = (value: SyncDetail, at: number) => page.evaluate(([view, revision]) => window.__navigation.publish("sync.*", revision, { views: [view] }), [{ command: "project_sync_detail", args: { project: projectName }, value }, at] as const);
   await push(copying(laptop(11, 7, "syncing")), 5000);
   await expect(sheet).toContainText("Copying to laptop: 11 of 18 files");
   await push(copying(laptop(18, 0, "in_sync")), 5001);

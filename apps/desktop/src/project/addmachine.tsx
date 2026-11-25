@@ -77,6 +77,7 @@ export function openAddToMachine(o: AddToMachine) {
   };
 
   /// Reads the sync once, then follows it until the machine has it all; the page's row goes on from there.
+  /// The views are published under this desktop, so no machine filter.
   const poll = async () => {
     try {
       take(await invoke<SyncDetail | null>("project_sync_detail", { project }));
@@ -89,7 +90,7 @@ export function openAddToMachine(o: AddToMachine) {
     unfollow ??= subscribeEach(topic("sync"), event => {
       const pushed = pushedView<SyncDetail | null>(event.data, "project_sync_detail", { project });
       if (pushed && "value" in pushed) take(pushed.value);
-    }, { machine: machine.id, when: () => open });
+    }, { when: () => open });
   };
 
   const take = (detail: SyncDetail | null) => {
