@@ -1885,7 +1885,7 @@ impl Link for MeshLink {
                 earlier: u64::from(view.earlier),
                 entries: &view.entries,
             };
-            Ok(holds(&log, message))
+            Ok(holds_among(&log, message, 1))
         };
 
         logged("took", message, checking, |held| {
