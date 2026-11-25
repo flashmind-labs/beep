@@ -4,23 +4,26 @@
 //! message names its repo, and one about a team its sender is not on is
 //! refused.
 
+mod asks_out;
+pub(super) mod board_io;
+pub(crate) mod home_io;
+
 use super::{
     asks::{Asks, Sessions, not_served},
-    board::{self, Boards},
+    board::Boards,
     cards::Teammates,
-    home::{Home, Invites},
+    home::{Home, Invites, TeamForge},
     proof::{PROOF_CONTEXTS, ProofError},
     roster::{Refusal, Rosters},
 };
 use beep_mesh::TeamTicket;
-use beep_projects::commands::OpenIssue;
 use beep_proto::node::events::{TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic};
 use beep_proto::watched::read_sent;
 use beep_proto::{
     node::{LinkRx, LinkTx, link, tools::TeamInviteArgs},
     team::{ALPN, ForgeLogin, Member, Removed, TeamMsg, TeamRecord, TeamRepo},
 };
-use futures::future::{BoxFuture, join_all};
+use futures::future::join_all;
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
     endpoint::Connection,
@@ -47,67 +50,6 @@ const FIRST_FRAME: usize = 16 * 1024;
 const VOUCH_LIMIT: Duration = Duration::from_secs(20);
 /// How often a removal goes again to the members it did not reach. Short in tests.
 const RESEND: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 10 * 60 });
-
-/// What the forge says about a team's people. In tests it answers without one.
-pub(crate) trait TeamForge: Send + Sync + 'static {
-    /// Whether `login` may push to `repo`.
-    fn collaborator<'a>(
-        &'a self,
-        repo: &'a TeamRepo,
-        login: &'a ForgeLogin,
-    ) -> BoxFuture<'a, Result<bool, String>>;
-
-    /// The account this machine is signed in with on `repo`'s host.
-    fn login<'a>(&'a self, repo: &'a TeamRepo) -> BoxFuture<'a, Result<ForgeLogin, String>>;
-
-    /// `repo`'s open issues.
-    fn open_issues<'a>(
-        &'a self,
-        repo: &'a TeamRepo,
-    ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>>;
-
-    /// `repo`'s open issues assigned to `login`, every page.
-    fn assigned_issues<'a>(
-        &'a self,
-        repo: &'a TeamRepo,
-        login: &'a ForgeLogin,
-    ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>>;
-
-    /// Whether `login` assigned issue `number` of `repo` to themselves, by its latest
-    /// assignment of them.
-    fn self_assigned<'a>(
-        &'a self,
-        repo: &'a TeamRepo,
-        number: u64,
-        login: &'a ForgeLogin,
-    ) -> BoxFuture<'a, Result<bool, String>>;
-
-    /// The branches of `repo`'s pull requests, open or closed, that may come from `branch`:
-    /// `branch` among them when one does.
-    fn pull_heads<'a>(
-        &'a self,
-        repo: &'a TeamRepo,
-        branch: &'a str,
-    ) -> BoxFuture<'a, Result<Vec<String>, String>>;
-
-    /// Marks commit `sha` of `repo` with the status `context`, as this
-    /// machine's account: only one who may push can.
-    fn stamp<'a>(
-        &'a self,
-        repo: &'a TeamRepo,
-        sha: &'a str,
-        context: &'a str,
-    ) -> BoxFuture<'a, Result<(), String>>;
-
-    /// The logins that marked commit `sha` of `repo` with a status whose
-    /// context starts with `context`.
-    fn stampers<'a>(
-        &'a self,
-        repo: &'a TeamRepo,
-        sha: &'a str,
-        context: &'a str,
-    ) -> BoxFuture<'a, Result<Vec<String>, String>>;
-}
 
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum TeamError {
@@ -583,7 +525,7 @@ impl TeamLink {
             if let TeamMsg::Subscribe { repo } = &msg
                 && self.serves(peer, repo)
             {
-                return board::serve(self, peer, repo.clone(), tx, rx).await;
+                return board_io::serve(self, peer, repo.clone(), tx, rx).await;
             }
 
             if let Some(answer) = self.answer(peer, &msg).await {

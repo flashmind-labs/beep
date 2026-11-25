@@ -1,7 +1,8 @@
 use super::*;
 use crate::agents::tags::{Part, parts};
 use crate::team::board::tests::{Pair, login, repo};
-use beep_proto::team::{Lane, TeamRecord};
+use crate::team::link::TeamLink;
+use beep_proto::team::{Lane, TeamMsg, TeamRecord};
 use std::sync::{Arc, Mutex};
 
 const LIMIT: &str = "team_ask is limited to 10 messages an hour";

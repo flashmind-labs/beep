@@ -1,12 +1,18 @@
 use super::*;
-use crate::team::link::TeamForge;
-use beep_proto::team::{Card, ForgeLogin, Lane, TeamRecord};
+use crate::team::home::TeamForge;
+use crate::team::link::{
+    TeamLink,
+    board_io::{Followed, Heard, follow},
+};
+use beep_proto::team::{Card, ForgeLogin, Lane, Member, TeamMsg, TeamRecord};
 use futures::future::BoxFuture;
 use iroh::{
     Endpoint, EndpointAddr, SecretKey, address_lookup::memory::MemoryLookup, endpoint::presets,
     protocol::Router,
 };
-use std::{sync::Arc, time::SystemTime};
+use std::{sync::Arc, time::{Duration, SystemTime}};
+use iroh::EndpointId;
+use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_util::task::AbortOnDropHandle;
 

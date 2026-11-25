@@ -533,7 +533,7 @@ impl Peers {
             offers.skills.libraries().clone(),
             offers.agents.clone(),
         );
-        let team = crate::team::home::follow(active.clone(), self.inner.team.clone());
+        let team = crate::team::link::home_io::follow(active.clone(), self.inner.team.clone());
         let gateway = crate::team::gateway::run(
             active.clone(),
             self.inner.endpoint.id(),

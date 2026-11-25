@@ -514,7 +514,8 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
 
 #[tokio::test]
 async fn a_busy_desktop_write_does_not_hold_up_the_home() {
-    use crate::team::home::{ForgeCli, follow};
+    use crate::team::home::ForgeCli;
+    use crate::team::link::home_io::follow;
     use beep_mesh::{DeviceKind, TeamWrites};
     use std::sync::Arc;
     use tokio::time::timeout;

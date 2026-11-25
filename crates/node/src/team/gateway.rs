@@ -6,10 +6,10 @@
 //! (`membership`).
 
 use super::{
-    board::{CHANGES, Followed, Heard, follow},
+    board::CHANGES,
     cards::{Facts, IssueTitles, card_of, midnight, settle},
     home::{Home, Project},
-    link::TeamLink,
+    link::{TeamLink, board_io::{Followed, Heard, follow}},
     membership::{self, Membership, Team},
     pickup::{Pickups, Round, read_assigned},
     sightings::{self, Sight, Sighted},
