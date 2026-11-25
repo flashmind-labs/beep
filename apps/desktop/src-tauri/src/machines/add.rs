@@ -57,6 +57,7 @@ impl Tickets {
 /// `ticket_machine` for each ticket minted and not expired, for the machines view to push.
 pub(crate) async fn ticket_views(app: &AppHandle) -> Vec<View> {
     let fleet = app.state::<Arc<Fleet>>();
+    let fleet: &Fleet = &fleet;
     let reads = app
         .state::<Tickets>()
         .live()
@@ -64,7 +65,7 @@ pub(crate) async fn ticket_views(app: &AppHandle) -> Vec<View> {
         .map(|ticket| async move {
             let args = serde_json::json!({ "ticket": ticket });
 
-            match joined_by(&fleet, &ticket).await {
+            match joined_by(fleet, &ticket).await {
                 Ok(machine) => View::new("ticket_machine", args, machine),
                 Err(error) => Some(View::failed("ticket_machine", args, &error.to_string())),
             }
@@ -179,7 +180,7 @@ pub async fn ticket_machine(
     fleet: State<'_, Arc<Fleet>>,
     ticket: String,
 ) -> Result<Option<String>> {
-    joined_by(&fleet, &ticket).await
+    joined_by(fleet, &ticket).await
 }
 
 async fn joined_by(fleet: &Fleet, ticket: &str) -> Result<Option<String>> {
