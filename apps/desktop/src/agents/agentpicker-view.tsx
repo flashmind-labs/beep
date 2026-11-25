@@ -2,7 +2,7 @@ import type { ModelInfo } from "./agentmodels.ts";
 import { Button, NO_AUTO, Spinner, Switch } from "../ui/kit.tsx";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { agentKind } from "./agents.ts";
+import { agentKind } from "./agent-kind.ts";
 import { type Allowed, effortNote, effortsOf, placePopover, railOf, type MachineRow, type PickRow } from "./agentpick.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import type { Picked } from "./agentpicker.tsx";

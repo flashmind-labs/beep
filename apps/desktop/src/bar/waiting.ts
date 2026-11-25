@@ -2,7 +2,8 @@
 // sessions every page shares and the notifications this Mac holds. Return
 // opens one in the bar, with its conversation and composer.
 import { flushSync } from "react-dom";
-import { type AgentSession, folderName } from "../agents/agents.ts";
+import { type AgentSession } from "../agents/agents.ts";
+import { folderName } from "../agents/agent-kind.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { placeRepo } from "../agents/place-state.ts";
 import { openAgent } from "../agents/session.tsx";

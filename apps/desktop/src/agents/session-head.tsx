@@ -3,7 +3,8 @@
 import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
 import { PANE, windowHooks } from "../bar/core.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
-import { type AgentRow, AG, openModes, sessionUsage, agentKind, folderName } from "./agents.ts";
+import { type AgentRow, AG, openModes, sessionUsage } from "./agents.ts";
+import { agentKind, folderName } from "./agent-kind.ts";
 import { hasModes } from "./modepill.tsx";
 import { editorsFor, openInEditor } from "../project/editors.ts";
 import { ProjectEditors } from "../project/header-view.tsx";

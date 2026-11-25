@@ -6,7 +6,8 @@ import { useLayoutEffect, useRef } from "react";
 import { shortSize, transferSpeed, type Transfer } from "../agentpane/files-state.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { Icon } from "../ui/icons.tsx";
-import { AG, folderName } from "./agents.ts";
+import { AG } from "./agents.ts";
+import { folderName } from "./agent-kind.ts";
 import { drawAgentAttached, previewsOf } from "./images.tsx";
 import { answerUpload, MN, removeAttached, removeMention } from "./workdrop.ts";
 

@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
-import { agentKind, folderName } from "./agents.ts";
+import { agentKind, folderName } from "./agent-kind.ts";
 import { type ConversationChoice, conversationKey, conversationState } from "./conversation-state.ts";
 import { windowHooks } from "../bar/core.ts";
 import { HarnessIcon } from "../ui/icons.tsx";

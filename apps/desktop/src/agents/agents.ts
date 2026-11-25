@@ -49,6 +49,7 @@ import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList } from "../ui/snapshot-state.ts";
 import { currentPage, setPage } from "./open-page.ts";
 import { onPlaces, placeOf } from "./place.ts";
+import { agentKind, folderName } from "./agent-kind.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
 import { type WorkPlace, placeSub } from "./place-state.ts";
@@ -378,26 +379,10 @@ export const AGENT_LAST = 60;
 /// that never returns shows an error instead of holding the view (#427).
 export const AGENT_READ_WAIT_MS = 25_000;
 export const AGENT_SEND_WAIT_MS = 40_000;
-interface AgentKind {
-  ini: string;
-  name: string;
-  cls: string;
-}
-const AGENT_KINDS: Record<string, AgentKind> = {
-  claude: { ini: "CC", name: "Claude Code", cls: "claude" },
-  codex: { ini: "CX", name: "Codex", cls: "codex" },
-  agy: { ini: "AG", name: "Antigravity", cls: "agy" },
-  pi: { ini: "PI", name: "pi", cls: "pi" },
-  flsh: { ini: "FL", name: "flsh", cls: "flsh" },
-  opencode: { ini: "OC", name: "OpenCode", cls: "opencode" },
-  hermes: { ini: "HE", name: "Hermes", cls: "hermes" },
-};
 /// Agents whose outside sessions a node can take over (the ones it reads sessions of).
 export const canTakeOver = (a: string) => TAKEOVER.has(a);
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';
 
-export const agentKind = (a: string): AgentKind => AGENT_KINDS[a] ?? { ini: String(a || "?").slice(0, 2).toUpperCase(), name: a || "Agent", cls: "" };
-export const folderName = (p: string) => String(p || "").split("/").filter(Boolean).pop() || p || "";
 /// The open session `row` is.
 export { openOf, where } from "./conversation-state.ts";
 
