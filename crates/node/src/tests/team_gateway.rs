@@ -598,11 +598,15 @@ async fn a_pushed_session_change_makes_the_cards_again_without_a_round() {
     // The last round ended long ago and the next is due in a minute.
     gateway.round_due = Some(Instant::now() + BUSY);
 
+    // A machine not heard yet is asked, so its sessions count meanwhile.
+    assert!(gateway.unheard().contains(&peer));
+
     gateway.sighted(Sighted {
         peer,
         sight: Sight::Rows(Vec::new()),
     });
 
+    assert!(gateway.unheard().is_empty());
     assert_eq!(gateway.round_due, Some(Instant::now() + SETTLE));
     assert!(gateway.rows.contains_key(&peer));
 

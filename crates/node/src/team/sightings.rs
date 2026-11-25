@@ -25,8 +25,6 @@ pub(super) struct Sighted {
 pub(super) enum Sight {
     /// The machine's rows of its sessions, whole.
     Rows(Vec<SessionInfo>),
-    /// The stream dropped; the follow dials again.
-    Gone,
     /// The machine does not serve its list to a node, as one from before it:
     /// it is asked for its sessions instead.
     Refused,
@@ -42,9 +40,12 @@ pub(super) async fn follow(mesh: Mesh, peer: EndpointId, sighted: mpsc::Sender<S
             log::debug!("the sessions of {peer} are not followed: {e:#}");
         }
 
-        let sight = if refused { Sight::Refused } else { Sight::Gone };
+        // A machine whose stream dropped keeps its last rows until the next list.
+        if refused {
+            let refused = Sighted { peer, sight: Sight::Refused };
 
-        if sighted.send(Sighted { peer, sight }).await.is_err() || refused {
+            sighted.send(refused).await.ok();
+
             return;
         }
 

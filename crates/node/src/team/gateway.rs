@@ -442,13 +442,21 @@ impl Gateway {
             projects,
             peers: self.peers.clone(),
             rows: self.rows.clone(),
-            refused: self.refused.clone(),
+            refused: self.unheard(),
         };
         self.serving.spawn(async move {
             let made = cards.make(&job).await;
 
             (cards, made)
         });
+    }
+
+    /// The machines to ask for their sessions: those that do not push them, and
+    /// those that have not pushed yet.
+    fn unheard(&self) -> BTreeSet<EndpointId> {
+        let silent = self.sightings.keys().filter(|peer| !self.rows.contains_key(*peer));
+
+        self.refused.iter().chain(silent).copied().collect()
     }
 
     /// Takes the cards a round made, for this mesh's boards and the teammates.
@@ -560,9 +568,6 @@ impl Gateway {
         match sight {
             Sight::Rows(rows) => {
                 self.rows.insert(peer, rows);
-            }
-            Sight::Gone => {
-                self.rows.remove(&peer);
             }
             Sight::Refused => {
                 self.rows.remove(&peer);
