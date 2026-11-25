@@ -126,7 +126,10 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
     // moment, which moves a log scrolled to its end.
     const log = sessionBody(), top = log?.scrollTop ?? 0;
     node.style.height = "auto";
-    node.style.height = `${Math.min(node.scrollHeight, grow)}px`;
+    node.style.minHeight = "0px";
+    const height = Math.min(node.scrollHeight, grow);
+    node.style.minHeight = "";
+    node.style.height = `${height}px`;
     if (log && log.scrollTop !== top) log.scrollTop = top;
   }, [value, grow, size]);
 

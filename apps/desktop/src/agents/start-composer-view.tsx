@@ -5,7 +5,7 @@ import { pastedFiles, type PastedFiles } from "../chat/attach.tsx";
 import { DailyArt } from "../ui/painted-art.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import { createPortal } from "react-dom";
-import { Fragment, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { FieldMenu } from "./composer-ui.tsx";
 import { isMobile } from "../ui/platform.ts";
 import type { ComposerWords } from "./assistant-state.ts";
@@ -64,8 +64,11 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
     const field = input.current;
     if (!field?.isConnected) return;
     field.style.height = "auto";
-    field.style.height = `${Math.min(field.scrollHeight, FIELD_MAX)}px`;
-    field.style.overflowY = field.scrollHeight > FIELD_MAX ? "auto" : "hidden";
+    field.style.minHeight = "0px";
+    const height = field.scrollHeight;
+    field.style.minHeight = "";
+    field.style.height = `${Math.min(height, FIELD_MAX)}px`;
+    field.style.overflowY = height > FIELD_MAX ? "auto" : "hidden";
   };
   nodes.grow = grow;
   // Stable refs: a callback made per render detaches and reattaches on each
@@ -89,6 +92,13 @@ export function StartComposerView({ nodes, choices, externalChoices, ids, title,
   // The choices keep one host, so a focused pill or a typed branch stays when the layout changes.
   useLayoutEffect(() => { if (state.centered) box.current?.after(choices); else row.current?.prepend(choices); }, [state.centered, choices]);
   useLayoutEffect(grow, [state.centered]);
+  useEffect(() => {
+    const field = input.current;
+    if (!field || typeof ResizeObserver !== "function") return;
+    const seen = new ResizeObserver(grow);
+    seen.observe(field);
+    return () => seen.disconnect();
+  }, [state.draft]);
   const paste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     if (!actions.files) return;
     const pasted = pastedFiles(event.nativeEvent);

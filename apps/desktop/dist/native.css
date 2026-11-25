@@ -310,7 +310,7 @@ body:not(.mobile) :is(.ag-queue, .ag-steps) .it { height: 24px; padding: 0 10px;
 body:not(.mobile) .ag-queue :is(.lbl, .it > span:not(.t), button) { font: 11px var(--mono) }
 
 /* ----- Attached files in the message field: a quiet count on its own line above the words ----- */
-body:not(.mobile) #agfield #agatt { order: -1; flex: 0 0 100%; gap: 0; padding: 1px 0 3px }
+body:not(.mobile) #agfield #agatt { order: -2; flex: 0 0 100%; gap: 0; padding: 1px 0 3px }
 body:not(.mobile) #agfield .attachment-count { height: 22px; min-height: 0; padding: 0 8px; border-color: transparent; background: var(--ctl-fill); font: 11.5px var(--mono); color: var(--fg) }
 
 /* ----- Settings: a glass sheet like the palette, the app's own navigation rows, lists as lit cards.
@@ -508,18 +508,26 @@ body:not(.mobile) .dict-dots i { width: 3px; height: 3px; border-radius: 50%; ba
 body:not(.mobile) .dict-dots i:nth-child(2) { animation-delay: .15s }
 body:not(.mobile) .dict-dots i:nth-child(3) { animation-delay: .3s }
 body:not(.mobile) .dict-canvas:not([hidden]) { display: block; position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; border-radius: inherit }
-body:not(.mobile) .dict-status { display: inline-flex; align-items: center; gap: 6px; position: absolute; top: 7px; right: 10px; z-index: 3; max-width: 60%; font: 500 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); pointer-events: none; opacity: 0; transform: translateY(-2px); transition: opacity .16s, transform .16s, color .16s }
+body:not(.mobile) .dict-status { display: inline-flex; align-items: center; gap: 6px; position: absolute; top: 7px; right: 10px; z-index: 3; max-width: 60%; padding: 1px 5px; border-radius: var(--radius-sm); background: color-mix(in srgb, var(--elev) 82%, transparent); font: 500 11.5px/1.2 var(--mono); font-variant-numeric: tabular-nums; color: var(--muted); pointer-events: none; opacity: 0; transform: translateY(-2px); transition: opacity .16s, transform .16s, color .16s }
 body:not(.mobile) .dict-status.shown { opacity: 1; transform: none }
 body:not(.mobile) .dict-status .dot { flex: none; width: 5.5px; height: 5.5px; border-radius: 50%; background: var(--fg) }
 body:not(.mobile) .dict-status.listening .dot { animation: dict-pulse 1.4s ease-in-out infinite }
 body:not(.mobile) .dict-status.thinking .dot { background: var(--muted); animation: dict-pulse .9s ease-in-out infinite }
 body:not(.mobile) .dict-status.error { color: var(--err) }
 body:not(.mobile) .dict-status.error .dot { background: var(--err) }
-/* Room under the text for the mound while it shows. */
-body:not(.mobile) :is(#agfield, .cc-pjc .box):has(> .dict-canvas:not([hidden])) { padding-bottom: 40px; transition: padding-bottom .2s }
-body:not(.mobile) :is(#agfield, .cc-pjc .box):has(> .dict-status.error) { border-color: color-mix(in srgb, var(--err) 55%, transparent) }
+/* Expand the composer while dictating so the timer and mound clear the text and controls, then shrink back. */
+body:not(.mobile) :is(#agfield.dinput.small, .cc-pjc .box) > textarea { transition: margin-bottom .18s ease }
+body:not(.mobile) #agfield#agfield.dinput.small:has(> .dict-canvas:not([hidden])) { padding: 8px 8px 5px }
+body:not(.mobile) #agfield#agfield.dinput.small:has(> .dict-canvas:not([hidden])) > textarea { order: -1; flex: 1 1 100%; min-height: max(48px, var(--field-h, 0px)); margin: 0 0 24px; padding: 0 76px 0 4px }
+body:not(.mobile) #agfield#agfield.dinput.small:has(> .dict-canvas:not([hidden])) > button[aria-label="Attach files"] { margin-right: auto }
+body:not(.mobile) .cc-pjc .box:has(> .dict-canvas:not([hidden])) > textarea { min-height: 48px; margin-bottom: 24px; padding-right: 76px }
+body:not(.mobile) .cc-pjc.centered .box:has(> .dict-canvas:not([hidden])) > textarea { min-height: 58px }
+body:not(.mobile) :is(#agfield#agfield.dinput.small, .cc-pjc .box):has(> .dict-status.error) { border-color: color-mix(in srgb, var(--err) 55%, transparent) }
 @keyframes dict-pulse { 0%, 100% { opacity: .95; transform: scale(1) } 50% { opacity: .35; transform: scale(.82) } }
-@media (prefers-reduced-motion: reduce) { body:not(.mobile) :is(.dict-dots i, .dict-status .dot) { animation: none } }
+@media (prefers-reduced-motion: reduce) {
+  body:not(.mobile) :is(.dict-dots i, .dict-status .dot) { animation: none }
+  body:not(.mobile) :is(#agfield.dinput.small, .cc-pjc .box) > textarea { transition: none }
+}
 /* Settings, General: the dictation model and its key under the switch. */
 body:not(.mobile) .dict-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px }
 body:not(.mobile) .dict-sub select { height: var(--ctl-h); padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px; outline: 0 }

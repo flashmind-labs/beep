@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeProvider, addedWords, anchorOf, createDictationSettings, dictationNote, IDLE, keysFrom, nextTurn, parseEvent, pcmChunks, providerOf, Resampler, spliceTranscript, MAX_CHUNK_BYTES } from "../src/chat/dictation-state.ts";
+import { activeProvider, addedWords, anchorOf, applyTranscript, createDictationSettings, dictationNote, IDLE, keysFrom, nextTurn, parseEvent, pcmChunks, providerOf, reanchorDraft, Resampler, spliceTranscript, startDraft, MAX_CHUNK_BYTES } from "../src/chat/dictation-state.ts";
 
 test("a model names its provider; a bare id is ElevenLabs's", () => {
   assert.equal(providerOf("openrouter:openai/whisper-large-v3-turbo"), "openrouter");
@@ -40,6 +40,40 @@ test("only words added at the end fly in", () => {
   assert.deepEqual(addedWords("open the", "open the file now"), [{ before: "open the ", word: "file" }, { before: "open the file ", word: "now" }]);
   assert.deepEqual(addedWords("open the fi", "open the file"), []);
   assert.deepEqual(addedWords("open a", "open the"), []);
+});
+
+test("deleting or editing words during dictation keeps the edit when speech continues", () => {
+  let draft = startDraft("", 0, 0);
+  let step = applyTranscript(draft, "", 0, 0, "I am dictating.", "");
+  draft = step.draft;
+  assert.equal(step.write?.value, "I am dictating.");
+
+  // User deletes "dictating." while dictation is still running, leaving "I am ".
+  draft = reanchorDraft(draft, "I am ", 5, 5);
+  step = applyTranscript(draft, "I am ", 5, 5, "I am dictating. And now I'm not.", "");
+  draft = step.draft;
+  assert.equal(step.write?.value, "I am And now I'm not.");
+  assert.deepEqual(step.write?.words.map(w => w.word), ["And", "now", "I'm", "not."]);
+
+  // Deleting again and typing manually keeps both edits on the next phrase.
+  step = applyTranscript(draft, "I am ready: ", 12, 12, "I am dictating. And now I'm not. ship it", "");
+  assert.equal(step.write?.value, "I am ready: ship it");
+});
+
+test("deleting an uncommitted partial skips its later commit", () => {
+  let draft = startDraft("", 0, 0);
+  let step = applyTranscript(draft, "", 0, 0, "", "1 am Dikta");
+  draft = step.draft;
+  assert.equal(step.write?.value, "1 am Dikta");
+
+  // User deletes "Dikta" before VAD commits the rewritten phrase "I am dictating.".
+  draft = reanchorDraft(draft, "I am ", 5, 5);
+  step = applyTranscript(draft, "I am ", 5, 5, "I am dictating.", "");
+  draft = step.draft;
+  assert.equal(step.write, null);
+
+  step = applyTranscript(draft, "I am ", 5, 5, "I am dictating.", "done");
+  assert.equal(step.write?.value, "I am done");
 });
 
 test("events move the turn and unknown ones are dropped", () => {

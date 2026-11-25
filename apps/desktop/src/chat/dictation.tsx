@@ -10,7 +10,7 @@ import { Channel, invoke, logError } from "../ui/tauri.ts";
 import { onPhone } from "../ui/platform.ts";
 import { motionAllowed } from "../ui/motion.ts";
 import { Icon } from "../ui/icons.tsx";
-import { addedWords, anchorOf, createDictationSettings, elapsed, IDLE, nextTurn, parseEvent, pcmChunks, Resampler, spliceTranscript, type Anchor, type Turn } from "./dictation-state.ts";
+import { applyTranscript, createDictationSettings, elapsed, IDLE, nextTurn, parseEvent, pcmChunks, reanchorDraft, Resampler, startDraft, type DictationDraft, type Turn } from "./dictation-state.ts";
 
 /// The shared setting, read once per window.
 export const dictationSettings = createDictationSettings(invoke);
@@ -38,9 +38,8 @@ interface Mic { stream: MediaStream; context: AudioContext; analyser: AnalyserNo
 interface Run {
   id: string | null;
   mic: Mic | null;
-  anchor: Anchor;
-  /// The transcript written so far.
-  said: string;
+  draft: DictationDraft;
+  writing: boolean;
   /// Audio recorded before the app gave the dictation its id.
   pending: string[];
   /// Chunks go out one after another.
@@ -67,15 +66,21 @@ function Dictation({ field, host }: Props) {
     const node = field.current;
     if (!node) return;
 
-    const { value, caret } = spliceTranscript(r.anchor, committed, partial);
-    const said = [committed.trim(), partial.trim()].filter(Boolean).join(" ");
-    const lead = value.slice(0, caret - said.length);
+    const applied = applyTranscript(r.draft, node.value, node.selectionStart, node.selectionEnd, committed, partial);
+    r.draft = applied.draft;
+    if (!applied.write) return;
+
+    const { value, caret, lead, words } = applied.write;
     const box = host.current;
-    if (box) for (const { before, word } of addedWords(r.said, said)) glow.current.spawn(box, node, lead + before, word);
-    r.said = said;
-    node.value = value;
-    node.setSelectionRange(caret, caret);
-    node.dispatchEvent(new Event("input", { bubbles: true }));
+    if (box) for (const { before, word } of words) glow.current.spawn(box, node, lead + before, word);
+    r.writing = true;
+    try {
+      node.value = value;
+      node.setSelectionRange(caret, caret);
+      node.dispatchEvent(new Event("input", { bubbles: true }));
+    } finally {
+      r.writing = false;
+    }
   };
 
   const received = (r: Run, message: unknown) => {
@@ -108,7 +113,7 @@ function Dictation({ field, host }: Props) {
     const node = field.current;
     if (!node) return;
 
-    const r: Run = { id: null, mic: null, anchor: anchorOf(node.value, node.selectionStart, node.selectionEnd), said: "", pending: [], sending: Promise.resolve(), startedAt: performance.now() };
+    const r: Run = { id: null, mic: null, draft: startDraft(node.value, node.selectionStart, node.selectionEnd), writing: false, pending: [], sending: Promise.resolve(), startedAt: performance.now() };
     run.current = r;
     setTurn({ phase: "starting", error: "" });
 
@@ -160,6 +165,25 @@ function Dictation({ field, host }: Props) {
     return () => window.removeEventListener("keydown", key, true);
   }, [turn.phase]);
 
+  // Typing, deleting, or moving the caret re-anchors the next transcript chunk.
+  useEffect(() => {
+    const node = field.current;
+    if (!node || !ACTIVE.has(turn.phase)) return;
+    const sync = () => {
+      const r = run.current;
+      if (!r || r.writing) return;
+      r.draft = reanchorDraft(r.draft, node.value, node.selectionStart, node.selectionEnd);
+    };
+    node.addEventListener("input", sync);
+    node.addEventListener("keyup", sync);
+    node.addEventListener("mouseup", sync);
+    return () => {
+      node.removeEventListener("input", sync);
+      node.removeEventListener("keyup", sync);
+      node.removeEventListener("mouseup", sync);
+    };
+  }, [turn.phase]);
+
   // The timer beside the field, once a second.
   useEffect(() => {
     if (turn.phase !== "listening") return;
@@ -172,7 +196,7 @@ function Dictation({ field, host }: Props) {
   // A finished dictation and its error clear by themselves; typing clears the error too.
   useEffect(() => {
     if (turn.phase !== "settling" && turn.phase !== "error") return;
-    const timer = setTimeout(() => setTurn(IDLE), turn.phase === "settling" ? 700 : 4000);
+    const timer = setTimeout(() => setTurn(IDLE), turn.phase === "settling" ? 320 : 4000);
     const node = field.current, typed = () => setTurn(IDLE);
     if (turn.phase === "error") node?.addEventListener("keydown", typed);
     return () => { clearTimeout(timer); node?.removeEventListener("keydown", typed); };
@@ -251,6 +275,8 @@ interface Particle { sx: number; sy: number; cx: number; cy: number; tx: number;
 interface Stipple { x: number; y: number; born: number; dur: number; size: number }
 interface Frame { phase: Turn["phase"]; mic: Mic | null }
 
+interface Floor { w: number; h: number; centerX: number; cols: number; baseY: number }
+
 /// The canvas over a composer: the mound at the foot, the words flying in.
 class Glow {
   private energy = 0;
@@ -258,6 +284,7 @@ class Glow {
   private particles: Particle[] = [];
   private stipples: Stipple[] = [];
   private measure: CanvasRenderingContext2D | null = null;
+  private floor: Floor = { w: 0, h: 0, centerX: 0, cols: 36, baseY: 0 };
 
   /// Draws until the turn ends and the last word lands. Returns the stop.
   play(canvas: HTMLCanvasElement, box: HTMLElement, frame: () => Frame): () => void {
@@ -270,17 +297,18 @@ class Glow {
       raf = 0;
       const { phase, mic } = frame();
       const target = phase === "listening" ? micEnergy(mic) : phase === "thinking" ? 0.16 : 0;
-      this.energy += (target - this.energy) * (target > this.energy ? 0.24 : 0.09);
+      this.energy += (target - this.energy) * (target > this.energy ? 0.24 : phase === "settling" ? 0.2 : 0.09);
       this.tint = phase === "error" ? 1 : this.tint * 0.9;
       const rect = box.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, w = Math.round(rect.width), h = Math.round(rect.height);
       if (canvas.width !== w * dpr || canvas.height !== h * dpr) { canvas.width = w * dpr; canvas.height = h * dpr; }
+      if (this.floor.w !== w || this.floor.h !== h) this.floor = measureFloor(box, rect, w, h);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
       const [r, g, b] = colors.fg.map((c, i) => Math.round(c * (1 - this.tint) + colors.err[i] * this.tint));
       const rgba = (a: number) => `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
 
       const level = phase === "listening" ? Math.max(0.15, this.energy) : this.energy;
-      if (level > 0.015) this.mound(ctx, w, h, now, level, colors.mono, rgba);
+      if (level > 0.015) this.mound(ctx, now, level, colors.mono, rgba);
       this.particles = this.particles.filter(p => this.particle(ctx, p, now, rgba));
       this.stipples = this.stipples.filter(s => this.stipple(ctx, s, now, rgba));
 
@@ -295,8 +323,10 @@ class Glow {
   /// Sends `word`, written after `before` in `field`, from the mound to its place.
   spawn(box: HTMLElement, field: HTMLTextAreaElement, before: string, word: string) {
     if (!motionAllowed()) return;
-    const rect = box.getBoundingClientRect(), target = this.wordRect(box, field, before, word), now = performance.now();
-    const moundX = rect.width * 0.5, moundY = rect.height - 8 - (1.8 + Math.max(this.energy, 0.45) * 5.6) * 8.2 * 0.72;
+    const rect = box.getBoundingClientRect(), w = Math.round(rect.width), h = Math.round(rect.height);
+    if (this.floor.w !== w || this.floor.h !== h) this.floor = measureFloor(box, rect, w, h);
+    const target = this.wordRect(box, field, before, word), now = performance.now();
+    const moundX = this.floor.centerX, moundY = this.floor.baseY - 3 - (1.8 + Math.max(this.energy, 0.45) * 5.6) * 8.2 * 0.72;
     const count = Math.min(26, Math.max(12, word.length * 3));
 
     for (let i = 0; i < count; i++) {
@@ -311,10 +341,10 @@ class Glow {
     for (let i = 0; i < dots; i++) this.stipples.push({ x: target.x + Math.random() * target.w, y: target.y + (Math.random() - 0.5) * target.h * 0.85, born: now + 150 + Math.random() * 130, dur: 210 + Math.random() * 130, size: Math.random() < 0.4 ? 2.1 : 1.5 });
   }
 
-  private mound(ctx: CanvasRenderingContext2D, w: number, h: number, now: number, level: number, mono: string, rgba: (a: number) => string) {
+  private mound(ctx: CanvasRenderingContext2D, now: number, level: number, mono: string, rgba: (a: number) => string) {
     const cellW = 5.6, cellH = 8, maxRows = 8;
-    const cols = Math.min(54, Math.max(24, Math.floor((w - 110) / cellW)));
-    const startX = (w - cols * cellW) * 0.5, baseY = h - 5, tick = Math.floor(now / (level > 0.35 ? 48 : 85)), half = (cols - 1) * 0.5;
+    const { cols, centerX, baseY } = this.floor;
+    const startX = centerX - cols * cellW * 0.5, tick = Math.floor(now / (level > 0.35 ? 48 : 85)), half = (cols - 1) * 0.5;
     ctx.font = `500 9.5px ${mono}`;
     ctx.textBaseline = "alphabetic";
 
@@ -365,7 +395,8 @@ class Glow {
   private wordRect(box: HTMLElement, field: HTMLTextAreaElement, before: string, word: string) {
     this.measure ??= document.createElement("canvas").getContext("2d");
     const m = this.measure, cs = getComputedStyle(field);
-    const lineHeight = parseFloat(cs.lineHeight) || 20, maxW = Math.max(120, field.clientWidth);
+    const padL = parseFloat(cs.paddingLeft) || 0, padR = parseFloat(cs.paddingRight) || 0, padT = parseFloat(cs.paddingTop) || 0;
+    const lineHeight = parseFloat(cs.lineHeight) || 20, maxW = Math.max(120, field.clientWidth - padL - padR);
     if (!m) return { x: 0, y: 0, w: 0, h: lineHeight };
     m.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
     let line = "", row = 0, x = 0, seen = 0;
@@ -381,8 +412,31 @@ class Glow {
     }
 
     const w = Math.min(Math.max(14, m.measureText(word).width), maxW), fr = field.getBoundingClientRect(), br = box.getBoundingClientRect();
-    return { x: fr.left - br.left + Math.min(x, maxW - w), y: fr.top - br.top + (row * lineHeight - field.scrollTop) + lineHeight * 0.52, w, h: lineHeight * 0.72 };
+    return { x: fr.left - br.left + padL + Math.min(x, maxW - w), y: fr.top - br.top + padT + (row * lineHeight - field.scrollTop) + lineHeight * 0.52, w, h: lineHeight * 0.72 };
   }
+}
+
+/// Finds the open span along the bottom controls row so the mound stays clear of pills and buttons.
+function measureFloor(box: HTMLElement, rect: DOMRect, w: number, h: number): Floor {
+  const cellW = 5.6;
+  let left = 12, right = w - 12, controlsTop = h;
+
+  for (const node of box.querySelectorAll<HTMLElement>(":scope > :is(button, #agmode, #agmodel, #agstop), :scope > .row > :not(.sp)")) {
+    const cr = node.getBoundingClientRect();
+    if (cr.width <= 0 || cr.height <= 0 || cr.bottom <= rect.bottom - 42) continue;
+    controlsTop = Math.min(controlsTop, cr.top - rect.top);
+    if ((cr.left + cr.right) * 0.5 - rect.left < w * 0.5) left = Math.max(left, cr.right - rect.left + 10);
+    else right = Math.min(right, cr.left - rect.left - 10);
+  }
+
+  const gap = right - left;
+  if (gap >= 140) {
+    const halfW = Math.min(27 * cellW, gap * 0.5);
+    const centerX = Math.max(left + halfW, Math.min(right - halfW, w * 0.5));
+    return { w, h, centerX, cols: Math.max(20, Math.floor((halfW * 2) / cellW)), baseY: h - 5 };
+  }
+
+  return { w, h, centerX: w * 0.5, cols: Math.min(54, Math.max(20, Math.floor((w - 32) / cellW))), baseY: Math.max(24, controlsTop - 4) };
 }
 
 /// The microphone's loudness, 0 to 1, from its low frequencies.

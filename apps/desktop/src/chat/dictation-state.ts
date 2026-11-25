@@ -151,7 +151,7 @@ export function nextTurn(turn: Turn, event: DictationEvent): Turn {
   }
 }
 
-/// The field's text around the caret when dictation started.
+/// The field's text around the caret when dictation started or was last edited.
 export interface Anchor { before: string; after: string }
 
 export function anchorOf(value: string, start: number, end: number): Anchor {
@@ -172,6 +172,128 @@ export function spliceTranscript(anchor: Anchor, committed: string, partial: str
 function joinSaid(committed: string, partial: string) {
   const a = committed.trim(), b = partial.trim();
   return a && b ? `${a} ${b}` : a || b;
+}
+
+/// Tracks what the provider has sent and what is in the field, so manual edits
+/// or caret moves while dictating are kept instead of overwritten.
+export interface DictationDraft {
+  anchor: Anchor;
+  written: { value: string; start: number; end: number };
+  committed: string;
+  partial: string;
+  skipCommitted: string;
+  skipPartial: string;
+  said: string;
+}
+
+export interface AppliedTranscript {
+  draft: DictationDraft;
+  write: { value: string; caret: number; lead: string; words: { before: string; word: string }[] } | null;
+}
+
+export function startDraft(value: string, start: number, end: number): DictationDraft {
+  return { anchor: anchorOf(value, start, end), written: { value, start, end }, committed: "", partial: "", skipCommitted: "", skipPartial: "", said: "" };
+}
+
+/// Re-anchors at the current selection and marks what was heard so far as
+/// already handled whenever the user edits the field or moves the caret.
+export function reanchorDraft(draft: DictationDraft, value: string, start: number, end: number): DictationDraft {
+  const { written } = draft;
+  if (value === written.value && start === written.start && end === written.end) return draft;
+  return {
+    anchor: anchorOf(value, start, end),
+    written: { value, start, end },
+    committed: draft.committed,
+    partial: draft.partial,
+    skipCommitted: draft.committed,
+    skipPartial: draft.partial,
+    said: "",
+  };
+}
+
+/// Applies a provider transcript update to `draft`, keeping any manual edits
+/// made since the last write.
+export function applyTranscript(draft: DictationDraft, value: string, start: number, end: number, committed: string, partial: string): AppliedTranscript {
+  const base = reanchorDraft(draft, value, start, end);
+  const afterCommitted = committed.startsWith(base.skipCommitted)
+    ? committed.slice(base.skipCommitted.length)
+    : committed.slice(skippedPrefixLen(committed, base.skipCommitted));
+
+  let skipCommitted = base.skipCommitted;
+  let skipPartial = base.skipPartial;
+  let remCommitted = afterCommitted;
+  let remPartial = partial;
+
+  if (skipPartial) {
+    if (committed === base.skipCommitted) {
+      remCommitted = "";
+      remPartial = partial.slice(skippedPrefixLen(partial, skipPartial));
+    } else {
+      const cut = skippedPrefixLen(afterCommitted, skipPartial);
+      skipCommitted = committed.slice(0, committed.length - afterCommitted.length + cut);
+      skipPartial = "";
+      remCommitted = afterCommitted.slice(cut);
+    }
+  }
+
+  const said = joinSaid(remCommitted, remPartial);
+  if (!said && !base.said) {
+    return { draft: { ...base, committed, partial, skipCommitted, skipPartial }, write: null };
+  }
+
+  const next = spliceTranscript(base.anchor, remCommitted, remPartial);
+  const lead = next.value.slice(0, next.caret - said.length);
+  const words = addedWords(base.said, said);
+  return {
+    draft: {
+      anchor: base.anchor,
+      written: { value: next.value, start: next.caret, end: next.caret },
+      committed,
+      partial,
+      skipCommitted,
+      skipPartial,
+      said,
+    },
+    write: { value: next.value, caret: next.caret, lead, words },
+  };
+}
+
+const WORD_CHAR = /[\p{L}\p{N}]/u;
+
+/// How many leading characters of `text` correspond to `skip`, tolerating
+/// punctuation, casing, or a provider rewriting an interim segment on commit.
+function skippedPrefixLen(text: string, skip: string): number {
+  if (!skip.trim()) return 0;
+  if (text.startsWith(skip)) return skipTrailingPunct(text, skip.length);
+
+  let ti = 0, si = 0;
+  while (si < skip.length) {
+    if (!WORD_CHAR.test(skip[si]!)) { si++; continue; }
+    while (ti < text.length && !WORD_CHAR.test(text[ti]!)) ti++;
+    if (ti >= text.length) return text.length;
+    if (skip[si]!.toLowerCase() !== text[ti]!.toLowerCase()) return wordCountLen(text, skip);
+    si++;
+    ti++;
+  }
+
+  return skipTrailingPunct(text, ti);
+}
+
+function skipTrailingPunct(text: string, at: number): number {
+  let i = at;
+  while (i < text.length && !WORD_CHAR.test(text[i]!)) i++;
+  return i;
+}
+
+function wordCountLen(text: string, skip: string): number {
+  const count = skip.trim().split(/\s+/).filter(Boolean).length;
+  const pattern = /\S+\s*/g;
+  let seen = 0;
+  for (let match = pattern.exec(text); match; match = pattern.exec(text)) {
+    seen++;
+    if (seen >= count) return match.index + match[0].length;
+  }
+  return text.length;
 }
 
 /// The words `next` adds at the end of `prev`, with the text before each: the
