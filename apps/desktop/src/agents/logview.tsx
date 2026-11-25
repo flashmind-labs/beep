@@ -26,7 +26,7 @@ import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.tsx"
 import { answerHtml, blockedReply } from "./turnrows.ts";
 import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
 import { type AgentEntry, type AgentPage, AG, openModes, openTasks, openOf, agentPics, agentThumbs, AGENT_ACTIVE } from "./agents-state.ts";
-import { folderName } from "./agent-kind.ts";
+import { agentKind, folderName } from "./agent-kind.ts";
 import { continuedFrom, continuedIn, continuedLine } from "./continue-state.ts";
 import { stoppingNow } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";

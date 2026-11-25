@@ -1,5 +1,5 @@
 // Continuing a chat under another harness: who can, and how sessions link.
-import type { AgentRow } from "./agents.ts";
+import type { AgentRow } from "./agents-state.ts";
 import { isNativeSession } from "./native-session-state.ts";
 
 /// What a chat continues with: the harness, model and thinking picked for it.
