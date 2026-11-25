@@ -1311,6 +1311,8 @@ async fn a_checkout_is_taken_from_the_home_the_moment_it_is_published() {
     };
 
     // The join waits on the home task's value: nothing else is read.
+    tokio::task::yield_now().await;
+    assert!(!waiting.is_finished());
     link.edit_home(|home| {
         home.projects.get_mut(&repo()).unwrap().checkout = Some(checkout.clone());
     });
