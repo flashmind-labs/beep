@@ -1,7 +1,7 @@
 //! Projects and coding-agent sessions for the palette: imported projects and
 //! the folders agents worked in, listed once each.
 
-use crate::agents::sessions::SessionRow;
+use crate::fleet::session_lists::SessionRow;
 use beep_proto::{ImportedProject, MachineSession, node::agent::SearchHit};
 use serde::Serialize;
 use std::{cmp::Reverse, collections::HashSet};

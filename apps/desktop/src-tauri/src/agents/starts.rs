@@ -12,7 +12,7 @@
 use crate::{
     agents::{
         kept_folder::{KeptFolder, KeptImage, PastedImage, Write, forget_images, image_writes},
-        sessions::{SessionRow, Started, closed},
+        sessions::{Started, closed},
         steer::{Steer, SteerError, uploads},
     },
     beep::epoch_ms,
@@ -20,6 +20,7 @@ use crate::{
     fleet::{
         Fleet, Machines,
         agents::{self as direct, StartFailed},
+        session_lists::SessionRow,
         session_mirror::{NotAStart, StartId},
     },
 };

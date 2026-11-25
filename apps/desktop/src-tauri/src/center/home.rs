@@ -5,12 +5,13 @@
 use super::view_cache::{View, ViewCache, cache_view};
 use crate::chat::markdown::inline_html;
 use crate::{
-    agents::sessions::{MoveView, SessionRow, agent_sessions, moves, overlaid},
+    agents::sessions::{MoveView, agent_sessions, moves, overlaid},
     beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Fleet,
         projects::{FleetState, desk},
+        session_lists::SessionRow,
         session_mirror::SessionMirror,
     },
     projects::ProjectRow,

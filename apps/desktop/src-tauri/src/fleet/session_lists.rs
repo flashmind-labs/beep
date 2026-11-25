@@ -4,16 +4,16 @@
 //! the list changed, so a slow or failing machine never empties a list.
 
 use super::{
-    Fleet,
+    Fleet, SessionParent,
     files::{Place, in_any_folder},
     session_mirror::{Rows, SessionMirror},
 };
-use crate::agents::sessions::{SessionRow, overlay};
+use crate::{beep::epoch_ms, chat::markdown};
 use beep_mesh::machine::listing::{self, MAX_PROJECT_SESSIONS};
 use beep_proto::{
-    MachineSession, SessionId,
+    AccountName, AgentQuestion, MachineSession, ModelId, SessionId,
     node::{
-        agent::{SessionsReply, SessionsRequest},
+        agent::{LineChanges, Persona, SessionsReply, SessionsRequest, WorkPlace},
         events::{Read, Value},
     },
     watched,
@@ -329,6 +329,102 @@ async fn ask_machine(fleet: Arc<Fleet>, asks: mpsc::UnboundedSender<Ask>, asked:
 }
 
 /// The rows as the windows read them.
+/// One session as the views list it.
+#[derive(Clone, Debug, Serialize)]
+pub struct SessionRow {
+    pub(crate) machine_id: String,
+    pub(crate) machine_name: String,
+    pub(crate) id: SessionId,
+    pub(crate) agent: String,
+    pub(crate) title: Option<String>,
+    pub(crate) cwd: String,
+    pub(crate) status: &'static str,
+    pub(crate) doing: Option<String>,
+    /// The first line of its last reply, shown while it is idle, as inline HTML.
+    pub(crate) reply_html: Option<String>,
+    /// The lines changed in its checkout when its last turn ended.
+    pub(crate) changes: Option<LineChanges>,
+    /// In milliseconds since the Unix epoch.
+    pub(crate) started_at: u64,
+    pub(crate) last_activity: u64,
+    pub(crate) external: bool,
+    pub(crate) question: Option<AgentQuestion>,
+    /// The session whose agent started this one.
+    pub(crate) parent: Option<SessionParent>,
+    /// A temporary reviewer of its parent's changes.
+    pub(crate) reviewer: bool,
+    /// Started in the background by its parent, so no thread of its chat.
+    pub(crate) background: bool,
+    /// Its subagents that still run.
+    pub(crate) subagents: u32,
+    /// The model it runs on, when its node says.
+    pub(crate) model: Option<ModelId>,
+    /// The home assistant.
+    pub(crate) assistant: bool,
+    /// The named account it runs as; `None` for the agent's default one.
+    pub(crate) account: Option<AccountName>,
+    /// The custom agent it runs as.
+    pub(crate) persona: Option<Persona>,
+    /// Where its node says it works: the checkout and branch.
+    pub(crate) place: Option<WorkPlace>,
+}
+
+impl SessionRow {
+    pub(crate) fn id(&self) -> &SessionId {
+        &self.id
+    }
+}
+
+impl From<MachineSession> for SessionRow {
+    fn from(session: MachineSession) -> Self {
+        Self {
+            status: session.status.into(),
+            started_at: epoch_ms(session.started_at),
+            last_activity: epoch_ms(session.last_activity),
+            machine_id: session.machine_id,
+            machine_name: session.machine_name,
+            id: session.id,
+            agent: session.agent,
+            title: session.title,
+            cwd: session.cwd,
+            doing: session.doing,
+            reply_html: session.reply.as_deref().map(markdown::inline_html),
+            changes: session.changes,
+            external: session.external,
+            question: session.question,
+            parent: None,
+            reviewer: false,
+            background: false,
+            subagents: session.subagents,
+            model: session.model,
+            assistant: session.assistant,
+            account: session.account,
+            persona: session.persona,
+            place: session.place,
+        }
+    }
+}
+
+/// Puts what this app knows on `session`: its new folder when moved and the
+/// user's title. False when it is being deleted and shows no more.
+pub(crate) fn overlay(fleet: &Fleet, session: &mut MachineSession) -> bool {
+    let ops = fleet.node_ops();
+
+    if ops.is_deleting_session(&session.machine_id, &session.id) {
+        return false;
+    }
+
+    if let Some(folder) = ops.relocated_folder(&session.machine_id, &session.id) {
+        session.cwd = folder;
+    }
+
+    if let Some(mesh) = fleet.mesh() {
+        beep_fleet::session_titles::apply(&mesh, session);
+    }
+
+    true
+}
+
 fn session_rows(rows: Vec<MachineSession>) -> Vec<SessionRow> {
     rows.into_iter().map(SessionRow::from).collect()
 }

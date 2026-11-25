@@ -1,12 +1,11 @@
 //! A project's page: its machines, folders and sessions.
 
 use crate::{
-    agents::sessions::SessionRow,
     error::{DesktopError, Result},
     fleet::{
         Machines, files as direct,
         projects::{FleetState, desk},
-        session_lists::{ListId, SessionLists},
+        session_lists::{ListId, SessionLists, SessionRow},
         session_mirror::SessionMirror,
         view_signal::View,
     },

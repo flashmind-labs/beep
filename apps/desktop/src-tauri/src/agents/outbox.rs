@@ -13,7 +13,7 @@ use crate::{
     agents::{
         kept_folder::{KeptFolder, KeptImage, PastedImage, Write, forget_images, image_writes},
         kept_transcripts::SessionKey,
-        sessions::{SessionRow, closed, resume_session},
+        sessions::{closed, resume_session},
         steer::{Steer, SteerError, sent},
     },
     error::{DesktopError, Result},
@@ -21,6 +21,7 @@ use crate::{
         Fleet, agents as direct, alerts,
         asked::{BEFORE_STOP_ALL, ORDER_LIMIT, READ_LIMIT, newer_than},
         events::Events,
+        session_lists::SessionRow,
         session_mirror::SessionMirror,
     },
 };
