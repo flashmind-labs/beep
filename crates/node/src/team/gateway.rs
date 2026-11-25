@@ -198,8 +198,17 @@ impl Gateway {
 
         loop {
             let round = if self.held.is_empty() { None } else { self.round_due };
+            let ask = ask_again_at(self.asked.as_ref());
 
             select! {
+                // The other machines' reach has no push: a machine that acts for no team asks again
+                // when it is due, or no one would elect once the acting machine stepped down.
+                _ = async {
+                    match ask {
+                        Some(due) => sleep_until(due).await,
+                        None => std::future::pending().await,
+                    }
+                } => self.step(),
                 _ = async {
                     match round {
                         Some(due) => sleep_until(due).await,
@@ -689,6 +698,13 @@ fn elsewhere(job: &Job, project: &Project, repo: &TeamRepo) -> Vec<EndpointId> {
 /// whenever those to ask are not the ones `asked` last.
 fn ask_due(asked: Option<&(Instant, BTreeSet<EndpointId>)>, now: &BTreeSet<EndpointId>) -> bool {
     asked.is_none_or(|(at, then)| at.elapsed() >= QUIET || then != now)
+}
+
+/// When the machines are asked of their reach again, while there are any to ask.
+fn ask_again_at(asked: Option<&(Instant, BTreeSet<EndpointId>)>) -> Option<Instant> {
+    let (at, machines) = asked?;
+
+    (!machines.is_empty()).then(|| *at + QUIET)
 }
 
 /// The machines of `project` that may start its issues' sessions for the

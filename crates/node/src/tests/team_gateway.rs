@@ -346,6 +346,18 @@ fn a_new_team_asks_its_machines_at_once() {
     assert!(ask_due(Some(&none), &[other].into()));
 }
 
+/// A machine that acts for no team still asks again by itself while a team has machines to ask:
+/// the acting machine stepping down tells it nothing.
+#[test]
+fn machines_with_a_team_are_asked_again_when_quiet_has_passed() {
+    let other = SecretKey::generate().public();
+    let at = Instant::now();
+
+    assert_eq!(ask_again_at(None), None);
+    assert_eq!(ask_again_at(Some(&(at, BTreeSet::new()))), None);
+    assert_eq!(ask_again_at(Some(&(at, [other].into()))), Some(at + QUIET));
+}
+
 /// A gather that waits on a machine that does not answer holds nothing up:
 /// what a teammate's gateway says is taken meanwhile.
 #[tokio::test]
