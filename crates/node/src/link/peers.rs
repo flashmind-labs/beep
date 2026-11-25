@@ -17,7 +17,7 @@ use crate::{
     link::report::serve_report,
     link::serve::{Offers, Who, read_open, serve_open, withheld},
     link::watchdog::{self, Step},
-    machine::{env, stats},
+    machine::env,
     team::{
         home::ForgeCli,
         link::{TeamAlpn, TeamLink},
@@ -50,7 +50,7 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split},
     sync::watch,
     task::JoinSet,
-    time::{MissedTickBehavior, interval, timeout},
+    time::timeout,
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -72,10 +72,6 @@ const REPORT: &str = "report ";
 
 /// How long a channel may wait for its opening frame.
 pub(super) const CHANNEL_OPEN_WAIT: Duration = Duration::from_secs(10);
-
-/// How often free disk and memory are sampled and the traffic counters
-/// read. Each is sent only when it changed.
-const RESAMPLE: Duration = Duration::from_secs(60);
 
 /// What the node holds once it is in a mesh: the mesh itself is read from
 /// `Offers::mesh`. The mesh stops with its last clone.
@@ -777,8 +773,9 @@ async fn status_with(
     tx.send(&Report::Offers(offers.names())).await?;
     let mut probed = probes.follow();
     probed.mark_changed();
-    let mut resample = interval(RESAMPLE);
-    resample.set_missed_tick_behavior(MissedTickBehavior::Skip);
+    // The sample is taken once for every stream; each sends a part when it
+    // differs from what it sent.
+    let mut sampled = offers.sampler.follow(&offers.traffic);
     let mut reported = None;
     let mut stats_sent = None;
     let mut traffic_sent = None;
@@ -810,18 +807,19 @@ async fn status_with(
                     send_env(&mut tx, &mut reported, now).await?;
                 }
             }
-            _ = resample.tick() => {
-                let folders = dirs::home_dir().into_iter().collect();
-                let stats = stats::sample(folders).await;
+            Ok(()) = sampled.changed() => {
+                let sample = watched::read_and_update(&mut sampled, Clone::clone);
 
-                if stats_sent.as_ref() != Some(&stats) {
+                if let Some(stats) = sample.stats
+                    && stats_sent.as_ref() != Some(&stats)
+                {
                     tx.send(&Report::Stats(stats.clone())).await?;
                     stats_sent = Some(stats);
                 }
 
-                let traffic = offers.traffic.report();
-
-                if traffic_sent.as_ref() != Some(&traffic) {
+                if let Some(traffic) = sample.traffic
+                    && traffic_sent.as_ref() != Some(&traffic)
+                {
                     tx.send(&Report::Traffic(traffic.clone())).await?;
                     traffic_sent = Some(traffic);
                 }

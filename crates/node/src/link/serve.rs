@@ -11,7 +11,7 @@ use crate::{
     link::protocol::SessionProtocol,
     link::restart::{self, Reopen},
     link::state::{Search, State},
-    link::traffic::Traffic,
+    link::{sampler::Sampler, traffic::Traffic},
     link::watchdog,
     link::{
         from_mesh::Membership,
@@ -363,6 +363,8 @@ pub struct Offers {
     pub provision: Option<Arc<Provision>>,
     /// What the node moved, as its status reports it.
     pub traffic: Traffic,
+    /// The machine's resources and traffic, sampled for the streams that follow.
+    pub(crate) sampler: Sampler,
     /// The mesh the node belongs to, once it does.
     pub(crate) mesh: Membership,
     /// The node's transfers and synced projects, once they started.
@@ -410,6 +412,7 @@ impl Offers {
             log: Logs::default(),
             provision: Some(provision),
             traffic: Traffic::default(),
+            sampler: Sampler::default(),
             mesh: Membership::default(),
             transfers: Sharing::default(),
             withheld: Arc::default(),

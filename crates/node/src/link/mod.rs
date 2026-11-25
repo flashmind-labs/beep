@@ -29,6 +29,7 @@ host! {
     pub mod diagnostics;
     mod serve;
     pub mod state;
+    mod sampler;
     mod traffic;
     pub(crate) mod watchdog;
 
