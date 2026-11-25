@@ -183,13 +183,15 @@ pub(crate) fn forget_images(id: impl Display, count: usize) -> Option<Write> {
 }
 
 /// Does each change asked for, in order. Of several records' files asked
-/// for together only the newest is written, after the images it names.
+/// for together only the newest is written, after the images it names, and the images
+/// forgotten meanwhile are removed after it: a crash between the two leaves files no
+/// record names, never a record whose files are gone.
 fn write_all(dir: &Path, images: &Path, records: &str, queue: &mpsc::Receiver<Write>) {
-    let legacy = dir.join(IMAGES);
     let mut synced = Vec::new();
 
     while let Ok(first) = queue.recv() {
         let mut latest = None;
+        let mut forgotten = Vec::new();
 
         for write in std::iter::once(first).chain(queue.try_iter()) {
             match write {
@@ -199,18 +201,7 @@ fn write_all(dir: &Path, images: &Path, records: &str, queue: &mpsc::Receiver<Wr
                         log::warn!("keeping an image in {}: {e}", dir.display());
                     }
                 }
-                Write::Forget(files) => {
-                    for path in files
-                        .iter()
-                        .flat_map(|file| [images.join(file), legacy.join(file)])
-                    {
-                        match fs::remove_file(path) {
-                            Ok(()) => {}
-                            Err(e) if e.kind() == ErrorKind::NotFound => {}
-                            Err(e) => log::warn!("removing an image in {}: {e}", dir.display()),
-                        }
-                    }
-                }
+                Write::Forget(files) => forgotten.extend(files),
                 Write::Synced(done) => synced.push(done),
             }
         }
@@ -221,8 +212,26 @@ fn write_all(dir: &Path, images: &Path, records: &str, queue: &mpsc::Receiver<Wr
             log::warn!("writing {}: {e}", dir.display());
         }
 
+        forget(dir, images, &forgotten);
+
         for done in synced.drain(..) {
             let _ = done.send(());
+        }
+    }
+}
+
+/// Removes the image files `files`, in the cache and where they were kept before.
+fn forget(dir: &Path, images: &Path, files: &[String]) {
+    let legacy = dir.join(IMAGES);
+
+    for path in files
+        .iter()
+        .flat_map(|file| [images.join(file), legacy.join(file)])
+    {
+        match fs::remove_file(path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => log::warn!("removing an image in {}: {e}", dir.display()),
         }
     }
 }
@@ -243,3 +252,7 @@ fn replace(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
     File::open(dir)?.sync_all()?;
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/agents_kept_folder.rs"]
+mod tests;

@@ -31,7 +31,7 @@ use beep_proto::{
     AgentEntry, AgentEntryKind, AgentNoticeKey, AgentSteer, ApiError, GetAgentSession, ModelId,
     ResumeAgentSession, SteerAgentSession, WriteWorkFile,
     node::agent::{Effort, Request as AgentRequest, SessionDevice},
-    node::events::{CallReply, Operation, Topic},
+    node::events::{CallReply, Operation},
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
@@ -1612,7 +1612,6 @@ impl Link for MeshLink {
             model: message.resume.as_ref().and_then(|r| r.model.clone()),
         };
         let started = resume_session(&fleet, self.machine, request).await?;
-        let _ = self.app.emit("sessions-changed", message.session.as_ref());
         Ok(Resumed {
             session: started.session.id().clone(),
             row: Some(started.session),
@@ -1746,7 +1745,6 @@ impl Link for MeshLink {
             let _ = self
                 .app
                 .emit("sessions-changed", order.key.session.as_ref());
-            crate::fleet::event_views::sessions_changed(self.app.clone(), Topic::new("agents"));
             crate::fleet::home_signal::poke(&self.app);
             return;
         }
