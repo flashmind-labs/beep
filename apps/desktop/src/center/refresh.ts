@@ -3,9 +3,9 @@ import { pushedView, type Pushed } from "../ui/snapshot-state.ts";
 // Home reads changed domains; telemetry arrives from the native cache.
 import { invoke } from "../ui/tauri.ts";
 import { ambient, AMBIENT_MS, onShownChange, pageShown, single, SLOW_MS } from "../ui/active.ts";
-import { applyTelemetry, keepUnchanged, withListedMachines, type HomeView, type Telemetry } from "./home-state.ts";
+import { applyTelemetry, keepUnchanged, type HomeView, type Telemetry } from "./home-state.ts";
 import { type ProjectGroup } from "../project/projects-state.ts";
-import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, pages, pagesAccount } from "./state.ts";
+import { CONNECT_STUCK_MS, CONNECT_RETRY_MS, state, heldHome, pages, pagesAccount } from "./state.ts";
 import { draw } from "./home.tsx";
 import { readAllTerms } from "../terminals/view.tsx";
 import { takeGit } from "./openitems.ts";
@@ -13,7 +13,7 @@ import type { GitItemsView } from "./openitems-state.ts";
 import { currentLocation } from "./views.tsx";
 import { drawRail, drawSide } from "./sidebar.tsx";
 import { liveMode, redrawProjectsPage, runs } from "../project/sections.ts";
-import { ensureMac, MACHINES, machinesChanged, REMOVED, takeTraffic } from "../machines/machine-store.ts";
+import { ensureMac, MACHINES, machinesChanged, takeTraffic } from "../machines/machine-store.ts";
 import { keepConnecting } from "../machines/machine-state.ts";
 import { mergeSyncRows, type SyncRow } from "../project/filesync.ts";
 import { followSync, readSync } from "../project/syncpage.ts";
@@ -48,9 +48,10 @@ export function homeCached() {
 /// through here. A local edit goes to `lastRead` too, so the next read still
 /// compares against what Home shows and an unchanged Home draws nothing.
 function editHome(edit: (home: HomeView) => HomeView) {
-  if (!state.home) return;
-  const kept = state.home === shown;
-  state.home = edit(state.home);
+  const held = heldHome();
+  if (!held) return;
+  const kept = held === shown;
+  state.home = edit(held);
 
   if (kept) {
     shown = state.home;
@@ -70,17 +71,15 @@ export function dropWhere() {
   pages.drop("where");
 }
 
-/// What Home shows for what it read: the machine list's names, no machine removed here, telemetry.
-/// Derived from the read each time, so a card the list lacks is never lost.
+/// The Home held for what it read, with telemetry. `state.home` names the cards from the machine
+/// list and drops a machine removed here whenever it is read.
 function shownHome(read: HomeView): HomeView {
-  return withListedMachines(telemetry ? applyTelemetry(read, telemetry) : read, MACHINES.list, REMOVED);
+  return telemetry ? applyTelemetry(read, telemetry) : read;
 }
 
-// Home's cards take their names, and drop a removed machine, from the machine list.
+// Home's cards take their names from the machine list as they draw.
 machinesChanged.add(() => {
   pagesAccount(MACHINES.mac);
-  if (state.home && state.home === shown && lastRead) state.home = shown = shownHome(lastRead);
-  else if (state.home) state.home = withListedMachines(state.home, MACHINES.list, REMOVED);
   if (onScreen()) { draw(); drawSide(); }
 });
 
@@ -96,7 +95,7 @@ async function readHome(): Promise<void> {
 
       try {
         const home = await takeHome();
-        before = state.home === shown ? lastRead : null;
+        before = heldHome() === shown ? lastRead : null;
         next = keepUnchanged(before, home);
         fresh = true;
         failed = state.error !== null;
@@ -259,8 +258,7 @@ subscribeChanges(topic("telemetry"), { deliver: "each", receive: event => {
   if (!event.data) return;
   telemetry = event.data as Telemetry;
   takeTraffic(telemetry);
-  const kept = state.home === shown;
-  if (state.home) state.home = applyTelemetry(state.home, telemetry);
-  if (kept) shown = state.home;
+  const held = heldHome();
+  if (held) { state.home = applyTelemetry(held, telemetry); if (held === shown) shown = heldHome(); }
   draw();
 } }, { when: () => currentLocation()?.view === "home", wait: SLOW_MS });

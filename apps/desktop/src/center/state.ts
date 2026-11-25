@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 import { PageCache, freshness, type PageSection, type SectionStore } from "../ui/pagecache.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { PaneTarget } from "../bar/pane.ts";
-import type { HomeView } from "./home-state.ts";
+import { withListedMachines, type HomeView } from "./home-state.ts";
+import { MACHINES, REMOVED } from "../machines/machine-store.ts";
 import type { FoundRow, ProjectGroup, ProjectMachineRow, SessionRow } from "../project/projects-state.ts";
 import type { GitItemsView } from "./openitems-state.ts";
 import type { MacControl } from "../machines/machine-state.ts";
@@ -62,9 +63,25 @@ export const OFFLINE_NOTE_MS = 60 * 60 * 1000;
 export const CONNECT_STUCK_MS = 15000;
 export const CONNECT_RETRY_MS = 3000;
 
+/// The Home the window holds, as it was read. `state.home` derives what Home shows from it each
+/// time it is read: the machine list's names, and no machine this window removed.
+let homeRaw: HomeView | null = null;
+let derived: { raw: HomeView; listed: unknown; removed: string; home: HomeView } | null = null;
+
+/// The Home as it was read or edited, before the machine list is applied.
+export const heldHome = () => homeRaw;
+
 /// `since` is when the window started waiting for its first Home.
 export const state = {
-  home: null as HomeView | null,
+  get home(): HomeView | null {
+    if (!homeRaw) return null;
+    const removed = [...REMOVED].join("\n");
+    if (derived?.raw === homeRaw && derived.listed === MACHINES.list && derived.removed === removed) return derived.home;
+
+    derived = { raw: homeRaw, listed: MACHINES.list, removed, home: withListedMachines(homeRaw, MACHINES.list, REMOVED) };
+    return derived.home;
+  },
+  set home(home: HomeView | null) { homeRaw = home; },
   error: null as string | null,
   since: Date.now(),
   picked: null as string | null,
