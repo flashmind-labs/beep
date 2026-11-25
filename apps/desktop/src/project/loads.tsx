@@ -10,7 +10,7 @@ import { pushedEach } from "../ui/snapshot-state.ts";
 // while the user moves between projects, and prefetched ahead.
 import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, reason } from "../ui/format.ts";
-import { copy } from "../ui/parts.tsx";
+import { copy } from "../ui/clipboard.ts";
 import { type MenuItem } from "../ui/menu.tsx";
 import { Changes, UNWATCHED_MS } from "../ui/pagecache.ts";
 import { parseRecent, prefetchOrder, touchRecent } from "./projectloads.ts";

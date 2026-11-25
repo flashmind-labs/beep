@@ -4,7 +4,7 @@ import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { NEW_WINDOW } from "../project/projectwindow.ts";
 // The right-click menu of a coding agent session, shared by every row that shows one.
 import { confirmSheet, openMenu, type MenuItem, type MenuLine } from "../ui/menu.tsx";
-import { writeClipboard } from "../ui/parts.tsx";
+import { writeClipboard } from "../ui/clipboard.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
 import { chatFolder } from "./nesting-state.ts";

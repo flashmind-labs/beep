@@ -19,7 +19,7 @@ import { followFiles } from "./reload.ts";
 import { onShownChange } from "../ui/active.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
-import { writeClipboard } from "../ui/parts.tsx";
+import { writeClipboard } from "../ui/clipboard.ts";
 import { sessionsRead } from "../agents/sessions.ts";
 import { type TabKind, setFolded, closeTab, P, previewTab, saveFile, saveLayout, saveWorkFile, showTab, type MediaTab, focusTab } from "./media.ts";
 import { type DockModel, type DockView, type PaneCounts, type PaneModel, chatPane, desktopChatPane, docked, foldNarrow, paneModel, paneOf, drawPaneNow, place, setOn, setPaneModel, shell } from "./media-layout.ts";

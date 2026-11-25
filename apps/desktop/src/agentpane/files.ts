@@ -7,7 +7,7 @@
 import { createRef, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
 import { createStore } from "zustand";
 import type { FilesMenuProps } from "./files-menu.tsx";
-import { writeClipboard } from "../ui/parts.tsx";
+import { writeClipboard } from "../ui/clipboard.ts";
 import { hasPreview } from "./html-preview-state.ts";
 import { reloadChatAgents } from "./chat-agents.tsx";
 import { type Listing, type TreeRow, isTree, atEdge, unreadFolders, failedListing, mergeTree, parentPath, joinPath, treeRows } from "./files-state.ts";

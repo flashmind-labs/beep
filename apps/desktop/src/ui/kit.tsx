@@ -4,7 +4,7 @@
 import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import parse from "html-react-parser";
 import { ErrorBoundary } from "react-error-boundary";
-import { copy } from "./parts.tsx";
+import { copy } from "./clipboard.ts";
 import { Icon, type IconName } from "./icons.tsx";
 
 /// Sanitized HTML as React elements keyed by place, so a block that stays keeps its

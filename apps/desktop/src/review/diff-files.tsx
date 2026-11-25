@@ -7,7 +7,7 @@ import { flushSync } from "react-dom";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
-import { writeClipboard } from "../ui/parts.tsx";
+import { writeClipboard } from "../ui/clipboard.ts";
 import { plural } from "../ui/format.ts";
 import { DiffFileHeader } from "./diff-file-header.tsx";
 import { DiffContext, DiffOmitted } from "./diff-body-controls.tsx";

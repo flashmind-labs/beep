@@ -2,7 +2,7 @@
 import { localFileItems, type FileTarget } from "../agentpane/localfile.ts";
 import { type FileRef, linkedPath, resolvePath } from "../agentpane/media-state.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
-import { copy } from "../ui/parts.tsx";
+import { copy } from "../ui/clipboard.ts";
 import { invoke } from "../ui/tauri.ts";
 
 export function fileLinkMenu(e: MouseEvent, folder: Omit<FileTarget, "path">, session: string, open: (ref: FileRef) => void) {

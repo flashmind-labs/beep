@@ -5,7 +5,7 @@ import { accountName, codexTaskRunning, tokenDraft } from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
 import { cliHost, draft as credentialDraft, editFor } from "./credentials.ts";
 import type { ApiProvider, CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
-import { copy } from "../ui/parts.tsx";
+import { copy } from "../ui/clipboard.ts";
 import type { Machine } from "../machines/machines.tsx";
 import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 import { openSignIn } from "../machines/signin.tsx";

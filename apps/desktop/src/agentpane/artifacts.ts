@@ -8,7 +8,7 @@ import { type Artifact, artifactVersion, goneArtifacts, goneMessage, KIND_NAMES,
 import { revealPath } from "./files.ts";
 import { fileSize } from "../chat/media.tsx";
 import { openPath, paneSession } from "./media.ts";
-import { writeClipboard } from "../ui/parts.tsx";
+import { writeClipboard } from "../ui/clipboard.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
 import { followFiles } from "./reload.ts";

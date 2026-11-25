@@ -1,7 +1,7 @@
 // Markdown answers in a coding agent's session: copy controls for their
 // code blocks and quotes.
 import { quotedMarkdown } from "./copy-markdown.ts";
-import { copy, writeClipboard } from "../ui/parts.tsx";
+import { copy, writeClipboard } from "../ui/clipboard.ts";
 import { COPY_ICON, ICON } from "../ui/icons.tsx";
 
 /// An answer with copy controls for code blocks and quotes.
