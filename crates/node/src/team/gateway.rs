@@ -15,7 +15,11 @@ use super::{
     sightings::{self, Sight, Sighted},
 };
 use crate::{
-    agents::mcp::children::{Listed, in_the_mesh},
+    agents::mcp::{
+        command_name,
+        children::{ChildView, Listed, in_the_mesh},
+        projects,
+    },
     link::Offers,
     machine::{
         ci::{Ci, forge::command},
@@ -26,7 +30,10 @@ use beep_mesh::Mesh;
 use beep_projects::commands::OpenIssue;
 use beep_proto::{
     SessionId,
-    node::{agent::SessionInfo, tools::ForgeReach},
+    node::{
+        agent::{SessionInfo, Status},
+        tools::ForgeReach,
+    },
     team::{Card, Lane, Member, TeamRepo},
 };
 use futures::future::join_all;
@@ -675,7 +682,7 @@ impl Cards {
                 in_the_mesh(&offers.agents, Some(mesh), &caller, Some(refused), Some(ended_since)).await;
             listed.extend(
                 rows.iter()
-                    .flat_map(|(peer, rows)| sightings::listed(mesh, *peer, rows, ended_since)),
+                    .flat_map(|(peer, rows)| pushed_sessions(mesh, *peer, rows, ended_since)),
             );
 
             listed
@@ -834,6 +841,39 @@ fn ask_again_at(asked: Option<&(Instant, BTreeSet<EndpointId>)>) -> Option<Insta
     let (at, machines) = asked?;
 
     (!machines.is_empty()).then(|| *at + QUIET)
+}
+
+/// `rows`, the sessions `peer` pushed, as the agents list names them: those
+/// that run, and those that ended since `ended_since`, Unix seconds.
+fn pushed_sessions(
+    mesh: &Mesh,
+    peer: EndpointId,
+    rows: &[SessionInfo],
+    ended_since: u64,
+) -> Vec<Listed> {
+    let Some(status) = mesh
+        .code_hosts()
+        .into_iter()
+        .find(|status| status.device.id == peer)
+    else {
+        return Vec::new();
+    };
+    let name = command_name(&status.device.name);
+
+    rows.iter()
+        .filter(|info| !info.reviewer)
+        .filter(|info| info.state.status != Status::Ended || info.last_activity >= ended_since)
+        .map(|info| {
+            let mut view = ChildView::of(info, &info.id).named(&name);
+            view.project = projects::of_folder(mesh, &info.cwd, peer);
+
+            Listed {
+                view,
+                machine: status.device.name.clone(),
+                folder: None,
+            }
+        })
+        .collect()
 }
 
 /// The machines of `project` that may start its issues' sessions for the

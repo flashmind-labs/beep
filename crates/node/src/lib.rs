@@ -22,6 +22,7 @@ pub mod agents;
 pub mod events;
 pub mod files;
 pub mod link;
+pub mod peer_stream;
 
 host! {
     pub mod actor;

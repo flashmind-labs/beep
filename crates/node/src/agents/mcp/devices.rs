@@ -598,7 +598,7 @@ impl Reach<'_> {
     /// another machine's over the mesh, which refuses while it is not lent.
     async fn open(&self, machine: &Machine) -> Result<Link> {
         if machine.id != self.mesh.me() {
-            let (tx, rx) = machines::handshake(self.mesh, machine.id, device::PROTOCOL)
+            let (tx, rx) = crate::peer_stream::handshake(self.mesh, machine.id, device::PROTOCOL)
                 .await
                 .with_context(|| format!("could not reach {}", machine.name))?;
             return Ok(Link {

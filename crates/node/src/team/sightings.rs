@@ -2,18 +2,11 @@
 //! `agents` list to the acting machine: a follow per machine, so the cards are
 //! made again when a session changes and not on a timer.
 
-use crate::{
-    agents::mcp::{
-        Refused, command_name,
-        children::{ChildView, Listed},
-        projects,
-    },
-    link::peer_watch::PeerWatch,
-};
+use crate::peer_stream::{PeerWatch, Refused};
 use anyhow::Result;
 use beep_mesh::Mesh;
 use beep_proto::node::{
-    agent::{SessionInfo, SessionsReply, Status},
+    agent::{SessionInfo, SessionsReply},
     events::{Topic, Value},
 };
 use iroh::EndpointId;
@@ -77,37 +70,4 @@ async fn heard(mesh: &Mesh, peer: EndpointId, sighted: &mpsc::Sender<Sighted>) -
             }
         }
     }
-}
-
-/// `rows`, the sessions `peer` pushed, as the agents list names them: those
-/// that run, and those that ended since `ended_since`, Unix seconds.
-pub(super) fn listed(
-    mesh: &Mesh,
-    peer: EndpointId,
-    rows: &[SessionInfo],
-    ended_since: u64,
-) -> Vec<Listed> {
-    let Some(status) = mesh
-        .code_hosts()
-        .into_iter()
-        .find(|status| status.device.id == peer)
-    else {
-        return Vec::new();
-    };
-    let name = command_name(&status.device.name);
-
-    rows.iter()
-        .filter(|info| !info.reviewer)
-        .filter(|info| info.state.status != Status::Ended || info.last_activity >= ended_since)
-        .map(|info| {
-            let mut view = ChildView::of(info, &info.id).named(&name);
-            view.project = projects::of_folder(mesh, &info.cwd, peer);
-
-            Listed {
-                view,
-                machine: status.device.name.clone(),
-                folder: None,
-            }
-        })
-        .collect()
 }

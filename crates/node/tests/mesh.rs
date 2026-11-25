@@ -724,7 +724,9 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
 async fn another_node_may_follow_the_agents_and_forge_reach_topics_and_no_other() {
     use beep_proto::node::{
         events::{FORGE_REACH_TOPIC, Topic, Value},
-        subscriptions::{Open as SubscriptionsOpen, PROTOCOL as SUBSCRIPTIONS, Reply as Said, Request as Watch},
+        subscriptions::{
+            Open as SubscriptionsOpen, PROTOCOL as SUBSCRIPTIONS, Reply as Said, Request as Watch,
+        },
     };
 
     let desktop = desktop().await;
@@ -733,9 +735,16 @@ async fn another_node_may_follow_the_agents_and_forge_reach_topics_and_no_other(
     let other = peer_node(&desktop).await;
     let conn = other.reach(node.id).await;
     let mut stream = ready(&conn, SUBSCRIPTIONS).await;
-    stream.tx.send(&SubscriptionsOpen {}).await.expect("the open is sent");
+    stream
+        .tx
+        .send(&SubscriptionsOpen {})
+        .await
+        .expect("the open is sent");
     assert!(matches!(
-        timeout(LIMIT, stream.rx.recv::<Said>()).await.unwrap().unwrap(),
+        timeout(LIMIT, stream.rx.recv::<Said>())
+            .await
+            .unwrap()
+            .unwrap(),
         Some(Said::Ready)
     ));
     let watch = |id, topic| Watch::Watch {
@@ -745,16 +754,31 @@ async fn another_node_may_follow_the_agents_and_forge_reach_topics_and_no_other(
         deltas: false,
     };
 
-    stream.tx.send(&watch(1, Topic::new("terminals"))).await.unwrap();
+    stream
+        .tx
+        .send(&watch(1, Topic::new("terminals")))
+        .await
+        .unwrap();
     assert!(matches!(
-        timeout(LIMIT, stream.rx.recv::<Said>()).await.unwrap().unwrap(),
+        timeout(LIMIT, stream.rx.recv::<Said>())
+            .await
+            .unwrap()
+            .unwrap(),
         Some(Said::Error { id: 1, .. })
     ));
 
-    stream.tx.send(&watch(2, Topic::new(FORGE_REACH_TOPIC))).await.unwrap();
+    stream
+        .tx
+        .send(&watch(2, Topic::new(FORGE_REACH_TOPIC)))
+        .await
+        .unwrap();
 
     loop {
-        match timeout(LIMIT, stream.rx.recv::<Said>()).await.unwrap().unwrap() {
+        match timeout(LIMIT, stream.rx.recv::<Said>())
+            .await
+            .unwrap()
+            .unwrap()
+        {
             Some(Said::Snapshot(snapshot)) => {
                 assert!(matches!(snapshot.value, Value::ForgeReach(_)));
                 break;

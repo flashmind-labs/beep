@@ -77,7 +77,7 @@ async fn read(offers: &Offers, args: &Args) -> Result<SessionsReply> {
             .with_context(|| format!("Unknown machine {name}; use list_machines."))?;
         if target.id != mesh.me() {
             let (mut tx, mut rx) =
-                machines::handshake(&mesh, target.id, TRANSCRIPT_PROTOCOL).await?;
+                crate::peer_stream::handshake(&mesh, target.id, TRANSCRIPT_PROTOCOL).await?;
             tx.send(&args.request()).await?;
             return rx
                 .recv()

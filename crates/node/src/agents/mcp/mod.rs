@@ -46,7 +46,7 @@ mod team;
 mod transcripts;
 
 pub(crate) use desktop::forward as to_desktop;
-pub(crate) use machines::{CallFailed, Refused, alone, handshake, over_the_mesh};
+pub(crate) use machines::{CallFailed, alone, over_the_mesh};
 pub use machines::command_name;
 pub(crate) use desktop::answer as answer_projects;
 pub use desktop::ProjectTools;

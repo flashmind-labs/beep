@@ -2,8 +2,8 @@
 //! on every node: the CI watcher and the team gateway use it.
 
 use crate::{
-    agents::mcp::{Refused, over_the_mesh},
-    link::peer_watch::PeerWatch,
+    agents::mcp::over_the_mesh,
+    peer_stream::{PeerWatch, Refused},
 };
 use anyhow::{Result, anyhow, bail};
 use beep_mesh::Mesh;

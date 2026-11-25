@@ -4,6 +4,7 @@
 //! check first.
 
 use super::catalog::REMOTE_RUN;
+use crate::peer_stream::handshake;
 use super::reply::{done, fail, ok};
 use crate::{
     agents::live::Sent,
@@ -18,7 +19,7 @@ use anyhow::{Context, Result};
 use beep_mesh::{DeviceStatus, Mesh, machine::Device};
 use beep_proto::SessionId;
 use beep_proto::node::{
-    EnvReport, LinkRx, LinkTx, Open, Opened, link,
+    EnvReport,
     status::{self, Report},
     tools::{PROTOCOL, Reply, Request, Tool},
     transfer::Reply as TransferReply,
@@ -30,12 +31,8 @@ use serde_json::{Value, json};
 use std::{fmt::Write, str::FromStr, time::Duration};
 use tokio::{sync::watch, time::timeout};
 
-/// How many times opening a call's stream is tried.
-const HANDSHAKES: u32 = 3;
 /// How long a machine has to report itself for `list_machines`.
 const STATUS_WAIT: Duration = Duration::from_secs(5);
-/// How long all attempts to connect and open a call's stream have together.
-const OPEN_LIMIT: Duration = Duration::from_secs(15);
 /// How long one call may run: a command runs at most half an hour.
 const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
 /// The most paths one `send_files` call takes.
@@ -614,81 +611,6 @@ pub(crate) enum CallFailed {
     /// The call broke once the request was on its way: it may have run.
     #[error("{0:#}")]
     Sent(anyhow::Error),
-}
-
-/// The machine turned a stream away, which trying again does not change.
-#[derive(Debug, thiserror::Error)]
-#[error("the machine refused the call: {0}")]
-pub(crate) struct Refused(pub(crate) String);
-
-/// Opens `protocol` on `peer`. A link replaced while it opens (two machines
-/// dialing each other keep one) is tried again; nothing has run yet.
-pub(crate) async fn handshake(
-    mesh: &Mesh,
-    peer: EndpointId,
-    protocol: &str,
-) -> Result<(LinkTx, LinkRx)> {
-    let opening = async {
-        let mut tries = HANDSHAKES;
-
-        loop {
-            match try_handshake(mesh, peer, protocol).await {
-                Err(e) if tries > 1 => {
-                    log::debug!("opening {protocol} on {peer} failed, trying again: {e:#}");
-                    tries -= 1;
-                }
-                Err(e) => return Err(e),
-                Ok(Ok(streams)) => return Ok(streams),
-                Ok(Err(reason)) => return Err(Refused(reason).into()),
-            }
-        }
-    };
-
-    timeout(OPEN_LIMIT, opening).await.context(
-        "the machine did not connect and accept the call within 15 seconds; the request was not sent",
-    )?
-}
-
-/// The streams, or why the machine turned the call away, which trying
-/// again does not change.
-async fn try_handshake(
-    mesh: &Mesh,
-    peer: EndpointId,
-    protocol: &str,
-) -> Result<Result<(LinkTx, LinkRx), String>> {
-    let (send, recv) = open(mesh, peer).await?;
-    let (mut tx, mut rx) = link(send, recv);
-    tx.send(&Open {
-        protocol: protocol.to_owned(),
-    })
-    .await?;
-    let opened: Opened = rx.recv().await?.context("the machine closed the call")?;
-
-    Ok(match opened {
-        Opened::Refused { reason } => Err(reason),
-        _ => Ok((tx, rx)),
-    })
-}
-
-/// A stream to `peer`, waiting for a link within the handshake's deadline.
-async fn open(
-    mesh: &Mesh,
-    peer: EndpointId,
-) -> Result<(iroh::endpoint::SendStream, iroh::endpoint::RecvStream)> {
-    let mut updates = mesh.updates();
-
-    loop {
-        watched::read_and_update(&mut updates, |_| ());
-
-        match mesh.open_bi(peer).await {
-            Ok(streams) => return Ok(streams),
-            Err(e) => {
-                if updates.changed().await.is_err() {
-                    return Err(e).context("the mesh closed while waiting for the machine");
-                }
-            }
-        }
-    }
 }
 
 #[cfg(test)]
