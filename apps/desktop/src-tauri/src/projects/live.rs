@@ -1,6 +1,7 @@
 //! Project views share one source per project while any window follows it.
 //! Periodic forge reads publish project changes locally.
 
+use super::{team::team_view, team_live::TeamLive};
 use crate::{
     error::Result,
     fleet::projects::{FleetState, mesh_project},
@@ -227,9 +228,13 @@ pub async fn follow_project(
     followed: State<'_, Followed>,
     project_id: Uuid,
 ) -> Result<()> {
-    let Some((_, project)) = mesh_project(&fleet, project_id).await? else {
+    let Some((desk, project)) = mesh_project(&fleet, project_id).await? else {
         return Ok(());
     };
+    // Its team's cards are followed while the page shows, when it has a team.
+    let team = team_view(&desk, &project).ok().flatten().is_some();
+    app.state::<TeamLive>()
+        .show(&app, window.label(), project_id, &project, team);
     let alive_app = app.clone();
     followed.add(
         window.label(),
@@ -243,11 +248,14 @@ pub async fn follow_project(
 /// Removes this window's ownership of one project, or all its projects without one.
 #[tauri::command]
 pub fn unfollow_project(
+    app: AppHandle,
     window: WebviewWindow,
     followed: State<'_, Followed>,
     project_id: Option<Uuid>,
 ) {
     followed.remove(window.label(), project_id);
+    app.state::<TeamLive>()
+        .hide(&app, window.label(), project_id);
 }
 
 /// One visible workflow detail per window shares its project's source reads.

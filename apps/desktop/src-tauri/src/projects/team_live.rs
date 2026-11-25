@@ -1,9 +1,11 @@
 //! What a team page hears without asking again: the project's record and cards as `team-changed`,
 //! and the invites waiting for this desktop as `team-invites`. A page reads once when it opens
-//! (`team_record`, `team_cards`, `team_invites`), and that read makes its window follow: the
-//! nodes push the cards under `team-cards` for the project, only the machine that acts for
-//! the team answers with them, and the invites come from this desktop's node. The record and the
-//! contacts are the mesh's, so a change to the mesh sends them again.
+//! (`team_record`, `team_cards`, `team_invites`). A window follows a project's team while its page
+//! shows the project (`follow_project` and `unfollow_project`) and the project has a team: the
+//! nodes push the cards under `team-cards` for the project, only the machine that acts for the
+//! team answers with them, and a node from before the topic is asked for them every
+//! `ASK_EVERY` meanwhile. The invites come from this desktop's node. The record and the contacts
+//! are the mesh's, so a change to the mesh sends them again.
 
 use super::team::{TeamCardsView, TeamView, invite_views, team_view};
 use crate::fleet::{
@@ -24,6 +26,10 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 use uuid::Uuid;
+
+/// How often a node from before the topic is asked for a team's cards, while a page shows them.
+#[cfg(desktop)]
+const ASK_EVERY: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What the nodes said of a team's cards.
 pub(crate) enum Heard {
@@ -58,8 +64,11 @@ struct Held {
     sent_invites: Option<serde_json::Value>,
 }
 
+/// A project a window's page shows.
 struct Project {
     name: String,
+    /// Whether the project has a team: only then are its cards followed.
+    team: bool,
     windows: BTreeSet<String>,
     /// The cards the machine that acts for the team gave last, and which machine it is.
     acting: Option<(EndpointId, TeamCards)>,
@@ -69,6 +78,8 @@ struct Project {
     asked: Option<TeamCards>,
     /// What the windows were last sent.
     sent: Option<serde_json::Value>,
+    /// Whether a task asks the nodes from before the topic.
+    asking: bool,
 }
 
 impl Project {
@@ -111,18 +122,56 @@ impl Held {
                 }
             }
 
+            if project.refused.is_empty() {
+                project.asked = None;
+            }
+
             changed.push(*id);
         }
 
         changed
     }
 
+    /// Whether a task has to start asking the nodes from before the topic for project `id`'s cards;
+    /// it has been told to when this says yes.
+    fn start_asking(&mut self, id: Uuid) -> bool {
+        let Some(project) = self.projects.get_mut(&id) else {
+            return false;
+        };
+
+        if project.asking || !project.team || project.refused.is_empty() {
+            return false;
+        }
+
+        project.asking = true;
+        true
+    }
+
+    /// Whether the task asking for project `id`'s cards goes on: not once the page left, the team
+    /// is gone, or every node answers the topic.
+    fn keep_asking(&mut self, id: Uuid) -> bool {
+        let Some(project) = self.projects.get_mut(&id) else {
+            return false;
+        };
+
+        if project.team && !project.refused.is_empty() {
+            return true;
+        }
+
+        project.asking = false;
+        false
+    }
+
     /// The topics the nodes are asked for while the windows follow.
     fn interests(&self, me: EndpointId) -> Vec<Interest> {
-        let cards = self.projects.values().map(|project| Interest {
-            machine: None,
-            topic: Topic::keyed(TEAM_CARDS_TOPIC, &project.name),
-        });
+        let cards = self
+            .projects
+            .values()
+            .filter(|project| project.team)
+            .map(|project| Interest {
+                machine: None,
+                topic: Topic::keyed(TEAM_CARDS_TOPIC, &project.name),
+            });
         let invites = (!self.invites.is_empty()).then(|| Interest {
             machine: Some(me.to_string()),
             topic: Topic::new(TEAM_INVITES_TOPIC),
@@ -131,15 +180,21 @@ impl Held {
         cards.chain(invites).collect()
     }
 
-    fn forget(&mut self, window: &str) {
-        self.invites.remove(window);
-
-        for project in self.projects.values_mut() {
-            project.windows.remove(window);
+    /// `window`'s page left project `id`, or all it showed.
+    fn hide(&mut self, window: &str, id: Option<Uuid>) {
+        for (each, project) in &mut self.projects {
+            if id.is_none_or(|id| id == *each) {
+                project.windows.remove(window);
+            }
         }
 
         self.projects
             .retain(|_, project| !project.windows.is_empty());
+    }
+
+    fn forget(&mut self, window: &str) {
+        self.invites.remove(window);
+        self.hide(window, None);
     }
 }
 
@@ -148,22 +203,65 @@ impl TeamLive {
         self.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// `window` read project `id`'s team: it hears the changes until it closes.
-    pub(crate) fn follow(&self, app: &AppHandle, window: &str, id: Uuid, name: &str) {
-        self.held()
-            .projects
-            .entry(id)
-            .or_insert_with(|| Project {
+    /// `window`'s page shows project `id`, which has a team or not: it hears the team's changes
+    /// until the page leaves it.
+    pub(crate) fn show(&self, app: &AppHandle, window: &str, id: Uuid, name: &str, team: bool) {
+        {
+            let mut held = self.held();
+            let project = held.projects.entry(id).or_insert_with(|| Project {
                 name: name.to_owned(),
+                team,
                 windows: BTreeSet::new(),
                 acting: None,
                 refused: BTreeSet::new(),
                 asked: None,
                 sent: None,
-            })
-            .windows
-            .insert(window.to_owned());
+                asking: false,
+            });
+            project.windows.insert(window.to_owned());
+            project.team = team;
+        }
         self.hold(app);
+
+        if team {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                // A phone follows no topic: it asks, and again when the mesh changes.
+                #[cfg(mobile)]
+                ask(&app, id).await;
+                emit(&app, id).await;
+            });
+        }
+    }
+
+    /// `window`'s page left project `id`, or every project it showed.
+    pub(crate) fn hide(&self, app: &AppHandle, window: &str, id: Option<Uuid>) {
+        self.held().hide(window, id);
+        self.hold(app);
+    }
+
+    /// Whether project `id` has a team, as the record last read says.
+    pub(crate) fn teamed(&self, app: &AppHandle, id: Uuid, team: bool) {
+        let (changed, asking) = {
+            let mut held = self.held();
+            let changed = held
+                .projects
+                .get_mut(&id)
+                .is_some_and(|project| std::mem::replace(&mut project.team, team) != team);
+
+            (changed, changed && held.start_asking(id))
+        };
+
+        if changed {
+            self.hold(app);
+        }
+
+        #[cfg(desktop)]
+        if asking {
+            tauri::async_runtime::spawn(keep_asking(app.clone(), id));
+        }
+        #[cfg(not(desktop))]
+        let _ = asking;
     }
 
     /// `window` read the invites: it hears them change until it closes.
@@ -205,10 +303,18 @@ pub(crate) fn cards_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, h
         return;
     };
     let refused = matches!(heard, Heard::Refused);
-    let changed = app
-        .state::<TeamLive>()
-        .held()
-        .cards_heard(name, machine, heard);
+    let (changed, asking) = {
+        let live = app.state::<TeamLive>();
+        let mut held = live.held();
+        let changed = held.cards_heard(name, machine, heard);
+        let asking: Vec<Uuid> = changed
+            .iter()
+            .copied()
+            .filter(|id| refused && held.start_asking(*id))
+            .collect();
+
+        (changed, asking)
+    };
 
     if changed.is_empty() {
         return;
@@ -217,13 +323,29 @@ pub(crate) fn cards_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, h
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         for id in changed {
-            if refused {
-                ask(&app, id).await;
+            if asking.contains(&id) {
+                #[cfg(desktop)]
+                tauri::async_runtime::spawn(keep_asking(app.clone(), id));
             }
 
             emit(&app, id).await;
         }
     });
+}
+
+/// Asks the nodes from before the topic for project `id`'s cards, as long as its page shows them
+/// and one of those nodes has not answered the topic.
+#[cfg(desktop)]
+async fn keep_asking(app: AppHandle, id: Uuid) {
+    loop {
+        ask(&app, id).await;
+        emit(&app, id).await;
+        tokio::time::sleep(ASK_EVERY).await;
+
+        if !app.state::<TeamLive>().held().keep_asking(id) {
+            return;
+        }
+    }
 }
 
 /// The invites waiting on this desktop's node changed.
@@ -251,12 +373,13 @@ pub(crate) fn mesh_changed(app: &AppHandle) {
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         for id in ids {
-            let old_nodes = app
-                .state::<TeamLive>()
-                .held()
-                .projects
-                .get(&id)
-                .is_some_and(|project| !project.refused.is_empty());
+            let old_nodes = cfg!(mobile)
+                || app
+                    .state::<TeamLive>()
+                    .held()
+                    .projects
+                    .get(&id)
+                    .is_some_and(|project| !project.refused.is_empty());
 
             if old_nodes {
                 ask(&app, id).await;
@@ -311,6 +434,7 @@ async fn emit(app: &AppHandle, id: Uuid) {
             return;
         }
     };
+    app.state::<TeamLive>().teamed(app, id, record.is_some());
     let payload = {
         let live = app.state::<TeamLive>();
         let mut held = live.held();

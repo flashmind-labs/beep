@@ -171,15 +171,16 @@ pub struct InviteView {
 #[tauri::command]
 pub async fn team_record(
     app: AppHandle,
-    window: WebviewWindow,
     fleet: FleetState<'_>,
     project_id: Uuid,
 ) -> Result<Option<TeamView>> {
     let (desk, name) = named(&fleet, project_id).await?;
+    let record = team_view(&desk, &name)?;
+    // A page that shows the project follows its team once it has one.
     app.state::<TeamLive>()
-        .follow(&app, window.label(), project_id, &name);
+        .teamed(&app, project_id, record.is_some());
 
-    Ok(team_view(&desk, &name)?)
+    Ok(record)
 }
 
 /// `name`'s team as the Team page shows it.
@@ -422,15 +423,8 @@ pub async fn issue_assign(
 }
 
 #[tauri::command]
-pub async fn team_cards(
-    app: AppHandle,
-    window: WebviewWindow,
-    fleet: FleetState<'_>,
-    project_id: Uuid,
-) -> Result<TeamCardsView> {
+pub async fn team_cards(fleet: FleetState<'_>, project_id: Uuid) -> Result<TeamCardsView> {
     let (desk, name) = named(&fleet, project_id).await?;
-    app.state::<TeamLive>()
-        .follow(&app, window.label(), project_id, &name);
 
     Ok(desk.team_cards(&name).await?.into())
 }
