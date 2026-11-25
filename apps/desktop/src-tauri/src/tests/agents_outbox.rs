@@ -282,6 +282,28 @@ async fn a_sent_message_stays_as_a_sent_row_until_a_push_of_its_session_lists_it
 }
 
 #[tokio::test]
+async fn two_messages_sent_without_what_the_window_saw_both_settle_from_the_last_push() {
+    let (_dir, _, outbox) = outbox();
+    // A follow's push, before either message.
+    outbox.with(|held| held.settled(&key("s1"), &log(&[], 0, &[user("older")])));
+    push(&outbox, "s1", "one");
+    push(&outbox, "s1", "two");
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    outbox
+        .with(|held| {
+            held.settled(
+                &key("s1"),
+                &log(&[], 0, &[user("older"), user("one"), user("two")]),
+            )
+        })
+        .expect("the rows go");
+    assert!(texts(&outbox, "s1").is_empty());
+}
+
+#[tokio::test]
 async fn a_sent_message_a_push_listed_in_the_log_goes_too_and_stop_all_takes_back_the_rest() {
     let (_dir, _, outbox) = outbox();
     push(&outbox, "s1", "one");

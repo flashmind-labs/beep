@@ -298,6 +298,9 @@ pub(crate) struct Row {
     pub(crate) keys: Vec<String>,
 }
 
+/// The most sessions whose last push is kept.
+const MAX_HEARD: usize = 64;
+
 /// The most `sent` rows kept for sessions no window follows.
 const MAX_DELIVERED: usize = 64;
 
@@ -438,6 +441,9 @@ pub(crate) struct Held {
     /// Messages the machine took, shown as `sent` rows until a push of their session
     /// lists them. Kept in memory only: a restart has nothing left to show.
     delivered: Vec<Message>,
+    /// What the last push of each followed session showed: the `seen` of a message whose
+    /// window passed none.
+    heard: HashMap<SessionKey, Seen>,
 }
 
 impl Held {
@@ -514,6 +520,7 @@ impl Held {
             .resume
             .filter(|_| resolved == *key && !self.resuming(key));
         let key = &resolved;
+        let seen = draft.seen.or_else(|| self.heard.get(key).cloned());
         let id = self.next;
         self.next += 1;
         let images: Vec<KeptImage> = draft.images.into_iter().map(Into::into).collect();
@@ -541,7 +548,7 @@ impl Held {
                 Stage::Waiting
             },
             unsure: false,
-            seen: draft.seen,
+            seen,
             reading: draft.reading,
         });
         self.dirty = true;
@@ -1112,6 +1119,19 @@ impl Held {
     /// A push of `key`'s session holds `log`: the sent messages it lists leave their rows, the
     /// session's own queue and log show them from here.
     pub(crate) fn settled(&mut self, key: &SessionKey, log: &Log) -> Option<Changed> {
+        if self.heard.len() >= MAX_HEARD && !self.heard.contains_key(key) {
+            self.heard.clear();
+        }
+
+        self.heard.insert(
+            key.clone(),
+            Seen {
+                entries: log
+                    .earlier
+                    .saturating_add(u64::try_from(log.entries.len()).unwrap_or(u64::MAX)),
+                queued: log.queued.to_vec(),
+            },
+        );
         let before = self.delivered.len();
         self.delivered
             .retain(|message| message.key() != *key || !holds(log, message));
