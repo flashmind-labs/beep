@@ -1,8 +1,6 @@
 import { moveStore } from "../agents/move-store.ts";
 import { MACHINES } from "../machines/machine-store.ts";
 import { type ReactNode } from "react";
-import { createPortal } from "react-dom";
-import { removeWindowPart, showWindowParts } from "../center/window-root.tsx";
 import { ProjectNavigation, ProjectOverview, ProjectStatus, RunningStatus, SessionTabs } from "./split-view.tsx";
 import { projectCards } from "./lanes.tsx";
 import { isMobile } from "../ui/platform.ts";
@@ -10,96 +8,50 @@ import { Board } from "../center/lanes-view.tsx";
 import { frontLayout } from "../ui/skin.ts";
 import { ProjectIssues } from "./issues-view.tsx";
 import { OpenListControls, OpenListStart } from "./openlist-view.tsx";
-import { issueStartPlan, loadStartHosts, startIssues } from "./composer.tsx";
+import { issueStartPlan, loadStartHosts, startIssues, workOnIssue, startIssue, discussThread, workOnPr, startPrWork, reviewPr, startReview, pickButton, earlierReview, issueSession, sessionState } from "./composer.tsx";
+import { teamNote, teamOf, teamLogins, assign } from "./team.ts";
+import { prSession } from "./pr-session.ts";
+import type { TaskSession } from "./projectbar.ts";
+import type { ProjectPick } from "../agents/agentmodels.ts";
 // A project page's split: the list of PRs, issues and machines on the
 // left, the picked row's view on the right.
 import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, plural } from "../ui/format.ts";
 import { projectPastSessions, type Project, type WhereRow } from "./projects-state.ts";
 import { projectRef } from "./localid.ts";
-import { FreshNote, Parts, hostPart, retainedHost, viewPart, type PagePart } from "./page-view.tsx";
+import { FreshNote, Parts, hostPart, viewPart, type PagePart } from "./page-view.tsx";
 import type { TerminalRow } from "../terminals/terminals.tsx";
 import { terminalTile } from "../terminals/terminal-list.ts";
 import { fileSyncTile } from "./filesync.ts";
 import { machineTile } from "./board.ts";
-import { issueMeta, prMeta, sortedPrs } from "./threads.ts";
+import { issueMeta, prMeta, sortedPrs, type IssueRow, type PullRequestRow, type RepoActs } from "./threads.ts";
 import { arranged, issueSelection, setIssueSelection } from "./openlist.ts";
 import type { StartEntry } from "./openlist-state.ts";
 import { gitOf, sessionsOf, state } from "../center/state.ts";
 import { projectBranch } from "./gitsync-state.ts";
-import { boxOf, go } from "../center/nav.ts";
+import { go } from "../center/nav.ts";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.tsx";
 import { openUrl } from "../ui/tauri.ts";
-import { terms, fsync, gitHistory, thr, details, runs, repoActs } from "./sections.ts";
+import { fsync, runs } from "./sections.ts";
+import { terms, thr, details } from "./stores.ts";
+import { gitHistory } from "./tiles.tsx";
 import { pa } from "./barstate.ts";
+import { openTile, projectShell, renderProjectShell } from "./tiles.tsx";
 import { redraw } from "../center/redraw.ts";
-import { sessionsHost, sessionsList, loadSessions } from "./loads.tsx";
+import { sessionsHost, sessionsList } from "./loads.tsx";
+import { loadSessions } from "./sessionsload.ts";
 import { sessionsDue } from "../center/state.ts";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";
 import { runningLineAt } from "../agents/place.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, Chip, EmptyPanel } from "../ui/kit.tsx";
 import { WandererArt } from "../ui/painted-art.tsx";
-import { boardFiltered, IssueOwners, IssueOwnersCell, myIssues, TeamFilter, TeamPage, teamIssues, teamNote, teamOf } from "./team-view.tsx";
-
-/// The project's navigation and Overview stay mounted in their own elements while
-/// other tiles show, so their rows, focus and scroll survive a visit to Git or Running.
-interface ProjectShell {
-  project: string;
-  navigation: HTMLElement;
-  overview: HTMLElement;
-  navView: ReactNode;
-  overviewView: ReactNode;
-  overviewScroll: Map<string, number>;
-}
-let shell: ProjectShell | null = null;
-
-function renderProjectShell(current: ProjectShell) {
-  showWindowParts([{ part: "project-shell", host: null, identity: current.project, content: <>
-    {createPortal(current.navView, current.navigation, "navigation")}{createPortal(current.overviewView, current.overview, "overview")}</> }]);
-}
-export function disposeProjectShell() {
-  if (!shell) return;
-  removeWindowPart("project-shell");
-  shell = null;
-}
-function projectShell(project: string) {
-  if (shell?.project === project) return shell;
-  disposeProjectShell();
-  shell = { project, navigation: retainedHost("pj-list"), overview: retainedHost("pj-ov"), navView: null, overviewView: null, overviewScroll: new Map() };
-  return shell;
-}
+import { boardFiltered, IssueOwners, IssueOwnersCell, myIssues, TeamFilter, TeamPage, teamIssues } from "./team-view.tsx";
 
 /// The split shows for every imported project.
 export function splitOn(p: Project) {
   return p.imported;
-}
-
-/// Picks item `key` of the split's list, or the first one with null, and
-/// stops the polling of every other item. With `draw` false the caller
-/// draws.
-export function openTile(key: string | null, draw = true) {
-  const current = shell;
-  const scrolls = ["#sec-sessions .pj-scroll", ".pj-ov-issues"];
-  if (draw && current?.overview.isConnected) for (const selector of scrolls) {
-    const element = current.overview.querySelector<HTMLElement>(selector);
-    if (element) current.overviewScroll.set(selector, element.scrollTop);
-  }
-  if (!draw && key === null) {
-    disposeProjectShell();
-  }
-  pa.tile = key === "sync" || key === "terminals" ? "machines" : key;
-  if (key !== "actions") runs.stop();
-  if (pa.tile !== "machines") terms.stop();
-  if (key !== "branches") gitHistory.stop();
-  if (!draw) return;
-  redraw("projects");
-  boxOf("projects")?.querySelector(":scope > .cc-view .pj-det")?.scrollTo({ top: 0 });
-  if ((key === "overview" || key === null) && current) for (const selector of scrolls) {
-    const element = current.overview.querySelector<HTMLElement>(selector), top = current.overviewScroll.get(selector);
-    if (element && top !== undefined) element.scrollTop = top;
-  }
 }
 
 /// One row of the split's list: it shows its detail at the right, or with
@@ -307,4 +259,25 @@ function projectOverview(p: Project, running: RunningAgent[], open: { run: Split
   current.overviewView = <ProjectOverview {...open} machines={where} terminals={terms.list(p.name) || []}
     session={sessionsList(p, running)} openTile={openTile} openTerminal={terminal => openTerminal(p.name, terminal)} />;
   return current.overview;
+}
+
+/// What the Pull requests and Issues sections do on project `p`'s page:
+/// Work on it and Work on PR fill the bar.
+export function repoActs(p: Project): RepoActs {
+  return {
+    workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
+    startIssue: (issue: IssueRow, pick: ProjectPick, machine: string | null) => startIssue(p.name, issue, pick, machine),
+    discuss: topic => discussThread(p.name, topic),
+    prSession,
+    workOnPr: (pr: PullRequestRow) => workOnPr(p.name, pr),
+    startPrWork: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => startPrWork(p.name, pr, pick, machine),
+    openSession: (session: TaskSession) => go("pane", { agent: session }),
+    reviewPr: (pr: PullRequestRow) => reviewPr(p.name, pr),
+    startReview: (pr: PullRequestRow, pick: ProjectPick, machine: string | null) => startReview(p.name, pr, pick, machine),
+    button: start => pickButton(p.name, start),
+    reviewOf: (pr: PullRequestRow) => earlierReview(p.name, pr.number),
+    issueSession: (issue: IssueRow) => sessionState(issueSession(p.name, issue), "Working"),
+    assignees: () => teamLogins(p.name),
+    assign: (issue: IssueRow, login: string) => assign(p.name, issue.number, [login]),
+  };
 }

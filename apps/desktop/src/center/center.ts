@@ -33,7 +33,7 @@ import { drawSide, paneOn, projectHere } from "./sidebar.tsx";
 import { openProjects, addProject, openAddMachine } from "../project/addflow.ts";
 import { projectWindowProps, openProjectWindow } from "../project/projectops.ts";
 import { escUp } from "./escup-state.ts";
-import { nextRunning } from "../project/loads.tsx";
+import { nextRunning } from "../project/sessionsload.ts";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
 import { pa } from "../project/barstate.ts";
 import { newThreadHere } from "../agents/agents.ts";
@@ -95,7 +95,7 @@ initPalette({
   project: openProjects, projects: () => void openProjects(null), terminals: () => void go("terminals"),
   newSession: newAgentHere, addProject, joinTeam: onPhone() ? undefined : () => void import("../project/teamjoin.tsx").then(t => t.openTeamJoin(null)),
   addMachine: openAddMachine, shortcuts: showShortcuts, report: showReport,
-  branches: name => { if (openProjects(name)) void import("../project/split.tsx").then(m => m.openTile("branches")); },
+  branches: name => { if (openProjects(name)) void import("../project/tiles.tsx").then(m => m.openTile("branches")); },
 });
 
 // Capture before the terminal handles the key, so Shift+Esc never reaches the shell.
@@ -123,7 +123,7 @@ function onWindowKey(e: KeyboardEvent) {
     if (up) {
       e.preventDefault();
       if (up.to === "overview") return jump();
-      if (up.to === "tile") return void import("../project/split.tsx").then(m => m.openTile(null));
+      if (up.to === "tile") return void import("../project/tiles.tsx").then(m => m.openTile(null));
       return up.to === "home" ? go("home") : void openProjects();
     }
   }

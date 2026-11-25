@@ -20,9 +20,11 @@ import { MachinesSection, type ProjectMachineItem } from "./machines-section-vie
 import { blocked, confirmRemove, removeMenuItems } from "./removemachine.ts";
 import { changeFolder, changeFolderItems } from "./changefolder.ts";
 import { addProject } from "./addflow.ts";
-import { splitOn, projectSplit, disposeProjectShell } from "./split.tsx";
+import { splitOn, projectSplit } from "./split.tsx";
+import { disposeProjectShell } from "./tiles.tsx";
 import { hostPart, retainedHost, viewPart, type PagePart } from "./page-view.tsx";
-import { terms, fsync } from "./sections.ts";
+import { fsync } from "./sections.ts";
+import { terms } from "./stores.ts";
 import { redraw } from "../center/redraw.ts";
 import { pc } from "./barstate.ts";
 import { drawProjectComp, fillBar } from "./composer.tsx";

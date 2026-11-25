@@ -35,7 +35,6 @@ import { projectHarnesses, readProjectHarnesses } from "./project-harnesses.tsx"
 import { AG, accountsOf, type AgentHost, ensureAgentHosts, loadAccountNames } from "../agents/agents-state.ts";
 import { agentKind } from "../agents/agent-kind.ts";
 import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
-import { draftPlace } from "../agents/draft.tsx";
 import { S } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
@@ -48,14 +47,21 @@ import { type Started, state, sessionsOf, gitOf } from "../center/state.ts";
 import { currentLocation, go } from "../center/nav.ts";
 import { projectRows } from "./projectrows.ts";
 import { redraw, redrawSync } from "../center/redraw.ts";
-import { pa, pc } from "./barstate.ts";
-import { loadSessions, projectPlaces } from "./loads.tsx";
+import { barPlaced, pa, pc } from "./barstate.ts";
+import { loadSessions } from "./sessionsload.ts";
+import { projectPlaces } from "./projectrows.ts";
 import { copyLine, shortName } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
 import { projectsIn } from "../addproject/importproject.tsx";
 import { startAttachments } from "../agents/start-attachments.tsx";
-import { heldBy, takeFree, takeIssue } from "./team-view.tsx";
+import { useState } from "react";
+import { Button, SheetHead } from "../ui/kit.tsx";
+import { openSheet } from "../ui/parts.tsx";
+import { AgentButton } from "../review/feedback-view.tsx";
+import { askPrompt, claim, heldText, type Claim } from "./team-state.ts";
+import { assign, heldBy, readTeam, takeFree, teamOf } from "./team.ts";
+import { thr } from "./stores.ts";
 
 let finishCopy: (() => void) | undefined;
 
@@ -329,7 +335,7 @@ export function drawProjectComp(name: string) {
   drawBarPicker(host, offered);
   barAttachments.setBusy(pc.starting);
   if (place && !pc.starting) barAttachments.files.moveTo(place.machine_id, place.cwd);
-  draftPlace(place);
+  for (const follow of barPlaced) follow(place);
 }
 
 /// The newest session of ours in the bar target's worktree on the bar's
@@ -940,4 +946,57 @@ async function addToMachine(project: string, m: AgentHost) {
     if (pc.adding === m) pc.adding = null;
     redraw("projects");
   }
+}
+
+/// Before an agent starts on `issue` of project `name`: in a team project the
+/// user takes it on the forge first. An issue someone else has is not taken:
+/// the held sheet asks them, or `start`s anyway as a second assignee.
+export async function takeIssue(name: string, issue: Pick<IssueRow, "number" | "title" | "url">, start: () => unknown): Promise<void> {
+  if (!teamOf(name)) await readTeam(name);
+  const view = teamOf(name);
+  // The list says who has it; one not read yet is read first.
+  const projectId = localProjectId(name), listed = () => thr.issues(projectId)?.find(each => each.number === issue.number);
+  if (view?.kind === "team" && !listed()) await thr.load(projectId);
+  const row = listed();
+  const taken: Claim | null = view?.kind === "team" && row ? claim(row, view.me) : null;
+
+  if (taken?.kind === "held") return openHeld(name, issue, taken.by, start);
+  if (taken?.kind === "free") await assign(name, issue.number, []);
+  await start();
+}
+
+/// The held sheet: an agent asks a holder about the issue, or the user takes
+/// it too. The sheet stays until the start went through, and shows why it did not.
+function openHeld(name: string, issue: Pick<IssueRow, "number" | "title" | "url">, by: readonly string[], start: () => unknown) {
+  const sheet = openSheet(heldText(by, issue.number), "am-sheet");
+  flushSync(() => sheet.render(<HeldSheet name={name} issue={issue} by={by} close={sheet.close}
+    anyway={async () => { await assign(name, issue.number, []); await start(); sheet.close(); }}/>));
+}
+
+type Taking = { kind: "idle" } | { kind: "taking" } | { kind: "failed"; message: string };
+
+function HeldSheet({ name, issue, by, close, anyway }: { name: string; issue: Pick<IssueRow, "number" | "title" | "url">; by: readonly string[]; close(): void; anyway(): Promise<void> }) {
+  const [state, setState] = useState<Taking>({ kind: "idle" });
+  const fail = (error: unknown) => setState({ kind: "failed", message: reason(error) });
+
+  const take = () => {
+    setState({ kind: "taking" });
+    anyway().catch(fail);
+  };
+  // Each holder's Ask starts an agent that asks them through the team.
+  const ask = (login: string) => projectButtons(`held ${name}\n${issue.number}\n${login}`, {
+    project: name, machine: null, choose: true, label: `Ask ${login}`, hint: `Pick a model: an agent asks ${login} about #${issue.number}`, session: null,
+    start: (pick, machine) => startTask(name, { prompt: askPrompt(login, issue), target: null }, pick, machine).then(close, fail),
+  });
+
+  return <>
+    <SheetHead title={heldText(by, issue.number)}/>
+    <div className="am-os">{issue.title}. Ask before starting, or work on it too as a second assignee.</div>
+    <div className={state.kind === "failed" ? "am-msg bad" : "am-msg"}>{state.kind === "failed" ? state.message : ""}</div>
+    <div className="am-line">
+      {by.map(login => <AgentButton key={login} item={ask(login)}/>)}
+      <Button disabled={state.kind === "taking"} onClick={take}>Work on it anyway</Button>
+      <Button look="quiet" onClick={close}>Cancel</Button>
+    </div>
+  </>;
 }

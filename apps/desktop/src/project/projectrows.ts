@@ -15,3 +15,8 @@ export function projectRows() {
   return merged.rows;
 }
 let merged: { projects: HomeView["projects"]; running: HomeView["running"]; rows: Project[] } | undefined;
+
+/// A project's checkout on each machine, for the start form.
+export function projectPlaces(p: Project) {
+  return p.machines.filter(m => m.folder).map(m => ({ machine: m.id, cwd: m.folder }));
+}

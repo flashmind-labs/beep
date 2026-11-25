@@ -6,13 +6,12 @@ import type { BoardCard } from "../center/lanes-view.tsx";
 import { importSheet, loadFound, openProjects } from "./addflow.ts";
 import { state } from "../center/state.ts";
 import { reason } from "../ui/format.ts";
-import { Icon } from "../ui/icons.tsx";
+import { Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import { Button, NO_AUTO, SheetHead, Spinner } from "../ui/kit.tsx";
 import { openSheet } from "../ui/parts.tsx";
 import { isMobile } from "../ui/platform.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { hostLabel, repoPath, type TeamRecord } from "./team-state.ts";
-import { Who } from "./team-view.tsx";
 
 /// What a code invites to (TicketView).
 interface Ticket {
@@ -230,4 +229,14 @@ export function inviteCard(invite: TeamInvite): BoardCard {
   return { key: `invite:${invite.from}:${invite.repo}`, lane: "needs", project: null, color: null, session: false, lead: null, title: `${who} invites you to ${repoPath(invite.repo)}`,
     sub: invite.repo, foot: null, action: { kind: "several", actions: [{ kind: "run", label: "Accept", primary: true, run: accept }, { kind: "run", label: "Dismiss", primary: false, run: dismiss }] },
     dim: false, theirs: false, hint: null, open: accept, menu: null };
+}
+
+/// A login as a coloured tag, the same colour wherever it shows.
+export function Who({ login }: { login: string }) {
+  return <span className="bd-who" style={{ color: whoColor(login) }}>{login}</span>;
+}
+
+export function whoColor(login: string) {
+  const sum = [...login.toLowerCase()].reduce((total, char) => total + char.charCodeAt(0), 0);
+  return PROJECT_COLORS[sum % PROJECT_COLORS.length];
 }

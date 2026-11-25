@@ -9,7 +9,7 @@ import { projectWindowProps } from "../project/projectops.ts";
 import { state } from "../center/state.ts";
 import { MACHINES } from "./machine-store.ts";
 import { fsync } from "../project/sections.ts";
-import { openTile } from "../project/split.tsx";
+import { openTile } from "../project/tiles.tsx";
 import { machineCaps, machineDisk, machineDot, machineMemory, machineNow, machineOs, machineProjects, projectsSummary, thisMacRow, type MacRow, type MachineCard, type MachineProject } from "./machine-state.ts";
 import { showMachineMenu, useThisMac } from "./table.ts";
 import { trafficRows, trafficSummary } from "./traffic-state.ts";

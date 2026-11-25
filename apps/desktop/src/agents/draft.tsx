@@ -7,7 +7,7 @@ import { S, windowHooks, setView } from "../bar/core.ts";
 import { rebindPane, startPane } from "../agentpane/media.ts";
 import { drawProjectComp, pointBar, projectComp } from "../project/composer.tsx";
 import type { BarPlace } from "../project/projectbar.ts";
-import { pc } from "../project/barstate.ts";
+import { barPlaced, pc } from "../project/barstate.ts";
 import { AG } from "./agents-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { DraftHead, draftMessage, showSessionFrame } from "./session-frame.tsx";
@@ -64,7 +64,7 @@ function drawFrame(project: string) {
 /// The start input points at `place` (and the checkout it picked): the pane's
 /// Files and Changes follow, and new terminals start there. Terminals already
 /// open stay on their machines.
-export function draftPlace(place: BarPlace | null) {
+function draftPlace(place: BarPlace | null) {
   const project = AG.draft;
   if (!project || project !== pc.project || !shown()) return;
   const s = { id: "", machine_id: place?.machine_id ?? "", machine_name: place?.machine_name ?? "", cwd: draftCwd(place?.cwd ?? "", pc.checkout), agent: "", project };
@@ -76,3 +76,4 @@ export function draftPlace(place: BarPlace | null) {
   machine.setState(s.machine_name, true);
   void drawEditors(s.machine_id, s.cwd, () => AG.draft === project && bound === key);
 }
+barPlaced.add(draftPlace);

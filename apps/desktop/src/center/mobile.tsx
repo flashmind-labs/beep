@@ -7,7 +7,7 @@ import { MobileTabs, MobileBack, MobileSettings, HideKeyboard } from "./mobile-v
 import { placeWindowParts, removeWindowPart, showWindowParts } from "./window-root.tsx";
 import { windowHost } from "./window-shell.tsx";
 import { allTerms } from "./allterms.ts";
-import { openTile } from "../project/split.tsx";
+import { openTile } from "../project/tiles.tsx";
 import { pa } from "../project/barstate.ts";
 import { HOME_TAB_EVENT, homeTab, jump } from "./home.tsx";
 import { currentLocation, go, goHistory, asBack } from "./nav.ts";

@@ -3,7 +3,7 @@
 import { DEFAULT_CHECKOUT, type BaseBranches } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
 import type { AgentHost } from "../agents/agents-state.ts";
-import type { BarTarget } from "./projectbar.ts";
+import type { BarPlace, BarTarget } from "./projectbar.ts";
 
 /// The row of the project's list picked, null for the first, and a run to
 /// open on the Actions tile.
@@ -35,3 +35,6 @@ export const pc = {
   target: null as BarTarget | null,
 };
 
+
+/// Follows the place the bar's input points at: the empty agent view binds its pane to it.
+export const barPlaced = new Set<(place: BarPlace | null) => void>();
