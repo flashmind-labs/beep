@@ -1,10 +1,86 @@
 //! Projects and coding-agent sessions for the palette: imported projects and
 //! the folders agents worked in, listed once each.
 
-use super::index::{Entry, HitKind};
 use crate::agents::sessions::SessionRow;
-use beep_proto::{ImportedProject, MachineSession};
+use beep_proto::{ImportedProject, MachineSession, node::agent::SearchHit};
+use serde::Serialize;
 use std::{cmp::Reverse, collections::HashSet};
+
+/// The groups of hits, in the order the palette lists them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HitKind {
+    Project,
+    /// A folder coding agents worked in, not imported. The id is its name.
+    Folder,
+    Machine,
+    /// A coding agent's session, under "Coding agents".
+    AgentSession,
+    /// Branches with work, under "Projects and code". The id is the project
+    /// and the branch, split by a space.
+    Branch,
+    Setting,
+    Action,
+}
+
+/// One thing the palette can find.
+#[derive(Debug, Serialize)]
+pub(crate) struct Entry {
+    pub(super) kind: HitKind,
+    pub(super) id: String,
+    pub(super) title: String,
+    pub(super) detail: String,
+    /// A matching prompt, apart from the session's project and machine.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) snippet: Option<String>,
+    /// The lowercase texts it is found by.
+    pub(super) keys: Vec<String>,
+    /// The session an `AgentSession` entry opens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) session: Option<SessionRow>,
+    /// The project or folder an `AgentSession` entry runs in, by that
+    /// entry's id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) project: Option<String>,
+}
+
+impl Entry {
+    pub(super) fn new(
+        kind: HitKind,
+        id: String,
+        title: String,
+        detail: String,
+        keys: &[&str],
+    ) -> Self {
+        // A project named as its repository, or a session titled as its
+        // project, gives the same key twice; it is kept once.
+        let mut lowered: Vec<String> = Vec::with_capacity(keys.len());
+
+        for key in keys.iter().map(|key| key.to_lowercase()) {
+            if !lowered.contains(&key) {
+                lowered.push(key);
+            }
+        }
+
+        Self {
+            kind,
+            id,
+            title,
+            detail,
+            snippet: None,
+            keys: lowered,
+            session: None,
+            project: None,
+        }
+    }
+}
+
+/// A session a machine's index found.
+pub(super) struct Found {
+    /// The `Machine::id` it is on.
+    pub machine: String,
+    pub hit: SearchHit,
+}
 
 /// The harness's name as the app shows it, such as "Claude Code".
 fn harness_name(agent: &str) -> &str {

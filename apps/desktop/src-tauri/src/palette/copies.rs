@@ -2,7 +2,7 @@
 //! kept current over the machine's `FollowIndex` stream. Cmd+K searches the
 //! copies, so it answers at once and finds sessions of offline machines too.
 
-use super::search::Found;
+use super::projects::Found;
 use crate::{center::lock, fleet::Fleet};
 use anyhow::{Context, bail};
 use beep_fleet::alerts::each_machine;

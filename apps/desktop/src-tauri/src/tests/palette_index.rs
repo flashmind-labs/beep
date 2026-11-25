@@ -1,4 +1,3 @@
-use super::super::lists::BranchRow;
 use super::*;
 use beep_proto::SessionId;
 use beep_proto::{AgentStatus, ImportedProject, MachineSession};

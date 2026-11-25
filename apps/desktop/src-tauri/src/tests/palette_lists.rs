@@ -1,4 +1,6 @@
+use super::super::places::Place;
 use super::*;
+use beep_proto::Machine;
 use std::time::SystemTime;
 
 #[test]

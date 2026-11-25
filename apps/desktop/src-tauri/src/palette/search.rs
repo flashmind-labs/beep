@@ -2,12 +2,12 @@
 //! sessions; a phone asks every online machine, and a desktop searches the
 //! copy it keeps.
 
-use super::{index::Entry, lists::PaletteCache, projects::session_entry};
-use crate::{error::Result, fleet::Fleet};
-use beep_proto::{
-    AgentStatus, ImportedProject, MachineSession,
-    node::agent::{SearchHit, folded_at},
+use super::{
+    lists::PaletteCache,
+    projects::{Entry, Found, session_entry},
 };
+use crate::{error::Result, fleet::Fleet};
+use beep_proto::{AgentStatus, ImportedProject, MachineSession, node::agent::folded_at};
 use regex::Regex;
 use std::{
     collections::{HashMap, HashSet},
@@ -91,13 +91,6 @@ async fn on_machines(fleet: &Arc<Fleet>, query: &str) -> Vec<Found> {
     }
 
     found
-}
-
-/// A session a machine's index found.
-pub(super) struct Found {
-    /// The `Machine::id` it is on.
-    pub machine: String,
-    pub hit: SearchHit,
 }
 
 /// The hits of current mesh machines, newest activity first. Live metadata

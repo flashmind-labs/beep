@@ -1,5 +1,5 @@
 use super::*;
-use beep_proto::AgentStatus;
+use beep_proto::{AgentStatus, node::agent::SearchHit};
 use std::time::{Duration, UNIX_EPOCH};
 
 fn session(machine: &str, id: &str, activity: u64) -> MachineSession {
