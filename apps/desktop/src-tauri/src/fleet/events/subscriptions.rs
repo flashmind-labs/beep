@@ -274,20 +274,18 @@ impl SubscriptionWorker {
 
 /// A node answered on a team topic: the team pages hear it.
 fn team_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
-    use crate::projects::team_live::{Heard, cards_heard, invites_heard};
-
-    match topic.name() {
-        events::TEAM_CARDS_TOPIC => {
-            if let Some(heard) = Heard::of(value) {
-                cards_heard(app, machine, topic, heard);
-            }
-        }
-        events::TEAM_INVITES_TOPIC => {
-            if let Some(events::Value::TeamInvites(invites)) = value {
-                invites_heard(app, invites.clone());
-            }
-        }
-        _ => {}
+    if matches!(
+        topic.name(),
+        events::TEAM_CARDS_TOPIC | events::TEAM_INVITES_TOPIC
+    ) {
+        ring(
+            app,
+            Change::Team {
+                machine,
+                topic: topic.clone(),
+                value: value.cloned(),
+            },
+        );
     }
 }
 

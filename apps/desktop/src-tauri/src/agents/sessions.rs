@@ -5,8 +5,8 @@
 use crate::{
     agents::{
         kept_folder::PastedImage,
-        starts::{Start, StartId, Starts},
-        steer::{self, DevicePick, uploads},
+        starts::{Start, Starts},
+        steer::{DevicePick, uploads},
     },
     beep::epoch_ms,
     center::AgentsShown,
@@ -14,11 +14,11 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines, SessionParent, agents as direct,
-        asked::{ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT},
+        asked::{BEFORE_SET_DEVICE, ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT, newer_than},
         node_actor::{FAST_JOB_WAIT, JobKind},
         projects::{FleetState, desk},
         session_lists::SessionLists,
-        session_mirror::{Link, Rows, SessionMirror, showing},
+        session_mirror::{Link, Rows, SessionMirror, StartId, showing},
         work_copy,
     },
     projects::known,
@@ -695,7 +695,7 @@ pub async fn agent_device(
     let machine = fleet.machine(&machine_id)?;
     let version = fleet.status().version(machine);
 
-    if !steer::newer_than(version.as_deref(), &steer::BEFORE_SET_DEVICE) {
+    if !newer_than(version.as_deref(), &BEFORE_SET_DEVICE) {
         return Ok(KeptDevice::Unsupported);
     }
 

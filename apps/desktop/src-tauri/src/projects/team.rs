@@ -2,7 +2,6 @@
 //! board's Needs you and teammates' cards, contacts and their invites, and
 //! assigning issues.
 
-use super::team_live::TeamLive;
 use crate::{
     beep::epoch_ms,
     error::{DesktopError, Result},
@@ -166,21 +165,6 @@ pub struct InviteView {
     repo: String,
     /// The `beepteam1` code Accept joins with.
     ticket: String,
-}
-
-#[tauri::command]
-pub async fn team_record(
-    app: AppHandle,
-    fleet: FleetState<'_>,
-    project_id: Uuid,
-) -> Result<Option<TeamView>> {
-    let (desk, name) = named(&fleet, project_id).await?;
-    let record = team_view(&desk, &name)?;
-    // A page that shows the project follows its team once it has one.
-    app.state::<TeamLive>()
-        .teamed(&app, project_id, record.is_some());
-
-    Ok(record)
 }
 
 /// `name`'s team as the Team page shows it.
@@ -435,18 +419,6 @@ pub async fn team_dismiss(fleet: FleetState<'_>, project_id: Uuid, card: String)
     let (desk, name) = named(&fleet, project_id).await?;
 
     Ok(desk.team_dismiss(&name, &card).await?)
-}
-
-#[tauri::command]
-pub async fn team_invites(
-    app: AppHandle,
-    window: WebviewWindow,
-    fleet: FleetState<'_>,
-) -> Result<Vec<InviteView>> {
-    let desk = desk(&fleet).await?;
-    app.state::<TeamLive>().follow_invites(&app, window.label());
-
-    Ok(invite_views(&desk, desk.team_invites().await?))
 }
 
 /// The invites as the window shows them, with a login the contact is known by.

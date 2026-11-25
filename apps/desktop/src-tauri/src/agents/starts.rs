@@ -20,6 +20,7 @@ use crate::{
     fleet::{
         Fleet, Machines,
         agents::{self as direct, StartFailed},
+        session_mirror::{NotAStart, StartId},
     },
 };
 use beep_mesh::RETRY;
@@ -33,7 +34,6 @@ use beep_proto::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
-    fmt,
     path::PathBuf,
     str::FromStr,
     sync::{Arc, Mutex, PoisonError},
@@ -41,7 +41,6 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::{task::spawn_blocking, time::sleep};
-use uuid::Uuid;
 
 /// The event the windows hear when a start's machine named its session.
 const STARTED: &str = "agent-started";
@@ -50,62 +49,6 @@ const SESSIONS_CHANGED: &str = "sessions-changed";
 /// What a start answers what only a session can do.
 const NOT_YET: &str = "It has not started yet.";
 const STARTS: &str = "starts.json";
-
-/// A start's id, as the windows know it until its machine names the
-/// session: `start:<uuid>`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub(crate) struct StartId(Uuid);
-
-const PREFIX: &str = "start:";
-
-impl StartId {
-    fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
-
-    /// What its images' files are named by: no colon, which a Windows file
-    /// name cannot hold.
-    pub(crate) fn images(self) -> Uuid {
-        self.0
-    }
-}
-
-impl fmt::Display for StartId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{PREFIX}{}", self.0)
-    }
-}
-
-/// A session id that is not a start's.
-#[derive(Debug, thiserror::Error)]
-#[error("{0:?} is not a start")]
-pub(crate) struct NotAStart(String);
-
-impl FromStr for StartId {
-    type Err = NotAStart;
-
-    fn from_str(id: &str) -> std::result::Result<Self, NotAStart> {
-        id.strip_prefix(PREFIX)
-            .and_then(|uuid| Uuid::parse_str(uuid).ok())
-            .map(Self)
-            .ok_or_else(|| NotAStart(id.to_owned()))
-    }
-}
-
-impl TryFrom<String> for StartId {
-    type Error = NotAStart;
-
-    fn try_from(id: String) -> std::result::Result<Self, NotAStart> {
-        id.parse()
-    }
-}
-
-impl From<StartId> for String {
-    fn from(id: StartId) -> Self {
-        id.to_string()
-    }
-}
 
 /// Where a kept start is.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

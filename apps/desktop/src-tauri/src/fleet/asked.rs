@@ -6,6 +6,7 @@ use super::Fleet;
 use crate::error::{DesktopError, Result};
 use beep_proto::SessionId;
 use iroh::EndpointId;
+use semver::Version;
 use std::{future::Future, time::Duration};
 use tokio::time::timeout;
 
@@ -15,6 +16,29 @@ pub(crate) const READ_LIMIT: Duration = Duration::from_secs(20);
 pub(crate) const ORDER_LIMIT: Duration = Duration::from_secs(30);
 /// How long a small read about a session (usage, modes, tasks) may take.
 pub(crate) const SMALL_LIMIT: Duration = Duration::from_secs(10);
+
+/// The last node that reads no `StopAll`.
+pub(crate) const BEFORE_STOP_ALL: Version = Version::new(0, 5, 0);
+/// The last node that reads no `SetDevice`.
+pub(crate) const BEFORE_SET_DEVICE: Version = Version::new(0, 6, 28);
+/// The last released node, which starts no home assistant. This computer's
+/// own node is the desktop's build and is not held to it.
+pub(crate) const BEFORE_ASSISTANT: Version = Version::new(0, 7, 12);
+/// The last released node, which runs no named account. This computer's own
+/// node is the desktop's build and is not held to it.
+pub(crate) const BEFORE_ACCOUNTS: Version = Version::new(0, 8, 4);
+
+/// The last released node, which moves no chat. This computer's own node is
+/// the desktop's build and is not held to it.
+pub(crate) const BEFORE_CHAT_MOVES: Version = Version::new(0, 8, 8);
+
+/// Whether a node of `version` is newer than `last`, the last release
+/// without a request. A node that has not said its version is taken as older.
+pub(crate) fn newer_than(version: Option<&str>, last: &Version) -> bool {
+    version
+        .and_then(|version| Version::parse(version).ok())
+        .is_some_and(|version| version > *last)
+}
 
 impl Fleet {
     /// `call` to `machine` about `session`, given up after `limit`. `step`

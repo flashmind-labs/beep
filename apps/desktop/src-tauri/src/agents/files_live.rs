@@ -8,6 +8,7 @@ use super::{diff::places_of, files::tree_of};
 use crate::fleet::{
     Fleet,
     agents::PlaceAsk,
+    asked::newer_than,
     events::{Events, Update},
     view_signal::View,
 };
@@ -323,7 +324,7 @@ pub(crate) fn heard(app: &AppHandle, machine: EndpointId, update: &Update) -> bo
 /// do not.
 fn lists_creators(fleet: &Fleet, machine: EndpointId) -> bool {
     machine == fleet.id()
-        || crate::agents::steer::newer_than(
+        || newer_than(
             fleet.status().version(machine).as_deref(),
             &semver::Version::new(0, 8, 26),
         )

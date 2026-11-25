@@ -5,10 +5,10 @@
 
 use super::{
     Fleet,
+    asked::newer_than,
     node_actor::{FAST_JOB_WAIT, JobKind},
 };
 use crate::{
-    agents::steer::newer_than,
     beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::events::Interest,

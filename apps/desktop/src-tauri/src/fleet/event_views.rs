@@ -6,9 +6,13 @@ use super::{
     session_mirror::Rows,
     view_signal::{Change, LiveRow, View},
 };
-use crate::error::Result;
-use beep_proto::node::events::Topic;
+use crate::{
+    error::Result,
+    projects::team_live::{self, Heard},
+};
+use beep_proto::node::events::{self, Topic};
 use futures::{StreamExt, stream::FuturesUnordered};
+use iroh::EndpointId;
 use serde::Serialize;
 use serde_json::json;
 use std::{
@@ -178,7 +182,30 @@ pub(crate) async fn follow_changes(app: AppHandle, mut changes: mpsc::UnboundedR
             Change::Resumed => resumed(app.clone()),
             Change::Failed { topic, reason } => failed(&app, &topic, &reason),
             Change::Project(row) => project_changed(app.clone(), row),
+            Change::Team {
+                machine,
+                topic,
+                value,
+            } => team_heard(&app, machine, &topic, value.as_ref()),
+            Change::Mesh => team_live::mesh_changed(&app),
         }
+    }
+}
+
+/// A node answered on a team topic: the team pages hear it.
+fn team_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
+    match topic.name() {
+        events::TEAM_CARDS_TOPIC => {
+            if let Some(heard) = Heard::of(value) {
+                team_live::cards_heard(app, machine, topic, heard);
+            }
+        }
+        events::TEAM_INVITES_TOPIC => {
+            if let Some(events::Value::TeamInvites(invites)) = value {
+                team_live::invites_heard(app, invites.clone());
+            }
+        }
+        _ => {}
     }
 }
 

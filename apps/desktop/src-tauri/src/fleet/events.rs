@@ -1539,7 +1539,7 @@ async fn run(
             },
             changed = async { match &mut members { Some(members) => members.changed().await, None => std::future::pending().await } } => {
                 if changed.is_err() { members = None; }
-                crate::projects::team_live::mesh_changed(&app);
+                ring(&app, Change::Mesh);
                 beep_node::events::system().changed(Topic::new("projects"));
                 beep_node::events::system().changed(Topic::new("accounts"));
             },

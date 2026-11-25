@@ -7,10 +7,14 @@ use crate::{
         kept_transcripts::SessionKey,
         outbox::{self, OrderKind},
         sessions::closed,
-        starts::{self, StartId},
+        starts,
     },
     error::{DesktopError, Result},
-    fleet::{Machines, agents as direct, asked::ORDER_LIMIT},
+    fleet::{
+        Machines, agents as direct,
+        asked::{BEFORE_SET_DEVICE, BEFORE_STOP_ALL, ORDER_LIMIT, newer_than},
+        session_mirror::StartId,
+    },
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::SessionId;
@@ -22,7 +26,6 @@ use beep_proto::{
     },
 };
 use iroh::EndpointId;
-use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use tauri::{AppHandle, Manager, WebviewWindow};
@@ -189,29 +192,6 @@ pub(crate) fn uploads(images: Vec<PastedImage>) -> Result<Vec<Upload>> {
         .collect::<Result<Vec<Upload>>>()?;
     check_agent_images(&images)?;
     Ok(images)
-}
-
-/// The last node that reads no `StopAll`.
-pub(crate) const BEFORE_STOP_ALL: Version = Version::new(0, 5, 0);
-/// The last node that reads no `SetDevice`.
-pub(crate) const BEFORE_SET_DEVICE: Version = Version::new(0, 6, 28);
-/// The last released node, which starts no home assistant. This computer's
-/// own node is the desktop's build and is not held to it.
-pub(crate) const BEFORE_ASSISTANT: Version = Version::new(0, 7, 12);
-/// The last released node, which runs no named account. This computer's own
-/// node is the desktop's build and is not held to it.
-pub(crate) const BEFORE_ACCOUNTS: Version = Version::new(0, 8, 4);
-
-/// The last released node, which moves no chat. This computer's own node is
-/// the desktop's build and is not held to it.
-pub(crate) const BEFORE_CHAT_MOVES: Version = Version::new(0, 8, 8);
-
-/// Whether a node of `version` is newer than `last`, the last release
-/// without a request. A node that has not said its version is taken as older.
-pub(crate) fn newer_than(version: Option<&str>, last: &Version) -> bool {
-    version
-        .and_then(|version| Version::parse(version).ok())
-        .is_some_and(|version| version > *last)
 }
 
 #[tauri::command]

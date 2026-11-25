@@ -4,12 +4,10 @@
 
 use super::{
     Fleet,
+    asked::{BEFORE_ACCOUNTS, BEFORE_ASSISTANT, BEFORE_CHAT_MOVES, newer_than},
     view_signal::{Change, ring},
 };
-use crate::{
-    agents::steer::{BEFORE_ACCOUNTS, BEFORE_ASSISTANT, BEFORE_CHAT_MOVES, newer_than},
-    error::{DesktopError, Result},
-};
+use crate::error::{DesktopError, Result};
 use beep_mesh::{
     Key, MeshError, PeerClient,
     machine::{

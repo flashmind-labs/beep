@@ -1,7 +1,11 @@
 //! What the view layer follows. Whoever changes state a view shows rings it with a [`Change`];
 //! `event_views` follows it and draws. It depends on no feature, so any module may ring it.
 
-use beep_proto::{HostedRuns, LabeledProjectLists, node::events::Topic};
+use beep_proto::{
+    HostedRuns, LabeledProjectLists,
+    node::events::{self, Topic},
+};
+use iroh::EndpointId;
 use serde::Serialize;
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
@@ -24,6 +28,14 @@ pub(crate) enum Change {
     Failed { topic: Topic, reason: String },
     /// What the page of a followed project hears.
     Project(LiveRow),
+    /// A node answered on a team topic; `None` when it refused.
+    Team {
+        machine: EndpointId,
+        topic: Topic,
+        value: Option<events::Value>,
+    },
+    /// The mesh's members changed: a team's record or a contact may have.
+    Mesh,
 }
 
 /// Takes the changes to `event_views::follow_changes`.

@@ -7,11 +7,14 @@
 //! `ASK_EVERY` meanwhile. The invites come from this desktop's node. The record and the contacts
 //! are the mesh's, so a change to the mesh sends them again.
 
-use super::team::{TeamCardsView, TeamView, invite_views, team_view};
-use crate::fleet::{
-    Fleet,
-    events::{Events, Interest},
-    projects::desk,
+use super::team::{InviteView, TeamCardsView, TeamView, invite_views, team_view};
+use crate::{
+    error::Result,
+    fleet::{
+        Fleet,
+        events::{Events, Interest},
+        projects::{FleetState, desk, named},
+    },
 };
 use beep_fleet::Session;
 use beep_proto::node::{
@@ -24,7 +27,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex, PoisonError},
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
 use uuid::Uuid;
 
 /// How often a node from before the topic is asked for a team's cards, while a page shows them.
@@ -295,6 +298,33 @@ impl TeamLive {
         #[cfg(not(desktop))]
         let _ = app;
     }
+}
+
+#[tauri::command]
+pub async fn team_record(
+    app: AppHandle,
+    fleet: FleetState<'_>,
+    project_id: Uuid,
+) -> Result<Option<TeamView>> {
+    let (desk, name) = named(&fleet, project_id).await?;
+    let record = team_view(&desk, &name)?;
+    // A page that shows the project follows its team once it has one.
+    app.state::<TeamLive>()
+        .teamed(&app, project_id, record.is_some());
+
+    Ok(record)
+}
+
+#[tauri::command]
+pub async fn team_invites(
+    app: AppHandle,
+    window: WebviewWindow,
+    fleet: FleetState<'_>,
+) -> Result<Vec<InviteView>> {
+    let desk = desk(&fleet).await?;
+    app.state::<TeamLive>().follow_invites(&app, window.label());
+
+    Ok(invite_views(&desk, desk.team_invites().await?))
 }
 
 /// A node answered on a project's cards topic.

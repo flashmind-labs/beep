@@ -4,12 +4,9 @@
 //! a `JoinSet` and comes back as a message.
 
 use super::{Fleet, agents as direct};
-use crate::{
-    agents::starts::StartId,
-    center::{
-        cache_view,
-        view_cache::{View, ViewCache},
-    },
+use crate::center::{
+    cache_view,
+    view_cache::{View, ViewCache},
 };
 use beep_mesh::machine::listing::{Host, IDLE_SHOWN, Linked, apply_presence};
 use beep_proto::{
@@ -19,11 +16,13 @@ use beep_proto::{
 };
 use futures::FutureExt;
 use iroh::EndpointId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
+    fmt,
     future::Future,
     panic::AssertUnwindSafe,
+    str::FromStr,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -34,6 +33,7 @@ use tokio::{
     time::{Instant, sleep, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
+use uuid::Uuid;
 
 /// How long a machine's rows stand before a read lists it again, when it has
 /// pushed none. Until then its pushes replace its rows alone. Nothing runs while nobody reads.
@@ -1206,6 +1206,62 @@ fn kept_between(old: &[MachineSession], new: &[MachineSession]) -> bool {
                 row != **old
             })
         })
+}
+
+/// A start's id, as the windows know it until its machine names the
+/// session: `start:<uuid>`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub(crate) struct StartId(Uuid);
+
+const PREFIX: &str = "start:";
+
+impl StartId {
+    pub(crate) fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+
+    /// What its images' files are named by: no colon, which a Windows file
+    /// name cannot hold.
+    pub(crate) fn images(self) -> Uuid {
+        self.0
+    }
+}
+
+impl fmt::Display for StartId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{PREFIX}{}", self.0)
+    }
+}
+
+/// A session id that is not a start's.
+#[derive(Debug, thiserror::Error)]
+#[error("{0:?} is not a start")]
+pub(crate) struct NotAStart(String);
+
+impl FromStr for StartId {
+    type Err = NotAStart;
+
+    fn from_str(id: &str) -> std::result::Result<Self, NotAStart> {
+        id.strip_prefix(PREFIX)
+            .and_then(|uuid| Uuid::parse_str(uuid).ok())
+            .map(Self)
+            .ok_or_else(|| NotAStart(id.to_owned()))
+    }
+}
+
+impl TryFrom<String> for StartId {
+    type Error = NotAStart;
+
+    fn try_from(id: String) -> std::result::Result<Self, NotAStart> {
+        id.parse()
+    }
+}
+
+impl From<StartId> for String {
+    fn from(id: StartId) -> Self {
+        id.to_string()
+    }
 }
 
 #[cfg(test)]
