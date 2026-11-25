@@ -10,7 +10,8 @@ import { agentBack, agentKeys, agentsList, drawAgents } from "../src/agents/agen
 import { AG, type AgentPage, type AgentRow, usageLine } from "../src/agents/agents-state.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
-import { closeOpenSession, pollAgent, sessionPicks } from "../src/agents/session.tsx";
+import { closeOpenSession, pollAgent } from "../src/agents/session.tsx";
+import { sessionPicks } from "../src/agents/open-state.ts";
 import { agentHints } from "../src/agents/session-head.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
