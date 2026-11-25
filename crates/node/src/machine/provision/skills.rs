@@ -1,6 +1,7 @@
-//! Beep's GitHub and Forgejo agent skills, written by `install` into Beep's
-//! own skills folder, `beep_dir` (`~/.config/beep/skills`), never into an
-//! agent's. `brief` lists that folder's skills for the sessions Beep starts.
+//! Beep's agent skills, written by `install` into Beep's own skills folder,
+//! `beep_dir` (`~/.config/beep/skills`), never into an agent's. `brief` lists
+//! that folder's skills for the sessions Beep starts, and tells them to use
+//! the `report` skill for their final response when it is installed.
 
 use crate::agents::custom_agents::parse;
 use anyhow::{Context, Result};
@@ -42,7 +43,17 @@ pub(super) const SKILLS: &[Skill] = &[
         name: "beep_join_team",
         text: include_str!("../../../skills/beep_join_team/SKILL.md"),
     },
+    Skill {
+        name: REPORT,
+        text: include_str!("../../../skills/report/SKILL.md"),
+    },
 ];
+
+/// The skill sessions use to generate their final response.
+const REPORT: &str = "report";
+
+const REPORT_RULE: &str = "Use the `report` skill to generate your final response \
+    when you finish a task or stop before it is done.";
 
 pub(crate) fn beep_dir() -> Option<PathBuf> {
     let home = dirs::home_dir();
@@ -51,6 +62,7 @@ pub(crate) fn beep_dir() -> Option<PathBuf> {
 }
 
 pub(crate) fn brief(dir: &Path) -> Option<String> {
+    let mut has_report = false;
     let mut lines: Vec<String> = fs::read_dir(dir)
         .ok()?
         .flatten()
@@ -61,6 +73,11 @@ pub(crate) fn brief(dir: &Path) -> Option<String> {
             let name = found
                 .name
                 .unwrap_or_else(|| entry.file_name().to_string_lossy().into_owned());
+
+            if name == REPORT {
+                has_report = true;
+            }
+
             Some(format!(
                 "- {name}: {} (`{}`)",
                 found.description,
@@ -74,13 +91,18 @@ pub(crate) fn brief(dir: &Path) -> Option<String> {
     }
 
     lines.sort();
-    Some(format!(
-        "## Beep skills\n\n\
-         Beep keeps skills of its own in `{}`, outside your own skills list. \
+    let listed = format!(
+        "Beep keeps skills of its own in `{}`, outside your own skills list. \
          When a task fits one, read its SKILL.md and follow it:\n{}",
         dir.display(),
         lines.join("\n")
-    ))
+    );
+
+    Some(if has_report {
+        format!("## Beep skills\n\n{REPORT_RULE}\n\n{listed}")
+    } else {
+        format!("## Beep skills\n\n{listed}")
+    })
 }
 
 /// The skill files the node has written, one path per line in a file of
