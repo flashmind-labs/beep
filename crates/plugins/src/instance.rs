@@ -5,7 +5,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::ui::Slot;
+use crate::ident::Slot;
 
 /// Instances of one slot the host keeps. The page reports no more.
 pub const MAX_INSTANCES_PER_SLOT: usize = 200;

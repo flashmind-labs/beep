@@ -4,16 +4,17 @@ use serde_json::json;
 
 use super::*;
 use crate::event::Action;
+use crate::ident::{Permission, Slot};
 use crate::install::{Builtin, PreviewKind};
 use crate::instance::{
     ComposerContext, Instance, InstanceKey, InstanceRef, SessionHeaderContext, SessionRowContext,
     SlotContext,
 };
 use crate::managed::Origin;
-use crate::manifest::Permission;
-use crate::status::{Info, PluginState, PluginStatus};
+use crate::state::PluginState;
+use crate::status::{Info, PluginStatus};
 use crate::style::StyleToken;
-use crate::ui::{CallbackId, Node, Slot};
+use crate::ui::{CallbackId, Node};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 

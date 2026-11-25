@@ -13,9 +13,10 @@ use thiserror::Error;
 use crate::asset::{Asset, Assets, ImageError};
 use crate::console::Console;
 use crate::event::UiEvent;
+use crate::ident::{Permission, PluginId, Slot};
 use crate::instance::Instance;
 use crate::lock::locked;
-use crate::manifest::{Manifest, ManifestError, Permission, PluginId};
+use crate::manifest::{Manifest, ManifestError};
 use crate::meter::Meter;
 use crate::source::{Imports, Sources};
 use crate::store::{DATA_DIR, Store};
@@ -23,7 +24,7 @@ use crate::tool::{ToolCall, Tools};
 use crate::topic::{Delivery, Subscriptions, Topic};
 use crate::ui::{
     MAX_FRAMES, Motion, Node, Placement, RawNode, RawPlace, RawPlacement, RawRepeat, RawStep,
-    Repeat, Slot, SpriteError, Step, check_motions,
+    Repeat, SpriteError, Step, check_motions,
 };
 
 const PRELUDE: &str = include_str!("prelude.js");

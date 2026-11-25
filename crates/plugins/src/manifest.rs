@@ -3,14 +3,14 @@ use std::num::NonZeroU32;
 use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
-use strum::{Display, EnumString};
+use serde::Deserialize;
+
 use thiserror::Error;
 
+use crate::ident::{Permission, PluginId, Slot};
 use crate::style::Style;
 use crate::tool::{ToolSpec, ToolsError, check_all};
 use crate::topic::{Topic, TopicError};
-use crate::ui::Slot;
 
 /// File name of the manifest inside a plugin folder.
 pub const MANIFEST_FILE: &str = "beep-plugin.json";
@@ -18,89 +18,6 @@ pub const MANIFEST_FILE: &str = "beep-plugin.json";
 /// The plugin API this Beep implements. A manifest asks for one with `api`.
 /// API 2 adds `style`.
 pub const API_VERSION: NonZeroU32 = NonZeroU32::new(2).expect("2 is not zero");
-
-const ID_LEN: std::ops::RangeInclusive<usize> = 2..=40;
-
-/// A plugin's id, which is also its folder name.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(try_from = "String", into = "String")]
-pub struct PluginId(String);
-
-#[derive(Debug, Error)]
-#[error(
-    "invalid plugin id {0:?}: use 2 to 40 lowercase letters, digits or dashes, starting with a letter"
-)]
-pub struct InvalidPluginId(String);
-
-impl FromStr for PluginId {
-    type Err = InvalidPluginId;
-
-    fn from_str(text: &str) -> Result<Self, Self::Err> {
-        let mut chars = text.chars();
-        let starts_with_letter = chars.next().is_some_and(|c| c.is_ascii_lowercase());
-        let rest_ok = chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
-
-        if ID_LEN.contains(&text.len()) && starts_with_letter && rest_ok {
-            Ok(Self(text.to_owned()))
-        } else {
-            Err(InvalidPluginId(text.to_owned()))
-        }
-    }
-}
-
-impl TryFrom<String> for PluginId {
-    type Error = InvalidPluginId;
-
-    fn try_from(text: String) -> Result<Self, Self::Error> {
-        text.parse()
-    }
-}
-
-impl From<PluginId> for String {
-    fn from(id: PluginId) -> Self {
-        id.0
-    }
-}
-
-impl fmt::Display for PluginId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-/// What a plugin may do. Unknown permissions fail the manifest.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    Display,
-    EnumString,
-    Serialize,
-    Deserialize,
-)]
-pub enum Permission {
-    /// Place UI in a slot.
-    #[serde(rename = "ui.add")]
-    #[strum(serialize = "ui.add")]
-    UiAdd,
-    /// Follow the app's session topics, `agents` and `agent`.
-    #[serde(rename = "sessions.read")]
-    #[strum(serialize = "sessions.read")]
-    SessionsRead,
-    /// Give coding agents tools, declared in `tools` and set up with `beep.tool`.
-    #[serde(rename = "tools")]
-    #[strum(serialize = "tools")]
-    Tools,
-    /// Restyle the app with the tokens declared in `style`.
-    #[serde(rename = "style")]
-    #[strum(serialize = "style")]
-    Style,
-}
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum InvalidActivation {

@@ -9,9 +9,10 @@ use log::warn;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::install::{InstallSwap, ManageError, PendingInstall, clean_leftovers};
+use crate::ident::{Permission, PluginId};
 use crate::lock::locked;
-use crate::manifest::{Manifest, Permission, PluginId};
+use crate::manifest::Manifest;
+use crate::swap::{InstallSwap, ManageError, PendingInstall, clean_leftovers};
 
 /// The file in the plugins folder that holds each plugin's record. Names that
 /// start with a dot are never plugins.

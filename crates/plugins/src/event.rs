@@ -5,9 +5,9 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use crate::ident::PluginId;
 use crate::instance::Instance;
 use crate::lock::locked;
-use crate::manifest::PluginId;
 use crate::tool::{MAX_PENDING as MAX_CALLS, ToolCall};
 use crate::ui::CallbackId;
 

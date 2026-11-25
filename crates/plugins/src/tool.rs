@@ -7,8 +7,8 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::manifest::{Permission, PluginId};
-use crate::status::PluginState;
+use crate::ident::{Permission, PluginId};
+use crate::state::PluginState;
 
 /// The most tools one plugin declares.
 pub const MAX_TOOLS: usize = 8;

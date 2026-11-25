@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use log::Level;
 
-use crate::manifest::PluginId;
+use crate::ident::PluginId;
 
 /// The log target of every line a plugin or the host writes about a plugin.
 /// A line reads `plugin: <id>: <text>`, so one plugin's lines are easy to find.

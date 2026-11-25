@@ -3,12 +3,13 @@ use log::Level;
 use serde_json::json;
 
 use crate::event::Action;
+use crate::ident::Slot;
 use crate::instance::{
     ComposerContext, InstanceKey, SessionHeaderContext, SessionRowContext, SlotContext,
 };
 use crate::tool::{ToolCall, ToolError};
 use crate::topic::Publication;
-use crate::ui::{Align, CallbackId, Position, Slot, Tone, Transition};
+use crate::ui::{Align, CallbackId, Position, Tone, Transition};
 
 const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot a real image";
 

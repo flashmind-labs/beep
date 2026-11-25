@@ -1,58 +1,12 @@
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
-use strum::{AsRefStr, Display, EnumString};
+
 use thiserror::Error;
 
 use crate::asset::AssetRef;
+use crate::ident::{PluginId, Slot};
 use crate::instance::InstanceKey;
-use crate::manifest::PluginId;
-
-/// A named place in the app where plugins put UI. A slot can appear many times
-/// on the page, each time with its own context.
-#[derive(
-    Debug,
-    Clone,
-    Copy,
-    PartialEq,
-    Eq,
-    Hash,
-    PartialOrd,
-    Ord,
-    Serialize,
-    Deserialize,
-    EnumString,
-    AsRefStr,
-    Display,
-)]
-pub enum Slot {
-    /// The edge of the session's message box. One instance.
-    #[serde(rename = "composer")]
-    #[strum(serialize = "composer")]
-    Composer,
-    /// A session's row in the session list. Its nodes cannot be interactive,
-    /// since the whole row is a button.
-    #[serde(rename = "session.row")]
-    #[strum(serialize = "session.row")]
-    SessionRow,
-    /// The open session's header.
-    #[serde(rename = "session.header")]
-    #[strum(serialize = "session.header")]
-    SessionHeader,
-}
-
-impl Slot {
-    /// Whether nodes stand on the slot's edge, placed by `align`, `offset` and
-    /// `sink`, rather than in normal flow.
-    pub fn is_edge(self) -> bool {
-        matches!(self, Slot::Composer)
-    }
-
-    /// Whether buttons, toggles and inputs may appear in the slot.
-    pub fn is_interactive(self) -> bool {
-        !matches!(self, Slot::SessionRow)
-    }
-}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

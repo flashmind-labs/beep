@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 use thiserror::Error;
 
 use crate::console::emit;
-use crate::manifest::PluginId;
+use crate::ident::PluginId;
 
 /// Folder of the plugins folder that holds each plugin's data, one file per id.
 pub(crate) const DATA_DIR: &str = ".data";

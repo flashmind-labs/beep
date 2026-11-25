@@ -4,8 +4,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+use crate::ident::Permission;
 use crate::lock::locked;
-use crate::manifest::Permission;
 
 /// Subscriptions one plugin may hold.
 pub(crate) const MAX_SUBSCRIPTIONS: usize = 16;
