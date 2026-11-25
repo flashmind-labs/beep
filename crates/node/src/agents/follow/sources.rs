@@ -209,17 +209,17 @@ impl Agents {
 
     /// The rings of the agents' logs changing, for the spend scan, which holds
     /// the log observers while it runs.
-    pub(crate) async fn log_changes(self: &Arc<Self>) -> crate::agents::spend::LogChanges {
+    pub(crate) async fn log_changes(self: &Arc<Self>) -> anyhow::Result<crate::agents::spend::LogChanges> {
         let rings = self.events.subscribe();
-        let watching = match self.watch_event_sources().await {
-            Ok(sources) => Some(sources as Arc<dyn std::any::Any + Send + Sync>),
-            Err(error) => {
-                log::warn!("the agents' logs are not watched for spend: {error:#}");
-                None
-            }
-        };
+        // Without the watcher nothing rings, and a scan would run once and wait for ever: the
+        // stream that asked ends with the error, and its reader opens another.
+        let sources = self
+            .watch_event_sources()
+            .await
+            .context("the agents' logs are not watched for spend")?;
+        let watching = Some(sources as Arc<dyn std::any::Any + Send + Sync>);
 
-        crate::agents::spend::LogChanges::new(rings, watching)
+        Ok(crate::agents::spend::LogChanges::new(rings, watching))
     }
 
     /// Log observers exist only while some client follows agent topics.

@@ -791,7 +791,7 @@ async fn send_usage(
     // reports so far go out at once, the later ones as the scan changes them.
     let (_scan, mut spend) = match history {
         true => {
-            let (scan, mut spend) = agents.spend.follow(agents.log_changes().await);
+            let (scan, mut spend) = agents.spend.follow(agents.log_changes().await?);
             spend.mark_changed();
             (Some(scan), Some(spend))
         }
