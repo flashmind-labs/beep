@@ -25,4 +25,3 @@ pub(crate) mod sessions;
 pub(crate) mod starts;
 pub(crate) mod stash;
 pub(crate) mod steer;
-pub(crate) mod work_copy;

@@ -4,10 +4,10 @@
 //! into the folder a part at a time.
 
 use crate::{
-    agents::{files_live::FilesLive, work_copy},
+    agents::files_live::FilesLive,
     chat::files::{file_name, free_name, gone},
     error::{DesktopError, Result},
-    fleet::{Fleet, Machines, files as direct},
+    fleet::{Fleet, Machines, files as direct, work_copy},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_mesh::machine::sessions::Reading;

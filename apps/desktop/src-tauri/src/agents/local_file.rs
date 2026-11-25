@@ -6,10 +6,9 @@
 #[cfg(target_os = "macos")]
 use std::process::Command;
 
-use super::work_copy;
 use crate::{
     error::{DesktopError, Result},
-    fleet::Machines,
+    fleet::{Machines, work_copy},
 };
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

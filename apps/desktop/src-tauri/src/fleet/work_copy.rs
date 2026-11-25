@@ -4,10 +4,8 @@
 //! machine and nothing asks whether sync is running. A project with no folder here, or a file not here yet, goes
 //! to the node as if this were not here. The log says why a folder has no copy.
 
-use crate::{
-    error::{DesktopError, Result},
-    fleet::Fleet,
-};
+use super::Fleet;
+use crate::error::{DesktopError, Result};
 use beep_mesh::{Key, Mesh};
 #[cfg(desktop)]
 use beep_node::agents::{local_hashes, local_read, local_tree};
@@ -431,5 +429,5 @@ pub(crate) async fn hashes(
 }
 
 #[cfg(test)]
-#[path = "../tests/agents_work_copy.rs"]
+#[path = "../tests/fleet_work_copy.rs"]
 mod tests;

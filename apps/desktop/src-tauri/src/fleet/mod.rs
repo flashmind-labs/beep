@@ -24,11 +24,9 @@ mod status;
 pub(crate) mod terminals;
 pub(crate) mod tool_updates;
 pub(crate) mod view_signal;
+pub(crate) mod work_copy;
 
-use crate::{
-    agents::work_copy::Copies,
-    error::{DesktopError, Result},
-};
+use crate::error::{DesktopError, Result};
 use beep_mesh::{
     DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, InUse, Invitation, JoinTicket, Mesh, PeerClient,
     SessionFn, machine::releases::ToolReleases, with_deadline,
@@ -50,10 +48,8 @@ use std::{
     time::Duration,
 };
 use tauri::State;
-use tokio::{
-    sync::watch,
-    time::timeout,
-};
+use tokio::{sync::watch, time::timeout};
+use work_copy::Copies;
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 

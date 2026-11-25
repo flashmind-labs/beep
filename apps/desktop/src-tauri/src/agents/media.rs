@@ -3,10 +3,9 @@
 
 use crate::agents::file_cache::{Cached, FileCache, KEEP, MAX_BYTES};
 use crate::{
-    agents::work_copy,
     chat::files::{file_name, free_name, gone, image_mime},
     error::{DesktopError, Result},
-    fleet::{AsyncMutex, Fleet, Machines, agents as direct},
+    fleet::{AsyncMutex, Fleet, Machines, agents as direct, work_copy},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 #[cfg(desktop)]
