@@ -16,7 +16,7 @@ use beep_proto::{
     node::sync::{FOLDER_CHANGED, FOLDER_MISSING, PARENT_MISSING},
 };
 use serde::Serialize;
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 use tauri::State;
 
 #[tauri::command]
@@ -158,6 +158,14 @@ pub async fn project_sync(
         Err(e) => Err(e),
     };
     kept(&cache, View::Sync, rows)
+}
+
+/// The projects of `rows` with a machine copying or scanning: the ones whose detail Home shows.
+pub(crate) fn unsettled(rows: &[SyncRow]) -> BTreeSet<String> {
+    rows.iter()
+        .filter(|row| matches!(row.status, "syncing" | "scanning"))
+        .map(|row| row.project.clone())
+        .collect()
 }
 
 /// A project's sync as the File sync view shows it.

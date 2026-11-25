@@ -30,6 +30,8 @@ pub(crate) struct Views {
     tasks: Mutex<JoinSet<()>>,
     sync: Mutex<DrawPace>,
     home: Mutex<DrawPace>,
+    /// The projects whose sync detail the last sync draw pushed for Home.
+    unsettled: Mutex<BTreeSet<String>>,
     /// Views that changed while only hidden windows wanted them, drawn once one shows.
     deferred: Mutex<BTreeSet<&'static str>>,
 }
@@ -47,6 +49,17 @@ enum Pace {
     At(Instant),
     /// A draw waits already and will show this change too.
     Waiting,
+}
+
+impl Views {
+    /// The projects to push the sync detail of: those copying now, and those that were at the last
+    /// draw, whose detail then shows how they ended.
+    fn shown_unsettled(&self, now: BTreeSet<String>) -> BTreeSet<String> {
+        let mut before = self.unsettled.lock().unwrap_or_else(PoisonError::into_inner);
+        let shown = now.union(&before).cloned().collect();
+        *before = now;
+        shown
+    }
 }
 
 impl DrawPace {
@@ -588,14 +601,18 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             );
         }
         "sync" => {
-            append(
-                &mut views,
-                "project_sync",
-                crate::projects::file_sync::project_sync(app.state(), app.state()).await,
-            );
+            let rows = crate::projects::file_sync::project_sync(app.state(), app.state()).await;
+            let moving = rows
+                .as_deref()
+                .map(crate::projects::file_sync::unsettled)
+                .unwrap_or_default();
+            append(&mut views, "project_sync", rows);
             views.extend(
                 crate::projects::page::page_views(app, crate::projects::page::Page::Sync).await,
             );
+            // Home shows a copying project's detail without a page following it.
+            let shown = app.state::<Views>().shown_unsettled(moving);
+            views.extend(crate::projects::page::sync_detail_views(app, shown).await);
         }
         "usage" => append(
             &mut views,

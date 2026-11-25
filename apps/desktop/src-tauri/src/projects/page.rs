@@ -16,7 +16,7 @@ use beep_fleet::Session;
 use beep_proto::{ProjectMachine, SyncthingPlace};
 use serde::Serialize;
 use serde_json::json;
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 use tauri::{AppHandle, Manager, State, Window};
 
 /// The sessions coding agents ran in `project`'s folders, newest first. `None` until every
@@ -128,6 +128,46 @@ pub(crate) async fn page_views(app: &AppHandle, page: Page) -> Vec<View> {
                 desk.syncthing(&project).await,
             ));
             views
+        });
+
+    futures::future::join_all(reads)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// `project_sync_detail` of each of `names` that no page follows, which `page_views` pushes for
+/// the rest: Home shows the detail of a project that copies.
+pub(crate) async fn sync_detail_views(app: &AppHandle, names: BTreeSet<String>) -> Vec<View> {
+    if names.is_empty() {
+        return Vec::new();
+    }
+
+    let Ok(desk) = desk(&app.state::<Arc<Session>>()).await else {
+        return Vec::new();
+    };
+    let desk = &desk;
+    let followed: BTreeSet<String> = app
+        .state::<super::live::Followed>()
+        .ids()
+        .into_iter()
+        .filter_map(|id| desk.project_name(id))
+        .collect();
+    let reads = names
+        .into_iter()
+        .filter(|project| !followed.contains(project))
+        .map(|project| async move {
+            let args = json!({ "project": project });
+
+            match super::file_sync::sync_detail_of(desk, project).await {
+                Ok(detail) => View::new("project_sync_detail", args, detail),
+                Err(error) => Some(View::failed(
+                    "project_sync_detail",
+                    args,
+                    &error.to_string(),
+                )),
+            }
         });
 
     futures::future::join_all(reads)

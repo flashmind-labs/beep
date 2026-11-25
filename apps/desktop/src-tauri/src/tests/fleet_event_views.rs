@@ -159,3 +159,14 @@ fn the_slow_reads_of_the_machines_are_a_draw_of_their_own() {
     assert!(followed("machine-details").matches(&views_topic("machine-details")));
     assert_ne!(views_topic("machine-details"), views_topic("machines"));
 }
+
+#[test]
+fn a_project_that_stops_copying_is_pushed_once_more_so_home_shows_how_it_ended() {
+    let views = Views::default();
+    let set = |names: &[&str]| names.iter().map(|name| name.to_string()).collect::<BTreeSet<_>>();
+
+    assert_eq!(views.shown_unsettled(set(&["acme/widget"])), set(&["acme/widget"]));
+    assert_eq!(views.shown_unsettled(set(&["acme/gadget"])), set(&["acme/gadget", "acme/widget"]));
+    assert_eq!(views.shown_unsettled(set(&[])), set(&["acme/gadget"]));
+    assert_eq!(views.shown_unsettled(set(&[])), set(&[]));
+}
