@@ -372,21 +372,27 @@ pub(crate) fn mesh_changed(app: &AppHandle) {
 
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
-        for id in ids {
-            let old_nodes = cfg!(mobile)
-                || app
-                    .state::<TeamLive>()
-                    .held()
-                    .projects
-                    .get(&id)
-                    .is_some_and(|project| !project.refused.is_empty());
+        // Every project's team at once: each asks its own nodes.
+        futures::future::join_all(ids.into_iter().map(|id| {
+            let app = &app;
 
-            if old_nodes {
-                ask(&app, id).await;
+            async move {
+                let old_nodes = cfg!(mobile)
+                    || app
+                        .state::<TeamLive>()
+                        .held()
+                        .projects
+                        .get(&id)
+                        .is_some_and(|project| !project.refused.is_empty());
+
+                if old_nodes {
+                    ask(app, id).await;
+                }
+
+                emit(app, id).await;
             }
-
-            emit(&app, id).await;
-        }
+        }))
+        .await;
 
         emit_invites(&app).await;
     });
