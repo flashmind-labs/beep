@@ -15,7 +15,7 @@ use beep_fleet::{ChatMoveAsk, ChatSession, MoveAsk, MoveState};
 use beep_proto::SessionId;
 use beep_proto::{
     ApiError, ModelId,
-    node::agent::{MovePhase, MoveProgress},
+    node::agent::{MoveEntry, MovePhase, MoveProgress},
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
@@ -200,12 +200,30 @@ const MAX_ASKED: usize = 8;
 static ENDED: LazyLock<Mutex<HashMap<(SessionId, u64), MoveProgressView>>> =
     LazyLock::new(Mutex::default);
 
-/// How the target says each recent move of `moves` stands, as `session_move_progress` reads it,
-/// for the view beside the moves. The target's progress rings the `moves` topic that Home
-/// follows, which draws the view again.
+/// What a target that pushes its moves says of `record`: `unknown` when its push has no entry.
+/// `None` for a target that pushed nothing, which is asked.
+fn pushed_progress(
+    record: &MoveView,
+    pushed: &HashMap<EndpointId, Vec<MoveEntry>>,
+) -> Option<MoveProgressView> {
+    let entries = pushed.get(&record.to.parse().ok()?)?;
+    let state = entries
+        .iter()
+        .find(|entry| entry.session == record.session && entry.at == record.at)
+        .map_or(MoveState::Unknown, |entry| {
+            MoveState::Known(entry.progress.clone())
+        });
+
+    Some(state.into())
+}
+
+/// How the target says each recent move of `moves` stands, for the view beside the moves: from
+/// what the targets pushed in `pushed`, and asked only of a target that pushed nothing. A
+/// target's push draws the view again.
 pub(crate) async fn progress_views(
     session: &Arc<beep_fleet::Session>,
     moves: &[MoveView],
+    pushed: &HashMap<EndpointId, Vec<MoveEntry>>,
 ) -> Vec<View> {
     let Ok(desk) = desk(session).await else {
         return Vec::new();
@@ -221,6 +239,10 @@ pub(crate) async fn progress_views(
     let reads = recent.into_iter().map(|record| async move {
         let args = json!({ "session": record.session });
         let key = (record.session.clone(), record.at);
+
+        if let Some(progress) = pushed_progress(record, pushed) {
+            return View::new("session_move_progress", args, progress);
+        }
 
         if let Some(ended) = ENDED
             .lock()

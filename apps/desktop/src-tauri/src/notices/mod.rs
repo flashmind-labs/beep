@@ -7,4 +7,4 @@ mod route;
 mod watch;
 
 pub(crate) use route::{answer_agent, follow_actions, serve};
-pub(crate) use watch::{Looks, follow, heard};
+pub(crate) use watch::{Looks, follow, heard, pushed_moves};

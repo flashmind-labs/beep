@@ -35,3 +35,35 @@ fn a_known_move_carries_its_numbers_and_reason() {
     assert_eq!(view.reason.as_deref(), Some("no checkout here"));
     assert!(view.edits_left);
 }
+
+#[test]
+fn a_target_that_pushes_its_moves_answers_without_being_asked() {
+    let to = iroh::SecretKey::from_bytes(&[4; 32]).public();
+    let record = MoveView {
+        session: SessionId::from("s1"),
+        agent: "claude".into(),
+        from: String::new(),
+        to: to.to_string(),
+        project: "p".into(),
+        at: 7,
+    };
+    let entry = |at, phase| MoveEntry {
+        session: SessionId::from("s1"),
+        at,
+        progress: MoveProgress {
+            phase,
+            ..MoveProgress::default()
+        },
+    };
+    let mut pushed = HashMap::new();
+
+    // Nothing pushed: the target is asked.
+    assert!(pushed_progress(&record, &pushed).is_none());
+
+    pushed.insert(to, vec![entry(6, MovePhase::Done)]);
+    assert_eq!(pushed_progress(&record, &pushed).unwrap().answer, "unknown");
+
+    pushed.insert(to, vec![entry(7, MovePhase::Files)]);
+    let view = pushed_progress(&record, &pushed).unwrap();
+    assert_eq!((view.answer, view.phase), ("known", "files"));
+}

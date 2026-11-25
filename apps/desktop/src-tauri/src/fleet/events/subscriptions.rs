@@ -215,7 +215,7 @@ impl SubscriptionWorker {
                             } else if !initial || snapshot.topic.name() == "agents" { invalidate(app, machine, &snapshot.topic, Some(&snapshot.value)); }
                             if !initial && snapshot.topic.name() == "sync" {
                                 ring(app, Change::Sync { moving: moving(&snapshot.value) });
-                            } else if !initial && snapshot.topic.name() != "agents" && (machine == fleet.me || matches!(snapshot.topic.name(), "agent" | "processes" | "terminals" | "moves")) {
+                            } else if !initial && snapshot.topic.name() != "agents" && (machine == fleet.me || matches!(snapshot.topic.name(), "agent" | "processes" | "terminals" | "moves" | events::MOVE_PROGRESS_TOPIC)) {
                                 // "agents" draws when `invalidate` changes the mirror's rows, which Home follows.
                                 ring(app, Change::Sessions(snapshot.topic.clone()));
                             }

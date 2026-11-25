@@ -12,7 +12,7 @@ use crate::{
     machines::terminals,
     projects::team_live::{self, Heard},
 };
-use beep_proto::node::events::{self, Topic};
+use beep_proto::node::events::{self, MOVE_PROGRESS_TOPIC, Topic};
 use futures::{StreamExt, stream::FuturesUnordered};
 use iroh::EndpointId;
 use serde::Serialize;
@@ -291,7 +291,9 @@ fn sync_changed(app: AppHandle, moving: bool) {
 /// A machine's sessions, one session or the moves changed. Home lists every machine's
 /// sessions for it, so it draws at most once a `HOME_GAP`.
 fn sessions_changed(app: AppHandle, topic: Topic) {
-    if matches!(topic.name(), "agents" | "agent" | "moves") {
+    if topic.name() == MOVE_PROGRESS_TOPIC {
+        changed(app, Topic::new("moves"));
+    } else if matches!(topic.name(), "agents" | "agent" | "moves") {
         if topic.name() == "moves" {
             changed(app.clone(), Topic::new("moves"));
         }
@@ -641,7 +643,10 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
         ),
         "moves" => {
             if let Ok(moves) = crate::agents::sessions::moves(app.state()).await {
-                views.extend(crate::agents::moving::progress_views(&app.state(), &moves).await);
+                let pushed = crate::notices::pushed_moves(app);
+                views.extend(
+                    crate::agents::moving::progress_views(&app.state(), &moves, &pushed).await,
+                );
             }
         }
         "terminals" => append(

@@ -146,6 +146,11 @@ pub(crate) fn heard(app: &AppHandle, machine: EndpointId, topic: &str, value: &V
     app.state::<Looks>().hear(machine, topic, value);
 }
 
+/// The moves each machine last pushed, by machine; a machine from before `move-progress` has none.
+pub(crate) fn pushed_moves(app: &AppHandle) -> HashMap<EndpointId, Vec<MoveEntry>> {
+    app.state::<Looks>().pushed_moves()
+}
+
 /// Looks at the mesh while the app runs: again on each change to it, to
 /// this Mac's sync or to what the machines push of theirs, and when a machine away or a
 /// temporary machine is due. A desktop keeps the machines pushing their sync and moves.
