@@ -41,10 +41,10 @@ export function openDraft(project: string, on: string | null) {
   }
 
   // The project page takes the input when it shows; it comes back here.
-  if (host && projectComp.form.parentNode !== host) host.append(projectComp.form);
+  if (host && projectComp().form.parentNode !== host) host.append(projectComp().form);
   drawProjectComp(project);
-  draftMessage.current = projectComp.input;
-  projectComp.input.focus();
+  draftMessage.current = projectComp().input;
+  projectComp().input.focus();
 }
 
 /// The frame's log body is a plain element, as a session's is, so the draft
@@ -56,7 +56,7 @@ function drawFrame(project: string) {
   const openProject = () => windowHooks?.goBack({ view: "projects", arg: { project } }, true);
   machine.setState("", true);
   showSessionFrame({ head: <DraftHead windowProps={windowHooks?.projectWindowProps?.(project) ?? null} project={project} openProject={openProject} machine={machine} />, field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; });
-  draft.append(projectComp.form);
+  draft.append(projectComp().form);
   bound = "";
   drawProjectComp(project);
 }

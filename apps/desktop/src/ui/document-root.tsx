@@ -29,14 +29,9 @@ function renderScopes() {
 }
 
 /// The scopes as part of a window's own tree, so the window has one root. Call it
-/// once, from the window's root render. A scope that mounted while modules loaded
-/// has its own root until then; its scope moves into the window's tree.
+/// before any scope mounts, once, from the window's root render.
 export function documentScopes(): ReactNode {
-  if (root) {
-    const early = root;
-    root = null;
-    queueMicrotask(() => early.unmount());
-  }
+  if (root) throw new Error("Document scopes already have their own root");
   const host = hosted ??= { revision: 0, listeners: new Set() };
   const subscribe = (listener: () => void) => { host.listeners.add(listener); return () => { host.listeners.delete(listener); }; };
   const snapshot = () => host.revision;

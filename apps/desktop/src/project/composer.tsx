@@ -65,10 +65,10 @@ import { thr } from "./stores.ts";
 
 let finishCopy: (() => void) | undefined;
 
-export const projectComp = (() => {
+function makeProjectComp() {
   const composer = makeStartComposer({
     presentation: "compact", externalChoices: true, title: "Enter starts, Shift+Enter adds a line, Shift+Tab switches machines",
-    actions: { submit: () => void startFromBar(), harness: toggleBarPicker, keyDown: switchMachine, files: files => barAttachments.take(files), images: files => barAttachments.add(files), removeLast: () => barAttachments.removeLast() },
+    actions: { submit: () => void startFromBar(), harness: toggleBarPicker, keyDown: switchMachine, files: files => barAttachments().take(files), images: files => barAttachments().add(files), removeLast: () => barAttachments().removeLast() },
     place: barMenuPlace,
   });
   const { form, harness, pick } = composer;
@@ -104,7 +104,11 @@ export const projectComp = (() => {
     if (pc.open && e.target instanceof Node && !pick.contains(e.target) && !harness.contains(e.target)) closeBarPicker();
   }, true);
   return Object.assign(composer, { renderChoices });
-})();
+}
+
+/// The bar mounts its view when first used: the window has its tree by then.
+let comp: ReturnType<typeof makeProjectComp> | undefined;
+export const projectComp = () => comp ??= makeProjectComp();
 
 /// Where the bar's `/` and `@` menus look: its machine's checkout, with the
 /// commands of the harness picked there.
@@ -125,7 +129,7 @@ function switchMachine(e: KeyboardEvent) {
   pc.machine = next.machine_id;
   keepMachine(p.name, next.machine_id);
   redraw("projects");
-  projectComp.input.focus();
+  projectComp().input.focus();
 }
 
 /// The start form's picker, here above the bar.
@@ -133,7 +137,7 @@ function toggleBarPicker() {
   pc.open = !pc.open;
   pc.picked.query = "";
   redraw("projects");
-  if (!pc.open) projectComp.input.focus();
+  if (!pc.open) projectComp().input.focus();
 }
 
 function openMachineMenu(e: MouseEvent) {
@@ -176,9 +180,10 @@ function barAgent() {
   return barHarness(pc.adding ?? place ?? addHosts(AG.hosts ?? [])[0] ?? null).agent;
 }
 
-const barAttachments = startAttachments(projectComp, error => projectComp.update({ error }), () => {
+let attachments: ReturnType<typeof startAttachments> | undefined;
+const barAttachments = () => attachments ??= startAttachments(projectComp(), error => projectComp().update({ error }), () => {
   const p = barProject();
-  projectComp.update({ sendDisabled: pc.starting || barAttachments.reading || !p || !barPlace(p.places, AG.hosts ?? [], pc.machine) || !!pc.adding });
+  projectComp().update({ sendDisabled: pc.starting || barAttachments().reading || !p || !barPlace(p.places, AG.hosts ?? [], pc.machine) || !!pc.adding });
 });
 
 function closeBarPicker() {
@@ -262,7 +267,7 @@ function loadProjectBar(name: string) {
 let fitted: { text: string; host: Element | null; centered: boolean } | null = null;
 
 function fitField() {
-  const c = projectComp, now = { text: c.input.value, host: c.form.parentElement, centered: c.centered() };
+  const c = projectComp(), now = { text: c.input.value, host: c.form.parentElement, centered: c.centered() };
   if (fitted && fitted.text === now.text && fitted.host === now.host && fitted.centered === now.centered) return;
   fitted = now.host ? now : null;
   c.grow();
@@ -270,7 +275,7 @@ function fitField() {
 
 /// Points the bar at project `name`: its field, machine, folder and harness.
 export function drawProjectComp(name: string) {
-  const c = projectComp, inDraft = currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name;
+  const c = projectComp(), inDraft = currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name;
   // The empty agent view shows the stash with its key hints.
   c.setFooter(inDraft ? null : <StashBar project={name} />);
   // A project with nothing on its board shows the bar as the empty agent view does.
@@ -290,7 +295,7 @@ export function drawProjectComp(name: string) {
     pc.target = null;
     // Each project keeps its own unsent task.
     c.update({ error: "", draft: `project:${name}` });
-    barAttachments.bindStash(() => name);
+    barAttachments().bindStash(() => name);
     fitted = null;
     loadProjectBar(name);
     void loadAccountNames().then(() => { if (barOn(name)) redraw("projects"); });
@@ -328,13 +333,13 @@ export function drawProjectComp(name: string) {
     placeholder: c.centered() && readiness.kind === "ready" ? TASK_WORDS.placeholder : barPrompt(name, pc.adding ? { kind: "no checkout" } : readiness),
     project: name,
     harnessDisabled: !agent || pc.starting, open: pc.open ? "pick" : null,
-    sendDisabled: pc.starting || barAttachments.reading || !place || !!pc.adding, busy: pc.starting,
+    sendDisabled: pc.starting || barAttachments().reading || !place || !!pc.adding, busy: pc.starting,
     notes: readiness.kind === "no agent" ? <NoAgentHelp openAgents={openAgents} openMachines={openMachines} />
       : readiness.kind === "blocked" && !pc.adding ? <BlockedHelp host={readiness.host} open={() => openMachine(readiness.host.machine_id)} /> : null,
   });
   drawBarPicker(host, offered);
-  barAttachments.setBusy(pc.starting);
-  if (place && !pc.starting) barAttachments.files.moveTo(place.machine_id, place.cwd);
+  barAttachments().setBusy(pc.starting);
+  if (place && !pc.starting) barAttachments().files.moveTo(place.machine_id, place.cwd);
   for (const follow of barPlaced) follow(place);
 }
 
@@ -357,15 +362,15 @@ function knownWorktree(name: string, machine: string, t: { branch: string }) {
 export function fillBar(name: string, text: string, target: BarTarget | null) {
   if (pc.project !== name) drawProjectComp(name);
   pc.target = target;
-  projectComp.setText(text);
-  projectComp.update({ error: "" });
+  projectComp().setText(text);
+  projectComp().update({ error: "" });
   // A session may have started in the worktree since.
   ensureSessions().then(() => redraw("projects")).catch(e => console.warn("agent sessions:", e));
   redraw("projects");
   // A phone's project page has no bar: the empty agent view shows it.
-  if (isMobile() && !projectComp.form.isConnected) return go("pane", { draft: { project: name, machine: null } });
-  projectComp.form.scrollIntoView({ block: "nearest" });
-  projectComp.input.focus();
+  if (isMobile() && !projectComp().form.isConnected) return go("pane", { draft: { project: name, machine: null } });
+  projectComp().form.scrollIntoView({ block: "nearest" });
+  projectComp().input.focus();
 }
 
 /// Points the bar at project `name`, on `machine` when it has a checkout there.
@@ -381,7 +386,7 @@ type IssueStart = Pick<IssueRow, "number" | "title" | "url">;
 /// branch, with the issue's prompt.
 export function workOnIssue(name: string, issue: IssueStart) {
   const task = issueTask(name, issue);
-  takeIssue(name, issue, () => fillBar(name, task.prompt, task.target)).catch(error => projectComp.update({ error: reason(error) }));
+  takeIssue(name, issue, () => fillBar(name, task.prompt, task.target)).catch(error => projectComp().update({ error: reason(error) }));
 }
 
 /// Work on it's task: a new worktree for the issue, from the default branch.
@@ -404,7 +409,7 @@ export function discussThread(name: string, topic: DiscussionTopic) {
   const subject = topic.kind === "issue" ? "issue" : "pull request";
   const prompt = `I want to discuss about ${subject} #${topic.number}: ${topic.title} (${topic.url}).\n\n`;
   fillBar(name, prompt, null);
-  projectComp.input.setSelectionRange(prompt.length, prompt.length);
+  projectComp().input.setSelectionRange(prompt.length, prompt.length);
 }
 
 /// Where each picked issue starts, on the machine and harness the bar has
@@ -566,11 +571,11 @@ export async function startSyncRepair(name: string, machine: string, error: stri
 
 /// The picker above the bar, when open.
 function drawBarPicker(host: AgentHost | null, offered: string[]) {
-  const el = projectComp.pick, p = pc.picked;
+  const el = projectComp().pick, p = pc.picked;
   if (!pc.open || !host || !p.agent) { closedPicker(el); return; }
   const focused = el.contains(document.activeElement);
   drawPicker(el, {
-    render: view => { if (projectComp.form.isConnected) projectComp.setPicker(view); },
+    render: view => { if (projectComp().form.isConnected) projectComp().setPicker(view); },
     picked: p,
     offered,
     everywhere: [...new Set((AG.hosts ?? []).flatMap(m => m.agents))],
@@ -578,7 +583,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
     machine: { id: host.machine_id, name: host.machine_name },
     noMachine: "",
     steps: null,
-    anchor: () => projectComp.harness,
+    anchor: () => projectComp().harness,
     changed: what => {
       if (what !== "models") {
         // A model found under another harness keeps with it.
@@ -586,7 +591,7 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
         p.effort = keepEffort(p.agent, p.effort);
         keepProjectPick(pc.project, p);
       }
-      if (what === "model") { pc.open = false; redraw("projects"); return projectComp.input.focus(); }
+      if (what === "model") { pc.open = false; redraw("projects"); return projectComp().input.focus(); }
       if (what !== "models") redraw("projects");
       else if (pc.project) drawProjectComp(pc.project);
       if (what === "agent") focusSearch(el);
@@ -598,10 +603,10 @@ function drawBarPicker(host: AgentHost | null, offered: string[]) {
 /// Starts a coding agent on the bar's task in the project's checkout, then
 /// opens its session; Esc there comes back to the project.
 async function startFromBar() {
-  const c = projectComp, p = barProject(), text = composeMessage(c.input.value);
+  const c = projectComp(), p = barProject(), text = composeMessage(c.input.value);
   const place = p && barPlace(p.places, AG.hosts ?? [], pc.machine);
   if (p && !place && !pc.adding && AG.hosts) { c.update({ error: barPrompt(p.name, barReadiness(p.places, AG.hosts, pc.machine, blockedNow())) + "." }); return; }
-  if (!p || !place || (!text && !barAttachments.count) || barAttachments.reading || pc.starting || pc.adding) return;
+  if (!p || !place || (!text && !barAttachments().count) || barAttachments().reading || pc.starting || pc.adding) return;
   const t = pc.target;
   if (t?.kind === "issue" && !t.branch.trim()) { c.update({ error: "Name the branch first." }); return; }
   if (t?.kind === "review" && t.earlier) {
@@ -615,12 +620,12 @@ async function startFromBar() {
   redraw("projects");
 
   try {
-    const prompt = await barAttachments.files.prompt(text, place.machine_id, place.cwd);
-    if (barAttachments.files.pending.length) c.update({ progress: "Starting the agent…" });
-    const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
+    const prompt = await barAttachments().files.prompt(text, place.machine_id, place.cwd);
+    if (barAttachments().files.pending.length) c.update({ progress: "Starting the agent…" });
+    const images = barAttachments().images.map(({ name, mime, data }) => ({ name, mime, data }));
     const session = await startSession(p.name, place, { ...pc.picked, agent }, prompt, images, t, pc.checkout);
     c.setText("");
-    barAttachments.clear();
+    barAttachments().clear();
     pc.target = null;
     go("pane", { agent: session, adopt: true });
   } catch (e) {
@@ -858,17 +863,17 @@ const named = new Set<string>();
 
 /// Sends the bar's text and attachments to `earlier` through `send`.
 async function continueInBar(earlier: TaskSession, text: string, send: (prompt: string, images: Image[]) => Promise<unknown>) {
-  const c = projectComp;
+  const c = projectComp();
   c.update({ error: "" });
   pc.starting = true;
   redraw("projects");
 
   try {
     const root = sameSession(earlier)?.cwd ?? barProject()?.places.find(p => p.machine === earlier.machine_id)?.cwd ?? "";
-    const prompt = await barAttachments.files.prompt(text, earlier.machine_id, root);
-    const images = barAttachments.images.map(({ name, mime, data }) => ({ name, mime, data }));
+    const prompt = await barAttachments().files.prompt(text, earlier.machine_id, root);
+    const images = barAttachments().images.map(({ name, mime, data }) => ({ name, mime, data }));
     await send(prompt, images);
-    barAttachments.clear();
+    barAttachments().clear();
     c.setText("");
     pc.target = null;
   } catch (e) {
@@ -911,7 +916,7 @@ async function steer(earlier: TaskSession, prompt: string, images: Image[]) {
 /// that sheet offers first, with the copy's progress on the bar's line under
 /// it; then the bar is ready there.
 async function addToMachine(project: string, m: AgentHost) {
-  const say = (error: string) => projectComp.update({ error }), here = () => pc.project === project;
+  const say = (error: string) => projectComp().update({ error }), here = () => pc.project === project;
   pc.adding = m;
   pc.machine = m.machine_id;
   keepMachine(project, m.machine_id);

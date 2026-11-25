@@ -30,6 +30,7 @@ import { draw, homeTab, jump } from "./home.tsx";
 import { openDetachedWindow } from "./views.tsx";
 import { asBack, currentLocation, windowAlone, aloneProject, go, goHistory, hasHistory, goTo } from "./nav.ts";
 import { drawSide, paneOn, projectHere } from "./sidebar.tsx";
+import "../project/groups.tsx";
 import { openProjects, addProject, openAddMachine } from "../project/addflow.ts";
 import { projectWindowProps, openProjectWindow } from "../project/projectops.ts";
 import { escUp } from "./escup-state.ts";

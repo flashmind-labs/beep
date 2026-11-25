@@ -103,13 +103,13 @@ export function drawProjects() {
   // room for the page and starts them from the + in its top bar.
   if (one && !isMobile()) {
     drawProjectComp(one.name);
-    if (el.lastElementChild !== projectComp.form) el.append(projectComp.form);
+    if (el.lastElementChild !== projectComp().form) el.append(projectComp().form);
     if (focusComposer && !el.hidden) {
       focusComposer = false;
-      projectComp.input.focus({ preventScroll: true });
+      projectComp().input.focus({ preventScroll: true });
     }
-  } else if (projectComp.form.parentNode === el) {
-    projectComp.form.remove();
+  } else if (projectComp().form.parentNode === el) {
+    projectComp().form.remove();
   }
 }
 
