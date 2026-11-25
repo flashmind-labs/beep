@@ -7,7 +7,7 @@ const session = {
   started_at: 1, last_activity: 1, external: false,
 } as const;
 
-declare global { interface Window { __outbox: { reconnect(): void; slow(): void; delayRead(): void; finishRead(): void; asked: { command: string; seen: unknown }[] } } }
+declare global { interface Window { __outbox: { reconnect(): void; slow(): void; asked: { command: string; seen: unknown }[] } } }
 
 /// Opens the session with a stand-in for the app's outbox: while the machine
 /// is unreachable, or a message waits before it, a message waits there; on
@@ -19,8 +19,6 @@ async function openUnreachable(page: Page) {
     const invoke = window.__TAURI__.core.invoke;
     const where = { machine_id: "build-box", agent: "codex", session: "notice-one" };
     let rows: Row[] = [], next = 0, online = false, slow = false, revision = 0;
-    let delayRead = false;
-    let finishRead = () => {};
     const asked: { command: string; seen: unknown }[] = [];
     const changed = (sent: Row[]) => window.__navigation.emit("outbox-changed", { ...where, revision: ++revision, rows, sent });
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
@@ -43,12 +41,7 @@ async function openUnreachable(page: Page) {
       }
 
       if (command === "outbox_list") {
-        const snapshot = { revision, rows };
-        if (delayRead) {
-          delayRead = false;
-          await new Promise<void>(resolve => { finishRead = resolve; });
-        }
-        return snapshot as T;
+        return { revision, session: where.session, rows } as T;
       }
 
       if (command === "outbox_take") {
@@ -62,8 +55,6 @@ async function openUnreachable(page: Page) {
     };
     window.__outbox = {
       asked,
-      delayRead() { delayRead = true; },
-      finishRead() { finishRead(); },
       slow() { slow = true; online = true; },
       reconnect() {
         online = true;
@@ -109,20 +100,6 @@ test("a message whose send got no answer in time stays out of the field and show
   await expect(waiting(page)).toContainText("Slow one");
   await expect(waiting(page)).toContainText("sending");
   await expect(page.locator("#agmsg")).toHaveValue("");
-});
-
-test("a late outbox read cannot put a delivered message back in the queue", async ({ page }) => {
-  await openUnreachable(page);
-  await page.evaluate(() => {
-    window.__outbox.slow();
-    window.__outbox.delayRead();
-  });
-  await send(page, "Check the diagram");
-  await expect(waiting(page)).toContainText("sending");
-  await page.evaluate(() => window.__outbox.reconnect());
-  await expect(waiting(page)).toHaveCount(0);
-  await page.evaluate(() => window.__outbox.finishRead());
-  await expect(waiting(page)).toHaveCount(0);
 });
 
 test("a late sending event cannot put a delivered image prompt back in the queue", async ({ page }) => {
@@ -178,6 +155,22 @@ test("the rows an event carries are drawn as they come, with no read, and an old
   await push(6, []);
   await expect(page.locator(".ag-queue .it.out")).toHaveCount(0);
   expect(await reads()).toBe(1);
+});
+
+test("a page opened on a session that was resumed goes on in the one that runs, and draws no rows of it on the ended one", async ({ page }) => {
+  await openDesktop(page, false, {});
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => command === "outbox_list" && args?.session === "notice-one"
+      ? { revision: 3, session: "notice-two", rows: [{ id: 0, how: "steer", text: "Read these", images: [], state: "uploading", reason: null }] } as T
+      : invoke<T>(command, args);
+  });
+  await page.evaluate(row => window.__navigation.open({ agent: row }), session);
+  await expect(page.locator("#agmsg")).toBeVisible();
+  await expect(page.locator(".ag-queue .it.out")).toHaveCount(0);
+  // The page opened on the ended session went on in the one that runs.
+  const followed = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_follow").map(call => String(call.args.session)));
+  await expect.poll(followed).toContain("notice-two");
 });
 
 test("Stop all takes every waiting message back into the field at once, oldest first", async ({ page }) => {

@@ -220,7 +220,6 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   };
   const emptyLists = ["list_machines", "agent_hosts", "agent_reviews", "agent_tasks", "agent_artifacts", "agent_running", "agent_editors", "editors", "project_groups", "projects_on_top", "project_sync", "found_projects", "project_syncthing", "notes_list", "terminal_list", "terminals_list", "terminals_all"];
   for (const command of emptyLists) answers[command] = [];
-  answers.outbox_list = { revision: 0, rows: [] };
   Object.assign(answers, data.responses);
   const boundary: NativeBoundary = {
     core: {
@@ -290,6 +289,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
           const start = Math.max(1, 20 - context), end = Math.min(100, 20 + context);
           return { root: data.project.folder, base: "main", merge_base: "abc1234", working_tree: true, additions: 1, deletions: 0, more: 0, files: [{ path: "sample.ts", old_path: null, status: "modified", additions: 1, deletions: 0, left_out: null, hunks: [{ old_start: start, new_start: start, old_lines: end - start + 1, new_lines: end - start + 1, section: "", lines: Array.from({ length: end - start + 1 }, (_, i) => ({ k: " ", t: `const value${start + i} = ${start + i};` })) }] }] };
         }
+
+        if (command === "outbox_list") return { revision: 0, session: args.session, rows: [] };
 
         if (command === "agent_view") {
           const bySession = answers.agent_views && typeof answers.agent_views === "object" && typeof args.session === "string"

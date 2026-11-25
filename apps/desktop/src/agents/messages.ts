@@ -23,6 +23,7 @@ import { drawAgentBody } from "./logview.tsx";
 import { sameSession } from "./running-state.ts";
 import { conflicted, invoke, listen } from "../ui/tauri.ts";
 import { reopened } from "./closing.ts";
+import { loadSessions, sessions } from "./sessions.ts";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
 import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
@@ -546,11 +547,19 @@ function showOutbox(rows: OutboxRow[], revision: number) {
   redrawAgentHints();
 }
 
-/// Reads the open session's rows once, as it opens; every change after comes pushed.
+/// Reads the open session's rows once, as it opens; every change after comes pushed. A session
+/// that was resumed lists the rows of the one that runs: the page goes on there, as it does when
+/// the resume is pushed.
 export async function readOutbox(o: OpenAgent) {
   try {
-    const listed = await invoke<{ revision: number; rows: OutboxRow[] } | null>("outbox_list", where(o));
-    if (listed && AG.open === o) showOutbox(listed.rows, listed.revision);
+    const listed = await invoke<{ revision: number; session: string; rows: OutboxRow[] } | null>("outbox_list", where(o));
+    if (!listed || AG.open !== o) return;
+
+    if (listed.session === o.session) return showOutbox(listed.rows, listed.revision);
+
+    const known = (list: readonly AgentSession[]) => list.find(s => s.machine_id === o.machine_id && s.id === listed.session);
+    const resumed = known(sessions) ?? known(await loadSessions());
+    if (resumed && AG.open === o) openAgent(resumed, { back: AG.back });
   } catch (e) {
     console.warn("reading the outbox:", e);
   }
