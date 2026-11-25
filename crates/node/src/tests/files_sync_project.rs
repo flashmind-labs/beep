@@ -1,6 +1,6 @@
 use super::scanning::Reason;
 use super::{
-    fetch::{copy_out, copy_store, fetch_within, peers_to_ask},
+    fetch::{Dials, copy_out, copy_store, fetch_within, peers_to_ask},
     list::{Merged, merge_peer, move_target, plan, record},
     scanning::has_baseline,
     shared::{Shared, Start},
@@ -349,6 +349,63 @@ fn a_peer_that_is_off_does_not_hold_up_every_file() {
     // Worth another try, once the peers that answer had their turn.
     let later = now + Duration::from_secs(30);
     assert_eq!(ids(peers_to_ask(&peers, &down, later)), [on.id, off.id]);
+}
+
+#[tokio::test]
+async fn fetches_for_a_peer_that_is_off_share_one_dial_and_other_peers_go_on() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let dials = Arc::new(Dials::default());
+    let dialled = Arc::new(AtomicUsize::new(0));
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (off, on) = (
+        EndpointAddr::new(SecretKey::from_bytes(&[1; 32]).public()),
+        EndpointAddr::new(SecretKey::from_bytes(&[2; 32]).public()),
+    );
+    let wanting: Vec<_> = (0..16)
+        .map(|_| {
+            let (dials, dialled, release, off) =
+                (dials.clone(), dialled.clone(), release.clone(), off.clone());
+            tokio::spawn(async move {
+                dials
+                    .to(&off, || async move {
+                        dialled.fetch_add(1, Ordering::Relaxed);
+                        release.notified().await;
+                        anyhow::bail!("could not reach it in time")
+                    })
+                    .await
+            })
+        })
+        .collect();
+
+    // While that dial hangs, a fetch that wants another peer is not held.
+    let other = tokio::time::timeout(
+        Duration::from_secs(20),
+        dials.to(&on, || async { anyhow::bail!("refused") }),
+    )
+    .await
+    .expect("another peer is not held up by the dial");
+    assert!(other.is_err());
+
+    // Every fetch has started and waits on the one dial.
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(dialled.load(Ordering::Relaxed), 1);
+
+    // It fails, and so does every fetch that waited on it.
+    release.notify_one();
+    for wanted in wanting {
+        assert!(wanted.await.expect("joined").is_err());
+    }
+    assert_eq!(dialled.load(Ordering::Relaxed), 1);
+
+    // A moment later, no fetch dials it again.
+    let again = dials
+        .to(&off, || async { panic!("dialled a peer that just failed") })
+        .await;
+    assert!(again.is_err());
+    assert!(dials.down(|down| down.contains_key(&off.id)));
 }
 
 /// What the store's collector keeps, apart from named tags.

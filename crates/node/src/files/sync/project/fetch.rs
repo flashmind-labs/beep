@@ -4,11 +4,11 @@ use super::{shared::Shared, task::RETRY};
 use beep_mesh::OPEN_TIMEOUT;
 use crate::files::sync::{Parts, STALL, map::FileMeta, scan::MAX_BYTES};
 use crate::files::transfer::place::{Reserved, space_at};
-use crate::{AsyncMutex, lock};
+use crate::lock;
 use anyhow::{Context, Result, anyhow, bail};
 use bao_tree::io::BaoContentItem;
 use beep_proto::watched;
-use futures::StreamExt as _;
+use futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, future::{BoxFuture, Shared as SharedFuture}};
 use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
 use iroh_blobs::{
     Hash, HashAndFormat,
@@ -22,6 +22,7 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
+    future::Future,
     time::Duration,
 };
 use tokio::{
@@ -73,10 +74,8 @@ type Got = Result<Option<Fetched>>;
 pub(super) struct Fetcher {
     pub(super) shared: Arc<Shared>,
     pub(super) parts: Parts,
-    /// Locked across a dial, so fetches that start together share one.
-    blobs: AsyncMutex<HashMap<EndpointId, Connection>>,
-    /// When a dial to a peer last failed, until one succeeds.
-    down: Mutex<HashMap<EndpointId, Instant>>,
+    /// The connections to the peers, and the dials that make them.
+    dials: Dials,
     /// Tags on what fetches got so far, from the moment one starts: without
     /// one, the store's collector deletes it between rounds, or after a fetch
     /// dropped on a pause, and the file starts over.
@@ -93,8 +92,7 @@ impl Fetcher {
         Self {
             shared,
             parts,
-            blobs: AsyncMutex::default(),
-            down: Mutex::default(),
+            dials: Dials::default(),
             unfinished: Mutex::default(),
             received: AtomicU64::new(0),
             coming: Mutex::default(),
@@ -154,9 +152,10 @@ impl Fetcher {
         }
 
         let peers = {
-            let down = lock(&self.down);
             let now = Instant::now();
-            watched::read_sent(&self.shared.peers, |peers| peers_to_ask(peers, &down, now))
+            watched::read_sent(&self.shared.peers, |peers| {
+                self.dials.down(|down| peers_to_ask(peers, down, now))
+            })
         };
         let mut last = None;
 
@@ -199,7 +198,7 @@ impl Fetcher {
                         return Err(e);
                     }
 
-                    self.drop_connection(&peer.id, &connection).await;
+                    self.dials.drop_connection(&peer.id, &connection);
                     last = Some(e.context(peer.id.to_string()));
                 }
             }
@@ -229,7 +228,7 @@ impl Fetcher {
                 Ok(copied) if copied == *hash.as_bytes() => return Ok(()),
                 Ok(_) => last = anyhow!("{} sent other content", peer.id),
                 Err(e) => {
-                    self.blobs.lock().await.remove(&peer.id);
+                    self.dials.forget(&peer.id);
                     last = e.context(format!("{}", peer.id));
                 }
             }
@@ -238,46 +237,119 @@ impl Fetcher {
         Err(last.context("no machine could send it again"))
     }
 
-    /// Stops using `connection`, and closes it for the fetches still on it.
-    async fn drop_connection(&self, peer: &EndpointId, connection: &Connection) {
-        let mut blobs = self.blobs.lock().await;
+    /// The blob connection to `peer`, dialled once for every fetch that asks
+    /// for it while the dial runs.
+    async fn blobs_to(&self, peer: &EndpointAddr) -> Result<Connection> {
+        let endpoint = self.parts.endpoint.clone();
+        let target = peer.clone();
 
-        if blobs
-            .get(peer)
-            .is_some_and(|open| open.stable_id() == connection.stable_id())
+        self.dials
+            .to(peer, move || async move {
+                let id = target.id;
+                timeout(OPEN_TIMEOUT, endpoint.connect(target, iroh_blobs::ALPN))
+                    .await
+                    .map_err(|_| anyhow!("could not reach {id} in time"))?
+                    .map_err(anyhow::Error::from)
+            })
+            .await
+    }
+}
+
+/// One peer's connection: open, or being dialled by the fetches that wait
+/// for it together.
+enum Dial {
+    Open(Connection),
+    Dialing(SharedFuture<BoxFuture<'static, Result<Connection, Arc<anyhow::Error>>>>),
+}
+
+/// The peers' blob connections, and when a dial to a peer last failed. No
+/// lock is held while a dial runs: the fetches that want the same peer wait
+/// on one dial, and those that want another go on.
+#[derive(Default)]
+pub(super) struct Dials {
+    open: Mutex<HashMap<EndpointId, Dial>>,
+    /// When a dial to a peer last failed, until one succeeds.
+    down: Mutex<HashMap<EndpointId, Instant>>,
+}
+
+impl Dials {
+    /// `f` of the peers that could not be dialled, and when.
+    pub(super) fn down<R>(&self, f: impl FnOnce(&HashMap<EndpointId, Instant>) -> R) -> R {
+        f(&lock(&self.down))
+    }
+
+    /// The connection to `peer`: the open one, the dial `dial` makes, or the
+    /// dial another fetch started. Not at all within `RETRY` of a failed dial.
+    pub(super) async fn to<Dialing>(
+        &self,
+        peer: &EndpointAddr,
+        dial: impl FnOnce() -> Dialing,
+    ) -> Result<Connection>
+    where
+        Dialing: Future<Output = Result<Connection>> + Send + 'static,
+    {
+        let dialing = {
+            let mut open = lock(&self.open);
+
+            match open.get(&peer.id) {
+                Some(Dial::Open(connection)) if connection.close_reason().is_none() => {
+                    return Ok(connection.clone());
+                }
+                Some(Dial::Dialing(dialing)) => dialing.clone(),
+                _ => {
+                    let now = Instant::now();
+                    let failed = lock(&self.down).get(&peer.id).copied();
+
+                    if failed.is_some_and(|at| now.saturating_duration_since(at) < RETRY) {
+                        bail!("{} did not answer a moment ago", peer.id);
+                    }
+
+                    let dialing = dial().map_err(Arc::new).boxed().shared();
+                    open.insert(peer.id, Dial::Dialing(dialing.clone()));
+                    dialing
+                }
+            }
+        };
+        let dialled = dialing.await;
+        let mut open = lock(&self.open);
+        // The first fetch back settles the dial for all of them.
+        let settles = matches!(open.get(&peer.id), Some(Dial::Dialing(_)));
+
+        match dialled {
+            Ok(connection) => {
+                if settles {
+                    open.insert(peer.id, Dial::Open(connection.clone()));
+                    lock(&self.down).remove(&peer.id);
+                }
+
+                Ok(connection)
+            }
+            Err(e) => {
+                if settles {
+                    open.remove(&peer.id);
+                    lock(&self.down).insert(peer.id, Instant::now());
+                }
+
+                Err(anyhow!("{e:#}"))
+            }
+        }
+    }
+
+    /// Forgets the connection to `peer`.
+    pub(super) fn forget(&self, peer: &EndpointId) {
+        lock(&self.open).remove(peer);
+    }
+
+    /// Stops using `connection`, and closes it for the fetches still on it.
+    pub(super) fn drop_connection(&self, peer: &EndpointId, connection: &Connection) {
+        let mut open = lock(&self.open);
+
+        if matches!(open.get(peer), Some(Dial::Open(open)) if open.stable_id() == connection.stable_id())
         {
-            blobs.remove(peer);
+            open.remove(peer);
         }
 
         connection.close(0u32.into(), b"fetch failed");
-    }
-
-    async fn blobs_to(&self, peer: &EndpointAddr) -> Result<Connection> {
-        let mut blobs = self.blobs.lock().await;
-
-        if let Some(connection) = blobs.get(&peer.id)
-            && connection.close_reason().is_none()
-        {
-            return Ok(connection.clone());
-        }
-
-        let dialled = timeout(
-            OPEN_TIMEOUT,
-            self.parts.endpoint.connect(peer.clone(), iroh_blobs::ALPN),
-        )
-        .await
-        .map_err(|_| anyhow!("could not reach {} in time", peer.id))
-        .and_then(|connected| connected.map_err(anyhow::Error::from));
-        let connection = match dialled {
-            Ok(connection) => connection,
-            Err(e) => {
-                lock(&self.down).insert(peer.id, Instant::now());
-                return Err(e);
-            }
-        };
-        lock(&self.down).remove(&peer.id);
-        blobs.insert(peer.id, connection.clone());
-        Ok(connection)
     }
 }
 
