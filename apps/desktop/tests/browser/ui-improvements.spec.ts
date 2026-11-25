@@ -95,7 +95,7 @@ test("Open beside mounts a second session in the right dock and sends messages",
   await expect(page.locator(".ag-head")).toContainText("Secondary session");
 });
 
-test("a split session on a node without the follow stream keeps reading it", async ({ page }) => {
+test("a split session on a node without the follow stream reads it once and retries the follow", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   const first = { kind: "agent", machine_id: machineId, machine_name: machineId, id: "sess-a", agent: "codex", title: "Primary session", cwd: project.folder, status: "idle", doing: null, started_at: 1_000, last_activity: 2_000, external: false, question: null, assistant: false, persona: null };
   const second = { ...first, id: "sess-b", title: "Secondary session", agent: "claude", status: "working" };
@@ -113,7 +113,8 @@ test("a split session on a node without the follow stream keeps reading it", asy
   await page.getByRole("menuitem", { name: "Open beside" }).click();
   await expect(page.locator("#agpane-right .agsplit")).toContainText("Secondary output here.");
 
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_view" && c.args.session === "sess-b").length), { timeout: 10_000 }).toBeGreaterThanOrEqual(3);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_follow" && c.args.session === "sess-b").length), { timeout: 10_000 }).toBeGreaterThanOrEqual(2);
+  expect(await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_view" && c.args.session === "sess-b").length)).toBe(1);
 });
 
 test("a split session follows the push stream and never reads the session", async ({ page }) => {

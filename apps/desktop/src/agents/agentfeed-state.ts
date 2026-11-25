@@ -46,6 +46,8 @@ export class AgentFeed<K, T> {
   private readonly readers = new Map<string, Reader<K>>();
   /// The sessions a view beside the shown one keeps followed, with what it does when one cannot be.
   private readonly holds = new Map<string, () => void>();
+  /// Held names whose `failed` already ran since the follow was last live, so a failing retry reads only once.
+  private readonly reported = new Set<string>();
   private shown: string | null = null;
   private shownId: string | null = null;
 
@@ -94,6 +96,7 @@ export class AgentFeed<K, T> {
     return () => {
       if (this.holds.get(name) !== failed) return;
       this.holds.delete(name);
+      this.reported.delete(name);
       const reader = this.readers.get(name);
       if (reader && name !== this.shown) this.settle(reader);
       this.limit();
@@ -181,6 +184,7 @@ export class AgentFeed<K, T> {
     const receive = (update: T) => {
       if (this.readers.get(name) !== reader || reader.ended) return;
       reader.live = true;
+      this.reported.delete(reader.name);
       reader.version = ++this.serial;
       this.transport.receive(reader.key, update);
     };
@@ -253,7 +257,10 @@ export class AgentFeed<K, T> {
 
     if (failed && reader.name !== this.shown) {
       this.retryHeld(reader);
-      if (!wasLive) failed();
+      if (!wasLive && !this.reported.has(reader.name)) {
+        this.reported.add(reader.name);
+        failed();
+      }
       return;
     }
 
