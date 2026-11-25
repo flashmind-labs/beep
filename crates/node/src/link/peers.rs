@@ -604,11 +604,13 @@ impl Peers {
             self.inner.endpoint.id(),
             offers.clone(),
         );
+        let reaches = crate::machine::elect::Reaches::new(active.clone());
         let runs = crate::machine::ci::watch(
             active.clone(),
             self.inner.endpoint.id(),
             self.inner.dir.clone(),
             offers.agents.ci.clone(),
+            reaches.clone(),
         );
         let skills = crate::agents::skills::follow(
             active.clone(),
@@ -628,6 +630,7 @@ impl Peers {
             self.inner.team.clone(),
             offers.clone(),
             self.inner.dir.clone(),
+            reaches,
         );
         let search = crate::agents::follow_search(
             active.clone(),

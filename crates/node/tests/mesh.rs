@@ -721,6 +721,51 @@ async fn another_node_gets_no_shell_but_can_use_agent_tools() {
 }
 
 #[tokio::test]
+async fn another_node_may_follow_the_agents_and_forge_reach_topics_and_no_other() {
+    use beep_proto::node::{
+        events::{FORGE_REACH_TOPIC, Topic, Value},
+        subscriptions::{Open as SubscriptionsOpen, PROTOCOL as SUBSCRIPTIONS, Reply as Said, Request as Watch},
+    };
+
+    let desktop = desktop().await;
+    let node = Node::start(Config::default()).await;
+    node.join(&desktop.ticket(DeviceKind::Node).await).await;
+    let other = peer_node(&desktop).await;
+    let conn = other.reach(node.id).await;
+    let mut stream = ready(&conn, SUBSCRIPTIONS).await;
+    stream.tx.send(&SubscriptionsOpen {}).await.expect("the open is sent");
+    assert!(matches!(
+        timeout(LIMIT, stream.rx.recv::<Said>()).await.unwrap().unwrap(),
+        Some(Said::Ready)
+    ));
+    let watch = |id, topic| Watch::Watch {
+        id,
+        topic,
+        queries: Vec::new(),
+        deltas: false,
+    };
+
+    stream.tx.send(&watch(1, Topic::new("terminals"))).await.unwrap();
+    assert!(matches!(
+        timeout(LIMIT, stream.rx.recv::<Said>()).await.unwrap().unwrap(),
+        Some(Said::Error { id: 1, .. })
+    ));
+
+    stream.tx.send(&watch(2, Topic::new(FORGE_REACH_TOPIC))).await.unwrap();
+
+    loop {
+        match timeout(LIMIT, stream.rx.recv::<Said>()).await.unwrap().unwrap() {
+            Some(Said::Snapshot(snapshot)) => {
+                assert!(matches!(snapshot.value, Value::ForgeReach(_)));
+                break;
+            }
+            Some(Said::Error { reason, .. }) => panic!("{reason}"),
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test]
 async fn another_node_reads_a_report() {
     let desktop = desktop().await;
     let node = Node::start(Config {

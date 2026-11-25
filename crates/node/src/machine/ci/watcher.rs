@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{
     agents::project_folder,
-    machine::elect::{ask_reach, gather, online},
+    machine::elect::{Reaches, gather, online},
 };
 use anyhow::{Result, bail};
 use beep_mesh::Mesh;
@@ -75,15 +75,27 @@ pub(super) trait World: Send + Sync + 'static {
     fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static;
     /// Waits for the mesh to change; false once it is gone.
     fn changed(&mut self) -> impl Future<Output = bool> + Send;
+    /// Rises when a machine pushes a different reach; none for a world
+    /// whose machines push nothing.
+    fn reached(&self) -> Option<watch::Receiver<()>> {
+        None
+    }
     /// When this machine's checkout of `project` last moved a remote's ref,
     /// as a push does; `None` with no checkout here or no such ref.
     fn pushed(&self, project: &Project) -> impl Future<Output = Option<SystemTime>> + Send;
 }
 
 /// Watches while the node is in `mesh`, keeping its file in `dir`.
-pub(crate) async fn watch(mesh: Mesh, me: EndpointId, dir: PathBuf, ci: Arc<Ci>) {
+pub(crate) async fn watch(
+    mesh: Mesh,
+    me: EndpointId,
+    dir: PathBuf,
+    ci: Arc<Ci>,
+    reaches: Reaches,
+) {
     let world = MeshWorld {
         updates: mesh.updates(),
+        reaches,
         mesh,
         me,
     };
@@ -137,6 +149,8 @@ pub(super) struct Watcher<F, W> {
     books: Books,
     /// The account signed in on each host, by host name.
     logins: HashMap<String, String>,
+    /// Rises when a machine pushes a different reach.
+    reached: Option<watch::Receiver<()>>,
     /// What the online machines said of their reach, when last asked.
     peers: BTreeMap<EndpointId, ForgeReach>,
     /// The machines being asked now: at most one gather, a newer one replaces it.
@@ -176,6 +190,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
     pub(super) async fn start(forge: F, world: W, ci: Arc<Ci>, file: PathBuf) -> Self {
         let books = Books::load(&file).await;
         Self {
+            reached: world.reached(),
             forge: Arc::new(forge),
             world,
             ci,
@@ -223,6 +238,18 @@ impl<F: Forge, W: World> Watcher<F, W> {
                 () = sleep_until(parked_until), if parked => {
                     parked_until = Instant::now() + QUIET;
                     self.poll().await;
+                }
+                () = async {
+                    if let Some(reached) = &mut self.reached
+                        && reached.changed().await.is_ok()
+                    {
+                        return;
+                    }
+
+                    std::future::pending::<()>().await;
+                } => {
+                    // A machine pushed how it reaches the hosts: elect on it.
+                    self.ask_peers();
                 }
                 alive = self.world.changed() => {
                     if !alive {
@@ -734,6 +761,7 @@ struct MeshWorld {
     mesh: Mesh,
     me: EndpointId,
     updates: watch::Receiver<u64>,
+    reaches: Reaches,
 }
 
 impl World for MeshWorld {
@@ -751,8 +779,11 @@ impl World for MeshWorld {
 
     #[allow(clippy::manual_async_fn, reason = "the future must not borrow the world")]
     fn ask(&self, peer: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
-        let mesh = self.mesh.clone();
-        async move { ask_reach(&mesh, peer).await }
+        self.reaches.ask(peer)
+    }
+
+    fn reached(&self) -> Option<watch::Receiver<()>> {
+        Some(self.reaches.changes())
     }
 
     async fn changed(&mut self) -> bool {

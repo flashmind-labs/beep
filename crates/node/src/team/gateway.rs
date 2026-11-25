@@ -19,7 +19,7 @@ use crate::{
     link::Offers,
     machine::{
         ci::{Ci, forge::command},
-        elect::{ask_reach, elect, gather, online, ranked},
+        elect::{Reaches, elect, gather, online, ranked},
     },
 };
 use beep_mesh::Mesh;
@@ -87,11 +87,18 @@ pub(crate) fn elected(
 
 /// Acts for the team projects this node is elected for, until the mesh is gone.
 /// Pickup keeps what it remembers in `dir`, the node's folder.
-pub(crate) async fn run(mesh: Mesh, me: EndpointId, link: TeamLink, offers: Offers, dir: PathBuf) {
+pub(crate) async fn run(
+    mesh: Mesh,
+    me: EndpointId,
+    link: TeamLink,
+    offers: Offers,
+    dir: PathBuf,
+    reaches: Reaches,
+) {
     let (heard, hearing) = mpsc::channel(CHANGES);
     let (sighted, sighting) = mpsc::channel(CHANGES);
 
-    Gateway::new(mesh, me, link, offers, heard, sighted, dir)
+    Gateway::new(mesh, me, link, offers, heard, sighted, dir, reaches)
         .drive(hearing, sighting)
         .await;
 }
@@ -119,6 +126,7 @@ struct Gateway {
     rows: BTreeMap<EndpointId, Vec<SessionInfo>>,
     sightings: BTreeMap<EndpointId, AbortOnDropHandle<()>>,
     sighted: mpsc::Sender<Sighted>,
+    reaches: Reaches,
     /// The machines that do not push their sessions.
     refused: BTreeSet<EndpointId>,
     /// A session changed while the cards were made.
@@ -178,6 +186,7 @@ impl Gateway {
         heard: mpsc::Sender<Followed>,
         sighted: mpsc::Sender<Sighted>,
         dir: PathBuf,
+        reaches: Reaches,
     ) -> Self {
         Self {
             mesh,
@@ -193,6 +202,7 @@ impl Gateway {
             rows: BTreeMap::new(),
             sightings: BTreeMap::new(),
             sighted,
+            reaches,
             refused: BTreeSet::new(),
             stale: false,
             round_due: None,
@@ -221,6 +231,7 @@ impl Gateway {
         let mut edits = self.link.roster_edits();
         let mut reaches = self.offers.agents.ci.reaches();
         let mut sessions = self.offers.agents.events.subscribe();
+        let mut pushed = self.reaches.changes();
 
         self.step();
 
@@ -229,8 +240,8 @@ impl Gateway {
             let ask = ask_again_at(self.asked.as_ref());
 
             select! {
-                // The other machines' reach has no push: a machine that acts for no team asks again
-                // when it is due, or no one would elect once the acting machine stepped down.
+                // A machine that does not push its reach is asked again when it is due:
+                // a machine that acts for no team would not elect once the acting machine stepped down.
                 _ = async {
                     match ask {
                         Some(due) => sleep_until(due).await,
@@ -256,6 +267,14 @@ impl Gateway {
                 },
                 Some(followed) = hearing.recv() => self.heard(followed),
                 Some(sighted) = sighting.recv() => self.sighted(sighted),
+                // A machine pushed how it reaches the hosts: elect on it.
+                changed = pushed.changed() => match changed {
+                    Ok(()) => {
+                        self.asked = None;
+                        self.step();
+                    }
+                    Err(_) => return,
+                },
                 // This machine's own sessions.
                 change = sessions.recv() => match change {
                     Ok(change) if change.topic.name() == "agents" => self.cards_stale(),
@@ -382,10 +401,10 @@ impl Gateway {
         }
 
         self.asked = Some((Instant::now(), asked.clone()));
-        let mesh = self.mesh.clone();
+        let reaches = self.reaches.clone();
         self.asking.abort_all();
         self.asking.spawn(async move {
-            let asks = asked.into_iter().map(|peer| (peer, ask_reach(&mesh, peer)));
+            let asks = asked.into_iter().map(|peer| (peer, reaches.ask(peer)));
 
             gather("team gateway", asks).await
         });

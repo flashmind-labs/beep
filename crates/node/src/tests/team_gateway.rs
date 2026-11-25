@@ -377,13 +377,14 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
     let (heard, hearing) = mpsc::channel(8);
     let (sighted, sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
-        mesh,
+        mesh.clone(),
         me,
         link.clone(),
         Offers::default(),
         heard.clone(),
         sighted,
         dir.path().join("node"),
+        Reaches::new(mesh.clone()),
     );
     let bob = member("bob", SecretKey::generate().public());
     let follow = AbortOnDropHandle::new(tokio::spawn(std::future::pending()));
@@ -433,13 +434,14 @@ async fn the_gateway_elects_when_the_home_changes() {
     let (heard, hearing) = mpsc::channel(8);
     let (sighted, sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
-        mesh,
+        mesh.clone(),
         me,
         link.clone(),
         Offers::default(),
         heard,
         sighted,
         dir.path().join("node"),
+        Reaches::new(mesh.clone()),
     );
     gateway.answered = true;
     let alice = member("alice", me);
@@ -478,13 +480,14 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
     let (heard, hearing) = mpsc::channel(8);
     let (sighted, sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
-        mesh,
+        mesh.clone(),
         me,
         link.clone(),
         Offers::default(),
         heard,
         sighted,
         dir.path().join("node"),
+        Reaches::new(mesh.clone()),
     );
     gateway.answered = true;
     let alice = member("alice", me);
@@ -585,13 +588,14 @@ async fn a_pushed_session_change_makes_the_cards_again_without_a_round() {
     let (heard, _hearing) = mpsc::channel(8);
     let (sighted, _sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
-        mesh,
+        mesh.clone(),
         me,
         link,
         Offers::default(),
         heard,
         sighted,
         dir.path().join("node"),
+        Reaches::new(mesh.clone()),
     );
     let peer = SecretKey::generate().public();
     gateway.held.insert(repo());
