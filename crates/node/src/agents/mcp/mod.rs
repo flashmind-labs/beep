@@ -37,13 +37,12 @@ pub(crate) mod harness;
 mod machines;
 mod media;
 pub(crate) mod projects;
-mod reply;
 pub(in crate::agents) mod review;
 mod server;
 mod team;
 mod transcripts;
 
-pub(crate) use desktop::forward as to_desktop;
+
 pub(crate) use machines::alone;
 pub use super::calls::{SERVER_NAME, command_name};
 pub(crate) use desktop::answer as answer_projects;

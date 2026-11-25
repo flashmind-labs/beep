@@ -2,7 +2,7 @@
 
 use super::machines::find;
 use crate::peer_stream::over_the_mesh;
-use super::reply::{fail, json_of, parse};
+use crate::agents::reply::{fail, json_of, parse};
 use crate::{
     agents::{Agents, known},
     link::Offers,

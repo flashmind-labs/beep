@@ -1,9 +1,7 @@
 //! Project discovery and checkout selection from replicated mesh records.
 
-use super::{
-    machines::{find, machines},
-    reply::{fail, json_of, parse},
-};
+use super::machines::{find, machines};
+use crate::agents::reply::{fail, json_of, parse};
 use crate::agents::moving::project_folder;
 use beep_mesh::{Key, Mesh};
 use beep_proto::node::{

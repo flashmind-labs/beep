@@ -4,7 +4,7 @@
 
 use super::link::{TeamForge, TeamLink};
 use crate::{
-    agents::mcp::to_desktop,
+    agents::desktop_call::forward as to_desktop,
     machine::{
         ci::forge::{command, tail},
         spawn_env,

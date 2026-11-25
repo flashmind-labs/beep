@@ -1,5 +1,7 @@
 use beep_proto::SessionId;
 use super::*;
+use crate::agents::desktop_call::{forward, from_desktop};
+use beep_mesh::Mesh;
 use beep_proto::node::tools::Tool;
 use beep_mesh::Key;
 use iroh::{Endpoint, SecretKey, endpoint::presets};

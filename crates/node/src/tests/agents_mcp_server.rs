@@ -64,7 +64,7 @@ impl Backend for Fake {
     }
 
     async fn read_transcript(&self, args: Value) -> Result<Reply> {
-        Ok(super::super::reply::ok(args.to_string()))
+        Ok(crate::agents::reply::ok(args.to_string()))
     }
 
     async fn ask(&self, session: &SessionId, question: Asking) -> Result<Answered> {

@@ -2,7 +2,7 @@
 //! temporary reviewer it starts as a child (`agents::reviews`), and the
 //! reviewer hands its findings in. Both run on the caller's own node.
 
-use super::reply::{fail, json_done, ok, parse};
+use crate::agents::reply::{fail, json_done, ok, parse};
 use crate::agents::{
     Agents,
     family::WAIT_LIMIT,

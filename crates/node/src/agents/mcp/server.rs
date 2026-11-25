@@ -43,7 +43,7 @@ pub(crate) trait Backend: Sync {
     /// Reads a transcript independently of the acting tools/1 requests.
     fn read_transcript(&self, _args: Value) -> impl Future<Output = Result<Reply>> + Send {
         async {
-            Ok(super::reply::fail(
+            Ok(crate::agents::reply::fail(
                 "Session transcripts are unavailable on this backend.",
             ))
         }

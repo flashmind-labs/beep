@@ -9,6 +9,7 @@ pub use work_diff::parse_git_patch;
 
 host! {
     mod brief;
+    pub(crate) mod desktop_call;
     pub(crate) mod child_view;
     mod calls;
     mod text;
@@ -65,6 +66,7 @@ host! {
     pub(crate) mod moving;
     mod picture;
     mod pipe;
+    pub(crate) mod reply;
     mod plans;
     pub mod presence;
     mod prices;
