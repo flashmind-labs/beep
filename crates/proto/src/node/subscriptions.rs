@@ -1,6 +1,6 @@
 //! One topic subscription per stream on a dedicated peer connection.
 
-use super::events::{Query, Snapshot, Topic};
+use super::events::{Query, Reply as EventsReply, Snapshot, Topic};
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL: &str = "peer-subscriptions/1";
@@ -50,4 +50,26 @@ pub enum Reply {
     Pong {
         id: u64,
     },
+}
+
+// The inbound events/1 protocol remains available to released apps.
+impl From<Reply> for EventsReply {
+    fn from(reply: Reply) -> Self {
+        match reply {
+            Reply::Ready => EventsReply::Ready,
+            Reply::Watching { id } => EventsReply::Watching { id },
+            Reply::Snapshot(snapshot) => EventsReply::Snapshot(snapshot),
+            Reply::SnapshotError {
+                query,
+                topic,
+                reason,
+            } => EventsReply::SnapshotError {
+                query,
+                topic,
+                reason,
+            },
+            Reply::Error { id, reason } => EventsReply::Error { id, reason },
+            Reply::Pong { id } => EventsReply::Pong { id },
+        }
+    }
 }

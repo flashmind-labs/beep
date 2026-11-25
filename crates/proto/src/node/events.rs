@@ -328,29 +328,6 @@ impl Incoming {
     }
 }
 
-// The inbound events/1 protocol remains available to released apps.
-impl From<super::subscriptions::Reply> for Reply {
-    fn from(reply: super::subscriptions::Reply) -> Self {
-        use super::subscriptions::Reply as Subscription;
-        match reply {
-            Subscription::Ready => Self::Ready,
-            Subscription::Watching { id } => Self::Watching { id },
-            Subscription::Snapshot(snapshot) => Self::Snapshot(snapshot),
-            Subscription::SnapshotError {
-                query,
-                topic,
-                reason,
-            } => Self::SnapshotError {
-                query,
-                topic,
-                reason,
-            },
-            Subscription::Error { id, reason } => Self::Error { id, reason },
-            Subscription::Pong { id } => Self::Pong { id },
-        }
-    }
-}
-
 #[cfg(test)]
 #[path = "../tests/node_events.rs"]
 mod tests;
