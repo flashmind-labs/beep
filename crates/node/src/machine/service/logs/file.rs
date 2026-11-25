@@ -1,19 +1,16 @@
 //! The log file the service writes: the init.d service's output on Linux,
 //! the LaunchAgent's on macOS, the node's daily files on Windows. Followed by
-//! polling it for growth.
+//! watching its folder for growth.
 
 use super::{LogOptions, Printer, cutoff};
 use anyhow::{Context, Result, bail};
+use notify::{RecursiveMode, Watcher, recommended_watcher};
 use std::{
     fs::{self, File},
     io::{BufRead, BufReader, Seek, SeekFrom, Write},
-    path::PathBuf,
-    thread,
-    time::Duration,
+    path::{Path, PathBuf},
+    sync::mpsc,
 };
-
-/// How often a followed file is checked for new lines.
-const POLL: Duration = Duration::from_millis(500);
 
 /// The files to read: older ones first, then the one being written.
 struct LogFiles {
@@ -108,7 +105,7 @@ pub(super) fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> R
     let file = File::open(current).with_context(|| format!("opening {}", current.display()))?;
     let mut reader = BufReader::new(file);
     let mut pending = Vec::new();
-    let mut read = drain(&mut reader, &mut pending, printer)?;
+    let read = drain(&mut reader, &mut pending, printer)?;
 
     if !options.follow {
         if !pending.is_empty() {
@@ -121,8 +118,44 @@ pub(super) fn read(options: &LogOptions, printer: &mut Printer<impl Write>) -> R
 
     printer.caught_up()?;
 
+    follow(current, reader, pending, read, printer)
+}
+
+/// Prints what `current` gains after `read` bytes, as its folder changes, until the watch
+/// ends. A rollover or truncation starts again from the new file's start.
+fn follow(
+    current: &Path,
+    mut reader: BufReader<File>,
+    mut pending: Vec<u8>,
+    mut read: u64,
+    printer: &mut Printer<impl Write>,
+) -> Result<()> {
+    // The folder, not the file: a rollover renames the file and makes a new one.
+    let (events, changes) = mpsc::channel();
+    let mut watcher = recommended_watcher(move |event: notify::Result<notify::Event>| {
+        let _ = events.send(event);
+    })
+    .context("watching the log")?;
+    let folder = current.parent().context("the log has no folder")?;
+    watcher
+        .watch(folder, RecursiveMode::NonRecursive)
+        .with_context(|| format!("watching {}", folder.display()))?;
+
+    // The first check covers what came before the watch; each later one
+    // follows a change in the folder, and the changes that came meanwhile.
+    let mut first = true;
+
     loop {
-        thread::sleep(POLL);
+        if !first {
+            if changes.recv().is_err() {
+                bail!("the log watch ended");
+            }
+
+            while changes.try_recv().is_ok() {}
+        }
+
+        first = false;
+
         let len = match fs::metadata(current) {
             Ok(metadata) => metadata.len(),
             // Between a rollover's rename and the new file.
@@ -168,3 +201,7 @@ fn drain(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../tests/machine_service_logs_file.rs"]
+mod tests;
