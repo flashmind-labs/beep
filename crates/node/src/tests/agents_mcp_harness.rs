@@ -5,7 +5,7 @@ use crate::{
         AgentKind,
         mcp::{Backend, Node},
     },
-    link::peer_tools::{self, Caller},
+    agents::mcp::peer_tools::{self, Caller},
     machine::provision::Provision,
 };
 use beep_proto::node::tools::Tool;

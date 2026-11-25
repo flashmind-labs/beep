@@ -2,7 +2,7 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::mcp::{self, ProjectTools},
+    agents::mcp::{self, ProjectTools, peer_tools::{self, Caller}},
     agents::{AgentKind, Agents, SESSIONS_ALPN, TRANSCRIPT_PROTOCOL, skills::Skills},
     files::Folders,
     files::search::Searches,
@@ -15,7 +15,6 @@ use crate::{
     link::watchdog,
     link::{
         from_mesh::Membership,
-        peer_tools::{self, Caller},
         peers::{self, Peers, Reach},
     },
     machine::provision::Provision,

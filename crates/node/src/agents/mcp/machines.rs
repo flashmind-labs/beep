@@ -5,15 +5,13 @@
 
 use super::catalog::REMOTE_RUN;
 use crate::agents::calls::command_name;
+use super::peer_tools::{self, Caller};
 use crate::peer_stream::{handshake, over_the_mesh};
 use crate::agents::reply::{done, fail, ok};
 use crate::{
     agents::live::Sent,
     files::transfer::{Incoming, Offer},
-    link::{
-        Offers,
-        peer_tools::{self, Caller},
-    },
+    link::Offers,
     machine::env,
 };
 use anyhow::{Context, Result};

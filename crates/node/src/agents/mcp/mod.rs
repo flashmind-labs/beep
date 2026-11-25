@@ -35,6 +35,7 @@ mod desktop;
 mod devices;
 pub(crate) mod harness;
 mod machines;
+pub(crate) mod peer_tools;
 mod media;
 pub(crate) mod projects;
 pub(in crate::agents) mod review;

@@ -438,5 +438,5 @@ fn task_error(reply: TaskReply) -> String {
 }
 
 #[cfg(test)]
-#[path = "../tests/link_peer_tools.rs"]
+#[path = "../../tests/link_peer_tools.rs"]
 mod tests;
