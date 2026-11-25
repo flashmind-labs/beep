@@ -545,10 +545,13 @@ fn needs_you(round: &Round<'_>, n: u64, title: String) -> bool {
         updated_at: SystemTime::now(),
     };
 
-    round.link.asks(|asks| {
+    let added = round.link.asks(|asks| {
         let cards = asks.cards.entry(round.team.repo.clone()).or_default();
         add_card(cards, card)
-    })
+    });
+    round.link.cards_changed(&round.team.repo);
+
+    added
 }
 
 /// Adds `card` to `cards` in place of the one with its id; whether there

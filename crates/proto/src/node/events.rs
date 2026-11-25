@@ -1,11 +1,13 @@
 //! Topic subscriptions and correlated commands on one bidirectional mesh stream.
 
-use super::{agent, device, process, sign_in, sync, terminal, tool_update};
+use super::{agent, device, process, sign_in, sync, terminal, tool_update, tools};
 use crate::SessionId;
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL: &str = "events/1";
 pub const MAX_TOPICS: usize = 64;
+/// The topic of a team's cards, keyed by the project's name: `Value::TeamCards`.
+pub const TEAM_CARDS_TOPIC: &str = "team-cards";
 
 mod git;
 pub use git::{GitOutput, GitRead};
@@ -83,6 +85,12 @@ pub enum Value {
     /// `Missing` until the node's first check ends. Only a topic that names
     /// it gets it, never `*`.
     ToolUpdates(Vec<tool_update::Available>),
+    /// A team's Needs you and teammates' cards, as `TeamAppArgs::Cards`
+    /// answers them, under `team-cards` keyed by the project's name. Only the
+    /// machine that acts for the team has it: any other answers `Missing`.
+    /// Only a topic that names it gets it, never `*`. A node from before it
+    /// answers a `SnapshotError` for the topic.
+    TeamCards(tools::TeamCards),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

@@ -143,39 +143,7 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
     let now = SystemTime::now();
 
     match args {
-        TeamAppArgs::Cards { repo } => json(&{
-            let (followed, teammates, own_queued) = link.served(|served| {
-                let teammates = served.teammates.get(&repo);
-                let followed: Vec<EndpointId> =
-                    teammates.into_iter().flat_map(Teammates::meshes).collect();
-                let cards = served.boards.cards(&repo).unwrap_or_default();
-                let queued = |card: &Card| matches!(card.lane, Lane::Queued {});
-
-                (
-                    followed,
-                    teammates.map(Teammates::cards).unwrap_or_default(),
-                    cards.into_iter().filter(queued).collect(),
-                )
-            });
-            let (online, needs_you) = link.both(|teams, asks| {
-                let members = teams.rosters.get(&repo).map(|record| record.members.iter());
-                let online = members
-                    .into_iter()
-                    .flatten()
-                    .filter(|member| followed.contains(&member.mesh))
-                    .map(|member| member.login.clone())
-                    .collect();
-
-                (online, asks.cards(&repo, now))
-            });
-
-            TeamCards {
-                needs_you,
-                teammates,
-                own_queued,
-                online,
-            }
-        }),
+        TeamAppArgs::Cards { repo } => json(&cards_here(link, &repo)),
         TeamAppArgs::Dismiss { repo, card } => {
             link.dismiss_card(&repo, &card);
             Ok("Dismissed.".to_owned())
@@ -219,6 +187,56 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
             Ok("Kept the queue.".to_owned())
         }
     }
+}
+
+/// `repo`'s cards as this device, its gateway, holds them.
+fn cards_here(link: &TeamLink, repo: &TeamRepo) -> TeamCards {
+    let (followed, teammates, own_queued) = link.served(|served| {
+        let teammates = served.teammates.get(repo);
+        let followed: Vec<EndpointId> = teammates.into_iter().flat_map(Teammates::meshes).collect();
+        let cards = served.boards.cards(repo).unwrap_or_default();
+        let queued = |card: &Card| matches!(card.lane, Lane::Queued {});
+
+        (
+            followed,
+            teammates.map(Teammates::cards).unwrap_or_default(),
+            cards.into_iter().filter(queued).collect(),
+        )
+    });
+    let (online, needs_you) = link.both(|teams, asks| {
+        let members = teams.rosters.get(repo).map(|record| record.members.iter());
+        let online = members
+            .into_iter()
+            .flatten()
+            .filter(|member| followed.contains(&member.mesh))
+            .map(|member| member.login.clone())
+            .collect();
+
+        (online, asks.cards(repo, SystemTime::now()))
+    });
+
+    TeamCards {
+        needs_you,
+        teammates,
+        own_queued,
+        online,
+    }
+}
+
+/// The cards of the project named `project`, for the `team-cards` topic:
+/// those of `Tool::TeamApp`'s `Cards`, from the machine that acts for its
+/// team. `None` on any other machine, and for a project with no team here.
+pub(crate) fn cards_of(link: &TeamLink, project: &str) -> Option<TeamCards> {
+    let repo = link.home(|home| {
+        home.projects
+            .iter()
+            .find(|(_, held)| held.name == project)
+            .map(|(repo, _)| repo.clone())
+    })?;
+    let acts = link.served(|served| served.gateways.get(&repo) == Some(&link.me()));
+    let team = link.with(|teams| teams.rosters.get(&repo).is_some());
+
+    (acts && team).then(|| cards_here(link, &repo))
 }
 
 /// Sends `msg` to every member of `repo`'s team from another mesh, in the

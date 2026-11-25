@@ -1,7 +1,7 @@
 use beep_proto::SessionId;
 use super::*;
 use crate::events::ChangeKind;
-use beep_proto::node::events::{Query, Read, Snapshot, Value};
+use beep_proto::node::events::{Query, Read, Snapshot, TEAM_CARDS_TOPIC, Value};
 use beep_proto::node::subscriptions::Reply;
 
 const MAX_READS: usize = 4;
@@ -41,6 +41,8 @@ enum Source {
     Resources(Vec<Topic>),
     Devices,
     ToolUpdates,
+    /// The cards of the team of the project with this name.
+    TeamCards(String),
 }
 
 impl Source {
@@ -251,6 +253,16 @@ impl Snapshots {
             wanted.push((topic.clone(), Source::Devices));
         }
 
+        // Only a topic keyed by a project's name has cards: they are not for `*`.
+        for topic in topics
+            .iter()
+            .filter(|topic| topic.name() == TEAM_CARDS_TOPIC && !topic.is_pattern())
+        {
+            if let Some(project) = topic.key() {
+                wanted.push((topic.clone(), Source::TeamCards(project.to_owned())));
+            }
+        }
+
         for topic in topics
             .iter()
             .filter(|topic| topic.name() == crate::machine::provision::UPDATES_TOPIC)
@@ -350,6 +362,7 @@ impl Snapshots {
                         | "sign-in"
                         | crate::run::device::LIST_TOPIC
                         | crate::machine::provision::UPDATES_TOPIC
+                        | TEAM_CARDS_TOPIC
                 )
         }) {
             wanted.push((topic.clone(), Source::Plugin));
@@ -477,6 +490,11 @@ impl Snapshots {
                         Source::Missing => Ok(Value::Missing),
                         Source::Resources(resources) => Ok(Value::Resources(resources)),
                         Source::Devices => Ok(Value::Devices(crate::run::device::current().await)),
+                        Source::TeamCards(project) => Ok(offers
+                            .reach
+                            .peers()
+                            .and_then(|peers| crate::team::apps::cards_of(&peers.team(), &project))
+                            .map_or(Value::Missing, Value::TeamCards)),
                         Source::ToolUpdates => Ok(offers
                             .provision
                             .as_ref()

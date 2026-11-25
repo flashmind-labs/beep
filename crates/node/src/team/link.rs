@@ -14,6 +14,7 @@ use super::{
 };
 use beep_mesh::TeamTicket;
 use beep_projects::commands::OpenIssue;
+use beep_proto::node::events::{TEAM_CARDS_TOPIC, Topic};
 use beep_proto::watched::read_sent;
 use beep_proto::{
     node::{LinkRx, LinkTx, link, tools::TeamInviteArgs},
@@ -289,7 +290,33 @@ impl TeamLink {
     /// Changes what the gateway serves (publishes), for its readers: the gateway loop
     /// is the only caller. Keep `f` short: it holds the value.
     pub(crate) fn publish(&self, f: impl FnOnce(&mut Served)) {
-        self.inner.served.send_modify(f);
+        let me = self.me();
+        let mut acting = Vec::new();
+        self.inner.served.send_modify(|served| {
+            f(served);
+            acting = served
+                .gateways
+                .iter()
+                .filter(|(_, gateway)| **gateway == me)
+                .map(|(repo, _)| repo.clone())
+                .collect();
+        });
+
+        // The boards and the teammates' cards are what this device serves.
+        for repo in &acting {
+            self.cards_changed(repo);
+        }
+    }
+
+    /// Says `repo`'s cards changed: the `team-cards` topic of its project,
+    /// which a reader of it takes the cards from. Only the machine that acts
+    /// for the team has them; the others' readers get nothing.
+    pub(crate) fn cards_changed(&self, repo: &TeamRepo) {
+        let project = self.home(|home| home.projects.get(repo).map(|held| held.name.clone()));
+
+        if let Some(project) = project {
+            crate::events::system().changed(Topic::keyed(TEAM_CARDS_TOPIC, project));
+        }
     }
 
     /// Keeps contacts' invites for a desktop to show.

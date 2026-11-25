@@ -548,3 +548,18 @@ fn a_terminals_output_does_not_read_the_terminal_list_again() {
     // A start or an end still does.
     assert!(affected(&Topic::new("terminals"), &Topic::new("terminals")));
 }
+
+#[test]
+fn a_projects_team_cards_have_a_source_of_their_own() {
+    let topic = Topic::keyed(TEAM_CARDS_TOPIC, "org/repo");
+
+    assert_eq!(
+        sources(std::slice::from_ref(&topic)),
+        vec![(topic.clone(), Source::TeamCards("org/repo".to_owned()))]
+    );
+    // Not for `*`, and not for every project at once.
+    assert!(sources(&[Topic::new("*")]).iter().all(|(topic, _)| topic.name() != TEAM_CARDS_TOPIC));
+    assert!(sources(&[Topic::new(TEAM_CARDS_TOPIC)]).is_empty());
+    // A ring of the project's topic reads the cards again.
+    assert!(affected(&topic, &topic));
+}

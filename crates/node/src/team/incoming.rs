@@ -40,7 +40,11 @@ impl TeamLink {
         let taken = self.both(|teams, asks| take(teams, asks, &seen, peer, ask, SystemTime::now()));
         let (repo, card) = match taken {
             Ok(Some(taken)) => taken,
-            Ok(None) => return None,
+            // A Needs you card for the person's apps.
+            Ok(None) => {
+                self.cards_changed(repo);
+                return None;
+            }
             Err(reason) => return Some(refused(reason)),
         };
         let words = format!(

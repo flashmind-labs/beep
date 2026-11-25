@@ -198,6 +198,7 @@ impl TeamLink {
                     cards.retain(|kept| kept.id != card);
                 }
             });
+            self.cards_changed(&taken.repo);
         }
 
         Ok(id)
@@ -215,6 +216,7 @@ impl TeamLink {
                 asks.taken.remove(ask);
             }
         });
+        self.cards_changed(repo);
     }
 
     /// Sends `msg` to the first of `member`'s devices that takes it. A device

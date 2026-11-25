@@ -367,3 +367,69 @@ async fn roster_from_node_is_written_once() {
     assert_eq!(written.members.len(), 2);
     assert!(!written.pickup, "the desktop's settings stay");
 }
+
+/// A link whose home names `org/repo` and whose roster holds the team, with
+/// this device acting for it.
+async fn acting_link(project: &str) -> TeamLink {
+    let link = link().await;
+    let me = link.endpoint().id();
+    let team = TeamRecord::new(repo(), vec![member("bob", SecretKey::generate().public())]);
+    link.edit_home(|home| {
+        home.projects.insert(
+            repo(),
+            crate::team::home::Project {
+                name: project.to_owned(),
+                checkout: None,
+                devices: Vec::new(),
+            },
+        );
+    });
+    link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
+    link.publish(|served| {
+        served.gateways.insert(repo(), me);
+    });
+
+    link
+}
+
+#[tokio::test]
+async fn a_projects_cards_come_from_the_machine_that_acts_for_its_team() {
+    let link = acting_link("org/repo").await;
+    let card = ask_card();
+    link.asks(|asks| asks.cards.insert(repo(), vec![card.clone()]));
+
+    let read = cards_of(&link, "org/repo").expect("the gateway has cards");
+    assert_eq!(read.needs_you, vec![card]);
+
+    // Another machine, or a project that is not here, has none.
+    assert!(cards_of(&link, "org/other").is_none());
+    let other = SecretKey::generate().public();
+    link.publish(|served| {
+        served.gateways.insert(repo(), other);
+    });
+    assert!(cards_of(&link, "org/repo").is_none());
+}
+
+#[tokio::test]
+async fn a_change_of_the_cards_rings_the_topic_of_its_project() {
+    use beep_proto::node::events::{TEAM_CARDS_TOPIC, Topic};
+
+    // A project of its own: other tests ring the shared hub too.
+    let link = acting_link("org/rung").await;
+    let ours = Topic::keyed(TEAM_CARDS_TOPIC, "org/rung");
+    let mut changes = crate::events::system().subscribe();
+
+    let rung = |changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>| {
+        std::iter::from_fn(|| changes.try_recv().ok()).any(|change| change.topic == ours)
+    };
+    // The gateway elected itself above; what is rung since is what follows.
+    while changes.try_recv().is_ok() {}
+
+    link.dismiss_card(&repo(), "ask:a1");
+    assert!(rung(&mut changes), "a dismissed card");
+
+    link.publish(|served| {
+        served.boards.set(&repo(), Vec::new());
+    });
+    assert!(rung(&mut changes), "a changed board");
+}

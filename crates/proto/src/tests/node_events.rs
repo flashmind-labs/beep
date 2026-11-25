@@ -143,3 +143,23 @@ fn a_known_request_reads_and_garbage_fails() {
     );
     assert!(Incoming::read(&[0xc1]).is_err());
 }
+
+#[test]
+fn team_cards_ride_a_snapshot_after_the_values_before_them() {
+    use crate::node::tools::TeamCards;
+
+    for value in [
+        Value::ToolUpdates(Vec::new()),
+        Value::TeamCards(TeamCards::default()),
+    ] {
+        let reply = Reply::Snapshot(Box::new(Snapshot {
+            topic: Topic::keyed(TEAM_CARDS_TOPIC, "org/repo"),
+            query: None,
+            revision: 3,
+            value,
+        }));
+        let bytes = rmp_serde::to_vec(&reply).unwrap();
+
+        assert_eq!(crate::lenient::from_slice::<Reply>(&bytes).unwrap(), reply);
+    }
+}
