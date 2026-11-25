@@ -1,6 +1,7 @@
 import type { LiveMode } from "./projectlive.ts";
 import { formatAgo } from "../ui/format.ts";
-import { going, hostCounts, hostLabel, progressText, runChip, runKey, runsCount, runSpan, type RunDetail, type RunRow, type RunsRow } from "./runs.tsx";
+import type { RunDetail, RunRow, RunsRow } from "./runs.tsx";
+import { going, hostCounts, hostLabel, progressText, runChip, runKey, runsCount, runSpan } from "./runs-state.ts";
 import { Button, EmptyPanel, onRowKey, SectionHead, Spinner } from "../ui/kit.tsx";
 import { AgentButton, type AgentButtonItem } from "../review/feedback-view.tsx";
 

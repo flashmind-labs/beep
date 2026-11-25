@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { hasUsage, harnessCost, harnessName, modelTotals, pillPlans, resetName, showsDollars, todayLine, windowUsed } from "../src/center/usage.tsx";
+import { hasUsage, harnessCost, harnessName, modelTotals, pillPlans, resetName, showsDollars, todayLine, windowUsed } from "../src/center/usage-state.ts";
 import { creditAmount, creditScope } from "../src/ui/credits.ts";
 import { tokenCount } from "../src/ui/format.ts";
 

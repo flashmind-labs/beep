@@ -14,13 +14,13 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { ProjectRef } from "./localid.ts";
 import type { BarTarget } from "./projectbar.ts";
 import { baseFor, type BaseBranches } from "../agents/agentpick.ts";
-import { plural, reason } from "../ui/format.ts";
+import { reason } from "../ui/format.ts";
 import { fence } from "./gitsync-state.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 import {
-  Bounded, DetailCache, HOVER_MS, ahead, detailDue, detailKey, going, limited, runKey,
+  Bounded, DetailCache, HOVER_MS, ahead, detailDue, detailKey, going, hostLabel, limited, runChip, runKey, runsCount,
 } from "./runs-state.ts";
 
 export { going, runKey };
@@ -35,7 +35,7 @@ interface StepNow {
 }
 
 /// Where a running run is (ProgressRow).
-interface RunProgress {
+export interface RunProgress {
   job: string;
   job_started_at: number | null;
   jobs_done: number;
@@ -46,7 +46,7 @@ interface RunProgress {
 
 /// `queued`, `waiting`, `running`, `passed`, `failed`, `cancelled`,
 /// `skipped` or `unknown`.
-type RunState = string;
+export type RunState = string;
 
 /// One workflow run (RunRow).
 export interface RunRow {
@@ -98,13 +98,6 @@ export interface RunsRow {
   hosts?: HostRow[];
 }
 
-/// "GitHub", or "Forgejo" for any other host.
-export function hostLabel(host: string | null | undefined, hosts: readonly Pick<HostRow, "host" | "kind">[] = []) {
-  const known = hosts.find(h => h.host === host);
-  if (known) return known.kind === "github" ? "GitHub" : "Forgejo";
-  return host === "github.com" ? "GitHub" : "Forgejo";
-}
-
 /// The board's Actions tile: the newest runs, a chip on each, and the
 /// host beside a run when the runs come from more than one.
 function runTile(d: Pick<RunsRow, "runs" | "hosts"> | undefined, error = ""): TileData {
@@ -119,20 +112,6 @@ function runTile(d: Pick<RunsRow, "runs" | "hosts"> | undefined, error = ""): Ti
     }),
     empty: "No workflow runs yet",
   };
-}
-
-/// The Actions heading's line per host when runs come from more than one:
-/// "GitHub: 1 running · 1 failed", or the host's error.
-export function hostCounts(d: Pick<RunsRow, "runs" | "hosts">) {
-  const hosts = d.hosts ?? [];
-  if (hosts.length < 2) return [];
-  return hosts.map(h => {
-    const name = hostLabel(h.host, hosts);
-    if (h.error) return { text: `${name}: ${h.error}`, error: true, host: h.host };
-    const count = runsCount(d.runs.filter(r => r.host === h.host));
-    const ran = d.runs.filter(r => r.host === h.host).length;
-    return { text: `${name}: ${count || (ran ? plural(ran, "run", "runs") : "no runs")}`, error: false, host: h.host };
-  });
 }
 
 interface RunStepRow {
@@ -167,54 +146,6 @@ export interface RunDetail {
   log: RunLogRow | null;
   error: string | null;
   rate_limited_until: number | null;
-}
-
-/// "48s", "3m 12s", "1h 4m": how long `ms` milliseconds is.
-function span(ms: number) {
-  const s = Math.max(0, Math.floor(ms / 1000));
-  if (s < 60) return `${s}s`;
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ${String(s % 60).padStart(2, "0")}s`;
-  return `${Math.floor(m / 60)}h ${m % 60}m`;
-}
-
-/// "Build, step 4 of 9: Run tests, 3m 12s", or with no steps from the host
-/// "Build, job 2 of 3, 1m 05s".
-export function progressText(p: RunProgress, now = Date.now()) {
-  if (p.step) {
-    const at = p.step.started_at ?? p.job_started_at;
-    return `${p.job}, step ${p.step.number} of ${p.step.of}: ${p.step.name}${at ? `, ${span(now - at)}` : ""}`;
-  }
-
-  const at = p.job_started_at;
-  return `${p.job}, job ${Math.min(p.jobs_done + 1, p.jobs)} of ${p.jobs}${at ? `, ${span(now - at)}` : ""}`;
-}
-
-/// How long a run took, or has run so far; "" when it never started.
-export function runSpan(r: Pick<RunRow, "started_at" | "finished_at">, now = Date.now()) {
-  if (!r.started_at) return "";
-  return span((r.finished_at ?? now) - r.started_at);
-}
-
-/// A state's chip: its class, its word and whether it spins.
-export function runChip(state: RunState): { cls: string; text: string; spin: boolean } {
-  switch (state) {
-    case "running": return { cls: "running", text: "running", spin: true };
-    case "queued": return { cls: "", text: "queued", spin: false };
-    case "waiting": return { cls: "blocked", text: "waiting", spin: false };
-    case "passed": return { cls: "done", text: "passed", spin: false };
-    case "failed": return { cls: "blocked", text: "failed", spin: false };
-    case "cancelled": return { cls: "", text: "cancelled", spin: false };
-    case "skipped": return { cls: "", text: "skipped", spin: false };
-    default: return { cls: "", text: state || "unknown", spin: false };
-  }
-}
-
-/// The Actions heading's count: "1 running · 2 failed".
-export function runsCount(runs: readonly Pick<RunRow, "state">[]) {
-  const running = runs.filter(r => going(r.state)).length;
-  const failed = runs.filter(r => r.state === "failed").length;
-  return [running ? `${running} running` : "", failed ? `${failed} failed` : ""].filter(Boolean).join(" · ");
 }
 
 /// The failed job and step a run's jobs name, if any.

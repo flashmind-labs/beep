@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { fixPrompt, hostLabel, runKey, runTarget, type RunDetail, type RunJobRow, type RunRow } from "../src/project/runs.tsx";
+import { hostLabel } from "../src/project/runs-state.ts";
+import { fixPrompt, runKey, runTarget, type RunDetail, type RunJobRow, type RunRow } from "../src/project/runs.tsx";
 import { targetCheckout, targetPlan } from "../src/project/projectbar.ts";
 
 const NOW = 1_800_000_000_000;

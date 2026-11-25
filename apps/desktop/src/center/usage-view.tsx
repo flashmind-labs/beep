@@ -5,7 +5,7 @@ import { creditAmount, creditScope, providerName } from "../ui/credits.ts";
 import { harnessMark, providerMark } from "../ui/icons.tsx";
 import { money, tokenCount } from "../ui/format.ts";
 import { useDialogRef } from "../ui/parts.tsx";
-import { asOf, FIVE_HOURS, harnessCost, harnessName, modelTotals, PERIODS, pillPlans, planName, resetName, shortName, showsDollars, todayLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageTableRow, type UsageView } from "./usage.tsx";
+import { asOf, FIVE_HOURS, harnessCost, harnessName, modelTotals, PERIODS, pillPlans, planName, resetName, shortName, showsDollars, todayLine, WARN_USED, windowName, windowUsed, type PeriodKey, type PlanLimits, type UsageTableRow, type UsageView } from "./usage-state.ts";
 
 function Bar({ used }: { used: number }) { return <span className="bar"><i className={used > WARN_USED ? "warn" : ""} style={{ width: `${used}%` }} /></span>; }
 /// A harness's mark, else its short name: never a letter tile.
