@@ -1113,6 +1113,31 @@ pub(crate) async fn harnesses(
     Ok(harnesses_view(fleet, machine, report))
 }
 
+/// The harnesses of each machine online, as `agent_harnesses` gives them without a refresh,
+/// for the accounts view to push.
+pub(crate) async fn harness_views(fleet: &std::sync::Arc<Fleet>) -> Vec<super::event_views::View> {
+    use super::event_views::View;
+
+    let reads = fleet.online().into_iter().map(|machine| async move {
+        let args = serde_json::json!({ "machineId": machine.to_string() });
+
+        match harnesses(fleet, machine, false).await {
+            Ok(list) => View::new("agent_harnesses", args, list),
+            Err(error) => Some(View::failed(
+                "agent_harnesses",
+                args,
+                &crate::settings::credentials::plain(error).to_string(),
+            )),
+        }
+    });
+
+    futures::future::join_all(reads)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
 /// Installs or updates `agent` on a machine.
 pub(crate) async fn update_harness(
     fleet: &Fleet,

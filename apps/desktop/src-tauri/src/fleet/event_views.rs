@@ -553,6 +553,7 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 "agent_accounts",
                 crate::agents::accounts::agent_accounts(app.state()).await,
             );
+            views.extend(crate::fleet::agents::harness_views(&app.state::<Arc<Fleet>>()).await);
         }
         _ => {}
     }
