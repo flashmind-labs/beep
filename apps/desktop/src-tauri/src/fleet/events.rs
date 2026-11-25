@@ -298,7 +298,7 @@ impl Registry {
     fn receiving(&self) -> impl Iterator<Item = &Window> {
         self.windows
             .iter()
-            .filter(|(label, window)| label.as_str() != STANDING && window.demands(self.grace))
+            .filter(|(label, window)| !standing(label) && window.demands(self.grace))
             .map(|(_, window)| window)
     }
 
@@ -793,19 +793,38 @@ impl Events {
     /// A standing interest in `topics` that no window owns, so it is never paused: the nodes keep
     /// pushing them while every window is hidden, until the returned reader is dropped.
     #[cfg(desktop)]
-    pub(crate) fn hold(&self, topics: Vec<Interest>) -> Result<Reading<'_>> {
+    pub(crate) fn hold(&self, who: &str, topics: Vec<Interest>) -> Result<Reading<'_>> {
         let id = Uuid::new_v4();
+        let label = standing_label(who);
         self.registry
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .register(STANDING, id, topics, Arc::new(|_| true))?;
+            .register(&label, id, topics, Arc::new(|_| true))?;
         self.changed();
 
         Ok(Reading {
             events: self,
-            window: STANDING.to_owned(),
+            window: label,
             id,
         })
+    }
+
+    /// Replaces what `who` holds with `topics`; none ends it. Like `hold`, it keeps the streams
+    /// on and takes none of what they push.
+    #[cfg(desktop)]
+    pub(crate) fn hold_set(&self, who: &str, topics: Vec<Interest>) -> Result<()> {
+        let label = standing_label(who);
+        let mut registry = self.registry.lock().unwrap_or_else(PoisonError::into_inner);
+
+        if topics.is_empty() {
+            registry.windows.remove(&label);
+        } else {
+            registry.register(&label, Uuid::new_v4(), topics, Arc::new(|_| true))?;
+        }
+
+        drop(registry);
+        self.changed();
+        Ok(())
     }
 
     pub(crate) fn start(&self, app: AppHandle, fleet: Arc<Fleet>) {
@@ -1080,9 +1099,18 @@ impl Events {
     }
 }
 
-/// The registry label of the tray's standing interest, which no window can have.
+/// The start of the registry label of a standing interest, which no window can have.
+const STANDING: &str = "standing:";
+
 #[cfg(desktop)]
-const STANDING: &str = "tray-standing";
+fn standing_label(who: &str) -> String {
+    format!("{STANDING}{who}")
+}
+
+/// Whether `label` is a standing interest's, which keeps streams on and takes no updates.
+fn standing(label: &str) -> bool {
+    label.starts_with(STANDING)
+}
 
 pub(crate) struct Reading<'a> {
     events: &'a Events,

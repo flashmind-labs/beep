@@ -935,7 +935,7 @@ fn the_tray_keeps_the_agents_topic_subscribed_with_every_window_hidden_past_grac
     let id = Uuid::new_v4();
     let _window = heard_window(&events, "one", id, vec![interest("agents", None)]);
     events.registry.lock().unwrap().grace = Duration::ZERO;
-    let standing = events.hold(vec![interest("agents", None)]).unwrap();
+    let standing = events.hold("tray", vec![interest("agents", None)]).unwrap();
 
     assert!(events.pause("one", id, None).unwrap());
     events.changed();
@@ -949,10 +949,37 @@ fn the_tray_keeps_the_agents_topic_subscribed_with_every_window_hidden_past_grac
 }
 
 #[test]
+fn standing_interests_of_different_holders_stay_apart_and_a_replaced_one_changes_the_demand() {
+    let events = Events::default();
+    let _tray = events.hold("tray", vec![interest("agents", None)]).unwrap();
+    events
+        .hold_set("team", vec![interest("sync", None)])
+        .unwrap();
+    assert_eq!(
+        watched::read_sent(&events.demand, Clone::clone).len(),
+        2,
+        "each holder keeps its own interest"
+    );
+
+    events
+        .hold_set("team", vec![interest("moves", None)])
+        .unwrap();
+    assert!(watched::read_sent(&events.demand, |demand| {
+        demand.contains(&interest("moves", None)) && !demand.contains(&interest("sync", None))
+    }));
+
+    events.hold_set("team", Vec::new()).unwrap();
+    assert_eq!(
+        watched::read_sent(&events.demand, Clone::clone),
+        [interest("agents", None)]
+    );
+}
+
+#[test]
 fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
     let events = Events::default();
     let machine = iroh::SecretKey::generate().public();
-    let _standing = events.hold(vec![interest("agents", None)]).unwrap();
+    let _standing = events.hold("tray", vec![interest("agents", None)]).unwrap();
 
     assert!(!events.node_wanted(machine, &Topic::new("agents")));
     events.dispatch(Update {

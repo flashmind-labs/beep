@@ -150,10 +150,13 @@ pub async fn follow(app: AppHandle) {
     let events = app.state::<crate::fleet::events::Events>();
     #[cfg(desktop)]
     let _standing = events
-        .hold(vec![crate::fleet::events::Interest {
-            machine: None,
-            topic: beep_proto::node::events::Topic::new("agents"),
-        }])
+        .hold(
+            "tray",
+            vec![crate::fleet::events::Interest {
+                machine: None,
+                topic: beep_proto::node::events::Topic::new("agents"),
+            }],
+        )
         .inspect_err(|error| log::warn!("the tray cannot follow the sessions: {error}"));
     #[cfg(desktop)]
     events.start(app.clone(), fleet.clone());
