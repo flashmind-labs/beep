@@ -504,7 +504,13 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 tokio::join!(reads.read(app), reads.sessions(app), reads.moves(app));
             append(&mut views, "center_home", home);
             append(&mut views, "agent_sessions", sessions);
+            // How each recent move stands, as its target says, drawn again when it rings.
+            let progress = match &moves {
+                Ok(moves) => crate::agents::moving::progress_views(&app.state(), moves).await,
+                Err(_) => Vec::new(),
+            };
             append(&mut views, "session_moves", moves);
+            views.extend(progress);
         }
         "machines" => {
             append(

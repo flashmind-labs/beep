@@ -7,6 +7,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Machines, agents as direct,
+        event_views::View,
         projects::{FleetState, desk},
     },
 };
@@ -18,9 +19,15 @@ use beep_proto::{
 };
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::{
+    collections::HashMap,
+    sync::{Arc, LazyLock, Mutex, PoisonError},
+    time::SystemTime,
+};
 
 /// How the target says a move stands.
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct MoveProgressView {
     /// `known`, `unknown` (the target has heard of no such move) or `update`
     /// (the target is from before moves).
@@ -182,6 +189,75 @@ pub async fn session_move_probe(fleet: FleetState<'_>, machine_id: String) -> Re
 #[tauri::command]
 pub async fn session_move_cancel(fleet: FleetState<'_>, session: SessionId) -> Result<()> {
     Ok(desk(&fleet).await?.cancel_move(&session).await?)
+}
+
+/// Records older than this are not asked about.
+const RECENT_MS: u64 = 24 * 3600 * 1000;
+/// The most moves one view tells the progress of.
+const MAX_ASKED: usize = 8;
+
+/// The last answer of each move that ended, by session and record: it does not change again.
+static ENDED: LazyLock<Mutex<HashMap<(SessionId, u64), MoveProgressView>>> =
+    LazyLock::new(Mutex::default);
+
+/// How the target says each recent move of `moves` stands, as `session_move_progress` reads it,
+/// for the view beside the moves. The target's progress rings the `moves` topic that Home
+/// follows, which draws the view again.
+pub(crate) async fn progress_views(
+    session: &Arc<beep_fleet::Session>,
+    moves: &[MoveView],
+) -> Vec<View> {
+    let Ok(desk) = desk(session).await else {
+        return Vec::new();
+    };
+    let now = crate::beep::epoch_ms(SystemTime::now());
+    let mut recent: Vec<&MoveView> = moves
+        .iter()
+        .filter(|record| now.saturating_sub(record.at) < RECENT_MS)
+        .collect();
+    recent.sort_by_key(|record| std::cmp::Reverse(record.at));
+    recent.truncate(MAX_ASKED);
+    let desk = &desk;
+    let reads = recent.into_iter().map(|record| async move {
+        let args = json!({ "session": record.session });
+        let key = (record.session.clone(), record.at);
+
+        if let Some(ended) = ENDED
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&key)
+        {
+            return View::new("session_move_progress", args, ended);
+        }
+
+        match desk.move_state(&record.session).await {
+            Ok(state) => {
+                let progress = MoveProgressView::from(state);
+
+                if progress.answer == "known"
+                    && matches!(progress.phase, "done" | "failed" | "cancelled")
+                {
+                    ENDED
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .insert(key, progress.clone());
+                }
+
+                View::new("session_move_progress", args, progress)
+            }
+            Err(error) => Some(View::failed(
+                "session_move_progress",
+                args,
+                &error.to_string(),
+            )),
+        }
+    });
+
+    futures::future::join_all(reads)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 /// The moves in the mesh: the latest record of each session.
