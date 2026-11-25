@@ -2,7 +2,8 @@
 // agents when it lacks something.
 import { createDocumentScope } from "../ui/document-root.tsx";
 import { joinTicket } from "../machines/jointicket.tsx";
-import { buildCapabilities, invoke } from "../ui/tauri.ts";
+import { buildCapabilities } from "../ui/tauri.ts";
+import { ensureMachines, MACHINES, nextMachines } from "../machines/machine-store.ts";
 import { FirstRunScreen } from "./firstrun-view.tsx";
 import { setupRun, thisComputer } from "./firstrun-setup.ts";
 
@@ -17,15 +18,16 @@ function keep() {
 }
 
 /// Whether this Mac's mesh holds other machines. The list is empty until the mesh opens, so an
-/// empty one is asked again, for three seconds at most.
+/// empty one waits for the next `machines` push, for three seconds at most.
 async function linked() {
-  for (let tries = 0; tries < 30; tries++) {
-    const machines = await invoke<unknown[]>("list_machines").catch(e => { console.warn("listing machines:", e); return []; });
-    if (machines.length) return machines.length > 1;
-    await new Promise(done => setTimeout(done, 100));
+  let machines = await ensureMachines().catch(e => { console.warn("listing machines:", e); return []; });
+
+  if (!machines.length) {
+    await nextMachines(3000);
+    machines = MACHINES.list ?? [];
   }
 
-  return false;
+  return machines.length > 1;
 }
 
 /// Shows the first-run window over the app until it is answered. The choice is kept, so it shows
