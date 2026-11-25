@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   dmg:
-    runs-on: macos-26
+    runs-on: beep-mac
     permissions:
       contents: write
     env:
