@@ -482,9 +482,8 @@ function Invite({ project, repo, members }: { project: string; repo: string; mem
 
   return <><SectionHead title="Invite"/>
     <div className="tm-invite">
-      {code && <><div>Anyone with push access to <b>{repoPath(repo)}</b> can join with this code.</div>
-        <div className="tm-code"><span>{code.code}</span><CopyButton text={code.code} small/></div>
-        <div className="tm-note">{codeLife(code.at)}</div></>}
+      {code && <><div className="tm-code"><code title={code.code}>{code.code}</code><CopyButton text={code.code} small/></div>
+        <div className="tm-note">for anyone with push access to {repoPath(repo)} · {codeLife(code.at)}</div></>}
       {!!others.length && <><div className="tm-note">Or invite a contact:</div>
         <div className="tm-contacts">{others.map(contact => {
           const login = contact.logins[0]?.login ?? contact.mesh;

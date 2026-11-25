@@ -32,7 +32,7 @@ test("team page shows members and invite", async ({ page }) => {
   await expect(pane.getByRole("button", { name: "Allow back" })).toBeVisible();
 
   await pane.getByRole("button", { name: "Invite", exact: true }).click();
-  await expect(pane).toContainText("Anyone with push access to example/widget can join with this code.");
+  await expect(pane.locator(".tm-invite")).toContainText("for anyone with push access to example/widget");
   await expect(pane.locator(".tm-code")).toContainText("beepteam1abc");
   await expect(page.locator(".pj-strip button").filter({ hasText: "Team" })).toContainText("2 online");
 });
