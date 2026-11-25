@@ -1,8 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { ProjectRow, SessionRow } from "../src/project/projects-state.ts";
+import { plainPath } from "../src/project/filesync.ts";
 import { START, folderUnder, projectUnder, next, looksLikeRepo, progressText, doneText, cleanError } from "../src/addproject/importproject-state.ts";
-import { foundFor, mergeProjects, plainPath, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
+import { foundFor, mergeProjects, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/project/projects-state.ts";
 import { overviewGroups, overviewSub } from "../src/project/overview-state.ts";
 import type { RunningAgent } from "../src/agents/running-state.ts";
 

@@ -558,14 +558,6 @@ export function whereCount(rows: readonly Pick<WhereRow, "kind">[], known: boole
   return known && rows.length > n ? `${n} of ${plural(rows.length, "machine", "machines")}` : plural(n, "machine", "machines");
 }
 
-/// A Windows folder as the user knows it, without the `\\?\` prefix a
-/// resolved path carries; any other path as it is.
-export function plainPath(path: string): string {
-  if (path.startsWith("\\\\?\\UNC\\")) return "\\\\" + path.slice(8);
-  if (/^\\\\\?\\[A-Za-z]:/.test(path)) return path.slice(4);
-  return path;
-}
-
 /// A project's visible name, including rows from older cached responses.
 export function projectName(project: { name: string; display_name?: string | null }): string {
   return project.display_name ?? project.name;

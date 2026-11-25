@@ -13,7 +13,7 @@ import { reason } from "../ui/format.ts";
 import { projectsIn } from "../addproject/importproject.tsx";
 import { browseStart, copyLine, offers, shortName, type CopyLine, type FolderOffer } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
-import { plainPath } from "./projects-state.ts";
+import { plainPath } from "./filesync.ts";
 import type { SyncthingFiles } from "./syncthing.ts";
 
 /// What the page hands the sheet.

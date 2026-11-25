@@ -6,7 +6,8 @@ import { confirmSheet, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
 import { removeBlock, workingIn } from "./removemachine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
-import { plainPath, type WhereRow } from "./projects-state.ts";
+import { plainPath } from "./filesync.ts";
+import type { WhereRow } from "./projects-state.ts";
 
 /// Why `m` cannot leave `project` now, or null.
 export function blocked(project: string, rows: readonly WhereRow[], m: WhereRow) {

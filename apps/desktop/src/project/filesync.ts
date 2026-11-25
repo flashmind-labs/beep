@@ -10,7 +10,6 @@ import { bytes, plural, reason } from "../ui/format.ts";
 import { diffView, type DiffViewHandle } from "../review/diff.tsx";
 import { compareFiles } from "./compare.ts";
 import { loadClocks } from "../machines/clock.ts";
-import { plainPath } from "./projects-state.ts";
 import { onPhone } from "../ui/platform.ts";
 
 /// How far a machine is through what it brings in line now (ProgressRow).
@@ -518,4 +517,12 @@ export function mergeSyncRows(before: SyncRow[], after: SyncRow[]): { rows: Sync
   for (const gone of old.values()) changed.add(gone.project);
   const reordered = rows.some((r, i) => r !== before[i]) || rows.length !== before.length;
   return { rows: reordered ? rows : before, changed };
+}
+
+/// A Windows folder as the user knows it, without the `\\?\` prefix a
+/// resolved path carries; any other path as it is.
+export function plainPath(path: string): string {
+  if (path.startsWith("\\\\?\\UNC\\")) return "\\\\" + path.slice(8);
+  if (/^\\\\\?\\[A-Za-z]:/.test(path)) return path.slice(4);
+  return path;
 }

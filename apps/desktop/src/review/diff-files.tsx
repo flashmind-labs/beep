@@ -22,7 +22,7 @@ import {
 import { CH, CHUNK, GAP, MARGIN, type Viewer, indexOf, reasonOf, remember, say, selected, shown } from "./diff-viewer.ts";
 import { commentKey, openEditor } from "./diff-comments.ts";
 import { markCurrent, sizeOf, toggle } from "./diff-keys.ts";
-import { editContext, loadFull } from "./diff.tsx";
+import { editContext, loadFull } from "./diff-load.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 
 type CssVars = CSSProperties & Record<`--${string}`, string>;

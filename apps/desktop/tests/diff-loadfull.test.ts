@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { loadFull } from "../src/review/diff.tsx";
+import { loadFull } from "../src/review/diff-load.ts";
 
 test("a failed read of a left-out file leaves it folded and says why", async () => {
   const file = { path: "big.txt", old_path: null, status: "modified", additions: 0, deletions: 0, left_out: "too large", hunks: [] };

@@ -9,7 +9,8 @@ import { moveStore } from "../agents/move-store.ts";
 // project, and a picked project's detail sections.
 import { sessionVisible } from "../agents/closing.ts";
 import { formatAgo, plural } from "../ui/format.ts";
-import { projectRunning, whereRows, whereCount, syncedBy, type Project, plainPath, type WhereRow } from "./projects-state.ts";
+import { projectRunning, whereRows, whereCount, syncedBy, type Project, type WhereRow } from "./projects-state.ts";
+import { plainPath } from "./filesync.ts";
 import { projectActivity, projectSortTime, overviewGroups, type ProjectSort } from "./overview-state.ts";
 import { makeCustomAgents } from "./customagents.tsx";
 import { type AgentsPlace, type CustomAgentRow, agentPrompt, agentsPlace } from "./customagents-state.ts";
