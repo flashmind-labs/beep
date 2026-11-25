@@ -1,18 +1,16 @@
 //! Apply saved repository renames locally, including after an offline machine returns.
 
 use anyhow::{Context, Result, ensure};
-use beep_mesh::Mesh;
 use beep_projects::imports::repo::renamed_remote;
-use beep_proto::node::mesh_state::RemoteRename;
-use iroh::EndpointId;
+use beep_proto::node::mesh_state::{Place, ProjectRecord, RemoteRename};
 use std::path::Path;
 use tokio::{
     process::Command,
     time::{Duration, timeout},
 };
 
-pub(super) async fn apply(mesh: &Mesh, me: EndpointId) {
-    for (_, record, place) in super::from_mesh::placed_projects(mesh, me) {
+pub(super) async fn apply(placed: impl Iterator<Item = (String, ProjectRecord, Place)>) {
+    for (_, record, place) in placed {
         if record.remote_renames.is_empty() {
             continue;
         }

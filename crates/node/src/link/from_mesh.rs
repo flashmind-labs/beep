@@ -81,7 +81,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
         let _events = AbortOnDropHandle::new(tokio::spawn(syncthing_events(syncthing_moved.clone())));
 
         loop {
-            super::project_remotes::apply(&preferences_mesh, me).await;
+            super::project_remotes::apply(placed_projects(&preferences_mesh, me)).await;
             apply_syncthing(&preferences_mesh, me, &preferences_offers).await;
             tokio::select! {
                 change = changes.recv() => if matches!(change, Err(RecvError::Closed)) { return; },
