@@ -176,6 +176,8 @@ pub fn run() {
                 app.state::<agents::follow::Follows>().clear(label);
                 app.state::<fleet::events::Events>().clear(label);
                 app.state::<projects::live::Followed>().clear(label);
+                app.state::<projects::team_live::TeamLive>()
+                    .clear(app, label);
                 app.state::<fleet::session_lists::SessionLists>()
                     .closed(label);
                 app.state::<machines::terminals::Attached>().clear(label);
@@ -851,6 +853,7 @@ fn setup(
         .follow(mirror.watch());
     app.manage(Arc::new(mirror));
     app.manage(projects::live::Followed::default());
+    app.manage(projects::team_live::TeamLive::default());
     app.manage(settings::gh_sign_in::GhSignIn::default());
     app.manage(agents::accounts::ClaudeSignIn::default());
     app.manage(platform::update::Updates::default());

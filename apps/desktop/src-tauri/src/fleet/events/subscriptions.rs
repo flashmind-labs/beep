@@ -181,6 +181,8 @@ impl SubscriptionWorker {
                                 tool_updates_heard(app, fleet, machine, Some(&snapshot.value));
                             }
 
+                            team_heard(app, machine, &snapshot.topic, Some(&snapshot.value));
+
                             if let events::Value::Resources(resources) = &snapshot.value {
                                 app.state::<Events>().resources(machine, &snapshot.topic, resources);
                             }
@@ -208,6 +210,7 @@ impl SubscriptionWorker {
                                 tool_updates_heard(app, fleet, machine, None);
                             }
                             invalidate(app, machine, &topic, None);
+                            team_heard(app, machine, &topic, None);
 
                             if machine == fleet.me || matches!(topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync") {
                                 super::super::event_views::failed(app, &topic, &reason);
@@ -225,6 +228,25 @@ impl SubscriptionWorker {
                 }
             }
         }
+    }
+}
+
+/// A node answered on a team topic: the team pages hear it.
+fn team_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
+    use crate::projects::team_live::{Heard, cards_heard, invites_heard};
+
+    match topic.name() {
+        events::TEAM_CARDS_TOPIC => {
+            if let Some(heard) = Heard::of(value) {
+                cards_heard(app, machine, topic, heard);
+            }
+        }
+        events::TEAM_INVITES_TOPIC => {
+            if let Some(events::Value::TeamInvites(invites)) = value {
+                invites_heard(app, invites.clone());
+            }
+        }
+        _ => {}
     }
 }
 

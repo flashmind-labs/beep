@@ -16,6 +16,7 @@ pub(crate) mod live;
 pub(crate) mod page;
 pub(crate) mod runs;
 pub(crate) mod team;
+pub(crate) mod team_live;
 pub(crate) mod threads;
 
 pub(crate) use list::ProjectRow;

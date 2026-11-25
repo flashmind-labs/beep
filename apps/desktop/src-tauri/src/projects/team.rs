@@ -2,6 +2,7 @@
 //! board's Needs you and teammates' cards, contacts and their invites, and
 //! assigning issues.
 
+use super::team_live::TeamLive;
 use crate::{
     beep::epoch_ms,
     error::{DesktopError, Result},
@@ -20,11 +21,11 @@ use beep_proto::{
 use iroh::EndpointId;
 use serde::Serialize;
 use std::str::FromStr;
-use tauri::State;
+use tauri::{AppHandle, Manager, State, WebviewWindow};
 use uuid::Uuid;
 
 /// A project's team as the Team page shows it.
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct TeamView {
     repo: String,
     /// This mesh's login on the team; `None` while it is not on it.
@@ -37,7 +38,7 @@ pub struct TeamView {
     removed: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 struct MemberView {
     login: String,
     mesh: String,
@@ -74,7 +75,7 @@ impl TeamView {
 }
 
 /// A card on a team's board.
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 struct CardView {
     id: String,
     title: String,
@@ -104,7 +105,7 @@ impl From<Card> for CardView {
 }
 
 /// The cards a project's board adds for its team.
-#[derive(Debug, Serialize)]
+#[derive(Debug, PartialEq, Serialize)]
 pub struct TeamCardsView {
     /// Asks for the user, and automatic sessions that ended without a pull request.
     needs_you: Vec<CardView>,
@@ -113,6 +114,17 @@ pub struct TeamCardsView {
     own_queued: Vec<CardView>,
     /// The teammates whose board the mesh follows now, cards or none.
     online: Vec<String>,
+}
+
+impl From<TeamCards> for TeamCardsView {
+    fn from(cards: TeamCards) -> Self {
+        Self {
+            needs_you: cards.needs_you.into_iter().map(CardView::from).collect(),
+            teammates: cards.teammates.into_iter().map(CardView::from).collect(),
+            own_queued: cards.own_queued.into_iter().map(CardView::from).collect(),
+            online: cards.online.iter().map(ToString::to_string).collect(),
+        }
+    }
 }
 
 /// A person of another mesh on the user's teams.
@@ -157,12 +169,25 @@ pub struct InviteView {
 }
 
 #[tauri::command]
-pub async fn team_record(fleet: FleetState<'_>, project_id: Uuid) -> Result<Option<TeamView>> {
+pub async fn team_record(
+    app: AppHandle,
+    window: WebviewWindow,
+    fleet: FleetState<'_>,
+    project_id: Uuid,
+) -> Result<Option<TeamView>> {
     let (desk, name) = named(&fleet, project_id).await?;
+    app.state::<TeamLive>()
+        .follow(&app, window.label(), project_id, &name);
+
+    Ok(team_view(&desk, &name)?)
+}
+
+/// `name`'s team as the Team page shows it.
+pub(crate) fn team_view(desk: &Desk, name: &str) -> beep_fleet::Result<Option<TeamView>> {
     let own = desk.mesh_id();
 
     Ok(desk
-        .team_record(&name)?
+        .team_record(name)?
         .map(|record| TeamView::of(record, own)))
 }
 
@@ -397,21 +422,17 @@ pub async fn issue_assign(
 }
 
 #[tauri::command]
-pub async fn team_cards(fleet: FleetState<'_>, project_id: Uuid) -> Result<TeamCardsView> {
+pub async fn team_cards(
+    app: AppHandle,
+    window: WebviewWindow,
+    fleet: FleetState<'_>,
+    project_id: Uuid,
+) -> Result<TeamCardsView> {
     let (desk, name) = named(&fleet, project_id).await?;
-    let TeamCards {
-        needs_you,
-        teammates,
-        own_queued,
-        online,
-    } = desk.team_cards(&name).await?;
+    app.state::<TeamLive>()
+        .follow(&app, window.label(), project_id, &name);
 
-    Ok(TeamCardsView {
-        needs_you: needs_you.into_iter().map(CardView::from).collect(),
-        teammates: teammates.into_iter().map(CardView::from).collect(),
-        own_queued: own_queued.into_iter().map(CardView::from).collect(),
-        online: online.iter().map(ToString::to_string).collect(),
-    })
+    Ok(desk.team_cards(&name).await?.into())
 }
 
 /// Drops a Needs you card of the project's team.
@@ -423,12 +444,22 @@ pub async fn team_dismiss(fleet: FleetState<'_>, project_id: Uuid, card: String)
 }
 
 #[tauri::command]
-pub async fn team_invites(fleet: FleetState<'_>) -> Result<Vec<InviteView>> {
+pub async fn team_invites(
+    app: AppHandle,
+    window: WebviewWindow,
+    fleet: FleetState<'_>,
+) -> Result<Vec<InviteView>> {
     let desk = desk(&fleet).await?;
-    let contacts = desk.contacts();
-    let invites = desk.team_invites().await?;
+    app.state::<TeamLive>().follow_invites(&app, window.label());
 
-    Ok(invites
+    Ok(invite_views(&desk, desk.team_invites().await?))
+}
+
+/// The invites as the window shows them, with a login the contact is known by.
+pub(crate) fn invite_views(desk: &Desk, invites: Vec<TeamInviteArgs>) -> Vec<InviteView> {
+    let contacts = desk.contacts();
+
+    invites
         .into_iter()
         .map(|invite| {
             let contact = contacts.iter().find(|contact| contact.mesh == invite.from);
@@ -441,7 +472,7 @@ pub async fn team_invites(fleet: FleetState<'_>) -> Result<Vec<InviteView>> {
                 ticket: invite.ticket,
             }
         })
-        .collect())
+        .collect()
 }
 
 /// Drops a contact's invite, once accepted or declined.
