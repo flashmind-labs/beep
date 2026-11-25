@@ -12,16 +12,16 @@ use crate::{
         Fleet,
         projects::{FleetState, desk},
         session_lists::SessionRow,
-        session_mirror::SessionMirror,
+        session_mirror::{Rows, SessionMirror},
     },
     projects::ProjectRow,
 };
-use beep_proto::SessionId;
 use beep_proto::node::agent::LineChanges;
 use beep_proto::{
     AgentNoticeKey, AgentQuestion, AgentStatus, ApiError, ImportedProject, Machine, MachineApp,
     MachineDetails, MachineDisk, MachineEnv, MachineGpu, MachineSession, MachineStats,
 };
+use beep_proto::{SessionId, watched};
 use futures::{
     FutureExt,
     future::{BoxFuture, Shared},
@@ -35,7 +35,7 @@ use std::{
     time::Duration,
 };
 use tauri::{AppHandle, Manager, State, WebviewWindow};
-use tokio::join;
+use tokio::{join, sync::watch, time::timeout};
 
 /// How long Home waits for the first machine's rows when it has none.
 const WAIT: Duration = Duration::from_millis(1500);
@@ -196,9 +196,10 @@ type Reading = Shared<BoxFuture<'static, std::result::Result<Arc<HomeView>, Arc<
 
 /// The Home read under way. At start the mesh view prime and the window both ask for Home;
 /// they share one read, which lists every machine once.
-#[derive(Default)]
 pub(crate) struct HomeReads {
     flight: Mutex<Flight>,
+    /// The mirror's rows, as it pushes them.
+    rows: watch::Receiver<Arc<Rows>>,
 }
 
 #[derive(Default)]
@@ -208,6 +209,13 @@ struct Flight {
 }
 
 impl HomeReads {
+    pub(crate) fn new(rows: watch::Receiver<Arc<Rows>>) -> Self {
+        Self {
+            flight: Mutex::default(),
+            rows,
+        }
+    }
+
     fn flight(&self) -> MutexGuard<'_, Flight> {
         super::lock(&self.flight)
     }
@@ -234,8 +242,9 @@ impl HomeReads {
                     let id = flight.next;
                     flight.next += 1;
                     let app = app.clone();
+                    let rows = self.rows.clone();
                     let reading = tauri::async_runtime::spawn(async move {
-                        let home = read_home(&app).await;
+                        let home = read_home(&app, rows).await;
                         app.state::<HomeReads>().finished(id);
                         home.map(Arc::new)
                             .map_err(|e| Arc::<str>::from(e.to_string()))
@@ -282,7 +291,7 @@ impl Serialize for SharedHome {
     }
 }
 
-async fn read_home(app: &AppHandle) -> Result<HomeView> {
+async fn read_home(app: &AppHandle, mut rows: watch::Receiver<Arc<Rows>>) -> Result<HomeView> {
     let fleet = app.state::<Arc<Fleet>>();
     let cache = app.state::<Arc<ViewCache>>();
     let session: FleetState<'_> = app.state();
@@ -295,11 +304,12 @@ async fn read_home(app: &AppHandle) -> Result<HomeView> {
         log::debug!("Home without the mesh: {e}");
     }
 
-    let mirror = app.state::<Arc<SessionMirror>>();
-    let (rows, projects) = join!(
-        mirror.rows_when(|rows| !rows.is_empty(), WAIT),
+    app.state::<Arc<SessionMirror>>().list_now();
+    let (_, projects) = join!(
+        timeout(WAIT, watched::wait_for(&mut rows, |rows| !rows.is_empty())),
         mesh_imports(&fleet, &session),
     );
+    let rows = watched::read(&rows, Arc::clone);
     let sessions = Ok(overlaid(app, &fleet, &rows));
     let status = fleet.status();
     let mut view = home_view(HomeParts {

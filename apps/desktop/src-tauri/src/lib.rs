@@ -883,7 +883,10 @@ fn setup(
     app.manage(fleet::event_views::Views::new(
         app.state::<fleet::events::Events>().wants(),
     ));
-    app.manage(center::home::HomeReads::default());
+    app.manage(center::home::HomeReads::new(
+        app.state::<Arc<fleet::session_mirror::SessionMirror>>()
+            .watch(),
+    ));
     // What it applies is managed above: a change handled before that would panic it.
     tauri::async_runtime::spawn(fleet::event_views::follow_changes(handle.clone(), changes));
     fleet::event_views::listen(&handle);

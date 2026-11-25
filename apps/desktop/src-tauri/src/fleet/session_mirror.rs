@@ -408,13 +408,18 @@ impl SessionMirror {
         self.current()
     }
 
+    /// Has the mirror list the machines that are due, as a reader that wants rows does.
+    pub(crate) fn list_now(&self) {
+        let _ = self.inbox.try_send(Message::Read);
+    }
+
     /// As `rows`, once `ready` holds of them or `wait` has passed.
     pub(crate) async fn rows_when(
         &self,
         ready: impl Fn(&Rows) -> bool,
         wait: Duration,
     ) -> Arc<Rows> {
-        let _ = self.inbox.try_send(Message::Read);
+        self.list_now();
         let mut rows = self.rows.clone();
 
         // Either way the rows now are the answer.
