@@ -514,6 +514,19 @@ async fn a_simulator_changed_outside_beep_is_read_while_it_is_listed() {
 }
 
 #[tokio::test(start_paused = true)]
+async fn a_shut_down_simulator_is_never_read_on_a_timer() {
+    let follow = followed(vec![Device {
+        state: DeviceState::Off,
+        ..simulator()
+    }]);
+    follow.started().await;
+
+    tokio::time::sleep(SIMULATORS_EVERY * 20).await;
+
+    assert_eq!(follow.reads.load(Ordering::Relaxed), 1);
+}
+
+#[tokio::test(start_paused = true)]
 async fn nothing_is_read_once_nobody_follows() {
     let follow = followed(vec![device(DeviceState::Booting)]);
     follow.started().await;

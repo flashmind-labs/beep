@@ -135,8 +135,9 @@ pub(crate) async fn list() -> Vec<Device> {
 /// How often the list is read again while a device boots: the emulator says
 /// it is up to no one but its own port.
 const BOOTING_EVERY: Duration = Duration::from_secs(2);
-/// How often it is read again while an iOS simulator is listed, which
-/// changes outside Beep with no event.
+/// How often it is read again while an iOS simulator is booted or an iPhone
+/// is plugged in, which end outside Beep with no event. A shut-down simulator
+/// starts with a boot here, which rings `CHANGED`.
 const SIMULATORS_EVERY: Duration = Duration::from_secs(5);
 
 /// Rung when adb, or a boot or shutdown here, may have changed the list.
@@ -228,7 +229,12 @@ async fn following_list<Read, Reading>(
         let now = read().await;
         let every = [
             (now.iter().any(|device| device.state == DeviceState::Booting), BOOTING_EVERY),
-            (now.iter().any(|device| device.platform == Platform::Ios), SIMULATORS_EVERY),
+            (
+                now.iter().any(|device| {
+                    device.platform == Platform::Ios && (device.phone || device.state == DeviceState::On)
+                }),
+                SIMULATORS_EVERY,
+            ),
         ]
         .into_iter()
         .find_map(|(needed, every)| needed.then_some(every));
