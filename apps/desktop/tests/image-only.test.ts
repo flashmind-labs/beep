@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
 import { setView } from "../src/bar/core.ts";
-import { sendAgentMessage, steerMessage, stopAllWork } from "../src/agents/messages.ts";
+import { sendAgentMessage, steerMessage, stopAllWork, resumeEndedSession } from "../src/agents/messages.ts";
 import { MN, activateMentions, resetMentions, currentMentions } from "../src/agents/workdrop.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
 import { staysInline } from "../src/agents/images.tsx";
@@ -97,24 +97,36 @@ function pendingRead() {
   };
 }
 
-test("Send waits for files still being read, then hands them to the outbox with the words", async () => {
+const later = async () => { for (let i = 0; i < 6; i++) await new Promise(resolve => setImmediate(resolve)); };
+type Sent = { session: string; steer: { steer: { text: string; images?: unknown[] } }; attach?: { reading?: string; files: unknown[]; mentions: string[] } };
+const sentSteers = () => calls.filter(c => c.cmd === "agent_steer").map(c => c.args as Sent);
+const attached = () => calls.filter(c => c.cmd === "outbox_attach").map(c => c.args as { token: string; read: { text: string; images: unknown[]; files: { name: string }[]; mentions: string[] } });
+
+test("a message whose files are still read goes to the outbox at Enter with its words, and the files join it when read", async () => {
   openSession("idle");
-  answers.agent_steer = ["uploaded-image"];
+  answers.agent_steer = [];
   const read = pendingRead(), input = field();
   input.value = "Describe this";
-  const sending = sendAgentMessage();
-  assert.deepEqual(steers(), []);
+  await sendAgentMessage();
+  const [first] = sentSteers();
+  assert.equal(sentSteers().length, 1);
+  assert.equal(first.steer.steer.text, "Describe this");
+  assert.match(first.attach?.reading ?? "", /^read-/);
+  assert.deepEqual(first.attach?.files, []);
+  assert.equal(input.value, "");
+  assert.deepEqual(attached(), []);
+
   read.attach("attachment:1:report.txt");
   read.picture(png);
   read.finish();
-  await sending;
-  const sent = calls.filter(c => c.cmd === "agent_steer").map(c => c.args as { steer: { steer: { text: string; images: unknown[] } }; attach: unknown });
-  assert.equal(sent.length, 1);
+  await later();
+  const [done] = attached();
+  assert.equal(attached().length, 1);
+  assert.equal(done.token, first.attach?.reading);
   // The words alone: the outbox adds the mention once the file is on the machine.
-  assert.equal(sent[0].steer.steer.text, "Describe this");
-  assert.equal(sent[0].steer.steer.images.length, 1);
-  assert.deepEqual(sent[0].attach, { root: "", files: [{ name: "report.txt", mime: "text/plain", data: "bm90ZXM=" }], mentions: [] });
-  assert.equal(input.value, "");
+  assert.equal(done.read.text, "Describe this");
+  assert.equal(done.read.images.length, 1);
+  assert.deepEqual(done.read.files.map(file => file.name), ["report.txt"]);
   assert.deepEqual(MN.paths, []);
   assert.deepEqual(AG.att, []);
   assert.equal(calls.filter(c => c.cmd === "agent_tree_upload").length, 0);
@@ -133,31 +145,36 @@ test("Enter pressed again while a file is read takes neither the file nor an emp
   assert.equal(again, undefined);
   field().value = "Second";
   const second = sendAgentMessage();
+  await Promise.all([first, second]);
+  assert.deepEqual(sentSteers().map(call => call.steer.steer.text), ["First", "Second"]);
+  assert.match(sentSteers()[0].attach?.reading ?? "", /^read-/);
+  assert.equal(sentSteers()[1].attach, undefined);
+
   read.attach("attachment:7:report.txt");
   read.finish();
-  await Promise.all([first, second]);
-  const sent = calls.filter(call => call.cmd === "agent_steer").map(call => call.args as { steer: { steer: { text: string } }; attach?: { files: unknown[] } });
-  assert.deepEqual(sent.map(call => call.steer.steer.text), ["First", "Second"]);
-  assert.equal(sent[0].attach?.files.length, 1);
-  assert.equal(sent[1].attach, undefined);
-  assert.equal(JSON.stringify(sent).includes("attachment:"), false);
+  await later();
+  assert.equal(attached().length, 1);
+  assert.equal(attached()[0].read.files.length, 1);
+  assert.equal(JSON.stringify(sentSteers()).includes("attachment:"), false);
 });
 
-test("leaving the conversation while its files are read still sends the message there", async () => {
+test("leaving the conversation while its files are read still completes the message there", async () => {
   openSession("idle");
   const read = pendingRead();
   field().value = "Original session";
   const sending = sendAgentMessage();
-  read.attach("attachment:2:report.txt");
   AG.open = { machine_id: "m1", agent: "claude", session: "s2" };
   answers.agent_steer = [];
   field().value = "Other conversation";
-  read.finish();
   await sending;
-  const sends = calls.filter(call => call.cmd === "agent_steer");
-  assert.equal(sends.length, 1);
-  assert.equal((sends[0].args as { session: string }).session, "s1");
-  assert.equal((sends[0].args as { attach: { files: unknown[] } }).attach.files.length, 1);
+  assert.equal(sentSteers().length, 1);
+  assert.equal(sentSteers()[0].session, "s1");
+
+  read.attach("attachment:2:report.txt");
+  read.finish();
+  await later();
+  assert.equal(attached().length, 1);
+  assert.equal(attached()[0].read.files.length, 1);
   assert.equal(field().value, "Other conversation");
   assert.deepEqual(MN.paths, []);
 });
@@ -230,20 +247,31 @@ test("Stop all does not restore a steer delivered while the stop was pending", a
   assert.equal(input.value, "Next draft");
 });
 
-test("steers wait for the files being read too", async () => {
+test("steers go to the outbox at Enter while their files are read too", async () => {
   openSession("working");
-  answers.agent_steer = ["uploaded-image"];
+  answers.agent_steer = [];
   const read = pendingRead();
-  const sending = steerMessage(field());
-  assert.deepEqual(steers(), []);
+  await steerMessage(field());
+  assert.equal(steers().length, 1);
+  assert.match(sentSteers()[0].attach?.reading ?? "", /^read-/);
   read.attach("attachment:3:report.txt");
   read.picture(png);
   read.finish();
-  await sending;
-  assert.equal(steers().length, 1);
-  const sent = steers()[0] as { steer: { images: unknown[] } };
-  assert.equal(sent.steer.images.length, 1);
+  await later();
+  assert.equal(attached()[0].read.images.length, 1);
   clearTimeout(AG.timer);
+});
+
+test("the Resume menu item hands a resume with no words to the outbox, and the window waits for nothing", async () => {
+  openSession("idle");
+  answers.agent_steer = null;
+  resumeEndedSession(AG.open!, () => {});
+  await later();
+  const [sent] = sentSteers() as (Sent & { resume: unknown })[];
+  assert.equal(sentSteers().length, 1);
+  assert.deepEqual(sent.steer, { prompt: { text: "" } });
+  assert.deepEqual(sent.resume, { model: null, pick: null });
+  assert.equal(calls.filter(c => c.cmd === "agent_resume").length, 0);
 });
 
 test("only a small supported picture goes inline without a file copy", () => {

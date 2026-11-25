@@ -25,6 +25,9 @@ export interface Waiting {
   files?: { path: string; file: StashFile }[];
   /// The session's folder, where its files upload to.
   root?: string;
+  /// Set while its files are still being read: the outbox keeps the words under this token,
+  /// and `outbox_attach` completes the message.
+  reading?: string;
 }
 
 /// A message waiting on this device for its session's machine, as
@@ -35,7 +38,7 @@ export interface OutboxRow {
   text: string;
   /// The names of its images.
   images: string[];
-  state: "waiting" | "resuming" | "uploading" | "sending" | "sent" | "failed";
+  state: "waiting" | "reading" | "resuming" | "uploading" | "sending" | "sent" | "failed";
   /// Why the machine refused a failed one.
   reason: string | null;
   /// For a row the outbox just handed to the machine: the keys it gave the images.
@@ -46,6 +49,7 @@ export interface OutboxRow {
 export function outboxNote(row: OutboxRow) {
   switch (row.state) {
     case "waiting": return "waiting for connection";
+    case "reading": return "reading files";
     case "resuming": return "resuming";
     case "uploading": return "uploading";
     case "sending": return "sending";
@@ -58,7 +62,7 @@ export function outboxNote(row: OutboxRow) {
 /// What `agent_steer` takes for the files a message uploads before it goes:
 /// the files, which go to the machine behind the row, and the other paths it
 /// mentions. Null when it has no files.
-export interface Attach { root: string; files: { name: string; mime: string; data: string }[]; mentions: string[] }
+export interface Attach { root: string; files: { name: string; mime: string; data: string }[]; mentions: string[]; reading?: string }
 
 /// What an ended session needs before a message goes: it resumes, on `model`
 /// for Codex, and then takes `pick`.
@@ -67,7 +71,8 @@ export interface Resume { model: string | null; pick: { model: string | null; ef
 /// What `agent_steer` takes beside a message: its files, and the resume of an ended session.
 export interface Extras { attach?: Attach | null; resume?: Resume | null }
 
-export function attachOf({ paths, files = [], root = "" }: { paths: readonly string[]; files?: readonly { path: string; file: StashFile }[]; root?: string }): Attach | null {
+export function attachOf({ paths, files = [], root = "", reading }: { paths: readonly string[]; files?: readonly { path: string; file: StashFile }[]; root?: string; reading?: string }): Attach | null {
+  if (reading) return { root, files: [], mentions: [], reading };
   if (!files.length) return null;
   const uploaded = new Set(files.map(({ path }) => path));
 

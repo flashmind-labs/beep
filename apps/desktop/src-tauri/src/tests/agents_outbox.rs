@@ -28,6 +28,7 @@ fn draft(text: &str) -> Draft {
         mentions: Vec::new(),
         resume: None,
         seen: None,
+        reading: None,
     }
 }
 
@@ -250,20 +251,20 @@ async fn a_sent_message_stays_as_a_sent_row_until_a_push_of_its_session_lists_it
     // A push from before the machine took it, and one of another session, list nothing.
     assert!(
         outbox
-            .with(|held| held.listed(&key("s1"), &log(&[], 0, &[user("older")])))
+            .with(|held| held.settled(&key("s1"), &log(&[], 0, &[user("older")])))
             .is_none()
     );
     let queued = ["first".to_string()];
     assert!(
         outbox
-            .with(|held| held.listed(&key("s2"), &log(&queued, 0, &[])))
+            .with(|held| held.settled(&key("s2"), &log(&queued, 0, &[])))
             .is_none()
     );
     assert_eq!(texts(&outbox, "s1"), ["first"]);
 
     // The session's queue lists it: the row goes, in a change the windows hear.
     let changed = outbox
-        .with(|held| held.listed(&key("s1"), &log(&queued, 0, &[])))
+        .with(|held| held.settled(&key("s1"), &log(&queued, 0, &[])))
         .expect("the row goes");
     assert!(changed.rows.is_empty());
     assert!(texts(&outbox, "s1").is_empty());
@@ -282,7 +283,7 @@ async fn a_sent_message_a_push_listed_in_the_log_goes_too_and_stop_all_takes_bac
     assert_eq!(texts(&outbox, "s1"), ["one", "two", "three"]);
     // Delivered already: it is in the log, not in the queue.
     outbox
-        .with(|held| held.listed(&key("s1"), &log(&[], 0, &[user("two")])))
+        .with(|held| held.settled(&key("s1"), &log(&[], 0, &[user("two")])))
         .expect("the row goes");
     assert_eq!(texts(&outbox, "s1"), ["one", "three"]);
 
@@ -308,6 +309,99 @@ async fn sent_rows_go_when_the_machine_drops_its_steers() {
     assert!(changed.rows.is_empty());
     assert_eq!(texts(&outbox, "s2"), ["other"]);
     assert!(outbox.with(|held| held.dropped(&key("s1"))).is_none());
+}
+
+fn reading(text: &str, token: &str) -> Draft {
+    Draft {
+        reading: Some(token.into()),
+        ..draft(text)
+    }
+}
+
+fn read(text: &str, names: &[&str]) -> Read {
+    Read {
+        text: text.into(),
+        images: Vec::new(),
+        files: names.iter().map(|name| image(name)).collect(),
+        mentions: Vec::new(),
+        root: "/srv/project".into(),
+    }
+}
+
+#[tokio::test]
+async fn a_message_whose_files_are_read_is_kept_at_once_and_holds_back_those_behind_it() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), reading("with files", "t1")));
+    push(&outbox, "s1", "plain");
+    assert_eq!(texts(&outbox, "s1"), ["with files", "plain"]);
+    let rows = outbox.read(|held| held.rows(&key("s1")));
+    assert_eq!(rows[0].state, "reading");
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert!(
+        link.sent.is_empty(),
+        "nothing goes before the files are read"
+    );
+
+    let (changed, _, flusher) = outbox
+        .with(|held| held.attach("t1", read("with files", &["a.txt"])))
+        .expect("attached");
+    assert!(flusher);
+    assert_eq!(changed.rows[0].state, "waiting");
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(
+        link.events,
+        ["up:a.txt", "msg:with files\n\n@/cache/a.txt", "msg:plain"]
+    );
+}
+
+#[test]
+fn a_message_taken_while_its_files_are_read_cannot_be_completed_and_a_cancel_removes_it() {
+    let (_dir, _, outbox) = outbox();
+    let (id, _) = outbox.with(|held| held.push(&key("s1"), reading("a", "t1")));
+    outbox.with(|held| held.push(&key("s1"), reading("b", "t2")));
+    outbox.with(|held| held.take(id)).expect("taken");
+
+    assert!(
+        outbox
+            .with(|held| held.attach("t1", read("a", &[])))
+            .is_none()
+    );
+    assert!(outbox.with(|held| held.cancel("t2")).is_some());
+    assert!(texts(&outbox, "s1").is_empty());
+}
+
+#[test]
+fn a_message_still_reading_when_beep_quit_fails_with_its_words_kept() {
+    let (dir, kept, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), reading("my words", "t1")));
+    outbox.sync();
+    drop(outbox);
+
+    let again = Outbox::load(kept, dir.path().join("cache"));
+
+    let rows = again.read(|held| held.rows(&key("s1")));
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].state, "failed");
+    assert_eq!(rows[0].text, "my words");
+}
+
+#[tokio::test]
+async fn a_resume_with_no_words_resumes_and_applies_the_pick_and_sends_nothing() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), resuming("")));
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(link.resumed, 1);
+    assert!(link.sent.is_empty());
+    assert!(outbox.read(|held| held.rows(&key("s2"))).is_empty());
+    assert!(texts(&outbox, "s1").is_empty());
+    assert!(outbox.read(|held| held.rows(&key("s1"))).is_empty());
 }
 
 #[tokio::test]
@@ -468,6 +562,7 @@ fn kept(text: &str, images: &[&str], seen: Option<Seen>) -> Message {
         state: Stage::Waiting,
         unsure: true,
         seen,
+        reading: None,
     }
 }
 

@@ -28,8 +28,8 @@ async function keepFilesInOutbox(page: Page) {
     type Row = { id: number; how: string; text: string; images: string[]; state: string; reason: string | null };
     const invoke = window.__TAURI__.core.invoke;
     let rows: Row[] = [], next = 0, revision = 0;
-    const asked: { args: unknown }[] = [], order: string[] = [];
-    Object.assign(window, { __asked: asked, __order: order });
+    const asked: { args: unknown }[] = [], order: string[] = [], attached: unknown[] = [];
+    Object.assign(window, { __asked: asked, __order: order, __attached: attached });
     const changed = () => window.__navigation.emit("outbox-changed", { ...where, revision: ++revision, rows, sent: [] });
     Object.assign(window, { __rows: { set(update: (rows: Row[]) => Row[]) { rows = update(rows); changed(); } } });
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
@@ -39,9 +39,16 @@ async function keepFilesInOutbox(page: Page) {
 
       if (command === "agent_steer" && (args?.attach || args?.resume) && steer?.steer) {
         asked.push({ args });
-        rows = [...rows, { id: next++, how: "steer", text: steer.steer.text, images: [], state: args.resume ? "resuming" : "uploading", reason: null }];
+        rows = [...rows, { id: next++, how: "steer", text: steer.steer.text, images: [], state: args.resume ? "resuming" : (args.attach as { reading?: string }).reading ? "reading" : "uploading", reason: null }];
         changed();
         throw { kind: "waiting", message: "Waiting for the connection" };
+      }
+
+      if (command === "outbox_attach") {
+        attached.push(args);
+        rows = rows.map(row => row.state === "reading" ? { ...row, state: "uploading" } : row);
+        changed();
+        return true as T;
       }
 
       if (command === "outbox_list") return { revision, rows } as T;
@@ -128,11 +135,15 @@ test("Enter pressed again while a dropped file is read sends no junk message, an
   await page.locator("#agmsg").press("Enter");
   await page.locator("#agmsg").fill("Second");
   await page.locator("#agmsg").press("Enter");
-  expect(await calls(page, "agent_steer")).toEqual([]);
+  // The first is the outbox's from Enter, with its words, while its file is read.
+  await expect(page.locator(".ag-queue .it.out")).toHaveCount(1);
+  await expect(page.locator(".ag-queue .it.out")).toContainText("reading files");
+  await expect.poll(async () => (await calls(page, "agent_steer")).length).toBe(1);
+  expect(await page.evaluate(() => (window as unknown as { __attached: unknown[] }).__attached)).toEqual([]);
 
   await page.evaluate(() => (window as unknown as { __releaseRead(): void }).__releaseRead());
-  await expect(page.locator(".ag-queue .it.out")).toHaveCount(1);
-  await expect.poll(async () => (await calls(page, "agent_steer")).length).toBe(1);
+  await expect(page.locator(".ag-queue .it.out")).toContainText("uploading");
+  expect(await page.evaluate(() => (window as unknown as { __attached: unknown[] }).__attached)).toHaveLength(1);
   const withFile = await page.evaluate(() => (window as unknown as { __asked: { args: { steer: { steer: { text: string } } } }[] }).__asked);
   expect(withFile.map(call => call.args.steer.steer.text)).toEqual(["First"]);
   // The first reached the app before the second, which has no file.

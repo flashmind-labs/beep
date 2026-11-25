@@ -530,7 +530,7 @@ pub async fn agent_follow(
 
             // What the outbox showed as sent goes once this push lists it.
             if !view.session.external {
-                super::outbox::listed(
+                super::outbox::settled(
                     &app,
                     &followed,
                     &view.queued_messages,

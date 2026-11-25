@@ -14,7 +14,7 @@ import { withMentions } from "../agentpane/files-state.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { MN, attachReads, attachmentKey, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
-import { type AgentQuestion, type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
+import { type AgentQuestion, type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, isOpen, resumeAgent, setNote, turnRuns } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";
@@ -114,7 +114,7 @@ function resumeFor(o: OpenAgent): Resume {
 }
 
 /// What goes beside the message to `o`: its files, and the resume when its session ended.
-function extrasOf(o: OpenAgent, q: Pick<Waiting, "paths" | "files" | "root"> | null, ended: boolean): Extras {
+function extrasOf(o: OpenAgent, q: Pick<Waiting, "paths" | "files" | "root" | "reading"> | null, ended: boolean): Extras {
   return { attach: q ? attachOf(q) : null, resume: ended ? resumeFor(o) : null };
 }
 
@@ -143,6 +143,7 @@ export function steerMessage(input: HTMLTextAreaElement) {
 
 // A batch of files being read goes with exactly one message.
 const claimedReads = new WeakSet<object>();
+let readings = 0;
 // The latest message of each conversation, until its send has been handed to the app.
 const handing = new Map<string, Promise<void>>();
 
@@ -160,19 +161,41 @@ function submit(input: HTMLTextAreaElement | null, send: (draft: Waiting) => unk
   const before = handing.get(key);
   if (!before && !reads.length) return send(draft);
 
+  // The outbox keeps its words from here, with its place in the order; the files join it when read.
+  if (reads.length) draft.reading = `read-${++readings}`;
   let sending: unknown;
-  const handed = (before ?? Promise.resolve()).then(async () => {
-    if (reads.length) {
-      await Promise.all(reads.map(batch => batch.ready));
-      if (!await joinRead(draft, reads, state, o)) return;
-    }
-
+  const handed = (before ?? Promise.resolve()).then(() => {
     sending = send(draft);
+    if (reads.length) void completeRead(draft, reads, state, o);
   });
   const mine: Promise<void> = handed.catch(() => {}).then(() => { if (handing.get(key) === mine) handing.delete(key); });
   handing.set(key, mine);
 
   return handed.then(() => sending);
+}
+
+/// Completes the message the outbox holds under `draft.reading` once its files are read: what
+/// came in since, then the files and pictures with its final words. A message with nothing left
+/// is taken out again.
+async function completeRead(draft: Waiting, reads: ReturnType<typeof attachReads>, state: MentionState, session: OpenAgent | null) {
+  const token = draft.reading;
+  await Promise.all(reads.map(batch => batch.ready));
+
+  try {
+    if (!await joinRead(draft, reads, state, session)) return void await invoke("outbox_cancel", { token });
+    const files = draft.files ?? [], own = new Set(files.map(({ path }) => path));
+    await invoke("outbox_attach", {
+      token,
+      read: {
+        text: draft.text, root: draft.root ?? "",
+        images: draft.images.map(sentImage),
+        files: files.map(({ file: { name, mime, data } }) => ({ name, mime, data })),
+        mentions: draft.paths.filter(path => !own.has(path)),
+      },
+    });
+  } catch (e) {
+    console.warn("completing a message:", e);
+  }
 }
 
 /// Adds what `reads` attached since the message was taken from its conversation
@@ -472,18 +495,20 @@ export async function sendPrompt(text: string) {
   return ok ? "" : AG.note || "Could not send the review.";
 }
 
-/// Resumes with the composer's selection. Older nodes still need the configure order.
-export async function resumeEndedSession(session: OpenAgent): Promise<Started> {
-  const pick = resumePicks.get(session.session), { model, pick: configure } = resumeFor(session);
-  const started = await invoke<Started>("agent_resume", { ...where(session), prompt: null, model }, AGENT_SEND_WAIT_MS);
-  reopened({ machine_id: session.machine_id, id: session.session });
-  reopened(started.session);
-  if (configure && pick) {
-    await invoke("agent_steer", { ...where(openOf(started.session)), steer: { configure } }, AGENT_SEND_WAIT_MS);
-    sessionPicks.set(started.session.id, pick);
-  }
-  resumePicks.delete(session.session);
-  return started;
+/// What to open once the outbox resumed an ended session, by the session it was asked for.
+const resumeOpens = new Map<string, (started: AgentSession) => void>();
+
+/// Resumes the ended session `session` with the composer's selection, through the outbox: a
+/// resume with no words, which shows as a row and survives a lost link. `opened` gets the
+/// session that goes on once it runs; nothing here waits for it.
+export function resumeEndedSession(session: OpenAgent, opened: (started: AgentSession) => void) {
+  resumeOpens.set(session.session, opened);
+  void sendOnce(session, { prompt: { text: "" } }, null, { resume: resumeFor(session) }).then(failed => {
+    if (failed && failed.kind !== "waiting" && failed.kind !== "timeout") {
+      resumeOpens.delete(session.session);
+      console.warn("resume:", failed.message);
+    }
+  });
 }
 
 // ----- The outbox: messages waiting on this device for their machine -----
@@ -533,6 +558,9 @@ listen<OutboxChanged>("outbox-changed", ({ payload }) => {
     if (pick) sessionPicks.set(payload.resumed.id, { model: pick.model ?? "", effort: pick.effort, fast: pick.fast });
     resumePicks.delete(payload.session);
   }
+
+  const opens = payload.resumed ? resumeOpens.get(payload.session) : undefined;
+  if (opens && payload.resumed) { resumeOpens.delete(payload.session); opens(payload.resumed); }
 
   const o = AG.open;
   if (!o || !sameSession(o, { machine_id: payload.machine_id, agent: payload.agent, id: payload.session })) return;

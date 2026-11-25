@@ -292,6 +292,8 @@ pub fn run() {
             agents::steer::agent_steer,
             agents::outbox::outbox_list,
             agents::outbox::outbox_take,
+            agents::outbox::outbox_attach,
+            agents::outbox::outbox_cancel,
             agents::outbox::outbox_drain,
             bar::app::allow_mac_permission,
             bar::app::mac_control,

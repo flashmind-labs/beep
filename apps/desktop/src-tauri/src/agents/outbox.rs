@@ -41,7 +41,7 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::{
     sync::oneshot,
     time::{sleep, timeout},
@@ -79,6 +79,9 @@ pub(crate) enum Kind {
 pub(crate) enum Stage {
     /// Not sent yet: behind another message, or its machine could not be reached.
     Waiting,
+    /// Its words are kept, and its files are still being read by the window that sent
+    /// it: nothing behind it goes before they arrive.
+    Reading,
     Sending,
     /// The machine refused it; it stays until the user edits or removes it.
     Failed {
@@ -107,7 +110,14 @@ pub struct Attach {
     pub(crate) files: Vec<PastedImage>,
     #[serde(default)]
     pub(crate) mentions: Vec<String>,
+    /// Set when the window is still reading the files: the message is kept with its words
+    /// now, and `outbox_attach` with this token completes it.
+    #[serde(default)]
+    pub(crate) reading: Option<String>,
 }
+
+/// Why a message fails whose files were still being read when Beep quit.
+const READING_LOST: &str = "Beep quit while its files were read. Edit it to get its words back.";
 
 /// Why a message fails that was resuming its session when Beep quit.
 const RESUME_DOUBT: &str =
@@ -139,6 +149,20 @@ pub struct Resume {
     pub(crate) resumed: bool,
 }
 
+/// What a window read for a message it handed over with its files still unread.
+#[derive(Debug, Deserialize)]
+pub struct Read {
+    text: String,
+    #[serde(default)]
+    images: Vec<PastedImage>,
+    #[serde(default)]
+    files: Vec<PastedImage>,
+    #[serde(default)]
+    mentions: Vec<String>,
+    #[serde(default)]
+    root: String,
+}
+
 /// A message as a window hands it to the outbox.
 pub(crate) struct Draft {
     pub(crate) how: Kind,
@@ -150,6 +174,7 @@ pub(crate) struct Draft {
     pub(crate) mentions: Vec<String>,
     pub(crate) resume: Option<Resume>,
     pub(crate) seen: Option<Seen>,
+    pub(crate) reading: Option<String>,
 }
 
 /// One message kept for a session.
@@ -184,6 +209,9 @@ pub(crate) struct Message {
     pub(crate) unsure: bool,
     #[serde(default)]
     pub(crate) seen: Option<Seen>,
+    /// The token its window completes it with while its files are read.
+    #[serde(default)]
+    pub(crate) reading: Option<String>,
 }
 
 impl Message {
@@ -207,6 +235,7 @@ impl Message {
     fn row(&self) -> Row {
         let (state, reason) = match &self.state {
             Stage::Waiting => ("waiting", None),
+            Stage::Reading => ("reading", None),
             Stage::Sending if self.resume.as_ref().is_some_and(|r| !r.resumed) => {
                 ("resuming", None)
             }
@@ -228,6 +257,15 @@ impl Message {
             reason,
             keys: Vec::new(),
         }
+    }
+
+    /// Nothing to send but the resume of its session: a menu action, since no message of the
+    /// field is ever empty.
+    fn bare(&self) -> bool {
+        self.text.is_empty()
+            && self.images.is_empty()
+            && self.files.is_empty()
+            && self.mentions.is_empty()
     }
 
     /// Nothing of it has gone: its session is still to resume and its files to upload.
@@ -252,7 +290,7 @@ pub(crate) struct Row {
     pub(crate) how: Kind,
     pub(crate) text: String,
     pub(crate) images: Vec<String>,
-    /// "waiting", "resuming", "uploading", "sending", "sent" or "failed". A sent row stays
+    /// "waiting", "reading", "resuming", "uploading", "sending", "sent" or "failed". A sent row stays
     /// until the session's own push lists the message.
     pub(crate) state: &'static str,
     pub(crate) reason: Option<String>,
@@ -412,6 +450,14 @@ impl Held {
         let mut doubtful: Vec<SessionKey> = Vec::new();
 
         for message in &mut messages {
+            if message.state == Stage::Reading {
+                message.state = Stage::Failed {
+                    reason: READING_LOST.into(),
+                };
+            }
+        }
+
+        for message in &mut messages {
             if message.state == Stage::Sending
                 && message.resume.as_ref().is_some_and(|r| !r.resumed)
             {
@@ -489,9 +535,14 @@ impl Held {
             mentions: draft.mentions,
             resume,
             resumed_from: None,
-            state: Stage::Waiting,
+            state: if draft.reading.is_some() {
+                Stage::Reading
+            } else {
+                Stage::Waiting
+            },
             unsure: false,
             seen: draft.seen,
+            reading: draft.reading,
         });
         self.dirty = true;
 
@@ -767,11 +818,7 @@ impl Held {
             .iter()
             .find(|o| o.key == *key && !o.sending)
             .map(|o| o.id);
-        let msg_id = self
-            .messages
-            .iter()
-            .find(|m| m.key() == *key && m.state == Stage::Waiting)
-            .map(|m| m.id);
+        let msg_id = self.next_to_send(key);
 
         match (order_id, msg_id) {
             (Some(oid), Some(mid)) if oid < mid => self.begin_order(oid).map(Step::Order),
@@ -782,6 +829,17 @@ impl Held {
                 None
             }
         }
+    }
+
+    /// The oldest message of `key` to send. One whose files are still read holds back those
+    /// behind it, so they go in the order typed.
+    fn next_to_send(&self, key: &SessionKey) -> Option<u64> {
+        self.messages
+            .iter()
+            .filter(|m| m.key() == *key)
+            .find(|m| matches!(m.state, Stage::Waiting | Stage::Reading))
+            .filter(|m| m.state == Stage::Waiting)
+            .map(|m| m.id)
     }
 
     /// Drops the orders of `key` that waited out their time: a Stop pressed long ago
@@ -955,9 +1013,8 @@ impl Held {
     /// its flusher.
     pub(crate) fn begin(&mut self, key: &SessionKey) -> Option<Message> {
         let Some(message) = self
-            .messages
-            .iter_mut()
-            .find(|m| m.key() == *key && m.state == Stage::Waiting)
+            .next_to_send(key)
+            .and_then(|id| self.messages.iter_mut().find(|m| m.id == id))
         else {
             self.flushing.remove(key);
             return None;
@@ -975,7 +1032,10 @@ impl Held {
             keys,
             ..message.row()
         };
-        self.delivered.push(message);
+        // A resume with no words has nothing for the session to list.
+        if !message.bare() {
+            self.delivered.push(message);
+        }
 
         if self.delivered.len() > MAX_DELIVERED {
             self.delivered.remove(0);
@@ -986,9 +1046,54 @@ impl Held {
         Some(changed)
     }
 
+    /// The files of the message waiting under `token` are read: it gets them and its final
+    /// words, and goes in its turn. `None` when it is gone, taken back meanwhile. Also whether
+    /// its session needs a flusher started.
+    pub(crate) fn attach(
+        &mut self,
+        token: &str,
+        read: Read,
+    ) -> Option<(Changed, SessionKey, bool)> {
+        let message = self
+            .messages
+            .iter_mut()
+            .find(|m| m.state == Stage::Reading && m.reading.as_deref() == Some(token))?;
+        let id = message.id;
+        let images: Vec<KeptImage> = read.images.into_iter().map(Into::into).collect();
+        let files: Vec<KeptImage> = read.files.into_iter().map(Into::into).collect();
+
+        message.text = read.text;
+        message.mentions = read.mentions;
+        message.root = read.root;
+        message.images = images.clone();
+        message.files = files.clone();
+        message.state = Stage::Waiting;
+        message.reading = None;
+        let key = message.key();
+
+        self.writes.extend(image_writes(id, &images));
+        self.writes.extend(image_writes(files_id(id), &files));
+        self.dirty = true;
+        let flusher = self.flushing.insert(key.clone());
+
+        Some((self.changed(&key), key, flusher))
+    }
+
+    /// The window gave up reading the files of the message under `token`: it goes.
+    pub(crate) fn cancel(&mut self, token: &str) -> Option<Changed> {
+        let id = self
+            .messages
+            .iter()
+            .find(|m| m.state == Stage::Reading && m.reading.as_deref() == Some(token))?
+            .id;
+        let message = self.remove(id)?;
+
+        Some(self.changed(&message.key()))
+    }
+
     /// A push of `key`'s session holds `log`: the sent messages it lists leave their rows, the
     /// session's own queue and log show them from here.
-    pub(crate) fn listed(&mut self, key: &SessionKey, log: &Log) -> Option<Changed> {
+    pub(crate) fn settled(&mut self, key: &SessionKey, log: &Log) -> Option<Changed> {
         let before = self.delivered.len();
         self.delivered
             .retain(|message| message.key() != *key || !holds(log, message));
@@ -1583,6 +1688,11 @@ async fn try_message(
         }
     }
 
+    // A resume of its own has nothing to send once the session runs again.
+    if message.bare() {
+        return Tried::Sent(Vec::new());
+    }
+
     if message.files.is_empty() {
         return try_once(link, &message).await;
     }
@@ -2066,7 +2176,7 @@ fn emit(app: &AppHandle, changed: Changed) {
 
 /// A push of `key`'s session lists these messages in its queue and its log: the sent rows it
 /// holds go. Called for each update a follow receives, before it is handed to the window.
-pub(crate) fn listed(
+pub(crate) fn settled(
     app: &AppHandle,
     key: &SessionKey,
     queued: &[String],
@@ -2081,7 +2191,7 @@ pub(crate) fn listed(
 
     if let Some(changed) = app
         .state::<Arc<Outbox>>()
-        .with(|held| held.listed(key, &log))
+        .with(|held| held.settled(key, &log))
     {
         emit(app, changed);
     }
@@ -2196,6 +2306,7 @@ pub(crate) fn send(
         mentions: attach.mentions,
         resume,
         seen,
+        reading: attach.reading,
     };
     let outbox = app.state::<Arc<Outbox>>();
     let (key, flusher, changed) = outbox.with(|held| {
@@ -2322,6 +2433,34 @@ pub fn outbox_take(app: AppHandle, outbox: State<'_, Arc<Outbox>>, id: u64) -> R
     let (message, changed) = outbox.with(|held| held.take(id))?;
     emit(&app, changed);
     Ok(message.taken())
+}
+
+/// Completes the message handed over with its files unread: the words and files the window has
+/// now. False when the message is gone, taken back meanwhile.
+#[tauri::command]
+pub fn outbox_attach(app: AppHandle, window: WebviewWindow, token: String, read: Read) -> bool {
+    let Some((changed, key, flusher)) = app
+        .state::<Arc<Outbox>>()
+        .with(|held| held.attach(&token, read))
+    else {
+        return false;
+    };
+    emit(&app, changed);
+
+    if flusher {
+        start(&app, key, window.label().to_string());
+    }
+
+    true
+}
+
+/// The window could not read the files of the message under `token`: it is taken out, and the
+/// window puts it back in the field.
+#[tauri::command]
+pub fn outbox_cancel(app: AppHandle, outbox: State<'_, Arc<Outbox>>, token: String) {
+    if let Some(changed) = outbox.with(|held| held.cancel(&token)) {
+        emit(&app, changed);
+    }
 }
 
 /// Takes every waiting message of a session out at once, oldest first, as

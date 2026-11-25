@@ -71,7 +71,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
       runGroup.push({ label: "Stop all", icon: "stopAll", on: () => stopAll(s) });
     }
     if (offers.resume) {
-      runGroup.push({ label: "Resume", icon: "run", on: () => void resumeEndedSession(openOf(s)).then(started => open(started.session), err => console.warn("resume:", err)) });
+      runGroup.push({ label: "Resume", icon: "run", on: () => resumeEndedSession(openOf(s), started => open(started)) });
     }
 
     const workspaceGroup: MenuLine[] = [];
