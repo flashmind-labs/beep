@@ -4,10 +4,10 @@ use super::{
     Fleet,
     events::Events,
     session_mirror::Rows,
-    view_signal::{Change, LiveRow, View},
+    view_signal::{Change, LiveRow, Update, View, Wants, changed_paths},
 };
 use crate::{
-    agents::files_live,
+    agents::files_live::{self, FilesLive, Reserve},
     error::Result,
     machines::terminals,
     projects::team_live::{self, Heard},
@@ -37,8 +37,9 @@ const SYNC_GAP: Duration = Duration::from_secs(1);
 /// times a second while agents work; each draw lists every machine's sessions.
 const HOME_GAP: Duration = Duration::from_secs(1);
 
-#[derive(Default)]
 pub(crate) struct Views {
+    /// What the windows want, as `Events` last published it.
+    wants: watch::Receiver<Arc<Wants>>,
     pending: Mutex<Pending>,
     /// The draws under way, which end with the app.
     tasks: Mutex<JoinSet<()>>,
@@ -66,6 +67,22 @@ enum Pace {
 }
 
 impl Views {
+    pub(crate) fn new(wants: watch::Receiver<Arc<Wants>>) -> Self {
+        Self {
+            wants,
+            pending: Mutex::default(),
+            tasks: Mutex::default(),
+            sync: Mutex::default(),
+            home: Mutex::default(),
+            unsettled: Mutex::default(),
+            deferred: Mutex::default(),
+        }
+    }
+
+    fn wants(&self) -> Arc<Wants> {
+        self.wants.borrow().clone()
+    }
+
     /// The projects to push the sync detail of: those copying now, and those that were at the last
     /// draw, whose detail then shows how they ended.
     fn shown_unsettled(&self, now: BTreeSet<String>) -> BTreeSet<String> {
@@ -197,19 +214,61 @@ pub(crate) async fn follow_changes(app: AppHandle, mut changes: mpsc::UnboundedR
                 topic,
                 value,
             } => terminals::output_pushed(&app, machine, &topic, &value),
-            Change::FilesHeard { machine, update } => {
-                if !files_live::heard(&app, machine, &update) {
-                    app.state::<Events>().dispatch_node(update);
-                }
-            }
+            Change::FilesHeard { machine, update } => files_heard(&app, machine, update),
             Change::FilesKept => {
-                let events = app.state::<Events>();
-                app.state::<files_live::FilesLive>().keep(
-                    |machine, root| events.node_wanted(machine, &Topic::keyed("files", root)),
-                    &events.window_labels(),
+                let wants = app.state::<Views>().wants();
+                app.state::<FilesLive>().keep(
+                    |machine, root| wants.node_wanted(machine, &Topic::keyed("files", root)),
+                    wants.window_labels(),
                 );
             }
             Change::Mesh => team_live::mesh_changed(&app),
+        }
+    }
+}
+
+/// A node pushed a folder's `files` topic: what the windows follow there is read again and sent
+/// to the windows that follow it as views. The update goes on as it is when nothing is followed
+/// there, and an initial one always does: its readers take the views, so they read nothing
+/// again.
+fn files_heard(app: &AppHandle, machine: EndpointId, update: Update) {
+    let views = app.state::<Views>();
+    let wanted = views.wants().node_wanted(machine, &update.topic);
+    let initial = update.initial;
+
+    match app.state::<FilesLive>().reserve(wanted, machine, &update) {
+        Reserve::Unfollowed => return app.state::<Events>().dispatch_node(update),
+        Reserve::Busy => {}
+        Reserve::Start => views.spawn(files_read(app.clone(), machine, update.clone())),
+    }
+
+    if initial {
+        app.state::<Events>().dispatch_node(update);
+    }
+}
+
+/// Reads what is followed in a folder and sends it as views, again for the update that came
+/// meanwhile.
+async fn files_read(app: AppHandle, machine: EndpointId, mut update: Update) {
+    loop {
+        let views = files_live::read(&app, machine, &update.topic).await;
+        let events = app.state::<Events>();
+
+        if !views.is_empty() {
+            events.push_node_views(
+                machine,
+                update.topic.clone(),
+                update.revision,
+                json!({ "views": views, "changed": changed_paths(&update) }),
+            );
+        } else if !update.initial {
+            // Nothing to read: the windows still hear that the folder changed.
+            events.dispatch_node(update.clone());
+        }
+
+        match app.state::<FilesLive>().next(machine, &update.topic) {
+            Some(next) => update = next,
+            None => return,
         }
     }
 }
@@ -234,7 +293,7 @@ fn team_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
 /// Source reads may wait for node projections, so they run outside the stream reader.
 fn changed(app: AppHandle, topic: Topic) {
     let views = app.state::<Views>();
-    let events = app.state::<Events>();
+    let wants = views.wants();
     let affected = affected(topic.name());
 
     if affected.contains(&"home") {
@@ -246,9 +305,9 @@ fn changed(app: AppHandle, topic: Topic) {
     for &name in affected {
         let topic = followed(name);
 
-        if events.controller_wanted(&topic) {
+        if wants.controller_wanted(&topic) {
             pending.topics.insert(name);
-        } else if events.controller_held(&topic) {
+        } else if wants.controller_held(&topic) {
             defer(&views, name);
         }
     }
@@ -259,7 +318,7 @@ fn changed(app: AppHandle, topic: Topic) {
 /// A window showed again: draw the views that changed while it was hidden.
 fn resumed(app: AppHandle) {
     let views = app.state::<Views>();
-    let events = app.state::<Events>();
+    let wants = views.wants();
     let deferred = std::mem::take(
         &mut *views
             .deferred
@@ -269,7 +328,7 @@ fn resumed(app: AppHandle) {
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
 
     for name in deferred {
-        if events.controller_wanted(&followed(name)) {
+        if wants.controller_wanted(&followed(name)) {
             pending.topics.insert(name);
         } else {
             defer(&views, name);
@@ -493,8 +552,9 @@ fn views_topic(name: &str) -> Topic {
 async fn draw(app: AppHandle, name: &'static str) {
     loop {
         let topic = followed(name);
+        let wants = app.state::<Views>().wants();
 
-        if app.state::<Events>().controller_wanted(&topic) {
+        if wants.controller_wanted(&topic) {
             if let Some((pace, _)) = app.state::<Views>().pace(name) {
                 pace.lock().unwrap_or_else(PoisonError::into_inner).drawn = Some(Instant::now());
             }
@@ -509,7 +569,7 @@ async fn draw(app: AppHandle, name: &'static str) {
                     json!({ "views": data }),
                 );
             }
-        } else if app.state::<Events>().controller_held(&topic) {
+        } else if wants.controller_held(&topic) {
             defer(&app.state::<Views>(), name);
         }
 

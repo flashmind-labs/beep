@@ -962,7 +962,9 @@ fn the_tray_keeps_the_agents_topic_subscribed_with_every_window_hidden_past_grac
     let id = Uuid::new_v4();
     let _window = heard_window(&events, "one", id, vec![interest("agents", None)]);
     events.registry.lock().unwrap().grace = Duration::ZERO;
-    let standing = events.hold("tray", vec![interest("agents", None)]).unwrap();
+    events
+        .hold_set("tray", vec![interest("agents", None)])
+        .unwrap();
 
     assert!(events.pause("one", id, None).unwrap());
     events.changed();
@@ -971,14 +973,16 @@ fn the_tray_keeps_the_agents_topic_subscribed_with_every_window_hidden_past_grac
         [interest("agents", None)]
     );
 
-    drop(standing);
+    events.hold_set("tray", Vec::new()).unwrap();
     assert!(watched::read_sent(&events.demand, |demand| demand.is_empty()));
 }
 
 #[test]
 fn standing_interests_of_different_holders_stay_apart_and_a_replaced_one_changes_the_demand() {
     let events = Events::default();
-    let _tray = events.hold("tray", vec![interest("agents", None)]).unwrap();
+    events
+        .hold_set("tray", vec![interest("agents", None)])
+        .unwrap();
     events
         .hold_set("team", vec![interest("sync", None)])
         .unwrap();
@@ -1006,7 +1010,9 @@ fn standing_interests_of_different_holders_stay_apart_and_a_replaced_one_changes
 fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
     let events = Events::default();
     let machine = iroh::SecretKey::generate().public();
-    let _standing = events.hold("tray", vec![interest("agents", None)]).unwrap();
+    events
+        .hold_set("tray", vec![interest("agents", None)])
+        .unwrap();
 
     assert!(!events.node_wanted(machine, &Topic::new("agents")));
     events.dispatch(Update {
@@ -1036,8 +1042,8 @@ fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
 #[test]
 fn a_standing_interest_in_a_view_has_it_neither_drawn_nor_kept() {
     let events = Events::default();
-    let _standing = events
-        .hold(
+    events
+        .hold_set(
             "notices",
             vec![interest("sync", None), interest("moves", None)],
         )

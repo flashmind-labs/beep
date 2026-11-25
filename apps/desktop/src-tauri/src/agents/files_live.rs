@@ -2,15 +2,15 @@
 //! listing, worktrees and the places of its sessions when it opens them; that read makes the
 //! desktop remember what was asked. The node pushes a change to the folder on its `files`
 //! topic, and the reads asked of it are made again and sent as views in an update of that
-//! topic, so the window takes them from the push instead of asking again.
+//! topic, so the window takes them from the push instead of asking again. `event_views` hears
+//! the push, reserves the read here and sends the views.
 
 use super::file_reads::{places_of, tree_of};
 use crate::fleet::{
     Fleet,
     agents::PlaceAsk,
     asked::{BEFORE_WORKTREE_CREATORS, newer_than},
-    events::Events,
-    view_signal::{Update, View, changed_paths, join_changed},
+    view_signal::{Update, View, join_changed},
 };
 use beep_proto::{
     SessionId,
@@ -205,12 +205,12 @@ impl FilesLive {
     }
 
     /// Starts reading for `update` unless a read is running, which takes it up when it is done.
-    fn reserve(&self, app: &AppHandle, machine: EndpointId, update: &Update) -> Reserve {
+    /// `wanted` is whether a window follows the topic.
+    pub(crate) fn reserve(&self, wanted: bool, machine: EndpointId, update: &Update) -> Reserve {
         let topic = &update.topic;
         let Some(root) = topic.key().filter(|_| !topic.is_pattern()) else {
             return Reserve::Unfollowed;
         };
-        let wanted = app.state::<Events>().node_wanted(machine, topic);
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
 
         if !wanted {
@@ -258,7 +258,7 @@ impl FilesLive {
     }
 
     /// The update that came while reading, if one did; else the reading ends.
-    fn next(&self, machine: EndpointId, topic: &Topic) -> Option<Update> {
+    pub(crate) fn next(&self, machine: EndpointId, topic: &Topic) -> Option<Update> {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         held.next(&(machine, topic.clone()))
     }
@@ -272,52 +272,12 @@ struct Followed {
 }
 
 /// What `reserve` found.
-enum Reserve {
+pub(crate) enum Reserve {
     /// Nothing is followed in the folder: the update goes on as it is.
     Unfollowed,
     /// A read is running and takes the update up when it is done.
     Busy,
     Start,
-}
-
-/// The node said something on `topic`, a folder's `files`: what is followed there is read
-/// again, and the windows that follow the topic are sent it as views. Returns true when the
-/// windows are sent the update that way and the caller sends nothing: its readers take the
-/// views, so they have nothing to read again. An initial update is the caller's to send.
-pub(crate) fn heard(app: &AppHandle, machine: EndpointId, update: &Update) -> bool {
-    let taken = !update.initial;
-
-    match app.state::<FilesLive>().reserve(app, machine, update) {
-        Reserve::Unfollowed => return false,
-        Reserve::Busy => return taken,
-        Reserve::Start => {}
-    }
-
-    let (app, mut update) = (app.clone(), update.clone());
-    tauri::async_runtime::spawn(async move {
-        loop {
-            let views = read(&app, machine, &update.topic).await;
-
-            if !views.is_empty() {
-                app.state::<Events>().push_node_views(
-                    machine,
-                    update.topic.clone(),
-                    update.revision,
-                    json!({ "views": views, "changed": changed_paths(&update) }),
-                );
-            } else if !update.initial {
-                // Nothing to read: the windows still hear that the folder changed.
-                app.state::<Events>().dispatch_node(update.clone());
-            }
-
-            match app.state::<FilesLive>().next(machine, &update.topic) {
-                Some(next) => update = next,
-                None => return,
-            }
-        }
-    });
-
-    taken
 }
 
 /// Whether `machine`'s node says which sessions created each worktree: the released ones
@@ -342,7 +302,7 @@ fn created_by(list: &[Worktree], session: Option<&SessionId>) -> Vec<Worktree> {
 }
 
 /// The views of everything followed for `topic`, each as the command it answers.
-async fn read(app: &AppHandle, machine: EndpointId, topic: &Topic) -> Vec<View> {
+pub(crate) async fn read(app: &AppHandle, machine: EndpointId, topic: &Topic) -> Vec<View> {
     let fleet = app.state::<std::sync::Arc<Fleet>>();
     let (root, folder, places) = app.state::<FilesLive>().followed(machine, topic);
     let machine_id = machine.to_string();

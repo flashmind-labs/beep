@@ -4,7 +4,7 @@ use super::{
     Fleet, Machines, Opened, agents as direct,
     session_mirror::SessionMirror,
     terminal_rows,
-    view_signal::{Change, Interest, Update, View, join_changed, ring},
+    view_signal::{Change, Interest, Update, View, Wants, join_changed, ring},
 };
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
@@ -297,6 +297,22 @@ impl Registry {
             .map(|(_, window)| window)
     }
 
+    /// What the windows want now, for `Views`.
+    fn wants(&self) -> Wants {
+        let shown = self
+            .windows
+            .iter()
+            .filter(|(label, window)| !standing(label) && window.live())
+            .flat_map(|(_, window)| window.topics.iter().cloned())
+            .collect();
+        let held = self
+            .receiving()
+            .flat_map(|window| window.topics.iter().cloned())
+            .collect();
+
+        Wants::new(self.windows.keys().cloned().collect(), shown, held)
+    }
+
     /// A paused window that had not been sent a dropped update must be primed in full.
     fn note_lost(&mut self, removed: &[Update], controller: Option<&EndpointId>) {
         for window in self.windows.values_mut() {
@@ -460,6 +476,8 @@ type Commands = Arc<Mutex<HashMap<EndpointId, (Uuid, mpsc::Sender<Call>)>>>;
 pub(crate) struct Events {
     registry: Mutex<Registry>,
     demand: watch::Sender<Vec<Interest>>,
+    /// What the windows want, for `Views` to follow.
+    wants: watch::Sender<Arc<Wants>>,
     refresh: watch::Sender<()>,
     commands: Commands,
     manager: Mutex<Option<Job>>,
@@ -473,6 +491,7 @@ impl Default for Events {
         Self {
             registry: Mutex::default(),
             demand: watch::channel(Vec::new()).0,
+            wants: watch::channel(Arc::default()).0,
             refresh: watch::channel(()).0,
             commands: Commands::default(),
             manager: Mutex::default(),
@@ -704,6 +723,15 @@ impl Events {
             .filter(|window| window.live())
             .flat_map(|window| &window.topics)
             .any(|interest| matches!(interest.topic.name(), "forge" | "*"));
+        let wants = registry.wants();
+        self.wants.send_if_modified(|held| {
+            if **held == wants {
+                false
+            } else {
+                *held = Arc::new(wants);
+                true
+            }
+        });
         self.demand.send_if_modified(|held| {
             if *held == topics {
                 false
@@ -800,27 +828,9 @@ impl Events {
         Ok(Some((stopped, Primed::Full)))
     }
 
-    /// A standing interest in `topics` that no window owns, so it is never paused: the nodes keep
-    /// pushing them while every window is hidden, until the returned reader is dropped.
-    #[cfg(desktop)]
-    pub(crate) fn hold(&self, who: &str, topics: Vec<Interest>) -> Result<Reading<'_>> {
-        let id = Uuid::new_v4();
-        let label = standing_label(who);
-        self.registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .register(&label, id, topics, Arc::new(|_| true))?;
-        self.changed();
-
-        Ok(Reading {
-            events: self,
-            window: label,
-            id,
-        })
-    }
-
-    /// Replaces what `who` holds with `topics`; none ends it. Like `hold`, it keeps the streams
-    /// on and takes none of what they push.
+    /// A standing interest of `who` in `topics` that no window owns, so it is never paused: the
+    /// nodes keep pushing them while every window is hidden. It replaces what `who` held; none
+    /// ends it. It keeps the streams on and takes none of what they push.
     #[cfg(desktop)]
     pub(crate) fn hold_set(&self, who: &str, topics: Vec<Interest>) -> Result<()> {
         let label = standing_label(who);
@@ -955,14 +965,9 @@ impl Events {
     }
 
     /// The windows that have a reader attached, hidden ones too.
-    pub(crate) fn window_labels(&self) -> HashSet<String> {
-        self.registry
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .windows
-            .keys()
-            .cloned()
-            .collect()
+    /// What the windows want, as of the last change to them.
+    pub(crate) fn wants(&self) -> watch::Receiver<Arc<Wants>> {
+        self.wants.subscribe()
     }
 
     pub(crate) fn node_wanted(&self, machine: EndpointId, topic: &Topic) -> bool {
@@ -972,17 +977,7 @@ impl Events {
             .unwrap_or_else(PoisonError::into_inner)
             .receiving()
             .flat_map(|window| &window.topics)
-            .any(|interest| {
-                interest
-                    .machine
-                    .as_ref()
-                    .is_none_or(|machine| machine == &id)
-                    && (interest.topic.matches(topic)
-                        || matches!(
-                            (topic.name(), interest.topic.name()),
-                            ("agents", "agent") | ("processes", "process-output")
-                        ))
-            })
+            .any(|interest| interest.wants_node(&id, topic))
     }
 
     fn forget_queries(&self, machine: EndpointId, queries: &[events::Query]) {
@@ -1024,7 +1019,7 @@ impl Events {
             .iter()
             .filter(|(label, window)| !standing(label) && window.live())
             .flat_map(|(_, window)| &window.topics)
-            .any(|interest| interest.machine.is_none() && interest.topic.matches(topic))
+            .any(|interest| interest.wants_view(topic))
     }
 
     /// Whether a shown or briefly hidden window wants the controller view `topic`, so a
@@ -1035,7 +1030,7 @@ impl Events {
             .unwrap_or_else(PoisonError::into_inner)
             .receiving()
             .flat_map(|window| &window.topics)
-            .any(|interest| interest.machine.is_none() && interest.topic.matches(topic))
+            .any(|interest| interest.wants_view(topic))
     }
 
     /// Sends a rendered view to the windows that want it. One the same as the last sent is
@@ -1152,6 +1147,23 @@ impl Events {
     }
 }
 
+/// Keeps the nodes pushing the `agents` rows the tray lists while every window is hidden, and
+/// starts the streams.
+#[cfg(desktop)]
+pub(crate) async fn hold_tray(app: AppHandle) {
+    let events = app.state::<Events>();
+    let interests = vec![Interest {
+        machine: None,
+        topic: Topic::new("agents"),
+    }];
+
+    if let Err(error) = events.hold_set("tray", interests) {
+        log::warn!("the tray cannot follow the sessions: {error}");
+    }
+
+    events.start(app.clone(), app.state::<Arc<Fleet>>().inner().clone());
+}
+
 /// The start of the registry label of a standing interest, which no window can have.
 const STANDING: &str = "standing:";
 
@@ -1165,7 +1177,8 @@ fn standing(label: &str) -> bool {
     label.starts_with(STANDING)
 }
 
-pub(crate) struct Reading<'a> {
+/// Ends a window's reader when dropped.
+struct Reading<'a> {
     events: &'a Events,
     window: String,
     id: Uuid,

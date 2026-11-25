@@ -8,6 +8,7 @@ use beep_proto::{
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::HashSet;
 use tauri::{AppHandle, Manager};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -17,6 +18,77 @@ use uuid::Uuid;
 pub struct Interest {
     pub machine: Option<String>,
     pub topic: Topic,
+}
+
+impl Interest {
+    /// Whether this is an interest in a controller view that `topic` names.
+    pub(crate) fn wants_view(&self, topic: &Topic) -> bool {
+        self.machine.is_none() && self.topic.matches(topic)
+    }
+
+    /// Whether this is an interest in what `machine` pushes on `topic`.
+    pub(crate) fn wants_node(&self, machine: &str, topic: &Topic) -> bool {
+        self.machine.as_ref().is_none_or(|own| own == machine)
+            && (self.topic.matches(topic)
+                || matches!(
+                    (topic.name(), self.topic.name()),
+                    ("agents", "agent") | ("processes", "process-output")
+                ))
+    }
+}
+
+/// What the windows want, as `Events` last published it. `Views` keeps this copy to decide what
+/// to draw, so a change never asks `Events`.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct Wants {
+    /// The windows that have a reader attached, hidden ones too.
+    windows: HashSet<String>,
+    /// What the shown windows follow, the standing interests aside.
+    shown: Vec<Interest>,
+    /// What the shown and briefly hidden windows follow, the standing interests aside.
+    held: Vec<Interest>,
+}
+
+impl Wants {
+    pub(crate) fn new(
+        windows: HashSet<String>,
+        mut shown: Vec<Interest>,
+        mut held: Vec<Interest>,
+    ) -> Self {
+        shown.sort();
+        shown.dedup();
+        held.sort();
+        held.dedup();
+
+        Self {
+            windows,
+            shown,
+            held,
+        }
+    }
+
+    /// Whether a shown window wants the controller view `topic`, so it is drawn now.
+    pub(crate) fn controller_wanted(&self, topic: &Topic) -> bool {
+        self.shown.iter().any(|interest| interest.wants_view(topic))
+    }
+
+    /// Whether a shown or briefly hidden window wants the controller view `topic`, so a drawn
+    /// view is kept for it.
+    pub(crate) fn controller_held(&self, topic: &Topic) -> bool {
+        self.held.iter().any(|interest| interest.wants_view(topic))
+    }
+
+    /// Whether a shown or briefly hidden window follows what `machine` pushes on `topic`.
+    pub(crate) fn node_wanted(&self, machine: EndpointId, topic: &Topic) -> bool {
+        let machine = machine.to_string();
+        self.held
+            .iter()
+            .any(|interest| interest.wants_node(&machine, topic))
+    }
+
+    pub(crate) fn window_labels(&self) -> &HashSet<String> {
+        &self.windows
+    }
 }
 
 #[derive(Clone, Serialize)]

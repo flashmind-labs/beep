@@ -880,7 +880,9 @@ fn setup(
     app.manage(center::window::OnScreen::default());
     app.manage(agents::follow::Follows::default());
     app.manage(fleet::events::Events::default());
-    app.manage(fleet::event_views::Views::default());
+    app.manage(fleet::event_views::Views::new(
+        app.state::<fleet::events::Events>().wants(),
+    ));
     app.manage(center::home::HomeReads::default());
     // What it applies is managed above: a change handled before that would panic it.
     tauri::async_runtime::spawn(fleet::event_views::follow_changes(handle.clone(), changes));
@@ -908,6 +910,10 @@ fn setup(
     tauri::async_runtime::spawn(platform::update::follow(handle.clone()));
     #[cfg(desktop)]
     tauri::async_runtime::spawn(machines::node_updates::follow(handle.clone()));
+    // The tray follows the `agents` rows, which no window pauses: the nodes keep pushing them
+    // while every window is hidden.
+    #[cfg(desktop)]
+    tauri::async_runtime::spawn(fleet::events::hold_tray(handle.clone()));
     tauri::async_runtime::spawn(tray::waiting::follow(handle.clone()));
     let desks = app.state::<Arc<beep_fleet::Session>>().inner().clone();
     tauri::async_runtime::spawn(settings::skill_libraries::follow(

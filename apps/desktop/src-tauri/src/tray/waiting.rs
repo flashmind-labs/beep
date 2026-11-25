@@ -154,28 +154,13 @@ pub fn tooltip(count: usize) -> String {
 
 /// Keeps the list current while Beep runs: it follows the mirror's rows and the signal Home
 /// follows, and reads the rows as they stand. Alerts and pushes reach the rows, so nothing asks
-/// the machines. On a desktop it holds an interest in the `agents` rows, which no window pauses,
-/// so the nodes keep pushing them while every window is hidden.
+/// the machines.
 pub async fn follow(app: AppHandle) {
     let list = app.state::<WaitingList>();
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
     let mirror = app.state::<Arc<SessionMirror>>();
     let mut rows = mirror.watch();
     let mut pokes = app.state::<Arc<HomeSignal>>().follow();
-    #[cfg(desktop)]
-    let events = app.state::<crate::fleet::events::Events>();
-    #[cfg(desktop)]
-    let _standing = events
-        .hold(
-            "tray",
-            vec![crate::fleet::view_signal::Interest {
-                machine: None,
-                topic: beep_proto::node::events::Topic::new("agents"),
-            }],
-        )
-        .inspect_err(|error| log::warn!("the tray cannot follow the sessions: {error}"));
-    #[cfg(desktop)]
-    events.start(app.clone(), fleet.clone());
 
     loop {
         let sessions = overlaid(&app, &fleet, &mirror.current());

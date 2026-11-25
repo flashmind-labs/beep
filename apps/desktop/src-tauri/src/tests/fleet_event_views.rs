@@ -66,7 +66,7 @@ fn progress_draws_at_most_once_a_gap_and_the_end_of_a_transfer_draws_at_once() {
 
 #[test]
 fn session_changes_pace_home_and_other_views_do_not() {
-    let views = Views::default();
+    let views = Views::new(tokio::sync::watch::channel(Default::default()).1);
     assert_eq!(views.pace("home").map(|(_, gap)| gap), Some(HOME_GAP));
     assert_eq!(views.pace("sync").map(|(_, gap)| gap), Some(SYNC_GAP));
     assert!(views.pace("machines").is_none());
@@ -128,7 +128,7 @@ fn each_topic_draws_on_its_own_and_once_at_a_time() {
 #[test]
 fn view_tasks_can_start_outside_a_tokio_runtime() {
     assert!(tokio::runtime::Handle::try_current().is_err());
-    let views = Views::default();
+    let views = Views::new(tokio::sync::watch::channel(Default::default()).1);
     let (sent, received) = tokio::sync::oneshot::channel();
 
     views.spawn(async move {
@@ -164,7 +164,7 @@ fn the_slow_reads_of_the_machines_are_a_draw_of_their_own() {
 
 #[test]
 fn a_project_that_stops_copying_is_pushed_once_more_so_home_shows_how_it_ended() {
-    let views = Views::default();
+    let views = Views::new(tokio::sync::watch::channel(Default::default()).1);
     let set = |names: &[&str]| {
         names
             .iter()
