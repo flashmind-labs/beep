@@ -57,11 +57,13 @@ mod unix {
         os::unix::fs::DirBuilderExt,
         path::{Path, PathBuf},
         sync::Arc,
+        time::Duration,
     };
     use tokio::{
         net::{UnixListener, UnixStream},
         sync::Notify,
         task::JoinSet,
+        time::timeout,
     };
     use tokio_util::task::AbortOnDropHandle;
 
@@ -71,6 +73,11 @@ mod unix {
     const MAX_CREATE: usize = 4 << 20;
     /// The largest container list it reads from the daemon.
     const MAX_LIST: usize = 8 << 20;
+    /// How long a list may take: a daemon that hangs must not hold up the
+    /// session's processes.
+    const LIST_WITHIN: Duration = Duration::from_secs(3);
+    /// How long a stop may take: Docker gives a container ten seconds.
+    const STOP_WITHIN: Duration = Duration::from_secs(15);
 
     type Body = BoxBody<Bytes, hyper::Error>;
 
@@ -149,6 +156,12 @@ mod unix {
 
         /// The session's running containers.
         pub(crate) async fn containers(&self) -> anyhow::Result<Vec<RunningContainer>> {
+            timeout(LIST_WITHIN, self.list())
+                .await
+                .map_err(|_| anyhow::anyhow!("Docker did not list its containers in time"))?
+        }
+
+        async fn list(&self) -> anyhow::Result<Vec<RunningContainer>> {
             let filters = format!(r#"{{"label":["{LABEL}={}"]}}"#, self.shared.token);
             let filters: String = url::form_urlencoded::byte_serialize(filters.as_bytes()).collect();
             let request = Request::get(format!("/containers/json?filters={filters}"))
@@ -181,7 +194,10 @@ mod unix {
             let request = Request::post(format!("/containers/{id}/stop"))
                 .header(header::HOST, "docker")
                 .body(empty())?;
-            let status = ask(&self.shared.upstream, request).await?.status();
+            let status = timeout(STOP_WITHIN, ask(&self.shared.upstream, request))
+                .await
+                .map_err(|_| anyhow::anyhow!("Docker did not stop the container in time"))??
+                .status();
 
             if status.is_success() || status == StatusCode::NOT_MODIFIED {
                 return Ok(());

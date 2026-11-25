@@ -121,8 +121,7 @@ const actions: RunningActions = {
     if (!whole.delete(pid)) whole.add(pid);
     render();
   },
-  stop: pids => void stop(pids),
-  stopContainers: ids => void stopContainers(ids),
+  stop: (pids, ids) => void stopAll(pids, ids),
 };
 
 function render() {
@@ -146,9 +145,19 @@ async function openPort(port: number) {
   }
 }
 
+/// Stops processes `pids` and containers `ids` together, and shows every failure.
+async function stopAll(pids: number[], ids: string[]) {
+  const asked = key;
+  const failed = (await Promise.all([pids.length ? stop(pids) : [], ids.length ? stopContainers(ids) : []])).flat();
+  if (key !== asked) return;
+  error = failed.join(" ");
+  render();
+  draw();
+}
+
 async function stop(pids: number[]) {
   const s = paneSession(), asked = key;
-  if (!s) return;
+  if (!s) return [];
   for (const pid of pids) stopping.add(pid);
   error = "";
   render();
@@ -156,7 +165,7 @@ async function stop(pids: number[]) {
 
   // Keep a large list from opening an unbounded number of mesh streams.
   for (let i = 0; i < pids.length; i += 4) {
-    if (key !== asked) return;
+    if (key !== asked) return failed;
     await Promise.all(pids.slice(i, i + 4).map(async pid => {
       try {
         await invoke("agent_stop_process", { machineId: s.machine_id, session: s.id, pid });
@@ -169,16 +178,13 @@ async function stop(pids: number[]) {
     }));
   }
 
-  if (key !== asked) return;
-  error = failed.join(" ");
-  render();
-  draw();
+  return failed;
 }
 
 /// Docker gives each container ten seconds to end, so they stop together.
 async function stopContainers(ids: string[]) {
   const s = paneSession(), asked = key;
-  if (!s) return;
+  if (!s) return [];
   for (const id of ids) stoppingContainers.add(id);
   error = "";
   render();
@@ -195,8 +201,5 @@ async function stopContainers(ids: string[]) {
     finally { if (key === asked) stoppingContainers.delete(id); }
   }));
 
-  if (key !== asked) return;
-  error = failed.join(" ");
-  render();
-  draw();
+  return failed;
 }

@@ -202,6 +202,18 @@ async fn a_real_daemon_runs_attaches_and_lists_a_compose_service() {
     assert!(ran.status.success(), "{}", String::from_utf8_lossy(&ran.stderr));
     assert_eq!(String::from_utf8_lossy(&ran.stdout).trim(), "attached");
 
+    // A build streams its context and keeps a session open beside it.
+    std::fs::write(
+        dir.path().join("Dockerfile"),
+        "FROM node:24-slim\nRUN echo built > /built\n",
+    )
+    .unwrap();
+    let tag = format!("beep-test-build:{}", std::process::id());
+    let built = docker(&host, dir.path(), &["build", "-q", "-t", &tag, "."]).await;
+    assert!(built.status.success(), "{}", String::from_utf8_lossy(&built.stderr));
+    let removed = docker(&host, dir.path(), &["image", "rm", &tag]).await;
+    assert!(removed.status.success(), "{}", String::from_utf8_lossy(&removed.stderr));
+
     let compose = r#"
 services:
   web:
