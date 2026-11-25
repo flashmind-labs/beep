@@ -1,5 +1,6 @@
 // The window renders first, so modules that load after it find its elements.
 import { ensureMac } from "../machines/machine-store.ts";
+import "../bar/bar-app.tsx";
 import "./window-root.tsx";
 import { isMobile, onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.tsx";
