@@ -4,7 +4,7 @@ import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
 import { AgentQueue } from "./queue-view.tsx";
 import { AgentStopFace } from "./mode-view.tsx";
-import type { OutboxRow, Waiting } from "./agentqueue.ts";
+import type { OutboxRow } from "./agentqueue.ts";
 import type { Row } from "./mention-state.ts";
 import { Button } from "../ui/kit.tsx";
 import { Icon } from "../ui/icons.tsx";
@@ -22,7 +22,8 @@ type FieldSlot = "state" | "mode" | "model" | "plan" | "steps" | "tasks" | "pick
 /// list over the log.
 interface Work { queued: number; open: boolean }
 interface Queue {
-  items: readonly Waiting[];
+  /// The steers the node holds for the turn, as it lists them.
+  items: readonly string[];
   edit(index: number, keep: boolean): unknown;
   /// Messages waiting on this device, after those the node holds.
   outbox: readonly OutboxRow[];
@@ -97,7 +98,7 @@ export function showAgentAttachments(view: ReactElement | null) {
   if (fieldUi.getState().attachments !== view) set({ attachments: view });
 }
 
-export function showAgentQueue(items: readonly Waiting[], edit: Queue["edit"], outbox: readonly OutboxRow[], editOutbox: Queue["editOutbox"]) {
+export function showAgentQueue(items: readonly string[], edit: Queue["edit"], outbox: readonly OutboxRow[], editOutbox: Queue["editOutbox"]) {
   const state = fieldUi.getState(), queued = items.length + outbox.length;
 
   if (!queued) {
@@ -105,7 +106,7 @@ export function showAgentQueue(items: readonly Waiting[], edit: Queue["edit"], o
     return;
   }
 
-  const signature = JSON.stringify([items.map(item => [item.typed, item.text, item.images.map(image => image.name), item.paths, item.state]), outbox]);
+  const signature = JSON.stringify([items, outbox]);
   if (state.queue?.signature === signature) return;
   set({ queue: { items, edit, outbox, editOutbox, signature }, work: workOf(state.work, { queued }) });
 }

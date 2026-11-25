@@ -19,7 +19,7 @@ import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import { drawAgentNew, startAgent, togglePicker } from "./agentnew.tsx";
 import { preloadModels } from "./model-store.ts";
 import type { CheckoutPick } from "./agentpick.ts";
-import type { Attached, OutboxRow, Waiting } from "./agentqueue.ts";
+import type { Attached, OutboxRow } from "./agentqueue.ts";
 import { mainTarget } from "../project/projectwindow.ts";
 import { type Link, LINKED } from "./reconnect-state.ts";
 import { leavePane, newTerminal, newTerminalLike, showPaneTab } from "../agentpane/media.ts";
@@ -327,14 +327,11 @@ interface AgentState {
   steps: Map<number, boolean>;
   /// The steps whose whole output shows, by place in the session.
   all: Set<number>;
-  /// Steers sent while a turn runs, shown until the node delivers them.
-  queue: Waiting[];
   /// Messages waiting on this device for the session's machine.
   outbox: OutboxRow[];
   /// The revision of `outbox`: an older set never replaces a newer one.
   outboxRevision: number;
-  /// Reads of the open session so far, which tell a read that left before
-  /// a steer was sent from one after.
+  /// Reads of the open session so far, which tell one update from the next.
   polls: number;
   /// The session whose turn the user stopped, until it no longer runs.
   stopping: { id: string; turns: number } | null;
@@ -355,7 +352,7 @@ export const AG: AgentState = {
   open: null, draft: null, get page() { return currentPage(); }, set page(next) { setPage(next); }, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined,
-  opened: new Set(), steps: new Map(), all: new Set(), queue: [], outbox: [], outboxRevision: 0, polls: 0, stopping: null, modelOpen: false,
+  opened: new Set(), steps: new Map(), all: new Set(), outbox: [], outboxRevision: 0, polls: 0, stopping: null, modelOpen: false,
   older: { stop: "", reading: null },
 };
 /// What a coding agent takes with a message, as the server checks it.

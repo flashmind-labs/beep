@@ -10,7 +10,7 @@ import { staysInline } from "../src/agents/images.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
 import { conversationKey } from "../src/agents/conversation-state.ts";
-import type { Attached, Waiting } from "../src/agents/agentqueue.ts";
+import type { Attached } from "../src/agents/agentqueue.ts";
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null };
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
@@ -211,8 +211,9 @@ test("Stop all does not restore a steer delivered while the stop was pending", a
   const { session } = openSession("working");
   const input = field();
   input.value = "Next draft";
-  const steer: Waiting = { typed: "Already sent", text: "Already sent", paths: [], images: [], state: "sent", after: 0 };
-  AG.queue.push(steer);
+  const page = AG.page!;
+  page.queued = 1;
+  page.queued_messages = ["Already sent"];
   let finish = () => {};
   answers.agent_steer = new Promise<void>(resolve => { finish = resolve; });
   t.after(() => { finish(); delete answers.agent_steer; clearTimeout(AG.timer); });
@@ -220,12 +221,13 @@ test("Stop all does not restore a steer delivered while the stop was pending", a
   const stopping = stopAllWork(session);
   await new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(steers(), ["stop_all"]);
-  steer.state = "delivered";
+  // The node delivers it before it answers the stop.
+  page.queued = 0;
+  page.queued_messages = [];
   finish();
   await stopping;
 
   assert.equal(input.value, "Next draft");
-  assert.deepEqual(AG.queue, []);
 });
 
 test("steers wait for the files being read too", async () => {

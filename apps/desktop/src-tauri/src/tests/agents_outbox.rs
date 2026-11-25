@@ -235,6 +235,82 @@ async fn a_message_is_shown_at_once_and_its_image_keys_come_with_the_sent_row() 
 }
 
 #[tokio::test]
+async fn a_sent_message_stays_as_a_sent_row_until_a_push_of_its_session_lists_it() {
+    let (_dir, _, outbox) = outbox();
+    push(&outbox, "s1", "first");
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    let rows = outbox.read(|held| held.rows(&key("s1")));
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].state, "sent");
+    assert_eq!(link.changes.last().map(|c| c.rows.len()), Some(1));
+
+    // A push from before the machine took it, and one of another session, list nothing.
+    assert!(
+        outbox
+            .with(|held| held.listed(&key("s1"), &log(&[], 0, &[user("older")])))
+            .is_none()
+    );
+    let queued = ["first".to_string()];
+    assert!(
+        outbox
+            .with(|held| held.listed(&key("s2"), &log(&queued, 0, &[])))
+            .is_none()
+    );
+    assert_eq!(texts(&outbox, "s1"), ["first"]);
+
+    // The session's queue lists it: the row goes, in a change the windows hear.
+    let changed = outbox
+        .with(|held| held.listed(&key("s1"), &log(&queued, 0, &[])))
+        .expect("the row goes");
+    assert!(changed.rows.is_empty());
+    assert!(texts(&outbox, "s1").is_empty());
+}
+
+#[tokio::test]
+async fn a_sent_message_a_push_listed_in_the_log_goes_too_and_stop_all_takes_back_the_rest() {
+    let (_dir, _, outbox) = outbox();
+    push(&outbox, "s1", "one");
+    push(&outbox, "s1", "two");
+    push(&outbox, "s1", "three");
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    assert_eq!(texts(&outbox, "s1"), ["one", "two", "three"]);
+    // Delivered already: it is in the log, not in the queue.
+    outbox
+        .with(|held| held.listed(&key("s1"), &log(&[], 0, &[user("two")])))
+        .expect("the row goes");
+    assert_eq!(texts(&outbox, "s1"), ["one", "three"]);
+
+    let (taken, changed) = outbox.with(|held| held.drain(&key("s1")));
+    let taken: Vec<&str> = taken.iter().map(|m| m.text.as_str()).collect();
+    assert_eq!(taken, ["one", "three"]);
+    assert!(changed.rows.is_empty());
+}
+
+#[tokio::test]
+async fn sent_rows_go_when_the_machine_drops_its_steers() {
+    let (_dir, _, outbox) = outbox();
+    push(&outbox, "s1", "one");
+    push(&outbox, "s2", "other");
+    let mut link = Fake::default();
+    flush(&outbox, &key("s1"), &mut link).await;
+    flush(&outbox, &key("s2"), &mut link).await;
+
+    let changed = outbox
+        .with(|held| held.dropped(&key("s1")))
+        .expect("the row goes");
+
+    assert!(changed.rows.is_empty());
+    assert_eq!(texts(&outbox, "s2"), ["other"]);
+    assert!(outbox.with(|held| held.dropped(&key("s1"))).is_none());
+}
+
+#[tokio::test]
 async fn a_refused_first_try_stays_as_a_failed_row() {
     let (_dir, _, outbox) = outbox();
     push(&outbox, "s1", "first");

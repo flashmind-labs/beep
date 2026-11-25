@@ -1,7 +1,7 @@
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
 import { appendEntry, clearQuestion, removeEntry } from "./open-page.ts";
-import { type Attached, attachOf, dropDelivered, type Extras, type OutboxRow, type Resume, sentFromOutbox, type Waiting } from "./agentqueue.ts";
+import { type Attached, attachOf, heldMessage, type Extras, type OutboxRow, type Resume, type Waiting } from "./agentqueue.ts";
 import { resumePicks } from "./modelpill.tsx";
 import { sessionPicks } from "./session.tsx";
 import { imageLines, sentText } from "./agentlog.ts";
@@ -31,12 +31,13 @@ import { clearHeldSteers, heldSteers } from "./session-follow.ts";
 
 export function disposeQueue() { disposeComposerUi(); closeMove(); }
 
-/// The pending steers above the field, each with what goes with it.
+/// The steers the open session's node holds for the turn, as its last update lists them.
+const heldQueue = () => AG.page?.queued_messages ?? [];
+
+/// The steers the node holds above the field, then the messages kept on this device.
 export function drawQueue() {
-  // Without a field the queue waits, delivered messages included, until one shows.
   if (!agentMessage.current?.isConnected) { if (S.view !== "agent" || !sessionBody()) disposeQueue(); return; }
-  dropDelivered(AG.queue);
-  showAgentQueue(AG.queue, editQueued, AG.outbox, editOutbox);
+  showAgentQueue(heldQueue(), editQueued, AG.outbox, editOutbox);
 }
 
 /// A message as `agent_steer` takes it, its images without what only the
@@ -61,7 +62,7 @@ function takeMessage(input: HTMLTextAreaElement | null, reading = false): Waitin
   MN.redraw();
   if (input) input.value = "";
   if (images.length) { setAttached([]); drawAgentAttached(); }
-  return { typed, text, paths, images, files, root, state: null, after: 0 };
+  return { typed, text, paths, images, files, root };
 }
 
 /// Puts `q` back in the field, before what is typed there.
@@ -117,24 +118,16 @@ function extrasOf(o: OpenAgent, q: Pick<Waiting, "paths" | "files" | "root"> | n
   return { attach: q ? attachOf(q) : null, resume: ended ? resumeFor(o) : null };
 }
 
-/// Takes waiting message `i` out; to edit, it goes back in the field.
+/// Takes the steer the node holds at `i` out; to edit, it goes back in the field. The node
+/// drops all its steers or none: the others, and those it has not listed yet, go again behind it.
 export async function editQueued(i: number, edit: boolean) {
-  const q = AG.queue[i], o = AG.open;
-  if (!q || q.state === "delivered") return;
-  AG.queue.splice(i, 1);
-  drawAgentBody();
+  const o = AG.open, held = heldQueue(), text = held[i];
+  if (!o || text === undefined) return;
+  const rest = [...held.filter((_, at) => at !== i), ...AG.outbox.filter(row => row.state === "sent" && row.how === "steer").map(row => row.text)];
+  if (!await steerAgent({ drop_steers: null }) || !isOpen(o)) return;
+  for (const again of rest) await sendSteer({ typed: again, text: again, paths: [], images: [] }, false);
 
-  if (q.state === "sent") {
-    if (!await steerAgent({ drop_steers: null })) {
-      if (isOpen(o)) { AG.queue.splice(i, 0, q); drawAgentBody(); }
-      return;
-    }
-
-    if (!isOpen(o)) return;
-    for (const other of AG.queue.filter(x => x.state === "sent")) await sendSteer(other);
-  }
-
-  if (edit) backInField(q);
+  if (edit) backInField({ typed: heldMessage(text).words, paths: [], images: [] });
   drawQueue();
   redrawAgentHints();
 }
@@ -144,7 +137,7 @@ export function steerMessage(input: HTMLTextAreaElement) {
   const session = AG.open, state = currentMentions(), ended = AG.page?.session.status === "ended";
   return submit(input, q => {
     if (session && AG.open !== session) return sendBackground(session, q, state, ended);
-    queueSteer(q);
+    void sendSteer(q);
   });
 }
 
@@ -214,32 +207,16 @@ async function joinRead(draft: Waiting, reads: ReturnType<typeof attachReads>, s
   return true;
 }
 
-function queueSteer(q: Waiting | null) {
-  if (!q) return;
-  AG.queue.push(q);
-  sendSteer(q);
-}
-
+/// Sends `q` as a steer of the open session: from here the outbox keeps it, and a message
+/// the machine refused goes back in the field when `back`.
 async function sendSteer(q: Waiting, back = true) {
-  const o = AG.open, queue = AG.queue;
+  const o = AG.open;
   if (!o) return false;
-  q.state = "sending";
-  drawAgentBody();
   if (q.images.length) keepAgentPics(o, q.images);
   const sent = await sendText({ steer: outgoing(q.text, q.images) }, seenNow(), extrasOf(o, q, false));
 
-  if (sent === "sent") {
-    q.state = "sent";
-    q.after = AG.polls;
-  } else {
-    // It waits on this device, in the outbox's rows; or nothing went, and it
-    // waits in the field again, under the note that says why.
-    const at = queue.indexOf(q);
-    if (at >= 0) queue.splice(at, 1);
-    if (sent === "failed" && back && AG.queue === queue && isOpen(AG.open)) backInField(q);
-  }
-
-  if (AG.queue === queue && isOpen(AG.open)) drawAgentBody();
+  if (sent === "failed" && back && isOpen(o)) backInField(q);
+  if (isOpen(o)) drawAgentBody();
   return sent !== "failed";
 }
 
@@ -269,7 +246,6 @@ export async function stopAllWork(target: Pick<AgentRow, "machine_id" | "agent" 
   if (stoppingSessions.has(key)) return;
 
   const showing = () => S.view === "agent" && sameSession(AG.open, target);
-  const queueAtStart = showing() ? AG.queue : null;
   const mentions = showing() ? currentMentions() : mentionsOf(target);
   stoppingSessions.set(key, { kind: "draining" });
   let stoppedSteers: Draft[] = [];
@@ -278,9 +254,6 @@ export async function stopAllWork(target: Pick<AgentRow, "machine_id" | "agent" 
     const drafts = await drainOutbox(o);
     stoppingSessions.set(key, { kind: "stopping", drafts });
 
-    const queue = showing() ? AG.queue : queueAtStart;
-    const waiting = queue?.filter(q => q.state !== "delivered");
-    const held = waiting ? [] : heldSteers(o);
     const stopping = showing() && turnRuns() ? { id: target.id, turns: AG.page?.turns ?? 0 } : null;
 
     if (stopping) {
@@ -292,17 +265,10 @@ export async function stopAllWork(target: Pick<AgentRow, "machine_id" | "agent" 
 
     const failed = await sendOnce(o, { stop_all: null }, null);
     if (!failed) {
+      // What the node still listed when it answered: a steer it delivered meanwhile is not taken back.
+      const held = showing() ? heldQueue() : heldSteers(o);
       clearHeldSteers(o);
-
-      if (queue && waiting) {
-        stoppedSteers = waiting.filter(q => q.state !== "delivered");
-        for (const q of waiting) {
-          const at = queue.indexOf(q);
-          if (at >= 0) queue.splice(at, 1);
-        }
-      } else {
-        stoppedSteers = held.map(typed => ({ typed, paths: [], images: [] }));
-      }
+      stoppedSteers = held.map(text => ({ typed: heldMessage(text).words, paths: [], images: [] }));
     }
 
     if (showing()) {
@@ -489,9 +455,7 @@ export async function sendPrompt(text: string) {
   if (page.session.status === "ended") {
     ok = await sendText({ prompt: outgoing(text, []) }, seenNow(), { resume: resumeFor(o) }) !== "failed";
   } else if (turnRuns()) {
-    const q: Waiting = { typed: text, text, paths: [], images: [], state: null, after: 0 };
-    AG.queue.push(q);
-    ok = await sendSteer(q, false);
+    ok = await sendSteer({ typed: text, text, paths: [], images: [] }, false);
   } else {
     const mine = { kind: "user", text }, seen = seenNow();
     appendEntry(mine);
@@ -574,11 +538,6 @@ listen<OutboxChanged>("outbox-changed", ({ payload }) => {
   if (!o || !sameSession(o, { machine_id: payload.machine_id, agent: payload.agent, id: payload.session })) return;
   // The conversation goes on in the session that resumed, in the background.
   if (payload.resumed) { openAgent(payload.resumed, { back: AG.back }); return; }
-  // What went is the node's now: its page shows the row until the agent has it.
-  for (const row of payload.sent) {
-    const sent = sentFromOutbox(row, AG.queue, AG.page, AG.polls);
-    if (sent) AG.queue.push(sent);
-  }
   showOutbox(payload.rows, payload.revision);
 });
 

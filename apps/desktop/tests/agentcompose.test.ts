@@ -16,7 +16,6 @@ import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.tsx";
 import { disposeComposerUi, FieldControl } from "../src/agents/composer-ui.tsx";
 import { createElement } from "react";
 import { createDocumentView } from "../src/ui/document-root.tsx";
-import type { Waiting } from "../src/agents/agentqueue.ts";
 import { MN } from "../src/agents/workdrop.ts";
 import { agentMessage } from "../src/agents/session-frame.tsx";
 import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
@@ -61,8 +60,6 @@ function openSession(status: string, polls = false): AgentPage {
   return page;
 }
 
-/// A pending steer of plain words.
-const words = (text: string): Waiting => ({ typed: text, text, paths: [], images: [], state: null, after: 0 });
 
 const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null };
 
@@ -419,7 +416,7 @@ test("Option-Enter steers immediately with its files and images", async () => {
 });
 
 test("Enter while the turn runs steers it, with what is attached", async () => {
-  const page = openSession("working");
+  openSession("working");
   const input = field("use the fixture instead");
   show({}, input);
   MN.paths = ["tests/data/login.json"];
@@ -432,14 +429,6 @@ test("Enter while the turn runs steers it, with what is attached", async () => {
   assert.match(sent.steer.text, /^use the fixture instead/);
   assert.match(sent.steer.text, /@tests\/data\/login\.json/);
   assert.equal(sent.steer.images.length, 1);
-  assert.equal(AG.queue[0].state, "sent");
-
-  // A read that the node still holds it in leaves it waiting.
-  await read({ ...page, queued: 1 });
-  assert.equal(AG.queue[0].state, "sent");
-  // Once the node no longer holds it, it was delivered.
-  await read({ ...page, queued: 0 });
-  assert.equal(AG.queue[0].state, "delivered");
 });
 
 test("an image attached after a steer goes with the next message, not the steer", async () => {
@@ -450,20 +439,22 @@ test("an image attached after a steer goes with the next message, not the steer"
   enter(input);
   AG.att.push(png);
   await settle();
-  assert.deepEqual(AG.queue[0].images, []);
+  const [sent] = steers() as { steer: { images?: unknown[] } }[];
+  assert.equal(sent.steer.images, undefined);
   assert.deepEqual(AG.att.map(a => a.name), ["shot.png"]);
 });
 
 test("Stopping leaves pending steers with the node (#378)", async () => {
   const page = openSession("working");
   show({}, field());
-  AG.queue = [{ ...words("steer me"), state: "sent", after: 0 }];
+  page.queued = 1;
+  page.queued_messages = ["steer me"];
   assert.equal(interruptAgent(), true);
   assert.deepEqual(AG.stopping, { id: "s1", turns: 0 });
   assert.doesNotMatch(agentHints().value.items.flat().join(" "), /interrupt/, "already stopping");
   await settle();
   assert.deepEqual(steers(), ["cancel"]);
-  assert.equal(AG.queue.length, 1);
+  assert.deepEqual(page.queued_messages, ["steer me"]);
 
   // The node sends a steer it holds once the turn stops, or it had just
   // delivered it: sent from here too, the agent would get it twice.

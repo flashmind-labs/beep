@@ -252,12 +252,16 @@ pub(crate) struct Row {
     pub(crate) how: Kind,
     pub(crate) text: String,
     pub(crate) images: Vec<String>,
-    /// "waiting", "resuming", "uploading", "sending" or "failed".
+    /// "waiting", "resuming", "uploading", "sending", "sent" or "failed". A sent row stays
+    /// until the session's own push lists the message.
     pub(crate) state: &'static str,
     pub(crate) reason: Option<String>,
     /// For a row in `Changed.sent`: the keys the machine gave its images.
     pub(crate) keys: Vec<String>,
 }
+
+/// The most `sent` rows kept for sessions no window follows.
+const MAX_DELIVERED: usize = 64;
 
 /// What a session's outbox holds now, and the kept messages that went to
 /// the machine since it last changed.
@@ -393,6 +397,9 @@ pub(crate) struct Held {
     dirty: bool,
     /// The last revision a `Changed` took.
     revision: u64,
+    /// Messages the machine took, shown as `sent` rows until a push of their session
+    /// lists them. Kept in memory only: a restart has nothing left to show.
+    delivered: Vec<Message>,
 }
 
 impl Held {
@@ -855,10 +862,15 @@ impl Held {
         });
         let dropped = match kind {
             // A closed session takes its undelivered messages with it, whatever they do now.
-            OrderKind::Close => self.drop_undelivered(&key, true),
+            OrderKind::Close => {
+                let sent = self.forget_delivered(&key);
+                self.drop_undelivered(&key, true) || sent
+            }
             // A Stop while the session resumes is for what was just sent: it goes unsent.
-            OrderKind::Cancel | OrderKind::StopAll if resuming => {
-                self.drop_undelivered(&key, false)
+            // Stop all also drops the steers the machine holds.
+            OrderKind::Cancel | OrderKind::StopAll => {
+                let sent = matches!(kind, OrderKind::StopAll) && self.forget_delivered(&key);
+                (resuming && self.drop_undelivered(&key, false)) || sent
             }
             _ => false,
         };
@@ -958,12 +970,42 @@ impl Held {
     /// The machine took message `id`: it goes.
     pub(crate) fn sent(&mut self, id: u64, keys: Vec<String>) -> Option<Changed> {
         let message = self.remove(id)?;
-        let mut changed = self.changed(&message.key());
-        changed.sent.push(Row {
+        let key = message.key();
+        let row = Row {
             keys,
             ..message.row()
-        });
+        };
+        self.delivered.push(message);
+
+        if self.delivered.len() > MAX_DELIVERED {
+            self.delivered.remove(0);
+        }
+
+        let mut changed = self.changed(&key);
+        changed.sent.push(row);
         Some(changed)
+    }
+
+    /// A push of `key`'s session holds `log`: the sent messages it lists leave their rows, the
+    /// session's own queue and log show them from here.
+    pub(crate) fn listed(&mut self, key: &SessionKey, log: &Log) -> Option<Changed> {
+        let before = self.delivered.len();
+        self.delivered
+            .retain(|message| message.key() != *key || !holds(log, message));
+
+        (self.delivered.len() != before).then(|| self.changed(key))
+    }
+
+    /// Forgets the sent rows of `key`: the machine dropped what it held, or the session closed.
+    pub(crate) fn dropped(&mut self, key: &SessionKey) -> Option<Changed> {
+        self.forget_delivered(key).then(|| self.changed(key))
+    }
+
+    fn forget_delivered(&mut self, key: &SessionKey) -> bool {
+        let before = self.delivered.len();
+        self.delivered.retain(|message| message.key() != *key);
+
+        self.delivered.len() != before
     }
 
     /// The files of message `id` are on the machine, at `paths`: they and the
@@ -1115,7 +1157,11 @@ impl Held {
             .filter(|m| m.key() == *key && m.state != Stage::Sending)
             .map(|m| m.id)
             .collect();
-        let taken = ids.into_iter().filter_map(|id| self.remove(id)).collect();
+        let mut taken: Vec<Message> = ids.into_iter().filter_map(|id| self.remove(id)).collect();
+        // What the machine took but no push listed yet: Stop all drops it there too.
+        taken.extend(self.delivered.iter().filter(|m| m.key() == *key).cloned());
+        self.forget_delivered(key);
+        taken.sort_by_key(|m| m.id);
         (taken, self.changed(key))
     }
 
@@ -1138,6 +1184,15 @@ impl Held {
             .iter()
             .filter(|m| m.key() == *key)
             .map(Message::row)
+            .chain(
+                self.delivered
+                    .iter()
+                    .filter(|m| m.key() == *key)
+                    .map(|m| Row {
+                        state: "sent",
+                        ..m.row()
+                    }),
+            )
             .collect()
     }
 
@@ -1938,8 +1993,8 @@ fn answered_locally(app: &AppHandle, key: &AgentNoticeKey) {
     }
 }
 
-/// The part of a session read back after a dropped send.
-struct Log<'a> {
+/// The part of a session read back after a dropped send, or pushed by its follow.
+pub(crate) struct Log<'a> {
     queued: &'a [String],
     /// Entries before `entries`.
     earlier: u64,
@@ -2007,6 +2062,36 @@ fn holds(log: &Log, message: &Message) -> bool {
 
 fn emit(app: &AppHandle, changed: Changed) {
     let _ = app.emit(CHANGED, changed);
+}
+
+/// A push of `key`'s session lists these messages in its queue and its log: the sent rows it
+/// holds go. Called for each update a follow receives, before it is handed to the window.
+pub(crate) fn listed(
+    app: &AppHandle,
+    key: &SessionKey,
+    queued: &[String],
+    earlier: u64,
+    entries: &[AgentEntry],
+) {
+    let log = Log {
+        queued,
+        earlier,
+        entries,
+    };
+
+    if let Some(changed) = app
+        .state::<Arc<Outbox>>()
+        .with(|held| held.listed(key, &log))
+    {
+        emit(app, changed);
+    }
+}
+
+/// The machine dropped the steers it held for `key`: the sent rows of the session go with them.
+pub(crate) fn dropped(app: &AppHandle, key: &SessionKey) {
+    if let Some(changed) = app.state::<Arc<Outbox>>().with(|held| held.dropped(key)) {
+        emit(app, changed);
+    }
 }
 
 /// Runs `key`'s flusher, which the caller marked as flushing.

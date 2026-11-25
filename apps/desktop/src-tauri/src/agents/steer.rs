@@ -280,8 +280,9 @@ pub async fn agent_steer(
         return Ok(Vec::new());
     }
 
-    Ok(sent(
-        app,
+    let dropping = matches!(steer, Steer::DropSteers).then(|| key.clone());
+    let keys = sent(
+        app.clone(),
         window.label(),
         fleet,
         key.machine_id,
@@ -289,7 +290,14 @@ pub async fn agent_steer(
         key.session,
         steer,
     )
-    .await?)
+    .await?;
+
+    // The machine holds no steers now, so no message is on its way to its queue.
+    if let Some(key) = dropping {
+        outbox::dropped(&app, &key);
+    }
+
+    Ok(keys)
 }
 
 fn actor_order(fleet: &Machines<'_>, machine_id: &str, steer: &Steer) -> Result<Option<OrderKind>> {

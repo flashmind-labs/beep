@@ -7,7 +7,7 @@ const session = {
   started_at: 1, last_activity: 1, external: false,
 } as const;
 
-declare global { interface Window { __outbox: { reconnect(): void; slow(): void; asked: { command: string; seen: unknown }[] } } }
+declare global { interface Window { __outbox: { reconnect(): void; listed(): void; slow(): void; asked: { command: string; seen: unknown }[] } } }
 
 /// Opens the session with a stand-in for the app's outbox: while the machine
 /// is unreachable, or a message waits before it, a message waits there; on
@@ -15,7 +15,7 @@ declare global { interface Window { __outbox: { reconnect(): void; slow(): void;
 async function openUnreachable(page: Page) {
   await openDesktop(page, false, { agent_steer: [] });
   await page.evaluate(() => {
-    type Row = { id: number; how: string; text: string; images: string[]; state: string; reason: string | null };
+    type Row = { id: number; how: string; text: string; images: string[]; state: string; reason: string | null; keys: string[] };
     const invoke = window.__TAURI__.core.invoke;
     const where = { machine_id: "build-box", agent: "codex", session: "notice-one" };
     let rows: Row[] = [], next = 0, online = false, slow = false, revision = 0;
@@ -58,11 +58,17 @@ async function openUnreachable(page: Page) {
       slow() { slow = true; online = true; },
       reconnect() {
         online = true;
+        // The machine takes each: its rows stay, as sent, until the session lists them.
+        const sent = rows.map(row => ({ ...row, state: "sent" }));
+        rows = sent;
+        changed(sent);
+      },
+      listed() {
         const sent = rows;
         rows = [];
         const view = { session: { ...where, id: "notice-one", machine_name: "build-box", title: "First notification", cwd: "/srv/project", status: "working", doing: null, question: null, started_at: 1, last_activity: 1, external: false, kind: "agent" }, plan: [], entries: [], earlier: 0, error: null, turns: 0, queued: sent.length, queued_messages: sent.map(row => row.text) };
         window.__navigation.respond("agent_view", view);
-        changed(sent);
+        changed([]);
       },
     };
   });
@@ -125,21 +131,6 @@ test("a late sending event cannot put a delivered image prompt back in the queue
   await expect(page.locator("#agqueue")).toHaveCount(0);
 });
 
-test("an outbox event after the page took the message adds no Steer row", async ({ page }) => {
-  await openUnreachable(page);
-  await page.evaluate(row => window.__navigation.respond("agent_view", {
-    session: row, plan: [], earlier: 0, error: null, turns: 1,
-    queued: 0, queued_messages: [], entries: [{ kind: "user", text: "Hello there" }, { kind: "agent", text: "Hi." }],
-  }), session);
-  await expect(page.getByText("Hi.", { exact: true })).toBeVisible();
-  await page.evaluate(() => window.__navigation.emit("outbox-changed", {
-    machine_id: "build-box", agent: "codex", session: "notice-one", revision: 1, rows: [],
-    sent: [{ id: 0, how: "steer", text: "Hello there", images: [], state: "sending", reason: null, keys: [] }],
-  }));
-  // A single look: a retrying check would pass once the next page clears the row.
-  expect(await steers(page).count()).toBe(0);
-});
-
 test("the rows an event carries are drawn as they come, with no read, and an older set never replaces a newer one", async ({ page }) => {
   await openUnreachable(page);
   const row = (id: number, text: string) => ({ id, how: "steer", text, images: [], state: "uploading", reason: null });
@@ -191,12 +182,18 @@ test("Stop all takes every waiting message back into the field at once, oldest f
   await expect(waiting(page)).toHaveCount(0);
 });
 
-test("on reconnect the waiting message goes and the node's queued row replaces it", async ({ page }) => {
+test("on reconnect the message stays as sent until the node lists it, and its queued row replaces it", async ({ page }) => {
   await openUnreachable(page);
   await send(page, "Use the fixture instead");
   await expect(waiting(page)).toHaveCount(1);
 
   await page.evaluate(() => window.__outbox.reconnect());
+  await expect(waiting(page)).toHaveCount(1);
+  await expect(waiting(page)).toContainText("after the current step");
+  await expect(waiting(page).getByRole("button", { name: "Edit" })).toBeDisabled();
+  await expect(steers(page)).toHaveCount(0);
+
+  await page.evaluate(() => window.__outbox.listed());
   await expect(waiting(page)).toHaveCount(0);
   await expect(steers(page)).toHaveCount(1);
   await expect(steers(page)).toContainText("Use the fixture instead");
@@ -210,6 +207,8 @@ test("two waiting messages keep the order typed, before and after reconnecting",
 
   await expect(waiting(page).locator(".t")).toHaveText(["First message", "Second message"]);
   await page.evaluate(() => window.__outbox.reconnect());
+  await expect(waiting(page).locator(".t")).toHaveText(["First message", "Second message"]);
+  await page.evaluate(() => window.__outbox.listed());
   await expect(steers(page).locator(".t")).toHaveText(["First message", "Second message"]);
 });
 

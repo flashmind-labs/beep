@@ -360,13 +360,14 @@ pub async fn agent_follow(
             .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
             .await?;
         let mut pace = Pace::default();
+        let followed = SessionKey {
+            machine_id: machine_id.clone(),
+            agent: request.agent.as_ref().to_owned(),
+            session: session.clone(),
+        };
         let mut keeper = Keeper::new(
             app.state::<Arc<KeptTranscripts>>().inner().clone(),
-            SessionKey {
-                machine_id: machine_id.clone(),
-                agent: request.agent.as_ref().to_owned(),
-                session: session.clone(),
-            },
+            followed.clone(),
         );
         let mut retried = false;
         let mut waiting_for_page = Some(started);
@@ -526,6 +527,17 @@ pub async fn agent_follow(
             );
             view.entries = machine::entries_for(snapshot.entries, true);
             view.earlier = u32::try_from(snapshot.earlier).unwrap_or(u32::MAX);
+
+            // What the outbox showed as sent goes once this push lists it.
+            if !view.session.external {
+                super::outbox::listed(
+                    &app,
+                    &followed,
+                    &view.queued_messages,
+                    snapshot.earlier,
+                    &view.entries,
+                );
+            }
 
             if let Some(mesh) = fleet.mesh() {
                 beep_fleet::session_titles::apply(&mesh, &mut view.session);

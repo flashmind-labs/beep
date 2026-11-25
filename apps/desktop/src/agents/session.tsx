@@ -10,7 +10,7 @@ import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.tsx";
 import { fileLinkMenu } from "./filelinks.ts";
 import { agentKey, conversationHistory, conversationKey, retitle, sessionKey, type Retitled } from "./conversation-state.ts";
-import { syncSteers, stopPending, type Waiting } from "./agentqueue.ts";
+import { stopPending } from "./agentqueue.ts";
 import { $, type AgentReturn, bar, S, windowHooks, setView } from "../bar/core.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
 import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
@@ -101,8 +101,6 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   const wasStart = !!AG.open && became.get(AG.open.session)?.id === s.id;
   if (wasStart) why ||= AG.why;
   const inPlace = adopt && (!!AG.draft || wasStart) && S.view === "agent" && !!$("#agshell");
-  if (AG.open) steerQueues.set(transcriptKey(AG.open), AG.queue);
-  for (const [key, queue] of steerQueues) if (!queue.length) steerQueues.delete(key);
   rememberMentionImages();
   leaveLog();
   setView("agent");
@@ -115,7 +113,6 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     open,
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     opened: new Set(), steps: new Map(), all: new Set(),
-    queue: steerQueues.get(transcriptKey(open)) ?? [],
     outbox: [], outboxRevision: 0, stopping: null, modelOpen: false,
     older: { stop: "", reading: null },
   });
@@ -327,7 +324,6 @@ export async function pollAgent(readNow = false) {
 let firstRead: { open: OpenAgent; at: number } | null = null;
 /// The session whose page kept on disk is being read: its follow starts after, from its cursor.
 let readingKept: OpenAgent | null = null;
-const steerQueues = new Map<string, Waiting[]>();
 /// Times a session from its page kept on disk to its first fresh read.
 let keptFresh: { open: OpenAgent; done: () => void } | null = null;
 function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
@@ -449,8 +445,6 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
   AG.link = LINKED;
   AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
   continueAfterTurn(page.session);
-  // The node holds the steers: show those another app sent, drop those it took.
-  syncSteers(AG.queue, page, read);
   drawRest(moved, placed);
   finishFirstRead(o, "ok");
   void loadOlder();
@@ -459,7 +453,7 @@ export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, repl
 /// Draws the log again when the page `moved` or what shows with it changed; nothing the log
 /// shows changed: no draw.
 function drawRest(moved = false, placed = false) {
-  const rest = JSON.stringify([openModes(), openTasks(), AG.note, AG.answering, stoppingNow(), AG.queue.map(q => q.state), placed]);
+  const rest = JSON.stringify([openModes(), openTasks(), AG.note, AG.answering, stoppingNow(), AG.page?.queued_messages ?? [], placed]);
   if (!moved && rest === AG.rest) return;
   // Only the page moved: the turns it left as they were keep their rows.
   const news = rest === AG.rest;
@@ -488,8 +482,6 @@ function shownFromModel(o: OpenAgent) {
   const read = ++AG.polls;
   AG.sig = `pushed ${read}`;
   AG.changed = Date.now();
-  // Steers the node delivered while the session was away go.
-  if (AG.page) syncSteers(AG.queue, AG.page, read);
   drawAgentHeading();
   // Live: the connecting line under the kept log goes.
   drawRest(true);

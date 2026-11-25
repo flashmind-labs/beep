@@ -33,7 +33,7 @@ function setup() {
   };
   Object.assign(AG, {
     open: { machine_id: "m1", agent: "claude", session: "steer-render" }, page,
-    queue: [], att: [], note: "", child: null, held: 0, stopping: null,
+    outbox: [], att: [], note: "", child: null, held: 0, stopping: null,
   });
   Object.assign(MN, { paths: [], uploads: [] });
   showSessionBody(true);
@@ -179,40 +179,54 @@ test("background commands show as one line that keeps its focus as the count cha
   assert.equal(bar.querySelector(".ag-tasks")?.textContent, "1 command running");
 });
 
-test("steers appear only in the composer until recorded in the transcript", async t => {
+test("a steer shows in the queue on its way and while the node holds it, and not in the transcript", async t => {
   const { page, input } = setup();
-  let acknowledge!: (keys: string[]) => void;
-  answers.agent_steer = new Promise<string[]>(resolve => { acknowledge = resolve; });
-  t.after(() => { acknowledge([]); forgetAgentFollows(); delete answers.agent_steer; });
+  answers.agent_steer = [];
+  t.after(() => { forgetAgentFollows(); delete answers.agent_steer; });
   steerMessage(input);
+  await settle();
   const queued = () => bar.querySelector("#agqueue");
   const transcript = () => bar.querySelector("#agbody")?.textContent ?? "";
   assert.equal(input.value, "");
-  assert.ok(queued()?.textContent.includes("Use the existing fixture"));
   assert.equal(transcript().includes("Use the existing fixture"), false);
-  assert.ok(queued()?.textContent.includes("sending"));
   assert.deepEqual(page.entries.map(e => e.text), ["Check the build", "Compacting the conversation"], "pending rows do not change transcript positions");
-  acknowledge([]);
-  await settle();
+
+  // The outbox has it, and tells the window: sending, then sent.
+  const row = { id: 0, how: "steer" as const, text: "Use the existing fixture", images: [], reason: null, keys: [] };
+  AG.outbox = [{ ...row, state: "sending" }];
+  drawQueue();
+  assert.ok(queued()?.textContent.includes("Use the existing fixture"));
+  assert.ok(queued()?.textContent.includes("sending"));
+  AG.outbox = [{ ...row, state: "sent" }];
+  drawQueue();
   assert.ok(queued()?.textContent.includes("after the current step"));
+  assert.equal(bar.querySelectorAll("#agqueue .it").length, 1);
+
+  // The node lists it: its own row stands in for the sent one, which the outbox drops.
   page.queued = 1;
+  page.queued_messages = ["Use the existing fixture"];
+  AG.outbox = [];
   drawAgentBody(undefined, true);
   assert.ok(queued(), "reads during compaction preserve the steering row");
+  assert.equal(bar.querySelectorAll("#agqueue .it.steer").length, 1);
   assert.equal(transcript().includes("Use the existing fixture"), false);
+
+  // Delivered: the log has it once and the queue is empty.
+  page.queued = 0;
+  page.queued_messages = [];
   page.entries.push({ kind: "user", text: "Use the existing fixture" });
-  AG.queue[0].state = "delivered";
   drawAgentBody();
   assert.equal(queued(), null);
   assert.equal([...bar.querySelectorAll(".dcoderen.user")].filter(e => e.textContent.includes("Use the existing fixture")).length, 1);
 });
 
-test("a refused steer removes its steering row and restores the draft", async t => {
+test("a refused steer restores the draft", async t => {
   const { input } = setup();
   let refuse!: (error: string) => void;
   answers.agent_steer = new Promise((_resolve, reject) => { refuse = reject; });
   t.after(() => { forgetAgentFollows(); delete answers.agent_steer; });
   steerMessage(input);
-  assert.ok(bar.querySelector("#agqueue"));
+  assert.equal(input.value, "");
   refuse("bad request: message refused");
   await settle();
   assert.equal(bar.querySelector("#agqueue"), null);
@@ -220,15 +234,22 @@ test("a refused steer removes its steering row and restores the draft", async t 
   assert.ok(bar.textContent.includes("message refused"));
 });
 
-test("editing a pending steer removes its steering row and restores its text", async t => {
-  const { input } = setup();
+test("editing a steer the node holds drops the node's steers, sends the others again and restores its text", async t => {
+  const { page, input } = setup();
+  input.value = "";
   answers.agent_steer = [];
   t.after(() => { forgetAgentFollows(); delete answers.agent_steer; });
-  steerMessage(input);
-  await settle();
-  assert.ok(bar.querySelector("#agqueue"));
-  await editQueued(0, true);
-  assert.equal(bar.querySelector("#agqueue"), null);
+  page.queued = 3;
+  page.queued_messages = ["First one", "Use the existing fixture\n[Image: shot.png]", "Third one"];
+  drawQueue();
+  assert.equal(bar.querySelectorAll("#agqueue .it.steer").length, 3);
+  calls.length = 0;
+  await editQueued(1, true);
+  assert.deepEqual(calls.filter(call => call.cmd === "agent_steer").map(call => JSON.stringify((call.args as { steer: unknown }).steer)), [
+    JSON.stringify("drop_steers"),
+    JSON.stringify({ steer: { text: "First one" } }),
+    JSON.stringify({ steer: { text: "Third one" } }),
+  ]);
   assert.equal(input.value, "Use the existing fixture");
 });
 
@@ -248,7 +269,7 @@ test("a pending steer returns after switching conversations without sending it a
     // Opening a different conversation clears its local composer and queue.
     Object.assign(AG, {
       open: { machine_id: next.session.machine_id, agent: next.session.agent, session: next.session.id },
-      page: { ...next, queued: 0, queued_messages: [] }, queue: [], sig: "", rest: "",
+      page: { ...next, queued: 0, queued_messages: [] }, sig: "", rest: "",
     });
     await pollAgent(true);
     await settle();
@@ -263,40 +284,22 @@ test("a pending steer returns after switching conversations without sending it a
   assert.equal(calls.filter(call => call.cmd === "agent_steer").length, 1);
 });
 
-test("a send acknowledged after switching updates its original queue", async t => {
-  const { input } = setup();
-  let acknowledge!: (keys: string[]) => void;
-  answers.agent_steer = new Promise<string[]>(resolve => { acknowledge = resolve; });
-  t.after(() => { acknowledge([]); forgetAgentFollows(); delete answers.agent_steer; });
-  steerMessage(input);
-  const original = AG.queue;
-  Object.assign(AG, {
-    open: { machine_id: "m1", agent: "claude", session: "other-conversation" },
-    queue: [], note: "Keep this conversation's note",
-  });
-  acknowledge([]);
-  await settle();
-  assert.equal(original[0].state, "sent");
-  assert.equal(AG.note, "Keep this conversation's note");
-  assert.deepEqual(AG.queue, []);
-});
-
+/// The steers the node holds, as the open session's last update lists them.
+const hold = (...texts: string[]) => { AG.page!.queued = texts.length; AG.page!.queued_messages = texts; };
 
 test("stream updates keep queued message controls and focus", t => {
   setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const item = (text: string) => ({ typed: text, text, paths: [], images: [], state: "sending" as "sending" | "sent", after: 0 });
-  const first = item("First"), second = item("Second");
-  AG.queue = [first, second];
+  hold("First", "Second");
   drawQueue();
   const edit = bar.querySelector<HTMLButtonElement>('[data-agq="1"][data-act="edit"]');
   assert.ok(edit);
   edit.focus();
-  first.state = "sent";
+  hold("First", "Second");
   drawQueue();
   assert.equal(bar.querySelector('[data-agq="1"][data-act="edit"]'), edit);
   assert.equal(document.activeElement, edit);
-  AG.queue.splice(0, 1);
+  hold("Second");
   drawQueue();
   assert.equal(bar.querySelector('[data-agq="0"][data-act="edit"]'), edit);
   assert.equal(document.activeElement, edit);
@@ -305,32 +308,30 @@ test("stream updates keep queued message controls and focus", t => {
 test("unchanged queue snapshots keep focused controls, then show changed content", t => {
   setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const item = { typed: "First", text: "First", paths: [], images: [], state: "sent" as const, after: 0 };
-  AG.queue = [item];
+  hold("First");
   drawQueue();
   const edit = bar.querySelector<HTMLButtonElement>('[data-agq="0"][data-act="edit"]'); assert.ok(edit);
   edit.focus();
-  AG.queue = [{ ...item }];
+  hold("First");
   drawQueue();
   assert.equal(bar.querySelector('[data-agq="0"][data-act="edit"]'), edit);
   assert.equal(document.activeElement, edit);
-  AG.queue = [{ ...item, typed: "Updated", text: "Updated" }];
+  hold("Updated");
   drawQueue();
   assert.match(bar.querySelector("#agqueue")?.textContent ?? "", /Updated/);
 });
 
 
-test("leaving the agent disposes its queue view but keeps pending messages", async t => {
+test("leaving the agent disposes its queue view but keeps the node's steers", async t => {
   setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const item = { typed: "Pending", text: "Pending", paths: [], images: [], state: "sent" as const, after: 0 };
-  AG.queue = [item];
+  hold("Pending");
   drawQueue();
   assert.ok(bar.querySelector("#agqueue"));
   setView("waiting");
   await settle();
   assert.equal(bar.querySelector("#agqueue"), null);
-  assert.equal(AG.queue[0], item);
+  assert.deepEqual(AG.page?.queued_messages, ["Pending"]);
   setView("agent");
   drawQueue();
   assert.ok(bar.querySelector("#agqueue")?.textContent.includes("Pending"));
@@ -340,12 +341,10 @@ test("leaving the agent disposes its queue view but keeps pending messages", asy
 test("drawing with no agent field leaves the queued messages unchanged", t => {
   setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });
-  const delivered = { typed: "Delivered", text: "Delivered", paths: [], images: [], state: "delivered" as const, after: 0 };
-  AG.queue = [delivered];
+  hold("Held");
   bar.querySelector("#agfield")?.remove();
   drawQueue();
-  assert.equal(AG.queue.length, 1);
-  assert.equal(AG.queue[0], delivered);
+  assert.deepEqual(AG.page?.queued_messages, ["Held"]);
 });
 
 test("suggestion updates preserve queued controls and focus", async t => {
@@ -355,7 +354,7 @@ test("suggestion updates preserve queued controls and focus", async t => {
   const { bindMentionMenu } = await import("../src/agents/mentionmenu.ts");
   answers.agent_commands = [{ name: "review", description: "Review work", hint: "" }, { name: "run", description: "Run checks", hint: "" }];
   t.after(() => { disposeQueue(); delete answers.agent_commands; });
-  AG.queue.push({ typed: "Queued", text: "Queued", paths: [], images: [], state: null, after: 0 });
+  AG.page!.queued_messages = ["Queued"];
   drawQueue();
   const button = bar.querySelector<HTMLButtonElement>('[data-agq="0"][data-act="edit"]'); assert.ok(button); button.focus();
   bindMentionMenu(input);
@@ -378,7 +377,7 @@ test("mode and plan controls share the queue owner without losing focus", async 
   drawModes();
   const mode = bar.querySelector<HTMLButtonElement>("#agmodeb"), approve = bar.querySelector<HTMLButtonElement>('[data-agopt="0"]');
   assert.ok(mode && approve); approve.focus();
-  AG.queue.push({ typed: "Queued", text: "Queued", paths: [], images: [], state: null, after: 0 });
+  AG.page!.queued_messages = ["Queued"];
   drawQueue();
   assert.equal(bar.querySelector("#agmodeb"), mode);
   assert.equal(bar.querySelector('[data-agopt="0"]'), approve);
@@ -484,7 +483,7 @@ test("approval actions use the active session and ignore cached controls", async
 test("composer slots keep queue and attachments ordered and survive disposal", t => {
   setup();
   t.after(() => { disposeQueue(); MN.paths = []; });
-  AG.queue = [{ typed: "Queued", text: "Queued", paths: [], images: [], state: "sent", after: 0 }];
+  AG.page!.queued_messages = ["Queued"];
   MN.paths = ["src/file.ts"];
   drawQueue(); drawAgentAttached();
   const queue = bar.querySelector("#agqueue"), attachments = bar.querySelector("#agatt"), field = bar.querySelector("#agfield");
@@ -554,12 +553,12 @@ test("structured conversation blocks and other failed turns use accessible error
 test("a queued message from another session shows its sender and words", () => {
   setup();
   const text = '<from-session id="p1" name="Review login">\nCheck the tests.\n</from-session>';
-  AG.queue = [{ typed: text, text, paths: [], images: [], state: "sent", after: 0 }];
+  AG.page!.queued_messages = [text];
   drawQueue();
   const row = bar.querySelector("#agqueue .it.from");
   assert.ok(row);
   assert.equal(row.querySelector(".lbl")?.textContent, "Review login");
   assert.equal(row.querySelector(".t")?.textContent, "Check the tests.");
   assert.equal(row.textContent?.includes("<from-session"), false);
-  AG.queue = []; drawQueue();
+  AG.page!.queued_messages = []; drawQueue();
 });
