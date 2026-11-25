@@ -15,14 +15,17 @@ use super::{
     sightings::{self, Sight, Sighted},
 };
 use crate::{
-    agents::mcp::{
-        command_name,
-        children::{ChildView, Listed, in_the_mesh},
-        projects,
+    agents::{
+        ci::Ci,
+        mcp::{
+            command_name,
+            children::{ChildView, Listed, in_the_mesh},
+            projects,
+        },
     },
     link::Offers,
     machine::{
-        ci::{Ci, forge::command},
+        ci::forge::command,
         elect::{Reaches, elect, gather, online, ranked},
     },
 };

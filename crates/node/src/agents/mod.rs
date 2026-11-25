@@ -34,7 +34,8 @@ host! {
     pub(crate) mod follow;
     mod acp;
     mod adapters;
-    mod alerts;
+    pub(crate) mod alerts;
+    pub(crate) mod ci;
     mod checkout;
     pub(crate) mod checkouts;
     mod compaction;
@@ -57,7 +58,7 @@ host! {
     mod made_files;
     mod media_file;
     mod models;
-    mod moving;
+    pub(crate) mod moving;
     mod picture;
     mod pipe;
     mod plans;
@@ -191,7 +192,7 @@ host! {
         /// Lazily spawned language servers for editor go-to-definition.
         lsp: lsp::Pool,
         /// The CI runs this node tells, and how it reaches the hosts.
-        pub(crate) ci: Arc<crate::machine::ci::Ci>,
+        pub(crate) ci: Arc<ci::Ci>,
         /// What sessions spent, from the agents' own logs.
         spend: Arc<Spend>,
         /// Set while the agents' plans are read.
