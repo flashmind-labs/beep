@@ -146,7 +146,9 @@ pub(super) const KNOWN: &[Known] = &[
         full_mode: None,
         read_only_mode: None,
         model_flag: false,
-        compact: Route::OwnTrigger,
+        compact: Route::Threshold {
+            var: "AGY_CLI_AUTO_COMPACT_OVERRIDE",
+        },
         async_tasks: false,
     },
     // pi has no permission prompts; only its extensions ask.

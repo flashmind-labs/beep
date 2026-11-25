@@ -211,12 +211,12 @@ export function joinArgs(args: string[]) {
 }
 
 /// What a harness takes for auto-compact: a percent, only on and off (its
-/// own setting has no threshold), or nothing (flsh and Antigravity compact on
-/// their own). The nodes set each one's own mechanism or send /compact.
+/// own setting has no threshold), or nothing (flsh compacts on its own). The nodes set each one's own mechanism or send /compact.
 const COMPACT_KIND: Record<string, "percent" | "toggle"> = {
   claude: "percent",
   codex: "percent",
   pi: "percent",
+  agy: "percent",
   opencode: "toggle",
 };
 

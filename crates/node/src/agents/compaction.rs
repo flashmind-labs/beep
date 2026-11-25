@@ -6,8 +6,8 @@
 //! A token count instead of a percent goes to Codex as its own limit, and to
 //! Claude Code and pi as the node's `/compact` (Claude Code's own trigger is
 //! then turned off).
-//! Agents that compact on their own with no setting (Antigravity, flsh) are
-//! left to it.
+//! Antigravity takes a percent or a token count in one variable. Agents that
+//! compact on their own with no setting (flsh) are left to it.
 
 use beep_proto::{
     AgentContext, ModelId,
@@ -117,6 +117,8 @@ impl Policy {
             // would only get in its way.
             (Route::Percent { off_var, .. } | Route::Toggle { off_var }, Self::Off)
             | (Route::Percent { off_var, .. }, Self::AtTokens(_)) => (off_var, "1".to_owned()),
+            (Route::Threshold { var }, Self::At(percent)) => (var, format!("{percent}%")),
+            (Route::Threshold { var }, Self::AtTokens(tokens)) => (var, tokens.to_string()),
             (Route::TokenLimit { config_var, key }, Self::AtTokens(tokens)) => {
                 (config_var, serde_json::json!({ key: tokens }).to_string())
             }
@@ -163,6 +165,9 @@ pub(super) enum Route {
     },
     /// Its own setting only turns on (its default) or off.
     Toggle { off_var: &'static str },
+    /// Its own setting takes a percent (`80%`) or a token count in one
+    /// variable, and nothing turns it off.
+    Threshold { var: &'static str },
     /// With `/compact`, when it advertises the command.
     Advertised,
     /// As `Advertised` for a percent. A token count is its own setting,
@@ -183,7 +188,7 @@ impl Route {
             // Its own setting has no token count, so the node counts.
             Self::Percent { .. } => tokens,
             Self::TokenLimit { .. } => !tokens,
-            Self::OwnTrigger | Self::Toggle { .. } => false,
+            Self::OwnTrigger | Self::Toggle { .. } | Self::Threshold { .. } => false,
         };
         node_compacts
             && commands

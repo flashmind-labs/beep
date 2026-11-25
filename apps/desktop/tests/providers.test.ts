@@ -59,10 +59,9 @@ test("saving sends typed values only, and the switch keeps the saved ones", () =
 });
 
 test("auto-compact takes a percent, only on and off, or nothing by agent", () => {
-  assert.deepEqual(["claude", "codex", "pi"].map(compactKind), ["percent", "percent", "percent"]);
+  assert.deepEqual(["claude", "codex", "pi", "agy"].map(compactKind), ["percent", "percent", "percent", "percent"]);
   assert.equal(compactKind("opencode"), "toggle");
   assert.equal(compactKind("flsh"), null);
-  assert.equal(compactKind("agy"), null);
 });
 
 test("auto-compact reads a percent or a token count", () => {

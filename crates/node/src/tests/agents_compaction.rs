@@ -231,7 +231,7 @@ fn opencode_only_turns_off() {
 
 #[test]
 fn the_slash_command_fallback_sets_no_variable() {
-    for agent in ["codex", "pi", "agy", "flsh", "unknown"] {
+    for agent in ["codex", "pi", "flsh", "unknown"] {
         assert_eq!(Policy::Off.env(route(agent), &env(&[])), None);
         assert_eq!(Policy::At(70).env(route(agent), &env(&[])), None);
     }
