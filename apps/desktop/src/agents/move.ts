@@ -9,12 +9,12 @@ import { agentKey } from "./conversation-state.ts";
 import { type MoveProgress, type MoveRecord, type MoveTarget, canMove, chatSessions, going, movePct, moveRows, targetNote } from "./move-state.ts";
 import { isAssistant } from "./assistant-state.ts";
 import { isStarting } from "./starting-state.ts";
-import { moveStore, nameOf, onMoves, refreshMoves, stateOf } from "./move-store.ts";
+import { moveStore, nameOf, onMoves, stateOf } from "./move-store.ts";
 import { sessions, sessionsRead } from "./sessions.ts";
 import { S, windowHooks } from "../bar/core.ts";
 import { placeOf } from "./place.ts";
 import { invoke } from "../ui/tauri.ts";
-import { ambient, latest, onShownChange, paneShown, SLOW_MS, STALE } from "../ui/active.ts";
+import { latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
 import type { ProjectMachineRow } from "../project/projects-state.ts";
 
 /// `agents`: the harnesses the session uses, with a chat's threads.
@@ -86,8 +86,7 @@ const following = () => {
   const s = AG.page?.session, phase = s ? stateOf(s.id)?.phase : null;
   return !!s && here(s)?.from === s.machine_id && phase !== "failed" && phase !== "cancelled";
 };
-// How far a move is, the target says, not the mesh: asked again while one shows.
-const readProgress = ambient(async () => { await refreshMoves(); drawMove(); }, SLOW_MS, () => viewing());
+// How far a move is, the target says, and arrives with the `moves` push.
 // The lists arrive by the home push: a move or a session change draws the move again while one shows.
 sessionsRead.add(() => { if (viewing() && following()) drawMove(); });
 onMoves(() => { if (viewing()) drawMove(); });
@@ -227,7 +226,6 @@ function moveStatus(s: AgentRow): Parameters<typeof MoveStatus>[0] {
     const to = nameOf(r.to), now = Date.now();
     if (p.phase === "files") filesSince.set(s.id, filesSince.get(s.id) ?? now); else filesSince.delete(s.id);
     const since = filesSince.get(s.id);
-    readProgress();
     if (p.phase === "waiting" && !p.source_away && (s.status === "working" || s.status === "asking")) view = { kind: "waiting", to };
     else view = { kind: "progress", to, cancelable: p.phase !== "resuming", rows: moveRows(p, s.machine_name, to, UI.targets.find(t => t.id === r.to)?.online ?? true, isChat(s) ? "chat" : "session", since === undefined ? null : { since, now }), pct: movePct(p) };
   }

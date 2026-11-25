@@ -1,18 +1,13 @@
 // What the window knows of the moves in the mesh: the records and how each
 // target says it goes. The lists and the session view both read it.
 
-import { type MoveProgress, type MoveRecord, awaitingMove, bySession, dedupe, effective, going, listLabel } from "./move-state.ts";
-import { single, SLOW_MS } from "../ui/active.ts";
-import { UNWATCHED_MS } from "../ui/pagecache.ts";
+import { type MoveProgress, type MoveRecord, bySession, dedupe, effective, listLabel } from "./move-state.ts";
+import { single } from "../ui/active.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedEach } from "../ui/snapshot-state.ts";
 import { invoke } from "../ui/tauri.ts";
-import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
+import { MACHINES } from "../machines/machine-store.ts";
 import { createStore } from "zustand/vanilla";
-
-/// Records older than this are not asked about again.
-const RECENT_MS = 24 * 3600 * 1000;
-/// The most progress answers one read asks for.
-const MAX_ASKED = 8;
-const RETRY_MS = 30_000;
 
 /// The move records by session, and how each target says its move goes.
 export const moveStore = createStore(() => ({
@@ -25,29 +20,23 @@ export const onMoves = (f: () => void) => void moveStore.subscribe(() => f());
 
 export const nameOf = (id: string) => MACHINES.list?.find(m => m.id === id)?.name ?? id.slice(0, 8);
 
-// Each record is one move attempt. A later move of the same session gets a new deadline.
-const nextCheck = new WeakMap<MoveRecord, number>();
-
 /// Takes the moves a `home` push carried, so a move started on another desktop shows at once.
 export function takePushedSessions(records: readonly MoveRecord[]) {
-  void takeMoves(records);
+  takeMoves(records);
 }
 
-/// Lists recent moves and shares progress reads across the views that requested them.
+/// Reads the move records once; reads at the same time share it.
 export const refreshMoves = single(async () => {
   const before = moveStore.getState().records;
   let records: MoveRecord[];
   try { records = await invoke<MoveRecord[]>("session_moves"); } catch (e) { console.warn("moves not read", e); return; }
   if (before !== moveStore.getState().records) return;
 
-  await takeMoves(records);
+  takeMoves(records);
 });
 
-/// Whether a round of progress reads is out; a move list that arrives meanwhile waits for the next.
-let asking = false;
-
-/// Takes `list` as the move records, then asks the targets how the due moves go.
-async function takeMoves(list: readonly MoveRecord[]) {
+/// Takes `list` as the move records. Progress comes with the `moves` push, not from here.
+function takeMoves(list: readonly MoveRecord[]) {
   const before = moveStore.getState();
   const read = bySession(Array.isArray(list) ? list : []);
   let changed = read.size !== before.records.size;
@@ -62,53 +51,33 @@ async function takeMoves(list: readonly MoveRecord[]) {
     }
   }
 
-  if (changed) {
-    const progress = new Map(before.progress);
-    for (const id of progress.keys()) {
-      if (!read.has(id) || read.get(id) !== before.records.get(id)) progress.delete(id);
-    }
-    moveStore.setState({ records: read, progress });
+  if (!changed) return;
+
+  // A move that ended or began again is not the one its progress told of; one that has no record
+  // yet keeps what the push told, for the record on its way.
+  const progress = new Map(before.progress);
+  for (const id of progress.keys()) {
+    if (!read.has(id) || (before.records.has(id) && read.get(id) !== before.records.get(id))) progress.delete(id);
   }
-
-  const now = Date.now();
-  const due = (r: MoveRecord) => nextCheck.get(r) ?? 0;
-  const recent = [...read.values()].filter(r => now - r.at < RECENT_MS && due(r) <= now)
-    .sort((a, b) => due(a) - due(b) || b.at - a.at).slice(0, MAX_ASKED);
-  if (!recent.length || asking) return;
-
-  asking = true;
-  try {
-    if (!MACHINES.list) await ensureMachines().catch(e => console.warn("machine names not read", e));
-
-    const answers = await Promise.all(recent.map(readProgress));
-    const current = moveStore.getState();
-    let updated: Map<string, MoveProgress> | null = null;
-    for (const result of answers) {
-      if (!result?.answer || current.records.get(result.record.session) !== result.record) continue;
-      updated ??= new Map(current.progress);
-      updated.set(result.record.session, result.answer);
-    }
-    if (updated) moveStore.setState({ progress: updated });
-  } finally {
-    asking = false;
-  }
+  moveStore.setState({ records: read, progress });
 }
 
-async function readProgress(record: MoveRecord) {
-  try {
-    const answer = await invoke<MoveProgress>("session_move_progress", { session: record.session });
-    // Released targets answer by session ID. Check fresh records again soon in case
-    // the target still described the previous move, or only just received this one.
-    const now = Date.now();
-    let interval = SLOW_MS;
-    if (!awaitingMove(record, now) && !going(answer)) interval = answer?.answer === "known" ? UNWATCHED_MS : RETRY_MS;
-    nextCheck.set(record, now + interval);
-    return { record, answer };
-  } catch (e) {
-    nextCheck.set(record, Date.now() + RETRY_MS);
-    console.warn("move progress not read", e);
-    return null;
+// How far each move in flight is comes with the `moves` push, as `session_move_progress` views.
+subscribeEach(topic("moves"), event => takeProgress(event.data));
+
+/// Takes the progress an update of the `moves` topic carries.
+export function takeProgress(data: unknown) {
+  let progress: Map<string, MoveProgress> | null = null;
+
+  for (const { args, pushed } of pushedEach<MoveProgress>(data, "session_move_progress")) {
+    if (typeof args.session !== "string") continue;
+    if ("error" in pushed) { console.warn("move progress not read", pushed.error); continue; }
+
+    progress ??= new Map(moveStore.getState().progress);
+    progress.set(args.session, pushed.value);
   }
+
+  if (progress) moveStore.setState({ progress });
 }
 
 /// How the move of session `id` stands, read for the window.

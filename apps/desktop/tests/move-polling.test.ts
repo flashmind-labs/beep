@@ -1,9 +1,8 @@
 import { answers, calls } from "./steer-env.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { moveStore, refreshMoves, stateOf, takePushedSessions } from "../src/agents/move-store.ts";
+import { moveStore, refreshMoves, stateOf, takeProgress, takePushedSessions } from "../src/agents/move-store.ts";
 import type { MoveProgress, MoveRecord } from "../src/agents/move-state.ts";
-import { SLOW_MS } from "../src/ui/active.ts";
 
 const record = (session: string): MoveRecord => ({
   session, agent: "codex", from: "source", to: "target", project: "example", at: Date.now() - 600_000,
@@ -20,47 +19,26 @@ test.beforeEach(() => {
   moveStore.setState({ records: new Map(), progress: new Map() });
 });
 
-test("list refreshes share checks and reach moves beyond the first batch", async t => {
-  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
-  const records = Array.from({ length: 9 }, (_, index) => record(String(index)));
-  answers.session_moves = records;
-  answers.session_move_progress = progress("done");
-
-  await Promise.all([refreshMoves(), refreshMoves()]);
-  assert.equal(checks(), 9);
-  for (let i = 0; i < 275; i++) {
-    t.mock.timers.tick(1_740);
-    answers.session_moves = records.map(r => ({ ...r }));
-    await refreshMoves();
-  }
-  assert.equal(checks(), 18);
-
-  answers.session_moves = [{ ...records[0], at: Date.now() }];
-  answers.session_move_progress = progress("files");
+test("progress comes from the moves push and is never asked for", async () => {
+  const move = record("pushed");
+  answers.session_moves = [move];
   await refreshMoves();
-  assert.equal(checks(), 19);
-  assert.equal(stateOf("0")?.phase, "files");
-  assert.equal(stateOf("1"), null);
+  assert.equal(stateOf("pushed"), null);
 
-  t.mock.timers.tick(SLOW_MS);
-  answers.session_move_progress = progress("resuming");
-  await refreshMoves();
-  assert.equal(stateOf("0")?.phase, "resuming");
+  takeProgress({ views: [{ command: "session_move_progress", args: { session: "pushed" }, value: progress("files") }] });
+  assert.equal(stateOf("pushed")?.phase, "files");
+  takeProgress({ views: [{ command: "session_move_progress", args: { session: "pushed" }, value: progress("resuming") }] });
+  assert.equal(stateOf("pushed")?.phase, "resuming");
+  assert.equal(checks(), 0);
 });
 
-test("a cancelled move stays gone when its progress request returns", async () => {
-  const move = record("cancelled");
-  answers.session_moves = [move];
-  let finish: (answer: MoveProgress) => void = () => assert.fail("progress request is missing");
-  answers.session_move_progress = new Promise<MoveProgress>(resolve => { finish = resolve; });
-  const read = refreshMoves();
-  await new Promise<void>(resolve => setImmediate(resolve));
-  assert.equal(checks(), 1);
+test("progress pushed before its record waits for the record", () => {
+  takeProgress({ views: [{ command: "session_move_progress", args: { session: "early" }, value: progress("files") }] });
+  takePushedSessions([record("early")]);
+  assert.equal(stateOf("early")?.phase, "files");
 
-  moveStore.setState({ records: new Map(), progress: new Map() });
-  finish(progress("files"));
-  await read;
-  assert.equal(stateOf(move.session), null);
+  takePushedSessions([]);
+  assert.equal(stateOf("early"), null, "a move that ended takes its progress");
 });
 
 test("a pushed move list shows a move started elsewhere without a read", async () => {
