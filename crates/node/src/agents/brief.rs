@@ -167,6 +167,18 @@ pub(crate) const ASSISTANT: &str = "## Beep assistant\n\n\
 /// folder of its own (`conversation`): one from before those folders, or
 /// started in a folder the user named, shares its folder and keeps no notes
 /// there.
+/// What a session that carries on `session` (`Request::Start::continues`)
+/// hears: to read that one's transcript before it answers.
+pub(crate) fn continues(session: &beep_proto::SessionId) -> String {
+    format!(
+        "## Continued conversation\n\n\
+         This chat carries on Beep session `{session}`, which ran on another harness. Before you \
+         answer, read it with `read_session_transcript` (session `{session}`, then `before` for \
+         earlier pages) until you have the context the next message needs. Treat it as this \
+         chat's history: continue from it without recapping it."
+    )
+}
+
 pub(crate) const OWN_FOLDER: &str = "This conversation owns its starting folder: keep \
     established facts and open items in `notes.md` there, and have each thread save its \
     findings in its subfolder.";

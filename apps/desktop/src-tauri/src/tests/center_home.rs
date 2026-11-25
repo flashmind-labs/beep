@@ -38,6 +38,7 @@ fn agent(machine: &str, id: &str, last_activity: u64) -> MachineSession {
         account: None,
         persona: None,
         place: None,
+        continues: None,
     }
 }
 

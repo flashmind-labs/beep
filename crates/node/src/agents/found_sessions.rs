@@ -442,6 +442,7 @@ impl Agents {
             let kept = kept.get(&session.id);
             session.assistant = kept.is_some_and(|kept| kept.info.assistant && !kept.info.reviewer);
             session.persona = kept.and_then(|kept| kept.info.persona.clone());
+            session.continues = kept.and_then(|kept| kept.info.continues.clone());
 
             if let Some(kept) = kept
                 && kept.named
@@ -799,6 +800,7 @@ impl Agents {
             assistant: info.assistant && !info.reviewer,
             account,
             persona: info.persona,
+            continues: info.continues,
             ..Begin::default()
         }
     }

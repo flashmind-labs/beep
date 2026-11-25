@@ -24,6 +24,7 @@ fn session(machine: &str, id: &str, activity: u64) -> MachineSession {
         account: None,
         persona: None,
         place: None,
+        continues: None,
     }
 }
 

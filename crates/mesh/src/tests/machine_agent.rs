@@ -16,6 +16,7 @@ fn start() -> Request {
         checkout: None,
         images: Vec::new(),
         assistant: false,
+        continues: None,
     }
 }
 

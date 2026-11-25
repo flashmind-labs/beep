@@ -757,6 +757,17 @@ impl Agents {
             Some(instructions) => super::session::standing(brief.map(Cow::into_owned), Some(&instructions)).map(Cow::Owned),
             None => brief,
         };
+        // Only the first start reads the earlier session; a resume has it.
+        let brief = match begin.continues.as_ref().filter(|_| begin.resume.is_none()) {
+            Some(earlier) => {
+                let said = super::brief::continues(earlier);
+                Some(Cow::Owned(match brief {
+                    Some(brief) => format!("{brief}\n\n{said}"),
+                    None => said,
+                }))
+            }
+            None => brief,
+        };
         let brief = match self.mesh().is_some_and(|mesh| crate::team::home::in_team(&mesh, &cwd)) {
             true => Some(Cow::Owned(match brief {
                 Some(brief) => format!("{brief}\n\n{}", super::brief::TEAM),
@@ -956,6 +967,8 @@ pub(super) struct Begin {
     pub(super) persona: Option<Persona>,
     /// The custom agent's instructions, said once after Beep's brief.
     pub(super) instructions: Option<String>,
+    /// The session this one carries on (`SessionInfo::continues`).
+    pub(super) continues: Option<SessionId>,
 }
 
 /// Refuses a start as `account` that this node cannot sign `agent` in as,

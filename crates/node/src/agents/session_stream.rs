@@ -150,8 +150,10 @@ pub async fn serve_session(
             checkout,
             images,
             assistant,
+            continues,
         } => match Prompt::with_images(prompt, images) {
             Ok(Prompt { text, images, .. }) => {
+                let earlier = continues.as_ref().and_then(|id| agents.get(id));
                 let begin = Begin {
                     prompt: Some(text),
                     images,
@@ -160,12 +162,20 @@ pub async fn serve_session(
                     fast,
                     assistant,
                     account,
+                    continues,
                     ..Begin::default()
                 };
-                agents
+                let started = agents
                     .start_in(&kind, cwd.as_deref(), checkout, begin)
                     .await
-                    .map_err(|e| format!("{e:#}"))
+                    .map_err(|e| format!("{e:#}"));
+
+                // The chat goes on in the new session alone.
+                if let (Ok(_), Some(earlier)) = (&started, earlier) {
+                    earlier.close().await;
+                }
+
+                started
             }
             Err(e) => Err(e),
         },

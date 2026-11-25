@@ -399,6 +399,10 @@ wire_structs! {
         /// external session, before the node knows and from an older node.
         #[serde(default)]
         pub place: Option<WorkPlace>,
+        /// The session on the same machine this one carries on, likely on
+        /// another harness; `None` for most and from an older node.
+        #[serde(default)]
+        pub continues: Option<SessionId>,
     }
 }
 
@@ -461,6 +465,8 @@ pub struct StartAgentSession {
     pub assistant: bool,
     /// The agent's named account to sign in as; `None` for its default one.
     pub account: Option<AccountName>,
+    /// The session on the same machine the new one carries on.
+    pub continues: Option<SessionId>,
 }
 
 /// Resumes a session started outside Beep, by the agent's own id: it then

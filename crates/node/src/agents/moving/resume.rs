@@ -144,6 +144,7 @@ impl Arrival<'_> {
             worktrees: self.worktrees.clone(),
             assistant: info.assistant,
             persona: info.persona,
+            continues: info.continues,
             note: Some(note),
             brief: Some(Cow::Owned(brief)),
             ..Begin::default()

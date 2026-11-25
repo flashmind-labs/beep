@@ -34,6 +34,7 @@ fn removing_a_project_clears_its_lists_and_rejects_late_session_lists() {
         account: None,
         persona: None,
         place: None,
+        continues: None,
     };
     let mut lists = PaletteLists {
         projects: Some(vec![project.clone()]),
@@ -209,6 +210,7 @@ fn opened_session(id: &str, cwd: &str) -> MachineSession {
         account: None,
         persona: None,
         place: None,
+        continues: None,
     }
 }
 

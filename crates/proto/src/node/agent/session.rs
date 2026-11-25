@@ -39,6 +39,11 @@ pub enum Request {
         assistant: bool,
         #[serde(default)]
         fast: Option<bool>,
+        /// The session on this node this one carries on, likely on another
+        /// harness: the agent reads its transcript before the first answer.
+        /// A node from before it starts a fresh session.
+        #[serde(default)]
+        continues: Option<SessionId>,
     },
     /// The first message: follows a session that already runs.
     Attach { session: SessionId },
@@ -207,6 +212,9 @@ pub struct SessionInfo {
     /// The custom agent it runs as, when its parent started it as one.
     #[serde(default)]
     pub persona: Option<Persona>,
+    /// The session on this node this one carries on (`Request::Start`).
+    #[serde(default)]
+    pub continues: Option<SessionId>,
 }
 
 /// The longest reply a list row shows, in characters.

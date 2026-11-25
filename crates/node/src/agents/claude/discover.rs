@@ -525,6 +525,7 @@ fn describe(
         taken_over: snapshot.owned.get(&transcript.id).cloned(),
         assistant: false,
         persona: None,
+        continues: None,
     })
 }
 

@@ -4,16 +4,20 @@ import { createRef } from "react";
 import { modelPickHost, showAgentControl, showAgentControlFor } from "./composer-ui.tsx";
 import type { SessionPick } from "./agentmodels.ts";
 import { isNativeSession } from "./native-session-state.ts";
-import { modelId } from "./agentpick.ts";
+import { harnessesOn, keepEffort, modelId } from "./agentpick.ts";
+import { canContinueElsewhere, type ContinuePick } from "./continue-state.ts";
 import { closedPicker, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
 import { knownModels, modelsOn } from "./model-store.ts";
-import { type AgentRow, AG, agentKind, canTakeOver } from "./agents.ts";
+import { type AgentRow, AG, agentKind, canTakeOver, ensureAgentHosts } from "./agents.ts";
 import { SWITCHES, sessionPicks, setNote } from "./session.tsx";
 import { drawAgentBody } from "./logview.tsx";
 import { resendPrompt, steerAgent } from "./messages.ts";
 import { perfLayer, perfOpen } from "../ui/perf.ts";
 
 export const resumePicks = new Map<string, SessionPick>();
+/// The harness, model and thinking a chat goes on with at its next message,
+/// by session id, when it was not its own harness. The one place it is kept.
+export const continuePicks = new Map<string, ContinuePick>();
 /// The model pill, which the picker opens from.
 const modelPill = createRef<HTMLButtonElement>();
 /// The session whose failed prompt goes again once a model is picked.
@@ -23,19 +27,32 @@ let retryIn: string | null = null;
 export const canSwitchModel = (s: AgentRow) => SWITCHES.has(s.agent) && !isNativeSession(s.id)
   && (s.status === "ended" ? !s.external || canTakeOver(s.agent) : !s.external);
 
+/// The harnesses session `s` can go on with: every one its machine offers
+/// while it can be continued, else its own.
+function harnessesFor(s: AgentRow) {
+  return canContinueElsewhere(s) ? [...new Set([s.agent, ...harnessesOn(AG.hosts, s.machine_id, null)])] : [s.agent];
+}
+
+/// Whether the picker has another harness to offer for `s`.
+export const canContinueWith = (s: AgentRow) => harnessesFor(s).length > 1;
+
 /// The pill by the field: the harness, the model and thinking switched to.
 /// A harness that cannot switch in a running session shows it disabled.
 export function drawModelPill() {
   const s = AG.page?.session;
   if (!s) return;
-  const can = canSwitchModel(s);
+  // A chat that began to work or ask goes on as it is.
+  if (!canContinueElsewhere(s)) continuePicks.delete(s.id);
+  const next = continuePicks.get(s.id);
+  if (next) modelsOn(s.machine_id, next.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
+  const can = canSwitchModel(s) || canContinueWith(s);
   const p = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
   const model = resumePicks.get(s.id)?.model ?? (AG.page?.model || p.model);
   const models = modelsOn(s.machine_id, s.agent, () => { if (AG.page?.session.id === s.id) drawModelPill(); });
   const displayModel = model || (models?.current ? "" : "Model unknown");
-  const why = can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
-  const content = pillContent(s.agent, displayModel, p.effort, s.machine_id);
-  const signature = JSON.stringify([s.agent, content.props.detail, AG.modelOpen, why, can]);
+  const why = next ? `Your next message continues this chat with ${agentKind(next.agent).name}` : can ? "Switch the model or thinking; applies from the next turn" : `${agentKind(s.agent).name} cannot switch models in a running session`;
+  const content = next ? pillContent(next.agent, next.model, next.effort, s.machine_id) : pillContent(s.agent, displayModel, p.effort, s.machine_id);
+  const signature = JSON.stringify([next?.agent ?? s.agent, content.props.detail, AG.modelOpen, why, can]);
   showAgentControlFor("model", signature, () => <button ref={modelPill} className="agc-pill agm" id="agmodelb" aria-expanded={AG.modelOpen} title={why} disabled={!can}>{content}</button>);
 }
 
@@ -43,6 +60,8 @@ export function toggleModelPicker() {
   if (closeModelPicker()) return;
   if (modelPill.current?.disabled) return;
   AG.modelOpen = true;
+  // The machines' harnesses may not be read yet: the picker lists them once they are.
+  if (!AG.hosts) void ensureAgentHosts().then(() => { if (AG.hosts && AG.modelOpen) { drawModelPicker(); drawModelPill(); } });
   const opened = perfOpen("picker");
   drawModelPicker();
   drawModelPill();
@@ -77,8 +96,9 @@ function pickerLayer(on: boolean) {
   perfLayer("picker", on);
 }
 
-/// The picker by the pill, for the session's own harness: a model or a
-/// thinking level picked goes to the session for its next turn.
+/// The picker by the pill: a model or a thinking level of the session's own
+/// harness goes to the session for its next turn; one of another harness is
+/// kept for its next message, which carries the chat on there.
 function drawModelPicker() {
   const el = modelPickHost.current, s = AG.page?.session;
   if (!el) return;
@@ -87,12 +107,15 @@ function drawModelPicker() {
   const now = sessionPicks.get(s.id) ?? { model: "", effort: null, fast: null };
   const pending = resumePicks.get(s.id);
   const was = pending ? pending.effort : now.effort;
-  const picked: Picked = { agent: s.agent, model: pending?.model ?? (AG.page?.model || now.model), effort: was, fast: pending ? pending.fast : now.fast, query: "" };
+  const next = continuePicks.get(s.id);
+  const picked: Picked = next ? { ...next, query: "" }
+    : { agent: s.agent, model: pending?.model ?? (AG.page?.model || now.model), effort: was, fast: pending ? pending.fast : now.fast, query: "" };
+  const offered = harnessesFor(s);
   drawPicker(el, {
     render: view => { if (el.isConnected) showAgentControl("pick", view); },
     picked,
-    offered: [s.agent],
-    everywhere: [s.agent],
+    offered,
+    everywhere: offered,
     allowed: null,
     machine: { id: s.machine_id, name: s.machine_name },
     noMachine: "",
@@ -100,7 +123,29 @@ function drawModelPicker() {
     anchor: () => modelPill.current,
     changed: what => {
       if (what === "models") return drawModelPill();
-      if (what === "agent" || what === "done") return;
+      if (what === "done") return;
+      if (what === "agent") {
+        // A harness other than its own is the chat's next one, on its default model.
+        if (picked.agent === s.agent) continuePicks.delete(s.id);
+        else continuePicks.set(s.id, { agent: picked.agent, model: "", effort: keepEffort(picked.agent, picked.effort), fast: null });
+        drawModelPicker();
+        drawModelPill();
+        return;
+      }
+
+      if (picked.agent !== s.agent) {
+        const model = modelId(knownModels(s.machine_id, picked.agent), picked.model);
+        continuePicks.set(s.id, { agent: picked.agent, model, effort: picked.effort, fast: picked.fast });
+        retryIn = null;
+        if (what === "model") AG.modelOpen = false;
+        drawModelPicker();
+        drawModelPill();
+        return;
+      }
+
+      // Back on its own harness: the chat stays here.
+      continuePicks.delete(s.id);
+      if (!canSwitchModel(s)) { AG.modelOpen = false; drawModelPicker(); drawModelPill(); return; }
       // A search such as `opus high` picks the thinking level with the model.
       const both = what === "model" && picked.effort !== was;
       const retry = what === "model" && retryIn === s.id;

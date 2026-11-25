@@ -2,7 +2,8 @@
 // answers to its questions, and interrupting it.
 import { appendEntry, clearQuestion, removeEntry } from "./open-page.ts";
 import { type Attached, attachOf, heldMessage, type Extras, type OutboxRow, type Resume, type Waiting } from "./agentqueue.ts";
-import { resumePicks } from "./modelpill.tsx";
+import { continuePicks, resumePicks } from "./modelpill.tsx";
+import { canContinueElsewhere } from "./continue-state.ts";
 import { sessionPicks } from "./session.tsx";
 import { imageLines, sentText } from "./agentlog.ts";
 import { promptParts } from "./promptparts-state.ts";
@@ -16,7 +17,7 @@ import { MN, attachReads, attachmentKey, currentMentions, mentionImages, mention
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentQuestion, type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
-import { openAgent, isOpen, resumeAgent, setNote, turnRuns } from "./session.tsx";
+import { openAgent, isOpen, resumeAgent, setNote, startedWith, turnRuns } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";
 import { drawAgentAttached, fitAttachedImages, keepSentImages, keepAgentPics } from "./images.tsx";
 import { drawAgentBody } from "./logview.tsx";
@@ -503,11 +504,43 @@ export function sendAgentMessage() {
   const input = agentMessage.current, session = AG.open, state = currentMentions(), ended = AG.page?.session.status === "ended";
   if (!session) return;
   return submit(input, draft => {
+    if (continuePicks.has(session.session)) return continueChat(session, draft, state);
     if (AG.open !== session) return sendBackground(session, draft, state, ended);
     const field = agentMessage.current ?? input;
     if (!field) return;
     return sendMessage(field, draft.text, draft.images, draft, ended);
   });
+}
+
+/// Starts the next message of chat `o` under the harness picked for it, which carries the
+/// chat on: the node closes `o` and the new session shows in its place. A message that
+/// cannot start there stays in the field.
+async function continueChat(o: OpenAgent, draft: Waiting, state: MentionState) {
+  const pick = continuePicks.get(o.session);
+  const row = AG.page?.session.id === o.session ? AG.page.session : sessions.find(s => s.machine_id === o.machine_id && s.id === o.session);
+  if (!pick || !row || !canContinueElsewhere(row)) {
+    continuePicks.delete(o.session);
+    state.error = "This chat cannot go on with another harness now.";
+    return restoreDraft(draft, state, o);
+  }
+
+  if (draft.files?.length) {
+    state.error = "Files cannot go with a chat that continues under another harness.";
+    return restoreDraft(draft, state, o);
+  }
+
+  try {
+    const { text, images } = outgoing(draft.text, draft.images);
+    const model = pick.model || null, fast = pick.agent === "codex" ? pick.fast : null;
+    const started = await invoke<Started>("agent_begin", { machineId: row.machine_id, agent: pick.agent, cwd: row.cwd, prompt: text, images: images ?? [], model, effort: pick.effort, fast, checkout: null, assistant: false, account: null, continues: row.id });
+    continuePicks.delete(o.session);
+    sessionPicks.set(started.session.id, { model: model ?? "", effort: pick.effort, fast });
+    startedWith(started.session, text, images ?? []);
+    if (isOpen(o)) openAgent(started.session, { back: AG.back });
+  } catch (e) {
+    state.error = String(e).replace(/^bad request: /, "");
+    restoreDraft(draft, state, o);
+  }
 }
 
 /// Sends a prepared message, preserving it in the field if refused.

@@ -24,6 +24,7 @@ fn start(stage: Stage) -> Start {
         images: Vec::new(),
         assistant: false,
         account: None,
+        continues: None,
         why: String::new(),
         at: SystemTime::UNIX_EPOCH,
         stage,

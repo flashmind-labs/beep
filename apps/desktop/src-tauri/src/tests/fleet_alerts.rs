@@ -94,6 +94,7 @@ async fn an_agents_question_reaches_the_desktop_and_its_answer_returns() {
         checkout: None,
         images: Vec::new(),
         assistant: false,
+        continues: None,
     })
     .await
     .expect("the start is sent");

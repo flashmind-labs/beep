@@ -178,6 +178,7 @@ impl Driver {
                         checkout: None,
                         images: Vec::new(),
                         assistant: false,
+                        continues: None,
                     },
                 )
                 .await?;

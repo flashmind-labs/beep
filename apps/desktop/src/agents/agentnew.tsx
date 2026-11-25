@@ -150,9 +150,7 @@ function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machin
 /// The agents the chosen machine offers; before one is picked, any machine's.
 /// Only those the project allows.
 function formAgents() {
-  const host = formHost();
-  const all = host ? host.agents : [...new Set((AG.hosts ?? []).flatMap(m => m.agents))];
-  return allowedOf(all, projectHarnesses(AG.form.project ?? null)).sort(byPreference);
+  return harnessesOn(AG.hosts, AG.form.machine || null, projectHarnesses(AG.form.project ?? null));
 }
 
 /// Redraws the form, keeping the prompt as typed when it shows already.

@@ -30,6 +30,14 @@ export type Allowed = readonly string[] | null;
 /// Those of `agents` that `allowed` lets run.
 export const allowedOf = (agents: readonly string[], allowed: Allowed) => allowed ? agents.filter(agent => allowed.includes(agent)) : [...agents];
 
+/// The harnesses machine `machine` offers, in the order the pickers list them;
+/// before one is named, those any machine offers. Only those `allowed` lets run.
+export function harnessesOn(hosts: readonly { machine_id: string; agents: readonly string[] }[] | null, machine: string | null, allowed: Allowed) {
+  const host = machine ? hosts?.find(m => m.machine_id === machine) : null;
+  const all = host ? host.agents : [...new Set((hosts ?? []).flatMap(m => m.agents))];
+  return allowedOf(all, allowed).sort(byPreference);
+}
+
 /// Sorts harnesses by their place in `order`; those it lacks go last.
 export function byOrder(order: readonly string[]) {
   const rank = (a: string) => order.indexOf(a) + 1 || 99;

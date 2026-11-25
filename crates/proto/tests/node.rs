@@ -1506,6 +1506,7 @@ mod agent {
                     data: vec![1, 2, 3],
                 }],
                 assistant: false,
+                continues: None,
             };
             let body = rmp_serde::to_vec_named(&newer).unwrap();
             assert_eq!(
@@ -1531,6 +1532,7 @@ mod agent {
                     checkout: None,
                     images: Vec::new(),
                     assistant: false,
+                    continues: None,
                 }
             );
         }
@@ -1588,6 +1590,7 @@ mod agent {
                 checkout: None,
                 images: Vec::new(),
                 assistant: true,
+                continues: None,
             })
             .unwrap();
             assert_eq!(
@@ -1786,6 +1789,7 @@ mod agent {
             // A node from before the field sends the row without it.
             let before = SessionInfo {
                 persona: None,
+                continues: None,
                 ..newer.clone()
             };
             let mut short = rmp_serde::to_vec(&before).unwrap();
@@ -2311,6 +2315,7 @@ mod agent {
                 }),
                 images: Vec::new(),
                 assistant: true,
+                continues: None,
             };
             let body = rmp_serde::to_vec_named(&start).unwrap();
             assert_eq!(rmp_serde::from_slice::<Request>(&body).unwrap(), start);

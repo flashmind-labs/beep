@@ -17,6 +17,7 @@ import { answerAgentQuestion, interruptAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 import { readError } from "../agentpane/read.ts";
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
+import { continuedFrom, continuedIn } from "./continue-state.ts";
 import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent, setNote } from "./session.tsx";
 import { agentMessage, sessionBody } from "./session-frame.tsx";
@@ -90,6 +91,9 @@ export function agentClick(e: MouseEvent) {
   const kid = inLogOrPane<HTMLElement>("[data-kid]");
   if (kid) { void openKid(kid.dataset.kid!, kid.dataset.key); return; }
   if (target.closest("#agup, #agup2")) return openParent();
+  // The line that links a chat to the one it went on from, or to the one that went on from it.
+  const continued = inLog<HTMLElement>("[data-continued]");
+  if (continued) return openContinued(continued.dataset.continued === "in");
   // "Show all N lines" opens the whole output in a box that scrolls.
   const all = inLog<HTMLElement>("[data-all]");
 
@@ -255,6 +259,13 @@ async function stopKid(x: HTMLElement) {
     setNote(readError(e));
     drawAgentBody();
   }
+}
+
+/// Opens the session the open one went on from, or with `onward` the one that went on from it.
+function openContinued(onward: boolean) {
+  const s = AG.open && AG.page?.session;
+  const row = s && (onward ? continuedIn(s, sessions) : continuedFrom(s, sessions));
+  if (row) openAgent(row, { back: AG.back });
 }
 
 /// Opens the session that started the open one.

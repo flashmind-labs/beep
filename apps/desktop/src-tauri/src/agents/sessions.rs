@@ -381,6 +381,7 @@ pub async fn agent_start(
         checkout,
         assistant: assistant.unwrap_or(false),
         account,
+        continues: None,
     };
     let started = direct::start(&fleet, request, images).await?;
     Ok(Started {

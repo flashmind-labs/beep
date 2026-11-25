@@ -61,6 +61,8 @@ pub struct ExternalSession {
     pub assistant: bool,
     /// The custom agent it ran as, as the node that ran it in Beep kept it.
     pub persona: Option<super::Persona>,
+    /// The session it carried on, as the node that ran it in Beep kept it.
+    pub continues: Option<SessionId>,
 }
 
 /// An external Claude Code session as its hooks report it, for

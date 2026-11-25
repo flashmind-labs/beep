@@ -13,6 +13,8 @@ import { parentSession, sessions } from "./sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
 import { AG, AGENT_ACTIVE, openOf, where } from "./agents.ts";
 import { sameSession } from "./running-state.ts";
+import { canContinueElsewhere } from "./continue-state.ts";
+import { canContinueWith, toggleModelPicker } from "./modelpill.tsx";
 import { workingSubagents } from "./logview.tsx";
 import { draftNewThread, resumeEndedSession, stopAllWork } from "./messages.ts";
 import { runs, transcriptKey, transcripts } from "./transcript-cache-state.ts";
@@ -69,6 +71,10 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     if (offers.stop) {
       runGroup.push({ label: "Stop turn", icon: "stop", detail: onPhone() ? undefined : (WINDOWS ? "Ctrl+." : "⌘."), on: () => void invoke("agent_steer", { ...at, steer: "cancel" }).catch(err => console.warn("stop turn:", err)) });
       runGroup.push({ label: "Stop all", icon: "stopAll", on: () => stopAll(s) });
+    }
+    // The picker is the open session's, so the item is too.
+    if (sameSession(AG.open, s) && AG.page && canContinueElsewhere(s) && canContinueWith(s)) {
+      runGroup.push({ label: "Continue with", icon: "sync", chevron: true, on: () => setTimeout(() => { if (!AG.modelOpen) toggleModelPicker(); }, 0) });
     }
     if (offers.resume) {
       runGroup.push({ label: "Resume", icon: "run", on: () => resumeEndedSession(openOf(s), started => open(started)) });

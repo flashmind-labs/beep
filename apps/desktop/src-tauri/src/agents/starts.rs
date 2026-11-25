@@ -138,6 +138,9 @@ pub(crate) struct Start {
     /// The named account it runs as; `None` for the agent's default one.
     #[serde(default)]
     pub(crate) account: Option<AccountName>,
+    /// The session on the same machine it carries on.
+    #[serde(default)]
+    pub(crate) continues: Option<SessionId>,
     /// Why Auto picked the machine; empty when the start named it.
     pub(crate) why: String,
     pub(crate) at: SystemTime,
@@ -183,6 +186,7 @@ impl Start {
             account: self.account.clone(),
             persona: None,
             place: None,
+            continues: self.continues.clone(),
         }
     }
 
@@ -241,6 +245,7 @@ impl Start {
             checkout: self.checkout.clone(),
             assistant: self.assistant,
             account: self.account.clone(),
+            continues: self.continues.clone(),
         }
     }
 }
@@ -730,6 +735,7 @@ pub async fn agent_begin(
     images: Option<Vec<PastedImage>>,
     assistant: Option<bool>,
     account: Option<String>,
+    continues: Option<SessionId>,
 ) -> Result<Started> {
     let account = account.as_deref().map(AccountName::from_str).transpose()?;
     let pasted = images.unwrap_or_default();
@@ -751,6 +757,7 @@ pub async fn agent_begin(
         checkout,
         assistant: assistant.unwrap_or(false),
         account,
+        continues,
     };
     let planned = direct::plan_fast(&fleet, request, checked).await?;
     let Request::Start {
@@ -761,6 +768,7 @@ pub async fn agent_begin(
         fast,
         checkout,
         assistant,
+        continues,
         ..
     } = planned.first
     else {
@@ -780,6 +788,7 @@ pub async fn agent_begin(
         images: pasted.into_iter().map(KeptImage::from).collect(),
         assistant,
         account: planned.account,
+        continues,
         why: planned.why,
         at: SystemTime::now(),
         // Its runner marks it starting, once that is on disk.

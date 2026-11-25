@@ -93,6 +93,9 @@ export interface AgentSession {
   background?: boolean;
   /// The custom agent it runs as, which its parent started it as.
   persona: Persona | null;
+  /// The session it carries on, on the same machine, when it was started to
+  /// continue a chat under another harness.
+  continues?: string | null;
 }
 
 /// A custom agent a session runs as: its name, and the colour its file gives.

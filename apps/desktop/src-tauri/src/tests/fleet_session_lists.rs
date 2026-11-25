@@ -29,6 +29,7 @@ fn session(id: &str) -> MachineSession {
         account: None,
         persona: None,
         place: None,
+        continues: None,
     }
 }
 

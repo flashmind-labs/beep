@@ -124,6 +124,9 @@ pub(crate) struct OpenSession {
     /// The custom agent it runs as.
     #[serde(default)]
     persona: Option<Persona>,
+    /// The session it carries on.
+    #[serde(default)]
+    continues: Option<SessionId>,
 }
 
 impl From<&OpenSession> for SavedSession {
@@ -145,6 +148,7 @@ impl From<&OpenSession> for SavedSession {
                 account: open.account.clone(),
                 assistant: open.assistant,
                 persona: open.persona.clone(),
+                continues: open.continues.clone(),
                 ..SessionInfo::default()
             },
             effort: open.effort,
@@ -289,6 +293,7 @@ impl Agents {
                     assistant: session.assistant,
                     account: info.account.clone(),
                     persona: info.persona.clone(),
+                    continues: info.continues.clone(),
                     ..SessionInfo::default()
                 },
                 effort: live.effort,
@@ -347,6 +352,7 @@ impl Agents {
                 account: session.account.clone(),
                 named: live.named,
                 persona: live.info.persona.clone(),
+                continues: live.info.continues.clone(),
             })
         })
     }
@@ -452,6 +458,7 @@ impl Agents {
                 fast: open.fast,
                 account: open.account,
                 persona: open.persona,
+                continues: open.continues,
                 ..Begin::default()
             },
         ).await?;

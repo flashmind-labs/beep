@@ -322,6 +322,7 @@ impl Session {
             assistant,
             account,
             persona,
+            continues,
             ..
         } = begin;
         let prompt = prompt.map(|text| Prompt {
@@ -491,6 +492,7 @@ impl Session {
             assistant,
             account: account.clone(),
             persona,
+            continues,
             ..SessionInfo::default()
         };
         let mut first = Live::new(info, images, usage);

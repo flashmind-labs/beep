@@ -101,6 +101,7 @@ async fn start(client: &PeerClient, cwd: &Path) -> machine::agent::Opened {
         checkout: None,
         images: Vec::new(),
         assistant: false,
+        continues: None,
     };
     open_agent(client, "codex", first)
         .await

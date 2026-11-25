@@ -505,6 +505,7 @@ async fn plan_within(
         checkout,
         images,
         assistant: start.assistant,
+        continues: start.continues,
     };
     Ok(Planned {
         machine,

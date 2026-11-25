@@ -25,7 +25,8 @@ import { connectingNote } from "./reconnect-state.ts";
 import { fillLog, pinEnd, type Unit, type TranscriptRow } from "./logwindow.tsx";
 import { answerHtml, blockedReply } from "./turnrows.ts";
 import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
-import { type AgentEntry, type AgentPage, AG, openModes, openTasks, openOf, agentPics, agentThumbs, AGENT_ACTIVE, folderName } from "./agents.ts";
+import { type AgentEntry, type AgentPage, AG, openModes, openTasks, openOf, agentPics, agentThumbs, AGENT_ACTIVE, agentKind, folderName } from "./agents.ts";
+import { continuedFrom, continuedIn, continuedLine } from "./continue-state.ts";
 import { stoppingNow } from "./session.tsx";
 import { redrawAgentHints } from "./session-head.tsx";
 import { promptParts } from "./promptparts-state.ts";
@@ -80,8 +81,14 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
   const crumb: ActivityRow | null = parent ? { kind: "crumb", id: "up", parent: parent.title || "Session", title: s.title || "Session" } : null;
   const olderRow: ActivityRow | null = olderText ? { kind: "older", id: "older", text: olderText } : null;
   // The log goes in by turns, and only those near the view are drawn.
+  const before = continuedFrom(s, sessions), after = continuedIn(s, sessions);
+  const from: ActivityRow | null = s.continues ? { kind: "continued", id: "continued-from", way: "from", text: continuedLine("from", before, harnessName), open: !!before } : null;
+  const into: ActivityRow | null = after ? { kind: "continued", id: "continued-in", way: "in", text: continuedLine("in", after, harnessName), open: true } : null;
+  const turns = p.entries.length ? turnUnits(p, news) : [], last = turns.at(-1);
+  // The line at the bottom rides with the last turn: a unit of its own after it stalls the window.
+  if (into && last) turns[turns.length - 1] = { ...last, rows: () => [...last.rows(), into] };
   const units = p.entries.length
-    ? [fixed("up", crumb), fixed("older", olderRow), ...turnUnits(p, news)] : null;
+    ? [fixed("up", crumb), fixed("older", olderRow), ...(from ? [fixed("continued-from", from)] : []), ...turns] : null;
   const note: LogShell["note"] = AG.note === "gone" ? { text: "This session is no longer on the machine, or the machine went offline.", tone: "muted" }
     : AG.note && AG.note === AG.readError && AG.link.lost ? { text: AG.note, tone: "muted" }
     : AG.note ? { text: AG.note, tone: "error" }
@@ -179,6 +186,8 @@ export function rowInView() {
   const b = sessionBody();
   return (b && scrollAnchor(b).sel) || "[data-row]";
 }
+
+const harnessName = (agent: string) => agentKind(agent).name;
 
 /// A part of the log that is not a turn, as one; an empty one is hidden.
 const fixed = (key: string, row: TranscriptRow | null): Unit => ({ key, rows: () => row ? [row] : [], prompt: null });
