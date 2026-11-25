@@ -200,7 +200,7 @@ impl Latest {
             && let Some(earlier) = self.entries.get(&key)
         {
             join_changed(&earlier.update, &mut update);
-            bytes = serde_json::to_vec(&update).map_or(usize::MAX, |bytes| bytes.len());
+            bytes = bytes.max(serde_json::to_vec(&update).map_or(usize::MAX, |bytes| bytes.len()));
         }
 
         self.remove(&key);
