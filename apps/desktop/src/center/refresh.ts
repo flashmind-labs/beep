@@ -181,6 +181,12 @@ const refreshProjects = single(async () => takeProjects(
 
 /// Whether a first load ran or runs in this window.
 let started = false;
+/// Whether a load runs now, and whether Home was pushed while it did.
+let loading = false;
+let pushedDuring = false;
+let retry: ReturnType<typeof setTimeout> | undefined;
+/// How long a failed first load waits before it reads again, while the window shows.
+const RETRY_MS = 5000;
 
 /// Pages call this as they mount. The first load reads every Home domain;
 /// after it the topic subscriptions keep them current, so a page draws what
@@ -192,6 +198,10 @@ export function ensureHome() {
 /// Explicit refresh and first load reconcile all Home domains.
 export async function refresh() {
   started = true;
+  loading = true;
+  pushedDuring = false;
+  clearTimeout(retry);
+  let failed = false;
 
   try {
     // At load no page shows yet, and Home is the usual first.
@@ -202,9 +212,17 @@ export async function refresh() {
       terminals ? readAllTerms() : undefined]);
   } catch (error) {
     console.warn("Home:", error);
-    // The first Home push loads everything again.
-    started = false;
+    failed = true;
   }
+
+  loading = false;
+  if (!failed) return;
+
+  // A push that came meanwhile found a load running and read nothing: load again now. Else
+  // the next push loads everything again, or this does while the window shows.
+  started = false;
+  if (pushedDuring) void refresh();
+  else retry = setTimeout(() => { if (!started && onScreen()) void refresh(); }, RETRY_MS);
 }
 
 // "Still connecting" takes over once the wait passes its limit.
@@ -227,6 +245,7 @@ subscribeChanges(topic("home"), { deliver: "each", receive: event => {
 
   pushedHome = pushed;
   if (!started) { void refresh(); return; }
+  if (loading) pushedDuring = true;
   homeChanged("value" in pushed && needsChanged(pushed.value));
 } });
 subscribeChanges(topic("projects"), { deliver: "each", receive: async event => {

@@ -11,6 +11,7 @@ import { load } from "./diff-load.ts";
 import { addAgentComments } from "./diff-comments.ts";
 import { feedbackButton } from "./feedback.ts";
 import { perfOpen } from "../ui/perf.ts";
+import { serial } from "../ui/active.ts";
 
 /// The window or session that owns a diff and draws its one viewer.
 export interface DiffOwner { set(content: ReactNode): void; dispose(): void }
@@ -69,13 +70,15 @@ export function diffView(src: DiffSource): DiffViewHandle {
 
   src.owner.set(createPortal(<DiffViewer v={v} />, v.root));
   const opened = perfOpen("diff");
-  void load(v).then(() => { if (v.state.view) opened(); });
+  // Changes come in bursts while an agent writes: a read under way is let finish, one more follows.
+  const reload = serial(() => load(v));
+  void reload().then(() => { if (v.state.view) opened(); });
 
   return {
     el: v.root,
     files: () => v.files,
     writing: () => !!v.root.querySelector<HTMLTextAreaElement>(".dv-cmt.open textarea")?.value.trim(),
-    reload: () => void load(v),
+    reload: () => void reload(),
     focus: () => v.root.focus({ preventScroll: true }),
     dispose: () => {
       if (v.disposed) return;

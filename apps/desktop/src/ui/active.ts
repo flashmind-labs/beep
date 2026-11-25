@@ -109,6 +109,27 @@ export function latest() {
   };
 }
 
+/// Runs `task` one at a time: calls made while it runs share one more run that starts when
+/// it ends, so a burst of changes never drops a read that is under way and ends with a read
+/// that began after the last of them. Resolves when the run the call belongs to ends.
+export function serial(task: () => Promise<void>) {
+  let current: Promise<void> | null = null;
+  let following: Promise<void> | null = null;
+
+  const start = () => {
+    const run: Promise<void> = task().finally(() => { if (current === run) current = null; });
+    current = run;
+    return run;
+  };
+  const after = () => { following = null; return start(); };
+
+  return () => {
+    if (!current) return start();
+    following ??= current.then(after, after);
+    return following;
+  };
+}
+
 /// A route or tab changed: dirty ambient views that now show run once.
 export function shownChanged() { for (const resume of ambients) resume(); }
 
