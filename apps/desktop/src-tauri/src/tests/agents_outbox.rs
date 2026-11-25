@@ -409,7 +409,6 @@ fn kept(text: &str, images: &[&str], seen: Option<Seen>) -> Message {
         mentions: Vec::new(),
         resume: None,
         resumed_from: None,
-        resumed_from: None,
         state: Stage::Waiting,
         unsure: true,
         seen,
@@ -1128,7 +1127,7 @@ fn a_read_or_a_take_back_for_the_ended_session_reaches_the_one_that_resumed() {
     // The window still on the ended id lists what waits on the new one.
     let listed = outbox.read(|held| held.listed(&key("s1")));
     assert_eq!(listed.rows.len(), 1);
-    assert_eq!(listed.session, "s2".into());
+    assert_eq!(listed.session, "s2");
     // The one being sent is left to go; once it waits again it comes back.
     let drain = || {
         outbox
