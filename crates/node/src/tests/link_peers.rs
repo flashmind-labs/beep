@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::node::{Opened, report};
 use iroh::EndpointId;
 use iroh_tickets::Ticket;
 
@@ -210,7 +211,7 @@ async fn a_machine_not_lent_refuses_agent_streams_from_other_desktops() {
         for _ in 0..2 {
             let (send, recv) = from_desktop.accept_bi().await.expect("a stream arrives");
             let (tx, rx) = link(send, recv);
-            peers.inner.serve(tx, rx, who).await.expect("served");
+            peers.inner.clone().serve(tx, rx, who).await.expect("served");
         }
         // Dropping the connection now would cut off the last answer.
         from_desktop
@@ -335,7 +336,7 @@ async fn ask_report_using(
     let serving = tokio::spawn(async move {
         let (send, recv) = from_desktop.accept_bi().await.expect("a stream arrives");
         let (tx, rx) = link(send, recv);
-        peers.inner.serve(tx, rx, who).await.expect("served");
+        peers.inner.clone().serve(tx, rx, who).await.expect("served");
         from_desktop
     });
     let (send, recv) = to_node.open_bi().await.expect("a stream opens");

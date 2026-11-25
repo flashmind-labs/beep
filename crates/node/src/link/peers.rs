@@ -7,28 +7,24 @@
 //! mesh, so `join` takes effect without a restart.
 
 use crate::{
-    agents::{SessionsAlpn, mcp::TeamSessions},
+    agents::SessionsAlpn,
     files::transfer::Transfers,
     link::Protocol,
     link::from_mesh,
     link::local_socket::{Listener, Stream},
     link::local_status::{self, LocalStatus},
     link::protocol::SessionProtocol,
-    link::report::serve_report,
-    link::serve::{Offers, Who, read_open, serve_open, withheld},
     link::watchdog::{self, Step},
     machine::{env, stats},
-    team::{
-        home::ForgeCli,
-        link::{TeamAlpn, TeamLink},
-    },
+    team::link::{TeamAlpn, TeamLink},
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
     DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerClient,
     PeerStream, SessionFn, StreamHandler,
 };
-use beep_proto::node::{EnvReport, LinkRx, LinkTx, Opened, link, report, status::Report};
+use beep_proto::node::{EnvReport, LinkRx, LinkTx, link, status::Report};
+use futures::future::BoxFuture;
 use beep_proto::watched;
 #[cfg(feature = "cli")]
 use beep_report::Share;
@@ -54,6 +50,11 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+mod offers;
+
+pub use offers::Offers;
+pub(crate) use offers::{Who, read_open, withheld};
+
 /// The socket `beep-node mesh` reaches the running node on, in its folder.
 const SOCKET: &str = "mesh.sock";
 /// `join <ticket>`; the node answers `joined`, or `failed <why>`.
@@ -76,29 +77,50 @@ pub(super) const CHANNEL_OPEN_WAIT: Duration = Duration::from_secs(10);
 /// What the node holds once it is in a mesh: the mesh itself is read from
 /// `Offers::mesh`. The mesh stops with its last clone.
 #[derive(Clone)]
-struct Protocols {
+pub(super) struct Protocols {
     peer: MeshProtocol,
     join: JoinProtocol,
 }
 
-struct Inner {
-    endpoint: Endpoint,
-    dir: PathBuf,
-    name: String,
+pub(super) struct Inner {
+    pub(super) endpoint: Endpoint,
+    pub(super) dir: PathBuf,
+    pub(super) name: String,
     /// When the node started.
-    started: SystemTime,
-    offers: Mutex<Offers>,
+    pub(super) started: SystemTime,
+    pub(super) offers: Mutex<Offers>,
     /// Protocols a host will offer once its services are up.
-    later: watch::Sender<BTreeSet<String>>,
-    active: Mutex<Option<Protocols>>,
+    pub(super) later: watch::Sender<BTreeSet<String>>,
+    pub(super) active: Mutex<Option<Protocols>>,
     /// Applies the mesh's state to the node while it is a member.
-    follower: Mutex<Option<AbortOnDropHandle<()>>>,
+    pub(super) follower: Mutex<Option<AbortOnDropHandle<()>>>,
     /// `beep-team/1`, served whether or not the node is in a mesh.
-    team: TeamLink,
+    pub(super) team: TeamLink,
+    /// Serves a stream once its protocol is known: set by the node's
+    /// router, which this module does not import.
+    pub(super) serve_protocol: ServeProtocol,
 }
 
+/// How a stream that opened with a protocol is served, and its trace ended.
+pub(super) type ServeProtocol = fn(
+    Arc<Inner>,
+    LinkTx,
+    LinkRx,
+    SessionProtocol,
+    Who,
+    beep_proto::logging::RequestTrace,
+) -> BoxFuture<'static, Result<()>>;
+
 impl Inner {
-    fn offers(&self) -> MutexGuard<'_, Offers> {
+    /// Serves a stream a peer, or this process, opened.
+    async fn serve(self: Arc<Self>, tx: LinkTx, mut rx: LinkRx, who: Who) -> Result<()> {
+        let protocol = read_open(&mut rx).await?;
+        let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
+        trace.phase("waiting for protocol readiness");
+        (self.serve_protocol)(self.clone(), tx, rx, protocol, who, trace).await
+    }
+
+    pub(super) fn offers(&self) -> MutexGuard<'_, Offers> {
         crate::lock(&self.offers)
     }
 
@@ -111,7 +133,7 @@ impl Inner {
     }
 
     /// What `beep-node status` shows. Checks each project's folder on disk.
-    async fn local_status(&self) -> Result<LocalStatus> {
+    pub(super) async fn local_status(&self) -> Result<LocalStatus> {
         let mesh = self.active().filter(|mesh| mesh.is_member(mesh.me()));
         let devices = mesh
             .as_ref()
@@ -161,83 +183,6 @@ impl Inner {
             agents: self.offers().agents.agent_report(),
         })
     }
-
-    /// Serves a stream a peer, or this process, opened.
-    async fn serve(&self, tx: LinkTx, mut rx: LinkRx, who: Who) -> Result<()> {
-        let protocol = read_open(&mut rx).await?;
-        let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
-        trace.phase("waiting for protocol readiness");
-        let result = self.serve_protocol(tx, rx, protocol, who, &mut trace).await;
-        trace.end(&result);
-        result
-    }
-
-    async fn serve_protocol(
-        &self,
-        tx: LinkTx,
-        rx: LinkRx,
-        protocol: SessionProtocol,
-        who: Who,
-        trace: &mut beep_proto::logging::RequestTrace,
-    ) -> Result<()> {
-        // A protocol still on its way is waited for; the others are not held up.
-        let mut later = self.later.subscribe();
-
-        if watched::wait_for(&mut later, |later| {
-            !later.contains::<str>(protocol.as_ref())
-        })
-        .await
-        .is_err()
-        {
-            bail!("the node stopped");
-        }
-
-        trace.phase("serving");
-        trace.long_lived();
-        let offers = self.offers().clone();
-        // Diagnostics are open to every machine of the mesh, even when not lent.
-        let diagnostic = matches!(
-            protocol,
-            SessionProtocol::LogQuery
-                | SessionProtocol::Metrics
-                | SessionProtocol::MetricsQuery
-                | SessionProtocol::Report
-        );
-
-        if diagnostic {
-            let mut tx = tx;
-            tx.send(&Opened::Ready {}).await?;
-
-            return match protocol {
-                SessionProtocol::LogQuery => offers.log.serve_query(tx, rx).await,
-                SessionProtocol::MetricsQuery => {
-                    super::metrics::serve_query(tx, rx, self.dir.join("metrics.log")).await
-                }
-                SessionProtocol::Report => match self.local_status().await {
-                    Ok(status) => {
-                        serve_report(tx, rx, status, offers.log, self.dir.join("metrics.log"))
-                            .await
-                    }
-                    Err(e) => {
-                        let reason = format!("this machine's status could not be read: {e:#}");
-                        tx.send(&report::Reply::Failed { reason }).await?;
-                        tx.finish().await
-                    }
-                },
-                _ => super::metrics::serve(tx, rx, self.dir.join("metrics.log")).await,
-            };
-        }
-
-        // The person at this machine is not held to the setting; a device of the mesh is.
-        if who.id() != self.endpoint.id()
-            && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
-        {
-            let mut tx = tx;
-            return tx.send(&Opened::Refused { reason }).await;
-        }
-
-        serve_open(tx, rx, protocol, offers, who).await
-    }
 }
 
 /// The node's membership, shared by the router, the control socket and the
@@ -245,14 +190,14 @@ impl Inner {
 /// with its own mesh through `install`.
 #[derive(Clone)]
 pub struct Peers {
-    inner: Arc<Inner>,
+    pub(super) inner: Arc<Inner>,
 }
 
 /// The node as the agents' Beep MCP server reaches it, for its own status,
 /// logs and problem reports. Shared by every copy of the offers, set by
 /// `Peers::new`. Weak: the node holds the offers.
 #[derive(Clone, Default)]
-pub(crate) struct Reach(Arc<Mutex<Weak<Inner>>>);
+pub(crate) struct Reach(pub(super) Arc<Mutex<Weak<Inner>>>);
 
 impl Reach {
     /// The node, while it runs.
@@ -263,25 +208,6 @@ impl Reach {
 }
 
 impl Peers {
-    pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
-        let reach = offers.reach.clone();
-        let team = TeamLink::new(endpoint.clone(), Arc::new(ForgeCli));
-        team.serve_sessions(Arc::new(TeamSessions(offers.clone())));
-        let inner = Arc::new(Inner {
-            endpoint,
-            dir,
-            name,
-            started: SystemTime::now(),
-            offers: Mutex::new(offers),
-            later: watch::channel(BTreeSet::new()).0,
-            active: Mutex::new(None),
-            follower: Mutex::new(None),
-            team,
-        });
-        *crate::lock(&reach.0) = Arc::downgrade(&inner);
-        Self { inner }
-    }
-
     /// Adds a protocol to what peers can open, for a host that starts it
     /// after the node is up.
     pub fn offer(&self, protocol: Arc<dyn Protocol>) {
@@ -347,14 +273,9 @@ impl Peers {
             protocol != SessionProtocol::Events,
             "subscriptions use their own ALPN"
         );
-        let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
+        let trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
         let who = self.channel_who(peer, mesh).context("not authorized")?;
-        let result = self
-            .inner
-            .serve_protocol(tx, rx, protocol, who, &mut trace)
-            .await;
-        trace.end(&result);
-        result
+        (self.inner.serve_protocol)(self.inner.clone(), tx, rx, protocol, who, trace).await
     }
 
     /// The `beep-team/1` handler.
@@ -650,11 +571,9 @@ impl Peers {
         Arc::new(move |tx: LinkTx, rx: LinkRx| {
             let peers = peers.clone();
             Box::pin(async move {
-                if let Err(e) = peers
-                    .inner
-                    .serve(tx, rx, Who::Everything(peers.inner.endpoint.id()))
-                    .await
-                {
+                let who = Who::Everything(peers.inner.endpoint.id());
+
+                if let Err(e) = peers.inner.clone().serve(tx, rx, who).await {
                     log::debug!("a local session ended: {e:#}");
                 }
             })

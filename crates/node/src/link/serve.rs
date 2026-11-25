@@ -2,22 +2,22 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::mcp::{self, ProjectTools, peer_tools::{self, Caller}},
-    agents::{AgentKind, Agents, SESSIONS_ALPN, TRANSCRIPT_PROTOCOL, skills::Skills},
+    agents::mcp::{self, TeamSessions, peer_tools::{self, Caller}},
+    agents::{AgentKind, Agents, SESSIONS_ALPN, skills::Skills},
     files::Folders,
-    files::search::Searches,
     files::transfer::Transfers,
     link::Protocol,
     link::protocol::SessionProtocol,
+    link::report::serve_report,
     link::restart::{self, Reopen},
-    link::state::{Search, State},
-    link::{sampler::Sampler, traffic::Traffic},
+    link::state::State,
+    link::traffic::Traffic,
     link::watchdog,
     link::{
-        from_mesh::Membership,
-        peers::{self, Peers, Reach},
+        peers::{self, Inner, Offers, Peers, Who, withheld},
     },
     machine::provision::Provision,
+    team::{home::ForgeCli, link::TeamLink},
     machine::service::logs::Logs,
     run::device,
     run::shell,
@@ -25,19 +25,19 @@ use crate::{
     run::terminal,
 };
 use anyhow::{Context, Result, bail};
+use beep_proto::logging::RequestTrace;
+use futures::future::BoxFuture;
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::node::{
-    LinkRx, LinkTx, Open, Opened, agent, desktop, mcp_servers, setup, sign_in, tool_update, version,
+    LinkRx, LinkTx, Opened, report, version,
 };
 use beep_proto::watched;
-use iroh::{Endpoint, EndpointId, endpoint::presets};
+use iroh::{Endpoint, endpoint::presets};
 use std::{
+    collections::BTreeSet,
     future::Future,
-    path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::watch;
@@ -47,8 +47,6 @@ use tokio_util::task::AbortOnDropHandle;
 /// Set, the node binds with no relay and no discovery service. For tests
 /// that run nodes side by side; a real node must not set it.
 const NO_RELAY: &str = "BEEP_NODE_NO_RELAY";
-/// How long a device has to name a session's protocol.
-const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 /// How long a stopping node waits for its agent sessions to close. The stop
 /// steps add up to under the 10 s the command line gives a stop before it
 /// exits anyway.
@@ -321,203 +319,6 @@ async fn stop_step<T>(name: &str, limit: Duration, step: impl Future<Output = T>
     done
 }
 
-/// The node's transfers, set once its services are up and read by whoever
-/// holds a copy of the offers.
-#[derive(Clone)]
-pub(crate) struct Sharing(Arc<watch::Sender<Option<Transfers>>>);
-
-impl Default for Sharing {
-    fn default() -> Self {
-        Self(Arc::new(watch::Sender::new(None)))
-    }
-}
-
-impl Sharing {
-    pub(crate) fn get(&self) -> Option<Transfers> {
-        watched::read_sent(&self.0, Clone::clone)
-    }
-
-    pub(crate) fn set(&self, transfers: Transfers) {
-        self.0.send_replace(Some(transfers));
-    }
-
-    /// Changes when the transfers are set.
-    pub(crate) fn subscribe(&self) -> watch::Receiver<Option<Transfers>> {
-        self.0.subscribe()
-    }
-}
-
-/// What a node serves beside its shell.
-#[derive(Clone, Default)]
-pub struct Offers {
-    /// The coding agents and their sessions, made once so the sessions
-    /// outlive each connection.
-    pub agents: Arc<Agents>,
-    /// Protocols the host adds, such as the Mac app's `desktop/1`.
-    pub extra: Vec<Arc<dyn Protocol>>,
-    /// The log `report/1` shares.
-    pub log: Logs,
-    /// Takes the user's credentials and installs the tools they are for.
-    /// Without it the node does not ask for credentials.
-    pub provision: Option<Arc<Provision>>,
-    /// What the node moved, as its status reports it.
-    pub traffic: Traffic,
-    /// The machine's resources and traffic, sampled for the streams that follow.
-    pub(crate) sampler: Sampler,
-    /// The mesh the node belongs to, once it does.
-    pub(crate) mesh: Membership,
-    /// The node's transfers and synced projects, once they started.
-    /// Shared by every copy of the offers, so one made before the services
-    /// started sees them once they do.
-    pub(crate) transfers: Sharing,
-    /// Set while the host does not lend this machine to other devices: they
-    /// get its status, but no shell, task or screen.
-    pub(crate) withheld: Arc<AtomicBool>,
-    /// Holds the next bind of a root, for a test.
-    #[cfg(test)]
-    pub(crate) bind_gates: Arc<std::sync::Mutex<Vec<crate::link::events::sources::Gate>>>,
-    /// The user's coding agent skills, synced with the mesh when the host
-    /// names their home folder.
-    pub skills: Skills,
-    /// The node these offers are served by, once it is made.
-    pub(crate) reach: Reach,
-    /// Answers the assistant's project tools, for the desktop app. Other
-    /// nodes send them to a desktop of the mesh.
-    pub project_tools: Option<Arc<dyn ProjectTools>>,
-}
-
-impl Offers {
-    /// Whether other devices of the mesh may use this machine's shell,
-    /// tasks and screen. On unless the host turned it off; what runs here for
-    /// the person at this machine is not affected.
-    pub fn lend_to_peers(&self, lent: bool) {
-        self.withheld.store(!lent, Ordering::Relaxed);
-    }
-
-    pub(crate) fn lends_to_peers(&self) -> bool {
-        !self.withheld.load(Ordering::Relaxed)
-    }
-
-    /// What every node serves, the CLI and the Mac app alike: the coding
-    /// agents found on the PATH (with `agents` from `node.toml`) and their
-    /// sessions, and `provision`. A host adds its own protocols to `extra`.
-    pub fn local(agents: &[AgentKind], provision: Arc<Provision>) -> Self {
-        Self {
-            agents: Arc::new(Agents::new(crate::agents::detect(
-                agents,
-                Some(provision.dir()),
-            ))),
-            extra: Vec::new(),
-            log: Logs::default(),
-            provision: Some(provision),
-            traffic: Traffic::default(),
-            sampler: Sampler::default(),
-            mesh: Membership::default(),
-            transfers: Sharing::default(),
-            withheld: Arc::default(),
-            #[cfg(test)]
-            bind_gates: Arc::default(),
-            skills: Skills::default(),
-            reach: Reach::default(),
-            project_tools: None,
-        }
-    }
-
-    /// Offers `search/1`: the checkouts saved in the node's folder `dir`,
-    /// read ahead from the agents' logs. Needs a running Tokio runtime.
-    pub fn offer_searches(&mut self, dir: &Path, search: &Search) {
-        let searches = Searches::start(dir.to_owned(), self.agents.clone(), search);
-        self.extra.push(Arc::new(searches));
-    }
-
-    pub(crate) fn names(&self) -> Vec<String> {
-        [
-            shell::PROTOCOL.to_owned(),
-            tasks::PROTOCOL.to_owned(),
-            terminal::PROTOCOL.to_owned(),
-            device::PROTOCOL.to_owned(),
-            device::video::PROTOCOL.to_owned(),
-            sign_in::PROTOCOL.to_owned(),
-            mcp_servers::PROTOCOL.to_owned(),
-        ]
-        .into_iter()
-        .chain(self.agents.offers())
-        .chain(
-            self.provision
-                .iter()
-                .flat_map(|_| {
-                    [
-                        tool_update::PROTOCOL,
-                        tool_update::FLSH,
-                        tool_update::CHECK,
-                        setup::PROTOCOL,
-                    ]
-                })
-                .map(str::to_owned),
-        )
-        .chain(self.extra.iter().map(|protocol| protocol.name().to_owned()))
-        .collect()
-    }
-}
-
-/// Who opened a session, and so what it may use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Who {
-    /// A desktop of the mesh, by its key: every protocol the node offers. A desktop in this process has the node's own key.
-    Everything(EndpointId),
-    /// Another node of the mesh: its status, agent tools and devices,
-    /// nothing else.
-    Node {
-        peer: EndpointId,
-        /// This device is a desktop, read from the device list when the
-        /// stream opened.
-        desktop_here: bool,
-    },
-}
-
-impl Who {
-    /// The key of the caller.
-    pub(crate) fn id(self) -> EndpointId {
-        match self {
-            Self::Everything(id) | Self::Node { peer: id, .. } => id,
-        }
-    }
-}
-
-/// Reads the protocol a session stream opens with.
-pub(super) async fn read_open(rx: &mut LinkRx) -> Result<SessionProtocol> {
-    let open: Open = timeout(OPEN_TIMEOUT, rx.recv())
-        .await
-        .context("the session did not say its protocol")??
-        .context("the session closed before its protocol")?;
-    Ok(SessionProtocol::from(open.protocol.as_ref()))
-}
-
-/// Why a device of the mesh may not open `protocol` on a machine that does
-/// not lend itself to others, or `None`. Status stays open. The agents are
-/// withheld too: their sessions run on this machine's own accounts.
-pub(crate) fn withheld(protocol: &str, lent: bool) -> Option<String> {
-    let shared = [
-        shell::PROTOCOL,
-        terminal::PROTOCOL,
-        device::PROTOCOL,
-        device::video::PROTOCOL,
-        tasks::PROTOCOL,
-        desktop::PROTOCOL,
-        sign_in::PROTOCOL,
-        mcp_servers::PROTOCOL,
-    ];
-    let agent = matches!(
-        protocol,
-        agent::SESSIONS_PROTOCOL
-            | agent::SESSION_FOLLOW_PROTOCOL
-            | beep_proto::node::events::PROTOCOL
-            | TRANSCRIPT_PROTOCOL
-    ) || agent::agent_of(protocol).is_some();
-    (!lent && (shared.contains(&protocol) || agent))
-        .then(|| format!("this machine is not shared with other devices: {protocol} is off"))
-}
-
 /// Why another node may not run commands or start agents here, if
 /// "Let Beep use this computer" is off.
 fn commands_off(offers: &Offers) -> Option<String> {
@@ -722,6 +523,112 @@ pub async fn listen_hooks(agents: &Agents, dir: &Path) {
         log::warn!("not taking Claude Code hooks: {e:#}");
     }
 }
+
+
+impl Peers {
+    pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
+        let reach = offers.reach.clone();
+        let team = TeamLink::new(endpoint.clone(), Arc::new(ForgeCli));
+        team.serve_sessions(Arc::new(TeamSessions(offers.clone())));
+        let inner = Arc::new(Inner {
+            endpoint,
+            dir,
+            name,
+            started: SystemTime::now(),
+            offers: Mutex::new(offers),
+            later: watch::channel(BTreeSet::new()).0,
+            active: Mutex::new(None),
+            follower: Mutex::new(None),
+            team,
+            serve_protocol: serve_stream,
+        });
+        *crate::lock(&reach.0) = Arc::downgrade(&inner);
+        Self { inner }
+    }
+}
+
+/// Serves a stream that opened with `protocol`, then ends its trace.
+fn serve_stream(
+    inner: Arc<Inner>,
+    tx: LinkTx,
+    rx: LinkRx,
+    protocol: SessionProtocol,
+    who: Who,
+    mut trace: RequestTrace,
+) -> BoxFuture<'static, Result<()>> {
+    Box::pin(async move {
+        let result = serve_protocol(&inner, tx, rx, protocol, who, &mut trace).await;
+        trace.end(&result);
+        result
+    })
+}
+
+async fn serve_protocol(
+        inner: &Inner,
+        tx: LinkTx,
+        rx: LinkRx,
+        protocol: SessionProtocol,
+        who: Who,
+        trace: &mut beep_proto::logging::RequestTrace,
+    ) -> Result<()> {
+        // A protocol still on its way is waited for; the others are not held up.
+        let mut later = inner.later.subscribe();
+
+        if watched::wait_for(&mut later, |later| {
+            !later.contains::<str>(protocol.as_ref())
+        })
+        .await
+        .is_err()
+        {
+            bail!("the node stopped");
+        }
+
+        trace.phase("serving");
+        trace.long_lived();
+        let offers = inner.offers().clone();
+        // Diagnostics are open to every machine of the mesh, even when not lent.
+        let diagnostic = matches!(
+            protocol,
+            SessionProtocol::LogQuery
+                | SessionProtocol::Metrics
+                | SessionProtocol::MetricsQuery
+                | SessionProtocol::Report
+        );
+
+        if diagnostic {
+            let mut tx = tx;
+            tx.send(&Opened::Ready {}).await?;
+
+            return match protocol {
+                SessionProtocol::LogQuery => offers.log.serve_query(tx, rx).await,
+                SessionProtocol::MetricsQuery => {
+                    super::metrics::serve_query(tx, rx, inner.dir.join("metrics.log")).await
+                }
+                SessionProtocol::Report => match inner.local_status().await {
+                    Ok(status) => {
+                        serve_report(tx, rx, status, offers.log, inner.dir.join("metrics.log"))
+                            .await
+                    }
+                    Err(e) => {
+                        let reason = format!("this machine's status could not be read: {e:#}");
+                        tx.send(&report::Reply::Failed { reason }).await?;
+                        tx.finish().await
+                    }
+                },
+                _ => super::metrics::serve(tx, rx, inner.dir.join("metrics.log")).await,
+            };
+        }
+
+        // The person at this machine is not held to the setting; a device of the mesh is.
+        if who.id() != inner.endpoint.id()
+            && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
+        {
+            let mut tx = tx;
+            return tx.send(&Opened::Refused { reason }).await;
+        }
+
+        serve_open(tx, rx, protocol, offers, who).await
+    }
 
 #[cfg(test)]
 #[path = "../tests/link_serve.rs"]
