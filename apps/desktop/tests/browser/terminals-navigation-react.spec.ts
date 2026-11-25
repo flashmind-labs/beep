@@ -174,8 +174,18 @@ test("view-only output keeps its screen, focus, selection and scroll across read
   await expect(screen).toBeFocused();
   expect(await page.evaluate(() => getSelection()?.toString())).toBe("line 0");
 
-  // The open terminal's own topic pushes its screen.
-  await page.evaluate(value => window.__navigation.publish("terminal-output.watched", null, { views: [{ command: "terminal_output", args: { id: "watched" }, value }] }), output(101));
+  // The window asks native code for the screen of this terminal alone, by its id: that is what native
+  // code turns into the node's own topic (the number the node keys it by, on the terminal's machine).
+  // The push goes out on the topic the window registered, not on one typed here, so a window that
+  // follows another topic gets nothing and fails this test. The mapping in native code and the node
+  // are not in the browser harness: the native unit tests and the node's snapshot tests hold them.
+  const followed = await page.evaluate(() => window.__navigation.calls()
+    .filter(call => call.command === "mesh_watch" || call.command === "mesh_topics")
+    .map(call => (call.args.topics as { topic: string }[]).map(each => each.topic).filter(each => each.startsWith("terminal-output")))
+    .filter(each => each.length)
+    .at(-1));
+  expect(followed).toEqual(["terminal-output.watched"]);
+  await page.evaluate(args => window.__navigation.publish(args.topic, null, { views: [{ command: "terminal_output", args: { id: "watched" }, value: args.value }] }), { topic: followed![0], value: output(101) });
   await expect(screen).toContainText("line 100");
   await expect(screen).toHaveAttribute("data-identity", "kept");
   await expect(screen).toBeFocused();
