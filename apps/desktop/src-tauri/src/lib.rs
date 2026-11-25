@@ -301,6 +301,7 @@ pub fn run() {
             bar::app::build_capabilities,
             bar::app::quit,
             bar::app::set_agent_notices,
+            bar::app::set_node_auto_update,
             bar::app::set_developer_mode,
             bar::app::set_save_folder,
             bar::app::use_downloads,

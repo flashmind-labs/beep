@@ -15,12 +15,26 @@ fn a_machine_is_updated_one_request_at_a_time_and_once_per_release() {
     assert!(!asked.claim(a, &v1), "already in flight");
     assert!(asked.claim(b, &v1));
 
-    // A failed request is asked again on the next change.
+    // A failed request is not asked again until the machine has been seen offline.
     asked.finish(a, &v1, false);
+    assert!(!asked.claim(a, &v1));
+    asked.seen(&HashSet::from([a, b]));
+    assert!(!asked.claim(a, &v1));
+    asked.seen(&HashSet::from([b]));
     assert!(asked.claim(a, &v1));
 
     // One the node took is not asked again for that release, but is for the next.
     asked.finish(a, &v1, true);
     assert!(!asked.claim(a, &v1));
     assert!(asked.claim(a, &Version::new(0, 9, 1)));
+}
+
+#[test]
+fn an_update_another_desktop_started_counts_as_taken() {
+    assert!(running_already(&DesktopError::BadRequest(
+        "An update is already running on this machine.".into()
+    )));
+    assert!(!running_already(&DesktopError::BadRequest(
+        "no route".into()
+    )));
 }

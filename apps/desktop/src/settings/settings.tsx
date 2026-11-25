@@ -39,6 +39,8 @@ export interface MacSettings {
   save_folder_picked: boolean;
   /// Updates to every release, patches included, not just minor releases.
   developer: boolean;
+  /// Machines running an older beep-node update themselves when seen online.
+  node_auto_update: boolean;
 }
 
 /// Draws Settings into `root` (the window's sheet), or the bar when none.
@@ -336,6 +338,7 @@ function localView(kind: LocalView): ReactNode {
       settings={local.set} phone={onPhone()} busy={generalPending}
       autostart={(enabled: boolean) => void change(generalPending, "autostart", "set_autostart", { enabled })}
       notices={(enabled: boolean) => void change(generalPending, "notices", "set_agent_notices", { enabled })}
+      nodeUpdates={(enabled: boolean) => void change(generalPending, "nodeUpdates", "set_node_auto_update", { enabled })}
       developer={(enabled: boolean) => void change(generalPending, "developer", "set_developer_mode", { enabled })}
       chooseSaves={() => void pickHere("Save files to", local.set.save_folder).then(folder => { if (folder !== null) void change(generalPending, "saves", "set_save_folder", { folder }); }, e => console.warn(e))}
       useDownloads={() => void change(generalPending, "saves", "use_downloads", {})}

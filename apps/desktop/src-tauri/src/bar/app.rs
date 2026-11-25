@@ -52,6 +52,8 @@ pub struct Settings {
     save_folder_picked: bool,
     /// Updates to every release, patches included.
     developer: bool,
+    /// Machines running an older beep-node update themselves when seen online.
+    node_auto_update: bool,
 }
 
 #[tauri::command]
@@ -67,6 +69,7 @@ pub fn settings(app: AppHandle, prefs: State<'_, Prefs>) -> Settings {
         save_folder: crate::platform::saves_dir(&app).ok(),
         save_folder_picked: prefs.save_folder().is_some(),
         developer: prefs.developer(),
+        node_auto_update: prefs.node_auto_update(),
     }
 }
 
@@ -94,6 +97,12 @@ pub fn use_downloads(prefs: State<'_, Prefs>) {
 #[tauri::command]
 pub fn set_agent_notices(prefs: State<'_, Prefs>, enabled: bool) {
     prefs.set_agent_notices(enabled);
+}
+
+/// Whether machines running an older beep-node update themselves when seen online.
+#[tauri::command]
+pub fn set_node_auto_update(prefs: State<'_, Prefs>, enabled: bool) {
+    prefs.set_node_auto_update(enabled);
 }
 
 /// Developer mode: updates to every release instead of minor releases only.

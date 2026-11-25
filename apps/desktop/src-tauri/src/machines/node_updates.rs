@@ -4,6 +4,7 @@
 
 use crate::{
     beep::state::Prefs,
+    error::DesktopError,
     fleet::{Fleet, files},
     notices::notify,
 };
@@ -69,30 +70,56 @@ pub(crate) async fn follow(app: AppHandle) {
 struct Asked {
     /// Machines with an update in flight: one at a time for each.
     busy: HashSet<EndpointId>,
-    /// Machines the node took the request of for a release, so it is not asked again.
+    /// Machines the node took the request of for a release, or that another desktop asked,
+    /// so it is not asked again.
     done: HashSet<(EndpointId, Version)>,
+    /// Machines whose request failed for a release: asked again once the machine has been
+    /// seen offline, not on every change.
+    failed: HashSet<(EndpointId, Version)>,
 }
 
 impl Asked {
     /// Marks `machine` as being updated to `latest`; false when it already is or was.
     fn claim(&mut self, machine: EndpointId, latest: &Version) -> bool {
-        !self.done.contains(&(machine, latest.clone())) && self.busy.insert(machine)
+        let key = (machine, latest.clone());
+
+        !self.done.contains(&key) && !self.failed.contains(&key) && self.busy.insert(machine)
     }
 
-    /// The request for `machine` ended. A failed one is asked again on the next change.
+    /// The request for `machine` ended: `taken` when the node has the update under way.
     fn finish(&mut self, machine: EndpointId, latest: &Version, taken: bool) {
         self.busy.remove(&machine);
 
+        let key = (machine, latest.clone());
+
         if taken {
-            self.done.insert((machine, latest.clone()));
+            self.done.insert(key);
+        } else {
+            self.failed.insert(key);
         }
+    }
+
+    /// `behind` are the machines online and behind now: a failed one that is not among them
+    /// went offline, and is asked again when it returns.
+    fn seen(&mut self, behind: &HashSet<EndpointId>) {
+        self.failed.retain(|(machine, _)| behind.contains(machine));
     }
 }
 
 /// Asks each machine that is behind and not already asked to update. The node waits for its
-/// agent sessions to be idle before it restarts, so a busy machine is not interrupted.
+/// agents to finish their turns, at most 30 minutes, before it restarts.
 async fn update_each(app: &AppHandle, fleet: &Arc<Fleet>, asked: &Arc<Mutex<Asked>>) {
-    let Some((latest, behind)) = behind(app).await else {
+    let found = behind(app).await;
+    let online: HashSet<EndpointId> = found
+        .as_ref()
+        .map(|(_, behind)| behind.iter().map(|device| device.id).collect())
+        .unwrap_or_default();
+    asked
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .seen(&online);
+
+    let Some((latest, behind)) = found else {
         return;
     };
     let channel = app.state::<Prefs>().node_release_channel();
@@ -118,11 +145,20 @@ async fn update_each(app: &AppHandle, fleet: &Arc<Fleet>, asked: &Arc<Mutex<Aske
             asked.lock().unwrap_or_else(PoisonError::into_inner).finish(
                 device.id,
                 &latest,
-                updated.is_ok(),
+                updated.as_ref().map_or_else(running_already, |_| true),
             );
         });
     }
 }
+
+/// Whether the node refused because an update is already under way on it, which another
+/// desktop asked: it is taken.
+fn running_already(e: &DesktopError) -> bool {
+    e.to_string().contains(ALREADY_RUNNING)
+}
+
+/// What the node says when an update is under way (`machine::update::remote`).
+const ALREADY_RUNNING: &str = "already running";
 
 /// Updates every machine still behind, as the notification's Update button
 /// asks. Each restarts once its agent sessions are idle.

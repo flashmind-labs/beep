@@ -191,6 +191,10 @@ impl Prefs {
         self.saved().node_auto_update
     }
 
+    pub fn set_node_auto_update(&self, on: bool) {
+        self.update(|s| s.node_auto_update = on);
+    }
+
     /// The folder picked for saves, if any.
     pub fn save_folder(&self) -> Option<PathBuf> {
         self.saved().save_folder.clone()

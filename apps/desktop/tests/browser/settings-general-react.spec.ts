@@ -29,6 +29,8 @@ test("general settings use their native commands and retain focus on refresh", a
   await toggle.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "set_agent_notices" && call.args.enabled === true))).toBe(true);
   await expect(toggle).toBeEnabled();
+  await settings.getByRole("switch", { name: "Update machines automatically" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "set_node_auto_update" && call.args.enabled === true))).toBe(true);
   await settings.getByRole("switch", { name: "Developer mode" }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "set_developer_mode" && call.args.enabled === true))).toBe(true);
   const skill = settings.getByRole("switch", { name: "Sync coding agent skills" });
