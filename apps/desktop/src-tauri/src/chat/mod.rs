@@ -2,5 +2,7 @@
 //! the files, pictures and clipboard they hand to the user.
 
 pub(crate) mod clipboard;
+#[cfg(desktop)]
+pub(crate) mod dictation;
 pub(crate) mod files;
 pub(crate) mod markdown;

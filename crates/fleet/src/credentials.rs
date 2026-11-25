@@ -192,6 +192,15 @@ impl Desk {
         self.saved().iter().map(Saved::opened).collect()
     }
 
+    /// The saved secret for `provider`, for app-side speech-to-text without sending the key to a
+    /// webview.
+    pub fn api_key_secret(&self, provider: ApiKey) -> Option<SecretString> {
+        self.saved()
+            .into_iter()
+            .find(|saved| saved.service == Service::ApiKey { provider })
+            .map(|saved| saved.secret)
+    }
+
     /// The GitHub accounts, the default first.
     pub fn github_accounts(&self) -> Vec<GitHubAccount> {
         let mut accounts: Vec<GitHubAccount> = self

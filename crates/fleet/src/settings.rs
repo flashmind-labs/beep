@@ -15,7 +15,9 @@ use beep_proto::{
     MachineHarnessSettings, check_agent, check_settings, merged_env,
     node::agent::valid_model,
     node::harness::{AutoCompact, HarnessConfig, HarnessDriver, ModelCompact},
-    node::mesh_state::{AssistantSettings, DockerSettings, EditorSettings, SkillSync},
+    node::mesh_state::{
+        AssistantSettings, DictationSettings, DockerSettings, EditorSettings, SkillSync,
+    },
 };
 use iroh::EndpointId;
 use std::collections::HashSet;
@@ -435,6 +437,21 @@ impl Desk {
             containers: Some(enabled),
         };
         write(&self.mesh, Key::Docker, Some(&settings)).await
+    /// Voice dictation preferences shared across desktops and phones.
+    pub fn dictation(&self) -> DictationSettings {
+        read::<DictationSettings>(&self.mesh, &Key::Dictation).unwrap_or_default()
+    }
+
+    pub async fn save_dictation(&self, settings: &DictationSettings) -> Result<()> {
+        if settings
+            .model
+            .as_deref()
+            .is_some_and(|model| !valid_model(model))
+        {
+            return Err(FleetError::refused("Enter a valid model id."));
+        }
+
+        write(&self.mesh, Key::Dictation, Some(settings)).await
     }
 
     /// Every saved version with its key, oldest first.

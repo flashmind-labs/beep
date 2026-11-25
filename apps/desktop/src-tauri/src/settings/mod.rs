@@ -11,7 +11,7 @@ use crate::{
     error::Result,
     fleet::projects::{FleetState, desk},
 };
-use beep_proto::node::mesh_state::EditorSettings;
+use beep_proto::node::mesh_state::{DictationSettings, EditorSettings};
 
 #[tauri::command]
 pub async fn editor_settings_get(fleet: FleetState<'_>) -> Result<EditorSettings> {
@@ -21,4 +21,17 @@ pub async fn editor_settings_get(fleet: FleetState<'_>) -> Result<EditorSettings
 #[tauri::command]
 pub async fn editor_settings_save(fleet: FleetState<'_>, settings: EditorSettings) -> Result<()> {
     Ok(desk(&fleet).await?.save_editor(&settings).await?)
+}
+
+#[tauri::command]
+pub async fn dictation_settings_get(fleet: FleetState<'_>) -> Result<DictationSettings> {
+    Ok(desk(&fleet).await?.dictation())
+}
+
+#[tauri::command]
+pub async fn dictation_settings_save(
+    fleet: FleetState<'_>,
+    settings: DictationSettings,
+) -> Result<()> {
+    Ok(desk(&fleet).await?.save_dictation(&settings).await?)
 }

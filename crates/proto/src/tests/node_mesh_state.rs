@@ -31,3 +31,33 @@ fn project_names_and_remote_renames_preserve_positional_compatibility() {
     );
     assert_eq!(ProjectRecord::from_bytes(&bytes).unwrap(), current);
 }
+
+#[test]
+fn dictation_settings_preserve_positional_compatibility() {
+    #[derive(Debug, Serialize, Deserialize, PartialEq)]
+    struct ReleasedDictation {
+        enabled: bool,
+    }
+    assert_eq!(
+        DictationSettings::from_bytes(&rmp_serde::to_vec(&[(); 0]).unwrap()).unwrap(),
+        DictationSettings::default(),
+    );
+    let old = ReleasedDictation { enabled: true };
+    assert_eq!(
+        DictationSettings::from_bytes(&rmp_serde::to_vec(&old).unwrap()).unwrap(),
+        DictationSettings {
+            enabled: true,
+            model: None,
+        },
+    );
+    let saved = DictationSettings {
+        enabled: true,
+        model: Some("elevenlabs:scribe_v3_live".into()),
+    };
+    let bytes = saved.to_bytes().unwrap();
+    assert_eq!(
+        crate::lenient::from_slice::<ReleasedDictation>(&bytes).unwrap(),
+        old,
+    );
+    assert_eq!(DictationSettings::from_bytes(&bytes).unwrap(), saved);
+}

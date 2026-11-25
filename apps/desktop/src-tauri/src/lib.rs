@@ -71,6 +71,8 @@ pub fn run() {
         std::thread::spawn(move || refresh.run());
     }
     let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder.manage(chat::dictation::Dictations::default());
     #[cfg(target_os = "windows")]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         if let Err(e) = center::open(app) {
@@ -178,6 +180,8 @@ pub fn run() {
                     .closed(label);
                 app.state::<machines::terminals::Attached>().clear(label);
                 app.state::<machines::devices::Attached>().clear(label);
+                #[cfg(desktop)]
+                app.state::<chat::dictation::Dictations>().clear(label);
                 center::window::forget(app, label);
                 center::closed(app, label);
             }
@@ -301,6 +305,14 @@ pub fn run() {
             bar::app::settings,
             bar::pasted_image::read_pasted_image,
             chat::clipboard::read_clipboard_image,
+            #[cfg(desktop)]
+            chat::dictation::dictation_start,
+            #[cfg(desktop)]
+            chat::dictation::dictation_audio,
+            #[cfg(desktop)]
+            chat::dictation::dictation_stop,
+            #[cfg(desktop)]
+            chat::dictation::dictation_cancel,
             bar::window::hide_bar,
             bar::window::resize_bar,
             bar::zoom::set_zoom_level,
@@ -514,6 +526,8 @@ pub fn run() {
             settings::assistant::assistant_settings_save,
             settings::editor_settings_get,
             settings::editor_settings_save,
+            settings::dictation_settings_get,
+            settings::dictation_settings_save,
             settings::skill_sync::skill_sync_get,
             settings::skill_sync::skill_sync_set,
             settings::skill_sync::project_sync_get,

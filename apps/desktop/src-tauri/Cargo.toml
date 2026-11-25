@@ -51,6 +51,8 @@ secrecy.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
+flashmind-llm.workspace = true
+flashmind-types.workspace = true
 serde_json.workspace = true
 strum.workspace = true
 tauri = { workspace = true, features = ["wry", "dynamic-acl", "tray-icon", "macos-private-api", "compression"] }
@@ -67,6 +69,9 @@ uuid = { workspace = true, features = ["serde", "v4"] }
 which.workspace = true
 
 [dev-dependencies]
+hyper = { workspace = true, features = ["http1", "server"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+yawc.workspace = true
 rmp-serde.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 
@@ -77,6 +82,7 @@ battery = { workspace = true }
 beep-mesh = { workspace = true, features = ["thumbs"] }
 beep-node = { workspace = true, features = ["host"] }
 beep-plugins.workspace = true
+bytes.workspace = true
 # The app data folder before Tauri starts, as Tauri finds it.
 dirs.workspace = true
 image = { workspace = true, features = ["png"] }

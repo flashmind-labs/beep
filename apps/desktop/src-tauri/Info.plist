@@ -4,6 +4,8 @@
 <dict>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Dictate prompts with your voice</string>
 	<key>SUFeedURL</key>
 	<string>https://releases.flashmind.com/beep/macos/appcast-minor.xml</string>
 	<key>SUPublicEDKey</key>

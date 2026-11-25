@@ -63,6 +63,13 @@ wire_structs! {
     #[serde(default)]
     pub struct DockerSettings {
         pub containers: Option<bool>,
+    /// `settings/dictation`: voice dictation preferences shared across desktops and phones.
+    /// `model` is `None` until picked, which uses the first configured speech-to-text model.
+    #[derive(Default)]
+    #[serde(default)]
+    pub struct DictationSettings {
+        pub enabled: bool,
+        pub model: Option<String>,
     }
 }
 
@@ -316,6 +323,7 @@ impl StateValue for SkillSync {}
 impl StateValue for AssistantSettings {}
 impl StateValue for EditorSettings {}
 impl StateValue for DockerSettings {}
+impl StateValue for DictationSettings {}
 impl StateValue for SkillLibrary {}
 impl StateValue for ProjectSkills {}
 impl StateValue for ProjectSyncSettings {}
