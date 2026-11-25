@@ -409,7 +409,7 @@ async fn watch_head(root: &Path, moved: Arc<Notify>) -> Result<Paths> {
         paths.push(root.to_owned());
     }
 
-    let watch = Paths::new(move |_| moved.notify_one())?;
+    let watch = Paths::new("move-checkouts", move |_| moved.notify_one())?;
     watch.replace(paths).await?;
     Ok(watch)
 }
