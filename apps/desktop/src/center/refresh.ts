@@ -248,7 +248,6 @@ subscribeChanges(topic("sync"), { deliver: "each", receive: async event => {
 
   await takeSync(pushed.value);
 } }, { wait: AMBIENT_MS });
-subscribeChanges(topic("terminals"), { deliver: "latest", receive: readAllTerms }, { wait: AMBIENT_MS });
 subscribeChanges(topic("forge"), { deliver: "each", receive: event => {
   const pushed = pushedView<GitItemsView | null>(event.data, "git_items");
   if (!pushed) return;

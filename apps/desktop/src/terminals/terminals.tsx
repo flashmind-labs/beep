@@ -6,7 +6,8 @@ import { type FormEvent, type MouseEvent as ReactMouseEvent, type ReactNode } fr
 import { TerminalOutput, terminalOutput, TerminalPage, TerminalScreen } from "./page-view.tsx";
 import { NewTerminalFields } from "./new-terminal-view.tsx";
 import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedView } from "../ui/snapshot-state.ts";
 import { onShownChange } from "../ui/active.ts";
 import { RETRY_MS } from "../agents/reconnect-state.ts";
 import type { invoke as Invoke, indexedChannel } from "../ui/tauri.ts";
@@ -114,25 +115,47 @@ export function makeTerminals(deps: TerminalDeps) {
     t.list = (t.list || []).map(x => (x.id === row.id ? row : x));
   }
 
-  /// Follows the terminal list and open output of `name`; null stops.
+  /// Takes every terminal the `terminals` push carries: each project's list is the rows of its own.
+  function takeAll(rows: TerminalRow[]) {
+    for (const [name, t] of all) {
+      t.list = name === ALL ? rows : rows.filter(row => row.project === name);
+      if (t.open && !t.list.some(x => x.id === t.open)) t.open = null;
+      kept.put(name, t.list);
+      t.error = "";
+    }
+
+    redraw();
+  }
+
+  subscribeEach(topic("terminals"), event => {
+    const pushed = pushedView<TerminalRow[]>(event.data, "terminals_all");
+    if (!pushed) return;
+    if ("error" in pushed) { console.warn("terminals:", pushed.error); return; }
+
+    takeAll(pushed.value);
+  });
+
+  /// Follows the open terminal's output of `name`, which its own topic pushes; null stops.
   function watch(name: string | null) {
-    if (polling === name) return;
+    const id = name === null ? null : of(name).open;
+    const key = name === null || !id ? null : `${name} ${id}`;
+    if (polling === key) return;
     unfollow?.();
-    polling = name;
-    // The Terminals page is `ALL`, the empty name, so only null stops.
-    if (name === null) return;
-    // The window's Home subscription reads the list of every terminal.
-    const stopList = name === ALL ? () => {} : subscribeChanges(topic("terminals"), { deliver: "latest", receive: async () => {
-      await loads.get(name);
-      await load(name);
-      if (of(name).error) throw new Error(of(name).error);
-    } });
-    // The node names no terminal in this topic, so the open one reads for any terminal's output.
-    const stopOutput = subscribeChanges(topic("terminal-output"), { deliver: "latest", receive: async () => {
-      await readOutput(name);
-      if (of(name).error) throw new Error(of(name).error);
-    } }, { when: () => !!of(name).open });
-    unfollow = () => { stopList(); stopOutput(); };
+    unfollow = null;
+    polling = key;
+    if (name === null || !id) return;
+
+    unfollow = subscribeEach(topic("terminal-output", id), event => {
+      const t = of(name);
+      const pushed = pushedView<OutputView>(event.data, "terminal_output", { id });
+      if (!pushed || t.open !== id) return;
+      if ("error" in pushed) { t.error = reason(pushed.error); redraw(); return; }
+
+      t.output = pushed.value;
+      setRow(name, pushed.value.terminal);
+      t.error = "";
+      redraw();
+    });
   }
 
   /// The live view of terminal `id`, made and attached the first time.
