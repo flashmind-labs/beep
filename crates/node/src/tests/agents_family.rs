@@ -1712,3 +1712,33 @@ async fn a_note_the_parents_node_refuses_is_not_sent_again() {
     assert_eq!(sent, Err("no such child".to_owned()));
     assert_eq!(tries.get(), 1);
 }
+
+#[tokio::test]
+async fn a_background_child_that_closes_is_handed_to_the_deleter_at_once() {
+    let rig = Rig::new();
+    let mut closed = rig.agents.family.take_closed().expect("the deleter's end");
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let who = rig.agents.who_of(&parent);
+    let mut link = rig.agents.link_for(&parent, &who).expect("within limits");
+    link.background = true;
+    let child = rig
+        .agents
+        .start_child(link, start("kid", "one", rig.dir.path()))
+        .await
+        .expect("the child starts");
+    let other = child_of(&rig.agents, &parent, "kid", "two", rig.dir.path()).await;
+
+    until(&child, |live| live.info.turns == 1).await;
+    child.close().await;
+    other.close().await;
+
+    let told = timeout(Duration::from_secs(20), closed.recv())
+        .await
+        .expect("told in time")
+        .expect("the channel is open");
+
+    assert_eq!(told.id, child.id);
+    // The one that is no background child tells nobody.
+    assert!(closed.try_recv().is_err());
+    rig.agents.shutdown().await;
+}

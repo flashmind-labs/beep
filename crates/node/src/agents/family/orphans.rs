@@ -54,6 +54,11 @@ impl Agents {
         let Some(link) = session.info().parent else {
             return;
         };
+
+        if link.background {
+            self.tidy_when_closed(session);
+        }
+
         let Some(peer) = link.machine else {
             return;
         };

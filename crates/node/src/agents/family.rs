@@ -21,7 +21,11 @@ use std::{
     sync::{Arc, Mutex, OnceLock, Weak},
     time::Duration,
 };
-use tokio::sync::watch;
+use futures::{StreamExt, stream::FuturesUnordered};
+use tokio::sync::{
+    mpsc::{UnboundedReceiver, UnboundedSender},
+    watch,
+};
 use tokio_util::task::AbortOnDropHandle;
 
 mod changes;
@@ -65,6 +69,40 @@ pub(super) struct Family {
     /// The children parents wait on in `start_agent`, which send no note
     /// meanwhile.
     pub(crate) waits: Waits,
+    /// The background children that closed for good, to delete.
+    closed: Tidy,
+}
+
+/// A background child that closed for good.
+pub(super) struct Closed {
+    agent: String,
+    id: SessionId,
+}
+
+/// Where closed background children report, and the end that deletes them,
+/// taken once by the upkeep.
+pub(super) struct Tidy {
+    tx: UnboundedSender<Closed>,
+    rx: Mutex<Option<UnboundedReceiver<Closed>>>,
+}
+
+impl Default for Tidy {
+    fn default() -> Self {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+        Self {
+            tx,
+            rx: Mutex::new(Some(rx)),
+        }
+    }
+}
+
+impl Family {
+    /// The receiver of the closed background children, for the one task that
+    /// deletes them.
+    pub(super) fn take_closed(&self) -> Option<UnboundedReceiver<Closed>> {
+        crate::lock(&self.closed.rx).take()
+    }
 }
 
 /// Who calls a family tool: a session of some machine.
@@ -371,36 +409,36 @@ impl Agents {
         Ok(session)
     }
 
-    /// Deletes the background children that closed for good. One that
-    /// cannot be deleted is still dropped from the node's sessions.
-    pub(super) async fn delete_closed_background(&self) {
-        let closed: Vec<(String, SessionId)> = self
-            .session_map()
-            .iter()
-            .filter(|(_, session)| {
-                watched::read(&session.live, |live| {
-                    live.info
-                        .parent
-                        .as_ref()
-                        .is_some_and(|link| link.background)
-                        && ended_for_good(live)
-                })
-            })
-            .map(|(key, session)| (session.agent.clone(), key.clone()))
-            .collect();
+    /// Deletes a background child that closed for good, all those that did
+    /// together. One that cannot be deleted is still dropped from the node's
+    /// sessions.
+    pub(super) async fn delete_closed_background(&self, mut closed: UnboundedReceiver<Closed>) {
+        let mut deleting = FuturesUnordered::new();
 
-        if closed.is_empty() {
-            return;
-        }
-
-        for (agent, id) in closed {
-            if let Err(e) = self.delete_session(&agent, &id).await {
-                log::warn!("background child {id} was not deleted: {e:#}");
-                self.sessions.remove(std::slice::from_ref(&id));
+        loop {
+            tokio::select! {
+                Some(Closed { agent, id }) = closed.recv() => deleting.push(async move {
+                    if let Err(e) = self.delete_session(&agent, &id).await {
+                        log::warn!("background child {id} was not deleted: {e:#}");
+                        self.sessions.remove(std::slice::from_ref(&id));
+                    }
+                }),
+                Some(()) = deleting.next() => crate::link::restart::changed(),
+                else => return,
             }
         }
+    }
 
-        crate::link::restart::changed();
+    /// Has `session`, a background child, say when it closes for good.
+    pub(super) fn tidy_when_closed(&self, session: &Session) {
+        let (closed, mut live) = (self.family.closed.tx.clone(), session.live.clone());
+        let (agent, id) = (session.agent.clone(), session.id.clone());
+        let task = tokio::spawn(async move {
+            if watched::wait_for(&mut live, ended_for_good).await.is_ok() {
+                let _ = closed.send(Closed { agent, id });
+            }
+        });
+        session.keep(task);
     }
 
     /// Puts `session`, which came from another machine, in its family
