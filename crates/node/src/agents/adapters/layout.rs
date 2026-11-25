@@ -28,7 +28,7 @@ pub(crate) struct Installed {
 }
 
 /// The adapters' folder in the node's folder `node_dir`.
-pub(super) fn root(node_dir: &Path) -> PathBuf {
+pub(in crate::agents) fn root(node_dir: &Path) -> PathBuf {
     node_dir.join(DIR)
 }
 

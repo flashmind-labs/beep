@@ -206,7 +206,7 @@ fn symlinked_session_folders_are_never_written_or_cleaned() {
 
 #[tokio::test]
 async fn the_sweep_cleans_the_folder_a_session_was_refiled_to() {
-    use crate::agents::{AgentKind, running::Begin};
+    use crate::agents::{AgentKind, session::Begin};
     use std::collections::BTreeMap;
 
     const ADAPTER: &str = r#"

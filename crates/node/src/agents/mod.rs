@@ -9,6 +9,7 @@ pub use work_diff::parse_git_patch;
 
 host! {
     mod brief;
+    mod calls;
     mod text;
     pub(crate) use text::cut;
     use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp::Launch};
@@ -78,6 +79,7 @@ host! {
     mod session;
     mod session_stream;
     mod sessions;
+    mod socket;
     mod spend;
     mod start;
     mod subagent;
@@ -113,11 +115,11 @@ host! {
     pub(crate) use alerts::AlertHub;
     pub(crate) use processes::Demand as ProcessDemand;
     pub(crate) use processes::watch_ports;
-    use compaction::Route;
     use images::Images;
     use known::{Adapter, KNOWN, known, route};
     use models::ModelCache;
-    use running::{Begin, folder};
+    use running::folder;
+    use session::Begin;
     use session::{Command, Session, Start};
     use spend::Spend;
     use usage::UsageHub;

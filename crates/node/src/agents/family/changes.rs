@@ -8,9 +8,10 @@
 //! the node runs: after a restart each thread is told of once more.
 
 use super::{Agents, Command, Live, Session, children};
+use crate::agents::live::{Mark, Stand};
 use crate::agents::{acp::Prompt, cut};
 use beep_proto::SessionId;
-use beep_proto::node::agent::{SessionInfo, Status, StopReason};
+use beep_proto::node::agent::{SessionInfo, Status};
 use beep_proto::watched;
 use std::sync::Arc;
 
@@ -19,50 +20,6 @@ const HEAD: &str = "Since your last turn in this chat, as context and not a requ
     (read_session_transcript reads more):";
 /// The most of a relative's last message or question a line holds.
 const MAX_TEXT: usize = 300;
-
-/// How a relative stands, as the context says it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::AsRefStr)]
-#[strum(serialize_all = "snake_case")]
-enum Stand {
-    Working,
-    WaitingOnUser,
-    Idle,
-    /// Idle since the user stopped its turn.
-    Stopped,
-    Ended,
-}
-
-impl From<&Live> for Stand {
-    fn from(live: &Live) -> Self {
-        let state = &live.info.state;
-
-        match state.status {
-            Status::Ended => Self::Ended,
-            Status::Asking => Self::WaitingOnUser,
-            Status::Idle if live.stopped_by_user && state.last_stop == Some(StopReason::Cancelled) => {
-                Self::Stopped
-            }
-            Status::Idle if state.subagents == 0 => Self::Idle,
-            _ => Self::Working,
-        }
-    }
-}
-
-/// What a session saw of a relative: told again once it differs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::agents) struct Mark {
-    turns: u32,
-    stand: Stand,
-}
-
-impl From<&Live> for Mark {
-    fn from(live: &Live) -> Self {
-        Self {
-            turns: live.info.turns,
-            stand: Stand::from(live),
-        }
-    }
-}
 
 /// A child the user sees as a thread of its parent's chat: no reviewer and
 /// no background agent.

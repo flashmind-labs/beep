@@ -9,7 +9,7 @@ use crate::agents::{
     tool_details,
 };
 use crate::{
-    agents::mcp::calls::Tool as BeepTool,
+    agents::calls::Tool as BeepTool,
     agents::tags::{self, Part},
     agents::{
         Picture, block_picture, cut,

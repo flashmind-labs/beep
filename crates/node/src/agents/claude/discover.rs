@@ -121,11 +121,6 @@ impl Snapshot {
 }
 
 impl Store {
-    /// The store on this machine, when Claude Code has one.
-    pub(crate) fn locate() -> Option<Self> {
-        Self::in_root(&crate::agents::claude_dir::config_dir()?)
-    }
-
     /// The store in Claude Code's folder `root`, once it has `projects`.
     pub(super) fn in_root(root: &Path) -> Option<Self> {
         root.join("projects").is_dir().then(|| Self {

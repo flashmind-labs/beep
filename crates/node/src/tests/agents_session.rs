@@ -2641,7 +2641,7 @@ async fn a_harness_default_model_is_used_unless_the_session_picks_one() {
 #[cfg(unix)]
 #[tokio::test]
 async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files() {
-    use crate::agents::{Agents, running::Begin};
+    use crate::agents::{Agents, session::Begin};
     let temp = tempfile::tempdir().unwrap();
     let dir = temp.path();
     let local = dir.join("CLAUDE.md");

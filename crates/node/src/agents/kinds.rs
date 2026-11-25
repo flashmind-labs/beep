@@ -2,7 +2,7 @@
 
 use super::{
     adapters, locate,
-    known::{Adapter, CODEX_CONFIG, KNOWN, Known, OPENCODE_PERMISSION},
+    known::{Adapter, KNOWN, Known},
 };
 use beep_proto::ModelId;
 use beep_proto::node::harness::{AutoCompact, ModelCompact};

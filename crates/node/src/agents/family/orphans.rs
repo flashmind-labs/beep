@@ -4,7 +4,8 @@
 //! parent that never got to stop it leaves no agent running for good.
 
 use beep_proto::SessionId;
-use super::{Agents, Session, children, ended_for_good};
+use super::{Agents, Session, children};
+use crate::agents::session::ended_for_good;
 use crate::link::Membership;
 use beep_proto::watched;
 use iroh::EndpointId;

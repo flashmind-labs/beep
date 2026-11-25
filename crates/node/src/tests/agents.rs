@@ -334,7 +334,7 @@ fn every_known_agent_starts_without_permission_prompts() {
         )
     );
     assert_eq!(
-        kinds::known("hermes").unwrap().bypass_mode,
+        known::known("hermes").unwrap().bypass_mode,
         Some("dont_ask")
     );
     let rules: serde_json::Value =

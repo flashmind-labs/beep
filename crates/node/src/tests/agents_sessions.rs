@@ -1,4 +1,4 @@
-use crate::agents::{AgentKind, Agents, running::Begin};
+use crate::agents::{AgentKind, Agents, session::Begin};
 use beep_proto::SessionId;
 use super::reserve;
 use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};

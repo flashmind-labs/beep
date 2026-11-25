@@ -3,8 +3,8 @@
 //! installers and no Node.js. `layout` says where they live, `node_dist`
 //! which Node.js to fetch, `install` does it and `installs` keeps at it.
 
-pub(super) mod install;
-pub(super) mod layout;
+pub(in crate::agents) mod install;
+pub(in crate::agents) mod layout;
 mod node_dist;
 
 pub(crate) use layout::{Installed, installed};

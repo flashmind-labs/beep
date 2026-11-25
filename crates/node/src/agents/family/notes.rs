@@ -17,7 +17,8 @@
 //! before.
 
 use beep_proto::SessionId;
-use super::{Agents, Command, Live, Mark, Session, children};
+use super::{Agents, Command, Live, Session, children};
+use crate::agents::live::Mark;
 use children::NoteFailed;
 use crate::{agents::tags, link::Membership, team::asks::Delivery};
 use beep_proto::node::agent::{Status, StopReason};

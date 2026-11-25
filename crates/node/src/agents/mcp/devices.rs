@@ -6,10 +6,10 @@
 //! drives keeps one attached stream open until it idles.
 
 use super::{
-    machines::{self, Machine, command_name},
+    machines::{self, Machine},
     server::Called,
 };
-use crate::{link::Offers, run::device};
+use crate::{agents::calls::command_name, link::Offers, run::device};
 use anyhow::{Context, Result, bail};
 use beep_mesh::Mesh;
 use beep_proto::SessionId;

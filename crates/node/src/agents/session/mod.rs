@@ -8,11 +8,9 @@ use super::{
     alerts::AlertHub,
     checkouts::Checkouts,
     compaction::{Compactor, Policy, Route},
-    family::Mark,
     images::Images,
     known::{CODEX_CONFIG, OPENCODE_PERMISSION, known},
-    live::{Live, Sent},
-    running::Begin,
+    live::{Live, Mark, Sent},
     processes::Processes,
     route, unix_now,
     usage::UsageHub,
@@ -45,6 +43,7 @@ use tokio::sync::{oneshot, watch};
 use tokio_util::task::AbortOnDropHandle;
 
 mod actor;
+mod begin;
 mod cargo;
 mod orders;
 mod pi;
@@ -72,12 +71,33 @@ const MAX_ASKED: usize = 2000;
 const MAX_PLAN: usize = 32 * 1024;
 /// Why a session ended with the node.
 pub(super) const NODE_STOPPED: &str = "beep-node restarted; send a message to resume the session";
+/// What a resumed session is told when the node restarted while it worked.
+pub(in crate::agents) const CONTINUE: &str = "The node restarted while you were working. Continue the interrupted task, checking what already completed before repeating any actions. If you were waiting for an answer, ask again.";
 /// How long an agent has to end its turn after Stop before the node stops
 /// the agent itself. Agents answer `session/cancel` within a second or two;
 /// one that has not after this is not going to.
 const STOP_WITHIN: Duration = Duration::from_secs(10);
 /// The most tool calls followed at once, to know when none runs.
 const MAX_RUNNING_TOOLS: usize = 256;
+
+pub(in crate::agents) use begin::{Begin, History};
+
+/// Whether the parent ended for good: not just with the node, which
+/// resumes it, and its children, after the restart.
+pub(super) fn ended_for_good(live: &Live) -> bool {
+    live.status() == Status::Ended
+        && live.info.state.error.as_deref() != Some(NODE_STOPPED)
+}
+
+/// Waits until the parent session ends for good; false when it ends with
+/// the node.
+pub(super) async fn parent_gone(parent: &mut watch::Receiver<Live>) -> bool {
+    match watched::wait_for(parent, |live| live.status() == Status::Ended).await {
+        Ok(()) => watched::read(parent, ended_for_good),
+        // The session was dropped.
+        Err(_) => true,
+    }
+}
 
 /// What a stream asks of a session.
 #[derive(Debug, strum::IntoStaticStr)]
@@ -194,7 +214,7 @@ pub(super) struct Session {
     orders: crate::actor::Sender<Order>,
     pub(super) live: watch::Receiver<Live>,
     /// Where the retained live replay begins in Claude's saved transcript.
-    pub(super) history: Option<crate::AsyncMutex<Option<super::running::History>>>,
+    pub(super) history: Option<crate::AsyncMutex<Option<History>>>,
     /// The session's state sender once its task ended, so a refile can
     /// write the new folder into the one copy. Held from the moment the
     /// last state is published, never before, so a task that dies without
@@ -266,7 +286,7 @@ pub(super) struct Start<'a> {
 
 /// Closes a child session once its parent ends for good.
 async fn follow_parent(mut parent: watch::Receiver<Live>, orders: crate::actor::Sender<Order>) {
-    if super::family::parent_gone(&mut parent).await {
+    if parent_gone(&mut parent).await {
         let (done, _) = oneshot::channel();
         // Refused when the child ended first.
         let _ = orders

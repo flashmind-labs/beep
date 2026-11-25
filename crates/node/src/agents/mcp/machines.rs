@@ -4,6 +4,7 @@
 //! check first.
 
 use super::catalog::REMOTE_RUN;
+use crate::agents::calls::command_name;
 use crate::peer_stream::handshake;
 use super::reply::{done, fail, ok};
 use crate::{
@@ -39,21 +40,6 @@ const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
 const MAX_SEND: usize = 20;
 /// How often a session is shown how far its files have gone.
 const SHOW_SENT_EVERY: Duration = Duration::from_secs(1);
-
-/// A machine as the agent names it: lower case, one word, with apostrophes
-/// dropped and other symbols and spaces as single dashes.
-pub fn command_name(name: &str) -> String {
-    let kept: String = name
-        .chars()
-        .filter(|c| !matches!(c, '\'' | '\u{2019}'))
-        .flat_map(char::to_lowercase)
-        .collect();
-
-    kept.split(|c: char| !c.is_alphanumeric())
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("-")
-}
 
 /// One device of the mesh.
 #[derive(Clone)]

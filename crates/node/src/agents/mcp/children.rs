@@ -7,11 +7,12 @@
 //! starts it and checks the limits. An agent stops and checks only its own
 //! children; it lists and messages any agent the user runs.
 
-use super::machines::{Machine, command_name, find_named, machines};
+use super::machines::{Machine, find_named, machines};
+use crate::agents::calls::command_name;
 use super::reply::{fail, json_of, ok, parse};
 use crate::agents::{
-    Agents, Command, Session, live::Live,
-    family::{ChildNote, ChildStart, Mark, RemoteKid, WAIT_LIMIT, Waiting, Who},
+    Agents, Command, Session, live::{Live, Mark},
+    family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, Waiting, Who},
 };
 use crate::link::Offers;
 use beep_mesh::Mesh;

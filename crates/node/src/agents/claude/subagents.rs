@@ -57,7 +57,7 @@ pub(super) fn session(store: &Store, id: &SessionId) -> std::io::Result<Option<E
         id: id.to_owned(),
         agent: "claude".to_owned(),
         title: found.meta.description.or(head.said.title).or(head.said.last_prompt),
-        place: crate::agents::place::of_folder(Path::new(&cwd)),
+        place: crate::agents::found::folder_place::of_folder(Path::new(&cwd)),
         cwd,
         started_at: head.first_at.unwrap_or(0),
         last_activity: digest.said.last_at.unwrap_or(0),

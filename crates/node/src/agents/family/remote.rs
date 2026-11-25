@@ -3,7 +3,8 @@
 //! until the machine says so), and kept over a restart.
 
 use beep_proto::SessionId;
-use super::{Agents, Family, Session, children, parent_gone};
+use super::{Agents, Family, Session, children};
+use crate::agents::session::parent_gone;
 use crate::{agents::unix_now, link::Membership, link::restart};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};

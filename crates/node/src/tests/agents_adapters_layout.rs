@@ -44,7 +44,7 @@ fn the_script_comes_from_the_packages_bin() {
 #[test]
 fn an_adapter_counts_only_when_node_and_its_script_are_there() {
     let dir = tempfile::tempdir().expect("a temp folder");
-    let claude = super::super::super::kinds::known("claude").expect("claude");
+    let claude = crate::agents::known::known("claude").expect("claude");
     assert_eq!(installed(dir.path(), claude), None);
     let root = root(dir.path());
     let node = node_program(&node_root(&root), env::consts::OS);
@@ -77,7 +77,7 @@ fn an_adapter_counts_only_when_node_and_its_script_are_there() {
 #[test]
 fn an_adapter_older_than_its_minimum_is_not_current() {
     let dir = tempfile::tempdir().expect("a temp folder");
-    let codex = super::super::super::kinds::known("codex").expect("codex");
+    let codex = crate::agents::known::known("codex").expect("codex");
     let root = root(dir.path());
     let node = node_program(&node_root(&root), env::consts::OS);
     fs::create_dir_all(node.parent().expect("a folder")).expect("folders");

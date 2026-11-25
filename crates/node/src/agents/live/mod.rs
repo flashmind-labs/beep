@@ -2,7 +2,7 @@
 //! built from the agent's `session/update` notifications, and the
 //! transcript, which stays here.
 
-use super::{acp::Prompt, family::Mark, images::Images, usage::UsageHub};
+use super::{acp::Prompt, images::Images, usage::UsageHub};
 use agent_client_protocol::v1::schema::{CompactionId, MessageId, ToolCallId, ToolKind};
 use beep_proto::SessionId;
 use beep_proto::node::{
@@ -17,12 +17,14 @@ use std::{
 };
 
 mod content;
+mod mark;
 mod tasks;
 mod tools;
 mod transcript;
 mod updates;
 mod v2;
 
+pub(in crate::agents) use mark::{Mark, Stand};
 pub(crate) use tools::Sent;
 use tools::ToolCall;
 

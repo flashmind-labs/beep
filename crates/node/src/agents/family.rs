@@ -9,7 +9,9 @@
 //! cannot get around them.
 
 use beep_proto::SessionId;
-use super::{Agents, Begin, Command, Session, known, live::Live, mcp::children};
+use super::{
+    Agents, Begin, Command, Session, known, live::{Live, Mark}, mcp::children, session::ended_for_good,
+};
 use crate::link::Membership;
 use beep_proto::{AccountName, AgentAccount, CustomAgent, ModelId};
 use beep_proto::node::agent::{Effort, ParentLink, Persona, SessionInfo, Status};
@@ -33,7 +35,7 @@ mod notes;
 mod orphans;
 mod remote;
 
-pub(in crate::agents) use changes::Mark;
+
 pub(crate) use notes::{ChildNote, Waiting, Waits};
 pub(crate) use orphans::Parent;
 pub(crate) use remote::RemoteKid;
@@ -564,23 +566,6 @@ pub(super) fn review_mode(link: &ParentLink, harness: &str) -> Result<Option<Str
     match known(harness).and_then(|known| known.read_only_mode) {
         Some(mode) => Ok(Some(mode.to_owned())),
         None => child_mode(link, harness),
-    }
-}
-
-/// Whether the parent ended for good: not just with the node, which
-/// resumes it, and its children, after the restart.
-fn ended_for_good(live: &Live) -> bool {
-    live.status() == Status::Ended
-        && live.info.state.error.as_deref() != Some(super::session::NODE_STOPPED)
-}
-
-/// Waits until the parent session ends for good; false when it ends with
-/// the node.
-pub(super) async fn parent_gone(parent: &mut watch::Receiver<Live>) -> bool {
-    match watched::wait_for(parent, |live| live.status() == Status::Ended).await {
-        Ok(()) => watched::read(parent, ended_for_good),
-        // The session was dropped.
-        Err(_) => true,
     }
 }
 

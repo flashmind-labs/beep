@@ -9,7 +9,7 @@ use crate::run::process::{GroupLeader, Held, command, own_group};
 use anyhow::{Context, Result};
 use std::{
     ffi::OsStr,
-    future::{Future, pending},
+    future::pending,
     path::{Path, PathBuf},
     process::Stdio,
     time::Duration,

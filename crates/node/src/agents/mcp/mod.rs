@@ -5,7 +5,7 @@
 
 use beep_proto::SessionId;
 use crate::{
-    agents::{Answered, Asking},
+    agents::{Answered, Asking, socket},
     link::Offers,
     link::local_socket::{self, Listener},
 };
@@ -27,7 +27,6 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
-pub(crate) mod calls;
 mod catalog;
 pub(crate) mod children;
 pub(crate) mod configured;
@@ -41,13 +40,12 @@ pub(crate) mod projects;
 mod reply;
 pub(in crate::agents) mod review;
 mod server;
-mod socket;
 mod team;
 mod transcripts;
 
 pub(crate) use desktop::forward as to_desktop;
 pub(crate) use machines::{CallFailed, alone, over_the_mesh};
-pub use machines::command_name;
+pub use super::calls::{SERVER_NAME, command_name};
 pub(crate) use desktop::answer as answer_projects;
 pub use desktop::ProjectTools;
 pub(crate) use team::{
@@ -56,16 +54,6 @@ pub(crate) use team::{
 pub(crate) use server::Backend;
 use server::Called;
 
-pub(crate) fn presence_socket(dir: &Path) -> PathBuf {
-    socket::path_for_named(dir, "presence.sock")
-}
-
-pub(crate) fn prepare_presence_socket(socket_path: &Path, dir: &Path) -> Result<()> {
-    socket::prepare(socket_path, dir)
-}
-
-/// The server's name, as agents prefix its tools: `mcp__beep__remote_run`.
-pub const SERVER_NAME: &str = "beep";
 /// The env var the token reaches `beep-node mcp` in.
 pub const TOKEN_ENV: &str = "BEEP_MCP_TOKEN";
 /// The env var the socket the node bound reaches `beep-node mcp` in.

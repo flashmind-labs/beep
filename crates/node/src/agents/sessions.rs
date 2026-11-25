@@ -1,7 +1,7 @@
 //! The sessions this node runs. `Sessions` is the only code that changes the
 //! map; it publishes each change as a new map, so readers take no lock.
 
-use super::{MAX_KEPT, Session, running::new_id};
+use super::{MAX_KEPT, Session};
 use anyhow::Result;
 use beep_proto::{
     SessionId,
@@ -9,7 +9,8 @@ use beep_proto::{
     watched,
 };
 use std::{
-    collections::HashMap,
+    collections::{HashMap, hash_map::RandomState},
+    hash::BuildHasher,
     path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, Weak},
 };
@@ -183,3 +184,9 @@ fn doomed(sessions: &Map, resume: Option<&SessionId>) -> Vec<SessionId> {
 #[cfg(test)]
 #[path = "../tests/agents_sessions.rs"]
 mod tests;
+
+/// Six hex digits, random enough to tell sessions apart.
+pub(super) fn new_id() -> SessionId {
+    let random = RandomState::new().hash_one(std::time::SystemTime::now());
+    SessionId::new(format!("{:06x}", random & 0xff_ffff))
+}

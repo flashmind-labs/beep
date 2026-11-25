@@ -2,6 +2,7 @@ use super::content::{replayed, thought_line};
 use super::*;
 use crate::agents::{
     compaction::COMPACTED_ENTRY,
+    text::cut,
     image_files,
     picture::Picture,
     subagent::{Run, RunStep},
@@ -1529,7 +1530,7 @@ fn recorded_times_survive_streaming_and_replay() {
 #[test]
 fn recovery_context_does_not_name_a_conversation() {
     let mut live = live();
-    live.prompted(&crate::agents::tags::context(crate::agents::restart::CONTINUE));
+    live.prompted(&crate::agents::tags::context(crate::agents::session::CONTINUE));
     assert!(live.info.title.is_none());
     assert!(crate::agents::tags::own_words(&live.transcript(10).0[0].text).is_empty());
 }

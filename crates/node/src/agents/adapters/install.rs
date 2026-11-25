@@ -28,7 +28,7 @@ const LOCAL_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
 /// Installs the adapter of `known` under the adapters' folder `root`, and
 /// Node.js beside it when it is not there yet.
-pub(super) async fn adapter(root: &Path, known: &Known) -> Result<Installed> {
+pub(in crate::agents) async fn adapter(root: &Path, known: &Known) -> Result<Installed> {
     let Adapter::Npm { bin, package, min } = known.adapter else {
         bail!("{} has no adapter to install", known.name);
     };

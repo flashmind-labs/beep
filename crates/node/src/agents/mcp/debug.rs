@@ -3,7 +3,7 @@
 //! problem report reads (`report/1`), with secrets redacted the same way:
 //! every machine of the mesh.
 
-use super::machines::command_name;
+use crate::agents::calls::command_name;
 use super::reply::{done, fail, parse};
 use super::server::ASK_LIMIT;
 use crate::{

@@ -3,8 +3,10 @@
 use super::{
     AgentKind, Agents, Answered, Asking, Command, Session, Start, checkout,
     harnesses,
-    live::{Live, Sent},
-    models, plans, sessions,
+    live::Sent,
+    models, plans,
+    session::{Begin, History},
+    sessions::{self, new_id},
 };
 use crate::{
     agents::mcp::{self, Launch},
@@ -15,20 +17,19 @@ use anyhow::{Context, Result};
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{
-        self, CheckoutPlan, ModelList, ParentLink, Persona, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
+        self, CheckoutPlan, ModelList, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
         Status,
     },
     harness::{AgentSettings, HarnessReport},
     usage::PlanUsage,
 };
 use beep_proto::watched;
-use beep_proto::{AccountName, AgentAccount, AgentHost, AgentSlug, ModelId, Upload};
+use beep_proto::{AccountName, AgentAccount, AgentHost, AgentSlug};
 use std::time::Duration;
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet, hash_map::RandomState},
+    collections::{HashMap, HashSet},
     env,
-    hash::BuildHasher,
     path::{Component, Path, PathBuf},
     str::FromStr,
     sync::{Arc, atomic::Ordering},
@@ -38,13 +39,6 @@ use tokio::{
     sync::{oneshot, watch},
     task::spawn_blocking,
 };
-
-#[derive(Clone)]
-pub(super) struct History {
-    path: PathBuf,
-    native: u64,
-    dropped: u64,
-}
 
 impl Agents {
     /// Gives the sessions started from now on the Beep MCP server, as
@@ -938,52 +932,6 @@ fn find_session(
         .cloned()
 }
 
-/// How a session begins: on a prompt, and as a new session (on a model
-/// and thinking level when given) or an earlier one resumed by the agent's
-/// id.
-#[derive(Default)]
-pub(super) struct Begin {
-    pub(super) prompt: Option<String>,
-    /// Images that go with `prompt`.
-    pub(super) images: Vec<Upload>,
-    pub(super) resume: Option<SessionId>,
-    /// The resumed session's transcript from before the node restarted.
-    pub(super) earlier: Vec<agent::Entry>,
-    pub(super) timestamps: Option<(u64, u64)>,
-    pub(super) title: Option<String>,
-    /// Its parent gave `title`, which its agent's own names leave alone.
-    pub(super) named: bool,
-    pub(super) model: Option<ModelId>,
-    pub(super) effort: Option<agent::Effort>,
-    pub(super) fast: Option<bool>,
-    /// The session mode it was in before the node restarted.
-    pub(super) mode: Option<String>,
-    /// A first line for the transcript, such as the branch it started on.
-    pub(super) note: Option<String>,
-    /// Beep's word to the agent ahead of the first prompt.
-    pub(super) brief: Option<Cow<'static, str>>,
-    /// The linked worktrees it created, kept across restarts and moves.
-    pub(super) worktrees: Vec<String>,
-    /// The session that started this one with `start_agent`.
-    pub(super) parent: Option<ParentLink>,
-    /// The parent's state when it runs here.
-    pub(super) follows: Option<watch::Receiver<Live>>,
-    /// A temporary reviewer (`agents::reviews`).
-    pub(super) review: bool,
-    /// The home assistant, as asked for (Cmd+N on Home) or as saved.
-    pub(super) assistant: bool,
-    /// The named account to sign in as; `None` for the default one.
-    pub(super) account: Option<AccountName>,
-    /// The custom agent it runs as.
-    pub(super) persona: Option<Persona>,
-    /// The custom agent's instructions, said once after Beep's brief.
-    pub(super) instructions: Option<String>,
-    /// The session this one carries on (`SessionInfo::continues`).
-    pub(super) continues: Option<SessionId>,
-    /// The team issue its first prompt names (`SessionInfo::issue`).
-    pub(super) issue: Option<u64>,
-}
-
 /// Refuses a start as `account` that this node cannot sign `agent` in as,
 /// rather than run it on another account.
 fn signs_in(agent: &str, account: Option<&AccountName>) -> Result<()> {
@@ -1138,12 +1086,6 @@ pub(super) fn home_twins(path: &Path, home: &Path) -> Vec<PathBuf> {
         .into_iter()
         .filter(|p| p != path)
         .collect()
-}
-
-/// Six hex digits, random enough to tell sessions apart.
-pub(super) fn new_id() -> SessionId {
-    let random = RandomState::new().hash_one(std::time::SystemTime::now());
-    SessionId::new(format!("{:06x}", random & 0xff_ffff))
 }
 
 /// Takes back the questions nobody waits for any more, once the wait that held it ends before an

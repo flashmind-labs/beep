@@ -4,7 +4,7 @@ use super::{
     ARTIFACT_TOOL, EDIT_KINDS, Live, MAX_ENTRY, MAX_FILES, MAX_LINE, MAX_STEPS, SKILL_TOOL,
     content::{cut, image_picture, parent_tool},
 };
-use crate::agents::mcp::calls::Tool as BeepTool;
+use crate::agents::calls::Tool as BeepTool;
 use crate::agents::found::folder_place::call_folder;
 use crate::agents::{
     acp::wire_name,

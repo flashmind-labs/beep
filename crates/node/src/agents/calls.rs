@@ -2,8 +2,25 @@
 //! title it by the tool's name alone, so the node words it from its arguments,
 //! such as `Beep: Run on build-box: cargo test`; the apps read it back.
 
-use super::{SERVER_NAME, machines::command_name};
 use serde_json::{Map, Value};
+
+/// The server's name, as agents prefix its tools: `mcp__beep__remote_run`.
+pub const SERVER_NAME: &str = "beep";
+
+/// A machine as the agent names it: lower case, one word, with apostrophes
+/// dropped and other symbols and spaces as single dashes.
+pub fn command_name(name: &str) -> String {
+    let kept: String = name
+        .chars()
+        .filter(|c| !matches!(c, '\'' | '\u{2019}'))
+        .flat_map(char::to_lowercase)
+        .collect();
+
+    kept.split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
 
 /// What every title of a `beep` call starts with.
 pub(crate) const PREFIX: &str = "Beep: ";
@@ -340,5 +357,5 @@ fn arguments(input: &Value) -> &Value {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_calls.rs"]
+#[path = "../tests/agents_mcp_calls.rs"]
 mod tests;

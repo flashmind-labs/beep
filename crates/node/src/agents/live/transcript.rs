@@ -5,7 +5,7 @@ use super::{
     content::{cut, detail},
     tools::CodexChild,
 };
-use crate::agents::mcp::calls::Tool as BeepTool;
+use crate::agents::calls::Tool as BeepTool;
 use crate::agents::{
     acp::wire_name,
     images::Images,

@@ -497,7 +497,7 @@ impl Actor {
             );
             let continuation = interrupted.then(|| {
                 Prompt::from(crate::agents::tags::context(
-                    super::super::restart::CONTINUE,
+                    super::CONTINUE,
                 ))
             });
             continuation

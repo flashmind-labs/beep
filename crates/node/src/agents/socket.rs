@@ -13,11 +13,16 @@ const MAX_SOCKET_PATH: usize = 103;
 
 /// The socket for the node in `dir`. The node hands sessions the path it
 /// bound in `SOCKET_ENV`, so the connecting side never works it out again.
-pub fn path_for(dir: &Path) -> PathBuf {
+pub(crate) fn path_for(dir: &Path) -> PathBuf {
     path_for_named(dir, SOCKET)
 }
 
-pub(super) fn path_for_named(dir: &Path, name: &str) -> PathBuf {
+/// The socket of the presence listener for the node in `dir`.
+pub(crate) fn presence_path(dir: &Path) -> PathBuf {
+    path_for_named(dir, "presence.sock")
+}
+
+fn path_for_named(dir: &Path, name: &str) -> PathBuf {
     #[cfg(unix)]
     {
         let tmp = std::env::var_os("TMPDIR").map(PathBuf::from);
@@ -68,7 +73,7 @@ fn fits(path: &Path) -> bool {
 /// Readies the folder `socket` goes in: the node's own `dir` as it is, or
 /// the short per-user folder, made 0700 and refused unless this user owns
 /// it and no one else can enter it.
-pub(super) fn prepare(socket: &Path, dir: &Path) -> Result<()> {
+pub(crate) fn prepare(socket: &Path, dir: &Path) -> Result<()> {
     let Some(parent) = socket.parent() else {
         anyhow::bail!("{} has no folder", socket.display());
     };
@@ -106,5 +111,5 @@ pub(super) fn prepare(socket: &Path, dir: &Path) -> Result<()> {
 }
 
 #[cfg(all(test, unix))]
-#[path = "../../tests/agents_mcp_socket.rs"]
+#[path = "../tests/agents_mcp_socket.rs"]
 mod tests;

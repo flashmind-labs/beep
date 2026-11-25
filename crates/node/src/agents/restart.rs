@@ -7,7 +7,7 @@ use super::{
     family::RemoteKid,
     found::Agent,
     moving,
-    session::{NODE_STOPPED, Session},
+    session::{CONTINUE, NODE_STOPPED, Session},
 };
 use anyhow::{Context, Result};
 use beep_proto::watched;
@@ -30,8 +30,6 @@ pub(super) const SETTINGS_WAIT: Duration = Duration::from_secs(60);
 
 /// The first line of a resumed session's transcript.
 const RESUMED: &str = "Resumed after beep-node restarted";
-
-pub(super) const CONTINUE: &str = "The node restarted while you were working. Continue the interrupted task, checking what already completed before repeating any actions. If you were waiting for an answer, ask again.";
 
 /// The most transcript entries kept across a restart for an agent that
 /// does not replay its sessions.
