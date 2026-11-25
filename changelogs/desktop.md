@@ -7,6 +7,14 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.38] - 2026-11-25
+
+### Added
+
+- Desktop: hold Option (Alt on Windows and Linux) while a prompt composer is on screen for push-to-talk voice dictation, and release to finish.
+- Desktop: on-device real-time voice dictation with Parakeet Unified and Nemotron 3.5, with one-click model downloads in Settings and a live-only dictation model menu.
+- Auto-compact settings now show for Antigravity on desktop.
+
 ## [0.10.37] - 2026-11-25
 
 ### Fixed
