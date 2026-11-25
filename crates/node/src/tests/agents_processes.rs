@@ -318,3 +318,27 @@ async fn a_port_that_answers_with_a_page_is_one_of_its_pages_once_it_is_ready() 
     assert!(serving.pages.contains(&web_port));
     assert!(!serving.pages.contains(&silent_port));
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn stop_returns_when_the_processes_exit_not_after_the_grace() {
+    let mut child = tokio::process::Command::new("sleep")
+        .arg("60")
+        .spawn()
+        .unwrap();
+    let pid = child.id().unwrap();
+    let process = snapshot::read(Duration::ZERO)
+        .await
+        .unwrap()
+        .get(&pid)
+        .cloned()
+        .expect("the child is in the table");
+
+    // Not reaped, so it stays in the table as a zombie: its exit ends the wait.
+    tokio::time::timeout(Duration::from_secs(2), stop(&[process]))
+        .await
+        .expect("stop ends when the process does")
+        .unwrap();
+
+    assert!(!child.wait().await.unwrap().success());
+}
