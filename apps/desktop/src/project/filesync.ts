@@ -200,10 +200,8 @@ export function makeFileSync(deps: FileSyncDeps) {
       s.busy = null;
     }
 
-    await load(name);
-
-    // The reload clears the error, so the refusal is set after it.
-    if (failure) s.error = failure;
+    // The new detail comes with the `sync` push; the refusal shows meanwhile.
+    s.error = failure;
     redraw();
   }
 
