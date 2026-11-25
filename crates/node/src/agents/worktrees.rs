@@ -7,7 +7,7 @@ use super::found::{Memo, common_dir, git_dir};
 use super::work_diff::git;
 use crate::files::paths;
 use anyhow::Result;
-use beep_proto::node::agent::Worktree;
+use beep_proto::{SessionId, node::agent::Worktree};
 use std::{
     convert::Infallible,
     fs,
@@ -37,6 +37,7 @@ pub(super) fn parse(text: &str) -> Vec<Worktree> {
             head: String::new(),
             own: false,
             created: false,
+            created_by: Vec::new(),
         };
         let mut bare = false;
 
@@ -92,11 +93,16 @@ pub(super) fn checkout_of_gone(folder: &Path) -> Option<PathBuf> {
 /// in reach; the one holding `folder` is marked `own`. When `folder` is a
 /// removed worktree, those of its main checkout, which is `own`. None when
 /// `folder` is not in a repository. The ones in `created` (a session's
-/// `SessionInfo::worktrees`) are marked `created`. Blocks on git and the
+/// `SessionInfo::worktrees`) are marked `created`, and `makers` (every session's) say which
+/// sessions created each. Blocks on git and the
 /// file system.
-pub(super) fn list(folder: &Path, created: &[String]) -> Result<Vec<Worktree>> {
+pub(super) fn list(
+    folder: &Path,
+    created: &[String],
+    makers: &[(SessionId, Vec<String>)],
+) -> Result<Vec<Worktree>> {
     if let Some(checkout) = checkout_of_gone(folder) {
-        return list(&checkout, created);
+        return list(&checkout, created, makers);
     }
 
     let text = match git(folder, &["worktree", "list", "--porcelain"]) {
@@ -131,6 +137,15 @@ pub(super) fn list(folder: &Path, created: &[String]) -> Result<Vec<Worktree>> {
     for tree in trees.iter_mut().filter(|tree| Some(&tree.path) != main.as_ref()) {
         let path = paths::canonicalize(&tree.path).unwrap_or_else(|_| tree.path.clone().into());
         tree.created = created.contains(&path);
+        tree.created_by = makers
+            .iter()
+            .filter(|(_, made)| {
+                made.iter().any(|made| {
+                    paths::canonicalize(made).unwrap_or_else(|_| made.into()) == path
+                })
+            })
+            .map(|(session, _)| session.clone())
+            .collect();
     }
 
     Ok(trees)
@@ -141,7 +156,7 @@ pub(super) fn list(folder: &Path, created: &[String]) -> Result<Vec<Worktree>> {
 /// `since`, as the `commondir` file git writes once when it adds one says.
 /// The main checkout has no `commondir`. Blocks on git and the file system.
 pub(super) fn made_since(folder: &Path, since: SystemTime, commands: &[String]) -> Vec<String> {
-    let Ok(trees) = list(folder, &[]) else {
+    let Ok(trees) = list(folder, &[], &[]) else {
         return Vec::new();
     };
 
@@ -264,7 +279,7 @@ pub(in crate::agents) mod tests {
     fn a_folder_that_is_no_repository_has_no_worktrees() {
         let dir = TempDir::new().unwrap();
         assert!(
-            list(&paths::canonicalize(dir.path()).unwrap(), &[])
+            list(&paths::canonicalize(dir.path()).unwrap(), &[], &[])
                 .unwrap()
                 .is_empty()
         );
@@ -297,7 +312,7 @@ pub(in crate::agents) mod tests {
     fn the_list_marks_the_worktree_holding_the_folder() {
         let (_dir, main, other) = repo_with_worktree();
         fs::create_dir(main.join("src")).unwrap();
-        let trees = list(&main.join("src"), &[]).unwrap();
+        let trees = list(&main.join("src"), &[], &[]).unwrap();
         assert_eq!(trees.len(), 2);
         let own: Vec<_> = trees.iter().filter(|tree| tree.own).collect();
         assert_eq!(own.len(), 1);
@@ -322,7 +337,7 @@ pub(in crate::agents) mod tests {
         assert!(made_since(&main, later, &added).is_empty());
 
         let created = |made: &[String]| {
-            list(&main, made)
+            list(&main, made, &[])
                 .unwrap()
                 .into_iter()
                 .filter(|tree| tree.created)
@@ -332,6 +347,22 @@ pub(in crate::agents) mod tests {
         assert_eq!(created(std::slice::from_ref(&other)), vec![other.clone()]);
         assert!(created(&[main.to_str().unwrap().to_owned()]).is_empty());
         assert!(created(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_list_asked_for_no_session_says_which_sessions_created_each_worktree() {
+        let (_dir, main, other) = repo_with_worktree();
+        let other = other.to_str().unwrap().to_owned();
+        let makers = [
+            (SessionId::from("a"), vec![other.clone()]),
+            (SessionId::from("b"), vec![other.clone()]),
+            (SessionId::from("c"), Vec::new()),
+        ];
+        let trees = list(&main, &[], &makers).unwrap();
+        let made = trees.iter().find(|tree| tree.path == other).unwrap();
+
+        assert_eq!(made.created_by, [SessionId::from("a"), SessionId::from("b")]);
+        assert!(trees.iter().filter(|tree| tree.path != other).all(|tree| tree.created_by.is_empty()));
     }
 
     #[test]
@@ -365,7 +396,7 @@ pub(in crate::agents) mod tests {
     fn a_removed_worktree_lists_its_main_checkout_as_own() {
         for dir in [".worktrees", ".claude/worktrees"] {
             let (_tmp, main, gone) = repo_with_removed_worktree(dir);
-            let trees = list(&gone, &[]).unwrap();
+            let trees = list(&gone, &[], &[]).unwrap();
             let own: Vec<_> = trees.iter().filter(|tree| tree.own).collect();
             assert_eq!(own.len(), 1, "{dir}");
             assert_eq!(own[0].path, main.to_str().unwrap());
@@ -375,7 +406,7 @@ pub(in crate::agents) mod tests {
     #[test]
     fn a_removed_folder_outside_the_worktree_names_lists_nothing() {
         let (_tmp, main, _gone) = repo_with_removed_worktree(".worktrees");
-        assert!(list(&main.join("elsewhere/x"), &[]).is_err());
+        assert!(list(&main.join("elsewhere/x"), &[], &[]).is_err());
     }
 
     #[test]

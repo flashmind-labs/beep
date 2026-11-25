@@ -427,10 +427,21 @@ pub async fn serve_sessions(
         }
         SessionsRequest::Worktrees { folder, session } => {
             let created = session
-                .map(|id| agents.created_worktrees(&id))
+                .as_ref()
+                .map(|id| agents.created_worktrees(id))
                 .unwrap_or_default();
+            // Asked for no session, the list says which sessions created each worktree.
+            let makers: Vec<_> = match session {
+                Some(_) => Vec::new(),
+                None => agents
+                    .saved_sessions()
+                    .into_iter()
+                    .map(|saved| (saved.info.id, saved.info.worktrees))
+                    .filter(|(_, made)| !made.is_empty())
+                    .collect(),
+            };
             let list = work_request(&agents, &folder, reach::Access::Work, move |real| {
-                let worktrees = worktrees::list(&real, &created)?;
+                let worktrees = worktrees::list(&real, &created, &makers)?;
                 Ok(SessionsReply::Worktrees { worktrees })
             });
             timeout(WORKTREES_WAIT, list)

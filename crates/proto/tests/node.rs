@@ -2180,6 +2180,7 @@ mod agent {
                     head: "abc1234".into(),
                     own: true,
                     created: true,
+                    created_by: vec!["s1".into()],
                 }],
             };
             let body = rmp_serde::to_vec(&reply).unwrap();

@@ -946,6 +946,10 @@ pub struct Worktree {
     /// The session the list was asked for created it.
     #[serde(default)]
     pub created: bool,
+    /// The sessions that created it, said when the list was asked for no session: one read
+    /// serves every session of the folder. Empty from an older node.
+    #[serde(default)]
+    pub created_by: Vec<SessionId>,
 }
 
 /// Something a node's session did that the user would want to hear about.
