@@ -3,7 +3,7 @@
 //! disks and the endpoint reports bytes only when asked. So one task asks,
 //! while a stream follows, and the streams send what it publishes.
 
-use crate::{link::Traffic, lock, machine::stats};
+use crate::lock;
 use beep_proto::node::{StatsReport, traffic::TrafficReport};
 use futures::future::BoxFuture;
 use std::{
@@ -32,53 +32,29 @@ pub(crate) struct Sample {
 #[derive(Clone, Default)]
 pub(crate) struct Sampler(Arc<Shared>);
 
+#[derive(Default)]
 struct Shared {
     sample: watch::Sender<Sample>,
-    /// Measures the machine's disks, memory and load.
-    measure: Measure,
     /// The sampling task: running while a stream follows, none otherwise.
     task: Mutex<Option<AbortOnDropHandle<()>>>,
 }
 
-type Measure = Box<dyn Fn() -> BoxFuture<'static, StatsReport> + Send + Sync>;
-
-impl Default for Shared {
-    fn default() -> Self {
-        Self::measuring(Box::new(|| {
-            let folders = dirs::home_dir().into_iter().collect();
-
-            Box::pin(stats::sample(folders))
-        }))
-    }
-}
-
-impl Shared {
-    fn measuring(measure: Measure) -> Self {
-        Self {
-            sample: watch::Sender::default(),
-            measure,
-            task: Mutex::default(),
-        }
-    }
-}
+/// Measures the machine's disks, memory and load.
+pub(crate) type Measure = Box<dyn Fn() -> BoxFuture<'static, StatsReport> + Send + Sync>;
+/// Reads the traffic counters.
+pub(crate) type Counted = Box<dyn Fn() -> TrafficReport + Send + Sync>;
 
 impl Sampler {
-    /// A sampler that measures the machine with `measure`, for a test.
-    #[cfg(test)]
-    fn measuring(measure: Measure) -> Self {
-        Self(Arc::new(Shared::measuring(measure)))
-    }
-
     /// What the sampler publishes, starting it when it is not running. The
     /// receiver holds the last sample as unseen, so a new stream sends it at
     /// once. Sampling stops when the last receiver is dropped.
-    pub(crate) fn follow(&self, traffic: &Traffic) -> watch::Receiver<Sample> {
+    pub(crate) fn follow(&self, measure: Measure, counted: Counted) -> watch::Receiver<Sample> {
         let mut task = lock(&self.0.task);
         let mut receiver = self.0.sample.subscribe();
         receiver.mark_changed();
 
         if task.is_none() {
-            let sampling = sampling(self.0.clone(), traffic.clone());
+            let sampling = sampling(self.0.clone(), measure, counted);
             *task = Some(AbortOnDropHandle::new(tokio::spawn(sampling)));
         }
 
@@ -89,7 +65,7 @@ impl Sampler {
 /// Samples every `RESAMPLE` until nobody follows. The disks are read in a
 /// task of their own, one at a time: a mount that hangs holds up the disks'
 /// numbers and nothing else.
-async fn sampling(shared: Arc<Shared>, traffic: Traffic) {
+async fn sampling(shared: Arc<Shared>, measure: Measure, counted: Counted) {
     let mut ticks = interval(RESAMPLE);
     ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
     let mut disks = JoinSet::new();
@@ -97,7 +73,7 @@ async fn sampling(shared: Arc<Shared>, traffic: Traffic) {
     loop {
         select! {
             _ = ticks.tick() => {
-                let counted = traffic.report();
+                let counted = counted();
                 shared.sample.send_if_modified(|sample| {
                     let changed = sample.traffic.as_ref() != Some(&counted);
                     sample.traffic = Some(counted);
@@ -105,7 +81,7 @@ async fn sampling(shared: Arc<Shared>, traffic: Traffic) {
                 });
 
                 if disks.is_empty() {
-                    disks.spawn((shared.measure)());
+                    disks.spawn(measure());
                 }
             }
             Some(done) = disks.join_next() => {

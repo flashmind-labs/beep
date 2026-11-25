@@ -1,8 +1,16 @@
 use super::*;
 use beep_proto::node::StatsReport;
+use crate::link::Traffic;
 use tokio::time::timeout;
 
 const LIMIT: Duration = Duration::from_secs(30);
+
+/// What a sampler follows with: `measure` for the disks, a real tally of traffic.
+fn follow(sampler: &Sampler, measure: Measure) -> watch::Receiver<Sample> {
+    let traffic = Traffic::default();
+
+    sampler.follow(measure, Box::new(move || traffic.report()))
+}
 
 fn measured() -> StatsReport {
     StatsReport {
@@ -15,8 +23,8 @@ fn measured() -> StatsReport {
 
 #[tokio::test]
 async fn a_disk_that_hangs_holds_up_the_disks_and_nothing_else() {
-    let sampler = Sampler::measuring(Box::new(|| Box::pin(std::future::pending())));
-    let mut followed = sampler.follow(&Traffic::default());
+    let sampler = Sampler::default();
+    let mut followed = follow(&sampler, Box::new(|| Box::pin(std::future::pending())));
 
     let sample = timeout(LIMIT, followed.wait_for(|sample| sample.traffic.is_some()))
         .await
@@ -29,9 +37,9 @@ async fn a_disk_that_hangs_holds_up_the_disks_and_nothing_else() {
 
 #[tokio::test]
 async fn every_stream_follows_the_one_sample() {
-    let sampler = Sampler::measuring(Box::new(|| Box::pin(async { measured() })));
-    let traffic = Traffic::default();
-    let (mut first, mut second) = (sampler.follow(&traffic), sampler.follow(&traffic));
+    let sampler = Sampler::default();
+    let both = || -> Measure { Box::new(|| Box::pin(async { measured() })) };
+    let (mut first, mut second) = (follow(&sampler, both()), follow(&sampler, both()));
 
     for followed in [&mut first, &mut second] {
         timeout(LIMIT, followed.wait_for(|sample| sample.stats.is_some()))
@@ -43,9 +51,9 @@ async fn every_stream_follows_the_one_sample() {
 
 #[tokio::test]
 async fn sampling_stops_with_the_last_stream_and_starts_again() {
-    let sampler = Sampler::measuring(Box::new(|| Box::pin(async { measured() })));
-    let traffic = Traffic::default();
-    let mut followed = sampler.follow(&traffic);
+    let sampler = Sampler::default();
+    let measure = || -> Measure { Box::new(|| Box::pin(async { measured() })) };
+    let mut followed = follow(&sampler, measure());
     followed
         .wait_for(|sample| sample.stats.is_some())
         .await
@@ -58,7 +66,7 @@ async fn sampling_stops_with_the_last_stream_and_starts_again() {
         timeout(LIMIT, task).await.expect("it stopped").ok();
     }
 
-    let mut again = sampler.follow(&traffic);
+    let mut again = follow(&sampler, measure());
     timeout(LIMIT, again.wait_for(|sample| sample.stats.is_some()))
         .await
         .expect("it sampled again")

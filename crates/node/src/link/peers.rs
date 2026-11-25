@@ -17,7 +17,7 @@ use crate::{
     link::report::serve_report,
     link::serve::{Offers, Who, read_open, serve_open, withheld},
     link::watchdog::{self, Step},
-    machine::env,
+    machine::{env, stats},
     team::{
         home::ForgeCli,
         link::{TeamAlpn, TeamLink},
@@ -775,7 +775,11 @@ async fn status_with(
     probed.mark_changed();
     // The sample is taken once for every stream; each sends a part when it
     // differs from what it sent.
-    let mut sampled = offers.sampler.follow(&offers.traffic);
+    let traffic = offers.traffic.clone();
+    let mut sampled = offers.sampler.follow(
+        Box::new(|| Box::pin(stats::sample(dirs::home_dir().into_iter().collect()))),
+        Box::new(move || traffic.report()),
+    );
     let mut reported = None;
     let mut stats_sent = None;
     let mut traffic_sent = None;
