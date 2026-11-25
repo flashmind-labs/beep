@@ -1,13 +1,16 @@
 //! The "Add a machine" sheet: a one-time ticket from this Mac that the
-//! machine redeems with `beep-node mesh join <ticket>`. While open, the
-//! sheet polls `ticket_machine` to learn which machine joined with it.
+//! machine redeems with `beep-node mesh join <ticket>`. The machines view
+//! carries `ticket_machine` for each ticket minted and not yet expired, so
+//! the sheet learns which machine joined with it from the push.
 //! Only a desktop mints tickets.
 
 use crate::{
     beep::identity::computer_name,
     error::{DesktopError, Result},
     fleet::{
-        Fleet, Machines, files as direct,
+        Fleet, Machines,
+        event_views::View,
+        files as direct,
         node_actor::{FAST_JOB_WAIT, JobKind},
     },
 };
@@ -15,8 +18,64 @@ use beep_mesh::{DeviceKind, Invitation, MeshError, ShortTicket};
 use iroh_tickets::Ticket;
 use qrcode::{EcLevel, QrCode, render::svg::Color};
 use serde::Serialize;
-use std::{sync::Arc, time::Duration};
-use tauri::{AppHandle, State};
+use std::{
+    sync::{Arc, Mutex, PoisonError},
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+use tauri::{AppHandle, Manager, State};
+
+/// The most tickets followed at once: the newest.
+const TICKETS_KEPT: usize = 16;
+
+/// The tickets this desktop minted that have not expired, with when each does.
+#[derive(Default)]
+pub(crate) struct Tickets(Mutex<Vec<(String, u64)>>);
+
+impl Tickets {
+    fn keep(&self, token: String, expires_at: u64) {
+        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        held.push((token, expires_at));
+
+        if held.len() > TICKETS_KEPT {
+            held.remove(0);
+        }
+    }
+
+    /// The tickets that have not expired.
+    fn live(&self) -> Vec<String> {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| {
+                u64::try_from(since.as_millis()).unwrap_or(u64::MAX)
+            });
+        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        held.retain(|(_, expires_at)| *expires_at > now);
+        held.iter().map(|(token, _)| token.clone()).collect()
+    }
+}
+
+/// `ticket_machine` for each ticket minted and not expired, for the machines view to push.
+pub(crate) async fn ticket_views(app: &AppHandle) -> Vec<View> {
+    let fleet = app.state::<Arc<Fleet>>();
+    let reads = app
+        .state::<Tickets>()
+        .live()
+        .into_iter()
+        .map(|ticket| async {
+            let args = serde_json::json!({ "ticket": ticket });
+
+            match joined_by(&fleet, &ticket).await {
+                Ok(machine) => View::new("ticket_machine", args, machine),
+                Err(error) => Some(View::failed("ticket_machine", args, &error.to_string())),
+            }
+        });
+
+    futures::future::join_all(reads)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
+}
 
 /// A ticket as the sheet shows it.
 #[derive(Debug, Serialize)]
@@ -37,6 +96,7 @@ pub struct TokenView {
 #[tauri::command]
 pub async fn mesh_invite(
     fleet: State<'_, Arc<Fleet>>,
+    tickets: State<'_, Tickets>,
     kind: DeviceKind,
     temporary: Option<bool>,
     phone: Option<bool>,
@@ -70,6 +130,7 @@ pub async fn mesh_invite(
     } else {
         None
     };
+    tickets.keep(token.clone(), ticket.expires_ms);
     Ok(TokenView {
         token,
         qr_svg,
@@ -118,6 +179,10 @@ pub async fn ticket_machine(
     fleet: State<'_, Arc<Fleet>>,
     ticket: String,
 ) -> Result<Option<String>> {
+    joined_by(&fleet, &ticket).await
+}
+
+async fn joined_by(fleet: &Fleet, ticket: &str) -> Result<Option<String>> {
     let invite = ticket
         .parse::<Invitation>()
         .map_err(|e| DesktopError::BadRequest(e.to_string()))?;

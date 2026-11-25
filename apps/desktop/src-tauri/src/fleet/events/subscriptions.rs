@@ -183,6 +183,10 @@ impl SubscriptionWorker {
 
                             team_heard(app, machine, &snapshot.topic, Some(&snapshot.value));
 
+                            if snapshot.topic.name() == "files" {
+                                crate::agents::files_live::heard(app, machine, &snapshot.topic, snapshot.revision);
+                            }
+
                             if !initial {
                                 crate::notices::heard(app, snapshot.topic.name());
                             }

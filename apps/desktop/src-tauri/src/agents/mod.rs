@@ -8,6 +8,7 @@ pub(crate) mod custom;
 pub(crate) mod diff;
 pub(crate) mod file_cache;
 pub(crate) mod files;
+pub(crate) mod files_live;
 pub(crate) mod flsh_settings;
 pub(crate) mod follow;
 pub(crate) mod harnesses;

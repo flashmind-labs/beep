@@ -822,6 +822,8 @@ fn setup(
     tauri::async_runtime::spawn(async move { opening.run().await });
     app.manage(machine);
     app.manage(machines::list::MachineLists::default());
+    app.manage(machines::add::Tickets::default());
+    app.manage(agents::files_live::FilesLive::default());
     let cache = handle
         .state::<Arc<center::view_cache::ViewCache>>()
         .inner()

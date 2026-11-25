@@ -8,6 +8,7 @@ use crate::{
     error::Result,
     fleet::projects::{FleetState, desk},
 };
+use beep_fleet::Desk;
 use beep_projects::model::plain_path;
 use beep_proto::{
     ConflictKeep, MachineSync, MachineSyncDetail, ProjectSync, ProjectSyncDetail, SyncProgress,
@@ -241,8 +242,11 @@ pub async fn project_sync_detail(
     fleet: FleetState<'_>,
     project: String,
 ) -> Result<Option<SyncDetailView>> {
-    let desk = desk(&fleet).await?;
+    sync_detail_of(&desk(&fleet).await?, project).await
+}
 
+/// `project_sync_detail` for a project of `desk`, as the sync view pushes it too.
+pub(crate) async fn sync_detail_of(desk: &Desk, project: String) -> Result<Option<SyncDetailView>> {
     match desk.sync_detail(&project).await {
         Ok(detail) => {
             let mut view: SyncDetailView = detail.into();

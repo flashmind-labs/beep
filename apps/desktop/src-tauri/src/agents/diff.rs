@@ -2,9 +2,10 @@
 //! by the node where the checkout is.
 
 use crate::{
+    agents::files_live::FilesLive,
     error::Result,
     fleet::{
-        Machines,
+        Fleet, Machines,
         agents::{self as agent_nodes, PlaceAsk},
         files as direct,
     },
@@ -15,6 +16,7 @@ use beep_proto::{
     node::agent::{AgentCommand, DiffAsk, WorkPlace, Worktree},
 };
 use serde::Serialize;
+use tauri::State;
 
 /// A diff for the web view (DiffView).
 #[derive(Debug, Serialize)]
@@ -174,15 +176,30 @@ pub enum Places {
 #[tauri::command]
 pub async fn agent_places(
     fleet: Machines<'_>,
+    live: State<'_, FilesLive>,
     machine_id: String,
     asks: Vec<PlaceAsk>,
 ) -> Result<Places> {
-    let Some(machine) = fleet.member(&machine_id) else {
+    // Asking makes the window follow the machine's folders: a change comes as a view.
+    if let Some(machine) = fleet.member(&machine_id) {
+        live.follow_places(machine, &asks);
+    }
+
+    places_of(&fleet, &machine_id, &asks).await
+}
+
+/// What `agent_places` answers, as a folder's views push it too.
+pub(crate) async fn places_of(
+    fleet: &Fleet,
+    machine_id: &str,
+    asks: &[PlaceAsk],
+) -> Result<Places> {
+    let Some(machine) = fleet.member(machine_id) else {
         let places = asks.iter().map(|_| None).collect();
         return Ok(Places::Found { places });
     };
 
-    match agent_nodes::places(&fleet, machine, &asks).await {
+    match agent_nodes::places(fleet, machine, asks).await {
         Ok(places) => Ok(Places::Found { places }),
         Err(e) if e.is_transport() => {
             log::debug!("session places not read yet; machine={machine_id} error={e}");
@@ -212,12 +229,17 @@ pub async fn agent_commands(
 #[tauri::command]
 pub async fn agent_worktrees(
     fleet: Machines<'_>,
+    live: State<'_, FilesLive>,
     machine_id: String,
     folder: String,
     session: Option<SessionId>,
 ) -> Result<Vec<Worktree>> {
     match fleet.member(&machine_id) {
-        Some(machine) => agent_nodes::worktrees(&fleet, machine, &folder, session.as_ref()).await,
+        Some(machine) => {
+            // Asking makes the window follow the folder: a change comes as a view.
+            live.follow_worktrees(machine, &folder, session.as_ref());
+            agent_nodes::worktrees(&fleet, machine, &folder, session.as_ref()).await
+        }
         None => Ok(Vec::new()),
     }
 }

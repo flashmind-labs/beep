@@ -4,7 +4,7 @@
 //! into the folder a part at a time.
 
 use crate::{
-    agents::work_copy,
+    agents::{files_live::FilesLive, work_copy},
     chat::files::{file_name, free_name, gone},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
@@ -18,7 +18,7 @@ use beep_proto::{
 };
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
-use tauri::AppHandle;
+use tauri::{AppHandle, State};
 
 /// The most of a file the text view shows.
 const TEXT_CAP: u32 = 512 * 1024;
@@ -90,6 +90,7 @@ const TREE_DEPTH: u32 = 3;
 #[tauri::command]
 pub async fn agent_tree(
     fleet: Machines<'_>,
+    live: State<'_, FilesLive>,
     machine_id: String,
     root: String,
     path: String,
@@ -97,23 +98,50 @@ pub async fn agent_tree(
     deep: bool,
     fresh: Option<bool>,
 ) -> Result<Tree> {
+    // Asking makes the window follow the folder: a change comes as a view.
+    if let Some(machine) = fleet.member(&machine_id) {
+        live.follow_tree(machine, &root, &path, ignored, deep);
+    }
+
+    tree_of(
+        &fleet,
+        &machine_id,
+        &root,
+        &path,
+        ignored,
+        deep,
+        fresh.unwrap_or(false),
+    )
+    .await
+}
+
+/// What `agent_tree` answers, as the folder's views push it too.
+pub(crate) async fn tree_of(
+    fleet: &Fleet,
+    machine_id: &str,
+    root: &str,
+    path: &str,
+    ignored: bool,
+    deep: bool,
+    fresh: bool,
+) -> Result<Tree> {
     let ask = ListWorkTree {
-        machine_id,
-        root,
-        path,
+        machine_id: machine_id.to_owned(),
+        root: root.to_owned(),
+        path: path.to_owned(),
         ignored,
         depth: if deep { MAX_TREE_DEPTH } else { TREE_DEPTH },
     };
-    let cached = if fresh.unwrap_or(false) {
+    let cached = if fresh {
         None
     } else {
-        work_copy::tree(&fleet, &ask).await
+        work_copy::tree(fleet, &ask).await
     };
     let tree = match cached {
         Some(tree) => tree,
         None => {
             let machine = fleet.machine(&ask.machine_id)?;
-            direct::tree(&fleet, machine, &ask, Reading::Followed).await?
+            direct::tree(fleet, machine, &ask, Reading::Followed).await?
         }
     };
     let folders = tree

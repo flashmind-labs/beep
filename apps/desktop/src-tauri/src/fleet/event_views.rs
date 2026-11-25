@@ -561,8 +561,12 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             ));
         }
         "machine-details" => {
-            views.extend(crate::projects::page::page_views(app, true).await);
+            views.extend(
+                crate::projects::page::page_views(app, crate::projects::page::Page::Machines).await,
+            );
             views.extend(crate::fleet::agents::harness_views(&app.state::<Arc<Fleet>>()).await);
+            views.extend(crate::fleet::agents::model_views(app, &app.state::<Arc<Fleet>>()).await);
+            views.extend(crate::machines::add::ticket_views(app).await);
         }
         "tools" => {
             let found = crate::fleet::tool_updates::all(&app.state::<Arc<Fleet>>()).await;
@@ -579,7 +583,9 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 "project_groups",
                 crate::projects::groups::project_groups(app.state(), app.state()).await,
             );
-            views.extend(crate::projects::page::page_views(app, true).await);
+            views.extend(
+                crate::projects::page::page_views(app, crate::projects::page::Page::Machines).await,
+            );
         }
         "sync" => {
             append(
@@ -587,7 +593,9 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 "project_sync",
                 crate::projects::file_sync::project_sync(app.state(), app.state()).await,
             );
-            views.extend(crate::projects::page::page_views(app, false).await);
+            views.extend(
+                crate::projects::page::page_views(app, crate::projects::page::Page::Sync).await,
+            );
         }
         "usage" => append(
             &mut views,

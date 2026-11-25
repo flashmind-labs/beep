@@ -63,10 +63,20 @@ pub async fn projects_sessions(
     Ok(lists.want(ListId::Home, window.label(), places).await)
 }
 
-/// What the pages of the projects a window follows read: `project_machines` when `places`,
-/// and `project_syncthing`, each for the project it is asked for. They ride the views of the
-/// topics that change them, so a page takes them from the push instead of asking again.
-pub(crate) async fn page_views(app: &AppHandle, places: bool) -> Vec<View> {
+/// What a project's page reads that a topic's views carry.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Page {
+    /// The machines and the places the machines list changes.
+    Machines,
+    /// The sync status and the sync detail the sync topic changes.
+    Sync,
+}
+
+/// What the pages of the projects a window follows read: `project_machines` for `Machines`,
+/// `project_sync_detail` for `Sync`, and `project_syncthing` for both, each for the project it
+/// is asked for. They ride the views of the topics that change them, so a page takes them from
+/// the push instead of asking again.
+pub(crate) async fn page_views(app: &AppHandle, page: Page) -> Vec<View> {
     let ids = app.state::<super::live::Followed>().ids();
 
     if ids.is_empty() {
@@ -84,8 +94,8 @@ pub(crate) async fn page_views(app: &AppHandle, places: bool) -> Vec<View> {
             let args = json!({ "project": project });
             let mut views = Vec::new();
 
-            if places {
-                match desk.project_machines(&project).await {
+            match page {
+                Page::Machines => match desk.project_machines(&project).await {
                     Ok(machines) => views.extend(View::new(
                         "project_machines",
                         args.clone(),
@@ -99,7 +109,17 @@ pub(crate) async fn page_views(app: &AppHandle, places: bool) -> Vec<View> {
                         args.clone(),
                         &error.to_string(),
                     )),
-                }
+                },
+                Page::Sync => match super::file_sync::sync_detail_of(desk, project.clone()).await {
+                    Ok(detail) => {
+                        views.extend(View::new("project_sync_detail", args.clone(), detail));
+                    }
+                    Err(error) => views.push(View::failed(
+                        "project_sync_detail",
+                        args.clone(),
+                        &error.to_string(),
+                    )),
+                },
             }
 
             views.extend(View::new(

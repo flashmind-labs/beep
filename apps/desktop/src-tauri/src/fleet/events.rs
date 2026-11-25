@@ -1056,6 +1056,30 @@ impl Events {
         });
     }
 
+    /// Sends the views read for a node's topic as an update of that topic, with the revision the
+    /// node gave, to the windows that follow it.
+    pub(crate) fn push_node_views(
+        &self,
+        machine: EndpointId,
+        topic: Topic,
+        revision: u64,
+        data: serde_json::Value,
+    ) {
+        if !self.node_wanted(machine, &topic) {
+            return;
+        }
+
+        self.dispatch(Update {
+            machine_id: machine.to_string(),
+            revision,
+            topic,
+            query: None,
+            initial: false,
+            data: Some(data),
+            seq: 0,
+        });
+    }
+
     pub(crate) async fn call(
         &self,
         window: &str,

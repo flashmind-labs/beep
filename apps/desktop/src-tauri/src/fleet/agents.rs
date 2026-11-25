@@ -959,7 +959,7 @@ pub(crate) async fn commands(
 }
 
 /// A session whose place is asked for: `external` for one started outside Beep.
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct PlaceAsk {
     agent: String,
     session: SessionId,
@@ -1129,6 +1129,63 @@ pub(crate) async fn harness_views(fleet: &std::sync::Arc<Fleet>) -> Vec<super::e
                 &crate::settings::credentials::plain(error).to_string(),
             )),
         }
+    });
+
+    futures::future::join_all(reads)
+        .await
+        .into_iter()
+        .flatten()
+        .collect()
+}
+
+/// How long the models of an agent on a machine hold before they are read again.
+const MODELS_FRESH: Duration = Duration::from_secs(300);
+
+/// `agent_models` for each harness each machine offers, for the machines and accounts views to
+/// push: the models change only when a harness or an account does. One that the machine has not
+/// answered yet is left out and comes with the redraw its answer rings.
+pub(crate) async fn model_views(
+    app: &tauri::AppHandle,
+    fleet: &Arc<Fleet>,
+) -> Vec<super::event_views::View> {
+    use super::event_views::View;
+
+    let reads = hosts(fleet).into_iter().flat_map(|host| {
+        host.agents
+            .into_iter()
+            .map(move |agent| (host.machine_id.clone(), agent))
+    });
+    let reads = reads.filter_map(|(machine_id, agent)| {
+        let machine = fleet.member(&machine_id)?;
+        let app = app.clone();
+        Some(async move {
+            let args = serde_json::json!({ "machineId": machine_id, "agent": agent });
+            let notify = move || {
+                super::event_views::changed(app, beep_proto::node::events::Topic::new("accounts"));
+            };
+
+            let request = ListAgentModels {
+                machine_id: machine_id.clone(),
+                agent: agent.clone(),
+            };
+            let fleet_arc = fleet.clone();
+            let read = fleet
+                .projections()
+                .models
+                .read_fast_with_fresh(
+                    (machine, agent.clone()),
+                    |_| MODELS_FRESH,
+                    PartialEq::eq,
+                    notify,
+                    move || async move { models(&fleet_arc, machine, &request).await },
+                )
+                .await?;
+
+            match read {
+                Ok(list) => View::new("agent_models", args, Some(list)),
+                Err(error) => Some(View::failed("agent_models", args, &error.to_string())),
+            }
+        })
     });
 
     futures::future::join_all(reads)
