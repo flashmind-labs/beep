@@ -4,7 +4,6 @@
 import { invoke } from "../ui/tauri.ts";
 import { confirmSheet, type MenuItem } from "../ui/menu.tsx";
 import { state } from "../center/state.ts";
-import { loadWhere } from "./loads.tsx";
 import { removeBlock, workingIn } from "./removemachine-state.ts";
 import type { RunningAgent } from "../agents/running-state.ts";
 import { plainPath, type WhereRow } from "./projects-state.ts";
@@ -28,11 +27,7 @@ export function confirmRemove(project: string, m: WhereRow) {
     },
     action: "Remove",
     dismissWhileBusy: true,
-    run: async deleteFolder => {
-      const said = await invoke<string | null>("project_remove_from_machine", { project, machineId: m.id, deleteFolder });
-      void loadWhere(project);
-      return said;
-    },
+    run: deleteFolder => invoke<string | null>("project_remove_from_machine", { project, machineId: m.id, deleteFolder }),
   });
 }
 

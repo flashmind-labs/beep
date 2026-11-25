@@ -20,8 +20,6 @@ import type { SyncthingFiles } from "./syncthing.ts";
 interface AddToMachine {
   project: string;
   machine: { id: string; name: string };
-  /// The folder was made and the machine joined the sync.
-  added: () => void;
   /// The folder the project is in there now, to change it.
   from?: string;
 }
@@ -66,7 +64,6 @@ export function openAddToMachine(o: AddToMachine) {
 
     try {
       await invoke<string>(change ? "project_change_folder" : "project_add_to_machine", { project, machineId: machine.id, folder: offer.path });
-      o.added();
       if (open) { copying = copyLine(null, machine.id, machine.name); void poll(); }
     } catch (e) {
       error = reason(e);

@@ -242,7 +242,7 @@ export function missingMachine(p: Project, m: WhereRow) {
   const text = m.text || "", title = m.kind === "none" && m.checked_at ? `Checked ${formatAgo(m.checked_at, "since")}` : "";
   let action: { label: string; disabled: boolean; run(): void } | null = null;
   if (!state.home?.machines?.some(x => x.id === m.id && x.can_host === false)) {
-    if (m.kind === "none" && m.add) action = { label: "Add", disabled: false, run: () => openAddToMachine({ project: p.name, machine: m, added: () => loadWhere(p.name) }) };
+    if (m.kind === "none" && m.add) action = { label: "Add", disabled: false, run: () => openAddToMachine({ project: p.name, machine: m }) };
     else if (m.kind === "none" && p.url) { const url = p.url; action = { label: "Clone here", disabled: false, run: () => importSheet(repoFromRemote(url), m.id) }; }
   }
   return { text, title, syncthing: m.kind === "none" ? m.syncthing ?? null : null, action };

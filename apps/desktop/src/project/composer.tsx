@@ -47,7 +47,7 @@ import { type Started, state, sessionsOf, gitOf } from "../center/state.ts";
 import { currentLocation, go } from "../center/views.tsx";
 import { projectRows } from "../center/sidebar.tsx";
 import { redrawProjects, pa, pc } from "./sections.ts";
-import { loadSessions, loadWhere, projectPlaces } from "./loads.tsx";
+import { loadSessions, projectPlaces } from "./loads.tsx";
 import { copyLine, shortName } from "./addmachine-state.ts";
 import type { SyncDetail } from "./filesync.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
@@ -914,7 +914,6 @@ async function addToMachine(project: string, m: AgentHost) {
   try {
     const folder = projectUnder(await projectsIn(m.machine_id), project);
     await invoke<string>("project_add_to_machine", { project, machineId: m.machine_id, folder });
-    loadWhere(project);
     await new Promise<void>(resolve => {
       let done = false;
       const finish = () => { done = true; unfollow(); if (finishCopy === finish) finishCopy = undefined; resolve(); };

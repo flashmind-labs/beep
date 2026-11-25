@@ -3,7 +3,6 @@
 // it is.
 import type { MenuItem } from "../ui/menu.tsx";
 import { openAddToMachine } from "./addmachine.tsx";
-import { loadWhere } from "./loads.tsx";
 
 /// Opens the sheet for `project` on `machine`, whose folder is `from` now.
 export function changeFolder(project: string, machine: { id: string; name: string }, from: string) {
@@ -11,7 +10,6 @@ export function changeFolder(project: string, machine: { id: string; name: strin
     project,
     machine,
     from,
-    added: () => loadWhere(project),
   });
 }
 
