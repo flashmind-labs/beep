@@ -27,6 +27,8 @@ use tokio::{
 };
 
 const EVENTS: usize = 64;
+/// The name the node knows its Codex bridge by, which says it steers.
+pub(in crate::agents) const CODEX_NAME: &str = "beep-node codex-acp";
 
 /// What the client sent to an in-process ACP bridge.
 pub(in crate::agents) enum Event {

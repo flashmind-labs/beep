@@ -9,7 +9,7 @@ use super::{
 use crate::agents::{
     acp::{
         self,
-        bridge::{Event, Start, notify, parse_start, unknown_session},
+        bridge::{CODEX_NAME, Event, Start, notify, parse_start, unknown_session},
     },
     launch::Cli,
 };
@@ -34,8 +34,6 @@ use tokio::{
 
 /// The command that compacts the thread.
 const COMPACT: &str = "/compact";
-/// The name the node knows this agent by, which says it steers.
-pub(in crate::agents) const NAME: &str = "beep-node codex-acp";
 /// Codex settings the node gives, as a JSON object, for every thread.
 const CONFIG: &str = "CODEX_CONFIG";
 /// The most pages of a thread's turns a loaded session replays.
@@ -53,7 +51,7 @@ pub(in crate::agents) async fn serve(
     cli: Cli,
     wsl: Option<DistroName>,
 ) -> Result<()> {
-    acp::bridge::serve(NAME, input, output, async move |cx, mut events| {
+    acp::bridge::serve(CODEX_NAME, input, output, async move |cx, mut events| {
         let mut bridge = Bridge {
             cx,
             cli,
@@ -179,7 +177,7 @@ impl Bridge {
                 self.forms = acp::bridge::accepts_forms(&request);
                 responder
                     .cast()
-                    .respond(acp::bridge::initialized(NAME, false, true))?;
+                    .respond(acp::bridge::initialized(CODEX_NAME, false, true))?;
             }
             "session/new" | "session/load" | "session/resume" => {
                 let req = parse_start(&message, responder)?;

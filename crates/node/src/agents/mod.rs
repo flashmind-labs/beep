@@ -79,6 +79,7 @@ host! {
     mod session_stream;
     mod sessions;
     mod spend;
+    mod start;
     mod subagent;
     mod tool_diff;
     pub(crate) mod uploads;
@@ -93,7 +94,8 @@ host! {
     pub(crate) use acp::{Line, LineReader, MAX_MESSAGE};
     pub(crate) use picture::{Picture, block_picture};
     pub use kinds::{AgentKind, Bridge, detect};
-    pub use launch::{AgentIn, AgentOut, Running, Started, start};
+    pub use launch::{AgentIn, AgentOut, Running, Started};
+    pub use start::start;
     pub(crate) use known::adapter_bins;
     pub use moving::SESSIONS_ALPN;
     pub use moving::SessionsAlpn;

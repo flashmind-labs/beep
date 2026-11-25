@@ -102,7 +102,7 @@ pub(in crate::agents) fn takes_steering(initialized: &InitializeResponse) -> boo
         "@agentclientprotocol/codex-acp" => (2, 4, 0),
         "@agentclientprotocol/claude-agent-acp" => (0, 65, 0),
         "flsh" => (0, 2, 14),
-        crate::agents::codex_direct::NAME => (0, 0, 0),
+        super::bridge::CODEX_NAME => (0, 0, 0),
         _ => return false,
     };
     let mut parts = agent.version.split('.');

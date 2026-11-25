@@ -3,7 +3,7 @@
 //! the session over an in-memory pipe and starts the agent's CLI itself.
 //! The node never starts its own executable to run an agent.
 
-use super::{Bridge, Line, LineReader, claude_direct, codex_direct};
+use super::{Line, LineReader};
 use crate::machine::wsl::{self, DistroName, LinuxPath};
 use crate::run::process::{GroupLeader, Held, command, own_group};
 use anyhow::{Context, Result};
@@ -25,7 +25,7 @@ use tokio_util::{either::Either, task::AbortOnDropHandle};
 /// The longest stderr line read whole; a longer one is skipped.
 const MAX_STDERR_LINE: usize = 64 * 1024;
 /// How many stderr lines wait to be read.
-const STDERR_LINES: usize = 64;
+pub(super) const STDERR_LINES: usize = 64;
 /// How many bytes of ACP wait in the pipe between the session and a bridge.
 const PIPE: usize = 256 * 1024;
 
@@ -44,103 +44,9 @@ pub struct Started {
     pub running: Running,
 }
 
-/// Starts the agent `process` sets up, on `bridge` when given: the bridge
-/// starts the CLI `process` names, with its arguments after the bridge's,
-/// its environment and its folder.
-pub fn start(process: Command, bridge: Option<&Bridge>) -> Result<Started> {
-    let (lines, stderr) = mpsc::channel(STDERR_LINES);
-
-    match bridge {
-        None => {
-            let (process, stdin, stdout) = spawn(process, "the agent", lines)?;
-            Ok(Started {
-                stdin: Either::Left(stdin),
-                stdout: Either::Left(stdout),
-                stderr,
-                running: Running {
-                    process: Some(process),
-                    task: None,
-                    started: None,
-                },
-            })
-        }
-        Some(Bridge::Relay { wsl }) => {
-            let cli = Cli::new(process, lines.clone(), None);
-            let cwd = cli.cwd()?;
-            let relayed = cli.command(Some(wsl), &cwd, &cli.args())?;
-            let (process, agent_in, agent_out) = spawn(relayed, "the agent in WSL", lines)?;
-            let (stdin, client_in) = pipe();
-            let (client_out, stdout) = pipe();
-            let relay = async move {
-                if let Err(e) = wsl::relay(client_in, client_out, agent_in, agent_out).await {
-                    log::warn!("the relay to WSL failed: {e:#}");
-                }
-            };
-            Ok(Started {
-                stdin: Either::Right(stdin),
-                stdout: Either::Right(stdout),
-                stderr,
-                running: Running {
-                    process: Some(process),
-                    task: Some(AbortOnDropHandle::new(tokio::spawn(relay))),
-                    started: None,
-                },
-            })
-        }
-        Some(Bridge::Claude { wsl, home }) => {
-            let (wsl, home) = (wsl.clone(), home.clone());
-            bridged(process, lines, stderr, |input, output, cli| {
-                claude_direct::serve(input, output, cli, wsl, home)
-            })
-        }
-        Some(Bridge::Codex { wsl }) => {
-            let wsl = wsl.clone();
-            bridged(process, lines, stderr, |input, output, cli| {
-                codex_direct::serve(input, output, cli, wsl)
-            })
-        }
-    }
-}
-
-/// The agent on the bridge `serve` runs as a task.
-fn bridged<F, S>(
-    process: Command,
-    lines: mpsc::Sender<String>,
-    stderr: mpsc::Receiver<String>,
-    serve: S,
-) -> Result<Started>
-where
-    S: FnOnce(DuplexStream, DuplexStream, Cli) -> F,
-    F: Future<Output = Result<()>> + Send + 'static,
-{
-    let (stdin, input) = pipe();
-    let (output, stdout) = pipe();
-    let (pid, started) = oneshot::channel();
-    let served = serve(input, output, Cli::new(process, lines.clone(), Some(pid)));
-    let task = async move {
-        if let Err(e) = served.await {
-            log::warn!("the agent's bridge failed: {e:#}");
-            // The session reads it once the bridge ends; a full channel
-            // already says why.
-            let _ = lines.try_send(format!("{e:#}"));
-        }
-    };
-
-    Ok(Started {
-        stdin: Either::Right(stdin),
-        stdout: Either::Right(stdout),
-        stderr,
-        running: Running {
-            process: None,
-            task: Some(AbortOnDropHandle::new(tokio::spawn(task))),
-            started: Some(started),
-        },
-    })
-}
-
 /// A one-way pipe in memory: the first end writes, the second reads. Either
 /// end dropped closes it, as a process's stdio closes.
-fn pipe() -> (DuplexStream, DuplexStream) {
+pub(super) fn pipe() -> (DuplexStream, DuplexStream) {
     tokio::io::duplex(PIPE)
 }
 
@@ -148,11 +54,11 @@ fn pipe() -> (DuplexStream, DuplexStream) {
 /// them.
 pub struct Running {
     /// The process started with the session.
-    process: Option<Process>,
+    pub(super) process: Option<Process>,
     /// The bridge or relay.
-    task: Option<AbortOnDropHandle<()>>,
+    pub(super) task: Option<AbortOnDropHandle<()>>,
     /// The pid of the CLI a bridge starts, once it has.
-    started: Option<oneshot::Receiver<u32>>,
+    pub(super) started: Option<oneshot::Receiver<u32>>,
 }
 
 impl Running {
@@ -227,7 +133,7 @@ impl Process {
 
 /// Starts `process`, the agent `name`, in its own group, with its stdio
 /// piped: its stderr goes to `lines`, a line each.
-fn spawn(
+pub(super) fn spawn(
     mut process: Command,
     name: &str,
     lines: mpsc::Sender<String>,
@@ -292,7 +198,7 @@ pub(super) struct Cli {
 }
 
 impl Cli {
-    fn new(
+    pub(super) fn new(
         template: Command,
         lines: mpsc::Sender<String>,
         pid: Option<oneshot::Sender<u32>>,
@@ -321,7 +227,7 @@ impl Cli {
             .collect()
     }
 
-    fn cwd(&self) -> Result<PathBuf> {
+    pub(super) fn cwd(&self) -> Result<PathBuf> {
         self.template
             .as_std()
             .get_current_dir()
