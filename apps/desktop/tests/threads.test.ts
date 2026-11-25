@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { chatActivity, chatOf, chatRail, chatsAsking, threadFolders, threadsByChat } from "../src/agents/threads-state.ts";
-import type { AgentSession } from "../src/agents/agents.ts";
+import type { AgentSession } from "../src/agents/agents-state.ts";
 
 let at = 0;
 const row = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({

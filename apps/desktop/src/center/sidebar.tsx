@@ -23,7 +23,7 @@ import { fsync, redrawProjects, redrawProjectsPage, syncProjectFollow } from "..
 import { conflictList } from "../project/filesync.ts";
 import { prefetchOnHover, projectRail, railSessions, sessionsDue } from "../project/loads.tsx";
 import type { Alone, ProjectWindowProps } from "../project/projectwindow.ts";
-import type { AgentRow } from "../agents/agents.ts";
+import type { AgentRow } from "../agents/agents-state.ts";
 import { forgetProject } from "./refresh.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
@@ -38,7 +38,7 @@ import { ChatRail } from "../agents/assistant-page.tsx";
 import { SidebarShell, SidebarItem, SidebarGroup as SidebarGroupView, type SideFooter, type SideLink } from "./sidebar-shell.tsx";
 import { SidebarProjectRow } from "./sidebar-rows.tsx";
 import { single } from "../ui/active.ts";
-import { AG } from "../agents/agents.ts";
+import { AG } from "../agents/agents-state.ts";
 import { placeOf } from "../agents/place.ts";
 import { newChatTarget } from "../project/agent.ts";
 import { runningKey } from "../agents/running-state.ts";

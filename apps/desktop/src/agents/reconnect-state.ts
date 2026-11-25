@@ -2,7 +2,7 @@
 // muted line while it reads again every few seconds, gone once the session reads
 // again or anything new arrives, and a plain ending when the machine came
 // back without it.
-import type { AgentPage } from "./agents.ts";
+import type { AgentPage } from "./agents-state.ts";
 
 /// Why `agent_view` failed, as the app tells it.
 type ViewError = { kind: "lost" } | { kind: "gone" } | { kind: "failed"; message: string };

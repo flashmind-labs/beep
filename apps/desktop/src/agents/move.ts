@@ -4,7 +4,7 @@ import { moveViews, type MoveStatus, type MoveView } from "./move-view.tsx";
 // composer, and the lists say "laptop to studio". The records are in the
 // mesh; the target says how far it is (`move-state.ts` holds the logic).
 
-import { type AgentHost, type AgentRow, AG, ensureAgentHosts } from "./agents.ts";
+import { type AgentHost, type AgentRow, AG, ensureAgentHosts } from "./agents-state.ts";
 import { agentKey } from "./conversation-state.ts";
 import { type MoveProgress, type MoveRecord, type MoveTarget, canMove, chatSessions, going, movePct, moveRows, targetNote } from "./move-state.ts";
 import { isAssistant } from "./assistant-state.ts";

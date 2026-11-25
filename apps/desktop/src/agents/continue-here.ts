@@ -5,7 +5,7 @@ import { createStore } from "zustand";
 import { confirmSheet } from "../ui/menu.tsx";
 import { invoke } from "../ui/tauri.ts";
 import { errorText } from "../machines/machines-state.ts";
-import { AG, type AgentRow, openOf, where } from "./agents.ts";
+import { AG, type AgentRow, openOf, where } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";
 import { agentKey } from "./conversation-state.ts";
 

@@ -6,7 +6,7 @@ import { linkedPath, resolvePath } from "../agentpane/media-state.ts";
 import { openLinked, openPath, openPicture, paneSession, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode } from "./turnrows.ts";
-import { AG, openOf, where } from "./agents.ts";
+import { AG, openOf, where } from "./agents-state.ts";
 import { fullPic } from "./images.tsx";
 import { childRow } from "./nesting-state.ts";
 import { parentSession, keepNativeSession, nextSessions, sessions } from "./sessions.ts";

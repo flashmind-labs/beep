@@ -3,7 +3,7 @@ import { plural } from "../ui/format.ts";
 import { syncedBySyncthing } from "./filesync.ts";
 import type { AgentQuestion, RunningAgent } from "../agents/running-state.ts";
 import type { HostRow } from "./runs.tsx";
-import type { Persona } from "../agents/agents.ts";
+import type { Persona } from "../agents/agents-state.ts";
 // Projects as the window lists them, their sessions, machines and groups,
 // as pure functions so they can be tested without Tauri.
 

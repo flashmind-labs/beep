@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { endedPage, hasNews, LINKED, lostNote, noteAfterRead, readFailed, sendError, viewError } from "../src/agents/reconnect-state.ts";
 import { joinRuns } from "../src/agents/older-state.ts";
-import type { AgentPage } from "../src/agents/agents.ts";
+import type { AgentPage } from "../src/agents/agents-state.ts";
 
 const page = (status: string, lines: number) => ({
   session: { status, question: null, machine_name: "build-box" },

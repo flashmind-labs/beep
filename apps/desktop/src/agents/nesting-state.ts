@@ -1,6 +1,6 @@
 // Coding agents that other agents started: where a child sits under its parent
 // in a list, and how its card in the parent's log finds its row. No DOM here.
-import type { AgentSession } from "./agents.ts";
+import type { AgentSession } from "./agents-state.ts";
 
 /// A row of the list, and how deep it sits under the session that started it.
 export interface Nested {

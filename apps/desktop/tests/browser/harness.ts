@@ -6,7 +6,7 @@ import type { Tree } from "../../src/agentpane/worktree-state.ts";
 import { expect } from "@playwright/test";
 import type { Page } from "@playwright/test";
 import type { HomeView } from "../../src/center/home-state.ts";
-import type { AgentUsage } from "../../src/agents/agents.ts";
+import type { AgentUsage } from "../../src/agents/agents-state.ts";
 import type { RunningAgent } from "../../src/agents/running-state.ts";
 import type { ProjectRow } from "../../src/project/projects-state.ts";
 import type { RunningContainer, RunningProcess } from "../../src/agentpane/running-state.ts";

@@ -2,7 +2,7 @@
 // gives, and the worktree the agent's tool calls work in, read from the text
 // of the log's entries. The same for every harness.
 
-import type { AgentToolCall } from "../agents/agents.ts";
+import type { AgentToolCall } from "../agents/agents-state.ts";
 import { parseTool } from "../agents/agentlog.ts";
 import { resolvePath } from "./media-state.ts";
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import { ensureMac } from "../machines/machine-store.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
-import { AG, ensureAgentHosts, type AgentHost } from "../agents/agents.ts";
+import { AG, ensureAgentHosts, type AgentHost } from "../agents/agents-state.ts";
 import { SettingRow } from "./overview-view.tsx";
 import { Button } from "../ui/kit.tsx";
 import { closedPicker, drawPicker, focusSearch, pillContent, type Picked } from "../agents/agentpicker.tsx";

@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import type { AgentUsage } from "../../src/agents/agents.ts";
+import type { AgentUsage } from "../../src/agents/agents-state.ts";
 import { bundleFixture, openDesktop, sessionSettled } from "./harness.ts";
 
 const agent = { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };

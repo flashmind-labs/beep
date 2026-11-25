@@ -4,7 +4,7 @@
 import { go } from "../center/nav.ts";
 import { Fragment, type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import { createStore, useStore } from "zustand";
-import { AG, type AgentRow, type AgentSession } from "./agents.ts";
+import { AG, type AgentRow, type AgentSession } from "./agents-state.ts";
 import { assistantRows } from "./assistant-state.ts";
 import { chatActivity, chatOf, type chatRail, type Thread, type ThreadDetail, threadsByChat } from "./threads-state.ts";
 import { sessionMenu } from "./sessionmenu.ts";

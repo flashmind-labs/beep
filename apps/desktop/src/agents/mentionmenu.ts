@@ -12,7 +12,7 @@ import { S } from "../bar/core.ts";
 import { paneShown } from "../ui/active.ts";
 import { pushedEach } from "../ui/snapshot-state.ts";
 import { invoke } from "../ui/tauri.ts";
-import { AG, type AgentSession } from "./agents.ts";
+import { AG, type AgentSession } from "./agents-state.ts";
 import { sessions } from "./sessions.ts";
 import {
   type AgentCommand, type FileIndex, type Row, type Trigger,

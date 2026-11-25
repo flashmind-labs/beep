@@ -3,7 +3,7 @@
 // its pushed updates while shown, renders its entries and open question, and lets
 // the user steer, answer or promote it.
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
-import type { AgentEntry, AgentPage, AgentQuestion, AgentRow } from "../agents/agents.ts";
+import type { AgentEntry, AgentPage, AgentQuestion, AgentRow } from "../agents/agents-state.ts";
 import { openOf, where } from "../agents/conversation-state.ts";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { parseTool } from "../agents/agentlog.ts";

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { AgentSession } from "../src/agents/agents.ts";
+import type { AgentSession } from "../src/agents/agents-state.ts";
 import { type MoveProgress, type MoveRecord, type MoveTarget, bySession, canMove, chatSessions, movePct, dedupe, effective, fmtBytes, going, listLabel, moveRows, movedTo, targetNote } from "../src/agents/move-state.ts";
 
 const progress = (over: Partial<MoveProgress> = {}): MoveProgress => ({ answer: "known", phase: "waiting", copied: 0, total: 0, source_away: false, reason: null, worktree: null, worktree_at: 0, worktrees: 0, edits_left: false, files_copied: 0, files_total: 0, ...over });

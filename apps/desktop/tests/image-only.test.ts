@@ -1,7 +1,7 @@
 import { answers, bar, calls } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentPage, type AgentRow } from "../src/agents/agents.ts";
+import { AG, type AgentPage, type AgentRow } from "../src/agents/agents-state.ts";
 import { setView } from "../src/bar/core.ts";
 import { sendAgentMessage, steerMessage, stopAllWork, resumeEndedSession } from "../src/agents/messages.ts";
 import { MN, activateMentions, resetMentions, currentMentions } from "../src/agents/workdrop.ts";

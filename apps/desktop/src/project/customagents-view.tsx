@@ -3,7 +3,7 @@ import { agentLabel } from "./projects-state.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, EmptyPanel, SectionHead, onRowKey, SheetHead } from "../ui/kit.tsx";
 import { agentColor, agentMeta, type CustomAgentRow } from "./customagents-state.ts";
-import type { Persona } from "../agents/agents.ts";
+import type { Persona } from "../agents/agents-state.ts";
 
 /// The custom agent a session runs as, in its row's detail line or its head: its colour's dot
 /// and its name. Nothing for a session that runs as none.

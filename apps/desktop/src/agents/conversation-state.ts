@@ -1,4 +1,4 @@
-import type { AgentRow, OpenAgent } from "./agents.ts";
+import type { AgentRow, OpenAgent } from "./agents-state.ts";
 import { isNativeSession } from "./native-session-state.ts";
 
 type SessionId = Pick<AgentRow, "machine_id" | "agent" | "id">;

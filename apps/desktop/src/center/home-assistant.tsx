@@ -3,7 +3,7 @@ import { MACHINES } from "../machines/machine-store.ts";
 import { useEffect, useLayoutEffect, useRef } from "react";
 import { makeStartComposer } from "../agents/start-composer.tsx";
 import { lastAssistantMachine, startAssistant } from "../agents/agentnew.tsx";
-import { ensureAgentHosts, type AgentHost } from "../agents/agents.ts";
+import { ensureAgentHosts, type AgentHost } from "../agents/agents-state.ts";
 import { pillContent } from "../agents/agentpicker.tsx";
 import { ASSISTANT_WORDS, assistantHost, resolveAssistant } from "../agents/assistant-state.ts";
 import { loadAssistant, onAssistantSaved } from "../settings/assistant.ts";

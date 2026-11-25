@@ -2,7 +2,7 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList } from "../ui/snapshot-state.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
-import type { AgentRow, AgentSession } from "./agents.ts";
+import type { AgentRow, AgentSession } from "./agents-state.ts";
 import type { MoveRecord } from "./move-state.ts";
 import { retitled, sessionKey, type Retitled } from "./conversation-state.ts";
 import { parentRow } from "./nesting-state.ts";

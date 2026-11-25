@@ -1,6 +1,6 @@
 // An assistant chat's threads: the sessions its agent started, which the user
 // sees as parts of the chat. No DOM here.
-import type { AgentSession } from "./agents.ts";
+import type { AgentSession } from "./agents-state.ts";
 import { startedBy, starters } from "./nesting-state.ts";
 
 /// What a thread's row says after its name: what it asks the user, else

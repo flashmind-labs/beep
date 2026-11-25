@@ -8,7 +8,7 @@ import { commandKey } from "../ui/platform.ts";
 // keystroke waits on nothing. The right arrow on a project lists its
 // sessions in place of the hits.
 import { invoke, listen } from "../ui/tauri.ts";
-import type { AgentRow } from "../agents/agents.ts";
+import type { AgentRow } from "../agents/agents-state.ts";
 import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
 import { PaletteSearch } from "./palette-search.ts";
 import { projectWindowProps } from "./sidebar.tsx";

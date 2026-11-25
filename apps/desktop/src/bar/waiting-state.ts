@@ -1,5 +1,5 @@
 // Which sessions the bar's default list shows, and in what order.
-import type { AgentSession } from "../agents/agents.ts";
+import type { AgentSession } from "../agents/agents-state.ts";
 import { sessionKey } from "../agents/conversation-state.ts";
 
 /// Why a session is on the list, in the order the groups show.

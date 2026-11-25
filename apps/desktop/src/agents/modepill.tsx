@@ -2,7 +2,7 @@
 // for approval above the field.
 import { showAgentControl } from "./composer-ui.tsx";
 import { AgentMode, AgentPlan } from "./mode-view.tsx";
-import { type AgentModes, type OpenAgent, AG, openModes, AGENT_READ_WAIT_MS, openOf, where } from "./agents.ts";
+import { type AgentModes, type OpenAgent, AG, openModes, AGENT_READ_WAIT_MS, openOf, where } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";
 import { questionKey, steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";

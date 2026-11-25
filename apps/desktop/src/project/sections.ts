@@ -18,7 +18,7 @@ import { followedProject, makeProjectLive, type LiveRow } from "./projectlive.ts
 import type { BarTarget, TaskSession } from "./projectbar.ts";
 import { type BaseBranches, DEFAULT_CHECKOUT } from "../agents/agentpick.ts";
 import type { Picked } from "../agents/agentpicker.tsx";
-import type { AgentHost} from "../agents/agents.ts";
+import type { AgentHost } from "../agents/agents-state.ts";
 import { lazyScreen, makeTerminals } from "../terminals/terminals.tsx";
 import type { BranchSessionRow } from "../review/history-state.ts";
 import { makeGitHistory } from "../review/history.tsx";
@@ -31,7 +31,7 @@ import { makeRuns, type RunDetail, type RunsRow } from "./runs.tsx";
 import { state, keptSection, sessionsOf } from "../center/state.ts";
 import { currentLocation, go, drawTop } from "../center/nav.ts";
 import { openTile } from "./split.tsx";
-import { AG } from "../agents/agents.ts";
+import { AG } from "../agents/agents-state.ts";
 import { barOn, drawProjectComp, workOnIssue, startIssue, discussThread, workOnPr, startPrWork, reviewPr, startReview, pickButton, earlierReview, issueSession, fixSession, sessionState, fixRun, startFix, fixConflict, projectButtons, startConflictFix, startSyncRepair } from "./composer.tsx";
 import type { ProjectPick } from "../agents/agentmodels.ts";
 import { redrawSync } from "./syncpage.ts";

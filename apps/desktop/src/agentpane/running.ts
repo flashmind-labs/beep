@@ -11,7 +11,7 @@ import { shellSize, shownDocks } from "./media-layout.ts";
 import { viewKey } from "./view-memory.ts";
 import { paneShown } from "../ui/active.ts";
 import { invoke } from "../ui/tauri.ts";
-import type { AgentTask } from "../agents/agents.ts";
+import type { AgentTask } from "../agents/agents-state.ts";
 import { runs, transcriptKey, transcripts } from "../agents/transcript-cache-state.ts";
 import { readError } from "./read.ts";
 

@@ -1,5 +1,5 @@
 import { exitCode, parseTool } from "../agents/agentlog.ts";
-import type { AgentEntry, AgentSession } from "../agents/agents.ts";
+import type { AgentEntry, AgentSession } from "../agents/agents-state.ts";
 import { answersBefore, OLDER_PAGE, type Run } from "../agents/older-state.ts";
 import { commandText, resultText } from "../agents/tool-details-state.ts";
 import type { Entry } from "../center/palette-rank.ts";

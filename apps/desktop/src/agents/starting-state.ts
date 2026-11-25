@@ -1,4 +1,4 @@
-import type { AgentSession } from "./agents.ts";
+import type { AgentSession } from "./agents-state.ts";
 
 /// A session this device keeps until its machine names it: the desktop answers for it, not the machine.
 export const isStarting = (id: string) => id.startsWith("start:");

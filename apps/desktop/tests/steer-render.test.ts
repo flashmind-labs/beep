@@ -2,7 +2,7 @@ import { answers, bar, calls, emit } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { setView } from "../src/bar/core.ts";
-import { AG, type AgentModes, type AgentPage, type AgentTask, type OpenAgent } from "../src/agents/agents.ts";
+import { AG, type AgentModes, type AgentPage, type AgentTask, type OpenAgent } from "../src/agents/agents-state.ts";
 import { drawAgentBody } from "../src/agents/logview.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { answerAgentQuestion, answerFirst, questionKey, disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";

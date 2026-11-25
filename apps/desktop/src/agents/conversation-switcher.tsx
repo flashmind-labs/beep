@@ -1,4 +1,4 @@
-import { AG, type AgentRow } from "./agents.ts";
+import { AG, type AgentRow } from "./agents-state.ts";
 import { sessionVisible } from "./closing.ts";
 import { type ConversationChoice, conversationHistory, conversationKey, firstConversation, groupConversations, isConversationKey, nextConversation } from "./conversation-state.ts";
 import { ensureSessions, parentSession, sessions } from "./sessions.ts";

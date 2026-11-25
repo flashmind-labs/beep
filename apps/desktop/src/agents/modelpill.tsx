@@ -8,7 +8,7 @@ import { harnessesOn, keepEffort, modelId } from "./agentpick.ts";
 import { canContinueElsewhere, type ContinuePick } from "./continue-state.ts";
 import { closedPicker, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
 import { knownModels, modelsOn } from "./model-store.ts";
-import { type AgentRow, AG, canTakeOver, ensureAgentHosts } from "./agents.ts";
+import { type AgentRow, AG, canTakeOver, ensureAgentHosts } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";
 import { SWITCHES, sessionPicks, setNote } from "./session.tsx";
 import { drawAgentBody } from "./logview.tsx";

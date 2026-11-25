@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { AgentToolCall } from "../src/agents/agents.ts";
+import type { AgentToolCall } from "../src/agents/agents-state.ts";
 import { commandText, isCommandCall, resultText } from "../src/agents/tool-details-state.ts";
 import { toolDetails } from "../src/agents/tool-details.ts";
 

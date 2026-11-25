@@ -1,4 +1,4 @@
-import type { AgentRow, AgentSession } from "./agents.ts";
+import type { AgentRow, AgentSession } from "./agents-state.ts";
 
 export const isNativeSession = (id: string) => /^subagent:(?:codex:[\w-]+|claude:[\w-]+:[\w-]+)$/.test(id);
 

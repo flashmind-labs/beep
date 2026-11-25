@@ -1,5 +1,5 @@
 import { answerHtml } from "./turnrows.ts";
-import type { AgentQuestion } from "./agents.ts";
+import type { AgentQuestion } from "./agents-state.ts";
 import { Button, Spinner } from "../ui/kit.tsx";
 
 /// A question on screen as its buttons show it: the key it was drawn for, whether

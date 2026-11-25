@@ -2,7 +2,7 @@ import { memo, useMemo, useSyncExternalStore, type MouseEvent } from "react";
 import { useStore } from "zustand";
 import { containerRow, runningRow, runningTrees, shownCommand, type RunningContainer, type RunningProcess } from "./running-state.ts";
 import { transcripts } from "../agents/transcript-cache-state.ts";
-import type { AgentTask } from "../agents/agents.ts";
+import type { AgentTask } from "../agents/agents-state.ts";
 import { backgroundStops, paneKey, paneTasks, runningModel, type BackgroundStops } from "./running.ts";
 import { Button } from "../ui/kit.tsx";
 

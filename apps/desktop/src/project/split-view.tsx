@@ -15,7 +15,7 @@ import { SideToggle } from "../center/sidebar-shell.tsx";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { sessionOffers } from "../agents/sessionmenu-state.ts";
 import { closeAgentSession } from "../agents/session.tsx";
-import type { AgentRow, AgentSession } from "../agents/agents.ts";
+import type { AgentRow, AgentSession } from "../agents/agents-state.ts";
 import { go } from "../center/nav.ts";
 import { FreshNote } from "./page-view.tsx";
 import { ProjectSessions } from "./sessions-view.tsx";

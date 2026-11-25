@@ -1,4 +1,4 @@
-import type { AgentToolCall } from "./agents.ts";
+import type { AgentToolCall } from "./agents-state.ts";
 import { diffBlocks } from "./agentturns.ts";
 import { commandText, resultText } from "./tool-details-state.ts";
 

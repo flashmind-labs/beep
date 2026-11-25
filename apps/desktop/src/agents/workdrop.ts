@@ -3,7 +3,7 @@
 // into its host's temporary cache and mentions them by absolute path.
 
 import { attachPreview, staysInline } from "./images.tsx";
-import { AG } from "./agents.ts";
+import { AG } from "./agents-state.ts";
 import type { Attached } from "./agentqueue.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { agentMessage } from "./session-frame.tsx";

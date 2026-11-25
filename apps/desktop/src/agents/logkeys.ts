@@ -4,7 +4,7 @@
 import { parseTool } from "./agentlog.ts";
 import { splitTurns, stepOpen, turnSections } from "./agentturns.ts";
 import { allOpen, commandRows, thoughtRows } from "./logkeys-state.ts";
-import { AG } from "./agents.ts";
+import { AG } from "./agents-state.ts";
 import { drawAgentBody, newestStep, rowInView, turnsOf } from "./logview.tsx";
 
 /// Whether the command at `at` shows open now.

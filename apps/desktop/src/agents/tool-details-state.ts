@@ -1,5 +1,5 @@
 // A command's actual input and output, separate from its display label.
-import type { AgentToolCall } from "./agents.ts";
+import type { AgentToolCall } from "./agents-state.ts";
 
 function json(text: string | null | undefined): unknown {
   try { return text == null ? null : JSON.parse(text); } catch { return null; }

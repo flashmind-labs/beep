@@ -18,7 +18,7 @@ import { cancelContinue, continuing } from "./continue-here.ts";
 import { ComposerPresence, PluginSlot, SessionHeaderSlot } from "../plugins/slot-view.tsx";
 import { Button, Spinner } from "../ui/kit.tsx";
 import type { ProjectWindowProps } from "../project/projectwindow.ts";
-import type { Persona, SessionUsage } from "./agents.ts";
+import type { Persona, SessionUsage } from "./agents-state.ts";
 import { PersonaTag } from "../project/customagents-view.tsx";
 
 export interface AgentHintsModel { value: HintViewModel; project: string | null }

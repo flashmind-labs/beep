@@ -1,4 +1,4 @@
-import type { AgentPage, AgentRow } from "./agents.ts";
+import type { AgentPage, AgentRow } from "./agents-state.ts";
 import { joinRuns, type Run } from "./older-state.ts";
 import { endedPage } from "./reconnect-state.ts";
 import { sessionKey } from "./conversation-state.ts";

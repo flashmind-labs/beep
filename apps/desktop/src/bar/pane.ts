@@ -2,7 +2,8 @@
 // drives them through `pane`.
 import "./events.ts";
 import type { AgentPlace } from "../agents/agentnew.tsx";
-import { type AgentRow, renderAgents } from "../agents/agents.ts";
+import { renderAgents } from "../agents/agents.ts";
+import { type AgentRow } from "../agents/agents-state.ts";
 import { openAgent } from "../agents/session.tsx";
 import { type AssistantOpen, openAssistantPage, openedChat } from "../agents/assistant-page.tsx";
 import { closePaneTabs, newTerminal, openTerminal, showChanges } from "../agentpane/media.ts";

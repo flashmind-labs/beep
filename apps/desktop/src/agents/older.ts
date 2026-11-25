@@ -3,7 +3,7 @@
 
 import { S } from "../bar/core.ts";
 import { invoke } from "../ui/tauri.ts";
-import { AG, type OpenAgent, where } from "./agents.ts";
+import { AG, type OpenAgent, where } from "./agents-state.ts";
 import { drawAgentBody, rowInView, syncJump } from "./logview.tsx";
 import { OLDER_PAGE, type Run, olderBefore, takeOlder } from "./older-state.ts";
 import { sessionBody } from "./session-frame.tsx";

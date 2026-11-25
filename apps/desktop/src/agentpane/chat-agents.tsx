@@ -1,6 +1,6 @@
 // The Agents tab of an assistant chat's pane: the custom agents its folder defines, which the
 // chat's agent may have written, as the project page lists a project's.
-import type { AgentSession } from "../agents/agents.ts";
+import type { AgentSession } from "../agents/agents-state.ts";
 import { makeCustomAgents } from "../project/customagents.tsx";
 import type { AgentsPlace } from "../project/customagents-state.ts";
 import { draw } from "./media-draw.ts";

@@ -3,7 +3,7 @@
 // one shows with its Stop button.
 import { Spinner } from "../ui/kit.tsx";
 import { showAgentControl } from "./composer-ui.tsx";
-import { type AgentTask, type OpenAgent, AG, openTasks, AGENT_READ_WAIT_MS, where } from "./agents.ts";
+import { type AgentTask, type OpenAgent, AG, openTasks, AGENT_READ_WAIT_MS, where } from "./agents-state.ts";
 import { steerAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
 import { plural } from "../ui/format.ts";

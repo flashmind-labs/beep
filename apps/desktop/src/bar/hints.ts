@@ -1,5 +1,6 @@
-import { AG, openAgentInWindow } from "../agents/agents.ts";
-import { PANE } from "./core.ts";
+import { AG, type AgentRow } from "../agents/agents-state.ts";
+import { mainTarget } from "../project/projectwindow.ts";
+import { PANE, toWindow } from "./core.ts";
 import type { HintViewModel } from "./hints-view.tsx";
 
 // ---------- Hints ----------
@@ -18,6 +19,9 @@ function forPane(items: readonly Hint[]) {
     .filter(([, t]) => t !== "to hide")
     .map(([k, t]) => k === "⌘K" ? [k, "search"] : [k, t]);
 }
+
+/// Opens agent session `session` in the window.
+export const openAgentInWindow = (session: AgentRow) => toWindow(mainTarget({ view: "pane", arg: { agent: session } }));
 
 /// What a button in the hint row does: the open session moves to the window.
 export function openInWindow() {

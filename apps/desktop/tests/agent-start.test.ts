@@ -1,7 +1,7 @@
 import { answers, bar, calls } from "./chat-dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentHost } from "../src/agents/agents.ts";
+import { AG, type AgentHost } from "../src/agents/agents-state.ts";
 import { keepProjectAccount } from "../src/agents/agentmodels.ts";
 import { renderAgentNew, startAgent } from "../src/agents/agentnew.tsx";
 import "../src/bar/bar-app.tsx";

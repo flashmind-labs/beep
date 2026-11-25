@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { AgentPage, AgentRow } from "../src/agents/agents.ts";
+import type { AgentPage, AgentRow } from "../src/agents/agents-state.ts";
 import { appendEntry, clearQuestion, currentPage, dropLastEntry, openPage, removeEntry, setPageSession } from "../src/agents/open-page.ts";
 
 const session = { machine_id: "m1", machine_name: "build-box", id: "s1", agent: "codex", cwd: "/srv/project", status: "idle", external: false, question: null } as AgentRow;

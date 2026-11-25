@@ -4,7 +4,7 @@ import { childRow, nest, parentRow, splitEnded } from "../src/agents/nesting-sta
 import { waitingSessions } from "../src/bar/waiting-state.ts";
 import { sessionKey } from "../src/agents/conversation-state.ts";
 import { subagent } from "../src/agents/agentlog.ts";
-import type { AgentSession } from "../src/agents/agents.ts";
+import type { AgentSession } from "../src/agents/agents-state.ts";
 
 let at = 0;
 const row = (id: string, over: Partial<AgentSession> = {}): AgentSession => ({

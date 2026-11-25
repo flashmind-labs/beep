@@ -3,7 +3,7 @@
 import { AgentFeed, type Activity } from "./agentfeed-state.ts";
 import { transcripts, transcriptKey, type TranscriptCursor, type TranscriptUpdate } from "./transcript-cache-state.ts";
 import { S, changeListeners } from "../bar/core.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, type AgentModes, type AgentTask, AG, AGENT_ACTIVE, where } from "./agents.ts";
+import { type AgentRow, type AgentPage, type OpenAgent, type AgentModes, type AgentTask, AG, AGENT_ACTIVE, where } from "./agents-state.ts";
 import { drawAgentBody } from "./logview.tsx";
 import { disposeQueue } from "./messages.ts";
 import { Channel, invoke } from "../ui/tauri.ts";

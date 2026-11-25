@@ -2,7 +2,7 @@
 // transcript inside it, drawn from the turns `logwindow.ts` picks.
 import { memo, useCallback, useSyncExternalStore } from "react";
 import { Button, Spinner } from "../ui/kit.tsx";
-import type { AgentQuestion } from "./agents.ts";
+import type { AgentQuestion } from "./agents-state.ts";
 import { Icon } from "../ui/icons.tsx";
 import type { DrawnTurn, KeyedRow, LogWindow, TranscriptRow } from "./logwindow.tsx";
 import { AgentTurnHeading } from "./turn-heading-view.tsx";

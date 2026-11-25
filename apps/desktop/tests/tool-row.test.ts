@@ -1,12 +1,12 @@
 import { bar } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentPage, type AgentToolCall } from "../src/agents/agents.ts";
+import { AG, type AgentPage, type AgentToolCall } from "../src/agents/agents-state.ts";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { toolRows } from "../src/agents/logview.tsx";
 import { ActivityView } from "../src/agents/activity-view.tsx";
-import type { AgentEntry } from "../src/agents/agents.ts";
+import type { AgentEntry } from "../src/agents/agents-state.ts";
 
 const toolRow = (en: AgentEntry, at: number) => renderToStaticMarkup(toolRows(en, at).map((row, i) => createElement(ActivityView, { key: i, row })));
 

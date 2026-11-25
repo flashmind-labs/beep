@@ -32,7 +32,7 @@ import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
 import { closedPicker, drawPicker, focusSearch, pillContent } from "../agents/agentpicker.tsx";
 import { modelsOn } from "../agents/model-store.ts";
 import { projectHarnesses, readProjectHarnesses } from "./project-harnesses.tsx";
-import { AG, accountsOf, type AgentHost, ensureAgentHosts, loadAccountNames } from "../agents/agents.ts";
+import { AG, accountsOf, type AgentHost, ensureAgentHosts, loadAccountNames } from "../agents/agents-state.ts";
 import { agentKind } from "../agents/agent-kind.ts";
 import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
 import { draftPlace } from "../agents/draft.tsx";

@@ -2,7 +2,7 @@ import { bindPromptStash } from "../chat/stash.tsx";
 import { draftText } from "../chat/compose.tsx";
 import { stashFile } from "../chat/stash-state.ts";
 import { windowHooks } from "../bar/core.ts";
-import { AG } from "./agents.ts";
+import { AG } from "./agents-state.ts";
 import type { Attached } from "./agentqueue.ts";
 import { attachPreview, drawAgentAttached } from "./images.tsx";
 import { MN, attachmentKey, setAttached } from "./workdrop.ts";

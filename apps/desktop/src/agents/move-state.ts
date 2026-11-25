@@ -1,7 +1,7 @@
 // Moving a coding agent session to another machine, apart from the DOM so it
 // can be tested: the menu's notes, the steps, what the lists say and which
 // machine's copy of a session they show.
-import type { AgentSession, OpenAgent } from "./agents.ts";
+import type { AgentSession, OpenAgent } from "./agents-state.ts";
 import { starters } from "./nesting-state.ts";
 import { transferSpeed } from "../agentpane/files-state.ts";
 

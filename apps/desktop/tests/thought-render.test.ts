@@ -1,7 +1,7 @@
 import { bar } from "./steer-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentPage } from "../src/agents/agents.ts";
+import { AG, type AgentPage } from "../src/agents/agents-state.ts";
 import { toggleThoughts } from "../src/agents/logkeys.ts";
 import { drawAgentBody, turnsOf } from "../src/agents/logview.tsx";
 import { showSessionBody } from "./session-frame-env.ts";

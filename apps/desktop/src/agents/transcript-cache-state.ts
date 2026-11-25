@@ -1,5 +1,5 @@
 import { conversationKey } from "./conversation-state.ts";
-import type { AgentModes, AgentPage, AgentTask, OpenAgent } from "./agents.ts";
+import type { AgentModes, AgentPage, AgentTask, OpenAgent } from "./agents-state.ts";
 import { BACKGROUND_FOLLOWS } from "./agentfeed-state.ts";
 import { joinRuns, type Run } from "./older-state.ts";
 

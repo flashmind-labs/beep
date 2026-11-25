@@ -6,7 +6,7 @@ import { GONE } from "../chat/media.tsx";
 import { MN, setAttachError } from "./workdrop.ts";
 import { AgentAttachments } from "./attachments-view.tsx";
 import { showAgentAttachments } from "./composer-ui.tsx";
-import { type OpenAgent, AG, AGENT_MAX_IMAGES, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents.ts";
+import { type OpenAgent, AG, AGENT_MAX_IMAGES, agentPics, AGENT_PICS_KEPT, agentImages, agentThumbs } from "./agents-state.ts";
 import { redrawAgentHints } from "./session-head.tsx";
 import { gonePic, retryIn } from "./pic-state.ts";
 import { invoke } from "../ui/tauri.ts";

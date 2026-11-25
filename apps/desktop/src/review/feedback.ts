@@ -55,13 +55,13 @@ interface Attached {
 const attached = new Map<string, Attached>();
 /// The harness, model and thinking last picked, for the next time.
 let lastPick: Pick<Picked, "agent" | "model" | "effort" | "fast"> | null = null;
-// The agents module pulls in the whole session view, so it loads the first time a review is
+// The agents state loads the first time a review is
 // asked for, not with every diff.
-let agents: typeof import("../agents/agents.ts") | null = null;
+let agents: typeof import("../agents/agents-state.ts") | null = null;
 const hostsHeld = () => agents?.AG.hosts ?? null;
 
 function readHosts(done: () => void) {
-  void import("../agents/agents.ts").then(m => { agents = m; return m.ensureAgentHosts(); }).then(done);
+  void import("../agents/agents-state.ts").then(m => { agents = m; return m.ensureAgentHosts(); }).then(done);
 }
 
 // ----- Reviews already taken -----
@@ -370,7 +370,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   // The agents module holds the hosts and takes a push first: it subscribes at load, so this
   // one comes after it.
   let stopHosts = () => {};
-  void import("../agents/agents.ts").then(() => {
+  void import("../agents/agents-state.ts").then(() => {
     if (!disposed) stopHosts = subscribeEach([topic("machines"), topic("accounts")], redraw);
   });
   redraw();

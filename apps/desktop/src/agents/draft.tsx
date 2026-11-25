@@ -8,7 +8,7 @@ import { rebindPane, startPane } from "../agentpane/media.ts";
 import { drawProjectComp, pointBar, projectComp } from "../project/composer.tsx";
 import type { BarPlace } from "../project/projectbar.ts";
 import { pc } from "../project/sections.ts";
-import { AG } from "./agents.ts";
+import { AG } from "./agents-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { DraftHead, draftMessage, showSessionFrame } from "./session-frame.tsx";
 import { draftCwd } from "./draft-state.ts";

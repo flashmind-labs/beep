@@ -6,7 +6,7 @@
 // layout and dividers in media-layout.ts.
 import { readWindowPreference, writeWindowPreference, windowPreferenceKey } from "../ui/window-layout.ts";
 import { shownMessage } from "../agents/session-frame.tsx";
-import type { AgentSession } from "../agents/agents.ts";
+import type { AgentSession } from "../agents/agents-state.ts";
 import { readView, writeView, viewKey } from "./view-memory.ts";
 import { hasPreview } from "./html-preview-state.ts";
 import { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS, baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock, withFolded } from "./media-state.ts";

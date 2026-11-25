@@ -1,7 +1,7 @@
 // What Home and the Projects page say about coding agents running or waiting:
 // their rows, lines and keys, apart from the DOM so it can be tested.
 import { base, formatAgo } from "../ui/format.ts";
-import type { OpenAgent, Persona } from "./agents.ts";
+import type { OpenAgent, Persona } from "./agents-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
 
 /// A coding agent's session running now: a Running now row (RunningAgent).

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { nativeSession, nativeUpdate, isNativeSession } from "../src/agents/native-session-state.ts";
 import { subagent } from "../src/agents/agentlog.ts";
 import { sessionOffers } from "../src/agents/sessionmenu-state.ts";
-import type { AgentRow } from "../src/agents/agents.ts";
+import type { AgentRow } from "../src/agents/agents-state.ts";
 
 const parent: AgentRow = { machine_id: "m1", machine_name: "build-box", id: "parent", agent: "codex", title: "Parent task", cwd: "/srv/project", external: false, status: "working" };
 

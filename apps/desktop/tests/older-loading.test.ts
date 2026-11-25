@@ -1,7 +1,7 @@
 import { answers, bar, calls } from "./dom-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AG, type AgentPage } from "../src/agents/agents.ts";
+import { AG, type AgentPage } from "../src/agents/agents-state.ts";
 import { setView } from "../src/bar/core.ts";
 import { loadOlder } from "../src/agents/older.ts";
 

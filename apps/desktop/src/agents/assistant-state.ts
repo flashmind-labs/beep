@@ -1,5 +1,5 @@
 // The Home assistant: which sessions are it, and which harness and machine it starts on.
-import type { AgentHost, AgentSession } from "./agents.ts";
+import type { AgentHost, AgentSession } from "./agents-state.ts";
 import { AGENT_ORDER, harnessFor, keepEffort } from "./agentpick.ts";
 import type { AssistantPick } from "../settings/assistant.ts";
 

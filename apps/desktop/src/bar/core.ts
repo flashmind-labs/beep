@@ -3,7 +3,7 @@ import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { ViewName, ViewArg, Location } from "../center/state.ts";
-import type { AgentRow } from "../agents/agents.ts";
+import type { AgentRow } from "../agents/agents-state.ts";
 
 export const bar = document.getElementById("bar")!;
 /// True when this page runs as a pane in the command center window rather
