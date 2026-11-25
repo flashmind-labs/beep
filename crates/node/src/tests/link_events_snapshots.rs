@@ -598,3 +598,27 @@ fn a_topic_naming_one_terminal_reads_that_terminal_alone() {
     assert!(affected(&one, &Topic::new("terminals")));
     assert!(affected(&one, &one));
 }
+
+#[test]
+fn a_topic_naming_one_task_reads_that_task_alone() {
+    use beep_proto::node::process::TaskId;
+
+    let one = Topic::keyed("process-output", "3");
+
+    assert_eq!(
+        sources(std::slice::from_ref(&one)),
+        vec![(one.clone(), Source::Task(TaskId(3)))]
+    );
+    // A desktop from before follows every task's output and still gets the list.
+    let every = Topic::new("process-output");
+    assert_eq!(
+        sources(std::slice::from_ref(&every)),
+        vec![(
+            Topic::new("processes"),
+            Source::Read(Read::Process(beep_proto::node::process::Request::List {}))
+        )]
+    );
+    // A task starting or ending reads that task again, and so does any task's output.
+    assert!(affected(&one, &Topic::new("processes")));
+    assert!(affected(&one, &Topic::new("process-output")));
+}

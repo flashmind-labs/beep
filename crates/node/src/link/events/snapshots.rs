@@ -48,6 +48,8 @@ enum Source {
     TeamInvites,
     /// One terminal, as the list of them holds it.
     Terminal(TaskId),
+    /// One background task: its state and last lines.
+    Task(TaskId),
 }
 
 impl Source {
@@ -239,9 +241,16 @@ impl Snapshots {
             }
         }
 
+        // A topic naming one task gets that task alone.
+        for topic in topics {
+            if let Some(id) = numbered(topic, "process-output") {
+                wanted.push((topic.clone(), Source::Task(id)));
+            }
+        }
+
         if topics.iter().any(|topic| {
             topic.name() == "*"
-                || topic.name() == "process-output"
+                || (topic.name() == "process-output" && numbered(topic, "process-output").is_none())
                 || (topic.name() == "processes" && topic.is_pattern())
         }) {
             wanted.push((
@@ -251,13 +260,7 @@ impl Snapshots {
         }
         // A topic naming one terminal gets that terminal alone; the others,
         // for desktops from before, get the whole list.
-        let one = |topic: &Topic| {
-            if topic.name() != "terminal-output" || topic.is_pattern() {
-                return None;
-            }
-
-            topic.key()?.parse().ok().map(TaskId)
-        };
+        let one = |topic: &Topic| numbered(topic, "terminal-output");
         let listed = topics.iter().any(|topic| match topic.name() {
             "terminals" | "*" => true,
             "terminal-output" => one(topic).is_none(),
@@ -546,6 +549,13 @@ impl Snapshots {
                                 other => Value::Terminals(other),
                             })
                         }
+                        Source::Task(id) => Ok(Value::Process(
+                            crate::run::tasks::answer(
+                                crate::run::tasks::Table::Shared,
+                                beep_proto::node::process::Request::Status { id },
+                            )
+                            .await,
+                        )),
                         Source::TeamInvites => Ok(offers
                             .reach
                             .peers()
@@ -684,6 +694,15 @@ impl Snapshots {
     }
 }
 
+/// The task `topic` names, when it is `name` keyed by a task number.
+fn numbered(topic: &Topic, name: &str) -> Option<TaskId> {
+    if topic.name() != name || topic.is_pattern() {
+        return None;
+    }
+
+    topic.key()?.parse().ok().map(TaskId)
+}
+
 fn affected(read: &Topic, change: &Topic) -> bool {
     read.matches(change)
         || matches!(
@@ -691,6 +710,7 @@ fn affected(read: &Topic, change: &Topic) -> bool {
             ("agents", "agent" | "moves")
                 | ("agent", "agents")
                 | ("processes", "process-output")
+                | ("process-output", "processes")
                 | ("terminal-output", "terminals")
                 | (crate::run::device::LIST_TOPIC, crate::run::device::TOPIC)
         )
