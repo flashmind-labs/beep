@@ -226,6 +226,11 @@ body.cbody
                   b "Coding agent notifications"
                   small "Coding agents only show under Waiting"
                 button#agentNotices.dswitch [aria-checked="false" aria-label="Coding agent notifications" role="switch" type="button"]
+              div#dockerContainersSetting.dtoggle
+                span
+                  b "Docker containers in Running"
+                  small "Sessions list the containers their agent starts, with their ports. Applies to new sessions."
+                button.dswitch [aria-checked="true" aria-label="Docker containers in Running" role="switch" type="button"]
               div#skillSyncSetting.dtoggle
                 span
                   b "Sync coding agent skills"

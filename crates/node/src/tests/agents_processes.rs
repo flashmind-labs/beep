@@ -141,7 +141,7 @@ fn watched(
     watch::Sender<crate::agents::live::Live>,
 ) {
     // The session's root is the agent, left out of the list: this test is its child.
-    let processes = Processes::new(Some(std::os::unix::process::parent_id()));
+    let processes = Processes::new(Some(std::os::unix::process::parent_id()), None);
     let (session, live) = watch::channel(crate::agents::live::Live::default());
     session.send_modify(|live| live.info.id = id.into());
     let task = processes.watch(live);
@@ -155,7 +155,7 @@ fn listening(rows: &[RunningProcess], port: u16) -> bool {
 
 #[tokio::test]
 async fn a_list_that_is_published_is_read_without_asking_for_a_poll() {
-    let processes = Processes::new(Some(1));
+    let processes = Processes::new(Some(1), None);
     let Some(Inbox { mut polls, publish }) = crate::lock(&processes.inbox).take() else {
         panic!("nothing watches yet");
     };
@@ -175,12 +175,15 @@ async fn a_list_that_is_published_is_read_without_asking_for_a_poll() {
     publish.send_replace(Some(Published {
         at: Instant::now(),
         listing: Ok(Listing {
-            rows: vec![row.clone()],
+            rows: Running {
+                processes: vec![row.clone()],
+                containers: vec![],
+            },
             ours: vec![],
         }),
     }));
-    assert_eq!(first.await.unwrap(), vec![row.clone()]);
-    assert_eq!(processes.list().await.unwrap(), vec![row]);
+    assert_eq!(first.await.unwrap().processes, vec![row.clone()]);
+    assert_eq!(processes.list().await.unwrap().processes, vec![row]);
     // No reader asked the task to read the table, and none could scan itself.
     assert!(polls.try_recv().is_none());
 
@@ -188,7 +191,7 @@ async fn a_list_that_is_published_is_read_without_asking_for_a_poll() {
     publish.send_replace(Some(Published {
         at: Instant::now() - FRESH * 2,
         listing: Ok(Listing {
-            rows: vec![],
+            rows: Running::default(),
             ours: vec![],
         }),
     }));
@@ -199,17 +202,17 @@ async fn a_list_that_is_published_is_read_without_asking_for_a_poll() {
     publish.send_replace(Some(Published {
         at: Instant::now(),
         listing: Ok(Listing {
-            rows: vec![],
+            rows: Running::default(),
             ours: vec![],
         }),
     }));
     poll.done.send(Ok(())).unwrap();
-    assert!(stale.await.unwrap().is_empty());
+    assert!(stale.await.unwrap().processes.is_empty());
 }
 
 #[tokio::test]
 async fn a_failed_read_is_the_readers_error() {
-    let processes = Processes::new(Some(1));
+    let processes = Processes::new(Some(1), None);
     let Some(Inbox { publish, .. }) = crate::lock(&processes.inbox).take() else {
         panic!("nothing watches yet");
     };
@@ -242,17 +245,17 @@ async fn a_port_opened_after_a_reader_listed_reaches_the_next_reader() {
     // Other tests in this process may open ports too, so only this one is asserted.
     let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
     let port = listener.local_addr().unwrap().port();
-    assert!(!listening(&first, port));
+    assert!(!listening(&first.processes, port));
     // A second reader lists between the bind and the poll. It must not
     // swallow the change the poll finds.
-    assert!(!listening(&processes.list().await.unwrap(), port));
+    assert!(!listening(&processes.list().await.unwrap().processes, port));
     processes.poll(true).await.unwrap();
-    assert!(listening(&processes.list().await.unwrap(), port));
+    assert!(listening(&processes.list().await.unwrap().processes, port));
     assert!(signalled(&mut changes));
 
     drop(listener);
     processes.poll(true).await.unwrap();
-    assert!(!listening(&processes.list().await.unwrap(), port));
+    assert!(!listening(&processes.list().await.unwrap().processes, port));
     assert!(signalled(&mut changes));
 }
 
@@ -300,7 +303,7 @@ async fn a_port_that_answers_with_a_page_is_one_of_its_pages_once_it_is_ready() 
 
     let me = || async {
         let rows = processes.list().await.unwrap();
-        rows.into_iter()
+        rows.processes.into_iter()
             .find(|row| row.pid == std::process::id())
             .unwrap()
     };

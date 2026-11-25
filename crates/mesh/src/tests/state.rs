@@ -92,6 +92,7 @@ fn keys_keep_their_released_wire_names() {
         ("settings/project-sync", Key::ProjectSync),
         ("settings/assistant", Key::Assistant),
         ("settings/editor", Key::Editor),
+        ("settings/docker", Key::Docker),
         (
             "instructions/1793000000000.a",
             Key::InstructionVersion("1793000000000.a".into()),

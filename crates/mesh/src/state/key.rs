@@ -22,6 +22,8 @@ pub enum Key {
     Assistant,
     /// Editor preferences shared across desktops: `settings/editor`.
     Editor,
+    /// Whether sessions list the Docker containers they start: `settings/docker`.
+    Docker,
     /// One saved version of the user's instructions: `instructions/<ms>.<id>`.
     InstructionVersion(String),
     /// A terminal kept running on a machine: `terminal/<id>`.
@@ -74,6 +76,7 @@ impl fmt::Display for Key {
             Key::ProjectSync => f.write_str("settings/project-sync"),
             Key::Assistant => f.write_str("settings/assistant"),
             Key::Editor => f.write_str("settings/editor"),
+            Key::Docker => f.write_str("settings/docker"),
             Key::InstructionVersion(n) => write!(f, "instructions/{n}"),
             Key::Terminal(n) => write!(f, "terminal/{n}"),
             Key::SessionMove(n) => write!(f, "session-move/{n}"),
@@ -117,6 +120,10 @@ impl FromStr for Key {
 
         if s == "settings/editor" {
             return Ok(Key::Editor);
+        }
+
+        if s == "settings/docker" {
+            return Ok(Key::Docker);
         }
 
         let (kind, name) = s.split_once('/').ok_or_else(bad)?;

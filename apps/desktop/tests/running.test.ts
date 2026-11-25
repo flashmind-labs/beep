@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { runningRow, runningTrees, shownCommand, type RunningProcess } from "../src/agentpane/running-state.ts";
+import { containerRow, runningRow, runningTrees, shownCommand, type RunningProcess } from "../src/agentpane/running-state.ts";
 
 const process: RunningProcess = {
   pid: 42, command: "npm run dev", started_at: new Date(2026, 0, 2, 9, 4).getTime() / 1000,
@@ -56,4 +56,12 @@ test("shown commands drop shell wrappers and long paths", () => {
   assert.equal(shownCommand("/bin/bash -lc npm test"), "npm test");
   assert.equal(shownCommand("node /home/u/app/node_modules/.bin/vitest run"), "node vitest run");
   assert.equal(shownCommand("/usr/bin/python3 /Users/u/x.py"), "python3 ~/x.py");
+});
+
+test("a container row shows its image and page first", () => {
+  const container = { id: "c0ffee0123456789", name: "", image: "nginx", started_at: process.started_at, ports: [5432, 8080], pages: [8080] };
+  assert.deepEqual(containerRow(container), {
+    name: "c0ffee012345", detail: "nginx · since 09:04", page: { label: ":8080", port: 8080 },
+    ports: [{ label: ":5432", port: 5432 }],
+  });
 });

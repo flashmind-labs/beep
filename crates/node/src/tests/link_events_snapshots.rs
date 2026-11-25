@@ -36,7 +36,10 @@ async fn session_process_topics_read_children_and_follow_process_changes() {
     assert_eq!(initial.topic, topic);
     assert_eq!(
         initial.value,
-        Value::Sessions(Box::new(SessionsReply::Processes { processes: vec![] }))
+        Value::Sessions(Box::new(SessionsReply::Processes {
+            processes: vec![],
+            containers: vec![],
+        }))
     );
 
     snapshots.changed(&Topic::new("processes"), ChangeKind::Any);
@@ -53,6 +56,7 @@ async fn session_process_topics_read_children_and_follow_process_changes() {
             parent: 0,
             pages: vec![],
         }],
+        containers: vec![],
     }));
     let result = children.clone();
     let generation = snapshots.generation;

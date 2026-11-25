@@ -15,7 +15,7 @@ use beep_proto::{
     MachineHarnessSettings, check_agent, check_settings, merged_env,
     node::agent::valid_model,
     node::harness::{AutoCompact, HarnessConfig, HarnessDriver, ModelCompact},
-    node::mesh_state::{AssistantSettings, EditorSettings, SkillSync},
+    node::mesh_state::{AssistantSettings, DockerSettings, EditorSettings, SkillSync},
 };
 use iroh::EndpointId;
 use std::collections::HashSet;
@@ -421,6 +421,20 @@ impl Desk {
 
     pub async fn save_editor(&self, settings: &EditorSettings) -> Result<()> {
         write(&self.mesh, Key::Editor, Some(settings)).await
+    }
+
+    /// Whether new sessions list the Docker containers they start, on until turned off.
+    pub fn docker_containers(&self) -> bool {
+        read::<DockerSettings>(&self.mesh, &Key::Docker)
+            .and_then(|settings| settings.containers)
+            .unwrap_or(true)
+    }
+
+    pub async fn set_docker_containers(&self, enabled: bool) -> Result<()> {
+        let settings = DockerSettings {
+            containers: Some(enabled),
+        };
+        write(&self.mesh, Key::Docker, Some(&settings)).await
     }
 
     /// Every saved version with its key, oldest first.

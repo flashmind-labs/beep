@@ -83,3 +83,42 @@ pub async fn agent_close_external(
         Err(e) => Err(e.into()),
     }
 }
+
+/// Stops Docker container `id` that session `session` started, keeping it.
+/// Docker gives it ten seconds to end before it kills it.
+#[tauri::command]
+pub async fn agent_stop_container(
+    fleet: Machines<'_>,
+    machine_id: String,
+    session: SessionId,
+    id: String,
+) -> Result<()> {
+    let machine = fleet.member(&machine_id).ok_or_else(|| {
+        DesktopError::BadRequest("The session's machine is not in the mesh.".into())
+    })?;
+    let client = timeout(Duration::from_secs(3), fleet.client(machine))
+        .await
+        .map_err(|_| {
+            DesktopError::TimedOut(format!(
+                "{} did not answer in time.",
+                fleet.name_of(machine)
+            ))
+        })??;
+    let reply = client
+        .call_within::<_, SessionsReply>(
+            Duration::from_secs(20),
+            SESSIONS_PROTOCOL,
+            &SessionsRequest::StopContainer { session, id },
+        )
+        .await;
+
+    match reply {
+        Ok(SessionsReply::ProcessStopped {}) => Ok(()),
+        Ok(SessionsReply::Error { message }) => Err(DesktopError::BadRequest(message)),
+        Ok(_) => Err(DesktopError::BadRequest(format!(
+            "Update beep-node on {} to stop containers.",
+            fleet.name_of(machine)
+        ))),
+        Err(e) => Err(e.into()),
+    }
+}

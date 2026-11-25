@@ -34,6 +34,9 @@ host = [
     "dep:gix-revision",
     "dep:hex",
     "dep:humantime",
+    "dep:bytes",
+    "dep:http-body-util",
+    "dep:hyper",
     "dep:hyper-util",
     "dep:image",
     "dep:ignore",
@@ -187,12 +190,16 @@ flashmind-tools = { workspace = true, features = ["http"], optional = true }
 flashmind-types = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
+# A session's own Docker socket, between its agent and the daemon.
+bytes = { workspace = true, optional = true }
+http-body-util = { workspace = true, optional = true }
+hyper = { workspace = true, features = ["client", "server", "http1"], optional = true }
+hyper-util = { workspace = true, features = ["tokio"], optional = true }
 libc = { workspace = true, optional = true }
 rustix = { workspace = true, features = ["fs", "process"], optional = true }
 
 # idb_companion listens on a Unix socket.
 [target.'cfg(target_os = "macos")'.dependencies]
-hyper-util = { workspace = true, features = ["tokio"], optional = true }
 tower = { workspace = true, features = ["util"], optional = true }
 
 [target.'cfg(windows)'.dependencies]

@@ -1006,6 +1006,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         alerts: Arc::default(),
         checkouts: Arc::default(),
         stopping: Arc::default(),
+        docker: None,
     }
 }
 
@@ -2334,6 +2335,7 @@ cat >/dev/null
                     .list()
                     .await
                     .unwrap()
+                    .processes
                     .into_iter()
                     .find(|p| p.pid == pid && p.command.contains("sleep 300"))
             {
@@ -2353,7 +2355,7 @@ cat >/dev/null
         .trim()
         .parse::<u32>()
         .unwrap();
-    let rows = session.processes.list().await.unwrap();
+    let rows = session.processes.list().await.unwrap().processes;
     assert!(rows.iter().any(|p| p.pid == group_pid && !p.left_group));
     assert!(rows.iter().all(|p| p.pid != session.processes.root()));
     session.processes.stop(group_pid).await.unwrap();
@@ -2363,6 +2365,7 @@ cat >/dev/null
             .list()
             .await
             .unwrap()
+            .processes
             .iter()
             .all(|p| p.pid != group_pid)
     );

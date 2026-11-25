@@ -388,6 +388,12 @@ pub enum SessionsRequest {
         #[serde(default)]
         text: Option<String>,
     },
+    /// Stops a Docker container this session started, answered with
+    /// `ProcessStopped`. Older nodes refuse this request.
+    StopContainer {
+        session: SessionId,
+        id: String,
+    },
 }
 
 /// One session `SessionsRequest::Search` found.
@@ -649,6 +655,7 @@ impl SessionsRequest {
             | Self::FollowIndex { .. }
             | Self::FollowRuns {}
             | Self::StopProcess { .. }
+            | Self::StopContainer { .. }
             | Self::CloseExternal { .. }
             | Self::InstallAdapters {}
             | Self::StartReview { .. } => false,
@@ -817,6 +824,9 @@ pub enum SessionsReply {
     },
     Processes {
         processes: Vec<RunningProcess>,
+        /// The Docker containers the session started; empty from nodes that predate them.
+        #[serde(default)]
+        containers: Vec<RunningContainer>,
     },
     /// The answer to `StopProcess` and `CloseExternal`.
     ProcessStopped {},
@@ -1058,6 +1068,21 @@ pub struct RunningProcess {
     pub parent: u32,
     /// The `ports` that answer `GET /` on loopback with a page or a redirect.
     #[serde(default)]
+    pub pages: Vec<u16>,
+}
+
+/// A Docker container a coding agent session started, through the
+/// session's Docker socket. Times are Unix seconds.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RunningContainer {
+    /// Docker's full container id.
+    pub id: String,
+    pub name: String,
+    pub image: String,
+    pub started_at: u64,
+    /// The host TCP ports it publishes.
+    pub ports: Vec<u16>,
+    /// The `ports` that answer `GET /` on loopback with a page or a redirect.
     pub pages: Vec<u16>,
 }
 

@@ -102,3 +102,20 @@ test("running pane keeps its scroll and handlers after leaving and reopening the
   await expect(first).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_stop_process").length)).toBe(1);
 });
+
+test("a container the session started shows as a row with its page and stops", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example session", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  const container = { id: "c0ffee", name: "web-1", image: "nginx:latest", started_at: 1, ports: [5432, 8080], pages: [8080] };
+  await page.evaluate(value => window.__navigation.processes([], "notice-one", value), [container]);
+  await page.getByRole("tab", { name: /Running/ }).click();
+  const row = page.locator(".agrunningrow").filter({ hasText: "web-1" });
+  await expect(row).toContainText("Docker · nginx:latest");
+  await expect(row.locator("[data-port]").first()).toHaveText(":8080");
+  await expect(page.getByRole("button", { name: "Open :8080" })).toBeVisible();
+  await page.evaluate(() => window.__navigation.hold("agent_stop_container"));
+  await row.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(row.getByRole("button", { name: "Stopping…" })).toBeDisabled();
+  await page.evaluate(() => window.__navigation.release("agent_stop_container"));
+  await expect(row).toHaveCount(0);
+});

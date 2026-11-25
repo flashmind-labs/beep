@@ -2003,10 +2003,15 @@ mod agent {
                 session: "s1".into(),
                 pid: 42,
             };
+            let stop_container = SessionsRequest::StopContainer {
+                session: "s1".into(),
+                id: "c0ffee".into(),
+            };
             assert!(read.is_read());
             assert!(!stop.is_read());
+            assert!(!stop_container.is_read());
 
-            for request in [read, stop] {
+            for request in [read, stop, stop_container] {
                 let bytes = rmp_serde::to_vec(&request).unwrap();
                 assert_eq!(
                     beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).unwrap(),
@@ -2024,6 +2029,14 @@ mod agent {
                     left_group: true,
                     parent: 7,
                     pages: vec![3000],
+                }],
+                containers: vec![RunningContainer {
+                    id: "c0ffee".into(),
+                    name: "web".into(),
+                    image: "nginx".into(),
+                    started_at: 1_700_000_000,
+                    ports: vec![8080],
+                    pages: vec![8080],
                 }],
             };
             let bytes = rmp_serde::to_vec(&reply).unwrap();

@@ -3,10 +3,11 @@ import { invoke } from "../ui/tauri.ts";
 
 type Invoke = typeof invoke;
 interface SyncSettingState { enabled: boolean | null; busy: boolean; error: string }
-export type SyncSettingKind = "skills" | "projects";
+export type SyncSettingKind = "skills" | "projects" | "docker";
 const COMMANDS: Record<SyncSettingKind, { get: string; set: string }> = {
   skills: { get: "skill_sync_get", set: "skill_sync_set" },
   projects: { get: "project_sync_get", set: "project_sync_set" },
+  docker: { get: "docker_containers_get", set: "docker_containers_set" },
 };
 export function createSyncSetting(call: Invoke, kind: SyncSettingKind) {
   const { get, set } = COMMANDS[kind];
@@ -39,3 +40,4 @@ export function createSyncSetting(call: Invoke, kind: SyncSettingKind) {
 }
 export const skillSync = createSyncSetting(invoke, "skills");
 export const projectSync = createSyncSetting(invoke, "projects");
+export const dockerContainers = createSyncSetting(invoke, "docker");

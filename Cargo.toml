@@ -73,6 +73,8 @@ gix = { version = "0.90", default-features = false }
 gix-revision = { version = "0.52", default-features = false, features = ["merge_base"] }
 hex = "0.4"
 humantime = "2"
+http-body-util = "0.1"
+hyper = "1"
 hyper-util = "0.1"
 ignore = "0.4"
 image = { version = "0.25", default-features = false }

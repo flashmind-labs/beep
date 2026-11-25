@@ -1,7 +1,13 @@
 //! Processes a session started, including children that changed groups.
 
 use crate::actor;
-use beep_proto::{SessionId, node::{agent::RunningProcess, events::Topic}};
+use beep_proto::{
+    SessionId,
+    node::{
+        agent::{RunningContainer, RunningProcess},
+        events::Topic,
+    },
+};
 use beep_proto::watched;
 use std::{
     collections::{BTreeSet, HashMap},
@@ -17,6 +23,9 @@ use tokio::{
 };
 use tokio_util::task::AbortOnDropHandle;
 
+mod docker;
+
+pub(super) use docker::Docker;
 mod pages;
 mod snapshot;
 
@@ -213,11 +222,18 @@ struct Published {
 /// followed session's polls keep it within.
 const FRESH: Duration = Duration::from_secs(2);
 
+/// What peers read of a session: its visible processes and the Docker
+/// containers it started, with their ports and pages.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Running {
+    pub(super) processes: Vec<RunningProcess>,
+    pub(super) containers: Vec<RunningContainer>,
+}
+
 /// A session's processes and ports, as the poll task last saw them.
 #[derive(Clone, PartialEq, Eq)]
 struct Listing {
-    /// What peers read: the visible processes, their ports and pages.
-    rows: Vec<RunningProcess>,
+    rows: Running,
     /// Every process that is the session's but not its root, helpers
     /// included: what closing the session has to stop.
     ours: Vec<Process>,
@@ -254,6 +270,8 @@ pub(super) struct Processes {
     /// `None` until the first poll.
     published: watch::Receiver<Option<Published>>,
     inbox: Mutex<Option<Inbox>>,
+    /// The agent's own Docker socket, which marks the containers it starts.
+    docker: Option<Docker>,
 }
 
 /// How many times a port that has not answered is tested for a page.
@@ -287,6 +305,10 @@ struct Observed {
     changed_at: Option<Instant>,
     /// What testing each listening (pid, port) for a page found.
     pages: HashMap<(u32, u16), Page>,
+    /// The session's containers at the last scan.
+    containers: Vec<RunningContainer>,
+    /// What testing each published (container, port) for a page found.
+    container_pages: HashMap<(String, u16), Page>,
 }
 
 impl Processes {
@@ -296,8 +318,9 @@ impl Processes {
     }
 
     /// The processes under `root`, the agent's pid; with none, under the
-    /// CLI its bridge starts, once `set_root` names it.
-    pub(super) fn new(root: Option<u32>) -> Arc<Self> {
+    /// CLI its bridge starts, once `set_root` names it. With `docker`, the
+    /// containers the agent starts through it too.
+    pub(super) fn new(root: Option<u32>, docker: Option<Docker>) -> Arc<Self> {
         let (polls, inbox) = actor::channel("processes", POLLS);
         let (publish, published) = watch::channel(None);
 
@@ -309,6 +332,7 @@ impl Processes {
                 polls: inbox,
                 publish,
             })),
+            docker,
         })
     }
 
@@ -339,10 +363,15 @@ impl Processes {
             let mut ports_due = Instant::now() + PORTS;
             let mut followers = 0;
             let mut asked: Vec<Poll> = Vec::new();
+            let mut container_started = false;
 
             loop {
                 let forced = !asked.is_empty();
-                let forced_scan = asked.iter().any(|poll| poll.scan);
+                let forced_scan = asked.iter().any(|poll| poll.scan) || container_started;
+                // Its server binds a moment after it starts, as a process's does.
+                if std::mem::take(&mut container_started) {
+                    observed.changed_at = Some(Instant::now());
+                }
                 let age = if forced { Duration::ZERO } else { max_age };
                 let result =
                     actor::job("processes", "table", processes.refresh(&mut observed, age)).await;
@@ -362,7 +391,7 @@ impl Processes {
 
                 if result.is_ok() && scan {
                     ports_due = Instant::now() + PORTS;
-                    actor::job("processes", "ports", observed.scan()).await;
+                    actor::job("processes", "ports", observed.scan(processes.docker.as_ref())).await;
                 }
 
                 processes.publish(&observed, &result, &publish, &session);
@@ -376,6 +405,7 @@ impl Processes {
                         Some(age) => max_age = age,
                         None => return,
                     },
+                    () = started(processes.docker.as_ref()) => container_started = true,
                     // The table read and port scan are timed as jobs, not as the poll.
                     Some((poll, _)) = polls.recv() => {
                         asked.push(poll);
@@ -418,7 +448,7 @@ impl Processes {
     /// task reads the table and the ports and the reader takes that. The
     /// first read waits for the first poll. A followed session is polled
     /// every second, so its readers never ask.
-    pub(super) async fn list(&self) -> anyhow::Result<Vec<RunningProcess>> {
+    pub(super) async fn list(&self) -> anyhow::Result<Running> {
         let mut seen = self.published.clone();
         watched::wait_for(&mut seen, Option::is_some)
             .await
@@ -509,7 +539,10 @@ impl Processes {
         session: &watch::Receiver<super::live::Live>,
     ) {
         let listing = result.clone().map(|()| Listing {
-            rows: observed.rows(self.root.load(Ordering::Relaxed)),
+            rows: Running {
+                processes: observed.rows(self.root.load(Ordering::Relaxed)),
+                containers: observed.containers.clone(),
+            },
             ours: observed.ours.clone(),
         });
         let mut signal = false;
@@ -560,15 +593,67 @@ impl Processes {
         stopped
     }
 
-    pub(super) async fn close(&self) {
-        match self.poll(false).await {
-            Ok(()) => {
-                if let Err(e) = stop(&self.ours()).await {
-                    log::warn!("could not stop session processes: {e:#}");
-                }
-            }
-            Err(e) => log::warn!("could not read closing session's processes: {e:#}"),
+    /// Stops container `id` of the last list, keeping it.
+    pub(super) async fn stop_container(&self, id: &str) -> anyhow::Result<()> {
+        let listed = watched::read(&self.published, |published| match published {
+            Some(Published {
+                listing: Ok(listing),
+                ..
+            }) => listing.rows.containers.iter().any(|c| c.id == id),
+            _ => false,
+        });
+        let docker = self
+            .docker
+            .as_ref()
+            .filter(|_| listed)
+            .ok_or_else(|| anyhow::anyhow!("the container is not running in this session"))?;
+        docker.stop(id).await?;
+        // Readers must not be left listing what stopped.
+        if let Err(e) = self.poll(true).await {
+            log::debug!("could not read session processes after a stop: {e:#}");
         }
+
+        Ok(())
+    }
+
+    pub(super) async fn close(&self) {
+        let containers = async {
+            let Some(docker) = &self.docker else {
+                return;
+            };
+
+            match docker.containers().await {
+                Ok(containers) => {
+                    let stops = containers.iter().map(|c| docker.stop(&c.id));
+                    for result in futures::future::join_all(stops).await {
+                        if let Err(e) = result {
+                            log::warn!("could not stop a session's container: {e:#}");
+                        }
+                    }
+                }
+                Err(e) => log::warn!("could not list closing session's containers: {e:#}"),
+            }
+        };
+        let processes = async {
+            match self.poll(false).await {
+                Ok(()) => {
+                    if let Err(e) = stop(&self.ours()).await {
+                        log::warn!("could not stop session processes: {e:#}");
+                    }
+                }
+                Err(e) => log::warn!("could not read closing session's processes: {e:#}"),
+            }
+        };
+
+        tokio::join!(containers, processes);
+    }
+}
+
+/// Waits until one of the session's containers starts; never without Docker.
+async fn started(docker: Option<&Docker>) {
+    match docker {
+        Some(docker) => docker.started().await,
+        None => std::future::pending().await,
     }
 }
 
@@ -577,11 +662,50 @@ fn ended() -> anyhow::Error {
 }
 
 impl Observed {
-    /// Reads the listening ports of the visible processes and tests them for pages.
-    async fn scan(&mut self) {
+    /// Reads the listening ports of the visible processes and the session's
+    /// containers, and tests them for pages.
+    async fn scan(&mut self, docker: Option<&Docker>) {
         let visible: Vec<_> = self.ours.iter().filter(|p| !p.helper()).cloned().collect();
-        self.ports = os::ports(&visible).await;
-        self.test_pages().await;
+        let containers = async {
+            match docker {
+                Some(docker) => docker.containers().await,
+                None => Ok(Vec::new()),
+            }
+        };
+        let (ports, containers) = tokio::join!(os::ports(&visible), containers);
+        self.ports = ports;
+
+        match containers {
+            Ok(containers) => self.containers = containers,
+            // The last list stays, as Docker may be restarting.
+            Err(e) => log::debug!("could not list a session's containers: {e:#}"),
+        }
+
+        let processes: BTreeSet<(u32, u16)> = self
+            .ports
+            .iter()
+            .flat_map(|(pid, ports)| ports.iter().map(|port| (*pid, *port)))
+            .collect();
+        let containers: BTreeSet<(String, u16)> = self
+            .containers
+            .iter()
+            .flat_map(|c| c.ports.iter().map(|port| (c.id.clone(), *port)))
+            .collect();
+        tokio::join!(
+            test_pages(&mut self.pages, processes),
+            test_pages(&mut self.container_pages, containers)
+        );
+
+        for container in &mut self.containers {
+            container.pages = container
+                .ports
+                .iter()
+                .copied()
+                .filter(|port| {
+                    self.container_pages.get(&(container.id.clone(), *port)) == Some(&Page::Yes)
+                })
+                .collect();
+        }
     }
 
     /// The visible processes with the ports of the last scan, oldest first.
@@ -612,38 +736,38 @@ impl Observed {
         rows
     }
 
-    /// Tests the scanned ports for pages. A pair is tested until it answers,
-    /// as a request to a port that is not a web server may end up in its log.
-    /// One that only times out, such as a server whose first page compiles,
-    /// is tried again on each scan up to `TRIES` times.
-    async fn test_pages(&mut self) {
-        let listening: BTreeSet<(u32, u16)> = self
-            .ports
-            .iter()
-            .flat_map(|(pid, ports)| ports.iter().map(|port| (*pid, *port)))
-            .collect();
-        self.pages.retain(|pair, _| listening.contains(pair));
-        let untested: BTreeSet<_> = listening
-            .iter()
-            .filter(|pair| self.pages.get(pair).is_none_or(Page::unsettled))
-            .map(|(_, port)| *port)
-            .collect();
-        let tested: HashMap<_, _> = pages::test(untested).await.into_iter().collect();
+}
 
-        for pair in &listening {
-            if let Some(answer) = tested.get(&pair.1) {
-                let tries = match self.pages.get(pair) {
-                    Some(Page::Unsettled(tries)) => *tries,
-                    _ => 0,
-                };
-                let page = match answer {
-                    Some(true) => Page::Yes,
-                    Some(false) => Page::No,
-                    None if tries + 1 >= TRIES => Page::No,
-                    None => Page::Unsettled(tries + 1),
-                };
-                self.pages.insert(*pair, page);
-            }
+/// Tests the `listening` ports for pages, keeping what was found by owner
+/// and port. A pair is tested until it answers, as a request to a port that
+/// is not a web server may end up in its log. One that only times out, such
+/// as a server whose first page compiles, is tried again on each scan up to
+/// `TRIES` times.
+async fn test_pages<K: Ord + Clone + std::hash::Hash>(
+    pages: &mut HashMap<(K, u16), Page>,
+    listening: BTreeSet<(K, u16)>,
+) {
+    pages.retain(|pair, _| listening.contains(pair));
+    let untested: BTreeSet<_> = listening
+        .iter()
+        .filter(|pair| pages.get(pair).is_none_or(Page::unsettled))
+        .map(|(_, port)| *port)
+        .collect();
+    let tested: HashMap<_, _> = pages::test(untested).await.into_iter().collect();
+
+    for pair in &listening {
+        if let Some(answer) = tested.get(&pair.1) {
+            let tries = match pages.get(pair) {
+                Some(Page::Unsettled(tries)) => *tries,
+                _ => 0,
+            };
+            let page = match answer {
+                Some(true) => Page::Yes,
+                Some(false) => Page::No,
+                None if tries + 1 >= TRIES => Page::No,
+                None => Page::Unsettled(tries + 1),
+            };
+            pages.insert(pair.clone(), page);
         }
     }
 }

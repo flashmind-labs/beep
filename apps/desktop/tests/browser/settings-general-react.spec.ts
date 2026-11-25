@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
-const responses = { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false, developer: false }, mac_control: { id: "one", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [], skill_sync_get: true, project_sync_get: true };
+const responses = { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false, developer: false }, mac_control: { id: "one", name: "build-box", enabled: false, status: "off", error: null, permissions: { screen_recording: false, accessibility: false } }, list_machines: [], skill_sync_get: true, project_sync_get: true, docker_containers_get: true };
 test("skill sync preserves state and serializes a save across Settings reopening", async ({ page }) => {
   await openDesktop(page, false, responses);
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();

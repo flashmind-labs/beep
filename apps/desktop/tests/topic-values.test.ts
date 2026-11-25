@@ -72,8 +72,11 @@ test("a change the owner makes replaces the kept value", () => {
 
 test("a process list is read from the node's value", () => {
   const process = { pid: 41, command: "npm run dev", started_at: 1, ports: [3000], left_group: false, parent: 0, pages: [] };
-  assert.deepEqual(parseProcesses({ Sessions: { Processes: { processes: [process] } } }), { kind: "list", processes: [process] });
-  assert.deepEqual(parseProcesses("Missing"), { kind: "list", processes: [] });
+  assert.deepEqual(parseProcesses({ Sessions: { Processes: { processes: [process] } } }), { kind: "list", processes: [process], containers: [] });
+  assert.deepEqual(parseProcesses("Missing"), { kind: "list", processes: [], containers: [] });
+  const container = { id: "c0ffee", name: "web", image: "nginx", started_at: 1, ports: [8080], pages: [8080] };
+  assert.deepEqual(parseProcesses({ Sessions: { Processes: { processes: [], containers: [container] } } }), { kind: "list", processes: [], containers: [container] });
+  assert.equal(parseProcesses({ Sessions: { Processes: { processes: [], containers: [{ id: 1 }] } } }), null);
   assert.deepEqual(parseProcesses({ Sessions: { Error: { message: "no such session" } } }), { kind: "failed", message: "no such session" });
   assert.deepEqual(parseProcesses({ error: "the node did not answer" }), { kind: "failed", message: "the node did not answer" });
   assert.equal(parseProcesses({ Sessions: { Processes: { processes: [{ pid: "41" }] } } }), null);

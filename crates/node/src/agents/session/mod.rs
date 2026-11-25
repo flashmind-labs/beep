@@ -260,6 +260,8 @@ pub(super) struct Start<'a> {
     /// Set once the node is stopping: an agent that ends then ended with
     /// the node, whatever its exit says.
     pub(super) stopping: Arc<AtomicBool>,
+    /// The agent's own Docker socket, set as its `DOCKER_HOST`.
+    pub(super) docker: Option<super::processes::Docker>,
 }
 
 /// Closes a child session once its parent ends for good.
@@ -298,6 +300,7 @@ impl Session {
             alerts,
             checkouts,
             stopping,
+            docker,
         } = start;
         let Begin {
             prompt,
@@ -451,6 +454,10 @@ impl Session {
             process.env("CARGO_TARGET_DIR", target);
         }
 
+        if let Some(docker) = &docker {
+            process.env("DOCKER_HOST", docker.host());
+        }
+
         // An agent in WSL reads only the variables `WSLENV` names.
         if in_wsl {
             let names: Vec<String> = process
@@ -465,7 +472,7 @@ impl Session {
         // Its own process group, so closing it stops what it started; a
         // bridge starts its CLI the same way, once the session starts.
         let agent = super::start(process, kind.bridge.as_ref())?;
-        let processes = Processes::new(agent.running.pid());
+        let processes = Processes::new(agent.running.pid(), docker);
         // The agent names a session that came back with a title only on load.
         let kept_title = resume.is_some() && title.is_some();
         let info = SessionInfo {

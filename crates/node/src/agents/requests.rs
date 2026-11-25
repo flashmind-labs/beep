@@ -440,10 +440,22 @@ pub async fn serve_sessions(
                 .processes
                 .list()
                 .await
-                .map_or_else(failed, |processes| SessionsReply::Processes { processes }),
+                .map_or_else(failed, |running| SessionsReply::Processes {
+                    processes: running.processes,
+                    containers: running.containers,
+                }),
             _ => SessionsReply::Processes {
                 processes: Vec::new(),
+                containers: Vec::new(),
             },
+        },
+        SessionsRequest::StopContainer { session, id } => match agents.get(&session) {
+            Some(found) if found.info().state.status != agent::Status::Ended => found
+                .processes
+                .stop_container(&id)
+                .await
+                .map_or_else(failed, |()| SessionsReply::ProcessStopped {}),
+            _ => failed("the session has ended"),
         },
         SessionsRequest::StopProcess { session, pid } => match agents.get(&session) {
             Some(found) if found.info().state.status != agent::Status::Ended => found

@@ -56,6 +56,14 @@ wire_structs! {
     pub struct EditorSettings {
         pub vim: Option<bool>,
     }
+
+    /// `settings/docker`: whether new sessions give their agent a Docker socket that marks the
+    /// containers it starts, so the session lists them and their ports. `None` is on.
+    #[derive(Default)]
+    #[serde(default)]
+    pub struct DockerSettings {
+        pub containers: Option<bool>,
+    }
 }
 
 /// `skill-library/<name>`: a library of agent skills from a Git repository, the commit every
@@ -307,6 +315,7 @@ impl StateValue for SyncSpec {}
 impl StateValue for SkillSync {}
 impl StateValue for AssistantSettings {}
 impl StateValue for EditorSettings {}
+impl StateValue for DockerSettings {}
 impl StateValue for SkillLibrary {}
 impl StateValue for ProjectSkills {}
 impl StateValue for ProjectSyncSettings {}

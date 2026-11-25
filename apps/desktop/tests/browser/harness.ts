@@ -9,7 +9,7 @@ import type { HomeView } from "../../src/center/home-state.ts";
 import type { AgentUsage } from "../../src/agents/agents.ts";
 import type { RunningAgent } from "../../src/agents/running-state.ts";
 import type { ProjectRow } from "../../src/project/projects-state.ts";
-import type { RunningProcess } from "../../src/agentpane/running-state.ts";
+import type { RunningContainer, RunningProcess } from "../../src/agentpane/running-state.ts";
 import type { MeshEvent } from "../../src/ui/mesh-events.ts";
 import type { CenterTarget } from "../../src/project/projectwindow.ts";
 
@@ -36,7 +36,7 @@ interface NavigationHarness {
   open(target: CenterTarget | ProjectTileTarget): void;
   ready(): boolean;
   /// The node pushes a session's whole process list; a view that subscribes later is sent the last one, as native code does.
-  processes(rows: RunningProcess[], session?: string): void;
+  processes(rows: RunningProcess[], session?: string, containers?: RunningContainer[]): void;
   /// While quiet, the node sends no snapshot to a topic taken anew: only what native code still retains arrives.
   quietNode(on: boolean): void;
   worktrees(rows: Tree[]): void;
@@ -316,8 +316,8 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   Object.defineProperty(window, "__TAURI_INTERNALS__", { value: { transformCallback: () => nextCallback++, unregisterCallback() {} } });
   const harness: NavigationHarness = {
     open(target) { pending = target; for (const handler of handlers.get("center-open") ?? []) handler({ payload: target }); },
-    processes(rows, session = "notice-one") {
-      const event: MeshEvent = { machine_id: data.project.machine_id, topic: `processes.${session}`, revision: ++revision, initial: false, data: { Sessions: { Processes: { processes: rows } } } };
+    processes(rows, session = "notice-one", containers = []) {
+      const event: MeshEvent = { machine_id: data.project.machine_id, topic: `processes.${session}`, revision: ++revision, initial: false, data: { Sessions: { Processes: { processes: rows, containers } } } };
       pushed.set(event.topic, event);
       const wanted = [...readers.values()].filter(reader => covers(reader.topics, event));
       if (wanted.length) retained.set(event.topic, event);

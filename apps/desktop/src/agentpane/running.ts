@@ -4,7 +4,7 @@ import { createStore } from "zustand";
 import type { RunningActions, RunningModel } from "./running-view.tsx";
 import { topic } from "../ui/mesh-events.ts";
 import { TopicValues } from "../ui/topic-values-state.ts";
-import { parseProcesses, runningTrees, type ProcessesValue, type RunningProcess } from "./running-state.ts";
+import { parseProcesses, runningTrees, type ProcessesValue, type RunningContainer, type RunningProcess } from "./running-state.ts";
 import { paneSession } from "./media.ts";
 import { draw } from "./media-draw.ts";
 import { shellSize, shownDocks } from "./media-layout.ts";
@@ -20,6 +20,7 @@ let unfollow: (() => void) | undefined;
 /// The lists of the sessions seen lately, so one shows at once when its conversation opens again.
 const lists = new TopicValues<ProcessesValue>(parseProcesses, 32);
 let list: RunningProcess[] = [];
+let containers: RunningContainer[] = [];
 let error = "";
 /// Set while `syncSession` takes the kept list, which its caller draws.
 let syncing = false;
@@ -59,6 +60,8 @@ transcripts.subscribe(() => { if (paneTasks().length !== drawnTasks) draw(); });
 /// What the view draws, for the session the pane shows.
 export const runningModel = createStore<{ model: RunningModel; actions: RunningActions } | null>(() => null);
 const stopping = new Set<number>();
+/// The containers asked to stop, by Docker id.
+const stoppingContainers = new Set<string>();
 /// Rows whose whole command shows, by pid.
 const whole = new Set<number>();
 
@@ -70,24 +73,27 @@ function syncSession() {
   unfollow?.();
   unfollow = undefined;
   list = [];
+  containers = [];
   error = "";
   runningModel.setState(null, true);
   stopping.clear();
+  stoppingContainers.clear();
   if (!s?.id || s.external) return;
 
   // The kept list is applied before this returns, with no draw: the caller draws.
   syncing = true;
   unfollow = lists.watch(s.machine_id, topic("processes", s.id), update, visible);
   syncing = false;
-  if (list.length || error) queueMicrotask(() => { if (key === next) { render(); draw(); } });
+  if (list.length || containers.length || error) queueMicrotask(() => { if (key === next) { render(); draw(); } });
 }
 
 /// Takes a pushed list. A node that could not list keeps the last one on screen with the reason.
 function update(value: ProcessesValue) {
-  const count = list.length;
+  const count = list.length + containers.length;
 
   if (value.kind === "list") {
     list = value.processes;
+    containers = value.containers;
     error = "";
   } else {
     error = value.message;
@@ -95,13 +101,13 @@ function update(value: ProcessesValue) {
 
   if (syncing || !visible()) return;
   render();
-  if (list.length !== count) draw();
+  if (list.length + containers.length !== count) draw();
 }
 
 export function runningCount() {
   syncSession();
   drawnTasks = paneTasks().length;
-  return runningTrees(list).length + drawnTasks;
+  return runningTrees(list).length + containers.length + drawnTasks;
 }
 
 const visible = () => paneShown() && shellSize().width > 0 && shownDocks().length > 0;
@@ -116,12 +122,13 @@ const actions: RunningActions = {
     render();
   },
   stop: pids => void stop(pids),
+  stopContainers: ids => void stopContainers(ids),
 };
 
 function render() {
   const session = paneSession();
   if (!session || key !== sessionKey(session)) return;
-  runningModel.setState({ model: { processes: list, stopping: new Set(stopping), whole: new Set(whole), machine: session.machine_name, error }, actions }, true);
+  runningModel.setState({ model: { processes: list, containers, stopping: new Set(stopping), stoppingContainers: new Set(stoppingContainers), whole: new Set(whole), machine: session.machine_name, error }, actions }, true);
 }
 
 /// Another machine's port opens through a forward to this computer, on the same port when it is free.
@@ -155,12 +162,38 @@ async function stop(pids: number[]) {
         await invoke("agent_stop_process", { machineId: s.machine_id, session: s.id, pid });
         if (key === asked) {
           list = list.filter(p => p.pid !== pid);
-          lists.put(s.machine_id, topic("processes", s.id), { kind: "list", processes: list });
+          lists.put(s.machine_id, topic("processes", s.id), { kind: "list", processes: list, containers });
         }
       } catch (e) { failed.push(readError(e)); }
       finally { if (key === asked) stopping.delete(pid); }
     }));
   }
+
+  if (key !== asked) return;
+  error = failed.join(" ");
+  render();
+  draw();
+}
+
+/// Docker gives each container ten seconds to end, so they stop together.
+async function stopContainers(ids: string[]) {
+  const s = paneSession(), asked = key;
+  if (!s) return;
+  for (const id of ids) stoppingContainers.add(id);
+  error = "";
+  render();
+  const failed: string[] = [];
+
+  await Promise.all(ids.map(async id => {
+    try {
+      await invoke("agent_stop_container", { machineId: s.machine_id, session: s.id, id });
+      if (key === asked) {
+        containers = containers.filter(c => c.id !== id);
+        lists.put(s.machine_id, topic("processes", s.id), { kind: "list", processes: list, containers });
+      }
+    } catch (e) { failed.push(readError(e)); }
+    finally { if (key === asked) stoppingContainers.delete(id); }
+  }));
 
   if (key !== asked) return;
   error = failed.join(" ");

@@ -808,6 +808,11 @@ impl Agents {
         };
         begin.brief = brief;
         let review = begin.review;
+        // A WSL agent cannot reach a socket on Windows.
+        let docker = match !super::kinds::in_wsl(kind) && docker_containers(mesh.as_ref()) {
+            true => super::processes::Docker::open(kind.env.get("DOCKER_HOST").map(String::as_str)).await,
+            false => None,
+        };
         let mut session = Session::start(Start {
             id: id.clone(),
             kind,
@@ -826,6 +831,7 @@ impl Agents {
             alerts,
             checkouts: self.checkouts.clone(),
             stopping: self.stopping.clone(),
+            docker,
         })?;
         session.reviewer = review;
         let session = Arc::new(session);
@@ -1021,6 +1027,17 @@ fn in_project(
 
 /// The folder of its own a new assistant conversation starts in, which its
 /// threads share. `None` for every other start.
+/// Whether new sessions list the Docker containers they start: the shared
+/// setting, on until turned off, and on without a mesh.
+fn docker_containers(mesh: Option<&beep_mesh::Mesh>) -> bool {
+    use beep_proto::node::mesh_state::{DockerSettings, StateValue};
+
+    mesh.and_then(|mesh| mesh.get(&beep_mesh::Key::Docker))
+        .and_then(|bytes| DockerSettings::from_bytes(&bytes).ok())
+        .and_then(|settings| settings.containers)
+        .unwrap_or(true)
+}
+
 fn own_folder(cwd: Option<&str>, begin: &Begin) -> Result<Option<String>> {
     if !begin.assistant || begin.resume.is_some() {
         return Ok(None);

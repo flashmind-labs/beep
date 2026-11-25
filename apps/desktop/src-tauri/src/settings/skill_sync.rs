@@ -1,4 +1,5 @@
-//! The mesh-wide project and coding agent skill sync switches.
+//! The mesh-wide switches: project and coding agent skill sync, and the
+//! Docker containers sessions list.
 
 use crate::{
     error::Result,
@@ -27,5 +28,16 @@ pub async fn project_sync_set(fleet: FleetState<'_>, enabled: bool) -> Result<()
         .await?
         .set_project_sync_enabled(enabled)
         .await?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn docker_containers_get(fleet: FleetState<'_>) -> Result<bool> {
+    Ok(desk(&fleet).await?.docker_containers())
+}
+
+#[tauri::command]
+pub async fn docker_containers_set(fleet: FleetState<'_>, enabled: bool) -> Result<()> {
+    desk(&fleet).await?.set_docker_containers(enabled).await?;
     Ok(())
 }

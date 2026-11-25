@@ -212,6 +212,7 @@ pub fn run() {
             agents::diff::agent_worktrees,
             agents::diff::agent_commands,
             agents::processes::agent_stop_process,
+            agents::processes::agent_stop_container,
             machines::forwards::machine_forward_port,
             agents::processes::agent_close_external,
             agents::moving::session_move,
@@ -517,6 +518,8 @@ pub fn run() {
             settings::skill_sync::skill_sync_set,
             settings::skill_sync::project_sync_get,
             settings::skill_sync::project_sync_set,
+            settings::skill_sync::docker_containers_get,
+            settings::skill_sync::docker_containers_set,
         ]))
         .build(context)
         .expect("the app failed to start")
