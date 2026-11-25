@@ -100,6 +100,10 @@ reference in the issue. Use `just reports`, `just report <reference>` and
 - Keep related declarations together in existing modules. Avoid forwarding
   wrappers and single-declaration files. Put the main flow first and use
   blank lines between stages, around control flow and before tail returns.
+- Push values from their owner; never poll state Beep owns. Every timer and
+  sleep outside tests is listed in `.timers` with its kind (`retry`,
+  `debounce`, `deadline`, `outside`, `ui`, `pace` or `poll`) and a reason.
+  Add a line for a new timer. A new `poll` needs the user's approval.
 
 ### TypeScript and React
 

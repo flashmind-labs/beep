@@ -1,0 +1,218 @@
+# Every timer and sleep outside tests, with what it is for. Kept by `depgraph timers`.
+# path | function | call#n | kind | reason
+# kinds: poll, retry, debounce, deadline, outside, ui, pace
+
+apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep#1 | retry | waits 500 ms, then reopens the session stream after a full node
+apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep_until#1 | pace | flushes held session updates at the off-screen rate
+apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep_until#2 | pace | writes the running session page at most every RUNNING_EVERY
+apps/desktop/src-tauri/src/agents/outbox.rs | reachable | sleep#1 | retry | waits RETRY after the machine is back online, then tries again
+apps/desktop/src-tauri/src/agents/starts.rs | pause | sleep#1 | retry | waits RETRY before trying the session start again
+apps/desktop/src-tauri/src/center/view_cache.rs | write_later | sleep#1 | debounce | writes the view cache once, 2 s after the first change
+apps/desktop/src-tauri/src/center/window_session.rs | changed | sleep#1 | debounce | saves the window session once, 1 s after a change burst
+apps/desktop/src-tauri/src/fleet/alerts.rs | again | sleep#1 | retry | waits RETRY after the machine is online, then follows again
+apps/desktop/src-tauri/src/fleet/event_views.rs | paced | sleep_until#1 | pace | spaces repeated change signals for a topic to a minimum gap
+apps/desktop/src-tauri/src/fleet/events/commands.rs | <top> | sleep#1 | deadline | dead-link timer for the command stream, reset on each message
+apps/desktop/src-tauri/src/fleet/events/commands.rs | retrying | sleep#1 | retry | waits RETRY before reconnecting the command stream
+apps/desktop/src-tauri/src/fleet/events/subscriptions.rs | <top> | sleep#1 | deadline | dead-link timer for the event stream, reset on each message
+apps/desktop/src-tauri/src/fleet/events/subscriptions.rs | connect | interval#1 | deadline | expires held queries that nobody watches after the linger time
+apps/desktop/src-tauri/src/fleet/node_actor.rs | run_lane | sleep#1 | retry | waits RETRY before running the failed job again
+apps/desktop/src-tauri/src/fleet/session_lists.rs | follow | sleep#1 | pace | waits REDRAW_GAP between list redraws while rows keep changing
+apps/desktop/src-tauri/src/fleet/session_mirror.rs | expire_scans | sleep#1 | deadline | rescans a machine when a waiting row's shown time runs out
+apps/desktop/src-tauri/src/fleet/session_mirror.rs | keep | sleep#1 | pace | saves session rows at most once per KEEP_EVERY
+apps/desktop/src-tauri/src/fleet/session_mirror.rs | list | sleep#1 | retry | asks again for a session list that did not answer, with growing pause
+apps/desktop/src-tauri/src/fleet/status.rs | run | sleep_until#1 | retry | waits RETRY before following the machine status again
+apps/desktop/src-tauri/src/fleet/status.rs | settle_later | sleep#1 | deadline | after CONNECT_WAIT, counts unreached machines as offline
+apps/desktop/src-tauri/src/lib.rs | setup | sleep#1 | pace | sweeps the open-file and chat-file caches every SWEEP_EVERY
+apps/desktop/src-tauri/src/lib.rs | setup | sleep#2 | ui | builds the hidden bar window after Home has drawn
+apps/desktop/src-tauri/src/machines/desktop/mac.rs | post | sleep#1 | pace | gap between synthetic input events
+apps/desktop/src-tauri/src/machines/node_updates.rs | follow | interval_at#1 | outside | looks up the newest node release hourly; the release feed cannot push
+apps/desktop/src-tauri/src/machines/terminals.rs | batch_due | sleep_until#1 | pace | batches terminal output until the batch is due
+apps/desktop/src-tauri/src/notices/route.rs | show_unread | sleep_until#1 | deadline | shows a note after a grace period if no app read it
+apps/desktop/src-tauri/src/notices/watch.rs | follow | sleep_until#1 | pace | spaces slow machine reads to once per SLOW_GAP
+apps/desktop/src-tauri/src/palette/copies.rs | follow | sleep#1 | retry | waits RETRY when no mesh is ready, then looks again
+apps/desktop/src-tauri/src/palette/copies.rs | follow_machine | sleep#1 | retry | waits RETRY, then follows the machine's search index again
+apps/desktop/src-tauri/src/palette/lists.rs | follow_branches | sleep#1 | pace | waits READ_GAP between branch list reads
+apps/desktop/src-tauri/src/palette/lists.rs | follow_local | sleep#1 | pace | waits LOCAL_GAP so one read covers a burst of changes
+apps/desktop/src-tauri/src/platform/energy.rs | start | interval#1 | outside | samples process resource use; OS stats cannot push (env-gated)
+apps/desktop/src-tauri/src/platform/login_path.rs | login_path | sleep#1 | outside | waits for a login shell child to exit; no process event
+apps/desktop/src-tauri/src/platform/update.rs | follow | sleep#1 | pace | delays the first update check after launch
+apps/desktop/src-tauri/src/platform/update.rs | follow | sleep#2 | outside | checks the update feed periodically; the feed cannot push
+apps/desktop/src-tauri/src/projects/live.rs | poll | interval#1 | poll | rereads project lists and runs every 120 s; the lists and runs topics could push
+apps/desktop/src-tauri/src/projects/team_live.rs | keep_asking | sleep#1 | poll | asks nodes for project cards every 10 s; the topic could push instead
+apps/desktop/src-tauri/src/settings/skill_libraries.rs | follow | sleep#1 | outside | waits for the next skill library check against its remote
+apps/desktop/src-tauri/src/tray/waiting.rs | follow | sleep#1 | pace | waits GAP between tray rebuilds before listening for changes
+apps/desktop/src/addproject/folderbrowser.tsx | show | setTimeout#1 | debounce | waits for typing to settle, then lists the typed folder
+apps/desktop/src/addproject/importproject.tsx | run | setTimeout#1 | debounce | waits 150 ms after typing, then asks for folder suggestions
+apps/desktop/src/addproject/importproject.tsx | schedulePreview | setTimeout#1 | debounce | waits for repo text to settle, then loads the preview
+apps/desktop/src/agentpane/device.ts | failed | setTimeout#1 | deadline | gives the video stream 5 s to start before the fallback
+apps/desktop/src/agentpane/device.ts | readDevices | setTimeout#1 | poll | rereads device lists every 2 s or 60 s; nodes could push them all
+apps/desktop/src/agentpane/drag.ts | endDrag | setTimeout#1 | ui | clears the dragged flag after the drag's click
+apps/desktop/src/agentpane/files-menu.tsx | away | setTimeout#1 | ui | adds the outside-click listener after the opening click
+apps/desktop/src/agentpane/image-view.tsx | zoom | setTimeout#1 | ui | ends the zooming style 300 ms after the last zoom
+apps/desktop/src/agentpane/media-layout.ts | close | setTimeout#1 | deadline | fails an export if the preview sends nothing in 35 s
+apps/desktop/src/agentpane/read.ts | readSoon | setTimeout#1 | retry | reads a failed media tab again every RETRY_MS
+apps/desktop/src/agentpane/terminal.ts | tries | setTimeout#1 | retry | reattaches a dropped terminal stream after RETRY_MS
+apps/desktop/src/agentpane/text-view.tsx | lookupDefinition | setTimeout#1 | ui | shows a busy note only if the lookup takes over 250 ms
+apps/desktop/src/agentpane/worktree.ts | apply | setTimeout#1 | ui | defers a layout apply to the next tick after input
+apps/desktop/src/agents/activity-view.tsx | tickMinutes | setInterval#1 | ui | bumps relative-time labels each minute while shown
+apps/desktop/src/agents/agentnew.tsx | offer | setTimeout#1 | debounce | waits for typing to settle, then lists the typed folder
+apps/desktop/src/agents/choice-extra-view.tsx | blur | setTimeout#1 | ui | leaves the field after blur unless focus returned
+apps/desktop/src/agents/images.tsx | agentAttachError | setTimeout#1 | ui | clears the attach error text after 5 s
+apps/desktop/src/agents/images.tsx | fillLater | setTimeout#1 | retry | loads failed inline pictures again after their backoff
+apps/desktop/src/agents/inline-images.ts | fails | setTimeout#1 | retry | refills failed images when their retry time comes
+apps/desktop/src/agents/logwindow.tsx | mayPin | setTimeout#1 | ui | pins the log to its end after a scroll wait
+apps/desktop/src/agents/move.ts | probe | setTimeout#1 | deadline | gives a machine 3 s to say whether it takes the move
+apps/desktop/src/agents/move.ts | warn | setTimeout#1 | ui | clears the move error after 5 s
+apps/desktop/src/agents/place.ts | changed | setTimeout#1 | debounce | redraws once after a burst of answers
+apps/desktop/src/agents/session-follow.ts | activityOf | setTimeout#1 | retry | the feed schedules a follow reopen or idle drop after its delay
+apps/desktop/src/agents/session.tsx | still | setTimeout#1 | retry | reopens a lost session follow every RETRY_MS
+apps/desktop/src/agents/session.tsx | watchRead | setTimeout#1 | deadline | logs if nothing was read after the watch time
+apps/desktop/src/agents/sessionmenu.ts | build | setTimeout#1 | ui | opens the model picker after the menu closes
+apps/desktop/src/agents/sessions.ts | finish | setTimeout#1 | deadline | stops waiting for a session list after ms
+apps/desktop/src/agents/turn-heading-view.tsx | tickClocks | setInterval#1 | ui | ticks the running turn clock each second while shown
+apps/desktop/src/agents/turnrows.ts | copyCode | setTimeout#1 | ui | restores the copy icon after the copied mark
+apps/desktop/src/agents/workdrop.ts | attachFiles | setTimeout#1 | ui | clears an attach error after its display time
+apps/desktop/src/agents/workdrop.ts | attachFiles | setTimeout#2 | ui | clears an attach error after its display time
+apps/desktop/src/agents/workdrop.ts | uploadFiles | setTimeout#1 | ui | clears an upload error after its display time
+apps/desktop/src/center/lanes-view.tsx | settle | setTimeout#1 | debounce | treats a 100 ms scroll pause as scroll end
+apps/desktop/src/center/mobile.tsx | longPress | setTimeout#1 | ui | opens the context menu after a 500 ms touch hold
+apps/desktop/src/center/mobile.tsx | moved | setTimeout#1 | debounce | reports a network change once after online events settle
+apps/desktop/src/center/palette-search.ts | requery | setTimeout#1 | debounce | coalesces indexing bursts into one search
+apps/desktop/src/center/palette-search.ts | type | setTimeout#1 | debounce | waits for typing to settle, then searches
+apps/desktop/src/center/refresh.ts | refresh | setTimeout#1 | retry | reloads Home after a failed read every RETRY_MS
+apps/desktop/src/center/refresh.ts | refresh | setTimeout#2 | deadline | shows still connecting once the wait passes its limit
+apps/desktop/src/center/state.ts | keepPages | setTimeout#1 | debounce | saves changed project pages once after edits settle
+apps/desktop/src/chat/diagrams.tsx | makeFrame | setTimeout#1 | deadline | fails a diagram frame that does not render in time
+apps/desktop/src/chat/diagrams.tsx | next | setTimeout#1 | deadline | fails a diagram render after 20 s
+apps/desktop/src/chat/dictation.tsx | onKeyDown | setTimeout#1 | ui | starts dictation after the key is held long enough
+apps/desktop/src/chat/dictation.tsx | tick | setInterval#1 | ui | updates the listening clock each second
+apps/desktop/src/chat/dictation.tsx | tick | setTimeout#1 | ui | updates the listening clock each second
+apps/desktop/src/chat/find.tsx | changed | setTimeout#1 | debounce | refreshes matches once after page mutations settle
+apps/desktop/src/chat/find.tsx | draw | setTimeout#1 | debounce | refreshes matches 100 ms after typing
+apps/desktop/src/chat/stash.tsx | note | setTimeout#1 | ui | removes the stash notice after 6 s
+apps/desktop/src/chat/viewer-overlay.tsx | notice | setTimeout#1 | ui | removes the viewer notice after 5 s
+apps/desktop/src/machines/addmachine.tsx | <top> | setInterval#1 | ui | ticks the ticket countdown while the sheet shows
+apps/desktop/src/machines/addmachine.tsx | openAddMachine | setInterval#1 | ui | ticks the ticket countdown while the sheet shows
+apps/desktop/src/machines/machine-store.ts | finish | setTimeout#1 | deadline | stops waiting for a machines change after ms
+apps/desktop/src/machines/machines.tsx | check | setTimeout#1 | deadline | gives a restart a time limit before reporting failure
+apps/desktop/src/plugins/slot-view.tsx | keeps | setTimeout#1 | ui | sprite animation timing
+apps/desktop/src/plugins/slot-view.tsx | show | setTimeout#1 | ui | drops a held plugin element after its keep time
+apps/desktop/src/project/loads.tsx | prefetchOnHover | setTimeout#1 | debounce | prefetches a project once the pointer rests on it
+apps/desktop/src/project/loads.tsx | prefetchRecentSoon | setTimeout#1 | debounce | prefetches recent projects once after things go idle
+apps/desktop/src/project/runs.tsx | hovered | setTimeout#1 | debounce | reads run details once the pointer rests on a run
+apps/desktop/src/review/diff-files.tsx | scroll | setTimeout#1 | pace | saves the scroll position at most every 250 ms
+apps/desktop/src/review/diff-keys.ts | step | setTimeout#1 | ui | removes the hit highlight after 1.5 s
+apps/desktop/src/review/diff-viewer.ts | say | setTimeout#1 | ui | clears the flash message after 2 s
+apps/desktop/src/review/history.tsx | navigation | setTimeout#1 | debounce | searches history once after typing settles
+apps/desktop/src/settings/overview-view.tsx | SettingRow | setTimeout#1 | ui | clears the pointed setting highlight after 1.6 s
+apps/desktop/src/terminals/terminals.tsx | tries | setTimeout#1 | retry | reattaches a dropped terminal stream after RETRY_MS
+apps/desktop/src/terminals/terminals.tsx | watchGap | setTimeout#1 | deadline | reports a missing stream gap lost after LOST_MS
+apps/desktop/src/terminals/termview.ts | blinking | setInterval#1 | ui | blinks the cursor while focused
+apps/desktop/src/terminals/termview.ts | draw | setTimeout#1 | ui | schedules the next cursor or text animation frame
+apps/desktop/src/terminals/termview.ts | schedule | setTimeout#1 | ui | parses output on a timer while the window is hidden
+apps/desktop/src/ui/active.ts | resume | setTimeout#1 | pace | runs a dirty ambient job when the window shows again
+apps/desktop/src/ui/active.ts | resume | setTimeout#2 | debounce | runs an ambient job once after a burst of requests
+apps/desktop/src/ui/clipboard.ts | copy | setTimeout#1 | ui | restores the button text after the copied mark
+apps/desktop/src/ui/kit.tsx | CopyButton | setTimeout#1 | ui | resets the copied mark after 1.2 s
+apps/desktop/src/ui/mesh-events.ts | retryLater | setTimeout#1 | retry | resubscribes topics every 5 s after a failure
+apps/desktop/src/ui/mesh-events.ts | schedule | setTimeout#1 | debounce | reads once after a burst of pushed updates
+apps/desktop/src/ui/motion.ts | main | setTimeout#1 | ui | settles a swipe transition after a rest time
+apps/desktop/src/ui/painted-art.tsx | paint | setTimeout#1 | ui | wakes the painting for its next beat while visible
+apps/desktop/src/ui/perf.ts | start | setTimeout#1 | pace | the recorder batches and sends its samples after a delay
+apps/desktop/src/ui/tauri.ts | recordTiming | setTimeout#1 | pace | sends collected timings in one batch every 5 s
+apps/desktop/src/ui/tauri.ts | trace | setTimeout#1 | deadline | fails a command that has not answered by its limit
+crates/fleet/src/alerts.rs | relinked | sleep#1 | retry | waits RETRY, then follows the machine's alerts again
+crates/fleet/src/left_folder.rs | stopped_syncing | sleep#1 | poll | asks the node every STOP_POLL if the project stopped syncing; a status push could replace it
+crates/mesh/src/link.rs | heartbeat | sleep#1 | deadline | closes a link after missed beats; connection stats cannot push
+crates/mesh/src/link.rs | streams | sleep_until#1 | deadline | lingers or drains before ending the stream task loop
+crates/mesh/src/machine/codex_login.rs | wait_for_code | sleep#1 | poll | asks the machine for the sign-in code every CODE_POLL; process output could push it
+crates/mesh/src/mesh/owner.rs | dial | sleep#1 | pace | gives the other side a head start before dialing
+crates/mesh/src/mesh/owner.rs | dial | sleep#2 | retry | waits RETRY before dialing a member again, ended early by address change
+crates/mesh/src/mesh/owner.rs | own | sleep#1 | deadline | grace before closing a removed member's connection
+crates/mesh/src/mesh/owner.rs | watch_sleep | sleep#1 | outside | compares wall and monotonic clocks to detect wake from sleep
+crates/node/src/agents/checkouts.rs | supervise | interval#1 | deadline | drops checkouts nobody read since the last sweep
+crates/node/src/agents/claude/watch.rs | serve | sleep_until#1 | deadline | grace for a turn-end hook before the transcript end counts
+crates/node/src/agents/family/notes.rs | tell_until_heard | sleep#1 | retry | sends an unanswered note to the parent again after 5 s
+crates/node/src/agents/family/orphans.rs | check_parent | sleep#1 | poll | asks the parent machine every 60 s if it lives; presence could push
+crates/node/src/agents/family/peer.rs | retrying | sleep#1 | retry | pause before trying a failed peer call again
+crates/node/src/agents/follow/sources.rs | observe_external | sleep_until#1 | deadline | waits until an external session stops counting as recent
+crates/node/src/agents/follow/sources.rs | watch_event_sources | sleep#1 | debounce | waits 400 ms for summary requests to settle
+crates/node/src/agents/installs.rs | install_adapters | sleep#1 | outside | hourly detection of installed adapters; woken early by events
+crates/node/src/agents/lsp/mod.rs | query_definition | sleep#1 | retry | repeats a language server definition call once
+crates/node/src/agents/mcp/children.rs | wait_for_settled | sleep#1 | deadline | bounds how long a wait on a child lasts
+crates/node/src/agents/mcp/children.rs | wait_for_settled | sleep#2 | poll | rereads a remote child's view every 5 s; the node notes could push
+crates/node/src/agents/mcp/devices.rs | drive | sleep#1 | pace | lets the screen settle before the screenshot
+crates/node/src/agents/mcp/devices.rs | view | sleep#1 | pace | pause after each input sent to a device
+crates/node/src/agents/mcp/devices.rs | view | sleep_until#1 | deadline | ends an idle device view
+crates/node/src/agents/mcp/machines.rs | show_sent | sleep#1 | pace | shows send progress at most once a second
+crates/node/src/agents/mcp/peer_tools.rs | sync_project | sleep_until#1 | deadline | bounds the wait for a project sync to settle
+crates/node/src/agents/moving/dial.rs | poll_target | sleep#1 | poll | asks an old target every 2-10 s; new targets push via Follow
+crates/node/src/agents/moving/dial.rs | watch_target | sleep#1 | retry | follows a lost target again after 5 s
+crates/node/src/agents/moving/source.rs | target_outcome | sleep#1 | retry | asks the target for the outcome again after 500 ms
+crates/node/src/agents/moving/target.rs | checkouts | sleep#1 | retry | backoff before reading the source checkout again
+crates/node/src/agents/moving/target.rs | conversation | sleep#1 | retry | backoff before reading the source checkout again
+crates/node/src/agents/moving/target.rs | from_source | sleep#1 | retry | backoff before asking the source again
+crates/node/src/agents/processes/mod.rs | pace | sleep#1 | outside | reads the OS process table every 1 s or 60 s
+crates/node/src/agents/requests.rs | send_usage | sleep#1 | outside | reads plan usage through agent CLIs every 5 min
+crates/node/src/agents/requests.rs | warn_if_slow_after | sleep#1 | deadline | logs a request that got no answer in time
+crates/node/src/agents/running.rs | start_upkeep | interval#1 | outside | hourly check of harness releases
+crates/node/src/agents/search/schedule.rs | next_pass | sleep_until#1 | retry | next failed session read, or a notified change
+crates/node/src/agents/search/schedule.rs | next_pass | sleep_until#2 | pace | at most one search pass per minute
+crates/node/src/agents/session/actor.rs | drive | sleep_until#1 | deadline | alerts a held turn end if subagents stay silent
+crates/node/src/agents/session/turns.rs | stop_due | sleep#1 | deadline | how long a user stop may take before it is forced
+crates/node/src/agents/skill_library/follow.rs | follow | sleep#1 | debounce | lets changes settle 300 ms before a pass
+crates/node/src/agents/skill_library/follow.rs | follow | sleep_until#1 | retry | tries a failed skill fetch again after 15 min
+crates/node/src/agents/skills/follow.rs | follow | interval#1 | outside | looks at skill files every 2 min only when no watcher runs
+crates/node/src/agents/skills/follow.rs | follow | sleep_until#1 | retry | tries a machine that did not answer again after 5 s
+crates/node/src/agents/uploads.rs | maintain | interval_at#1 | outside | hourly cleanup of old upload files on disk
+crates/node/src/files/sync/peer.rs | pull | sleep#1 | retry | pulls from the peer again after a pause
+crates/node/src/files/sync/project/apply.rs | blob_from | sleep_until#1 | pace | flushes a write batch once it is old enough
+crates/node/src/files/sync/project/apply.rs | blob_from | sleep_until#2 | ui | publishes file progress every 500 ms
+crates/node/src/files/sync/project/scanning.rs | scan_inner | sleep#1 | ui | shows Scanning only after a scan runs 500 ms
+crates/node/src/files/sync/project/task.rs | run | sleep#1 | retry | tries pending files again with doubling wait
+crates/node/src/files/sync/project/task.rs | run | sleep_until#1 | pace | saves changing state at most every 2 s
+crates/node/src/files/sync/project/task.rs | run | sleep_until#2 | debounce | scans once the folder has been quiet for 10 s
+crates/node/src/files/sync/project/task.rs | run | sleep_until#3 | debounce | acts on missing files once the folder is quiet
+crates/node/src/files/sync/project/task.rs | run | sleep_until#4 | outside | rescans a folder the watcher cannot follow every 5 min
+crates/node/src/files/sync/project/task.rs | run | sleep_until#5 | retry | scans again after a failed scan with doubling wait
+crates/node/src/files/sync/project/task.rs | run | sleep_until#6 | pace | saves changing state at most every 2 s
+crates/node/src/files/sync/watch.rs | start | sleep#1 | pace | at most one change signal per 250 ms
+crates/node/src/files/syncthing/mod.rs | changed | sleep#1 | retry | waits 60 s after Syncthing events could not be read
+crates/node/src/files/transfer/mod.rs | share | sleep_until#1 | deadline | ends a file share lease when it expires
+crates/node/src/link/commands.rs | serve | interval_at#1 | pace | heartbeat to keep the stream alive
+crates/node/src/link/diagnostics.rs | start | interval#1 | outside | writes a transport metrics snapshot every minute
+crates/node/src/link/events.rs | run | interval_at#1 | pace | heartbeat to keep the stream alive
+crates/node/src/link/events.rs | run | sleep_until#1 | pace | holds a dirty snapshot read until its not-before time
+crates/node/src/link/local_socket.rs | connect | sleep#1 | retry | retries a busy pipe every 10 ms
+crates/node/src/link/peers.rs | wait_for_node | sleep#1 | retry | retries connecting to the local node every 100 ms
+crates/node/src/link/sampler.rs | sampling | interval#1 | outside | samples disk, memory and traffic every minute
+crates/node/src/link/watchdog.rs | look | sleep#1 | outside | thread checks for a stalled runtime every 15 s
+crates/node/src/link/watchdog.rs | start | interval#1 | pace | runtime beat the watchdog thread checks
+crates/node/src/machine/ci/github.rs | wait | sleep#1 | deadline | stops waiting on a gh run watch after 30 min
+crates/node/src/machine/ci/watcher.rs | run | interval#1 | outside | lists busy projects' forge runs every 60 s
+crates/node/src/machine/ci/watcher.rs | run | interval_at#1 | outside | checks GitHub projects every 45 s
+crates/node/src/machine/ci/watcher.rs | run | sleep_until#1 | poll | asks machines and lists runs every 10 min when idle
+crates/node/src/machine/elect.rs | hear | sleep#1 | retry | follows a dropped machine again after 5 s
+crates/node/src/machine/provision/mod.rs | check_loop | interval#1 | outside | hourly probe of tool releases and installs
+crates/node/src/machine/sign_in.rs | drive | sleep_until#1 | deadline | ends a sign-in not finished in time
+crates/node/src/main.rs | exit_after | sleep#1 | deadline | forces exit if stopping takes too long
+crates/node/src/run/device/android.rs | next_video_geometry | sleep#1 | outside | waits 500 ms then reads the display size through adb
+crates/node/src/run/device/android.rs | wait_running | sleep#1 | outside | checks an emulator booting through adb every second
+crates/node/src/run/device/ios.rs | next_video_geometry | sleep#1 | outside | waits 500 ms then reads the screen size from idb
+crates/node/src/run/device/ios.rs | start | sleep#1 | outside | waits for the idb socket file every 100 ms
+crates/node/src/run/device/mod.rs | follow | sleep_until#1 | pace | spaces device frames by the frame gap
+crates/node/src/run/device/mod.rs | follow | sleep_until#2 | pace | spaces shown frames by the frame gap
+crates/node/src/run/device/mod.rs | following_list | sleep#1 | outside | rereads the device list while booting or simulators run
+crates/node/src/run/device/phone.rs | capture | sleep_until#1 | pace | spaces shown frames by the frame gap
+crates/node/src/run/device/phone.rs | capture | sleep_until#2 | pace | spaces phone screenshots by the frame gap
+crates/node/src/run/device/phone.rs | found | sleep#1 | outside | looks for the adb binary every 5 s until it exists
+crates/node/src/run/device/phone.rs | track_phones | sleep#1 | retry | follows adb again after it stopped, with backoff
+crates/node/src/run/terminal/host.rs | listening | sleep#1 | outside | checks every 25 ms whether the terminal host listens
+crates/node/src/run/terminal/pty.rs | reap | sleep#1 | outside | fallback check for child exit every 25 ms
+crates/node/src/run/terminal/terminals.rs | run | sleep_until#1 | deadline | drops an ended terminal when its keep time ends
+crates/node/src/team/gateway.rs | drive | sleep_until#1 | poll | asks machines for their reach every 10 min; they could push
+crates/node/src/team/gateway.rs | drive | sleep_until#2 | debounce | makes cards after changes settle, and every 60 s for the forge
+crates/node/src/team/link/board_io.rs | follow | sleep#1 | retry | dials a teammate's board again after 60 s
+crates/node/src/team/link/home_io.rs | follow | sleep#1 | deadline | drops an invite or card when it expires
+crates/node/src/team/link/home_io.rs | follow | sleep_until#1 | retry | offers what waits for a desktop again every 60 s
+crates/node/src/team/sightings.rs | follow | sleep#1 | retry | follows a dropped machine again after 5 s
