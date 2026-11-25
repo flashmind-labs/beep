@@ -1,7 +1,7 @@
 use super::*;
 
 fn key(root: &str) -> (EndpointId, Topic) {
-    let machine = EndpointId::from_bytes(&[7; 32]).expect("a public key");
+    let machine = iroh::SecretKey::from_bytes(&[7; 32]).public();
     (machine, Topic::keyed("files", root))
 }
 
