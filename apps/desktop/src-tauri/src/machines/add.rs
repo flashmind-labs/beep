@@ -180,7 +180,7 @@ pub async fn ticket_machine(
     fleet: State<'_, Arc<Fleet>>,
     ticket: String,
 ) -> Result<Option<String>> {
-    joined_by(fleet, &ticket).await
+    joined_by(&fleet, &ticket).await
 }
 
 async fn joined_by(fleet: &Fleet, ticket: &str) -> Result<Option<String>> {
