@@ -2,6 +2,12 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.28] - 2026-11-25
+
+### Added
+
+- Node: a folder's update now says which paths changed, so desktops read only what a change concerns.
+
 ## [0.8.27] - 2026-11-25
 
 ### Added

@@ -7,6 +7,30 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.36] - 2026-11-25
+
+### Added
+
+- Machines running an older beep-node update themselves as soon as they come online, once their agent sessions are idle.
+- Desktop: a setting, "Update machines automatically", turns off the automatic beep-node updates of your machines. A notification says when one is behind instead.
+
+### Fixed
+
+- Desktop: an open session whose live link could not start now tries the link again every five seconds instead of rereading the session many times a second.
+- Desktop: a session title you clear now shows the agent's own title at once in every list.
+- Desktop: the sign-in sheet and Codex sign-in follow the machine's updates, so they show a finished or failed sign-in without delay.
+- A long message no longer stays listed as sent after the session shows it.
+- Background messages sent one after another each leave the sent list once the session shows them.
+- Terminal and project session lists update from what machines push instead of asking every machine again.
+- A waiting outside session leaves the running list when its day ends.
+- Desktop: sessions started outside Beep keep updating on Home after a machine restarts or its connection drops.
+- Desktop: a machine whose automatic update failed is no longer asked again on every change, only after it has been offline, and an update another desktop started is not retried.
+
+### Performance
+
+- Desktop: the Changes pane, Git history and a previewed page now read again only when a change concerns them, as soon as the machine says so, instead of on a two-second timer. Needs a machine on the new node version; older machines keep the old behaviour.
+- Desktop: fewer reads of sessions, accounts, project machines, sync detail and reviews; they now arrive as updates from the machines.
+
 ## [0.10.35] - 2026-11-25
 
 ### Added
