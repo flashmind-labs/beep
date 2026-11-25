@@ -61,11 +61,6 @@ type Read = { data?: ThreadDetailRow | null; error?: string; at: number; reading
 /// How long a read stays good before the pane reads it again.
 const STALE_MS = 60_000;
 
-/// "Open on GitHub", else "Open on Forgejo": a project's host is one or the other.
-export function forgeLabel(url: string) {
-  try { return new URL(url).host === "github.com" ? "Open on GitHub" : "Open on Forgejo"; } catch { return "Open on GitHub"; }
-}
-
 /// A comment being written or posted under one thread.
 type Draft = { text: string; posting: boolean; error?: string };
 

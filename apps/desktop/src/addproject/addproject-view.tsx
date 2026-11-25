@@ -4,7 +4,7 @@ import { SyncthingChoice } from "../project/syncthing-choice.tsx";
 import type { SyncthingImportChoice } from "../project/syncthing.ts";
 import { agentLabel, foundSessions, lookingText, type FoundRow } from "../project/projects-state.ts";
 import { emptyText, lookingOn, tickable, toImport, type ImportState } from "./addproject-state.ts";
-import { type HostRepos, type AddProjectOptions } from "./addproject.tsx";
+import type { HostRepos, AddProjectOptions } from "./addproject.tsx";
 import { formatAgo } from "../ui/format.ts";
 import { Button, Checkbox, NO_AUTO, SheetHead, Spinner } from "../ui/kit.tsx";
 

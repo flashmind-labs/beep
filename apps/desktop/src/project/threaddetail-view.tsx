@@ -1,8 +1,13 @@
 import { openUrl } from "../center/openitems.ts";
 import { formatAgo } from "../ui/format.ts";
-import { forgeLabel, type LinkedPrRow, type ThreadDetailRow, type ThreadStub } from "./threaddetail.tsx";
+import type { LinkedPrRow, ThreadDetailRow, ThreadStub } from "./threaddetail.tsx";
 import { Button, Chip, EmptyPanel, LineRow, Section, useHtml } from "../ui/kit.tsx";
 import { AgentButton, type AgentState, type PickButton } from "../review/feedback-view.tsx";
+
+/// "Open on GitHub", else "Open on Forgejo": a project's host is one or the other.
+function forgeLabel(url: string) {
+  try { return new URL(url).host === "github.com" ? "Open on GitHub" : "Open on Forgejo"; } catch { return "Open on GitHub"; }
+}
 
 /// The chip kind of a thread's state.
 const STATE_CHIP: Record<ThreadDetailRow["state"], string> = { open: "running", closed: "", merged: "done" };
