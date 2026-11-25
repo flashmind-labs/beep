@@ -12,7 +12,7 @@ use std::collections::{BTreeSet, HashSet};
 use strum::IntoEnumIterator;
 
 /// The most sessions kept that the user opened and the mirror does not hold.
-const OPENED_MOST: usize = 50;
+pub(super) const OPENED_MOST: usize = 50;
 
 /// A view or window command the palette can run without a search.
 #[derive(Clone, Copy, strum::EnumIter, strum::IntoStaticStr)]

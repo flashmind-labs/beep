@@ -1,4 +1,5 @@
 use super::*;
+use crate::fleet::view_signal::moving;
 use serde_json::Value;
 
 #[test]
