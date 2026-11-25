@@ -182,22 +182,27 @@ test("a held issue's start that fails says why in the sheet", async ({ page }) =
   expect(await called(page, "issue_assign")).toHaveLength(1);
 });
 
-test("a project whose team cannot be read is asked once, and a pushed team shows", async ({ page }) => {
+test("a project whose team cannot be read is asked again on the next projects push, and a pushed team shows", async ({ page }) => {
   await page.clock.install();
   await openDesktop(page, false, { center_project_lists: lists });
   await page.evaluate(() => window.__navigation.rejectAll("team_record"));
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "machines" } }), projectName);
   await expect(page.locator(".pj-strip")).toBeVisible();
 
+  // No timer asks again.
   await page.clock.fastForward(120_000);
   const asked = await called(page, "team_record");
   expect(asked.length).toBe(1);
   await expect(page.locator('.pj-list .pj-li[title="Team"]')).toHaveCount(0);
   await expect(page.locator(".pj-strip button").filter({ hasText: "Team" })).toHaveCount(0);
 
+  // A projects push says the record may have landed: the next read works.
+  await page.evaluate(team => { window.__navigation.respond("team_record", team); window.__navigation.allow("team_record"); window.__navigation.notify("projects"); }, record);
+  await expect.poll(async () => (await called(page, "team_record")).length).toBe(2);
+
+  await expect(page.locator(".pj-strip button").filter({ hasText: "Team" })).toBeVisible();
   await page.evaluate(args => window.__navigation.emit("team-changed", { project_id: args.projectId, record: args.record, cards: { needs_you: [], teammates: [], own_queued: [], online: ["kim"] } }), { projectId: asked[0].projectId, record });
   await expect(page.locator(".pj-strip button").filter({ hasText: "Team" })).toContainText("2 online");
-  expect((await called(page, "team_record")).length).toBe(1);
 });
 
 test("a teammate's card arrives from the push, with no read on a timer", async ({ page }) => {

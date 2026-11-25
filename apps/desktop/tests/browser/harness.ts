@@ -55,6 +55,8 @@ interface NavigationHarness {
   rejectOnce(command: string, error?: string): void;
   /// Every later call of `command` fails.
   rejectAll(command: string): void;
+  /// Ends `rejectAll`: the next call of `command` answers again.
+  allow(command: string): void;
 }
 type NativeHandler = (event: { payload: unknown }) => void;
 interface NativeBoundary {
@@ -331,6 +333,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
     emit(name, payload) { for (const handler of handlers.get(name) ?? []) handler({ payload }); },
     rejectOnce(command, error = "Requested test failure") { rejected.set(command, error); },
     rejectAll(command) { failing.add(command); },
+    allow(command) { failing.delete(command); },
     hold(command) { held.add(command); },
     holdNext(command) { heldOnce.add(command); },
     release(command) { held.delete(command); releases.get(command)?.(); releases.delete(command); },

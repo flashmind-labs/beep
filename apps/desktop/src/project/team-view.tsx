@@ -11,6 +11,7 @@ import { Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import { Button, ChipToggle, CopyButton, EmptyPanel, LineRow, NO_AUTO, SectionHead, SheetHead, Switch } from "../ui/kit.tsx";
 import { confirmSheet } from "../ui/menu.tsx";
 import { openSheet } from "../ui/parts.tsx";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { AgentButton } from "../review/feedback-view.tsx";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
@@ -41,7 +42,8 @@ const reading = new Map<string, Promise<void>>();
 const names = new Map<string, string>();
 /// What each project's team last held, to draw only on a change.
 const answers = new Map<string, string>();
-/// The projects whose first read failed: a project on no forge fails every time. A push clears it.
+/// The projects whose first read failed: a project on no forge fails every time. The next
+/// projects push, which says a record may have landed, asks again.
 const failed = new Set<string>();
 
 /// Project `name`'s team as last read, or null before it answered; asks for it the first time.
@@ -111,6 +113,12 @@ function readTeam(name: string): Promise<void> {
 /// A change of a project's team, from the desktop: its record and board cards as they stand now.
 /// A record of `null` is no team; cards of `null` leave the cards held.
 interface TeamChanged { project_id: string; record: TeamRecord | null; cards: TeamCards | null }
+
+subscribeEach(topic("projects"), () => {
+  if (!failed.size) return;
+  failed.clear();
+  redrawProjects();
+});
 
 listen<TeamChanged>("team-changed", ({ payload }) => {
   const name = names.get(payload.project_id);
