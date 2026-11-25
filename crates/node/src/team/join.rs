@@ -6,8 +6,7 @@
 //! every member of that roster on the forge in turn.
 
 use super::{
-    gateway::FORGE_LIMIT,
-    home::{Checkout, Home},
+    home::{Checkout, FORGE_LIMIT, Home},
     link::{TeamError, TeamLink, finish},
     proof::{Nonce, ProofError, drop_proof, proof_context, proof_seen, push_proof},
     roster::vet_roster,

@@ -703,7 +703,7 @@ async fn an_issue_session_reports_its_agents_id_and_worktree() {
     assert_eq!(id, AGENT_ID);
     assert_ne!(Path::new(&worktree), work);
     assert_eq!(
-        crate::team::gateway::branch_of(&worktree).await.as_deref(),
+        crate::team::pickup::branch_of(&worktree).await.as_deref(),
         Some("issue-7-fix-it")
     );
     agents.shutdown().await;

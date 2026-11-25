@@ -5,12 +5,13 @@
 //! without a pull request becomes a Needs you card for this mesh's apps.
 
 use super::{
-    asks::MAX_CARDS, cards::TITLE, gateway::{FORGE_LIMIT, branch_of}, home::{self, Project}, link::TeamLink,
+    asks::MAX_CARDS, cards::TITLE, home::{self, FORGE_LIMIT, Project}, link::TeamLink,
     membership::Team,
 };
 use crate::{
     agents::{Agents, child_view::{ChildView, full_id}, machine_list::{find, machine_name}},
     link::note,
+    machine::ci::forge::command,
     peer_stream::{CallFailed, over_the_mesh},
 };
 use beep_mesh::Mesh;
@@ -831,6 +832,20 @@ pub(crate) async fn still_runs(mesh: &Mesh, card: &str) -> Option<bool> {
     let views: Vec<ChildView> = serde_json::from_str(&text).ok()?;
 
     Some(views.iter().any(|view| view.id == session))
+}
+
+const GIT_LIMIT: Duration = Duration::from_secs(5);
+
+/// The branch checked out in `folder`; `None` when detached or unknown.
+pub(crate) async fn branch_of(folder: &str) -> Option<String> {
+    let args = ["-C", folder, "rev-parse", "--abbrev-ref", "HEAD"].map(str::to_owned);
+    let out = timeout(GIT_LIMIT, command("git", &args).output())
+        .await
+        .ok()?
+        .ok()?;
+    let branch = String::from_utf8(out.stdout).ok()?.trim().to_owned();
+
+    (out.status.success() && !branch.is_empty() && branch != "HEAD").then_some(branch)
 }
 
 #[cfg(test)]

@@ -8,10 +8,10 @@
 use super::{
     board::CHANGES,
     cards::{Facts, IssueTitles, card_of, midnight, settle},
-    home::{Home, Project},
+    home::{FORGE_LIMIT, Home, Project},
     link::{TeamLink, board_io::{Followed, Heard, follow}},
     membership::{self, Membership, Team},
-    pickup::{Pickups, Round, read_assigned},
+    pickup::{Pickups, Round, branch_of, read_assigned},
     sightings::{self, Sight, Sighted},
 };
 use crate::{
@@ -23,7 +23,6 @@ use crate::{
     },
     link::Offers,
     machine::{
-        ci::forge::command,
         elect::{Reaches, elect, gather, online, ranked},
     },
 };
@@ -65,9 +64,6 @@ const ROUND: Duration = Duration::from_secs(10);
 /// again every `BUSY`, as the forge says nothing of its own.
 const BUSY: Duration = Duration::from_secs(60);
 const QUIET: Duration = Duration::from_secs(10 * 60);
-/// How long a forge call or a branch read may take.
-pub(super) const FORGE_LIMIT: Duration = Duration::from_secs(30);
-const GIT_LIMIT: Duration = Duration::from_secs(5);
 
 /// The machine that acts for `repo`, as `me` sees it with the online
 /// `peers`: one of the project's machines on `mine`, this mesh's entry on the
@@ -886,18 +882,6 @@ pub(super) fn starters(project: &Project, online: &BTreeSet<EndpointId>) -> BTre
         .map(|device| device.id)
         .filter(|machine| online.contains(machine))
         .collect()
-}
-
-/// The branch checked out in `folder`; `None` when detached or unknown.
-pub(crate) async fn branch_of(folder: &str) -> Option<String> {
-    let args = ["-C", folder, "rev-parse", "--abbrev-ref", "HEAD"].map(str::to_owned);
-    let out = timeout(GIT_LIMIT, command("git", &args).output())
-        .await
-        .ok()?
-        .ok()?;
-    let branch = String::from_utf8(out.stdout).ok()?.trim().to_owned();
-
-    (out.status.success() && !branch.is_empty() && branch != "HEAD").then_some(branch)
 }
 
 #[cfg(test)]

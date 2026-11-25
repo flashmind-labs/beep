@@ -38,8 +38,8 @@ use tokio::{
     time::timeout,
 };
 
-/// How long a forge call may take.
-const FORGE_LIMIT: Duration = Duration::from_secs(30);
+/// How long a forge call or a branch read may take.
+pub(super) const FORGE_LIMIT: Duration = Duration::from_secs(30);
 /// How long a contact's invite waits for an answer, and how many from one
 /// contact wait at once.
 const INVITE_AGE: Duration = Duration::from_secs(24 * 60 * 60);
