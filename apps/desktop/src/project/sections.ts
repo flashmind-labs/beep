@@ -11,7 +11,7 @@ import { formatAgo } from "../ui/format.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { onMoves } from "../agents/move-store.ts";
 import { onClosing, sessionVisible, shownStatus } from "../agents/closing.ts";
-import { invoke, indexedChannel, listen } from "../ui/tauri.ts";
+import { invoke, indexedChannel, listen, openUrl } from "../ui/tauri.ts";
 import { localProjectId } from "./localid.ts";
 import type { Project, SessionRow } from "./projects-state.ts";
 import { followedProject, makeProjectLive, type LiveRow } from "./projectlive.ts";
@@ -29,7 +29,6 @@ import { makeThreads, type ListsRow, type IssueRow, type PullRequestRow, type Re
 import { makeThreadDetail } from "./threaddetail.tsx";
 import { makeRuns, type RunDetail, type RunsRow } from "./runs.tsx";
 import { state, keptSection, sessionsOf } from "../center/state.ts";
-import { openUrl } from "../center/openitems.ts";
 import { currentLocation, go, drawTop } from "../center/views.tsx";
 import { openTile } from "./split.tsx";
 import { AG } from "../agents/agents.ts";

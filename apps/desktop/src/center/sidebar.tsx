@@ -5,7 +5,7 @@ import { WINDOWS, isMobile, onPhone } from "../ui/platform.ts";
 // sheets that add a machine or a project.
 import { onClosing } from "../agents/closing.ts";
 import { plural, reason } from "../ui/format.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, openUrl } from "../ui/tauri.ts";
 import { openPalette } from "./palette.tsx";
 import { pane } from "../bar/pane.ts";
 import type { PaneNow } from "../bar/core.ts";
@@ -13,7 +13,6 @@ import { foldKey, mergeProjects, parseFolded, sideProjects, splitOnTop, removePr
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { openInEditor } from "../project/editors.ts";
 import { whereRows, openOnLabel } from "../project/projects-state.ts";
-import { openUrl } from "./openitems.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
 import { ALL } from "../terminals/terminal-list.ts";
 import { state, pages, whereOf, type SidebarGroup, groups } from "./state.ts";

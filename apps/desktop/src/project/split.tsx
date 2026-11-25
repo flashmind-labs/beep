@@ -29,7 +29,7 @@ import { projectBranch } from "./gitsync-state.ts";
 import { boxOf, go } from "../center/views.tsx";
 import { sessionMenu } from "../agents/sessionmenu.ts";
 import { agentsSection, customAgentsCount, customAgentsSection, whereSection } from "./projects.tsx";
-import { openUrl } from "../center/openitems.ts";
+import { openUrl } from "../ui/tauri.ts";
 import { pa, terms, fsync, gitHistory, thr, details, runs, redrawProjects, repoActs } from "./sections.ts";
 import { sessionsHost, sessionsList, sessionsDue, loadSessions } from "./loads.tsx";
 import { byRecent, type RunningAgent, runningKey } from "../agents/running-state.ts";

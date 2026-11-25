@@ -17,7 +17,7 @@ import { type ReactNode } from "react";
 import { NEW_WINDOW } from "./projectwindow.ts";
 import { localProjectId } from "./localid.ts";
 import { type CenterView, state, whereOf } from "../center/state.ts";
-import { openUrl } from "../center/openitems.ts";
+import { openUrl } from "../ui/tauri.ts";
 import { boxOf, drawPage, go, windowAlone } from "../center/views.tsx";
 import { setProjectOnTop, openProjectWindow, removeProject, projectRows, addProject } from "../center/sidebar.tsx";
 import { editGroup } from "./groups.tsx";

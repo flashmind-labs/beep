@@ -240,3 +240,7 @@ window.addEventListener("error", e => logError(e.error instanceof Error ? `${e.e
 window.addEventListener("unhandledrejection", e => logError(`unhandled rejection: ${e.reason instanceof Error ? e.reason.stack ?? e.reason : e.reason}`));
 export const { listen } = window.__TAURI__.event;
 
+/// Opens `url` in the user's browser.
+export function openUrl(url: string) {
+  invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
+}

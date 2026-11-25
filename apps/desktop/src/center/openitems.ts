@@ -18,10 +18,6 @@ import { single } from "../ui/active.ts";
 import type { Pushed } from "../ui/snapshot-state.ts";
 import { prSession } from "../project/pr-session.ts";
 
-export function openUrl(url: string) {
-  invoke("open_url", { url }).catch(e => console.warn("opening a link:", e));
-}
-
 const homeButtons = agentButtons(() => draw());
 
 /// Review with agent on a PR of `project`: starts the reviewer at once in
