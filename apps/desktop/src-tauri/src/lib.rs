@@ -854,6 +854,7 @@ fn setup(
     app.manage(Arc::new(mirror));
     app.manage(projects::live::Followed::default());
     app.manage(projects::team_live::TeamLive::default());
+    app.manage(notices::Looks::new());
     app.manage(settings::gh_sign_in::GhSignIn::default());
     app.manage(agents::accounts::ClaudeSignIn::default());
     app.manage(platform::update::Updates::default());

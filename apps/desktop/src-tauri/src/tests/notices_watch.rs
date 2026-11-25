@@ -51,18 +51,15 @@ fn reads_that_ask_the_machines_follow_changes_at_most_once_a_minute() {
     assert!(slow.due(start), "the first read goes at once");
 
     slow.read(start);
-    assert!(!slow.due(start + Duration::from_secs(30)));
-    assert_eq!(
-        slow.next(),
-        Some(start + SLOW_EVERY),
-        "idle, only the fallback"
-    );
+    assert!(!slow.due(start + SLOW_GAP), "nothing changed");
+    assert_eq!(slow.wake(), None, "idle, nothing wakes the bell");
 
     slow.wanted = true;
     assert!(
         !slow.due(start + Duration::from_secs(30)),
         "a change waits for the gap"
     );
+    assert_eq!(slow.wake(), Some(start + SLOW_GAP));
     assert!(slow.due(start + SLOW_GAP));
 }
 

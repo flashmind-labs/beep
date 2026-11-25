@@ -183,7 +183,7 @@ impl TeamLive {
         #[cfg(desktop)]
         {
             let fleet = app.state::<Arc<Fleet>>();
-            let interests = self.held().interests(fleet.me);
+            let interests = self.held().interests(fleet.id());
             let events = app.state::<Events>();
 
             if let Err(error) = events.hold_set("team", interests) {
@@ -312,7 +312,8 @@ async fn emit(app: &AppHandle, id: Uuid) {
         }
     };
     let payload = {
-        let mut held = app.state::<TeamLive>().held();
+        let live = app.state::<TeamLive>();
+        let mut held = live.held();
         let Some(project) = held.projects.get_mut(&id) else {
             return;
         };
@@ -356,7 +357,8 @@ async fn emit_invites(app: &AppHandle) {
         }
     };
     {
-        let mut held = app.state::<TeamLive>().held();
+        let live = app.state::<TeamLive>();
+        let mut held = live.held();
 
         if held.sent_invites.as_ref() == Some(&payload) {
             return;

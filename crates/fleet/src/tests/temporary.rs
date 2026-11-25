@@ -64,3 +64,18 @@ fn a_device_off_at_start_counts_from_then_and_one_gone_is_forgotten() {
         [1]
     );
 }
+
+#[test]
+fn the_sweep_wakes_when_the_first_device_off_is_due() {
+    let mut leftovers = Leftovers::default();
+    let start = Instant::now();
+    let at = |secs| start + Duration::from_secs(secs);
+    assert_eq!(leftovers.due(), None, "nothing is off");
+
+    leftovers.step(&temporary(&[(1, false), (2, true)]), at(10));
+    leftovers.step(&temporary(&[(1, false), (2, false)]), at(50));
+    assert_eq!(leftovers.due(), Some(at(10) + GONE_AFTER));
+
+    leftovers.step(&temporary(&[(1, true), (2, false)]), at(60));
+    assert_eq!(leftovers.due(), Some(at(50) + GONE_AFTER));
+}

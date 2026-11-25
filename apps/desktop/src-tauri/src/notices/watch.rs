@@ -25,28 +25,45 @@ use std::{
     sync::Arc,
     time::{Duration, Instant, SystemTime},
 };
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tokio::{
     select,
-    sync::broadcast::error::RecvError,
+    sync::{broadcast::error::RecvError, watch},
     time::{Instant as TokioInstant, sleep_until},
 };
 
-/// Machines are looked at on each change to the mesh, and this often besides.
-const LOOK_EVERY: Duration = Duration::from_secs(600);
 /// Sync conflicts, skill conflicts and moves are read after a change, at
 /// most this often, since each read asks the machines.
 const SLOW_GAP: Duration = Duration::from_secs(60);
-/// They are read this often besides, for what says nothing when it changes.
-const SLOW_EVERY: Duration = Duration::from_secs(300);
+/// How long a temporary machine's removal waits after it failed.
+const RETRY: Duration = Duration::from_secs(60);
 /// How long a machine is offline before the bell says so, so a short drop
 /// says nothing.
 const AWAY: Duration = Duration::from_secs(120);
 /// How old a move may be and still be asked about.
 const MOVES_FOR_MS: u64 = 24 * 3600 * 1000;
 
-/// Looks at the mesh while the app runs: again on each change to it or to
-/// this Mac's sync, and when a machine away is due to be told.
+/// Counts the sync and move snapshots the machines pushed, which the bell reads again for.
+pub(crate) struct Looks(watch::Sender<u64>);
+
+impl Looks {
+    pub(crate) fn new() -> Self {
+        Self(watch::channel(0).0)
+    }
+}
+
+/// A machine pushed its sync or its moves: conflicts or a failed move may have come.
+pub(crate) fn heard(app: &AppHandle, topic: &str) {
+    if matches!(topic, "sync" | "moves") {
+        app.state::<Looks>()
+            .0
+            .send_modify(|count| *count = count.wrapping_add(1));
+    }
+}
+
+/// Looks at the mesh while the app runs: again on each change to it, to
+/// this Mac's sync or to what the machines push of theirs, and when a machine away or a
+/// temporary machine is due. A desktop keeps the machines pushing their sync and moves.
 pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Session>) {
     let mut away = Away::default();
     let mut leftovers = Leftovers::default();
@@ -55,6 +72,9 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
     let mut changes = fleet.changes();
     let mut local = beep_node::events::system().subscribe();
     let mut slow = Slow::default();
+    let mut pushed = app.state::<Looks>().0.subscribe();
+    #[cfg(desktop)]
+    let _standing = hold_pushes(&app, &fleet);
 
     loop {
         machines(&app, &fleet, &mut away);
@@ -74,11 +94,12 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
             slow.read(now);
         }
 
-        let wake = [Some(now + LOOK_EVERY), away.due(), slow.next()]
+        // A removal that failed stays due: it is tried again after `RETRY`, not in a loop.
+        let removal = leftovers.due().map(|due| due.max(now + RETRY));
+        let wake = [away.due(), removal, slow.wake()]
             .into_iter()
             .flatten()
-            .min()
-            .unwrap_or(now + LOOK_EVERY);
+            .min();
 
         select! {
             changed = changes.changed() => {
@@ -93,13 +114,25 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
                 Ok(_) | Err(RecvError::Closed) => {}
                 Err(RecvError::Lagged(_)) => slow.wanted = true,
             },
-            () = sleep_until(TokioInstant::from_std(wake)) => {}
+            changed = pushed.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+
+                slow.wanted = true;
+            }
+            () = async {
+                match wake {
+                    Some(wake) => sleep_until(TokioInstant::from_std(wake)).await,
+                    None => std::future::pending().await,
+                }
+            } => {}
         }
     }
 }
 
 /// When the reads that ask the machines run: soon after a change, but at
-/// most once per `SLOW_GAP`, and every `SLOW_EVERY` regardless.
+/// most once per `SLOW_GAP`.
 #[derive(Debug)]
 struct Slow {
     last: Option<Instant>,
@@ -117,19 +150,46 @@ impl Default for Slow {
 
 impl Slow {
     fn due(&self, now: Instant) -> bool {
-        self.next().is_none_or(|next| next <= now)
+        self.wanted && self.wake().is_none_or(|wake| wake <= now)
     }
 
-    /// When the next read is due; `None` for at once.
-    fn next(&self) -> Option<Instant> {
-        let last = self.last?;
-        let gap = if self.wanted { SLOW_GAP } else { SLOW_EVERY };
-        Some(last + gap)
+    /// When the read a change asked for is due; `None` when nothing waits, or at once.
+    fn wake(&self) -> Option<Instant> {
+        self.wanted
+            .then(|| self.last.map(|last| last + SLOW_GAP))
+            .flatten()
     }
 
     fn read(&mut self, now: Instant) {
         self.last = Some(now);
         self.wanted = false;
+    }
+}
+
+/// Keeps every machine pushing its sync and its moves while the app runs, so a conflict or a
+/// failed move on one is told as it comes.
+#[cfg(desktop)]
+fn hold_pushes(app: &AppHandle, fleet: &Arc<Fleet>) -> Option<()> {
+    use crate::fleet::events::{Events, Interest};
+    use beep_proto::node::events::Topic;
+
+    let events = app.state::<Events>();
+    let interests = ["sync", "moves"]
+        .map(|name| Interest {
+            machine: None,
+            topic: Topic::new(name),
+        })
+        .to_vec();
+
+    match events.hold_set("notices", interests) {
+        Ok(()) => {
+            events.start(app.clone(), fleet.clone());
+            Some(())
+        }
+        Err(error) => {
+            log::warn!("the bell cannot follow the machines' sync: {error}");
+            None
+        }
     }
 }
 

@@ -44,6 +44,13 @@ impl<K: Eq + Hash + Copy> Leftovers<K> {
     }
 }
 
+impl<K> Leftovers<K> {
+    /// When the first device seen offline is due, for the caller to wake at.
+    pub fn due(&self) -> Option<Instant> {
+        self.since.values().map(|since| *since + GONE_AFTER).min()
+    }
+}
+
 /// Removes the temporary devices of `mesh` offline for `GONE_AFTER` as of `now`. Returns the
 /// ones this desktop removed; one another desktop removed first is left out.
 pub async fn sweep(

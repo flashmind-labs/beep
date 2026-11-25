@@ -183,6 +183,10 @@ impl SubscriptionWorker {
 
                             team_heard(app, machine, &snapshot.topic, Some(&snapshot.value));
 
+                            if !initial {
+                                crate::notices::heard(app, snapshot.topic.name());
+                            }
+
                             if let events::Value::Resources(resources) = &snapshot.value {
                                 app.state::<Events>().resources(machine, &snapshot.topic, resources);
                             }
