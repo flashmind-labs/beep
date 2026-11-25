@@ -56,8 +56,8 @@ apps/desktop/src/agentpane/text-view.tsx | lookupDefinition | setTimeout#1 | ui 
 apps/desktop/src/agentpane/worktree.ts | apply | setTimeout#1 | ui | defers a layout apply to the next tick after input
 apps/desktop/src/agents/activity-view.tsx | tickMinutes | setInterval#1 | ui | bumps relative-time labels each minute while shown
 apps/desktop/src/agents/agentnew.tsx | offer | setTimeout#1 | debounce | waits for typing to settle, then lists the typed folder
+apps/desktop/src/agents/attachments-view.tsx | agentAttachError | setTimeout#1 | ui | clears the attach error text after 5 s
 apps/desktop/src/agents/choice-extra-view.tsx | blur | setTimeout#1 | ui | leaves the field after blur unless focus returned
-apps/desktop/src/agents/images.tsx | agentAttachError | setTimeout#1 | ui | clears the attach error text after 5 s
 apps/desktop/src/agents/images.tsx | fillLater | setTimeout#1 | retry | loads failed inline pictures again after their backoff
 apps/desktop/src/agents/inline-images.ts | fails | setTimeout#1 | retry | refills failed images when their retry time comes
 apps/desktop/src/agents/logwindow.tsx | mayPin | setTimeout#1 | ui | pins the log to its end after a scroll wait
