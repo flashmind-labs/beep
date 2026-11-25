@@ -8,6 +8,9 @@ pub const PROTOCOL: &str = "events/1";
 pub const MAX_TOPICS: usize = 64;
 /// The topic of a team's cards, keyed by the project's name: `Value::TeamCards`.
 pub const TEAM_CARDS_TOPIC: &str = "team-cards";
+/// The topic of the contacts' team invites waiting for a desktop on this
+/// node: `Value::TeamInvites`.
+pub const TEAM_INVITES_TOPIC: &str = "team-invites";
 
 mod git;
 pub use git::{GitOutput, GitRead};
@@ -91,6 +94,11 @@ pub enum Value {
     /// Only a topic that names it gets it, never `*`. A node from before it
     /// answers a `SnapshotError` for the topic.
     TeamCards(tools::TeamCards),
+    /// The invites waiting for a desktop on this node, as `TeamAppArgs::Invites`
+    /// answers them, under the unkeyed `team-invites`. Only a topic that names
+    /// it gets it, never `*`. A node from before it answers a `SnapshotError`
+    /// for the topic.
+    TeamInvites(Vec<tools::TeamInviteArgs>),
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

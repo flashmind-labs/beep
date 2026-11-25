@@ -563,3 +563,17 @@ fn a_projects_team_cards_have_a_source_of_their_own() {
     // A ring of the project's topic reads the cards again.
     assert!(affected(&topic, &topic));
 }
+
+#[test]
+fn the_invites_have_a_source_of_their_own() {
+    let topic = Topic::new(TEAM_INVITES_TOPIC);
+
+    assert_eq!(
+        sources(std::slice::from_ref(&topic)),
+        vec![(topic.clone(), Source::TeamInvites)]
+    );
+    // Not for `*`.
+    assert!(sources(&[Topic::new("*")]).iter().all(|(topic, _)| topic.name() != TEAM_INVITES_TOPIC));
+    // A ring of the topic reads the invites again.
+    assert!(affected(&topic, &topic));
+}

@@ -342,7 +342,7 @@ async fn hand(mesh: Mesh, link: TeamLink, mut handed: Vec<TeamRecord>) -> Handed
         log::warn!("the contacts were not kept in step with the teams: {e}");
     }
 
-    let invites = link.invites(|invites| invites.current(SystemTime::now()));
+    let invites = link.invites_waiting();
     let records = link.with(|teams| teams.rosters.pending());
     handed.retain(|record| records.contains(record));
     let unhanded: Vec<_> = records
@@ -393,7 +393,7 @@ async fn hand(mesh: Mesh, link: TeamLink, mut handed: Vec<TeamRecord>) -> Handed
 
     for (invite, sent) in invites {
         match sent {
-            Ok(()) => link.invites(|invites| invites.remove(&invite)),
+            Ok(()) => link.drop_invite(&invite),
             Err(e) => {
                 waiting = true;
                 log::info!("an invite to {} waits for a desktop: {e}", invite.repo);

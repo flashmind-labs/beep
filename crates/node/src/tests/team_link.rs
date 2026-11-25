@@ -400,7 +400,7 @@ fn with_carol(pair: &Pair, carol: EndpointId, device: EndpointId) {
 
 fn invites(pair: &Pair) -> Vec<TeamInviteArgs> {
     pair.inviter
-        .invites(|invites| invites.current(SystemTime::now()))
+        .invites_waiting()
 }
 
 #[tokio::test]
@@ -600,6 +600,32 @@ async fn invite_from_contact_is_kept() {
     let invites = invites(&pair);
     assert_eq!(invites.len(), 1);
     assert_eq!(invites[0].from, contact);
+}
+
+#[tokio::test]
+async fn an_invite_kept_or_dropped_rings_the_invites_topic() {
+    use beep_proto::node::events::{TEAM_INVITES_TOPIC, Topic};
+
+    let pair = Pair::new(SystemTime::now() + DAY).await;
+    let (contact, device) = (mesh_id(), mesh_id());
+    with_carol(&pair, contact, device);
+    pair.inviter.edit_home(|home| {
+        home.contacts.insert(device, contact);
+    });
+    let mut changes = crate::events::system().subscribe();
+    let rung = |changes: &mut tokio::sync::broadcast::Receiver<crate::events::Change>| {
+        std::iter::from_fn(|| changes.try_recv().ok())
+            .any(|change| change.topic == Topic::new(TEAM_INVITES_TOPIC))
+    };
+    while changes.try_recv().is_ok() {}
+
+    assert_eq!(pair.tell(device, invite(repo())).await, None);
+    assert!(rung(&mut changes), "a kept invite");
+
+    let kept = invites(&pair).remove(0);
+    pair.inviter.drop_invite(&kept);
+    assert!(rung(&mut changes), "a dropped invite");
+    assert!(invites(&pair).is_empty());
 }
 
 #[tokio::test]

@@ -67,7 +67,7 @@ async fn roster(mesh: Option<&Mesh>, request: &Request) -> Outcome {
 /// Keeps a contact's invite a node took, for this desktop to show.
 fn keep_invite(link: &TeamLink, request: &Request) -> Outcome {
     let invite: TeamInviteArgs = parse(&request.args)?;
-    link.invites(|invites| invites.keep(invite, SystemTime::now()))?;
+    link.keep_invite(invite)?;
 
     Ok("Kept the invite.".to_owned())
 }
@@ -140,8 +140,6 @@ async fn forward(mesh: &Mesh, gateway: EndpointId, args: TeamAppArgs) -> Reply {
 
 /// The answer of this device to an app's call.
 async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
-    let now = SystemTime::now();
-
     match args {
         TeamAppArgs::Cards { repo } => json(&cards_here(link, &repo)),
         TeamAppArgs::Dismiss { repo, card } => {
@@ -177,9 +175,9 @@ async fn here(link: &TeamLink, args: TeamAppArgs) -> Outcome {
             devices,
             ..
         } => invite(link, &devices, TeamMsg::Invite { repo, ticket }).await,
-        TeamAppArgs::Invites => json(&link.invites(|invites| invites.current(now))),
+        TeamAppArgs::Invites => json(&link.invites_waiting()),
         TeamAppArgs::DropInvite { invite } => {
-            link.invites(|invites| invites.remove(&invite));
+            link.drop_invite(&invite);
             Ok("Dropped the invite.".to_owned())
         }
         TeamAppArgs::Queued { repo, issues } => {

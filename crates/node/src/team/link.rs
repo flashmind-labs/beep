@@ -14,7 +14,7 @@ use super::{
 };
 use beep_mesh::TeamTicket;
 use beep_projects::commands::OpenIssue;
-use beep_proto::node::events::{TEAM_CARDS_TOPIC, Topic};
+use beep_proto::node::events::{TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic};
 use beep_proto::watched::read_sent;
 use beep_proto::{
     node::{LinkRx, LinkTx, link, tools::TeamInviteArgs},
@@ -319,9 +319,24 @@ impl TeamLink {
         }
     }
 
-    /// Keeps contacts' invites for a desktop to show.
-    pub(crate) fn invites<R>(&self, f: impl FnOnce(&mut Invites) -> R) -> R {
-        f(&mut crate::lock(&self.inner.invites))
+    /// The invites waiting for a desktop now.
+    pub(crate) fn invites_waiting(&self) -> Vec<TeamInviteArgs> {
+        crate::lock(&self.inner.invites).current(SystemTime::now())
+    }
+
+    /// Keeps a contact's invite for a desktop to show, and says the
+    /// `team-invites` topic changed.
+    pub(crate) fn keep_invite(&self, invite: TeamInviteArgs) -> Result<(), String> {
+        crate::lock(&self.inner.invites).keep(invite, SystemTime::now())?;
+        crate::events::system().changed(Topic::new(TEAM_INVITES_TOPIC));
+
+        Ok(())
+    }
+
+    /// Forgets `invite`, and says the `team-invites` topic changed.
+    pub(crate) fn drop_invite(&self, invite: &TeamInviteArgs) {
+        crate::lock(&self.inner.invites).remove(invite);
+        crate::events::system().changed(Topic::new(TEAM_INVITES_TOPIC));
     }
 
     /// Keeps the queue a team's gateway handed this device.
@@ -340,6 +355,7 @@ impl TeamLink {
         *crate::lock(&self.inner.teams) = Teams::default();
         *crate::lock(&self.inner.asks) = Asks::default();
         *crate::lock(&self.inner.invites) = Invites::default();
+        crate::events::system().changed(Topic::new(TEAM_INVITES_TOPIC));
         crate::lock(&self.inner.queues).clear();
         self.inner.home.send_replace(Home::default());
         self.inner.served.send_replace(Served::default());
@@ -614,8 +630,7 @@ impl TeamLink {
                     return Err("The invite is for another repository".to_owned());
                 }
 
-                let invite = TeamInviteArgs { from, repo, ticket };
-                self.invites(|invites| invites.keep(invite, SystemTime::now()))
+                self.keep_invite(TeamInviteArgs { from, repo, ticket })
             });
 
         match kept {

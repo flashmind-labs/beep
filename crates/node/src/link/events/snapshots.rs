@@ -1,7 +1,7 @@
 use beep_proto::SessionId;
 use super::*;
 use crate::events::ChangeKind;
-use beep_proto::node::events::{Query, Read, Snapshot, TEAM_CARDS_TOPIC, Value};
+use beep_proto::node::events::{Query, Read, Snapshot, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Value};
 use beep_proto::node::subscriptions::Reply;
 
 const MAX_READS: usize = 4;
@@ -43,6 +43,8 @@ enum Source {
     ToolUpdates,
     /// The cards of the team of the project with this name.
     TeamCards(String),
+    /// The invites waiting for a desktop on this node.
+    TeamInvites,
 }
 
 impl Source {
@@ -265,6 +267,13 @@ impl Snapshots {
 
         for topic in topics
             .iter()
+            .filter(|topic| topic.name() == TEAM_INVITES_TOPIC)
+        {
+            wanted.push((topic.clone(), Source::TeamInvites));
+        }
+
+        for topic in topics
+            .iter()
             .filter(|topic| topic.name() == crate::machine::provision::UPDATES_TOPIC)
         {
             wanted.push((topic.clone(), Source::ToolUpdates));
@@ -363,6 +372,7 @@ impl Snapshots {
                         | crate::run::device::LIST_TOPIC
                         | crate::machine::provision::UPDATES_TOPIC
                         | TEAM_CARDS_TOPIC
+                        | TEAM_INVITES_TOPIC
                 )
         }) {
             wanted.push((topic.clone(), Source::Plugin));
@@ -495,6 +505,10 @@ impl Snapshots {
                             .peers()
                             .and_then(|peers| crate::team::apps::cards_of(&peers.team(), &project))
                             .map_or(Value::Missing, Value::TeamCards)),
+                        Source::TeamInvites => Ok(offers
+                            .reach
+                            .peers()
+                            .map_or(Value::Missing, |peers| Value::TeamInvites(peers.team().invites_waiting()))),
                         Source::ToolUpdates => Ok(offers
                             .provision
                             .as_ref()
