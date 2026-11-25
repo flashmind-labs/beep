@@ -15,6 +15,26 @@ async fn adb_installed_after_the_node_started_is_found_on_the_next_look() {
     assert_eq!(started.elapsed(), TRACK_RETRY * 2);
 }
 
+#[tokio::test]
+async fn a_list_while_adb_is_followed_is_what_the_follower_saw() {
+    let phone = Device {
+        id: DeviceId("R58M".to_owned()),
+        name: "Pixel 9".to_owned(),
+        platform: Platform::Android,
+        state: DeviceState::On,
+        os: None,
+        phone: true,
+    };
+    PHONES.send_replace(vec![phone.clone()]);
+    TRACKING.store(true, Ordering::Release);
+
+    // No adb is asked: there is none here to say it.
+    assert_eq!(list().await, vec![phone]);
+
+    TRACKING.store(false, Ordering::Release);
+    PHONES.send_replace(Vec::new());
+}
+
 #[test]
 fn adb_lists_ready_phones_by_model_without_emulators() {
     let text = "List of devices attached\n\
