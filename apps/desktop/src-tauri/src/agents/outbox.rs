@@ -1133,8 +1133,14 @@ impl Held {
             },
         );
         let before = self.delivered.len();
+        let unseen = self
+            .delivered
+            .iter()
+            .filter(|message| message.key() == *key && message.seen.is_none())
+            .count()
+            .max(1);
         self.delivered
-            .retain(|message| message.key() != *key || !holds(log, message));
+            .retain(|message| message.key() != *key || !holds_among(log, message, unseen));
 
         (self.delivered.len() != before).then(|| self.changed(key))
     }
@@ -2199,7 +2205,14 @@ fn is_message(entry: &str, message: &Message) -> bool {
 /// machine took `message`: the session holds more copies of it for the turn
 /// than the window saw, or a user entry after what the window saw is it.
 /// Without what the window saw, only the newest user entry counts.
+#[cfg(test)]
 fn holds(log: &Log, message: &Message) -> bool {
+    holds_among(log, message, 1)
+}
+
+/// As `holds`, where `unseen` messages of the session were sent with no `seen` and wait to be
+/// listed: each is among the newest `unseen` user entries.
+fn holds_among(log: &Log, message: &Message, unseen: usize) -> bool {
     let form = queued_form(message);
     let copies = |queued: &[String]| queued.iter().filter(|m| **m == form).count();
     let before = message.seen.as_ref().map_or(0, |seen| copies(&seen.queued));
@@ -2224,8 +2237,9 @@ fn holds(log: &Log, message: &Message) -> bool {
             })
             .any(|(_, e)| is_message(&e.text, message)),
         None => users
-            .next_back()
-            .is_some_and(|(_, e)| is_message(&e.text, message)),
+            .rev()
+            .take(unseen)
+            .any(|(_, e)| is_message(&e.text, message)),
     }
 }
 

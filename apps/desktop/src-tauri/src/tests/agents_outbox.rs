@@ -304,6 +304,22 @@ async fn two_messages_sent_without_what_the_window_saw_both_settle_from_the_last
 }
 
 #[tokio::test]
+async fn messages_sent_to_a_session_never_followed_settle_each_among_the_newest_entries() {
+    let (_dir, _, outbox) = outbox();
+    push(&outbox, "s1", "one");
+    push(&outbox, "s1", "two");
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    // An older "one" is not the sent one, but both sit within the newest two entries.
+    outbox
+        .with(|held| held.settled(&key("s1"), &log(&[], 0, &[user("one"), user("two")])))
+        .expect("the rows go");
+    assert!(texts(&outbox, "s1").is_empty());
+}
+
+#[tokio::test]
 async fn a_sent_message_a_push_listed_in_the_log_goes_too_and_stop_all_takes_back_the_rest() {
     let (_dir, _, outbox) = outbox();
     push(&outbox, "s1", "one");
