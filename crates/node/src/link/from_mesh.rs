@@ -8,7 +8,7 @@
 //! the device list applies what differs from what was applied before.
 
 use crate::{
-    files::sync::Syncs,
+    files::{sync::Syncs, syncthing::Syncthing},
     link::Offers,
     link::watchdog::{self, Step},
 };
@@ -27,14 +27,9 @@ use beep_proto::{
     },
 };
 use iroh::{EndpointAddr, EndpointId};
-use std::time::Duration;
 use std::{collections::BTreeMap, sync::Arc, time::Instant};
 use tokio::sync::{broadcast::error::RecvError, watch};
 use tokio_util::task::AbortOnDropHandle;
-
-/// How often the state is applied again with no change to wake it, for what
-/// sends no news, such as Syncthing coming back.
-const RECHECK: Duration = Duration::from_secs(5 * 60);
 
 /// The mesh the node belongs to, once it does.
 #[derive(Clone)]
@@ -81,6 +76,9 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
     let _preferences = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
         let mut changes = preferences_mesh.changes();
         let mut transfers = preferences_offers.transfers.subscribe();
+        // Syncthing's own event stream says when it is back, or changed a folder.
+        let syncthing_moved = Arc::new(tokio::sync::Notify::new());
+        let _events = AbortOnDropHandle::new(tokio::spawn(syncthing_events(syncthing_moved.clone())));
 
         loop {
             super::project_remotes::apply(&preferences_mesh, me).await;
@@ -88,8 +86,7 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             tokio::select! {
                 change = changes.recv() => if matches!(change, Err(RecvError::Closed)) { return; },
                 Ok(()) = transfers.changed() => {}
-                // Syncthing that was away or busy says nothing when it is back.
-                () = tokio::time::sleep(RECHECK) => {},
+                () = syncthing_moved.notified() => {}
             }
         }
     }));
@@ -113,7 +110,22 @@ pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {
             Ok(()) = transfers.changed() => {}
             // Git recovery waits for the sessions open before a restart.
             () = &mut reopened, if waiting_reopen => waiting_reopen = false,
-            () = tokio::time::sleep(RECHECK) => {},
+        }
+    }
+}
+
+/// Rings `moved` whenever Syncthing's event stream has news, which includes
+/// Syncthing coming back after being away.
+async fn syncthing_events(moved: Arc<tokio::sync::Notify>) {
+    let syncthing = Syncthing::local();
+    let mut since = 0;
+
+    loop {
+        let before = since;
+        syncthing.changed(&mut since).await;
+
+        if since > before {
+            moved.notify_one();
         }
     }
 }

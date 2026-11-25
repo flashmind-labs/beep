@@ -166,15 +166,13 @@ fn team_cards_ride_a_snapshot_after_the_values_before_them() {
 
 #[test]
 fn team_invites_ride_a_snapshot_after_the_team_cards() {
-    for value in [Value::TeamInvites(Vec::new())] {
-        let reply = Reply::Snapshot(Box::new(Snapshot {
-            topic: Topic::new(TEAM_INVITES_TOPIC),
-            query: None,
-            revision: 4,
-            value,
-        }));
-        let bytes = rmp_serde::to_vec(&reply).unwrap();
+    let reply = Reply::Snapshot(Box::new(Snapshot {
+        topic: Topic::new(TEAM_INVITES_TOPIC),
+        query: None,
+        revision: 4,
+        value: Value::TeamInvites(Vec::new()),
+    }));
+    let bytes = rmp_serde::to_vec(&reply).unwrap();
 
-        assert_eq!(crate::lenient::from_slice::<Reply>(&bytes).unwrap(), reply);
-    }
+    assert_eq!(crate::lenient::from_slice::<Reply>(&bytes).unwrap(), reply);
 }
