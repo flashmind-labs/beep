@@ -252,9 +252,8 @@ async fn serve(
 
         for key in listed {
             if started && feeds.get(&key).is_none_or(|feed| feed.is_finished()) {
-                let feed =
-                    tauri::async_runtime::spawn(feed(fleet.clone(), asks.clone(), key.clone()));
-                feeds.insert(key, AbortOnDropHandle::new(feed));
+                let held = tokio::spawn(feed(fleet.clone(), asks.clone(), key.clone()));
+                feeds.insert(key, AbortOnDropHandle::new(held));
             }
         }
 
