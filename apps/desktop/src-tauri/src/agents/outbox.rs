@@ -1586,7 +1586,7 @@ struct MeshLink {
 impl Link for MeshLink {
     async fn send(&mut self, message: &Message) -> Result<Vec<String>> {
         let app = self.app.clone();
-        let keys = sent(
+        let sending = sent(
             app.clone(),
             &self.window,
             app.state(),
@@ -1594,25 +1594,29 @@ impl Link for MeshLink {
             message.agent.clone(),
             message.session.clone(),
             message.steer(),
-        )
-        .await?;
-        Ok(keys)
+        );
+
+        logged("send", message, sending, |_| "ok").await
     }
 
     async fn resume(&mut self, message: &Message) -> Result<Resumed> {
-        let fleet = self.app.state::<Arc<Fleet>>();
-        let request = ResumeAgentSession {
-            machine_id: message.machine_id.clone(),
-            agent: message.agent.clone(),
-            session: message.session.clone(),
-            prompt: None,
-            model: message.resume.as_ref().and_then(|r| r.model.clone()),
+        let resuming = async {
+            let fleet = self.app.state::<Arc<Fleet>>();
+            let request = ResumeAgentSession {
+                machine_id: message.machine_id.clone(),
+                agent: message.agent.clone(),
+                session: message.session.clone(),
+                prompt: None,
+                model: message.resume.as_ref().and_then(|r| r.model.clone()),
+            };
+            let started = resume_session(&fleet, self.machine, request).await?;
+            Ok(Resumed {
+                session: started.session.id().clone(),
+                row: Some(started.session),
+            })
         };
-        let started = resume_session(&fleet, self.machine, request).await?;
-        Ok(Resumed {
-            session: started.session.id().clone(),
-            row: Some(started.session),
-        })
+
+        logged("resume", message, resuming, |_| "ok").await
     }
 
     async fn configure(&mut self, message: &Message, pick: &Pick) -> Result<()> {
@@ -1627,10 +1631,128 @@ impl Link for MeshLink {
             sending: true,
             deadline: None,
         };
-        send_node_order(&self.app, self.machine, &order).await
+        let configuring = send_node_order(&self.app, self.machine, &order);
+
+        logged("configure", message, configuring, |_| "ok").await
     }
 
     async fn upload(&mut self, message: &Message) -> Result<Vec<String>> {
+        logged("upload", message, self.uploading(message), |_| "ok").await
+    }
+
+    async fn took(&mut self, message: &Message) -> Result<bool> {
+        let checking = async {
+            let fleet = self.app.state::<Arc<Fleet>>();
+            let request = GetAgentSession {
+                machine_id: message.machine_id.clone(),
+                agent: message.agent.clone(),
+                session: message.session.clone(),
+                last: CHECK_LAST,
+                before: None,
+            };
+            let read = direct::session(&fleet, self.machine, &request);
+            let view = fleet
+                .asked(
+                    self.machine,
+                    &message.session,
+                    "checking a dropped send",
+                    READ_LIMIT,
+                    read,
+                )
+                .await?;
+            let log = Log {
+                queued: &view.queued_messages,
+                earlier: u64::from(view.earlier),
+                entries: &view.entries,
+            };
+            Ok(holds(&log, message))
+        };
+
+        logged("took", message, checking, |held| {
+            if *held { "held" } else { "missing" }
+        })
+        .await
+    }
+
+    async fn order(&mut self, order: &Order) -> Result<()> {
+        send_node_order(&self.app, self.machine, order).await
+    }
+
+    async fn reachable(&mut self) {
+        let fleet = self.app.state::<Arc<Fleet>>().inner().clone();
+        crate::fleet::alerts::until_online(&fleet, self.machine).await;
+        sleep(RETRY).await;
+    }
+
+    fn changed(&mut self, changed: Changed) {
+        emit(&self.app, changed);
+    }
+
+    fn urgent(&mut self, key: &SessionKey) {
+        spawn_urgent(&self.app, key.clone(), self.window.clone());
+    }
+
+    fn order_settled(&mut self, order: &Order, refused: Option<&str>) {
+        if let Some(reason) = refused {
+            log::warn!(
+                "background session order refused machine={} session={}: {reason}",
+                order.key.machine_id,
+                order.key.session
+            );
+            // The open session re-reads itself: no push carries a refused order, which leaves
+            // the machine's session as it was.
+            let _ = self
+                .app
+                .emit("sessions-changed", order.key.session.as_ref());
+            crate::fleet::home_signal::poke(&self.app);
+            return;
+        }
+
+        if matches!(order.kind, OrderKind::Close) {
+            closed(&self.app, &order.key.machine_id, &order.key.session);
+        }
+    }
+}
+
+/// Runs one step of a try at `message` and logs it in one line: the step, the
+/// session, how it ended and how long it took. Never the message's text, its
+/// files' names or paths, nor the error's words, which can carry them.
+async fn logged<T>(
+    step: &str,
+    message: &Message,
+    run: impl Future<Output = Result<T>>,
+    outcome: impl FnOnce(&T) -> &'static str,
+) -> Result<T> {
+    let started = Instant::now();
+    let result = run.await;
+    let ended = match &result {
+        Ok(value) => outcome(value),
+        Err(e) => failure(e),
+    };
+    log::info!(
+        "outbox try step={step} machine={} session={} outcome={ended} took_ms={}",
+        message.machine_id,
+        message.session,
+        started.elapsed().as_millis()
+    );
+
+    result
+}
+
+/// How a step failed, in one word.
+fn failure(e: &DesktopError) -> &'static str {
+    match e {
+        e if e.is_transport() => "lost",
+        DesktopError::Unsure(_) => "unsure",
+        DesktopError::TimedOut(_) => "timed_out",
+        DesktopError::Api(ApiError::NotFound {}) => "not_found",
+        _ => "refused",
+    }
+}
+
+impl MeshLink {
+    /// Writes the files of `message` into its session's cache on the machine.
+    async fn uploading(&self, message: &Message) -> Result<Vec<String>> {
         let fleet = self.app.state::<Arc<Fleet>>();
         let mut paths = Vec::new();
 
@@ -1683,72 +1805,6 @@ impl Link for MeshLink {
         }
 
         Ok(paths)
-    }
-
-    async fn order(&mut self, order: &Order) -> Result<()> {
-        send_node_order(&self.app, self.machine, order).await
-    }
-
-    async fn took(&mut self, message: &Message) -> Result<bool> {
-        let fleet = self.app.state::<Arc<Fleet>>();
-        let request = GetAgentSession {
-            machine_id: message.machine_id.clone(),
-            agent: message.agent.clone(),
-            session: message.session.clone(),
-            last: CHECK_LAST,
-            before: None,
-        };
-        let read = direct::session(&fleet, self.machine, &request);
-        let view = fleet
-            .asked(
-                self.machine,
-                &message.session,
-                "checking a dropped send",
-                READ_LIMIT,
-                read,
-            )
-            .await?;
-        let log = Log {
-            queued: &view.queued_messages,
-            earlier: u64::from(view.earlier),
-            entries: &view.entries,
-        };
-        Ok(holds(&log, message))
-    }
-
-    async fn reachable(&mut self) {
-        let fleet = self.app.state::<Arc<Fleet>>().inner().clone();
-        crate::fleet::alerts::until_online(&fleet, self.machine).await;
-        sleep(RETRY).await;
-    }
-
-    fn changed(&mut self, changed: Changed) {
-        emit(&self.app, changed);
-    }
-
-    fn urgent(&mut self, key: &SessionKey) {
-        spawn_urgent(&self.app, key.clone(), self.window.clone());
-    }
-
-    fn order_settled(&mut self, order: &Order, refused: Option<&str>) {
-        if let Some(reason) = refused {
-            log::warn!(
-                "background session order refused machine={} session={}: {reason}",
-                order.key.machine_id,
-                order.key.session
-            );
-            // The open session re-reads itself: no push carries a refused order, which leaves
-            // the machine's session as it was.
-            let _ = self
-                .app
-                .emit("sessions-changed", order.key.session.as_ref());
-            crate::fleet::home_signal::poke(&self.app);
-            return;
-        }
-
-        if matches!(order.kind, OrderKind::Close) {
-            closed(&self.app, &order.key.machine_id, &order.key.session);
-        }
     }
 }
 
