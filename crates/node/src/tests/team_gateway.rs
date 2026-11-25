@@ -448,6 +448,55 @@ async fn the_gateway_elects_when_the_home_changes() {
     assert_eq!(link.served(|served| served.gateways.get(&repo()).copied()), Some(me));
 }
 
+/// A roster edit elects at once, and a machine that acts for no team keeps
+/// no timer.
+#[tokio::test]
+async fn the_gateway_elects_when_a_roster_is_edited() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let me = mesh.me();
+    let (link, _router) = crate::team::board::tests::device().await;
+    let (heard, hearing) = mpsc::channel(8);
+    let mut gateway = Gateway::new(
+        mesh,
+        me,
+        link.clone(),
+        Offers::default(),
+        heard,
+        dir.path().join("node"),
+    );
+    gateway.answered = true;
+    let alice = member("alice", me);
+    link.edit_home(|home| {
+        home.mesh = Some(alice.mesh);
+        let project = Project {
+            name: "org/repo".to_owned(),
+            checkout: None,
+            devices: vec![EndpointAddr::new(me)],
+        };
+        home.projects.insert(repo(), project);
+    });
+    tokio::time::pause();
+    let mut running = Box::pin(gateway.drive(hearing));
+    assert!(futures::poll!(&mut running).is_pending());
+    assert!(link.served(|served| served.gateways.is_empty()), "no team yet");
+
+    // No timer runs for a machine that holds no team: time passing elects nothing.
+    tokio::time::advance(Duration::from_secs(600)).await;
+    assert!(futures::poll!(&mut running).is_pending());
+    assert!(link.served(|served| served.gateways.is_empty()));
+
+    let team = TeamRecord::new(repo(), vec![alice.clone()]);
+    link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
+    link.roster_edited();
+    assert!(futures::poll!(&mut running).is_pending());
+
+    assert_eq!(link.served(|served| served.gateways.get(&repo()).copied()), Some(me));
+}
+
 #[tokio::test]
 async fn a_busy_desktop_write_does_not_hold_up_the_home() {
     use crate::team::home::{ForgeCli, follow};

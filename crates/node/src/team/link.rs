@@ -173,6 +173,8 @@ struct Inner {
     sessions: OnceLock<Arc<dyn Sessions>>,
     /// Rings when a roster or an invite waits for a desktop.
     waiting: Notify,
+    /// Rises whenever a roster is edited, for the gateway to elect again.
+    rostered: watch::Sender<u64>,
 }
 
 impl TeamLink {
@@ -188,6 +190,7 @@ impl TeamLink {
             queues: Mutex::default(),
             sessions: OnceLock::new(),
             waiting: Notify::new(),
+            rostered: watch::channel(0).0,
         };
 
         Self {
@@ -373,6 +376,17 @@ impl TeamLink {
 
     pub(super) fn wake(&self) {
         self.inner.waiting.notify_one();
+        self.roster_edited();
+    }
+
+    /// Says a roster changed.
+    pub(super) fn roster_edited(&self) {
+        self.inner.rostered.send_modify(|edits| *edits += 1);
+    }
+
+    /// Rises whenever a roster is edited.
+    pub(super) fn roster_edits(&self) -> watch::Receiver<u64> {
+        self.inner.rostered.subscribe()
     }
 
     /// A stream to the first of `addrs` that answers, each tried for 5 s.

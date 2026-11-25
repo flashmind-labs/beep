@@ -53,6 +53,11 @@ impl Ci {
         watched::read_sent(&self.reach, Clone::clone)
     }
 
+    /// Rises when how a call to a host went changes.
+    pub(crate) fn reaches(&self) -> watch::Receiver<ForgeReach> {
+        self.reach.subscribe()
+    }
+
     pub(crate) fn reach_of(&self, host: &str) -> HostReach {
         watched::read_sent(&self.reach, |reach| {
             reach.hosts.get(host).copied().unwrap_or_default()

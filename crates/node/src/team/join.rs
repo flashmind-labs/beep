@@ -342,8 +342,15 @@ impl TeamLink {
             proof: Some(sha),
             ..entry
         };
-        self.with(|teams| teams.rosters.admit(repo, peer, own, entry))
-            .map_err(|refusal| refusal.to_string())
+        let admitted = self
+            .with(|teams| teams.rosters.admit(repo, peer, own, entry))
+            .map_err(|refusal| refusal.to_string());
+
+        if admitted.is_ok() {
+            self.roster_edited();
+        }
+
+        admitted
     }
 
     /// Whether `login` marked commit `sha` of `repo` with a status whose

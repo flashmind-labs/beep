@@ -39,12 +39,14 @@ use tokio::{
     select,
     sync::mpsc,
     task::{JoinError, JoinSet},
-    time::{Instant, MissedTickBehavior, interval, timeout},
+    time::{Instant, sleep_until, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 
-/// How often the boards are made again and the roles elected.
-const TICK: Duration = Duration::from_secs(10);
+/// How often the boards are made again while this machine acts for a team:
+/// the sessions of other machines have no push to follow. Elections wait on
+/// what changes them, not on this.
+const ROUND: Duration = Duration::from_secs(10);
 /// How often the issue titles, and the issues pickup starts sessions on,
 /// are read while a team session works, and otherwise; the machines are
 /// asked how they reach the hosts every `QUIET`.
@@ -106,6 +108,9 @@ struct Gateway {
     /// reach to go on.
     answered: bool,
     held: BTreeSet<TeamRepo>,
+    /// When the next round of cards is due; none while no team is held or a
+    /// round is still going.
+    round_due: Option<Instant>,
     /// The queues other machines' gateways handed this one, for pickup to keep.
     handed: BTreeMap<TeamRepo, Vec<u64>>,
     /// What the cards are made from; away in `serving` while they are made.
@@ -167,6 +172,7 @@ impl Gateway {
             asking: JoinSet::new(),
             answered: false,
             held: BTreeSet::new(),
+            round_due: None,
             handed: BTreeMap::new(),
             cards: Some(Cards::new(dir.clone())),
             serving: JoinSet::new(),
@@ -179,16 +185,38 @@ impl Gateway {
 
     /// Serves until the mesh is gone. Nothing slow runs in this loop: the
     /// machines are asked, the cards made and the members checked in
-    /// tasks beside it, and teammates' updates are taken meanwhile.
+    /// tasks beside it, and teammates' updates are taken meanwhile. It
+    /// elects when the mesh, a roster, the home or a host's reach changes;
+    /// a machine that acts for no team has no timer.
     async fn drive(mut self, mut hearing: mpsc::Receiver<Followed>) {
         let mut updates = self.mesh.updates();
         let mut home = self.link.home_changes();
-        let mut tick = interval(TICK);
-        tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut edits = self.link.roster_edits();
+        let mut reaches = self.offers.agents.ci.reaches();
+
+        self.step();
 
         loop {
+            let round = if self.held.is_empty() { None } else { self.round_due };
+
             select! {
-                _ = tick.tick() => self.step(),
+                _ = async {
+                    match round {
+                        Some(due) => sleep_until(due).await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    self.round_due = None;
+                    self.step();
+                }
+                changed = edits.changed() => match changed {
+                    Ok(()) => self.step(),
+                    Err(_) => return,
+                },
+                changed = reaches.changed() => match changed {
+                    Ok(()) => self.step(),
+                    Err(_) => return,
+                },
                 Some(followed) = hearing.recv() => self.heard(followed),
                 // The mesh's teams or projects changed: elect on them now.
                 changed = home.changed() => match changed {
@@ -206,10 +234,12 @@ impl Gateway {
                 }
                 Some(done) = self.serving.join_next(), if !self.serving.is_empty() => {
                     self.served(done);
+                    self.round_due = Some(Instant::now() + ROUND);
                 }
                 Some(_) = self.checking.join_next(), if !self.checking.is_empty() => {}
-                changed = updates.changed() => if changed.is_err() {
-                    return;
+                changed = updates.changed() => match changed {
+                    Ok(()) => self.step(),
+                    Err(_) => return,
                 },
             }
         }
@@ -327,9 +357,14 @@ impl Gateway {
     /// mesh's agents read, and starting sessions on new issues where pickup
     /// is due. A round still going makes this tick's wait for the next.
     fn serve_cards(&mut self, teams: Vec<Team>, projects: BTreeMap<TeamRepo, Project>) {
+        if self.round_due.is_some_and(|due| due > Instant::now()) {
+            return;
+        }
+
         let Some(mut cards) = self.cards.take() else {
             return;
         };
+        self.round_due = None;
         let job = Job {
             mesh: self.mesh.clone(),
             me: self.me,
