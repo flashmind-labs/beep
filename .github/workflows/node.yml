@@ -108,7 +108,7 @@ jobs:
           path: dist/*.zip
 
   macos:
-    runs-on: beep-mac
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v7
 
