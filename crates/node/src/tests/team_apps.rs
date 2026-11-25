@@ -433,3 +433,23 @@ async fn a_change_of_the_cards_rings_the_topic_of_its_project() {
     });
     assert!(rung(&mut changes), "a changed board");
 }
+
+#[tokio::test]
+async fn a_team_the_device_stops_acting_for_rings_its_topic_once() {
+    use beep_proto::node::events::{TEAM_CARDS_TOPIC, Topic};
+
+    let link = acting_link("org/moved").await;
+    let ours = Topic::keyed(TEAM_CARDS_TOPIC, "org/moved");
+    let mut changes = crate::events::system().subscribe();
+    while changes.try_recv().is_ok() {}
+
+    let other = SecretKey::generate().public();
+    link.publish(|served| {
+        served.gateways.insert(repo(), other);
+    });
+
+    assert!(
+        std::iter::from_fn(|| changes.try_recv().ok()).any(|change| change.topic == ours),
+        "readers of the old gateway hear it has nothing now"
+    );
+}

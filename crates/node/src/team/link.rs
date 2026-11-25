@@ -27,7 +27,7 @@ use iroh::{
     protocol::{AcceptError, ProtocolHandler},
 };
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt,
     sync::{Arc, Mutex, OnceLock},
     time::{Duration, SystemTime},
@@ -291,18 +291,23 @@ impl TeamLink {
     /// is the only caller. Keep `f` short: it holds the value.
     pub(crate) fn publish(&self, f: impl FnOnce(&mut Served)) {
         let me = self.me();
-        let mut acting = Vec::new();
-        self.inner.served.send_modify(|served| {
-            f(served);
-            acting = served
+        let acting_in = |served: &Served| -> BTreeSet<TeamRepo> {
+            served
                 .gateways
                 .iter()
                 .filter(|(_, gateway)| **gateway == me)
                 .map(|(repo, _)| repo.clone())
-                .collect();
+                .collect()
+        };
+        let mut acting = BTreeSet::new();
+        self.inner.served.send_modify(|served| {
+            acting = acting_in(served);
+            f(served);
+            acting.extend(acting_in(served));
         });
 
-        // The boards and the teammates' cards are what this device serves.
+        // The boards and the teammates' cards are what this device serves. A
+        // team it stopped acting for rings too: its readers now get nothing.
         for repo in &acting {
             self.cards_changed(repo);
         }
