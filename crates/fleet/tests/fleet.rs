@@ -477,6 +477,9 @@ async fn one_controller_updates_due_skill_libraries_and_keeps_edits_made_during_
     };
     // Adding counted as today's check. An older installation or an expired check is due.
     check_without_fetching(leader, &mut reads).await;
+    // Today's check makes the next one due in about a day.
+    let wait = leader.next_library_check_in().expect("a library is held");
+    assert!(wait > Duration::from_secs(23 * 60 * 60));
     let yesterday = rmp_serde::to_vec(&(url, &first.revision, f.studio.id, 1u64)).unwrap();
     f.studio
         .mesh
@@ -488,6 +491,7 @@ async fn one_controller_updates_due_skill_libraries_and_keeps_edits_made_during_
     })
     .await;
     check_without_fetching(follower, &mut reads).await;
+    assert_eq!(follower.next_library_check_in(), Some(Duration::ZERO));
 
     until(&f.build.mesh, |mesh| mesh.get(&key).is_some()).await;
     let node_key = f.build._router.endpoint().secret_key().clone();
