@@ -44,6 +44,14 @@ export interface ReviewRun {
   error: string | null;
 }
 
+/// The reviews a `reviews` update carries (the node's `Reviews` reply), every run the node keeps;
+/// null when the update holds none, as after a refused snapshot.
+export function reviewsOf(data: unknown): ReviewRun[] | null {
+  const runs = (data as { Sessions?: { Reviews?: { runs?: unknown } } } | null)?.Sessions?.Reviews?.runs;
+  if (!Array.isArray(runs)) return null;
+  return runs.filter((r): r is ReviewRun => typeof r === "object" && r !== null && typeof (r as ReviewRun).id === "string");
+}
+
 /// Where a review is: still running, handed in, or failed.
 export function runState(run: Pick<ReviewRun, "review" | "error">): "running" | "done" | "failed" {
   if (run.review) return "done";

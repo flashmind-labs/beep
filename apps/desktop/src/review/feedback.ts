@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import { flushSync } from "react-dom";
 import type { FeedbackState } from "./feedback-view.tsx";
-import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
 // Review with agent: the diff header's button, the start form's picker
 // under it, and what follows a pick. A pick asks the node of the diff's
 // checkout to start a temporary reviewer there, a child of the session whose
@@ -12,7 +12,7 @@ import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 // `review` tool) become comments too, once.
 import {
   type CanStart, type ReviewRun,
-  doneNote, findingsOf, mergeComments, reviewBase, runState, toComments, whyNot,
+  doneNote, findingsOf, mergeComments, reviewBase, reviewsOf, runState, toComments, whyNot,
 } from "./feedback-state.ts";
 import { loadDraft, saveDraft } from "./draftstore.ts";
 import type { DiffFile, ReviewComment } from "./diff-state.ts";
@@ -37,8 +37,6 @@ interface Run {
   root: string;
   /// Reads the diff again, for when the view that started it is closed.
   load: () => Promise<DiffFile[]>;
-  /// Reads of the review that failed in a row.
-  failed: number;
   unfollow?: () => void;
 }
 
@@ -65,9 +63,6 @@ const hostsHeld = () => agents?.AG.hosts ?? null;
 function readHosts(done: () => void) {
   void import("../agents/agents.ts").then(m => { agents = m; return m.ensureAgentHosts(); }).then(done);
 }
-
-/// How long the session's reviews last before they are read again.
-const SESSION_REVIEWS_MS = 30_000;
 
 // ----- Reviews already taken -----
 
@@ -102,8 +97,12 @@ function markTaken(key: string, id: string) {
 
 // ----- Following a review -----
 
+/// The node pushes a run's state with every change; an update that does not hold it is read.
 function schedule(run: Run) {
-  run.unfollow ??= subscribeChanges(topic("reviews", run.id), { deliver: "latest", receive: () => tick(run) }, { machine: run.machineId });
+  run.unfollow ??= subscribeEach(topic("reviews", run.id), event => {
+    const read = reviewsOf(event.data)?.find(r => r.id === run.id);
+    return read ? settle(run, read) : tick(run);
+  }, { machine: run.machineId });
 }
 
 function finish(run: Run) {
@@ -123,16 +122,20 @@ async function tick(run: Run) {
 
   try {
     read = await invoke<ReviewRun>("agent_review", { machineId: run.machineId, id: run.id });
-    run.failed = 0;
   } catch (e) {
     console.warn("review not read:", e);
-    if (++run.failed >= 5) return fail(run, `The review could not be read: ${reason(e)}`);
-    throw e;
+    return fail(run, `The review could not be read: ${reason(e)}`);
   }
 
   if (runs.get(run.key) !== run) return;
+  return settle(run, read);
+}
+
+/// Takes the state of `run` the node says: a running review waits for the next update.
+async function settle(run: Run, read: ReviewRun) {
+  if (runs.get(run.key) !== run) return;
   const state = runState(read);
-  if (state === "running") return schedule(run);
+  if (state === "running") return;
   if (state === "failed") return fail(run, read.error || "The review failed.");
   const n = await deliver(run.key, read, run.root, run.load);
   say(run.key, n);
@@ -205,7 +208,7 @@ export interface Feedback {
   setSlot: (slot: HTMLDivElement | null) => void;
   click: () => void;
   dismiss: () => void;
-  /// Reads the session's own reviews and draws again, as the diff changes.
+  /// Draws again, as the diff changes.
   redraw: () => void;
   dispose: () => void;
 }
@@ -217,8 +220,7 @@ const RUNNING_HINT = "Open the review. The reviewer only reads; its findings bec
 export function feedbackButton(o: FeedbackOpts): Feedback {
   let disposed = false;
   let starting = false;
-  /// When the session's own reviews were last read.
-  let tookAt = 0;
+  let readReviews = false;
   const picked: Picked = { agent: "", model: "", effort: null, fast: null, query: "" };
   const listeners = new Set<() => void>();
   let current: FeedbackSnapshot = { state: { kind: "ready", label: LABEL, hint: HINT, reason: "", open: false }, picker: null, note: "" };
@@ -294,20 +296,17 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
   }
 
   function follow(read: ReviewRun, machineId: string, root: string, load: () => Promise<DiffFile[]>) {
-    const run: Run = { key: o.key, id: read.id, machineId, agent: read.agent, root, load, failed: 0 };
+    const run: Run = { key: o.key, id: read.id, machineId, agent: read.agent, root, load };
     notes.delete(o.key);
     runs.set(o.key, run);
     schedule(run);
   }
 
-  /// The reviews the session asked for itself, not taken yet, become comments.
-  async function takeSessionReviews() {
+  /// The reviews the session asked for itself, not taken yet, become comments. `list` is what the
+  /// node pushed, or the first read.
+  async function takeSessionReviews(list: ReviewRun[]) {
     const machine = o.machine;
-    // A start has no machine to ask yet.
-    if (!machine || !o.session || isStarting(o.session)) return;
-    const list = await invoke<ReviewRun[]>("agent_reviews", { machineId: machine.id, session: o.session })
-      .catch(e => { console.warn("session reviews not read:", e); return [] as ReviewRun[]; });
-    if (disposed) return;
+    if (!machine || disposed) return;
     const root = o.view()?.root ?? "";
 
     for (const read of list) {
@@ -327,6 +326,24 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
     }
   }
 
+  /// Reads the session's reviews once, for the first draw; the pushes carry them after that.
+  function readSessionReviews() {
+    const machine = o.machine;
+    // A start has no machine to ask yet.
+    if (!machine || !o.session || isStarting(o.session)) return;
+    void invoke<ReviewRun[]>("agent_reviews", { machineId: machine.id, session: o.session })
+      .catch(e => { console.warn("session reviews not read:", e); return [] as ReviewRun[]; })
+      .then(takeSessionReviews);
+  }
+
+  // The node pushes every review it keeps; the session's own are the ones whose parent it is.
+  const stopReviews = o.machine && o.session
+    ? subscribeEach(topic("reviews"), event => {
+      const list = reviewsOf(event.data)?.filter(r => r.parent === o.session);
+      if (list?.length && o.session && !isStarting(o.session)) return takeSessionReviews(list);
+    }, { machine: o.machine.id })
+    : () => {};
+
   function onButton() {
     const run = runs.get(o.key);
     if (run) return openReviewer(run, o.machine?.name ?? "");
@@ -336,7 +353,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
 
   function redraw() {
     if (disposed) return;
-    if (Date.now() - tookAt >= SESSION_REVIEWS_MS) { tookAt = Date.now(); void takeSessionReviews(); }
+    if (!readReviews) { readReviews = true; readSessionReviews(); }
     drawButton();
     if (pop.open && !runs.has(o.key)) void pop.redraw();
     else if (pop.open) pop.close();
@@ -371,6 +388,7 @@ export function feedbackButton(o: FeedbackOpts): Feedback {
       pop.close();
       disposed = true;
       stopHosts();
+      stopReviews();
       if (attached.get(o.key) === attachment) attached.delete(o.key);
     },
   };

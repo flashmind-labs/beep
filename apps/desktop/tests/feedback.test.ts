@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { type DiffFile, type ReviewComment, parseDraft, placeComments } from "../src/review/diff-state.ts";
 import {
-  type SubmittedReview, doneNote, findingsOf, mergeComments, reviewBase, runState, toComments, whyNot,
+  type SubmittedReview, doneNote, findingsOf, mergeComments, reviewBase, reviewsOf, runState, toComments, whyNot,
 } from "../src/review/feedback-state.ts";
 
 const file = (path: string, o: Partial<DiffFile> = {}): DiffFile => ({
@@ -145,4 +145,11 @@ test("a button is disabled with a plain reason until a review can start", () => 
   assert.equal(whyNot({ ...ok, hosts: null }), "Looking for coding agents");
   assert.equal(whyNot({ ...ok, hosts: [{ machine_id: "m2", agents: ["claude"] }] }), "build-box is offline, so the checkout cannot be read");
   assert.equal(whyNot({ ...ok, hosts: [{ machine_id: "m1", agents: [] }] }), "build-box has no coding agent");
+});
+
+test("a reviews update carries every run the node keeps, and one without runs says so", () => {
+  const run = { id: "r1", parent: "s1", cwd: "/srv/project", base: "HEAD", agent: "claude", started_at: 1, review: null, error: null };
+  assert.deepEqual(reviewsOf({ Sessions: { Reviews: { runs: [run, { nope: true }] } } }), [run]);
+  assert.equal(reviewsOf({ error: "refused" }), null);
+  assert.equal(reviewsOf(undefined), null);
 });
