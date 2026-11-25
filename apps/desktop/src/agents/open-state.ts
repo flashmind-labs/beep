@@ -4,7 +4,7 @@ import { disposeLogShell } from "./log-shell.tsx";
 import { sessionKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import type { ChatBody } from "../ui/turn.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, AG, AGENT_ACTIVE, canTakeOver } from "./agents-state.ts";
+import { type AgentQuestion, type AgentRow, type AgentPage, type OpenAgent, AG, AGENT_ACTIVE, canTakeOver, openModes } from "./agents-state.ts";
 import { setFirstMessage } from "./open-page.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { isStarting } from "./starting-state.ts";
@@ -76,4 +76,16 @@ export const sessionPicks = new SessionPicks();
 /// or of an agent Beep cannot take over. A closed one continues from the field.
 export function followsOnly(s: AgentRow) {
   return isNativeSession(s.id) || (s.external && !(s.status === "ended" && canTakeOver(s.agent)));
+}
+
+/// Whether the open session offers modes to switch between.
+export function hasModes() {
+  const s = AG.page?.session;
+  return !!s && !s.external && s.status !== "ended" && (openModes()?.modes.length ?? 0) > 1;
+}
+
+/// Binds an approval action to the question and options shown to the user,
+/// so an answer reaches only the question it was shown for.
+export function questionKey(q: AgentQuestion, session: OpenAgent) {
+  return JSON.stringify([session.machine_id, session.agent, session.session, q.id, q.text, q.detail, q.options.map(o => [o.id, o.name, o.allow])]);
 }

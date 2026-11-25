@@ -16,10 +16,10 @@ import { StartFiles } from "./start-files.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { MN, attachReads, attachmentKey, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./mentions.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
-import { type AgentQuestion, type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents-state.ts";
+import { type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents-state.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { openAgent, resumeAgent } from "./session.tsx";
-import { isOpen, sessionPicks, setNote, startedWith, turnRuns } from "./open-state.ts";
+import { isOpen, questionKey, sessionPicks, setNote, startedWith, turnRuns } from "./open-state.ts";
 import { redrawAgentHints } from "./session-head.tsx";
 import { drawAgentAttached } from "./attachments-view.tsx";
 import { fitAttachedImages, keepSentImages, keepAgentPics } from "./images.tsx";
@@ -406,12 +406,6 @@ export async function stopAllWork(target: Pick<AgentRow, "machine_id" | "agent" 
       resumeAgent();
     }
   }
-}
-
-/// Binds an approval action to the question and options shown to the user,
-/// so an answer reaches only the question it was shown for.
-export function questionKey(q: AgentQuestion, session: OpenAgent) {
-  return JSON.stringify([session.machine_id, session.agent, session.session, q.id, q.text, q.detail, q.options.map(o => [o.id, o.name, o.allow])]);
 }
 
 /// Sends `reply` to question `id` of `o`: null when the node took it, else what it refused with.

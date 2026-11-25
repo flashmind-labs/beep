@@ -6,7 +6,6 @@ import { PANE, windowHooks } from "../bar/core.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
 import { type AgentRow, AG, openModes, sessionUsage } from "./agents-state.ts";
 import { agentKind, folderName } from "./agent-kind.ts";
-import { hasModes } from "./modepill.tsx";
 import { editorsFor, openInEditor } from "../project/editors.ts";
 import { ProjectEditors } from "../project/header-view.tsx";
 import { ICON } from "../ui/icons.tsx";
@@ -16,7 +15,7 @@ import { placeName, placeRepo } from "./place-state.ts";
 import { agentKey } from "./conversation-state.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { isStarting } from "./starting-state.ts";
-import { followsOnly, stoppingNow, turnRuns } from "./open-state.ts";
+import { followsOnly, hasModes, stoppingNow, turnRuns } from "./open-state.ts";
 
 /// The session's keys on one small line.
 export function agentHints() {

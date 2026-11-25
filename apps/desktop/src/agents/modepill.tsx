@@ -4,7 +4,8 @@ import { showAgentControl } from "./composer-ui.tsx";
 import { AgentMode, AgentPlan } from "./mode-view.tsx";
 import { type AgentModes, type OpenAgent, AG, openModes, AGENT_READ_WAIT_MS, openOf, where } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";
-import { questionKey, steerAgent } from "./messages.ts";
+import { steerAgent } from "./messages.ts";
+import { hasModes, questionKey } from "./open-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { isStarting } from "./starting-state.ts";
 
@@ -26,12 +27,6 @@ export async function readModes(o: OpenAgent) {
     console.warn("agent modes not read", e);
     return openModes();
   }
-}
-
-/// Whether the open session offers modes to switch between.
-export function hasModes() {
-  const s = AG.page?.session;
-  return !!s && !s.external && s.status !== "ended" && (openModes()?.modes.length ?? 0) > 1;
 }
 
 /// Switches the open session to the mode after the one it is in; false when
