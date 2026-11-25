@@ -1381,6 +1381,7 @@ async fn run(
             subscriptions.clear();
             workers.abort_all();
             fleet.snapshots.reconcile(&BTreeMap::new());
+            app.state::<crate::agents::files_live::FilesLive>().keep(&BTreeMap::new());
             materialized.clear();
 
             if watched::wait_for(&mut demand, |interests| !interests.is_empty())
@@ -1414,6 +1415,7 @@ async fn run(
             })
             .collect();
         fleet.snapshots.reconcile(&wanted);
+        app.state::<crate::agents::files_live::FilesLive>().keep(&wanted);
         command_workers.retain(|machine, task| {
             if wanted.contains_key(machine) {
                 true

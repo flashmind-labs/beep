@@ -45,3 +45,22 @@ fn a_read_asked_again_is_kept_once_and_the_oldest_go_past_the_limit() {
     keep(&mut reads, "d", 3);
     assert_eq!(reads, ["a", "c", "d"]);
 }
+
+#[test]
+fn a_folder_no_window_follows_is_forgotten_and_the_places_of_a_machine_without_folders_with_it() {
+    let (machine, _) = key("/srv/one");
+    let other = iroh::SecretKey::from_bytes(&[8; 32]).public();
+    let mut held = Held::default();
+    held.folders.insert((machine, "/srv/one".into()), Folder::default());
+    held.folders.insert((machine, "/srv/two".into()), Folder::default());
+    held.folders.insert((other, "/srv/one".into()), Folder::default());
+    held.places.insert(machine, Vec::new());
+    held.places.insert(other, Vec::new());
+
+    held.keep(|on, root| on == machine && root == "/srv/two");
+
+    assert_eq!(held.folders.len(), 1);
+    assert!(held.folders.contains_key(&(machine, "/srv/two".to_owned())));
+    assert!(held.places.contains_key(&machine));
+    assert!(!held.places.contains_key(&other));
+}

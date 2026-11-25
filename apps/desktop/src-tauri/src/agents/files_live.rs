@@ -10,7 +10,7 @@ use beep_proto::{SessionId, node::events::Topic};
 use iroh::EndpointId;
 use serde_json::json;
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{HashMap, HashSet, hash_map::Entry},
     sync::{Mutex, PoisonError},
 };
 use tauri::{AppHandle, Manager};
@@ -48,6 +48,14 @@ struct Held {
 }
 
 impl Held {
+    /// Drops the folders `followed` says no window follows, and the places of the machines left
+    /// with no followed folder.
+    fn keep(&mut self, followed: impl Fn(EndpointId, &str) -> bool) {
+        self.folders.retain(|(machine, root), _| followed(*machine, root));
+        let machines: HashSet<EndpointId> = self.folders.keys().map(|(machine, _)| *machine).collect();
+        self.places.retain(|machine, _| machines.contains(machine));
+    }
+
     /// Whether the caller reads for `update` now: false when a read is running, which takes
     /// it up when it is done.
     fn begin(&mut self, key: (EndpointId, Topic), update: Update) -> bool {
@@ -122,6 +130,19 @@ impl FilesLive {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         let sets = held.places.entry(machine).or_default();
         keep(sets, asks.to_vec(), PLACES_KEPT);
+    }
+
+    /// Ends what no window follows now: `wanted` is each machine's node topics, as the windows'
+    /// subscriptions leave them. A folder whose `files` topic is gone is forgotten, and a
+    /// machine's places with them when none of its `files` topics is left.
+    pub(crate) fn keep(&self, wanted: &std::collections::BTreeMap<EndpointId, Vec<Topic>>) {
+        let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        held.keep(|machine, root| {
+            wanted.get(&machine).is_some_and(|topics| {
+                let topic = Topic::keyed("files", root);
+                topics.iter().any(|wanted| wanted.matches(&topic))
+            })
+        });
     }
 
     /// Starts reading for `update` unless a read is running, which takes it up when it is done.
