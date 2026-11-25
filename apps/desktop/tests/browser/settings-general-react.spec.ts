@@ -104,7 +104,7 @@ test("voice dictation turns on, picks a model and points to the key in Credentia
   await expect(settings.getByRole("combobox", { name: "Dictation model" })).toHaveCount(0);
   await toggle.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_settings_save" && JSON.stringify(call.args.settings) === JSON.stringify({ enabled: true, model: null })))).toBe(true);
-  await expect(settings.getByText("OpenRouter · default model · mic button in prompt composers")).toBeVisible();
+  await expect(settings.getByText("OpenRouter · default model · mic button or hold Option in prompt composers")).toBeVisible();
   await expect(settings.getByText("OpenRouter key …9c12")).toBeVisible();
   await settings.getByRole("combobox", { name: "Dictation model" }).selectOption("elevenlabs:scribe_v3_live");
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_settings_save" && JSON.stringify(call.args.settings) === JSON.stringify({ enabled: true, model: "elevenlabs:scribe_v3_live" })))).toBe(true);

@@ -7,10 +7,10 @@ import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "zustand";
 import { Channel, invoke, logError } from "../ui/tauri.ts";
-import { onPhone } from "../ui/platform.ts";
+import { APPLE, onPhone } from "../ui/platform.ts";
 import { motionAllowed } from "../ui/motion.ts";
 import { Icon } from "../ui/icons.tsx";
-import { applyTranscript, createDictationSettings, elapsed, IDLE, nextTurn, parseEvent, pcmChunks, reanchorDraft, Resampler, startDraft, type DictationDraft, type Turn } from "./dictation-state.ts";
+import { applyTranscript, createDictationSettings, elapsed, HOLD_OPTION_MS, IDLE, isBareOptionDown, nextTurn, parseEvent, pcmChunks, reanchorDraft, Resampler, startDraft, type DictationDraft, type Turn } from "./dictation-state.ts";
 
 /// The shared setting, read once per window.
 export const dictationSettings = createDictationSettings(invoke);
@@ -40,6 +40,10 @@ interface Run {
   mic: Mic | null;
   draft: DictationDraft;
   writing: boolean;
+  /// Started by holding Option/Alt for push-to-talk.
+  held: boolean;
+  /// Released before `dictation_start` returned its id.
+  stopping: boolean;
   /// Audio recorded before the app gave the dictation its id.
   pending: string[];
   /// Chunks go out one after another.
@@ -53,6 +57,7 @@ function Dictation({ field, host }: Props) {
   const [turn, setTurn] = useState<Turn>(IDLE);
   const [now, setNow] = useState(0);
   const run = useRef<Run | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
   const glow = useRef(new Glow());
 
@@ -109,11 +114,12 @@ function Dictation({ field, host }: Props) {
     setTurn({ phase: "error", error: message });
   };
 
-  const start = async () => {
+  const start = async (held = false) => {
     const node = field.current;
     if (!node) return;
 
-    const r: Run = { id: null, mic: null, draft: startDraft(node.value, node.selectionStart, node.selectionEnd), writing: false, pending: [], sending: Promise.resolve(), startedAt: performance.now() };
+    node.focus();
+    const r: Run = { id: null, mic: null, draft: startDraft(node.value, node.selectionStart, node.selectionEnd), writing: false, held, stopping: false, pending: [], sending: Promise.resolve(), startedAt: performance.now() };
     run.current = r;
     setTurn({ phase: "starting", error: "" });
 
@@ -121,7 +127,8 @@ function Dictation({ field, host }: Props) {
     try { mic = await openMic(pcm => send(r, pcm), () => fail(r, "Microphone disconnected.")); }
     catch { fail(r, "Microphone blocked."); return; }
     if (run.current !== r) { closeMic(mic); return; }
-    r.mic = mic;
+    if (r.stopping) closeMic(mic);
+    else r.mic = mic;
 
     const channel = new Channel<unknown>();
     channel.onmessage = message => received(r, message);
@@ -133,15 +140,26 @@ function Dictation({ field, host }: Props) {
     r.id = id;
     r.startedAt = performance.now();
     for (const chunk of r.pending.splice(0)) r.sending = r.sending.then(() => invoke("dictation_audio", { id, pcmBase64: chunk })).catch(() => {});
+    if (r.stopping) {
+      void r.sending.then(() => invoke("dictation_stop", { id })).catch((error: unknown) => fail(r, String(error)));
+      return;
+    }
     node.focus();
   };
 
   const stop = () => {
     const r = run.current;
     if (!r) return;
+    r.held = false;
+    const hadMic = r.mic !== null || r.pending.length > 0;
     if (r.mic) closeMic(r.mic);
     r.mic = null;
-    if (r.id === null) { cancel(); return; }
+    if (r.id === null) {
+      if (!hadMic) { cancel(); return; }
+      r.stopping = true;
+      setTurn(t => nextTurn(t, { kind: "thinking" }));
+      return;
+    }
 
     const id = r.id;
     setTurn(t => nextTurn(t, { kind: "thinking" }));
@@ -156,6 +174,58 @@ function Dictation({ field, host }: Props) {
     }
     setTurn(IDLE);
   };
+
+  const handlers = useRef({ turn, start, stop, cancel });
+  handlers.current = { turn, start, stop, cancel };
+
+  // Holding Option/Alt alone while a composer is on screen runs push-to-talk;
+  // another key or click leaves Option shortcuts and character input alone.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const clearHold = () => { if (timer !== null) { clearTimeout(timer); timer = null; } };
+    const abortCombo = () => {
+      clearHold();
+      const r = run.current;
+      if (!r?.held) return;
+      if (r.draft.said) handlers.current.stop();
+      else handlers.current.cancel();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Alt") {
+        if (timer !== null || run.current?.held) abortCombo();
+        return;
+      }
+      if (!isBareOptionDown(event)) { abortCombo(); return; }
+      const { phase } = handlers.current.turn;
+      if ((phase !== "idle" && phase !== "error") || timer !== null || run.current) return;
+      if (!canHoldTarget(field.current, host.current, btn.current)) return;
+      timer = setTimeout(() => {
+        timer = null;
+        const cur = handlers.current.turn.phase;
+        if ((cur === "idle" || cur === "error") && !run.current && canHoldTarget(field.current, host.current, btn.current)) {
+          void handlers.current.start(true);
+        }
+      }, HOLD_OPTION_MS);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key !== "Alt" && event.altKey) return;
+      clearHold();
+      if (run.current?.held) handlers.current.stop();
+    };
+    const onPointerDown = () => { if (timer !== null || run.current?.held) abortCombo(); };
+
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("blur", abortCombo);
+    return () => {
+      clearHold();
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("blur", abortCombo);
+    };
+  }, []);
 
   // Escape stops it without waiting for the last words.
   useEffect(() => {
@@ -223,11 +293,13 @@ function Dictation({ field, host }: Props) {
   };
   const status = turn.phase === "listening" ? elapsed(now - (run.current?.startedAt ?? now)) : turn.phase === "thinking" ? "thinking" : turn.phase === "error" ? turn.error : null;
   const look = turn.phase === "starting" || turn.phase === "settling" ? "idle" : turn.phase;
-  const title = turn.phase === "listening" ? "Stop dictation (Esc cancels)" : turn.phase === "starting" ? "Cancel dictation" : "Dictate prompt";
+  const label = turn.phase === "listening" ? "Stop dictation (Esc cancels)" : turn.phase === "starting" ? "Cancel dictation" : "Dictate prompt";
+  const optKey = APPLE ? "⌥" : "Alt";
+  const title = turn.phase === "listening" ? (run.current?.held ? `Release ${optKey} to finish (Esc cancels)` : label) : turn.phase === "starting" ? label : `Dictate prompt (or hold ${optKey})`;
   const box = host.current;
 
   return <>
-    <button type="button" className="dict-btn" data-state={look} title={title} aria-label={title} aria-pressed={turn.phase === "listening"} disabled={turn.phase === "thinking"} onMouseDown={event => event.preventDefault()} onClick={press}>
+    <button ref={btn} type="button" className="dict-btn" data-state={look} title={title} aria-label={label} aria-pressed={turn.phase === "listening"} disabled={turn.phase === "thinking"} onMouseDown={event => event.preventDefault()} onClick={press}>
       {look === "listening" ? <Icon name="stop" /> : look === "thinking" ? <span className="dict-dots" aria-hidden="true"><i /><i /><i /></span> : look === "error" ? <Icon name="micOff" /> : <Icon name="mic" />}
     </button>
     {box && createPortal(<>
@@ -235,6 +307,26 @@ function Dictation({ field, host }: Props) {
       <span className={`dict-status${status === null ? "" : ` shown ${turn.phase}`}`} role="status"><span className="dot" />{status}</span>
     </>, box)}
   </>;
+}
+
+/// Whether this composer should answer a held Option/Alt key on screen now.
+function canHoldTarget(field: HTMLTextAreaElement | null, box: HTMLElement | null, button: HTMLButtonElement | null): boolean {
+  if (!field || !box || !button || !field.isConnected || field.disabled || field.readOnly || document.hidden) return false;
+  const rect = box.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0 || getComputedStyle(box).visibility === "hidden") return false;
+  const openDialog = document.querySelector("dialog[open]");
+  if (openDialog && !openDialog.contains(box)) return false;
+
+  const active = document.activeElement;
+  if (active === field) return true;
+  if (active instanceof Element && (active.closest(".tm-term") || active.closest("input, textarea, select, [contenteditable='true']"))) return false;
+
+  const visible = [...document.querySelectorAll<HTMLButtonElement>(".dict-btn")].filter(candidate => {
+    if (candidate.disabled || (openDialog && !openDialog.contains(candidate))) return false;
+    const r = candidate.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(candidate).visibility !== "hidden";
+  });
+  return visible.at(-1) === button;
 }
 
 async function openMic(take: (pcm: Int16Array) => void, lost: () => void): Promise<Mic> {

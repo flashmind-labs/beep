@@ -21,4 +21,5 @@ test("zoom is under General", () => {
   const general = SHORTCUTS.find(s => s.title === "General")!;
   assert.deepEqual(general.rows.map(r => [r.keys, r.does]), [["⌘= ⌘-", "Zoom in, out"], ["⌘0", "Actual size"]]);
   assert.deepEqual(rows("zoom"), ["Zoom in, out", "Zoom the pane"]);
+  assert.deepEqual(rows("dictate"), ["Dictate while held"]);
 });

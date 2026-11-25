@@ -117,3 +117,51 @@ test("the session composer expands to clear its controls during dictation, keeps
   await page.evaluate(() => { const say = Reflect.get(window, "say"); if (typeof say === "function") say({ kind: "done", nothing_heard: false }); });
   await expect.poll(async () => Math.abs(((await box.boundingBox())?.height ?? 999) - resting)).toBeLessThan(2);
 });
+
+test("holding Option on screen runs push-to-talk and stops on release, while taps and combos do not", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: hosts, dictation_settings_get: { enabled: true, model: null } });
+  await fakeDictation(page);
+  await page.evaluate(() => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "Example", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }));
+  await sessionSettled(page);
+
+  const input = page.locator("#agmsg");
+  await expect(input).toBeVisible();
+  // Blur the composer to verify holding Option works anywhere on the session screen.
+  await input.evaluate((el: HTMLTextAreaElement) => el.blur());
+
+  // Quick tap of Option (< 220 ms) never starts dictation.
+  await page.keyboard.down("Alt");
+  await page.waitForTimeout(60);
+  await page.keyboard.up("Alt");
+  await page.waitForTimeout(260);
+  expect(await page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_start"))).toBe(false);
+
+  // Holding Option while another input has focus leaves it alone.
+  const filter = page.getByRole("searchbox", { name: "Filter sessions" });
+  await filter.focus();
+  await page.keyboard.down("Alt");
+  await page.waitForTimeout(300);
+  await page.keyboard.up("Alt");
+  expect(await page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_start"))).toBe(false);
+  await filter.evaluate((el: HTMLInputElement) => el.blur());
+
+  // Holding Option alone on the session screen focuses the composer, listens, and stops on release.
+  await page.keyboard.down("Alt");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_start"))).toBe(true);
+  await expect(input).toBeFocused();
+  await page.evaluate(() => {
+    const say = Reflect.get(window, "say");
+    if (typeof say === "function") {
+      say({ kind: "ready" });
+      say({ kind: "transcript", committed: "push to talk works", partial: "" });
+    }
+  });
+  await expect(input).toHaveValue("push to talk works");
+  expect(await page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_stop"))).toBe(false);
+
+  await page.keyboard.up("Alt");
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_stop"))).toBe(true);
+  await page.evaluate(() => { const say = Reflect.get(window, "say"); if (typeof say === "function") say({ kind: "done", nothing_heard: false }); });
+  await expect(page.getByRole("button", { name: "Dictate prompt" })).toBeEnabled();
+  await expect(input).toHaveValue("push to talk works");
+});

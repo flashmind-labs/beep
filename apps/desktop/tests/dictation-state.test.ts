@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeProvider, addedWords, anchorOf, applyTranscript, createDictationSettings, dictationNote, IDLE, keysFrom, nextTurn, parseEvent, pcmChunks, providerOf, reanchorDraft, Resampler, spliceTranscript, startDraft, MAX_CHUNK_BYTES } from "../src/chat/dictation-state.ts";
+import { activeProvider, addedWords, anchorOf, applyTranscript, createDictationSettings, dictationNote, IDLE, isBareOptionDown, keysFrom, nextTurn, parseEvent, pcmChunks, providerOf, reanchorDraft, Resampler, spliceTranscript, startDraft, MAX_CHUNK_BYTES } from "../src/chat/dictation-state.ts";
 
 test("a model names its provider; a bare id is ElevenLabs's", () => {
   assert.equal(providerOf("openrouter:openai/whisper-large-v3-turbo"), "openrouter");
@@ -125,4 +125,13 @@ test("a failed save puts the setting back", async () => {
   assert.equal(store.state.getState().saved?.enabled, false);
   assert.match(store.state.getState().error, /mesh is down/);
   assert.deepEqual(calls, ["dictation_settings_get", "list_credentials", "dictation_settings_save"]);
+});
+
+test("only a bare non-repeating Option press starts a push-to-talk hold", () => {
+  const base = { key: "Alt", repeat: false, metaKey: false, ctrlKey: false, shiftKey: false, isComposing: false };
+  assert.equal(isBareOptionDown(base), true);
+  assert.equal(isBareOptionDown({ ...base, repeat: true }), false);
+  assert.equal(isBareOptionDown({ ...base, metaKey: true }), false);
+  assert.equal(isBareOptionDown({ ...base, shiftKey: true }), false);
+  assert.equal(isBareOptionDown({ ...base, key: "Tab" }), false);
 });

@@ -50,7 +50,7 @@ export function dictationNote(settings: DictationSettings, keys: DictationKeys):
   const provider = activeProvider(settings.model, keys);
   if (provider === null) return wanted ? `Add your ${PROVIDER_NAMES[wanted]} API key in Credentials to start dictating` : "Add an ElevenLabs, Mistral or OpenRouter API key in Credentials to start dictating";
   const label = DICTATION_MODELS.find(model => model.id === settings.model)?.label ?? `${PROVIDER_NAMES[provider]} · default model`;
-  return `${label} · mic button in prompt composers`;
+  return `${label} · mic button or hold Option in prompt composers`;
 }
 
 export function parseSettings(value: unknown): DictationSettings {
@@ -371,4 +371,21 @@ function base64(bytes: Uint8Array) {
 export function elapsed(ms: number): string {
   const secs = Math.max(0, Math.floor(ms / 1000));
   return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+}
+
+/// How long Option/Alt must be held alone before push-to-talk starts, so quick
+/// taps (`⌥ ⌥`) and `⌥` shortcuts never open the microphone.
+export const HOLD_OPTION_MS = 220;
+
+export interface OptionKey {
+  key: string;
+  repeat: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  shiftKey: boolean;
+  isComposing: boolean;
+}
+
+export function isBareOptionDown(event: OptionKey): boolean {
+  return event.key === "Alt" && !event.repeat && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.isComposing;
 }

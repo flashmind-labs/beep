@@ -279,6 +279,8 @@ body.cbody.mb-full.mobile
                             kbd "↩"
                           span "New line"
                             kbd "⇧↩"
+                          span "Dictate while held"
+                            kbd "hold ⌥"
                           span "Change mode"
                             kbd "⇧tab"
                           span "Allow, or start the agent"

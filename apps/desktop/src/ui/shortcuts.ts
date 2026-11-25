@@ -55,6 +55,7 @@ export const SHORTCUTS: readonly ShortcutSection[] = [
   { title: "Agent session", rows: [
     { keys: "↩", does: "Send, or steer a running turn" },
     { keys: "⇧↩", does: "New line" },
+    { keys: "hold ⌥", does: "Dictate while held" },
     { keys: "⇧tab", does: "Change mode" },
     { keys: "⌘↩", does: "Allow, or start the agent" },
     { keys: "⌘D", does: "Deny" },
