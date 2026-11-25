@@ -25,7 +25,7 @@ import { hostPart, retainedHost, viewPart, type PagePart } from "./page-view.tsx
 import { redrawProjects, pc, terms, fsync } from "./sections.ts";
 import { drawProjectComp, fillBar } from "./composer.tsx";
 import { missingMachine, gitControls, checkoutItems, readingWhere, whereDue, loadWhere, gitDue, loadGit, sessionsList } from "./loads.tsx";
-import { terminalNote, terminalWhere } from "../terminals/terminals.tsx";
+import { terminalNote, terminalWhere } from "../terminals/terminal-list.ts";
 import { go } from "../center/views.tsx";
 import { OpenProjects } from "../center/home-overview.tsx";
 import { homeForDisplay } from "../center/home-state.ts";

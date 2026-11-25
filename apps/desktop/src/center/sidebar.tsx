@@ -15,7 +15,7 @@ import { openInEditor } from "../project/editors.ts";
 import { whereRows, openOnLabel } from "../project/projects-state.ts";
 import { openUrl } from "./openitems.ts";
 import { NEW_WINDOW, opensNewWindow } from "../project/projectwindow.ts";
-import { ALL } from "../terminals/terminals.tsx";
+import { ALL } from "../terminals/terminal-list.ts";
 import { state, pages, whereOf, type SidebarGroup, groups } from "./state.ts";
 import { stuck, draw } from "./home.tsx";
 import { allTerms } from "../terminals/view.tsx";

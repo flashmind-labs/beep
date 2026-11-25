@@ -1,5 +1,6 @@
 import type { Ago } from "../ui/format.ts";
-import { terminalNote, terminalWhere, type MachineTerminals, type TerminalRow } from "./terminals.tsx";
+import type { MachineTerminals, TerminalRow } from "./terminals.tsx";
+import { terminalNote, terminalWhere } from "./terminal-list.ts";
 import { Button } from "../ui/kit.tsx";
 
 export function TerminalMachines({ groups, selected, ago, open, create }: { groups: readonly MachineTerminals<TerminalRow>[]; selected: string | null; ago: Ago; open: (id: string) => void; create: (machine: string) => void }) {

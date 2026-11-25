@@ -2,7 +2,8 @@
 import { formatAgo } from "../ui/format.ts";
 import { Button } from "../ui/kit.tsx";
 import { invoke, indexedChannel } from "../ui/tauri.ts";
-import { ALL, byMachine, lazyScreen, makeTerminals, terminalsCount } from "./terminals.tsx";
+import { lazyScreen, makeTerminals } from "./terminals.tsx";
+import { ALL, byMachine, terminalsCount } from "./terminal-list.ts";
 import { type CenterView, keptSection, state } from "../center/state.ts";
 import { draw } from "../center/home.tsx";
 import { currentLocation, drawPage, go, drawTop } from "../center/views.tsx";

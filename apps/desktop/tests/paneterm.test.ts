@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { attach, dropTerm, paneTerm, termStatus } from "../src/agentpane/terminal.ts";
 import { openTabs, closeTab, closePaneTabs, stopTerminalTab, type MediaTab } from "../src/agentpane/media.ts";
 import { paneModel } from "../src/agentpane/media-layout.ts";
-import { makeTerminals, ALL, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.tsx";
+import { ALL } from "../src/terminals/terminal-list.ts";
+import { makeTerminals, LOST_MS, type Screen, type TermMessage, type TerminalRow } from "../src/terminals/terminals.tsx";
 import { indexedChannel } from "../src/ui/tauri.ts";
 import { RETRY_MS } from "../src/agents/reconnect-state.ts";
 
