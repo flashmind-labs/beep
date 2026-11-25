@@ -24,7 +24,7 @@ use crate::{
 };
 use beep_node::agents::tags::own_words;
 use beep_proto::SessionId;
-use beep_proto::node::agent::{LineChanges, Persona};
+use beep_proto::node::agent::{LineChanges, Persona, WorkPlace};
 use beep_proto::node::mesh_state::SessionMove;
 use beep_proto::{
     AccountName, AgentEntry, AgentEntryKind, AgentMode, AgentModels, AgentPlanStep, AgentQuestion,
@@ -75,6 +75,8 @@ pub struct SessionRow {
     account: Option<AccountName>,
     /// The custom agent it runs as.
     persona: Option<Persona>,
+    /// Where its node says it works: the checkout and branch.
+    place: Option<WorkPlace>,
 }
 
 impl SessionRow {
@@ -108,6 +110,7 @@ impl From<MachineSession> for SessionRow {
             assistant: session.assistant,
             account: session.account,
             persona: session.persona,
+            place: session.place,
         }
     }
 }

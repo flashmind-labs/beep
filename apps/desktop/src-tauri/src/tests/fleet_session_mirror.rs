@@ -133,6 +133,7 @@ fn session(machine: EndpointId, id: &str, status: AgentStatus) -> MachineSession
         assistant: false,
         account: None,
         persona: None,
+        place: None,
     }
 }
 

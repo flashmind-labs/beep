@@ -110,6 +110,13 @@ fn a_listed_session_is_the_same_from_its_row() {
             additions: 3,
             deletions: 1,
         }),
+        place: Some(beep_proto::node::agent::WorkPlace {
+            folder: "/srv/project".into(),
+            main: "/srv/project".into(),
+            linked: false,
+            branch: Some("main".into()),
+            origin: String::new(),
+        }),
         reviewer: true,
         ..SessionInfo::default()
     };

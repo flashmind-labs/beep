@@ -1,7 +1,7 @@
 import { answers, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { onPlaces, placeOf, takePlaces } from "../src/agents/place.ts";
+import { onPlaces, placeOf, takePlaces, takeSessionPlaces } from "../src/agents/place.ts";
 
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
@@ -58,4 +58,20 @@ test("a place is asked once, kept however old, and replaced by a push", async ()
     Date.now = now;
     delete answers.agent_places;
   }
+});
+
+test("a Beep session's place comes with its row and a moved one replaces it, with no ask", () => {
+  const row = (folder: string, external = false) => ({ machine_id: "row-box", agent: "claude", id: "beep-1", external, place: { folder, main: "/srv/project", linked: folder !== "/srv/project", branch: "main", origin: "" } });
+  const asks = () => calls.filter(call => call.cmd === "agent_places" && JSON.stringify(call.args).includes("row-box")).length;
+
+  takeSessionPlaces([row("/srv/project")]);
+  assert.equal(placeOf(row(""))?.folder, "/srv/project");
+
+  takeSessionPlaces([row("/srv/project/.worktrees/fix")]);
+  assert.equal(placeOf(row(""))?.folder, "/srv/project/.worktrees/fix");
+  assert.equal(asks(), 0);
+
+  // A session started outside Beep is read from its machine, not from a row.
+  takeSessionPlaces([{ ...row("/elsewhere", true), id: "outside-1" }]);
+  assert.equal(placeOf({ machine_id: "row-box", agent: "claude", id: "outside-1", external: true }), null);
 });

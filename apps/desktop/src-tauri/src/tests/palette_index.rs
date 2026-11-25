@@ -44,6 +44,7 @@ fn agent_session(
         assistant: false,
         account: None,
         persona: None,
+        place: None,
     }
 }
 

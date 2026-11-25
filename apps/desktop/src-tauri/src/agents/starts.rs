@@ -182,6 +182,7 @@ impl Start {
             changes: None,
             account: self.account.clone(),
             persona: None,
+            place: None,
         }
     }
 

@@ -175,6 +175,7 @@ fn indexed_session(found: &Found, machine_name: &str) -> Option<MachineSession> 
         changes: None,
         account: None,
         persona: None,
+        place: None,
     })
 }
 

@@ -863,6 +863,7 @@ impl Agents {
                     info.title.clone(),
                     info.turns,
                     info.state.tasks.clone(),
+                    info.place.clone(),
                 );
 
                 if previous.as_ref() != Some(&summary) {

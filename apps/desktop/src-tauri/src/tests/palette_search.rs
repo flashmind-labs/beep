@@ -23,6 +23,7 @@ fn session(machine: &str, id: &str, activity: u64) -> MachineSession {
         assistant: false,
         account: None,
         persona: None,
+        place: None,
     }
 }
 

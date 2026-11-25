@@ -249,6 +249,7 @@ impl SessionInfo {
             changes: self.changes,
             account: self.account.clone(),
             persona: self.persona.clone(),
+            place: self.place.clone(),
             parent: self.parent.clone(),
             last_activity: self.last_activity,
             reviewer: self.reviewer,

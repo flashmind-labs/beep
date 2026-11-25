@@ -152,6 +152,20 @@ export function takePlaces(data: unknown) {
   if (moved) changed();
 }
 
+/// Takes the places a list of sessions carries: a Beep session's node says where it works in
+/// its row, and sends it again when it moves.
+export function takeSessionPlaces(rows: { machine_id: string; agent: string; id: string; external: boolean; place?: WorkPlace | null }[]) {
+  let moved = false;
+
+  for (const row of rows) {
+    if (row.external || !row.place) continue;
+    const key = placeKey(row);
+    if (JSON.stringify(known.get(key)?.place ?? null) !== JSON.stringify(row.place)) moved = settle(key, row.place, null) || moved;
+  }
+
+  if (moved) changed();
+}
+
 /// Redraws the views once, after a burst of answers.
 function changed() {
   clearTimeout(timer);

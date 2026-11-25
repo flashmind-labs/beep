@@ -212,6 +212,16 @@ fn a_row_ignores_what_changes_during_a_turn() {
     let mut doing = before.clone();
     doing.state.summary = "Run the tests".into();
     assert_ne!(before.row(), doing.row());
+    // So does a move to another checkout, which the lists show.
+    let mut moved = before.clone();
+    moved.place = Some(crate::node::agent::WorkPlace {
+        folder: "/srv/project/.worktrees/fix".into(),
+        main: "/srv/project".into(),
+        linked: true,
+        branch: Some("fix".into()),
+        origin: String::new(),
+    });
+    assert_ne!(before.row(), moved.row());
 }
 
 fn beep_agents_context(used: u64, size: u64) -> crate::AgentContext {

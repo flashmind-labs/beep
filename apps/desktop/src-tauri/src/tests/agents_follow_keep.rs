@@ -87,6 +87,7 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], start: u64) -> Pushed 
                 assistant: false,
                 account: None,
                 persona: None,
+                place: None,
             },
             plan: Vec::new(),
             files: Vec::new(),

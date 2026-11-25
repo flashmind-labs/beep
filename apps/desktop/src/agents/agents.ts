@@ -52,7 +52,7 @@ import { currentPage, setPage } from "./open-page.ts";
 import { onPlaces, placeOf } from "./place.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
-import { placeSub } from "./place-state.ts";
+import { type WorkPlace, placeSub } from "./place-state.ts";
 import { agentMessage, draftMessage, sessionBody, shownMessage } from "./session-frame.tsx";
 import { closeMoveMenu } from "./move.ts";
 
@@ -87,6 +87,8 @@ export interface AgentSession {
   assistant: boolean;
   /// The first line of its last reply, as inline HTML.
   reply_html?: string | null;
+  /// Where its node says it works, for a Beep session.
+  place?: WorkPlace | null;
   /// Started in the background by its parent, which alone shows it.
   background?: boolean;
   /// The custom agent it runs as, which its parent started it as.

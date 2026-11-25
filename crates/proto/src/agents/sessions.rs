@@ -5,6 +5,7 @@ use crate::{
     AccountName, ApiError, MachineCapability, ModelId, ProviderCredits, Upload,
     node::agent::{
         CheckoutPlan, Effort, LineChanges, Persona, SessionDevice, SessionInfo, StopReason,
+        WorkPlace,
     },
 };
 use std::time::SystemTime;
@@ -394,6 +395,10 @@ wire_structs! {
         /// node.
         #[serde(default)]
         pub persona: Option<Persona>,
+        /// Where it works now, as its node worked it out; `None` for an
+        /// external session, before the node knows and from an older node.
+        #[serde(default)]
+        pub place: Option<WorkPlace>,
     }
 }
 

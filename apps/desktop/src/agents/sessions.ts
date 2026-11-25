@@ -6,6 +6,7 @@ import type { AgentRow, AgentSession } from "./agents.ts";
 import type { MoveRecord } from "./move-state.ts";
 import { retitled, sessionKey, type Retitled } from "./conversation-state.ts";
 import { parentRow } from "./nesting-state.ts";
+import { takeSessionPlaces } from "./place.ts";
 import { moveStore, refreshMoves, takePushedSessions, withoutCopies } from "./move-store.ts";
 
 /// Every session on the user's machines, as the last `loadSessions` read it.
@@ -40,6 +41,7 @@ export const sessionsRead = new Set<() => void>();
 
 /// Takes `list` as the sessions: a session that moved is on two machines for a while, it shows once.
 function take(list: AgentSession[]) {
+  takeSessionPlaces(list);
   listed = list;
   taken++;
   show();
