@@ -8,7 +8,6 @@
 
 import type { DiffView } from "../review/diff-state.ts";
 import { type DiffViewHandle, type DiffOwner, diffView } from "../review/diff.tsx";
-import { sendPrompt } from "../agents/messages.ts";
 import { CHANGES, openWorkFile, paneSession, showChanges } from "./media.ts";
 import { dockOf, paneModel } from "./media-layout.ts";
 import { localFileItems } from "./localfile.ts";
@@ -147,7 +146,7 @@ function make(key: string) {
     },
     open: { label: "Open in a tab", run: openWorkFile },
     menu: (path, at) => localFileItems({ machineId: entry.machine, root: entry.root, path }, at),
-    review: { key: viewKey(s.machine_id, s.id), heading: () => reviewHeading(homeShort(entry.root), paneLinked()), send: sendPrompt },
+    review: { key: viewKey(s.machine_id, s.id), heading: () => reviewHeading(homeShort(entry.root), paneLinked()), send: async text => await paneSession()?.sendReview?.(text) ?? "No session is open." },
     agent: { machine: { id: s.machine_id, name: s.machine_name }, prefer: s.agent, session: s.id },
   });
   const made: Kept = Object.assign(entry, { view });

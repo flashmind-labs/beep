@@ -30,7 +30,7 @@ import { drawAgentBody, syncJump, scrolledLog } from "./logview.tsx";
 import { drawModelPill } from "./modelpill.tsx";
 import { readModes } from "./modepill.tsx";
 import { readTasks } from "./tasks.tsx";
-import { disposeQueue, interruptAgent, readOutbox, sendAgentMessage, steerMessage } from "./messages.ts";
+import { disposeQueue, interruptAgent, readOutbox, sendAgentMessage, sendPrompt, steerMessage } from "./messages.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { perfFresh } from "../ui/perf.ts";
@@ -170,7 +170,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   drawAgentHeading();
   MN.redraw = drawAgentAttached;
   MN.error = agentAttachError;
-  const place = { ...s, project: project?.name };
+  const place = { ...s, project: project?.name, sendReview: sendPrompt };
   if (inPlace) rebindPane(place); else startPane(place);
   void refreshMoves().then(drawMove);
   const msg = agentMessage.current;

@@ -173,6 +173,8 @@ interface PaneSession extends Partial<Pick<AgentSession, "assistant" | "reviewer
   external?: boolean;
   /// The project it belongs to, which new terminals are listed under.
   project?: string;
+  /// Sends a review of the changes to the session: "" when it went, else why not.
+  sendReview?: (text: string) => Promise<string>;
 }
 
 export { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS };
