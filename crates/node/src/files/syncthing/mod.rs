@@ -23,6 +23,7 @@ use tokio::{
 };
 
 mod project;
+pub(in crate::files) mod stignore;
 pub(crate) use project::{BEGIN as PROJECT_IGNORE_BEGIN, END as PROJECT_IGNORE_END};
 
 /// The longest a call to Syncthing may take.
@@ -183,7 +184,7 @@ impl Syncthing {
             }
             // An unreadable ignore file leaves ownership with Syncthing.
             managed.filter(|managed| {
-                !crate::files::sync::stignore::project_ignored(&folder, &managed.root)
+                !stignore::project_ignored(&folder, &managed.root)
                     .unwrap_or(false)
             })
         })

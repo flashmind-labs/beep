@@ -3,7 +3,7 @@
 //! Beep's sync would send what the user told Syncthing to leave out. Everything
 //! here blocks.
 
-use crate::files::syncthing::{PROJECT_IGNORE_BEGIN, PROJECT_IGNORE_END};
+use super::{PROJECT_IGNORE_BEGIN, PROJECT_IGNORE_END};
 use anyhow::{Context, Result, bail};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::{
@@ -67,7 +67,7 @@ const MAX_INCLUDES: usize = 16;
 
 /// One folder's `.stignore`, for one project at or below that folder.
 #[derive(Debug)]
-pub(super) struct Stignore {
+pub(in crate::files) struct Stignore {
     /// The project's path from the ignore file's folder.
     prefix: PathBuf,
     matcher: Gitignore,
@@ -78,7 +78,7 @@ impl Stignore {
     /// asked whether Syncthing still keeps it: rules the user wrote hold
     /// whether Syncthing runs, paused its folder or has gone. Fails on one it
     /// cannot read in full, saying why.
-    pub(super) fn load_above(root: &Path) -> Result<Vec<Self>> {
+    pub(in crate::files) fn load_above(root: &Path) -> Result<Vec<Self>> {
         let mut found = Vec::new();
 
         for folder in root.ancestors() {
@@ -104,7 +104,7 @@ impl Stignore {
     }
 
     /// Whether the file leaves out `path`, relative to the project.
-    pub(super) fn ignores(&self, path: &Path, is_dir: bool) -> bool {
+    pub(in crate::files) fn ignores(&self, path: &Path, is_dir: bool) -> bool {
         self.matcher
             .matched_path_or_any_parents(self.prefix.join(path), is_dir)
             .is_ignore()
@@ -274,5 +274,5 @@ fn fold(pattern: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "../../tests/files_sync_stignore.rs"]
+#[path = "../../tests/files_syncthing_stignore.rs"]
 mod tests;

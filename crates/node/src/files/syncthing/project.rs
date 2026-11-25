@@ -85,7 +85,7 @@ impl Syncthing {
 
         let share = managed.root.clone();
         let ignored = tokio::task::spawn_blocking(move || {
-            crate::files::sync::stignore::project_ignored(&folder, &share)
+            super::stignore::project_ignored(&folder, &share)
         })
         .await??;
         Ok(SyncthingFiles {
@@ -107,7 +107,7 @@ fn pattern(root: &Path, folder: &Path) -> Result<String> {
         );
     }
 
-    Ok(crate::files::sync::stignore::project_pattern(&relative))
+    Ok(super::stignore::project_pattern(&relative))
 }
 
 /// Keeps every excluded project's pattern in one managed block, so the

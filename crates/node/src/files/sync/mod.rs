@@ -56,7 +56,6 @@ mod project;
 mod root;
 mod rules;
 mod scan;
-pub(super) mod stignore;
 mod syncthing;
 mod watch;
 

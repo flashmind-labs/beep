@@ -1,7 +1,8 @@
 //! Which paths of a project sync: `Rules::load` reads a project's rules and
 //! `Rules::skip` applies them. Everything here blocks.
 
-use super::{gitdir, stignore::Stignore};
+use super::gitdir;
+use crate::files::syncthing::stignore::Stignore;
 use anyhow::{Context, Result};
 use beep_proto::node::sync::Rule;
 use ignore::{
