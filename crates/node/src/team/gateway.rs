@@ -96,10 +96,9 @@ pub(crate) async fn run(
     reaches: Reaches,
 ) {
     let (heard, hearing) = mpsc::channel(CHANGES);
-    let (sighted, sighting) = mpsc::channel(CHANGES);
 
-    Gateway::new(mesh, me, link, offers, heard, sighted, dir, reaches)
-        .drive(hearing, sighting)
+    Gateway::new(mesh, me, link, offers, heard, dir, reaches)
+        .drive(hearing)
         .await;
 }
 
@@ -126,6 +125,7 @@ struct Gateway {
     rows: BTreeMap<EndpointId, Vec<SessionInfo>>,
     sightings: BTreeMap<EndpointId, AbortOnDropHandle<()>>,
     sighted: mpsc::Sender<Sighted>,
+    sighting: Option<mpsc::Receiver<Sighted>>,
     reaches: Reaches,
     /// The machines that do not push their sessions.
     refused: BTreeSet<EndpointId>,
@@ -184,16 +184,18 @@ impl Gateway {
         link: TeamLink,
         offers: Offers,
         heard: mpsc::Sender<Followed>,
-        sighted: mpsc::Sender<Sighted>,
         dir: PathBuf,
         reaches: Reaches,
     ) -> Self {
+        let (sighted, sighting) = mpsc::channel(CHANGES);
+
         Self {
             mesh,
             me,
             link,
             offers,
             heard,
+            sighting: Some(sighting),
             peers: BTreeMap::new(),
             asked: None,
             asking: JoinSet::new(),
@@ -221,11 +223,8 @@ impl Gateway {
     /// tasks beside it, and teammates' updates are taken meanwhile. It
     /// elects when the mesh, a roster, the home or a host's reach changes;
     /// a machine that acts for no team has no timer.
-    async fn drive(
-        mut self,
-        mut hearing: mpsc::Receiver<Followed>,
-        mut sighting: mpsc::Receiver<Sighted>,
-    ) {
+    async fn drive(mut self, mut hearing: mpsc::Receiver<Followed>) {
+        let mut sighting = self.sighting.take().expect("a gateway is driven once");
         let mut updates = self.mesh.updates();
         let mut home = self.link.home_changes();
         let mut edits = self.link.roster_edits();

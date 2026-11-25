@@ -375,14 +375,12 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
     let me = mesh.me();
     let (link, _router) = device().await;
     let (heard, hearing) = mpsc::channel(8);
-    let (sighted, sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
         mesh.clone(),
         me,
         link.clone(),
         Offers::default(),
         heard.clone(),
-        sighted,
         dir.path().join("node"),
         Reaches::new(mesh.clone()),
     );
@@ -404,7 +402,7 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
     };
     // The first tick is due at once, once the timer has run.
     tokio::time::pause();
-    let mut running = Box::pin(gateway.drive(hearing, sighting));
+    let mut running = Box::pin(gateway.drive(hearing));
     assert!(futures::poll!(&mut running).is_pending());
     tokio::time::advance(Duration::from_millis(1)).await;
     assert!(futures::poll!(&mut running).is_pending());
@@ -432,14 +430,12 @@ async fn the_gateway_elects_when_the_home_changes() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, hearing) = mpsc::channel(8);
-    let (sighted, sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
         mesh.clone(),
         me,
         link.clone(),
         Offers::default(),
         heard,
-        sighted,
         dir.path().join("node"),
         Reaches::new(mesh.clone()),
     );
@@ -448,7 +444,7 @@ async fn the_gateway_elects_when_the_home_changes() {
     let team = TeamRecord::new(repo(), vec![alice.clone()]);
     link.with(|teams| teams.rosters.refresh([(repo(), team)].into()));
     tokio::time::pause();
-    let mut running = Box::pin(gateway.drive(hearing, sighting));
+    let mut running = Box::pin(gateway.drive(hearing));
     assert!(futures::poll!(&mut running).is_pending());
     assert!(link.served(|served| served.gateways.is_empty()));
 
@@ -478,14 +474,12 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, hearing) = mpsc::channel(8);
-    let (sighted, sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
         mesh.clone(),
         me,
         link.clone(),
         Offers::default(),
         heard,
-        sighted,
         dir.path().join("node"),
         Reaches::new(mesh.clone()),
     );
@@ -501,7 +495,7 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
         home.projects.insert(repo(), project);
     });
     tokio::time::pause();
-    let mut running = Box::pin(gateway.drive(hearing, sighting));
+    let mut running = Box::pin(gateway.drive(hearing));
     assert!(futures::poll!(&mut running).is_pending());
     assert!(link.served(|served| served.gateways.is_empty()), "no team yet");
 
@@ -586,14 +580,12 @@ async fn a_pushed_session_change_makes_the_cards_again_without_a_round() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, _hearing) = mpsc::channel(8);
-    let (sighted, _sighting) = mpsc::channel(8);
     let mut gateway = Gateway::new(
         mesh.clone(),
         me,
         link,
         Offers::default(),
         heard,
-        sighted,
         dir.path().join("node"),
         Reaches::new(mesh.clone()),
     );
