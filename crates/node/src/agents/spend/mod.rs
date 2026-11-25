@@ -2,10 +2,20 @@
 //! agents' own logs, sessions started outside Beep included, for the caller's
 //! `FollowUsage` stream.
 
-use beep_proto::SessionId;
 use beep_proto::node::usage::{Billing, SessionSpend};
+use beep_proto::{AgentSlug, SessionId};
 use ledger::{Ledger, SessionKey};
-use std::{collections::BTreeMap, path::PathBuf, sync::Mutex};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{Arc, Mutex, Weak},
+};
+use tokio::{
+    sync::watch,
+    task::spawn_blocking,
+    time::{MissedTickBehavior, interval},
+};
+use tokio_util::task::AbortOnDropHandle;
 
 mod agy;
 mod billing;
@@ -19,7 +29,10 @@ mod scan;
 pub(crate) use pi::session_cost as pi_session_cost;
 pub(crate) use scan::Roots;
 
-use crate::{agents::found::Agent, agents::prices::Tokens, lock};
+use crate::{
+    agents::{SPEND_EVERY, found::Agent, prices::Tokens, unix_now},
+    lock,
+};
 
 /// How far back the logs are read: a month and a bit.
 const WINDOW_SECS: u64 = 35 * 24 * 3600;
@@ -64,8 +77,18 @@ pub(super) struct Request {
     billing: Billing,
 }
 
-/// What one `FollowUsage` stream has heard: each session at the number of
-/// its latest change.
+/// What the scan has reported of each session, as its latest report stands.
+pub(crate) type Reports = BTreeMap<(AgentSlug, SessionId), SessionSpend>;
+
+/// The task that reads the logs while any stream follows them. The last
+/// follower to drop it ends the task.
+#[derive(Debug)]
+pub(crate) struct Scan {
+    _task: AbortOnDropHandle<()>,
+}
+
+/// What the scan has reported to the scan's followers: each session at the
+/// number of its latest change.
 #[derive(Debug, Default)]
 pub(crate) struct Heard(BTreeMap<SessionKey, u64>);
 
@@ -77,6 +100,10 @@ pub(crate) struct Spend {
     path: Option<PathBuf>,
     /// Read from `path` at the first pass.
     ledger: Mutex<Option<Ledger>>,
+    /// What the passes reported, for every stream that follows.
+    reports: watch::Sender<Reports>,
+    /// The scan while some stream holds it. Held only to join or start one.
+    scan: Mutex<Weak<Scan>>,
 }
 
 impl Spend {
@@ -86,6 +113,8 @@ impl Spend {
             roots: Roots::locate(),
             path: dirs::cache_dir().map(|dir| dir.join("beep-node").join("agent-spend.json")),
             ledger: Mutex::default(),
+            reports: watch::Sender::default(),
+            scan: Mutex::default(),
         }
     }
 
@@ -95,7 +124,72 @@ impl Spend {
             roots,
             path: Some(path),
             ledger: Mutex::default(),
+            reports: watch::Sender::default(),
+            scan: Mutex::default(),
         }
+    }
+
+    /// Follows what sessions spent. One task reads the logs every
+    /// `SPEND_EVERY` for all followers while any holds the returned `Scan`;
+    /// the reports are as the last pass left them.
+    pub(crate) fn follow(self: &Arc<Self>) -> (Arc<Scan>, watch::Receiver<Reports>) {
+        let mut running = lock(&self.scan);
+        let scan = running.upgrade().unwrap_or_else(|| {
+            let scan = Arc::new(Scan {
+                _task: AbortOnDropHandle::new(tokio::spawn(self.clone().scan_every())),
+            });
+            *running = Arc::downgrade(&scan);
+            scan
+        });
+
+        (scan, self.reports.subscribe())
+    }
+
+    /// Reads the logs on a timer and publishes what changed. A pass runs on
+    /// the blocking pool: dropped with the task, it still finishes and saves
+    /// what it read.
+    async fn scan_every(self: Arc<Self>) {
+        let mut every = interval(SPEND_EVERY);
+        every.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut heard = Heard::default();
+
+        loop {
+            every.tick().await;
+            let spend = self.clone();
+            let read = spawn_blocking(move || {
+                let reports = spend.pass(unix_now(), &mut heard);
+                (heard, reports)
+            })
+            .await;
+
+            match read {
+                Ok((known, reports)) => {
+                    heard = known;
+                    self.publish(reports);
+                }
+                Err(e) => {
+                    log::warn!("reading the agents' logs failed: {e}");
+                    heard = Heard::default();
+                }
+            }
+        }
+    }
+
+    fn publish(&self, reports: Vec<SessionSpend>) {
+        self.reports.send_if_modified(|all| {
+            let mut changed = false;
+
+            for report in reports {
+                let key = (report.agent.clone(), report.session.clone());
+
+                if all.get(&key) != Some(&report) {
+                    all.insert(key, report);
+                    changed = true;
+                }
+            }
+
+            changed
+        });
     }
 
     /// Reads what changed in the logs by `now` (Unix seconds), and gives

@@ -1,6 +1,7 @@
 //! Passes over fabricated logs of every agent.
 
 use super::*;
+use beep_proto::watched;
 use std::{collections::BTreeMap, fs, io::Write, path::Path};
 
 /// 2026-11-03T09:00:00Z.
@@ -485,4 +486,35 @@ fn resuming_a_legacy_flsh_session_corrects_its_cached_hour() {
     let chat = by_session(&complete)["chat"];
     assert_eq!(cost(chat), 0.45);
     assert!(chat.historical.is_empty());
+}
+
+#[tokio::test]
+async fn streams_share_one_scan_and_each_sees_what_it_reported() {
+    let fixture = fixture();
+    let spend = Arc::new(Spend::at(fixture.roots.clone(), fixture.ledger.clone()));
+    let (first, mut first_reports) = spend.follow();
+    let (second, mut second_reports) = spend.follow();
+
+    assert!(Arc::ptr_eq(&first, &second));
+
+    // The scan's own first pass reads the fabricated logs at the real clock,
+    // which may be past their window: publish a report by hand instead.
+    let report = SessionSpend {
+        agent: "claude".into(),
+        session: "s1".into(),
+        ..SessionSpend::default()
+    };
+    spend.publish(vec![report.clone()]);
+    first_reports.changed().await.unwrap();
+    second_reports.changed().await.unwrap();
+
+    assert_eq!(watched::read(&first_reports, |all| all.len()), 1);
+    assert_eq!(watched::read(&second_reports, |all| all.len()), 1);
+    // The same report again is no news.
+    spend.publish(vec![report]);
+    assert!(!first_reports.has_changed().unwrap());
+
+    drop((first, second));
+    let (again, _) = spend.follow();
+    assert_eq!(Arc::strong_count(&again), 1);
 }

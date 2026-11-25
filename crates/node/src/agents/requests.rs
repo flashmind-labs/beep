@@ -2,8 +2,8 @@
 
 use beep_proto::SessionId;
 use super::{
-    Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, SPEND_EVERY,
-    custom_agents, harnesses, media_file, reach, spend::Heard, unix_now, work_folder, worktrees,
+    Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP,
+    custom_agents, harnesses, media_file, reach, spend::Reports, work_folder, worktrees,
 };
 use crate::files::transfer::Transfers;
 use anyhow::{Context, Result};
@@ -12,13 +12,12 @@ use beep_proto::media_mime;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{self, SessionsReply, SessionsRequest},
-    usage::SessionSpend,
 };
 use beep_proto::watched;
 use iroh::EndpointId;
 use std::{fmt::Display, io::ErrorKind, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
-    task::{JoinHandle, spawn_blocking},
+    task::spawn_blocking,
     time::{Instant, MissedTickBehavior, interval, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -763,7 +762,7 @@ async fn send_alerts<T: Clone>(
 /// Sends the caller what finished turns spent and each agent's plan
 /// usage, reading the plans every `PLAN_EVERY` and when the caller asks,
 /// until the caller closes the stream. With `history`, also what sessions
-/// spent as the agents' logs tell it, read every `SPEND_EVERY`.
+/// spent as the agents' logs tell it, read for all such streams together.
 async fn send_usage(
     mut tx: LinkTx,
     mut rx: LinkRx,
@@ -788,14 +787,17 @@ async fn send_usage(
     every.set_missed_tick_behavior(MissedTickBehavior::Delay);
     // When this stream last asked for a read, which runs beside it.
     let mut last_read: Option<Instant> = None;
-    let mut every_scan = interval(SPEND_EVERY);
-    every_scan.set_missed_tick_behavior(MissedTickBehavior::Delay);
-    // A pass reads files; it runs on the blocking pool beside the loop.
-    // Dropped with the stream, it still finishes and saves what it read.
-    // What this stream heard goes with it and comes back with the reports; a
-    // new stream has heard nothing, so its first pass gives it every session.
-    let mut scanning: Option<JoinHandle<(Heard, Vec<SessionSpend>)>> = None;
-    let mut heard = Heard::default();
+    // The node's one scan of the logs runs while this stream holds it. The
+    // reports so far go out at once, the later ones as the scan changes them.
+    let (_scan, mut spend) = match history {
+        true => {
+            let (scan, mut spend) = agents.spend.follow();
+            spend.mark_changed();
+            (Some(scan), Some(spend))
+        }
+        false => (None, None),
+    };
+    let mut told = Reports::new();
 
     loop {
         tokio::select! {
@@ -815,27 +817,19 @@ async fn send_usage(
                 agents.read_plans_soon();
                 last_read = Some(Instant::now());
             }
-            _ = every_scan.tick(), if history && scanning.is_none() => {
-                let spend = agents.spend.clone();
-                let mut known = std::mem::take(&mut heard);
-                scanning = Some(spawn_blocking(move || {
-                    let reports = spend.pass(unix_now(), &mut known);
-                    (known, reports)
-                }));
-            }
-            Some(read) = async { Some(scanning.as_mut()?.await) }, if scanning.is_some() => {
-                scanning = None;
-
-                match read {
-                    Ok((known, reports)) => {
-                        heard = known;
-
-                        for report in reports {
-                            tx.send(&SessionsReply::SessionSpend { usage: report }).await?;
-                        }
+            Some(now) = async {
+                match spend.as_mut() {
+                    Some(spend) => {
+                        spend.changed().await.ok()?;
+                        Some(watched::read_and_update(spend, Clone::clone))
                     }
-                    Err(e) => log::warn!("reading the agents' logs failed: {e}"),
+                    None => std::future::pending().await,
                 }
+            } => {
+                for (_, report) in now.iter().filter(|(of, report)| told.get(*of) != Some(*report)) {
+                    tx.send(&SessionsReply::SessionSpend { usage: report.clone() }).await?;
+                }
+                told = now;
             }
             message = rx.recv::<SessionsRequest>() => match message {
                 Ok(Some(SessionsRequest::RefreshPlanUsage {})) => {
