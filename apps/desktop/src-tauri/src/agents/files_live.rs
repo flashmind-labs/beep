@@ -29,7 +29,7 @@ const KEPT: usize = 64;
 const PLACES_KEPT: usize = 8;
 
 /// A listing asked for, as the window passed it.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct TreeRead {
     path: String,
     ignored: bool,

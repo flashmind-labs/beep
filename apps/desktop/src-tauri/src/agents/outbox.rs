@@ -2221,7 +2221,7 @@ fn holds_among(log: &Log, message: &Message, unseen: usize) -> bool {
         return true;
     }
 
-    let mut users = log
+    let users = log
         .entries
         .iter()
         .enumerate()

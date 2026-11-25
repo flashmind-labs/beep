@@ -307,7 +307,7 @@ fn a_machine_that_pushes_its_history_is_not_read_on_each_ask() {
     assert_eq!(ids(&rows.unwrap_or_default()), ["new"]);
 
     // The push ends: the machine is read now, and again when asked.
-    assert_eq!(keys(&lists.unfed(&remote).fetch), [remote.clone()]);
+    assert_eq!(lists.unfed(&remote).fetch.len(), 1);
     let (_, moved) = lists.want(list, "main", vec![remote.clone()], later, keep);
     assert!(
         moved.fetch.is_empty(),

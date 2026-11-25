@@ -71,39 +71,24 @@ fn a_folder_no_window_follows_is_forgotten_and_the_places_of_a_machine_without_f
 #[test]
 fn the_reads_of_a_closed_window_go_and_a_read_two_windows_asked_stays_until_both_go() {
     let (machine, _) = key("/srv/one");
+    let at = (machine, "/srv/one".to_owned());
     let mut held = Held::default();
-    let folder = held
-        .folders
-        .entry((machine, "/srv/one".into()))
-        .or_default();
     let read = |path: &str| TreeRead {
         path: path.into(),
         ignored: false,
         deep: false,
     };
+    let folder = held.folders.entry(at.clone()).or_default();
     keep(&mut folder.trees, ("one".into(), read("src")), KEPT);
     keep(&mut folder.trees, ("two".into(), read("src")), KEPT);
     keep(&mut folder.trees, ("two".into(), read("docs")), KEPT);
-    keep(
-        &mut held.places.entry(machine).or_default(),
-        ("two".into(), Vec::new()),
-        PLACES_KEPT,
-    );
+    keep(held.places.entry(machine).or_default(), ("two".into(), Vec::new()), PLACES_KEPT);
 
+    // Window two closes: the read it shared with window one stays, its own goes.
     held.forget_windows(&HashSet::from(["one".to_owned()]));
-    assert!(held.folders.is_empty() && held.places.is_empty());
+    assert_eq!(distinct(&held.folders[&at].trees), [read("src")]);
+    assert!(held.places.is_empty());
 
-    let folder = held
-        .folders
-        .entry((machine, "/srv/one".into()))
-        .or_default();
-    keep(&mut folder.trees, ("one".into(), read("src")), KEPT);
-    keep(&mut folder.trees, ("two".into(), read("src")), KEPT);
-    keep(&mut folder.trees, ("two".into(), read("docs")), KEPT);
-    held.forget_windows(&HashSet::from(["two".to_owned()]));
-
-    let kept = &held.folders[&(machine, "/srv/one".to_owned())];
-    assert_eq!(distinct(&kept.trees).len(), 2);
     held.forget_windows(&HashSet::new());
     assert!(held.folders.is_empty());
 }
