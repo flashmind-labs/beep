@@ -33,6 +33,7 @@ pub async fn agent_harnesses(
 /// Saves the settings of `agent` on `machine_id`.
 #[tauri::command]
 pub async fn harness_settings_save(
+    app: AppHandle,
     fleet: FleetState<'_>,
     machines: Machines<'_>,
     machine_id: String,
@@ -44,7 +45,7 @@ pub async fn harness_settings_save(
         .save_harness_settings(&machine_id, &agent, settings)
         .await?;
     if let Some(machine) = machines.member(&machine_id) {
-        machines.projections().forget_models_on(machine);
+        direct::models_changed(&app, &machines, machine);
     }
     Ok(())
 }
@@ -53,13 +54,17 @@ pub async fn harness_settings_save(
 /// after.
 #[tauri::command]
 pub async fn agent_harness_update(
+    app: AppHandle,
     fleet: Machines<'_>,
     machine_id: String,
     agent: String,
 ) -> Result<AgentHarnesses> {
-    direct::update_harness(&fleet, fleet.machine(&machine_id)?, &agent)
+    let machine = fleet.machine(&machine_id)?;
+    let list = direct::update_harness(&fleet, machine, &agent)
         .await
-        .map_err(plain)
+        .map_err(plain)?;
+    direct::models_changed(&app, &fleet, machine);
+    Ok(list)
 }
 
 /// Try again: `machine_id` installs the ACP adapters its agents lack now;

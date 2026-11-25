@@ -1214,8 +1214,14 @@ pub(crate) async fn update_harness(
         })?
         .ok_or_else(|| too_old(fleet, machine))?;
     fleet.projections().harnesses.put(machine, report.clone());
-    fleet.projections().forget_models_on(machine);
     Ok(harnesses_view(fleet, machine, report))
+}
+
+/// A harness or its settings changed on `machine`: its models are read again, and the views
+/// that list them draw with what the read finds.
+pub(crate) fn models_changed(app: &tauri::AppHandle, fleet: &Fleet, machine: EndpointId) {
+    fleet.projections().forget_models_on(machine);
+    super::event_views::changed(app.clone(), beep_proto::node::events::Topic::new("accounts"));
 }
 
 fn too_old(fleet: &Fleet, machine: EndpointId) -> DesktopError {

@@ -577,6 +577,10 @@ impl Projections {
     pub(crate) fn forget_models_on(&self, machine: EndpointId) {
         self.models.forget_where(|(m, _)| *m == machine);
     }
+
+    pub(crate) fn forget_models_of(&self, agent: &str) {
+        self.models.forget_where(|(_, a)| a == agent);
+    }
 }
 
 /// Outbound node-level mutation handled asynchronously by a machine's actor.

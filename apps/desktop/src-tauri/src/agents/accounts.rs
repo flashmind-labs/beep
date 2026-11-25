@@ -9,7 +9,7 @@ use crate::{
     beep::epoch_ms,
     error::Result,
     fleet::{
-        Machines, agents as direct,
+        Fleet, Machines, agents as direct,
         projects::{FleetState, desk},
     },
     settings::cli_login::{find_tool, refused},
@@ -29,7 +29,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tokio::{
     io::AsyncReadExt,
     process::{ChildStdout, Command},
@@ -210,11 +210,14 @@ async fn save(
         .await?
         .save_agent_token(agent.as_ref(), name, &secret)
         .await?;
-    accounts_changed(app);
+    accounts_changed(app, agent.as_ref());
     Ok(saved.into())
 }
 
-fn accounts_changed(app: &AppHandle) {
+/// The accounts of `agent` changed: the models its machines list are read again, since they
+/// depend on the account.
+fn accounts_changed(app: &AppHandle, agent: &str) {
+    app.state::<Arc<Fleet>>().projections().forget_models_of(agent);
     crate::fleet::event_views::changed(app.clone(), Topic::new("accounts"));
 }
 
@@ -230,7 +233,7 @@ pub async fn revoke_agent_token(
         .await?
         .revoke_agent_token(agent.as_ref(), name.as_deref())
         .await?;
-    accounts_changed(&app);
+    accounts_changed(&app, agent.as_ref());
     Ok(())
 }
 

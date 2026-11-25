@@ -356,3 +356,31 @@ fn an_installed_tool_leaves_the_pushed_list_until_the_node_pushes_again() {
 
     assert_eq!(pushes.get(machine), Some(ToolPush::Pushed(Vec::new())));
 }
+
+fn listed() -> AgentModels {
+    AgentModels {
+        pick: beep_proto::AgentModelPick::Listed {},
+        current: None,
+        models: Vec::new(),
+    }
+}
+
+#[test]
+fn models_are_forgotten_for_a_machine_after_a_harness_change_and_for_an_agent_after_an_account_change() {
+    let projections = Projections::default();
+    let (one, two) = (sample_machine(1), sample_machine(2));
+
+    for (machine, agent) in [(one, "claude"), (one, "codex"), (two, "claude")] {
+        projections.models.put((machine, agent.to_owned()), listed());
+    }
+
+    projections.forget_models_on(one);
+    assert!(projections.models.peek(&(one, "claude".to_owned())).is_none());
+    assert!(projections.models.peek(&(one, "codex".to_owned())).is_none());
+    assert!(projections.models.peek(&(two, "claude".to_owned())).is_some());
+
+    projections.models.put((one, "codex".to_owned()), listed());
+    projections.forget_models_of("claude");
+    assert!(projections.models.peek(&(two, "claude".to_owned())).is_none());
+    assert!(projections.models.peek(&(one, "codex".to_owned())).is_some());
+}

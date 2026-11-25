@@ -11,13 +11,14 @@ use iroh::EndpointId;
 /// Installs the newest `tool` on `machine_id`; gives the version installed.
 #[tauri::command]
 pub async fn update_machine_tool(
+    app: tauri::AppHandle,
     fleet: Machines<'_>,
     machine_id: String,
     tool: String,
 ) -> Result<String> {
     let machine = fleet.machine(&machine_id)?;
     let Ok(named) = tool.parse::<Tool>() else {
-        return update_agent(&fleet, machine, &tool).await;
+        return update_agent(&app, &fleet, machine, &tool).await;
     };
     let latest = match fleet.projections().tool_pushes.get(machine) {
         Some(ToolPush::Pushed(updates)) => updates
@@ -59,15 +60,21 @@ pub async fn machine_set_up(fleet: Machines<'_>, machine_id: String, need: Need)
 
 /// Updates coding agent `agent` on `machine`; gives the version it reports
 /// after.
-async fn update_agent(fleet: &Fleet, machine: EndpointId, agent: &str) -> Result<String> {
+async fn update_agent(
+    app: &tauri::AppHandle,
+    fleet: &Fleet,
+    machine: EndpointId,
+    agent: &str,
+) -> Result<String> {
     if harness(agent).is_none() {
         return Err(DesktopError::BadRequest(format!(
             "Beep does not update {agent}."
         )));
     }
 
-    agents::update_harness(fleet, machine, agent)
-        .await?
+    let report = agents::update_harness(fleet, machine, agent).await?;
+    agents::models_changed(app, fleet, machine);
+    report
         .harnesses
         .into_iter()
         .find(|item| item.agent == agent)
