@@ -9,7 +9,8 @@ import { Icon } from "../ui/icons.tsx";
 import { AG } from "./agents-state.ts";
 import { folderName } from "./agent-kind.ts";
 import { drawAgentAttached, previewsOf } from "./images.tsx";
-import { answerUpload, MN, removeAttached, removeMention } from "./workdrop.ts";
+import { answerUpload } from "./workdrop.ts";
+import { MN, removeAttached, removeMention } from "./mentions.ts";
 
 /// " · 4.2 MB/s" after a slow transfer's percentage, or nothing.
 export const speedNote = (transfer: Transfer) => {

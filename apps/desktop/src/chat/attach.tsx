@@ -3,7 +3,8 @@ import { showFieldDrop } from "../agents/composer-ui.tsx";
 import { hideDropOverlay, PATH_TYPE, showDropOverlay } from "./drop-overlay.tsx";
 import { pastedFiles } from "./pics.ts";
 import { paneSession } from "../agentpane/media.ts";
-import { addMention, uploadDropped } from "../agents/workdrop.ts";
+import { addMention } from "../agents/mentions.ts";
+import { uploadDropped } from "../agents/workdrop.ts";
 import { bar, S } from "../bar/core.ts";
 
 /// Whether the agent view's message field is on screen, to take what is

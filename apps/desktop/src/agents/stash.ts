@@ -5,7 +5,7 @@ import { windowHooks } from "../bar/core.ts";
 import { AG } from "./agents-state.ts";
 import type { Attached } from "./agentqueue.ts";
 import { attachPreview, drawAgentAttached } from "./images.tsx";
-import { MN, attachmentKey, setAttached } from "./workdrop.ts";
+import { MN, attachmentKey, setAttached } from "./mentions.ts";
 
 export function bindSessionStash(field: HTMLTextAreaElement) {
   const open = AG.open;

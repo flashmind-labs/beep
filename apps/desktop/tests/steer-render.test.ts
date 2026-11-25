@@ -8,7 +8,7 @@ import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { answerAgentQuestion, answerFirst, questionKey, disposeQueue, drawQueue, editQueued, steerMessage } from "../src/agents/messages.ts";
 import { pollAgent } from "../src/agents/session.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
-import { askUpload, MN } from "../src/agents/workdrop.ts";
+import { askUpload, MN } from "../src/agents/mentions.ts";
 import { drawTasks } from "../src/agents/tasks.tsx";
 import { transcriptKey, transcripts } from "../src/agents/transcript-cache-state.ts";
 import { drawAgentAttached } from "../src/agents/images.tsx";

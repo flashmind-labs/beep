@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { create } from "zustand";
-import { addMention } from "../agents/workdrop.ts";
+import { addMention } from "../agents/mentions.ts";
 import { Button, ChipToggle } from "../ui/kit.tsx";
 import { openMenu } from "../ui/menu.tsx";
 import { onPhone, primaryModifier } from "../ui/platform.ts";

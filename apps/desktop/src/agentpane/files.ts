@@ -21,7 +21,7 @@ import { threadFolders } from "../agents/threads-state.ts";
 import { openWorkFile, previewWorkFile, paneSession, saveWorkFile, showFiles } from "./media.ts";
 import { desktopChatPane, place } from "./media-layout.ts";
 import { localFileItems } from "./localfile.ts";
-import { addMention, askUpload } from "../agents/workdrop.ts";
+import { addMention, askUpload } from "../agents/mentions.ts";
 import { hideDropOverlay, PATH_TYPE } from "../chat/drop-overlay.tsx";
 import { selectFile, selectionRoots, fileNameError, canPasteFiles, type FileClipboard } from "./file-actions-state.ts";
 import { confirmSheet, renameSheet } from "../ui/menu.tsx";

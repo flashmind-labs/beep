@@ -18,7 +18,7 @@ import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.tsx";
 import { disposeComposerUi, FieldControl } from "../src/agents/composer-ui.tsx";
 import { createElement } from "react";
 import { createDocumentView } from "../src/ui/document-root.tsx";
-import { MN } from "../src/agents/workdrop.ts";
+import { MN } from "../src/agents/mentions.ts";
 import { agentMessage } from "../src/agents/session-frame-state.ts";
 import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
 

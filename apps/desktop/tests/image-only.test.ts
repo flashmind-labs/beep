@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { AG, type AgentPage, type AgentRow } from "../src/agents/agents-state.ts";
 import { setView } from "../src/bar/core.ts";
 import { sendAgentMessage, steerMessage, stopAllWork, resumeEndedSession } from "../src/agents/messages.ts";
-import { MN, activateMentions, resetMentions, currentMentions } from "../src/agents/workdrop.ts";
+import { MN, activateMentions, resetMentions, currentMentions } from "../src/agents/mentions.ts";
 import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
 import { staysInline } from "../src/agents/images.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";

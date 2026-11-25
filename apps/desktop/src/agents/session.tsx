@@ -17,7 +17,7 @@ import { showFailure } from "../ui/failbanner-view.tsx";
 import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
-import { MN, activateMentions, rememberMentionImages, setAttachError } from "./workdrop.ts";
+import { MN, activateMentions, rememberMentionImages, setAttachError } from "./mentions.ts";
 import { agentBack } from "./agents.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, sessionUsage, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, canTakeOver, openOf, where } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";

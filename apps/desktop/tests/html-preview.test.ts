@@ -22,7 +22,7 @@ const stubs = new Map(Object.entries({
   "ui/tauri.ts": "export const invoke = globalThis.previewInvoke; export const listen = async () => () => {};",
   "chat/media.tsx": "export const fileSize = () => ''; export const openViewer = () => {};",
   "ui/menu.tsx": "export const confirmSheet = () => {}; export const openMenu = () => {};",
-  "agents/workdrop.ts": "export const addMention = () => {};",
+  "agents/mentions.ts": "export const addMention = () => {};",
 }).map(([path, source]) => [new URL(`../src/${path}`, import.meta.url).href, source]));
 const hook = registerHooks({ load(url, context, next) {
   const source = stubs.get(url);
