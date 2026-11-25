@@ -94,6 +94,7 @@ function restoreDraft(draft: Draft, state: MentionState, session: OpenAgent | nu
 async function sendBackground(session: OpenAgent, draft: Waiting, state: MentionState, ended: boolean) {
   try {
     keepAgentPics(session, draft.images);
+    rememberPics(session, draft.text, draft.images);
     const error = await sendOnce(session, { steer: outgoing(draft.text, draft.images) }, null, extrasOf(session, draft, ended));
     if (error && error.kind !== "waiting" && error.kind !== "timeout") {
       state.error = error.message;
@@ -118,16 +119,39 @@ function extrasOf(o: OpenAgent, q: Pick<Waiting, "paths" | "files" | "root" | "r
   return { attach: q ? attachOf(q) : null, resume: ended ? resumeFor(o) : null };
 }
 
-/// Takes the steer the node holds at `i` out; to edit, it goes back in the field. The node
-/// drops all its steers or none: the others, and those it has not listed yet, go again behind it.
-export async function editQueued(i: number, edit: boolean) {
-  const o = AG.open, held = heldQueue(), text = held[i];
-  if (!o || text === undefined) return;
-  const rest = [...held.filter((_, at) => at !== i), ...AG.outbox.filter(row => row.state === "sent" && row.how === "steer").map(row => row.text)];
-  if (!await steerAgent({ drop_steers: null }) || !isOpen(o)) return;
-  for (const again of rest) await sendSteer({ typed: again, text: again, paths: [], images: [] }, false);
+/// The pictures of the steers sent from this window, by the text the node lists each as, so an
+/// edit of the queue sends every steer again with its own. The node keeps the pictures but lists
+/// only their names.
+const steerPics: { session: string; form: string; images: Attached[] }[] = [];
+const MAX_STEER_PICS = 64;
 
-  if (edit) backInField({ typed: heldMessage(text).words, paths: [], images: [] });
+/// What the node lists for a steer: its words, then a line per picture.
+const listedAs = (text: string, names: readonly string[]) => [text, ...names.map(name => `[Image: ${name}]`)].filter(Boolean).join("\n");
+
+function rememberPics(o: OpenAgent, text: string, images: Attached[]) {
+  if (!images.length) return;
+  steerPics.push({ session: o.session, form: listedAs(outgoing(text, images).text, images.map(image => image.name)), images });
+  if (steerPics.length > MAX_STEER_PICS) steerPics.shift();
+}
+
+const picsOf = (o: OpenAgent, form: string) => steerPics.find(kept => kept.session === o.session && kept.form === form)?.images ?? [];
+
+/// Takes the steer the node holds at `i` out; to edit, it goes back in the field. The node
+/// drops all its steers or none: the others, and those it has not listed yet, go again behind
+/// it, each with its pictures.
+export async function editQueued(i: number, edit: boolean) {
+  const o = AG.open, held = heldQueue();
+  if (!o || held[i] === undefined) return;
+  const sent = AG.outbox.filter(row => row.state === "sent" && row.how === "steer").map(row => listedAs(row.text, row.images));
+  const all = [...held, ...sent].map(form => ({ form, images: picsOf(o, form) }));
+  if (!await steerAgent({ drop_steers: null }) || !isOpen(o)) return;
+  const words = ({ form, images }: (typeof all)[number]) => images.length ? heldMessage(form).words : form;
+
+  for (const [at, one] of all.entries()) {
+    if (at !== i) await sendSteer({ typed: words(one), text: words(one), paths: [], images: one.images }, false);
+  }
+
+  if (edit) backInField({ typed: heldMessage(held[i]).words, paths: [], images: all[i].images });
   drawQueue();
   redrawAgentHints();
 }
@@ -236,6 +260,7 @@ async function sendSteer(q: Waiting, back = true) {
   const o = AG.open;
   if (!o) return false;
   if (q.images.length) keepAgentPics(o, q.images);
+  rememberPics(o, q.text, q.images);
   const sent = await sendText({ steer: outgoing(q.text, q.images) }, seenNow(), extrasOf(o, q, false));
 
   if (sent === "failed" && back && isOpen(o)) backInField(q);

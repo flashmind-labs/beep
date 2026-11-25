@@ -253,6 +253,36 @@ test("editing a steer the node holds drops the node's steers, sends the others a
   assert.equal(input.value, "Use the existing fixture");
 });
 
+test("editing a queued steer keeps the pictures of every steer, the edited one and the ones sent again", async t => {
+  const { page, input } = setup();
+  const picture = (name: string) => ({ name, mime: "image/png", size: 8, data: "iVBORw0KGgo=", url: "data:image/png;base64,iVBORw0KGgo=", original: null });
+  answers.agent_steer = [];
+  t.after(() => { forgetAgentFollows(); delete answers.agent_steer; AG.att = []; });
+  const sentAs = () => calls.filter(call => call.cmd === "agent_steer").map(call => (call.args as { steer: { steer?: { text: string; images?: { name: string }[] } } }).steer.steer);
+
+  for (const [words, name] of [["First", "a.png"], ["Second", "b.png"]]) {
+    input.value = words;
+    AG.att = [picture(name)];
+    steerMessage(input);
+    await settle();
+  }
+
+  // The node lists each as its words and a line per picture.
+  const [first, second] = sentAs();
+  page.queued_messages = [`${first?.text}\n[Image: a.png]`, `${second?.text}\n[Image: b.png]`];
+  page.queued = 2;
+  AG.att = [];
+  calls.length = 0;
+  await editQueued(0, true);
+
+  const again = sentAs().filter(Boolean);
+  assert.equal(again.length, 1);
+  assert.equal(again[0]?.text, second?.text);
+  assert.deepEqual(again[0]?.images?.map(image => image.name), ["b.png"]);
+  assert.equal(input.value, "First");
+  assert.deepEqual(AG.att.map(image => image.name), ["a.png"]);
+});
+
 test("a pending steer returns after switching conversations without sending it again", async t => {
   const { page, input } = setup();
   answers.agent_steer = [];
