@@ -79,8 +79,11 @@ impl Source {
             _agent_sources: agent_sources,
             _processes: matches!(topic.name(), "processes" | "*")
                 .then(crate::agents::ProcessDemand::new),
-            _devices: (topic.name() == crate::run::device::LIST_TOPIC)
-                .then(crate::run::device::Follow::new),
+            _devices: matches!(
+                topic.name(),
+                crate::run::device::LIST_TOPIC | crate::run::device::TOPIC
+            )
+            .then(crate::run::device::Follow::new),
         };
         source.resolve(offers).await?;
         // Nobody else watches it yet. The stream that made it reads again

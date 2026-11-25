@@ -403,63 +403,126 @@ fn device(state: DeviceState) -> Device {
     }
 }
 
-/// A `Follow` over a device list the test sets, counting reads.
-fn follow_of(
-    list: &Arc<std::sync::Mutex<Vec<Device>>>,
-    reads: &Arc<AtomicU8>,
-) -> (Follow, tokio::sync::mpsc::UnboundedReceiver<()>) {
-    let (ping, pings) = tokio::sync::mpsc::unbounded_channel();
-    let (list, reads) = (list.clone(), reads.clone());
-    let follow = Follow::with(
-        move || {
-            reads.fetch_add(1, Ordering::Relaxed);
-            let list = list.lock().unwrap().clone();
-            async move { list }
-        },
-        move || {
-            let _ = ping.send(());
-        },
-    );
+/// A follower task over a device list the test sets, counting reads.
+struct Followed {
+    list: Arc<std::sync::Mutex<Vec<Device>>>,
+    reads: Arc<AtomicU8>,
+    changed: watch::Sender<()>,
+    listed: &'static watch::Sender<Option<Vec<Device>>>,
+    /// The stored list at each ping.
+    pings: tokio::sync::mpsc::UnboundedReceiver<Option<Vec<Device>>>,
+    task: AbortOnDropHandle<()>,
+}
 
-    (follow, pings)
+fn followed(first: Vec<Device>) -> Followed {
+    let list = Arc::new(std::sync::Mutex::new(first));
+    let reads = Arc::new(AtomicU8::new(0));
+    let (changed, rings) = watch::channel(());
+    let listed: &'static _ = Box::leak(Box::new(watch::Sender::new(None)));
+    let (ping, pings) = tokio::sync::mpsc::unbounded_channel();
+    let task = tokio::spawn(following_list(
+        {
+            let (list, reads) = (list.clone(), reads.clone());
+            move || {
+                reads.fetch_add(1, Ordering::Relaxed);
+                let list = list.lock().unwrap().clone();
+                async move { list }
+            }
+        },
+        listed,
+        rings,
+        move || {
+            let _ = ping.send(listed.borrow().clone());
+        },
+    ));
+
+    Followed {
+        list,
+        reads,
+        changed,
+        listed,
+        pings,
+        task: AbortOnDropHandle::new(task),
+    }
+}
+
+impl Followed {
+    /// Waits for the first read to be stored.
+    async fn started(&self) {
+        self.listed
+            .subscribe()
+            .wait_for(Option::is_some)
+            .await
+            .expect("the list is stored");
+    }
+}
+
+fn simulator() -> Device {
+    Device {
+        platform: Platform::Ios,
+        id: DeviceId("sim-1".to_owned()),
+        ..device(DeviceState::On)
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_change_is_read_once_and_stored_before_it_is_pinged() {
+    let mut follow = followed(vec![device(DeviceState::On)]);
+    follow.started().await;
+    *follow.list.lock().unwrap() = vec![device(DeviceState::Off)];
+    follow.changed.send_replace(());
+
+    // The ping finds the new list stored: nobody reads it again.
+    assert_eq!(
+        follow.pings.recv().await,
+        Some(Some(vec![device(DeviceState::Off)]))
+    );
+    assert_eq!(follow.reads.load(Ordering::Relaxed), 2);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_list_with_nothing_to_watch_is_never_read_on_a_timer() {
+    let follow = followed(vec![device(DeviceState::On)]);
+    follow.started().await;
+
+    tokio::time::sleep(SIMULATORS_EVERY * 20).await;
+
+    assert_eq!(follow.reads.load(Ordering::Relaxed), 1);
+    assert!(!follow.task.is_finished());
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_device_that_finishes_booting_with_no_event_is_pinged() {
-    let list = Arc::new(std::sync::Mutex::new(vec![device(DeviceState::Booting)]));
-    let reads = Arc::new(AtomicU8::new(0));
-    let (_follow, mut pings) = follow_of(&list, &reads);
+    let mut follow = followed(vec![device(DeviceState::Booting)]);
 
     // The first read sees it booting.
-    while reads.load(Ordering::Relaxed) == 0 {
-        tokio::task::yield_now().await;
-    }
-    *list.lock().unwrap() = vec![device(DeviceState::On)];
+    follow.started().await;
+    *follow.list.lock().unwrap() = vec![device(DeviceState::On)];
 
-    assert_eq!(pings.recv().await, Some(()));
+    assert_eq!(
+        follow.pings.recv().await,
+        Some(Some(vec![device(DeviceState::On)]))
+    );
 }
 
 #[tokio::test(start_paused = true)]
-async fn an_unchanged_list_is_read_again_but_not_pinged() {
-    let list = Arc::new(std::sync::Mutex::new(vec![device(DeviceState::On)]));
-    let reads = Arc::new(AtomicU8::new(0));
-    let (_follow, mut pings) = follow_of(&list, &reads);
+async fn a_simulator_changed_outside_beep_is_read_while_it_is_listed() {
+    let mut follow = followed(vec![simulator()]);
+    follow.started().await;
+    *follow.list.lock().unwrap() = Vec::new();
 
-    tokio::time::sleep(WATCHED_EVERY * 3 + Duration::from_secs(1)).await;
-    assert_eq!(reads.load(Ordering::Relaxed), 4);
-    assert!(pings.try_recv().is_err());
+    assert_eq!(follow.pings.recv().await, Some(Some(Vec::new())));
 }
 
 #[tokio::test(start_paused = true)]
 async fn nothing_is_read_once_nobody_follows() {
-    let list = Arc::new(std::sync::Mutex::new(vec![device(DeviceState::Booting)]));
-    let reads = Arc::new(AtomicU8::new(0));
-    let (follow, _pings) = follow_of(&list, &reads);
-
-    tokio::time::sleep(BOOTING_EVERY + Duration::from_secs(1)).await;
+    let follow = followed(vec![device(DeviceState::Booting)]);
+    follow.started().await;
+    tokio::time::sleep(BOOTING_EVERY * 2).await;
+    let reads = follow.reads.clone();
     drop(follow);
     let before = reads.load(Ordering::Relaxed);
-    tokio::time::sleep(WATCHED_EVERY * 10).await;
+    tokio::time::sleep(SIMULATORS_EVERY * 10).await;
 
     assert!(before >= 2);
     assert_eq!(reads.load(Ordering::Relaxed), before);

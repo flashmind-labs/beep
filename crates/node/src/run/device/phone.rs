@@ -8,13 +8,12 @@ use super::{
     adb::{CALL_TIMEOUT, NO_ADB, call},
     point,
 };
-use crate::{events, lock, machine::env, run::process};
+use crate::{lock, machine::env, run::process};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{
     Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, Reply, Request,
     TouchPhase,
 };
-use beep_proto::node::events::Topic;
 use beep_proto::node::{LinkRx, LinkTx};
 use beep_proto::watched;
 use futures::future::join_all;
@@ -76,9 +75,9 @@ pub(super) async fn list() -> Vec<Device> {
     .await
 }
 
-/// Says `devices` changed each time adb sees a phone or emulator come, go
-/// or change state, for as long as the node runs, so desktops read the list
-/// then instead of polling. Nothing to follow without adb.
+/// Rings `CHANGED` each time adb sees a phone or emulator come, go or change
+/// state, for as long as the node runs, so the list is read then and not on
+/// a timer. Nothing to follow without adb.
 pub async fn track_phones() {
     let Some(adb) = env::adb() else {
         return;
@@ -118,7 +117,7 @@ async fn follow_adb(adb: &Path) -> Result<()> {
     let mut read = [0; 4096];
 
     while out.read(&mut read).await? > 0 {
-        events::system().changed(Topic::new(super::TOPIC));
+        super::CHANGED.send_replace(());
         let phones = list().await;
         PHONES.send_if_modified(|known| {
             let changed = *known != phones;

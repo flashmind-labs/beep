@@ -476,7 +476,7 @@ impl Snapshots {
                         }))),
                         Source::Missing => Ok(Value::Missing),
                         Source::Resources(resources) => Ok(Value::Resources(resources)),
-                        Source::Devices => Ok(Value::Devices(crate::run::device::list().await)),
+                        Source::Devices => Ok(Value::Devices(crate::run::device::current().await)),
                         Source::ToolUpdates => Ok(offers
                             .provision
                             .as_ref()

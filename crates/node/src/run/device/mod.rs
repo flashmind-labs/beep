@@ -27,20 +27,21 @@ use beep_proto::node::{
         Reply, Request,
     },
 };
-use beep_proto::watched;
+use beep_proto::{node::events::Topic, watched};
 use futures::{FutureExt, Stream, StreamExt};
 use std::{
     future::Future,
     sync::{
-        Arc,
+        Arc, LazyLock, Mutex,
         atomic::{AtomicU8, Ordering},
     },
     time::Duration,
 };
 use strum::FromRepr;
 use tokio::{
+    select,
     sync::watch,
-    time::{Instant, sleep_until},
+    time::{Instant, sleep, sleep_until},
 };
 use tokio_util::task::AbortOnDropHandle;
 use tonic::Status;
@@ -134,46 +135,120 @@ pub(crate) async fn list() -> Vec<Device> {
 /// How often the list is read again while a device boots: the emulator says
 /// it is up to no one but its own port.
 const BOOTING_EVERY: Duration = Duration::from_secs(2);
-/// How often it is read again otherwise, for what no event announces, such as
-/// an iOS simulator changed outside Beep.
-const WATCHED_EVERY: Duration = Duration::from_secs(5);
+/// How often it is read again while an iOS simulator is listed, which
+/// changes outside Beep with no event.
+const SIMULATORS_EVERY: Duration = Duration::from_secs(5);
 
-/// Held while a client follows `device-list`: rereads the list and pings
-/// `devices` when it differs from the last read. Stops when dropped.
-pub(crate) struct Follow {
-    _task: AbortOnDropHandle<()>,
+/// Rung when adb, or a boot or shutdown here, may have changed the list.
+static CHANGED: LazyLock<watch::Sender<()>> = LazyLock::new(|| watch::Sender::new(()));
+
+/// The list as `Follow` last read it: none until it read, or after the last
+/// client stopped following.
+static LISTED: LazyLock<watch::Sender<Option<Vec<Device>>>> =
+    LazyLock::new(|| watch::Sender::new(None));
+
+/// The clients that follow the list, and the task that reads it for them.
+static FOLLOWING: Mutex<Following> = Mutex::new(Following {
+    clients: 0,
+    task: None,
+});
+
+struct Following {
+    clients: usize,
+    task: Option<AbortOnDropHandle<()>>,
 }
+
+/// Held while a client follows the device topics: one task reads the list
+/// when adb or a boot says it may have changed, and on a timer only while a
+/// simulator is listed or a device boots, which nothing announces. It stores
+/// the list before it pings `devices`, so a reader gets the value that was
+/// read. Stops with the last holder.
+pub(crate) struct Follow;
 
 impl Follow {
     pub(crate) fn new() -> Self {
-        Self::with(list, || {
-            crate::events::system().changed(beep_proto::node::events::Topic::new(TOPIC));
-        })
+        let mut following = crate::lock(&FOLLOWING);
+        following.clients += 1;
+
+        if following.task.is_none() {
+            let following_task = following_list(
+                list,
+                &LISTED,
+                CHANGED.subscribe(),
+                || crate::events::system().changed(Topic::new(TOPIC)),
+            );
+            following.task = Some(AbortOnDropHandle::new(tokio::spawn(following_task)));
+        }
+
+        Self
+    }
+}
+
+impl Drop for Follow {
+    fn drop(&mut self) {
+        let mut following = crate::lock(&FOLLOWING);
+        following.clients -= 1;
+
+        if following.clients == 0 {
+            following.task = None;
+            LISTED.send_replace(None);
+        }
+    }
+}
+
+/// The list as the follower task read it, once it has.
+pub(crate) async fn current() -> Vec<Device> {
+    // With no follower nothing reads the list, and nothing would ever store it.
+    if crate::lock(&FOLLOWING).clients == 0 {
+        return Vec::new();
     }
 
-    fn with<Read, Reading>(read: Read, ping: impl Fn() + Send + 'static) -> Self
-    where
-        Read: Fn() -> Reading + Send + 'static,
-        Reading: Future<Output = Vec<Device>> + Send,
-    {
-        let task = tokio::spawn(async move {
-            let mut last = read().await;
+    let mut listed = LISTED.subscribe();
+    let read = listed.wait_for(Option::is_some).await;
 
-            loop {
-                let booting = last.iter().any(|device| device.state == DeviceState::Booting);
-                tokio::time::sleep(if booting { BOOTING_EVERY } else { WATCHED_EVERY }).await;
+    read.ok().and_then(|read| read.clone()).unwrap_or_default()
+}
 
-                let now = read().await;
-
-                if now != last {
-                    last = now;
-                    ping();
-                }
-            }
+/// Reads the list at the start and after each change of `changed`, stores it
+/// in `listed` and calls `ping` when it differs from the one before.
+async fn following_list<Read, Reading>(
+    read: Read,
+    listed: &'static watch::Sender<Option<Vec<Device>>>,
+    mut changed: watch::Receiver<()>,
+    ping: impl Fn() + Send + 'static,
+) where
+    Read: Fn() -> Reading + Send + 'static,
+    Reading: Future<Output = Vec<Device>> + Send,
+{
+    loop {
+        // Seen before the read, so a change during it reads again.
+        changed.mark_unchanged();
+        let now = read().await;
+        let every = [
+            (now.iter().any(|device| device.state == DeviceState::Booting), BOOTING_EVERY),
+            (now.iter().any(|device| device.platform == Platform::Ios), SIMULATORS_EVERY),
+        ]
+        .into_iter()
+        .find_map(|(needed, every)| needed.then_some(every));
+        let mut moved = false;
+        listed.send_if_modified(|last| {
+            moved = last.as_ref().is_some_and(|last| *last != now);
+            let changed = last.as_ref() != Some(&now);
+            *last = Some(now);
+            changed
         });
 
-        Self {
-            _task: AbortOnDropHandle::new(task),
+        if moved {
+            ping();
+        }
+
+        select! {
+            result = changed.changed() => {
+                if result.is_err() {
+                    return;
+                }
+            }
+            () = sleep(every.unwrap_or_default()), if every.is_some() => {}
         }
     }
 }
@@ -337,7 +412,7 @@ fn done(result: Result<()>) -> Reply {
 /// Says the device list changed when `reply` says a boot or shutdown went through.
 fn listed(reply: Reply) -> Reply {
     if matches!(reply, Reply::Done {}) {
-        crate::events::system().changed(beep_proto::node::events::Topic::new(TOPIC));
+        CHANGED.send_replace(());
     }
 
     reply
