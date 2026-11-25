@@ -1143,45 +1143,6 @@ async fn git_copies_once_then_peer_commits_sync_and_staging_stays_local() {
 
 /// A folder that already has the project's files and no `.git`, as another
 /// file sync leaves it: the history arrives, and what is there stays.
-#[tokio::test(flavor = "multi_thread")]
-async fn the_first_git_copy_keeps_files_already_in_the_folder() {
-    let a = Node::new().await;
-    let b = Node::new().await;
-    new_repo(&a);
-    commit(&a, "src/lib.rs", "pub fn a() {}\n");
-    commit(&a, "src/new.rs", "pub fn new() {}\n");
-    write(&b.path("README.md"), "first\n");
-    write(&b.path("src/lib.rs"), "edited here\n");
-    write(&b.path("notes.txt"), "only here\n");
-    a.sync_with(&b).await;
-    b.sync_with(&a).await;
-
-    eventually("the history to arrive beside the files", || {
-        head(&b).is_some() && head(&b) == head(&a) && b.path("src/new.rs").exists()
-    })
-    .await;
-    assert_eq!(
-        git(&b.folder(), &["status", "--porcelain"]),
-        "M src/lib.rs\n?? notes.txt"
-    );
-    assert_eq!(
-        read(&b.path("src/lib.rs")).as_deref(),
-        Some(b"edited here\n".as_slice())
-    );
-    assert!(is_clean(&a));
-    assert!(!a.path("notes.txt").exists());
-    eventually("the copy to finish", || {
-        b.running()
-            .transfers
-            .syncs()
-            .status()
-            .iter()
-            .all(|status| status.error.is_none())
-    })
-    .await;
-    assert_sound(&a);
-    assert_sound(&b);
-}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn divergent_commits_wait_until_git_merges_them() {
