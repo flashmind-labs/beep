@@ -7,7 +7,7 @@ import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import type { TileData, TileRow } from "./board.ts";
 import { PageCache, type SectionStore } from "../ui/pagecache.ts";
 import { bytes, plural, reason } from "../ui/format.ts";
-import { diffView, type DiffViewHandle } from "../review/diff.tsx";
+import type { DiffViewHandle } from "../review/diff.tsx";
 import { compareFiles } from "./compare.ts";
 import { loadClocks } from "../machines/clock.ts";
 import { onPhone } from "../ui/platform.ts";
@@ -241,7 +241,7 @@ export function makeFileSync(deps: FileSyncDeps) {
     if (typeof done === "string") {
       compared.set(key, { kind: "note", text: done });
     } else {
-      const { windowDiffOwner } = await import("../review/diff-owner.ts");
+      const [{ windowDiffOwner }, { diffView }] = await Promise.all([import("../review/diff-owner.ts"), import("../review/diff.tsx")]);
       const after = compared.get(key);
       if (after?.kind !== "reading" || after.token !== token) return;
       const view = diffView({ owner: windowDiffOwner(), load: async () => done,
