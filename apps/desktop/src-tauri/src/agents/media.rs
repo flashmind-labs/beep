@@ -1,7 +1,7 @@
 //! Pictures and media files a coding-agent session refers to, read from
 //! its machine: shown, opened or saved here.
 
-use crate::agents::file_cache::{Cached, FileCache};
+use crate::agents::file_cache::{Cached, FileCache, KEEP, MAX_BYTES};
 use crate::{
     agents::work_copy,
     chat::files::{file_name, free_name, gone, image_mime},
@@ -29,16 +29,6 @@ use tauri::{AppHandle, Manager};
 use tempfile::{NamedTempFile, TempPath};
 use tokio::io::AsyncWriteExt;
 
-/// How long media copies stay after being opened.
-#[cfg(desktop)]
-pub(super) const KEEP: Duration = Duration::from_secs(24 * 60 * 60);
-#[cfg(mobile)]
-pub(super) const KEEP: Duration = Duration::from_secs(8 * 60 * 60);
-/// Each media store's budget, except the copy currently being opened.
-#[cfg(desktop)]
-pub(super) const MAX_BYTES: u64 = 5 << 30;
-#[cfg(mobile)]
-pub(super) const MAX_BYTES: u64 = 500 << 20;
 /// Run once at startup, then age out old media while the app runs.
 pub(crate) const SWEEP_EVERY: Duration = Duration::from_secs(30 * 60);
 

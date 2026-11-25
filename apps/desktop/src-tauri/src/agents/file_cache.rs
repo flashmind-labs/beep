@@ -4,7 +4,6 @@
 //! conversation drops the files only it opened; files not opened for `KEEP`
 //! go, and the store stays under `MAX_BYTES`.
 
-use super::media::{KEEP, MAX_BYTES};
 use crate::{chat::files::GONE, error::DesktopError, fleet::Fleet};
 use anyhow::{Context, Result};
 use beep_mesh::machine::{NodeShare, sessions};
@@ -33,6 +32,16 @@ use tokio::{
     time::timeout,
 };
 
+/// How long media copies stay after being opened.
+#[cfg(desktop)]
+pub(super) const KEEP: Duration = Duration::from_secs(24 * 60 * 60);
+#[cfg(mobile)]
+pub(super) const KEEP: Duration = Duration::from_secs(8 * 60 * 60);
+/// Each media store's budget, except the copy currently being opened.
+#[cfg(desktop)]
+pub(super) const MAX_BYTES: u64 = 5 << 30;
+#[cfg(mobile)]
+pub(super) const MAX_BYTES: u64 = 500 << 20;
 /// How often the store drops the blobs no tag holds.
 const GC_EVERY: Duration = Duration::from_secs(60);
 
