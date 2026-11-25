@@ -110,7 +110,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
             .team
             .as_ref()
             .filter(|_| !matches!(caller.table, Table::Peer(_)));
-        return crate::team::join::answer(team, caller.mesh.as_ref(), &request).await;
+        return crate::team::join::answer(team, &request).await;
     }
 
     if matches!(

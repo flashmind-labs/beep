@@ -244,7 +244,7 @@ impl TeamLink {
     }
 
     /// Publishes what the home task read of the mesh: the only writer.
-    pub(crate) fn set_home(&self, home: Home) {
+    pub(super) fn set_home(&self, home: Home) {
         self.inner.home.send_replace(home);
     }
 

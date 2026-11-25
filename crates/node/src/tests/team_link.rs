@@ -1297,3 +1297,33 @@ async fn a_newcomer_is_taken_on_the_proof_they_marked() {
     let pending = pair.inviter_pending();
     assert!(pending[0].members.iter().any(|m| m.login == login("dave")));
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_checkout_is_taken_from_the_home_the_moment_it_is_published() {
+    let link = joiner_link(&EndpointAddr::new(mesh_id()), Forge::signed_in("bob", Answer::Yes)).await;
+    let checkout = Checkout {
+        folder: PathBuf::from("/srv/project"),
+        remote: "origin".to_owned(),
+    };
+    let waiting = {
+        let link = link.clone();
+        tokio::spawn(async move { crate::team::join::checkout_for(&link, &repo()).await })
+    };
+
+    // The join waits on the home task's value: nothing else is read.
+    link.edit_home(|home| {
+        home.projects.get_mut(&repo()).unwrap().checkout = Some(checkout.clone());
+    });
+
+    assert_eq!(
+        waiting.await.unwrap().map(|found| found.folder),
+        Some(checkout.folder)
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_project_that_never_arrives_is_not_imported() {
+    let link = joiner_link(&EndpointAddr::new(mesh_id()), Forge::signed_in("bob", Answer::Yes)).await;
+
+    assert!(crate::team::join::checkout_for(&link, &repo()).await.is_none());
+}
