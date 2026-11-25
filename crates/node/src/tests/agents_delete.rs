@@ -414,3 +414,21 @@ async fn a_claude_session_moves_with_its_subagents() {
     assert!(!transcript.exists());
     assert!(m.claude(CLAUDE_OTHER));
 }
+
+#[tokio::test]
+async fn a_process_that_ends_on_the_request_is_not_waited_out() {
+    let mut child = tokio::process::Command::new("sleep")
+        .arg("60")
+        .spawn()
+        .unwrap();
+    let pid = child.id().unwrap();
+
+    // Not reaped yet, so it stays listed as a zombie: its exit, not its
+    // disappearance, ends the wait.
+    tokio::time::timeout(Duration::from_secs(2), end_process(pid))
+        .await
+        .expect("the wait ends when the process exits")
+        .unwrap();
+
+    assert!(!child.wait().await.unwrap().success());
+}

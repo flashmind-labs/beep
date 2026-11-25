@@ -1,6 +1,7 @@
 //! Processes a session started, including children that changed groups.
 
-use crate::actor;
+use crate::{actor, events::exits::Exit};
+use futures::future::join_all;
 use beep_proto::{
     SessionId,
     node::{
@@ -19,7 +20,7 @@ use std::{
 };
 use tokio::{
     sync::{oneshot, watch},
-    time::{Instant, interval, sleep},
+    time::{Instant, sleep},
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -820,29 +821,27 @@ async fn send(processes: Arc<[Process]>, kill: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// How long `stop` waits for processes to end on SIGTERM before it kills them.
+const STOP_WAIT: Duration = Duration::from_secs(3);
+
 async fn stop(processes: &[Process]) -> anyhow::Result<()> {
     if processes.is_empty() {
         return Ok(());
     }
 
     let processes: Arc<[Process]> = processes.into();
+    // Watched before the signal, so an exit cannot come first.
+    let exits = processes
+        .iter()
+        .map(|p| Exit::watch(p.pid))
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let result = send(processes.clone(), false).await;
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let mut ticks = interval(Duration::from_millis(50));
 
-    loop {
-        let checked = processes.clone();
-        let alive = tokio::task::spawn_blocking(move || checked.iter().any(os::alive)).await?;
-
-        if !alive {
-            return result;
-        }
-
-        if Instant::now() >= deadline {
-            break;
-        }
-
-        ticks.tick().await;
+    if tokio::time::timeout(STOP_WAIT, join_all(exits.iter().map(|exit| exit.wait())))
+        .await
+        .is_ok()
+    {
+        return result;
     }
 
     let killed = send(processes, true).await;

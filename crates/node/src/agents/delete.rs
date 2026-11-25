@@ -8,7 +8,7 @@ use beep_proto::watched;
 use std::{path::PathBuf, time::Duration};
 use tokio::{
     task::spawn_blocking,
-    time::{sleep, timeout},
+    time::timeout,
 };
 
 /// The longest session id accepted.
@@ -204,28 +204,23 @@ const EXIT_WAIT: Duration = Duration::from_secs(5);
 /// Asks process `pid` to exit and waits for it; kills it when it does not.
 #[cfg(unix)]
 async fn end_process(pid: u32) -> Result<()> {
-    use rustix::process::{Pid, Signal, kill_process, test_kill_process};
+    use crate::events::exits::Exit;
+    use rustix::process::{Pid, Signal, kill_process};
 
-    let pid = i32::try_from(pid)
+    let target = i32::try_from(pid)
         .ok()
         .and_then(Pid::from_raw)
         .with_context(|| format!("{pid} is not a process id"))?;
-    let gone = || test_kill_process(pid).is_err();
+    // Watched before the signal, so its exit cannot come first.
+    let exit = Exit::watch(pid)?;
 
-    if kill_process(pid, Signal::TERM).is_err() {
+    if kill_process(target, Signal::TERM).is_err() {
         return Ok(());
     }
 
-    let _ = timeout(EXIT_WAIT, async {
-        while !gone() {
-            sleep(Duration::from_millis(100)).await;
-        }
-    })
-    .await;
-
-    if !gone() {
-        let _ = kill_process(pid, Signal::KILL);
-        sleep(Duration::from_millis(200)).await;
+    if timeout(EXIT_WAIT, exit.wait()).await.is_err() {
+        let _ = kill_process(target, Signal::KILL);
+        let _ = timeout(EXIT_WAIT, exit.wait()).await;
     }
 
     Ok(())
