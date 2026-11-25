@@ -59,7 +59,7 @@ static TRACKING: AtomicBool = AtomicBool::new(false);
 /// them while it follows adb, else as adb says now.
 pub(super) async fn list() -> Vec<Device> {
     if TRACKING.load(Ordering::Acquire) {
-        return PHONES.borrow().clone();
+        return watched::read_sent(&PHONES, Clone::clone);
     }
 
     read().await
