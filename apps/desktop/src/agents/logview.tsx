@@ -36,7 +36,7 @@ import { prepareInlineImages } from "./inline-images.ts";
 import { picTile } from "./pic-state.ts";
 import { canSwitchModel, drawModelPill } from "./modelpill.tsx";
 import { modelLabel } from "./agentpick.ts";
-import { knownModels, modelsOn } from "./agentpicker.tsx";
+import { knownModels, modelsOn } from "./model-store.ts";
 import { drawModes } from "./modepill.tsx";
 import { backgroundedEntry, drawTasks } from "./tasks.tsx";
 import { runs } from "./transcript-cache-state.ts";

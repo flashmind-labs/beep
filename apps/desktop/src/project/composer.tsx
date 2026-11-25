@@ -28,7 +28,8 @@ import { keepMachine, lastMachine, openAgents, openMachine, openMachines } from 
 import { TASK_WORDS } from "../agents/assistant-state.ts";
 import { AGENT_ORDER, allowedOf, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, machineRows, type MachineRow, startPlace } from "../agents/agentpick.ts";
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
-import { closedPicker, drawPicker, focusSearch, modelsOn, pillContent } from "../agents/agentpicker.tsx";
+import { closedPicker, drawPicker, focusSearch, pillContent } from "../agents/agentpicker.tsx";
+import { modelsOn } from "../agents/model-store.ts";
 import { projectHarnesses, readProjectHarnesses } from "./project-harnesses.tsx";
 import { AG, accountsOf, type AgentHost, agentKind, ensureAgentHosts, loadAccountNames } from "../agents/agents.ts";
 import { ensureMachines, MACHINES } from "../machines/machine-store.ts";

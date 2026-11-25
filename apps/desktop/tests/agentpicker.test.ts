@@ -4,16 +4,14 @@ import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { AgentModels } from "../src/agents/agentmodels.ts";
-import { MODELS_KEPT_MS } from "../src/agents/agentmodels.ts";
-import { drawPicker, modelsOn, preloadModels, type PickerOpts } from "../src/agents/agentpicker.tsx";
+import { drawPicker, type PickerOpts } from "../src/agents/agentpicker.tsx";
+import { modelsOn, preloadModels, takeModels } from "../src/agents/model-store.ts";
 
 const list: AgentModels = { pick: "listed", current: "model-a", models: [{ id: "model-a", name: "Model A", description: null, provider: null }] };
 const flush = () => new Promise<void>(resolve => setImmediate(resolve));
 const requests = () => calls.filter(call => call.cmd === "agent_models").length;
 
-test("failed lookups retry after ten seconds and notify again when the answer is unchanged", async t => {
-  let now = 1_000_000;
-  t.mock.method(Date, "now", () => now);
+test("a failed lookup is not asked again by a draw, only by the next hosts push", async () => {
   answers.agent_models = null;
   let changes = 0;
   const read = () => modelsOn("retry-host", "codex", () => changes++);
@@ -22,48 +20,21 @@ test("failed lookups retry after ten seconds and notify again when the answer is
   assert.equal(read(), null);
   assert.equal(changes, 1);
   const before = requests();
-  now += 9_000;
-  read();
-  assert.equal(requests(), before);
-  now += 1_001;
-  read();
+  for (let i = 0; i < 5; i++) read();
+  await flush();
+  assert.equal(requests(), before, "a draw never asks again");
+
+  answers.agent_models = list;
+  preloadModels([{ machine_id: "retry-host", agents: ["codex"] }]);
   await flush();
   assert.equal(requests(), before + 1);
-  assert.equal(changes, 2, "a repeated failure finishes the loading state");
-  now += 10_001;
-  answers.agent_models = list;
-  read();
-  await flush();
   assert.deepEqual(read(), list);
-  assert.equal(changes, 3);
-});
-
-test("failed refreshes retain the previous list and retry sooner than successful lookups", async t => {
-  let now = 2_000_000;
-  t.mock.method(Date, "now", () => now);
-  answers.agent_models = list;
-  const read = () => modelsOn("refresh-host", "codex", () => {});
-  read();
+  preloadModels([{ machine_id: "retry-host", agents: ["codex"] }]);
   await flush();
-  const before = requests();
-  now += MODELS_KEPT_MS - 1;
-  assert.deepEqual(read(), list);
-  assert.equal(requests(), before);
-  now += 2;
-  answers.agent_models = Promise.reject(new Error("connection lost"));
-  read();
-  await flush();
-  assert.deepEqual(read(), list);
-  assert.ok(calls.some(call => call.cmd === "log_webview" && JSON.stringify(call.args).includes("harness=codex: Error: connection lost")));
-  now += 10_001;
-  answers.agent_models = list;
-  read();
-  await flush();
-  assert.equal(requests(), before + 2);
+  assert.equal(requests(), before + 1, "a list that came is left to the pushes");
 });
 
 test("Retry reloads immediately, stays open and preserves the model selection", async t => {
-  t.mock.method(Date, "now", () => 3_000_000);
   const dom = new JSDOM("<body><div id='picker'></div></body>");
   Object.assign(dom.window, { __TAURI__: window.__TAURI__ });
   // jsdom lays nothing out; the model list draws the rows that fit its height.
@@ -111,22 +82,33 @@ test("Retry reloads immediately, stays open and preserves the model selection", 
   assert.equal(options.picked.model, "model-a");
 });
 
-test("concurrent refresh subscribers share a request and all finish when the list is unchanged", async t => {
-  let now = 4_000_000;
-  t.mock.method(Date, "now", () => now);
-  answers.agent_models = list;
-  modelsOn("shared-host", "codex", () => {});
-  await flush();
-  now += MODELS_KEPT_MS + 1;
+test("concurrent subscribers share a request and all finish", async () => {
   let finish: (value: AgentModels) => void = () => {};
   answers.agent_models = new Promise<AgentModels>(resolve => { finish = resolve; });
   const before = requests();
   let changes = 0;
-  for (let i = 0; i < 2; i++) {
-    assert.deepEqual(modelsOn("shared-host", "codex", () => changes++), list);
-  }
+  for (let i = 0; i < 2; i++) assert.equal(modelsOn("shared-host", "codex", () => changes++), undefined);
   assert.equal(requests(), before + 1);
   finish(list);
   await flush();
   assert.equal(changes, 2);
+  assert.deepEqual(modelsOn("shared-host", "codex", () => {}), list);
+});
+
+test("pushed models replace a list without a read, and a failed view keeps the list", async () => {
+  const view = (value: AgentModels | null) => ({ views: [{ command: "agent_models", args: { machineId: "pushed-host", agent: "codex" }, value }] });
+  const before = requests();
+  let changes = 0;
+  assert.equal(modelsOn("pushed-host", "codex", () => changes++), undefined);
+  takeModels(view(list));
+  assert.equal(changes, 1, "the one first read is answered by the push");
+  assert.deepEqual(modelsOn("pushed-host", "codex", () => {}), list);
+
+  const next: AgentModels = { ...list, current: "model-b" };
+  takeModels(view(next));
+  assert.deepEqual(modelsOn("pushed-host", "codex", () => {}), next);
+
+  takeModels({ views: [{ command: "agent_models", args: { machineId: "pushed-host", agent: "codex" }, error: "offline" }] });
+  assert.deepEqual(modelsOn("pushed-host", "codex", () => {}), next);
+  assert.equal(requests(), before + 1, "only the first read asked");
 });

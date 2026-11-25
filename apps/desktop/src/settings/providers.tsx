@@ -9,6 +9,7 @@ import { checkedLabel, compactDraftOf, compactOf, compactProblem, draftOf, hasCo
 import type { AutoCompactDraft, Compact, HarnessDraft, HarnessesView, HarnessView, MachineSettings } from "./providers-state.ts";
 import type { CenterView } from "../center/state.ts";
 import { modelContextPanel } from "./model-context.ts";
+import { ensureModels } from "../agents/model-store.ts";
 import { flshPanel } from "./flsh.ts";
 import { type AdapterInstall, adapterOf } from "../machines/adapters-state.ts";
 import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
@@ -66,7 +67,7 @@ export function providersPage(deps: ProvidersDeps): CenterView<"providers"> {
   /// Drawn in Settings, which lists the agents in its own left pane: the
   /// page shows the one agent it was opened at, under a toolbar of its own.
   let inSettings = false;
-  const contexts = modelContextPanel(invoke);
+  const contexts = modelContextPanel(invoke, ensureModels);
   const flsh = flshPanel(invoke);
   /// A machine's agents stand until the push brings them again.
   deps.follow(data => {

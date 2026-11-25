@@ -17,7 +17,7 @@ const contextKey = (machine: string, agent: string) => `${machine}\0${agent}`;
 /// The panel state of `agent` on `machine` in `states`.
 export const contextOf = (states: ContextStates, machine: string, agent: string) => states[contextKey(machine, agent)] ?? INITIAL;
 
-export function modelContextPanel(invoke: typeof Invoke) {
+export function modelContextPanel(invoke: typeof Invoke, readModels: (machine: string, agent: string) => Promise<AgentModels | null>) {
   const states = createStore<ContextStates>()(() => ({}));
   // A save elsewhere makes each other machine's read of the same harness stale.
   const reads = new Map<string, ReturnType<typeof latest>>();
@@ -46,7 +46,7 @@ export function modelContextPanel(invoke: typeof Invoke) {
 
     try {
       const answer = await read.run(Promise.all([
-        invoke<AgentModels | null>("agent_models", { machineId: machine, agent }),
+        readModels(machine, agent),
         supportsOverrides(agent) ? invoke<ModelCompact[]>("harness_model_compacts", { agent }) : Promise.resolve([]),
         invoke<string | null>("harness_default_model", { agent }),
       ]));

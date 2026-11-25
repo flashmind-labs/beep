@@ -17,7 +17,7 @@ import { chatOf } from "./threads-state.ts";
 import { parentSession, ensureSessions, sessions, sessionsRead } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import { drawAgentNew, startAgent, togglePicker } from "./agentnew.tsx";
-import { preloadModels } from "./agentpicker.tsx";
+import { preloadModels } from "./model-store.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, OutboxRow, Waiting } from "./agentqueue.ts";
 import { mainTarget } from "../project/projectwindow.ts";

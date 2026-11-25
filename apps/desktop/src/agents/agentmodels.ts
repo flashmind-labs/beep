@@ -21,9 +21,6 @@ export interface AgentModels {
   models: ModelInfo[];
 }
 
-/// How long a machine's list is kept here; the node keeps it as long.
-export const MODELS_KEPT_MS = 5 * 60 * 1000;
-
 export interface SessionPick { model: string; effort: string | null; fast: boolean | null }
 
 /// Keep session choices across window reloads, including resolved defaults.

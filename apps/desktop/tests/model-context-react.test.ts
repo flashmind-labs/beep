@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { JSDOM } from "jsdom";
 import { createElement } from "react";
+import type { AgentModels } from "../src/agents/agentmodels.ts";
 import { modelContextPanel } from "../src/settings/model-context.ts";
 
 test("model context keeps focus and drafts through updates and saves overrides", async () => {
@@ -24,7 +25,8 @@ test("model context keeps focus and drafts through updates and saves overrides",
   const { invoke } = await import("../src/ui/tauri.ts");
   const { render, fireEvent, waitFor, cleanup } = await import("@testing-library/react");
   const { ModelContextView } = await import("../src/settings/model-context-view.tsx");
-  const panel = modelContextPanel(invoke);
+  const models = (machineId: string, agent: string) => invoke<AgentModels | null>("agent_models", { machineId, agent });
+  const panel = modelContextPanel(invoke, models);
   try {
     const view = render(createElement(ModelContextView, { panel, machine: "one", agent: "codex" }));
     const input = await view.findByLabelText("Compact at for alpha") as HTMLInputElement;
@@ -69,7 +71,7 @@ test("model context keeps focus and drafts through updates and saves overrides",
     for (const [defaultLimit, maxLimit] of [[null, null], [1000, null], [null, 2000], [1000, 2000]] as const) {
       contextWindow = defaultLimit;
       maxContextWindow = maxLimit;
-      const limitsView = render(createElement(ModelContextView, { panel: modelContextPanel(invoke), machine: "one", agent: "claude" }));
+      const limitsView = render(createElement(ModelContextView, { panel: modelContextPanel(invoke, models), machine: "one", agent: "claude" }));
       await limitsView.findByLabelText("Compact at for alpha");
       assert.equal(!!limitsView.queryByRole("columnheader", { name: "Default usable" }), defaultLimit !== null);
       assert.equal(!!limitsView.queryByRole("columnheader", { name: "Maximum usable" }), maxLimit !== null);
@@ -82,7 +84,7 @@ test("model context keeps focus and drafts through updates and saves overrides",
 
     contextWindow = null;
     maxContextWindow = null;
-    const unsupported = render(createElement(ModelContextView, { panel: modelContextPanel(invoke), machine: "one", agent: "agy" }));
+    const unsupported = render(createElement(ModelContextView, { panel: modelContextPanel(invoke, models), machine: "one", agent: "agy" }));
     await unsupported.findByLabelText("Default model");
     assert.equal(unsupported.queryAllByRole("columnheader").length, 1);
     assert.equal(unsupported.queryByText("Compact at"), null);

@@ -5,7 +5,8 @@ import { modelPickHost, showAgentControl, showAgentControlFor } from "./composer
 import type { SessionPick } from "./agentmodels.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { modelId } from "./agentpick.ts";
-import { closedPicker, knownModels, modelsOn, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
+import { closedPicker, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
+import { knownModels, modelsOn } from "./model-store.ts";
 import { type AgentRow, AG, agentKind, canTakeOver } from "./agents.ts";
 import { SWITCHES, sessionPicks, setNote } from "./session.tsx";
 import { drawAgentBody } from "./logview.tsx";
