@@ -53,8 +53,8 @@ pub(crate) struct PendingInstall {
 }
 
 pub(crate) struct InstallSwap {
-    target: PathBuf,
-    backup: PathBuf,
+    pub(crate) target: PathBuf,
+    pub(crate) backup: PathBuf,
 }
 
 impl InstallSwap {

@@ -1,6 +1,7 @@
 use super::*;
 use crate::STATE_FILE;
 use crate::managed::{GitOrigin, Policy};
+use crate::swap::{InstallSwap, ManageError, clean_leftovers};
 
 fn id() -> PluginId {
     "cat-one".parse().unwrap()
