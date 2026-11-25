@@ -9,6 +9,7 @@ pub use work_diff::parse_git_patch;
 
 host! {
     mod brief;
+    pub(crate) mod child_view;
     mod calls;
     mod text;
     pub(crate) use text::cut;

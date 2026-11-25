@@ -19,6 +19,7 @@
 use beep_proto::SessionId;
 use super::{Agents, Command, Live, Session, children};
 use crate::agents::live::Mark;
+use crate::agents::child_view::{ChildView, full_id};
 use children::NoteFailed;
 use crate::{agents::tags, link::Membership, team::asks::Delivery};
 use beep_proto::node::agent::{Status, StopReason};
@@ -360,7 +361,7 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
                 }
             };
 
-            let settled = children::ChildView::of(&now.info, &SessionId::default()).settled();
+            let settled = ChildView::of(&now.info, &SessionId::default()).settled();
             let note = note.or_else(|| {
                 (remote && settled && !was_settled).then(|| note_of(now, NoteState::Settled))
             });
@@ -390,7 +391,7 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
             To::Here { parent, waits } => match parent.upgrade() {
                 Some(parent) => {
                     let mesh = membership.get().and_then(Membership::get);
-                    let id = children::full_id(note.id.as_ref(), &children::machine_name(mesh.as_ref()));
+                    let id = full_id(note.id.as_ref(), &children::machine_name(mesh.as_ref()));
                     let seen = Seen {
                         child: &key,
                         mark,
@@ -444,7 +445,7 @@ where
 
 /// What the child `live` came to, as its node tells it.
 fn note_of(live: &Live, state: NoteState) -> ChildNote {
-    let view = children::ChildView::of(&live.info, &SessionId::default());
+    let view = ChildView::of(&live.info, &SessionId::default());
     let text = match state {
         NoteState::Finished if view.last_message.is_empty() => view.error.unwrap_or_default(),
         NoteState::Finished | NoteState::Stopped | NoteState::Closed | NoteState::Settled => {

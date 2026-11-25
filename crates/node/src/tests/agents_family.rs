@@ -1093,7 +1093,7 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     until(&resumed, |live| live.status() == Status::Idle).await;
     // Its turn count started over, which no longer says it never ran.
     assert_eq!(resumed.info().turns, 0);
-    let view = children::ChildView::of(&resumed.info(), &SessionId::from("k1"));
+    let view = crate::agents::child_view::ChildView::of(&resumed.info(), &SessionId::from("k1"));
     assert_eq!(view.state, "idle");
     after.shutdown().await;
 }
@@ -1401,7 +1401,7 @@ async fn a_node_with_no_mesh_does_not_say_it_notes_every_settle() {
     let Reply::Done { text, failed: false } = reply else {
         panic!("the status is served: {reply:?}");
     };
-    let view: crate::agents::mcp::children::ChildView =
+    let view: crate::agents::child_view::ChildView =
         serde_json::from_str(&text).expect("a child view");
 
     assert!(!view.notes_settles, "{text}");

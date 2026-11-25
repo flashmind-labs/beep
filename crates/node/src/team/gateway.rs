@@ -17,9 +17,10 @@ use super::{
 use crate::{
     agents::{
         ci::Ci,
+        child_view::ChildView,
         mcp::{
             command_name,
-            children::{ChildView, Listed, in_the_mesh},
+            children::{Listed, in_the_mesh},
             projects,
         },
     },

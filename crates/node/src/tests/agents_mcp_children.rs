@@ -4,7 +4,7 @@ use crate::{
     machine::provision::Provision,
 };
 use beep_proto::AgentSlug;
-use beep_proto::node::agent::{Question, State, WorkPlace};
+use beep_proto::node::agent::{Question, SessionInfo, State, Status, WorkPlace};
 use serde_json::Value;
 use beep_proto::watched;
 use std::{collections::BTreeMap, time::Duration};

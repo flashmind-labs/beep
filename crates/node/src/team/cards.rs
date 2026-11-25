@@ -2,7 +2,7 @@
 //! it and nothing of its transcript, and the teammates' cards as their
 //! gateways send them.
 
-use crate::agents::mcp::children::ChildView;
+use crate::agents::child_view::ChildView;
 use beep_proto::team::{Card, ForgeLogin, Lane};
 use chrono::{DateTime, Local, NaiveTime};
 use iroh::EndpointId;

@@ -8,6 +8,7 @@
 //! the node runs: after a restart each thread is told of once more.
 
 use super::{Agents, Command, Live, Session, children};
+use crate::agents::child_view::full_id;
 use crate::agents::live::{Mark, Stand};
 use crate::agents::{acp::Prompt, cut};
 use beep_proto::SessionId;
@@ -145,7 +146,7 @@ impl Agents {
 fn line(live: &Live, here: &str) -> String {
     let info = &live.info;
     let id = live.agent_session.as_ref().unwrap_or(&info.id);
-    let id = children::full_id(id.as_ref(), here);
+    let id = full_id(id.as_ref(), here);
     let name = info.title.as_deref().unwrap_or(&info.agent);
     let stand = Stand::from(live);
     let text = match &info.question {

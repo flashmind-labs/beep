@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    agents::mcp::children::{ChildView, full_id},
+    agents::child_view::{ChildView, full_id},
     team::cards::{Facts, IssueTitles, card_of},
 };
 use beep_proto::node::agent::SessionInfo;

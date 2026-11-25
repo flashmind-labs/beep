@@ -7,12 +7,13 @@
 //! assigned to the user (`Tool::TeamPickup`).
 
 use super::{
-    children::{ChildView, full_id, machine_name},
+    children::machine_name,
     desktop,
     machines::find,
     reply::{fail, json_of, ok, parse},
     server::ASK_LIMIT,
 };
+use crate::agents::child_view::{ChildView, full_id};
 use crate::peer_stream::over_the_mesh;
 use crate::{
     agents::{Agents, Answered, Asking},
