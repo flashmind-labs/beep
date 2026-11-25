@@ -7,7 +7,7 @@
 //! starts it and checks the limits. An agent stops and checks only its own
 //! children; it lists and messages any agent the user runs.
 
-use super::machines::{Machine, find_named, machines};
+use crate::agents::machine_list::{Machine, find_named, machine_name};
 use crate::agents::{calls::command_name, child_view::{ChildView, full_id}};
 use crate::agents::reply::{fail, json_of, ok, parse};
 use crate::agents::{
@@ -26,36 +26,18 @@ use beep_proto::watched;
 use beep_proto::{AccountName, CustomAgent, ModelId};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::{collections::BTreeSet, path::Path, sync::Arc, time::Duration};
+
+use std::{path::Path, sync::Arc, time::Duration};
 use std::future::Future;
 use tokio::{sync::watch, time::sleep};
 
-mod peer;
-
-use peer::{Answer, Call, GONE, KEPT, REMOTE_LIMIT, fetch_view, parse_view};
-pub(crate) use peer::{
-    CountCall, Views, ask_parent, count_on, NoteFailed, note_parent, stop_remote, stop_remote_retrying,
+use crate::agents::family::peer::{
+    Answer, Call, in_the_mesh, listed, CountCall, GONE, KEPT, PeerCall, REMOTE_LIMIT, fetch_view, parse_view, stop_remote,
 };
 
-/// How long a machine has to list its agents.
-const LIST_LIMIT: Duration = Duration::from_secs(5);
 /// The call that started a child, as its parent's transcript shows it:
 /// `Beep: Start <harness> agent ...`, then the JSON `start_agent` returned.
 const STARTED: &str = "Beep: Start ";
-
-/// This machine's name in `mesh`, as agents say it; empty without one.
-pub(crate) fn machine_name(mesh: Option<&Mesh>) -> String {
-    let Some(mesh) = mesh else {
-        return String::new();
-    };
-
-    machines(mesh)
-        .into_iter()
-        .find(|machine| machine.id == mesh.me())
-        .map(|machine| machine.name)
-        .unwrap_or_default()
-}
 
 /// What `start_agent` sends the machine that starts the child.
 #[derive(Debug, Serialize, Deserialize)]
@@ -72,39 +54,6 @@ pub(crate) struct PeerStart {
     /// The name its parent gives it. A node from before threads ignores it.
     #[serde(default)]
     pub(crate) title: Option<String>,
-}
-
-/// What a call to a child on another machine carries besides its id.
-#[derive(Debug, Default, Serialize, Deserialize)]
-pub(crate) struct PeerCall {
-    pub(crate) id: SessionId,
-    #[serde(default)]
-    pub(crate) text: Option<String>,
-    /// Stop only the running turn, not the session.
-    #[serde(default)]
-    pub(crate) turn_only: bool,
-    /// With `turn_only`: stop its background commands and subagents too, as
-    /// a parent's Stop all does. A node from 0.5.0 and before ignores it and
-    /// stops the turn.
-    #[serde(default)]
-    pub(crate) stop_all: bool,
-}
-
-impl PeerCall {
-    pub(super) fn id(id: SessionId) -> Self {
-        Self {
-            id,
-            ..Self::default()
-        }
-    }
-
-    pub(super) fn message(id: SessionId, text: String) -> Self {
-        Self {
-            id,
-            text: Some(text),
-            ..Self::default()
-        }
-    }
 }
 
 /// Answers one agent tool for the session that called it.
@@ -364,7 +313,7 @@ impl Reach<'_> {
                     .as_ref()
                     .ok_or("This machine is in no mesh, so it has no registered projects.")?;
                 let on = target.as_ref().map_or(mesh.me(), |m| m.id);
-                Some(super::projects::folder(mesh, &project, on)?)
+                Some(crate::agents::projects::folder(mesh, &project, on)?)
             }
             None => cwd,
         };
@@ -642,7 +591,7 @@ impl Reach<'_> {
                     .mesh
                     .as_ref()
                     .ok_or("This machine is in no mesh, so it has no registered projects.")?;
-                Some(super::projects::project_name(mesh, &name)?)
+                Some(crate::agents::projects::project_name(mesh, &name)?)
             }
         };
         let mut views: Vec<ChildView> =
@@ -806,128 +755,13 @@ where
     view
 }
 
-/// What another machine asks of this one's agents: `ended_since`, Unix
-/// seconds, lists the sessions that ended then or later too. An older node
-/// sends none.
-#[derive(Default, Serialize, Deserialize)]
-#[serde(default)]
-struct PeerList {
-    ended_since: Option<u64>,
-}
-
-/// The agents this node runs that other machines may list, as `args` asks,
-/// each with its project.
-pub(crate) fn listed(agents: &Agents, args: &str) -> Reply {
-    let PeerList { ended_since } = serde_json::from_str(args).unwrap_or_default();
-    let views: Vec<ChildView> = listed_here(agents, ended_since)
-        .into_iter()
-        .map(|listed| listed.view)
-        .collect();
-
-    json_of(&views)
-}
-
-/// An agent, its machine's display name, and the folder it works in
-/// when it runs on this machine: the worktree Beep made for it, or its own.
-pub(crate) struct Listed {
-    pub(crate) view: ChildView,
-    pub(crate) machine: String,
-    pub(crate) folder: Option<String>,
-}
-
-fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<Listed> {
-    let mesh = agents.mesh();
-
-    agents
-        .peers(ended_since)
-        .iter()
-        .map(|session| {
-            let info = session.info();
-            let mut view = ChildView::of(&info, &Agents::name_of(session));
-            view.project = mesh
-                .as_ref()
-                .and_then(|mesh| super::projects::of_folder(mesh, &info.cwd, mesh.me()));
-            let worktree = info.worktrees.first().cloned();
-            Listed {
-                view,
-                machine: String::new(),
-                folder: Some(worktree.unwrap_or(info.cwd)),
-            }
-        })
-        .collect()
-}
-
-/// Every live agent but `caller`, the session asking: this machine's, then
-/// those of every other online machine of `mesh`, or of `only` those, that
-/// answers in time, each named by its machine. With `ended_since`, Unix
-/// seconds, the sessions that ended then or later too.
-pub(crate) async fn in_the_mesh(
-    agents: &Agents,
-    mesh: Option<&Mesh>,
-    caller: &SessionId,
-    only: Option<&BTreeSet<EndpointId>>,
-    ended_since: Option<u64>,
-) -> Vec<Listed> {
-    let here = machine_name(mesh);
-    let display = mesh
-        .and_then(|mesh| mesh.code_hosts().into_iter().find(|status| status.device.id == mesh.me()))
-        .map(|status| status.device.name)
-        .unwrap_or_default();
-    let mut listed: Vec<Listed> = listed_here(agents, ended_since)
-        .into_iter()
-        .filter(|listed| listed.view.id != *caller)
-        .map(|listed| Listed {
-            view: listed.view.named(&here),
-            machine: display.clone(),
-            ..listed
-        })
-        .collect();
-    let Some(mesh) = mesh else {
-        return listed;
-    };
-
-    let others: Vec<(Machine, String)> = mesh
-        .code_hosts()
-        .into_iter()
-        .filter(|status| status.online && status.device.id != mesh.me())
-        .filter(|status| only.is_none_or(|only| only.contains(&status.device.id)))
-        .map(|status| {
-            let display = status.device.name.clone();
-            (Machine::from(status), display)
-        })
-        .collect();
-    let asked = json!(PeerList { ended_since });
-    let lists = futures::future::join_all(others.iter().map(|(machine, _)| async {
-        Call::to_machine(mesh, caller, machine)
-            .ask_ok(Tool::ListAgents, &asked, LIST_LIMIT)
-            .await
-    }))
-    .await;
-
-    // A machine that does not answer, or an older one that lists no agents
-    // for others, adds none.
-    for ((machine, display), answer) in others.iter().zip(lists) {
-        let Ok(text) = answer else { continue };
-        let Ok(there) = serde_json::from_str::<Vec<ChildView>>(&text) else {
-            continue;
-        };
-        listed.extend(there.into_iter().map(|view| Listed {
-            view: view.named(&machine.name),
-            machine: display.clone(),
-            folder: None,
-        }));
-    }
-
-    listed
-}
-
 /// The custom agent called `name` for the folder `at` and the user's own,
 /// the one for `harness` first (`custom_agents::persona`).
 async fn find_persona(at: String, name: String, harness: String) -> Result<CustomAgent, String> {
     let home = dirs::home_dir();
 
     tokio::task::spawn_blocking(move || {
-        let folder = crate::agents::running::folder(Some(&at)).map_err(|e| format!("{e:#}"))?;
+        let folder = crate::agents::locate::folder(Some(&at)).map_err(|e| format!("{e:#}"))?;
         crate::agents::custom_agents::persona(&folder, home.as_deref(), &name, &harness)
     })
     .await
@@ -1107,7 +941,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
 /// The folder on `target` that holds the same synced project as `cwd`
 /// here, with the same path inside it.
 fn project_folder(mesh: &Mesh, cwd: &str, target: EndpointId) -> Result<String, String> {
-    let specs: Vec<SyncSpec> = super::projects::sync_specs(mesh)
+    let specs: Vec<SyncSpec> = crate::agents::projects::sync_specs(mesh)
         .into_iter()
         .map(|(_, spec)| spec)
         .collect();

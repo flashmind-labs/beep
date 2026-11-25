@@ -4,18 +4,10 @@
 //! `Tool::Projects`, with the tool's action in its arguments.
 
 use crate::agents::reply::fail;
-use crate::agents::desktop_call::{elsewhere, forward};
+use crate::agents::desktop_call::{ProjectTools, elsewhere, forward};
 use crate::link::Offers;
 use beep_proto::node::tools::{Reply, Request};
-use futures::future::BoxFuture;
 use std::sync::Arc;
-
-/// What the desktop app gives its node to answer `Tool::Projects`.
-pub trait ProjectTools: Send + Sync {
-    /// The reply to one call, from its arguments as JSON text with the
-    /// action under `action`.
-    fn call(&self, args: String) -> BoxFuture<'_, Reply>;
-}
 
 /// The reply for a call from a session on this node.
 pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {

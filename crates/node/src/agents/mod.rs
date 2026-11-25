@@ -11,7 +11,8 @@ host! {
     mod brief;
     pub(crate) mod desktop_call;
     pub(crate) mod child_view;
-    mod calls;
+    pub(crate) mod calls;
+    pub(crate) mod caller;
     mod text;
     pub(crate) use text::cut;
     use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp::Launch};
@@ -45,7 +46,7 @@ host! {
     mod conversation;
     pub(crate) mod custom_agents;
     mod delete;
-    mod family;
+    pub(crate) mod family;
     mod flsh_config;
     mod found_sessions;
     mod harnesses;
@@ -59,6 +60,8 @@ host! {
     mod launch;
     mod live;
     pub(crate) mod locate;
+    pub(crate) mod machine_list;
+    pub(crate) mod projects;
     mod lsp;
     mod made_files;
     mod media_file;
@@ -121,7 +124,7 @@ host! {
     use images::Images;
     use known::{Adapter, KNOWN, known, route};
     use models::ModelCache;
-    use running::folder;
+    use locate::folder;
     use session::Begin;
     use session::{Command, Session, Start};
     use spend::Spend;

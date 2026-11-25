@@ -5,9 +5,17 @@ use super::reply::fail;
 use crate::peer_stream::{CallFailed, over_the_mesh};
 use beep_mesh::{DeviceKind, Mesh};
 use beep_proto::node::tools::{Reply, Request};
+use futures::future::BoxFuture;
 
 pub(crate) fn elsewhere(machine: &str) -> String {
     format!("The project tools run in the Beep desktop; this session runs on {machine}.")
+}
+
+/// What the desktop app gives its node to answer `Tool::Projects`.
+pub trait ProjectTools: Send + Sync {
+    /// The reply to one call, from its arguments as JSON text with the
+    /// action under `action`.
+    fn call(&self, args: String) -> BoxFuture<'_, Reply>;
 }
 
 /// Sends the call to the first online desktop of the mesh. A phone is a

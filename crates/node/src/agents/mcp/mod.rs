@@ -37,17 +37,15 @@ pub(crate) mod harness;
 mod machines;
 pub(crate) mod peer_tools;
 mod media;
-pub(crate) mod projects;
 pub(in crate::agents) mod review;
 mod server;
 mod team;
 mod transcripts;
 
 
-pub(crate) use machines::alone;
 pub use super::calls::{SERVER_NAME, command_name};
 pub(crate) use desktop::answer as answer_projects;
-pub use desktop::ProjectTools;
+pub use super::desktop_call::ProjectTools;
 pub(crate) use team::{
     PickupStart, TeamSessions, answer as answer_team, start_issue, still_runs,
 };
@@ -199,7 +197,7 @@ impl Backend for Node {
     async fn call(&self, request: &Request) -> Result<Reply> {
         match request.tool {
             Tool::ListProjects => {
-                return Ok(projects::call(
+                return Ok(crate::agents::projects::call(
                     self.offers.agents.mesh().as_ref(),
                     &request.args,
                 ));
@@ -267,7 +265,7 @@ impl Backend for Node {
         self.offers
             .mesh
             .get()
-            .is_none_or(|mesh| machines::alone(&mesh))
+            .is_none_or(|mesh| crate::agents::machine_list::alone(&mesh))
     }
 
     fn media(&self, session: &SessionId) -> Option<media::Media> {

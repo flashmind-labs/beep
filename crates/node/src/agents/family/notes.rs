@@ -17,10 +17,10 @@
 //! before.
 
 use beep_proto::SessionId;
-use super::{Agents, Command, Live, Session, children};
+use super::{Agents, Command, Live, Session};
 use crate::agents::live::Mark;
 use crate::agents::child_view::{ChildView, full_id};
-use children::NoteFailed;
+use super::peer::NoteFailed;
 use crate::{agents::tags, link::Membership, team::asks::Delivery};
 use beep_proto::node::agent::{Status, StopReason};
 use beep_proto::watched;
@@ -391,7 +391,7 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
             To::Here { parent, waits } => match parent.upgrade() {
                 Some(parent) => {
                     let mesh = membership.get().and_then(Membership::get);
-                    let id = full_id(note.id.as_ref(), &children::machine_name(mesh.as_ref()));
+                    let id = full_id(note.id.as_ref(), &crate::agents::machine_list::machine_name(mesh.as_ref()));
                     let seen = Seen {
                         child: &key,
                         mark,
@@ -404,7 +404,7 @@ async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
             To::There { peer, parent } => {
                 tell_until_heard(|| async {
                     match membership.get().and_then(Membership::get) {
-                        Some(mesh) => children::note_parent(&mesh, *peer, parent, &note).await,
+                        Some(mesh) => super::peer::note_parent(&mesh, *peer, parent, &note).await,
                         None => Err(NoteFailed::Silent("this machine is in no mesh".to_owned())),
                     }
                 })

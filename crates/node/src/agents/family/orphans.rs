@@ -4,7 +4,7 @@
 //! parent that never got to stop it leaves no agent running for good.
 
 use beep_proto::SessionId;
-use super::{Agents, Session, children};
+use super::{Agents, Session};
 use crate::agents::session::ended_for_good;
 use crate::link::Membership;
 use beep_proto::watched;
@@ -115,7 +115,7 @@ async fn check_parent(
         let answer = match &mesh {
             Some(mesh) if mesh.me() == peer => return,
             Some(mesh) => {
-                children::ask_parent(mesh, peer, &parent, &Agents::name_of(&session), &session.id)
+                super::peer::ask_parent(mesh, peer, &parent, &Agents::name_of(&session), &session.id)
                     .await
             }
             None => Parent::Silent,

@@ -10,7 +10,7 @@
 
 use beep_proto::SessionId;
 use super::{
-    Agents, Begin, Command, Session, known, live::{Live, Mark}, mcp::children, session::ended_for_good,
+    Agents, Begin, Command, Session, known, live::{Live, Mark}, session::ended_for_good,
 };
 use crate::link::Membership;
 use beep_proto::{AccountName, AgentAccount, CustomAgent, ModelId};
@@ -32,6 +32,7 @@ use tokio_util::task::AbortOnDropHandle;
 
 mod changes;
 mod notes;
+pub(crate) mod peer;
 mod orphans;
 mod remote;
 
@@ -67,7 +68,7 @@ pub(super) struct Family {
     /// place.
     starting: Mutex<Vec<(Root, Weak<()>)>>,
     /// What transcripts show of children on other machines.
-    pub(crate) views: children::Views,
+    pub(crate) views: peer::Views,
     /// The children parents wait on in `start_agent`, which send no note
     /// meanwhile.
     pub(crate) waits: Waits,
@@ -225,7 +226,7 @@ impl Agents {
             .code_hosts()
             .into_iter()
             .filter(|status| status.online && status.device.id != me)
-            .map(|status| children::count_on(&mesh, status.device.id, root.0, &root.1, COUNT_LIMIT));
+            .map(|status| peer::count_on(&mesh, status.device.id, root.0, &root.1, COUNT_LIMIT));
 
         futures::future::join_all(there).await.into_iter().sum()
     }
@@ -500,7 +501,7 @@ impl Agents {
                 return;
             };
 
-            if let Err(e) = children::stop_remote(mesh, parent, kid, true).await {
+            if let Err(e) = peer::stop_remote(mesh, parent, kid, true).await {
                 log::warn!("child {} on {} was not stopped: {e}", kid.id, kid.name);
             }
         });

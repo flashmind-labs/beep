@@ -7,7 +7,7 @@
 //! other threads, on this machine. What it last saw of each is kept while
 //! the node runs: after a restart each thread is told of once more.
 
-use super::{Agents, Command, Live, Session, children};
+use super::{Agents, Command, Live, Session};
 use crate::agents::child_view::full_id;
 use crate::agents::live::{Mark, Stand};
 use crate::agents::{acp::Prompt, cut};
@@ -109,7 +109,7 @@ impl Agents {
             }
         }
 
-        let here = children::machine_name(self.mesh().as_ref());
+        let here = crate::agents::machine_list::machine_name(self.mesh().as_ref());
         let siblings = main
             .iter()
             .flat_map(|main| self.children_of(&self.who_of(main)))

@@ -4,8 +4,10 @@
 //! check first.
 
 use super::catalog::REMOTE_RUN;
+use crate::agents::machine_list::{Machine, find_named, machines, no_machine};
 use crate::agents::calls::command_name;
-use super::peer_tools::{self, Caller};
+use super::peer_tools;
+use crate::agents::caller::Caller;
 use crate::peer_stream::{handshake, over_the_mesh};
 use crate::agents::reply::{done, fail, ok};
 use crate::{
@@ -15,7 +17,7 @@ use crate::{
     machine::env,
 };
 use anyhow::{Context, Result};
-use beep_mesh::{DeviceStatus, Mesh, machine::Device};
+use beep_mesh::{Mesh, machine::Device};
 use beep_proto::SessionId;
 use beep_proto::node::{
     EnvReport,
@@ -36,66 +38,6 @@ const STATUS_WAIT: Duration = Duration::from_secs(5);
 const MAX_SEND: usize = 20;
 /// How often a session is shown how far its files have gone.
 const SHOW_SENT_EVERY: Duration = Duration::from_secs(1);
-
-/// One device of the mesh.
-#[derive(Clone)]
-pub(super) struct Machine {
-    pub(super) id: EndpointId,
-    pub(super) name: String,
-}
-
-impl From<DeviceStatus> for Machine {
-    fn from(status: DeviceStatus) -> Self {
-        Self {
-            id: status.device.id,
-            name: command_name(&status.device.name),
-        }
-    }
-}
-
-pub(super) fn machines(mesh: &Mesh) -> Vec<Machine> {
-    mesh.code_hosts().into_iter().map(Machine::from).collect()
-}
-
-/// The machine of `mesh` that `name` names, as agents say it.
-pub(super) fn find(mesh: &Mesh, name: &str) -> Option<Machine> {
-    let wanted = command_name(name);
-    machines(mesh).into_iter().find(|m| m.name == wanted)
-}
-
-/// The machine `name` names, or whose endpoint id it is.
-pub(super) fn find_or_id(mesh: &Mesh, name: &str) -> Option<Machine> {
-    let wanted = command_name(name);
-    machines(mesh)
-        .into_iter()
-        .find(|m| m.id.to_string() == name || m.name == wanted)
-}
-
-/// Why there is no machine called `name`.
-pub(super) fn no_machine(mesh: &Mesh, name: &str) -> String {
-    let all = machines(mesh);
-    let names: Vec<&str> = all.iter().map(|m| m.name.as_str()).collect();
-
-    format!("No machine called {name}. Machines: {}.", names.join(", "))
-}
-
-pub(super) fn find_named(mesh: &Mesh, name: &str) -> Result<Machine, String> {
-    find(mesh, name).ok_or_else(|| no_machine(mesh, name))
-}
-
-pub(super) fn find_or_id_named(mesh: &Mesh, name: &str) -> Result<Machine, String> {
-    find_or_id(mesh, name).ok_or_else(|| no_machine(mesh, name))
-}
-
-/// Whether `mesh` has no machine but this one to run on; phones host nothing.
-pub(crate) fn alone(mesh: &Mesh) -> bool {
-    let me = mesh.me();
-
-    mesh.inventory().iter().all(|device| match device {
-        Device::Phone(_) => true,
-        Device::Desktop(status) | Device::Node(status) => status.device.id == me,
-    })
-}
 
 /// The refusal for a `remote_run` that names, by name or id, the machine the
 /// agent runs on: it runs commands on other machines only.
@@ -334,7 +276,7 @@ async fn sync_project(
         .get("project")
         .and_then(Value::as_str)
         .ok_or("Give `project`.")?;
-    let specs = super::projects::sync_specs(mesh);
+    let specs = crate::agents::projects::sync_specs(mesh);
     let (name, spec) = specs
         .iter()
         .find(|(name, _)| name.eq_ignore_ascii_case(project.trim()))

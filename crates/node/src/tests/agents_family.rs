@@ -1678,7 +1678,7 @@ async fn parallel_waits_on_one_child_wake_together_and_end_apart() {
 #[tokio::test(start_paused = true)]
 async fn a_note_the_parents_node_did_not_hear_is_sent_again_until_it_does() {
     use crate::agents::family::notes::tell_until_heard;
-    use crate::agents::mcp::children::NoteFailed;
+    use crate::agents::family::peer::NoteFailed;
 
     let tries = std::cell::Cell::new(0);
     let started = tokio::time::Instant::now();
@@ -1700,7 +1700,7 @@ async fn a_note_the_parents_node_did_not_hear_is_sent_again_until_it_does() {
 #[tokio::test(start_paused = true)]
 async fn a_note_the_parents_node_refuses_is_not_sent_again() {
     use crate::agents::family::notes::tell_until_heard;
-    use crate::agents::mcp::children::NoteFailed;
+    use crate::agents::family::peer::NoteFailed;
 
     let tries = std::cell::Cell::new(0);
     let sent = tell_until_heard(|| {

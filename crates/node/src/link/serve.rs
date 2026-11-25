@@ -2,7 +2,8 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::mcp::{self, TeamSessions, peer_tools::{self, Caller}},
+    agents::mcp::{self, TeamSessions, peer_tools},
+    agents::caller::Caller,
     agents::{AgentKind, Agents, SESSIONS_ALPN, skills::Skills},
     files::Folders,
     files::transfer::Transfers,

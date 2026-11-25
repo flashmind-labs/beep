@@ -1,5 +1,8 @@
 use beep_proto::SessionId;
 use super::*;
+use crate::agents::desktop_call::ProjectTools;
+use crate::link::Offers;
+use std::sync::Arc;
 
 fn caller(table: Table) -> Caller {
     Caller {

@@ -6,9 +6,9 @@
 //! drives keeps one attached stream open until it idles.
 
 use super::{
-    machines::{self, Machine},
     server::Called,
 };
+use crate::agents::machine_list::{Machine, find_or_id_named};
 use crate::{agents::calls::command_name, link::Offers, run::device};
 use anyhow::{Context, Result, bail};
 use beep_mesh::Mesh;
@@ -658,7 +658,7 @@ fn takes_input(device: &Device) -> bool {
 }
 
 fn machine(mesh: &Mesh, name: &str) -> Result<Machine> {
-    machines::find_or_id_named(mesh, name).map_err(anyhow::Error::msg)
+    find_or_id_named(mesh, name).map_err(anyhow::Error::msg)
 }
 
 /// The device `named` by id, else by name; a name several devices share

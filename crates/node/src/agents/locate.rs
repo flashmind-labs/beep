@@ -2,11 +2,12 @@
 //! from Finder or at login gets a bare `PATH`, and the usual installers put
 //! their binaries in a few well-known folders under home.
 
+use anyhow::{Context, Result};
 use std::{
     env,
     ffi::OsString,
     fs,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
 };
 
 /// Where `program` is: on `PATH`, or in the usual install folders under
@@ -126,3 +127,60 @@ fn newest_first(versions: &Path) -> Vec<PathBuf> {
 #[cfg(all(test, unix))]
 #[path = "../tests/agents_locate.rs"]
 mod tests;
+
+/// The folder a session runs in: `cwd`, with `~` for the home folder, or
+/// the home folder itself.
+pub(crate) fn folder(cwd: Option<&str>) -> Result<PathBuf> {
+    let home = dirs::home_dir();
+    let path = match cwd.map(str::trim) {
+        None | Some("") | Some("~") => home.clone().context("this machine has no home folder")?,
+        Some(rest) if rest.starts_with("~/") => home
+            .as_deref()
+            .context("this machine has no home folder")?
+            .join(&rest[2..]),
+        Some(path) => PathBuf::from(path),
+    };
+    anyhow::ensure!(
+        path.is_absolute(),
+        "the folder must be an absolute path, not {}",
+        path.display()
+    );
+
+    if path.is_dir() {
+        return Ok(path);
+    }
+    // A folder named on another machine: `/Users/<name>/x` there is
+    // `~/x` here, and `~/Projects/x` there is often `~/x` here and the other
+    // way round, as project groups match them.
+    if let Some(home) = home.as_deref()
+        && let Some(found) = home_twins(&path, home).into_iter().find(|p| p.is_dir())
+    {
+        return Ok(found);
+    }
+
+    anyhow::bail!("there is no folder {}", path.display())
+}
+
+/// Where `path`, named under some home folder, may be under `home`: the
+/// same place, then with a leading `Projects/` taken away or added.
+pub(crate) fn home_twins(path: &Path, home: &Path) -> Vec<PathBuf> {
+    let rest = path.strip_prefix(home).ok().or_else(|| {
+        let mut parts = path.components();
+        let root = parts.next()?;
+        let top = parts.next()?;
+        let under = matches!(top.as_os_str().to_str(), Some("Users" | "home"));
+        (matches!(root, Component::RootDir) && under && parts.next().is_some())
+            .then_some(parts.as_path())
+    });
+    let Some(rest) = rest else {
+        return Vec::new();
+    };
+    let toggled = match rest.strip_prefix("Projects") {
+        Ok(inner) if !inner.as_os_str().is_empty() => home.join(inner),
+        _ => home.join("Projects").join(rest),
+    };
+    [home.join(rest), toggled]
+        .into_iter()
+        .filter(|p| p != path)
+        .collect()
+}

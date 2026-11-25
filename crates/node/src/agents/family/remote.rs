@@ -3,7 +3,7 @@
 //! until the machine says so), and kept over a restart.
 
 use beep_proto::SessionId;
-use super::{Agents, Family, Session, children};
+use super::{Agents, Family, Session};
 use crate::agents::session::parent_gone;
 use crate::{agents::unix_now, link::Membership};
 use iroh::EndpointId;
@@ -157,7 +157,7 @@ impl Agents {
                 .cloned()
                 .collect();
             let stops = kids.iter().map(|kid| async {
-                match children::stop_remote_retrying(&mesh, &parent, kid).await {
+                match super::peer::stop_remote_retrying(&mesh, &parent, kid).await {
                     Ok(()) => mark_ended(&remote, kid),
                     Err(e) => log::warn!(
                         "child {} on {} was not stopped: {e}; it closes itself once it finds \

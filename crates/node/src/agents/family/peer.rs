@@ -3,10 +3,9 @@
 //! counting a root's agents, asking about a parent, and reading a child's
 //! state without making a transcript read wait for it.
 
-use super::{ChildView, PeerCall};
+use super::{ChildNote, NO_AGENT, Parent, RemoteKid};
 use crate::agents::{
-    family::{ChildNote, NO_AGENT, Parent, RemoteKid},
-    mcp::machines::Machine,
+    Agents, child_view::ChildView, machine_list::{Machine, machine_name}, reply::json_of,
 };
 use crate::peer_stream::over_the_mesh;
 use beep_mesh::Mesh;
@@ -14,7 +13,9 @@ use beep_proto::SessionId;
 use beep_proto::node::tools::{Reply, Request, Tool};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::{
+    collections::BTreeSet,
     borrow::Cow,
     collections::HashMap,
     future::Future,
@@ -24,8 +25,41 @@ use std::{
 use tokio::time::{Instant, sleep, timeout};
 use tokio_util::task::AbortOnDropHandle;
 
+/// What a call to a child on another machine carries besides its id.
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub(crate) struct PeerCall {
+    pub(crate) id: SessionId,
+    #[serde(default)]
+    pub(crate) text: Option<String>,
+    /// Stop only the running turn, not the session.
+    #[serde(default)]
+    pub(crate) turn_only: bool,
+    /// With `turn_only`: stop its background commands and subagents too, as
+    /// a parent's Stop all does. A node from 0.5.0 and before ignores it and
+    /// stops the turn.
+    #[serde(default)]
+    pub(crate) stop_all: bool,
+}
+
+impl PeerCall {
+    pub(crate) fn id(id: SessionId) -> Self {
+        Self {
+            id,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn message(id: SessionId, text: String) -> Self {
+        Self {
+            id,
+            text: Some(text),
+            ..Self::default()
+        }
+    }
+}
+
 /// How long a call to a child on another machine may take.
-pub(super) const REMOTE_LIMIT: Duration = Duration::from_secs(20);
+pub(crate) const REMOTE_LIMIT: Duration = Duration::from_secs(20);
 /// How many times a stop is sent, and the pause before the next one grows
 /// by, when the machine does not answer.
 const STOP_TRIES: u32 = 4;
@@ -35,11 +69,11 @@ const STOP_PAUSE: Duration = Duration::from_secs(5);
 const VIEW_FRESH: Duration = Duration::from_secs(5);
 
 /// What a parent's node answers a child that asks whether it is kept.
-pub(super) const KEPT: &str = "kept";
-pub(super) const GONE: &str = "gone";
+pub(crate) const KEPT: &str = "kept";
+pub(crate) const GONE: &str = "gone";
 
 /// How a call to another machine went.
-pub(super) enum Answer {
+pub(crate) enum Answer {
     /// It answered and did what was asked.
     Text(String),
     /// It answered and did not: nothing was done there.
@@ -49,7 +83,7 @@ pub(super) enum Answer {
 }
 
 /// A call to the node of `machine`, which `name` is to agents.
-pub(super) struct Call<'a> {
+pub(crate) struct Call<'a> {
     mesh: &'a Mesh,
     /// The calling session's id as the machine knows it.
     session: &'a SessionId,
@@ -59,7 +93,7 @@ pub(super) struct Call<'a> {
 
 impl<'a> Call<'a> {
     /// A call from `session` to the machine of `kid`.
-    pub(super) fn to_kid(mesh: &'a Mesh, session: &'a SessionId, kid: &'a RemoteKid) -> Self {
+    pub(crate) fn to_kid(mesh: &'a Mesh, session: &'a SessionId, kid: &'a RemoteKid) -> Self {
         Self {
             mesh,
             session,
@@ -69,7 +103,7 @@ impl<'a> Call<'a> {
     }
 
     /// A call from `session` to `machine`.
-    pub(super) fn to_machine(mesh: &'a Mesh, session: &'a SessionId, machine: &'a Machine) -> Self {
+    pub(crate) fn to_machine(mesh: &'a Mesh, session: &'a SessionId, machine: &'a Machine) -> Self {
         Self {
             mesh,
             session,
@@ -87,7 +121,7 @@ impl<'a> Call<'a> {
         }
     }
 
-    pub(super) async fn ask<T: Serialize>(&self, tool: Tool, args: &T, limit: Duration) -> Answer {
+    pub(crate) async fn ask<T: Serialize>(&self, tool: Tool, args: &T, limit: Duration) -> Answer {
         let request = Request {
             session: self.session.clone(),
             tool,
@@ -111,7 +145,7 @@ impl<'a> Call<'a> {
         }
     }
 
-    pub(super) async fn ask_ok<T: Serialize>(
+    pub(crate) async fn ask_ok<T: Serialize>(
         &self,
         tool: Tool,
         args: &T,
@@ -124,7 +158,7 @@ impl<'a> Call<'a> {
     }
 }
 
-pub(super) fn parse_view(name: &str, text: &str) -> Result<ChildView, String> {
+pub(crate) fn parse_view(name: &str, text: &str) -> Result<ChildView, String> {
     serde_json::from_str(text).map_err(|e| format!("{name} answered something unreadable: {e}"))
 }
 
@@ -170,7 +204,7 @@ pub(crate) async fn stop_remote_retrying(
 
 /// Runs `once` up to `tries` times, `pause` longer before each, until it
 /// works; the last failure when none does.
-pub(super) async fn retrying<F, Fut>(tries: u32, pause: Duration, mut once: F) -> Result<(), String>
+pub(crate) async fn retrying<F, Fut>(tries: u32, pause: Duration, mut once: F) -> Result<(), String>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = Result<(), String>>,
@@ -273,7 +307,7 @@ pub(crate) async fn note_parent(
 }
 
 /// How a child on another machine stands, asked of it now.
-pub(super) async fn fetch_view(
+pub(crate) async fn fetch_view(
     mesh: &Mesh,
     parent: &SessionId,
     kid: &RemoteKid,
@@ -307,7 +341,7 @@ struct Seen {
 impl Views {
     /// The last state read of `kid`, `parent`'s child; none before the first
     /// read comes back.
-    pub(super) fn of(&self, mesh: &Mesh, parent: &SessionId, kid: &RemoteKid) -> Option<ChildView> {
+    pub(crate) fn of(&self, mesh: &Mesh, parent: &SessionId, kid: &RemoteKid) -> Option<ChildView> {
         let key = (kid.machine, kid.id.clone());
         let mut seen = crate::lock(&self.0);
         let entry = seen.entry(key.clone()).or_default();
@@ -336,4 +370,121 @@ impl Views {
 
         entry.view.clone()
     }
+}
+
+/// How long a machine has to list its agents.
+const LIST_LIMIT: Duration = Duration::from_secs(5);
+/// What another machine asks of this one's agents: `ended_since`, Unix
+/// seconds, lists the sessions that ended then or later too. An older node
+/// sends none.
+#[derive(Default, Serialize, Deserialize)]
+#[serde(default)]
+struct PeerList {
+    ended_since: Option<u64>,
+}
+
+/// The agents this node runs that other machines may list, as `args` asks,
+/// each with its project.
+pub(crate) fn listed(agents: &Agents, args: &str) -> Reply {
+    let PeerList { ended_since } = serde_json::from_str(args).unwrap_or_default();
+    let views: Vec<ChildView> = listed_here(agents, ended_since)
+        .into_iter()
+        .map(|listed| listed.view)
+        .collect();
+
+    json_of(&views)
+}
+
+/// An agent, its machine's display name, and the folder it works in
+/// when it runs on this machine: the worktree Beep made for it, or its own.
+pub(crate) struct Listed {
+    pub(crate) view: ChildView,
+    pub(crate) machine: String,
+    pub(crate) folder: Option<String>,
+}
+
+pub(crate) fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<Listed> {
+    let mesh = agents.mesh();
+
+    agents
+        .peers(ended_since)
+        .iter()
+        .map(|session| {
+            let info = session.info();
+            let mut view = ChildView::of(&info, &Agents::name_of(session));
+            view.project = mesh
+                .as_ref()
+                .and_then(|mesh| crate::agents::projects::of_folder(mesh, &info.cwd, mesh.me()));
+            let worktree = info.worktrees.first().cloned();
+            Listed {
+                view,
+                machine: String::new(),
+                folder: Some(worktree.unwrap_or(info.cwd)),
+            }
+        })
+        .collect()
+}
+
+/// Every live agent but `caller`, the session asking: this machine's, then
+/// those of every other online machine of `mesh`, or of `only` those, that
+/// answers in time, each named by its machine. With `ended_since`, Unix
+/// seconds, the sessions that ended then or later too.
+pub(crate) async fn in_the_mesh(
+    agents: &Agents,
+    mesh: Option<&Mesh>,
+    caller: &SessionId,
+    only: Option<&BTreeSet<EndpointId>>,
+    ended_since: Option<u64>,
+) -> Vec<Listed> {
+    let here = machine_name(mesh);
+    let display = mesh
+        .and_then(|mesh| mesh.code_hosts().into_iter().find(|status| status.device.id == mesh.me()))
+        .map(|status| status.device.name)
+        .unwrap_or_default();
+    let mut listed: Vec<Listed> = listed_here(agents, ended_since)
+        .into_iter()
+        .filter(|listed| listed.view.id != *caller)
+        .map(|listed| Listed {
+            view: listed.view.named(&here),
+            machine: display.clone(),
+            ..listed
+        })
+        .collect();
+    let Some(mesh) = mesh else {
+        return listed;
+    };
+
+    let others: Vec<(Machine, String)> = mesh
+        .code_hosts()
+        .into_iter()
+        .filter(|status| status.online && status.device.id != mesh.me())
+        .filter(|status| only.is_none_or(|only| only.contains(&status.device.id)))
+        .map(|status| {
+            let display = status.device.name.clone();
+            (Machine::from(status), display)
+        })
+        .collect();
+    let asked = json!(PeerList { ended_since });
+    let lists = futures::future::join_all(others.iter().map(|(machine, _)| async {
+        Call::to_machine(mesh, caller, machine)
+            .ask_ok(Tool::ListAgents, &asked, LIST_LIMIT)
+            .await
+    }))
+    .await;
+
+    // A machine that does not answer, or an older one that lists no agents
+    // for others, adds none.
+    for ((machine, display), answer) in others.iter().zip(lists) {
+        let Ok(text) = answer else { continue };
+        let Ok(there) = serde_json::from_str::<Vec<ChildView>>(&text) else {
+            continue;
+        };
+        listed.extend(there.into_iter().map(|view| Listed {
+            view: view.named(&machine.name),
+            machine: display.clone(),
+            folder: None,
+        }));
+    }
+
+    listed
 }

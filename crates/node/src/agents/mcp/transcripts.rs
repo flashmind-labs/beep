@@ -1,7 +1,7 @@
 //! Read-only transcript access for repair agents over the mesh.
 
 use beep_proto::SessionId;
-use super::machines;
+use crate::agents::machine_list;
 use crate::agents::reply;
 use crate::{agents::TRANSCRIPT_PROTOCOL, link::Offers};
 use anyhow::{Context, Result, bail};
@@ -74,7 +74,7 @@ async fn read(offers: &Offers, args: &Args) -> Result<SessionsReply> {
             .mesh
             .get()
             .context("This machine has not joined a mesh. Omit machine to read here.")?;
-        let target = machines::find_or_id(&mesh, name)
+        let target = machine_list::find_or_id(&mesh, name)
             .with_context(|| format!("Unknown machine {name}; use list_machines."))?;
         if target.id != mesh.me() {
             let (mut tx, mut rx) =

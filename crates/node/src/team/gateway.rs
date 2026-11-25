@@ -18,11 +18,8 @@ use crate::{
     agents::{
         ci::Ci,
         child_view::ChildView,
-        mcp::{
-            command_name,
-            children::{Listed, in_the_mesh},
-            projects,
-        },
+        calls::command_name,
+        family::peer::{Listed, in_the_mesh},
     },
     link::Offers,
     machine::{
@@ -869,7 +866,7 @@ fn pushed_sessions(
         .filter(|info| info.state.status != Status::Ended || info.last_activity >= ended_since)
         .map(|info| {
             let mut view = ChildView::of(info, &info.id).named(&name);
-            view.project = projects::of_folder(mesh, &info.cwd, peer);
+            view.project = crate::agents::projects::of_folder(mesh, &info.cwd, peer);
 
             Listed {
                 view,

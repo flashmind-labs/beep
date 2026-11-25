@@ -4,7 +4,7 @@ use super::{
     AgentKind, Agents, Answered, Asking, Command, Session, Start, checkout,
     harnesses,
     live::Sent,
-    models, plans,
+    locate::folder, machine_list, models, plans, projects,
     session::{Begin, History},
     sessions::{self, new_id},
 };
@@ -30,7 +30,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
     env,
-    path::{Component, Path, PathBuf},
+    path::{Path, PathBuf},
     str::FromStr,
     sync::{Arc, atomic::Ordering},
 };
@@ -782,7 +782,7 @@ impl Agents {
         }
 
         if let Some(mesh) = self.mesh() {
-            mcp::projects::may_run(&mesh, &cwd, &kind.name).map_err(anyhow::Error::msg)?;
+            projects::may_run(&mesh, &cwd, &kind.name).map_err(anyhow::Error::msg)?;
         }
 
         let resume = begin.resume.clone();
@@ -807,12 +807,12 @@ impl Agents {
         let context = super::brief::Context {
             machine: mesh
                 .as_ref()
-                .map(|mesh| mcp::children::machine_name(Some(mesh)))
+                .map(|mesh| machine_list::machine_name(Some(mesh)))
                 .filter(|name| !name.is_empty()),
             project: mesh.as_ref().and_then(|mesh| {
-                mcp::projects::of_folder(mesh, &cwd.to_string_lossy(), mesh.me())
+                projects::of_folder(mesh, &cwd.to_string_lossy(), mesh.me())
             }),
-            multi_machine: mesh.as_ref().is_some_and(|mesh| !mcp::alone(mesh)),
+            multi_machine: mesh.as_ref().is_some_and(|mesh| !machine_list::alone(mesh)),
             rust_or_c: super::brief::has_native_build(&cwd),
         };
         begin.brief = brief;
@@ -1031,62 +1031,6 @@ impl Agents {
     }
 }
 
-/// The folder a session runs in: `cwd`, with `~` for the home folder, or
-/// the home folder itself.
-pub(super) fn folder(cwd: Option<&str>) -> Result<PathBuf> {
-    let home = dirs::home_dir();
-    let path = match cwd.map(str::trim) {
-        None | Some("") | Some("~") => home.clone().context("this machine has no home folder")?,
-        Some(rest) if rest.starts_with("~/") => home
-            .as_deref()
-            .context("this machine has no home folder")?
-            .join(&rest[2..]),
-        Some(path) => PathBuf::from(path),
-    };
-    anyhow::ensure!(
-        path.is_absolute(),
-        "the folder must be an absolute path, not {}",
-        path.display()
-    );
-
-    if path.is_dir() {
-        return Ok(path);
-    }
-    // A folder named on another machine: `/Users/<name>/x` there is
-    // `~/x` here, and `~/Projects/x` there is often `~/x` here and the other
-    // way round, as project groups match them.
-    if let Some(home) = home.as_deref()
-        && let Some(found) = home_twins(&path, home).into_iter().find(|p| p.is_dir())
-    {
-        return Ok(found);
-    }
-
-    anyhow::bail!("there is no folder {}", path.display())
-}
-
-/// Where `path`, named under some home folder, may be under `home`: the
-/// same place, then with a leading `Projects/` taken away or added.
-pub(super) fn home_twins(path: &Path, home: &Path) -> Vec<PathBuf> {
-    let rest = path.strip_prefix(home).ok().or_else(|| {
-        let mut parts = path.components();
-        let root = parts.next()?;
-        let top = parts.next()?;
-        let under = matches!(top.as_os_str().to_str(), Some("Users" | "home"));
-        (matches!(root, Component::RootDir) && under && parts.next().is_some())
-            .then_some(parts.as_path())
-    });
-    let Some(rest) = rest else {
-        return Vec::new();
-    };
-    let toggled = match rest.strip_prefix("Projects") {
-        Ok(inner) if !inner.as_os_str().is_empty() => home.join(inner),
-        _ => home.join("Projects").join(rest),
-    };
-    [home.join(rest), toggled]
-        .into_iter()
-        .filter(|p| p != path)
-        .collect()
-}
 
 /// Takes back the questions nobody waits for any more, once the wait that held it ends before an
 /// answer. The order is short and ends with the session, so it runs on its own.

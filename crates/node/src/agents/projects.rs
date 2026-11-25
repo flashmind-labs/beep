@@ -1,6 +1,6 @@
 //! Project discovery and checkout selection from replicated mesh records.
 
-use super::machines::{find, machines};
+use crate::agents::machine_list::{find, machines};
 use crate::agents::reply::{fail, json_of, parse};
 use crate::agents::moving::project_folder;
 use beep_mesh::{Key, Mesh};
@@ -33,7 +33,7 @@ struct Args {
     machine: Option<String>,
 }
 
-pub(super) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {
+pub(crate) fn call(mesh: Option<&Mesh>, args: &str) -> Reply {
     list(mesh, args).unwrap_or_else(fail)
 }
 
@@ -116,7 +116,7 @@ pub(crate) fn may_run(mesh: &Mesh, cwd: &Path, agent: &str) -> Result<(), String
     })
 }
 
-pub(super) fn project_name(mesh: &Mesh, name: &str) -> Result<String, String> {
+pub(crate) fn project_name(mesh: &Mesh, name: &str) -> Result<String, String> {
     let trimmed = name.trim();
 
     names(mesh)
@@ -130,7 +130,7 @@ pub(super) fn project_name(mesh: &Mesh, name: &str) -> Result<String, String> {
         .ok_or_else(|| format!("No project called {name}. Use list_projects to find its name."))
 }
 
-pub(super) fn folder(mesh: &Mesh, name: &str, machine: EndpointId) -> Result<String, String> {
+pub(crate) fn folder(mesh: &Mesh, name: &str, machine: EndpointId) -> Result<String, String> {
     let name = project_name(mesh, name)?;
 
     project_folder(mesh, &name, &machine)
@@ -156,7 +156,7 @@ pub(crate) fn of_folder(mesh: &Mesh, cwd: &str, machine: EndpointId) -> Option<S
         .map(|(_, name)| name)
 }
 
-pub(super) fn sync_specs(mesh: &Mesh) -> Vec<(String, SyncSpec)> {
+pub(crate) fn sync_specs(mesh: &Mesh) -> Vec<(String, SyncSpec)> {
     mesh.scan("sync/")
         .into_iter()
         .filter_map(|(key, bytes)| match key {
@@ -196,5 +196,5 @@ fn names(mesh: &Mesh) -> BTreeMap<String, Option<String>> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_mcp_projects.rs"]
+#[path = "../tests/agents_mcp_projects.rs"]
 mod tests;

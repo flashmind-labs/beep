@@ -1,6 +1,6 @@
 //! Model discovery for coding agents, on this node or a peer.
 
-use super::machines::find;
+use crate::agents::machine_list::find;
 use crate::peer_stream::over_the_mesh;
 use crate::agents::reply::{fail, json_of, parse};
 use crate::{

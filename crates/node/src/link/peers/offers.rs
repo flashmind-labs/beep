@@ -2,7 +2,7 @@
 
 use super::Reach;
 use crate::{
-    agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, mcp::ProjectTools, skills::Skills},
+    agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
     files::{search::Searches, transfer::Transfers},
     link::{
         Protocol, from_mesh::Membership, protocol::SessionProtocol, sampler::Sampler,
