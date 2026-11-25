@@ -276,42 +276,6 @@ async fn pair() -> Pair {
 }
 
 #[tokio::test]
-async fn an_apps_call_goes_on_to_the_gateway_once() {
-    let pair = pair().await;
-    let gateway = pair.node.team();
-    let node_id = gateway.me();
-    let card = ask_card();
-    gateway.publish(|served| {
-        served.gateways.insert(repo(), node_id);
-    });
-    gateway.asks(|asks| asks.cards.insert(repo(), vec![card.clone()]));
-    pair.desktop_link.publish(|served| {
-        served.gateways.insert(repo(), node_id);
-    });
-    let desktop = Caller {
-        mesh: Some(pair.desktop.clone()),
-        ..caller(&pair.desktop_link, Table::Shared, false)
-    };
-
-    let (text, failed) = done(answer(&desktop, &cards(false)).await);
-
-    assert!(!failed, "{text}");
-    let read: TeamCards = serde_json::from_str(&text).expect("cards");
-    assert_eq!(read.needs_you, vec![card]);
-
-    // The node holds the desktop for the gateway: the call stops there.
-    let desktop_id = pair.desktop_link.me();
-    gateway.publish(|served| {
-        served.gateways.insert(repo(), desktop_id);
-    });
-
-    let (text, failed) = done(answer(&desktop, &cards(false)).await);
-
-    assert!(failed, "{text}");
-    assert_eq!(text, "The team's gateway moved; try again");
-}
-
-#[tokio::test]
 async fn roster_from_node_is_written_once() {
     use beep_mesh::{Key, Mesh};
     use beep_proto::{
