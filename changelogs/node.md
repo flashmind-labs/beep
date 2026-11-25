@@ -2,6 +2,46 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.26] - 2026-11-25
+
+### Added
+
+- Node: on Linux and macOS, sessions give their agent a Docker socket of
+  their own, so the containers it starts with `docker run` or
+  `docker compose up` show in the session with their published ports.
+  Closing the session stops them, and nothing is removed. It applies to
+  sessions started after the setting changes.
+- Node: Beep ships a `report` skill in its skills folder, next to GitHub and Forgejo, and tells agent sessions to use it to generate their final response. Delete the installed skill file to turn this off; edit it to change what agents follow.
+
+### Changed
+
+- The desktop on this machine hears of a team invite the moment it arrives or is dropped, instead of asking again on a timer.
+- A terminal's state reaches a window that follows that one terminal alone, instead of the whole terminal list.
+- A machine that acts for no team no longer wakes every 10 seconds to elect a team's gateway: it elects when the mesh, a roster or a host's reach changes.
+- Agent spend figures update when an agent's log changes, instead of on a 60 second timer.
+- Asking a node to sync a project returns as soon as the project settles, with no half-second wait loop.
+- Syncthing coming back, or changing a folder, is noticed from its event stream instead of a 5 minute recheck.
+
+### Fixed
+
+- Linux, macOS and Windows: a team invite or card that is a day old goes at once, not at the next read.
+- Linux, macOS and Windows: a team keeps a machine acting for it after the acting machine steps down.
+- Linux, macOS and Windows: the spend report ends with an error, not silently, when the agents' logs cannot be watched.
+- Linux, macOS and Windows: one background task's output and exit reach a desktop that follows only that task.
+- Linux, macOS and Windows nodes: a parent agent waiting on an agent on another machine now hears when it finishes even if the first message was lost on a dropped link.
+- Linux, macOS and Windows nodes: a deleted conversation no longer comes back in the list for up to a minute.
+- Linux, macOS and Windows nodes: background agents that finish are removed at once, not up to a minute later.
+- Linux, macOS and Windows: a slow or stuck disk no longer delays a machine's other status reports.
+- Linux, macOS and Windows: one unreachable peer no longer holds up the other file fetches of a synced project.
+- Linux, macOS and Windows: a team change or a project import reaches the team board without waiting for a slow desktop.
+
+### Performance
+
+- Node: the session list sent to a desktop or phone no longer carries token counts, context use, touched files or the rest of the last message, and a desktop that understands it gets only the sessions that changed. A node with several running sessions sent about 75 KB every second before, which slowed Stop, queued messages and session views on remote machines.
+- Linux, macOS and Windows nodes: several open usage views share one read of the agents' logs instead of one each.
+- Linux, macOS and Windows: the device list is read once per change, and only polled while a simulator is listed or a device boots.
+- Linux, macOS and Windows: terminal output no longer makes every listener read the terminal list again.
+
 ## [0.8.25] - 2026-11-24
 
 ### Added

@@ -7,6 +7,65 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.34] - 2026-11-25
+
+### Added
+
+- Desktop: a session's Running tab lists the Docker containers its agent
+  started, with their ports and an Open button for the page they serve.
+  Stop ends a container and keeps it. Turn this off in Settings, General,
+  under "Docker containers in Running".
+- Dictate prompts by voice in the new-session composer and the reply field on macOS, Windows and Linux. Turn it on and pick a model in Settings > General. It uses your ElevenLabs, Mistral or OpenRouter API key, and ElevenLabs and Mistral show words live as you speak.
+- Desktop: select text in an agent reply and click Quote (or press Q) to append it as a Markdown blockquote in the session message input.
+
+### Changed
+
+- Desktop: Antigravity notices that start with a warning sign, such as its quota message, now show in the warning color.
+- Desktop: a message you send shows as a waiting row at once, instead of waiting up to a quarter second for the machine's first answer. One the machine refuses stays in the list with its reason.
+- Desktop: the team invite code fits on one line with its Copy button, and the note below says who can join and for how long.
+
+### Fixed
+
+- Desktop: Stop, Stop all, Close and answering a question now go out at once while a message to that session is still uploading files, instead of waiting behind the upload. Close also drops the message that was uploading.
+- Desktop: Stop, an answer or a list of waiting messages from a window still showing a session that has since been resumed now reach the resumed session, also after Beep restarts while its messages wait. A page opened on such a session goes on in the resumed one.
+- The tools view no longer asks the npm registry again on every redraw after a lookup failed (macOS, Windows, Linux).
+- Team cards keep updating when the machine acting for the team runs an older Beep node (macOS, Windows, Linux).
+- A terminal's or task's final lines and its exit show without reopening it, including on older nodes (macOS, Windows, Linux).
+- A team that could not be read when its project opened is read again when the projects change (macOS, Windows, Linux).
+- Opening an agent that was just started waits for it even when other sessions change meanwhile (macOS, Windows, Linux).
+- macOS, Windows and Linux: the session list no longer waits for a slow or offline machine's move progress before it shows.
+- macOS, Windows and Linux: a session you moved, deleted or relocated and a child agent that was just started show from the pushed list, with no extra reads and no 5 second retry while a chat window waits for its chat.
+- macOS, Windows and Linux: the sidebar groups, this computer's row and the Add a machine sheet follow the pushed machine state at once, and the sidebar marks the project you are viewing.
+- macOS: a slow disk on this Mac no longer delays its status reports to other devices, and a team change no longer waits on a slow desktop.
+- Team boards, team members and invites from contacts update as they change, without waiting for a timer (macOS, Windows, Linux).
+- Machine clocks, terminal lists, each machine's coding agents and a project's machines update when they change (macOS, Windows, Linux).
+- A session move shows its progress as the target machine reports it (macOS, Windows, Linux).
+- Desktop: a message's files are no longer removed from disk before the record that drops them is saved, so a crash cannot leave a message whose files are gone.
+- macOS, Windows and Linux: two files with the same name sent in different messages no longer open as each other's contents.
+- macOS, Windows and Linux: a session resumed by a message keeps the model you picked when you sent it, even if you pick another before it resumes.
+- Desktop: editing or removing a queued message while the agent works keeps the pictures of the other queued messages and puts the edited one's pictures back in the field.
+- Desktop: a message with files still being read is kept by Beep from the moment you press Enter, so closing or reloading the window no longer loses what you typed. It shows as "reading files" in the queue.
+- Desktop: Resume in a session's menu now runs in the background like a message does, shows its progress in the queue and keeps going after a lost connection.
+- Desktop: a message you sent while the agent works stays in the queue as "after the current step" until the session lists it, then shows once. It no longer shows twice or vanishes when its text was changed by attached files.
+
+### Performance
+
+- Desktop: follows a node's session list by the sessions that changed, so Stop, queued messages and session views on a remote machine no longer wait behind the list.
+- Desktop: the outbox logs each try at a queued message (check, send, upload, resume, configure) with its result and time, so a retry loop shows in the log.
+- A project page whose run read is slow no longer holds back the other open project pages (macOS, Windows, Linux).
+- The tray no longer keeps a second copy of every session push while all windows are hidden (macOS, Windows, Linux).
+- The command palette builds its session list when it opens, not on every session change (macOS, Windows, Linux).
+- The machine list no longer waits for the slow reads of each machine's agents and project pages (macOS, Windows, Linux).
+- The sync and move notices no longer redraw views while every window is hidden (macOS, Windows, Linux).
+- Team cards are followed only while a project's page shows them (macOS, Windows, Linux).
+- macOS, Windows and Linux: team cards and invites arrive as they change instead of up to 10 or 60 seconds later, and the app no longer asks for them on a timer.
+- macOS: the device list is read once per change, and terminal output no longer rereads the terminal list.
+- The bell no longer rereads the mesh every few minutes: it reacts to changes the machines push (macOS, Windows, Linux).
+- macOS, Windows and Linux: a project's checkouts, terminal lists, a terminal's view-only output, each machine's coding agents, machine clock warnings and move progress now arrive as they change, with no rereads and no 30 second clock timer.
+- Desktop: model lists, folder listings, worktrees, session places, new-machine tickets and project sync details now arrive as pushes instead of repeated reads.
+- macOS, Windows and Linux: the models each coding agent offers, a session's worktrees and places, a folder's file list, the `@` file menu, a project's sync detail and the Add a machine sheet now take their changes as they arrive, with far fewer reads while an agent works.
+- Desktop: saving a message with a very large file no longer holds up saving the other queued messages behind it.
+
 ## [0.10.33] - 2026-11-24
 
 ### Changed
