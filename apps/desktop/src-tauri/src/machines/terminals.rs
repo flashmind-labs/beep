@@ -8,6 +8,7 @@ use crate::{
     fleet::{
         Fleet, Machines,
         events::Events,
+        terminal_rows,
         terminals::{self as direct, Opened},
     },
     machines::{Registry, Unfollow, list::MachineLists},
@@ -212,7 +213,7 @@ pub(crate) fn output_pushed(app: &AppHandle, machine: EndpointId, topic: &Topic,
     let fleet = app.state::<Arc<Fleet>>();
     let followed = app.state::<Events>().terminals_followed();
 
-    for place in direct::places(&fleet) {
+    for place in terminal_rows::places(&fleet) {
         if place.machine == machine
             && place.task == task
             && place.pty == pty
@@ -238,7 +239,7 @@ static REREADS: LazyLock<Mutex<HashMap<(EndpointId, bool), bool>>> =
 pub(crate) fn list_changed(app: &AppHandle, machine: EndpointId, topic: &Topic) {
     let fleet = app.state::<Arc<Fleet>>();
 
-    if !direct::old_node(&fleet, machine) {
+    if !terminal_rows::old_node(&fleet, machine) {
         return;
     }
 
@@ -261,7 +262,7 @@ pub(crate) fn list_changed(app: &AppHandle, machine: EndpointId, topic: &Topic) 
             let fleet = app.state::<Arc<Fleet>>();
             let followed = app.state::<Events>().terminals_followed();
 
-            for place in direct::places(&fleet) {
+            for place in terminal_rows::places(&fleet) {
                 if place.machine == machine && place.pty == pty && followed.contains(&place.id) {
                     let output = direct::get(&fleet, place.id).await;
                     publish_output(&app, &fleet, place.id, output);

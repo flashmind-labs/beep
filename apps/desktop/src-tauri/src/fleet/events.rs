@@ -3,8 +3,8 @@
 use super::{
     Fleet, Machines, Opened, agents as direct,
     session_mirror::SessionMirror,
-    terminals,
-    view_signal::{Change, View, ring},
+    terminal_rows,
+    view_signal::{Change, Interest, View, ring},
 };
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
@@ -32,12 +32,6 @@ use commands::CommandWorker;
 use commands::Registered;
 pub(crate) use snapshots::{Current, Snapshots};
 use subscriptions::SubscriptionWorker;
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct Interest {
-    pub machine: Option<String>,
-    pub topic: Topic,
-}
 
 #[derive(Clone, Serialize)]
 pub struct Update {
@@ -960,7 +954,7 @@ impl Events {
             .unwrap_or_else(PoisonError::into_inner)
             .receiving()
             .flat_map(|window| &window.topics)
-            .filter_map(|interest| terminals::followed(&interest.topic))
+            .filter_map(|interest| terminal_rows::followed(&interest.topic))
             .collect()
     }
 
@@ -1438,8 +1432,8 @@ async fn run(
 
         // A window follows a terminal by its id, its node knows it by number.
         let interests =
-            terminals::node_interests(interests, &terminals::places(&fleet), |machine| {
-                terminals::old_node(&fleet, machine)
+            terminal_rows::node_interests(interests, &terminal_rows::places(&fleet), |machine| {
+                terminal_rows::old_node(&fleet, machine)
             });
         let mut machines = if mesh_is_open(&mesh) {
             fleet.online()

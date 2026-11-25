@@ -12,8 +12,9 @@ use crate::{
     error::Result,
     fleet::{
         Fleet,
-        events::{Events, Interest},
+        events::Events,
         projects::{FleetState, desk, named},
+        view_signal::Interest,
     },
 };
 use beep_fleet::Session;

@@ -1124,7 +1124,7 @@ async fn execute_job(
             };
             match timeout(Duration::from_secs(5), terminals::stop(&client, &kept)).await {
                 Ok(Ok(())) => {
-                    super::terminals::forget(fleet, *id)
+                    super::terminal_rows::forget(fleet, *id)
                         .await
                         .map_err(|_| JobFailure::Transport)?;
                     Ok(())

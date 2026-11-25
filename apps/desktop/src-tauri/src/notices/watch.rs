@@ -266,7 +266,7 @@ impl Slow {
 /// failed move on one is told as it comes.
 #[cfg(desktop)]
 fn hold_pushes(app: &AppHandle, fleet: &Arc<Fleet>) -> Option<()> {
-    use crate::fleet::events::{Events, Interest};
+    use crate::fleet::{events::Events, view_signal::Interest};
     use beep_proto::node::events::Topic;
 
     let events = app.state::<Events>();

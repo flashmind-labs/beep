@@ -168,7 +168,7 @@ pub async fn follow(app: AppHandle) {
     let _standing = events
         .hold(
             "tray",
-            vec![crate::fleet::events::Interest {
+            vec![crate::fleet::view_signal::Interest {
                 machine: None,
                 topic: beep_proto::node::events::Topic::new("agents"),
             }],

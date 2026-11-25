@@ -6,11 +6,18 @@ use beep_proto::{
     node::events::{self, Topic},
 };
 use iroh::EndpointId;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::{AppHandle, Manager};
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+/// What a window follows: a topic, on one machine or on all.
+pub struct Interest {
+    pub machine: Option<String>,
+    pub topic: Topic,
+}
 
 /// What changed, in the order it was rung.
 pub(crate) enum Change {
