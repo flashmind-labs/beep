@@ -218,6 +218,10 @@ pub(crate) struct Moves {
     /// Counts each time a session stops being held for a move, or a move is
     /// given up, for a target that waits for the source to be done.
     released: watch::Sender<u64>,
+    /// The sessions a target read from this machine for the move it has now,
+    /// and a count of those reads.
+    contacted: Mutex<HashSet<SessionId>>,
+    reached: watch::Sender<u64>,
 }
 
 /// A take-back going, and the signal that it ended: the sender lives in the
@@ -263,6 +267,7 @@ impl Moves {
     pub(super) fn forget(&self, id: &SessionId) {
         lock(&self.tracked).archive(id);
         lock(&self.refused).remove(id);
+        lock(&self.contacted).remove(id);
     }
 
     /// The lock for placing `id`'s worktrees. Only sessions placing now keep one.
@@ -341,6 +346,21 @@ impl Moves {
         lock(&self.tracked)
             .find(id, at)
             .is_some_and(|one| one.source == source)
+    }
+
+    pub(super) fn reached(&self) -> watch::Receiver<u64> {
+        self.reached.subscribe()
+    }
+
+    pub(super) fn contacted(&self, id: &SessionId) -> bool {
+        lock(&self.contacted).contains(id)
+    }
+
+    /// The target of the move of `id` read from this machine.
+    pub(super) fn contact(&self, id: &SessionId) {
+        if lock(&self.contacted).insert(id.to_owned()) {
+            self.reached.send_modify(|count| *count = count.wrapping_add(1));
+        }
     }
 
     pub(super) fn released(&self) -> watch::Receiver<u64> {

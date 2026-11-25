@@ -371,6 +371,8 @@ pub(super) async fn serve(
             worktree: _,
             follow,
         } => {
+            agents.moves.contact(&id);
+
             if let Some(why) = agents.moves.refusal(&id) {
                 return tx.send(&refuse(&why)).await;
             }

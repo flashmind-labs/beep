@@ -104,11 +104,16 @@ enum Followed {
 
 /// Hears each state of the move the target `to` pushes, until it landed or
 /// gave the move up.
+///
+/// A connection that stays open before the target has reached this machine
+/// stops the target from reaching it after a restart, so with `standing`
+/// unset the first state is all it waits for.
 async fn follow(
     env: &Env,
     to: EndpointId,
     id: &SessionId,
     at: u64,
+    standing: bool,
     mut told: impl FnMut(Target),
 ) -> Result<Followed> {
     let connection = dial(env, to).await?;
@@ -132,6 +137,10 @@ async fn follow(
 
                     if over {
                         return Ok(Followed::Over);
+                    }
+
+                    if !standing {
+                        return Ok(Followed::Closed);
                     }
                 }
                 Ok(Some(Reply::Refused { message })) => bail!("the target refused: {message}"),
@@ -158,9 +167,13 @@ async fn follow(
 pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::Sender<Target>) {
     let mut reached = None;
     let mut old = false;
+    let moves = &env.agents.moves;
+    let mut contact = moves.reached();
 
     while !old {
-        let followed = follow(env, record.to, &record.id, record.at, |now| {
+        // Once the target read from this machine, it stays followed.
+        let standing = moves.contacted(&record.id);
+        let followed = follow(env, record.to, &record.id, record.at, standing, |now| {
             tell(&said, record, now);
         })
         .await;
@@ -176,7 +189,12 @@ pub(super) async fn watch_target(env: &Env, record: &SessionMove, said: watch::S
         }
 
         if !old {
-            sleep(RECONNECT).await;
+            // Until the target reached this machine, it is looked at again
+            // as it does.
+            tokio::select! {
+                () = sleep(RECONNECT) => {}
+                _ = contact.changed() => {}
+            }
         }
     }
 
@@ -248,7 +266,7 @@ fn note_reached(
 /// How the move made at `at` ended on the target `to`, once it did.
 pub(super) async fn outcome(env: &Env, to: EndpointId, id: &SessionId, at: u64) -> Result<Target> {
     let mut ended = None;
-    let followed = follow(env, to, id, at, |now| {
+    let followed = follow(env, to, id, at, true, |now| {
         if matches!(now, Target::Landed | Target::Failed(_)) {
             ended = Some(now);
         }
