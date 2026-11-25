@@ -19,7 +19,7 @@ const stubs = new Map(Object.entries({
   "agentpane/media.ts": "export const P = globalThis.previewState; export const openTabs = () => globalThis.previewState.tabs; export const rememberPane = () => {}; export const closeTab = () => {}; export const saveWorkFile = () => {}; export const discardSheet = () => {}; export const openLocation = () => {}; export const newFileEdit = base => ({ base, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at: null });",
   "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const fileError = e => e.message; export const drawTermStatus = () => {};",
   "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {};",
-  "ui/tauri.ts": "export const invoke = globalThis.previewInvoke;",
+  "ui/tauri.ts": "export const invoke = globalThis.previewInvoke; export const listen = async () => () => {};",
   "chat/media.tsx": "export const fileSize = () => ''; export const openViewer = () => {};",
   "ui/menu.tsx": "export const confirmSheet = () => {}; export const openMenu = () => {};",
   "agents/workdrop.ts": "export const addMention = () => {};",
