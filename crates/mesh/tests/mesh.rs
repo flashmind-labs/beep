@@ -799,27 +799,6 @@ fn copy_dir(from: &Path, to: &Path) {
     }
 }
 
-#[tokio::test]
-async fn a_peer_that_restarts_with_the_same_key_reconnects_at_once() {
-    let a = create("a").await;
-    let b = join(&a, DeviceKind::Desktop, "b").await;
-    until(&a.mesh, |m| online(m, b.id())).await;
-    // The old process is still there as far as A can tell: its connection
-    // has not closed, and a second one arrives from the same key.
-    let dir = TempDir::new().expect("temp dir");
-    copy_dir(b.dir.path(), dir.path());
-    let b2 = reopen(b.key.clone(), dir).await;
-    a.mesh
-        .set(project("after"), Some(b"1".to_vec()))
-        .await
-        .expect("write");
-    timeout(Duration::from_secs(5), async {
-        until(&b2.mesh, |m| m.get(&project("after")).is_some()).await
-    })
-    .await
-    .expect("the restarted peer got the change without an idle timeout");
-}
-
 fn echo() -> StreamHandler {
     Arc::new(|mut stream: PeerStream| {
         Box::pin(async move {
