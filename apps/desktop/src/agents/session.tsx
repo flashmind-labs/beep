@@ -17,13 +17,13 @@ import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/med
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, activateMentions, rememberMentionImages, setAttachError } from "./workdrop.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, drawAgents, sessionUsage, AGENT_POLL_MS, AGENT_THINK_POLL_MS, AGENT_STOP_POLL_MS, AGENT_SLOW_AFTER, AGENT_SLOW_MS, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
+import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, drawAgents, sessionUsage, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, agentKind, agentBack, canTakeOver, openOf, where } from "./agents.ts";
 import { agentAttachError, drawAgentAttached } from "./images.tsx";
 import { removeLastAttachment } from "./attachments-view.tsx";
 import { keepNativeSession, ensureSessions, loadSessions, sessions, sessionsRead } from "./sessions.ts";
 import { closeSession, shownStatus } from "./closing.ts";
 import { sessionOffers } from "./sessionmenu-state.ts";
-import { thinking, drawAgentBody, syncJump, scrolledLog } from "./logview.tsx";
+import { drawAgentBody, syncJump, scrolledLog } from "./logview.tsx";
 import { drawModelPill } from "./modelpill.tsx";
 import { readModes } from "./modepill.tsx";
 import { readTasks } from "./tasks.tsx";
@@ -232,8 +232,8 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   bar.onclick = agentClick;
 }
 
-/// Asks for the open session, then again after `agentDelay()` while it
-/// stays on screen. Opening reads once even if the webview's
+/// Asks for the open session, and opens its follow again after `RETRY_MS`
+/// while it stays on screen without one. Opening reads once even if the webview's
 /// visibility has not caught up. Never two calls at once for one session.
 export async function pollAgent(readNow = false) {
   clearTimeout(AG.timer);
@@ -317,8 +317,9 @@ export async function pollAgent(readNow = false) {
     return;
   }
 
-  const delay = AG.link.lost ? RETRY_MS : agentDelay();
-  if (!feed.live(o)) AG.timer = setTimeout(pollAgent, delay);
+  // The follow is opened again every `RETRY_MS`. A start says when it changes (`sessions-changed`), and an ended session does not change.
+  const quiet = isStarting(o.session) || AG.page?.session.status === "ended";
+  if (!feed.live(o) && (AG.link.lost || !quiet)) AG.timer = setTimeout(pollAgent, RETRY_MS);
 }
 
 let firstRead: { open: OpenAgent; at: number } | null = null;
@@ -459,21 +460,6 @@ function drawRest(moved = false, placed = false) {
   const news = rest === AG.rest;
   AG.rest = rest;
   drawAgentBody(undefined, true, false, news);
-}
-
-/// How long until an older node is asked again. Quiet sessions keep following.
-function agentDelay() {
-  const s = AG.page?.session;
-  // A start says when it changes (`sessions-changed`).
-  if (!s || s.status === "ended" || isStarting(s.id)) return AGENT_SLOW_MS;
-  const still = Date.now() - AG.changed;
-  // A question nobody answers for a while is asked about slowly; an answer
-  // from here or a notice reads it at once.
-  if (s.status === "asking" && still >= AGENT_SLOW_AFTER) return AGENT_SLOW_MS;
-  if (thinking && AGENT_ACTIVE.has(s.status)) return AGENT_THINK_POLL_MS;
-  // Once stopped, the turn ending shows as soon as it does.
-  if (!s.external && AGENT_ACTIVE.has(s.status)) return stoppingNow() ? AGENT_STOP_POLL_MS : AGENT_POLL_MS;
-  return still >= AGENT_SLOW_AFTER ? AGENT_SLOW_MS : AGENT_POLL_MS;
 }
 
 /// The session opened again was followed off screen: its model, drawn with

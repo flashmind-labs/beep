@@ -246,7 +246,7 @@ export class AgentFeed<K, T> {
     const wasLive = reader.live;
     reader.live = false;
     reader.ended = true;
-    reader.retryAt = this.transport.now() + (wasLive ? 5000 : 60_000);
+    reader.retryAt = this.transport.now() + 5000;
 
     // Beside the shown one it opens again once its time to retry comes.
     const failed = this.holds.get(reader.name);

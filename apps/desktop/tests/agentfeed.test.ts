@@ -136,17 +136,17 @@ test("resync reopens every followed session once and keeps the one shown", () =>
   assert.equal(feed.live("first"), true);
 });
 
-test("nodes without streaming keep the fallback available without a tight retry loop", async () => {
+test("a follow that failed to open is tried again every five seconds", async () => {
   const { feed, readers, advance, lost } = setup();
   feed.follow("first");
   readers[0].fail("unknown protocol");
   await Promise.resolve();
   assert.equal(feed.live("first"), false);
   assert.deepEqual(lost, []);
-  advance(10_000);
+  advance(4999);
   feed.follow("first");
   assert.equal(readers.length, 1);
-  advance(50_000);
+  advance(1);
   feed.follow("first");
   assert.equal(readers.length, 2);
 });

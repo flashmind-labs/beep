@@ -372,16 +372,6 @@ export const agentImages = new Map<string, Promise<string | null> | string | nul
 /// The same pictures made small, which only the log draws: never saved or
 /// shown in a viewer.
 export const agentThumbs = new Map<string, Promise<string | null> | string | null>();
-/// How often the session view asks for its session while on screen.
-export const AGENT_POLL_MS = 1500;
-/// How often while a thought streams, so its letters arrive nearly live.
-export const AGENT_THINK_POLL_MS = 300;
-/// How often while a stopped turn has not ended yet.
-export const AGENT_STOP_POLL_MS = 400;
-/// A quiet session (idle, or started outside Beep) unchanged this long is
-/// asked every `AGENT_SLOW_MS` when its node cannot stream changes.
-export const AGENT_SLOW_AFTER = 2 * 60_000;
-export const AGENT_SLOW_MS = 10_000;
 export { AGENT_ACTIVE };
 export const AGENT_LAST = 60;
 /// How long the page waits on a read of the session, and on a prompt or a
