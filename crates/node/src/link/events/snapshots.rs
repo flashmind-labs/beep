@@ -619,7 +619,6 @@ fn affected(read: &Topic, change: &Topic) -> bool {
                 | ("agent", "agents")
                 | ("processes", "process-output")
                 | (crate::run::device::LIST_TOPIC, crate::run::device::TOPIC)
-                | ("terminals", "terminal-output")
         )
 }
 

@@ -536,3 +536,15 @@ async fn tool_updates_are_missing_until_the_node_has_checked() {
     };
     assert_eq!((snapshot.topic, snapshot.value), (topic, Value::Missing));
 }
+
+#[test]
+fn a_terminals_output_does_not_read_the_terminal_list_again() {
+    let output = Topic::keyed("terminal-output", "7");
+
+    assert!(!affected(&Topic::new("terminals"), &output));
+    assert!(affected(&Topic::new("terminal-output"), &output));
+    assert!(affected(&output, &output));
+    assert!(!affected(&Topic::keyed("terminal-output", "8"), &output));
+    // A start or an end still does.
+    assert!(affected(&Topic::new("terminals"), &Topic::new("terminals")));
+}

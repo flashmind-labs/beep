@@ -8,7 +8,7 @@ use super::{
 };
 use crate::machine::provision::spawn_env::{self, Scope};
 use anyhow::{Context, Result};
-use beep_proto::watched;
+use beep_proto::{node::events::Topic, watched};
 use beep_proto::node::{
     process::{TaskId, TaskState},
     terminal::Size,
@@ -193,6 +193,12 @@ fn spawn_thread(name: &str, run: impl FnOnce() + Send + 'static) -> Result<()> {
     Ok(())
 }
 
+/// The topic that says terminal `id` printed. A reader of every terminal's
+/// output follows `terminal-output` whole; one terminal's follows this.
+pub(crate) fn output_topic(id: TaskId) -> Topic {
+    Topic::keyed("terminal-output", id.to_string())
+}
+
 /// Keeps the terminal's output until it closes.
 fn read_output(live: &Live, mut reader: Box<dyn Read + Send>, drained: &std_mpsc::SyncSender<()>) {
     let mut buf = vec![0; READ_SIZE];
@@ -203,8 +209,7 @@ fn read_output(live: &Live, mut reader: Box<dyn Read + Send>, drained: &std_mpsc
             Ok(n) => {
                 lock(&live.screen).push(&buf[..n]);
                 live.changed.send_modify(|n| *n += 1);
-                crate::events::system()
-                    .changed(beep_proto::node::events::Topic::new("terminal-output"));
+                crate::events::system().changed(output_topic(live.id));
             }
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
             // Linux says EIO once the other end closed.
@@ -251,7 +256,7 @@ fn wait_exit(
         }
     }
     live.changed.send_modify(|n| *n += 1);
-    crate::events::system().changed(beep_proto::node::events::Topic::new("terminal-output"));
+    crate::events::system().changed(output_topic(live.id));
     live.started_or_ended();
 }
 

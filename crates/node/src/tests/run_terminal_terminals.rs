@@ -31,6 +31,41 @@ async fn wait_for_output(live: &Live, needle: &str) -> String {
     .unwrap_or_else(|_| panic!("no {needle:?} in the terminal"))
 }
 
+// Output says which terminal printed, so a follower of one terminal is not
+// woken by the others, and a follower of all of them still is.
+#[cfg(unix)]
+#[tokio::test]
+async fn output_pings_the_topic_of_its_terminal() {
+    let mut changes = crate::events::system().subscribe();
+    let terminals = Terminals::default();
+    let id = started(
+        terminals
+            .answer(Request::Start {
+                command: Some("echo printed; read wait".into()),
+                cwd: None,
+                size: Size { cols: 80, rows: 24 },
+            })
+            .await,
+    );
+    let ours = crate::run::terminal::pty::output_topic(id);
+
+    timeout(Duration::from_secs(20), async {
+        loop {
+            let change = changes.recv().await.expect("the hub runs");
+
+            if change.topic == ours {
+                return;
+            }
+        }
+    })
+    .await
+    .expect("the terminal's output pinged its own topic");
+
+    assert!(beep_proto::node::events::Topic::new("terminal-output").matches(&ours));
+    assert!(!beep_proto::node::events::Topic::keyed("terminal-output", "another").matches(&ours));
+    terminals.answer(Request::Stop { id }).await;
+}
+
 // A pseudo-terminal round trip: keys typed reach the shell, and what it
 // prints comes back.
 #[cfg(unix)]
