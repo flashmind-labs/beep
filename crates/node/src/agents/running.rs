@@ -869,7 +869,7 @@ impl Agents {
                 );
 
                 if saved.as_ref() != Some(&keeps) {
-                    crate::link::restart::changed();
+                    crate::events::open_changed();
                     saved = Some(keeps);
                 }
                 events.changed(beep_proto::node::events::Topic::keyed("agent", &info.id));
@@ -903,7 +903,7 @@ impl Agents {
             }
         }));
         self.sessions.insert(reservation, resume, session.clone());
-        crate::link::restart::changed();
+        crate::events::open_changed();
         Ok(session)
     }
 }

@@ -5,7 +5,7 @@
 use beep_proto::SessionId;
 use super::{Agents, Family, Session, children};
 use crate::agents::session::parent_gone;
-use crate::{agents::unix_now, link::Membership, link::restart};
+use crate::{agents::unix_now, link::Membership};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{sync::Mutex, time::Duration};
@@ -72,7 +72,7 @@ impl Agents {
 
             remote.push(kid.clone());
         }
-        restart::changed();
+        crate::events::open_changed();
         self.watch_kids(parent, kid.parent);
     }
 
@@ -94,7 +94,7 @@ impl Agents {
                 }
             }
         }
-        restart::changed();
+        crate::events::open_changed();
     }
 
     /// The machine turned a start down: nothing runs there for it.
@@ -109,7 +109,7 @@ impl Agents {
                 remote.remove(at);
             }
         }
-        restart::changed();
+        crate::events::open_changed();
     }
 
     /// The children of `parent` that run on other machines.
@@ -181,7 +181,7 @@ fn mark_ended(remote: &Mutex<Vec<RemoteKid>>, kid: &RemoteKid) {
         }
     }
 
-    restart::changed();
+    crate::events::open_changed();
 }
 
 impl Family {

@@ -14,18 +14,12 @@ use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
-use tokio::{
-    io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split},
-    sync::Notify,
-};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader, split};
 
 /// The socket an update reaches the node on, in the node's folder.
 const SOCKET: &str = "control.sock";
 /// What the node has open, in its folder.
 const FILE: &str = "reopen.json";
-
-/// Woken when a session or terminal opens or closes.
-static CHANGED: Notify = Notify::const_new();
 
 /// The update's request: say when the sessions are idle.
 const DRAIN: &str = "drain";
@@ -157,11 +151,6 @@ impl Reopen {
     }
 }
 
-/// Says a session or terminal opened or closed.
-pub(crate) fn changed() {
-    CHANGED.notify_one();
-}
-
 /// Keeps the note in `dir` to what is open: written now, then after each
 /// change. Changes that come while it writes make one more write.
 pub(crate) async fn keep(dir: &Path, agents: &Agents) {
@@ -174,7 +163,7 @@ pub(crate) async fn keep(dir: &Path, agents: &Agents) {
             log::warn!("what is open would not open again after a crash: {e:#}");
         }
 
-        CHANGED.notified().await;
+        crate::events::opened_or_closed().await;
     }
 }
 

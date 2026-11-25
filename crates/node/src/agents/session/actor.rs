@@ -577,7 +577,7 @@ impl Actor {
         });
         *kept = Some(self.live);
         drop(kept);
-        crate::link::restart::changed();
+        crate::events::open_changed();
     }
 
     /// Keeps `line` of the agent's stderr, to say why it stopped.
@@ -1349,7 +1349,7 @@ impl Actor {
             live.agent_session = Some(id.clone());
             live.info.id = id;
         });
-        crate::link::restart::changed();
+        crate::events::open_changed();
         let Some(model) = opening.model.take() else {
             self.think(cx, opening);
             return None;

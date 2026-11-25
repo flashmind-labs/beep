@@ -161,6 +161,19 @@ impl Hub {
     }
 }
 
+/// Woken when a session or terminal opens or closes.
+static OPEN_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+
+/// Says a session or terminal opened or closed.
+pub(crate) fn open_changed() {
+    OPEN_CHANGED.notify_one();
+}
+
+/// Waits for the next `open_changed`.
+pub(crate) async fn opened_or_closed() {
+    OPEN_CHANGED.notified().await;
+}
+
 /// Process and terminal registries are shared by embedded nodes too.
 pub fn system() -> &'static Hub {
     static HUB: LazyLock<Hub> = LazyLock::new(Hub::default);

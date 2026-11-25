@@ -380,7 +380,7 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
         agents.sessions.remove(std::slice::from_ref(&id));
     }
 
-    crate::link::restart::changed();
+    crate::events::open_changed();
 }
 
 /// A ref as git names it, kept short enough for a prompt.

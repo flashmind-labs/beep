@@ -139,7 +139,7 @@ impl Live {
 
     /// Says it started or ended, to the node's note and its set.
     pub(super) fn started_or_ended(&self) {
-        crate::link::restart::changed();
+        crate::events::open_changed();
         self.started_or_ended.notify_one();
         crate::events::system().changed(beep_proto::node::events::Topic::new("terminals"));
     }

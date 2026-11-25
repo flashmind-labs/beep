@@ -425,7 +425,7 @@ impl Agents {
                         self.sessions.remove(std::slice::from_ref(&id));
                     }
                 }),
-                Some(()) = deleting.next() => crate::link::restart::changed(),
+                Some(()) = deleting.next() => crate::events::open_changed(),
                 else => return,
             }
         }

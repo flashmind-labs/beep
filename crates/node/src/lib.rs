@@ -40,6 +40,8 @@ pub fn kill_tasks() {
     run::terminal::kill_all();
 }
 
+#[cfg(feature = "host")]
+pub use run::device::track_phones;
 #[cfg(all(unix, feature = "cli"))]
 pub use run::terminal::host::in_process as terminal_host_in_process;
 /// Runs `beep-node pty-host`, which keeps the node's terminals.

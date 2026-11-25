@@ -244,7 +244,7 @@ impl Agents {
     /// one that ended here.
     pub(crate) fn keep_arrived(&self, saved: SavedSession) {
         kept_with(&mut crate::lock(&self.saved), vec![saved], |kept| &kept.info.id);
-        crate::link::restart::changed();
+        crate::events::open_changed();
     }
 
     /// What session `id`, by the agent's own id, is: from its state when it
