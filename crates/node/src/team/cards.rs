@@ -47,7 +47,7 @@ pub(crate) fn card_of(view: &ChildView, facts: &Facts, branch: Option<&str>) -> 
         "ended" => Lane::DoneToday {},
         _ => return None,
     };
-    let issue = branch.and_then(issue_of_branch);
+    let issue = branch.and_then(issue_of_branch).or(view.issue);
     let title = issue
         .and_then(|number| facts.linked.0.get(&number).cloned())
         .or_else(|| view.title.clone())

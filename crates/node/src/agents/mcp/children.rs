@@ -81,6 +81,10 @@ pub(crate) struct ChildView {
     /// so a wait on it needs no recheck. An older node does not say it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub(crate) notes_settles: bool,
+    /// The team issue its first prompt names. Appended: an older node
+    /// does not say it.
+    #[serde(default)]
+    pub(crate) issue: Option<u64>,
 }
 
 impl ChildView {
@@ -115,6 +119,7 @@ impl ChildView {
             project: None,
             branch: info.place.as_ref().and_then(|place| place.branch.clone()),
             notes_settles: false,
+            issue: info.issue,
         }
     }
 

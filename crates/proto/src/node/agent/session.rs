@@ -215,6 +215,10 @@ pub struct SessionInfo {
     /// The session on this node this one carries on (`Request::Start`).
     #[serde(default)]
     pub continues: Option<SessionId>,
+    /// The issue of its project's team that its first prompt names, by
+    /// that issue's URL or as `issue #N`.
+    #[serde(default)]
+    pub issue: Option<u64>,
 }
 
 /// The longest reply a list row shows, in characters.

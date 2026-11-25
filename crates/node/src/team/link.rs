@@ -73,6 +73,15 @@ pub(crate) trait TeamForge: Send + Sync + 'static {
         login: &'a ForgeLogin,
     ) -> BoxFuture<'a, Result<Vec<OpenIssue>, String>>;
 
+    /// Whether `login` assigned issue `number` of `repo` to themselves, by its latest
+    /// assignment of them.
+    fn self_assigned<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        number: u64,
+        login: &'a ForgeLogin,
+    ) -> BoxFuture<'a, Result<bool, String>>;
+
     /// The branches of `repo`'s pull requests, open or closed, that may come from `branch`:
     /// `branch` among them when one does.
     fn pull_heads<'a>(

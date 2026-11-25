@@ -801,6 +801,7 @@ impl Agents {
             account,
             persona: info.persona,
             continues: info.continues,
+            issue: info.issue,
             ..Begin::default()
         }
     }

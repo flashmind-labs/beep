@@ -31,6 +31,40 @@ fn a_start_names_an_issue_of_its_own_repository() {
 }
 
 #[test]
+fn a_prompt_names_its_issue_by_url_or_words_but_not_by_number() {
+    let repo: TeamRepo = "github.com/org/repo".parse().unwrap();
+    let of = |prompt: &str| issue_of_prompt(&repo, prompt);
+
+    assert_eq!(of("Fix https://github.com/org/repo/issues/234 please"), Some(234));
+    assert_eq!(of("see (https://github.com/Org/Repo/issues/7#issuecomment-1)."), Some(7));
+    assert_eq!(of("Work on Issue #52: fees"), Some(52));
+    assert_eq!(of("the url is https://github.com/org/other/issues/9, see issue #3"), Some(3));
+    assert_eq!(of("https://github.com/org/other/issues/9"), None);
+    assert_eq!(of("https://github.com/org/repo/pull/9"), None);
+    assert_eq!(of("fix #234 and tissue #5"), None);
+    assert_eq!(of("issue #"), None);
+}
+
+#[test]
+fn issues_the_person_assigned_themselves_are_never_started() {
+    let mut state = pickup(&[], &[]);
+    let mut plan = Plan {
+        start: vec![1, 2, 3],
+        queued: vec![4],
+    };
+
+    leave_self_assigned(
+        &mut state,
+        &mut plan,
+        &[(1, Some(true)), (2, None), (3, Some(false))],
+    );
+
+    assert_eq!(plan.start, [3]);
+    assert_eq!(state.seen_at_enable, set(&[1]));
+    assert_eq!(due(&state, &[1, 2, 3], &set(&[]), None).start, [2, 3]);
+}
+
+#[test]
 fn backlog_is_not_started() {
     let plan = due(&pickup(&[], &[1, 2]), &[1, 2], &set(&[]), None);
 

@@ -768,13 +768,24 @@ impl Agents {
             }
             None => brief,
         };
-        let brief = match self.mesh().is_some_and(|mesh| crate::team::home::in_team(&mesh, &cwd)) {
-            true => Some(Cow::Owned(match brief {
+        let team = self
+            .mesh()
+            .and_then(|mesh| crate::team::home::team_repo_of(&mesh, &cwd));
+        let brief = match team {
+            Some(_) => Some(Cow::Owned(match brief {
                 Some(brief) => format!("{brief}\n\n{}", super::brief::TEAM),
                 None => super::brief::TEAM.to_owned(),
             })),
-            false => brief,
+            None => brief,
         };
+
+        // Only a new session's first prompt names its issue.
+        if begin.resume.is_none()
+            && begin.issue.is_none()
+            && let (Some(repo), Some(prompt)) = (&team, &begin.prompt)
+        {
+            begin.issue = crate::team::pickup::issue_of_prompt(repo, prompt);
+        }
 
         if let Some(mesh) = self.mesh() {
             mcp::projects::may_run(&mesh, &cwd, &kind.name).map_err(anyhow::Error::msg)?;
@@ -969,6 +980,8 @@ pub(super) struct Begin {
     pub(super) instructions: Option<String>,
     /// The session this one carries on (`SessionInfo::continues`).
     pub(super) continues: Option<SessionId>,
+    /// The team issue its first prompt names (`SessionInfo::issue`).
+    pub(super) issue: Option<u64>,
 }
 
 /// Refuses a start as `account` that this node cannot sign `agent` in as,

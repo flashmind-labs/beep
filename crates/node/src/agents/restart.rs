@@ -127,6 +127,9 @@ pub(crate) struct OpenSession {
     /// The session it carries on.
     #[serde(default)]
     continues: Option<SessionId>,
+    /// The team issue its first prompt named.
+    #[serde(default)]
+    issue: Option<u64>,
 }
 
 impl From<&OpenSession> for SavedSession {
@@ -149,6 +152,7 @@ impl From<&OpenSession> for SavedSession {
                 assistant: open.assistant,
                 persona: open.persona.clone(),
                 continues: open.continues.clone(),
+                issue: open.issue,
                 ..SessionInfo::default()
             },
             effort: open.effort,
@@ -294,6 +298,7 @@ impl Agents {
                     account: info.account.clone(),
                     persona: info.persona.clone(),
                     continues: info.continues.clone(),
+                    issue: info.issue,
                     ..SessionInfo::default()
                 },
                 effort: live.effort,
@@ -353,6 +358,7 @@ impl Agents {
                 named: live.named,
                 persona: live.info.persona.clone(),
                 continues: live.info.continues.clone(),
+                issue: live.info.issue,
             })
         })
     }
@@ -459,6 +465,7 @@ impl Agents {
                 account: open.account,
                 persona: open.persona,
                 continues: open.continues,
+                issue: open.issue,
                 ..Begin::default()
             },
         ).await?;

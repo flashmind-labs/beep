@@ -11,7 +11,7 @@ pub fn json(out: &str) -> Result<Value> {
 
 /// The items of every page of a list, as `gh api --paginate` prints them:
 /// one JSON array after another. teacli prints `null` for an empty one.
-fn pages(out: &str, what: &str) -> Result<Vec<Value>> {
+pub(crate) fn pages(out: &str, what: &str) -> Result<Vec<Value>> {
     let mut items = Vec::new();
     let mut read = false;
 

@@ -160,6 +160,47 @@ pub(crate) fn issue_of_repo(repo: &TeamRepo, number: u64, url: &str) -> bool {
         && url.path().to_lowercase().ends_with(&wanted)
 }
 
+/// The issue of `repo` that `prompt` names: the first URL in it that
+/// `issue_of_repo` accepts, else the first `issue #<n>` (any case). A bare
+/// `#<n>` names nothing: it may be a pull request or another repository's.
+pub(crate) fn issue_of_prompt(repo: &TeamRepo, prompt: &str) -> Option<u64> {
+    let urls = prompt
+        .split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '<' | '>' | '[' | ']' | '"' | '\''))
+        .map(|word| word.trim_end_matches(['.', ',', ';', ':', '!', '?']))
+        .filter(|word| word.contains("/issues/"))
+        .find_map(|url| {
+            let (_, tail) = url.rsplit_once("/issues/")?;
+            let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
+            let number = digits.parse().ok()?;
+
+            issue_of_repo(repo, number, url).then_some(number)
+        });
+
+    urls.or_else(|| issue_number_in_words(prompt))
+}
+
+/// The first `issue #<n>` in `text`, in any case, not the end of a longer
+/// word.
+fn issue_number_in_words(text: &str) -> Option<u64> {
+    const WORDS: &str = "issue #";
+    let lower = text.to_ascii_lowercase();
+
+    lower.match_indices(WORDS).find_map(|(at, _)| {
+        let before = lower[..at].chars().next_back();
+
+        if before.is_some_and(char::is_alphanumeric) {
+            return None;
+        }
+
+        let digits: String = lower[at + WORDS.len()..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+
+        digits.parse().ok()
+    })
+}
+
 /// Snapshots the issues `assigned` now, but those queued, as the backlog
 /// the first round pickup is on, then plans the round as `due` does with
 /// the live sessions of `cards`.
@@ -376,7 +417,9 @@ impl Pickups {
 
         ended(&round, &mut state).await;
         let numbers: Vec<u64> = assigned.iter().map(|issue| issue.number).collect();
-        let plan = plan(&mut state, &numbers, round.cards, limit);
+        let mut plan = plan(&mut state, &numbers, round.cards, limit);
+        let read = self_assigned(&round, &plan.start).await;
+        leave_self_assigned(&mut state, &mut plan, &read);
         let issue = |n: &u64| assigned.iter().find(|issue| issue.number == *n);
         let starts = plan
             .start
@@ -440,6 +483,50 @@ impl Pickups {
     fn file(&self, repo: &TeamRepo) -> PathBuf {
         let hash = blake3::hash(repo.to_string().as_bytes()).to_hex();
         self.dir.join(format!("{hash}.json"))
+    }
+}
+
+/// For each of the `due` issues, whether this mesh's person assigned it to
+/// themselves, read from the forge's events; `None` when they did not read.
+async fn self_assigned(round: &Round<'_>, due: &[u64]) -> Vec<(u64, Option<bool>)> {
+    let (repo, login) = (&round.team.repo, &round.team.mine.login);
+    let forge = round.link.forge();
+    let reads = due
+        .iter()
+        .map(|n| timeout(FORGE_LIMIT, forge.self_assigned(repo, *n, login)));
+    let mut read = Vec::new();
+
+    for (n, events) in due.iter().zip(join_all(reads).await) {
+        let said = match events {
+            Ok(Ok(said)) => Some(said),
+            Ok(Err(e)) => {
+                log::info!("the assignment of {repo}#{n} did not read: {e}");
+                None
+            }
+            Err(_) => {
+                log::info!("the assignment of {repo}#{n} took too long to read");
+                None
+            }
+        };
+        read.push((*n, said));
+    }
+
+    read
+}
+
+/// Takes from `plan.start` the issues the person assigned to themselves:
+/// they are on it, so like the backlog they are never started. Those whose
+/// events did not read wait for the next round.
+fn leave_self_assigned(state: &mut Pickup, plan: &mut Plan, read: &[(u64, Option<bool>)]) {
+    for (n, said) in read {
+        match said {
+            Some(true) => {
+                state.seen_at_enable.insert(*n);
+                plan.start.retain(|start| start != n);
+            }
+            Some(false) => {}
+            None => plan.start.retain(|start| start != n),
+        }
     }
 }
 

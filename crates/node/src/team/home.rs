@@ -16,7 +16,7 @@ use beep_projects::{
     commands::{OpenIssue, parse_open_issues, parse_open_prs},
     model::{IssueHost, RepoName},
     team_forge::{
-        ForgeCall, assigned_issues_call, collaborator_answer, collaborator_call, open_issues_call,
+        ForgeCall, assigned_issues_call, assignment_events_call, parse_self_assigned, collaborator_answer, collaborator_call, open_issues_call,
         branch_pulls_call, parse_stampers, parse_user_login, permission_answer, permission_call,
         repo_call, stamp_call, stamps_call, user_call,
     },
@@ -250,11 +250,12 @@ fn on_team(record: &TeamRecord, mesh: &Mesh) -> bool {
     record.members.iter().any(|member| member.mesh == mesh.id())
 }
 
-/// Whether `folder` is in a checkout here of a project with a team.
-pub(crate) fn in_team(mesh: &Mesh, folder: &Path) -> bool {
+/// The repository of the team whose project has the checkout `folder` is
+/// in here.
+pub(crate) fn team_repo_of(mesh: &Mesh, folder: &Path) -> Option<TeamRepo> {
     read(mesh)
         .team_of(folder)
-        .is_some_and(|repo| team(mesh, &repo).is_some())
+        .filter(|repo| team(mesh, repo).is_some())
 }
 
 /// Whether `repo`'s team, as the mesh holds it, picks up issues assigned to
@@ -518,6 +519,21 @@ impl TeamForge for ForgeCli {
             let out = listed(repo, "issues", &call, &name).await?;
 
             parse_open_issues(&out).map_err(|e| format!("{e:#}"))
+        })
+    }
+
+    fn self_assigned<'a>(
+        &'a self,
+        repo: &'a TeamRepo,
+        number: u64,
+        login: &'a ForgeLogin,
+    ) -> BoxFuture<'a, Result<bool, String>> {
+        Box::pin(async move {
+            let (host, name) = forge_of(repo)?;
+            let call = assignment_events_call(&host, &name, number);
+            let out = listed(repo, "assignments", &call, &name).await?;
+
+            parse_self_assigned(&out, login).map_err(|e| format!("{e:#}"))
         })
     }
 

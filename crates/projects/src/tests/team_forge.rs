@@ -159,6 +159,55 @@ fn open_issues_leave_out_pull_requests_and_read_past_the_first_page() {
 }
 
 #[test]
+fn assignment_events_are_read_from_each_hosts_own_list() {
+    assert_eq!(
+        words(&assignment_events_call(&github(), &repo(), 7))[1],
+        "repos/acme/widget/issues/7/events?per_page=100"
+    );
+    assert_eq!(
+        words(&assignment_events_call(&forgejo(), &repo(), 7))[1],
+        "repos/acme/widget/issues/7/timeline?limit=50"
+    );
+}
+
+#[test]
+fn the_latest_assignment_says_whether_it_was_self_assigned() {
+    let me = login("alice");
+    let github = |actor: &str, assignee: &str| {
+        format!(
+            r#"{{"event":"assigned","actor":{{"login":"{actor}"}},"assignee":{{"login":"{assignee}"}}}}"#
+        )
+    };
+    let by_me = format!("[{}]", github("Alice", "alice"));
+    let by_bob = format!("[{}]", github("bob", "alice"));
+    let other = format!("[{}]", github("alice", "bob"));
+    let later = format!(
+        "[{}]\n[{}]",
+        github("alice", "alice"),
+        github("bob", "alice")
+    );
+
+    assert!(parse_self_assigned(&by_me, &me).unwrap());
+    assert!(!parse_self_assigned(&by_bob, &me).unwrap());
+    assert!(!parse_self_assigned(&other, &me).unwrap());
+    assert!(!parse_self_assigned(&later, &me).unwrap());
+    assert!(!parse_self_assigned(r#"[{"event":"labeled"}]"#, &me).unwrap());
+    assert!(parse_self_assigned("not json", &me).is_err());
+
+    let forgejo = |user: &str, removed: bool| {
+        format!(
+            r#"{{"type":"assignees","user":{{"login":"{user}"}},"assignee":{{"login":"alice"}},"removed_assignee":{removed}}}"#
+        )
+    };
+    let added = format!("[{}]", forgejo("alice", false));
+    let removed_after = format!("[{},{}]", forgejo("bob", false), forgejo("alice", true));
+
+    assert!(parse_self_assigned(&added, &me).unwrap());
+    assert!(!parse_self_assigned(&removed_after, &me).unwrap());
+    assert!(!parse_self_assigned("null", &me).unwrap());
+}
+
+#[test]
 fn assigned_issues_read_every_page() {
     let page = |number: u64| {
         format!(

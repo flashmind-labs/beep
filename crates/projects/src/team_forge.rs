@@ -3,7 +3,7 @@
 //! a machine the project is on.
 
 use crate::{
-    commands::{GH_ISSUES, GH_OPEN_LIMIT, GH_PRS, gh_account, json, parse_login, text},
+    commands::{GH_ISSUES, GH_OPEN_LIMIT, GH_PRS, gh_account, json, pages, parse_login, text},
     issues::{IssueSource, SourceError, host_failed, issue_source, run_rendered},
     issues::{Machines, ProjectStore},
     model::{IssueHost, RepoName},
@@ -284,6 +284,54 @@ pub fn assigned_issues_call(host: &IssueHost, repo: &RepoName, login: &ForgeLogi
     let path = format!("{}&{by}={}", open_issues(host, repo), escaped(login));
 
     ForgeCall::api(host, path, &["--paginate"])
+}
+
+/// The assignments and other events of issue `number`, every page: GitHub's
+/// `events`, Forgejo's `timeline`.
+pub fn assignment_events_call(host: &IssueHost, repo: &RepoName, number: u64) -> ForgeCall {
+    let what = match host {
+        IssueHost::Github => "events?per_page=100",
+        IssueHost::Forgejo(_) => "timeline?limit=50",
+    };
+
+    ForgeCall::api(
+        host,
+        format!("repos/{repo}/issues/{number}/{what}"),
+        &["--paginate"],
+    )
+}
+
+/// Whether the latest assignment of `login` in [`assignment_events_call`]'s pages was made by
+/// `login`: GitHub's `assigned` events name the `actor` and the `assignee`, Forgejo's `assignees`
+/// entries the `user` and the `assignee`, with `removed_assignee` set on an unassignment. An
+/// issue with no assignment of `login` in them is not self-assigned.
+pub fn parse_self_assigned(stdout: &str, login: &ForgeLogin) -> Result<bool, SourceError> {
+    let events = pages(stdout, "events").map_err(|error| host_failed(&error))?;
+    let login = login.to_string();
+    let named = |event: &Value, key: &str| {
+        event
+            .get(key)
+            .map(|user| text(user, "login"))
+            .filter(|who| !who.is_empty())
+    };
+    let latest = events
+        .iter()
+        .filter(|event| match &*text(event, "event") {
+            "assigned" => true,
+            _ => {
+                &*text(event, "type") == "assignees"
+                    && event.get("removed_assignee") != Some(&Value::Bool(true))
+            }
+        })
+        .rfind(|event| {
+            named(event, "assignee").is_some_and(|who| who.eq_ignore_ascii_case(&login))
+        });
+
+    Ok(latest.is_some_and(|event| {
+        let by = named(event, "actor").or_else(|| named(event, "user"));
+
+        by.is_some_and(|by| by.eq_ignore_ascii_case(&login))
+    }))
 }
 
 /// The pull requests, open or closed, that may come from `branch`, in the shape `parse_open_prs`

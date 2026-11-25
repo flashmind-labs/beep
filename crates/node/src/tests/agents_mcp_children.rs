@@ -150,6 +150,7 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
         project: None,
         branch: None,
         notes_settles: false,
+        issue: None,
     };
     let call = format!(
         "Beep: Start codex agent on mac-box: Build the iOS app [completed]\n{}",

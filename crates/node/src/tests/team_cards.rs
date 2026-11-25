@@ -47,6 +47,20 @@ fn card_skips_other_projects() {
 }
 
 #[test]
+fn card_takes_the_issue_its_prompt_named_when_its_branch_names_none() {
+    let linked: IssueTitles = [(234, "Trading interface".to_owned())].into_iter().collect();
+    let mut session = view("working", PROJECT);
+    session.issue = Some(234);
+
+    let by_prompt = card(&session, Some("manual-trading-interface"), &linked).unwrap();
+    assert_eq!(by_prompt.issue, Some(234));
+    assert_eq!(by_prompt.title, "Trading interface");
+
+    let by_branch = card(&session, Some("52-fee-model"), &linked).unwrap();
+    assert_eq!(by_branch.issue, Some(52));
+}
+
+#[test]
 fn card_title_prefers_issue() {
     let linked: IssueTitles = [(52, "Fees are wrong".to_owned())].into_iter().collect();
     let session = view("working", PROJECT);

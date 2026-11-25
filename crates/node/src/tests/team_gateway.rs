@@ -3,7 +3,7 @@ use crate::{
     machine::ci::projects::pinned,
     team::{
         board::tests::{URL, member, repo},
-        home::{Home, Project, in_team, picks_up, read},
+        home::{Home, Project, picks_up, read, team_repo_of},
         link::Teams,
     },
 };
@@ -558,4 +558,8 @@ async fn a_busy_desktop_write_does_not_hold_up_the_home() {
     drop(writing);
 
     assert!(seen.is_ok(), "the project reached the home while a write was held");
+}
+
+fn in_team(mesh: &Mesh, folder: &std::path::Path) -> bool {
+    team_repo_of(mesh, folder).is_some()
 }

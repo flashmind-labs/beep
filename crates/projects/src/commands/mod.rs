@@ -5,6 +5,7 @@ mod host;
 mod parse;
 pub use host::HostCommand;
 pub(crate) use host::{GH_ISSUES, GH_OPEN_LIMIT, GH_PRS};
+pub(crate) use parse::pages;
 pub use parse::{
     ChecksState, OpenIssue, OpenPr, checks_of, json, parse_can_push, parse_login,
     parse_open_issues, parse_open_prs, parse_pr_head, text,

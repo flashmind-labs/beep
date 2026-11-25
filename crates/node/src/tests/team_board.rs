@@ -51,6 +51,15 @@ impl TeamForge for Forge {
         Box::pin(async { Ok(Vec::new()) })
     }
 
+    fn self_assigned<'a>(
+        &'a self,
+        _repo: &'a TeamRepo,
+        _number: u64,
+        _login: &'a ForgeLogin,
+    ) -> BoxFuture<'a, Result<bool, String>> {
+        Box::pin(async { Ok(false) })
+    }
+
     fn pull_heads<'a>(
         &'a self,
         _repo: &'a TeamRepo,
