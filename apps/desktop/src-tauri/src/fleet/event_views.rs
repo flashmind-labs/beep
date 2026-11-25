@@ -156,7 +156,7 @@ pub(crate) fn changed(app: AppHandle, topic: Topic) {
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
 
     for &name in affected {
-        let topic = Topic::new(name);
+        let topic = followed(name);
 
         if events.controller_wanted(&topic) {
             pending.topics.insert(name);
@@ -181,7 +181,7 @@ pub(crate) fn resumed(app: AppHandle) {
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
 
     for name in deferred {
-        if events.controller_wanted(&Topic::new(name)) {
+        if events.controller_wanted(&followed(name)) {
             pending.topics.insert(name);
         } else {
             defer(&views, name);
@@ -367,6 +367,7 @@ fn affected(name: &str) -> &'static [&'static str] {
         "*" => &[
             "home",
             "machines",
+            "machine-details",
             "tools",
             "projects",
             "sync",
@@ -378,13 +379,13 @@ fn affected(name: &str) -> &'static [&'static str] {
         ],
         // Home shows no processes.
         "agents" | "agent" | "home" => &["home"],
-        "machines" => &["machines", "home", "tools"],
+        "machines" => &["machines", "machine-details", "home", "tools"],
         "tools" => &["tools"],
         "projects" => &["projects", "home"],
         "sync" => &["sync"],
         "usage" => &["usage"],
         // A harness switched on or off changes the hosts the machines view offers.
-        "accounts" => &["accounts", "machines"],
+        "accounts" => &["accounts", "machines", "machine-details"],
         "forge" => &["forge"],
         // Any machine's terminals changed; the list of every terminal is read again.
         "terminals" => &["terminals"],
@@ -394,11 +395,21 @@ fn affected(name: &str) -> &'static [&'static str] {
     }
 }
 
+/// The topic a window follows to be sent the views of `name`: the machines' details are their own
+/// draw, so the slow reads of the harnesses and the pages never hold up the list of machines.
+fn followed(name: &str) -> Topic {
+    Topic::new(match name {
+        "machine-details" => "machines",
+        name => name,
+    })
+}
+
 /// Where the views of `name` are published. A node's own topic of that name has its own
 /// updates, so the views ride a keyed topic under it: a window that follows the topic hears both.
 fn views_topic(name: &str) -> Topic {
     match name {
         "terminals" | "moves" => Topic::keyed(name, "views"),
+        "machine-details" => Topic::keyed("machines", "details"),
         _ => Topic::new(name),
     }
 }
@@ -406,7 +417,7 @@ fn views_topic(name: &str) -> Topic {
 /// Draws `name` and publishes it, again while it changes as it draws.
 async fn draw(app: AppHandle, name: &'static str) {
     loop {
-        let topic = Topic::new(name);
+        let topic = followed(name);
 
         if app.state::<Events>().controller_wanted(&topic) {
             if let Some((pace, _)) = app.state::<Views>().pace(name) {
@@ -548,6 +559,8 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 json!({}),
                 app.state::<Arc<Fleet>>().status().clocks_off(),
             ));
+        }
+        "machine-details" => {
             views.extend(crate::projects::page::page_views(app, true).await);
             views.extend(crate::fleet::agents::harness_views(&app.state::<Arc<Fleet>>()).await);
         }
@@ -607,7 +620,6 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
                 "agent_accounts",
                 crate::agents::accounts::agent_accounts(app.state()).await,
             );
-            views.extend(crate::fleet::agents::harness_views(&app.state::<Arc<Fleet>>()).await);
         }
         _ => {}
     }

@@ -149,3 +149,13 @@ fn the_hosts_are_drawn_once_and_redrawn_when_accounts_change() {
     assert!(!commands("accounts").contains(&"agent_hosts"));
     assert!(affected("accounts").contains(&"machines"));
 }
+
+#[test]
+fn the_slow_reads_of_the_machines_are_a_draw_of_their_own() {
+    assert!(!commands("machines").contains(&"agent_harnesses"));
+    assert!(affected("machines").contains(&"machine-details"));
+    assert!(affected("accounts").contains(&"machine-details"));
+    assert_eq!(followed("machine-details"), Topic::new("machines"));
+    assert!(followed("machine-details").matches(&views_topic("machine-details")));
+    assert_ne!(views_topic("machine-details"), views_topic("machines"));
+}
