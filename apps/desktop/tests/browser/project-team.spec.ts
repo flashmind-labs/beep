@@ -182,16 +182,54 @@ test("a held issue's start that fails says why in the sheet", async ({ page }) =
   expect(await called(page, "issue_assign")).toHaveLength(1);
 });
 
-test("a project whose team cannot be read asks again only after a while", async ({ page }) => {
+test("a project whose team cannot be read is asked once, and a pushed team shows", async ({ page }) => {
+  await page.clock.install();
   await openDesktop(page, false, { center_project_lists: lists });
   await page.evaluate(() => window.__navigation.rejectAll("team_record"));
   await page.evaluate(project => window.__navigation.open({ projects: { project, tile: "machines" } }), projectName);
   await expect(page.locator(".pj-strip")).toBeVisible();
 
-  await page.waitForTimeout(2000);
-  expect((await called(page, "team_record")).length).toBe(1);
+  await page.clock.fastForward(120_000);
+  const asked = await called(page, "team_record");
+  expect(asked.length).toBe(1);
   await expect(page.locator('.pj-list .pj-li[title="Team"]')).toHaveCount(0);
   await expect(page.locator(".pj-strip button").filter({ hasText: "Team" })).toHaveCount(0);
+
+  await page.evaluate(args => window.__navigation.emit("team-changed", { project_id: args.projectId, record: args.record, cards: { needs_you: [], teammates: [], own_queued: [], online: ["kim"] } }), { projectId: asked[0].projectId, record });
+  await expect(page.locator(".pj-strip button").filter({ hasText: "Team" })).toContainText("2 online");
+  expect((await called(page, "team_record")).length).toBe(1);
+});
+
+test("a teammate's card arrives from the push, with no read on a timer", async ({ page }) => {
+  await page.clock.install();
+  await openProject(page, null);
+  await expect(page.locator(".bd-card").filter({ hasText: "Issue 47" })).toBeVisible();
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "team_record" || call.command === "team_cards").length);
+  const before = await reads();
+  const projectId = (await called(page, "team_record"))[0].projectId;
+
+  await page.clock.fastForward(120_000);
+  expect(await reads()).toBe(before);
+
+  const arrived = { ...teammate, id: "kim-2", title: "Issue 52", issue: 52 };
+  await page.evaluate(args => window.__navigation.emit("team-changed", { project_id: args.projectId, record: args.record, cards: { needs_you: [], teammates: [args.card], own_queued: [], online: ["kim"] } }), { projectId, record, card: arrived });
+  await expect(page.locator(".bd-card").filter({ hasText: "Issue 52" })).toBeVisible();
+  await expect(page.locator(".bd-card").filter({ hasText: "Issue 47" })).toHaveCount(0);
+  expect(await reads()).toBe(before);
+});
+
+test("an invite arrives from the push, with no read on a timer", async ({ page }) => {
+  await page.clock.install();
+  await openDesktop(page, false, { team_invites: [] });
+  const asked = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "team_invites").length);
+  const before = await asked();
+  await page.clock.fastForward(300_000);
+  expect(await asked()).toBe(before);
+
+  const invite = { from: "mesh-b", login: "kim", repo: "example.test/org/api", ticket: "beepteam1xyz" };
+  await page.evaluate(list => window.__navigation.emit("team-invites", list), [invite]);
+  await expect(page.locator("#sec-needs .cc-line").filter({ hasText: "kim invites you to org/api" })).toBeVisible();
+  expect(await asked()).toBe(before);
 });
 
 test("a project without a team still shows Team in the strip", async ({ page }) => {

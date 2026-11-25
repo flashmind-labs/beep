@@ -6,14 +6,12 @@ import { flushSync } from "react-dom";
 import type { BoardCard, CardAction } from "../center/lanes-view.tsx";
 import { keptSection } from "../center/state.ts";
 import { openUrl } from "../center/openitems.ts";
-import { currentLocation } from "../center/views.tsx";
-import { pageShown } from "../ui/active.ts";
 import { formatAgo, plural, reason } from "../ui/format.ts";
 import { Icon, PROJECT_COLORS } from "../ui/icons.tsx";
 import { Button, ChipToggle, CopyButton, EmptyPanel, LineRow, NO_AUTO, SectionHead, SheetHead, Switch } from "../ui/kit.tsx";
 import { confirmSheet } from "../ui/menu.tsx";
 import { openSheet } from "../ui/parts.tsx";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 import { AgentButton } from "../review/feedback-view.tsx";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { issueSession, projectButtons, startTask } from "./composer.tsx";
@@ -28,29 +26,23 @@ import { openTeamJoin } from "./teamjoin.tsx";
 
 type Team = Extract<TeamView, { kind: "team" }>;
 
-/// How often the board reads its team's cards while it shows.
-const FOLLOW_MS = 10_000;
 const NO_CARDS: TeamCards = { needs_you: [], teammates: [], own_queued: [], online: [] };
-/// How long after a failed read the team is not asked again: a project on no
-/// forge fails every time, and each try would draw the page.
-const RETRY_MS = 60_000;
 
 /// What a project's team read last, kept between windows so it shows at once.
 interface KeptTeam { record: TeamRecord | null; cards: TeamCards }
 const kept = keptSection<KeptTeam>("team");
 
-/// Each project's team by name: read, or taken from the cache. A project
+/// Each project's team by name: read, taken from the cache or pushed. A project
 /// missing has not answered yet, or is on no forge.
 const views = new Map<string, TeamView>();
 const cards = new Map<string, TeamCards>();
 const reading = new Map<string, Promise<void>>();
-/// What each project's last read answered, to draw only on a change, and
-/// when its last read failed.
+/// The project each id belongs to, for a push, which names the project by id.
+const names = new Map<string, string>();
+/// What each project's team last held, to draw only on a change.
 const answers = new Map<string, string>();
-const failed = new Map<string, number>();
-
-/// Whether project `name`'s team may be read now: not while a read failed lately.
-const due = (name: string) => Date.now() - (failed.get(name) ?? -Infinity) >= RETRY_MS;
+/// The projects whose first read failed: a project on no forge fails every time. A push clears it.
+const failed = new Set<string>();
 
 /// Project `name`'s team as last read, or null before it answered; asks for it the first time.
 export function teamOf(name: string): TeamView | null {
@@ -64,7 +56,7 @@ export function teamOf(name: string): TeamView | null {
     views.set(name, teamView(saved.record));
     cards.set(name, savedCards);
   }
-  if (!reading.has(name) && due(name)) void readTeam(name);
+  if (!reading.has(name) && !failed.has(name)) void readTeam(name);
 
   return views.get(name) ?? null;
 }
@@ -72,13 +64,28 @@ export function teamOf(name: string): TeamView | null {
 /// The cards project `name`'s team adds to its board, as last read.
 export const teamCardsOf = (name: string) => cards.get(name) ?? NO_CARDS;
 
-/// Reads project `name`'s team and, when it has one, its cards; draws the page after.
-export function readTeam(name: string): Promise<void> {
+/// Takes the team of project `name` as its record and cards, and draws the page when they changed.
+function takeTeam(name: string, record: TeamRecord | null, held: TeamCards) {
+  const projectId = localProjectId(name);
+  const answer = JSON.stringify({ record, cards: held });
+  failed.delete(name);
+  if (answers.get(name) === answer && views.has(name)) return;
+
+  answers.set(name, answer);
+  views.set(name, teamView(record));
+  cards.set(name, held);
+  kept.put(projectId, { record, cards: held });
+  redrawProjects();
+}
+
+/// Reads project `name`'s team and, when it has one, its cards, once; the pushes follow after.
+function readTeam(name: string): Promise<void> {
   const running = reading.get(name);
   if (running) return running;
 
   const read = (async () => {
     const projectId = localProjectId(name);
+    names.set(projectId, name);
 
     try {
       const record = await invoke<TeamRecord | null>("team_record", { projectId });
@@ -87,19 +94,10 @@ export function readTeam(name: string): Promise<void> {
         console.warn("team cards:", reason(error));
         return teamCardsOf(name);
       }) : NO_CARDS;
-      failed.delete(name);
-      const answer = JSON.stringify({ record, cards: read });
-      if (answers.get(name) === answer && views.has(name)) return;
-
-      answers.set(name, answer);
-      views.set(name, view);
-      cards.set(name, read);
-      kept.put(projectId, { record, cards: read });
-      redrawProjects();
+      takeTeam(name, record, read);
     } catch (error) {
-      // A project on no forge has no team; the page leaves the Team row out
-      // and asks again after a while.
-      failed.set(name, Date.now());
+      // A project on no forge has no team; the page leaves the Team row out.
+      failed.add(name);
       console.warn("team:", reason(error));
     } finally {
       reading.delete(name);
@@ -110,16 +108,16 @@ export function readTeam(name: string): Promise<void> {
   return read;
 }
 
-/// Reads project `project`'s team every `FOLLOW_MS` while its page shows: the
-/// page stays mounted behind other views, and a hidden window reads nothing.
-export function TeamFollow({ project }: { project: string }) {
-  useEffect(() => {
-    const timer = setInterval(() => { if (pageShown() && currentLocation()?.view === "projects" && due(project)) void readTeam(project); }, FOLLOW_MS);
-    return () => clearInterval(timer);
-  }, [project]);
+/// A change of a project's team, from the desktop: its record and board cards as they stand now.
+/// A record of `null` is no team; cards of `null` leave the cards held.
+interface TeamChanged { project_id: string; record: TeamRecord | null; cards: TeamCards | null }
 
-  return null;
-}
+listen<TeamChanged>("team-changed", ({ payload }) => {
+  const name = names.get(payload.project_id);
+  if (name === undefined) return;
+
+  takeTeam(name, payload.record, payload.record === null ? NO_CARDS : payload.cards ? { ...NO_CARDS, ...payload.cards } : teamCardsOf(name));
+});
 
 /// The Team pill and row's note: who is online, empty without a team (both
 /// still show so the user can invite or join), or null before the team
@@ -234,7 +232,6 @@ async function dismissCard(project: string, card: string) {
     console.warn("dismiss:", reason(error));
   }
 
-  await readTeam(project);
 }
 
 /// The board's filter chips: everyone, the user's, then each teammate's;
@@ -408,7 +405,7 @@ export function TeamPage({ project, machines, running }: { project: string; mach
   const run = (work: () => Promise<unknown>) => {
     setBusy(true);
     setError("");
-    work().then(() => readTeam(project)).catch(failure => setError(reason(failure))).finally(() => setBusy(false));
+    work().catch(failure => setError(reason(failure))).finally(() => setBusy(false));
   };
   const invite = () => run(async () => { codes.set(project, { code: await invoke<string>("team_invite", { projectId }), at: Date.now() }); });
 
@@ -422,7 +419,7 @@ export function TeamPage({ project, machines, running }: { project: string; mach
   return <div className="tm-page">
     <SectionHead title="Members" count={view.record.members.length}><Button small disabled={busy} onClick={invite}>Invite</Button></SectionHead>
     <Members project={project} view={view} machines={machines} running={running} remove={login => confirmSheet({ title: `Remove ${login}?`, text: `${login} no longer sees this board, and their agents can no longer message yours.`, action: "Remove",
-      run: async () => { await invoke("team_remove", { projectId, login }); await readTeam(project); } })}/>
+      run: async () => { await invoke("team_remove", { projectId, login }); } })}/>
     {error && <div className="am-msg bad">{error}</div>}
     <Invite project={project} repo={view.record.repo} members={view.record.members.map(member => member.mesh)}/>
     <SectionHead title="Agents"/>
@@ -431,7 +428,7 @@ export function TeamPage({ project, machines, running }: { project: string; mach
       <div className="cc-panel">{view.record.removed.map(login => <LineRow key={login} dataKey={`removed:${login}`} lead={null} title={login} sub="removed or left"
         right={<Button small disabled={busy} onClick={event => { event.stopPropagation(); run(() => invoke("team_readmit", { projectId, login })); }}>Allow back</Button>} onOpen={() => {}}/>)}</div></>}
     <div className="am-line"><Button look="quiet" danger onClick={() => confirmSheet({ title: "Leave the team?", text: `Your teammates on ${repoPath(view.record.repo)} stop seeing your cards, and their agents can no longer message yours.`, action: "Leave",
-      run: async () => { await invoke("team_leave", { projectId }); await readTeam(project); } })}>Leave team</Button></div>
+      run: async () => { await invoke("team_leave", { projectId }); } })}>Leave team</Button></div>
   </div>;
 }
 
@@ -505,7 +502,7 @@ function Settings({ project, record, machines }: { project: string; record: Team
 
   const save = ({ pickup = record.pickup, pickupLimit = record.pickup_limit, asks = record.asks }: { pickup?: boolean; pickupLimit?: number | null; asks?: boolean }) => {
     setError("");
-    invoke("team_settings", { projectId: localProjectId(project), pickup, pickupLimit, asks }).then(() => readTeam(project), failure => setError(reason(failure)));
+    invoke("team_settings", { projectId: localProjectId(project), pickup, pickupLimit, asks }).catch(failure => setError(reason(failure)));
   };
   const saveLimit = () => {
     const n = Number.parseInt(limit, 10);

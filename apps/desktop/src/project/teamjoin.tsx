@@ -6,16 +6,14 @@ import type { BoardCard } from "../center/lanes-view.tsx";
 import { refresh } from "../center/refresh.ts";
 import { importSheet, loadFound, openProjects } from "../center/sidebar.tsx";
 import { state } from "../center/state.ts";
-import { currentLocation } from "../center/views.tsx";
-import { pageShown } from "../ui/active.ts";
 import { reason } from "../ui/format.ts";
 import { Icon } from "../ui/icons.tsx";
 import { Button, NO_AUTO, SheetHead, Spinner } from "../ui/kit.tsx";
 import { openSheet } from "../ui/parts.tsx";
 import { isMobile } from "../ui/platform.ts";
-import { invoke } from "../ui/tauri.ts";
+import { invoke, listen } from "../ui/tauri.ts";
 import { hostLabel, repoPath, type TeamRecord } from "./team-state.ts";
-import { readTeam, Who } from "./team-view.tsx";
+import { Who } from "./team-view.tsx";
 
 /// What a code invites to (TicketView).
 interface Ticket {
@@ -110,8 +108,6 @@ function JoinSheet({ invite, close, name }: { invite: TeamInvite | null; close()
     try {
       const record = await invoke<TeamRecord>("team_join", { ticket: text });
       if (invite) await invoke("team_invite_drop", { from: invite.from, repo: invite.repo, ticket: invite.ticket }).catch(error => console.warn("invite:", reason(error)));
-      if (ticket.project !== null) void readTeam(ticket.project);
-      void readInvites();
       if (live.current) setJoin({ kind: "joined", ticket, machine, login: record.me ?? "" });
     } catch (error) {
       if (live.current) setJoin({ kind: "failed", code: text, ticket, machine, stage: "join", message: reason(error) });
@@ -187,35 +183,40 @@ function Step({ state, text, children = null }: { state: StepState; text: string
 
 // ---------- Invites ----------
 
-/// How often Home reads the contacts' invites while it shows. No event says
-/// one arrived, so Home asks, and seldom.
-const INVITES_MS = 60_000;
 let invites: TeamInvite[] = [];
+/// Whether the invites were read or pushed once.
+let known = false;
 const listeners = new Set<() => void>();
 
-/// Reads the contacts' invites that wait on this desktop. A phone neither joins nor invites.
-export async function readInvites() {
-  if (isMobile()) return;
-
-  try {
-    invites = await invoke<TeamInvite[]>("team_invites") ?? [];
-  } catch (error) {
-    console.warn("team invites:", reason(error));
-  }
-
+function takeInvites(list: TeamInvite[]) {
+  invites = list;
+  known = true;
   for (const listener of listeners) listener();
 }
 
-/// The invites as last read, read now and every `INVITES_MS` while Home shows.
+/// Reads the contacts' invites that wait on this desktop, once; the pushes follow. A phone neither joins nor invites.
+async function readInvites() {
+  if (isMobile()) return;
+
+  try {
+    const list = await invoke<TeamInvite[]>("team_invites") ?? [];
+    if (!known) takeInvites(list);
+  } catch (error) {
+    console.warn("team invites:", reason(error));
+  }
+}
+
+listen<TeamInvite[]>("team-invites", ({ payload }) => takeInvites(payload));
+
+/// The invites as last read or pushed, read when Home first needs them.
 export function useInvites() {
   const [shown, setShown] = useState(invites);
 
   useEffect(() => {
     const update = () => setShown(invites);
     listeners.add(update);
-    void readInvites();
-    const timer = setInterval(() => { if (pageShown() && currentLocation()?.view === "home") void readInvites(); }, INVITES_MS);
-    return () => { listeners.delete(update); clearInterval(timer); };
+    if (known) update(); else void readInvites();
+    return () => { listeners.delete(update); };
   }, []);
 
   return shown;
@@ -225,7 +226,7 @@ export function useInvites() {
 export function inviteCard(invite: TeamInvite): BoardCard {
   const who = invite.login ?? "A contact", accept = () => openTeamJoin(invite);
   const dismiss = () => {
-    invoke("team_invite_drop", { from: invite.from, repo: invite.repo, ticket: invite.ticket }).catch(error => console.warn("invite:", reason(error))).finally(() => void readInvites());
+    invoke("team_invite_drop", { from: invite.from, repo: invite.repo, ticket: invite.ticket }).catch(error => console.warn("invite:", reason(error)));
   };
 
   return { key: `invite:${invite.from}:${invite.repo}`, lane: "needs", project: null, color: null, session: false, lead: null, title: `${who} invites you to ${repoPath(invite.repo)}`,

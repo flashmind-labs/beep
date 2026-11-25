@@ -35,7 +35,7 @@ import { runningLineAt } from "../agents/place.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { Button, Chip, EmptyPanel } from "../ui/kit.tsx";
 import { WandererArt } from "../ui/painted-art.tsx";
-import { boardFiltered, IssueOwners, IssueOwnersCell, myIssues, TeamFilter, TeamFollow, TeamPage, teamIssues, teamNote, teamOf } from "./team-view.tsx";
+import { boardFiltered, IssueOwners, IssueOwnersCell, myIssues, TeamFilter, TeamPage, teamIssues, teamNote, teamOf } from "./team-view.tsx";
 
 /// The project's navigation and Overview stay mounted in their own elements while
 /// other tiles show, so their rows, focus and scroll survive a visit to Git or Running.
@@ -257,7 +257,7 @@ export function projectSplit(p: Project, rows: WhereRow[], known: boolean, runni
     { label: "Sessions", text: past.length ? `${past.length} past` : null, key: "agents" },
   ];
   renderProjectShell(currentShell);
-  const strip = <div className="cc-mstrip pj-strip"><ProjectStatus cells={cells} openTile={openTile} /><TeamFollow project={p.name}/></div>;
+  const strip = <div className="cc-mstrip pj-strip"><ProjectStatus cells={cells} openTile={openTile} /></div>;
   // A picked row a filter hides keeps the list on screen, so the filter can be cleared.
   if (board && (!pa.tile || pa.tile === "overview")) {
     const cards = projectCards({ project: p.name, url: p.url, running, past, openTile });
