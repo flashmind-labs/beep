@@ -8,6 +8,7 @@ use beep_proto::{
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::{BTreeMap, HashSet};
 use tauri::{AppHandle, Manager};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -17,6 +18,19 @@ use uuid::Uuid;
 pub struct Interest {
     pub machine: Option<String>,
     pub topic: Topic,
+}
+
+#[derive(Clone, Serialize)]
+/// What a window is sent for a topic.
+pub struct Update {
+    pub(crate) machine_id: String,
+    pub(crate) revision: u64,
+    pub(crate) topic: Topic,
+    pub(crate) query: Option<u64>,
+    pub(crate) initial: bool,
+    pub(crate) data: Option<serde_json::Value>,
+    /// Local order of retained updates, for priming a window with only what it has not seen.
+    pub(crate) seq: u64,
 }
 
 /// What changed, in the order it was rung.
@@ -48,6 +62,13 @@ pub(crate) enum Change {
         machine: EndpointId,
         topic: Topic,
         value: events::Value,
+    },
+    /// A node pushed a folder's `files` topic; what is followed there is read again.
+    FilesHeard { machine: EndpointId, update: Update },
+    /// The windows' subscriptions changed: what no window follows any more is forgotten.
+    FilesKept {
+        wanted: BTreeMap<EndpointId, Vec<Topic>>,
+        windows: HashSet<String>,
     },
     /// The mesh's members changed: a team's record or a contact may have.
     Mesh,

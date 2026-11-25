@@ -4,7 +4,7 @@ use super::{
     Fleet, Machines, Opened, agents as direct,
     session_mirror::SessionMirror,
     terminal_rows,
-    view_signal::{Change, Interest, View, ring},
+    view_signal::{Change, Interest, Update, View, ring},
 };
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
@@ -32,18 +32,6 @@ use commands::CommandWorker;
 use commands::Registered;
 pub(crate) use snapshots::{Current, Snapshots};
 use subscriptions::SubscriptionWorker;
-
-#[derive(Clone, Serialize)]
-pub struct Update {
-    pub(crate) machine_id: String,
-    pub(crate) revision: u64,
-    pub(crate) topic: Topic,
-    pub(crate) query: Option<u64>,
-    pub(crate) initial: bool,
-    pub(crate) data: Option<serde_json::Value>,
-    /// Local order of retained updates, for priming a window with only what it has not seen.
-    pub(crate) seq: u64,
-}
 
 type Sink = Arc<dyn Fn(Update) -> bool + Send + Sync>;
 type Delivery = Arc<Mutex<Sink>>;
@@ -1416,8 +1404,13 @@ async fn run(
             subscriptions.clear();
             workers.abort_all();
             fleet.snapshots.reconcile(&BTreeMap::new());
-            app.state::<crate::agents::files_live::FilesLive>()
-                .keep(&BTreeMap::new(), &HashSet::new());
+            ring(
+                &app,
+                Change::FilesKept {
+                    wanted: BTreeMap::new(),
+                    windows: HashSet::new(),
+                },
+            );
             materialized.clear();
 
             if watched::wait_for(&mut demand, |interests| !interests.is_empty())
@@ -1451,8 +1444,13 @@ async fn run(
             })
             .collect();
         fleet.snapshots.reconcile(&wanted);
-        app.state::<crate::agents::files_live::FilesLive>()
-            .keep(&wanted, &app.state::<Events>().window_labels());
+        ring(
+            &app,
+            Change::FilesKept {
+                wanted: wanted.clone(),
+                windows: app.state::<Events>().window_labels(),
+            },
+        );
         command_workers.retain(|machine, task| {
             if wanted.contains_key(machine) {
                 true

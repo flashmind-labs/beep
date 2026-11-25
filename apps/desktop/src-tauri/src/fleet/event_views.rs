@@ -7,6 +7,7 @@ use super::{
     view_signal::{Change, LiveRow, View},
 };
 use crate::{
+    agents::files_live,
     error::Result,
     machines::terminals,
     projects::team_live::{self, Heard},
@@ -196,6 +197,14 @@ pub(crate) async fn follow_changes(app: AppHandle, mut changes: mpsc::UnboundedR
                 topic,
                 value,
             } => terminals::output_pushed(&app, machine, &topic, &value),
+            Change::FilesHeard { machine, update } => {
+                if !files_live::heard(&app, machine, &update) {
+                    app.state::<Events>().dispatch_node(update);
+                }
+            }
+            Change::FilesKept { wanted, windows } => {
+                app.state::<files_live::FilesLive>().keep(&wanted, &windows);
+            }
             Change::Mesh => team_live::mesh_changed(&app),
         }
     }

@@ -234,7 +234,9 @@ impl SubscriptionWorker {
                                 let update = Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic, seq: 0 };
 
                                 // A folder's followed reads go out as views in its place, so its readers have nothing to read again.
-                                if update.topic.name() != "files" || !crate::agents::files_live::heard(app, machine, &update) {
+                                if update.topic.name() == "files" {
+                                    ring(app, Change::FilesHeard { machine, update });
+                                } else {
                                     app.state::<Events>().dispatch_node(update);
                                 }
                             }

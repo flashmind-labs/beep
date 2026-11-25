@@ -9,8 +9,8 @@ use crate::fleet::{
     Fleet,
     agents::PlaceAsk,
     asked::newer_than,
-    events::{Events, Update},
-    view_signal::View,
+    events::Events,
+    view_signal::{Update, View},
 };
 use beep_proto::{
     SessionId,
