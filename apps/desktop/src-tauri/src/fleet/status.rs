@@ -30,7 +30,7 @@ use tokio::{
     select,
     sync::{oneshot, watch},
     task::{AbortHandle, JoinHandle, JoinSet},
-    time::{Instant as TokioInstant, MissedTickBehavior, interval, sleep_until},
+    time::{Instant as TokioInstant, sleep_until},
 };
 
 /// How long a member that is not on counts as being connected to, after the
@@ -40,8 +40,6 @@ pub(crate) const CONNECT_WAIT: Duration = Duration::from_secs(20);
 /// When each machine was last seen, kept across restarts so one that is off
 /// is not shown as seen when it joined.
 const SEEN_FILE: &str = "machines-seen.json";
-/// How often the times are written while the mesh is open.
-const REMEMBER: Duration = Duration::from_secs(60);
 
 /// A machine whose clock is off, as the Machines screens read it.
 #[derive(Debug, Serialize)]
@@ -216,6 +214,28 @@ impl Shared {
                 peer.seen_at = remembered.get(id).copied();
             }
         }
+    }
+
+    /// The times to keep, and which of them are of machines that are not on: those stand
+    /// until the machine comes back, while a machine that is on is seen now.
+    fn seen_state(&self) -> (BTreeMap<String, u64>, BTreeMap<String, Option<u64>>) {
+        let kept = self.seen_times();
+        let stands = self
+            .peers()
+            .iter()
+            .map(|(id, peer)| {
+                let id = id.to_string();
+                let at = if peer.online {
+                    None
+                } else {
+                    kept.get(&id).copied()
+                };
+
+                (id, at)
+            })
+            .collect();
+
+        (kept, stands)
     }
 
     /// When each machine was last seen, in Unix milliseconds: now for one
@@ -600,14 +620,20 @@ impl Follower {
         // When each follow that ended last did, so it is not started again
         // on every change of the mesh.
         let mut ended: BTreeMap<EndpointId, Instant> = BTreeMap::new();
-        let mut remember = interval(REMEMBER);
-        remember.set_missed_tick_behavior(MissedTickBehavior::Delay);
         let mut remembered = BTreeMap::new();
 
         loop {
             watched::read_and_update(&mut updates, |_| ());
             if self.shared.refresh(&self.mesh) {
                 settle_later(self.shared.clone());
+            }
+
+            // A machine coming or going is a mesh update: the times are written then. One that
+            // stays on is written at its next change or when the mesh closes.
+            let (kept, stands) = self.shared.seen_state();
+            if stands != remembered {
+                write_seen(self.seen_file.clone(), &kept);
+                remembered = stands;
             }
 
             reap(&mut follows);
@@ -658,13 +684,6 @@ impl Follower {
                 // Only while a follow waits to start again; an offline
                 // machine coming back is a mesh update.
                 () = sleep_until(retry.map_or_else(TokioInstant::now, TokioInstant::from_std)), if retry.is_some() => {}
-                _ = remember.tick() => {
-                    let seen = self.shared.seen_times();
-                    if seen != remembered {
-                        write_seen(self.seen_file.clone(), &seen);
-                        remembered = seen;
-                    }
-                }
                 // Sent, or the status is gone.
                 _ = &mut stopped => break,
             }

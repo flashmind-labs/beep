@@ -23,10 +23,15 @@ use std::{
 };
 use tauri::State;
 
-/// A failed check or a newly connected controller gets another chance on the next pass.
-const CHECK_EVERY: Duration = Duration::from_secs(5 * 60);
+/// A library is due a day after its last check; the repository is outside the mesh, so a pass
+/// also runs this often.
+const CHECK_EVERY: Duration = Duration::from_secs(60 * 60);
 
-pub(crate) async fn follow(session: Arc<Session>) {
+/// Checks the libraries when the app starts, when a machine comes or goes (a controller that
+/// connected, or one that failed before, may be the one to check), and every `CHECK_EVERY`.
+pub(crate) async fn follow(fleet: Arc<Fleet>, session: Arc<Session>) {
+    let mut changes = fleet.changes();
+
     loop {
         if let Ok(desk) = session.desk().await
             && let Err(error) = desk.check_skill_libraries().await
@@ -34,7 +39,14 @@ pub(crate) async fn follow(session: Arc<Session>) {
             log::warn!("could not check skill libraries: {error}");
         }
 
-        tokio::time::sleep(CHECK_EVERY).await;
+        tokio::select! {
+            more = changes.changed() => {
+                if !more {
+                    return;
+                }
+            }
+            () = tokio::time::sleep(CHECK_EVERY) => {}
+        }
     }
 }
 

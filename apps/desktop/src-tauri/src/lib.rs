@@ -894,7 +894,10 @@ fn setup(
     tauri::async_runtime::spawn(machines::node_updates::follow(handle.clone()));
     tauri::async_runtime::spawn(tray::waiting::follow(handle.clone()));
     let desks = app.state::<Arc<beep_fleet::Session>>().inner().clone();
-    tauri::async_runtime::spawn(settings::skill_libraries::follow(desks.clone()));
+    tauri::async_runtime::spawn(settings::skill_libraries::follow(
+        app.state::<Arc<Fleet>>().inner().clone(),
+        desks.clone(),
+    ));
     tauri::async_runtime::spawn(notices::follow(handle.clone(), fleet.clone(), desks));
     tauri::async_runtime::spawn(notices::history::follow_reads(
         handle.clone(),
