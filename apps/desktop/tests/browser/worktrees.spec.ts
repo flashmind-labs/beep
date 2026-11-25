@@ -86,3 +86,25 @@ test("a link from a subfolder session opens a file in a worktree at the checkout
   await expect(page.getByRole("tab", { name: /^notes\.txt/ })).toHaveCount(1);
   await expect(page.locator(".agcode")).toContainText("hello");
 });
+
+test("a worktree list read before a pushed one does not replace it", async ({ page }) => {
+  const main = { path: "/srv/project", branch: "main", head: "abc1234", own: true, created: false };
+  const fix = { path: "/srv/project/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false, created: true };
+  const agent = { kind: "agent" as const, machine_id: "build-box", machine_name: "build-box", id: "notice-one", agent: "codex", title: "First notification", cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false };
+  await openDesktop(page, true);
+  await page.evaluate(([list, session]) => {
+    window.__navigation.worktrees([list]);
+    window.__navigation.hold("agent_worktrees");
+    window.__navigation.open({ agent: session });
+  }, [main, agent] as const);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "agent_worktrees"))).toBe(true);
+
+  // The folder pushes its list while the first read is out; the read answers after it.
+  const view = { command: "agent_worktrees", args: { machineId: "build-box", folder: "/srv/project", session: "notice-one" }, value: [main, fix] };
+  await page.evaluate(pushed => window.__navigation.publish("files.%2Fsrv%2Fproject", 5000, { views: [pushed] }, "build-box"), view);
+  await page.evaluate(() => window.__navigation.release("agent_worktrees"));
+
+  await page.getByRole("tab", { name: "Files", exact: true }).click();
+  await page.locator(".agwt:visible").click();
+  await expect(page.getByRole("menuitemradio")).toHaveCount(2);
+});

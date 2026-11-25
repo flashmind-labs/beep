@@ -161,8 +161,13 @@ export function takeWorktrees(data: unknown) {
   const p = view.place;
   if (!p?.cwd) return;
   const pushed = pushedView<Tree[] | null>(data, "agent_worktrees", { machineId: p.machine_id, folder: p.cwd, session: p.id || null });
-  if (pushed && "value" in pushed) listTrees(p, current, pushed.value ?? []);
+  if (!pushed || !("value" in pushed)) return;
+  pushes++;
+  listTrees(p, current, pushed.value ?? []);
 }
+
+/// Counts the lists pushed, so a read that was out when one arrived is dropped as older.
+let pushes = 0;
 
 /// Keeps the list `got` for session `p` when it is still the one shown, and follows the agent in it.
 function listTrees(p: Place, session: SessionWorktrees, got: Tree[]) {
@@ -190,6 +195,7 @@ async function readTrees() {
   if (!p?.cwd) return;
   if (view.reading) { view.again = true; return; }
   view.reading = true;
+  const at = pushes;
   let got: Tree[] | null = null;
 
   try {
@@ -201,7 +207,7 @@ async function readTrees() {
   }
 
   if (view.place?.id !== p.id || current !== session) return;
-  listTrees(p, session, got ?? session.trees);
+  if (pushes === at) listTrees(p, session, got ?? session.trees);
   if (view.again) { view.again = false; void readTrees(); }
 }
 
