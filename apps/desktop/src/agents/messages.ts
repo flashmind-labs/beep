@@ -410,7 +410,6 @@ async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen:
 
   if (isOpen(o)) {
     setNote(failed && sent === "failed" ? failed.message : "");
-    if (sent === "waiting") void readOutbox(o);
     drawAgentBody();
     resumeAgent();
   }
@@ -536,19 +535,22 @@ interface Taken { text: string; images: SentImage[]; files: SentImage[]; mention
 
 /// What `outbox-changed` tells every window. A session that ended and was
 /// resumed for a message comes as `resumed`, the session that goes on from it.
-interface OutboxChanged extends OpenAgent { sent: OutboxRow[]; resumed: AgentSession | null; uploaded: { name: string; path: string }[] }
+interface OutboxChanged extends OpenAgent { revision: number; rows: OutboxRow[]; sent: OutboxRow[]; resumed: AgentSession | null; uploaded: { name: string; path: string }[] }
 
-let latestOutboxRead = 0;
+/// Draws `rows` as of `revision`, unless the window already drew a newer set.
+function showOutbox(rows: OutboxRow[], revision: number) {
+  if (revision < AG.outboxRevision) return;
+  AG.outbox = rows;
+  AG.outboxRevision = revision;
+  drawQueue();
+  redrawAgentHints();
+}
 
-/// Reads the current rows. An older reply can arrive after a delivery or a new send.
+/// Reads the open session's rows once, as it opens; every change after comes pushed.
 export async function readOutbox(o: OpenAgent) {
-  const read = ++latestOutboxRead;
   try {
-    const rows = await invoke<OutboxRow[] | null>("outbox_list", where(o));
-    if (AG.open !== o || read !== latestOutboxRead) return;
-    AG.outbox = rows ?? [];
-    drawQueue();
-    redrawAgentHints();
+    const listed = await invoke<{ revision: number; rows: OutboxRow[] } | null>("outbox_list", where(o));
+    if (listed && AG.open === o) showOutbox(listed.rows, listed.revision);
   } catch (e) {
     console.warn("reading the outbox:", e);
   }
@@ -575,8 +577,7 @@ listen<OutboxChanged>("outbox-changed", ({ payload }) => {
     const sent = sentFromOutbox(row, AG.queue, AG.page, AG.polls);
     if (sent) AG.queue.push(sent);
   }
-  // A sending notification may arrive after delivery. Read what is still held.
-  void readOutbox(o);
+  showOutbox(payload.rows, payload.revision);
 });
 
 /// Takes waiting message `id` out; to edit, it goes back in the field.

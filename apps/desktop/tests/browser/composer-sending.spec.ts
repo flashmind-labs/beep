@@ -27,10 +27,10 @@ async function keepFilesInOutbox(page: Page) {
   await page.evaluate(where => {
     type Row = { id: number; how: string; text: string; images: string[]; state: string; reason: string | null };
     const invoke = window.__TAURI__.core.invoke;
-    let rows: Row[] = [], next = 0;
+    let rows: Row[] = [], next = 0, revision = 0;
     const asked: { args: unknown }[] = [], order: string[] = [];
     Object.assign(window, { __asked: asked, __order: order });
-    const changed = () => window.__navigation.emit("outbox-changed", { ...where, rows, sent: [] });
+    const changed = () => window.__navigation.emit("outbox-changed", { ...where, revision: ++revision, rows, sent: [] });
     Object.assign(window, { __rows: { set(update: (rows: Row[]) => Row[]) { rows = update(rows); changed(); } } });
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
       const steer = args?.steer as { steer?: { text: string } } | undefined;
@@ -44,7 +44,7 @@ async function keepFilesInOutbox(page: Page) {
         throw { kind: "waiting", message: "Waiting for the connection" };
       }
 
-      if (command === "outbox_list") return rows as T;
+      if (command === "outbox_list") return { revision, rows } as T;
 
       if (command === "outbox_take") {
         const taken = rows.find(row => row.id === args?.id);
@@ -171,7 +171,7 @@ test("an ended session hands the message and its resume to the outbox, shows a r
 
   // The app resumed it: the window opens the session that goes on, in the background.
   await page.evaluate(resumed => window.__navigation.respond("agent_view", { session: resumed, model: null, plan: [], earlier: 0, error: null, turns: 0, queued: 0, queued_messages: [], entries: [] }), resumed);
-  await page.evaluate(({ where, resumed }) => window.__navigation.emit("outbox-changed", { ...where, rows: [], sent: [], resumed, uploaded: [] }), { where, resumed });
+  await page.evaluate(({ where, resumed }) => window.__navigation.emit("outbox-changed", { ...where, revision: 1000, rows: [], sent: [], resumed, uploaded: [] }), { where, resumed });
   await expect.poll(async () => (await calls(page, "agent_view")).some(call => (call.args as { session?: string }).session === "send-two")).toBe(true);
 });
 

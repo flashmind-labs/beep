@@ -18,11 +18,11 @@ async function openUnreachable(page: Page) {
     type Row = { id: number; how: string; text: string; images: string[]; state: string; reason: string | null };
     const invoke = window.__TAURI__.core.invoke;
     const where = { machine_id: "build-box", agent: "codex", session: "notice-one" };
-    let rows: Row[] = [], next = 0, online = false, slow = false;
+    let rows: Row[] = [], next = 0, online = false, slow = false, revision = 0;
     let delayRead = false;
     let finishRead = () => {};
     const asked: { command: string; seen: unknown }[] = [];
-    const changed = (sent: Row[]) => window.__navigation.emit("outbox-changed", { ...where, rows, sent });
+    const changed = (sent: Row[]) => window.__navigation.emit("outbox-changed", { ...where, revision: ++revision, rows, sent });
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
       const steer = args?.steer as { steer?: { text: string } } | undefined;
       if (command.startsWith("outbox_") || command === "agent_steer") asked.push({ command, seen: args?.seen ?? null });
@@ -43,7 +43,7 @@ async function openUnreachable(page: Page) {
       }
 
       if (command === "outbox_list") {
-        const snapshot = rows;
+        const snapshot = { revision, rows };
         if (delayRead) {
           delayRead = false;
           await new Promise<void>(resolve => { finishRead = resolve; });
@@ -135,9 +135,12 @@ test("a late sending event cannot put a delivered image prompt back in the queue
     ],
   }), session);
   await expect(page.getByText("The diagram is ready.", { exact: true })).toBeVisible();
+  // The delivery was pushed first, as revision 2.
+  await page.evaluate(() => window.__navigation.emit("outbox-changed", { machine_id: "build-box", agent: "codex", session: "notice-one", revision: 2, rows: [], sent: [] }));
   await page.evaluate(() => {
     window.__navigation.emit("outbox-changed", {
       machine_id: "build-box", agent: "codex", session: "notice-one",
+      revision: 1,
       rows: [{ id: 0, how: "steer", text: "Check the diagram", images: ["diagram.png"], state: "sending", reason: null }],
       sent: [],
     });
@@ -152,17 +155,29 @@ test("an outbox event after the page took the message adds no Steer row", async 
     queued: 0, queued_messages: [], entries: [{ kind: "user", text: "Hello there" }, { kind: "agent", text: "Hi." }],
   }), session);
   await expect(page.getByText("Hi.", { exact: true })).toBeVisible();
-  const reads = () => page.evaluate(() => window.__outbox.asked.filter(call => call.command === "outbox_list").length);
-  const before = await reads();
   await page.evaluate(() => window.__navigation.emit("outbox-changed", {
-    machine_id: "build-box", agent: "codex", session: "notice-one", rows: [],
+    machine_id: "build-box", agent: "codex", session: "notice-one", revision: 1, rows: [],
     sent: [{ id: 0, how: "steer", text: "Hello there", images: [], state: "sending", reason: null }],
   }));
-  // The listener redraws once it has re-read the outbox.
-  await expect.poll(reads).toBeGreaterThan(before);
-  await page.waitForTimeout(100);
   // A single look: a retrying check would pass once the next page clears the row.
   expect(await steers(page).count()).toBe(0);
+});
+
+test("the rows an event carries are drawn as they come, with no read, and an older set never replaces a newer one", async ({ page }) => {
+  await openUnreachable(page);
+  const row = (id: number, text: string) => ({ id, how: "steer", text, images: [], state: "uploading", reason: null });
+  const push = (revision: number, rows: unknown[]) => page.evaluate(({ revision, rows }) => window.__navigation.emit("outbox-changed", { machine_id: "build-box", agent: "codex", session: "notice-one", revision, rows, sent: [], resumed: null, uploaded: [] }), { revision, rows });
+  const reads = () => page.evaluate(() => window.__outbox.asked.filter(call => call.command === "outbox_list").length);
+
+  await push(5, [row(0, "Read these")]);
+  await expect(page.locator(".ag-queue .it.out")).toHaveCount(1);
+  await expect(page.locator(".ag-queue .it.out")).toContainText("uploading");
+  // Reordered in flight: the older set arrives after the newer one.
+  await push(4, []);
+  await expect(page.locator(".ag-queue .it.out")).toHaveCount(1);
+  await push(6, []);
+  await expect(page.locator(".ag-queue .it.out")).toHaveCount(0);
+  expect(await reads()).toBe(1);
 });
 
 test("Stop all takes every waiting message back into the field at once, oldest first", async ({ page }) => {

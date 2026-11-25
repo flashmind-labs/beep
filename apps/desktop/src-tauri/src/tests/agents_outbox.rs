@@ -695,6 +695,26 @@ async fn files_upload_before_their_message_goes_and_a_second_message_waits_behin
 }
 
 #[tokio::test]
+async fn every_change_takes_a_newer_revision_and_a_list_says_which_it_is_as_of() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), with_files("Read these", &["a.txt"]), None));
+    push(&outbox, "s1", "Then this");
+    let mut link = Fake::default();
+
+    flush(&outbox, &key("s1"), &mut link).await;
+
+    let revisions: Vec<u64> = link.changes.iter().map(|c| c.revision).collect();
+    assert!(revisions.len() > 2, "{revisions:?}");
+    assert!(
+        revisions.windows(2).all(|pair| pair[0] < pair[1]),
+        "{revisions:?}"
+    );
+    // A read taken now is as new as the last change, so an older reply is never drawn over it.
+    let listed = outbox.read(|held| held.listed(&key("s1")));
+    assert_eq!(Some(listed.revision), revisions.last().copied());
+}
+
+#[tokio::test]
 async fn a_refused_upload_leaves_a_failed_row_with_its_files_and_sends_nothing_of_it() {
     let (_dir, _, outbox) = outbox();
     let id = outbox

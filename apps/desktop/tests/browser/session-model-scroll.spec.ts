@@ -64,7 +64,7 @@ test("an imported session with an unknown model can choose before continuing", a
   const calls = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_resume" || c.command === "agent_steer"));
   expect(calls.map(c => c.command)).toEqual(["agent_steer"]);
   expect(calls[0].args).toMatchObject({ session: session.id, steer: { steer: { text: "Continue with this model" } }, resume: { model: "test-model", pick: { model: "test-model", effort: null, fast: null } } });
-  await page.evaluate(({ session, resumed }) => window.__navigation.emit("outbox-changed", { machine_id: session.machine_id, agent: session.agent, session: session.id, rows: [], sent: [], resumed, uploaded: [] }), { session, resumed });
+  await page.evaluate(({ session, resumed }) => window.__navigation.emit("outbox-changed", { machine_id: session.machine_id, agent: session.agent, session: session.id, revision: 1, rows: [], sent: [], resumed, uploaded: [] }), { session, resumed });
   await expect(page.locator("#agmodelb")).toContainText("Test model");
 });
 
@@ -277,7 +277,7 @@ test("a video this window sent plays from this device, not read back from the ma
   const next = { ...view(active), entries: [...view(active).entries, { kind: "user", text: `This video\n\n@"${path}"`, html: `<p>This video</p><p>@&quot;${path}&quot;</p>` }] };
   await page.evaluate(({ active, path, next }) => {
     window.__navigation.respond("agent_view", next);
-    window.__navigation.emit("outbox-changed", { machine_id: active.machine_id, agent: active.agent, session: active.id, rows: [], sent: [], resumed: null, uploaded: [{ name: "recording.webm", path }] });
+    window.__navigation.emit("outbox-changed", { machine_id: active.machine_id, agent: active.agent, session: active.id, revision: 1, rows: [], sent: [], resumed: null, uploaded: [{ name: "recording.webm", path }] });
   }, { active, path, next });
   await page.locator("#agbody").getByRole("button", { name: "recording.webm", exact: true }).click();
   const video = page.locator("video");

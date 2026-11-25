@@ -331,6 +331,8 @@ interface AgentState {
   queue: Waiting[];
   /// Messages waiting on this device for the session's machine.
   outbox: OutboxRow[];
+  /// The revision of `outbox`: an older set never replaces a newer one.
+  outboxRevision: number;
   /// Reads of the open session so far, which tell a read that left before
   /// a steer was sent from one after.
   polls: number;
@@ -353,7 +355,7 @@ export const AG: AgentState = {
   open: null, draft: null, get page() { return currentPage(); }, set page(next) { setPage(next); }, why: "", back: "hide", timer: undefined, inflight: null, note: "",
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined,
-  opened: new Set(), steps: new Map(), all: new Set(), queue: [], outbox: [], polls: 0, stopping: null, modelOpen: false,
+  opened: new Set(), steps: new Map(), all: new Set(), queue: [], outbox: [], outboxRevision: 0, polls: 0, stopping: null, modelOpen: false,
   older: { stop: "", reading: null },
 };
 /// What a coding agent takes with a message, as the server checks it.

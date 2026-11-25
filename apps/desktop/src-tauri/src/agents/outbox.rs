@@ -256,6 +256,8 @@ pub(crate) struct Row {
 /// the machine since it last changed.
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Changed {
+    /// Taken under the outbox lock: the window draws the rows of the highest it has seen.
+    pub(crate) revision: u64,
     pub(crate) machine_id: String,
     pub(crate) agent: String,
     pub(crate) session: SessionId,
@@ -266,6 +268,13 @@ pub(crate) struct Changed {
     pub(crate) resumed: Option<SessionRow>,
     /// The files that just reached the machine, and where.
     pub(crate) uploaded: Vec<Uploaded>,
+}
+
+/// What `outbox_list` answers: the rows, and the revision they are as of.
+#[derive(Debug, Serialize)]
+pub(crate) struct Listed {
+    pub(crate) revision: u64,
+    pub(crate) rows: Vec<Row>,
 }
 
 /// A file of a message, on the machine at `path`.
@@ -370,6 +379,8 @@ pub(crate) struct Held {
     /// messages' file changed.
     writes: Vec<Write>,
     dirty: bool,
+    /// The last revision a `Changed` took.
+    revision: u64,
 }
 
 impl Held {
@@ -1092,8 +1103,17 @@ impl Held {
         keys
     }
 
-    fn changed(&self, key: &SessionKey) -> Changed {
+    pub(crate) fn listed(&self, key: &SessionKey) -> Listed {
+        Listed {
+            revision: self.revision,
+            rows: self.rows(key),
+        }
+    }
+
+    fn changed(&mut self, key: &SessionKey) -> Changed {
+        self.revision += 1;
         Changed {
+            revision: self.revision,
             machine_id: key.machine_id.clone(),
             agent: key.agent.clone(),
             session: key.session.clone(),
@@ -1386,7 +1406,7 @@ async fn try_message(
 ) -> Tried {
     if let Some(resume) = message.resume.clone() {
         if !resume.resumed {
-            link.changed(outbox.read(|held| held.changed(key)));
+            link.changed(outbox.with(|held| held.changed(key)));
 
             let resumed = match link.resume(&message).await {
                 Ok(resumed) => resumed,
@@ -1427,7 +1447,7 @@ async fn try_message(
         return Tried::Refused(reason);
     }
 
-    link.changed(outbox.read(|held| held.changed(key)));
+    link.changed(outbox.with(|held| held.changed(key)));
 
     let paths = match link.upload(&message).await {
         Ok(paths) => paths,
@@ -1914,9 +1934,13 @@ pub(crate) async fn send(
     // from the start: its row says what is done, and no window waits on the
     // machine for it.
     if draft.resume.is_some() || !draft.files.is_empty() {
-        let (_, flusher) = outbox.with(|held| held.push(&key, draft, None));
-        let key = outbox.read(|held| held.resolve(&key));
-        emit(app, outbox.read(|held| held.changed(&key)));
+        let (key, flusher, changed) = outbox.with(|held| {
+            let (_, flusher) = held.push(&key, draft, None);
+            let key = held.resolve(&key);
+            let changed = held.changed(&key);
+            (key, flusher, changed)
+        });
+        emit(app, changed);
 
         if flusher {
             start(app, key, window.to_string());
@@ -1928,8 +1952,10 @@ pub(crate) async fn send(
     }
 
     let (reply, mut answer) = oneshot::channel();
-    let (id, flusher) = outbox.with(|held| held.push(&key, draft, Some(reply)));
-    let key = outbox.read(|held| held.resolve(&key));
+    let (id, key, flusher) = outbox.with(|held| {
+        let (id, flusher) = held.push(&key, draft, Some(reply));
+        (id, held.resolve(&key), flusher)
+    });
 
     if flusher {
         start(app, key, window.to_string());
@@ -1946,6 +1972,11 @@ pub(crate) async fn send(
             answer.try_recv().ok()
         }
     };
+
+    // A message behind others that wait is answered at once and shown: tell the windows its row.
+    if let Some(Answer::Waiting) = answer {
+        emit(app, outbox.with(|held| held.changed(&key)));
+    }
 
     match answer {
         Some(Answer::Sent(keys)) => Ok(keys),
@@ -2033,13 +2064,13 @@ pub fn outbox_list(
     machine_id: String,
     agent: String,
     session: SessionId,
-) -> Vec<Row> {
+) -> Listed {
     let key = SessionKey {
         machine_id,
         agent,
         session,
     };
-    outbox.read(|held| held.rows(&key))
+    outbox.read(|held| held.listed(&key))
 }
 
 /// A waiting message as the field takes it back.

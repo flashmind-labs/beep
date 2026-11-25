@@ -116,7 +116,7 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     opened: new Set(), steps: new Map(), all: new Set(),
     queue: steerQueues.get(transcriptKey(open)) ?? [],
-    outbox: [], stopping: null, modelOpen: false,
+    outbox: [], outboxRevision: 0, stopping: null, modelOpen: false,
     older: { stop: "", reading: null },
   });
   setAttachError("");
