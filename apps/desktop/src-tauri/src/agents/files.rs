@@ -4,7 +4,10 @@
 //! into the folder a part at a time.
 
 use crate::{
-    agents::files_live::FilesLive,
+    agents::{
+        file_reads::{Tree, tree_of},
+        files_live::FilesLive,
+    },
     chat::files::{file_name, free_name, gone},
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct, work_copy},
@@ -12,43 +15,13 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_mesh::machine::sessions::Reading;
 use beep_proto::SessionId;
-use beep_proto::{
-    AGENT_FILE_CHUNK, AgentFileChunk, GitChange, ListWorkTree, MAX_TREE_DEPTH, ReadWorkFile,
-    WriteWorkFile,
-};
+use beep_proto::{AGENT_FILE_CHUNK, AgentFileChunk, ListWorkTree, ReadWorkFile, WriteWorkFile};
 use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use tauri::{AppHandle, State, WebviewWindow};
 
 /// The most of a file the text view shows.
 const TEXT_CAP: u32 = 512 * 1024;
-
-/// One folder of the working folder, for the bar.
-#[derive(Debug, Serialize)]
-pub struct TreeFolder {
-    path: String,
-    entries: Vec<TreeEntry>,
-    more: u32,
-}
-
-#[derive(Debug, Serialize)]
-pub struct TreeEntry {
-    name: String,
-    folder: bool,
-    size: u64,
-    ignored: bool,
-    /// `untracked`, `added`, `modified` or `conflicted`.
-    change: Option<&'static str>,
-}
-
-fn change_name(change: GitChange) -> &'static str {
-    match change {
-        GitChange::Untracked {} => "untracked",
-        GitChange::Added {} => "added",
-        GitChange::Modified {} => "modified",
-        GitChange::Conflicted {} => "conflicted",
-    }
-}
 
 /// The start of a file, for the text view: `text` is its first bytes as
 /// UTF-8, `cut` when there is more, `binary` when it does not read as text,
@@ -74,16 +47,6 @@ pub(crate) async fn read_part(fleet: &Fleet, read: ReadWorkFile) -> Result<Agent
     let machine = fleet.machine(&read.machine_id)?;
     gone(direct::read(fleet, machine, &read).await)
 }
-
-/// The folders `TREE_DEPTH` levels down from `path`, for the bar.
-#[derive(Debug, Serialize)]
-pub struct Tree {
-    folders: Vec<TreeFolder>,
-    truncated: bool,
-}
-
-/// How many levels one read of the tree takes.
-const TREE_DEPTH: u32 = 3;
 
 // The arguments are the fields of the window's invoke call.
 #[allow(clippy::too_many_arguments)]
@@ -114,60 +77,6 @@ pub async fn agent_tree(
         fresh.unwrap_or(false),
     )
     .await
-}
-
-/// What `agent_tree` answers, as the folder's views push it too.
-pub(crate) async fn tree_of(
-    fleet: &Fleet,
-    machine_id: &str,
-    root: &str,
-    path: &str,
-    ignored: bool,
-    deep: bool,
-    fresh: bool,
-) -> Result<Tree> {
-    let ask = ListWorkTree {
-        machine_id: machine_id.to_owned(),
-        root: root.to_owned(),
-        path: path.to_owned(),
-        ignored,
-        depth: if deep { MAX_TREE_DEPTH } else { TREE_DEPTH },
-    };
-    let cached = if fresh {
-        None
-    } else {
-        work_copy::tree(fleet, &ask).await
-    };
-    let tree = match cached {
-        Some(tree) => tree,
-        None => {
-            let machine = fleet.machine(&ask.machine_id)?;
-            direct::tree(fleet, machine, &ask, Reading::Followed).await?
-        }
-    };
-    let folders = tree
-        .folders
-        .into_iter()
-        .map(|folder| TreeFolder {
-            path: folder.path,
-            entries: folder
-                .entries
-                .into_iter()
-                .map(|e| TreeEntry {
-                    name: e.name,
-                    folder: e.folder,
-                    size: e.size,
-                    ignored: e.ignored,
-                    change: e.change.map(change_name),
-                })
-                .collect(),
-            more: folder.more,
-        })
-        .collect();
-    Ok(Tree {
-        folders,
-        truncated: tree.truncated,
-    })
 }
 
 /// The BLAKE3 hash of each of `paths` in `root`, in base64, from the copy

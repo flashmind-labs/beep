@@ -4,7 +4,7 @@
 //! topic, and the reads asked of it are made again and sent as views in an update of that
 //! topic, so the window takes them from the push instead of asking again.
 
-use super::{diff::places_of, files::tree_of};
+use super::file_reads::{places_of, tree_of};
 use crate::fleet::{
     Fleet,
     agents::PlaceAsk,

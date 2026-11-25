@@ -2,7 +2,10 @@
 //! by the node where the checkout is.
 
 use crate::{
-    agents::files_live::FilesLive,
+    agents::{
+        file_reads::{Places, places_of},
+        files_live::FilesLive,
+    },
     error::Result,
     fleet::{
         Fleet, Machines,
@@ -13,7 +16,7 @@ use crate::{
 use beep_proto::SessionId;
 use beep_proto::{
     DiffFile, DiffHunk, DiffLeftOut, DiffLine, DiffLineKind, DiffStatus, WorkDiff,
-    node::agent::{AgentCommand, DiffAsk, WorkPlace, Worktree},
+    node::agent::{AgentCommand, DiffAsk, Worktree},
 };
 use serde::Serialize;
 use tauri::{State, WebviewWindow};
@@ -159,18 +162,6 @@ pub async fn work_diff(
     Ok(view(diff))
 }
 
-/// Where sessions of one machine work, as their node gives it.
-#[derive(Debug, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Places {
-    /// Each asked session's checkout, in order; `None` for a node that does
-    /// not say.
-    Found { places: Vec<Option<WorkPlace>> },
-    /// The machine did not answer yet, as while it starts or its link comes
-    /// up: ask again later.
-    Unreachable,
-}
-
 /// Where the sessions `asks` on `machine_id` work, each from its machine:
 /// the checkout, whether it is a linked worktree, the branch.
 #[tauri::command]
@@ -187,27 +178,6 @@ pub async fn agent_places(
     }
 
     places_of(&fleet, &machine_id, &asks).await
-}
-
-/// What `agent_places` answers, as a folder's views push it too.
-pub(crate) async fn places_of(
-    fleet: &Fleet,
-    machine_id: &str,
-    asks: &[PlaceAsk],
-) -> Result<Places> {
-    let Some(machine) = fleet.member(machine_id) else {
-        let places = asks.iter().map(|_| None).collect();
-        return Ok(Places::Found { places });
-    };
-
-    match agent_nodes::places(fleet, machine, asks).await {
-        Ok(places) => Ok(Places::Found { places }),
-        Err(e) if e.is_transport() => {
-            log::debug!("session places not read yet; machine={machine_id} error={e}");
-            Ok(Places::Unreachable)
-        }
-        Err(e) => Err(e),
-    }
 }
 
 /// The slash commands and skills the running session `session` offers on

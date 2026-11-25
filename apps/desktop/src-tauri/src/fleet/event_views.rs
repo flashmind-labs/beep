@@ -8,6 +8,7 @@ use super::{
 };
 use crate::{
     error::Result,
+    machines::terminals,
     projects::team_live::{self, Heard},
 };
 use beep_proto::node::events::{self, Topic};
@@ -187,6 +188,14 @@ pub(crate) async fn follow_changes(app: AppHandle, mut changes: mpsc::UnboundedR
                 topic,
                 value,
             } => team_heard(&app, machine, &topic, value.as_ref()),
+            Change::TerminalsChanged { machine, topic } => {
+                terminals::list_changed(&app, machine, &topic)
+            }
+            Change::OutputPushed {
+                machine,
+                topic,
+                value,
+            } => terminals::output_pushed(&app, machine, &topic, &value),
             Change::Mesh => team_live::mesh_changed(&app),
         }
     }

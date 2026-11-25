@@ -34,6 +34,14 @@ pub(crate) enum Change {
         topic: Topic,
         value: Option<events::Value>,
     },
+    /// A node from before the topics of one screen said its terminals or tasks changed.
+    TerminalsChanged { machine: EndpointId, topic: Topic },
+    /// A node pushed the screen of one of its terminals or tasks.
+    OutputPushed {
+        machine: EndpointId,
+        topic: Topic,
+        value: events::Value,
+    },
     /// The mesh's members changed: a team's record or a contact may have.
     Mesh,
 }
