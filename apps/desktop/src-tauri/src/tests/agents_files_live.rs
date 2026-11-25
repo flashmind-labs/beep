@@ -133,6 +133,7 @@ fn the_update_that_waits_names_the_paths_of_those_it_replaced() {
     );
 
     // An update that does not say what changed leaves the whole unsaid.
+    assert!(held.next(&at).is_none());
     assert!(held.begin(at.clone(), listing(4, &["a.txt"])));
     assert!(!held.begin(at.clone(), listing(5, &[])));
     assert!(!held.begin(at.clone(), listing(6, &["b.txt"])));
