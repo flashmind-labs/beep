@@ -5,7 +5,7 @@
 //! topic, so the window takes them from the push instead of asking again.
 
 use super::{diff::places_of, files::tree_of};
-use crate::fleet::{Fleet, agents::PlaceAsk, event_views::View, events::Events};
+use crate::fleet::{Fleet, agents::PlaceAsk, event_views::View, events::{Events, Update}};
 use beep_proto::{SessionId, node::events::Topic};
 use iroh::EndpointId;
 use serde_json::json;
@@ -42,18 +42,18 @@ pub(crate) struct FilesLive(Mutex<Held>);
 struct Held {
     folders: HashMap<(EndpointId, String), Folder>,
     places: HashMap<EndpointId, Vec<Vec<PlaceAsk>>>,
-    /// The topics whose reads are being made now, and the revision that came meanwhile, which
+    /// The topics whose reads are being made now, and the update that came meanwhile, which
     /// they are made again for.
-    reading: HashMap<(EndpointId, Topic), Option<u64>>,
+    reading: HashMap<(EndpointId, Topic), Option<Update>>,
 }
 
 impl Held {
-    /// Whether the caller reads for `revision` now: false when a read is running, which takes
+    /// Whether the caller reads for `update` now: false when a read is running, which takes
     /// it up when it is done.
-    fn begin(&mut self, key: (EndpointId, Topic), revision: u64) -> bool {
+    fn begin(&mut self, key: (EndpointId, Topic), update: Update) -> bool {
         match self.reading.entry(key) {
             Entry::Occupied(mut running) => {
-                running.insert(Some(revision));
+                running.insert(Some(update));
                 false
             }
             Entry::Vacant(free) => {
@@ -63,8 +63,8 @@ impl Held {
         }
     }
 
-    /// The revision that came while reading, if one did; else the reading ends.
-    fn next(&mut self, key: &(EndpointId, Topic)) -> Option<u64> {
+    /// The update that came while reading, if one did; else the reading ends.
+    fn next(&mut self, key: &(EndpointId, Topic)) -> Option<Update> {
         let more = self.reading.get_mut(key).and_then(Option::take);
 
         if more.is_none() {
@@ -124,27 +124,31 @@ impl FilesLive {
         keep(sets, asks.to_vec(), PLACES_KEPT);
     }
 
-    /// Starts reading for `topic`'s revision unless a read is running, which takes it up
-    /// when it is done. False when nothing is followed there.
-    fn reserve(&self, app: &AppHandle, machine: EndpointId, topic: &Topic, revision: u64) -> bool {
+    /// Starts reading for `update` unless a read is running, which takes it up when it is done.
+    fn reserve(&self, app: &AppHandle, machine: EndpointId, update: &Update) -> Reserve {
+        let topic = &update.topic;
         let Some(root) = topic.key().filter(|_| !topic.is_pattern()) else {
-            return false;
+            return Reserve::Unfollowed;
         };
         let wanted = app.state::<Events>().node_wanted(machine, topic);
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
 
         if !wanted {
             held.folders.remove(&(machine, root.to_owned()));
-            return false;
+            return Reserve::Unfollowed;
         }
 
         if !held.folders.contains_key(&(machine, root.to_owned()))
             && !held.places.contains_key(&machine)
         {
-            return false;
+            return Reserve::Unfollowed;
         }
 
-        held.begin((machine, topic.clone()), revision)
+        if held.begin((machine, topic.clone()), update.clone()) {
+            Reserve::Start
+        } else {
+            Reserve::Busy
+        }
     }
 
     /// What is followed for `topic`: the listings and worktrees of its folder, and the places
@@ -168,45 +172,60 @@ impl FilesLive {
         )
     }
 
-    /// The revision that came while reading, if one did; else the reading ends.
-    fn next(&self, machine: EndpointId, topic: &Topic) -> Option<u64> {
+    /// The update that came while reading, if one did; else the reading ends.
+    fn next(&self, machine: EndpointId, topic: &Topic) -> Option<Update> {
         let mut held = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         held.next(&(machine, topic.clone()))
     }
 }
 
+/// What `reserve` found.
+enum Reserve {
+    /// Nothing is followed in the folder: the update goes on as it is.
+    Unfollowed,
+    /// A read is running and takes the update up when it is done.
+    Busy,
+    Start,
+}
+
 /// The node said something on `topic`, a folder's `files`: what is followed there is read
-/// again, and the windows that follow the topic are sent it as views.
-pub(crate) fn heard(app: &AppHandle, machine: EndpointId, topic: &Topic, revision: u64) {
-    if !app
-        .state::<FilesLive>()
-        .reserve(app, machine, topic, revision)
-    {
-        return;
+/// again, and the windows that follow the topic are sent it as views. Returns true when the
+/// windows are sent the update that way and the caller sends nothing: its readers take the
+/// views, so they have nothing to read again. An initial update is the caller's to send.
+pub(crate) fn heard(app: &AppHandle, machine: EndpointId, update: &Update) -> bool {
+    let taken = !update.initial;
+
+    match app.state::<FilesLive>().reserve(app, machine, update) {
+        Reserve::Unfollowed => return false,
+        Reserve::Busy => return taken,
+        Reserve::Start => {}
     }
 
-    let (app, topic) = (app.clone(), topic.clone());
+    let (app, mut update) = (app.clone(), update.clone());
     tauri::async_runtime::spawn(async move {
-        let mut revision = revision;
-
         loop {
-            let views = read(&app, machine, &topic).await;
+            let views = read(&app, machine, &update.topic).await;
 
             if !views.is_empty() {
                 app.state::<Events>().push_node_views(
                     machine,
-                    topic.clone(),
-                    revision,
+                    update.topic.clone(),
+                    update.revision,
                     json!({ "views": views }),
                 );
+            } else if !update.initial {
+                // Nothing to read: the windows still hear that the folder changed.
+                app.state::<Events>().dispatch_node(update.clone());
             }
 
-            match app.state::<FilesLive>().next(machine, &topic) {
-                Some(next) => revision = next,
+            match app.state::<FilesLive>().next(machine, &update.topic) {
+                Some(next) => update = next,
                 None => return,
             }
         }
     });
+
+    taken
 }
 
 /// The views of everything followed for `topic`, each as the command it answers.
@@ -231,7 +250,7 @@ async fn read(app: &AppHandle, machine: EndpointId, topic: &Topic) -> Vec<View> 
                 &read.path,
                 read.ignored,
                 read.deep,
-                false,
+                true,
             )
             .await
             {

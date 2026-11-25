@@ -192,10 +192,6 @@ impl SubscriptionWorker {
 
                             team_heard(app, machine, &snapshot.topic, Some(&snapshot.value));
 
-                            if snapshot.topic.name() == "files" {
-                                crate::agents::files_live::heard(app, machine, &snapshot.topic, snapshot.revision);
-                            }
-
                             if !initial {
                                 crate::notices::heard(app, snapshot.topic.name());
                             }
@@ -224,7 +220,12 @@ impl SubscriptionWorker {
                             } else if (machine != fleet.me || !controller_topic(&snapshot.topic))
                                 && app.state::<Events>().node_wanted(machine, &snapshot.topic) {
                                 let data = serde_json::to_value(&snapshot.value).ok();
-                                app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic, seq: 0 });
+                                let update = Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic, seq: 0 };
+
+                                // A folder's followed reads go out as views in its place, so its readers have nothing to read again.
+                                if update.topic.name() != "files" || !crate::agents::files_live::heard(app, machine, &update) {
+                                    app.state::<Events>().dispatch_node(update);
+                                }
                             }
                         },
                         Reply::SnapshotError { query, topic, reason } => {

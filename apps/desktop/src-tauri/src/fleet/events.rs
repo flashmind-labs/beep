@@ -902,7 +902,7 @@ impl Events {
         }
     }
 
-    fn dispatch_node(&self, update: Update) {
+    pub(crate) fn dispatch_node(&self, update: Update) {
         let aliases: BTreeSet<_> = self
             .registry
             .lock()
