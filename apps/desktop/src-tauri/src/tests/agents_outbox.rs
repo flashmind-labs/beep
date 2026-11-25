@@ -1259,6 +1259,13 @@ async fn the_picks_apply_to_the_resumed_session_before_the_message_and_its_files
             "msg:Read\n\n@src/lib.rs @/cache/a.txt"
         ]
     );
+    // The window that sent it hears the pick that was applied, not the one it holds by then.
+    let resumed: Vec<&Changed> = link.changes.iter().filter(|c| c.pick.is_some()).collect();
+    assert_eq!(resumed.len(), 1);
+    assert_eq!(
+        resumed[0].pick.as_ref().and_then(|p| p.effort),
+        Some(Effort::High)
+    );
 }
 
 #[test]

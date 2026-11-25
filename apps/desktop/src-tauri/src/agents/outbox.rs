@@ -273,6 +273,8 @@ pub(crate) struct Changed {
     /// The session that goes on from this one, which ended and was resumed:
     /// the windows showing this one open it.
     pub(crate) resumed: Option<SessionRow>,
+    /// The pick the message that resumed it asked for, which the session runs on.
+    pub(crate) pick: Option<Pick>,
     /// The files that just reached the machine, and where.
     pub(crate) uploaded: Vec<Uploaded>,
 }
@@ -1181,6 +1183,7 @@ impl Held {
             rows: self.rows(key),
             sent: Vec::new(),
             resumed: None,
+            pick: None,
             uploaded: Vec::new(),
         }
     }
@@ -1508,6 +1511,7 @@ async fn try_message(
                 return Tried::Refused("The message was taken back.".into());
             };
             from.resumed = resumed.row;
+            from.pick = resume.pick.clone();
             link.changed(from);
             link.changed(to);
             *key = now.key();
