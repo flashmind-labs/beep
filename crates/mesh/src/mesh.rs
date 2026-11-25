@@ -12,6 +12,7 @@ use owner::own;
 pub use protocol::{JoinProtocol, MeshProtocol};
 
 use crate::state::now_ms;
+pub(crate) use crate::store::AddrNote;
 use crate::store::{Core, SharedView, Store, View};
 use crate::wire;
 use crate::{Device, DeviceKind, Key, MeshError};
@@ -20,7 +21,6 @@ use iroh::endpoint::{
 };
 use iroh::protocol::{IncomingFilterOutcome, Router, RouterBuilder};
 use iroh::{Endpoint, EndpointAddr, EndpointId};
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fmt::{self, Debug, Formatter};
 use std::future::Future;
@@ -94,14 +94,6 @@ pub fn router(endpoint: &Endpoint) -> RouterBuilder {
 
 pub type StreamHandler =
     Arc<dyn Fn(PeerStream) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
-
-/// An address and the owner's counter for it. Higher replaces lower.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct AddrNote {
-    #[serde(with = "crate::wire::addr")]
-    pub addr: EndpointAddr,
-    pub generation: u64,
-}
 
 #[derive(Clone, Debug)]
 pub struct DeviceStatus {

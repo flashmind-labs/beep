@@ -2,12 +2,13 @@
 //! repository they can write to, and only their own in one they cannot, such as the upstream of
 //! a fork.
 
+pub use super::host::{Repo, RepoUrlError};
 use super::{Caller, board::Login, github, host::HostError};
 use crate::imports::hosts::Hosts;
 use beep_proto::Service;
 use futures::future::join_all;
 use secrecy::ExposeSecret;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
     hash::{DefaultHasher, Hash, Hasher},
@@ -17,39 +18,6 @@ use std::{
 
 /// How long an answer from the host is kept.
 const KEEP: Duration = Duration::from_secs(3600);
-
-/// A repository by host and `org/repo`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Repo {
-    pub host: String,
-    pub name: String,
-}
-
-#[derive(Debug, thiserror::Error)]
-#[error("the item URL does not identify a host and repository")]
-pub struct RepoUrlError;
-
-impl TryFrom<&str> for Repo {
-    type Error = RepoUrlError;
-
-    fn try_from(url: &str) -> Result<Self, Self::Error> {
-        let rest = url.split_once("://").ok_or(RepoUrlError)?.1;
-        let mut parts = rest.split('/');
-        let host = parts
-            .next()
-            .filter(|host| !host.is_empty())
-            .ok_or(RepoUrlError)?;
-        let name = format!(
-            "{}/{}",
-            parts.next().ok_or(RepoUrlError)?,
-            parts.next().ok_or(RepoUrlError)?
-        );
-        Ok(Self {
-            host: host.to_owned(),
-            name,
-        })
-    }
-}
 
 #[derive(Debug, Deserialize)]
 struct RepoReply {

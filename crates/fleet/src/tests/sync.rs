@@ -1,5 +1,6 @@
 use super::*;
 use crate::Peers;
+use crate::direct_syncs::SYNC_FRESH;
 use async_trait::async_trait;
 use beep_mesh::{Mesh, PeerClient, transport_config};
 use beep_proto::node::mesh_state::StateValue;

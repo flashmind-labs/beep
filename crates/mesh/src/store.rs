@@ -3,7 +3,6 @@
 //! code sends it closures and awaits the answer, so a slow disk delays the
 //! caller but never an async worker. Readers use the published `View`.
 
-use crate::mesh::AddrNote;
 use crate::state::{MESH_DIR, OLD_MESH_DIR, now_ms, private_dir, private_options, sync_dir};
 use crate::{
     Applied, Device, DeviceKind, DeviceOp, Devices, Entry, Heads, JoinSecret, JoinTicket, Key,
@@ -21,6 +20,14 @@ use std::thread;
 use std::time::Duration;
 use tokio::sync::{mpsc, oneshot, watch};
 use tracing::warn;
+
+/// An address and the owner's counter for it. Higher replaces lower.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct AddrNote {
+    #[serde(with = "crate::wire::addr")]
+    pub addr: EndpointAddr,
+    pub generation: u64,
+}
 
 /// The largest value a device may write under one key.
 pub(crate) const MAX_VALUE: usize = 1024 * 1024;

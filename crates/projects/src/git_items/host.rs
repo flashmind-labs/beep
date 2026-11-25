@@ -1,6 +1,5 @@
 //! One git host API call with a user's token, and its failure in plain words.
 
-use super::access::{Repo, RepoUrlError};
 use beep_proto::{GitItem, GitItemKind, GitReview, ProjectIssue};
 use reqwest::{Client, Response, StatusCode, header, header::HeaderMap};
 use secrecy::{ExposeSecret, SecretString};
@@ -8,6 +7,39 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{sync::Arc, time::SystemTime};
 use thiserror::Error;
 use tokio::sync::Semaphore;
+
+/// A repository by host and `org/repo`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Repo {
+    pub host: String,
+    pub name: String,
+}
+
+#[derive(Debug, thiserror::Error)]
+#[error("the item URL does not identify a host and repository")]
+pub struct RepoUrlError;
+
+impl TryFrom<&str> for Repo {
+    type Error = RepoUrlError;
+
+    fn try_from(url: &str) -> Result<Self, Self::Error> {
+        let rest = url.split_once("://").ok_or(RepoUrlError)?.1;
+        let mut parts = rest.split('/');
+        let host = parts
+            .next()
+            .filter(|host| !host.is_empty())
+            .ok_or(RepoUrlError)?;
+        let name = format!(
+            "{}/{}",
+            parts.next().ok_or(RepoUrlError)?,
+            parts.next().ok_or(RepoUrlError)?
+        );
+        Ok(Self {
+            host: host.to_owned(),
+            name,
+        })
+    }
+}
 
 /// Why a host's items are missing; never carries the host's own reply.
 #[derive(Debug, Error, PartialEq, Eq)]

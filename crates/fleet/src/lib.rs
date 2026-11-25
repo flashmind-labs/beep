@@ -3,6 +3,7 @@
 pub mod alerts;
 mod credentials;
 mod desk;
+mod direct_syncs;
 mod error;
 mod git_board;
 mod issues;
