@@ -207,6 +207,32 @@ test("adding a machine picks its folder in a palette of the machine's folders", 
   await expect(sheet).toHaveCount(0);
 });
 
+test("adding a machine reads the sync once and follows it from the sync updates until it is copied", async ({ page }) => {
+  const at = (path: string, over = {}) => ({ path, parent: path.slice(0, path.lastIndexOf("/")) || "/", exists: true, folders: [], more: 0, empty: false, origin: null, repos: [], ...over });
+  const laptop = (files: number, pending: number, status: string): MachineDetail => ({ ...syncMachine("laptop", status, null), files, pending });
+  const copying = (...rows: MachineDetail[]): SyncDetail => ({ ...detail, machines: [syncMachine("build-box", "in_sync", null), ...rows] });
+  await openMachines(page);
+  await page.evaluate(([folders, first]) => {
+    window.__navigation.respond("machine_search", "~/code");
+    window.__navigation.respond("machine_folders", folders);
+    window.__navigation.respond("project_sync_detail", first);
+  }, [{ "~": at("/home/dev", { folders: ["code"] }), "~/code": at("/home/dev/code", { folders: ["widget"] }), "/home/dev/code": at("/home/dev/code", { folders: ["widget"] }), "/home/dev/code/widget": at("/home/dev/code/widget", { empty: true }) }, copying(laptop(4, 14, "syncing"))] as const);
+  await page.getByRole("article", { name: "laptop", exact: true }).getByRole("button", { name: "Add", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: "Add widget to laptop" });
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await expect(sheet).toContainText("Copying to laptop: 4 of 18 files");
+  const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "project_sync_detail").length);
+  const before = await reads();
+
+  const push = (value: SyncDetail, at: number) => page.evaluate(([view, revision]) => window.__navigation.publish("sync.*", revision, { views: [view] }, "laptop"), [{ command: "project_sync_detail", args: { project: projectName }, value }, at] as const);
+  await push(copying(laptop(11, 7, "syncing")), 5000);
+  await expect(sheet).toContainText("Copying to laptop: 11 of 18 files");
+  await push(copying(laptop(18, 0, "in_sync")), 5001);
+  await expect(sheet).toHaveCount(0);
+  expect(await reads()).toBe(before);
+});
+
 test("the project composer offers hosts that reconnect while it stays open", async ({ page }) => {
   const host = (id: string) => ({ machine_id: id, machine_name: id, agents: ["codex"], workspace: null, home: null, capabilities: [] });
   const projects = ["build-box", "studio"].map(id => ({ name: projectName, url: "https://example.test/example/widget", machine_id: id, machine_name: id, folder: "/srv/project", cloned: true }));

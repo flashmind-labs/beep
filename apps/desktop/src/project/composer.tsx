@@ -9,7 +9,8 @@ import type { Picked } from "../agents/agentpicker.tsx";
 import { StashBar } from "../chat/stash-hints.tsx";
 import { ComposerChoices, type ComposerChoicesState, ComposerMachine } from "./composer-choices.tsx";
 import { composeMessage } from "../chat/compose.tsx";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedView } from "../ui/snapshot-state.ts";
 import { AMBIENT_MS } from "../ui/active.ts";
 // The bar under a project page: its prompt, harness picker and checkout, and
 // starting or resuming a coding agent from it.
@@ -915,28 +916,22 @@ async function addToMachine(project: string, m: AgentHost) {
     await invoke<string>("project_add_to_machine", { project, machineId: m.machine_id, folder });
     loadWhere(project);
     await new Promise<void>(resolve => {
-      let reading = false, again = false, done = false;
+      let done = false;
       const finish = () => { done = true; unfollow(); if (finishCopy === finish) finishCopy = undefined; resolve(); };
-      const read = async () => {
-        if (reading) { again = true; return; }
-        reading = true;
-
-        do {
-          again = false;
-          if (done) break;
-          if (!here()) { finish(); break; }
-          const detail = await invoke<SyncDetail | null>("project_sync_detail", { project }).catch(() => null);
-          if (done || !here()) { finish(); break; }
-          const line = copyLine(detail, m.machine_id, m.machine_name);
-          if (line.done) { finish(); break; }
-          say([[line.text, line.file].filter(Boolean).join(" · "), line.note].filter(Boolean).join(". "));
-        } while (again && !done);
-
-        reading = false;
+      const take = (detail: SyncDetail | null) => {
+        if (done) return;
+        if (!here()) { finish(); return; }
+        const line = copyLine(detail, m.machine_id, m.machine_name);
+        if (line.done) { finish(); return; }
+        say([[line.text, line.file].filter(Boolean).join(" · "), line.note].filter(Boolean).join(". "));
       };
-      const unfollow = subscribeChanges([topic("sync"), topic("projects")], { deliver: "latest", receive: () => read() });
+      // Read once; the sync and projects updates carry it after that.
+      const unfollow = subscribeEach([topic("sync"), topic("projects")], event => {
+        const pushed = pushedView<SyncDetail | null>(event.data, "project_sync_detail", { project });
+        if (pushed && "value" in pushed) take(pushed.value);
+      });
       finishCopy = finish;
-      void read();
+      void invoke<SyncDetail | null>("project_sync_detail", { project }).catch(() => null).then(take);
     });
     if (here()) say("");
   } catch (e) {

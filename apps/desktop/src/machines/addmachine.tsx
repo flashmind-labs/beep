@@ -2,7 +2,8 @@
 import { ensureMac, ensureMachines, MACHINES, machinesChanged, takeMac } from "./machine-store.ts";
 import { latest, onShownChange, STALE } from "../ui/active.ts";
 import { buildCapabilities, invoke } from "../ui/tauri.ts";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedView } from "../ui/snapshot-state.ts";
 import { START, next, machineById, inviteArgs } from "./addmachine-state.ts";
 import type { AddEvent, MacSeen, TicketKind } from "./addmachine-state.ts";
 import { type ReactNode } from "react";
@@ -91,7 +92,11 @@ async function start() {
     const made = await creation.run(invoke<NodeToken>("mesh_invite", inviteArgs(kind)));
     if (!root || made === STALE) return;
     update({ type: "created", token: made.token, command: made.command, expiresAt: made.expires_at, qrSvg: made.qr_svg ?? undefined });
-    poller = subscribeChanges([topic("machines"), topic("projects")], { deliver: "latest", receive: () => poll() });
+    // Read once; the machines update says when the ticket is taken.
+    poller = subscribeEach([topic("machines"), topic("projects")], event => {
+      const pushed = pushedView<string | null>(event.data, "ticket_machine", { ticket: made.token });
+      if (pushed && "value" in pushed) void matched(pushed.value, made.token);
+    });
     void poll();
   } catch (e) {
     if (!root) return;
@@ -99,24 +104,33 @@ async function start() {
   }
 }
 
+/// Asks once whether the ticket has been taken.
 async function poll() {
   if (state.step !== "waiting") return;
   const token = state.token;
 
   try {
-    const id = await invoke<string | null>("ticket_machine", { ticket: token });
-    if (!id) return;
+    await matched(await invoke<string | null>("ticket_machine", { ticket: token }), token);
+  } catch {
+    // A membership update or reconnect tells again.
+  }
+}
 
-    if (kind === "phone") {
-      if (state.step === "waiting" && state.token === token) update({ type: "paired" });
-      return;
-    }
+/// The machine `id` took the ticket `token`, when it is still the one the sheet waits on.
+async function matched(id: string | null, token: string) {
+  if (!id) return;
 
-    // Matched by id, so a machine set up again is found too.
+  if (kind === "phone") {
+    if (state.step === "waiting" && state.token === token) update({ type: "paired" });
+    return;
+  }
+
+  // Matched by id, so a machine set up again is found too.
+  try {
     const machine = machineById(await ensureMachines(), id);
     if (machine && state.step === "waiting" && state.token === token) update({ type: "found", machine });
   } catch {
-    // A membership update or reconnect tries again.
+    // The next machines update tells again.
   }
 }
 

@@ -1,6 +1,7 @@
 import { flushSync } from "react-dom";
 import { AddMachineView } from "./addmachine-view.tsx";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
+import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedView } from "../ui/snapshot-state.ts";
 // The "Add <project> to <machine>" sheet of a project's "Where it lives": a
 // picker of the folder there, then how far Beep's sync has brought the files.
 // With `from` it is the "Change folder" sheet: the machine points at another
@@ -75,19 +76,26 @@ export function openAddToMachine(o: AddToMachine) {
     draw();
   };
 
-  /// Reads the sync until the machine has it all; the page's row goes on from there.
+  /// Reads the sync once, then follows it until the machine has it all; the page's row goes on from there.
   const poll = async () => {
     try {
-      const detail = await invoke<SyncDetail | null>("project_sync_detail", { project });
-      copying = copyLine(detail, machine.id, machine.name);
+      take(await invoke<SyncDetail | null>("project_sync_detail", { project }));
     } catch (e) {
       console.warn("project sync:", e);
+      if (open) draw();
     }
 
     if (!open) return;
-    if (copying?.done) { close(); return; }
-    draw();
-    unfollow ??= subscribeChanges(topic("sync"), { deliver: "latest", receive: () => poll() }, { machine: machine.id, when: () => open });
+    unfollow ??= subscribeEach(topic("sync"), event => {
+      const pushed = pushedView<SyncDetail | null>(event.data, "project_sync_detail", { project });
+      if (pushed && "value" in pushed) take(pushed.value);
+    }, { machine: machine.id, when: () => open });
+  };
+
+  const take = (detail: SyncDetail | null) => {
+    copying = copyLine(detail, machine.id, machine.name);
+    if (!open) return;
+    if (copying.done) close(); else draw();
   };
 
   // Changing starts where the folder is now, adding in the machine's projects folder.
