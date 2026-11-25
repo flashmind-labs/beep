@@ -2,7 +2,7 @@
 //! node detects its agents again, installs the adapters missing, one at a
 //! time, and offers what it can start now.
 
-use super::{install, layout};
+use super::adapters::{install, layout};
 use crate::{
     agents::{
         AgentKind, Agents,
@@ -237,5 +237,5 @@ async fn detect(node_dir: &Path, extra: &[AgentKind]) -> Option<Detection> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_adapters_worker.rs"]
+#[path = "../tests/agents_adapters_worker.rs"]
 mod tests;

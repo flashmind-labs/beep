@@ -47,6 +47,7 @@ host! {
     mod found_sessions;
     mod harnesses;
     mod holders;
+    mod installs;
     mod image_files;
     mod image_index;
     mod images;
@@ -170,7 +171,7 @@ host! {
         /// The agents it can start, replaced when detection finds others.
         kinds: watch::Sender<Arc<Vec<AgentKind>>>,
         /// The adapters the node installs itself.
-        adapters: adapters::Installs,
+        adapters: installs::Installs,
         sessions: sessions::Sessions,
         /// Serializes changes to a stored session against resuming it, one
         /// lock for each session by the agent's own id; see `store_of`.
