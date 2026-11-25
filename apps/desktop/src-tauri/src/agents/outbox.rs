@@ -1072,13 +1072,6 @@ impl Held {
         message.unsure = unsure;
         self.dirty = true;
         let key = message.key();
-        let ids: Vec<u64> = self
-            .messages
-            .iter()
-            .filter(|m| m.key() == key)
-            .map(|m| m.id)
-            .collect();
-
         Some(self.changed(&key))
     }
 

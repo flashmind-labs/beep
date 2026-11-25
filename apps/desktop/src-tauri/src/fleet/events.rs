@@ -944,7 +944,7 @@ impl Events {
             .collect()
     }
 
-    fn node_wanted(&self, machine: EndpointId, topic: &Topic) -> bool {
+    pub(crate) fn node_wanted(&self, machine: EndpointId, topic: &Topic) -> bool {
         let id = machine.to_string();
         self.registry
             .lock()

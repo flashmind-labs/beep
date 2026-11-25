@@ -61,7 +61,7 @@ pub(crate) async fn ticket_views(app: &AppHandle) -> Vec<View> {
         .state::<Tickets>()
         .live()
         .into_iter()
-        .map(|ticket| async {
+        .map(|ticket| async move {
             let args = serde_json::json!({ "ticket": ticket });
 
             match joined_by(&fleet, &ticket).await {
