@@ -1,7 +1,7 @@
 import { CredentialsView, type CredentialActions } from "./credentials-view.tsx";
 import { AgentAccountsView, type AgentAccountActions } from "./agentaccounts-view.tsx";
-import { subscribeChanges, topic } from "../ui/mesh-events.ts";
-import { accountName, tokenDraft } from "./agentaccounts.ts";
+import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
+import { accountName, codexTaskRunning, tokenDraft } from "./agentaccounts.ts";
 import type { AgentAccounts, AgentAccountsState, CodexFlow, CodexLogin } from "./agentaccounts.ts";
 import { cliHost, draft as credentialDraft, editFor } from "./credentials.ts";
 import type { ApiProvider, CliLogins, CredCheck, Credential, CredState, GhFlow, GitHubAccount } from "./credentials.ts";
@@ -219,21 +219,21 @@ interface CodexState {
   message: string | null;
 }
 
-/// Sign-in tasks announce output and completion over the node stream, which
-/// is followed only while one runs. Settings off screen hears nothing, so
-/// showing it again checks once.
-function pollCodex() {
+/// Sign-in tasks announce completion over the node stream, which is followed only while one
+/// runs. Settings off screen hears nothing, so showing it again checks once.
+function followCodex() {
   if (ACC.poll) return;
-  const check = async () => {
-    const waiting = Object.entries(ACC.codex).filter(([, f]) => f.task !== undefined);
+  /// Asks for the final state of the sign-ins of `only`, or of every machine that waits.
+  const check = async (only?: string) => {
+    const waiting = Object.entries(ACC.codex).filter(([id, f]) => f.task !== undefined && (only === undefined || id === only));
 
-    if (!waiting.length) {
+    if (!Object.values(ACC.codex).some(f => f.task !== undefined)) {
       ACC.poll?.stop();
       ACC.poll = null;
       return;
     }
 
-    if (!setShown()) return;
+    if (!waiting.length || !setShown()) return;
 
     // The machines are asked together: a slow one does not hold the others.
     const answers = await Promise.all(waiting.map(async ([id, f]): Promise<{ id: string; f: typeof f; st: CodexState } | { id: string; f: typeof f; error: string }> => {
@@ -257,7 +257,12 @@ function pollCodex() {
 
     redrawAgents();
   };
-  ACC.poll = { stop: subscribeChanges([topic("processes"), topic("accounts")], { deliver: "latest", receive: () => check() }, { when: setShown }), check };
+  // The node's task list says while the sign-in runs; once it has ended or is gone, its state is asked once.
+  const stop = subscribeEach(topic("processes"), event => {
+    const f = ACC.codex[event.machine_id];
+    if (f?.task !== undefined && codexTaskRunning(event.data, f.task) === false) return check(event.machine_id);
+  }, { when: setShown });
+  ACC.poll = { stop, check: () => check() };
   void check();
 }
 
@@ -339,7 +344,7 @@ const agentActions: AgentAccountActions = {
     ACC.codex[id] = { starting: true }; redrawAgents();
     try {
       const flow = await invoke<CodexLogin>("codex_login_start", { machineId: id });
-      ACC.codex[id] = { ...flow, copied: false }; redrawAgents(); pollCodex();
+      ACC.codex[id] = { ...flow, copied: false }; redrawAgents(); followCodex();
       await copy(flow.code);
       const now = ACC.codex[id];
       if (now?.task === flow.task) { now.copied = true; invoke("open_url", { url: flow.url }).catch(console.warn); }

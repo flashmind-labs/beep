@@ -122,3 +122,13 @@ export function accountName(name: string): { name: string; error: null } | { nam
 export function accountNames(data: AgentAccounts | null | undefined, agent: string): string[] {
   return (data?.named ?? []).filter(account => account.agent === agent).map(account => account.name);
 }
+
+/// What a `processes` update says of the node task `task`: whether it still runs. Null when the
+/// update carries no task list; false when `task` is not in it or ended.
+export function codexTaskRunning(data: unknown, task: number): boolean | null {
+  const list = (data as { Process?: { Tasks?: { tasks?: unknown } } } | null)?.Process?.Tasks?.tasks;
+  if (!Array.isArray(list)) return null;
+
+  const found = list.find((t): t is { id: unknown; state: unknown } => typeof t === "object" && t !== null && "id" in t && t.id === task);
+  return found?.state === "running";
+}
