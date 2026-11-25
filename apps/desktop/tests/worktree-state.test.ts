@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { type Tree, type Entry, follow, followSteps, removedCheckout, reviewHeading, rootOf, treeAt, matchesTree, finishedTools } from "../src/agentpane/worktree-state.ts";
+import { type Tree, type Entry, follow, followSteps, removedCheckout, reviewHeading, rootOf, treeAt, matchesTree } from "../src/agentpane/worktree-state.ts";
 import { homeShort } from "../src/project/projects-state.ts";
 
 const tree = (path: string, branch: string | null, own = false): Tree => ({ path, branch, head: "abc1234", own, created: false });
@@ -187,14 +187,6 @@ test("search matches branch names and full paths, ignoring case", () => {
   assert.equal(matchesTree(main, "fix"), false);
   assert.equal(matchesTree(main, ""), true);
 });
-
-test("completed and failed tools trigger Git list comparisons, pending ones wait", () => {
-  assert.deepEqual(finishedTools([
-    tool("wrapper [in_progress]"), tool("wrapper [completed]"), tool("wrapper [failed]"),
-    {kind: "agent", text: "Done [completed]"},
-  ], 20), [21, 22]);
-});
-
 
 test("creation followed by cd confirms usage before relative shell edits", () => {
   const got = where([

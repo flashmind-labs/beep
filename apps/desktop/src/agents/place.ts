@@ -1,16 +1,17 @@
 // The place of each session the rows show, asked of its machine in one call
-// for all its sessions waiting, and kept a while. Rows read `placeOf` while
-// they draw; what it does not know yet is asked for, and the views that
-// registered redraw once the answers are in.
+// for all its sessions waiting, and kept. Rows read `placeOf` while they
+// draw; what it does not know yet is asked for once, and the views that
+// registered redraw once the answers are in. A place changes with the files
+// of its folder: the `files` update of a folder followed pushes it.
 
 import { moveLabel } from "./move-store.ts";
 import { type PlaceAsk, type WorkPlace, placeKey, placeSub } from "./place-state.ts";
 import { type RunningAgent, runningLine } from "./running-state.ts";
+import { pushedEach } from "../ui/snapshot-state.ts";
 import { invoke } from "../ui/tauri.ts";
 
-/// How long an answer holds before the machine is asked again: the agent may
-/// have moved.
-const STALE_MS = 30_000;
+/// How long a read that failed waits before it is asked again, and more on each failure.
+const FAILED_MS = 30_000;
 /// How long a machine that did not answer yet, as while it starts, waits
 /// before it is asked again.
 const UNREACHABLE_MS = 5_000;
@@ -45,15 +46,14 @@ export function onPlaces(redraw: () => void) {
   listeners.add(redraw);
 }
 
-/// The place of `r` as last answered, asking again when it is unknown or
-/// older than `maxAge` milliseconds.
-export function placeOf(r: PlaceAsk, maxAge = STALE_MS) {
+/// The place of `r` as last answered or pushed, asking when it is unknown or its last read failed.
+export function placeOf(r: PlaceAsk) {
   const key = placeKey(r);
   const got = known.get(key);
   // Read last, so it goes last.
   if (got) { known.delete(key); known.set(key, got); }
 
-  if (!got || (Date.now() - got.at > maxAge && Date.now() >= got.retryAt)) {
+  if (!got || (got.at === 0 && Date.now() >= got.retryAt)) {
     if (!asking.has(key) && !waiting.has(key)) { waiting.set(key, r); pumpSoon(); }
   }
 
@@ -94,7 +94,7 @@ function ask(machine: string, batch: [string, PlaceAsk][]) {
       batch.forEach(([key], i) => {
         asking.delete(key);
         if (answer?.kind === "found") moved = settle(key, answer.places[i] ?? null, null) || moved;
-        else settle(key, null, answer ? UNREACHABLE_MS : STALE_MS);
+        else settle(key, null, answer ? UNREACHABLE_MS : FAILED_MS);
       });
       if (moved) changed();
       pump();
@@ -131,6 +131,25 @@ function keep(key: string, got: KnownPlace) {
     if (known.size <= KEPT) break;
     known.delete(oldest);
   }
+}
+
+/// Takes the places a `files` update pushes: each view answers for the sessions it was read with.
+export function takePlaces(data: unknown) {
+  let moved = false;
+
+  for (const { args, pushed } of pushedEach<PlacesAnswer>(data, "agent_places")) {
+    const { machineId, asks } = args;
+    if (typeof machineId !== "string" || !Array.isArray(asks) || !("value" in pushed) || pushed.value.kind !== "found") continue;
+    const { places } = pushed.value;
+
+    asks.forEach((ask: unknown, i) => {
+      if (typeof ask !== "object" || ask === null || !("agent" in ask) || !("session" in ask)) return;
+      const key = placeKey({ machine_id: machineId, agent: String(ask.agent), id: String(ask.session) });
+      if (known.has(key) && !asking.has(key)) moved = settle(key, places[i] ?? null, null) || moved;
+    });
+  }
+
+  if (moved) changed();
 }
 
 /// Redraws the views once, after a burst of answers.

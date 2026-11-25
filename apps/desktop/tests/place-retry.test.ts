@@ -14,25 +14,25 @@ test("a visible pane backs off failed placement reads instead of retrying every 
 
   try {
     answers.agent_places = Promise.reject("offline");
-    placeOf(session, 5000);
+    placeOf(session);
     await settled();
     assert.equal(requests(), 1);
     time += 6000;
-    placeOf(session, 5000);
+    placeOf(session);
     await settled();
     assert.equal(requests(), 1);
     time += 24_000;
     answers.agent_places = Promise.reject("offline");
-    placeOf(session, 5000);
+    placeOf(session);
     await settled();
     assert.equal(requests(), 2);
     time += 30_000;
-    placeOf(session, 5000);
+    placeOf(session);
     await settled();
     assert.equal(requests(), 2);
     time += 30_000;
     answers.agent_places = { kind: "found", places: [null] };
-    placeOf(session, 5000);
+    placeOf(session);
     await settled();
     assert.equal(requests(), 3);
   } finally {

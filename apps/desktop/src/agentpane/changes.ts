@@ -12,7 +12,7 @@ import { sendPrompt } from "../agents/messages.ts";
 import { CHANGES, openWorkFile, paneSession, showChanges } from "./media.ts";
 import { dockOf, paneModel } from "./media-layout.ts";
 import { localFileItems } from "./localfile.ts";
-import { paneLinked, paneRoot, refreshWorktrees, removedBranch, watchRoot, worktreesReady, worktreesSettled } from "./worktree.ts";
+import { paneLinked, paneRoot, removedBranch, watchRoot, worktreesReady, worktreesSettled } from "./worktree.ts";
 import { reviewHeading } from "./worktree-state.ts";
 import { homeShort } from "../project/projects-state.ts";
 import { viewKey } from "./view-memory.ts";
@@ -129,11 +129,8 @@ function make(key: string) {
     load: async (only, lockfiles, uncommitted, context) => {
       const full = !only.length;
 
-      // A full read is current until the folder changes again; a refresh reads the worktrees again too.
-      if (full) {
-        entry.dirty = false;
-        if (shown === entry) refreshWorktrees();
-      }
+      // A full read is current until the folder changes again.
+      if (full) entry.dirty = false;
 
       let view: DiffView;
       try {

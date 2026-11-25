@@ -67,25 +67,6 @@ export function reportedRoot(trees: readonly Tree[], cwd: string, folder: string
   return trees.length ? null : bare(folder);
 }
 
-/// Tool completion is a reason to compare Git's worktree list again, even
-/// when a harness hides the command behind a wrapper.
-export function finishedTools(entries: readonly Entry[], earlier: number) {
-  return entries.flatMap((entry, i) => entry.kind === "tool" && toolFinished(entry) ? [earlier + i] : []);
-}
-
-/// Whether each tool entry finished, as of the text it had: each log update
-/// parses only the entries that are new or changed.
-const finished = new WeakMap<Entry, { text: string; done: boolean }>();
-
-function toolFinished(entry: Entry) {
-  const known = finished.get(entry);
-  if (known?.text === entry.text) return known.done;
-  const { status } = parseTool(entry.text);
-  const done = status === "completed" || status === "failed";
-  finished.set(entry, { text: entry.text, done });
-  return done;
-}
-
 export function matchesTree(tree: Tree, query: string) {
   return `${treeName(tree)} ${tree.path}`.toLowerCase().includes(query.trim().toLowerCase());
 }

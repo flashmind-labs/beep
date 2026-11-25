@@ -1,7 +1,7 @@
 import { answers, calls } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { onPlaces, placeOf } from "../src/agents/place.ts";
+import { onPlaces, placeOf, takePlaces } from "../src/agents/place.ts";
 
 const wait = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
@@ -26,6 +26,36 @@ test("600 session rows are asked for once each, in batches, not again on every r
     assert.equal(asked(), first, "no asks without a change");
     assert.ok(draws <= 12, `drew ${draws} times`);
   } finally {
+    delete answers.agent_places;
+  }
+});
+
+test("a place is asked once, kept however old, and replaced by a push", async () => {
+  const now = Date.now;
+  const session = { machine_id: "pushed-box", agent: "codex", id: "one" };
+  const place = (folder: string) => ({ folder, main: "/srv/project", linked: folder !== "/srv/project", branch: "main", origin: "" });
+  const asks = () => calls.filter(call => call.cmd === "agent_places" && JSON.stringify(call.args).includes("pushed-box")).length;
+  let drawn = 0;
+  onPlaces(() => drawn++);
+
+  try {
+    answers.agent_places = { kind: "found", places: [place("/srv/project")] };
+    placeOf(session);
+    await wait(200);
+    assert.equal(asks(), 1);
+
+    Date.now = () => now() + 3_600_000;
+    assert.equal(placeOf(session)?.folder, "/srv/project");
+    await wait(10);
+    assert.equal(asks(), 1, "an old answer is not asked again");
+
+    takePlaces({ views: [{ command: "agent_places", args: { machineId: "pushed-box", asks: [{ agent: "codex", session: "one", external: false }] }, value: { kind: "found", places: [place("/srv/project/.worktrees/fix")] } }] });
+    assert.equal(placeOf(session)?.folder, "/srv/project/.worktrees/fix");
+    await wait(200);
+    assert.equal(drawn, 2);
+    assert.equal(asks(), 1);
+  } finally {
+    Date.now = now;
     delete answers.agent_places;
   }
 });

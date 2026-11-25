@@ -5,14 +5,15 @@
 // again. Nothing here runs git checkout: only what the pane reads changes.
 // State is per session and kept in memory.
 
-import { type Entry, type Tree, finishedTools, follow, followSteps, matchesTree, removedCheckout, reportedRoot, rootOf, treeName } from "./worktree-state.ts";
-import { onPlaces, placeOf } from "../agents/place.ts";
+import { type Entry, type Tree, follow, followSteps, matchesTree, removedCheckout, reportedRoot, rootOf, treeName } from "./worktree-state.ts";
+import { onPlaces, placeOf, takePlaces } from "../agents/place.ts";
 import { type WorkPlace, placeName } from "../agents/place-state.ts";
 import { baseName } from "./media-state.ts";
 import type { WorktreeMenuModel } from "./worktree-view.tsx";
 import { writingComment } from "./changes.ts";
 import { invoke } from "../ui/tauri.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { pushedView } from "../ui/snapshot-state.ts";
 
 /// The session the pane belongs to.
 interface Place {
@@ -23,7 +24,6 @@ interface Place {
   external?: boolean;
 }
 
-const REPORT_MS = 5000;
 const KNOWN = 8;
 const bare = (dir: string) => dir.replace(/\/+$/, "") || "/";
 const sessionKey = (p: Place) => (p.id ? `${p.machine_id}\n${p.id}\n${bare(p.cwd)}` : "");
@@ -40,14 +40,12 @@ interface SessionWorktrees {
   next: number;
   handled: boolean;
   log: { entries: Entry[]; earlier: number };
-  asked: Set<string>;
   shown: string;
-  finished: Set<number>;
 }
 
 const makeSession = (cwd: string): SessionWorktrees => ({
   trees: [], cwd, follow: true, placed: null, pick: null, seen: null, last: cwd, next: 0,
-  handled: false, log: { entries: [], earlier: 0 }, asked: new Set(), shown: cwd, finished: new Set(),
+  handled: false, log: { entries: [], earlier: 0 }, shown: cwd,
 });
 
 /// The sessions shown last, by machine and session, most recent last.
@@ -88,6 +86,7 @@ export function startWorktrees(place: Place, changed: (root: boolean) => void) {
 
   current = entry;
   Object.assign(view, { place, reading: false, again: false, child: null, open: false, search: "", changed });
+  followFiles(place);
   settled = kept;
   const read = readTrees().finally(() => { if (view.place === place) settled = true; });
   firstRead = kept ? Promise.resolve() : read;
@@ -98,7 +97,7 @@ export function startWorktrees(place: Place, changed: (root: boolean) => void) {
 function report() {
   const p = view.place;
   if (!p?.id) return;
-  const got = placeOf({ machine_id: p.machine_id, agent: p.agent, id: p.id, external: p.external }, REPORT_MS);
+  const got = placeOf({ machine_id: p.machine_id, agent: p.agent, id: p.id, external: p.external });
   if (JSON.stringify(got) === JSON.stringify(current.placed)) return;
   const moved = current.placed !== null && got?.folder !== current.placed.folder;
   current.placed = got;
@@ -106,7 +105,6 @@ function report() {
     const root = reportedRoot(current.trees, current.cwd, got.folder);
     if (root) { current.seen = root; current.last = root; }
   }
-  if (got && !current.trees.some(t => bare(t.path) === bare(got.folder))) ask([got.folder]);
   apply(true);
   view.changed(false);
 }
@@ -149,32 +147,53 @@ export function watchRoot(machine: string, root: string, changed: () => void): (
   }, { machine });
 }
 
-export function refreshWorktrees() {
-  void readTrees();
+/// Follows the shown session's folder: each update of it carries the worktree list when it changed.
+let followed: { place: Place; stop: () => void } | null = null;
+
+function followFiles(place: Place) {
+  if (followed?.place.id === place.id && followed.place.machine_id === place.machine_id && followed.place.cwd === place.cwd) return;
+  followed?.stop();
+  followed = place.cwd ? { place, stop: subscribeEach(topic("files", place.cwd), event => { takeWorktrees(event.data); takePlaces(event.data); }, { machine: place.machine_id }) } : null;
 }
 
+/// Takes the worktree list a `files` update pushes for the shown session.
+export function takeWorktrees(data: unknown) {
+  const p = view.place;
+  if (!p?.cwd) return;
+  const pushed = pushedView<Tree[] | null>(data, "agent_worktrees", { machineId: p.machine_id, folder: p.cwd, session: p.id || null });
+  if (pushed && "value" in pushed) listTrees(p, current, pushed.value ?? []);
+}
+
+/// Keeps the list `got` for session `p` when it is still the one shown, and follows the agent in it.
+function listTrees(p: Place, session: SessionWorktrees, got: Tree[]) {
+  if (view.place?.id !== p.id || current !== session) return;
+  const listed = JSON.stringify(got) !== JSON.stringify(session.trees);
+
+  if (listed) {
+    session.trees = got;
+    session.cwd = removedCheckout(got, p.cwd) ?? bare(p.cwd);
+    if (session.seen && !got.some(t => rootOf(t, session.cwd) === session.seen)) session.seen = null;
+    session.next = session.log.earlier;
+    session.last = session.seen ?? session.cwd;
+    const roots = got.map(t => rootOf(t, session.cwd));
+    if (session.pick && !roots.includes(session.pick)) session.pick = null;
+  }
+
+  scan();
+  apply(true);
+  if (listed) view.changed(false);
+}
+
+/// Reads the list once when the session opens; the updates of its folder keep it after that.
 async function readTrees() {
   const p = view.place, session = current;
   if (!p?.cwd) return;
   if (view.reading) { view.again = true; return; }
   view.reading = true;
-  let listed = false;
+  let got: Tree[] | null = null;
 
   try {
-    const asked = await invoke<Tree[] | null>("agent_worktrees", { machineId: p.machine_id, folder: p.cwd, session: p.id || null });
-    const got = asked ?? [];
-    if (view.place?.id !== p.id || current !== session) return;
-
-    if (JSON.stringify(got) !== JSON.stringify(session.trees)) {
-      session.trees = got;
-      listed = true;
-      session.cwd = removedCheckout(got, p.cwd) ?? bare(p.cwd);
-      if (session.seen && !got.some(t => rootOf(t, session.cwd) === session.seen)) session.seen = null;
-      session.next = session.log.earlier;
-      session.last = session.seen ?? session.cwd;
-      const roots = got.map(t => rootOf(t, session.cwd));
-      if (session.pick && !roots.includes(session.pick)) session.pick = null;
-    }
+    got = await invoke<Tree[] | null>("agent_worktrees", { machineId: p.machine_id, folder: p.cwd, session: p.id || null }) ?? [];
   } catch {
     // A node from before worktrees, or one out of reach: no list.
   } finally {
@@ -182,9 +201,7 @@ async function readTrees() {
   }
 
   if (view.place?.id !== p.id || current !== session) return;
-  scan();
-  apply(true);
-  if (listed) view.changed(false);
+  listTrees(p, session, got ?? session.trees);
   if (view.again) { view.again = false; void readTrees(); }
 }
 
@@ -215,14 +232,6 @@ function scan() {
   current.next += got.done;
   current.last = got.kept;
   if (got.hit) current.seen = got.last;
-  ask(got.unknown);
-}
-
-function ask(keys: string[]) {
-  if (!current.trees.length) return;
-  const fresh = keys.filter(k => !current.asked.has(k));
-  for (const k of fresh) current.asked.add(k);
-  if (fresh.length) void readTrees();
 }
 
 export function followAgent(entries: Entry[], earlier: number, steps: string[] | null) {
@@ -232,18 +241,12 @@ export function followAgent(entries: Entry[], earlier: number, steps: string[] |
     current.last = current.cwd;
   }
   current.log = { entries, earlier };
-  const finished = finishedTools(entries, earlier);
-  const changed = finished.some(index => !current.finished.has(index));
-  for (const index of finished) current.finished.add(index);
-  for (const index of current.finished) if (index < earlier) current.finished.delete(index);
-  if (changed) void readTrees();
   if (!steps) current.handled = false;
   view.child = null;
 
   if (steps && !current.handled) {
     const got = followSteps(steps, current.trees, current.cwd);
     if (got.hit) view.child = got.last;
-    ask(got.unknown);
   }
 
   scan();

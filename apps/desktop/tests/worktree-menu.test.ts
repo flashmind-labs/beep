@@ -11,7 +11,8 @@ const { createElement } = await import("react");
 const { flushSync } = await import("react-dom");
 const { createRoot } = await import("react-dom/client");
 const { WorktreeMenu } = await import("../src/agentpane/worktree-view.tsx");
-const { startWorktrees, worktreeMenu, followAgent, paneRoot, refreshWorktrees } = await import("../src/agentpane/worktree.ts");
+const { takePlaces } = await import("../src/agents/place.ts");
+const { startWorktrees, worktreeMenu, followAgent, paneRoot, takeWorktrees } = await import("../src/agentpane/worktree.ts");
 const main: Tree = {path: "/srv/app", branch: "main", head: "abc1234", own: true, created: false};
 const fix: Tree = {path: "/srv/app/.worktrees/fix", branch: "fix-login", head: "abc1234", own: false, created: true};
 const tool = (text: string): Entry => ({kind: "tool", text});
@@ -30,6 +31,8 @@ function setup(id: string, trees: Tree[]) {
   startWorktrees({id, cwd: main.path, machine_id: "machine", agent: "codex"}, draw);
   return host;
 }
+/// A `files` update of the session's folder, carrying its worktree list.
+const push = (session: string, value: Tree[]) => takeWorktrees({ views: [{ command: "agent_worktrees", args: { machineId: "machine", folder: main.path, session }, value }] });
 function click(host: HTMLElement, selector: string) {
   const element = host.querySelector<HTMLButtonElement>(selector);
   assert.ok(element, selector);
@@ -82,9 +85,7 @@ test("a worktree refresh keeps the search input mounted and focused", async () =
   input.value = "fixes";
   input.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
   input.setSelectionRange(3, 3);
-  answers.agent_worktrees = [main, fix, { path: "/srv/other", branch: "other", head: "def", own: false, created: true }];
-  refreshWorktrees();
-  await flush();
+  push("refresh", [main, fix, { path: "/srv/other", branch: "other", head: "def", own: false, created: true }]);
   assert.equal(host.querySelector(".agwt-search"), input);
   assert.equal(document.activeElement, input);
   assert.equal(input.value, "fixes");
@@ -95,11 +96,10 @@ test("Git list changes reveal candidates, edits confirm usage, and main reads pr
   setup("detect", [main]);
   await flush();
   const before = calls.filter(call => call.cmd === "agent_worktrees").length;
-  answers.agent_worktrees = [main, fix];
   const created = [tool("wrapper [completed]")];
+  push("detect", [main, fix]);
   followAgent(created, 0, null);
   await flush();
-  assert.ok(calls.filter(call => call.cmd === "agent_worktrees").length > before);
   assert.equal(paneRoot(), main.path);
   const edited = [...created, tool(`wrapper [completed]\n[diff] .worktrees/fix/file.rs +1 -0\n+text`)];
   followAgent(edited, 0, null);
@@ -108,16 +108,17 @@ test("Git list changes reveal candidates, edits confirm usage, and main reads pr
   followAgent([...edited, tool(`Read ${main.path}/README.md [completed]`)], 0, null);
   await flush();
   assert.equal(paneRoot(), fix.path);
-  answers.agent_worktrees = [main];
+  push("detect", [main]);
   followAgent([...edited, tool("wrapper [completed]"), tool("wrapper [completed]")], 0, null);
   await flush();
   assert.equal(paneRoot(), main.path);
+  assert.equal(calls.filter(call => call.cmd === "agent_worktrees").length, before, "tool calls finishing never read the list");
 });
 
 test("Flashmind's active worktree appears in the picker after Git refreshes the list", async () => {
   const host = setup("flashmind", [main]);
   await flush();
-  answers.agent_worktrees = [main, { ...fix, created: false }];
+  push("flashmind", [main, { ...fix, created: false }]);
   followAgent([
     tool(`worktree: Worktree create [completed]\n${JSON.stringify({ path: fix.path, current: true, available: true, bare: false })}`),
     tool("exec: cargo check [completed]"),
@@ -157,18 +158,13 @@ test("native cwd reports follow relative shell edits into a worktree and back", 
   await flush();
   assert.equal(paneRoot(), fix.path);
 
-  const now = Date.now;
-  try {
-    Date.now = () => now() + 6000;
-    answers.agent_places = {kind: "found", places: [{folder: main.path, main: main.path, linked: false, branch: "main", origin: ""}]};
-    followAgent([tool("python3 edit.py [completed]")], 0, null);
-    await flush();
-    t.mock.timers.tick(150);
-    assert.equal(paneRoot(), main.path);
-    followAgent([tool("python3 edit.py [completed]"), tool("python3 next.py [completed]")], 0, null);
-    await flush();
-    assert.equal(paneRoot(), main.path);
-  } finally {
-    Date.now = now;
-  }
+  // The session's folder tells where it works now.
+  takePlaces({ views: [{ command: "agent_places", args: { machineId: "machine", asks: [{ agent: "codex", session: "native-cwd", external: false }] }, value: { kind: "found", places: [{folder: main.path, main: main.path, linked: false, branch: "main", origin: ""}] } }] });
+  t.mock.timers.tick(150);
+  followAgent([tool("python3 edit.py [completed]")], 0, null);
+  await flush();
+  assert.equal(paneRoot(), main.path);
+  followAgent([tool("python3 edit.py [completed]"), tool("python3 next.py [completed]")], 0, null);
+  await flush();
+  assert.equal(paneRoot(), main.path);
 });

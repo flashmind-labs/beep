@@ -38,7 +38,7 @@ export function renderWaiting() {
 
 /// The project a session works in: its repository once its machine said, else its folder.
 const project = (s: AgentSession) => {
-  const place = placeOf(s, Infinity);
+  const place = placeOf(s);
   return place ? placeRepo(place) : folderName(s.cwd);
 };
 
