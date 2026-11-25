@@ -7,6 +7,25 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.35] - 2026-11-25
+
+### Added
+
+- Desktop: Continue a chat with another harness. Pick a model from another harness in the chat's model picker, or use Continue with in the session menu, and your next message starts the new harness in the same folder. The new session reads the earlier chat first, and the chat links both.
+
+### Fixed
+
+- Desktop: adding a project to another machine now shows the copy as it goes and closes the sheet when the copy is done.
+- Desktop: a project that is copying keeps showing its progress on Home while no project page is open.
+- Desktop: the model lists on the start form and in Settings refresh after a coding agent is updated, its settings are saved, or its account token is saved or removed, instead of staying as they were for up to five minutes.
+- Desktop: the branch and worktree shown for a session in the sidebar, session lists and waiting bar now follow the session when it switches branch or moves to a worktree, not only for the open session.
+- Desktop: the status dots in the new agent machine picker no longer touch the machine names.
+
+### Performance
+
+- Desktop: the bell takes sync conflicts from what the machines report, and no longer asks every machine again each time a sync changes.
+- Desktop: folder views a window followed stop being read again once no window follows the folder.
+
 ## [0.10.34] - 2026-11-25
 
 ### Added

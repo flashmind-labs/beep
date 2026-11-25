@@ -2,6 +2,17 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.27] - 2026-11-25
+
+### Added
+
+- Node: A session can carry on an earlier one on another harness. It reads the earlier transcript before its first answer, and the earlier session closes.
+
+### Fixed
+
+- Node: Android phones appear in the device list when adb is installed after the node started, without restarting it.
+- Node: Issue pickup no longer starts a second agent on an issue you assigned to yourself, or on one a session already works on when its first prompt names the issue by its link or as "issue #N".
+
 ## [0.8.26] - 2026-11-25
 
 ### Added
