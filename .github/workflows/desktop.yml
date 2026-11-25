@@ -86,7 +86,9 @@ jobs:
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Prepare the native macOS updater
-        run: bash scripts/download-sparkle.sh
+        run: |
+          command -v cmake >/dev/null || brew install cmake
+          bash scripts/download-sparkle.sh
 
       - name: Build the web UI
         working-directory: apps/desktop

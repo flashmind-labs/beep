@@ -986,6 +986,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dgit .acts { margin-left: auto; display: flex; gap: 4px; align-items: center; flex: none }
 .dgit .l2 { display: flex; flex-wrap: wrap; gap: 4px }
 .dgchip { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; flex: none }
+.dgchip.ready { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 38%, transparent); background: color-mix(in srgb, var(--ok) 8%, transparent) }
 .dgchip.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 40%, transparent) }
 .dgchip.err { color: var(--err); border-color: color-mix(in srgb, var(--err) 45%, transparent) }
 .dskill-list { display: grid; gap: 4px; padding: 2px 0 4px }

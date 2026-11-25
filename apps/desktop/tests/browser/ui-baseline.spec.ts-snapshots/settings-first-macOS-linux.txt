@@ -234,15 +234,12 @@ body.cbody
               div#dictationSetting.dtoggle
                 span
                   b "Voice dictation"
-                  small "Add an ElevenLabs, Mistral or OpenRouter API key in Credentials to start dictating"
+                  small "Download a local model or add an ElevenLabs or Mistral API key in Credentials to start dictating"
                   span.dict-sub
-                    select#dictationModel [aria-label="Dictation model"] value=""
-                      option [value] "Automatic: first provider with a key"
-                      option [value="elevenlabs:scribe_v3_live"] "ElevenLabs · Scribe v3 Live"
-                      option [value="elevenlabs:scribe_v2_realtime"] "ElevenLabs · Scribe v2 Realtime"
-                      option [value="mistral:voxtral-mini-transcribe-realtime-3-0"] "Mistral · Voxtral Mini Realtime"
-                      option [value="openrouter:openai/whisper-large-v3-turbo"] "OpenRouter · Whisper Large v3 Turbo"
-                      option [value="openrouter:deepgram/nova-3"] "OpenRouter · Deepgram Nova-3"
+                    button#dictationModel.dict-trigger [aria-expanded="false" aria-haspopup="true" aria-label="Dictation model Auto Automatic" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+                      span.src "Auto"
+                      span "Automatic"
+                      svg [fill="none" height="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="12"]
                     button.dbtn.small [type="button"] "Add API key…"
                 button.dswitch [aria-checked="true" aria-label="Voice dictation" role="switch" type="button"]
               div#skillSyncSetting.dtoggle

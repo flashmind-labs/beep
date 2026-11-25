@@ -51,8 +51,6 @@ secrecy.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_bytes.workspace = true
-flashmind-llm.workspace = true
-flashmind-types.workspace = true
 serde_json.workspace = true
 strum.workspace = true
 tauri = { workspace = true, features = ["wry", "dynamic-acl", "tray-icon", "macos-private-api", "compression"] }
@@ -85,12 +83,17 @@ beep-plugins.workspace = true
 bytes.workspace = true
 # The app data folder before Tauri starts, as Tauri finds it.
 dirs.workspace = true
+flashmind-llm.workspace = true
+hex.workspace = true
 image = { workspace = true, features = ["png"] }
+reqwest.workspace = true
+sha2.workspace = true
 sysinfo = { workspace = true, features = ["system"] }
 # macos-private-api is repeated here because the Tauri CLI checks this entry.
 tauri = { workspace = true, default-features = false, features = ["macos-private-api", "common-controls-v6", "x11", "dbus"] }
 tauri-plugin-autostart = { workspace = true }
 tauri-plugin-window-state = { workspace = true }
+transcribe-cpp.workspace = true
 
 [target.'cfg(not(any(target_os = "macos", target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-updater.workspace = true

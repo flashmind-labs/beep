@@ -1,25 +1,37 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeProvider, addedWords, anchorOf, applyTranscript, createDictationSettings, dictationNote, IDLE, isBareOptionDown, keysFrom, nextTurn, parseEvent, pcmChunks, providerOf, reanchorDraft, Resampler, spliceTranscript, startDraft, MAX_CHUNK_BYTES } from "../src/chat/dictation-state.ts";
+import { activeModel, activeProvider, addedWords, anchorOf, applyTranscript, createDictationSettings, dictationNote, IDLE, isBareOptionDown, keysFrom, nextTurn, parseEvent, parseSettings, pcmChunks, providerOf, reanchorDraft, Resampler, spliceTranscript, startDraft, MAX_CHUNK_BYTES, type DownloadChannel } from "../src/chat/dictation-state.ts";
 
-test("a model names its provider; a bare id is ElevenLabs's", () => {
-  assert.equal(providerOf("openrouter:openai/whisper-large-v3-turbo"), "openrouter");
+test("only live local and cloud models resolve to a provider; legacy OpenRouter settings reset to Automatic", () => {
+  assert.equal(providerOf("local:parakeet-unified"), "local");
+  assert.equal(providerOf("local:nemotron-3.5-asr"), "local");
+  assert.equal(providerOf("local:unknown"), null);
+  assert.equal(providerOf("openrouter:openai/whisper-large-v3-turbo"), null);
   assert.equal(providerOf("mistral:voxtral-mini-transcribe-realtime-3-0"), "mistral");
   assert.equal(providerOf("scribe_v3_live"), "elevenlabs");
   assert.equal(providerOf("acme:model"), null);
+  assert.deepEqual(parseSettings({ enabled: true, model: "openrouter:openai/whisper-large-v3-turbo" }), { enabled: true, model: null });
 });
 
-test("automatic picks the first provider with a key; a picked model needs its own", () => {
-  assert.equal(activeProvider(null, { openrouter: "9c12", mistral: "1111" }), "mistral");
-  assert.equal(activeProvider("elevenlabs:scribe_v3_live", { openrouter: "9c12" }), null);
+test("automatic prefers an installed local model, then a keyed live cloud provider", () => {
+  const nemotronReady = { "local:nemotron-3.5-asr": { bytes: 751_094_240, installed: true, downloading: false, downloadedBytes: 751_094_240 } };
+  assert.equal(activeModel(null, { elevenlabs: "4a9f" }, nemotronReady)?.id, "local:nemotron-3.5-asr");
+  assert.equal(activeProvider(null, { mistral: "1111" }), "mistral");
+  assert.equal(activeProvider("local:parakeet-unified", { elevenlabs: "4a9f" }, {}), null);
+  assert.equal(activeProvider("local:nemotron-3.5-asr", {}, nemotronReady), "local");
+  assert.equal(activeProvider("elevenlabs:scribe_v3_live", { mistral: "1111" }), null);
   assert.equal(activeProvider(null, {}), null);
+
+  assert.match(dictationNote({ enabled: true, model: "local:parakeet-unified" }, {}, {}), /Download once \(731 MB\) to dictate live in English on this computer/);
+  assert.match(dictationNote({ enabled: true, model: "local:nemotron-3.5-asr" }, {}, nemotronReady), /Ready on this computer/);
   assert.match(dictationNote({ enabled: true, model: "elevenlabs:scribe_v3_live" }, {}), /Add your ElevenLabs API key/);
-  assert.match(dictationNote({ enabled: true, model: null }, { openrouter: "9c12" }), /OpenRouter · default model/);
+  assert.match(dictationNote({ enabled: true, model: null }, { mistral: "9c12" }), /Live via Mistral/);
 });
 
-test("only readable dictation keys count", () => {
+test("only readable live dictation keys count", () => {
   const keys = keysFrom([
     { kind: "api_key", provider: "elevenlabs", last4: "4a9f" },
+    { kind: "api_key", provider: "openrouter", last4: "9c12" },
     { kind: "api_key", provider: "mistral", last4: "0000", unreadable: true },
     { kind: "api_key", provider: "anthropic", last4: "abcd" },
     { kind: "github", last4: "zzzz" },
@@ -48,14 +60,12 @@ test("deleting or editing words during dictation keeps the edit when speech cont
   draft = step.draft;
   assert.equal(step.write?.value, "I am dictating.");
 
-  // User deletes "dictating." while dictation is still running, leaving "I am ".
   draft = reanchorDraft(draft, "I am ", 5, 5);
   step = applyTranscript(draft, "I am ", 5, 5, "I am dictating. And now I'm not.", "");
   draft = step.draft;
   assert.equal(step.write?.value, "I am And now I'm not.");
   assert.deepEqual(step.write?.words.map(w => w.word), ["And", "now", "I'm", "not."]);
 
-  // Deleting again and typing manually keeps both edits on the next phrase.
   step = applyTranscript(draft, "I am ready: ", 12, 12, "I am dictating. And now I'm not. ship it", "");
   assert.equal(step.write?.value, "I am ready: ship it");
 });
@@ -66,7 +76,6 @@ test("deleting an uncommitted partial skips its later commit", () => {
   draft = step.draft;
   assert.equal(step.write?.value, "1 am Dikta");
 
-  // User deletes "Dikta" before VAD commits the rewritten phrase "I am dictating.".
   draft = reanchorDraft(draft, "I am ", 5, 5);
   step = applyTranscript(draft, "I am ", 5, 5, "I am dictating.", "");
   draft = step.draft;
@@ -109,22 +118,51 @@ test("PCM goes out little-endian in chunks the app accepts", () => {
   }
 });
 
-test("a failed save puts the setting back", async () => {
+test("a failed save puts the setting back and local model downloads track progress and cancellation", async () => {
   const calls: string[] = [];
-  const store = createDictationSettings(async <T,>(cmd: string): Promise<T> => {
-    calls.push(cmd);
-    if (cmd === "dictation_settings_get") return { enabled: false, model: null } as T;
-    if (cmd === "list_credentials") return [{ kind: "api_key", provider: "openrouter", last4: "9c12" }] as T;
-    throw new Error("mesh is down");
-  });
+  const channels: DownloadChannel[] = [];
+  const store = createDictationSettings(
+    async <T,>(cmd: string): Promise<T> => {
+      calls.push(cmd);
+      if (cmd === "dictation_settings_get") return { enabled: false, model: null } as T;
+      if (cmd === "list_credentials") return [{ kind: "api_key", provider: "mistral", last4: "9c12" }] as T;
+      if (cmd === "dictation_local_models") return [{ id: "local:parakeet-unified", bytes: 731_357_568, installed: false, downloading: false, downloaded_bytes: 0 }] as T;
+      if (cmd === "dictation_model_download" || cmd === "dictation_model_cancel_download") return null as T;
+      throw new Error("mesh is down");
+    },
+    () => {
+      const channel: DownloadChannel = { onmessage() {} };
+      channels.push(channel);
+      return channel;
+    },
+  );
   await store.load();
-  assert.deepEqual(store.state.getState().keys, { openrouter: "9c12" });
+  assert.deepEqual(store.state.getState().keys, { mistral: "9c12" });
   store.setEnabled(true);
   assert.equal(store.state.getState().saved?.enabled, true);
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(store.state.getState().saved?.enabled, false);
   assert.match(store.state.getState().error, /mesh is down/);
-  assert.deepEqual(calls, ["dictation_settings_get", "list_credentials", "dictation_settings_save"]);
+
+  await store.downloadModel("local:parakeet-unified");
+  assert.equal(store.state.getState().localModels["local:parakeet-unified"]?.downloading, true);
+  channels.at(-1)?.onmessage({ kind: "progress", downloaded_bytes: 300_000_000, total_bytes: 731_357_568 });
+  assert.equal(store.state.getState().localModels["local:parakeet-unified"]?.downloadedBytes, 300_000_000);
+  await store.cancelDownload("local:parakeet-unified");
+  assert.equal(store.state.getState().localModels["local:parakeet-unified"]?.downloading, false);
+
+  await store.downloadModel("local:parakeet-unified");
+  channels.at(-1)?.onmessage({ kind: "done" });
+  assert.equal(store.state.getState().localModels["local:parakeet-unified"]?.installed, true);
+  assert.deepEqual(calls, [
+    "dictation_settings_get",
+    "list_credentials",
+    "dictation_local_models",
+    "dictation_settings_save",
+    "dictation_model_download",
+    "dictation_model_cancel_download",
+    "dictation_model_download",
+  ]);
 });
 
 test("only a bare non-repeating Option press starts a push-to-talk hold", () => {

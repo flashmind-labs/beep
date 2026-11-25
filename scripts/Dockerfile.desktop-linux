@@ -7,7 +7,7 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
     && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+        cmake g++ libdbus-1-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
         librsvg2-dev libssl-dev patchelf file curl \
     && rm -rf /var/lib/apt/lists/* \
     && npm install -g @tauri-apps/cli@2.12.4

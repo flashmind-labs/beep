@@ -13,7 +13,7 @@ import { Icon } from "../ui/icons.tsx";
 import { applyTranscript, createDictationSettings, elapsed, HOLD_OPTION_MS, IDLE, isBareOptionDown, nextTurn, parseEvent, pcmChunks, reanchorDraft, Resampler, startDraft, type DictationDraft, type Turn } from "./dictation-state.ts";
 
 /// The shared setting, read once per window.
-export const dictationSettings = createDictationSettings(invoke);
+export const dictationSettings = createDictationSettings(invoke, () => new Channel<unknown>());
 
 interface Props {
   /// The composer's text field.

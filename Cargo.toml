@@ -166,6 +166,7 @@ tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-appender = "0.2"
 tracing-log = { version = "0.2", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std"] }
+transcribe-cpp = "0.4.2"
 url = "2"
 uuid = "1"
 webpki-roots = "1"

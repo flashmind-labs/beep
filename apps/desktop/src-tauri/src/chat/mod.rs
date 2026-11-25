@@ -5,4 +5,6 @@ pub(crate) mod clipboard;
 #[cfg(desktop)]
 pub(crate) mod dictation;
 pub(crate) mod files;
+#[cfg(desktop)]
+pub(crate) mod local_dictation;
 pub(crate) mod markdown;

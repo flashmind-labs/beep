@@ -528,7 +528,31 @@ body:not(.mobile) :is(#agfield#agfield.dinput.small, .cc-pjc .box):has(> .dict-s
   body:not(.mobile) :is(.dict-dots i, .dict-status .dot) { animation: none }
   body:not(.mobile) :is(#agfield.dinput.small, .cc-pjc .box) > textarea { transition: none }
 }
-/* Settings, General: the dictation model and its key under the switch. */
+/* Settings, General: the live dictation model menu, local download progress and key status. */
 body:not(.mobile) .dict-sub { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px }
-body:not(.mobile) .dict-sub select { height: var(--ctl-h); padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12.5px; outline: 0 }
-body:not(.mobile) .dict-sub select:focus { border-color: var(--accent) }
+body:not(.mobile) .dict-sub .fs-pct { display: inline-flex; font: 500 11px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--muted) }
+body:not(.mobile) .dict-sub .fs-bar { width: 112px }
+body:not(.mobile) .dict-sub .fs-bar i { background: var(--accent) }
+body:not(.mobile) .dict-trigger { height: var(--ctl-h); padding: 0 8px 0 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--ink); color: var(--fg); font: 500 12.5px/1 var(--body); display: inline-flex; align-items: center; gap: 7px; outline: 0; transition: border-color .12s, background .12s }
+body:not(.mobile) .dict-trigger:hover:not([data-disabled]) { border-color: var(--border-hi); background: var(--elev) }
+body:not(.mobile) .dict-trigger[data-pressed], body:not(.mobile) .dict-trigger[aria-expanded="true"], body:not(.mobile) .dict-trigger[data-focus-visible] { border-color: var(--accent) }
+body:not(.mobile) .dict-trigger[data-disabled] { opacity: .55 }
+body:not(.mobile) .dict-trigger .src { font: 500 10.5px/16px var(--mono); padding: 0 5px; border-radius: calc(var(--radius-sm) * .8); background: var(--ctl-fill); color: var(--muted) }
+body:not(.mobile) .dict-trigger .src.local { color: color-mix(in srgb, var(--accent) 55%, var(--fg)); background: color-mix(in srgb, var(--accent) 16%, transparent) }
+body:not(.mobile) .dict-trigger > svg { flex: none; color: var(--muted) }
+body:not(.mobile) .dict-popover { position: relative; z-index: 60; width: 316px; max-width: calc(100vw - 24px); padding: 5px; border-radius: var(--radius); border: 1px solid color-mix(in srgb, var(--fg) 14%, var(--border)); color: var(--fg); box-shadow: inset 0 1px 0 var(--lit-edge), 0 16px 40px color-mix(in srgb, var(--shade) 55%, transparent); font: 12.5px var(--body); overflow: hidden; outline: none }
+body:not(.mobile) .dict-popover::before { content: ""; position: absolute; inset: 0; z-index: -1; background: color-mix(in srgb, var(--elev) max(84%, var(--glass-solid)), transparent); -webkit-backdrop-filter: var(--glass); backdrop-filter: var(--glass) }
+body:not(.mobile) .dict-menu, body:not(.mobile) .dict-sec { outline: none }
+body:not(.mobile) .dict-sec-hd { padding: 7px 9px 4px 29px; font: 500 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
+body:not(.mobile) .dict-sep { height: 1px; margin: 4px 5px; border: 0; background: var(--border) }
+body:not(.mobile) .dict-opt { padding: 6px 9px; border-radius: var(--radius-sm); display: grid; grid-template-columns: 14px minmax(0, 1fr) auto; align-items: center; column-gap: 6px; outline: none; cursor: default }
+body:not(.mobile) .dict-opt[data-hovered], body:not(.mobile) .dict-opt[data-focused] { background: color-mix(in srgb, var(--fg) 8%, transparent) }
+body:not(.mobile) .dict-opt[data-selected] { background: color-mix(in srgb, var(--accent) 14%, transparent) }
+body:not(.mobile) .dict-opt .chk { width: 14px; height: 14px; display: grid; place-items: center; color: var(--accent); visibility: hidden }
+body:not(.mobile) .dict-opt[data-selected] .chk { visibility: visible }
+body:not(.mobile) .dict-opt .main { min-width: 0; display: flex; align-items: baseline; gap: 6px }
+body:not(.mobile) .dict-opt .nm { font-size: 12.5px; font-weight: 500; color: var(--fg); white-space: nowrap }
+body:not(.mobile) .dict-opt .meta { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+body:not(.mobile) .dict-opt .tag { font: 500 10.5px/16px var(--mono); padding: 0 6px; border-radius: calc(var(--radius-sm) * .8); background: color-mix(in srgb, var(--fg) 6%, transparent); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap }
+body:not(.mobile) .dict-opt .tag.ready { color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent) }
+body:not(.mobile) .dict-opt .tag.dim { background: transparent; color: var(--dim); padding-right: 2px }

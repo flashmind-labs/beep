@@ -19,9 +19,9 @@ use beep_proto::{
         device::DeviceId,
     },
 };
+use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use iroh::EndpointId;
 use tauri::{AppHandle, Manager};
 
 const DROP_STEERS_LIMIT: Duration = Duration::from_secs(3);

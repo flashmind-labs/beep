@@ -72,7 +72,9 @@ pub fn run() {
     }
     let builder = tauri::Builder::default();
     #[cfg(desktop)]
-    let builder = builder.manage(chat::dictation::Dictations::default());
+    let builder = builder
+        .manage(chat::dictation::Dictations::default())
+        .manage(chat::local_dictation::LocalDictation::default());
     #[cfg(target_os = "windows")]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         if let Err(e) = center::open(app) {
@@ -318,6 +320,12 @@ pub fn run() {
             chat::dictation::dictation_stop,
             #[cfg(desktop)]
             chat::dictation::dictation_cancel,
+            #[cfg(desktop)]
+            chat::local_dictation::dictation_local_models,
+            #[cfg(desktop)]
+            chat::local_dictation::dictation_model_download,
+            #[cfg(desktop)]
+            chat::local_dictation::dictation_model_cancel_download,
             bar::window::hide_bar,
             bar::window::resize_bar,
             bar::zoom::set_zoom_level,

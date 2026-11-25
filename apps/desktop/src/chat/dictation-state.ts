@@ -1,65 +1,144 @@
-// Voice dictation in the prompt composers: the shared setting, the models it
-// can use, how a transcript lands in the field, and microphone audio as the
-// 16 kHz mono 16-bit PCM the app streams to the speech-to-text provider.
+// Voice dictation in the prompt composers: the shared setting, the live models
+// it can use (on-device GGUF models or cloud realtime streams), how a
+// transcript lands in the field, and microphone audio as 16 kHz mono 16-bit PCM.
 import { createStore } from "zustand/vanilla";
+import { bytes, reason } from "../ui/format.ts";
 
-/// `settings/dictation` (DictationSettings): `model` null picks the first provider with a key.
+/// `settings/dictation` (DictationSettings): `model` null picks the first ready live model.
 export interface DictationSettings { enabled: boolean; model: string | null }
 
-export type DictationProvider = "elevenlabs" | "mistral" | "openrouter";
+export type CloudDictationProvider = "elevenlabs" | "mistral";
+export type DictationProvider = "local" | CloudDictationProvider;
 
-export interface DictationModel { id: string; provider: DictationProvider; label: string }
+export interface DictationModel {
+  id: string;
+  provider: DictationProvider;
+  name: string;
+  meta: string;
+  label: string;
+  bytes?: number;
+  langNote?: string;
+}
 
 export const DICTATION_MODELS: readonly DictationModel[] = [
-  { id: "elevenlabs:scribe_v3_live", provider: "elevenlabs", label: "ElevenLabs · Scribe v3 Live" },
-  { id: "elevenlabs:scribe_v2_realtime", provider: "elevenlabs", label: "ElevenLabs · Scribe v2 Realtime" },
-  { id: "mistral:voxtral-mini-transcribe-realtime-3-0", provider: "mistral", label: "Mistral · Voxtral Mini Realtime" },
-  { id: "openrouter:openai/whisper-large-v3-turbo", provider: "openrouter", label: "OpenRouter · Whisper Large v3 Turbo" },
-  { id: "openrouter:deepgram/nova-3", provider: "openrouter", label: "OpenRouter · Deepgram Nova-3" },
+  { id: "local:parakeet-unified", provider: "local", name: "Parakeet Unified", meta: "English", label: "Local · Parakeet Unified", bytes: 731_357_568, langNote: "in English" },
+  { id: "local:nemotron-3.5-asr", provider: "local", name: "Nemotron 3.5", meta: "27 languages", label: "Local · Nemotron 3.5", bytes: 751_094_240, langNote: "in 27 languages" },
+  { id: "elevenlabs:scribe_v3_live", provider: "elevenlabs", name: "Scribe v3 Live", meta: "ElevenLabs", label: "ElevenLabs · Scribe v3 Live" },
+  { id: "elevenlabs:scribe_v2_realtime", provider: "elevenlabs", name: "Scribe v2 Realtime", meta: "ElevenLabs", label: "ElevenLabs · Scribe v2 Realtime" },
+  { id: "mistral:voxtral-mini-transcribe-realtime-3-0", provider: "mistral", name: "Voxtral Mini", meta: "Mistral", label: "Mistral · Voxtral Mini Realtime" },
 ];
 
-/// The order the app tries keys in when no model is picked.
-const AUTO_ORDER: readonly DictationProvider[] = ["elevenlabs", "mistral", "openrouter"];
+const DEFAULT_CLOUD_MODELS: readonly DictationModel[] = [
+  DICTATION_MODELS[2]!,
+  DICTATION_MODELS[4]!,
+];
 
-export const PROVIDER_NAMES: Record<DictationProvider, string> = { elevenlabs: "ElevenLabs", mistral: "Mistral", openrouter: "OpenRouter" };
+export const PROVIDER_NAMES: Record<DictationProvider, string> = {
+  local: "Local",
+  elevenlabs: "ElevenLabs",
+  mistral: "Mistral",
+};
 
-/// The provider a model id names; a bare id is ElevenLabs's, as the app reads it.
+/// The provider a live model id names; a bare id is ElevenLabs's, as the app reads it.
 export function providerOf(model: string): DictationProvider | null {
   const [prefix, rest] = model.includes(":") ? model.split(":", 2) : ["elevenlabs", model];
   if (!rest) return null;
-  return prefix === "elevenlabs" || prefix === "mistral" || prefix === "openrouter" ? prefix : null;
+  if (prefix === "local") return DICTATION_MODELS.some(item => item.id === `local:${rest}`) ? "local" : null;
+  return prefix === "elevenlabs" || prefix === "mistral" ? prefix : null;
 }
 
-/// The saved API keys' last four characters, by provider.
-export type DictationKeys = Partial<Record<DictationProvider, string>>;
+/// The saved cloud API keys' last four characters, by provider.
+export type DictationKeys = Partial<Record<CloudDictationProvider, string>>;
 
-/// The provider a dictation would use now, or null when no key fits.
-export function activeProvider(model: string | null, keys: DictationKeys): DictationProvider | null {
+export interface LocalModelState {
+  bytes: number;
+  installed: boolean;
+  downloading: boolean;
+  downloadedBytes: number;
+}
+
+export type LocalModels = Record<string, LocalModelState>;
+
+export function localModelStatus(id: string, localModels: LocalModels): LocalModelState | null {
+  const entry = DICTATION_MODELS.find(model => model.id === id && model.provider === "local");
+  if (!entry) return null;
+  const current = localModels[id];
+  return current ?? { bytes: entry.bytes ?? 0, installed: false, downloading: false, downloadedBytes: 0 };
+}
+
+/// The live model a dictation would use right now, or null when nothing is downloaded or keyed yet.
+export function activeModel(model: string | null, keys: DictationKeys, localModels: LocalModels = {}): DictationModel | null {
   if (model !== null) {
     const provider = providerOf(model);
-    return provider && keys[provider] !== undefined ? provider : null;
+    if (!provider) return null;
+    if (provider === "local") {
+      const entry = DICTATION_MODELS.find(item => item.id === model) ?? null;
+      return entry && localModelStatus(model, localModels)?.installed ? entry : null;
+    }
+    if (keys[provider] === undefined) return null;
+    return DICTATION_MODELS.find(item => item.id === model) ?? {
+      id: model,
+      provider,
+      name: model.includes(":") ? model.split(":", 2)[1]! : model,
+      meta: PROVIDER_NAMES[provider],
+      label: `${PROVIDER_NAMES[provider]} · ${model}`,
+    };
   }
 
-  return AUTO_ORDER.find(provider => keys[provider] !== undefined) ?? null;
+  for (const item of DICTATION_MODELS) {
+    if (item.provider === "local" && localModelStatus(item.id, localModels)?.installed) return item;
+  }
+
+  for (const item of DEFAULT_CLOUD_MODELS) {
+    if (item.provider !== "local" && keys[item.provider] !== undefined) return item;
+  }
+
+  return null;
+}
+
+/// The provider a dictation would use now, or null when nothing fits.
+export function activeProvider(model: string | null, keys: DictationKeys, localModels: LocalModels = {}): DictationProvider | null {
+  return activeModel(model, keys, localModels)?.provider ?? null;
 }
 
 /// The line under the setting.
-export function dictationNote(settings: DictationSettings, keys: DictationKeys): string {
-  if (!settings.enabled) return "Dictate prompts with ElevenLabs, Mistral or OpenRouter speech-to-text";
-  const wanted = settings.model === null ? null : providerOf(settings.model);
-  const provider = activeProvider(settings.model, keys);
-  if (provider === null) return wanted ? `Add your ${PROVIDER_NAMES[wanted]} API key in Credentials to start dictating` : "Add an ElevenLabs, Mistral or OpenRouter API key in Credentials to start dictating";
-  const label = DICTATION_MODELS.find(model => model.id === settings.model)?.label ?? `${PROVIDER_NAMES[provider]} · default model`;
-  return `${label} · mic button or hold Option in prompt composers`;
+export function dictationNote(settings: DictationSettings, keys: DictationKeys, localModels: LocalModels = {}): string {
+  if (!settings.enabled) return "Dictate prompts live on this computer or with ElevenLabs or Mistral";
+
+  if (settings.model !== null) {
+    const provider = providerOf(settings.model);
+    if (provider === "local") {
+      const entry = DICTATION_MODELS.find(item => item.id === settings.model);
+      const status = localModelStatus(settings.model, localModels);
+      const total = status?.bytes ?? entry?.bytes ?? 0;
+      if (entry && status?.downloading) return `Downloading ${entry.name} · ${bytes(status.downloadedBytes)} of ${bytes(total)}`;
+      if (status?.installed) return "Ready on this computer · mic button or hold Option in composers";
+      const lang = entry?.langNote ? ` ${entry.langNote}` : "";
+      return `Download once (${bytes(total)}) to dictate live${lang} on this computer`;
+    }
+    if (provider === "elevenlabs" || provider === "mistral") {
+      if (keys[provider] !== undefined) return `Live via ${PROVIDER_NAMES[provider]} · mic button or hold Option in composers`;
+      return `Add your ${PROVIDER_NAMES[provider]} API key in Credentials to start dictating`;
+    }
+    return "Pick a live dictation model";
+  }
+
+  const ready = activeModel(null, keys, localModels);
+  if (ready?.provider === "local") return "Ready on this computer · mic button or hold Option in composers";
+  if (ready) return `Live via ${PROVIDER_NAMES[ready.provider]} · mic button or hold Option in composers`;
+  return "Download a local model or add an ElevenLabs or Mistral API key in Credentials to start dictating";
 }
 
 export function parseSettings(value: unknown): DictationSettings {
-  if (typeof value !== "object" || value === null || !("enabled" in value) || typeof value.enabled !== "boolean") throw new Error("The app sent unreadable dictation settings.");
-  const model = "model" in value && typeof value.model === "string" ? value.model : null;
+  if (typeof value !== "object" || value === null || !("enabled" in value) || typeof value.enabled !== "boolean") {
+    throw new Error("The app sent unreadable dictation settings.");
+  }
+  const raw = "model" in value && typeof value.model === "string" ? value.model.trim() : "";
+  const model = !raw || raw.startsWith("openrouter:") ? null : raw;
   return { enabled: value.enabled, model };
 }
 
-/// The dictation keys among `list_credentials`' rows.
+/// The live dictation keys among `list_credentials`' rows.
 export function keysFrom(list: unknown): DictationKeys {
   const keys: DictationKeys = {};
   if (!Array.isArray(list)) return keys;
@@ -69,27 +148,82 @@ export function keysFrom(list: unknown): DictationKeys {
     if (typeof row !== "object" || row === null || !("kind" in row) || row.kind !== "api_key" || !("provider" in row) || typeof row.provider !== "string") continue;
     if ("unreadable" in row && row.unreadable === true) continue;
     const provider: string = row.provider;
-    if (provider === "elevenlabs" || provider === "mistral" || provider === "openrouter") keys[provider] = "last4" in row && typeof row.last4 === "string" ? row.last4 : "";
+    if (provider === "elevenlabs" || provider === "mistral") keys[provider] = "last4" in row && typeof row.last4 === "string" ? row.last4 : "";
   }
 
   return keys;
 }
 
+export function parseLocalModels(value: unknown): LocalModels {
+  const out: LocalModels = {};
+  if (!Array.isArray(value)) return out;
+  const rows: unknown[] = value;
+
+  for (const row of rows) {
+    if (typeof row !== "object" || row === null || !("id" in row) || typeof row.id !== "string") continue;
+    const total = "bytes" in row && typeof row.bytes === "number" ? row.bytes : 0;
+    const installed = "installed" in row && row.installed === true;
+    const downloading = "downloading" in row && row.downloading === true;
+    const downloadedBytes = "downloaded_bytes" in row && typeof row.downloaded_bytes === "number" ? row.downloaded_bytes : 0;
+    out[row.id] = { bytes: total, installed, downloading, downloadedBytes };
+  }
+
+  return out;
+}
+
+export type LocalDownloadEvent =
+  | { kind: "progress"; downloadedBytes: number; totalBytes: number }
+  | { kind: "done" }
+  | { kind: "cancelled" }
+  | { kind: "error"; message: string };
+
+export function parseDownloadEvent(value: unknown): LocalDownloadEvent | null {
+  if (typeof value !== "object" || value === null || !("kind" in value)) return null;
+
+  switch (value.kind) {
+    case "progress":
+      return "downloaded_bytes" in value && "total_bytes" in value && typeof value.downloaded_bytes === "number" && typeof value.total_bytes === "number"
+        ? { kind: "progress", downloadedBytes: value.downloaded_bytes, totalBytes: value.total_bytes }
+        : null;
+    case "done":
+      return { kind: "done" };
+    case "cancelled":
+      return { kind: "cancelled" };
+    case "error":
+      return { kind: "error", message: "message" in value && typeof value.message === "string" ? value.message : "Model download failed." };
+    default:
+      return null;
+  }
+}
+
 type Call = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+export interface DownloadChannel { onmessage: (message: unknown) => void }
 
-interface SettingsState { saved: DictationSettings | null; keys: DictationKeys; busy: boolean; error: string }
+interface SettingsState {
+  saved: DictationSettings | null;
+  keys: DictationKeys;
+  localModels: LocalModels;
+  busy: boolean;
+  error: string;
+}
 
-/// The shared setting: loaded once per window, saved through the mesh.
-export function createDictationSettings(call: Call) {
-  const state = createStore<SettingsState>()(() => ({ saved: null, keys: {}, busy: false, error: "" }));
+/// The shared setting: loaded once per window, saved through the mesh, with local model downloads.
+export function createDictationSettings(call: Call, makeChannel: () => DownloadChannel = () => ({ onmessage() {} })) {
+  const state = createStore<SettingsState>()(() => ({ saved: null, keys: {}, localModels: {}, busy: false, error: "" }));
   let loading: Promise<void> | null = null;
+
+  const updateLocal = (id: string, patch: Partial<LocalModelState>) => {
+    const current = localModelStatus(id, state.getState().localModels);
+    if (!current) return;
+    state.setState(prev => ({ localModels: { ...prev.localModels, [id]: { ...current, ...patch } } }));
+  };
 
   const save = async (next: DictationSettings) => {
     const was = state.getState().saved;
     if (state.getState().busy || was === null) return;
     state.setState({ saved: next, busy: true, error: "" });
     try { await call("dictation_settings_save", { settings: next }); }
-    catch (error) { state.setState({ saved: was, error: String(error) }); }
+    catch (error) { state.setState({ saved: was, error: reason(error) }); }
     finally { state.setState({ busy: false }); }
   };
 
@@ -99,15 +233,72 @@ export function createDictationSettings(call: Call) {
       loading ??= (async () => {
         state.setState({ error: "" });
         try {
-          const [settings, list] = await Promise.all([call<unknown>("dictation_settings_get"), call<unknown>("list_credentials").catch(() => [])]);
-          state.setState({ saved: parseSettings(settings), keys: keysFrom(list) });
-        } catch (error) { state.setState({ error: String(error) }); }
+          const [settings, list, locals] = await Promise.all([
+            call<unknown>("dictation_settings_get"),
+            call<unknown>("list_credentials").catch(() => []),
+            call<unknown>("dictation_local_models").catch(() => []),
+          ]);
+          const parsedLocals = parseLocalModels(locals);
+          state.setState(prev => ({
+            saved: parseSettings(settings),
+            keys: keysFrom(list),
+            localModels: { ...prev.localModels, ...parsedLocals },
+          }));
+        } catch (error) { state.setState({ error: reason(error) }); }
         finally { loading = null; }
       })();
       return loading;
     },
     setEnabled(enabled: boolean) { const saved = state.getState().saved; if (saved) void save({ ...saved, enabled }); },
     setModel(model: string | null) { const saved = state.getState().saved; if (saved) void save({ ...saved, model }); },
+    async downloadModel(model: string): Promise<void> {
+      const current = localModelStatus(model, state.getState().localModels);
+      if (!current || current.installed || current.downloading) return;
+
+      state.setState({ error: "" });
+      updateLocal(model, { downloading: true, downloadedBytes: 0 });
+      const channel = makeChannel();
+      channel.onmessage = raw => {
+        const event = parseDownloadEvent(raw);
+        if (!event) return;
+        const latest = localModelStatus(model, state.getState().localModels) ?? current;
+        switch (event.kind) {
+          case "progress":
+            updateLocal(model, {
+              bytes: event.totalBytes || latest.bytes,
+              installed: false,
+              downloading: true,
+              downloadedBytes: event.downloadedBytes,
+            });
+            break;
+          case "done":
+            updateLocal(model, { installed: true, downloading: false, downloadedBytes: latest.bytes });
+            break;
+          case "cancelled":
+            updateLocal(model, { installed: false, downloading: false, downloadedBytes: 0 });
+            break;
+          case "error":
+            updateLocal(model, { installed: false, downloading: false, downloadedBytes: 0 });
+            state.setState({ error: reason(event.message) });
+            break;
+        }
+      };
+
+      try {
+        await call("dictation_model_download", { model, onEvent: channel });
+      } catch (error) {
+        updateLocal(model, { downloading: false, downloadedBytes: 0 });
+        state.setState({ error: reason(error) });
+      }
+    },
+    async cancelDownload(model: string): Promise<void> {
+      updateLocal(model, { downloading: false, downloadedBytes: 0 });
+      try {
+        await call("dictation_model_cancel_download", { model });
+      } catch (error) {
+        state.setState({ error: reason(error) });
+      }
+    },
   };
 }
 

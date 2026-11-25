@@ -612,10 +612,10 @@ dependencies = [
  "cc",
  "dirs 7.0.0",
  "flashmind-llm",
- "flashmind-types",
  "futures",
  "gdkx11",
  "gtk",
+ "hex",
  "hyper",
  "hyper-util",
  "image",
@@ -641,6 +641,7 @@ dependencies = [
  "pulldown-latex",
  "qrcode",
  "regex",
+ "reqwest",
  "rmp-serde",
  "rusqlite",
  "rust_decimal",
@@ -651,6 +652,7 @@ dependencies = [
  "serde_bytes",
  "serde_core",
  "serde_json",
+ "sha2 0.11.1",
  "strum",
  "sysinfo",
  "tauri",
@@ -673,6 +675,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "transcribe-cpp",
  "url",
  "uuid",
  "webview2-com",
@@ -1379,6 +1382,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "197fd99cb113a8d5d9b6376f3aa817f32c1078f2343b714fff7d2ca44fdf67d5"
 dependencies = [
  "hashbrown 0.16.1",
+]
+
+[[package]]
+name = "cmake"
+version = "0.1.58"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -9786,6 +9798,27 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "transcribe-cpp"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6cf6687b4c73890aea4515632afb1586d48998f22f38e02e3cfbcd7d1543cd4a"
+dependencies = [
+ "log",
+ "thiserror 2.0.21",
+ "transcribe-cpp-sys",
+]
+
+[[package]]
+name = "transcribe-cpp-sys"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32f94fb1e9a3033101bbd500d02993cfc95e315f24417038fd42f1fd80e1059a"
+dependencies = [
+ "cmake",
+ "serde_json",
 ]
 
 [[package]]

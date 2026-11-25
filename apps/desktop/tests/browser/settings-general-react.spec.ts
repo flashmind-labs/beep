@@ -95,20 +95,77 @@ test("project sync stays serialized across reopening and rereads partial failure
   await expect(toggle).toBeEnabled();
 });
 
-test("voice dictation turns on, picks a model and points to the key in Credentials", async ({ page }) => {
-  await openDesktop(page, false, { ...responses, list_credentials: [{ id: "k1", kind: "api_key", provider: "openrouter", last4: "9c12", account: null, env_var: "OPENROUTER_API_KEY", created_at: 0 }] });
+test("voice dictation turns on, lists only live models and points to the key in Credentials", async ({ page }) => {
+  await openDesktop(page, false, {
+    ...responses,
+    list_credentials: [{ id: "k1", kind: "api_key", provider: "mistral", last4: "9c12", account: null, env_var: "MISTRAL_API_KEY", created_at: 0 }],
+  });
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   const toggle = settings.getByRole("switch", { name: "Voice dictation" });
   await expect(toggle).toHaveAttribute("aria-checked", "false");
-  await expect(settings.getByRole("combobox", { name: "Dictation model" })).toHaveCount(0);
+  await expect(page.locator("#dictationModel")).toHaveCount(0);
   await toggle.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_settings_save" && JSON.stringify(call.args.settings) === JSON.stringify({ enabled: true, model: null })))).toBe(true);
-  await expect(settings.getByText("OpenRouter · default model · mic button or hold Option in prompt composers")).toBeVisible();
-  await expect(settings.getByText("OpenRouter key …9c12")).toBeVisible();
-  await settings.getByRole("combobox", { name: "Dictation model" }).selectOption("elevenlabs:scribe_v3_live");
+  await expect(settings.getByText("Live via Mistral · mic button or hold Option in composers")).toBeVisible();
+  await expect(settings.getByText("Mistral key …9c12")).toBeVisible();
+
+  await page.locator("#dictationModel").click();
+  const menu = page.getByRole("menu", { name: "Dictation model" });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByText("On this computer")).toBeVisible();
+  await expect(menu.getByText("Cloud live API")).toBeVisible();
+  await expect(menu.getByText("OpenRouter")).toHaveCount(0);
+
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
+  await expect(settings).toBeVisible();
+
+  await page.locator("#dictationModel").click();
+  await page.getByRole("menuitemradio", { name: /Scribe v3 Live/ }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_settings_save" && JSON.stringify(call.args.settings) === JSON.stringify({ enabled: true, model: "elevenlabs:scribe_v3_live" })))).toBe(true);
   await expect(settings.getByText("Add your ElevenLabs API key in Credentials to start dictating")).toBeVisible();
   await settings.getByRole("button", { name: "Add API key…" }).click();
   await expect(settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Credentials", exact: true })).toHaveAttribute("aria-current", "true");
+});
+
+test("local dictation models download on demand and are ready immediately when already on disk", async ({ page }) => {
+  await openDesktop(page, false, {
+    ...responses,
+    dictation_settings_get: { enabled: true, model: "local:parakeet-unified" },
+    dictation_local_models: [
+      { id: "local:parakeet-unified", bytes: 731_357_568, installed: false, downloading: false, downloaded_bytes: 0 },
+      { id: "local:nemotron-3.5-asr", bytes: 751_094_240, installed: true, downloading: false, downloaded_bytes: 751_094_240 },
+    ],
+  });
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+
+  const download = settings.getByRole("button", { name: "Download (731 MB)" });
+  await expect(download).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Add API key…" })).toHaveCount(0);
+
+  await download.click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_model_download" && call.args.model === "local:parakeet-unified"))).toBe(true);
+
+  await page.evaluate(() => {
+    const call = window.__navigation.calls().findLast(item => item.command === "dictation_model_download");
+    const channel = call?.args.onEvent as { onmessage(event: unknown): void } | undefined;
+    channel?.onmessage({ kind: "progress", downloaded_bytes: 314_483_754, total_bytes: 731_357_568 });
+  });
+  await expect(settings.getByLabel("Download progress 43%")).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Cancel" })).toBeVisible();
+
+  await page.evaluate(() => {
+    const call = window.__navigation.calls().findLast(item => item.command === "dictation_model_download");
+    const channel = call?.args.onEvent as { onmessage(event: unknown): void } | undefined;
+    channel?.onmessage({ kind: "done" });
+  });
+  await expect(settings.getByText("On device · 731 MB")).toBeVisible();
+  await expect(settings.getByRole("button", { name: "Download (731 MB)" })).toHaveCount(0);
+
+  await page.locator("#dictationModel").click();
+  await page.getByRole("menuitemradio", { name: /Nemotron 3\.5/ }).click();
+  await expect(settings.getByText("On device · 751 MB")).toBeVisible();
+  await expect(settings.getByRole("button", { name: /Download/ })).toHaveCount(0);
 });

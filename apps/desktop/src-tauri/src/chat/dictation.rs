@@ -1,52 +1,37 @@
-//! Desktop voice dictation: streams 16 kHz mono PCM from the composer to
-//! ElevenLabs or Mistral realtime transcription, or phrase by phrase to
-//! OpenRouter, through `flashmind-llm` with the API keys saved in the mesh.
-//! Secrets never leave this process.
+//! Desktop voice dictation: streams 16 kHz mono PCM from the composer to an
+//! on-device `transcribe-cpp` model (`Parakeet Unified` or `Nemotron 3.5`) or a
+//! cloud realtime stream (`ElevenLabs` or `Mistral`) with the API keys saved in
+//! the mesh. Secrets never leave this process.
 
 use crate::{
+    chat::local_dictation::{
+        LocalDictation, LocalModelId, ModelPaths, installed_model_path, run_local,
+    },
     error::{DesktopError, Result},
     fleet::projects::{FleetState, desk},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use beep_proto::ApiKey;
 use bytes::Bytes;
-use flashmind_llm::{
-    ElevenLabsProvider, MistralProvider, OpenRouterProvider, elevenlabs, mistral,
-    openrouter::TranscriptionOptions,
-};
-use flashmind_types::SttRequest;
+use flashmind_llm::{ElevenLabsProvider, MistralProvider, elevenlabs, mistral};
 use futures::StreamExt as _;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use serde::Serialize;
-use std::{collections::HashMap, sync::Mutex, time::Duration};
+use std::{collections::HashMap, path::PathBuf, sync::Mutex, time::Duration};
 use tauri::{Manager as _, State, Window, ipc::Channel};
 use tokio::{sync::mpsc, time::timeout};
 use url::Url;
 use uuid::Uuid;
 
-const SAMPLE_RATE: u32 = 16_000;
 const AUDIO_QUEUE: usize = 128;
 const MAX_CHUNK_BYTES: usize = 262_144;
 /// Fifteen minutes of 16 kHz 16-bit mono audio.
 const MAX_SESSION_PCM_BYTES: usize = 32_000 * 60 * 15;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 const DRAIN_TIMEOUT: Duration = Duration::from_millis(2500);
-const OPENROUTER_TIMEOUT: Duration = Duration::from_secs(45);
-
-/// RMS threshold squared on signed 16-bit PCM (`280^2`) separating voice from room floor.
-const SPEECH_MEAN_SQUARE: u64 = 78_400;
-/// At least 400 ms of speech before silence ends a phrase segment on OpenRouter.
-const MIN_SPEECH_BYTES: usize = 12_800;
-/// 200 ms of audio kept ahead of the first voiced chunk.
-const PRE_ROLL_BYTES: usize = 6_400;
-/// 850 ms of trailing silence triggers an interim phrase upload on OpenRouter.
-const SILENCE_FLUSH_BYTES: usize = 27_200;
-/// Cap one OpenRouter interim segment at 12 seconds so long sentences still appear live.
-const MAX_SEGMENT_BYTES: usize = 384_000;
 
 const DEFAULT_ELEVENLABS_MODEL: &str = "scribe_v3_live";
 const DEFAULT_MISTRAL_MODEL: &str = "voxtral-mini-transcribe-realtime-3-0";
-const DEFAULT_OPENROUTER_MODEL: &str = "openai/whisper-large-v3-turbo";
 
 const ELEVENLABS_BASE: &str = "https://api.elevenlabs.io/";
 const MISTRAL_BASE: &str = "https://api.mistral.ai/";
@@ -74,19 +59,14 @@ pub(crate) enum AudioCommand {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Target {
+    Local { model: LocalModelId },
     ElevenLabs { model: String },
     Mistral { model: String },
-    OpenRouter { model: String },
 }
 
-impl Target {
-    fn provider(&self) -> ApiKey {
-        match self {
-            Self::ElevenLabs { .. } => ApiKey::ElevenLabs,
-            Self::Mistral { .. } => ApiKey::Mistral,
-            Self::OpenRouter { .. } => ApiKey::OpenRouter,
-        }
-    }
+pub(crate) enum Credential {
+    Local(PathBuf),
+    ApiKey(SecretString),
 }
 
 struct Running {
@@ -170,6 +150,7 @@ pub async fn dictation_start(
     window: Window,
     fleet: FleetState<'_>,
     dictations: State<'_, Dictations>,
+    local: State<'_, LocalDictation>,
     model: Option<String>,
     on_event: Channel<DictationEvent>,
 ) -> Result<Uuid> {
@@ -178,18 +159,33 @@ pub async fn dictation_start(
         .map(|text| text.trim().to_owned())
         .filter(|text| !text.is_empty())
         .or_else(|| desk.dictation().model);
-    let (target, secret) =
-        resolve_model(chosen.as_deref(), |provider| desk.api_key_secret(provider))?;
+    let paths = ModelPaths::from_app(window.app_handle())?;
+    let installed_paths: HashMap<LocalModelId, PathBuf> = tokio::task::spawn_blocking(move || {
+        LocalModelId::ALL
+            .into_iter()
+            .filter_map(|id| installed_model_path(&paths, id).map(|path| (id, path)))
+            .collect()
+    })
+    .await
+    .map_err(|e| DesktopError::Other(e.into()))?;
+
+    let (target, credential) = resolve_model(
+        chosen.as_deref(),
+        |id| installed_paths.get(&id).cloned(),
+        |provider| desk.api_key_secret(provider),
+    )?;
 
     let id = Uuid::new_v4();
     let (audio_tx, audio_rx) = mpsc::channel(AUDIO_QUEUE);
     let label = window.label().to_owned();
     let app = window.app_handle().clone();
+    let local_state = local.inner().clone();
 
     let task = tauri::async_runtime::spawn(async move {
         run_dictation(
             target,
-            secret,
+            credential,
+            local_state,
             audio_rx,
             move |event| {
                 let _ = on_event.send(event);
@@ -269,18 +265,46 @@ impl Urls {
 
 pub(crate) fn resolve_model(
     model: Option<&str>,
+    mut local_path: impl FnMut(LocalModelId) -> Option<PathBuf>,
     mut key_for: impl FnMut(ApiKey) -> Option<SecretString>,
-) -> Result<(Target, SecretString)> {
-    if let Some(raw) = model.map(str::trim).filter(|s| !s.is_empty()) {
+) -> Result<(Target, Credential)> {
+    let explicit = model
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty() && !raw.starts_with("openrouter:"));
+
+    if let Some(raw) = explicit {
         let target = parse_target(raw)?;
-        let provider = target.provider();
-        let secret = key_for(provider).ok_or_else(|| {
-            DesktopError::BadRequest(format!(
-                "Add your {} API key in Settings first.",
-                provider.human_readable_name()
-            ))
-        })?;
-        return Ok((target, secret));
+        return match target {
+            Target::Local { model } => {
+                let path = local_path(model).ok_or_else(|| {
+                    DesktopError::BadRequest(format!(
+                        "Download {} in Settings > General first.",
+                        model.display_name()
+                    ))
+                })?;
+                Ok((target, Credential::Local(path)))
+            }
+            Target::ElevenLabs { .. } => {
+                let secret = key_for(ApiKey::ElevenLabs).ok_or_else(|| {
+                    DesktopError::BadRequest(
+                        "Add your ElevenLabs API key in Settings first.".into(),
+                    )
+                })?;
+                Ok((target, Credential::ApiKey(secret)))
+            }
+            Target::Mistral { .. } => {
+                let secret = key_for(ApiKey::Mistral).ok_or_else(|| {
+                    DesktopError::BadRequest("Add your Mistral API key in Settings first.".into())
+                })?;
+                Ok((target, Credential::ApiKey(secret)))
+            }
+        };
+    }
+
+    for id in LocalModelId::ALL {
+        if let Some(path) = local_path(id) {
+            return Ok((Target::Local { model: id }, Credential::Local(path)));
+        }
     }
 
     for (provider, default) in [
@@ -296,20 +320,14 @@ pub(crate) fn resolve_model(
                 model: DEFAULT_MISTRAL_MODEL.to_owned(),
             },
         ),
-        (
-            ApiKey::OpenRouter,
-            Target::OpenRouter {
-                model: DEFAULT_OPENROUTER_MODEL.to_owned(),
-            },
-        ),
     ] {
         if let Some(secret) = key_for(provider) {
-            return Ok((default, secret));
+            return Ok((default, Credential::ApiKey(secret)));
         }
     }
 
     Err(DesktopError::BadRequest(
-        "Add an ElevenLabs, Mistral or OpenRouter API key in Settings first.".into(),
+        "Download a local model or add an ElevenLabs or Mistral API key in Settings first.".into(),
     ))
 }
 
@@ -324,13 +342,13 @@ pub(crate) fn parse_target(model: &str) -> Result<Target> {
     }
 
     match prefix {
+        "local" => LocalModelId::from_slug(slug)
+            .map(|model| Target::Local { model })
+            .ok_or_else(|| DesktopError::BadRequest("Unknown local dictation model.".into())),
         "elevenlabs" => Ok(Target::ElevenLabs {
             model: slug.to_owned(),
         }),
         "mistral" => Ok(Target::Mistral {
-            model: slug.to_owned(),
-        }),
-        "openrouter" => Ok(Target::OpenRouter {
             model: slug.to_owned(),
         }),
         _ => Err(DesktopError::BadRequest(
@@ -341,19 +359,23 @@ pub(crate) fn parse_target(model: &str) -> Result<Target> {
 
 pub(crate) async fn run_dictation(
     target: Target,
-    secret: SecretString,
+    credential: Credential,
+    local: LocalDictation,
     audio: mpsc::Receiver<AudioCommand>,
     mut emit: impl FnMut(DictationEvent) + Send,
     urls: Urls,
 ) {
-    let outcome = match target {
-        Target::ElevenLabs { model } => {
+    let outcome = match (target, credential) {
+        (Target::Local { model }, Credential::Local(path)) => {
+            run_local(local, model, path, audio, &mut emit).await
+        }
+        (Target::ElevenLabs { model }, Credential::ApiKey(secret)) => {
             run_elevenlabs(&urls.elevenlabs, model, secret, audio, &mut emit).await
         }
-        Target::Mistral { model } => {
+        (Target::Mistral { model }, Credential::ApiKey(secret)) => {
             run_mistral(&urls.mistral, model, secret, audio, &mut emit).await
         }
-        Target::OpenRouter { model } => run_openrouter(model, secret, audio, &mut emit).await,
+        _ => Err("Mismatched dictation credential.".into()),
     };
 
     match outcome {
@@ -396,7 +418,7 @@ impl Transcript {
 }
 
 /// The next microphone chunk, or `None` once the user stops or the session limit is reached.
-fn next_audio(command: Option<AudioCommand>, sent: &mut usize) -> Option<Bytes> {
+pub(crate) fn next_audio(command: Option<AudioCommand>, sent: &mut usize) -> Option<Bytes> {
     let Some(AudioCommand::Append(pcm)) = command else {
         return None;
     };
@@ -540,115 +562,6 @@ fn apply_mistral(
         }
         _ => {}
     }
-}
-
-/// OpenRouter only transcribes whole files, so each pause after speech uploads one phrase.
-async fn run_openrouter(
-    model: String,
-    secret: SecretString,
-    mut audio: mpsc::Receiver<AudioCommand>,
-    emit: &mut (impl FnMut(DictationEvent) + Send),
-) -> std::result::Result<bool, String> {
-    let provider = OpenRouterProvider::new(secret.expose_secret().to_owned());
-    emit(DictationEvent::Ready);
-
-    let mut transcript = Transcript::default();
-    let mut segment: Vec<u8> = Vec::new();
-    let mut speech_bytes: usize = 0;
-    let mut silence_bytes: usize = 0;
-    let mut sent = 0;
-
-    while let Some(pcm) = next_audio(audio.recv().await, &mut sent) {
-        let voiced = pcm_is_voiced(&pcm);
-        segment.extend_from_slice(&pcm);
-        if voiced {
-            speech_bytes = speech_bytes.saturating_add(pcm.len());
-            silence_bytes = 0;
-        } else if speech_bytes > 0 {
-            silence_bytes = silence_bytes.saturating_add(pcm.len());
-        } else if segment.len() > PRE_ROLL_BYTES {
-            segment.drain(..segment.len() - PRE_ROLL_BYTES);
-        }
-
-        let phrase_ended =
-            silence_bytes >= SILENCE_FLUSH_BYTES || segment.len() >= MAX_SEGMENT_BYTES;
-        if speech_bytes >= MIN_SPEECH_BYTES && phrase_ended {
-            emit(DictationEvent::Thinking);
-            let text =
-                transcribe_openrouter(&provider, &model, std::mem::take(&mut segment)).await?;
-            speech_bytes = 0;
-            silence_bytes = 0;
-            transcript.commit(&text);
-            emit(transcript.event());
-        }
-    }
-
-    if speech_bytes > 0 && !segment.is_empty() {
-        emit(DictationEvent::Thinking);
-        let text = transcribe_openrouter(&provider, &model, segment).await?;
-        transcript.commit(&text);
-        emit(transcript.event());
-    }
-
-    Ok(transcript.settle(emit))
-}
-
-async fn transcribe_openrouter(
-    provider: &OpenRouterProvider,
-    model: &str,
-    pcm: Vec<u8>,
-) -> std::result::Result<String, String> {
-    let request = SttRequest {
-        model: model.to_owned(),
-        audio: encode_wav_pcm16_mono(&pcm, SAMPLE_RATE),
-        media_type: "audio/wav".to_owned(),
-        language: None,
-    };
-    let response = timeout(
-        OPENROUTER_TIMEOUT,
-        provider.transcribe_detailed(request, TranscriptionOptions::default()),
-    )
-    .await
-    .map_err(|_| "OpenRouter transcription timed out.".to_owned())?
-    .map_err(|e| format!("OpenRouter transcription failed: {e:#}"))?;
-
-    Ok(response.text)
-}
-
-pub(crate) fn pcm_is_voiced(pcm: &[u8]) -> bool {
-    let samples = pcm.len() / 2;
-    if samples == 0 {
-        return false;
-    }
-
-    let mut sum_sq: u64 = 0;
-    for pair in pcm.as_chunks::<2>().0 {
-        let sample = i64::from(i16::from_le_bytes(*pair));
-        sum_sq = sum_sq.saturating_add(sample.unsigned_abs().saturating_mul(sample.unsigned_abs()));
-    }
-
-    sum_sq / (samples as u64) >= SPEECH_MEAN_SQUARE
-}
-
-pub(crate) fn encode_wav_pcm16_mono(pcm: &[u8], sample_rate: u32) -> Vec<u8> {
-    let data_len = u32::try_from(pcm.len()).unwrap_or(u32::MAX);
-    let riff_len = data_len.saturating_add(36);
-    let byte_rate = sample_rate.saturating_mul(2);
-    let mut out = Vec::with_capacity(pcm.len().saturating_add(44));
-    out.extend_from_slice(b"RIFF");
-    out.extend_from_slice(&riff_len.to_le_bytes());
-    out.extend_from_slice(b"WAVEfmt ");
-    out.extend_from_slice(&16u32.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&1u16.to_le_bytes());
-    out.extend_from_slice(&sample_rate.to_le_bytes());
-    out.extend_from_slice(&byte_rate.to_le_bytes());
-    out.extend_from_slice(&2u16.to_le_bytes());
-    out.extend_from_slice(&16u16.to_le_bytes());
-    out.extend_from_slice(b"data");
-    out.extend_from_slice(&data_len.to_le_bytes());
-    out.extend_from_slice(pcm);
-    out
 }
 
 fn append_segment(committed: &mut String, segment: &str) {
