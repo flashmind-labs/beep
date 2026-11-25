@@ -119,6 +119,17 @@ jobs:
         with:
           targets: aarch64-apple-darwin,x86_64-apple-darwin
 
+      # The runner is ours and runs one job at a time: builds share a target
+      # folder outside the checkout, which checkout would wipe, capped at 40 GB.
+      - name: Keep the build folder between runs
+        run: |
+          dir="$HOME/Library/Caches/beep-ci/target"
+          if [[ -d "$dir" ]] && (( $(du -sk "$dir" | cut -f1) > 40 * 1024 * 1024 )); then
+            rm -rf "$dir"
+          fi
+          mkdir -p "$dir"
+          echo "CARGO_TARGET_DIR=$dir" >> "$GITHUB_ENV"
+
       - name: Build and package
         run: |
           set -euo pipefail
@@ -126,7 +137,7 @@ jobs:
           for target in aarch64-apple-darwin x86_64-apple-darwin; do
             cargo build --release --locked --package beep-node --bin beep-node --target "$target"
             # Without AppleDouble ._ entries for the binary's extended attributes.
-            COPYFILE_DISABLE=1 tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "target/$target/release" beep-node
+            COPYFILE_DISABLE=1 tar -czf "dist/beep-node-$VERSION-$target.tar.gz" -C "$CARGO_TARGET_DIR/$target/release" beep-node
           done
 
       - uses: actions/upload-artifact@v7
