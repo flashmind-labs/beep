@@ -13,7 +13,8 @@ use crate::{
     agents::tags::{self, Part},
     agents::{
         Picture, block_picture, cut,
-        window::{content_text, finish_tool_call, window},
+        found::unix_millis,
+        window::{Excerpt, content_text, finish_tool_call, window},
     },
     files::fsat::{self, FileId},
 };
@@ -634,18 +635,6 @@ pub(super) fn tool_line(block: &Value) -> String {
     }
 }
 
-/// Unix seconds of an RFC 3339 UTC time such as `2026-10-29T12:34:56.789Z`.
-pub(crate) fn unix_seconds(text: &str) -> Option<u64> {
-    unix_millis(text).map(|ms| ms / 1000)
-}
-
-/// Unix milliseconds of an RFC 3339 time such as `2026-10-29T12:34:56.789Z`.
-fn unix_millis(text: &str) -> Option<u64> {
-    chrono::DateTime::parse_from_rfc3339(text)
-        .ok()
-        .and_then(|at| u64::try_from(at.timestamp_millis()).ok())
-}
-
 /// The complete lines at the end of a file.
 pub(super) struct Tail {
     pub(super) text: String,
@@ -785,16 +774,6 @@ pub(super) fn head(path: &Path) -> io::Result<Digest> {
     let len = file.metadata()?.len();
     let head = read_from(&mut file, 0, len.min(HEAD))?;
     Ok(Digest::for_file(path, &head.text, false))
-}
-
-/// The end of a transcript, as `entries` reads it.
-#[derive(Debug)]
-pub(crate) struct Excerpt {
-    pub(crate) entries: Vec<Entry>,
-    /// Entries before these in what was read.
-    pub(crate) earlier: u64,
-    /// The pictures the prompts read held, oldest first.
-    pub(crate) pictures: Vec<Picture>,
 }
 
 /// Recover history omitted by ACP without duplicating the replay. Prefer

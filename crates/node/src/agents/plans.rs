@@ -200,7 +200,7 @@ fn claude_plan(usage: &Value, at: u64) -> Option<PlanUsage> {
             used_percent: value.get("utilization")?.as_f64()?.clamp(0.0, 100.0),
             resets_at: value["resets_at"]
                 .as_str()
-                .and_then(crate::agents::claude::unix_seconds),
+                .and_then(crate::agents::found::unix_seconds),
             scope: scope.map(str::to_owned),
         })
     };
@@ -312,7 +312,7 @@ fn agy_plan(data: &Value, at: u64) -> Option<PlanUsage> {
                         resets_at: (left < 1.0)
                             .then(|| bucket["reset_time"].as_str())
                             .flatten()
-                            .and_then(crate::agents::claude::unix_seconds),
+                            .and_then(crate::agents::found::unix_seconds),
                         scope: scope.map(str::to_owned),
                     })
                 })

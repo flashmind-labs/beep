@@ -59,7 +59,7 @@ pub fn socket_path(dir: &Path) -> PathBuf {
 
 /// Claude Code's user settings file.
 pub fn user_settings() -> Result<PathBuf> {
-    let root = super::config_dir().context("this machine has no home folder")?;
+    let root = crate::agents::claude_dir::config_dir().context("this machine has no home folder")?;
     Ok(root.join("settings.json"))
 }
 

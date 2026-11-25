@@ -22,6 +22,7 @@ host! {
     use tokio::{sync::watch, time::Instant};
 
     pub mod claude;
+    pub(crate) mod claude_dir;
     mod claude_direct;
     mod codex_direct;
     pub(crate) mod found;

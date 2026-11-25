@@ -2,7 +2,7 @@
 
 use super::{Harness, Stored};
 use crate::agents::{
-    Agents, claude,
+    Agents, claude_dir,
     found::{self, Agent},
 };
 use anyhow::{Context, Result, ensure};
@@ -63,7 +63,7 @@ impl StoreRoots {
     /// As the harnesses find them: their environment variables, else the
     /// home folder. `None` without a home folder to fall back on.
     pub(crate) fn locate() -> Option<Self> {
-        let claude = claude::config_dir()?.join("projects");
+        let claude = claude_dir::config_dir()?.join("projects");
         let codex = found::codex_home()?;
         let pi = found::pi_sessions()?;
         let flsh = found::flsh_sessions_dir()?;

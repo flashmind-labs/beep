@@ -158,14 +158,6 @@ fn a_process_in_the_folder_runs_its_newest_session_only() {
 }
 
 #[test]
-fn folders_slug_like_claude_code() {
-    assert_eq!(
-        slug(Path::new("/srv/my_project/.worktrees/v2")),
-        "-srv-my-project--worktrees-v2"
-    );
-}
-
-#[test]
 fn a_session_that_moved_into_a_linked_worktree_says_so() {
     use crate::agents::checkout::tests::{has_git, run};
 

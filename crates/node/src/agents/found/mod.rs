@@ -781,6 +781,18 @@ pub(in crate::agents) fn unix_secs(at: SystemTime) -> u64 {
         .map_or(0, |since| since.as_secs())
 }
 
+/// Unix seconds of an RFC 3339 UTC time such as `2026-10-29T12:34:56.789Z`.
+pub(in crate::agents) fn unix_seconds(text: &str) -> Option<u64> {
+    unix_millis(text).map(|ms| ms / 1000)
+}
+
+/// Unix milliseconds of an RFC 3339 time such as `2026-10-29T12:34:56.789Z`.
+pub(in crate::agents) fn unix_millis(text: &str) -> Option<u64> {
+    chrono::DateTime::parse_from_rfc3339(text)
+        .ok()
+        .and_then(|at| u64::try_from(at.timestamp_millis()).ok())
+}
+
 pub(in crate::agents) fn is_jsonl(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "jsonl")
 }

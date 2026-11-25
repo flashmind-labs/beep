@@ -22,16 +22,6 @@ fn only_a_stopped_session_is_taken_over() {
     assert_eq!(refuse_takeover(&found), None, "a gone folder is no reason");
 }
 
-#[test]
-fn the_config_dir_follows_the_variable_then_home() {
-    let home = Some(PathBuf::from("/home/user"));
-    let usual = Some(PathBuf::from("/home/user/.claude"));
-    assert_eq!(config_dir_in(None, home.clone()), usual);
-    assert_eq!(config_dir_in(Some("".into()), home.clone()), usual);
-    let set = config_dir_in(Some("/srv/claude".into()), home);
-    assert_eq!(set, Some(PathBuf::from("/srv/claude")));
-}
-
 #[tokio::test]
 async fn sessions_show_once_the_projects_folder_appears() {
     let id = "0f3c2a9e-1111-4222-8333-944455556666";

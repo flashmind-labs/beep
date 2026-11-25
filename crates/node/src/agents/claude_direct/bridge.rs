@@ -336,7 +336,7 @@ impl Bridge {
             return updates::transcript(cwd, id);
         };
         let cwd = wsl::linux_path(cwd)?;
-        let folder = crate::agents::claude::slug(Path::new(cwd.as_ref()));
+        let folder = crate::agents::claude_dir::slug(Path::new(cwd.as_ref()));
         let transcript = self
             .home
             .as_ref()?

@@ -53,7 +53,7 @@ impl Roots {
     pub(crate) fn locate() -> Self {
         let logs = LogRoots::locate();
         let accounts = AccountFiles {
-            claude: crate::agents::claude::config_dir(),
+            claude: crate::agents::claude_dir::config_dir(),
             codex: logs.codex.as_ref().map(|home| home.join("auth.json")),
             pi: logs.pi_agent.as_ref().map(|dir| dir.join("auth.json")),
             opencode: logs.opencode.as_deref().map(|root| {
@@ -66,7 +66,7 @@ impl Roots {
             }),
         };
         Self {
-            claude: crate::agents::claude::projects_dir(),
+            claude: crate::agents::claude_dir::projects_dir(),
             codex: logs.codex.map(|home| home.join("sessions")),
             pi: logs.pi,
             flsh: logs.flsh,

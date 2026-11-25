@@ -1024,7 +1024,7 @@ async fn owned_claude_sessions_report_the_native_cwd_after_relative_shell_edits(
     let projects = root
         .path()
         .join("claude/projects")
-        .join(super::claude::slug(&repo));
+        .join(super::claude_dir::slug(&repo));
     std::fs::create_dir_all(&projects).expect("a transcript folder");
     let path = projects.join(format!("{CLAUDE_ID}.jsonl"));
     let append = |cwd: &Path| {
@@ -1097,7 +1097,7 @@ async fn native_places_skip_an_unreadable_transcript() {
     std::fs::create_dir(&repo).expect("a checkout folder");
     run(&repo, &["init", "-q", "-b", "main"]);
     let config = root.path().join("claude");
-    let folder = config.join("projects").join(super::claude::slug(&repo));
+    let folder = config.join("projects").join(super::claude_dir::slug(&repo));
     std::fs::create_dir_all(&folder).expect("a transcript folder");
     let line = serde_json::json!({
         "type": "assistant", "cwd": repo,

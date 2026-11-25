@@ -4,7 +4,7 @@
 
 use super::{Agent, Memos, Seen, header_sessions, is_jsonl, prompt_title};
 use crate::agents::{
-    claude::unix_seconds,
+    found::unix_seconds,
     window::{MAX_HEAD, content_text, head_lines},
 };
 use beep_proto::SessionId;

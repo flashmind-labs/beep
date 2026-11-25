@@ -122,7 +122,7 @@ impl Snapshot {
 impl Store {
     /// The store on this machine, when Claude Code has one.
     pub(crate) fn locate() -> Option<Self> {
-        Self::in_root(&super::config_dir()?)
+        Self::in_root(&crate::agents::claude_dir::config_dir()?)
     }
 
     /// The store in Claude Code's folder `root`, once it has `projects`.
@@ -234,16 +234,6 @@ pub(super) fn is_session_id(id: &str) -> bool {
     id.len() == 36
         && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
         && id.matches('-').count() == 4
-}
-
-/// The folder name Claude Code files a folder's sessions under: every
-/// character other than a letter or digit becomes `-`.
-pub(crate) fn slug(folder: &Path) -> String {
-    folder
-        .to_string_lossy()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect()
 }
 
 /// The newest `limit` sessions, or only `only`, newest first.
@@ -585,7 +575,7 @@ pub(super) fn presence(seen: &Seen<'_>, snapshot: &Snapshot, now: SystemTime) ->
                 process
                     .cwd
                     .as_deref()
-                    .is_some_and(|cwd| slug(cwd) == seen.folder)
+                    .is_some_and(|cwd| crate::agents::claude_dir::slug(cwd) == seen.folder)
             })
         };
         if let Some(process) = named.or_else(in_folder) {

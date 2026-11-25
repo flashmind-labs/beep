@@ -4,7 +4,7 @@
 
 use super::{Agents, SIGHTING_WAIT, media_file::resolve, worktrees};
 use crate::files::paths;
-use crate::{agents::claude, agents::found::LogRoots};
+use crate::agents::{claude_dir, found::LogRoots};
 use anyhow::{Context, Result, bail};
 use std::time::Duration;
 use std::{
@@ -167,7 +167,7 @@ impl Agents {
         let logs = LogRoots::locate();
         let (temp, uploads) = (claude_temp(), super::uploads::folder());
         let read = [
-            claude::projects_dir(),
+            claude_dir::projects_dir(),
             logs.codex.as_ref().map(|codex| codex.join("sessions")),
             logs.codex.map(|codex| codex.join("archived_sessions")),
             logs.pi,

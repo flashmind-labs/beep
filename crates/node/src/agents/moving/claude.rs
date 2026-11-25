@@ -7,7 +7,7 @@ use super::{
     folder::Folders,
     json::{Step, replace, string_spans},
 };
-use crate::agents::claude::slug;
+use crate::agents::claude_dir::slug;
 use std::path::PathBuf;
 
 pub(super) fn rewrite(transcript: &[u8], id: &SessionId, folders: &Folders) -> Stored {

@@ -3,7 +3,7 @@
 //! the user gave in `<CODEX_HOME>/session_index.jsonl`.
 
 use super::{Agent, Memos, Seen, header_sessions, prompt_title, unix_secs};
-use crate::agents::claude::unix_seconds;
+use crate::agents::found::unix_seconds;
 use crate::agents::{
     place::call_folder,
     subagent::Conversation,

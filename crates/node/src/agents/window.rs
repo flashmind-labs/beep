@@ -1,6 +1,8 @@
 //! Which entries of a transcript a read answers with, and bounded JSONL
 //! line and text helpers shared across session stores.
 
+use beep_proto::node::agent::Entry;
+use crate::agents::Picture;
 use serde_json::Value;
 use std::{
     fs::File,
@@ -95,3 +97,13 @@ pub(in crate::agents) fn finish_tool_call(
 #[cfg(test)]
 #[path = "../tests/agents_window.rs"]
 mod tests;
+
+/// The end of a transcript, as `entries` reads it.
+#[derive(Debug)]
+pub(crate) struct Excerpt {
+    pub(crate) entries: Vec<Entry>,
+    /// Entries before these in what was read.
+    pub(crate) earlier: u64,
+    /// The pictures the prompts read held, oldest first.
+    pub(crate) pictures: Vec<Picture>,
+}

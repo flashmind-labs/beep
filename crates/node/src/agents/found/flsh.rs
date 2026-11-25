@@ -7,7 +7,7 @@
 
 use super::{Agent, Memos, Seen, is_jsonl, newest_files, prompt_title, read_databases, xdg_data_dir};
 use crate::agents::{
-    claude::unix_seconds,
+    found::unix_seconds,
     window::{MAX_HEAD, head_lines},
 };
 use beep_proto::SessionId;

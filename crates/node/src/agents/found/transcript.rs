@@ -5,7 +5,7 @@ use beep_proto::SessionId;
 use super::{Agent, Stores, codex_run};
 use crate::agents::{
     SubagentRun,
-    claude::Excerpt,
+    window::Excerpt,
     cut,
     subagent::Subagent,
     tags,

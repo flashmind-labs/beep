@@ -14,15 +14,14 @@ use beep_proto::node::{
 };
 use std::{
     collections::{HashMap, HashSet},
-    ffi::OsString,
     path::{Path, PathBuf},
     sync::{Arc, LazyLock, Mutex, OnceLock},
     time::{Duration, Instant},
 };
 use tokio::task::spawn_blocking;
+use crate::agents::window::Excerpt;
 
-pub(crate) use discover::slug;
-pub(crate) use transcript::{Excerpt, unix_seconds};
+
 
 mod discover;
 pub mod hooks;
@@ -36,26 +35,6 @@ mod watch;
 const MAX_LISTED: usize = 50;
 /// How many a listing reads when the server names no number.
 const DEFAULT_LISTED: usize = 20;
-
-/// Claude Code's own folder: `~/.claude`, unless `CLAUDE_CONFIG_DIR` says
-/// otherwise. `None` without a home folder.
-pub(crate) fn config_dir() -> Option<PathBuf> {
-    config_dir_in(std::env::var_os("CLAUDE_CONFIG_DIR"), dirs::home_dir())
-}
-
-fn config_dir_in(set: Option<OsString>, home: Option<PathBuf>) -> Option<PathBuf> {
-    match set {
-        Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
-        _ => home.map(|home| home.join(".claude")),
-    }
-}
-
-/// The folder of Claude Code's transcripts here, when it has one:
-/// `<config>/projects/<folder>/<session>.jsonl`, a subagent's in
-/// `<session>/subagents/`.
-pub(crate) fn projects_dir() -> Option<PathBuf> {
-    discover::Store::locate().map(|store| store.projects())
-}
 
 /// Claude Code's sessions on this machine, and the hook events about them.
 pub struct External {
@@ -133,7 +112,7 @@ impl External {
     /// Looks for Claude Code's folder; without one there is nothing to list.
     pub fn locate() -> Self {
         Self {
-            root: config_dir(),
+            root: crate::agents::claude_dir::config_dir(),
             ..Self::default()
         }
     }
