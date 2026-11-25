@@ -1,7 +1,7 @@
 //! Temporary attachments on this host, outside project checkouts.
 
 use beep_proto::SessionId;
-use super::work_folder::{self, WorkRoot};
+use super::work_folder::{self, UNUSED, WorkRoot, idle, prune};
 use super::Agents;
 use crate::{files::paths, lock};
 use anyhow::{Context, Result, bail};
@@ -21,8 +21,6 @@ use tokio_util::task::AbortOnDropHandle;
 use uuid::Uuid;
 
 const DAY: Duration = Duration::from_secs(24 * 60 * 60);
-/// An upload nobody read or wrote for this long goes, whatever its session.
-const UNUSED: Duration = Duration::from_secs(3 * 24 * 60 * 60);
 const SWEEP_EVERY: Duration = Duration::from_secs(60 * 60);
 /// In a session's attachment folder: when the session last ended.
 const ENDED: &str = "ended";
@@ -109,33 +107,6 @@ pub(super) fn ended(agent: &str, session: &SessionId) -> Result<()> {
         Err(e) if e.kind() == ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.into()),
     }
-}
-
-/// Removes files in a project's `.beep/uploads` unused for three days.
-pub(super) fn prune(uploads: &Path, now: SystemTime) -> Result<()> {
-    let entries = match fs::read_dir(uploads) {
-        Ok(entries) => entries,
-        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e.into()),
-    };
-
-    for entry in entries {
-        let entry = entry?;
-
-        if entry.file_type()?.is_file() && idle(now, &entry.metadata()?) >= UNUSED {
-            fs::remove_file(entry.path())?;
-        }
-    }
-
-    Ok(())
-}
-
-/// How long since a file was last read or written.
-fn idle(now: SystemTime, meta: &fs::Metadata) -> Duration {
-    let modified = meta.modified().ok();
-    let used = meta.accessed().ok().max(modified).unwrap_or(now);
-
-    now.duration_since(used).unwrap_or_default()
 }
 
 pub(super) fn write(

@@ -22,7 +22,7 @@ use std::{
     path::{Component, Path, PathBuf},
     process::Stdio,
     sync::{LazyLock, Mutex},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 /// What a file being written is called until its last part is in, beside
@@ -644,7 +644,7 @@ pub(super) fn write(
         }
 
         if folder == uploads(&root.root)
-            && let Err(e) = super::uploads::prune(&folder, std::time::SystemTime::now())
+            && let Err(e) = prune(&folder, SystemTime::now())
         {
             log::warn!("could not clean old uploads: {e:#}");
         }
@@ -692,6 +692,35 @@ pub(super) fn write(
     }
 
     Ok(root.relative(&to))
+}
+
+/// An upload nobody read or wrote for this long goes, whatever its session.
+pub(super) const UNUSED: Duration = Duration::from_secs(3 * 24 * 60 * 60);
+/// Removes files in a project's `.beep/uploads` unused for three days.
+pub(super) fn prune(uploads: &Path, now: SystemTime) -> Result<()> {
+    let entries = match fs::read_dir(uploads) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e.into()),
+    };
+
+    for entry in entries {
+        let entry = entry?;
+
+        if entry.file_type()?.is_file() && idle(now, &entry.metadata()?) >= UNUSED {
+            fs::remove_file(entry.path())?;
+        }
+    }
+
+    Ok(())
+}
+
+/// How long since a file was last read or written.
+pub(super) fn idle(now: SystemTime, meta: &fs::Metadata) -> Duration {
+    let modified = meta.modified().ok();
+    let used = meta.accessed().ok().max(modified).unwrap_or(now);
+
+    now.duration_since(used).unwrap_or_default()
 }
 
 /// Where files dropped on a new agent's prompt go in its folder.
