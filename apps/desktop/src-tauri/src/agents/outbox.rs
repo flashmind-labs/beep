@@ -322,6 +322,18 @@ pub(crate) enum OrderKind {
 }
 
 impl OrderKind {
+    /// Whether it goes out while a message of its session resumes or uploads.
+    fn urgent(&self) -> bool {
+        matches!(
+            self,
+            Self::Cancel
+                | Self::StopAll
+                | Self::StopTask { .. }
+                | Self::Close
+                | Self::Answer { .. }
+        )
+    }
+
     fn ttl(&self) -> Option<Duration> {
         match self {
             Self::Cancel | Self::StopAll | Self::StopTask { .. } => Some(ORDER_TTL),
@@ -367,6 +379,9 @@ pub(crate) struct Held {
     next: u64,
     /// Sessions whose flusher runs.
     flushing: HashSet<SessionKey>,
+    /// Sessions whose urgent lane runs: it sends their urgent orders while their
+    /// flusher is held up by a resume or an upload.
+    urgent: HashSet<SessionKey>,
     /// Where a session that was resumed went on: a window that has not
     /// opened that yet still sends to the old one, and is sent on.
     redirects: HashMap<SessionKey, SessionKey>,
@@ -777,6 +792,46 @@ impl Held {
         }
     }
 
+    /// Whether a message of `key` is resuming its session or uploading its files.
+    fn slow(&self, key: &SessionKey) -> bool {
+        self.messages.iter().any(|m| {
+            m.key() == *key
+                && m.state == Stage::Sending
+                && (m.resume.is_some() || !m.files.is_empty())
+        })
+    }
+
+    /// Whether `key` needs an urgent lane started: an urgent order waits and
+    /// its flusher is held up.
+    pub(crate) fn start_urgent(&mut self, key: &SessionKey) -> bool {
+        self.slow(key)
+            && self
+                .orders
+                .iter()
+                .any(|o| o.key == *key && !o.sending && o.kind.urgent())
+            && self.urgent.insert(key.clone())
+    }
+
+    /// The oldest urgent order of `key`, while its flusher is held up; `None`
+    /// ends the urgent lane, and the flusher takes what is left.
+    pub(crate) fn begin_urgent(&mut self, key: &SessionKey) -> Option<Order> {
+        let key = self.resolve(key);
+        let id = self
+            .orders
+            .iter()
+            .find(|o| o.key == key && !o.sending && o.kind.urgent())
+            .map(|o| o.id)
+            .filter(|_| self.slow(&key));
+
+        match id {
+            Some(id) => self.begin_order(id),
+            None => {
+                self.urgent.remove(&key);
+                None
+            }
+        }
+    }
+
     fn begin_order(&mut self, id: u64) -> Option<Order> {
         let order = self.orders.iter_mut().find(|o| o.id == id && !o.sending)?;
         order.sending = true;
@@ -951,6 +1006,11 @@ impl Held {
 
             self.flushing.remove(&from);
             self.flushing.insert(to.clone());
+
+            if self.urgent.remove(&from) {
+                self.urgent.insert(to.clone());
+            }
+
             self.redirects.insert(from.clone(), to.clone());
         } else if let Some(resume) = self
             .messages
@@ -1103,10 +1163,11 @@ impl Held {
         keys
     }
 
+    /// What `outbox_list` answers for `key`, or the session it went on in.
     pub(crate) fn listed(&self, key: &SessionKey) -> Listed {
         Listed {
             revision: self.revision,
-            rows: self.rows(key),
+            rows: self.rows(&self.resolve(key)),
         }
     }
 
@@ -1269,6 +1330,8 @@ pub(crate) trait Link {
     async fn took(&mut self, message: &Message) -> Result<bool>;
     /// Returns when the machine may answer again.
     async fn reachable(&mut self);
+    /// Runs `flush_urgent` for `key` beside the flusher, which a resume or an upload holds up.
+    fn urgent(&mut self, _key: &SessionKey) {}
     /// Tells the windows what the session's outbox holds now.
     fn changed(&mut self, changed: Changed);
     /// Runs after an order finished or was refused in the background.
@@ -1311,6 +1374,12 @@ pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Lin
         match step {
             Step::Message(message) => {
                 let id = message.id;
+
+                // An urgent order kept behind this message goes beside it.
+                if outbox.with(|held| held.start_urgent(&key)) {
+                    link.urgent(&key);
+                }
+
                 let tried = try_message(outbox, link, &mut key, message).await;
                 let lost = matches!(tried, Tried::Lost { .. });
                 let change = outbox.with(|held| match tried {
@@ -1328,33 +1397,45 @@ pub(crate) async fn flush(outbox: &Outbox, key: &SessionKey, link: &mut impl Lin
                     link.reachable().await;
                 }
             }
-            Step::Order(order) => {
-                let id = order.id;
-                let tried = try_order(link, &order).await;
-                let lost = matches!(tried, TriedOrder::Lost);
-                let mut refused_bg = None;
-                let change = outbox.with(|held| match tried {
-                    TriedOrder::Sent => held.order_sent(id),
-                    TriedOrder::Lost => held.order_wait(id, Instant::now()),
-                    TriedOrder::Refused(reason) => {
-                        if held.order_refused(id, reason.clone()) {
-                            refused_bg = Some(reason);
-                        }
-                        None
-                    }
-                });
-
-                if let Some(change) = change {
-                    link.changed(change);
-                }
-
-                if lost {
-                    link.reachable().await;
-                } else {
-                    link.order_settled(&order, refused_bg.as_deref());
-                }
-            }
+            Step::Order(order) => run_order(outbox, link, order).await,
         }
+    }
+}
+
+/// Sends `key`'s urgent orders while a resume or an upload holds up its flusher,
+/// so a Stop or an answer does not wait behind it. Ends once there is none, or
+/// the flusher is free again.
+pub(crate) async fn flush_urgent(outbox: &Outbox, key: &SessionKey, link: &mut impl Link) {
+    while let Some(order) = outbox.with(|held| held.begin_urgent(key)) {
+        run_order(outbox, link, order).await;
+    }
+}
+
+/// One try at `order`, and what the outbox and the windows make of it.
+async fn run_order(outbox: &Outbox, link: &mut impl Link, order: Order) {
+    let id = order.id;
+    let tried = try_order(link, &order).await;
+    let lost = matches!(tried, TriedOrder::Lost);
+    let mut refused_bg = None;
+    let change = outbox.with(|held| match tried {
+        TriedOrder::Sent => held.order_sent(id),
+        TriedOrder::Lost => held.order_wait(id, Instant::now()),
+        TriedOrder::Refused(reason) => {
+            if held.order_refused(id, reason.clone()) {
+                refused_bg = Some(reason);
+            }
+            None
+        }
+    });
+
+    if let Some(change) = change {
+        link.changed(change);
+    }
+
+    if lost {
+        link.reachable().await;
+    } else {
+        link.order_settled(&order, refused_bg.as_deref());
     }
 }
 
@@ -1627,6 +1708,10 @@ impl Link for MeshLink {
         emit(&self.app, changed);
     }
 
+    fn urgent(&mut self, key: &SessionKey) {
+        spawn_urgent(&self.app, key.clone(), self.window.clone());
+    }
+
     fn order_settled(&mut self, order: &Order, refused: Option<&str>) {
         if let Some(reason) = refused {
             log::warn!(
@@ -1871,6 +1956,31 @@ fn start(app: &AppHandle, key: SessionKey, window: String) {
     });
 }
 
+/// `key`, or the session it went on in if it was resumed, so an order or a read
+/// meant for the ended one reaches the one that runs.
+pub(crate) fn resolved(app: &AppHandle, key: &SessionKey) -> SessionKey {
+    app.state::<Arc<Outbox>>().read(|held| held.resolve(key))
+}
+
+/// Runs `key`'s urgent lane, which the caller marked as running.
+fn spawn_urgent(app: &AppHandle, key: SessionKey, window: String) {
+    let Some(machine) = app.state::<Arc<Fleet>>().member(&key.machine_id) else {
+        app.state::<Arc<Outbox>>()
+            .with(|held| held.urgent.remove(&key));
+        return;
+    };
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let outbox = app.state::<Arc<Outbox>>().inner().clone();
+        let mut link = MeshLink {
+            app: app.clone(),
+            window,
+            machine,
+        };
+        flush_urgent(&outbox, &key, &mut link).await;
+    });
+}
+
 /// Starts a flusher for each session with messages kept from the last run.
 pub fn resume(app: &AppHandle) {
     let outbox = app.state::<Arc<Outbox>>();
@@ -1998,11 +2108,17 @@ pub(crate) async fn send_order(
 ) -> Result<OrderAnswer> {
     let (reply, mut answer) = oneshot::channel();
     let outbox = app.state::<Arc<Outbox>>();
-    let (id, changed, flusher) =
-        outbox.with(|held| held.push_order(&key, kind, Instant::now(), Some(reply)));
+    let (id, changed, flusher, urgent) = outbox.with(|held| {
+        let (id, changed, flusher) = held.push_order(&key, kind, Instant::now(), Some(reply));
+        (id, changed, flusher, held.start_urgent(&key))
+    });
 
     if let Some(changed) = changed {
         emit(app, changed);
+    }
+
+    if urgent {
+        spawn_urgent(app, key.clone(), window.to_string());
     }
 
     if flusher {
@@ -2105,7 +2221,7 @@ pub fn outbox_drain(
         agent,
         session,
     };
-    let (messages, changed) = outbox.with(|held| held.drain(&key));
+    let (messages, changed) = outbox.with(|held| held.drain(&held.resolve(&key)));
     emit(&app, changed);
     messages.into_iter().map(Message::taken).collect()
 }

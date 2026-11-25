@@ -242,16 +242,21 @@ pub async fn agent_steer(
         return starts::steer(&app, start, &steer);
     }
 
+    // An id the session was resumed from stands for the one that runs now, which
+    // a message to it does not resume again.
+    let asked = SessionKey {
+        machine_id,
+        agent,
+        session,
+    };
+    let key = outbox::resolved(&app, &asked);
+    let resume = resume.filter(|_| key == asked);
+
     // A message goes after any waiting for its machine, and waits on this
     // device while the machine cannot be reached.
     if matches!(steer, Steer::Prompt { .. } | Steer::InTurn { .. }) {
-        fleet.machine(&machine_id)?;
+        fleet.machine(&key.machine_id)?;
         AgentSteer::try_from(steer.clone())?;
-        let key = SessionKey {
-            machine_id,
-            agent,
-            session,
-        };
         return outbox::send(
             &app,
             window.label(),
@@ -264,13 +269,9 @@ pub async fn agent_steer(
         .await;
     }
 
-    if let Some(kind) = actor_order(&fleet, &machine_id, &steer)? {
+    if let Some(kind) = actor_order(&fleet, &key.machine_id, &steer)? {
         let close = matches!(kind, OrderKind::Close);
-        let key = SessionKey {
-            machine_id: machine_id.clone(),
-            agent,
-            session: session.clone(),
-        };
+        let (machine_id, session) = (key.machine_id.clone(), key.session.clone());
         outbox::send_order(&app, window.label(), key, kind).await?;
 
         if close {
@@ -284,9 +285,9 @@ pub async fn agent_steer(
         app,
         window.label(),
         fleet,
-        machine_id,
-        agent,
-        session,
+        key.machine_id,
+        key.agent,
+        key.session,
         steer,
     )
     .await?)

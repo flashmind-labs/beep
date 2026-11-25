@@ -714,6 +714,145 @@ async fn every_change_takes_a_newer_revision_and_a_list_says_which_it_is_as_of()
     assert_eq!(Some(listed.revision), revisions.last().copied());
 }
 
+/// A link whose upload holds until released, and which says when it began.
+struct Slow {
+    inner: Fake,
+    started: Option<oneshot::Sender<()>>,
+    release: Option<oneshot::Receiver<()>>,
+    lanes: Vec<SessionKey>,
+}
+
+impl Link for Slow {
+    async fn send(&mut self, message: &Message) -> Result<Vec<String>> {
+        self.inner.send(message).await
+    }
+
+    async fn resume(&mut self, message: &Message) -> Result<Resumed> {
+        self.inner.resume(message).await
+    }
+
+    async fn configure(&mut self, message: &Message, pick: &Pick) -> Result<()> {
+        self.inner.configure(message, pick).await
+    }
+
+    async fn upload(&mut self, message: &Message) -> Result<Vec<String>> {
+        if let Some(started) = self.started.take() {
+            let _ = started.send(());
+        }
+
+        if let Some(release) = self.release.take() {
+            let _ = release.await;
+        }
+
+        self.inner.upload(message).await
+    }
+
+    async fn order(&mut self, order: &Order) -> Result<()> {
+        self.inner.order(order).await
+    }
+
+    async fn took(&mut self, message: &Message) -> Result<bool> {
+        self.inner.took(message).await
+    }
+
+    async fn reachable(&mut self) {
+        self.inner.reachable().await;
+    }
+
+    fn changed(&mut self, changed: Changed) {
+        self.inner.changed(changed);
+    }
+
+    fn urgent(&mut self, key: &SessionKey) {
+        self.lanes.push(key.clone());
+    }
+}
+
+fn held_up(release: Option<oneshot::Receiver<()>>) -> (Slow, oneshot::Receiver<()>) {
+    let (started, began) = oneshot::channel();
+    let slow = Slow {
+        inner: Fake::default(),
+        started: Some(started),
+        release,
+        lanes: Vec::new(),
+    };
+    (slow, began)
+}
+
+#[tokio::test]
+async fn a_stop_goes_out_while_a_file_uploads_and_the_message_keeps_its_place() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    outbox.with(|held| held.push(&s1, with_files("Read these", &["a.txt"]), None));
+    push(&outbox, "s1", "Then this");
+    let (release, held_until) = oneshot::channel();
+    let (mut slow, began) = held_up(Some(held_until));
+    let mut free = Fake::default();
+
+    let flusher = flush(&outbox, &s1, &mut slow);
+    let stop = async {
+        began.await.expect("the upload began");
+        let (_, _, flusher) =
+            outbox.with(|held| held.push_order(&s1, OrderKind::Cancel, Instant::now(), None));
+        assert!(!flusher, "the session's flusher is busy uploading");
+        assert!(outbox.with(|held| held.start_urgent(&s1)));
+        flush_urgent(&outbox, &s1, &mut free).await;
+
+        assert_eq!(free.ordered, [OrderKind::Cancel]);
+        assert!(free.sent.is_empty());
+        release.send(()).expect("the upload waits");
+    };
+    tokio::join!(flusher, stop);
+
+    // The message went after its upload, then the one behind it.
+    assert_eq!(
+        slow.inner.events,
+        [
+            "up:a.txt",
+            "msg:Read these\n\n@src/lib.rs @/cache/a.txt",
+            "msg:Then this"
+        ]
+    );
+    assert!(slow.inner.ordered.is_empty());
+}
+
+#[tokio::test]
+async fn an_order_kept_behind_a_message_is_given_an_urgent_lane_when_that_message_uploads() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    outbox.with(|held| {
+        held.push(&s1, with_files("Read these", &["a.txt"]), None);
+        held.push_order(&s1, OrderKind::StopAll, Instant::now(), None);
+    });
+    let (mut slow, _) = held_up(None);
+
+    flush(&outbox, &s1, &mut slow).await;
+
+    assert_eq!(slow.lanes, [s1]);
+    assert_eq!(slow.inner.ordered, [OrderKind::StopAll]);
+}
+
+#[test]
+fn only_stops_closes_and_answers_skip_a_resume_or_an_upload() {
+    let (_dir, _, outbox) = outbox();
+    let s1 = key("s1");
+    let configure = OrderKind::Mode {
+        mode: "plan".into(),
+    };
+    outbox.with(|held| held.push(&s1, resuming("first"), None));
+    outbox.with(|held| held.begin_step(&s1, Instant::now()));
+    outbox.with(|held| held.push_order(&s1, configure, Instant::now(), None));
+    assert!(!outbox.with(|held| held.start_urgent(&s1)));
+
+    outbox.with(|held| held.push_order(&s1, OrderKind::Cancel, Instant::now(), None));
+    assert!(outbox.with(|held| held.start_urgent(&s1)));
+    let order = outbox
+        .with(|held| held.begin_urgent(&s1))
+        .expect("the cancel");
+    assert_eq!(order.kind, OrderKind::Cancel);
+    assert!(outbox.with(|held| held.begin_urgent(&s1)).is_none());
+}
+
 #[tokio::test]
 async fn a_refused_upload_leaves_a_failed_row_with_its_files_and_sends_nothing_of_it() {
     let (_dir, _, outbox) = outbox();
@@ -855,6 +994,28 @@ async fn a_send_to_the_old_session_after_it_resumed_is_sent_on_and_never_resumes
 
     assert_eq!(link.resumed, 1);
     assert_eq!(link.went_to, ["s2", "s2"]);
+}
+
+#[test]
+fn a_read_or_a_take_back_for_the_ended_session_reaches_the_one_that_resumed() {
+    let (_dir, _, outbox) = outbox();
+    outbox.with(|held| held.push(&key("s1"), resuming("first"), None));
+    outbox.with(|held| held.begin_step(&key("s1"), Instant::now()));
+    outbox.with(|held| held.resumed(0, "s2".into()));
+
+    // The window still on the ended id lists what waits on the new one.
+    let listed = outbox.read(|held| held.listed(&key("s1")));
+    assert_eq!(listed.rows.len(), 1);
+    // The one being sent is left to go; once it waits again it comes back.
+    let drain = || {
+        outbox
+            .with(|held| held.drain(&held.resolve(&key("s1"))))
+            .0
+            .len()
+    };
+    assert_eq!(drain(), 0);
+    outbox.with(|held| held.wait(0, false));
+    assert_eq!(drain(), 1);
 }
 
 #[tokio::test]
