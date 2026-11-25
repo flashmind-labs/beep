@@ -65,6 +65,55 @@ fn a_listed_session_keeps_the_assistant_flag() {
     assert!(beep_session(&host, info).assistant);
 }
 
+/// The node's `agents` list holds rows only (`SessionInfo::row`), and a desktop lists a session
+/// from whichever it gets: every field a list shows must survive the cut.
+#[test]
+fn a_listed_session_is_the_same_from_its_row() {
+    let host = Host {
+        id: "machine-a".into(),
+        name: "build-box".into(),
+    };
+    let info = SessionInfo {
+        id: "a3f9c1".into(),
+        agent: "claude".into(),
+        cwd: "/srv/project".into(),
+        title: Some("Fix the build".into()),
+        started_at: 1_700_000_000,
+        last_activity: 1_700_000_500,
+        state: State {
+            status: Status::Idle,
+            summary: "Edit src/main.rs".into(),
+            subagents: 2,
+            files_touched: vec!["src/main.rs".into()],
+            queued: 1,
+            queued_messages: vec!["next".into()],
+            error: Some("slow".into()),
+            ..State::default()
+        },
+        question: Some(Question {
+            id: 3,
+            text: "Run cargo test".into(),
+            detail: Some("cargo test".into()),
+            options: Vec::new(),
+        }),
+        last_message: "\n  First line\nsecond line".into(),
+        tokens: 900,
+        turns: 4,
+        assistant: true,
+        changes: Some(beep_proto::node::agent::LineChanges {
+            additions: 3,
+            deletions: 1,
+        }),
+        reviewer: true,
+        ..SessionInfo::default()
+    };
+
+    assert_eq!(
+        beep_session(&host, info.clone()),
+        beep_session(&host, info.row())
+    );
+}
+
 #[tokio::test]
 async fn project_history_hides_background_children_only() {
     use crate::MeshError;
