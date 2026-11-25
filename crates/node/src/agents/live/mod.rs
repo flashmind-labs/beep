@@ -23,7 +23,6 @@ mod transcript;
 mod updates;
 mod v2;
 
-pub(crate) use content::cut;
 pub(crate) use tools::Sent;
 use tools::ToolCall;
 

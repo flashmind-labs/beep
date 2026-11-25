@@ -12,7 +12,8 @@ use crate::agents::{
     picture::Picture,
     known,
     launch::{AgentIn, AgentOut, Running, Started},
-    live::{Live, TurnTokens, cut},
+    live::{Live, TurnTokens},
+    text::cut,
     made_files,
     found::folder_place::of_folder,
 };

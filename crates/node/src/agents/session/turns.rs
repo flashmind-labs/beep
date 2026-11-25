@@ -8,7 +8,8 @@ use crate::agents::{
     acp::{self, Prompt},
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY, TurnEnd, summary_note},
     image_files,
-    live::{TurnFiles, TurnMade, TurnTokens, TurnWorktrees, cut},
+    live::{TurnFiles, TurnMade, TurnTokens, TurnWorktrees},
+    text::cut,
     made_files, worktrees,
 };
 use agent_client_protocol::{

@@ -1,6 +1,6 @@
 //! Bounded tool arguments and results, separate from the agent's label.
 
-use super::live::cut;
+use super::text::cut;
 use serde_json::{Map, Value};
 use std::io;
 

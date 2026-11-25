@@ -6,7 +6,8 @@ use super::{
 };
 use crate::agents::{
     acp::{self, Prompt},
-    live::{Live, cut},
+    live::Live,
+    text::cut,
 };
 use agent_client_protocol::{
     Agent, ConnectionTo, Responder,
