@@ -13,7 +13,7 @@ use crate::files::sync::{
     scan::{MAX_FILES, Stat},
     watch::Key,
 };
-use crate::files::transfer::place::Folder;
+use crate::files::place::Folder;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::sync::{Keep, ProjectStatus};
 use beep_proto::watched;

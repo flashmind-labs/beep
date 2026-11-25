@@ -1,6 +1,6 @@
 use super::*;
 use crate::files::paths;
-use crate::{files::Folders, files::transfer::place::open_target};
+use crate::{files::Folders, files::place::open_target};
 use std::{fs, io::Write};
 use tempfile::TempDir;
 

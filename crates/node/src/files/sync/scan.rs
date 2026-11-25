@@ -8,7 +8,6 @@ use super::{
 };
 use crate::files::{
     fsat::{self, FileId},
-    transfer::offer::check_same,
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::sync::{Rule, SkippedPath};
@@ -333,7 +332,7 @@ pub(super) async fn import_copy(store: &Store, found: &Found) -> Result<TempTag>
 async fn import_as(store: &Store, found: &Found, mode: ImportMode) -> Result<TempTag> {
     let identity = found.stat.id();
     let check =
-        |path: PathBuf| async move { spawn_blocking(move || check_same(&path, identity)).await? };
+        |path: PathBuf| async move { spawn_blocking(move || fsat::check_same(&path, identity)).await? };
     check(found.abs.clone()).await?;
     let tag = store
         .blobs()

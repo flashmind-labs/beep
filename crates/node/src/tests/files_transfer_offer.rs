@@ -39,15 +39,15 @@ fn a_file_swapped_after_the_walk_is_refused() {
     fs::write(&file, "a").expect("written");
     fs::write(dir.join("other.png"), "b").expect("written");
     let walked = fsat::id_of_metadata(&fs::metadata(&file).expect("exists"));
-    check_same(&file, walked).unwrap();
+    fsat::check_same(&file, walked).unwrap();
 
     fs::remove_file(&file).expect("removed");
     symlink(dir.join("other.png"), &file).expect("linked");
-    assert!(check_same(&file, walked).is_err());
+    assert!(fsat::check_same(&file, walked).is_err());
 
     fs::remove_file(&file).expect("removed");
     fs::rename(dir.join("other.png"), &file).expect("moved");
-    let changed = check_same(&file, walked).unwrap_err();
+    let changed = fsat::check_same(&file, walked).unwrap_err();
     assert!(format!("{changed:#}").contains("changed while it was being sent"));
     fs::remove_dir_all(&dir).expect("removed");
 }

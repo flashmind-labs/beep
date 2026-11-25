@@ -1,10 +1,8 @@
 //! The target's half of a transfer: `fetch` checks sizes, limits and free
 //! space, downloads into the store and moves the result into place.
 
-use super::{
-    Out, Ticker,
-    place::{self, Folder, Partial, Reserved, make_dirs_at, relative_path},
-};
+use super::{Out, Ticker};
+use crate::files::place::{self, Folder, Partial, Reserved, make_dirs_at, relative_path};
 use crate::files::sync::Parts;
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use beep_proto::node::transfer::{

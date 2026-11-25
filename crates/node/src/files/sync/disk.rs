@@ -5,7 +5,7 @@
 use super::scan::Stat;
 use crate::{
     files::fsat::{self, Dir},
-    files::transfer::place::{Folder, make_dirs_at},
+    files::place::{Folder, make_dirs_at},
 };
 use anyhow::{Context, Result, bail};
 use std::{

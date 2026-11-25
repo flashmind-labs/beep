@@ -2,7 +2,12 @@
 //! follow a link, plus file metadata that differs by platform (`FileId`,
 //! `Space`, `Volume`).
 
-use std::io;
+use anyhow::{Context, Result, bail};
+use std::{
+    fs::{self, OpenOptions},
+    io,
+    path::Path,
+};
 
 // On Unix a folder is an open descriptor and every step is `*at`, so a link
 // swapped in mid-way cannot redirect a write. Windows has no `*at` calls: a
@@ -49,4 +54,19 @@ pub(crate) struct Volume {
 /// link rather than a folder.
 pub(crate) fn not_a_folder(error: &io::Error) -> bool {
     imp::not_a_folder(error)
+}
+
+/// Fails unless `path` opens, without following a link, as the file
+/// `identity` names.
+pub(crate) fn check_same(path: &Path, identity: FileId) -> Result<()> {
+    let file = open_no_follow(OpenOptions::new().read(true), path)
+        .with_context(|| format!("opening {}", path.display()))?;
+    let opened = id_of_metadata(&file.metadata()?);
+    let named = id_of_metadata(&fs::symlink_metadata(path)?);
+
+    if opened != identity || named != identity {
+        bail!("{} changed while it was being sent", path.display());
+    }
+
+    Ok(())
 }

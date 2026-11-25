@@ -6,7 +6,7 @@ use super::{
 };
 use crate::files::{
     Folders,
-    transfer::place::{make_dirs_at, open_target},
+    place::{make_dirs_at, open_target},
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::sync::{IGNORED_PREFIX, ignored_folder};

@@ -43,12 +43,12 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::AbortOnDropHandle};
 
 mod fetch;
-pub(crate) mod grants;
 pub(crate) mod offer;
-pub(crate) mod place;
 
-use grants::Grants;
-use place::{Folder, Journal, Room};
+use crate::files::{
+    grants::{self, Grants},
+    place::{self, Folder, Journal, Room},
+};
 
 /// The most transfers, offers and fetches together, running at once.
 const MAX_RUNNING: usize = 4;

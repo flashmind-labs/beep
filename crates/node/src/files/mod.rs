@@ -5,6 +5,8 @@
 host! {
     mod folders;
     pub(crate) mod fsat;
+    pub(crate) mod grants;
+    pub(crate) mod place;
     pub(crate) mod paths;
     pub(crate) mod search;
     pub mod sync;

@@ -5,7 +5,7 @@
 use super::rules::MARKER;
 use crate::{
     files::fsat::{self, FileId},
-    files::transfer::place::Folder,
+    files::place::Folder,
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::sync::{FOLDER_CHANGED as CHANGED, FOLDER_MISSING};

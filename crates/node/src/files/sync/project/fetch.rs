@@ -3,7 +3,7 @@
 use super::{shared::Shared, task::RETRY};
 use beep_mesh::OPEN_TIMEOUT;
 use crate::files::sync::{Parts, STALL, map::FileMeta, scan::MAX_BYTES};
-use crate::files::transfer::place::{Reserved, space_at};
+use crate::files::place::{Reserved, space_at};
 use crate::lock;
 use anyhow::{Context, Result, anyhow, bail};
 use bao_tree::io::BaoContentItem;

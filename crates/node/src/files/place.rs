@@ -472,5 +472,5 @@ impl Room {
 }
 
 #[cfg(test)]
-#[path = "../../tests/files_transfer_place.rs"]
+#[path = "../tests/files_place.rs"]
 mod tests;

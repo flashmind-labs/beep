@@ -4,7 +4,7 @@
 use crate::{
     files::Folders,
     files::syncthing::{Managed, Syncthing},
-    files::transfer::{
+    files::{
         grants::Access,
         place::{Journal, Room, open_target},
     },

@@ -264,5 +264,5 @@ async fn count(mut updates: Receiver<RequestUpdate>, sent: Option<watch::Sender<
 }
 
 #[cfg(test)]
-#[path = "../../tests/files_transfer_grants.rs"]
+#[path = "../tests/files_grants.rs"]
 mod tests;

@@ -9,7 +9,7 @@ use crate::files::sync::{
 use crate::files::{
     Folders,
     sync::{map::Replica, project::Start},
-    transfer::place::open_target,
+    place::open_target,
 };
 use iroh::{
     Endpoint,

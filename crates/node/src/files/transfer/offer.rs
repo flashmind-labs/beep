@@ -19,7 +19,7 @@ use iroh_blobs::{
     format::collection::Collection,
 };
 use std::{
-    fs::{self, OpenOptions},
+    fs,
     path::{Path, PathBuf},
 };
 use tokio::task::spawn_blocking;
@@ -112,24 +112,9 @@ pub(super) struct Offered {
     _tags: Vec<TempTag>,
 }
 
-/// Fails unless `path` opens, without following a link, as the file
-/// `identity` names.
-pub(crate) fn check_same(path: &Path, identity: fsat::FileId) -> Result<()> {
-    let file = fsat::open_no_follow(OpenOptions::new().read(true), path)
-        .with_context(|| format!("opening {}", path.display()))?;
-    let opened = fsat::id_of_metadata(&file.metadata()?);
-    let named = fsat::id_of_metadata(&fs::symlink_metadata(path)?);
-
-    if opened != identity || named != identity {
-        bail!("{} changed while it was being sent", path.display());
-    }
-
-    Ok(())
-}
-
 async fn checked(path: &Path, identity: fsat::FileId) -> Result<()> {
     let path = path.to_owned();
-    spawn_blocking(move || check_same(&path, identity)).await?
+    spawn_blocking(move || fsat::check_same(&path, identity)).await?
 }
 
 /// Hashes one file into the store, reporting the bytes hashed on top of

@@ -18,7 +18,7 @@ use crate::files::sync::{
 };
 use crate::{
     files::Folders,
-    files::transfer::place::{Journal, open_target},
+    files::place::{Journal, open_target},
 };
 use anyhow::Result;
 use beep_proto::node::sync::{Keep, State as SyncState};
