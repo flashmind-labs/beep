@@ -672,6 +672,12 @@ impl Events {
             })
             .cloned()
             .collect();
+        let unkept = primed == Primed::Full
+            && has_unkept(
+                &held.topics,
+                &registry.latest.values().collect::<Vec<_>>(),
+                controller,
+            );
         let delivery = held.send.clone();
         // Hold the delivery gate so a live update cannot overtake the primed ones.
         let send = delivery.lock().unwrap_or_else(PoisonError::into_inner);
@@ -686,7 +692,7 @@ impl Events {
 
         self.changed();
 
-        if primed == Primed::Full {
+        if unkept {
             self.refresh.send_replace(());
         }
 
@@ -765,6 +771,12 @@ impl Events {
             })
             .cloned()
             .collect();
+        let unkept = since.is_none()
+            && has_unkept(
+                &held.topics,
+                &registry.latest.values().collect::<Vec<_>>(),
+                self.controller.get(),
+            );
         self.publish(&registry);
         drop(registry);
 
@@ -786,7 +798,10 @@ impl Events {
             return Ok(Some((stopped, Primed::Changes)));
         }
 
-        self.refresh.send_replace(());
+        if unkept {
+            self.refresh.send_replace(());
+        }
+
         Ok(Some((stopped, Primed::Full)))
     }
 
@@ -1274,6 +1289,16 @@ fn controller_topic(topic: &Topic) -> bool {
         topic.name(),
         "machines" | "telemetry" | "projects" | "forge" | "home" | "accounts" | "usage" | "tools"
     )
+}
+
+/// Whether some of `interests` has no kept update in `latest`: a refresh then asks the nodes for
+/// it. Everything kept was primed from the cache and needs none.
+fn has_unkept(interests: &[Interest], latest: &[&Update], controller: Option<&EndpointId>) -> bool {
+    interests.iter().any(|interest| {
+        !latest
+            .iter()
+            .any(|update| receives(std::slice::from_ref(interest), update, controller))
+    })
 }
 
 /// Controller topics contain the controller's aggregate state and are never machine-scoped.

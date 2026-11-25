@@ -792,8 +792,17 @@ fn a_window_shown_again_within_grace_gets_only_what_changed_without_a_refresh() 
 
     // The old hide and show ended the reader and attached a new one, which was sent every held
     // update and made every node stream resend its state.
-    let reattached = heard_window(&events, "two", Uuid::new_v4(), topics);
+    let reattached = heard_window(&events, "two", Uuid::new_v4(), topics.clone());
     assert_eq!(reattached.lock().unwrap().len(), 3);
+    assert!(
+        !refresh.has_changed().unwrap(),
+        "what was primed from the cache is not asked for again"
+    );
+
+    // A topic nothing was kept of is asked for.
+    let mut more = topics;
+    more.push(interest("usage", Some(machine)));
+    heard_window(&events, "three", Uuid::new_v4(), more);
     assert!(refresh.has_changed().unwrap());
 }
 
