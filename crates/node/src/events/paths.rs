@@ -18,7 +18,9 @@ use std::{
 };
 use tokio::task::spawn_blocking;
 
-type Changed = Arc<dyn Fn(Vec<PathBuf>, bool) + Send + Sync>;
+/// What a reader is told: the roots that changed, whether the change was structural, and the
+/// paths that changed under them; `None` when they are not known, as after a missed event.
+type Changed = Arc<dyn Fn(Vec<PathBuf>, bool, Option<Vec<PathBuf>>) + Send + Sync>;
 
 /// How long a root stays watched after its last reader lets go, so a view
 /// opened again does not walk the folder again.
@@ -125,6 +127,14 @@ impl Paths {
         reader: &'static str,
         changed: impl Fn(Vec<PathBuf>, bool) + Send + Sync + 'static,
     ) -> Result<Self> {
+        Self::with_paths(reader, move |roots, structural, _| changed(roots, structural))
+    }
+
+    /// Like `with_structure`, and says which paths changed under the roots when it knows.
+    pub(crate) fn with_paths(
+        reader: &'static str,
+        changed: impl Fn(Vec<PathBuf>, bool, Option<Vec<PathBuf>>) + Send + Sync + 'static,
+    ) -> Result<Self> {
         let shared = Shared::get()?;
         let id = NEXT_READER.fetch_add(1, Ordering::Relaxed);
         let changed: Changed = Arc::new(changed);
@@ -187,7 +197,7 @@ impl Paths {
         .context("filesystem watcher stopped")??;
 
         for (_, changed, roots) in missed {
-            changed(roots, true);
+            changed(roots, true, None);
         }
 
         result.map(|_| ())
@@ -281,7 +291,7 @@ impl Shared {
                 log::debug!("filesystem notification watches need reconciliation");
             }
             for (_, changed, roots) in self.state.missed(&result) {
-                changed(roots, true);
+                changed(roots, true, None);
             }
             #[cfg(test)]
             self.reconciled.send_replace(());
@@ -326,9 +336,20 @@ impl State {
                         .collect(),
                     _ => reader.roots.clone(),
                 };
-                (reader.label, reader.changed.clone(), roots)
+                let paths = match &event {
+                    Ok(event) if !event.need_rescan() => Some(
+                        event
+                            .paths
+                            .iter()
+                            .filter(|path| reader.roots.iter().any(|root| affects(root, path)))
+                            .cloned()
+                            .collect(),
+                    ),
+                    _ => None,
+                };
+                (reader.label, reader.changed.clone(), roots, paths)
             })
-            .filter(|(_, _, roots): &(_, Changed, Vec<PathBuf>)| !roots.is_empty())
+            .filter(|(_, _, roots, _): &(_, Changed, Vec<PathBuf>, _)| !roots.is_empty())
             .collect();
         let kind = kind_of(&event);
 
@@ -337,7 +358,7 @@ impl State {
                 .increment(1);
         }
 
-        for (label, _, _) in &reached {
+        for (label, _, _, _) in &reached {
             metrics::counter!("beep_watch_reached_total", "reader" => *label, "kind" => kind)
                 .increment(1);
         }
@@ -374,8 +395,8 @@ impl State {
             return;
         }
 
-        for (_, changed, roots) in reached {
-            changed(roots, structural);
+        for (_, changed, roots, paths) in reached {
+            changed(roots, structural, paths);
         }
 
         if structural {

@@ -240,8 +240,44 @@ async fn file_snapshots_include_new_entries_and_enforce_reach() {
     std::fs::write(root.path().join("example.txt"), "updated").unwrap();
     let snapshot = state(&mut rx, &topic).await;
     assert!(
-        matches!(snapshot.value, Value::Sessions(reply) if matches!(*reply, SessionsReply::Tree { ref tree } if tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == "example.txt"))))
+        matches!(snapshot.value, Value::Sessions(reply) if matches!(*reply, SessionsReply::Tree { ref tree, .. } if tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == "example.txt"))))
     );
+}
+
+// The first snapshots and the bind can say "anything changed". Once they are past, a write is
+// named by its path.
+#[tokio::test]
+async fn a_folders_snapshot_names_the_paths_that_changed_since_the_one_before() {
+    let root = tempfile::tempdir().unwrap();
+    let offers = Offers::default();
+    offers.agents.share_folders(vec![root.path().to_owned()]);
+    let (mut tx, mut rx, _task) = start(offers).await;
+    let topic = Topic::keyed("files", root.path().to_str().unwrap());
+    watch(&mut tx, &mut rx, 1, vec![topic.clone()], vec![]).await;
+    let first = state(&mut rx, &topic).await;
+    assert!(
+        matches!(first.value, Value::Sessions(reply) if matches!(*reply, SessionsReply::Tree { ref changed, .. } if changed.is_empty())),
+        "a first snapshot does not say what changed"
+    );
+
+    for round in 0..50 {
+        let name = format!("named-{round}.txt");
+        std::fs::write(root.path().join(&name), "x").unwrap();
+        let snapshot = state(&mut rx, &topic).await;
+        let Value::Sessions(reply) = snapshot.value else {
+            panic!("a folder is a listing");
+        };
+        let SessionsReply::Tree { changed, .. } = *reply else {
+            panic!("a folder is a listing");
+        };
+
+        if !changed.is_empty() {
+            assert!(changed.iter().all(|path| path.starts_with("named-")), "{changed:?}");
+            return;
+        }
+    }
+
+    panic!("no snapshot named a changed path");
 }
 
 #[tokio::test]
@@ -311,7 +347,7 @@ async fn a_watch_is_answered_while_its_watchers_are_still_binding() {
     std::fs::write(root.path().join("later.txt"), "x").unwrap();
     let snapshot = state(&mut rx, &topic).await;
     assert!(
-        matches!(snapshot.value, Value::Sessions(reply) if matches!(*reply, SessionsReply::Tree { ref tree } if tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == "later.txt"))))
+        matches!(snapshot.value, Value::Sessions(reply) if matches!(*reply, SessionsReply::Tree { ref tree, .. } if tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == "later.txt"))))
     );
 }
 

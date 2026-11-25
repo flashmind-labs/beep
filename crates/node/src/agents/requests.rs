@@ -717,7 +717,7 @@ async fn folder_reply(
             SessionsReply::Folder { folder }
         } else {
             let tree = work_folder::tree(&root, &path, ignored, depth, kept)?;
-            SessionsReply::Tree { tree }
+            SessionsReply::Tree { tree, changed: Vec::new() }
         })
     })
     .await

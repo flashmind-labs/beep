@@ -14,7 +14,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
-use crate::events::ChangeKind;
+use crate::events::{ChangeKind, Touched};
 use beep_proto::node::events::Topic;
 use tokio::{
     sync::{Notify, mpsc},
@@ -168,7 +168,7 @@ fn others_watches() -> u64 {
 /// the rest of a burst once after `ANNOUNCE_GAP`, each root once per signal.
 #[derive(Default)]
 struct Announcer {
-    pending: Mutex<HashMap<PathBuf, ChangeKind>>,
+    pending: Mutex<HashMap<PathBuf, (ChangeKind, Touched)>>,
     wake: Notify,
     /// Without a runtime to pace them, signals go out at once.
     paced: std::sync::atomic::AtomicBool,
@@ -190,8 +190,8 @@ impl Announcer {
                 paced.wake.notified().await;
                 let pending = std::mem::take(&mut *lock(&paced.pending));
 
-                for (root, kind) in pending {
-                    signal(&root, kind);
+                for (root, (kind, touched)) in pending {
+                    signal(&root, kind, touched);
                 }
 
                 tokio::time::sleep(ANNOUNCE_GAP).await;
@@ -200,27 +200,26 @@ impl Announcer {
         (announcer, Some(AbortOnDropHandle::new(task)))
     }
 
-    fn changed(&self, root: &Path, kind: ChangeKind) {
+    fn changed(&self, root: &Path, kind: ChangeKind, touched: Touched) {
         if !self.paced.load(std::sync::atomic::Ordering::Acquire) {
-            signal(root, kind);
+            signal(root, kind, touched);
             return;
         }
 
-        lock(&self.pending)
+        let mut pending = lock(&self.pending);
+        let held = pending
             .entry(root.to_owned())
-            .and_modify(|held| *held = (*held).max(kind))
-            .or_insert(kind);
+            .or_insert((kind, Touched::Nothing));
+        held.0 = held.0.max(kind);
+        held.1.add(touched);
+        drop(pending);
         self.wake.notify_one();
     }
 }
 
-fn signal(root: &Path, kind: ChangeKind) {
+fn signal(root: &Path, kind: ChangeKind, touched: Touched) {
     let topic = Topic::keyed("files", root.to_string_lossy());
-
-    match kind {
-        ChangeKind::Any => crate::events::system().changed(topic),
-        ChangeKind::WorkTree => crate::events::system().changed_work_tree(topic),
-    }
+    crate::events::system().changed_touching(topic, kind, touched);
 }
 
 /// Where events for a project go.
@@ -312,7 +311,7 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, announcer: &Announcer, event: &Eve
         for route in routes.values_mut() {
             route.changes.invalidate();
             let _ = route.wake.try_send(());
-            announcer.changed(&route.root, ChangeKind::Any);
+            announcer.changed(&route.root, ChangeKind::Any, Touched::All);
         }
 
         return;
@@ -349,7 +348,13 @@ fn route(routes: &Mutex<HashMap<Key, Route>>, announcer: &Announcer, event: &Eve
             } else {
                 ChangeKind::WorkTree
             };
-            announcer.changed(&route.root, kind);
+            let touched = match relative.to_str() {
+                Some(path) if !path.is_empty() => {
+                    Touched::of([path.replace(std::path::MAIN_SEPARATOR, "/")])
+                }
+                _ => Touched::All,
+            };
+            announcer.changed(&route.root, kind, touched);
         }
     }
 }

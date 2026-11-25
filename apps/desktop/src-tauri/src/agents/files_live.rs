@@ -106,9 +106,14 @@ impl Held {
 
     /// Whether the caller reads for `update` now: false when a read is running, which takes
     /// it up when it is done.
-    fn begin(&mut self, key: (EndpointId, Topic), update: Update) -> bool {
+    fn begin(&mut self, key: (EndpointId, Topic), mut update: Update) -> bool {
         match self.reading.entry(key) {
             Entry::Occupied(mut running) => {
+                // The update that waits stands for the one it replaces: it names both's paths.
+                if let Some(earlier) = running.get() {
+                    join_changed(earlier, &mut update);
+                }
+
                 running.insert(Some(update));
                 false
             }
@@ -128,6 +133,40 @@ impl Held {
         }
 
         more
+    }
+}
+
+/// The most paths an update names, as the node does.
+const MAX_CHANGED: usize = 256;
+
+/// The paths the node says changed in the folder, from the listing a `files` update carries;
+/// empty when it does not say.
+fn changed_paths(update: &Update) -> Vec<String> {
+    update
+        .data
+        .as_ref()
+        .and_then(|data| data.pointer("/Sessions/Tree/changed"))
+        .and_then(|paths| serde_json::from_value(paths.clone()).ok())
+        .unwrap_or_default()
+}
+
+/// Gives `update` the paths of `earlier` too; unknown when either is.
+fn join_changed(earlier: &Update, update: &mut Update) {
+    let (before, now) = (changed_paths(earlier), changed_paths(update));
+    let mut joined: Vec<String> = before.into_iter().chain(now.iter().cloned()).collect();
+    joined.sort();
+    joined.dedup();
+
+    if changed_paths(earlier).is_empty() || now.is_empty() || joined.len() > MAX_CHANGED {
+        joined.clear();
+    }
+
+    if let Some(slot) = update
+        .data
+        .as_mut()
+        .and_then(|data| data.pointer_mut("/Sessions/Tree/changed"))
+    {
+        *slot = json!(joined);
     }
 }
 
@@ -303,7 +342,7 @@ pub(crate) fn heard(app: &AppHandle, machine: EndpointId, update: &Update) -> bo
                     machine,
                     update.topic.clone(),
                     update.revision,
-                    json!({ "views": views }),
+                    json!({ "views": views, "changed": changed_paths(&update) }),
                 );
             } else if !update.initial {
                 // Nothing to read: the windows still hear that the folder changed.

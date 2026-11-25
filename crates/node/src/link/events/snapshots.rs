@@ -1,7 +1,7 @@
 use beep_proto::SessionId;
 use beep_proto::node::agent::SessionInfo;
 use super::*;
-use crate::events::ChangeKind;
+use crate::events::{ChangeKind, Touched};
 use beep_proto::node::events::{
     FORGE_REACH_TOPIC, MOVE_PROGRESS_TOPIC, Query, Read, Snapshot, SessionsDelta, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC,
     Value,
@@ -117,6 +117,10 @@ struct Projection {
     bytes: usize,
     dirty: bool,
     running: bool,
+    /// What changed in a folder since its last read began, for its next read to say.
+    touched: Touched,
+    /// What the read that runs now was started for.
+    reading: Touched,
     not_before: Instant,
     /// Reads in a row that gave the value before or failed.
     idle: u32,
@@ -133,6 +137,8 @@ impl Projection {
             bytes: 0,
             dirty: true,
             running: false,
+            touched: Touched::All,
+            reading: Touched::All,
             not_before: Instant::now(),
             idle: 0,
             sent: 0,
@@ -469,7 +475,11 @@ impl Snapshots {
             let previous = self.entries.remove(&key).filter(|old| old.source == source);
             let entry = match previous {
                 Some(mut old) => {
-                    old.dirty |= old.running;
+                    if old.running {
+                        old.dirty = true;
+                        old.touched = Touched::All;
+                    }
+
                     old.running = false;
                     old
                 }
@@ -491,13 +501,20 @@ impl Snapshots {
         self.entries = next;
     }
 
-    pub(super) fn changed(&mut self, topic: &Topic, kind: ChangeKind) {
+    pub(super) fn changed(&mut self, topic: &Topic, kind: ChangeKind, touched: &Touched) {
         for ((read, _), entry) in &mut self.entries {
             // Git projections read refs, the index and history, never working-tree files.
             let git = matches!(entry.source, Source::Read(Read::Git { .. }));
 
             if affected(read, topic) && !(git && kind == ChangeKind::WorkTree) {
                 entry.dirty = true;
+
+                // Only the folder's own change says which of its paths changed.
+                if read == topic {
+                    entry.touched.add(touched.clone());
+                } else {
+                    entry.touched = Touched::All;
+                }
             }
         }
     }
@@ -505,6 +522,7 @@ impl Snapshots {
     pub(super) fn reset(&mut self) {
         for entry in self.entries.values_mut() {
             entry.dirty = true;
+            entry.touched = Touched::All;
             entry.previous = None;
             entry.bytes = 0;
             entry.sent = 0;
@@ -537,6 +555,7 @@ impl Snapshots {
             self.next_key = Some(key.clone());
             entry.dirty = false;
             entry.running = true;
+            entry.reading = std::mem::replace(&mut entry.touched, Touched::Nothing);
             entry.not_before = now + entry.gap();
             let source = entry.source.clone();
             let key = key.clone();
@@ -679,6 +698,7 @@ impl Snapshots {
             return Ok(None);
         };
         entry.running = false;
+        let touched = std::mem::take(&mut entry.reading);
         Ok(Some(match result {
             Ok((value, bytes)) => {
                 if entry.previous.as_ref() == Some(&value) {
@@ -721,7 +741,7 @@ impl Snapshots {
                     .checked_add(1)
                     .context("snapshot revision exhausted")?;
                 entry.sent = self.revision;
-                let value = delta.unwrap_or(value);
+                let value = named(delta.unwrap_or(value), touched);
                 let sent = match &value {
                     Value::SessionsDelta(_) => rmp_serde::to_vec(&value)?.len(),
                     _ => bytes,
@@ -742,6 +762,7 @@ impl Snapshots {
                 entry.previous = None;
                 entry.bytes = 0;
                 entry.sent = 0;
+                entry.touched = Touched::All;
                 entry.idle = entry.idle.saturating_add(1);
                 Reply::SnapshotError {
                     query: key.1,
@@ -750,6 +771,20 @@ impl Snapshots {
                 }
             }
         }))
+    }
+}
+
+/// `value`, a folder's listing, with the paths that changed since the one before it.
+fn named(value: Value, touched: Touched) -> Value {
+    match value {
+        Value::Sessions(mut reply) => {
+            if let SessionsReply::Tree { changed, .. } = reply.as_mut() {
+                *changed = touched.into_list();
+            }
+
+            Value::Sessions(reply)
+        }
+        other => other,
     }
 }
 

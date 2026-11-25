@@ -175,7 +175,7 @@ pub async fn tree<S: Sessions + ?Sized>(
     };
 
     match node.sessions(request, reading, READ_TIMEOUT).await? {
-        SessionsReply::Tree { tree } => Ok(NodeWork::Done(tree)),
+        SessionsReply::Tree { tree, .. } => Ok(NodeWork::Done(tree)),
         SessionsReply::Folder { folder } => Ok(NodeWork::Done(WorkTree {
             folders: vec![folder],
             truncated: false,

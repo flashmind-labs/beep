@@ -755,9 +755,14 @@ pub enum SessionsReply {
     Folder {
         folder: crate::WorkFolder,
     },
-    /// The answer to `Folder` with a `depth`.
+    /// The answer to `Folder` with a `depth`. On the `files` topic of a folder it also says
+    /// which paths changed since the update before, relative to the folder, at most 256, with
+    /// `.git` for a change in its Git metadata outside the folder. Empty when they are not
+    /// known, and from a node from before it: then anything may have changed.
     Tree {
         tree: crate::WorkTree,
+        #[serde(default)]
+        changed: Vec<String>,
     },
     /// The answer to `WriteFile` (relative to its root), or `UploadFile`
     /// (an absolute path on the host).

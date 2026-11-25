@@ -114,3 +114,27 @@ fn one_list_of_a_folder_says_which_worktrees_each_session_created() {
     assert!(for_c.iter().all(|t| !t.created));
     assert!(created_by(&list, None).iter().all(|t| !t.created));
 }
+
+#[test]
+fn the_update_that_waits_names_the_paths_of_those_it_replaced() {
+    let listing = |revision, paths: &[&str]| Update {
+        data: Some(json!({ "Sessions": { "Tree": { "tree": {}, "changed": paths } } })),
+        ..update(revision)
+    };
+    let mut held = Held::default();
+    let at = key("/srv/project");
+
+    assert!(held.begin(at.clone(), listing(1, &["a.txt"])));
+    assert!(!held.begin(at.clone(), listing(2, &["b.txt"])));
+    assert!(!held.begin(at.clone(), listing(3, &["a.txt", "c.txt"])));
+    assert_eq!(
+        changed_paths(&held.next(&at).expect("the last update waits")),
+        ["a.txt", "b.txt", "c.txt"]
+    );
+
+    // An update that does not say what changed leaves the whole unsaid.
+    assert!(held.begin(at.clone(), listing(4, &["a.txt"])));
+    assert!(!held.begin(at.clone(), listing(5, &[])));
+    assert!(!held.begin(at.clone(), listing(6, &["b.txt"])));
+    assert!(changed_paths(&held.next(&at).expect("the last update waits")).is_empty());
+}

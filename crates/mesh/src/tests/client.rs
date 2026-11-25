@@ -126,6 +126,7 @@ async fn one_off_reads_are_calls_and_never_kept_live() {
                         folders: Vec::new(),
                         truncated: false,
                     },
+                    changed: Vec::new(),
                 },
                 SessionsRequest::Commands { .. } => SessionsReply::Commands {
                     commands: Vec::new(),
@@ -211,6 +212,7 @@ async fn a_followed_read_asks_the_node_when_its_subscription_is_slow() {
                     folders: Vec::new(),
                     truncated: false,
                 },
+                changed: Vec::new(),
             })
             .await
             .unwrap();

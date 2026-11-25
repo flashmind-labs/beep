@@ -21,6 +21,59 @@ const MAX_PLUGIN_STATE: usize = 1024 * 1024;
 pub struct Change {
     pub topic: Topic,
     pub kind: ChangeKind,
+    /// Which paths under the topic's root changed, when the source knows.
+    pub touched: Touched,
+}
+
+/// The most paths a change names; beyond it the paths are not known.
+pub const MAX_TOUCHED: usize = 256;
+
+/// The paths a change touched, relative to the root a `files` topic names. A change that does
+/// not know them is `All`, and so is any that passed `MAX_TOUCHED`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum Touched {
+    /// Nothing yet: what a read has taken up so far.
+    Nothing,
+    Some(std::collections::BTreeSet<String>),
+    #[default]
+    All,
+}
+
+impl Touched {
+    /// The paths of one change; `All` when there are none or too many.
+    pub fn of(paths: impl IntoIterator<Item = String>) -> Self {
+        let paths: std::collections::BTreeSet<_> = paths.into_iter().collect();
+
+        if paths.is_empty() || paths.len() > MAX_TOUCHED {
+            Self::All
+        } else {
+            Self::Some(paths)
+        }
+    }
+
+    /// Takes `other` in: anything unknown makes the whole unknown.
+    pub fn add(&mut self, other: Self) {
+        *self = match (std::mem::replace(self, Self::Nothing), other) {
+            (Self::All, _) | (_, Self::All) => Self::All,
+            (Self::Nothing, other) | (other, Self::Nothing) => other,
+            (Self::Some(mut held), Self::Some(more)) => {
+                held.extend(more);
+                Self::Some(held)
+            }
+        };
+
+        if matches!(self, Self::Some(paths) if paths.len() > MAX_TOUCHED) {
+            *self = Self::All;
+        }
+    }
+
+    /// The paths as the wire says them: empty when they are not known.
+    pub fn into_list(self) -> Vec<String> {
+        match self {
+            Self::Some(paths) => paths.into_iter().collect(),
+            Self::Nothing | Self::All => Vec::new(),
+        }
+    }
 }
 
 /// How much of a topic's state a change can touch.
@@ -60,20 +113,21 @@ impl Hub {
 
     #[track_caller]
     pub fn changed(&self, topic: Topic) {
-        self.changed_as(topic, ChangeKind::Any, Location::caller());
+        self.changed_as(topic, ChangeKind::Any, Touched::All, Location::caller());
     }
 
-    /// Files in the checkout `topic` names changed, but not its Git metadata.
+    /// `changed`, or a change of files in the checkout only (`WorkTree`), saying which paths of the
+    /// root changed.
     #[cfg(feature = "host")]
     #[track_caller]
-    pub(crate) fn changed_work_tree(&self, topic: Topic) {
-        self.changed_as(topic, ChangeKind::WorkTree, Location::caller());
+    pub(crate) fn changed_touching(&self, topic: Topic, kind: ChangeKind, touched: Touched) {
+        self.changed_as(topic, kind, touched, Location::caller());
     }
 
     /// Counts the change by its topic and by the line of code that sent it,
     /// which says what makes a topic change so often.
     #[cfg_attr(not(feature = "host"), allow(unused_variables))]
-    fn changed_as(&self, topic: Topic, kind: ChangeKind, from: &Location<'_>) {
+    fn changed_as(&self, topic: Topic, kind: ChangeKind, touched: Touched, from: &Location<'_>) {
         #[cfg(feature = "host")]
         if topic.valid() {
             let file = from.file();
@@ -86,7 +140,11 @@ impl Hub {
             .increment(1);
         }
 
-        self.forward(Change { topic, kind });
+        self.forward(Change {
+            topic,
+            kind,
+            touched,
+        });
     }
 
     /// Passes on a change another hub counted already.

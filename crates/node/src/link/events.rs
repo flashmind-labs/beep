@@ -1,6 +1,7 @@
 //! An authenticated peer can replace topics and send commands while updates arrive.
 
 use super::Offers;
+use crate::events::Touched;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -320,8 +321,11 @@ async fn run(
                 for event in batch {
                     match event {
                         Ok(event) => {
-                            let kind = changed.entry(event.topic).or_insert(event.kind);
+                            let (kind, touched) = changed
+                                .entry(event.topic)
+                                .or_insert((event.kind, Touched::Nothing));
                             *kind = (*kind).max(event.kind);
+                            touched.add(event.touched);
                         }
                         Err(BroadcastStreamRecvError::Lagged(_)) => lagged = true,
                     }
@@ -345,8 +349,8 @@ async fn run(
                     passes.start(pass);
                 }
 
-                for (topic, kind) in changed {
-                    snapshots.changed(&topic, kind);
+                for (topic, (kind, touched)) in changed {
+                    snapshots.changed(&topic, kind, &touched);
                 }
             },
             changed = membership.changed(), if watches_files(&sources(&topics, &queries)) => {
@@ -381,7 +385,7 @@ async fn run(
                     unbound = false;
 
                     for topic in roots.keys() {
-                        snapshots.changed(topic, crate::events::ChangeKind::Any);
+                        snapshots.changed(topic, crate::events::ChangeKind::Any, &Touched::All);
                     }
                 }
             },

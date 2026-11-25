@@ -1,13 +1,16 @@
 //! Topic streams own the sources they keep running. Registries hold weak references only.
 
 use super::{FileBindings, FileWatcher, MAX_FILE_ROOTS, Offers, TOO_MANY_ROOTS, broad_files, has_git};
-use crate::{AsyncMutex, events::Change};
+use crate::{
+    AsyncMutex,
+    events::{Change, ChangeKind, Touched},
+};
 use anyhow::{Context as _, Result, ensure};
 use beep_proto::node::events::Topic;
 use futures::{Stream, StreamExt, future::{join_all, try_join_all}, stream};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     pin::Pin,
     sync::{
         Arc, Mutex, Weak,
@@ -225,7 +228,7 @@ fn file_watcher(offers: &Offers) -> Result<FileWatcher> {
     let bindings = Arc::new(Mutex::new(FileBindings::new()));
     let changed_roots = bindings.clone();
     let hub = offers.agents.events.clone();
-    let paths = crate::events::paths::Paths::new("link-events", move |paths| {
+    let paths = crate::events::paths::Paths::with_paths("link-events", move |paths, _, moved| {
         let held = crate::lock(&changed_roots);
 
         for (topic, dependencies) in held.iter() {
@@ -235,14 +238,43 @@ fn file_watcher(offers: &Offers) -> Result<FileWatcher> {
             };
 
             if git.iter().any(|dependency| paths.contains(dependency)) {
-                hub.changed(topic.clone());
+                let touched = touched_of(root, git, moved.as_deref());
+                hub.changed_touching(topic.clone(), ChangeKind::Any, touched);
             } else if paths.contains(root) {
-                hub.changed_work_tree(topic.clone());
+                let touched = touched_of(root, git, moved.as_deref());
+                hub.changed_touching(topic.clone(), ChangeKind::WorkTree, touched);
             }
         }
     })?;
 
     Ok(FileWatcher { paths, bindings })
+}
+
+/// Which paths of `root` the `moved` paths touch: those under it by their path in it, and a
+/// change in its Git metadata outside it as `.git`. Unknown when `moved` is, or when the root
+/// itself or a folder above it changed.
+fn touched_of(root: &Path, git: &[PathBuf], moved: Option<&[PathBuf]>) -> Touched {
+    let Some(moved) = moved else {
+        return Touched::All;
+    };
+    let mut named = Vec::new();
+
+    for path in moved {
+        if let Ok(inside) = path.strip_prefix(root) {
+            if inside.as_os_str().is_empty() {
+                return Touched::All;
+            }
+
+            let parts: Vec<_> = inside.components().map(|part| part.as_os_str().to_string_lossy()).collect();
+            named.push(parts.join("/"));
+        } else if git.iter().any(|dependency| path.starts_with(dependency)) {
+            named.push(".git".to_owned());
+        } else if root.starts_with(path) {
+            return Touched::All;
+        }
+    }
+
+    Touched::of(named)
 }
 
 /// Each root with the Git metadata to watch beside it. A root kept from the

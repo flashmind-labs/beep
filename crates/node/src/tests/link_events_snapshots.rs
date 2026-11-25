@@ -42,7 +42,7 @@ async fn session_process_topics_read_children_and_follow_process_changes() {
         }))
     );
 
-    snapshots.changed(&Topic::new("processes"), ChangeKind::Any);
+    snapshots.changed(&Topic::new("processes"), ChangeKind::Any, &Touched::All);
     assert!(snapshots.entries.get(&key).unwrap().dirty);
     // Completing the session read with a new child must produce another
     // snapshot even though the separate managed-command table did not change.
@@ -96,7 +96,7 @@ async fn one_sessions_process_change_leaves_other_sessions_clean() {
     };
     assert!(!dirty(&snapshots, &a) && !dirty(&snapshots, &b));
 
-    snapshots.changed(&a, ChangeKind::Any);
+    snapshots.changed(&a, ChangeKind::Any, &Touched::All);
     assert!(dirty(&snapshots, &a));
     assert!(!dirty(&snapshots, &b));
     // A subscriber to every session's processes still hears each one's change.
@@ -131,14 +131,14 @@ async fn plugin_bursts_coalesce_without_idle_timers_or_losing_inflight_changes()
         .events
         .publish(topic.clone(), vec![2])
         .unwrap();
-    snapshots.changed(&topic, ChangeKind::Any);
+    snapshots.changed(&topic, ChangeKind::Any, &Touched::All);
     snapshots.start(&offers, caller);
     offers
         .agents
         .events
         .publish(topic.clone(), vec![3])
         .unwrap();
-    snapshots.changed(&topic, ChangeKind::Any);
+    snapshots.changed(&topic, ChangeKind::Any, &Touched::All);
     assert!(snapshots.reads.is_empty());
     assert_eq!(snapshots.due(), Some(started + READ_GAP));
     tokio::time::advance(READ_GAP - Duration::from_millis(1)).await;
@@ -147,7 +147,7 @@ async fn plugin_bursts_coalesce_without_idle_timers_or_losing_inflight_changes()
     tokio::time::advance(Duration::from_millis(1)).await;
     snapshots.start(&offers, caller);
     // A notification arriving during a read must retain another dirty pass.
-    snapshots.changed(&topic, ChangeKind::Any);
+    snapshots.changed(&topic, ChangeKind::Any, &Touched::All);
     assert!(
         matches!(stepped_snapshot(&mut snapshots).await, Some(Reply::Snapshot(value)) if value.value == Value::Plugin(vec![3]))
     );
@@ -177,6 +177,8 @@ async fn recovery_after_a_read_error_resends_identical_state() {
             bytes: 1,
             dirty: false,
             running: true,
+            touched: Touched::All,
+            reading: Touched::All,
             not_before: Instant::now(),
             idle: 0,
             sent: 0,
@@ -240,7 +242,7 @@ async fn a_burst_of_changes_reads_once_more_and_delivers_the_last_state() {
             .events
             .publish(topic.clone(), vec![step])
             .unwrap();
-        snapshots.changed(&topic, ChangeKind::Any);
+        snapshots.changed(&topic, ChangeKind::Any, &Touched::All);
         snapshots.start(&offers, caller);
         reads += snapshots.reads.len();
         tokio::time::advance(READ_GAP / 200).await;
@@ -279,7 +281,7 @@ async fn one_session_topic_reads_that_session_on_a_shorter_gap() {
         Value::Sessions(Box::new(SessionsReply::Sessions { sessions: vec![] }))
     );
 
-    snapshots.changed(&topic, ChangeKind::Any);
+    snapshots.changed(&topic, ChangeKind::Any, &Touched::All);
     assert!(AGENT_GAP < READ_GAP);
     assert_eq!(snapshots.due(), Some(started + AGENT_GAP));
 }
@@ -314,11 +316,11 @@ fn work_tree_changes_skip_git_projections_but_refresh_folders() {
     for entry in snapshots.entries.values_mut() {
         entry.dirty = false;
     }
-    snapshots.changed(&topic, ChangeKind::WorkTree);
+    snapshots.changed(&topic, ChangeKind::WorkTree, &Touched::All);
     assert!(!dirty(&snapshots, 1));
     assert!(dirty(&snapshots, 2));
 
-    snapshots.changed(&topic, ChangeKind::Any);
+    snapshots.changed(&topic, ChangeKind::Any, &Touched::All);
     assert!(dirty(&snapshots, 1));
 }
 
@@ -384,7 +386,7 @@ async fn a_kept_lookup_of_one_outside_session_is_not_read_again_on_every_change(
     let mut reads = 0;
     for _ in 0..100 {
         tokio::time::advance(Duration::from_millis(100)).await;
-        snapshots.changed(&Topic::keyed("agent", "busy"), ChangeKind::Any);
+        snapshots.changed(&Topic::keyed("agent", "busy"), ChangeKind::Any, &Touched::All);
         snapshots.start(&offers, caller);
 
         if snapshots.entries[&key].running {
@@ -416,6 +418,8 @@ fn an_unchanged_file_read_backs_off() {
         bytes: 0,
         dirty: false,
         running: false,
+        touched: Touched::All,
+        reading: Touched::All,
         not_before: Instant::now(),
         idle,
         sent: 0,
@@ -458,7 +462,7 @@ async fn a_failing_git_read_backs_off_until_it_succeeds() {
             Some(Reply::SnapshotError { query: Some(1), .. })
         ));
 
-        snapshots.changed(&query.topic, ChangeKind::Any);
+        snapshots.changed(&query.topic, ChangeKind::Any, &Touched::All);
         assert_eq!(snapshots.due(), Some(started + gap));
         tokio::time::advance(gap - Duration::from_millis(1)).await;
         snapshots.start(&offers, caller);
@@ -521,7 +525,7 @@ fn a_device_ping_refreshes_the_device_list() {
     let key = (topic, None);
     snapshots.entries.get_mut(&key).unwrap().dirty = false;
 
-    snapshots.changed(&Topic::new("devices"), ChangeKind::Any);
+    snapshots.changed(&Topic::new("devices"), ChangeKind::Any, &Touched::All);
 
     assert!(snapshots.entries[&key].dirty);
 }

@@ -197,14 +197,14 @@ async fn a_burst_of_changes_signals_a_root_at_once_and_once_after_the_gap() {
         }
     };
 
-    announcer.changed(&root, ChangeKind::WorkTree);
+    announcer.changed(&root, ChangeKind::WorkTree, Touched::All);
     // Let the announcer take the first change before the burst follows it.
     tokio::time::sleep(ANNOUNCE_GAP / 10).await;
 
     for _ in 0..100 {
-        announcer.changed(&root, ChangeKind::WorkTree);
+        announcer.changed(&root, ChangeKind::WorkTree, Touched::All);
     }
-    announcer.changed(&root, ChangeKind::Any);
+    announcer.changed(&root, ChangeKind::Any, Touched::All);
     collect(&mut changes, &mut signals);
     assert_eq!(signals, [ChangeKind::WorkTree]);
 

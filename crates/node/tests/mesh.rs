@@ -3963,7 +3963,7 @@ mod topic_streams {
 
     fn has_file(value: &Value, name: &str) -> bool {
         matches!(value, Value::Sessions(reply) if match reply.as_ref() {
-            beep_proto::node::agent::SessionsReply::Tree { tree } => tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == name)),
+            beep_proto::node::agent::SessionsReply::Tree { tree, .. } => tree.folders.iter().any(|folder| folder.entries.iter().any(|entry| entry.name == name)),
             beep_proto::node::agent::SessionsReply::Folder { folder } => folder.entries.iter().any(|entry| entry.name == name),
             _ => false,
         })
