@@ -1,7 +1,10 @@
 use beep_proto::SessionId;
+use beep_proto::node::agent::SessionInfo;
 use super::*;
 use crate::events::ChangeKind;
-use beep_proto::node::events::{Query, Read, Snapshot, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Value};
+use beep_proto::node::events::{
+    Query, Read, Snapshot, SessionsDelta, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Value,
+};
 use beep_proto::node::process::TaskId;
 use beep_proto::node::subscriptions::Reply;
 
@@ -112,6 +115,9 @@ struct Projection {
     not_before: Instant,
     /// Reads in a row that gave the value before or failed.
     idle: u32,
+    /// The revision of the last message sent for it, 0 before the first and
+    /// after anything that makes the next one whole.
+    sent: u64,
 }
 
 impl Projection {
@@ -124,6 +130,7 @@ impl Projection {
             running: false,
             not_before: Instant::now(),
             idle: 0,
+            sent: 0,
         }
     }
 
@@ -153,6 +160,8 @@ pub(super) struct Snapshots {
     stream: uuid::Uuid,
     generation: u64,
     revision: u64,
+    /// The follower applies `Value::SessionsDelta`.
+    deltas: bool,
     entries: BTreeMap<Key, Projection>,
     reads: JoinSet<Completed>,
     next_key: Option<Key>,
@@ -164,9 +173,19 @@ impl Snapshots {
             stream: uuid::Uuid::new_v4(),
             generation: 0,
             revision: 0,
+            deltas: false,
             entries: BTreeMap::new(),
             reads: JoinSet::new(),
             next_key: None,
+        }
+    }
+
+    /// Whether the follower takes the `agents` list as deltas. A change of
+    /// mind starts every projection over with a whole value.
+    pub(super) fn follow_deltas(&mut self, deltas: bool) {
+        if self.deltas != deltas {
+            self.deltas = deltas;
+            self.reset();
         }
     }
 
@@ -470,6 +489,7 @@ impl Snapshots {
             entry.dirty = true;
             entry.previous = None;
             entry.bytes = 0;
+            entry.sent = 0;
         }
     }
 
@@ -507,6 +527,7 @@ impl Snapshots {
             let offers = offers.clone();
             let generation = self.generation;
             let stream = self.stream;
+            let listed = key.clone();
             tracing::debug!(%stream, generation, query = key.1, topic = key.0.name(), "subscription snapshot scheduled");
             self.reads.spawn(async move {
                 let started = Instant::now();
@@ -578,6 +599,7 @@ impl Snapshots {
                 tracing::debug!(%stream, generation, query = key.1, topic = key.0.name(), success = result.is_ok(), elapsed_ms = started.elapsed().as_millis() as u64, "subscription snapshot source completed");
                 let result = match result {
                     Ok(value) => tokio::task::spawn_blocking(move || {
+                        let value = shown(&listed, value);
                         let bytes = rmp_serde::to_vec(&value)?.len();
                         anyhow::ensure!(
                             bytes <= MAX_VALUE_BYTES,
@@ -655,6 +677,7 @@ impl Snapshots {
                 if retained.saturating_sub(entry.bytes).saturating_add(bytes) > MAX_RETAINED_BYTES {
                     entry.previous = None;
                     entry.bytes = 0;
+                    entry.sent = 0;
                     return Ok(Some(Reply::SnapshotError {
                         query: key.1,
                         topic: key.0.clone(),
@@ -662,17 +685,30 @@ impl Snapshots {
                     }));
                 }
 
-                let topic = key.0.name().to_owned();
-                metrics::counter!("beep_snapshot_sent_bytes_total", "topic" => topic.clone())
-                    .increment(bytes as u64);
-                metrics::histogram!("beep_snapshot_bytes", "topic" => topic).record(bytes as f64);
-
+                let after = entry.sent;
+                let delta = self
+                    .deltas
+                    .then_some(entry.previous.as_ref())
+                    .flatten()
+                    .filter(|_| after != 0 && lists_sessions(&key))
+                    .and_then(|before| delta_of(before, &value, after));
                 entry.bytes = bytes;
                 entry.previous = Some(value.clone());
                 self.revision = self
                     .revision
                     .checked_add(1)
                     .context("snapshot revision exhausted")?;
+                entry.sent = self.revision;
+                let value = delta.unwrap_or(value);
+                let sent = match &value {
+                    Value::SessionsDelta(_) => rmp_serde::to_vec(&value)?.len(),
+                    _ => bytes,
+                };
+                let topic = key.0.name().to_owned();
+                metrics::counter!("beep_snapshot_sent_bytes_total", "topic" => topic.clone())
+                    .increment(sent as u64);
+                metrics::histogram!("beep_snapshot_bytes", "topic" => topic).record(sent as f64);
+
                 Reply::Snapshot(Box::new(Snapshot {
                     topic: key.0.clone(),
                     query: key.1,
@@ -683,6 +719,7 @@ impl Snapshots {
             Err(error) => {
                 entry.previous = None;
                 entry.bytes = 0;
+                entry.sent = 0;
                 entry.idle = entry.idle.saturating_add(1);
                 Reply::SnapshotError {
                     query: key.1,
@@ -701,6 +738,47 @@ fn numbered(topic: &Topic, name: &str) -> Option<TaskId> {
     }
 
     topic.key()?.parse().ok().map(TaskId)
+}
+
+/// Whether the projection under `key` is the session list that deltas and rows apply to.
+fn lists_sessions(key: &Key) -> bool {
+    key.1.is_none() && key.0.name() == "agents"
+}
+
+/// What the projection under `key` sends of `value`: the `agents` list holds
+/// the rows a list shows (see `SessionInfo::row`) and nothing else.
+fn shown(key: &Key, value: Value) -> Value {
+    if !lists_sessions(key) {
+        return value;
+    }
+
+    match value {
+        Value::Sessions(reply) => Value::Sessions(Box::new(match *reply {
+            SessionsReply::Sessions { sessions } => SessionsReply::Sessions {
+                sessions: sessions.iter().map(SessionInfo::row).collect(),
+            },
+            other => other,
+        })),
+        other => other,
+    }
+}
+
+/// What takes the session list `before` to `now`, when that is less to send
+/// than `now`.
+fn delta_of(before: &Value, now: &Value, after: u64) -> Option<Value> {
+    let (Value::Sessions(before), Value::Sessions(now)) = (before, now) else {
+        return None;
+    };
+    let (
+        SessionsReply::Sessions { sessions: before },
+        SessionsReply::Sessions { sessions: now },
+    ) = (before.as_ref(), now.as_ref())
+    else {
+        return None;
+    };
+    let delta = SessionsDelta::between(before, now, after);
+
+    (delta.changed.len() < now.len()).then(|| Value::SessionsDelta(Box::new(delta)))
 }
 
 fn affected(read: &Topic, change: &Topic) -> bool {

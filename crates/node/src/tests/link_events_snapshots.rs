@@ -179,6 +179,7 @@ async fn recovery_after_a_read_error_resends_identical_state() {
             running: true,
             not_before: Instant::now(),
             idle: 0,
+            sent: 0,
         },
     );
     let failed = key.clone();
@@ -417,6 +418,7 @@ fn an_unchanged_file_read_backs_off() {
         running: false,
         not_before: Instant::now(),
         idle,
+        sent: 0,
     };
     assert_eq!(projection(0).gap(), READ_GAP);
     assert_eq!(projection(1).gap(), READ_GAP * 2);
@@ -621,4 +623,216 @@ fn a_topic_naming_one_task_reads_that_task_alone() {
     // A task starting or ending reads that task again, and so does any task's output.
     assert!(affected(&one, &Topic::new("processes")));
     assert!(affected(&one, &Topic::new("process-output")));
+}
+
+fn agents_snapshots(deltas: bool) -> Snapshots {
+    let mut snapshots = Snapshots::new();
+    snapshots.follow_deltas(deltas);
+    snapshots.replace(
+        &Offers::default(),
+        &[Topic::new("agents")],
+        &[],
+        &BTreeMap::new(),
+    );
+    snapshots
+}
+
+fn list(sessions: Vec<SessionInfo>) -> Value {
+    Value::Sessions(Box::new(SessionsReply::Sessions { sessions }))
+}
+
+/// Hands `snapshots` what a read of the `agents` list found, as the read does
+/// before it is encoded, and returns what it sends.
+async fn heard(snapshots: &mut Snapshots, value: Value) -> Option<Reply> {
+    let key = (Topic::new("agents"), None);
+    let value = shown(&key, value);
+    let bytes = rmp_serde::to_vec(&value).unwrap().len();
+    let generation = snapshots.generation;
+    snapshots.entries.get_mut(&key).unwrap().running = true;
+    snapshots.reads.spawn(async move {
+        Completed {
+            generation,
+            key,
+            result: Ok((value, bytes)),
+        }
+    });
+
+    stepped_snapshot(snapshots).await
+}
+
+/// A session of the node at second `tick` of a long turn. The first twelve
+/// run: each writes a longer message, takes on context and tokens, touches
+/// files, and starts a new tool call every few seconds.
+fn session_at(n: u64, tick: u64) -> SessionInfo {
+    let running = n < 8;
+    let tick = if running { tick } else { 0 };
+    let mut body = String::from("I will look at the code first.\n");
+
+    while body.len() < usize::try_from(tick * 60).unwrap().min(4096) {
+        body.push_str("Reading the module and its callers to see what changes. ");
+    }
+
+    SessionInfo {
+        id: format!("session{n}").as_str().into(),
+        agent: "claude".into(),
+        cwd: "/srv/project".into(),
+        title: Some(format!("Task {n}")),
+        started_at: 1_000 + n,
+        state: beep_proto::node::agent::State {
+            status: if running {
+                beep_proto::node::agent::Status::Working
+            } else {
+                beep_proto::node::agent::Status::Idle
+            },
+            summary: if running {
+                format!("Edit file{}.rs", tick / (3 + n % 4))
+            } else {
+                String::new()
+            },
+            files_touched: (0..(tick / 3).min(40)).map(|f| format!("src/file{f}.rs")).collect(),
+            ..Default::default()
+        },
+        last_message: body,
+        context: Some(beep_proto::AgentContext {
+            used: tick * 1_000,
+            size: 200_000,
+        }),
+        tokens: tick * 1_500,
+        cost_usd: Some(tick as f64 / 100.0),
+        last_activity: 2_000 + n,
+        ..Default::default()
+    }
+}
+
+fn sessions_at(tick: u64) -> Vec<SessionInfo> {
+    (0..12).map(|n| session_at(n, tick)).collect()
+}
+
+/// Per-turn counters and text change on every update of a running turn; a list
+/// that carried them was read and sent again each time.
+#[tokio::test]
+async fn what_changes_during_a_turn_does_not_change_the_session_list() {
+    let mut snapshots = agents_snapshots(false);
+
+    assert!(matches!(
+        heard(&mut snapshots, list(sessions_at(10))).await,
+        Some(Reply::Snapshot(_))
+    ));
+    // Only the counters, the touched files and the rest of the message grew.
+    let mut grown = sessions_at(10);
+    for info in &mut grown {
+        info.tokens += 500;
+        info.context = Some(beep_proto::AgentContext { used: 1, size: 2 });
+        info.cost_usd = Some(9.0);
+        info.state.files_touched.push("src/new.rs".into());
+        info.last_message.push_str(" More words after the first line.");
+    }
+    assert!(heard(&mut snapshots, list(grown)).await.is_none());
+
+    // What a row shows still sends.
+    let mut doing = sessions_at(10);
+    doing[0].state.summary = "Run the tests".into();
+    assert!(matches!(
+        heard(&mut snapshots, list(doing)).await,
+        Some(Reply::Snapshot(_))
+    ));
+}
+
+#[tokio::test]
+async fn a_follower_of_deltas_gets_the_changed_rows_after_the_whole_list() {
+    let mut snapshots = agents_snapshots(true);
+    let first = list(sessions_at(10));
+    let Some(Reply::Snapshot(whole)) = heard(&mut snapshots, first).await else {
+        panic!("the first message is the whole list");
+    };
+    assert!(matches!(whole.value, Value::Sessions(_)));
+
+    let mut next = sessions_at(10);
+    next[1].state.summary = "Run the tests".into();
+    next.remove(2);
+    let Some(Reply::Snapshot(delta)) = heard(&mut snapshots, list(next)).await else {
+        panic!("a change sends a delta");
+    };
+    let Value::SessionsDelta(delta) = delta.value else {
+        panic!("a delta, not the list");
+    };
+    assert_eq!(delta.after, whole.revision, "it says which message it follows");
+    assert_eq!(delta.changed.len(), 1);
+    assert_eq!(delta.changed[0].id.to_string(), "session1");
+    assert_eq!(delta.removed.len(), 1);
+    assert_eq!(delta.removed[0].to_string(), "session2");
+
+    // A refresh, a lost message: the list comes whole again, never a gap.
+    snapshots.reset();
+    let mut after = sessions_at(10);
+    after[3].state.summary = "Read the logs".into();
+    assert!(matches!(
+        heard(&mut snapshots, list(after)).await,
+        Some(Reply::Snapshot(whole)) if matches!(whole.value, Value::Sessions(_))
+    ));
+}
+
+/// A desktop up to 0.10.33 sends no flag and reads no delta.
+#[tokio::test]
+async fn a_follower_that_asked_for_no_deltas_always_gets_the_whole_list() {
+    let mut snapshots = agents_snapshots(false);
+    heard(&mut snapshots, list(sessions_at(10))).await;
+    let mut next = sessions_at(10);
+    next[1].state.summary = "Run the tests".into();
+
+    assert!(matches!(
+        heard(&mut snapshots, list(next)).await,
+        Some(Reply::Snapshot(whole)) if matches!(whole.value, Value::Sessions(_))
+    ));
+}
+
+/// The bytes sent on `agents` while twelve sessions, eight of them running,
+/// go through a minute of a turn, an update each second.
+#[tokio::test]
+async fn a_minute_of_running_sessions_sends_far_fewer_agents_bytes() {
+    async fn sent(deltas: bool, slim: bool) -> usize {
+        let mut snapshots = agents_snapshots(deltas);
+        let key = (Topic::new("agents"), None);
+        let mut total = 0;
+
+        for tick in 1..=60 {
+            let value = list(sessions_at(tick));
+            let value = if slim { shown(&key, value) } else { value };
+            let bytes = rmp_serde::to_vec(&value).unwrap().len();
+            let generation = snapshots.generation;
+            let completed = key.clone();
+            snapshots.entries.get_mut(&key).unwrap().running = true;
+            snapshots.reads.spawn(async move {
+                Completed {
+                    generation,
+                    key: completed,
+                    result: Ok((value, bytes)),
+                }
+            });
+
+            if let Some(reply) = stepped_snapshot(&mut snapshots).await {
+                total += rmp_serde::to_vec(&reply).unwrap().len();
+            }
+        }
+
+        total
+    }
+
+    let before = sent(false, false).await;
+    let rows_only = sent(false, true).await;
+    let after = sent(true, true).await;
+    println!("agents bytes in a minute: before {before}, rows only {rows_only}, after {after}");
+
+    assert!(after * 10 < before, "before {before}, after {after}");
+}
+
+#[test]
+fn only_the_agents_list_is_cut_to_rows() {
+    let whole = list(sessions_at(10));
+    let agents = (Topic::new("agents"), None);
+
+    assert_ne!(shown(&agents, whole.clone()), whole);
+    // A query for the same read, and the keyed topic of one session, stay whole.
+    assert_eq!(shown(&(Topic::new("agents"), Some(1)), whole.clone()), whole);
+    assert_eq!(shown(&(Topic::keyed("agent", "session1"), None), whole.clone()), whole);
 }

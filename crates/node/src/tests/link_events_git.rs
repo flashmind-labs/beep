@@ -285,6 +285,7 @@ mod current {
                     },
                 },
             }],
+            deltas: false,
         })
         .await
         .unwrap();

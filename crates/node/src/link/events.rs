@@ -61,6 +61,7 @@ struct Watched {
     started: Instant,
     topics: Vec<Topic>,
     queries: Vec<events::Query>,
+    deltas: bool,
     result: Result<Subscriptions>,
 }
 
@@ -69,6 +70,7 @@ struct Queued {
     id: u64,
     topics: Vec<Topic>,
     queries: Vec<events::Query>,
+    deltas: bool,
 }
 
 /// Checks a queued watch and starts looking its sources up, or answers it with an error.
@@ -80,7 +82,7 @@ async fn begin_watch(
     queued: Queued,
     watching: &mut JoinSet<Watched>,
 ) -> Result<()> {
-    let Queued { id, topics: wanted, queries: wanted_queries } = queued;
+    let Queued { id, topics: wanted, queries: wanted_queries, deltas } = queued;
     let started = Instant::now();
     tracing::info!(%stream, watch = id, topics = wanted.len(), queries = wanted_queries.len(), "subscription watch received");
     for query in &wanted_queries {
@@ -101,7 +103,7 @@ async fn begin_watch(
             let source_topics = sources(&wanted, &wanted_queries);
             watching.spawn(async move {
                 let result = sources::subscribe(&offers, &source_topics).await;
-                Watched { id, started, topics: wanted, queries: wanted_queries, result }
+                Watched { id, started, topics: wanted, queries: wanted_queries, deltas, result }
             });
         }
         Err(error) => {
@@ -193,11 +195,11 @@ async fn run(
                     anyhow::ensure!(offers.lends_to_peers() || offers.mesh.get().is_some_and(|mesh| mesh.me() == caller), "this machine is no longer shared");
                 }
 
-                let request = match request? {
-                    None => None,
-                    Some(Incoming::Request(request)) => Some(request),
+                let (request, deltas) = match request? {
+                    None => (None, false),
+                    Some((Incoming::Request(request), deltas)) => (Some(request), deltas),
                     // From a newer app: refuse the call, keep the stream.
-                    Some(Incoming::Unread { id, reason }) => {
+                    Some((Incoming::Unread { id, reason }, _)) => {
                         tracing::warn!(%stream, call = id, %reason, "subscription call not read");
                         send(&mut tx, wire, Reply::Error { id, reason }).await?;
                         continue;
@@ -212,7 +214,7 @@ async fn run(
                     if queued.len() >= MAX_QUEUED_WATCHES {
                         send(&mut tx, wire, Reply::Error { id, reason: "too many pending watches".into() }).await?;
                     } else {
-                        queued.push_back(Queued { id, topics, queries });
+                        queued.push_back(Queued { id, topics, queries, deltas });
                     }
                 }
                 Some(Request::Refresh { id }) => {
@@ -231,7 +233,7 @@ async fn run(
                 }
             },
             Some(done) = watching.join_next(), if !watching.is_empty() => {
-                let Watched { id, started, topics: wanted, queries: wanted_queries, result } = done.context("a topic watch stopped")?;
+                let Watched { id, started, topics: wanted, queries: wanted_queries, deltas, result } = done.context("a topic watch stopped")?;
 
                 match result {
                     Ok(next) => {
@@ -239,6 +241,7 @@ async fn run(
                         roots = sources::roots(&subscriptions);
                         topics = wanted;
                         queries = wanted_queries;
+                        snapshots.follow_deltas(deltas);
                         snapshots.replace(&offers, &topics, &queries, &roots);
                         // The first snapshots do not wait for the watchers.
                         passes.start(Pass::bind(&subscriptions));
@@ -361,22 +364,26 @@ async fn run(
     }
 }
 
-/// The next request of the stream, as `events/1` names it.
-async fn read_request(wire: Wire, rx: &mut LinkRx) -> Result<Option<Incoming>> {
+/// The next request of the stream, as `events/1` names it, and whether its
+/// sender takes the `agents` list as deltas. `events/1` has no such flag.
+async fn read_request(wire: Wire, rx: &mut LinkRx) -> Result<Option<(Incoming, bool)>> {
     match wire {
-        Wire::Events => rx.recv_with(Incoming::read).await,
+        Wire::Events => Ok(rx.recv_with(Incoming::read).await?.map(|read| (read, false))),
         Wire::Subscriptions => Ok(rx
             .recv::<subscriptions::Request>()
             .await?
-            .map(|request| Incoming::Request(match request {
-                subscriptions::Request::Watch { id, topic, queries } => Request::Watch {
-                    id,
-                    topics: vec![topic],
-                    queries,
-                },
-                subscriptions::Request::Refresh { id } => Request::Refresh { id },
-                subscriptions::Request::Ping { id } => Request::Ping { id },
-            }))),
+            .map(|request| match request {
+                subscriptions::Request::Watch { id, topic, queries, deltas } => (
+                    Incoming::Request(Request::Watch { id, topics: vec![topic], queries }),
+                    deltas,
+                ),
+                subscriptions::Request::Refresh { id } => {
+                    (Incoming::Request(Request::Refresh { id }), false)
+                }
+                subscriptions::Request::Ping { id } => {
+                    (Incoming::Request(Request::Ping { id }), false)
+                }
+            })),
     }
 }
 

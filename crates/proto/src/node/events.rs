@@ -99,6 +99,59 @@ pub enum Value {
     /// it gets it, never `*`. A node from before it answers a `SnapshotError`
     /// for the topic.
     TeamInvites(Vec<tools::TeamInviteArgs>),
+    /// What changed in the `agents` list since the snapshot or delta
+    /// `after` names, for a follower that asked for deltas. Never in a
+    /// snapshot of any other topic or query.
+    SessionsDelta(Box<SessionsDelta>),
+}
+
+/// The rows of the `agents` list that changed, by session id, and the ids
+/// that left it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct SessionsDelta {
+    /// The revision of the snapshot or delta of this topic sent just before.
+    /// A follower that does not hold that one missed a message and needs
+    /// the whole list again.
+    pub after: u64,
+    pub changed: Vec<agent::SessionInfo>,
+    pub removed: Vec<SessionId>,
+}
+
+impl SessionsDelta {
+    /// What takes `before` to `now`.
+    pub fn between(before: &[agent::SessionInfo], now: &[agent::SessionInfo], after: u64) -> Self {
+        let held: std::collections::HashMap<_, _> =
+            before.iter().map(|info| (&info.id, info)).collect();
+        let kept: std::collections::HashSet<_> = now.iter().map(|info| &info.id).collect();
+
+        Self {
+            after,
+            changed: now
+                .iter()
+                .filter(|info| held.get(&info.id) != Some(info))
+                .cloned()
+                .collect(),
+            removed: before
+                .iter()
+                .filter(|info| !kept.contains(&info.id))
+                .map(|info| info.id.clone())
+                .collect(),
+        }
+    }
+
+    /// Applies it to the list it was made against, oldest session first.
+    pub fn apply(self, sessions: &mut Vec<agent::SessionInfo>) {
+        sessions.retain(|info| !self.removed.contains(&info.id));
+
+        for row in self.changed {
+            match sessions.iter_mut().find(|info| info.id == row.id) {
+                Some(held) => *held = row,
+                None => sessions.push(row),
+            }
+        }
+
+        sessions.sort_by_key(|info| info.started_at);
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -108,7 +161,8 @@ pub struct Query {
     pub read: Read,
 }
 
-/// A complete replacement for one projection. Reconnect starts with fresh snapshots.
+/// A complete replacement for one projection, but for a `Value::SessionsDelta`.
+/// Reconnect starts with fresh snapshots.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub topic: Topic,
@@ -181,6 +235,52 @@ pub enum Reply {
     Pong {
         id: u64,
     },
+}
+
+/// The `agents` list as a follower of deltas holds it, to apply them to.
+#[derive(Debug, Default)]
+pub struct HeldSessions {
+    /// The revision of the last message of the list, 0 before the first.
+    revision: u64,
+    sessions: Vec<agent::SessionInfo>,
+}
+
+impl HeldSessions {
+    /// `snapshot` as a snapshot of the whole list: a delta applied to what
+    /// is held, any other snapshot as it came. `None` for a delta that does
+    /// not follow the last message held, which means one was missed: the
+    /// follower has to watch again for the whole list.
+    pub fn hear(&mut self, mut snapshot: Snapshot) -> Option<Snapshot> {
+        if snapshot.topic.name() != "agents" || snapshot.query.is_some() {
+            return Some(snapshot);
+        }
+
+        if let Value::SessionsDelta(delta) = &mut snapshot.value {
+            if self.revision == 0 || delta.after != self.revision {
+                return None;
+            }
+
+            std::mem::take(delta).apply(&mut self.sessions);
+            snapshot.value = Value::Sessions(Box::new(agent::SessionsReply::Sessions {
+                sessions: self.sessions.clone(),
+            }));
+            self.revision = snapshot.revision;
+            return Some(snapshot);
+        }
+
+        match &snapshot.value {
+            Value::Sessions(reply) => match reply.as_ref() {
+                agent::SessionsReply::Sessions { sessions } => {
+                    self.sessions.clone_from(sessions);
+                    self.revision = snapshot.revision;
+                }
+                _ => self.revision = 0,
+            },
+            _ => self.revision = 0,
+        }
+
+        Some(snapshot)
+    }
 }
 
 /// A request as this build reads it. A `Call` whose operation is newer than

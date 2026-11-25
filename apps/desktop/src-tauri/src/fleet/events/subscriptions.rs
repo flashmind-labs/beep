@@ -101,6 +101,7 @@ impl SubscriptionWorker {
                 id: 1,
                 topic: topic.clone(),
                 queries,
+                deltas: true,
             }),
         )
         .await
@@ -111,6 +112,8 @@ impl SubscriptionWorker {
         let mut dirty = false;
         let mut revision = 0;
         let mut idle = Idle::new();
+        // The node sends the `agents` list whole once, then the rows that changed.
+        let mut listed = events::HeldSessions::default();
 
         loop {
             if dirty && watches.is_empty() {
@@ -138,6 +141,7 @@ impl SubscriptionWorker {
                         id: next,
                         topic: topic.clone(),
                         queries,
+                        deltas: true,
                     }),
                 )
                 .await
@@ -173,6 +177,11 @@ impl SubscriptionWorker {
                             watches.remove(&id);
                         },
                         Reply::Snapshot(snapshot) => {
+                            // A delta that does not follow the last message means one was missed:
+                            // watching again starts with the whole list.
+                            let Some(snapshot) = listed.hear(*snapshot) else {
+                                return Err(DesktopError::Lost("the machine".into()));
+                            };
                             log::debug!("node snapshot received machine={machine} generation={generation} query={:?} topic={} revision={}", snapshot.query, snapshot.topic.name(), snapshot.revision);
                             revision = snapshot.revision;
                             let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };

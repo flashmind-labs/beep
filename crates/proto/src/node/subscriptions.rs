@@ -17,6 +17,11 @@ pub enum Request {
         id: u64,
         topic: Topic,
         queries: Vec<Query>,
+        /// The follower applies `Value::SessionsDelta`: the node sends the
+        /// `agents` list once whole, then only the rows that changed. A node
+        /// from before it ignores the flag and keeps sending whole lists.
+        #[serde(default)]
+        deltas: bool,
     },
     Refresh {
         id: u64,

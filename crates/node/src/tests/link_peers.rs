@@ -494,6 +494,7 @@ async fn dedicated_peer_protocols_reuse_connections_and_close_when_membership_en
         id: 1,
         topic: topic.clone(),
         queries: vec![],
+        deltas: false,
     })
     .await
     .unwrap();

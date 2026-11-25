@@ -351,6 +351,7 @@ fn runs_now(session: &ExternalSession, now: SystemTime) -> bool {
 /// start for a node that does not say.
 pub fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
     let started_at = unix(info.started_at);
+    let reply = info.reply();
     MachineSession {
         machine_id: host.id.clone(),
         machine_name: host.name.clone(),
@@ -367,19 +368,12 @@ pub fn beep_session(host: &Host, info: SessionInfo) -> MachineSession {
         question: info.question.map(agent_question),
         model: info.model,
         assistant: info.assistant,
-        reply: first_line(&info.last_message),
+        reply,
         changes: info.changes,
         account: info.account,
         persona: info.persona,
     }
 }
-
-/// The first line of `text` that has words, cut to what a list row shows.
-fn first_line(text: &str) -> Option<String> {
-    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
-    Some(line.chars().take(REPLY_CHARS).collect())
-}
-const REPLY_CHARS: usize = 160;
 
 pub fn external_session(host: &Host, session: ExternalSession) -> MachineSession {
     MachineSession {

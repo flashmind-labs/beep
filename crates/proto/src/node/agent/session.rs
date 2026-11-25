@@ -209,6 +209,54 @@ pub struct SessionInfo {
     pub persona: Option<Persona>,
 }
 
+/// The longest reply a list row shows, in characters.
+const REPLY_CHARS: usize = 160;
+
+impl SessionInfo {
+    /// The first line of the agent's last message that has words, cut to what
+    /// a list row shows.
+    pub fn reply(&self) -> Option<String> {
+        let line = self
+            .last_message
+            .lines()
+            .map(str::trim)
+            .find(|line| !line.is_empty())?;
+        Some(line.chars().take(REPLY_CHARS).collect())
+    }
+
+    /// Only what a list of sessions shows. The per-turn fields (token counts,
+    /// context, plan, touched files, tasks, the rest of the last message)
+    /// change many times a second while a turn runs and belong to the
+    /// session's own `agent` topic and its stream, so a list that carried
+    /// them would be sent again on every one.
+    pub fn row(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            agent: self.agent.clone(),
+            cwd: self.cwd.clone(),
+            title: self.title.clone(),
+            started_at: self.started_at,
+            state: State {
+                status: self.state.status,
+                summary: self.state.summary.clone(),
+                subagents: self.state.subagents,
+                ..State::default()
+            },
+            question: self.question.clone(),
+            last_message: self.reply().unwrap_or_default(),
+            model: self.model.clone(),
+            assistant: self.assistant,
+            changes: self.changes,
+            account: self.account.clone(),
+            persona: self.persona.clone(),
+            parent: self.parent.clone(),
+            last_activity: self.last_activity,
+            reviewer: self.reviewer,
+            ..Self::default()
+        }
+    }
+}
+
 /// A custom agent a session runs as (`CustomAgent`): its name and the
 /// color its file gives, such as `blue` or `#3b82f6`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
