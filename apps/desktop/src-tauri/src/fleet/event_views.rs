@@ -286,7 +286,7 @@ pub(crate) fn failed(app: &AppHandle, topic: &Topic, reason: &str) {
             .iter()
             .map(|&command| View::failed(command, json!({}), reason))
             .collect();
-        events.publish_views(machine, Topic::new(name), json!({ "views": views }));
+        events.publish_views(machine, views_topic(name), json!({ "views": views }));
     }
 }
 
@@ -305,6 +305,7 @@ fn commands(name: &str) -> &'static [&'static str] {
         "projects" => &["projects_on_top", "project_groups"],
         "sync" => &["project_sync"],
         "usage" => &["usage_get"],
+        "terminals" => &["terminals_all"],
         "accounts" => &["agent_accounts"],
         _ => &[],
     }
@@ -357,7 +358,15 @@ fn start(app: &AppHandle, views: &Views, mut pending: std::sync::MutexGuard<'_, 
 fn affected(name: &str) -> &'static [&'static str] {
     match name {
         "*" => &[
-            "home", "machines", "tools", "projects", "sync", "usage", "accounts", "forge",
+            "home",
+            "machines",
+            "tools",
+            "projects",
+            "sync",
+            "usage",
+            "accounts",
+            "forge",
+            "terminals",
         ],
         // Home shows no processes.
         "agents" | "agent" | "moves" | "home" => &["home"],
@@ -369,7 +378,18 @@ fn affected(name: &str) -> &'static [&'static str] {
         // A harness switched on or off changes the hosts the machines view offers.
         "accounts" => &["accounts", "machines"],
         "forge" => &["forge"],
+        // Any machine's terminals changed; the list of every terminal is read again.
+        "terminals" => &["terminals"],
         _ => &[],
+    }
+}
+
+/// Where the views of `name` are published. A node's own topic of that name has its own
+/// updates, so the views ride a keyed topic under it: a window that follows the topic hears both.
+fn views_topic(name: &str) -> Topic {
+    match name {
+        "terminals" => Topic::keyed(name, "views"),
+        _ => Topic::new(name),
     }
 }
 
@@ -387,8 +407,11 @@ async fn draw(app: AppHandle, name: &'static str) {
 
             if !data.is_empty() {
                 let machine = app.state::<Arc<Fleet>>().id();
-                app.state::<Events>()
-                    .publish_views(machine, topic, json!({ "views": data }));
+                app.state::<Events>().publish_views(
+                    machine,
+                    views_topic(name),
+                    json!({ "views": data }),
+                );
             }
         } else if app.state::<Events>().controller_held(&topic) {
             defer(&app.state::<Views>(), name);
@@ -541,6 +564,16 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
             &mut views,
             "usage_get",
             crate::center::usage::usage_get(app.state(), false).await,
+        ),
+        "terminals" => append(
+            &mut views,
+            "terminals_all",
+            crate::machines::terminals::all_now(
+                app,
+                &app.state::<Arc<Fleet>>(),
+                &app.state::<crate::machines::list::MachineLists>(),
+            )
+            .await,
         ),
         "forge" => append(
             &mut views,

@@ -176,6 +176,20 @@ impl<T: Clone + Send + 'static> Held<T> {
         }));
     }
 
+    /// Asks now, keeps the answer and gives the list, the last held when `ask` fails.
+    pub(crate) async fn read_now(
+        &self,
+        app: &AppHandle,
+        ask: impl Future<Output = Result<Vec<T>>>,
+        same: fn(&T, &T) -> bool,
+    ) -> Vec<T> {
+        if self.finish(ask.await, same) {
+            crate::fleet::home_signal::poke(app);
+        }
+
+        self.last()
+    }
+
     /// What `ask` listed last, at once, and `ask` run again in the
     /// background for the next call.
     pub(crate) fn refreshed(

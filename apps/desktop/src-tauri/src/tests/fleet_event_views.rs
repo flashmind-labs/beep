@@ -32,6 +32,21 @@ fn processes_do_not_draw_home_again() {
 }
 
 #[test]
+fn the_terminals_view_rides_a_keyed_topic_under_the_node_topic_a_window_follows() {
+    assert_eq!(affected("terminals"), ["terminals"]);
+    assert!(affected("*").contains(&"terminals"));
+    assert_eq!(commands("terminals"), ["terminals_all"]);
+
+    let views = views_topic("terminals");
+    let followed = Topic::new("terminals");
+    // The node's own snapshots of `terminals` are held under another key.
+    assert_ne!(views, followed);
+    assert!(followed.matches(&views));
+    // Other views keep the topic named for them.
+    assert_eq!(views_topic("machines"), Topic::new("machines"));
+}
+
+#[test]
 fn progress_draws_at_most_once_a_gap_and_the_end_of_a_transfer_draws_at_once() {
     let start = Instant::now();
     let mut pace = DrawPace::default();

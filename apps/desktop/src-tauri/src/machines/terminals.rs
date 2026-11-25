@@ -115,6 +115,23 @@ async fn every(app: &AppHandle, fleet: &Arc<Fleet>, held: &MachineLists) -> Resu
     Ok(rows)
 }
 
+/// Every terminal on every machine, each machine asked now: what the terminals view pushes.
+pub(crate) async fn all_now(
+    app: &AppHandle,
+    fleet: &Arc<Fleet>,
+    held: &MachineLists,
+) -> Result<Vec<TerminalRow>> {
+    let f = fleet.clone();
+    let remote = held
+        .terminals
+        .read_now(app, async move { direct::remote(&f).await }, same_terminal)
+        .await;
+    let mut rows = direct::local(fleet).await?;
+    rows.extend(direct::remote_now(fleet, &remote));
+
+    Ok(rows.into_iter().map(Into::into).collect())
+}
+
 /// `project`'s terminals.
 #[tauri::command]
 pub async fn terminals_list(
