@@ -12,6 +12,8 @@ import { NEW_THREAD } from "./threads-state.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
+import { bytesOf } from "../agentpane/media-state.ts";
+import { StartFiles } from "./start-files.ts";
 import { paneSession } from "../agentpane/media.ts";
 import { MN, attachReads, attachmentKey, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
@@ -524,20 +526,21 @@ async function continueChat(o: OpenAgent, draft: Waiting, state: MentionState) {
     return restoreDraft(draft, state, o);
   }
 
-  if (draft.files?.length) {
-    state.error = "Files cannot go with a chat that continues under another harness.";
-    return restoreDraft(draft, state, o);
-  }
+  // The files upload the way the start form's do, to the machine and folder the chat runs in.
+  const uploads = new StartFiles();
 
   try {
-    const { text, images } = outgoing(draft.text, draft.images);
+    uploads.add((draft.files ?? []).map(({ file }) => new File([bytesOf(file.data)], file.name, { type: file.mime })));
+    const { text, images } = outgoing(await uploads.prompt(draft.text, row.machine_id, row.cwd), draft.images);
     const model = pick.model || null, fast = pick.agent === "codex" ? pick.fast : null;
     const started = await invoke<Started>("agent_begin", { machineId: row.machine_id, agent: pick.agent, cwd: row.cwd, prompt: text, images: images ?? [], model, effort: pick.effort, fast, checkout: null, assistant: false, account: null, continues: row.id });
     continuePicks.delete(o.session);
     sessionPicks.set(started.session.id, { model: model ?? "", effort: pick.effort, fast });
     startedWith(started.session, text, images ?? []);
+    uploads.forget();
     if (isOpen(o)) openAgent(started.session, { back: AG.back });
   } catch (e) {
+    uploads.discardAll();
     state.error = String(e).replace(/^bad request: /, "");
     restoreDraft(draft, state, o);
   }
