@@ -11,6 +11,7 @@ import { imageLines } from "../src/agents/agentlog.ts";
 import { disposeQueue } from "../src/agents/messages.ts";
 import type { ChatBody } from "../src/ui/turn.ts";
 import { fillLog } from "../src/agents/logwindow.tsx";
+import "../src/bar/bar-app.tsx";
 
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
 const settle = () => new Promise<void>(resolve => setImmediate(resolve));

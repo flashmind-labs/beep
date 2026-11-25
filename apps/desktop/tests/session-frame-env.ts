@@ -1,6 +1,7 @@
 // A session frame as `drawAgentFrame` shows it, for tests that draw an
 // agent's log and field. Import it after the DOM environment.
 import { createElement } from "react";
+import "../src/bar/bar-app.tsx";
 import { SessionField, showSessionFrame } from "../src/agents/session-frame.tsx";
 import { agentHints } from "../src/agents/session-head.tsx";
 import type { ChatBody } from "../src/ui/turn.ts";

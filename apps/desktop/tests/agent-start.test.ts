@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { AG, type AgentHost } from "../src/agents/agents.ts";
 import { keepProjectAccount } from "../src/agents/agentmodels.ts";
 import { renderAgentNew, startAgent } from "../src/agents/agentnew.tsx";
+import "../src/bar/bar-app.tsx";
 
 const settle = () => new Promise(resolve => setImmediate(resolve));
 const starts = () => calls.filter(call => call.cmd === "agent_begin");
