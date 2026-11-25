@@ -3,6 +3,7 @@
 use super::{Fleet, events::Events, session_mirror::Rows};
 use crate::error::Result;
 use beep_proto::node::events::Topic;
+use futures::{StreamExt, stream::FuturesUnordered};
 use serde::Serialize;
 use serde_json::{Value, json};
 use std::{
@@ -401,7 +402,7 @@ async fn draw(app: AppHandle, name: &'static str) {
     }
 }
 
-/// Publishes the followed projects that changed, one after another.
+/// Publishes the followed projects that changed, together.
 async fn draw_projects(app: AppHandle) {
     loop {
         let projects = {
@@ -416,9 +417,12 @@ async fn draw_projects(app: AppHandle) {
             std::mem::take(&mut pending.projects)
         };
 
-        for (_, row) in projects {
-            crate::projects::live::emit_snapshot(&app, row).await;
-        }
+        let draws = projects
+            .into_values()
+            .map(|row| crate::projects::live::emit_snapshot(&app, row))
+            .collect::<FuturesUnordered<_>>();
+
+        draws.collect::<()>().await;
     }
 }
 

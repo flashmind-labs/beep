@@ -408,17 +408,24 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
                 &error.to_string(),
             )),
         }
-        for run in app.state::<Followed>().selected(row.project_id) {
+        let reads = app.state::<Followed>().selected(row.project_id).into_iter().map(|run| {
             let args = serde_json::json!({ "projectId": row.project_id, "runId": run.id, "host": run.host });
-            match crate::projects::runs::center_project_run(
-                app.state(),
-                row.project_id,
-                run.id,
-                run.host,
-                Some(true),
-            )
-            .await
-            {
+            let project_id = row.project_id;
+            async move {
+                let read = crate::projects::runs::center_project_run(
+                    app.state(),
+                    project_id,
+                    run.id,
+                    run.host,
+                    Some(true),
+                )
+                .await;
+                (args, read)
+            }
+        });
+
+        for (args, read) in futures::future::join_all(reads).await {
+            match read {
                 Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
                     "center_project_run",
                     args,
