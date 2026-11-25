@@ -8,10 +8,9 @@ use crate::{
     beep::identity::computer_name,
     error::{DesktopError, Result},
     fleet::{
-        Fleet, Machines,
-        event_views::View,
-        files as direct,
+        Fleet, Machines, files as direct,
         node_actor::{FAST_JOB_WAIT, JobKind},
+        view_signal::View,
     },
 };
 use beep_mesh::{DeviceKind, Invitation, MeshError, ShortTicket};

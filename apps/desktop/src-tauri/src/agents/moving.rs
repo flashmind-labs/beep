@@ -7,8 +7,8 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Machines, agents as direct,
-        event_views::View,
         projects::{FleetState, desk},
+        view_signal::View,
     },
 };
 use beep_fleet::{ChatMoveAsk, ChatSession, MoveAsk, MoveState};

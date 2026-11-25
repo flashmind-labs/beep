@@ -4,12 +4,11 @@ use crate::{
     agents::sessions::SessionRow,
     error::{DesktopError, Result},
     fleet::{
-        Machines,
-        event_views::View,
-        files as direct,
+        Machines, files as direct,
         projects::{FleetState, desk},
         session_lists::{ListId, SessionLists},
         session_mirror::SessionMirror,
+        view_signal::View,
     },
 };
 use beep_fleet::Session;

@@ -281,7 +281,7 @@ pub(crate) fn list_changed(app: &AppHandle, machine: EndpointId, topic: &Topic) 
 fn publish_output(app: &AppHandle, fleet: &Arc<Fleet>, id: Uuid, output: Result<TerminalOutput>) {
     let args = serde_json::json!({ "id": id });
     let view = match output {
-        Ok(output) => crate::fleet::event_views::View::new(
+        Ok(output) => crate::fleet::view_signal::View::new(
             "terminal_output",
             args,
             OutputView {
@@ -290,7 +290,7 @@ fn publish_output(app: &AppHandle, fleet: &Arc<Fleet>, id: Uuid, output: Result<
                 earlier: output.earlier,
             },
         ),
-        Err(error) => Some(crate::fleet::event_views::View::failed(
+        Err(error) => Some(crate::fleet::view_signal::View::failed(
             "terminal_output",
             args,
             &error.to_string(),

@@ -8,8 +8,8 @@ use super::{diff::places_of, files::tree_of};
 use crate::fleet::{
     Fleet,
     agents::PlaceAsk,
-    event_views::View,
     events::{Events, Update},
+    view_signal::View,
 };
 use beep_proto::{
     SessionId,

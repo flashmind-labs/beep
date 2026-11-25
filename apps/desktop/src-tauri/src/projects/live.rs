@@ -4,11 +4,12 @@
 use super::{team::team_view, team_live::TeamLive};
 use crate::{
     error::Result,
-    fleet::projects::{FleetState, mesh_project},
+    fleet::{
+        projects::{FleetState, mesh_project},
+        view_signal::{Change, LiveRow, View, ring},
+    },
 };
 use beep_fleet::{Changed, ProjectRead};
-use beep_proto::{HostedRuns, LabeledProjectLists};
-use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet, HashSet},
     sync::{Arc, Mutex, PoisonError},
@@ -25,23 +26,6 @@ const POLLING_WHY: &str = "Beep reads the host every couple of minutes while thi
 
 /// Project pages followed by one window; its oldest ownership goes for a new one.
 const MAX_FOLLOWED: usize = 8;
-
-/// What the page hears of one project.
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct LiveRow {
-    pub(crate) project_id: Uuid,
-    /// None while it is not known.
-    live: Option<bool>,
-    polling_why: Option<String>,
-    pub(crate) lists: bool,
-    pub(crate) runs: bool,
-    /// What the read that caused this row found, so the draw does not read again.
-    #[serde(skip)]
-    pub(crate) lists_read: Option<LabeledProjectLists>,
-    #[serde(skip)]
-    pub(crate) runs_read: Option<HostedRuns>,
-    views: Vec<crate::fleet::event_views::View>,
-}
 
 /// The followed projects, each with the task that follows it.
 #[derive(Default)]
@@ -305,13 +289,13 @@ pub(crate) fn changed(app: AppHandle) -> impl Fn(Changed) + Send + Sync + 'stati
             );
         }
         Changed::Sync => {
-            crate::fleet::event_views::sync_changed(app.clone(), false);
+            ring(&app, Change::Sync { moving: false });
         }
         Changed::Usage => {
             beep_node::events::system().changed(beep_proto::node::events::Topic::new("usage"));
-            crate::fleet::event_views::changed(
-                app.clone(),
-                beep_proto::node::events::Topic::new("usage"),
+            ring(
+                &app,
+                Change::Topic(beep_proto::node::events::Topic::new("usage")),
             );
         }
     }
@@ -373,7 +357,9 @@ async fn poll(app: AppHandle, fleet: Arc<beep_fleet::Session>, project_id: Uuid,
 }
 
 fn emit(app: &AppHandle, row: &LiveRow) {
-    crate::fleet::event_views::project_changed(app.clone(), row.clone());
+    if app.state::<Followed>().contains(row.project_id) {
+        ring(app, Change::Project(row.clone()));
+    }
 }
 
 pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
@@ -393,12 +379,10 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
         };
 
         match lists {
-            Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
-                "center_project_lists",
-                args.clone(),
-                value,
-            )),
-            Err(error) => row.views.push(crate::fleet::event_views::View::failed(
+            Ok(value) => row
+                .views
+                .extend(View::new("center_project_lists", args.clone(), value)),
+            Err(error) => row.views.push(View::failed(
                 "center_project_lists",
                 args.clone(),
                 &error.to_string(),
@@ -415,12 +399,10 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
         };
 
         match runs {
-            Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
-                "center_project_runs",
-                args,
-                value,
-            )),
-            Err(error) => row.views.push(crate::fleet::event_views::View::failed(
+            Ok(value) => row
+                .views
+                .extend(View::new("center_project_runs", args, value)),
+            Err(error) => row.views.push(View::failed(
                 "center_project_runs",
                 args,
                 &error.to_string(),
@@ -444,16 +426,13 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
 
         for (args, read) in futures::future::join_all(reads).await {
             match read {
-                Ok(value) => row.views.extend(crate::fleet::event_views::View::new(
-                    "center_project_run",
-                    args,
-                    value,
-                )),
-                Err(error) => row.views.push(crate::fleet::event_views::View::failed(
-                    "center_project_run",
-                    args,
-                    &error.to_string(),
-                )),
+                Ok(value) => row
+                    .views
+                    .extend(View::new("center_project_run", args, value)),
+                Err(error) => {
+                    row.views
+                        .push(View::failed("center_project_run", args, &error.to_string()))
+                }
             }
         }
     }

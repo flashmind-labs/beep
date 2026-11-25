@@ -1,11 +1,16 @@
 //! Render controller-owned state once, then send the same snapshot to every window.
 
-use super::{Fleet, events::Events, session_mirror::Rows};
+use super::{
+    Fleet,
+    events::Events,
+    session_mirror::Rows,
+    view_signal::{Change, LiveRow, View},
+};
 use crate::error::Result;
 use beep_proto::node::events::Topic;
 use futures::{StreamExt, stream::FuturesUnordered};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::json;
 use std::{
     collections::{BTreeMap, BTreeSet},
     future::Future,
@@ -13,7 +18,10 @@ use std::{
     time::{Duration, Instant},
 };
 use tauri::{AppHandle, Listener, Manager};
-use tokio::{sync::watch, task::JoinSet};
+use tokio::{
+    sync::{mpsc, watch},
+    task::JoinSet,
+};
 use uuid::Uuid;
 
 /// The least time between two sync views while files move, whose progress
@@ -55,7 +63,10 @@ impl Views {
     /// The projects to push the sync detail of: those copying now, and those that were at the last
     /// draw, whose detail then shows how they ended.
     fn shown_unsettled(&self, now: BTreeSet<String>) -> BTreeSet<String> {
-        let mut before = self.unsettled.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut before = self
+            .unsettled
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
         let shown = now.union(&before).cloned().collect();
         *before = now;
         shown
@@ -91,7 +102,7 @@ struct Pending {
     topics: BTreeSet<&'static str>,
     /// The topics drawing now. A change to one meanwhile waits in `topics` and draws after.
     drawing: BTreeSet<&'static str>,
-    projects: BTreeMap<Uuid, crate::projects::live::LiveRow>,
+    projects: BTreeMap<Uuid, LiveRow>,
     drawing_projects: bool,
 }
 
@@ -156,8 +167,23 @@ pub(crate) async fn follow_signal(app: AppHandle, mut pokes: watch::Receiver<u64
     }
 }
 
+/// Applies each change the features ring, in the order rung.
+pub(crate) async fn follow_changes(app: AppHandle, mut changes: mpsc::UnboundedReceiver<Change>) {
+    while let Some(change) = changes.recv().await {
+        match change {
+            Change::Topic(topic) => changed(app.clone(), topic),
+            Change::Sync { moving } => sync_changed(app.clone(), moving),
+            Change::Sessions(topic) => sessions_changed(app.clone(), topic),
+            Change::Edited => session_edited(app.clone()),
+            Change::Resumed => resumed(app.clone()),
+            Change::Failed { topic, reason } => failed(&app, &topic, &reason),
+            Change::Project(row) => project_changed(app.clone(), row),
+        }
+    }
+}
+
 /// Source reads may wait for node projections, so they run outside the stream reader.
-pub(crate) fn changed(app: AppHandle, topic: Topic) {
+fn changed(app: AppHandle, topic: Topic) {
     let views = app.state::<Views>();
     let events = app.state::<Events>();
     let affected = affected(topic.name());
@@ -182,7 +208,7 @@ pub(crate) fn changed(app: AppHandle, topic: Topic) {
 }
 
 /// A window showed again: draw the views that changed while it was hidden.
-pub(crate) fn resumed(app: AppHandle) {
+fn resumed(app: AppHandle) {
     let views = app.state::<Views>();
     let events = app.state::<Events>();
     let deferred = std::mem::take(
@@ -213,13 +239,13 @@ fn defer(views: &Views, name: &'static str) {
 }
 
 /// A sync change; `moving` when it only reports files in transit, which waits for `SYNC_GAP`.
-pub(crate) fn sync_changed(app: AppHandle, moving: bool) {
+fn sync_changed(app: AppHandle, moving: bool) {
     paced(app, "sync", moving);
 }
 
 /// A machine's sessions, one session or the moves changed. Home lists every machine's
 /// sessions for it, so it draws at most once a `HOME_GAP`.
-pub(crate) fn sessions_changed(app: AppHandle, topic: Topic) {
+fn sessions_changed(app: AppHandle, topic: Topic) {
     if matches!(topic.name(), "agents" | "agent" | "moves") {
         if topic.name() == "moves" {
             changed(app.clone(), Topic::new("moves"));
@@ -233,7 +259,7 @@ pub(crate) fn sessions_changed(app: AppHandle, topic: Topic) {
 
 /// The user changed a session on this desktop: Home draws at once, not after the gap that
 /// keeps what machines push from drawing it many times a second.
-pub(crate) fn session_edited(app: AppHandle) {
+fn session_edited(app: AppHandle) {
     paced(app, "home", false);
 }
 
@@ -285,16 +311,8 @@ impl Views {
     }
 }
 
-/// Whether a sync snapshot shows files in transit on that machine.
-pub(crate) fn moving(value: &beep_proto::node::events::Value) -> bool {
-    use beep_proto::node::{events::Value, sync::Reply};
-
-    matches!(value, Value::Sync(reply) if matches!(reply.as_ref(),
-        Reply::Status { projects } if projects.iter().any(|project| project.progress.is_some())))
-}
-
 /// Errors wake consumers without starting a read loop inside the source worker.
-pub(crate) fn failed(app: &AppHandle, topic: &Topic, reason: &str) {
+fn failed(app: &AppHandle, topic: &Topic, reason: &str) {
     let machine = app.state::<Arc<Fleet>>().id();
     let events = app.state::<Events>();
 
@@ -331,14 +349,7 @@ fn commands(name: &str) -> &'static [&'static str] {
     }
 }
 
-pub(crate) fn project_changed(app: AppHandle, mut row: crate::projects::live::LiveRow) {
-    if !app
-        .state::<crate::projects::live::Followed>()
-        .contains(row.project_id)
-    {
-        return;
-    }
-
+fn project_changed(app: AppHandle, mut row: LiveRow) {
     let views = app.state::<Views>();
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(previous) = pending.projects.get(&row.project_id) {
@@ -481,42 +492,6 @@ async fn draw_projects(app: AppHandle) {
             .collect::<FuturesUnordered<_>>();
 
         draws.collect::<()>().await;
-    }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct View {
-    command: &'static str,
-    args: Value,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    value: Option<Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
-}
-
-impl View {
-    pub(crate) fn new<T: Serialize>(command: &'static str, args: Value, value: T) -> Option<Self> {
-        match serde_json::to_value(value) {
-            Ok(value) => Some(Self {
-                command,
-                args,
-                value: Some(value),
-                error: None,
-            }),
-            Err(error) => {
-                log::debug!("view snapshot {command} could not be encoded: {error}");
-                Some(Self::failed(command, args, &error.to_string()))
-            }
-        }
-    }
-
-    pub(crate) fn failed(command: &'static str, args: Value, reason: &str) -> Self {
-        Self {
-            command,
-            args,
-            value: None,
-            error: Some(reason.to_owned()),
-        }
     }
 }
 

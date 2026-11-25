@@ -2,7 +2,10 @@
 //! starting, steering and answering them, their pictures and files, and
 //! the harnesses and sign-ins of each machine.
 
-use super::Fleet;
+use super::{
+    Fleet,
+    view_signal::{Change, ring},
+};
 use crate::{
     agents::steer::{BEFORE_ACCOUNTS, BEFORE_ASSISTANT, BEFORE_CHAT_MOVES, newer_than},
     error::{DesktopError, Result},
@@ -1116,8 +1119,8 @@ pub(crate) async fn harnesses(
 
 /// The harnesses of each machine online, as `agent_harnesses` gives them without a refresh,
 /// for the accounts view to push.
-pub(crate) async fn harness_views(fleet: &std::sync::Arc<Fleet>) -> Vec<super::event_views::View> {
-    use super::event_views::View;
+pub(crate) async fn harness_views(fleet: &std::sync::Arc<Fleet>) -> Vec<super::view_signal::View> {
+    use super::view_signal::View;
 
     let reads = fleet.online().into_iter().map(|machine| async move {
         let args = serde_json::json!({ "machineId": machine.to_string() });
@@ -1148,8 +1151,8 @@ const MODELS_FRESH: Duration = Duration::from_secs(300);
 pub(crate) async fn model_views(
     app: &tauri::AppHandle,
     fleet: &Arc<Fleet>,
-) -> Vec<super::event_views::View> {
-    use super::event_views::View;
+) -> Vec<super::view_signal::View> {
+    use super::view_signal::View;
 
     let reads = hosts(fleet).into_iter().flat_map(|host| {
         host.agents
@@ -1162,7 +1165,10 @@ pub(crate) async fn model_views(
         Some(async move {
             let args = serde_json::json!({ "machineId": machine_id, "agent": agent });
             let notify = move || {
-                super::event_views::changed(app, beep_proto::node::events::Topic::new("accounts"));
+                ring(
+                    &app,
+                    Change::Topic(beep_proto::node::events::Topic::new("accounts")),
+                );
             };
 
             let request = ListAgentModels {
@@ -1222,7 +1228,10 @@ pub(crate) async fn update_harness(
 /// that list them draw with what the read finds.
 pub(crate) fn models_changed(app: &tauri::AppHandle, fleet: &Fleet, machine: EndpointId) {
     fleet.projections().forget_models_on(machine);
-    super::event_views::changed(app.clone(), beep_proto::node::events::Topic::new("accounts"));
+    ring(
+        app,
+        Change::Topic(beep_proto::node::events::Topic::new("accounts")),
+    );
 }
 
 fn too_old(fleet: &Fleet, machine: EndpointId) -> DesktopError {

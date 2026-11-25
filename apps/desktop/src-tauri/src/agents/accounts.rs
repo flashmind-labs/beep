@@ -11,6 +11,7 @@ use crate::{
     fleet::{
         Fleet, Machines, agents as direct,
         projects::{FleetState, desk},
+        view_signal::{Change, ring},
     },
     settings::cli_login::{find_tool, refused},
 };
@@ -217,8 +218,10 @@ async fn save(
 /// The accounts of `agent` changed: the models its machines list are read again, since they
 /// depend on the account.
 fn accounts_changed(app: &AppHandle, agent: &str) {
-    app.state::<Arc<Fleet>>().projections().forget_models_of(agent);
-    crate::fleet::event_views::changed(app.clone(), Topic::new("accounts"));
+    app.state::<Arc<Fleet>>()
+        .projections()
+        .forget_models_of(agent);
+    ring(app, Change::Topic(Topic::new("accounts")));
 }
 
 #[tauri::command]

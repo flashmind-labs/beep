@@ -1114,7 +1114,7 @@ impl Outside for Desk {
         // The rows reach Home through the mirror's watch. A local edit tells the windows which
         // session, for the closing rows to settle.
         if let Drawn::Session(session) = drawn {
-            crate::fleet::event_views::session_edited(app.clone());
+            crate::fleet::view_signal::ring(app, crate::fleet::view_signal::Change::Edited);
 
             if let Err(e) = app.emit("sessions-changed", session) {
                 log::warn!("telling the windows the sessions changed: {e}");

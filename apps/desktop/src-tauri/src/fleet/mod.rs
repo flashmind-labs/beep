@@ -23,6 +23,7 @@ pub(crate) mod session_mirror;
 mod status;
 pub(crate) mod terminals;
 pub(crate) mod tool_updates;
+pub(crate) mod view_signal;
 
 use crate::{
     agents::work_copy::Copies,

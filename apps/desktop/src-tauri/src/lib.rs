@@ -849,6 +849,9 @@ fn setup(
         home_signal.follow(),
     ));
     app.manage(home_signal);
+    let (views_signal, changes) = fleet::view_signal::ViewSignal::new();
+    tauri::async_runtime::spawn(fleet::event_views::follow_changes(handle.clone(), changes));
+    app.manage(views_signal);
     tauri::async_runtime::spawn(fleet::event_views::follow_rows(
         handle.clone(),
         mirror.watch(),

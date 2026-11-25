@@ -2,7 +2,10 @@
 
 use super::{Events, Fleet, Snapshots, Update, commands::retrying, controller_topic, invalidate};
 use crate::error::{DesktopError, Result};
-use crate::fleet::session_mirror::SessionMirror;
+use crate::fleet::{
+    session_mirror::SessionMirror,
+    view_signal::{Change, moving, ring},
+};
 use beep_proto::node::{
     agent::SessionsReply,
     events::{self, Topic},
@@ -211,10 +214,10 @@ impl SubscriptionWorker {
                                 }
                             } else if !initial || snapshot.topic.name() == "agents" { invalidate(app, machine, &snapshot.topic, Some(&snapshot.value)); }
                             if !initial && snapshot.topic.name() == "sync" {
-                                super::super::event_views::sync_changed(app.clone(), super::super::event_views::moving(&snapshot.value));
+                                ring(app, Change::Sync { moving: moving(&snapshot.value) });
                             } else if !initial && snapshot.topic.name() != "agents" && (machine == fleet.me || matches!(snapshot.topic.name(), "agent" | "processes" | "terminals" | "moves")) {
                                 // "agents" draws when `invalidate` changes the mirror's rows, which Home follows.
-                                super::super::event_views::sessions_changed(app.clone(), snapshot.topic.clone());
+                                ring(app, Change::Sessions(snapshot.topic.clone()));
                             }
 
                             // A node from before the topics of one screen says only that a list changed.
@@ -251,7 +254,7 @@ impl SubscriptionWorker {
                             }
 
                             if machine == fleet.me || matches!(topic.name(), "agents" | "agent" | "processes" | "terminals" | "moves" | "sync") {
-                                super::super::event_views::failed(app, &topic, &reason);
+                                ring(app, Change::Failed { topic: topic.clone(), reason: reason.clone() });
                             }
 
                             if (machine != fleet.me || !controller_topic(&topic)) && app.state::<Events>().node_wanted(machine, &topic) {
@@ -297,7 +300,7 @@ fn tool_updates_heard(
     answer: Option<&events::Value>,
 ) {
     if fleet.projections().tool_pushes.heard(machine, answer) {
-        super::super::event_views::changed(app.clone(), Topic::new("tools"));
+        ring(app, Change::Topic(Topic::new("tools")));
     }
 }
 

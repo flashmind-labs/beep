@@ -1,6 +1,11 @@
 //! All windows share one duplex stream per subscription on each demanded node.
 
-use super::{Fleet, Machines, Opened, agents as direct, session_mirror::SessionMirror, terminals};
+use super::{
+    Fleet, Machines, Opened, agents as direct,
+    session_mirror::SessionMirror,
+    terminals,
+    view_signal::{Change, View, ring},
+};
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
 use beep_proto::watched;
@@ -1216,8 +1221,8 @@ pub async fn mesh_topics(
             }
         }
         (Some(false), topics) => match events.resume(label, id, topics)? {
-            Some(Primed::Full) => super::event_views::changed(app, Topic::new("*")),
-            Some(Primed::Changes | Primed::Expired) => super::event_views::resumed(app),
+            Some(Primed::Full) => ring(&app, Change::Topic(Topic::new("*"))),
+            Some(Primed::Changes | Primed::Expired) => ring(&app, Change::Resumed),
             None => {}
         },
     }
@@ -1261,7 +1266,7 @@ pub async fn mesh_watch(
 
     // Retained controller views can be evicted while another window stays subscribed.
     if primed == Primed::Full {
-        super::event_views::changed(app, Topic::new("*"));
+        ring(&app, Change::Topic(Topic::new("*")));
     }
 
     let _ = stopped.changed().await;
@@ -1511,7 +1516,7 @@ async fn run(
         }
 
         if materialized != interests {
-            super::event_views::changed(app.clone(), Topic::new("*"));
+            ring(&app, Change::Topic(Topic::new("*")));
             app.state::<Events>().publish_views(
                 fleet.me,
                 Topic::new("telemetry"),
@@ -1559,13 +1564,13 @@ async fn run(
                 // This node's sync status also comes as a snapshot of its own sync stream, which tells
                 // a transfer's progress from its end.
                 Ok(change) if change.topic.name() == "sync" => {
-                    super::event_views::sync_changed(app.clone(), true);
+                    ring(&app, Change::Sync { moving: true });
                 },
                 Ok(change) if matches!(change.topic.name(), "machines" | "tools" | "projects" | "home" | "usage" | "accounts") => {
-                    super::event_views::changed(app.clone(), change.topic);
+                    ring(&app, Change::Topic(change.topic));
                 },
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    super::event_views::changed(app.clone(), Topic::new("*"));
+                    ring(&app, Change::Topic(Topic::new("*")));
                     app.state::<Events>().publish_views(fleet.me, Topic::new("telemetry"), telemetry(&fleet));
                 },
                 _ => {},
@@ -1650,7 +1655,7 @@ async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
                         Err(error) => {
                             previous = None;
                             let fleet = app.state::<Arc<Fleet>>();
-                            let view = super::event_views::View::failed("git_items", serde_json::json!({}), &error.to_string());
+                            let view = View::failed("git_items", serde_json::json!({}), &error.to_string());
                             app.state::<Events>().publish_views(fleet.me, Topic::new("forge"), serde_json::json!({ "views": [view] }));
                         },
                     }
