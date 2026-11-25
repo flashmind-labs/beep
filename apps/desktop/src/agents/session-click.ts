@@ -228,7 +228,7 @@ async function kidSession(id: string, key?: string) {
   const row = childRow(sessions, id, key);
   if (row) return row;
   const until = Date.now() + KID_WAIT_MS;
-  let found = row;
+  let found: ReturnType<typeof childRow>;
 
   while (!found && Date.now() < until) {
     await nextSessions(until - Date.now());
