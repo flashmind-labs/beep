@@ -49,7 +49,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { batchComposerUi, showAgentControl, showAgentControlFor, showAgentStop } from "./composer-ui.tsx";
 import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
-import { sessionBody } from "./session-frame.tsx";
+import { sessionBody } from "./session-frame-state.ts";
 import { glide } from "../ui/motion.ts";
 
 /// Draws the log again. `keep` finds the row the reader just opened or

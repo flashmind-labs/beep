@@ -6,7 +6,7 @@ import { invoke } from "../ui/tauri.ts";
 import { AG, type OpenAgent, where } from "./agents-state.ts";
 import { drawAgentBody, rowInView, syncJump } from "./logview.tsx";
 import { OLDER_PAGE, type Run, olderBefore, takeOlder } from "./older-state.ts";
-import { sessionBody } from "./session-frame.tsx";
+import { sessionBody } from "./session-frame-state.ts";
 import { takeEarlier } from "./open-page.ts";
 
 /// Home and Find wait for the same read that starts when the log opens.

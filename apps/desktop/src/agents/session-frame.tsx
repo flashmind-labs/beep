@@ -1,15 +1,16 @@
-import type { HintViewModel } from "../bar/hints-view.tsx";
 import { readWindowPreference, writeWindowPreference } from "../ui/window-layout.ts";
 import { appendQuote, ComposeField } from "../chat/compose.tsx";
 import { DictateButton } from "../chat/dictation.tsx";
 import { FilePicker } from "./file-picker.tsx";
-import { cloneElement, createRef, isValidElement, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { createStore, useStore, type StoreApi } from "zustand";
+import { cloneElement, isValidElement, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useStore, type StoreApi } from "zustand";
 import { SessionTitle } from "./title-view.tsx";
 import { fixedTitle } from "../project/projectbar.ts";
-import { createPortal, flushSync } from "react-dom";
-import { type BarPageSlot, openBarPage } from "../bar/bar-page.ts";
-import type { ChatBody } from "../ui/turn.ts";
+import { createPortal } from "react-dom";
+// Outside importers keep this path until they import the state module.
+export { draftMessage, showSessionFrame } from "./session-frame-state.ts";
+import { agentMessage, draw, editHost, frameOwner, sessionBody } from "./session-frame-state.ts";
+
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { RunningPages } from "../agentpane/running-view.tsx";
 import { MoveBar, MoveBox, MoveHere } from "./move-view.tsx";
@@ -21,60 +22,6 @@ import type { ProjectWindowProps } from "../project/projectwindow.ts";
 import type { Persona, SessionUsage } from "./agents-state.ts";
 import { PersonaTag } from "../project/customagents-view.tsx";
 
-export interface AgentHintsModel { value: HintViewModel; project: string | null }
-export interface Frame { head: ReactNode; field: ReactNode; body: ChatBody; hints: AgentHintsModel }
-/// What the session page draws: the frame, and the views put in it.
-export interface FrameState { frame: Frame; revision: number; slots: readonly Slot[] }
-interface Owner { page: BarPageSlot; store: StoreApi<FrameState>; revision: number; frame: Frame; portals: Map<HTMLElement, Slot>; children: Map<string, Slot>; next: number; release(): void }
-let current: Owner | null = null;
-
-// Each child and portal is its own store, so a pane redrawing one tab strip
-// renders that strip alone instead of the whole session frame.
-export interface Slot { key: number; host: HTMLElement | null; view: StoreApi<ReactNode> }
-
-function slot(owner: Owner, host: HTMLElement | null, view: ReactNode): Slot {
-  return { key: ++owner.next, host, view: createStore<ReactNode>(() => view) };
-}
-
-function draw(owner: Owner) {
-  // Something replaced the bar's contents: the page box mounts again.
-  if (!owner.page.host.isConnected) owner.page.show({ view: "session", props: { store: owner.store } });
-  flushSync(() => owner.store.setState({ frame: owner.frame, revision: owner.revision, slots: [...owner.children.values(), ...owner.portals.values()] }));
-}
-
-
-function update(entry: Slot, view: ReactNode) {
-  if (entry.view.getState() === view) return;
-  flushSync(() => entry.view.setState(view, true));
-}
-
-export function setSessionChild(key: string, view: ReactNode) {
-  const owner = current;
-  if (!owner) return;
-  const prior = owner.children.get(key);
-  if (view === null) { if (owner.children.delete(key)) draw(owner); return; }
-  if (prior) { update(prior, view); return; }
-  owner.children.set(key, slot(owner, null, view));
-  draw(owner);
-}
-
-// Views with their own hosts, as the editor buttons in the head, while the
-// session root owns their React children. Removing one must release its
-// portal before removing the host.
-export function setSessionPortal(host: HTMLElement, view: ReactNode) {
-  const owner = current;
-  if (!owner) return;
-  const prior = owner.portals.get(host);
-  if (prior) { update(prior, view); return; }
-  owner.portals.set(host, slot(owner, host, view));
-  draw(owner);
-}
-
-export function removeSessionPortal(host: HTMLElement) {
-  const owner = current;
-  if (!owner?.portals.delete(host)) return;
-  draw(owner);
-}
 
 export function DraftHead({ project, openProject, machine, windowProps = null }: { windowProps?: ProjectWindowProps | null; project: string; openProject(): void; machine: StoreApi<string> }) {
   const here = useStore(machine);
@@ -109,7 +56,7 @@ function UsageBits({ usage }: { usage: SessionUsage }) {
 
 /// Redraws the session head with `change`; false when the frame shows no session head.
 export function updateSessionHead(change: Partial<Pick<SessionHeadProps, "title" | "folder" | "branch" | "usage" | "machine" | "persona">>) {
-  const owner = current, head = owner?.frame.head;
+  const owner = frameOwner(), head = owner?.frame.head;
   if (!owner || !isValidElement<SessionHeadProps>(head) || head.type !== SessionHead) return false;
   const unchanged = Object.entries(change).every(([key, value]) => key === "usage" || key === "persona"
     ? JSON.stringify(head.props[key]) === JSON.stringify(value)
@@ -118,17 +65,6 @@ export function updateSessionHead(change: Partial<Pick<SessionHeadProps, "title"
   owner.frame = { ...owner.frame, head: cloneElement(head, change) };
   draw(owner);
   return true;
-}
-
-const editHost = createRef<HTMLSpanElement>();
-
-/// Where the head shows the Open in editor button, while it shows.
-export const sessionEditHost = () => editHost.current?.isConnected ? editHost.current : null;
-
-/// The log body the frame shows, a session's or a draft's, while it is in the page.
-export function sessionBody(): ChatBody | null {
-  const body = current?.frame.body;
-  return body?.isConnected ? body : null;
 }
 
 /// A tap in the phone's list of commands and steers leaves the field and its keyboard as they are.
@@ -157,13 +93,6 @@ interface SessionFieldProps {
   cancel(): void;
 }
 
-/// The session's message field while the session page shows it.
-export const agentMessage = createRef<HTMLTextAreaElement>();
-/// The new-agent field while an empty agent view (a draft) shows it.
-export const draftMessage = createRef<HTMLTextAreaElement>();
-
-/// The field that takes the keys back from the pane: the session's or the draft's, while shown.
-export const shownMessage = () => [agentMessage.current, draftMessage.current].find(field => field?.isConnected) ?? null;
 
 function ContinueHere({ target, start }: ContinueHereProps) {
   const state = useStore(continuing);
@@ -300,30 +229,3 @@ function QuoteSelection() {
 
 // A draft and the session it starts share the same dock nodes. Their terminals
 // stay mounted while only the header and conversation are replaced.
-export function showSessionFrame(frame: Frame, inPlace: boolean, release: () => void) {
-  if (!inPlace || !current?.page.host.isConnected) {
-    const page = openBarPage(() => { const old = current; current = null; old?.release(); });
-    const store = createStore<FrameState>(() => ({ frame, revision: 1, slots: [] }));
-    const owner: Owner = { page, store, revision: 1, frame, portals: new Map(), children: new Map(), next: 0, release };
-    current = owner;
-    flushSync(() => page.show({ view: "session", props: { store } }));
-    return;
-  }
-
-  // The page it replaces lets go of what it held, as a draft its field.
-  const owner = current, previous = owner.release;
-  owner.release = release;
-  previous();
-  owner.frame = frame;
-  owner.revision++;
-  draw(owner);
-}
-
-const sameHints = (a: AgentHintsModel, b: AgentHintsModel) => a.project === b.project && a.value.window === b.value.window
-  && a.value.items.length === b.value.items.length && a.value.items.every((item, i) => item.join("\n") === b.value.items[i].join("\n"));
-
-export function updateSessionHints(hints: AgentHintsModel) {
-  if (!current || sameHints(current.frame.hints, hints)) return;
-  current.frame = { ...current.frame, hints };
-  draw(current);
-}

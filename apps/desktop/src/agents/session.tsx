@@ -3,7 +3,8 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { SessionPicks } from "./agentmodels.ts";
 import { sentText } from "./agentlog.ts";
-import { agentMessage, SessionField, SessionHead, sessionBody, showSessionFrame } from "./session-frame.tsx";
+import { SessionField, SessionHead } from "./session-frame.tsx";
+import { agentMessage, sessionBody, showSessionFrame } from "./session-frame-state.ts";
 import { disposeLogShell } from "./log-shell.tsx";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey, transcripts } from "./transcript-cache-state.ts";

@@ -1,6 +1,6 @@
 import { AttachmentBatch, ImagePreview, RemoveChip } from "./composer-ui.tsx";
 import { identity } from "../ui/parts.tsx";
-import { agentMessage } from "./session-frame.tsx";
+import { agentMessage } from "./session-frame-state.ts";
 import { Button, ProgressBar, Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef } from "react";
 import { shortSize, transferSpeed, type Transfer } from "../agentpane/files-state.ts";

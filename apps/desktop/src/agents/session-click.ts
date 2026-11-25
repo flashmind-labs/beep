@@ -20,7 +20,7 @@ import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { continuedFrom, continuedIn } from "./continue-state.ts";
 import { nativeSession } from "./native-session-state.ts";
 import { isOpen, openAgent, resumeAgent, setNote } from "./session.tsx";
-import { agentMessage, sessionBody } from "./session-frame.tsx";
+import { agentMessage, sessionBody } from "./session-frame-state.ts";
 
 /// How long a card waits for the machine to list a child that is not in the list yet.
 const KID_WAIT_MS = 3000;

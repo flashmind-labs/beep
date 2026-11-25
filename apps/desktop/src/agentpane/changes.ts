@@ -19,7 +19,7 @@ import { homeShort } from "../project/projects-state.ts";
 import { viewKey } from "./view-memory.ts";
 import { invoke } from "../ui/tauri.ts";
 import { paneShown } from "../ui/active.ts";
-import { setSessionChild } from "../agents/session-frame.tsx";
+import { setSessionChild } from "../agents/session-frame-state.ts";
 import type { ReactNode } from "react";
 import { createStore } from "zustand";
 

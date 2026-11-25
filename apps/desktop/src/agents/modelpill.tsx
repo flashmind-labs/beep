@@ -1,5 +1,5 @@
 // The model and thinking pill by a session's field, and switching them.
-import { agentMessage } from "./session-frame.tsx";
+import { agentMessage } from "./session-frame-state.ts";
 import { createRef } from "react";
 import { modelPickHost, showAgentControl, showAgentControlFor } from "./composer-ui.tsx";
 import type { SessionPick } from "./agentmodels.ts";

@@ -2,7 +2,8 @@
 // agent's log and field. Import it after the DOM environment.
 import { createElement } from "react";
 import "../src/bar/bar-app.tsx";
-import { SessionField, showSessionFrame } from "../src/agents/session-frame.tsx";
+import { SessionField } from "../src/agents/session-frame.tsx";
+import { showSessionFrame } from "../src/agents/session-frame-state.ts";
 import { agentHints } from "../src/agents/session-head.tsx";
 import type { ChatBody } from "../src/ui/turn.ts";
 

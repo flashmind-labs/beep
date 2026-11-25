@@ -9,7 +9,7 @@ import { conversationAppearance } from "../ui/conversation-appearance.ts";
 import { PaneDock, PaneDropZone, PaneMain, PaneShell } from "../agentpane/dock-view.tsx";
 import { onLogDrawn, promptMarks, revealLogUnit } from "./logwindow.tsx";
 import { syncJump } from "./logview.tsx";
-import type { AgentHintsModel, Frame, FrameState, Slot } from "./session-frame.tsx";
+import type { AgentHintsModel, Frame, FrameState, Slot } from "./session-frame-state.ts";
 
 const SlotView = memo(function SlotView({ slot }: { slot: Slot }) {
   const view = useStore(slot.view);

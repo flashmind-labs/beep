@@ -1,6 +1,7 @@
 // The open session's head and key hints: its title, folder, usage and the
 // editors that open its folder.
-import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHead, updateSessionHints } from "./session-frame.tsx";
+import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHints } from "./session-frame-state.ts";
+import { updateSessionHead } from "./session-frame.tsx";
 import { PANE, windowHooks } from "../bar/core.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
 import { type AgentRow, AG, openModes, sessionUsage } from "./agents-state.ts";

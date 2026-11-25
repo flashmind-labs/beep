@@ -5,7 +5,7 @@
 // subagents, each a tab. Drawing the tabs is in media-draw.ts, the docks'
 // layout and dividers in media-layout.ts.
 import { readWindowPreference, writeWindowPreference, windowPreferenceKey } from "../ui/window-layout.ts";
-import { shownMessage } from "../agents/session-frame.tsx";
+import { shownMessage } from "../agents/session-frame-state.ts";
 import type { AgentSession } from "../agents/agents-state.ts";
 import { readView, writeView, viewKey } from "./view-memory.ts";
 import { hasPreview } from "./html-preview-state.ts";

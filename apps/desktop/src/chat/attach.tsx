@@ -1,4 +1,4 @@
-import { agentMessage } from "../agents/session-frame.tsx";
+import { agentMessage } from "../agents/session-frame-state.ts";
 import { showFieldDrop } from "../agents/composer-ui.tsx";
 import { PATH_TYPE } from "../agentpane/files.ts";
 import { bytesOf } from "../agentpane/media-state.ts";

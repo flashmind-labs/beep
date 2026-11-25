@@ -19,7 +19,7 @@ import { disposeComposerUi, FieldControl } from "../src/agents/composer-ui.tsx";
 import { createElement } from "react";
 import { createDocumentView } from "../src/ui/document-root.tsx";
 import { MN } from "../src/agents/workdrop.ts";
-import { agentMessage } from "../src/agents/session-frame.tsx";
+import { agentMessage } from "../src/agents/session-frame-state.ts";
 import type { TranscriptUpdate } from "../src/agents/transcript-cache-state.ts";
 
 /// Polls follow the session only while the page shows.

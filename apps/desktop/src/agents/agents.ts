@@ -38,7 +38,7 @@ import { agentKind, folderName } from "./agent-kind.ts";
 import { moveLabel, onMoves } from "./move-store.ts";
 import { onClosing, shownStatus, sessionVisible } from "./closing.ts";
 import { placeSub } from "./place-state.ts";
-import { agentMessage, draftMessage, sessionBody, shownMessage } from "./session-frame.tsx";
+import { agentMessage, draftMessage, sessionBody, shownMessage } from "./session-frame-state.ts";
 import { closeMoveMenu } from "./move.ts";
 
 export const AGENT_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M13 15h4"/></svg>';

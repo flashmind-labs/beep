@@ -27,7 +27,7 @@ import { sameSession } from "./running-state.ts";
 import { conflicted, invoke, listen } from "../ui/tauri.ts";
 import { reopened } from "./closing.ts";
 import { loadSessions, sessions } from "./sessions.ts";
-import { agentMessage, sessionBody } from "./session-frame.tsx";
+import { agentMessage, sessionBody } from "./session-frame-state.ts";
 import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
 import { clearHeldSteers, heldSteers } from "./session-follow.ts";

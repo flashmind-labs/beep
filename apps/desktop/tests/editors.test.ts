@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { editorsFor, type EditorRow } from "../src/project/editors.ts";
 import { drawEditors } from "../src/agents/session-head.tsx";
 import "../src/bar/bar-app.tsx";
-import { DraftHead, draftMessage, showSessionFrame, shownMessage } from "../src/agents/session-frame.tsx";
+import { DraftHead } from "../src/agents/session-frame.tsx";
+import { draftMessage, showSessionFrame, shownMessage } from "../src/agents/session-frame-state.ts";
 import { createElement } from "react";
 import { createStore } from "zustand/vanilla";
 

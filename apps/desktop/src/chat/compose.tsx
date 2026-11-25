@@ -4,7 +4,7 @@ import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
 import { composeMessage as compose, expandPills, fenceSpans, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, quoteAppend, snapCaret, snapSelection } from "./compose-text.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
 import { invoke } from "../ui/tauri.ts";
-import { sessionBody } from "../agents/session-frame.tsx";
+import { sessionBody } from "../agents/session-frame-state.ts";
 
 // A composer's field as flsh's prompt: a long paste is one pill, removed
 // whole and previewed on a click; the part that will go out as code has a
