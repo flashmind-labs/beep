@@ -437,6 +437,8 @@ impl Desk {
             containers: Some(enabled),
         };
         write(&self.mesh, Key::Docker, Some(&settings)).await
+    }
+
     /// Voice dictation preferences shared across desktops and phones.
     pub fn dictation(&self) -> DictationSettings {
         read::<DictationSettings>(&self.mesh, &Key::Dictation).unwrap_or_default()

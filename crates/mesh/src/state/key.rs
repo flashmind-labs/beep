@@ -127,6 +127,8 @@ impl FromStr for Key {
 
         if s == "settings/docker" {
             return Ok(Key::Docker);
+        }
+
         if s == "settings/dictation" {
             return Ok(Key::Dictation);
         }

@@ -63,6 +63,8 @@ wire_structs! {
     #[serde(default)]
     pub struct DockerSettings {
         pub containers: Option<bool>,
+    }
+
     /// `settings/dictation`: voice dictation preferences shared across desktops and phones.
     /// `model` is `None` until picked, which uses the first configured speech-to-text model.
     #[derive(Default)]
