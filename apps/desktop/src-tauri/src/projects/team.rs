@@ -20,7 +20,7 @@ use beep_proto::{
 use iroh::EndpointId;
 use serde::Serialize;
 use std::str::FromStr;
-use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri::State;
 use uuid::Uuid;
 
 /// A project's team as the Team page shows it.

@@ -8,7 +8,7 @@ use crate::{
     },
     error::Result,
     fleet::{
-        Fleet, Machines,
+        Machines,
         agents::{self as agent_nodes, PlaceAsk},
         files as direct,
     },
