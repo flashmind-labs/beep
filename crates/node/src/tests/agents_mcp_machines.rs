@@ -1,4 +1,5 @@
 use super::*;
+use beep_proto::node::tools::PROTOCOL;
 use futures::FutureExt;
 use iroh::{Endpoint, SecretKey, endpoint::presets};
 

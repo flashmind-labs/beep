@@ -9,10 +9,11 @@
 use super::{
     children::{ChildView, full_id, machine_name},
     desktop,
-    machines::{find, over_the_mesh},
+    machines::find,
     reply::{fail, json_of, ok, parse},
     server::ASK_LIMIT,
 };
+use crate::peer_stream::over_the_mesh;
 use crate::{
     agents::{Agents, Answered, Asking},
     link::Offers,

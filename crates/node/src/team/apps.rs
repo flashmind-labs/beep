@@ -9,7 +9,7 @@ use super::{
     cards::Teammates,
     link::{TeamError, TeamLink},
 };
-use crate::{agents::mcp::over_the_mesh, link::peer_tools::Caller};
+use crate::{link::peer_tools::Caller, peer_stream::over_the_mesh};
 use beep_mesh::{Mesh, TeamWrites, take_roster};
 use beep_proto::{
     SessionId,

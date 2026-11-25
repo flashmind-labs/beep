@@ -5,7 +5,7 @@
 
 use super::catalog::REMOTE_RUN;
 use crate::agents::calls::command_name;
-use crate::peer_stream::handshake;
+use crate::peer_stream::{handshake, over_the_mesh};
 use super::reply::{done, fail, ok};
 use crate::{
     agents::live::Sent,
@@ -22,7 +22,7 @@ use beep_proto::SessionId;
 use beep_proto::node::{
     EnvReport,
     status::{self, Report},
-    tools::{PROTOCOL, Reply, Request, Tool},
+    tools::{Reply, Request, Tool},
     transfer::Reply as TransferReply,
 };
 use beep_proto::watched;
@@ -34,8 +34,6 @@ use tokio::{sync::watch, time::timeout};
 
 /// How long a machine has to report itself for `list_machines`.
 const STATUS_WAIT: Duration = Duration::from_secs(5);
-/// How long one call may run: a command runs at most half an hour.
-const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
 /// The most paths one `send_files` call takes.
 const MAX_SEND: usize = 20;
 /// How often a session is shown how far its files have gone.
@@ -567,36 +565,6 @@ fn name_the_job(text: &str, machine: &str) -> String {
         &text[start..end],
         &text[end..]
     )
-}
-
-pub(crate) async fn over_the_mesh(
-    mesh: &Mesh,
-    peer: EndpointId,
-    request: &Request,
-) -> Result<Reply, CallFailed> {
-    let (mut tx, mut rx) = handshake(mesh, peer, PROTOCOL)
-        .await
-        .map_err(CallFailed::Unsent)?;
-    let answer = async {
-        tx.send(request).await?;
-        timeout(CALL_LIMIT, rx.recv())
-            .await
-            .context("the call ran too long")??
-            .context("the machine closed the call before answering")
-    };
-
-    answer.await.map_err(CallFailed::Sent)
-}
-
-/// Why a call `over_the_mesh` failed.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum CallFailed {
-    /// The machine was not reached, or turned the call away: nothing ran.
-    #[error("{0:#}")]
-    Unsent(anyhow::Error),
-    /// The call broke once the request was on its way: it may have run.
-    #[error("{0:#}")]
-    Sent(anyhow::Error),
 }
 
 #[cfg(test)]

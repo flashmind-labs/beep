@@ -11,6 +11,7 @@ use beep_proto::{
         events::{HeldSessions, Topic, Value},
         link,
         subscriptions::{self, Open as SubscriptionsOpen, Reply, Request},
+        tools,
     },
     watched,
 };
@@ -30,6 +31,9 @@ const IDLE: Duration = Duration::from_secs(35);
 #[derive(Debug, thiserror::Error)]
 #[error("the machine refused the call: {0}")]
 pub(crate) struct Refused(pub(crate) String);
+
+/// How long one call may run: a command runs at most half an hour.
+const CALL_LIMIT: Duration = Duration::from_secs(35 * 60);
 
 /// Opens `protocol` on `peer`. A link replaced while it opens (two machines
 /// dialing each other keep one) is tried again; nothing has run yet.
@@ -163,4 +167,35 @@ impl PeerWatch {
             }
         }
     }
+}
+
+/// Sends `request` to the machine `peer` over `tools/1` and reads its reply.
+pub(crate) async fn over_the_mesh(
+    mesh: &Mesh,
+    peer: EndpointId,
+    request: &tools::Request,
+) -> Result<tools::Reply, CallFailed> {
+    let (mut tx, mut rx) = handshake(mesh, peer, tools::PROTOCOL)
+        .await
+        .map_err(CallFailed::Unsent)?;
+    let answer = async {
+        tx.send(request).await?;
+        timeout(CALL_LIMIT, rx.recv())
+            .await
+            .context("the call ran too long")??
+            .context("the machine closed the call before answering")
+    };
+
+    answer.await.map_err(CallFailed::Sent)
+}
+
+/// Why a call `over_the_mesh` failed.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum CallFailed {
+    /// The machine was not reached, or turned the call away: nothing ran.
+    #[error("{0:#}")]
+    Unsent(anyhow::Error),
+    /// The call broke once the request was on its way: it may have run.
+    #[error("{0:#}")]
+    Sent(anyhow::Error),
 }

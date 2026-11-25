@@ -11,9 +11,10 @@ use super::{
 use crate::{
     agents::{
         Agents,
-        mcp::{CallFailed, PickupStart, over_the_mesh, start_issue, still_runs},
+        mcp::{PickupStart, start_issue, still_runs},
     },
     link::note,
+    peer_stream::{CallFailed, over_the_mesh},
 };
 use beep_mesh::Mesh;
 use beep_projects::commands::OpenIssue;

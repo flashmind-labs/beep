@@ -3,7 +3,8 @@
 //! any other node sends the call to a desktop of its mesh over `tools/1` as
 //! `Tool::Projects`, with the tool's action in its arguments.
 
-use super::{CallFailed, reply::fail};
+use super::reply::fail;
+use crate::peer_stream::{CallFailed, over_the_mesh};
 use crate::link::Offers;
 use anyhow::Result;
 use beep_mesh::{DeviceKind, Mesh};
@@ -69,7 +70,7 @@ pub(crate) async fn forward(mesh: &Mesh, request: &Request) -> Reply {
         ));
     };
     let name = &desktop.device.name;
-    let replied = super::over_the_mesh(mesh, desktop.device.id, request).await;
+    let replied = over_the_mesh(mesh, desktop.device.id, request).await;
 
     from_desktop(name, replied)
 }

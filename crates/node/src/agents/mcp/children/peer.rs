@@ -6,8 +6,9 @@
 use super::{ChildView, PeerCall};
 use crate::agents::{
     family::{ChildNote, NO_AGENT, Parent, RemoteKid},
-    mcp::machines::{Machine, over_the_mesh},
+    mcp::machines::Machine,
 };
+use crate::peer_stream::over_the_mesh;
 use beep_mesh::Mesh;
 use beep_proto::SessionId;
 use beep_proto::node::tools::{Reply, Request, Tool};
