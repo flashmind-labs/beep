@@ -946,7 +946,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 /* Placed by its pill over the page (placeMenu), so no box clips it. */
 .agc-menu.float { position: fixed; z-index: 40; right: auto; bottom: auto; overscroll-behavior: contain }
 /* The machine menu's harness column lines up across rows. */
-.agc-menu.cols { display: grid; grid-template-columns: 10px auto minmax(0, 1fr); column-gap: 8px }
+.agc-menu.cols { display: grid; grid-template-columns: 22px auto minmax(0, 1fr); column-gap: 8px }
 .agc-menu.cols > button { grid-column: 1 / -1; grid-template-columns: subgrid }
 .agc-menu.cols > hr { grid-column: 1 / -1; width: 100% }
 .agc-menu.cols small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
