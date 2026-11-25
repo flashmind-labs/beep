@@ -16,7 +16,6 @@ import { type Nested, nest, splitEnded } from "./nesting-state.ts";
 import { chatOf } from "./threads-state.ts";
 import { parentSession, ensureSessions, sessions, sessionsRead } from "./sessions.ts";
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
-import { drawAgentNew, startAgent, togglePicker } from "./agentnew.tsx";
 import { preloadModels } from "./model-store.ts";
 import type { CheckoutPick } from "./agentpick.ts";
 import type { Attached, OutboxRow } from "./agentqueue.ts";
@@ -411,10 +410,17 @@ subscribeEach([topic("machines"), topic("accounts")], event => {
   takeHosts(pushed.list);
 });
 
+const hostListeners = new Set<() => void>();
+
+/// `redraw` runs when the agent hosts change.
+export function onAgentHosts(redraw: () => void) {
+  hostListeners.add(redraw);
+}
+
 function takeHosts(list: AgentHost[]) {
   AG.hosts = list;
   preloadModels(list);
-  if (S.view === "agentnew") drawAgentNew();
+  for (const redraw of hostListeners) redraw();
 }
 
 /// The coding agents' named accounts, as Settings last saved them.
@@ -568,11 +574,7 @@ export const listedMenu = (e: MouseEvent, s: AgentSession) => void sessionMenu(e
 
 /// Keys of the agent views; true when one was taken.
 export function agentKeys(e: KeyboardEvent, cmd: boolean) {
-  if (S.view === "agentnew") {
-    if (cmd && e.key === "Enter") { e.preventDefault(); startAgent(); return true; }
-    if (cmd && e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); togglePicker(); return true; }
-    return false;
-  }
+  if (S.view === "agentnew") return false;
 
   if (S.view === "agent") {
     if (cmd && e.key === "Enter" && answerFirst(true)) { e.preventDefault(); return true; }

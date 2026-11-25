@@ -10,7 +10,7 @@ import { menuPlaceFor } from "./mentionmenu.ts";
 import { FolderChoice, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { AccountChoice, BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
-import { AG, accountsOf, agentKind, type AgentHost, ensureAgentHosts, loadAccountNames, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
+import { AG, accountsOf, agentKind, type AgentHost, ensureAgentHosts, loadAccountNames, onAgentHosts, renderAgents, sentImage, type SentImage, type Started } from "./agents.ts";
 import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./assistant-state.ts";
 import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
@@ -151,6 +151,16 @@ function formHost() { return AG.hosts?.find(m => m.machine_id === AG.form.machin
 /// Only those the project allows.
 function formAgents() {
   return harnessesOn(AG.hosts, AG.form.machine || null, projectHarnesses(AG.form.project ?? null));
+}
+
+onAgentHosts(() => { if (S.view === "agentnew") drawAgentNew(); });
+
+/// Keys of the start form; true when one was taken.
+export function agentNewKeys(e: KeyboardEvent, cmd: boolean) {
+  if (S.view !== "agentnew") return false;
+  if (cmd && e.key === "Enter") { e.preventDefault(); void startAgent(); return true; }
+  if (cmd && e.shiftKey && e.key.toLowerCase() === "m") { e.preventDefault(); togglePicker(); return true; }
+  return false;
 }
 
 /// Redraws the form, keeping the prompt as typed when it shows already.

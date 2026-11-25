@@ -5,6 +5,7 @@ import type { ChatBody } from "../ui/turn.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { closeAgentNewMenus } from "../agents/agentnew.tsx";
 import { agentBack, agentKeys } from "../agents/agents.ts";
+import { agentNewKeys } from "../agents/agentnew.tsx";
 import { $, bar, newChat, PANE, S } from "./core.ts";
 import { closeFilesMenu } from "../agentpane/files.ts";
 import { viewerKeys } from "../chat/media.tsx";
@@ -68,7 +69,7 @@ document.addEventListener("keydown", e => {
   if ($("#viewer")) return viewerKeys(e, cmd);
   if (cmd && e.key === "/") { e.preventDefault(); return void import("../ui/shortcutsheet.tsx").then(m => m.toggleShortcuts()); }
   if (e.key === "Escape") { e.preventDefault(); return back(); }
-  if (agentKeys(e, cmd) || waitingKeys(e, cmd)) return;
+  if (agentNewKeys(e, cmd) || agentKeys(e, cmd) || waitingKeys(e, cmd)) return;
   const key = e.key.toLowerCase();
 
   if (cmd && e.shiftKey && key === "a") {
