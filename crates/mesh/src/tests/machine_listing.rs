@@ -100,6 +100,12 @@ fn a_listed_session_is_the_same_from_its_row() {
         tokens: 900,
         turns: 4,
         assistant: true,
+        model: Some("gpt-5".into()),
+        account: Some("work".parse().expect("a valid account name")),
+        persona: Some(beep_proto::node::agent::Persona {
+            name: "reviewer".into(),
+            color: Some("blue".into()),
+        }),
         changes: Some(beep_proto::node::agent::LineChanges {
             additions: 3,
             deletions: 1,
