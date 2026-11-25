@@ -12,21 +12,6 @@ import { invoke, listen } from "../ui/tauri.ts";
 import { paneShown } from "../ui/active.ts";
 import { RETRY_MS } from "../agents/reconnect-state.ts";
 
-// Keep the original File on the device that uploaded it. A browser File can
-// read its local bytes without downloading the attachment from the node.
-const localUploads = new Map<string, File>();
-const localUploadKey = (machine: string, path: string) => JSON.stringify([machine, path]);
-
-export function rememberLocalUpload(machine: string, path: string, file: File) {
-  const key = localUploadKey(machine, path);
-  localUploads.delete(key);
-  localUploads.set(key, file);
-  if (localUploads.size > 64) {
-    const oldest = localUploads.keys().next();
-    if (!oldest.done) localUploads.delete(oldest.value);
-  }
-}
-
 /// How far fetching a file from another machine has come.
 type FileProgress = { machine_id: string; path: string; done: number; size: number };
 
@@ -34,17 +19,6 @@ type FileProgress = { machine_id: string; path: string; done: number; size: numb
 /// far it got. A build with blob caching keeps it for `session` and may fetch
 /// the whole file before giving the first part.
 export async function readFile(machine: string, path: string, session: string | null, progress: (done: number, size: number) => void) {
-  const key = localUploadKey(machine, path), local = localUploads.get(key);
-  if (local) {
-    try {
-      const bytes = new Uint8Array(await local.arrayBuffer());
-      progress(bytes.length, bytes.length);
-      return { bytes, mime: local.type };
-    } catch {
-      localUploads.delete(key);
-    }
-  }
-
   const parts: Uint8Array[] = [];
   let done = 0, mime = "";
   let size: number | null = null;
@@ -230,8 +204,7 @@ function drawTermStatus(t: MediaTab) {
 export async function load(t: MediaTab, again = false) {
   const s = P.session;
   if (!s || !t.path) return;
-  if (again) localUploads.delete(localUploadKey(s.machine_id, t.path));
-  else t.started = Date.now();
+  if (!again) t.started = Date.now();
 
   try {
     const { bytes, mime } = await readFile(s.machine_id, t.path, s.id, (done, size) => {

@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import { expect, test } from "@playwright/test";
 import { openDesktop } from "./harness.ts";
 
@@ -263,29 +262,27 @@ test("sending an image keeps a conversation that was at the bottom following its
 });
 
 
-test("a video this window sent plays from this device, not read back from the machine", async ({ page }) => {
+test("two files with one name sent from this window open as what the machine holds at each path", async ({ page }) => {
   const active = { ...session, status: "idle", external: false };
-  const path = "/cache/uploads/recording.webm";
-  await openDesktop(page, false, { agent_view: view(active), agent_steer: [] });
+  const paths = ["/cache/uploads/one/recording.webm", "/cache/uploads/two/recording.webm"];
+  await openDesktop(page, false, { agent_view: view(active), agent_steer: [], agent_file: { size: 3, mime: "video/webm", data: btoa("abc") } });
   await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
   await expect(page.locator("#agbody")).toContainText("Message 39");
-  await page.locator('#agfield input[type="file"]').setInputFiles({ name: "recording.webm", mimeType: "video/webm", buffer: await readFile(new URL("../fixtures/upload-video.webm", import.meta.url)) });
-  await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
-  await page.locator("#agmsg").fill("This video");
-  await page.locator("#agmsg").press("Enter");
-  // The app uploaded it and says where it went; the session then shows the message with that path.
-  const next = { ...view(active), entries: [...view(active).entries, { kind: "user", text: `This video\n\n@"${path}"`, html: `<p>This video</p><p>@&quot;${path}&quot;</p>` }] };
-  await page.evaluate(({ active, path, next }) => {
+  for (const [i, text] of ["First video", "Second video"].entries()) {
+    await page.locator('#agfield input[type="file"]').setInputFiles({ name: "recording.webm", mimeType: "video/webm", buffer: Buffer.from(`bytes ${i}`) });
+    await expect(page.locator("#agfield .attachment-count")).toHaveText("1 file");
+    await page.locator("#agmsg").fill(text);
+    await page.locator("#agmsg").press("Enter");
+  }
+  const entries = paths.map((path, i) => ({ kind: "user", text: `${i ? "Second" : "First"} video\n\n@"${path}"`, html: `<p>${i ? "Second" : "First"} video</p><p>@&quot;${path}&quot;</p>` }));
+  await page.evaluate(({ active, next, uploaded }) => {
     window.__navigation.respond("agent_view", next);
-    window.__navigation.emit("outbox-changed", { machine_id: active.machine_id, agent: active.agent, session: active.id, revision: 1, rows: [], sent: [], resumed: null, uploaded: [{ name: "recording.webm", path }] });
-  }, { active, path, next });
-  await page.locator("#agbody").getByRole("button", { name: "recording.webm", exact: true }).click();
-  const video = page.locator("video");
-  await expect(video).toBeVisible();
-  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.readyState)).toBeGreaterThanOrEqual(2);
-  await video.evaluate(async (el: HTMLVideoElement) => { el.muted = true; await el.play(); });
-  await expect.poll(() => video.evaluate((el: HTMLVideoElement) => el.currentTime)).toBeGreaterThan(0);
-  expect(await page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file").length)).toBe(0);
+    window.__navigation.emit("outbox-changed", { machine_id: active.machine_id, agent: active.agent, session: active.id, revision: 1, rows: [], sent: [], resumed: null, uploaded });
+  }, { active, next: { ...view(active), entries: [...view(active).entries, ...entries] }, uploaded: paths.map(path => ({ name: "recording.webm", path })) });
+  const buttons = page.locator("#agbody").getByRole("button", { name: "recording.webm", exact: true });
+  await expect(buttons).toHaveCount(2);
+  await buttons.nth(0).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "agent_file").map(call => call.args.path))).toEqual([paths[0]]);
 });
 
 test("a pending attachment send finishes in its original conversation after navigation", async ({ page }) => {

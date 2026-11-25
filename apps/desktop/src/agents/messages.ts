@@ -12,7 +12,7 @@ import { conversationKey } from "./conversation-state.ts";
 import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { paneSession } from "../agentpane/media.ts";
-import { MN, attachReads, attachmentKey, currentMentions, keepSentFiles, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, uploadedFromHere, type MentionState } from "./workdrop.ts";
+import { MN, attachReads, attachmentKey, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./workdrop.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentQuestion, type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
@@ -112,11 +112,8 @@ function resumeFor(o: OpenAgent): Resume {
   return { model: o.agent === "codex" ? configure?.model ?? null : null, pick: configure };
 }
 
-/// What goes beside the message to `o`: its files, which this window keeps to
-/// read from, and the resume when its session ended.
+/// What goes beside the message to `o`: its files, and the resume when its session ended.
 function extrasOf(o: OpenAgent, q: Pick<Waiting, "paths" | "files" | "root"> | null, ended: boolean): Extras {
-  if (q?.files?.length) keepSentFiles(o.machine_id, q.files);
-
   return { attach: q ? attachOf(q) : null, resume: ended ? resumeFor(o) : null };
 }
 
@@ -536,7 +533,7 @@ interface Taken { text: string; images: SentImage[]; files: SentImage[]; mention
 
 /// What `outbox-changed` tells every window. A session that ended and was
 /// resumed for a message comes as `resumed`, the session that goes on from it.
-interface OutboxChanged extends OpenAgent { revision: number; rows: OutboxRow[]; sent: OutboxRow[]; resumed: AgentSession | null; uploaded: { name: string; path: string }[] }
+interface OutboxChanged extends OpenAgent { revision: number; rows: OutboxRow[]; sent: OutboxRow[]; resumed: AgentSession | null }
 
 /// Draws `rows` as of `revision`, unless the window already drew a newer set.
 function showOutbox(rows: OutboxRow[], revision: number) {
@@ -567,7 +564,6 @@ export async function readOutbox(o: OpenAgent) {
 
 listen<OutboxChanged>("outbox-changed", ({ payload }) => {
   const from = { machine_id: payload.machine_id, id: payload.session };
-  uploadedFromHere(payload.machine_id, payload.uploaded ?? []);
 
   if (payload.resumed) {
     const pick = resumePicks.get(payload.session);

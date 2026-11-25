@@ -14,8 +14,6 @@ import { paneSession } from "../agentpane/media.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { StashFile } from "../chat/stash-state.ts";
-import { bytesOf } from "../agentpane/media-state.ts";
-import { rememberLocalUpload } from "../agentpane/read.ts";
 
 /// A file on its way to the session's machine.
 interface Upload extends Transfer {
@@ -166,39 +164,8 @@ export async function uploadDropped(files: PastedFiles, folder: string | null = 
   finally { pending.delete(batch); }
 }
 
-/// What the pictures and files this window sent were, until the machine says where they went.
-const sentFiles = new Map<string, StashFile>();
-const SENT_FILES_KEPT = 16;
-const SENT_FILE_MAX_BYTES = 32 * 1024 * 1024;
 /// The largest file a message uploads; the app refuses larger ones too.
 export const MAX_ATTACH_BYTES = 512 * 1024 * 1024;
-
-/// Keeps `files`, which the outbox uploads for a message from this window.
-export function keepSentFiles(machine: string, files: readonly { file: StashFile }[]) {
-  for (const { file } of files) {
-    // A big file is read back from the machine: keeping it here would hold its whole text in memory.
-    if (file.size > SENT_FILE_MAX_BYTES) continue;
-    const key = JSON.stringify([machine, file.name]);
-    sentFiles.delete(key);
-    sentFiles.set(key, file);
-  }
-
-  while (sentFiles.size > SENT_FILES_KEPT) {
-    const oldest = sentFiles.keys().next();
-    if (oldest.done) break;
-    sentFiles.delete(oldest.value);
-  }
-}
-
-/// The outbox put `uploaded` on `machine`: what this window sent is read from here, not from there.
-export function uploadedFromHere(machine: string, uploaded: readonly { name: string; path: string }[]) {
-  for (const { name, path } of uploaded) {
-    const key = JSON.stringify([machine, name]), file = sentFiles.get(key);
-    if (!file) continue;
-    sentFiles.delete(key);
-    rememberLocalUpload(machine, path, new File([bytesOf(file.data)], file.name, { type: file.mime }));
-  }
-}
 
 /// The batches of files being read, which a message sent now takes once they are.
 export const attachReads = () => [...current.pending].filter(batch => batch.local);
