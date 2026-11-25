@@ -87,3 +87,42 @@ async fn a_hook_reaches_the_hub_over_the_socket() {
     assert_eq!(activity.kind, ActivityKind::NeedsInput);
     assert!(activity.from_hook);
 }
+
+#[tokio::test(start_paused = true)]
+async fn a_transcript_is_read_when_the_stores_ring_not_on_a_timer() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("projects/p");
+    fs::create_dir_all(&project).unwrap();
+    let path = project.join(format!("{ID}.jsonl"));
+    fs::write(&path, "{\"type\":\"permission-mode\"}\n").unwrap();
+    let store = Store::at(temp.path());
+    let events = crate::events::Hub::default();
+    let rings = events.subscribe();
+    let hub = Hub::default();
+    let link = beep_proto::node::local_link();
+    let (node_tx, node_rx) = link.node;
+    let (_tx, mut rx) = link.caller;
+    let serving = tokio::spawn(async move {
+        serve(node_tx, node_rx, Some(store), &hub, vec![ID.into()], rings).await
+    });
+    let SessionsReply::Watching { unknown } = rx.recv().await.unwrap().unwrap() else {
+        panic!("expected the watch to start");
+    };
+    assert!(unknown.is_empty());
+
+    append(
+        &path,
+        "{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"Done.\"}]}}\n\
+         {\"type\":\"system\",\"subtype\":\"turn_duration\"}\n",
+    );
+    let quiet = timeout(HOOK_GRACE * 4, rx.recv::<SessionsReply>()).await;
+    assert!(quiet.is_err(), "nothing rang, nothing was read");
+
+    events.changed(beep_proto::node::events::Topic::new("agent"));
+    let SessionsReply::Activity { activity } = rx.recv().await.unwrap().unwrap() else {
+        panic!("expected the turn end");
+    };
+    assert_eq!(activity.kind, ActivityKind::TurnDone);
+    assert_eq!(activity.message, "Done.");
+    serving.abort();
+}

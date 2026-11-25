@@ -1,6 +1,6 @@
 //! Following external sessions: hook events from the socket, passed to
 //! every `Watch` stream through a broadcast, and for sessions that send no
-//! hooks, their transcripts read as they grow.
+//! hooks, their transcripts read when the agents' stores ring.
 
 use beep_proto::SessionId;
 use super::{
@@ -11,6 +11,7 @@ use super::{
 };
 use crate::link::local_socket::{self as socket, Listener, Stream};
 use anyhow::{Context, Result};
+use crate::events::Change;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{Activity, ActivityKind, SessionsReply},
@@ -24,15 +25,15 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     sync::broadcast::{self, error::RecvError},
     task::spawn_blocking,
-    time::{MissedTickBehavior, interval, timeout},
+    time::{Instant, sleep_until, timeout},
 };
 
 /// The longest message an activity carries.
 pub(super) const MAX_MESSAGE: usize = 1500;
 /// The most sessions one stream follows.
 const MAX_WATCHED: usize = 32;
-/// How often transcripts are checked for growth.
-const POLL: Duration = Duration::from_secs(3);
+/// How long a turn end seen in a transcript waits for its hook.
+const HOOK_GRACE: Duration = Duration::from_secs(3);
 /// The most of a transcript's growth read in one check.
 const MAX_GROWTH: u64 = 4 * 1024 * 1024;
 /// Hook events waiting for slow streams.
@@ -142,12 +143,20 @@ impl Tracker {
         }
 
         let due: Vec<Activity> = self.pending.take().into_iter().collect();
+        self.grow();
+
+        due
+    }
+
+    /// Reads what the transcript gained, leaving any turn end pending.
+    fn grow(&mut self) {
+        if self.hooked {
+            return;
+        }
 
         if let Err(e) = self.read_growth() {
             log::debug!("could not read session {}: {e}", self.session);
         }
-
-        due
     }
 
     fn read_growth(&mut self) -> std::io::Result<()> {
@@ -198,6 +207,7 @@ pub(crate) async fn serve(
     store: Option<Store>,
     hub: &Hub,
     sessions: Vec<SessionId>,
+    mut rings: broadcast::Receiver<Change>,
 ) -> Result<()> {
     let mut events = hub.0.subscribe();
     let (mut trackers, unknown) = spawn_blocking(move || {
@@ -214,12 +224,10 @@ pub(crate) async fn serve(
     })
     .await?;
     tx.send(&SessionsReply::Watching { unknown }).await?;
-    let mut tick = interval(POLL);
-    tick.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    // When the turn ends seen so far are sent, if no hook spoke for them.
+    let mut release: Option<Instant> = None;
 
     loop {
-        // Once hooks report for every session, no transcript is read.
-        let polling = trackers.iter().any(|tracker| !tracker.hooked);
         tokio::select! {
             event = events.recv() => match event {
                 Ok(activity) => {
@@ -232,13 +240,38 @@ pub(crate) async fn serve(
                 Err(RecvError::Lagged(missed)) => log::debug!("watch missed {missed} hook events"),
                 Err(RecvError::Closed) => return Ok(()),
             },
-            _ = tick.tick(), if polling => {
+            ring = rings.recv() => match ring {
+                Ok(change) if change.topic.name() != "agent" => {}
+                Ok(_) | Err(RecvError::Lagged(_)) => {
+                    // Once hooks report for every session, no transcript is read.
+                    if trackers.iter().all(|tracker| tracker.hooked) {
+                        continue;
+                    }
+
+                    trackers = spawn_blocking(move || {
+                        trackers.iter_mut().for_each(Tracker::grow);
+                        trackers
+                    })
+                    .await?;
+
+                    if release.is_none() && trackers.iter().any(|tracker| tracker.pending.is_some()) {
+                        release = Some(Instant::now() + HOOK_GRACE);
+                    }
+                }
+                Err(RecvError::Closed) => return Ok(()),
+            },
+            () = async { sleep_until(release.unwrap_or_else(Instant::now)).await }, if release.is_some() => {
+                release = None;
                 let (back, due) = spawn_blocking(move || {
                     let due: Vec<Activity> = trackers.iter_mut().flat_map(Tracker::poll).collect();
                     (trackers, due)
                 })
                 .await?;
                 trackers = back;
+
+                if trackers.iter().any(|tracker| tracker.pending.is_some()) {
+                    release = Some(Instant::now() + HOOK_GRACE);
+                }
 
                 for activity in due {
                     tx.send(&SessionsReply::Activity { activity }).await?;

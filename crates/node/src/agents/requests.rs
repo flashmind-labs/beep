@@ -227,7 +227,14 @@ pub async fn serve_sessions(
             live_reply(&agents, &session, Some(steer)).await
         }
         SessionsRequest::Watch { sessions } => {
-            return trace.stream(agents.external.watch(tx, rx, sessions)).await;
+            // The stores' watch lives as long as this stream: it rings when a
+            // transcript grows.
+            let rings = agents.events.subscribe();
+            let _stores = agents.watch_event_sources().await;
+
+            return trace
+                .stream(agents.external.watch(tx, rx, sessions, rings))
+                .await;
         }
         SessionsRequest::FollowImages {} => failed("this node does not send pictures"),
         SessionsRequest::FollowPresence {} => {

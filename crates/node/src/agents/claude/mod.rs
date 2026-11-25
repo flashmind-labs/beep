@@ -490,8 +490,9 @@ impl External {
         tx: LinkTx,
         rx: LinkRx,
         sessions: Vec<SessionId>,
+        rings: tokio::sync::broadcast::Receiver<crate::events::Change>,
     ) -> Result<()> {
-        watch::serve(tx, rx, self.store(), &self.hub, sessions).await
+        watch::serve(tx, rx, self.store(), &self.hub, sessions, rings).await
     }
 }
 
