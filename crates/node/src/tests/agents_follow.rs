@@ -209,10 +209,9 @@ async fn listings_follow_what_the_watcher_read_of_the_stores() {
     });
     write("first");
     assert_eq!(agents.sightings().await.unwrap().len(), 1);
-    // Unwatched, nothing says when the stores change: a read serves every
-    // listing for `SIGHTED_FOR`.
+    // Unwatched, no copy of a read is kept: the next listing sees the change.
     write("second");
-    assert_eq!(agents.sightings().await.unwrap().len(), 1);
+    assert_eq!(agents.sightings().await.unwrap().len(), 2);
 
     let mut changes = agents.events.subscribe();
     let _source = agents.watch_event_sources().await.unwrap();

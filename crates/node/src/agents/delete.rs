@@ -84,8 +84,8 @@ impl Agents {
             removed || !records.is_empty(),
             "there is no {agent} session {id} on this machine"
         );
-        // The last read of the stores still lists it.
-        *crate::lock(&self.sighted) = None;
+        // A read of the stores that began before the delete still lists it.
+        *crate::lock(&self.sighting) = std::sync::Weak::new();
         let attachment_agent = agent.to_owned();
         let attachment_id = agent_id.unwrap_or_else(|| id.clone());
         let indexed = attachment_id.clone();

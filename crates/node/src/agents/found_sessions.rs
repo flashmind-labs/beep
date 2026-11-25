@@ -2,7 +2,7 @@
 
 use super::{
     AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS,
-    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SIGHTED_FOR, SavedSession, Session, Sighted,
+    MAX_FOLDERS, MAX_IN_FOLDERS, Picture, SavedSession, Session, Sighted,
     holders::{self, Holding},
     window::clamp_limit,
 };
@@ -148,25 +148,14 @@ impl Agents {
     }
 
     /// The agents' logs: what the watcher last read while they are watched,
-    /// else a read at most `SIGHTED_FOR` ago, else a new one. One policy for
-    /// listings, search and file requests.
+    /// else a read of the stores, shared by whoever asks while it runs. One
+    /// policy for listings, search and file requests.
     async fn sighted(&self) -> Result<Sighted> {
         if let Some(sighted) = self.watched_sighted() {
             return Ok(sighted);
         }
 
-        let kept = crate::lock(&self.sighted).clone();
-
-        if let Some((at, sighted)) = kept
-            && at.elapsed() < SIGHTED_FOR
-        {
-            return Ok(sighted);
-        }
-
-        let sighted = self.read_sighted().await?;
-        *crate::lock(&self.sighted) = Some((Instant::now(), sighted.clone()));
-
-        Ok(sighted)
+        self.read_sighted().await
     }
 
     /// Reads every store, for the logs no watcher follows. Callers that ask

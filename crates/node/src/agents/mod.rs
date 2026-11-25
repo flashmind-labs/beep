@@ -137,9 +137,6 @@ host! {
     /// How often the agents' logs are read for what sessions spent, while the
     /// caller follows it.
     const SPEND_EVERY: Duration = Duration::from_secs(60);
-    /// How long the folders found in the agents' logs are kept while no
-    /// watcher follows them.
-    const SIGHTED_FOR: Duration = Duration::from_secs(60);
     /// How long a file request may wait for a look in the agents' logs.
     const SIGHTING_WAIT: Duration = Duration::from_secs(5);
 
@@ -229,9 +226,6 @@ host! {
         /// Set once the sessions open before the last stop have been resumed, or
         /// there were none.
         reopened: watch::Sender<bool>,
-        /// What the agents' logs held and when they were read, for the logs no
-        /// watcher follows. Written after a read, never held across one.
-        sighted: Mutex<Option<(Instant, Sighted)>>,
         /// The read of every store now running, shared by whoever asks while
         /// it does. Held only to join or start one, never across a read.
         sighting: Mutex<std::sync::Weak<ReadInFlight>>,
