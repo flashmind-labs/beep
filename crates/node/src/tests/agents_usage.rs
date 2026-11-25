@@ -125,3 +125,25 @@ async fn a_follower_that_connects_late_gets_all_the_turns_kept() {
         follow.sent();
     }
 }
+
+#[tokio::test]
+async fn streams_share_one_plan_timer_until_the_last_ends() {
+    let hub = UsageHub::default();
+    let started = std::sync::atomic::AtomicUsize::new(0);
+    let start = || {
+        started.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        AbortOnDropHandle::new(tokio::spawn(std::future::pending()))
+    };
+
+    let desktop = hub.timer(start);
+    let phone = hub.timer(start);
+    assert_eq!(started.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+    drop(desktop);
+    let _ = hub.timer(start);
+    assert_eq!(started.load(std::sync::atomic::Ordering::Relaxed), 1);
+
+    drop(phone);
+    let _again = hub.timer(start);
+    assert_eq!(started.load(std::sync::atomic::Ordering::Relaxed), 2);
+}

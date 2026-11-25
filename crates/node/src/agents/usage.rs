@@ -9,8 +9,13 @@ use beep_proto::{
     node::usage::{LimitWindow, PlanUsage, TurnUsage},
 };
 use serde_json::Value;
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Mutex, Weak},
+    time::Duration,
+};
 use tokio::sync::watch;
+use tokio_util::task::AbortOnDropHandle;
 
 /// The most finished turns kept for the followers; the oldest go.
 const MAX_TURNS: usize = 500;
@@ -27,6 +32,8 @@ pub(crate) struct UsageHub {
     /// The finished turns, each follower reading them at its own pace.
     pub(crate) turns: AlertHub<TurnUsage>,
     plans: watch::Sender<Plans>,
+    /// The one timer that reads the plans, alive while a stream holds it.
+    timer: Mutex<Weak<AbortOnDropHandle<()>>>,
 }
 
 /// `of`'s entry in `plans`, empty when there is none.
@@ -49,6 +56,7 @@ impl Default for UsageHub {
             // A follower that connects late still gets every turn kept.
             turns: AlertHub::keeping(MAX_TURNS, Duration::MAX),
             plans: watch::Sender::new(Plans::new()),
+            timer: Mutex::default(),
         }
     }
 }
@@ -63,6 +71,21 @@ impl UsageHub {
     /// Follows the plans: each agent's latest report.
     pub(crate) fn plans(&self) -> watch::Receiver<Plans> {
         self.plans.subscribe()
+    }
+
+    /// The node's timer for reading the plans: `start` runs when no stream
+    /// holds one, and the timer ends with the last stream that does.
+    pub(crate) fn timer(
+        &self,
+        start: impl FnOnce() -> AbortOnDropHandle<()>,
+    ) -> Arc<AbortOnDropHandle<()>> {
+        let mut held = crate::lock(&self.timer);
+
+        held.upgrade().unwrap_or_else(|| {
+            let timer = Arc::new(start());
+            *held = Arc::downgrade(&timer);
+            timer
+        })
     }
 
     /// Takes `plan` in place of the agent's report before.

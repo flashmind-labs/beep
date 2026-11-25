@@ -18,7 +18,7 @@ use iroh::EndpointId;
 use std::{fmt::Display, io::ErrorKind, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{
     task::spawn_blocking,
-    time::{Instant, MissedTickBehavior, interval, timeout},
+    time::{Instant, sleep, timeout},
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -772,7 +772,7 @@ async fn send_alerts<T: Clone>(
 }
 
 /// Sends the caller what finished turns spent and each agent's plan
-/// usage, reading the plans every `PLAN_EVERY` and when the caller asks,
+/// usage, reading the plans every `PLAN_EVERY` for all such streams and when the caller asks,
 /// until the caller closes the stream. With `history`, also what sessions
 /// spent as the agents' logs tell it, read for all such streams together.
 async fn send_usage(
@@ -795,8 +795,21 @@ async fn send_usage(
         .await?;
     }
 
-    let mut every = interval(PLAN_EVERY);
-    every.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    // One timer for the node's streams, reading the plans at once as the first begins.
+    let _timer = agents.usage.timer(|| {
+        let agents = Arc::downgrade(agents);
+
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            loop {
+                let Some(agents) = agents.upgrade() else {
+                    return;
+                };
+                agents.read_plans_soon();
+                drop(agents);
+                sleep(PLAN_EVERY).await;
+            }
+        }))
+    });
     // When this stream last asked for a read, which runs beside it.
     let mut last_read: Option<Instant> = None;
     // The node's one scan of the logs runs while this stream holds it. The
@@ -824,10 +837,6 @@ async fn send_usage(
                     tx.send(&SessionsReply::PlanUsage { usage: plan.clone() }).await?;
                 }
                 sent = now;
-            }
-            _ = every.tick() => {
-                agents.read_plans_soon();
-                last_read = Some(Instant::now());
             }
             Some(now) = async {
                 match spend.as_mut() {
