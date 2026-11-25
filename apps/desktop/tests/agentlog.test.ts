@@ -100,6 +100,8 @@ test("Claude API errors use the warning color without changing other paragraphs"
   const error = 'API Error: 529 Overloaded. Check <a href="https://status.claude.com">status</a>.';
   assert.equal(markWarnings(`<p>${error}</p>`), `<p class="agwarn">${error}</p>`);
   assert.equal(markWarnings("<p>API Error: 401 Unauthorized</p>"), '<p class="agwarn">API Error: 401 Unauthorized</p>');
+  const quota = "\u26a0 Individual quota reached. Resets in 2h26m38s.";
+  assert.equal(markWarnings(`<p>${quota}</p>`), `<p class="agwarn">${quota}</p>`);
   const ordinary = "<p>Investigating API Error: 529</p><pre><code>API Error: example</code></pre><p>Done.</p>";
   assert.equal(markWarnings(ordinary), ordinary);
 });

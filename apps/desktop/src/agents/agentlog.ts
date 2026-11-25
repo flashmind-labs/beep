@@ -209,9 +209,10 @@ const MEDIA_PATH = new RegExp(`(^|[\\s(])((?:~|\\.{1,2})?\\/?[\\w@%+-][\\w@%+.\\
 /// `s` escaped for a quoted HTML attribute.
 const attr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
 
-/// Agent warnings and Claude API errors use the warning color.
+/// Agent warnings, Claude API errors and Antigravity's ⚠ notices (such as
+/// its quota message) use the warning color.
 export function markWarnings(html: string) {
-  return html.replace(/<p>(?=(?:Warning|API Error): )/g, '<p class="agwarn">');
+  return html.replace(/<p>(?=(?:Warning: |API Error: |\u26a0\ufe0f?\s))/g, '<p class="agwarn">');
 }
 
 /// The agent's reply as HTML with each media file it names (relative to its
