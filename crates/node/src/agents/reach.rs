@@ -4,6 +4,8 @@
 
 use super::{Agents, SIGHTING_WAIT, media_file::resolve, worktrees};
 use crate::files::paths::{self, real};
+use crate::run::device::{self, Served};
+use beep_proto::node::{LinkRx, LinkTx};
 use crate::agents::{claude_dir, found::LogRoots};
 use anyhow::{Context, Result};
 use std::time::Duration;
@@ -187,6 +189,27 @@ impl Agents {
         })
         .await
         .context("finding notification roots stopped")?
+    }
+
+    /// `device/1` for the node and its agents: the stream's requests that
+    /// name a folder or file are checked against what the agents may reach
+    /// before the device code answers them.
+    pub(crate) async fn serve_device(&self, tx: LinkTx, rx: LinkRx) -> Result<()> {
+        let mut stream = Served::new(tx, rx);
+
+        while let Some(request) = stream.next().await? {
+            let path = match device::named(&request) {
+                Some(named) => Some(self.reachable(named, Access::Read).await),
+                None => None,
+            };
+
+            match stream.answer(request, path).await? {
+                Some(more) => stream = more,
+                None => break,
+            }
+        }
+
+        Ok(())
     }
 
     /// `asked`, absolute or starting `~/`, with its links and `..`

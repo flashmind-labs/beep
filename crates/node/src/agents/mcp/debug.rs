@@ -8,7 +8,7 @@ use crate::agents::reply::{done, fail, parse};
 use super::server::ASK_LIMIT;
 use crate::{
     agents::{Answered, Asking},
-    link::{Offers, peers::Own},
+    link::{Offers, Own},
 };
 use beep_proto::SessionId;
 use beep_proto::node::{

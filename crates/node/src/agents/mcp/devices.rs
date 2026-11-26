@@ -612,7 +612,7 @@ impl Reach<'_> {
         let (node_tx, node_rx) = link.node;
         let agents = self.offers.agents.clone();
         let task = tokio::spawn(async move {
-            if let Err(e) = crate::agents::device_paths::serve(node_tx, node_rx, &agents).await {
+            if let Err(e) = agents.serve_device(node_tx, node_rx).await {
                 log::debug!("an agent's device stream ended: {e:#}");
             }
         });

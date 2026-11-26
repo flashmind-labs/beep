@@ -41,7 +41,6 @@ host! {
     pub(crate) mod alerts;
     pub(crate) mod ci;
     pub(crate) mod checkout;
-    pub(crate) mod device_paths;
     pub(crate) mod checkouts;
     mod compaction;
     mod conversation;
@@ -76,7 +75,6 @@ host! {
     mod processes;
     pub(crate) mod reach;
     pub mod search;
-    pub mod folder_search;
     mod tool_details;
     mod requests;
     mod restart;
