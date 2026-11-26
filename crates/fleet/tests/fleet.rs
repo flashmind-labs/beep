@@ -310,12 +310,28 @@ impl FakeNode {
     }
 }
 
+/// A node that pushes its sync status; every other read goes to the node.
+struct PushedSync(Vec<ProjectStatus>);
+
+impl beep_mesh::SnapshotReader for PushedSync {
+    fn snapshot(&self, _read: beep_proto::node::events::Read) -> beep_mesh::SnapshotFuture<'_> {
+        Box::pin(async { None })
+    }
+
+    fn follow(&self, _read: beep_proto::node::events::Read) -> beep_mesh::FollowFuture<'_> {
+        let status = beep_proto::node::events::Value::Sync(Box::new(sync::Reply::Status {
+            projects: self.0.clone(),
+        }));
+        Box::pin(async move { Some(tokio::sync::watch::channel(Some(Ok(status))).1) })
+    }
+}
+
 /// The desktop's hold on the mesh: real links to the other desktops, and the fake nodes standing
 /// in for the machines' own sessions.
 struct Peering {
     mesh: Mesh,
     me: EndpointId,
-    nodes: HashMap<EndpointId, SessionFn>,
+    nodes: HashMap<EndpointId, (SessionFn, Vec<ProjectStatus>)>,
     /// Machines that never answer, to show a call does not wait on them.
     stuck: Vec<EndpointId>,
     /// While set, the mesh is not there.
@@ -354,7 +370,8 @@ impl Peers for Peering {
         }
 
         Ok(match self.nodes.get(&machine) {
-            Some(session) => PeerClient::local(session.clone()),
+            Some((session, synced)) => PeerClient::local(session.clone())
+                .with_snapshot_reader(Arc::new(PushedSync(synced.clone()))),
             None => PeerClient::over(self.mesh.clone(), machine),
         })
     }
@@ -366,7 +383,7 @@ fn peering(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)], stuck: &[&Dev]) -> Arc<P
         me: dev.id,
         nodes: nodes
             .iter()
-            .map(|(dev, node)| (dev.id, node.session()))
+            .map(|(dev, node)| (dev.id, (node.session(), node.synced.clone())))
             .collect(),
         stuck: stuck.iter().map(|dev| dev.id).collect(),
         broken: AtomicBool::new(false),
@@ -3114,7 +3131,7 @@ async fn the_agent_accounts_list_this_mac_though_its_own_probe_says_nothing() {
     let peering = Peering {
         mesh: f.laptop.mesh.clone(),
         me: f.laptop.id,
-        nodes: HashMap::from([(f.build.id, build.session())]),
+        nodes: HashMap::from([(f.build.id, (build.session(), Vec::new()))]),
         stuck: Vec::new(),
         broken: AtomicBool::new(false),
         never: false,
