@@ -4,7 +4,7 @@
 use beep_mesh::{
     DEADLINE, DeviceKind, InUse, Invitation, JOIN_ALPN, JoinSecret, JoinTicket, Key, Mesh,
     MeshError, MeshProtocol, OPEN_TIMEOUT, PEER_ALPN, PeerClient, PeerStream, SessionFn,
-    ShortTicket, StreamHandler, transport_config, with_deadline,
+    ShortTicket, transport_config, with_deadline,
 };
 use beep_proto::node::{LinkRx, LinkTx, Open, Opened, link};
 use beep_proto::watched;
@@ -14,8 +14,10 @@ use iroh::protocol::{AcceptError, ProtocolHandler, Router};
 use iroh::{Endpoint, EndpointId, SecretKey};
 use iroh_tickets::Ticket;
 use std::fs::{copy, create_dir_all, read_dir};
+use std::future::Future;
 use std::future::pending as never;
 use std::path::Path;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
@@ -846,8 +848,7 @@ fn echo() -> StreamHandler {
 #[tokio::test]
 async fn a_peers_extra_stream_reaches_the_handler() {
     let a = create("a").await;
-    let (peer, _) = a.mesh.protocols();
-    peer.on_stream(echo());
+    on_stream(&a.mesh, echo());
     let b = join(&a, DeviceKind::Desktop, "b").await;
     until(&b.mesh, |m| online(m, a.id())).await;
     let conn = b.mesh.peer(a.id()).expect("connected");
@@ -864,17 +865,19 @@ async fn a_peers_extra_stream_reaches_the_handler() {
 #[tokio::test]
 async fn a_peer_may_have_64_streams_open_and_no_more() {
     let a = create("a").await;
-    let (peer, _) = a.mesh.protocols();
     let (entered, mut entries) = unbounded_channel();
-    peer.on_stream(Arc::new(move |stream: PeerStream| {
-        let entered = entered.clone();
-        Box::pin(async move {
-            entered.send(()).ok();
-            // Hold the stream open until the connection goes.
-            let _keep = stream;
-            never::<()>().await;
-        })
-    }));
+    on_stream(
+        &a.mesh,
+        Arc::new(move |stream: PeerStream| {
+            let entered = entered.clone();
+            Box::pin(async move {
+                entered.send(()).ok();
+                // Hold the stream open until the connection goes.
+                let _keep = stream;
+                never::<()>().await;
+            })
+        }),
+    );
     let b = join(&a, DeviceKind::Desktop, "b").await;
     until(&b.mesh, |m| online(m, a.id())).await;
     let conn = b.mesh.peer(a.id()).expect("connected");
@@ -967,8 +970,7 @@ async fn count(client: &PeerClient, n: u32) -> Vec<u32> {
 #[tokio::test]
 async fn the_local_client_and_the_network_client_answer_alike() {
     let a = create("a").await;
-    let (peer, _) = a.mesh.protocols();
-    peer.on_stream(session_handler());
+    on_stream(&a.mesh, session_handler());
     let b = join(&a, DeviceKind::Desktop, "b").await;
     until(&b.mesh, |m| online(m, a.id())).await;
     with_deadline(a.id(), &b.mesh).await.expect("online");
@@ -998,8 +1000,7 @@ async fn the_local_client_and_the_network_client_answer_alike() {
 #[tokio::test]
 async fn follow_ends_with_the_error_when_the_connection_drops() {
     let a = create("a").await;
-    let (peer, _) = a.mesh.protocols();
-    peer.on_stream(session_handler());
+    on_stream(&a.mesh, session_handler());
     let b = join(&a, DeviceKind::Desktop, "b").await;
     until(&b.mesh, |m| online(m, a.id())).await;
     with_deadline(a.id(), &b.mesh).await.expect("online");
@@ -1046,13 +1047,15 @@ async fn a_removed_device_is_offline_at_once() {
 #[tokio::test]
 async fn an_open_to_a_node_at_its_stream_cap_ends_within_the_open_timeout() {
     let a = create("a").await;
-    let (peer, _) = a.mesh.protocols();
-    peer.on_stream(Arc::new(|stream: PeerStream| {
-        Box::pin(async move {
-            let _keep = stream;
-            never::<()>().await;
-        })
-    }));
+    on_stream(
+        &a.mesh,
+        Arc::new(|stream: PeerStream| {
+            Box::pin(async move {
+                let _keep = stream;
+                never::<()>().await;
+            })
+        }),
+    );
     let b = join(&a, DeviceKind::Desktop, "b").await;
     until(&b.mesh, |m| online(m, a.id())).await;
     let conn = b.mesh.peer(a.id()).expect("connected");
@@ -1091,27 +1094,29 @@ async fn a_peer_client_reports_a_missing_link_as_a_link_error() {
 async fn dropping_a_network_follow_reaches_the_session() {
     let (gone, mut gone_rx) = unbounded_channel();
     let a = create("a").await;
-    let (peer, _) = a.mesh.protocols();
-    peer.on_stream(Arc::new(move |stream: PeerStream| {
-        let gone = gone.clone();
-        Box::pin(async move {
-            let (mut tx, mut rx) = link(stream.send, stream.recv);
+    on_stream(
+        &a.mesh,
+        Arc::new(move |stream: PeerStream| {
+            let gone = gone.clone();
+            Box::pin(async move {
+                let (mut tx, mut rx) = link(stream.send, stream.recv);
 
-            if rx.recv::<Open>().await.is_err() {
-                return;
-            }
+                if rx.recv::<Open>().await.is_err() {
+                    return;
+                }
 
-            tx.send(&Opened::Ready {}).await.ok();
-            rx.recv::<u32>().await.ok();
-            let mut i = 0u32;
+                tx.send(&Opened::Ready {}).await.ok();
+                rx.recv::<u32>().await.ok();
+                let mut i = 0u32;
 
-            while tx.send(&i).await.is_ok() {
-                i = i.wrapping_add(1);
-            }
+                while tx.send(&i).await.is_ok() {
+                    i = i.wrapping_add(1);
+                }
 
-            gone.send(()).ok();
-        })
-    }));
+                gone.send(()).ok();
+            })
+        }),
+    );
     let b = join(&a, DeviceKind::Desktop, "b").await;
     until(&b.mesh, |m| online(m, a.id())).await;
     with_deadline(a.id(), &b.mesh).await.expect("online");
@@ -1630,4 +1635,18 @@ async fn two_set_if_new_at_once_write_only_the_first() {
 
     assert_eq!(wrote.iter().filter(|w| **w).count(), 1);
     assert_eq!(dev.mesh.get(&key), Some(b"first".to_vec()));
+}
+
+type StreamHandler =
+    Arc<dyn Fn(PeerStream) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+/// Runs `handler` for each stream a peer opens on `mesh`.
+fn on_stream(mesh: &Mesh, handler: StreamHandler) {
+    let mut incoming = mesh.incoming();
+
+    tokio::spawn(async move {
+        while let Some(stream) = incoming.recv().await {
+            tokio::spawn(handler(stream));
+        }
+    });
 }

@@ -1,6 +1,7 @@
 //! Creating, opening, joining and closing a mesh.
 
-use super::{AddrNote, Core, InUse, Mesh, blocking};
+use super::{Core, InUse, Mesh, blocking};
+use crate::inner::AddrNote;
 use crate::{DeviceKind, Devices, Invitation, MeshError};
 use iroh::{Endpoint, SecretKey};
 use std::path::Path;

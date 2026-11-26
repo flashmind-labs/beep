@@ -3,7 +3,7 @@
 //! Mac, and answers the requests the apps used to send through the server.
 
 use beep_mesh::{
-    DeviceKind, JOIN_ALPN, Mesh, PEER_ALPN, PeerClient, PeerStream, StreamHandler,
+    DeviceKind, JOIN_ALPN, Mesh, PEER_ALPN, PeerClient, PeerStream,
     machine::{
         self, NodeWork, ended, open_agent, order, sessions,
         terminals::{self, Heard, Kept},
@@ -27,6 +27,7 @@ use beep_proto::{
 };
 use iroh::{Endpoint, SecretKey, endpoint::presets, protocol::Router};
 use serde_bytes::ByteBuf;
+use std::pin::Pin;
 use std::{
     collections::BTreeMap,
     fs,
@@ -506,7 +507,7 @@ async fn a_terminal_attach_ends_when_the_peer_goes_away() {
     let node = Mesh::join(node_dir.path(), node_endpoint.clone(), &ticket, "node")
         .await
         .expect("the node joins");
-    node.protocols().0.on_stream(terminal_handler());
+    on_stream(&node, terminal_handler());
     let node_id = node_endpoint.id();
     let node_router = serve_mesh(node_endpoint, &node).await;
     let _client = timeout(LIMIT, with_deadline(node_id, &desktop))
@@ -527,4 +528,18 @@ async fn a_terminal_attach_ends_when_the_peer_goes_away() {
         .await
         .expect("the stream did not hang");
     assert!(matches!(after, Ok(None) | Err(_)), "{after:?}");
+}
+
+type StreamHandler =
+    Arc<dyn Fn(PeerStream) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+/// Runs `handler` for each stream a peer opens on `mesh`.
+fn on_stream(mesh: &Mesh, handler: StreamHandler) {
+    let mut incoming = mesh.incoming();
+
+    tokio::spawn(async move {
+        while let Some(stream) = incoming.recv().await {
+            tokio::spawn(handler(stream));
+        }
+    });
 }

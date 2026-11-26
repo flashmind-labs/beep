@@ -1,27 +1,16 @@
 //! Inbound mesh and pairing protocol handlers.
 
-use super::{Inner, StreamHandler};
+use super::Inner;
 use crate::link;
 use iroh::endpoint::Connection;
 use iroh::protocol::{AcceptError, ProtocolHandler};
 use std::fmt::{self, Debug, Formatter};
-use std::sync::{Arc, PoisonError};
+use std::sync::Arc;
 
 /// Serves `beep-peer/2`: members only.
 #[derive(Clone)]
 pub struct MeshProtocol {
     pub(super) inner: Arc<Inner>,
-}
-
-impl MeshProtocol {
-    /// Sets what serves each bi stream a peer opens after the sync stream.
-    pub fn on_stream(&self, handler: StreamHandler) {
-        *self
-            .inner
-            .handler
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(handler);
-    }
 }
 
 impl Debug for MeshProtocol {

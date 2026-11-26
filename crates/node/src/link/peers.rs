@@ -21,7 +21,7 @@ use crate::{
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
     DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerClient,
-    PeerStream, SessionFn, StreamHandler,
+    PeerStream, SessionFn,
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, link, status::Report};
 use futures::future::BoxFuture;
@@ -44,7 +44,7 @@ use std::{
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split},
-    sync::watch,
+    sync::{mpsc, watch},
     task::JoinSet,
     time::timeout,
 };
@@ -80,6 +80,8 @@ pub(super) const CHANNEL_OPEN_WAIT: Duration = Duration::from_secs(10);
 pub(super) struct Protocols {
     peer: MeshProtocol,
     join: JoinProtocol,
+    /// Serves the streams peers open, until the node lets go of the mesh.
+    _streams: Arc<AbortOnDropHandle<()>>,
 }
 
 pub(super) struct Inner {
@@ -491,10 +493,14 @@ impl Peers {
     /// from here on.
     pub fn install(&self, mesh: Mesh) {
         let (peer, join) = mesh.protocols();
-        peer.on_stream(self.stream_handler());
+        let streams = Arc::new(self.serve_streams(mesh.incoming()));
         // The mesh first: `active` needs it with the protocols.
         self.inner.offers().mesh.set(mesh);
-        *crate::lock(&self.inner.active) = Some(Protocols { peer, join });
+        *crate::lock(&self.inner.active) = Some(Protocols {
+            peer,
+            join,
+            _streams: streams,
+        });
         self.follow();
     }
 
@@ -580,37 +586,52 @@ impl Peers {
         })
     }
 
-    /// Serves each stream a peer opens, by what the peer is now.
-    fn stream_handler(&self) -> StreamHandler {
-        // Weak: the mesh holds this handler, and the node holds the mesh.
+    /// Serves each stream a peer opens, by what the peer is now, until the
+    /// returned handle drops.
+    fn serve_streams(&self, mut incoming: mpsc::Receiver<PeerStream>) -> AbortOnDropHandle<()> {
+        // Weak: the node holds the task, and the task would hold the node.
         let peers = Arc::downgrade(&self.inner);
-        Arc::new(move |stream: PeerStream| {
-            let peers = peers.clone();
-            Box::pin(async move {
-                let Some(inner) = peers.upgrade() else {
-                    return;
-                };
-                let desktop_here = Peers {
-                    inner: inner.clone(),
-                }
-                .is_desktop();
-                let PeerStream {
-                    peer,
-                    kind,
-                    send,
-                    recv,
-                } = stream;
-                let who = match kind {
-                    DeviceKind::Desktop => Who::Everything(peer),
-                    DeviceKind::Node => Who::Node { peer, desktop_here },
-                };
-                let (tx, rx) = link(send, recv);
 
-                if let Err(e) = inner.serve(tx, rx, who).await {
-                    log::debug!("a stream from {peer} ended: {e:#}");
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            let mut serving = JoinSet::new();
+
+            loop {
+                tokio::select! {
+                    Some(stream) = incoming.recv() => {
+                        serving.spawn(serve_peer_stream(peers.clone(), stream));
+                    }
+                    Some(_) = serving.join_next() => {}
+                    else => return,
                 }
-            })
-        })
+            }
+        }))
+    }
+}
+
+/// Serves one stream a peer opened.
+async fn serve_peer_stream(peers: Weak<Inner>, stream: PeerStream) {
+    let Some(inner) = peers.upgrade() else {
+        return;
+    };
+    let desktop_here = Peers {
+        inner: inner.clone(),
+    }
+    .is_desktop();
+    let PeerStream {
+        peer,
+        kind,
+        send,
+        recv,
+        ..
+    } = stream;
+    let who = match kind {
+        DeviceKind::Desktop => Who::Everything(peer),
+        DeviceKind::Node => Who::Node { peer, desktop_here },
+    };
+    let (tx, rx) = link(send, recv);
+
+    if let Err(e) = inner.serve(tx, rx, who).await {
+        log::debug!("a stream from {peer} ended: {e:#}");
     }
 }
 

@@ -1,5 +1,5 @@
 use super::*;
-use crate::mesh::Retired;
+use crate::inner::Retired;
 use crate::{DeviceKind, JOIN_ALPN, PEER_ALPN, PeerClient};
 use iroh::{Endpoint, endpoint::presets, protocol::Router};
 use std::time::Duration;

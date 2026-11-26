@@ -6,6 +6,7 @@ mod client;
 mod clock;
 mod devices;
 mod error;
+mod inner;
 mod join;
 mod link;
 pub mod machine;
@@ -28,7 +29,7 @@ pub use error::MeshError;
 pub use mesh::values;
 pub use mesh::{
     DEFAULT_TICKET_TTL, DeviceStatus, InUse, JOIN_ALPN, JoinProtocol, Mesh, MeshProtocol,
-    PEER_ALPN, PeerStream, StreamHandler, router, transport_config, ways,
+    PEER_ALPN, PeerStream, router, transport_config, ways,
 };
 pub use state::Key;
 pub(crate) use state::{Applied, Entry, Heads, State};

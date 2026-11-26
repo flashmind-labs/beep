@@ -2,8 +2,8 @@
 
 use crate::PeerStream;
 use crate::devices::OpBody;
+use crate::inner::AddrNote;
 use crate::link::Frame;
-use crate::mesh::AddrNote;
 use crate::wire::{self, FrameReader};
 use crate::{Device, DeviceKind, DeviceOp, Entry, JOIN_ALPN, Key, Mesh, PEER_ALPN};
 use beep_proto::watched;
@@ -11,7 +11,9 @@ use iroh::endpoint::{Connection, QuicTransportConfig, SendStream, VarInt, preset
 use iroh::protocol::Router;
 use iroh::{Endpoint, EndpointAddr, SecretKey};
 use std::collections::BTreeMap;
+use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
@@ -401,17 +403,20 @@ async fn a_stream_open_on_the_connection_that_loses_the_tie_survives() {
         .await
         .expect("joins");
     let (peer, join) = mesh.protocols();
-    peer.on_stream(Arc::new(|mut stream: PeerStream| {
-        Box::pin(async move {
-            let mut byte = [0u8; 1];
+    on_stream(
+        &mesh,
+        Arc::new(|mut stream: PeerStream| {
+            Box::pin(async move {
+                let mut byte = [0u8; 1];
 
-            while stream.recv.read_exact(&mut byte).await.is_ok() {
-                if stream.send.write_all(&byte).await.is_err() {
-                    return;
+                while stream.recv.read_exact(&mut byte).await.is_ok() {
+                    if stream.send.write_all(&byte).await.is_err() {
+                        return;
+                    }
                 }
-            }
-        })
-    }));
+            })
+        }),
+    );
     let _b = Router::builder(endpoint)
         .accept(PEER_ALPN, peer)
         .accept(JOIN_ALPN, join)
@@ -507,4 +512,18 @@ fn a_frame_with_a_field_from_a_newer_build_is_read() {
     };
     assert_eq!((addrs.len(), session), (1, 11));
     assert_eq!(heads.get(&key.public()), Some(&7));
+}
+
+type StreamHandler =
+    Arc<dyn Fn(PeerStream) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+
+/// Runs `handler` for each stream a peer opens on `mesh`.
+fn on_stream(mesh: &Mesh, handler: StreamHandler) {
+    let mut incoming = mesh.incoming();
+
+    tokio::spawn(async move {
+        while let Some(stream) = incoming.recv().await {
+            tokio::spawn(handler(stream));
+        }
+    });
 }

@@ -7,7 +7,7 @@
 //! checks origins against the list. Sync never decides "in sync" from
 //! heads: it sends `since(what the peer holds)` and keeps going.
 
-use crate::mesh::{AddrNote, Inner, Live, MAX_STREAMS, PeerStream, Retired};
+use crate::inner::{AddrNote, Inner, Lease, Live, MAX_STREAMS, PeerStream, Retired};
 use crate::wire::{self, FrameReader, MAX_FRAME};
 use crate::{DeviceOp, Entry, Heads, MeshError};
 use beep_proto::watched;
@@ -18,7 +18,7 @@ use std::collections::BTreeMap;
 use std::mem::take;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, SystemTime};
-use tokio::sync::{Notify, Semaphore, watch};
+use tokio::sync::{Notify, watch};
 use tokio::task::JoinSet;
 use tokio::time::{Instant, sleep, sleep_until, timeout};
 use tracing::{Instrument, debug, warn};
@@ -533,48 +533,44 @@ async fn streams(
     peer: EndpointId,
     mut over: watch::Receiver<bool>,
 ) -> Result<(), MeshError> {
-    let permits = Arc::new(Semaphore::new(MAX_STREAMS));
-    let mut running = JoinSet::new();
+    let open = Arc::new(watch::Sender::new(0usize));
+    let mut ended = open.subscribe();
     let mut until: Option<Instant> = None;
 
     loop {
+        let idle = watched::read_sent(&open, |n| *n == 0);
+
         if until.is_none() && watched::read(&over, |over| *over) {
             until = Some(Instant::now() + DRAIN);
         }
 
-        if until.is_some_and(|t| running.is_empty() && Instant::now() >= t) {
+        if until.is_some_and(|t| idle && Instant::now() >= t) {
             return Ok(());
         }
 
         tokio::select! {
             accepted = conn.accept_bi() => {
                 let (mut send, mut recv) = accepted.map_err(wire::net)?;
-                let handler = inner
-                    .handler
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .clone();
                 let kind = inner.view().devices.members().into_iter().find(|d| d.id == peer).map(|d| d.kind);
-                let (Some(handler), Some(kind), Ok(permit)) =
-                    (handler, kind, permits.clone().try_acquire_owned())
-                else {
+
+                if let Some(kind) = kind
+                    && watched::read_sent(&open, |n| *n < MAX_STREAMS)
+                {
+                    let stream = PeerStream { peer, kind, send, recv, _lease: Lease::take(&open) };
+
+                    if let Err(refused) = inner.offer_stream(stream) {
+                        // Nobody reads, or the queue is full.
+                        let PeerStream { mut send, mut recv, .. } = refused;
+                        send.reset(1u32.into()).ok();
+                        recv.stop(1u32.into()).ok();
+                    }
+                } else {
                     // Refusing is the answer; the peer sees the reset.
                     send.reset(1u32.into()).ok();
                     recv.stop(1u32.into()).ok();
-                    continue;
-                };
-                running.spawn(async move {
-                    let _permit = permit;
-                    handler(PeerStream { peer, kind, send, recv }).await;
-                }.in_current_span());
-            }
-            Some(ended) = running.join_next() => {
-                if let Err(e) = ended
-                    && !e.is_cancelled()
-                {
-                    warn!("a peer stream task failed: {e}");
                 }
-
+            }
+            Ok(()) = ended.changed() => {
                 if until.is_some() {
                     until = Some(Instant::now() + LINGER);
                 }
@@ -584,7 +580,7 @@ async fn streams(
                     until = Some(Instant::now() + DRAIN);
                 }
             }
-            () = sleep_until(until.unwrap_or_else(Instant::now)), if until.is_some() && running.is_empty() => {}
+            () = sleep_until(until.unwrap_or_else(Instant::now)), if until.is_some() && idle => {}
         }
     }
 }

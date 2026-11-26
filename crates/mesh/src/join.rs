@@ -3,7 +3,7 @@
 //! joiner shows the secret, and the desktop that minted it spends the
 //! secret, signs the `Add` and answers with every op.
 
-use crate::mesh::{AddrNote, Inner};
+use crate::inner::{AddrNote, Inner};
 use crate::ticket::{Invitation, JoinSecret};
 use crate::wire::{self, FrameReader, MAX_FRAME, MAX_REQUEST};
 use crate::{DeviceOp, Devices, JOIN_ALPN, Key, MeshError};
