@@ -101,9 +101,9 @@ fn pages_reach_the_first_record_of_a_large_transcript() {
     }
     file.flush().unwrap();
     let kept = Transcripts::new(1);
-    let page = entries(&path, 2, None, &kept).unwrap();
+    let page = entries(&path, 2, None, &kept).unwrap().excerpt;
     assert_eq!(page.earlier, 5098);
-    let first = entries(&path, 1, Some(1), &kept).unwrap();
+    let first = entries(&path, 1, Some(1), &kept).unwrap().excerpt;
     assert_eq!(first.entries[0].text, "Prompt 0");
     assert_eq!(first.earlier, 0);
 }

@@ -2,7 +2,6 @@
 //! in and the sessions their arguments name, read from the node's shared
 //! process table, then `lsof` on macOS or `/proc` on Linux.
 
-use super::discover::is_session_id;
 use beep_proto::SessionId;
 use std::{
     collections::HashMap,
@@ -19,6 +18,14 @@ const MAX_PROGRAM_WORDS: usize = 8;
 /// its daemon, the pty host it keeps a background session in, and the
 /// spare it holds ready.
 const HELPERS: [&str; 3] = ["daemon", "bg-pty-host", "bg-spare"];
+
+/// Claude Code's session ids are UUIDs; anything else is not looked up,
+/// so an id never walks out of the store.
+pub(super) fn is_session_id(id: &str) -> bool {
+    id.len() == 36
+        && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+        && id.matches('-').count() == 4
+}
 
 /// A running `claude`.
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -2,7 +2,10 @@
 //! `sightings`): transcripts under `<config>/projects/`, and which of them a
 //! running `claude` has open.
 
-use super::{procs::Process, transcript};
+use super::{
+    procs::{Process, is_session_id},
+    transcript,
+};
 use crate::agents::{
     found::{
         Agent, Memo, Seen as Sighting, folder_place::of_folder, is_jsonl, quiet_presence, unix_secs,
@@ -224,14 +227,6 @@ impl Store {
     }
 }
 
-/// Claude Code's session ids are UUIDs; anything else is not looked up,
-/// so an id never walks out of the store.
-pub(super) fn is_session_id(id: &str) -> bool {
-    id.len() == 36
-        && id.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
-        && id.matches('-').count() == 4
-}
-
 /// The newest `limit` sessions, or only `only`, newest first.
 pub(super) fn list(
     store: &Store,
@@ -239,12 +234,6 @@ pub(super) fn list(
     limit: usize,
     only: Option<&SessionId>,
 ) -> io::Result<Vec<ExternalSession>> {
-    if let Some(id) = only
-        && id.as_ref().starts_with("subagent:")
-    {
-        return super::subagents::session(store, id).map(|session| session.into_iter().collect());
-    }
-
     // One session is looked up by its file, not by listing them all.
     if let Some(id) = only {
         return match store.find(id) {

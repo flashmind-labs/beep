@@ -1,7 +1,16 @@
 use super::*;
-use crate::agents::claude::transcript::{Transcripts, entries};
+use std::io;
+use crate::agents::{
+    claude::transcript::{self, Transcripts},
+    window::Excerpt,
+};
 use beep_proto::node::agent::EntryKind;
 use serde_json::json;
+
+/// The entries of the transcript at `path` with their subagents.
+fn entries(path: &Path, last: usize, before: Option<u64>, kept: &Transcripts) -> io::Result<Excerpt> {
+    transcript::entries(path, last, before, kept).map(|page| attached(path, page))
+}
 
 /// A fabricated session that starts two subagents, an `Explore` one
 /// and a custom `release-checker`, with their files beside it.

@@ -158,6 +158,13 @@ impl External {
         let limit = crate::agents::window::clamp_limit(limit, DEFAULT_LISTED, MAX_LISTED);
         let mut sessions = self
             .read_stores(owned, move |store, snapshot| {
+                if let Some(id) = &only
+                    && id.as_ref().starts_with("subagent:")
+                {
+                    return subagents::session(store, id)
+                        .map(|session| session.into_iter().collect());
+                }
+
                 discover::list(store, snapshot, limit, only.as_ref())
             })
             .await?;
@@ -308,7 +315,11 @@ impl External {
         before: Option<u64>,
     ) -> Result<Excerpt> {
         let kept = self.transcripts.clone();
-        Ok(spawn_blocking(move || transcript::entries(&path, last, before, &kept)).await??)
+        Ok(spawn_blocking(move || {
+            transcript::entries(&path, last, before, &kept)
+                .map(|page| subagents::attached(&path, page))
+        })
+        .await??)
     }
 
     /// Session `id`'s transcript file, when there is one.
@@ -325,7 +336,7 @@ impl External {
     /// Starts following session `id` by its file, found once. `None` when
     /// it has none of its own here, such as a subagent's conversation.
     pub(crate) async fn follow(&self, id: &SessionId) -> Result<Option<Followed>> {
-        if !discover::is_session_id(id.as_ref()) {
+        if !procs::is_session_id(id.as_ref()) {
             return Ok(None);
         }
 
@@ -398,9 +409,12 @@ impl External {
     ) -> Result<Excerpt> {
         let path = followed.path.clone();
         let kept = self.transcripts.clone();
-        Ok(spawn_blocking(move || match from {
-            Some(from) => transcript::newest_from(&path, last, from, &kept),
-            None => transcript::entries(&path, last, None, &kept),
+        Ok(spawn_blocking(move || {
+            match from {
+                Some(from) => transcript::newest_from(&path, last, from, &kept),
+                None => transcript::entries(&path, last, None, &kept),
+            }
+            .map(|page| subagents::attached(&path, page))
         })
         .await??)
     }

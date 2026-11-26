@@ -3,9 +3,9 @@
 //! the entry of the call that started it.
 
 use beep_proto::SessionId;
-use super::transcript::{Spawn, read_tail, tool_line};
+use super::transcript::{Page, Spawn, is_native, read_tail, tool_line};
 use super::{discover::Store, transcript};
-use crate::agents::cut;
+use crate::agents::{cut, window::Excerpt};
 use crate::agents::found::memo::Memo;
 use crate::agents::subagent::Conversation;
 use beep_proto::node::agent::{Entry, ExternalSession, Presence};
@@ -136,6 +136,19 @@ struct Step {
     title: String,
 }
 
+/// The entries of `page` with the subagents its calls started.
+pub(super) fn attached(session: &Path, page: Page) -> Excerpt {
+    let Page {
+        mut excerpt,
+        spawns,
+        skip,
+    } = page;
+    let started = Instant::now();
+    attach(session, &spawns, &mut excerpt.entries, skip);
+    crate::agents::transcript_stage("subagents", started);
+    excerpt
+}
+
 /// Writes the subagent each of `spawns` started on its entry among
 /// `entries`, which start at the digest's entry `skip`. A call whose
 /// subagent's file is not found stays as it was.
@@ -165,15 +178,6 @@ pub(super) fn attach(
         .map(|(call, spawn)| (spawn.entry - skip, call.as_str(), spawn));
 
     attach_each(session, &found, items, entries, true);
-}
-
-/// Whether `session` is a subagent's own transcript, kept in a `subagents`
-/// folder.
-pub(super) fn is_native(session: &Path) -> bool {
-    session
-        .parent()
-        .and_then(Path::file_name)
-        .is_some_and(|name| name == "subagents")
 }
 
 /// Writes the subagent each call started on the entry at its index. A

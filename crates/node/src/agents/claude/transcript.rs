@@ -2,7 +2,6 @@
 //! digested into prompts, text, thinking, tool calls and turn ends (`Digest`,
 //! `digest_tail`, `head`).
 
-use super::subagents;
 use crate::agents::{
     compaction::{COMPACTED_ENTRY, summary_note},
     live::{ARTIFACT_TOOL, SKILL_TOOL},
@@ -110,7 +109,7 @@ pub(super) struct Digest {
 
 /// A tool call that started a subagent (Claude Code's `Agent`, `Task`
 /// before it), as the session's own file has it.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub(super) struct Spawn {
     /// Its entry among the digest's.
     pub(super) entry: usize,
@@ -124,13 +123,32 @@ pub(super) struct Spawn {
     pub(super) failed: bool,
 }
 
+/// A page of entries and the subagent calls among them, which `subagents`
+/// writes on their entries.
+pub(super) struct Page {
+    pub(super) excerpt: Excerpt,
+    /// By tool call id.
+    pub(super) spawns: HashMap<String, Spawn>,
+    /// The digest's entry the page starts at.
+    pub(super) skip: usize,
+}
+
 /// Where a published artifact's link starts.
 const ARTIFACT_LINK: &str = "https://claude.ai/";
+
+/// Whether `session` is a subagent's own transcript, kept in a `subagents`
+/// folder.
+pub(super) fn is_native(session: &Path) -> bool {
+    session
+        .parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == "subagents")
+}
 
 impl Digest {
     fn for_file(path: &Path, text: &str, pictures: bool) -> Self {
         let mut digest = Self {
-            native: subagents::is_native(path),
+            native: is_native(path),
             pictures: pictures.then(Vec::new),
             ..Self::default()
         };
@@ -882,9 +900,9 @@ pub(super) fn entries(
     last: usize,
     before: Option<u64>,
     kept: &Transcripts,
-) -> io::Result<Excerpt> {
+) -> io::Result<Page> {
     kept.with(path, |digest| {
-        excerpt(path, digest, window(0, digest.entries.len(), last, before))
+        page(digest, window(0, digest.entries.len(), last, before))
     })
 }
 
@@ -896,7 +914,7 @@ pub(super) fn newest_from(
     last: usize,
     from: u64,
     kept: &Transcripts,
-) -> io::Result<Excerpt> {
+) -> io::Result<Page> {
     kept.with(path, |digest| {
         let mut range = window(0, digest.entries.len(), last, None);
 
@@ -906,21 +924,31 @@ pub(super) fn newest_from(
             range.start = range.start.max(from);
         }
 
-        excerpt(path, digest, range)
+        page(digest, range)
     })
 }
 
-/// The entries of `digest` in `range`, with their subagents and pictures.
-fn excerpt(path: &Path, digest: &Digest, range: Range<usize>) -> Excerpt {
+/// The entries of `digest` in `range`, with their pictures and the calls
+/// among them that started subagents.
+fn page(digest: &Digest, range: Range<usize>) -> Page {
     let skip = range.start;
-    let mut entries = digest.entries[range].to_vec();
-    let started = Instant::now();
-    subagents::attach(path, &digest.spawns, &mut entries, skip);
-    crate::agents::transcript_stage("subagents", started);
-    Excerpt {
-        entries,
-        earlier: skip as u64,
-        pictures: digest.pictures.clone().unwrap_or_default(),
+    let shown = range.clone();
+    let entries = digest.entries[range].to_vec();
+    let spawns = digest
+        .spawns
+        .iter()
+        .filter(|(_, spawn)| shown.contains(&spawn.entry))
+        .map(|(call, spawn)| (call.clone(), spawn.clone()))
+        .collect();
+
+    Page {
+        excerpt: Excerpt {
+            entries,
+            earlier: skip as u64,
+            pictures: digest.pictures.clone().unwrap_or_default(),
+        },
+        spawns,
+        skip,
     }
 }
 
@@ -1153,7 +1181,7 @@ pub(super) mod tests {
         fs::write(&path, text).expect("a transcript");
         let kept = Transcripts::new(2);
         let read = |last, from| {
-            let excerpt = newest_from(&path, last, from, &kept).expect("read");
+            let excerpt = newest_from(&path, last, from, &kept).expect("read").excerpt;
             let texts: Vec<String> = excerpt.entries.into_iter().map(|e| e.text).collect();
             (excerpt.earlier, texts)
         };
@@ -1177,7 +1205,7 @@ pub(super) mod tests {
         let path = folder.path().join("a3f9c1.jsonl");
         fs::write(&path, FIXTURE).expect("a transcript");
         let kept = Transcripts::new(2);
-        let all = entries(&path, 100, None, &kept).expect("read");
+        let all = entries(&path, 100, None, &kept).expect("read").excerpt;
         assert_eq!(all.earlier, 0);
         assert_eq!(all.entries.len(), 11);
 
@@ -1185,7 +1213,7 @@ pub(super) mod tests {
         let mut before = None;
 
         loop {
-            let page = entries(&path, 3, before, &kept).expect("read");
+            let page = entries(&path, 3, before, &kept).expect("read").excerpt;
 
             if let Some(end) = before {
                 assert_eq!(page.earlier + page.entries.len() as u64, end);
@@ -1490,7 +1518,7 @@ pub(super) mod tests {
         fs::write(&path, lines.join("\n") + "\n").expect("a transcript");
         let kept = Transcripts::new(2);
 
-        let newest = entries(&path, 200, None, &kept).expect("read");
+        let newest = entries(&path, 200, None, &kept).expect("read").excerpt;
         assert_eq!(newest.entries.len(), 200);
         let total = newest.earlier + 200;
         assert_eq!(
@@ -1502,14 +1530,14 @@ pub(super) mod tests {
         let mut pages = 1;
 
         while before > 0 {
-            let page = entries(&path, 200, Some(before), &kept).expect("read");
+            let page = entries(&path, 200, Some(before), &kept).expect("read").excerpt;
             assert_eq!(page.earlier + page.entries.len() as u64, before);
             before = page.earlier;
             pages += 1;
         }
 
         assert_eq!(pages, total.div_ceil(200));
-        let first = entries(&path, 1, Some(1), &kept).expect("read");
+        let first = entries(&path, 1, Some(1), &kept).expect("read").excerpt;
         assert_eq!(first.entries[0].text, "prompt 0");
     }
 
@@ -1528,7 +1556,7 @@ pub(super) mod tests {
         let text: String = (0..4000).map(|turn| line(turn) + "\n").collect();
         fs::write(&path, &text).expect("a transcript");
         let kept = Transcripts::new(2);
-        let first = entries(&path, 200, None, &kept).expect("read");
+        let first = entries(&path, 200, None, &kept).expect("read").excerpt;
         assert_eq!((first.earlier, first.entries.len()), (3800, 200));
 
         // Rewrite an early prompt in place: a parse of the whole tail
@@ -1548,14 +1576,14 @@ pub(super) mod tests {
         writeln!(file, "{}", line(4000)).expect("append");
         drop(file);
 
-        let next = entries(&path, 200, None, &kept).expect("read");
+        let next = entries(&path, 200, None, &kept).expect("read").excerpt;
         assert_eq!((next.earlier, next.entries.len()), (3801, 200));
         assert!(next.entries[99].text.starts_with("prompt 03900"));
         assert!(next.entries[199].text.starts_with("prompt 04000"));
 
         // A file written again before the parsed end is parsed again.
         fs::write(&path, text.replace("prompt 03999", "PROMPT 03999")).expect("rewrite");
-        let again = entries(&path, 1, None, &kept).expect("read");
+        let again = entries(&path, 1, None, &kept).expect("read").excerpt;
         assert!(again.entries[0].text.starts_with("PROMPT 03999"));
     }
 
@@ -1577,7 +1605,7 @@ pub(super) mod tests {
             .and_then(|meta| meta.modified())
             .expect("a time");
         let kept = Transcripts::new(2);
-        let before = entries(&path, 3, None, &kept).expect("read");
+        let before = entries(&path, 3, None, &kept).expect("read").excerpt;
         assert_eq!(before.entries[0].text, "first");
 
         // The same length, time and last bytes, in another file.
@@ -1590,7 +1618,7 @@ pub(super) mod tests {
             .expect("its time");
         fs::rename(&replacement, &path).expect("moved over");
 
-        let after = entries(&path, 3, None, &kept).expect("read");
+        let after = entries(&path, 3, None, &kept).expect("read").excerpt;
         assert_eq!(after.entries[0].text, "FIRST");
     }
 }
