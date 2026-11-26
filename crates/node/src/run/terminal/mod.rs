@@ -24,7 +24,8 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-use terminals::{Live, Terminals};
+use pty::Live;
+use terminals::Terminals;
 
 pub use beep_proto::node::terminal::PROTOCOL;
 

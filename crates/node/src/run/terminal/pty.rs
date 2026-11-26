@@ -1,27 +1,34 @@
 //! Opening a pseudo-terminal, and the threads that read it, write to it
 //! and wait for its child.
 
-use super::{
-    lock,
-    screen::{Phase, Screen},
-    terminals::{Live, Opener, Term},
-};
+use super::screen::{Phase, Screen};
+use crate::lock;
 use crate::machine::spawn_env::{self, Scope};
 use anyhow::{Context, Result};
 use beep_proto::{node::events::Topic, watched};
 use beep_proto::node::{
-    process::{TaskId, TaskState},
+    EnvSecret,
+    process::{Task, TaskId, TaskState},
     terminal::Size,
 };
-use portable_pty::{Child, CommandBuilder, ExitStatus, PtySize, native_pty_system};
+use portable_pty::{
+    Child, ChildKiller, CommandBuilder, ExitStatus, MasterPty, PtySize, native_pty_system,
+};
 use std::{
     io::{self, Read, Write},
     path::PathBuf,
-    sync::{Arc, Mutex, mpsc as std_mpsc},
+    sync::{
+        Arc, Mutex,
+        atomic::AtomicBool,
+        mpsc as std_mpsc,
+    },
     thread,
     time::Duration,
 };
-use tokio::sync::{mpsc, watch};
+use tokio::{
+    sync::{Notify, mpsc, watch},
+    time::timeout,
+};
 
 /// Typed input waiting for the terminal to read it; more is dropped.
 const INPUT_QUEUE: usize = 64;
@@ -29,6 +36,109 @@ const INPUT_QUEUE: usize = 64;
 const DRAIN_WAIT: Duration = Duration::from_millis(500);
 /// Bytes read from the pseudo-terminal at a time.
 const READ_SIZE: usize = 8 * 1024;
+
+/// One terminal, as the node keeps it.
+pub(super) struct Term {
+    pub(super) live: Arc<Live>,
+    /// Ends the child; on Unix its group is hung up instead.
+    pub(super) killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
+    /// The child's process group: it leads a session of its own.
+    #[cfg(unix)]
+    pub(super) group: Option<crate::run::process::Group>,
+    /// The child's process id.
+    pub(super) pid: Option<u32>,
+    /// The folder it started in.
+    pub(super) cwd: Option<PathBuf>,
+}
+
+/// What an attached stream shares with the terminal.
+pub(super) struct Live {
+    pub(super) id: TaskId,
+    pub(super) command: String,
+    pub(super) screen: Mutex<Screen>,
+    /// Bumped whenever output comes or the state changes.
+    pub(super) changed: watch::Sender<u64>,
+    /// Typed keys, for the writer thread.
+    pub(super) input: mpsc::Sender<Vec<u8>>,
+    pub(super) master: Mutex<Box<dyn MasterPty + Send>>,
+    #[cfg(windows)]
+    pub(super) process: Option<std::os::windows::io::OwnedHandle>,
+    /// Its set's `changed`.
+    pub(super) started_or_ended: Arc<Notify>,
+}
+impl Live {
+    pub(super) fn task(&self) -> Task {
+        Task {
+            id: self.id,
+            command: self.command.clone(),
+            state: lock(&self.screen).phase.state(),
+        }
+    }
+
+    pub(super) fn is_running(&self) -> bool {
+        lock(&self.screen).phase.state().is_running()
+    }
+
+    /// Says it started or ended, to the node's note and its set.
+    pub(super) fn started_or_ended(&self) {
+        crate::events::open_changed();
+        self.started_or_ended.notify_one();
+        crate::events::system().changed(beep_proto::node::events::Topic::new("terminals"));
+    }
+
+    /// Sizes the terminal to `size`, unless it already is: a resize makes
+    /// some shells draw their prompt again, and every attach sends one.
+    /// Returns whether it changed.
+    pub(super) fn resize(&self, size: Size) -> bool {
+        let master = lock(&self.master);
+
+        if master
+            .get_size()
+            .is_ok_and(|now| now.cols == size.cols && now.rows == size.rows)
+        {
+            return false;
+        }
+
+        if let Err(e) = master.resize(pty_size(size)) {
+            log::debug!("could not resize terminal {}: {e:#}", self.id);
+            return false;
+        }
+
+        true
+    }
+
+    /// Hands typed keys to the writer; dropped when the terminal is not
+    /// reading, so a stuck program never holds up its output.
+    pub(super) fn type_keys(&self, data: Vec<u8>) {
+        if let Err(e) = self.input.try_send(data) {
+            log::debug!("dropped input to terminal {}: {e}", self.id);
+        }
+    }
+
+    pub(super) async fn wait_ended(&self, limit: Duration) -> bool {
+        let mut changed = self.changed.subscribe();
+        timeout(limit, async {
+            while self.is_running() {
+                if changed.changed().await.is_err() {
+                    return;
+                }
+            }
+        })
+        .await
+        .is_ok()
+    }
+}
+
+/// What opening a terminal needs, apart from the set.
+pub(super) struct Opener {
+    /// What terminals get on top of this process's environment, when not
+    /// the node's own: a terminal host gets the node's.
+    pub(super) env: watch::Sender<Option<Vec<EnvSecret>>>,
+    /// Woken when a terminal starts or ends.
+    pub(super) changed: Arc<Notify>,
+    /// Set by `kill_all`: terminals that finish opening after it are killed.
+    pub(super) killed: AtomicBool,
+}
 
 pub(super) fn pty_size(size: Size) -> PtySize {
     PtySize {

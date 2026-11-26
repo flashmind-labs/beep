@@ -1,4 +1,8 @@
 use super::*;
+use super::super::{pty::pty_size, screen::Screen};
+use portable_pty::ChildKiller;
+use std::sync::Mutex;
+use tokio::{sync::mpsc, time::timeout};
 use beep_proto::node::process::TaskState;
 use beep_proto::watched;
 
