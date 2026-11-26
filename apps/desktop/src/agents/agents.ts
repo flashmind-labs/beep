@@ -1,4 +1,5 @@
 import { AG } from "./agents-state.ts";
+import { openScreen } from "../center/nav.ts";
 import { onPhone, WINDOWS } from "../ui/platform.ts";
 // agents/: coding agents in the bar: the start form, the picker, one
 // session's log and messages, and every session. Entry: this file.
@@ -121,6 +122,6 @@ function chatWindowHere() {
 export function newThreadHere() {
   const s = AG.draft ? null : AG.page?.session, chat = s ? chatOf(sessions, s) : null;
   if (!chat?.assistant || chat.status === "ended") return false;
-  void import("./assistant-page.tsx").then(({ newThread }) => newThread(chat));
+  openScreen({ screen: "newthread", chat });
   return true;
 }

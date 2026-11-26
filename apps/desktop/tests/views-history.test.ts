@@ -33,6 +33,7 @@ const stubs = new Map(Object.entries({
   "ui/active.ts": "export const SLOW_MS = 2000; export const shownChanged = () => {}; export const pageShown = () => true;",
   "center/sidebar.tsx": "export const drawSide = () => {};",
   "project/addflow.ts": "export const openProjects = () => {};",
+  "center/screens.ts": "",
   "project/projectops.ts": "export const projectWindowProps = () => ({ clicks: {}, menu: {} });",
   "project/projectrows.ts": "export const projectRows = () => [];",
   "project/projects-state.ts": "export const projectName = project => project.display_name ?? project.name;",

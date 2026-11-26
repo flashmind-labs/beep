@@ -17,7 +17,8 @@ import { askWorkPrompt, cardLane, filterCards, needKind, ownedIssues, repoPath, 
   type BoardFilter, type IssueOwner, type TeamCard, type TeamRecord, type TeamView } from "./team-state.ts";
 import type { IssueRow } from "./threads.ts";
 import { forgeLinks } from "./projects-state.ts";
-import { openTeamJoin, Who, whoColor } from "./teamjoin.tsx";
+import { Who, whoColor } from "./teamjoin.tsx";
+import { openScreen } from "../center/nav.ts";
 
 type Team = Extract<TeamView, { kind: "team" }>;
 
@@ -207,7 +208,7 @@ export function TeamPage({ project, machines, running }: { project: string; mach
   if (view.kind === "none") return <div className="tm-page">
     <EmptyPanel title="No team yet" text={`Invite people who can push to ${project} to share this board and let their agents message yours.`}/>
     {error && <div className="am-msg bad">{error}</div>}
-    <div className="am-line"><Button look="primary" disabled={busy} onClick={invite}>Invite</Button><Button look="quiet" onClick={() => openTeamJoin(null)}>Join with a code</Button></div>
+    <div className="am-line"><Button look="primary" disabled={busy} onClick={invite}>Invite</Button><Button look="quiet" onClick={() => openScreen({ screen: "teamjoin" })}>Join with a code</Button></div>
   </div>;
 
   return <div className="tm-page">

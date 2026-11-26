@@ -28,6 +28,7 @@ import { S } from "../bar/core.ts";
 import { isStarting } from "../agents/starting-state.ts";
 import { canGoBack, syncMobile } from "./mobile.tsx";
 import { placeWindowParts } from "./window-root.tsx";
+import "./screens.ts";
 import { closeSideOver, shell } from "./window-shell.tsx";
 import { movePlaying, swipePlaying, type Swipe } from "../ui/motion.ts";
 

@@ -9,6 +9,7 @@ import type { Alone } from "../project/projectwindow.ts";
 import { state, type Location, type NavigationArgs, type ViewName } from "./state.ts";
 import { pa } from "../project/barstate.ts";
 import { signal } from "../ui/signal.ts";
+import type { AgentRow } from "../agents/agents-state.ts";
 import { windowHost } from "./window-shell.tsx";
 import { windowHistory } from "./window-router.ts";
 
@@ -21,6 +22,22 @@ export type Page = typeof PAGES[number];
 export const wanted = signal<Location>();
 /// The head of the page showing is to be drawn again.
 export const headWanted = signal();
+
+/// A sheet or screen a view asks the window to open. screens.ts follows it and opens it.
+export type ScreenRequest =
+  | { screen: "addmachine" }
+  | { screen: "importproject"; repo: string | null; machine: string | null }
+  | { screen: "addproject" }
+  | { screen: "teamjoin" }
+  | { screen: "machines" }
+  | { screen: "newthread"; chat: AgentRow };
+
+export const screenWanted = signal<ScreenRequest>();
+
+/// Asks the window to open `request`; the sheets it opens report back through their own stores.
+export function openScreen(request: ScreenRequest) {
+  screenWanted.notify(request);
+}
 
 /// The page showing, and how the window is moving to the next.
 export const nav: {

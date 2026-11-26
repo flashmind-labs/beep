@@ -3,14 +3,13 @@ import { invoke } from "../ui/tauri.ts";
 import { projectChanged } from "./barstate.ts";
 import { reason } from "../ui/format.ts";
 import { single } from "../ui/active.ts";
-import { MACHINES } from "../machines/machine-store.ts";
 import type { FoundRow } from "./projects-state.ts";
 import { state, pages, sessionsDue, homeDataChanged } from "../center/state.ts";
-import { go } from "../center/nav.ts";
+import { go, openScreen } from "../center/nav.ts";
 
 /// Opens the Add a machine sheet; the machines topic brings the new one.
 export function openAddMachine() {
-  void import("../machines/addmachine.tsx").then(m => m.openAddMachine());
+  openScreen({ screen: "addmachine" });
 }
 
 /// Opens the Projects page, filtered to `name` when given.
@@ -19,7 +18,7 @@ export function openProjects(name?: string | null) {
 }
 
 /// Opens a project once it is in: the projects topic brings Home, and the found folders load again.
-function landed(p: { name: string }) {
+export function landed(p: { name: string }) {
   state.picked = p.name;
   sessionsDue.add(p.name);
   pages.drop("where", p.name);
@@ -29,34 +28,12 @@ function landed(p: { name: string }) {
 
 /// Opens the Import a project sheet; the project is selected once it is in.
 export function importSheet(repo: string | null = null, machine: string | null = null) {
-  void import("../addproject/importproject.tsx").then(m => m.openImportProject({
-    machines: state.home?.machines || [],
-    macId: MACHINES.mac?.id || null,
-    repo,
-    machine,
-    onDone: landed,
-  }));
+  openScreen({ screen: "importproject", repo, machine });
 }
 
 /// Opens the Add a project sheet: found folders, a folder, a clone, or a new project.
 export function addProject() {
-  void import("../addproject/addproject.tsx").then(m => m.openAddProject({
-    machines: (state.home?.machines || []).filter(mac => mac.can_host !== false),
-    onImported: landed,
-    onChoose: () => void import("../addproject/addfolder.tsx").then(f => f.openAddFolder({
-      machines: state.home?.machines || [],
-      macId: MACHINES.mac?.id || null,
-      onDone: landed,
-      onBack: addProject,
-    })),
-    onClone: repo => importSheet(repo ?? null),
-    onNew: () => void import("../addproject/newproject.tsx").then(n => n.openNewProject({
-      machines: state.home?.machines || [],
-      onDone: landed,
-      onBack: addProject,
-      onClone: repo => importSheet(repo),
-    })),
-  }));
+  openScreen({ screen: "addproject" });
 }
 
 /// The checkouts the machines named last, for the Projects page, then each
