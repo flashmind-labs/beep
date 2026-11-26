@@ -441,6 +441,13 @@ impl Shared {
     ) {
         let mut turn = crate::lock(&self.recovery_turn);
 
+        // Paused, no round runs to use it: the answer and its hold go, and the
+        // round after the pause asks afresh.
+        if self.is_paused() {
+            *turn = RecoveryTurn::Idle;
+            return;
+        }
+
         if matches!(*turn, RecoveryTurn::Asked) {
             *turn = RecoveryTurn::Answered(answer);
             drop(turn);
