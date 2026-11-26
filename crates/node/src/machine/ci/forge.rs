@@ -8,8 +8,8 @@ use super::{
 };
 use crate::{
     lock,
-    machine::spawn_env,
-    run::process::{tail, tool_command},
+    process::spawn_env,
+    process::{tail, tool_command},
 };
 use anyhow::{Context, Result, bail};
 use beep_projects::repo_watch::actions::{HostRun, RunsReply, state_of};

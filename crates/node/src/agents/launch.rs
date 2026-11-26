@@ -5,7 +5,7 @@
 
 use super::{Line, LineReader};
 use crate::machine::wsl::{self, DistroName, LinuxPath};
-use crate::run::process::{GroupLeader, Held, command, own_group};
+use crate::process::{GroupLeader, Held, command, own_group};
 use anyhow::{Context, Result};
 use std::{
     ffi::OsStr,

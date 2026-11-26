@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     agents::{Answered, Asking, Line, LineReader},
-    machine::spawn_env,
+    process::spawn_env,
 };
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};

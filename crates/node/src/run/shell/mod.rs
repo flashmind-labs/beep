@@ -2,9 +2,9 @@
 //! between commands so `cd` and `export` carry over.
 
 use crate::{
-    machine::spawn_env::{self, Scope},
+    process::spawn_env::{self, Scope},
     run::lines::read_piece,
-    run::process::{GroupLeader, STOP_GRACE, own_group},
+    process::{GroupLeader, STOP_GRACE, own_group},
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -150,7 +150,7 @@ struct Shell {
 impl Shell {
     async fn start() -> Result<Self> {
         let program = program();
-        crate::run::process::counted(program.as_ref());
+        crate::process::counted(program.as_ref());
         let mut command = Command::new(program);
         #[cfg(windows)]
         command.args(powershell::session_args());
@@ -246,7 +246,7 @@ fn program() -> &'static str {
 /// stdout, and the shell's name.
 pub(crate) fn one_shot(script: &str) -> (&'static str, Command) {
     let program = program();
-    crate::run::process::counted(program.as_ref());
+    crate::process::counted(program.as_ref());
     let mut command = Command::new(program);
     #[cfg(windows)]
     command

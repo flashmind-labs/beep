@@ -434,7 +434,7 @@ pub(crate) fn verify(path: &Path, expected: &str) -> Result<()> {
 /// Downloads `url` with curl, which every supported system has: to `to`,
 /// or else into what it returns.
 pub(crate) async fn curl(url: &str, to: Option<&Path>) -> Result<Vec<u8>> {
-    let mut command = crate::run::process::command("curl");
+    let mut command = crate::process::command("curl");
     command.args(["-fsSL", "--proto", "=https", "--retry", "2"]);
 
     if let Some(to) = to {

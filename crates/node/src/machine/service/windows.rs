@@ -323,7 +323,7 @@ pub(crate) fn from_utf16(bytes: &[u8]) -> String {
 }
 
 pub(super) fn installed() -> bool {
-    crate::run::process::background_command("schtasks")
+    crate::process::background_command("schtasks")
         .args(["/Query", "/TN", TASK])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -335,7 +335,7 @@ pub(super) fn installed() -> bool {
 /// Stops the running task. Its failure is ignored on purpose: it fails when
 /// the task is not running, which is the state wanted.
 fn end() {
-    let _ = crate::run::process::background_command("schtasks")
+    let _ = crate::process::background_command("schtasks")
         .args(["/End", "/TN", TASK])
         .stdin(Stdio::null())
         .stdout(Stdio::null())

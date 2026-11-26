@@ -8,8 +8,8 @@ use super::{
 };
 use crate::{
     agents::known::{Adapter, Known},
-    machine::{provision::{curl, listed_sha256, remove_dir, unpack, verify}, spawn_env},
-    run::process::command,
+    machine::provision::{curl, listed_sha256, remove_dir, unpack, verify}, process::spawn_env,
+    process::command,
 };
 use anyhow::{Context, Result, bail};
 use std::{

@@ -393,7 +393,7 @@ pub(super) fn git_status(dir: &Path) -> Option<GitStatus> {
 /// What `git <args>` printed in `dir`, when it succeeded. Takes no locks,
 /// so a running agent's own git commands are never in its way.
 pub(crate) fn git(dir: &Path, args: &[&str]) -> Option<String> {
-    let out = crate::run::process::background_command("git")
+    let out = crate::process::background_command("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -401,7 +401,7 @@ pub(crate) fn git(dir: &Path, args: &[&str]) -> Option<String> {
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output();
-    crate::run::process::finished("git", &out);
+    crate::process::finished("git", &out);
     let out = out.ok()?;
     out.status
         .success()

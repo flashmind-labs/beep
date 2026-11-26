@@ -29,7 +29,7 @@ pub(super) async fn apply(placed: impl Iterator<Item = (String, ProjectRecord, P
 }
 
 fn git(folder: &Path) -> Command {
-    let mut command = crate::run::process::command("git");
+    let mut command = crate::process::command("git");
     for variable in [
         "GIT_DIR",
         "GIT_WORK_TREE",

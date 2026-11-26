@@ -12,8 +12,8 @@ use crate::{
     AsyncMutex,
     agents::found::Agent,
     lock,
-    machine::spawn_env::{self, Scope},
-    run::process::{STOP_GRACE, command},
+    process::spawn_env::{self, Scope},
+    process::{STOP_GRACE, command},
 };
 use agent_client_protocol::{Builder, Client, ConnectionTo, JsonRpcMessage};
 use anyhow::{Context, Result};

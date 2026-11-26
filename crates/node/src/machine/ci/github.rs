@@ -2,7 +2,7 @@
 //! exit says the run finished, a cancelled one too, and one `gh run view`
 //! after it says how it ended.
 
-use crate::run::process::{tail, tool_command};
+use crate::process::{tail, tool_command};
 use anyhow::{Context, Result, bail};
 use beep_projects::repo_watch::actions::state_of;
 use beep_proto::RunState;

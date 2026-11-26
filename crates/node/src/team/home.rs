@@ -3,8 +3,8 @@
 //! the link takes go to a desktop, since only desktops write the state.
 
 use crate::{
-    machine::spawn_env,
-    run::process::{tail, tool_command},
+    process::spawn_env,
+    process::{tail, tool_command},
 };
 use beep_mesh::{Key, Mesh};
 use beep_projects::{

@@ -9,7 +9,7 @@ use crate::{
     AsyncMutex, lock,
     run::local_socket::{Listener, Stream, connect, is_listening},
     files::note,
-    machine::spawn_env::{self, Scope},
+    process::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::{

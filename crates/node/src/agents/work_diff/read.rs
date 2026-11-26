@@ -225,7 +225,7 @@ fn untracked_index(dir: &Path) -> Option<UntrackedIndex> {
         .env("GIT_INDEX_FILE", &path)
         .env("GIT_LITERAL_PATHSPECS", "1")
         .output();
-    crate::run::process::finished("git", &added);
+    crate::process::finished("git", &added);
     if !added.ok()?.status.success() {
         return None;
     }
@@ -315,7 +315,7 @@ fn untracked_text(dir: &Path, rel: &str, cap: usize) -> Result<Option<Untracked>
 }
 
 fn git_command(dir: &Path, args: &[&str]) -> Command {
-    let mut command = crate::run::process::background_command("git");
+    let mut command = crate::process::background_command("git");
     command
         .args(args)
         .current_dir(dir)
@@ -332,7 +332,7 @@ fn git_command(dir: &Path, args: &[&str]) -> Command {
 /// What `git <args>` printed in `dir`; its error when it failed.
 pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Result<String> {
     let out = git_command(dir, args).output();
-    crate::run::process::finished("git", &out);
+    crate::process::finished("git", &out);
     let out = out.context("could not run git")?;
     if !out.status.success() {
         bail!(
@@ -363,7 +363,7 @@ fn stream_git(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn();
-    crate::run::process::launched("git", &child);
+    crate::process::launched("git", &child);
     let mut child = child.context("could not run git")?;
     let stderr = child.stderr.take().context("git's error output")?;
     // Drained apart, so a git that writes much there never blocks.

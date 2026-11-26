@@ -7,8 +7,8 @@
 use crate::{
     lock,
     machine::env::{self, locate},
-    machine::spawn_env::{self, Scope},
-    run::process::{self, GroupLeader, STOP_GRACE},
+    process::spawn_env::{self, Scope},
+    process::{self, GroupLeader, STOP_GRACE},
 };
 use anyhow::Result;
 use beep_proto::node::{

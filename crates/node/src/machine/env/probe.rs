@@ -1,6 +1,6 @@
 //! Running a probe command and reading what it printed.
 
-use crate::machine::spawn_env::{self, Scope};
+use crate::process::spawn_env::{self, Scope};
 use std::{env, path::Path, process::Stdio, time::Duration};
 use tokio::time::timeout;
 
@@ -22,7 +22,7 @@ pub(super) async fn ran(
     args: &[&str],
     scope: Scope,
 ) -> Option<(bool, String)> {
-    let mut command = crate::run::process::probe(program.as_ref());
+    let mut command = crate::process::probe(program.as_ref());
     spawn_env::apply(&mut command, scope);
     beside(&mut command, Path::new(program.as_ref()));
     let run = command

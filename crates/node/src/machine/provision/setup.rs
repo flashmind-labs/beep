@@ -3,7 +3,7 @@
 //! without an admin password, and Git from the system's own installer.
 
 use super::tools::{curl, listed_sha256, remove_dir, unpack, verify};
-use crate::machine::spawn_env::{self, Scope};
+use crate::process::spawn_env::{self, Scope};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::setup::Reply;
 use serde::Deserialize;
@@ -137,20 +137,20 @@ pub(super) async fn install_git() -> Result<Reply> {
     match env::consts::OS {
         "macos" => match brew() {
             Some(brew) => {
-                let mut command = crate::run::process::command(brew);
+                let mut command = crate::process::command(brew);
                 command.args(["install", "git"]);
                 run(command, "brew install git").await?;
                 Ok(Reply::Installed {})
             }
             None => {
-                let mut command = crate::run::process::command("xcode-select");
+                let mut command = crate::process::command("xcode-select");
                 command.arg("--install");
                 run(command, "xcode-select --install").await?;
                 Ok(Reply::Started {})
             }
         },
         "windows" => {
-            let mut command = crate::run::process::command("winget");
+            let mut command = crate::process::command("winget");
             command.args([
                 "install",
                 "--id",

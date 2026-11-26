@@ -4,7 +4,7 @@
 use super::launch::{Cli, Process};
 use crate::agents::{Line, LineReader, acp::MAX_MESSAGE};
 use crate::machine::wsl::{self, Toward};
-use crate::run::process::STOP_GRACE;
+use crate::process::STOP_GRACE;
 use anyhow::Result;
 use serde_json::Value;
 use tokio::{

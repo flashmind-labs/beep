@@ -3,7 +3,8 @@
 
 use crate::{
     link::local_status::{LocalStatus, render},
-    machine::{env::{locate, os_version}, spawn_env, service::logs::Logs},
+    process::spawn_env,
+    machine::{env::{locate, os_version}, service::logs::Logs},
 };
 use anyhow::Result;
 use beep_proto::node::{

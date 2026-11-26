@@ -6,7 +6,7 @@ use self::client::{Client, ERR_CONTENT_MODIFIED, ERR_SERVER_CANCELLED, RpcError}
 use super::work_folder::WorkRoot;
 use crate::{
     AsyncMutex,
-    machine::{env::locate, spawn_env},
+    machine::env::locate, process::spawn_env,
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{LspDefinitions, RelPath};

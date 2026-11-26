@@ -215,13 +215,13 @@ pub(super) fn git(dir: &Path, args: &[&str]) -> Result<String> {
 
 /// The bytes `git <args>` printed in `dir`.
 fn git_bytes(dir: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let out = crate::run::process::background_command("git")
+    let out = crate::process::background_command("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
         .output();
-    crate::run::process::finished("git", &out);
+    crate::process::finished("git", &out);
     let out = out.context("running git")?;
 
     if !out.status.success() {

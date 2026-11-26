@@ -113,7 +113,7 @@ pub enum Restart {
 
 /// Runs `program` with `args`, failing with what it printed to stderr.
 pub(super) fn run(program: &str, args: &[&str]) -> Result<()> {
-    let out = crate::run::process::background_command(program)
+    let out = crate::process::background_command(program)
         .args(args)
         .stdin(Stdio::null())
         .output()

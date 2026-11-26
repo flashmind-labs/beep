@@ -12,7 +12,7 @@ pub(crate) use probe::{beside, output};
 use probe::{first_line, ran};
 
 use crate::files::syncthing::Syncthing;
-use crate::machine::spawn_env::{self, Scope};
+use crate::process::spawn_env::{self, Scope};
 use beep_proto::node::harness::parse_version;
 use beep_proto::node::{EnvReport, Login, ToolInfo};
 use std::{

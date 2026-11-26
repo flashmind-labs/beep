@@ -1,13 +1,16 @@
-//! Children that lead their own process group, so stopping one stops
-//! everything it started: the shell's commands, an agent's tools. On Unix
-//! the group is a process group; on Windows it is a job object.
+//! Children that lead their own process group (`process`) and the
+//! environment they start with (`spawn_env`). On Unix the group is a process
+//! group; on Windows it is a job object, so stopping one stops everything it
+//! started: the shell's commands, an agent's tools.
 
-use crate::machine::spawn_env::{self, Scope};
+use spawn_env::Scope;
 use std::{ffi::OsStr, process::{Output, Stdio}, time::Duration};
 use tokio::{
     process::{Child, Command},
     time::timeout,
 };
+
+pub(crate) mod spawn_env;
 
 #[cfg(unix)]
 mod unix;
@@ -35,7 +38,7 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     #[cfg(windows)]
     if let Ok(found) = which::which_in(
         program,
-        crate::machine::spawn_env::search_path(),
+        crate::process::spawn_env::search_path(),
         "/",
     ) {
         return Command::from(background_command(found));
@@ -237,8 +240,8 @@ impl Drop for GroupLeader {
 }
 
 #[cfg(all(test, unix))]
-#[path = "../../tests/run_process.rs"]
+#[path = "../tests/process.rs"]
 mod tests;
 #[cfg(all(test, windows))]
-#[path = "../../tests/run_process_windows_tests.rs"]
+#[path = "../tests/process_windows_tests.rs"]
 mod windows_tests;

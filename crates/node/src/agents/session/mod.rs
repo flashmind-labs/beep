@@ -16,8 +16,8 @@ use super::{
     usage::UsageHub,
 };
 use crate::{
-    machine::spawn_env::{self, Scope},
-    run::process::command,
+    process::spawn_env::{self, Scope},
+    process::command,
 };
 use agent_client_protocol::v1::schema::McpServer;
 use anyhow::Result;

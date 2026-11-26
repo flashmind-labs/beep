@@ -3,7 +3,7 @@
 
 use super::screen::{Phase, Screen};
 use crate::lock;
-use crate::machine::spawn_env::{self, Scope};
+use crate::process::spawn_env::{self, Scope};
 use anyhow::{Context, Result};
 use beep_proto::{node::events::Topic, watched};
 use beep_proto::node::{
@@ -44,7 +44,7 @@ pub(super) struct Term {
     pub(super) killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     /// The child's process group: it leads a session of its own.
     #[cfg(unix)]
-    pub(super) group: Option<crate::run::process::Group>,
+    pub(super) group: Option<crate::process::Group>,
     /// The child's process id.
     pub(super) pid: Option<u32>,
     /// The folder it started in.
@@ -249,7 +249,7 @@ impl Opener {
                 .ok()
         });
         #[cfg(unix)]
-        let group = pid.and_then(crate::run::process::Group::led_by);
+        let group = pid.and_then(crate::process::Group::led_by);
         let name = match command {
             Some(command) => command.to_owned(),
             None => program

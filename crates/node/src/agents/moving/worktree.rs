@@ -159,7 +159,7 @@ const DIFF_OPTIONS: [&str; 6] = [
 ];
 
 fn command(dir: &Path, args: &[&str]) -> Command {
-    let mut command = crate::run::process::background_command("git");
+    let mut command = crate::process::background_command("git");
     command
         .args(args)
         .current_dir(dir)

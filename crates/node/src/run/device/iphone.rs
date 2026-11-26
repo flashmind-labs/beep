@@ -3,7 +3,7 @@
 //! install and launch. `devicectl` has no touch input, so they take none.
 
 use super::{Controls as AnyControls, Live, Screen, phone};
-use crate::run::process;
+use crate::process;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{Device, DeviceId, DeviceState, Platform};
 use serde::Deserialize;

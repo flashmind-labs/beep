@@ -13,7 +13,7 @@ use super::{
 use crate::{
     AsyncMutex, lock,
     machine::env::{claude_logged_in, opencode_logged_in, output},
-    machine::spawn_env::{self, Scope},
+    process::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::harness::{
@@ -510,7 +510,7 @@ async fn sign_in(agent: &str, cli: &std::path::Path, kind: &AgentKind) -> SignIn
         "agy" => &["models"],
         _ => return SignIn::default(),
     };
-    let mut command = crate::run::process::probe(cli);
+    let mut command = crate::process::probe(cli);
     spawn_env::apply(&mut command, Scope::Agent(None));
     let run = command
         .args(args)

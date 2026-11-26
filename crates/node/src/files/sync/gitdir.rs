@@ -587,7 +587,7 @@ impl Repo {
     /// one found above a `.git` that is not complete yet. Hooks stay off, as
     /// this is sync moving what the user's git already did elsewhere.
     pub(super) fn git(&self) -> Command {
-        let mut command = crate::run::process::background_command("git");
+        let mut command = crate::process::background_command("git");
         for name in [
             "GIT_DIR",
             "GIT_WORK_TREE",
@@ -617,7 +617,7 @@ impl Repo {
 
     pub(super) fn run(&self, args: &[&str]) -> Result<Output> {
         let output = self.git().args(args).output();
-        crate::run::process::finished("git", &output);
+        crate::process::finished("git", &output);
         let output = output.context("running git, which a git repository needs to sync")?;
         if !output.status.success() {
             bail!(

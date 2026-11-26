@@ -144,7 +144,7 @@ fn classify(error: ProofError, repo: &str) -> ProofError {
 
 /// What `git <args>` printed in `dir`, with `stdin` fed to it; stderr when it failed.
 async fn git(dir: &Path, args: &[&str], stdin: Option<&str>) -> Result<String, ProofError> {
-    let mut command = tokio::process::Command::from(crate::run::process::background_command("git"));
+    let mut command = tokio::process::Command::from(crate::process::background_command("git"));
     command
         .args(args)
         .current_dir(dir)

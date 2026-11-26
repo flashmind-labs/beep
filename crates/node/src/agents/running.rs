@@ -11,8 +11,8 @@ use super::{
 };
 use crate::{
     agents::mcp::{self, Launch},
-    machine::spawn_env::{self, Scope},
-    run::process,
+    process::spawn_env::{self, Scope},
+    process,
 };
 use anyhow::{Context, Result};
 use beep_proto::SessionId;

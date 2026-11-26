@@ -28,6 +28,7 @@ host! {
     pub mod actor;
     pub mod machine;
     pub mod peer_stream;
+    mod process;
     mod run;
     mod team;
 }

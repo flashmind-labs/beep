@@ -93,7 +93,7 @@ pub(crate) static TEST_LOCK: crate::AsyncMutex<()> = crate::AsyncMutex::const_ne
 
 /// Puts `dirs` before the inherited `PATH` of every process started from
 /// now on.
-pub(super) fn set_path(dirs: Vec<PathBuf>) {
+pub(crate) fn set_path(dirs: Vec<PathBuf>) {
     write_lock(&SPAWN_ENV).path = dirs;
 }
 
@@ -206,5 +206,5 @@ fn merged_path(prefix: &[PathBuf], inherited: Option<&OsStr>) -> Option<OsString
 }
 
 #[cfg(test)]
-#[path = "../tests/machine_spawn_env.rs"]
+#[path = "../tests/process_spawn_env.rs"]
 mod tests;

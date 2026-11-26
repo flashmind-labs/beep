@@ -5,7 +5,7 @@
 //! Agents see each flashmind tool the keys allow as it is, with
 //! `list_models` for the models the configured providers offer.
 
-use crate::machine::spawn_env;
+use crate::process::spawn_env;
 use flashmind_tools::ToolBuilder;
 use flashmind_types::{ApiKey, ToolCall, ToolRegistry};
 use serde_json::{Value, json};

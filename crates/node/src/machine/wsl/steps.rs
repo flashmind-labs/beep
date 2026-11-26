@@ -57,7 +57,7 @@ pub(crate) fn agent_command(
     program: &LinuxPath,
     args: &[String],
 ) -> Command {
-    let mut command = crate::run::process::command("wsl.exe");
+    let mut command = crate::process::command("wsl.exe");
     let distro: &std::ffi::OsStr = distro.as_ref();
     let script = format!("{}exec \"$0\" \"$@\"\n", path_prelude());
     command
@@ -174,7 +174,7 @@ fn path_prelude() -> String {
 /// Runs `wsl.exe` with `args` for at most `limit`; what it printed on
 /// success, else the last lines of it as the error.
 async fn wsl(args: Vec<OsString>, limit: Duration) -> Result<String> {
-    let mut command = crate::run::process::command("wsl.exe");
+    let mut command = crate::process::command("wsl.exe");
     command
         .args(args)
         // Its own messages in UTF-8 too.

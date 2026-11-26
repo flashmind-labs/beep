@@ -10,7 +10,7 @@ mod tools;
 pub(crate) use skills::{beep_dir as skills_dir, brief as skills_brief, installed_by_beep};
 pub(crate) use tools::{curl, listed_sha256, remove_dir, unpack, verify};
 
-use crate::{AsyncMutex, lock, machine::spawn_env};
+use crate::{AsyncMutex, lock, process::spawn_env};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     ForgejoLogin, LinkRx, LinkTx, MachineCredentials,

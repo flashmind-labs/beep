@@ -2,7 +2,7 @@
 //! serial: one call at a time, and the logs, screen contents, installs,
 //! launches and resets the agents ask for.
 
-use crate::{machine::env, run::process};
+use crate::{machine::env, process};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{DeviceId, Element};
 use std::{path::Path, process::Stdio, time::Duration};

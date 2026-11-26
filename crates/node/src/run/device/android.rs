@@ -3,7 +3,7 @@
 //! `EmulatorController` for its screen and input.
 
 use super::{Controls as AnyControls, Live, Screen, Turn, Turned, VideoFeed, follow, point};
-use crate::{lock, machine::env, run::process};
+use crate::{lock, machine::env, process};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{
     Button, Device, DeviceId, DeviceState, Frame, Input, Key, MAX_TEXT, Platform, TouchPhase,

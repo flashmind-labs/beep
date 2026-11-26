@@ -265,7 +265,7 @@ async fn folders(pids: &[u32]) -> Option<Vec<(u32, PathBuf)>> {
         .map(u32::to_string)
         .collect::<Vec<_>>()
         .join(",");
-    crate::run::process::counted("lsof".as_ref());
+    crate::process::counted("lsof".as_ref());
     let run = Command::new("lsof")
         .args(["-a", "-d", "cwd", "-Fpn", "-p", &list])
         .stdin(Stdio::null())

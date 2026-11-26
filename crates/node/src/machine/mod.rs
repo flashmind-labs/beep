@@ -10,7 +10,6 @@ pub mod host;
 pub mod provision;
 pub mod service;
 pub(crate) mod sign_in;
-pub(crate) mod spawn_env;
 pub(crate) mod stats;
 #[cfg(feature = "cli")]
 pub mod update;

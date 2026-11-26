@@ -7,7 +7,7 @@ use super::{
     unix_now,
     usage::{WEEK_MINUTES, claude_window},
 };
-use crate::run::process::{GroupLeader, STOP_GRACE, own_group};
+use crate::process::{GroupLeader, STOP_GRACE, own_group};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     AgentSlug,

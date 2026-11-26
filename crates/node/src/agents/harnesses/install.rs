@@ -3,7 +3,7 @@
 //! Nothing runs with sudo.
 
 use crate::files::paths;
-use crate::machine::spawn_env::{self, Scope};
+use crate::process::spawn_env::{self, Scope};
 use anyhow::{Result, bail};
 use beep_proto::node::harness::{clean_output, failure_line, harness};
 use std::{
@@ -294,7 +294,7 @@ pub(super) struct Processes;
 
 impl Runner for Processes {
     async fn run(&self, step: &Step, limit: Duration) -> Ran {
-        let mut process = crate::run::process::command(&step.program);
+        let mut process = crate::process::command(&step.program);
         spawn_env::apply(&mut process, Scope::Probe);
         let run = process
             .args(&step.args)

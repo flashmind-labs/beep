@@ -443,13 +443,13 @@ fn exclude_worktrees(root: &Path) -> Result<()> {
 
 /// What `git <args>` printed in `dir`; its error output when it failed.
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
-    let out = crate::run::process::background_command("git")
+    let out = crate::process::background_command("git")
         .args(args)
         .current_dir(dir)
         .env("GIT_TERMINAL_PROMPT", "0")
         .stdin(Stdio::null())
         .output();
-    crate::run::process::finished("git", &out);
+    crate::process::finished("git", &out);
     let out = out.context("running git")?;
     if !out.status.success() {
         let said = String::from_utf8_lossy(&out.stderr);

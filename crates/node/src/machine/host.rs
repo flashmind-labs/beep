@@ -9,7 +9,7 @@ const NO_HOSTNAME: &str = "Machine";
 /// name is the Windows machine's, the distribution comes first, as
 /// "Ubuntu on desk-pc".
 pub async fn host_name() -> String {
-    let output = crate::run::process::command("hostname").output().await;
+    let output = crate::process::command("hostname").output().await;
     let name = output
         .ok()
         .filter(|output| output.status.success())
