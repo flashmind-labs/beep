@@ -290,12 +290,16 @@ impl TeamLive {
             let fleet = app.state::<Arc<Fleet>>();
             let interests = self.held().interests(fleet.id());
 
-            if let Err(error) = app.state::<crate::fleet::outbox::WindowOutbox>().hold_set("team", interests) {
+            if let Err(error) = app
+                .state::<crate::fleet::outbox::WindowOutbox>()
+                .hold_set("team", interests)
+            {
                 log::warn!("a team page cannot follow its team: {error}");
             }
 
             if !self.held().projects.is_empty() || !self.held().invites.is_empty() {
-                events.start(app.clone(), fleet.inner().clone());
+                app.state::<crate::fleet::events::Events>()
+                    .start(app.clone(), fleet.inner().clone());
             }
         }
         #[cfg(not(desktop))]
