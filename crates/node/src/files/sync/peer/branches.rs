@@ -1,10 +1,12 @@
 //! Negotiating branch-aware pulls without changing the existing pull messages.
 
-use super::{
-    BranchTip, ObjectScope, ObjectWant, Reply, Repo, Request, Shared, link, receive_objects,
+use super::wire::{ObjectScope, ObjectWant, Reply, Request, receive_objects};
+use crate::files::sync::{
+    gitdir::{BranchTip, Repo},
+    project::Shared,
 };
 use anyhow::{Context, Result, ensure};
-use beep_proto::node::{LinkRx, LinkTx};
+use beep_proto::node::{LinkRx, LinkTx, link};
 use iroh::{EndpointId, endpoint::Connection};
 use tokio::{task::spawn_blocking, time::timeout};
 
