@@ -1,5 +1,6 @@
 import { SessionPicks, type SessionPick } from "./agentmodels.ts";
 import type { ContinuePick } from "./continue-state.ts";
+import { createStore } from "zustand/vanilla";
 import { signal } from "../ui/signal.ts";
 import { sentText } from "./agentlog.ts";
 import { disposeLogShell } from "./log-shell.tsx";
@@ -102,8 +103,13 @@ export const continuePicks = new Map<string, ContinuePick>();
 export const logStale = signal();
 /// The open session is to be read or followed again: `true` reads even while the view is hidden.
 export const readWanted = signal<boolean>();
-/// A session row to show, and where Esc goes from it: the page opens it.
-export const sessionWanted = signal<{ row: AgentRow; back: AgentReturn }>();
+/// The session row asked for, and where Esc goes from it, until the page opens it.
+export const sessionAsked = createStore<{ wanted: { row: AgentRow; back: AgentReturn } | null }>(() => ({ wanted: null }));
+
+/// Asks the page to show `row`.
+export function wantSession(row: AgentRow, back: AgentReturn) {
+  sessionAsked.setState({ wanted: { row, back } });
+}
 
 /// Follows the open session again after showing it or sending a message.
 export function resumeFollow() {

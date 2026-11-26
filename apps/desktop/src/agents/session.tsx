@@ -3,7 +3,7 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { SessionField, SessionHead } from "./session-frame.tsx";
 import { agentMessage, sessionBody, showSessionFrame } from "./session-frame-state.ts";
-import { followsOnly, isOpen, keepLog, keptLogs, readWanted, resumeFollow, sessionPicks, sessionWanted, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
+import { followsOnly, isOpen, keepLog, keptLogs, readWanted, resumeFollow, sessionAsked, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.tsx";
@@ -138,7 +138,11 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
 }
 
 readWanted.follow(readNow => void pollAgent(readNow));
-sessionWanted.follow(({ row, back }) => openAgent(row, { back }));
+sessionAsked.subscribe(({ wanted }) => {
+  if (!wanted) return;
+  sessionAsked.setState({ wanted: null });
+  openAgent(wanted.row, { back: wanted.back });
+});
 pushedPage.follow(({ open, page, read, replace }) => applyAgentPage(open, page, read, replace, true));
 
 /// The parts that stay while the session updates: the head, the body and the field.

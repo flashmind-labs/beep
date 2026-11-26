@@ -17,7 +17,7 @@ import { MN, attachReads, attachmentKey, currentMentions, mentionImages, setAtta
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, sentImage, where } from "./agents-state.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
-import { continuePicks, isOpen, logStale, questionKey, resumeFollow, resumePicks, sessionPicks, sessionWanted, setNote, startedWith, turnRuns } from "./open-state.ts";
+import { continuePicks, isOpen, logStale, questionKey, resumeFollow, resumePicks, sessionPicks, wantSession, setNote, startedWith, turnRuns } from "./open-state.ts";
 import { redrawAgentHints } from "./session-head.tsx";
 import { drawAgentAttached } from "./attachments-view.tsx";
 import { fitAttachedImages, keepSentImages, keepAgentPics } from "./images.tsx";
@@ -470,7 +470,7 @@ async function continueChat(o: OpenAgent, draft: Waiting, state: MentionState) {
     sessionPicks.set(started.session.id, { model: model ?? "", effort: pick.effort, fast });
     startedWith(started.session, text, images ?? []);
     uploads.forget();
-    if (isOpen(o)) sessionWanted.notify({ row: started.session, back: AG.back });
+    if (isOpen(o)) wantSession(started.session, AG.back);
   } catch (e) {
     uploads.discardAll();
     state.error = String(e).replace(/^bad request: /, "");
@@ -594,7 +594,7 @@ export async function readOutbox(o: OpenAgent) {
 
     const known = (list: readonly AgentSession[]) => list.find(s => s.machine_id === o.machine_id && s.id === listed.session);
     const resumed = known(sessions) ?? known(await loadSessions());
-    if (resumed && AG.open === o) sessionWanted.notify({ row: resumed, back: AG.back });
+    if (resumed && AG.open === o) wantSession(resumed, AG.back);
   } catch (e) {
     console.warn("reading the outbox:", e);
   }
@@ -621,7 +621,7 @@ listen<OutboxChanged>("outbox-changed", ({ payload }) => {
   const o = AG.open;
   if (!o || !sameSession(o, { machine_id: payload.machine_id, agent: payload.agent, id: payload.session })) return;
   // The conversation goes on in the session that resumed, in the background.
-  if (payload.resumed) { sessionWanted.notify({ row: payload.resumed, back: AG.back }); return; }
+  if (payload.resumed) { wantSession(payload.resumed, AG.back); return; }
   showOutbox(payload.rows, payload.revision);
 });
 
