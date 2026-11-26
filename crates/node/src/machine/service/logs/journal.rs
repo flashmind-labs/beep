@@ -1,6 +1,6 @@
 //! The log of the systemd unit, read with `journalctl`.
 
-use super::{LogOptions, Printer};
+use super::print::{LogOptions, Printer};
 use crate::machine::service::systemd::{Scope, UNIT};
 use anyhow::{Context, Result, bail};
 use std::{

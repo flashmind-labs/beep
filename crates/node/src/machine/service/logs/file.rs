@@ -2,7 +2,7 @@
 //! the LaunchAgent's on macOS, the node's daily files on Windows. Followed by
 //! watching its folder for growth.
 
-use super::{LogOptions, Printer, cutoff};
+use super::print::{LogOptions, Printer, cutoff};
 use anyhow::{Context, Result, bail};
 use notify::{RecursiveMode, Watcher, recommended_watcher};
 use std::{

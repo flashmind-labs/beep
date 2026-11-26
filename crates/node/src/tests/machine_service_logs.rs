@@ -1,4 +1,5 @@
 use super::*;
+use super::print::parse_time;
 
 const NOISE: &str = "2026-11-03T14:30:59.238909+01:00   INFO iroh::socket::transports: \
                      transports.rs:964 poll_send; len=42";
