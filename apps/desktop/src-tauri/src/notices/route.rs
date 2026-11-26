@@ -28,7 +28,8 @@ use tokio::{sync::mpsc, time::sleep_until};
 /// background, and another app may have read it meanwhile.
 const SETTLE: Duration = Duration::from_secs(5);
 
-/// Carries out what a notification's button asked for, in the order asked. A failure shows as
+/// Carries out what a notification's button asked for. A click opens at once; an answer goes to
+/// its machine on its own task, so a slow machine holds up no other click. A failure shows as
 /// another notification, since nothing else is on screen; one already answered elsewhere only
 /// goes to the log.
 pub(crate) async fn follow_actions(app: AppHandle, mut actions: mpsc::UnboundedReceiver<Action>) {
@@ -36,10 +37,14 @@ pub(crate) async fn follow_actions(app: AppHandle, mut actions: mpsc::UnboundedR
         match action {
             Action::Open(target) => open(&app, target),
             Action::Answer(key, allow) => {
-                if let Err(e) = answer_agent(&app, key, allow).await {
-                    log::warn!("answering from a notification: {e}");
-                    notify::text(&app, "Beep could not send your answer", &e.to_string());
-                }
+                let app = app.clone();
+
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = answer_agent(&app, key, allow).await {
+                        log::warn!("answering from a notification: {e}");
+                        notify::text(&app, "Beep could not send your answer", &e.to_string());
+                    }
+                });
             }
             #[cfg(desktop)]
             Action::UpdateNodes => {
