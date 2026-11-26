@@ -24,7 +24,6 @@ use tokio::{
 
 mod project;
 pub(in crate::files) mod stignore;
-pub(crate) use project::{BEGIN as PROJECT_IGNORE_BEGIN, END as PROJECT_IGNORE_END};
 
 /// The longest a call to Syncthing may take.
 const TIMEOUT: Duration = Duration::from_secs(2);

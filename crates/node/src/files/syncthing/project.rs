@@ -1,13 +1,11 @@
 //! Per-project Syncthing exclusions, stored in the shared folder's ignore file.
 
 use super::{Gui, Managed, Syncthing, TIMEOUT, get, query_value, real, timeout};
+use super::stignore::{BEGIN, END};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::sync::SyncthingFiles;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-
-pub(crate) const BEGIN: &str = "// Beep project files";
-pub(crate) const END: &str = "// End Beep project files";
 
 #[derive(Serialize, Deserialize)]
 struct Ignores {

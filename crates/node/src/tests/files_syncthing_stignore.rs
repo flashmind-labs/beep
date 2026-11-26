@@ -61,7 +61,7 @@ fn an_ignored_dataset_under_a_beep_owned_project_keeps_user_exclusions() {
     fs::create_dir_all(&project).unwrap();
     fs::write(
         dir.path().join(STIGNORE),
-        format!("{PROJECT_IGNORE_BEGIN}\n/owner/widget\n{PROJECT_IGNORE_END}\n*.tmp\n"),
+        format!("{BEGIN}\n/owner/widget\n{END}\n*.tmp\n"),
     )
     .unwrap();
     let rules = Stignore::load_above(&project).unwrap();
@@ -78,7 +78,7 @@ fn a_project_exclusion_hands_ownership_to_beep_and_keeps_user_rules() {
     fs::create_dir_all(&other).unwrap();
     fs::write(
         dir.path().join(STIGNORE),
-        format!("{PROJECT_IGNORE_BEGIN}\n/owner/widget\n{PROJECT_IGNORE_END}\n*.tmp\n"),
+        format!("{BEGIN}\n/owner/widget\n{END}\n*.tmp\n"),
     )
     .unwrap();
     assert!(project_ignored(&project, dir.path()).unwrap());
@@ -89,7 +89,7 @@ fn a_project_exclusion_hands_ownership_to_beep_and_keeps_user_rules() {
     // A matching rule written by the user still belongs to the user.
     fs::write(
         dir.path().join(STIGNORE),
-        format!("{PROJECT_IGNORE_BEGIN}\n/owner/widget\n{PROJECT_IGNORE_END}\n/owner/widget\n"),
+        format!("{BEGIN}\n/owner/widget\n{END}\n/owner/widget\n"),
     )
     .unwrap();
     assert!(ignored(
@@ -107,7 +107,7 @@ fn one_managed_block_holds_several_projects() {
     fs::create_dir_all(&other).unwrap();
     fs::write(
         dir.path().join(STIGNORE),
-        format!("{PROJECT_IGNORE_BEGIN}\n/owner/widget\n/owner/other\n{PROJECT_IGNORE_END}\n"),
+        format!("{BEGIN}\n/owner/widget\n/owner/other\n{END}\n"),
     )
     .unwrap();
     assert!(project_ignored(&project, dir.path()).unwrap());

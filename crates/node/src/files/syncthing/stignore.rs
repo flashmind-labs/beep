@@ -3,7 +3,6 @@
 //! Beep's sync would send what the user told Syncthing to leave out. Everything
 //! here blocks.
 
-use super::{PROJECT_IGNORE_BEGIN, PROJECT_IGNORE_END};
 use anyhow::{Context, Result, bail};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 use std::{
@@ -12,6 +11,10 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
 };
+
+/// The lines that open and close the block of Beep's project exclusions.
+pub(crate) const BEGIN: &str = "// Beep project files";
+pub(crate) const END: &str = "// End Beep project files";
 
 /// Whether Syncthing excludes the project's directory, including an
 /// exclusion for every child of a project that is itself a shared folder.
@@ -146,9 +149,9 @@ fn read_lines_for_project(
     let mut managed = false;
 
     for line in &lines {
-        if *line == PROJECT_IGNORE_BEGIN {
+        if *line == BEGIN {
             managed = true;
-        } else if *line == PROJECT_IGNORE_END {
+        } else if *line == END {
             managed = false;
         }
 

@@ -3,14 +3,14 @@
 use std::sync::Arc;
 
 #[derive(Clone, PartialEq, Eq)]
-pub(in crate::agents) struct Process {
-    pub(in crate::agents) pid: u32,
+pub(crate) struct Process {
+    pub(crate) pid: u32,
     pub(super) parent: u32,
     pub(super) group: u32,
     /// The OS creation time, kept at its original precision to detect pid reuse.
-    pub(in crate::agents) birth: u64,
+    pub(crate) birth: u64,
     pub(super) started_at: u64,
-    pub(in crate::agents) command: Arc<str>,
+    pub(crate) command: Arc<str>,
 }
 
 /// The coding agents' own programs, never a command they ran.
