@@ -7,11 +7,10 @@ import type { ArtifactAction, ArtifactPreview, ArtifactsModel } from "./artifact
 import { type Artifact, artifactVersion, goneArtifacts, goneMessage, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
 import { revealPath } from "./files.ts";
 import { fileSize } from "../chat/media.tsx";
-import { openPath, paneSession } from "./media.ts";
+import { askPane, paneSession, refollow } from "./pane-state.ts";
 import { writeClipboard } from "../ui/clipboard.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
-import { followFiles } from "./reload.ts";
 
 /// An artifact made ready to show, as `agent_artifact` gives it.
 type Shown =
@@ -180,7 +179,7 @@ function pick(path: string) {
   render();
   const a = picked();
   if (a) load(a);
-  followFiles();
+  refollow();
 }
 
 /// When `a`'s newest version came: when this window saw it written, else
@@ -278,7 +277,7 @@ function action(act: ArtifactAction) {
   const key = A.key, version = A.version;
   const stillPicked = () => A.key === key && A.picked === a.path && A.version === version;
 
-  if (act === "pdf") openPath(a.path);
+  if (act === "pdf") askPane({ kind: "openPath", path: a.path });
   else if (act === "claude" && a.url) invoke("open_url", { url: a.url }).catch(e => { if (stillPicked()) note(readError(e)); });
   else if (act === "file") {
     const rel = relativeTo(s.cwd, a.path);

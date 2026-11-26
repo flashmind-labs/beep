@@ -1,208 +1,37 @@
 // agentpane/: a coding agent session's side pane and its tabs (media,
 // files, changes, artifacts, terminal). Entry: this file.
-// The media pane of a coding agent session: pictures, videos, audio, 3D models and
-// PDFs the agent made or looked at, its files, artifacts, terminals and
-// subagents, each a tab. Drawing the tabs is in media-draw.ts, the docks'
-// layout and dividers in media-layout.ts.
-import { readWindowPreference, writeWindowPreference, windowPreferenceKey } from "../ui/window-layout.ts";
-import { shownMessage } from "../agents/session-frame-state.ts";
-import type { AgentSession } from "../agents/agents-state.ts";
-import { readView, writeView, viewKey } from "./view-memory.ts";
+// The commands of the media pane of a coding agent session: starting it for a
+// session, opening and closing its tabs, showing a tab. Its state is in
+// pane-state.ts, its tabs' files and drawing in media-draw.ts and
+// media-layout.ts.
+import { viewKey } from "./view-memory.ts";
 import { hasPreview } from "./html-preview-state.ts";
-import { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS, baseName, type Dock, type FileRef, DOCKS, type ImageView, type MediaKind, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock, withFolded } from "./media-state.ts";
+import { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS, baseName, type Dock, type FileRef, DOCKS, mediaKind, moveTab, type PaneLayout, readLayout, resolvePath, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
 import { terminalName } from "./files-state.ts";
-import type { ModelView } from "./model3d.ts";
-import type { EditorState } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
 import { artifactCount, pickArtifact } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
-import { focusChanges, revalidateChanges } from "./changes.ts";
+import { focusChanges, revalidateChanges, writingComment } from "./changes.ts";
 import { pointFilesAt } from "./files.ts";
 import { checkoutTop, paneRoot, startWorktrees } from "./worktree.ts";
 import { unfollowFiles } from "./reload.ts";
-import { dropTerm, killTerm, type PaneTerm, type TermPlace } from "./terminal.ts";
+import { type TermPlace } from "./terminal.ts";
 import type { TerminalRow } from "../terminals/terminals.tsx";
 import { newTermLike } from "../terminals/newkey-state.ts";
 import { loadText, startTerminal, load } from "./read.ts";
-import { readError, readingFrom } from "./read-file.ts";
+import { readingFrom } from "./read-file.ts";
 import { togglePreview } from "./text-view.tsx";
 import type { LspLocation } from "./lsp-state.ts";
 import { frameResize } from "../ui/dom.ts";
-import { invoke } from "../ui/tauri.ts";
-import { draw, flipTab, noteTab, pickPhoneTab, touchTab } from "./media-draw.ts";
-import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, drawPaneNow, paneModel, paneOf, place, setHidden, setOn, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
+import { draw, flipTab, pickPhoneTab, syncCounts } from "./media-draw.ts";
+import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, drawPaneNow, openTabs, paneModel, paneOf, place, setHidden, setOn, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
+import { loadLayout, memory, readTerminal, rememberPane, savedPane, saveLayout, startingTerminals } from "./pane-memory.ts";
+import { P, newFileEdit, paneCommands, type MediaTab, type PaneCommand, type PaneSession, type SplitSession, type WorkFile } from "./pane-state.ts";
+import { closeTab, dropTab, touchTab } from "./pane-tabs.ts";
 import { onPhone, savedIn } from "../ui/platform.ts";
-import { confirmSheet } from "../ui/menu.tsx";
-
-/// What the node gives of a file, a part at a time (`agent_file`).
-export interface FilePart {
-  size: number;
-  mime: string;
-  /// Base64.
-  data: string;
-}
-
-/// The start of a file of the Files tab, as `agent_tree_text` reads it.
-export interface TreeText {
-  size: number;
-  text: string;
-  cut: boolean;
-  binary: boolean;
-  /// `text` is all of the file, read without change, so it can be edited.
-  editable: boolean;
-}
-
-/// A text tab being edited: the text it was opened or last saved with, the
-/// editor once it shows and its state while it does not (with its undo
-/// history), and how a save goes.
-export interface FileEdit {
-  base: string;
-  view: EditorView | null;
-  state: EditorState | null;
-  /// Counts reloads, so the editor starts again from `base`.
-  generation: number;
-  dirty: boolean;
-  saving: boolean;
-  /// A save found the file changed since `base`; Overwrite or Reload decide.
-  conflict: boolean;
-  /// Where the cursor starts, such as the place double-clicked to edit.
-  at: TextPlace | null;
-}
-
-/// Creates a fresh `FileEdit` from `base`, optionally placing the cursor at `at`.
-export function newFileEdit(base: string, at: TextPlace | null = null): FileEdit {
-  return { base, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at };
-}
-
-/// A place in a text by its 0-based line and column.
-export interface TextPlace { line: number; column: number }
-
-/// What a tab shows: a media file, a file of the Files tab as text, a
-/// terminal, or another coding agent session beside this one.
-export type TabKind = MediaKind | "text" | "term" | "session";
-
-/// A coding agent session opened beside the primary conversation in a dock tab.
-export interface SplitSession {
-  machine_id: string;
-  machine_name: string;
-  agent: string;
-  id: string;
-  title: string | null;
-  cwd: string;
-  status: string;
-  external: boolean;
-}
-
-/// One tab: a file of the session's machine, a picture already here, or a
-/// terminal on the machine.
-export interface MediaTab {
-  /// The path on the machine, the picture's data URL, `text:` and the
-  /// path in the session's folder, or `term:` and its name.
-  id: string;
-  kind: TabKind;
-  name: string;
-  /// Where the node reads it, for a file of the machine.
-  path: string | null;
-  /// Its bytes as a URL once here, and how many there were.
-  url: string | null;
-  size: number;
-  /// When it started loading, bytes read so far, and why it could not be.
-  started: number;
-  done: number;
-  error: string;
-  /// Counts changes to what its view shows, so the view draws again.
-  rev: number;
-  /// Its view was last drawn hidden behind another tab.
-  viewHidden: boolean;
-  /// What a save or copy said, shown in its footer.
-  note: string | null;
-  /// Local copy of an HTML export, and the preview it came from.
-  exported?: { path: string; blob: Blob; source: { tab: string; url: string } };
-  /// A video or audio tab's element, and where it stood when its view went.
-  player: HTMLMediaElement | null;
-  playerAt: number;
-  image?: { view: ImageView; w: number; h: number };
-  model?: ModelView | null;
-  wire?: boolean;
-  bytes?: ArrayBuffer;
-  /// A text tab's path in the worktree it was opened from, that worktree's
-  /// folder, and what was read of it.
-  rel?: string;
-  root?: string;
-  text?: TreeText;
-  /// The line a link pointed at, marked and scrolled to in the text view.
-  line?: number | null;
-  /// Increments on explicit jumps so jumping to the same line scrolls again.
-  lineJump?: number;
-  /// Pending edit cursor target from go-to-definition, applied once text loads.
-  editAt?: TextPlace | null;
-  /// Where else to look, in order, when the file is not where it was
-  /// looked for: the session's folder, then the top of its checkout.
-  elsewhere?: WorkFile[];
-  /// Its HTML preview opens as soon as its text is read.
-  previewQueued?: boolean;
-  preview?: { active: boolean; loading: boolean; src: string; html: string; error: string };
-  edit?: FileEdit | null;
-  /// Positive while file search is open. Each Find shortcut refocuses the field.
-  findRequest?: number;
-  /// Reads that failed in a row, and the timer of the next, while its file
-  /// may still come.
-  tries?: number;
-  retry?: ReturnType<typeof setTimeout>;
-  /// A terminal tab's terminal, once it started.
-  term?: PaneTerm;
-  /// Where a new terminal tab starts its shell (its machine and folder stay
-  /// those when the pane's session changes), or the terminal already
-  /// running that the tab follows.
-  at?: Omit<TermPlace, "name">;
-  existing?: TerminalRow;
-  /// Its tab was closed: the terminal is being stopped, or is stopped once
-  /// it started.
-  closed?: boolean;
-  /// Another coding agent session shown live in this tab.
-  splitSession?: SplitSession | null;
-}
-
-/// The session the pane belongs to.
-interface PaneSession extends Partial<Pick<AgentSession, "assistant" | "reviewer" | "parent">> {
-  id: string;
-  machine_id: string;
-  machine_name: string;
-  cwd: string;
-  agent: string;
-  external?: boolean;
-  /// The project it belongs to, which new terminals are listed under.
-  project?: string;
-  /// Sends a review of the changes to the session: "" when it went, else why not.
-  sendReview?: (text: string) => Promise<string>;
-}
 
 export { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS };
-const KEY = `beep.mediaPane.${PANE ? "window" : "bar"}`;
-/// How far a tab moves under the pointer before it drags.
-export const DRAG_START = 5;
-
-/// The tabs the user opened. They live in the pane's model, which draws them.
-export const openTabs = () => paneModel.getState().tabs;
-
 function addTab(tab: MediaTab) {
   paneModel.setState(s => ({ tabs: [...s.tabs, tab] }));
-}
-
-export const P = {
-  session: null as PaneSession | null,
-  /// Tabs moved to a dock whose move is not kept (a picture by its data URL).
-  moved: new Map<string, Dock>(),
-  watch: null as ResizeObserver | null,
-  /// A tab drag just ended: the click that follows it does nothing.
-  dragged: false,
-  /// The user opened a tab while Assistant's right pane was hidden for lack of content.
-  rightRequested: false,
-};
-
-function savedPane(key: string): unknown {
-  const scoped = windowPreferenceKey(key);
-  return readView(scoped) ?? (scoped === key ? null : readView(key));
 }
 
 /// Starts the pane for session `s`, closing what the last one had open.
@@ -210,7 +39,7 @@ export function startPane(s: PaneSession) {
   closePaneTabs();
   P.session = s;
   readingFrom.machine = s.machine_name;
-  paneReleased = true;
+  memory.released = true;
   const key = viewKey(s.machine_id, s.id);
   const saved = savedPane(key);
   const layout = saved && typeof saved === "object" && "layout" in saved ? readLayout(JSON.stringify(saved.layout)) : loadLayout();
@@ -228,6 +57,7 @@ export function startPane(s: PaneSession) {
   P.watch.observe(el);
   watchShell(el);
   readWorktrees(s);
+  syncCounts();
   if (saved && typeof saved === "object" && "tabs" in saved && Array.isArray(saved.tabs)) {
     for (const tab of saved.tabs) {
       if (!tab || typeof tab !== "object") continue;
@@ -256,7 +86,7 @@ export function startPane(s: PaneSession) {
   // Each tab reopened above took the phone's screen; a session still opens on its chat.
   paneModel.setState({ phoneShown: false });
   draw();
-  paneReleased = false;
+  memory.released = false;
   rememberPane();
 }
 
@@ -282,12 +112,12 @@ export function rebindPane(s: PaneSession) {
 
 /// Reusing a conversation frame also restores views released when leaving it.
 export function restorePane() {
-  if (paneReleased && P.session) startPane(P.session);
+  if (memory.released && P.session) startPane(P.session);
 }
 
 export function closePaneTabs() {
   rememberPane();
-  paneReleased = true;
+  memory.released = true;
   for (const t of openTabs()) {
     dropTab(t);
     t.term = undefined;
@@ -385,11 +215,6 @@ export function openTerminal(row: TerminalRow) {
   open({ id: `term:${row.id}`, kind: "term", name: row.name, path: null, url: null, existing: row });
 }
 
-/// The session the pane shows, while one does.
-export function paneSession(): Readonly<PaneSession> | null {
-  return P.session;
-}
-
 /// Opens `rel`, a file in the session's folder, from the Files tab: a
 /// picture, video, audio, 3D model or PDF in its viewer, anything else as text.
 export function openWorkFile(rel: string) {
@@ -410,12 +235,6 @@ export function previewTab(t: MediaTab) {
     return;
   }
   void togglePreview(t);
-}
-
-/// A file as a folder the node reads and a path inside it.
-export interface WorkFile {
-  root: string;
-  rel: string;
 }
 
 /// Opens `rel`, a file in the worktree at `root`, and gives its tab;
@@ -510,23 +329,6 @@ export function openLocation(root: string, location: LspLocation, preferEdit: bo
   if (held) focusTab(held.id); else draw();
 }
 
-/// Saves `rel`, a file in the worktree at `root` (the one shown when
-/// none is given), to Downloads; `note` hears how it went.
-export function saveWorkFile(rel: string, note: (text: string) => void, root = paneRoot()) {
-  const s = P.session;
-  if (!s) return;
-  note(`Saving ${baseName(rel)}…`);
-  saveFile("agent_tree_save", { machineId: s.machine_id, root, path: rel }, note);
-}
-
-/// Runs the save `command`, which gives where the file went, tells `note`
-/// and reveals it.
-export function saveFile(command: string, args: Record<string, unknown>, note: (text: string) => void) {
-  void invoke<string>(command, args)
-    .then(to => { note(`Saved to ${savedIn(to)} as ${baseName(to)}`); invoke("reveal_file", { path: to }).catch(() => {}); })
-    .catch(e => note(readError(e)));
-}
-
 /// Opens a terminal tab on the pane's machine, in its folder (⌘T, ⌃`), in
 /// dock `d`, else where the newest terminal sits. With no machine to run it
 /// the tab says so. `zoom` fills the view with it, as ⇧esc does. `like`
@@ -561,69 +363,6 @@ export function newTerminalLike() {
   const { dock, focused: _, ...at } = like;
   newTerminal(dock, false, at);
   return true;
-}
-
-/// Asks before dropping a text tab's unsaved edits; `discard` drops them.
-export function discardSheet(tab: MediaTab, discard: () => void) {
-  confirmSheet({ title: `Discard changes to ${tab.name}?`, text: "Your edits since the last save are lost.", action: "Discard", run: async () => discard() });
-}
-
-export function closeTab(id: string) {
-  const i = openTabs().findIndex(t => t.id === id);
-  if (i < 0) return;
-  // The tab goes once its terminal stopped, and says why when it could not.
-  const tab = openTabs()[i];
-
-  if (tab.edit?.dirty) {
-    discardSheet(tab, () => { tab.edit = null; closeTab(id); });
-    return;
-  }
-
-  if (tab.term) {
-    if (tab.closed) return;
-    void stopTerminalTab(tab).catch(e => {
-      noteTab(tab, `Could not stop it: ${e instanceof Error ? e.message : e}`);
-    });
-    return;
-  }
-
-  // A shell still starting is stopped once it is there.
-  if (tab.kind === "term") tab.closed = true;
-  const d = dockOf(id);
-  dropTab(tab);
-  paneModel.setState(s => ({ tabs: s.tabs.filter(t => t !== tab) }));
-  P.moved.delete(id);
-
-  // The neighbour in the same dock shows next.
-  if (paneModel.getState().on[d] === id) {
-    const left = docked()[d];
-    const source = tab.exported?.source.tab;
-    setOn(d, source && left.includes(source) ? source : openTabs().slice(i).find(t => left.includes(t.id))?.id ?? left.at(-1) ?? FILES);
-  }
-
-  rememberPane();
-  draw();
-}
-
-/// Stops a terminal and removes its tab after the machine acknowledges.
-export async function stopTerminalTab(tab: MediaTab) {
-  const term = tab.term;
-  if (!term) return;
-  tab.closed = true;
-
-  try {
-    await killTerm(term);
-  } catch (e) {
-    if (tab.term === term) {
-      tab.closed = false;
-      touchTab(tab);
-    }
-    throw e;
-  }
-
-  if (tab.term !== term) return;
-  tab.term = undefined;
-  closeTab(tab.id);
 }
 
 /// Closes the tab on screen in the focused pane (⌘W); false when no pane is
@@ -684,6 +423,7 @@ export const showRunning = () => showList(RUNNING);
 export const showSubagents = () => showList(SUBS);
 
 function showList(id: typeof RUNNING | typeof SUBS) {
+  syncCounts();
   if (!shell() || !tabIds().includes(id)) return;
   if (paneModel.getState().phone) return pickPhoneTab(id);
 
@@ -696,6 +436,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
 /// Turns the Device tab's dock to it, unfolded, without taking the keys
 /// from the conversation. A phone keeps its screen.
 export function showDevice() {
+  syncCounts();
   if (!shell() || paneModel.getState().phone || !tabIds().includes(DEVICE)) return;
   const d = dockOf(DEVICE);
   requestRightPane(d);
@@ -742,19 +483,6 @@ export function showChanges(zoomed = true) {
   rememberPane();
 }
 
-/// Esc in the window with a zoomed or focused pane: the pane steps back and the
-/// conversation's input takes the keys. False when no pane has them.
-export function leavePane() {
-  const focus = document.activeElement;
-  if (!paneModel.getState().zoom && !dockHolding(focus)) return false;
-  paneModel.setState({ zoom: null });
-  place();
-  rememberPane();
-  const input = shownMessage();
-  if (input) input.focus(); else if (focus instanceof HTMLElement) focus.blur();
-  return true;
-}
-
 export function showTab(d: Dock, id: string) {
   requestRightPane(d);
   setOn(d, id);
@@ -771,79 +499,26 @@ function requestRightPane(d: Dock) {
 
 /// Files and Changes read the folder of session `s`.
 function readWorktrees(s: PaneSession) {
-  startWorktrees(s, root => { if (root) { pointFilesAt(); revalidateChanges(); } draw(); });
-}
-
-/// Remembers the pane before releasing its views. Terminals keep running.
-let paneReleased = false;
-const startingTerminals = new Map<string, MediaTab[]>();
-export function rememberPane() {
-  if (paneReleased || !P.session) return;
-  const key = viewKey(P.session.machine_id, P.session.id);
-  const pending = openTabs().filter(t => t.kind === "term" && !t.term && !t.existing && !t.closed);
-  if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  writeView(windowPreferenceKey(key), { on: paneModel.getState().on, layout: keptLayout(), zoom: paneModel.getState().zoom, tabs: openTabs().filter(t => !t.closed && !t.exported).map(savedTab) });
-}
-
-function savedTab(t: MediaTab) {
-  if (t.kind === "term") return { id: t.id, name: t.name, terminal: t.term?.row ?? t.existing ?? null };
-  if (t.rel && t.root) return { root: t.root, rel: t.rel, preview: t.previewQueued === true || t.preview?.active === true };
-  return { path: t.path, url: t.path ? null : t.url, name: t.name };
-}
-
-function readTerminal(value: unknown): TerminalRow | null {
-  if (!value || typeof value !== "object") return null;
-  if (!("id" in value && typeof value.id === "string"
-    && "project" in value && typeof value.project === "string"
-    && "machine_id" in value && typeof value.machine_id === "string"
-    && "machine_name" in value && typeof value.machine_name === "string"
-    && "name" in value && typeof value.name === "string"
-    && "command" in value && typeof value.command === "string"
-    && "cwd" in value && typeof value.cwd === "string"
-    && "state" in value && typeof value.state === "string"
-    && "code" in value && (value.code === null || typeof value.code === "number")
-    && "started_at" in value && typeof value.started_at === "number")) return null;
-  return { id: value.id, project: value.project, machine_id: value.machine_id, machine_name: value.machine_name,
-    name: value.name, command: value.command, cwd: value.cwd, state: value.state, code: value.code, started_at: value.started_at };
-}
-
-/// A shell can finish starting after navigation released its tab.
-export function rememberTerminal(key: string, tab: MediaTab, row: TerminalRow) {
-  const pending = startingTerminals.get(key)?.filter(t => t !== tab) ?? [];
-  if (pending.length) startingTerminals.set(key, pending); else startingTerminals.delete(key);
-  tab.existing = row;
-  if (openTabs().includes(tab)) { rememberPane(); return; }
-  if (tab.closed) return;
-  const saved = savedPane(key);
-  if (!saved || typeof saved !== "object" || !("tabs" in saved) || !Array.isArray(saved.tabs)) return;
-  saved.tabs = saved.tabs.map(item => item && typeof item === "object" && item.id === tab.id ? savedTab(tab) : item);
-  writeView(windowPreferenceKey(key), saved);
-}
-
-window.addEventListener("pagehide", rememberPane);
-
-function dropTab(t: MediaTab) {
-  t.player?.pause();
-  if (t.term) dropTerm(t.term);
-  t.model?.dispose();
-  if (t.url?.startsWith("blob:")) URL.revokeObjectURL(t.url);
+  startWorktrees(s, root => { if (root) { pointFilesAt(); revalidateChanges(); } draw(); }, writingComment);
 }
 
 // Leaving the session view lets go of what its tabs hold. Files and Changes
 // keep their views of the last few folders, to show again as they were.
 changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); unfollowFiles(); P.watch?.disconnect(); P.watch = null; watchShell(null); } });
 
-function loadLayout(): PaneLayout {
-  try { return readLayout(readWindowPreference(KEY)); } catch { return readLayout(null); }
-}
+// The tabs ask for these from below, where they cannot reach the commands.
+paneCommands.subscribe(({ command }) => { if (command) runCommand(command); });
 
-/// The layout to keep: a narrow window's fold of the right pane is not kept.
-function keptLayout(): PaneLayout {
-  const { layout, wideFolded } = paneModel.getState();
-  return wideFolded === null ? layout : withFolded(layout, "right", wideFolded);
-}
-
-export function saveLayout() {
-  try { writeWindowPreference(KEY, JSON.stringify(keptLayout())); } catch { /* kept while the window is open */ }
-  rememberPane();
+function runCommand(command: PaneCommand) {
+  if (command.kind === "show") {
+    if (command.tab === "files") showFiles();
+    else if (command.tab === "device") showDevice();
+    else showChanges();
+  } else if (command.kind === "open") {
+    if (command.preview) previewWorkFile(command.rel); else openWorkFile(command.rel);
+  } else if (command.kind === "openPath") {
+    openPath(command.path);
+  } else {
+    openLocation(command.root, command.location, command.preferEdit);
+  }
 }

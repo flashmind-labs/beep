@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, type MouseEvent } from "react";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
-import { stopTerminalTab, type MediaTab } from "./media.ts";
-import { noteTab, touchTab } from "./media-draw.ts";
+import type { MediaTab } from "./pane-state.ts";
+import { noteTab, stopTerminalTab, touchTab } from "./pane-tabs.ts";
 import { readError } from "./read-file.ts";
 import { attach, detachTerm, termStatus, type PaneTerm } from "./terminal.ts";
 import { terminalFollowing } from "../terminals/terminals.tsx";

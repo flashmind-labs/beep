@@ -4,7 +4,7 @@ import { agentMessage } from "./session-frame-state.ts";
 import { Button, ProgressBar, Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef } from "react";
 import { shortSize, transferSpeed, type Transfer } from "../agentpane/files-state.ts";
-import { paneSession } from "../agentpane/media.ts";
+import { paneSession } from "../agentpane/pane-state.ts";
 import { Icon } from "../ui/icons.tsx";
 import { AG } from "./agents-state.ts";
 import { folderName } from "./agent-kind.ts";

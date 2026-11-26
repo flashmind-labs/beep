@@ -5,8 +5,7 @@ import type { RunningActions, RunningModel } from "./running-view.tsx";
 import { topic } from "../ui/mesh-events.ts";
 import { TopicValues } from "../ui/topic-values-state.ts";
 import { parseProcesses, runningTrees, type ProcessesValue, type RunningContainer, type RunningProcess } from "./running-state.ts";
-import { paneSession } from "./media.ts";
-import { draw } from "./media-draw.ts";
+import { paneSession, redraw } from "./pane-state.ts";
 import { shellSize, shownDocks } from "./media-layout.ts";
 import { viewKey } from "./view-memory.ts";
 import { paneShown } from "../ui/active.ts";
@@ -55,7 +54,7 @@ export function paneTasks(tasks: readonly AgentTask[] = transcripts.tasks(paneKe
 /// The pane's count of commands when last drawn: the tab shows while there are some, and its count
 /// follows at once.
 let drawnTasks = 0;
-transcripts.subscribe(() => { if (paneTasks().length !== drawnTasks) draw(); });
+transcripts.subscribe(() => { if (paneTasks().length !== drawnTasks) redraw(); });
 
 /// What the view draws, for the session the pane shows.
 export const runningModel = createStore<{ model: RunningModel; actions: RunningActions } | null>(() => null);
@@ -84,7 +83,7 @@ function syncSession() {
   syncing = true;
   unfollow = lists.watch(s.machine_id, topic("processes", s.id), update, visible);
   syncing = false;
-  if (list.length || containers.length || error) queueMicrotask(() => { if (key === next) { render(); draw(); } });
+  if (list.length || containers.length || error) queueMicrotask(() => { if (key === next) { render(); redraw(); } });
 }
 
 /// Takes a pushed list. A node that could not list keeps the last one on screen with the reason.
@@ -101,7 +100,7 @@ function update(value: ProcessesValue) {
 
   if (syncing || !visible()) return;
   render();
-  if (list.length + containers.length !== count) draw();
+  if (list.length + containers.length !== count) redraw();
 }
 
 export function runningCount() {
@@ -152,7 +151,7 @@ async function stopAll(pids: number[], ids: string[]) {
   if (key !== asked) return;
   error = failed.join(" ");
   render();
-  draw();
+  redraw();
 }
 
 async function stop(pids: number[]) {

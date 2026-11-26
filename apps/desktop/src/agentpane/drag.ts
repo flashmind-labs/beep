@@ -3,8 +3,9 @@
 // the pane's model; the ghost's place follows the pointer through its ref.
 import { createRef } from "react";
 import { type Box, type Dock, DOCKS, dropDock, moveTab, paneSize, SIDE_BY_SIDE_MIN } from "./media-state.ts";
-import { DRAG_START, P, saveLayout } from "./media.ts";
-import { draw, paneTabItem } from "./media-draw.ts";
+import { saveLayout } from "./pane-memory.ts";
+import { DRAG_START, P, redraw } from "./pane-state.ts";
+import { paneTabItem } from "./pane-tabs.ts";
 import { shell, main, paneOf, dockOf, paneModel, drawPaneNow, setOn, setPaneModel, stripRefs } from "./media-layout.ts";
 
 /// Where a tab drag stands: the tab, where the pointer went down, whether it
@@ -111,7 +112,7 @@ function endDrag() {
   P.dragged = true;
   setTimeout(() => { P.dragged = false; }, 0);
   // What changed while it dragged.
-  draw();
+  redraw();
 }
 
 /// Moves tab `id` to dock `to`, on screen there. Its view moves with it,
@@ -121,5 +122,5 @@ function moveTo(id: string, to: Dock) {
   if (id.startsWith("data:")) P.moved.set(id, to);
   saveLayout();
   setOn(to, id);
-  draw();
+  redraw();
 }

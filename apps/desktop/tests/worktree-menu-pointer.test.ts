@@ -27,7 +27,7 @@ test("a pointerdown whose target is not an element closes the open menu", async 
     const menu = worktreeMenu();
     flushSync(() => root.render(menu && createElement(WorktreeMenu, menu)));
   };
-  startWorktrees({id: "pointer", cwd: main.path, machine_id: "machine", agent: "codex"}, draw);
+  startWorktrees({id: "pointer", cwd: main.path, machine_id: "machine", agent: "codex"}, draw, () => false);
   await flush();
   host.querySelector<HTMLButtonElement>(".agwt")?.click();
   assert.equal(worktreeMenu()?.open, true);

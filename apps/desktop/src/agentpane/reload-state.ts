@@ -5,7 +5,7 @@
 // sizes, as listings carry no times, so a binary file rewritten at the same
 // size goes unseen there, and text compared whole.
 import type { Tree } from "./files-state.ts";
-import type { TreeText } from "./media.ts";
+import type { TreeText } from "./pane-state.ts";
 import { readPlace } from "./artifacts-state.ts";
 
 /// What stands for a followed file as it is now, by path: its hash, and the

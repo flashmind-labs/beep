@@ -10,10 +10,10 @@ import { artifactVersion } from "./artifacts-state.ts";
 import { followedArtifact, reloadArtifact } from "./artifacts.ts";
 import { isTree, type Tree } from "./files-state.ts";
 import { isHtmlFile } from "./html-preview-state.ts";
-import { type MediaTab, type TreeText, P, openTabs } from "./media.ts";
-import { touchTab } from "./media-draw.ts";
+import { type MediaTab, type TreeText, P, paneAsks } from "./pane-state.ts";
+import { touchTab } from "./pane-tabs.ts";
 import { resolvePath } from "./media-state.ts";
-import { dockOf, paneModel } from "./media-layout.ts";
+import { dockOf, openTabs, paneModel } from "./media-layout.ts";
 import { load } from "./read.ts";
 import { type Followed, type Stamp, followedAt, folderStamp, hashedStamp, listedSize, nextStamp, splitPath, textStamp } from "./reload-state.ts";
 import { refreshPreview, takeText } from "./text-view.tsx";
@@ -44,6 +44,9 @@ const held = new Map<string, Held>();
 const watches = new Map<string, () => void>();
 /// The most paths one ask hashes, as the node takes them (`MAX_HASH_PATHS`).
 const HASH_PATHS = 64;
+
+// The tabs ask for the files they show to be followed.
+paneAsks.subscribe((now, was) => { if (now.follows !== was.follows) followFiles(); });
 
 /// Follows the files the pane's tabs and picked artifact show now, as the
 /// pane draws: a new one is stamped, a watch nothing needs goes, and a tab

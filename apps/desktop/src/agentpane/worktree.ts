@@ -10,7 +10,6 @@ import { onPlaces, placeOf, takePlaces } from "../agents/place.ts";
 import { type WorkPlace, placeName } from "../agents/place-state.ts";
 import { baseName } from "./media-state.ts";
 import type { WorktreeMenuModel } from "./worktree-view.tsx";
-import { writingComment } from "./changes.ts";
 import { invoke } from "../ui/tauri.ts";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedView } from "../ui/snapshot-state.ts";
@@ -61,6 +60,7 @@ const view = {
   open: false,
   search: "",
   changed: (_root: boolean) => {},
+  writing: () => false,
 };
 
 let firstRead: Promise<void> = Promise.resolve();
@@ -72,8 +72,9 @@ export function worktreesReady(): Promise<void> { return firstRead; }
 export const worktreesSettled = () => settled;
 
 /// Starts on session `place`; `changed` hears that the root moved (true)
-/// or that the menu needs drawing again (false).
-export function startWorktrees(place: Place, changed: (root: boolean) => void) {
+/// or that the menu needs drawing again (false), and `writing` says whether
+/// a comment is being written, which a move of the root waits for.
+export function startWorktrees(place: Place, changed: (root: boolean) => void, writing: () => boolean) {
   const key = sessionKey(place);
   let entry = key ? known.get(key) ?? null : null;
   const kept = entry !== null;
@@ -86,7 +87,7 @@ export function startWorktrees(place: Place, changed: (root: boolean) => void) {
   }
 
   current = entry;
-  Object.assign(view, { place, reading: false, again: false, child: null, open: false, search: "", changed });
+  Object.assign(view, { place, reading: false, again: false, child: null, open: false, search: "", changed, writing });
   followFiles(place);
   settled = kept;
   const read = readTrees().finally(() => { if (view.place === place) settled = true; });
@@ -220,7 +221,7 @@ function want() {
 function apply(auto: boolean) {
   const next = want();
   if (next === current.shown) return;
-  if (auto && writingComment()) return;
+  if (auto && view.writing()) return;
   current.shown = next;
   view.changed(true);
 }

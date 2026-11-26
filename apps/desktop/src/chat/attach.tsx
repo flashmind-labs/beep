@@ -2,7 +2,7 @@ import { agentMessage } from "../agents/session-frame-state.ts";
 import { showFieldDrop } from "../agents/composer-ui.tsx";
 import { hideDropOverlay, PATH_TYPE, showDropOverlay } from "./drop-overlay.tsx";
 import { pastedFiles } from "./pics.ts";
-import { paneSession } from "../agentpane/media.ts";
+import { paneSession } from "../agentpane/pane-state.ts";
 import { addMention } from "../agents/mentions.ts";
 import { uploadDropped } from "../agents/workdrop.ts";
 import { bar, S } from "../bar/core.ts";

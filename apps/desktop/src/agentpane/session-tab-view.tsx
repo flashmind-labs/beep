@@ -17,7 +17,7 @@ import { base, linkified, reason } from "../ui/format.ts";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
 import { Button, EmptyPanel, NO_AUTO, Spinner, useHtml } from "../ui/kit.tsx";
 import { conflicted, invoke } from "../ui/tauri.ts";
-import type { SplitSession } from "./media.ts";
+import type { SplitSession } from "./pane-state.ts";
 
 /// What the tab calls on the session modules, handed in by the dock so this view does not import
 /// the modules that reach back to it.

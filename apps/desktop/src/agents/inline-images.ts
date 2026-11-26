@@ -1,6 +1,6 @@
 // Markdown images whose files belong to the session's machine.
 import { baseName, resolvePath } from "../agentpane/media-state.ts";
-import type { FilePart } from "../agentpane/media.ts";
+import type { FilePart } from "../agentpane/pane-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { gonePic, retryIn } from "./pic-state.ts";
 

@@ -6,9 +6,11 @@ import { revealLabel } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
 import { resolvePath } from "./media-state.ts";
 import { transferSpeed } from "./files-state.ts";
-import { P, saveFile, type MediaTab, openTabs } from "./media.ts";
+import { openTabs } from "./media-layout.ts";
+import { P, type MediaTab } from "./pane-state.ts";
+import { noteTab } from "./pane-tabs.ts";
+import { saveFile } from "./read-file.ts";
 import { readError, readFile } from "./read-file.ts";
-import { noteTab } from "./media-draw.ts";
 import { PdfExportView } from "./pdf-export-view.tsx";
 
 export function FileActions({ tab, machine, label }: { tab: MediaTab; machine: string | null; label: string }) {

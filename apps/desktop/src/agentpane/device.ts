@@ -8,8 +8,7 @@ import { indexedChannel, invoke, listen } from "../ui/tauri.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList } from "../ui/snapshot-state.ts";
 import { ambient, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
-import { paneSession, showDevice } from "./media.ts";
-import { draw } from "./media-draw.ts";
+import { askPane, paneSession, redraw } from "./pane-state.ts";
 import { sessionKey } from "./running.ts";
 import { paneRoot } from "./worktree.ts";
 import {
@@ -63,7 +62,7 @@ export const hasDeviceTab = () =>
 function takeDeviceHosts(list: unknown) {
   const had = hasDeviceTab();
   hosts = readHosts(list);
-  if (had !== hasDeviceTab()) draw();
+  if (had !== hasDeviceTab()) redraw();
   if (visible()) devicesChanged();
 }
 
@@ -110,7 +109,7 @@ async function askPlatforms(at: Checkout, state = platformsOf.get(at.key)) {
   try {
     const platforms = readPlatforms(await invoke("device_platforms", { machineId: at.machine, root: at.root }));
     platformsOf.set(at.key, { kind: "known", platforms });
-    if (platforms.length > 0) draw();
+    if (platforms.length > 0) redraw();
   } catch {
     platformsOf.set(at.key, { kind: "retry", after: Date.now() + PLATFORMS_RETRY_MS });
   }
@@ -136,7 +135,7 @@ export function followDeviceCalls(entries: readonly { kind: string; text: string
 
   agentUsed = session;
   wanted = target;
-  showDevice();
+  askPane({ kind: "show", tab: "device" });
   void readDevices();
 }
 

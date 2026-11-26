@@ -1,12 +1,13 @@
-import { followFiles } from "./reload.ts";
 import { togglePreview } from "./text-view.tsx";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
 import { viewKey } from "./view-memory.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
-import { type TreeText, type MediaTab, P, closeTab, leavePane, newFileEdit, rememberTerminal, openTabs } from "./media.ts";
+import { openTabs } from "./media-layout.ts";
+import { rememberTerminal } from "./pane-memory.ts";
+import { type TreeText, type MediaTab, P, newFileEdit, redraw, refollow } from "./pane-state.ts";
+import { closeTab, leavePane, touchTab } from "./pane-tabs.ts";
 import { onPhone } from "../ui/platform.ts";
-import { draw, touchTab } from "./media-draw.ts";
 import { resolvePath } from "./media-state.ts";
 import { invoke, listen } from "../ui/tauri.ts";
 import { paneShown } from "../ui/active.ts";
@@ -83,7 +84,7 @@ function lookElsewhere(t: MediaTab) {
     t.path = resolvePath(there.root, there.rel);
   }
 
-  followFiles();
+  refollow();
   return true;
 }
 
@@ -125,7 +126,7 @@ export async function startTerminal(t: MediaTab) {
 
   // Its screen fits the view and takes the keys the pane has.
   touchTab(t);
-  draw();
+  redraw();
 }
 
 /// A terminal tab's footer says how its terminal stands again, in place of a note.

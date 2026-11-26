@@ -13,7 +13,7 @@ import { S } from "../bar/core.ts";
 import { withMentions } from "../agentpane/files-state.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
 import { StartFiles } from "./start-files.ts";
-import { paneSession } from "../agentpane/media.ts";
+import { paneSession } from "../agentpane/pane-state.ts";
 import { MN, attachReads, attachmentKey, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./mentions.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents-state.ts";

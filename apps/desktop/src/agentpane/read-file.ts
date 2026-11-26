@@ -1,7 +1,8 @@
 // Reading a file from a machine a part at a time, and what its errors say.
 import { invoke, listen } from "../ui/tauri.ts";
-import { bytesOf } from "./media-state.ts";
-import type { FilePart } from "./media.ts";
+import { savedIn } from "../ui/platform.ts";
+import { baseName, bytesOf } from "./media-state.ts";
+import { P, type FilePart } from "./pane-state.ts";
 
 /// The machine of the session the pane shows, named in "not found" errors; the pane sets it.
 export const readingFrom: { machine: string | null } = { machine: null };
@@ -71,3 +72,19 @@ export function errorText(e: unknown) {
 export const isMissing = (text: string) => /no longer|not found|gone|is not there/i.test(text);
 export const tooOld = (text: string) => /unknown op|unknown request|not serve|too old|closes the stream/i.test(text);
 const machineName = () => readingFrom.machine ?? "the machine";
+
+/// Saves `rel`, a file in the worktree at `root`, to Downloads; `note` hears how it went.
+export function saveWorkFile(rel: string, note: (text: string) => void, root: string) {
+  const s = P.session;
+  if (!s) return;
+  note(`Saving ${baseName(rel)}…`);
+  saveFile("agent_tree_save", { machineId: s.machine_id, root, path: rel }, note);
+}
+
+/// Runs the save `command`, which gives where the file went, tells `note`
+/// and reveals it.
+export function saveFile(command: string, args: Record<string, unknown>, note: (text: string) => void) {
+  void invoke<string>(command, args)
+    .then(to => { note(`Saved to ${savedIn(to)} as ${baseName(to)}`); invoke("reveal_file", { path: to }).catch(() => {}); })
+    .catch(e => note(readError(e)));
+}

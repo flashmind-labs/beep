@@ -28,7 +28,7 @@ function setup(id: string, trees: Tree[]) {
     const menu = worktreeMenu();
     flushSync(() => root.render(menu && createElement(WorktreeMenu, menu)));
   };
-  startWorktrees({id, cwd: main.path, machine_id: "machine", agent: "codex"}, draw);
+  startWorktrees({id, cwd: main.path, machine_id: "machine", agent: "codex"}, draw, () => false);
   return host;
 }
 /// A `files` update of the session's folder, carrying its worktree list.

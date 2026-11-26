@@ -49,7 +49,7 @@ apps/desktop/src/agentpane/device.ts | readDevices | setTimeout#1 | compat | rer
 apps/desktop/src/agentpane/drag.ts | endDrag | setTimeout#1 | ui | clears the dragged flag after the drag's click
 apps/desktop/src/agentpane/files-menu.tsx | away | setTimeout#1 | ui | adds the outside-click listener after the opening click
 apps/desktop/src/agentpane/image-view.tsx | zoom | setTimeout#1 | ui | ends the zooming style 300 ms after the last zoom
-apps/desktop/src/agentpane/media-layout.ts | close | setTimeout#1 | deadline | fails an export if the preview sends nothing in 35 s
+apps/desktop/src/agentpane/pane-input.ts | close | setTimeout#1 | deadline | fails an export if the preview sends nothing in 35 s
 apps/desktop/src/agentpane/read.ts | readSoon | setTimeout#1 | retry | reads a failed media tab again every RETRY_MS
 apps/desktop/src/agentpane/terminal.ts | tries | setTimeout#1 | retry | reattaches a dropped terminal stream after RETRY_MS
 apps/desktop/src/agentpane/text-view.tsx | lookupDefinition | setTimeout#1 | ui | shows a busy note only if the lookup takes over 250 ms

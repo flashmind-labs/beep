@@ -7,7 +7,7 @@ import type { Tree } from "../src/agentpane/worktree-state.ts";
 test("initial file reads wait for a removed worktree to resolve to the main checkout", async () => {
   let reply: (trees: Tree[]) => void = () => {};
   answers.agent_worktrees = new Promise<Tree[]>(resolve => { reply = resolve; });
-  startWorktrees({ id: "", machine_id: "build-box", agent: "codex", cwd: "/srv/app/.worktrees/removed" }, () => {});
+  startWorktrees({ id: "", machine_id: "build-box", agent: "codex", cwd: "/srv/app/.worktrees/removed" }, () => {}, () => false);
   let ready = false;
   const waiting = worktreesReady().then(() => { ready = true; });
   await Promise.resolve();
@@ -29,7 +29,7 @@ test("the pane follows a Flashmind worktree from older restored entries", async 
   const latest = { kind: "agent", text: "The changes are ready." };
 
   try {
-    startWorktrees({ id: "resumed", machine_id: "build-box", agent: "flsh", cwd }, () => {});
+    startWorktrees({ id: "resumed", machine_id: "build-box", agent: "flsh", cwd }, () => {}, () => false);
     await worktreesReady();
     followAgent([latest], 2, null);
     assert.equal(paneRoot(), cwd);

@@ -14,9 +14,11 @@ import {
   resolveVimSync,
   wordSpanAt,
 } from "./lsp-state.ts";
-import { type MediaTab, type TextPlace, type TreeText, discardSheet, newFileEdit, openLocation, P, rememberPane, saveWorkFile, openTabs } from "./media.ts";
-import { noteTab, touchTab } from "./media-draw.ts";
-import { fileError, readError } from "./read-file.ts";
+import { openTabs } from "./media-layout.ts";
+import { rememberPane } from "./pane-memory.ts";
+import { type MediaTab, type TextPlace, type TreeText, askPane, newFileEdit, P } from "./pane-state.ts";
+import { discardSheet, noteTab, touchTab } from "./pane-tabs.ts";
+import { fileError, readError, saveWorkFile } from "./read-file.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
 
@@ -292,7 +294,7 @@ async function lookupDefinition(
 
     const result = parseLspResult(raw);
     if (result.locations.length === 1) {
-      openLocation(root, result.locations[0], preferEdit);
+      askPane({ kind: "location", root, location: result.locations[0], preferEdit });
       return;
     }
 
@@ -302,7 +304,7 @@ async function lookupDefinition(
         "Definitions",
         result.locations.map(loc => ({
           label: formatLocationLabel(loc),
-          on: () => openLocation(root, loc, preferEdit),
+          on: () => askPane({ kind: "location", root, location: loc, preferEdit }),
         })),
       );
       return;
@@ -437,6 +439,6 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
       {!text.binary && hasPreview(rel) && <Button data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</Button>}
       {editable && !preview?.active && <Button data-tedit="1" onClick={event => startEdit(tab, event.currentTarget)}>Edit</Button>}
       <Button data-tment="1" onClick={() => addMention(mentioned(tab.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel))}>Mention</Button>
-      <Button data-tdownload="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root)}>Download</Button>
+      <Button data-tdownload="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root ?? P.session?.cwd ?? "")}>Download</Button>
     </div></>;
 }

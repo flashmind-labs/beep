@@ -1,7 +1,7 @@
 import { answers, calls, nativeEvent } from "./bar-env.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
-import { P, type MediaTab } from "../src/agentpane/media.ts";
+import { P, type MediaTab } from "../src/agentpane/pane-state.ts";
 import { paneModel } from "../src/agentpane/media-layout.ts";
 import { loadText } from "../src/agentpane/read.ts";
 

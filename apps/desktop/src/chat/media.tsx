@@ -2,7 +2,7 @@ import { notice, overlays, viewer } from "./viewer-overlay.tsx";
 import { FileViewer, Viewer } from "./viewer-view.tsx";
 import { baseName, mediaKind } from "../agentpane/media-state.ts";
 import { readError, readFile } from "../agentpane/read-file.ts";
-import type { TreeText } from "../agentpane/media.ts";
+import type { TreeText } from "../agentpane/pane-state.ts";
 import { bar } from "../bar/core.ts";
 import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 import { savedIn } from "../ui/platform.ts";

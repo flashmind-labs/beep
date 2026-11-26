@@ -19,7 +19,7 @@ import { useLayoutEffect, useRef } from "react";
 import { primaryModifier } from "../ui/platform.ts";
 import { tokens } from "../ui/syntax.ts";
 import { wordSpanAt } from "./lsp-state.ts";
-import type { FileEdit, TextPlace } from "./media.ts";
+import type { FileEdit, TextPlace } from "./pane-state.ts";
 
 export interface DefinitionRequest {
   line: number;

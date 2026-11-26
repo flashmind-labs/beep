@@ -2,7 +2,7 @@ import { answers, calls, nativeEvent } from "./bar-env.ts";
 import test, { afterEach } from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "../src/agentpane/read-file.ts";
-import { type FilePart, P } from "../src/agentpane/media.ts";
+import { type FilePart, P } from "../src/agentpane/pane-state.ts";
 import { UPLOAD_PART } from "../src/agentpane/files-state.ts";
 import { MN, MAX_ATTACH_BYTES, attachReads, activateMentions, rememberMentionImages, resetMentions, currentMentions } from "../src/agents/mentions.ts";
 import { uploadDropped } from "../src/agents/workdrop.ts";

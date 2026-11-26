@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { fileSize, openViewer } from "../chat/media.tsx";
 import { actualView, fitView, pinchStep, zoomAt, type Touches } from "./media-state.ts";
 import { FileActions } from "./media-view.tsx";
-import type { MediaTab } from "./media.ts";
+import type { MediaTab } from "./pane-state.ts";
 import { Button } from "../ui/kit.tsx";
 
 interface ImageControls { loaded(): void; fit(): void; actual(): void }

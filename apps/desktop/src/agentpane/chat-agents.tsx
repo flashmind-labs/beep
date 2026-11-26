@@ -3,10 +3,10 @@
 import type { AgentSession } from "../agents/agents-state.ts";
 import { makeCustomAgents } from "../project/customagents.tsx";
 import type { AgentsPlace } from "../project/customagents-state.ts";
-import { draw } from "./media-draw.ts";
+import { redraw } from "./pane-state.ts";
 import { chatPane } from "./media-layout.ts";
 
-const agents = makeCustomAgents({ redraw: () => draw(), start: null, own: true });
+const agents = makeCustomAgents({ redraw: () => redraw(), start: null, own: true });
 
 /// How many agents the folder of `chat` defines, read the first time it is asked.
 export function chatAgentsCount(chat: Pick<AgentSession, "machine_id" | "machine_name" | "cwd">) {

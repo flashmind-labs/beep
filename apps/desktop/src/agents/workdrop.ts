@@ -7,7 +7,7 @@ import { ERROR_SHOWN_MS, MAX_ATTACH_BYTES, MN, attachmentKey, currentMentions, m
 import { joinPath, uploadParts } from "../agentpane/files-state.ts";
 import { fileBase64, type PastedFiles } from "../chat/pics.ts";
 import { reloadFolder } from "../agentpane/files.ts";
-import { paneSession } from "../agentpane/media.ts";
+import { paneSession } from "../agentpane/pane-state.ts";
 import { mentioned } from "../agentpane/worktree-state.ts";
 import { invoke } from "../ui/tauri.ts";
 
