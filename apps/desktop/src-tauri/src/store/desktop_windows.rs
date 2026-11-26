@@ -34,7 +34,7 @@ pub(super) fn place<R: Runtime>(window: &Window<R>, desktop: &Desktop) {
             .MoveWindowToDesktop(hwnd, &GUID::from_u128(desktop.as_u128()))
             .is_err()
             && let Some(first) = first_desktop().or_else(|| {
-                let main = window.get_webview_window(crate::center::window::LABEL)?;
+                let main = window.get_webview_window(crate::store::window_label::LABEL)?;
                 manager.GetWindowDesktopId(main.hwnd().ok()?).ok()
             })
             && let Err(error) = manager.MoveWindowToDesktop(hwnd, &first)

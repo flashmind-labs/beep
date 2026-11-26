@@ -3,6 +3,8 @@
 
 use serde::{Deserialize, Serialize};
 
+/// The label of the main window.
+pub(crate) const LABEL: &str = "center";
 /// Labels of the windows that each show one project, or one chat.
 const PROJECT_PREFIX: &str = "project-";
 const CHAT_PREFIX: &str = "chat-";

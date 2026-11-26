@@ -17,7 +17,7 @@ use tauri::{
 };
 use tokio::sync::watch;
 
-pub const LABEL: &str = "center";
+pub(crate) use crate::store::window_label::LABEL;
 /// The window never shrinks below this.
 #[cfg_attr(mobile, allow(dead_code))]
 const MIN_WIDTH: f64 = 1000.0;
