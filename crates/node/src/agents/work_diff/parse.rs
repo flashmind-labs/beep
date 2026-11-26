@@ -127,6 +127,7 @@ impl DiffParser {
     }
 
     /// The bytes of text one file keeps.
+    #[cfg(feature = "host")]
     pub(super) fn file_bytes(&self) -> usize {
         self.caps.file_bytes
     }
