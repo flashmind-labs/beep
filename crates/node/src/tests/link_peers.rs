@@ -105,12 +105,7 @@ async fn leaving_does_not_wait_for_a_connection_still_in_its_handshake() {
         .await
         .expect("a ticket");
     let node_dir = tempfile::tempdir().expect("temp dir");
-    let peers = Peers::new(
-        node.clone(),
-        node_dir.path().to_owned(),
-        "box".to_owned(),
-        Offers::default(),
-    );
+    let peers = Peers::new(Offers::default().bound(&node, node_dir.path(), "box"));
     let _node_router = Router::builder(node.clone())
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler())
@@ -149,13 +144,8 @@ async fn transfers_served_to_the_mesh_reach_the_offers_it_was_made_from() {
         .bind()
         .await
         .expect("the endpoint binds");
-    let offers = Offers::default();
-    let peers = Peers::new(
-        endpoint.clone(),
-        dir.path().to_owned(),
-        "box".to_owned(),
-        offers.clone(),
-    );
+    let offers = Offers::default().bound(&endpoint, dir.path(), "box");
+    let peers = Peers::new(offers.clone());
     let transfers = Transfers::start_with(
         &endpoint,
         &dir.path().join("blobs"),
@@ -189,12 +179,7 @@ async fn a_machine_not_lent_refuses_agent_streams_from_other_desktops() {
     let dir = tempfile::tempdir().expect("temp dir");
     let offers = Offers::default();
     offers.lend_to_peers(false);
-    let peers = Peers::new(
-        node.clone(),
-        dir.path().to_owned(),
-        "box".to_owned(),
-        offers,
-    );
+    let peers = Peers::new(offers.bound(&node, dir.path(), "box"));
     let addr = node.addr();
     let dialing = tokio::spawn({
         let desktop = desktop.clone();
@@ -315,12 +300,7 @@ async fn ask_report_using(
         ..Offers::default()
     };
     offers.lend_to_peers(false);
-    let peers = Peers::new(
-        node.clone(),
-        dir.path().to_owned(),
-        "box".to_owned(),
-        offers,
-    );
+    let peers = Peers::new(offers.bound(&node, dir.path(), "box"));
     let addr = node.addr();
     let dialing = tokio::spawn({
         let desktop = desktop.clone();
@@ -436,12 +416,7 @@ async fn channel_pair(dedicated: bool) -> ChannelPair {
         .invite(DeviceKind::Node, Duration::from_secs(60))
         .await
         .unwrap();
-    let peers = Peers::new(
-        endpoint.clone(),
-        dirs.1.path().to_owned(),
-        "node".into(),
-        Offers::default(),
-    );
+    let peers = Peers::new(Offers::default().bound(&endpoint, dirs.1.path(), "node"));
     let mut router = Router::builder(endpoint.clone())
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler());
@@ -624,12 +599,7 @@ async fn leaving_the_mesh_forgets_the_teams() {
         .bind()
         .await
         .expect("the endpoint binds");
-    let peers = Peers::new(
-        endpoint.clone(),
-        dir.path().to_owned(),
-        "box".to_owned(),
-        Offers::default(),
-    );
+    let peers = Peers::new(Offers::default().bound(&endpoint, dir.path(), "box"));
     let repo: TeamRepo = "github.com/org/repo".parse().expect("a repo");
     let alice = Member {
         login: "alice".parse().expect("a login"),
@@ -639,19 +609,19 @@ async fn leaving_the_mesh_forgets_the_teams() {
         admitted_by: None,
         proof: None,
     };
-    peers.inner.team.with(|teams| {
+    peers.inner.team().with(|teams| {
         teams
             .rosters
             .refresh([(repo.clone(), TeamRecord::new(repo.clone(), vec![alice]))].into());
     });
-    peers.inner.team.publish(|served| {
+    peers.inner.team().publish(|served| {
         served.boards.set(&repo, Vec::new());
         served.gateways.insert(repo.clone(), endpoint.id());
     });
 
     peers.leave().await;
 
-    peers.inner.team.with(|teams| assert!(teams.rosters.get(&repo).is_none()));
-    assert!(!peers.inner.team.served(|served| served.boards.serves(&repo)));
-    assert!(peers.inner.team.served(|served| served.gateways.is_empty()));
+    peers.inner.team().with(|teams| assert!(teams.rosters.get(&repo).is_none()));
+    assert!(!peers.inner.team().served(|served| served.boards.serves(&repo)));
+    assert!(peers.inner.team().served(|served| served.gateways.is_empty()));
 }

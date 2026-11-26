@@ -27,30 +27,6 @@ use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::{task::spawn_blocking, time::timeout};
 
-/// This node and what it offers, which the tools read.
-struct Here<'a> {
-    own: &'a Own,
-    offers: &'a Offers,
-}
-
-impl Here<'_> {
-    fn report_targets(&self) -> Vec<Target> {
-        self.own.report_targets(self.offers)
-    }
-
-    fn key(&self) -> iroh::SecretKey {
-        self.own.key()
-    }
-
-    fn devices(&self) -> Vec<beep_mesh::DeviceStatus> {
-        self.own.devices(self.offers)
-    }
-
-    fn is_desktop(&self) -> bool {
-        self.own.is_desktop(self.offers)
-    }
-}
-
 const DEFAULT_MINUTES: u32 = 60;
 const MAX_MINUTES: u32 = 7 * 24 * 60;
 const DEFAULT_LINES: usize = 300;
@@ -63,8 +39,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
     let Some(own) = offers.own.as_ref() else {
         return fail("This node is still starting; try again in a moment.");
     };
-    let peers = Here { own, offers };
-    let answered = match dispatch(offers, &peers, request).await {
+    let answered = match dispatch(own, offers, request).await {
         Ok(answered) => answered,
         Err(bad_args) => return fail(bad_args),
     };
@@ -82,15 +57,15 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
 }
 
 async fn dispatch(
+    own: &Own,
     offers: &Offers,
-    peers: &Here<'_>,
     request: &Request,
 ) -> Result<Result<String, String>, String> {
     Ok(match request.tool {
-        Tool::BeepStatus => Ok(status(peers).await),
-        Tool::BeepLogs => logs(peers, parse(&request.args)?).await,
-        Tool::BeepMetrics => metrics(peers, parse(&request.args)?).await,
-        Tool::FileReport => file(offers, peers, &request.session, parse(&request.args)?).await,
+        Tool::BeepStatus => Ok(status(own, offers).await),
+        Tool::BeepLogs => logs(own, offers, parse(&request.args)?).await,
+        Tool::BeepMetrics => metrics(own, offers, parse(&request.args)?).await,
+        Tool::FileReport => file(own, offers, &request.session, parse(&request.args)?).await,
         other => Err(format!("{other} is not a Beep debugging tool.")),
     })
 }
@@ -127,8 +102,8 @@ fn heading(share: &Share) -> String {
 }
 
 /// Every machine's status, version and OS: no log.
-async fn status(peers: &Here<'_>) -> String {
-    let shares = collect_within(peers.report_targets(), now(), 0).await;
+async fn status(own: &Own, offers: &Offers) -> String {
+    let shares = collect_within(own.report_targets(offers), now(), 0).await;
     let mut text = String::new();
 
     for share in &shares {
@@ -146,11 +121,11 @@ fn named(target: &Target, name: &str) -> bool {
     command_name(&target.name) == command_name(name) || target.id.to_string() == name.trim()
 }
 
-fn find_target(peers: &Here<'_>, machine: Option<&str>) -> Result<Target, String> {
-    let me = peers.key().public();
+fn find_target(own: &Own, offers: &Offers, machine: Option<&str>) -> Result<Target, String> {
+    let me = own.key().public();
     let name = machine.map(str::trim).unwrap_or_default();
 
-    if let Some(target) = peers.report_targets().into_iter().find(|target| {
+    if let Some(target) = own.report_targets(offers).into_iter().find(|target| {
         if name.is_empty() {
             target.id == me
         } else {
@@ -160,8 +135,8 @@ fn find_target(peers: &Here<'_>, machine: Option<&str>) -> Result<Target, String
         return Ok(target);
     }
 
-    let names: Vec<String> = peers
-        .devices()
+    let names: Vec<String> = own
+        .devices(offers)
         .iter()
         .map(|status| command_name(&status.device.name))
         .collect();
@@ -308,11 +283,11 @@ impl LogsArgs {
 }
 
 /// One machine's log for the last `minutes`, its newest `lines` lines.
-async fn logs(peers: &Here<'_>, args: LogsArgs) -> Result<String, String> {
+async fn logs(own: &Own, offers: &Offers, args: LogsArgs) -> Result<String, String> {
     let query = args.query()?;
     let minutes = args.minutes();
     let lines = args.lines();
-    let target = find_target(peers, args.machine.as_deref())?;
+    let target = find_target(own, offers, args.machine.as_deref())?;
 
     if let Some(query) = query {
         use beep_proto::node::logs::{QUERY_PROTOCOL, Reply};
@@ -430,7 +405,7 @@ impl MetricsArgs {
     }
 }
 
-async fn metrics(peers: &Here<'_>, args: MetricsArgs) -> Result<String, String> {
+async fn metrics(own: &Own, offers: &Offers, args: MetricsArgs) -> Result<String, String> {
     use beep_proto::node::metrics::{PROTOCOL, QUERY_PROTOCOL, Reply, Request};
     let period = args.period.as_deref().unwrap_or("1h");
     let duration = humantime::parse_duration(period).map_err(|e| {
@@ -444,7 +419,7 @@ async fn metrics(peers: &Here<'_>, args: MetricsArgs) -> Result<String, String> 
     }
 
     let query = args.query(duration)?;
-    let target = find_target(peers, args.machine.as_deref())?;
+    let target = find_target(own, offers, args.machine.as_deref())?;
     let client = target
         .client
         .map_err(|reason| format!("{}: {reason}", target.name))?;
@@ -499,8 +474,8 @@ struct ReportArgs {
 /// Puts the report to the user, then sends it as the desktop's Report a
 /// problem does, and gives its reference.
 async fn file(
+    own: &Own,
     offers: &Offers,
-    peers: &Here<'_>,
     session: &SessionId,
     args: ReportArgs,
 ) -> Result<String, String> {
@@ -516,7 +491,7 @@ async fn file(
             .parse::<Period>()
             .map_err(|_| format!("The period is hour, today or day, not {period}."))?,
     };
-    let desktop = peers.is_desktop();
+    let desktop = own.is_desktop(offers);
     let covers = match period {
         Period::Hour => "the past hour",
         Period::Today => "today",
@@ -566,12 +541,11 @@ async fn file(
     };
 
     let since = period.since_now();
-    let shares = collect(peers.report_targets(), since).await;
-    let key = peers.key();
+    let shares = collect(own.report_targets(offers), since).await;
+    let key = own.key();
     let sender = Sender {
         id: key.public(),
-        mesh: peers
-            .own
+        mesh: own
             .local_status(offers)
             .await
             .ok()

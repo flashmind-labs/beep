@@ -198,12 +198,13 @@ pub struct Fleet {
 
 impl Fleet {
     /// The fleet of the node in `dir` that serves `offers`, on `endpoint`.
+    /// The offers come from `Offers::bound` with the same endpoint, dir and name.
     /// Does nothing slow: calls to this Mac work at once, and `run` opens
     /// the mesh.
     #[cfg(desktop)]
     pub fn new(endpoint: Endpoint, dir: &Path, name: &str, offers: Offers) -> Self {
         let me = endpoint.id();
-        let peers = Peers::new(endpoint.clone(), dir.to_owned(), name.to_owned(), offers);
+        let peers = Peers::new(offers);
         // Sessions that open these wait for the services `run` starts.
         peers.expect(&mesh::LATER);
         // Local file reads need no blob store: served from the first call.

@@ -30,8 +30,8 @@ pub(super) async fn bind(key: &SecretKey) -> Endpoint {
         .expect("the endpoint binds")
 }
 
-pub(super) fn offers(dir: &TempDir) -> Offers {
-    Offers::local(&[], Provision::new(dir.path()))
+pub(super) fn offers(dir: &TempDir, endpoint: &Endpoint, name: &str) -> Offers {
+    Offers::local(&[], Provision::new(dir.path())).bound(endpoint, dir.path(), name)
 }
 
 pub(super) struct Mac {
@@ -44,7 +44,12 @@ pub(super) struct Mac {
 pub(super) async fn start(name: &str) -> Mac {
     let dir = TempDir::new().expect("a temp dir");
     let endpoint = bind(&SecretKey::generate()).await;
-    let fleet = Arc::new(Fleet::new(endpoint.clone(), dir.path(), name, offers(&dir)));
+    let fleet = Arc::new(Fleet::new(
+        endpoint.clone(),
+        dir.path(),
+        name,
+        offers(&dir, &endpoint, name),
+    ));
     fleet.run().await;
     Mac {
         fleet,
@@ -145,7 +150,7 @@ async fn the_app_starts_with_no_server_and_makes_a_mesh() {
         mac.endpoint.clone(),
         mac.dir.path(),
         "Studio",
-        offers(&mac.dir),
+        offers(&mac.dir, &mac.endpoint, "Studio"),
     );
     again.run().await;
     assert_eq!(again.machines().len(), 1);
@@ -156,7 +161,12 @@ async fn the_app_starts_with_no_server_and_makes_a_mesh() {
 async fn a_call_to_this_mac_does_not_touch_the_network() {
     let dir = TempDir::new().expect("a temp dir");
     let endpoint = bind(&SecretKey::generate()).await;
-    let fleet = Fleet::new(endpoint.clone(), dir.path(), "Studio", offers(&dir));
+    let fleet = Fleet::new(
+        endpoint.clone(),
+        dir.path(),
+        "Studio",
+        offers(&dir, &endpoint, "Studio"),
+    );
     // The endpoint is closed and the mesh never opened: whatever the call
     // reaches is in this process.
     endpoint.close().await;
@@ -175,7 +185,12 @@ async fn a_local_file_read_does_not_wait_for_the_services() {
     let dir = TempDir::new().expect("a temp dir");
     let endpoint = bind(&SecretKey::generate()).await;
     // `run` never starts: the blob store and sync are not up.
-    let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
+    let fleet = Fleet::new(
+        endpoint.clone(),
+        dir.path(),
+        "Studio",
+        offers(&dir, &endpoint, "Studio"),
+    );
     let client = fleet.client(fleet.id()).await.expect("this Mac is local");
     let (mut tx, mut rx) = client.open(files::PROTOCOL).await.expect("opens");
     tx.send(&files::Request::Roots {}).await.expect("sends");
@@ -228,7 +243,12 @@ async fn a_second_desktop_joins_and_sees_the_machines() {
         .await
         .expect("the desktop joins");
     drop(joined);
-    let second = Fleet::new(endpoint, dir.path(), "Laptop", offers(&dir));
+    let second = Fleet::new(
+        endpoint.clone(),
+        dir.path(),
+        "Laptop",
+        offers(&dir, &endpoint, "Laptop"),
+    );
     second.run().await;
     let theirs = second.mesh().expect("the joined mesh opens");
     until(&theirs, |mesh| online(mesh, first.fleet.id())).await;
@@ -286,7 +306,7 @@ async fn a_node_reaches_the_session_reads_of_this_mac() {
 async fn a_node_runs_commands_on_this_mac_only_while_it_is_lent() {
     let dir = TempDir::new().expect("a temp dir");
     let endpoint = bind(&SecretKey::generate()).await;
-    let mac_offers = offers(&dir);
+    let mac_offers = offers(&dir, &endpoint, "Studio");
     let fleet = Arc::new(Fleet::new(
         endpoint.clone(),
         dir.path(),
@@ -409,7 +429,12 @@ async fn a_mac_with_other_devices_does_not_leave_its_mesh() {
 async fn a_local_sync_call_waits_for_the_services_and_a_shell_does_not() {
     let dir = TempDir::new().expect("a temp dir");
     let endpoint = bind(&SecretKey::generate()).await;
-    let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
+    let fleet = Fleet::new(
+        endpoint.clone(),
+        dir.path(),
+        "Studio",
+        offers(&dir, &endpoint, "Studio"),
+    );
     fleet.serve().await;
     let client = fleet.client(fleet.id()).await.expect("this Mac is local");
     timeout(LIMIT, client.open("shell/1"))
@@ -442,7 +467,12 @@ async fn a_mesh_that_will_not_open_is_not_an_offline_machine() {
     )
     .expect("a broken list");
     let endpoint = bind(&SecretKey::generate()).await;
-    let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
+    let fleet = Fleet::new(
+        endpoint.clone(),
+        dir.path(),
+        "Studio",
+        offers(&dir, &endpoint, "Studio"),
+    );
     fleet.run().await;
     let started = Instant::now();
     let error = fleet
@@ -496,7 +526,12 @@ async fn settings_a_join_was_carrying_are_set_at_the_next_start() {
     let dir = TempDir::new().expect("a temp dir");
     carry::save(dir.path(), &[(Key::Flsh, b"keep".to_vec())]).expect("saved");
     let endpoint = bind(&SecretKey::generate()).await;
-    let fleet = Fleet::new(endpoint, dir.path(), "Studio", offers(&dir));
+    let fleet = Fleet::new(
+        endpoint.clone(),
+        dir.path(),
+        "Studio",
+        offers(&dir, &endpoint, "Studio"),
+    );
     fleet.run().await;
     let mesh = fleet.mesh().expect("the mesh is open");
     assert_eq!(mesh.get(&Key::Flsh), Some(b"keep".to_vec()));
@@ -508,8 +543,8 @@ async fn the_node_follows_the_new_mesh_after_a_join() {
     let studio = start("Studio").await;
     let ticket = ticket(&studio).await;
     let dir = TempDir::new().expect("a temp dir");
-    let node_offers = offers(&dir);
     let endpoint = bind(&SecretKey::generate()).await;
+    let node_offers = offers(&dir, &endpoint, "Laptop");
     let laptop = Fleet::new(endpoint, dir.path(), "Laptop", node_offers.clone());
     laptop.run().await;
     laptop.join(&ticket, "Laptop").await.expect("joins");
@@ -631,7 +666,7 @@ async fn a_desktop_clears_an_observer_marker_carried_from_an_older_build() {
         mac.endpoint.clone(),
         mac.dir.path(),
         "build-box",
-        offers(&mac.dir),
+        offers(&mac.dir, &mac.endpoint, "build-box"),
     );
     again.run().await;
     let mesh = again

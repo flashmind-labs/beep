@@ -17,7 +17,6 @@ use crate::{
         peers::{self, Inner, Offers, Own, Peers, Who, withheld},
     },
     machine::provision::Provision,
-    team::{home::ForgeCli, link::TeamLink},
     machine::service::logs::Logs,
     run::device,
     run::shell,
@@ -36,7 +35,7 @@ use iroh::{Endpoint, endpoint::presets};
 use std::{
     collections::BTreeSet,
     future::Future,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -101,7 +100,8 @@ pub async fn serve(
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
     let _sccache = provision.start_sccache();
-    let mut offers = Offers::local(&state.agents, provision);
+    let mut offers =
+        Offers::local(&state.agents, provision).bound(&endpoint, &state.dir, &state.name);
     offers.agents.list_beep_skills();
     let _upkeep = offers.agents.start_upkeep();
     let _uploads = crate::agents::uploads::maintain(offers.agents.clone());
@@ -171,12 +171,7 @@ pub async fn serve(
     }
     // The mesh: peers reach the node over `beep-peer/2`. The router runs
     // from here, so a join takes effect at once.
-    let peers = Peers::new(
-        endpoint.clone(),
-        state.dir.clone(),
-        state.name.clone(),
-        offers.clone(),
-    );
+    let peers = Peers::new(offers.clone());
 
     if let Err(e) = peers.open().await {
         log::warn!("not serving the mesh: {e:#}");
@@ -526,27 +521,23 @@ pub async fn listen_hooks(agents: &Agents, dir: &Path) {
 
 
 impl Peers {
-    pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, mut offers: Offers) -> Self {
-        let team = TeamLink::new(endpoint.clone(), Arc::new(ForgeCli));
-        let own = Own {
-            endpoint,
-            dir,
-            name,
-            started: SystemTime::now(),
-        };
-        offers.team = Some(team.clone());
-        offers.own = Some(own.clone());
+    /// The node's membership over `offers`, which must come from
+    /// `Offers::bound`: that is where the node's key and team link are made,
+    /// before any copy of the offers goes elsewhere.
+    pub fn new(offers: Offers) -> Self {
+        let team = offers
+            .team
+            .clone()
+            .expect("Peers::new takes offers made with Offers::bound");
         let deliveries = AbortOnDropHandle::new(tokio::spawn(deliver_handoffs(
             offers.clone(),
             team.handoffs(),
         )));
         let inner = Arc::new(Inner {
-            own,
             offers: Mutex::new(offers),
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
             follower: Mutex::new(None),
-            team,
             _deliveries: deliveries,
             serve_protocol: serve_stream,
         });
@@ -595,11 +586,11 @@ async fn serve_protocol(
         let offers = inner.offers().clone();
         // Diagnostics are open to every machine of the mesh, even when not lent.
         if Own::is_diagnostic(&protocol) {
-            return inner.own.serve_diagnostic(protocol, tx, rx, offers).await;
+            return inner.own().serve_diagnostic(protocol, tx, rx, offers).await;
         }
 
         // The person at this machine is not held to the setting; a device of the mesh is.
-        if who.id() != inner.own.endpoint.id()
+        if who.id() != inner.own().endpoint.id()
             && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
         {
             let mut tx = tx;

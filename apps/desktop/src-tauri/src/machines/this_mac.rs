@@ -15,7 +15,7 @@ use beep_node::{
     machine::{provision::Provision, service::logs::Logs},
 };
 use beep_proto::node::desktop::Permission;
-use iroh::EndpointId;
+use iroh::{Endpoint, EndpointId};
 use std::{
     future::pending,
     path::{Path, PathBuf},
@@ -47,11 +47,17 @@ struct NodeHome {
 }
 
 impl Machine {
-    /// The machine whose node keeps its tools, teacli config and sockets
-    /// in `dir`.
-    pub fn new(dir: &Path, project_tools: Option<Arc<dyn ProjectTools>>) -> Self {
+    /// The machine whose node, on `endpoint`, keeps its tools, teacli config
+    /// and sockets in `dir`. Its offers are made with the node's own values
+    /// here, so every copy, the MCP server's and the fleet's, shares them.
+    pub fn new(
+        endpoint: &Endpoint,
+        dir: &Path,
+        project_tools: Option<Arc<dyn ProjectTools>>,
+    ) -> Self {
         let provision = Provision::new(dir);
-        let mut offers = Offers::local(&[], provision.clone());
+        let name = crate::beep::identity::computer_name();
+        let mut offers = Offers::local(&[], provision.clone()).bound(endpoint, dir, &name);
         offers.agents.list_beep_skills();
         // The assistant's project tools on this Mac reach this app.
         offers.project_tools = project_tools;
@@ -71,7 +77,7 @@ impl Machine {
         async_runtime::block_on(async { offers.offer_searches(dir, &Search::default()) });
         Self {
             keeping: Mutex::default(),
-            name: crate::beep::identity::computer_name(),
+            name,
             home: Arc::new(NodeHome {
                 dir: dir.to_path_buf(),
                 provision,

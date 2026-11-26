@@ -1,7 +1,7 @@
 use super::*;
 use beep_mesh::DeviceKind;
 use iroh::SecretKey;
-use crate::link::peers::Own;
+use crate::link::peers::Peers;
 
 fn share(answer: Answer) -> Share {
     Share {
@@ -32,8 +32,9 @@ fn a_heading_names_the_machine_and_how_it_answered() {
     assert_eq!(heading(&offline), "## build-box (node): offline");
 }
 
-/// A node in no mesh whose log holds `log`, and its offers.
-async fn node(log: &str) -> (Own, Offers, tempfile::TempDir) {
+/// A node in no mesh whose log holds `log`, and the offers it hands to
+/// `mcp::start` after `Peers::new` took its own copy, as `serve` does.
+async fn node(log: &str) -> (Peers, Offers, tempfile::TempDir) {
     use crate::machine::service::logs::Logs;
     use iroh::{Endpoint, endpoint::presets};
     let dir = tempfile::tempdir().expect("temp dir");
@@ -44,18 +45,13 @@ async fn node(log: &str) -> (Own, Offers, tempfile::TempDir) {
         .bind()
         .await
         .expect("the endpoint binds");
-    let own = Own {
-        endpoint,
-        dir: dir.path().to_owned(),
-        name: "build-box".into(),
-        started: std::time::SystemTime::now(),
-    };
     let offers = Offers {
         log: Logs::from(path),
-        own: Some(own.clone()),
         ..Offers::default()
-    };
-    (own, offers, dir)
+    }
+    .bound(&endpoint, dir.path(), "build-box");
+    let peers = Peers::new(offers.clone());
+    (peers, offers, dir)
 }
 
 fn request(tool: Tool, args: &str) -> Request {
@@ -115,16 +111,14 @@ fn a_machine_is_named_as_list_machines_names_it() {
 
 #[tokio::test]
 async fn metric_periods_accept_human_durations_and_enforce_retention() {
-    let (own, offers, _dir) = node("").await;
-    let peers = Here {
-        own: &own,
-        offers: &offers,
-    };
+    let (_peers, offers, _dir) = node("").await;
+    let own = offers.own.clone().expect("the node is bound");
 
     for period in ["1h", "4h", "1d", "7d", "1w", "1.5h", "1h 30m"] {
         assert!(
             metrics(
-                &peers,
+                &own,
+                &offers,
                 MetricsArgs {
                     machine: None,
                     period: Some(period.to_owned()),
@@ -150,7 +144,8 @@ async fn metric_periods_accept_human_durations_and_enforce_retention() {
     ] {
         assert!(
             metrics(
-                &peers,
+                &own,
+                &offers,
                 MetricsArgs {
                     machine: None,
                     period: Some(period.to_owned()),

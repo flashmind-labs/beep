@@ -83,8 +83,12 @@ async fn machine(network: bool) -> Machine {
         default_model: None,
         bridge: None,
     };
-    let offers = Offers::local(&[agent], Provision::new(dir.path()));
-    let peers = Peers::new(endpoint, dir.path().to_owned(), "build-box".into(), offers);
+    let offers = Offers::local(&[agent], Provision::new(dir.path())).bound(
+        &endpoint,
+        dir.path(),
+        "build-box",
+    );
+    let peers = Peers::new(offers);
     Machine {
         client: PeerClient::local(peers.local_session()),
         peers,

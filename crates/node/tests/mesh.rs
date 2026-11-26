@@ -1983,13 +1983,9 @@ async fn desktop_with_node(agents: &[AgentKind]) -> (Member, Offers) {
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
         .await
         .expect("the mesh is created");
-    let offers = Offers::local(agents, Provision::new(dir.path()));
-    let peers = Peers::new(
-        endpoint.clone(),
-        dir.path().to_path_buf(),
-        "desktop".to_owned(),
-        offers.clone(),
-    );
+    let offers =
+        Offers::local(agents, Provision::new(dir.path())).bound(&endpoint, dir.path(), "desktop");
+    let peers = Peers::new(offers.clone());
     let router = Router::builder(endpoint)
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler())

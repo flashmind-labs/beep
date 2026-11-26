@@ -10,7 +10,7 @@ use crate::{
     protocol::Protocol,
     machine::{provision::Provision, service::logs::Logs},
     run::{device, shell, tasks, terminal},
-    team::link::TeamLink,
+    team::{home::ForgeCli, link::TeamLink},
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -120,6 +120,21 @@ impl Offers {
 
     pub(crate) fn lends_to_peers(&self) -> bool {
         !self.withheld.load(Ordering::Relaxed)
+    }
+
+    /// Makes the node's own values, its key, name, folder and team link,
+    /// before any copy of the offers is handed out: every copy shares the
+    /// team link, and `Peers::new` takes both from here.
+    #[must_use]
+    pub fn bound(mut self, endpoint: &Endpoint, dir: &Path, name: &str) -> Self {
+        self.team = Some(TeamLink::new(endpoint.clone(), Arc::new(ForgeCli)));
+        self.own = Some(Own {
+            endpoint: endpoint.clone(),
+            dir: dir.to_owned(),
+            name: name.to_owned(),
+            started: SystemTime::now(),
+        });
+        self
     }
 
     /// What every node serves, the CLI and the Mac app alike: the coding

@@ -87,16 +87,12 @@ pub(super) struct Protocols {
 }
 
 pub(super) struct Inner {
-    /// The node's key, name and folder.
-    pub(super) own: Own,
     pub(super) offers: Mutex<Offers>,
     /// Protocols a host will offer once its services are up.
     pub(super) later: watch::Sender<BTreeSet<String>>,
     pub(super) active: Mutex<Option<Protocols>>,
     /// Applies the mesh's state to the node while it is a member.
     pub(super) follower: Mutex<Option<AbortOnDropHandle<()>>>,
-    /// `beep-team/1`, served whether or not the node is in a mesh.
-    pub(super) team: TeamLink,
     /// Puts what the team link takes from teammates into sessions.
     pub(super) _deliveries: AbortOnDropHandle<()>,
     /// Serves a stream once its protocol is known: set by the node's
@@ -121,6 +117,23 @@ impl Inner {
         let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
         trace.phase("waiting for protocol readiness");
         (self.serve_protocol)(self.clone(), tx, rx, protocol, who, trace).await
+    }
+
+    /// The node's key, name and folder, kept in the offers.
+    pub(super) fn own(&self) -> Own {
+        self.offers()
+            .own
+            .clone()
+            .expect("Peers::new takes offers made with Offers::bound")
+    }
+
+    /// `beep-team/1`, served whether or not the node is in a mesh; kept in
+    /// the offers.
+    pub(super) fn team(&self) -> TeamLink {
+        self.offers()
+            .team
+            .clone()
+            .expect("Peers::new takes offers made with Offers::bound")
     }
 
     pub(super) fn offers(&self) -> MutexGuard<'_, Offers> {
@@ -183,7 +196,7 @@ impl Peers {
         }
 
         // The gateway stopped with the follower: no team is served from here.
-        self.inner.team.reset();
+        self.inner.team().reset();
         crate::lock(&self.inner.active).take();
     }
 
@@ -217,7 +230,7 @@ impl Peers {
 
     /// The `beep-team/1` handler.
     pub fn team_handler(&self) -> TeamAlpn {
-        self.inner.team.handler()
+        self.inner.team().handler()
     }
 
     pub(super) fn channel_offers(&self) -> Offers {
@@ -286,8 +299,8 @@ impl Peers {
 
     /// Takes the mesh the node's folder holds, if it holds one.
     pub(crate) async fn open(&self) -> Result<bool> {
-        let dir = self.inner.own.dir.clone();
-        let opened = Mesh::open(&dir, self.inner.own.endpoint.clone())
+        let dir = self.inner.own().dir.clone();
+        let opened = Mesh::open(&dir, self.inner.own().endpoint.clone())
             .await
             .context("could not open the mesh")?;
         Ok(match opened {
@@ -317,10 +330,10 @@ impl Peers {
         }
 
         let mesh = Mesh::join_replacing_lone(
-            &self.inner.own.dir,
-            self.inner.own.endpoint.clone(),
+            &self.inner.own().dir,
+            self.inner.own().endpoint.clone(),
             invite,
-            &self.inner.own.name,
+            &self.inner.own().name,
         )
         .await
         .context("could not join")?;
@@ -338,14 +351,14 @@ impl Peers {
             close_within(old).await?;
         }
 
-        Mesh::forget(&self.inner.own.dir)
+        Mesh::forget(&self.inner.own().dir)
             .await
             .context("could not delete the mesh")
     }
 
     /// Whether this device is a desktop in the current device list.
     pub fn is_desktop(&self) -> bool {
-        self.inner.own.is_desktop(&self.inner.offers())
+        self.inner.own().is_desktop(&self.inner.offers())
     }
 
     /// Whether this device is in a mesh it was not removed from.
@@ -356,7 +369,7 @@ impl Peers {
 
     /// The mesh's devices, empty before the node joined.
     pub fn devices(&self) -> Vec<DeviceStatus> {
-        self.inner.own.devices(&self.inner.offers())
+        self.inner.own().devices(&self.inner.offers())
     }
 
     fn active(&self) -> Option<Mesh> {
@@ -395,47 +408,47 @@ impl Peers {
 
         let follow = from_mesh::follow(
             active.clone(),
-            self.inner.own.endpoint.id(),
+            self.inner.own().endpoint.id(),
             offers.clone(),
         );
         let reaches = crate::machine::elect::Reaches::new(active.clone());
         let runs = crate::machine::ci::watch(
             active.clone(),
-            self.inner.own.endpoint.id(),
-            self.inner.own.dir.clone(),
+            self.inner.own().endpoint.id(),
+            self.inner.own().dir.clone(),
             offers.agents.ci.clone(),
             reaches.clone(),
         );
         let skills = crate::agents::skills::follow(
             active.clone(),
-            self.inner.own.dir.clone(),
+            self.inner.own().dir.clone(),
             offers.skills.clone(),
         );
         let libraries = crate::agents::skill_library::follow(
             active.clone(),
-            self.inner.own.dir.clone(),
+            self.inner.own().dir.clone(),
             offers.skills.home().cloned(),
             offers.skills.libraries().clone(),
             offers.agents.clone(),
         );
-        let team = crate::team::link::home_io::follow(active.clone(), self.inner.team.clone());
+        let team = crate::team::link::home_io::follow(active.clone(), self.inner.team());
         let gateway = crate::team::gateway::run(
             active.clone(),
-            self.inner.own.endpoint.id(),
-            self.inner.team.clone(),
+            self.inner.own().endpoint.id(),
+            self.inner.team(),
             offers.clone(),
-            self.inner.own.dir.clone(),
+            self.inner.own().dir.clone(),
             reaches,
         );
         let search = crate::agents::follow_search(
             active.clone(),
-            self.inner.own.dir.clone(),
+            self.inner.own().dir.clone(),
             offers.agents.clone(),
         );
         let moves = crate::agents::follow_moves(
             active,
-            self.inner.own.endpoint.clone(),
-            self.inner.own.dir.clone(),
+            self.inner.own().endpoint.clone(),
+            self.inner.own().dir.clone(),
             offers.agents.clone(),
         );
         *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
@@ -456,7 +469,7 @@ impl Peers {
         Arc::new(move |tx: LinkTx, rx: LinkRx| {
             let peers = peers.clone();
             Box::pin(async move {
-                let who = Who::Everything(peers.inner.own.endpoint.id());
+                let who = Who::Everything(peers.inner.own().endpoint.id());
 
                 if let Err(e) = peers.inner.clone().serve(tx, rx, who).await {
                     log::debug!("a local session ended: {e:#}");
@@ -739,14 +752,14 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
         out
     } else if request == STATUS {
         let offers = peers.inner.offers().clone();
-        let status = peers.inner.own.local_status(&offers).await?;
+        let status = peers.inner.own().local_status(&offers).await?;
         write.write_all(&rmp_serde::to_vec(&status)?).await?;
         write.shutdown().await?;
         return Ok(());
     } else if let Some(since) = request.strip_prefix(REPORT) {
         let since: i64 = since.trim().parse().context("reading the report's start")?;
         let offers = peers.inner.offers().clone();
-        let shares = collect(peers.inner.own.report_targets(&offers), since).await;
+        let shares = collect(peers.inner.own().report_targets(&offers), since).await;
         write.write_all(&rmp_serde::to_vec(&shares)?).await?;
         write.shutdown().await?;
         return Ok(());
