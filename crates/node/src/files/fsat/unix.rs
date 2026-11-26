@@ -1,6 +1,6 @@
 //! Folders as open descriptors, with `*at` calls through rustix.
 
-use super::{FileId, Space, Volume};
+use super::types::{FileId, Space, Volume};
 use rustix::{
     fs::{
         AtFlags, FileType, Mode, OFlags, RenameFlags, fstat, fstatvfs, linkat, mkdirat, openat,

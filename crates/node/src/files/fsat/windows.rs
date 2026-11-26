@@ -1,7 +1,7 @@
 //! Folders as paths on Windows. Every step checks the path it reaches is
 //! not a link or junction before using it.
 
-use super::{FileId, Space, Volume};
+use super::types::{FileId, Space, Volume};
 use std::{
     ffi::OsStr,
     fs::{self, File, Metadata, OpenOptions},
