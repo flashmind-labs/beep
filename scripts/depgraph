@@ -137,9 +137,11 @@ def rust_edges(root: Path, depth: int):
     edges = set()
     for here, text in texts.items():
         text = re.sub(REEXPORT, "", text)
-        paths = [m.group(0) for m in re.finditer(RUST_PATH, text)]
-        for m in re.finditer(r"\buse\s+([^;]*\{[^;]*);", text):
+        paths = []
+        for m in re.finditer(r"\buse\s+([^;]+);", text):
             paths += expand(re.sub(r"\s+", " ", m.group(1)))
+        text = re.sub(r"\buse\s+[^;]+;", "", text)
+        paths += [m.group(0) for m in re.finditer(RUST_PATH, text)]
         for path in paths:
             at = rust_resolve(path, here, mods, reexports)
             if at is None:
