@@ -1,5 +1,5 @@
 use super::*;
-use crate::center::window_session::hex;
+use crate::center::window::hex;
 use beep_proto::watched;
 
 fn project(name: &str) -> Alone {

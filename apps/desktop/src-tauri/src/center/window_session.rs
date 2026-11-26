@@ -1,14 +1,14 @@
 //! Detached windows to reopen, and the desktop to use next time even after
 //! an explicit close. The window-state plugin owns each label's geometry.
-use super::{lock, write_part};
+use super::{
+    lock,
+    window::{Alone, alone},
+    write_part,
+};
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fs, io::ErrorKind, path::PathBuf, sync::Mutex};
 use tauri::{AppHandle, Manager, Runtime, Window};
 use tauri_plugin_window_state::AppHandleExt;
-
-/// Labels of the windows that each show one project, or one chat.
-const PROJECT_PREFIX: &str = "project-";
-const CHAT_PREFIX: &str = "chat-";
 
 #[cfg(not(any(target_os = "macos", target_os = "windows")))]
 #[path = "desktop_x11.rs"]
@@ -19,82 +19,6 @@ mod desktop;
 #[cfg(target_os = "windows")]
 #[path = "desktop_windows.rs"]
 mod desktop;
-
-/// What a window apart from the main one shows alone: a project, or an
-/// assistant chat with its threads. Its label says which.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
-pub enum Alone {
-    Project { project: String },
-    Chat { machine_id: String, session: String },
-}
-
-impl Alone {
-    /// The window's label: a prefix, then the name in hex, since a label
-    /// takes only letters, digits and a few signs.
-    pub(super) fn label(&self) -> String {
-        match self {
-            Self::Project { project } => format!("{PROJECT_PREFIX}{}", hex(project)),
-            Self::Chat {
-                machine_id,
-                session,
-            } => format!("{CHAT_PREFIX}{}", hex(&format!("{machine_id}\n{session}"))),
-        }
-    }
-
-    /// What window `label` shows, `None` for the main one and any other.
-    pub(super) fn of(label: &str) -> Option<Self> {
-        if let Some(name) = label.strip_prefix(PROJECT_PREFIX) {
-            return Some(Self::Project {
-                project: unhex(name)?,
-            });
-        }
-
-        let chat = unhex(label.strip_prefix(CHAT_PREFIX)?)?;
-        let (machine_id, session) = chat.split_once('\n')?;
-        Some(Self::Chat {
-            machine_id: machine_id.to_owned(),
-            session: session.to_owned(),
-        })
-    }
-
-    /// The window's title until its page names it.
-    pub(super) fn title(&self) -> &str {
-        match self {
-            Self::Project { project } => project,
-            Self::Chat { .. } => "Assistant",
-        }
-    }
-}
-
-/// Whether `label` is a window showing a project or a chat alone.
-pub(super) fn alone(label: &str) -> bool {
-    label.starts_with(PROJECT_PREFIX) || label.starts_with(CHAT_PREFIX)
-}
-
-pub(super) fn hex(text: &str) -> String {
-    const DIGITS: &[u8; 16] = b"0123456789abcdef";
-    let mut hex = String::with_capacity(text.len() * 2);
-
-    for byte in text.bytes() {
-        hex.push(char::from(DIGITS[usize::from(byte >> 4)]));
-        hex.push(char::from(DIGITS[usize::from(byte & 0xf)]));
-    }
-
-    hex
-}
-
-fn unhex(hex: &str) -> Option<String> {
-    if hex.is_empty() || !hex.len().is_multiple_of(2) {
-        return None;
-    }
-
-    let bytes = (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok())
-        .collect::<Option<Vec<u8>>>()?;
-    String::from_utf8(bytes).ok()
-}
 
 #[derive(Default, Serialize, Deserialize)]
 struct Saved {
