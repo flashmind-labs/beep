@@ -3,7 +3,7 @@
 use crate::{
     joined_mesh::Membership,
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
-    files::transfer::Transfers,
+    files::transfer::Sharing,
     link::{
         EventSources, protocol::SessionProtocol, sampler::Sampler, search::Searches,
         state::Search, traffic::Traffic,
@@ -17,7 +17,6 @@ use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, Open, agent, desktop, mcp_servers, setup, sign_in, tool_update,
 };
-use beep_proto::watched;
 use iroh::{Endpoint, EndpointId};
 use std::{
     path::{Path, PathBuf},
@@ -27,36 +26,13 @@ use std::{
     },
     time::{Duration, SystemTime},
 };
-use tokio::{sync::watch, time::timeout};
+use tokio::time::timeout;
 
 /// How long a device has to name a session's protocol.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The node's transfers, set once its services are up and read by whoever
-/// holds a copy of the offers.
-#[derive(Clone)]
-pub(crate) struct Sharing(Arc<watch::Sender<Option<Transfers>>>);
 
-impl Default for Sharing {
-    fn default() -> Self {
-        Self(Arc::new(watch::Sender::new(None)))
-    }
-}
 
-impl Sharing {
-    pub(crate) fn get(&self) -> Option<Transfers> {
-        watched::read_sent(&self.0, Clone::clone)
-    }
-
-    pub(crate) fn set(&self, transfers: Transfers) {
-        self.0.send_replace(Some(transfers));
-    }
-
-    /// Changes when the transfers are set.
-    pub(crate) fn subscribe(&self) -> watch::Receiver<Option<Transfers>> {
-        self.0.subscribe()
-    }
-}
 
 /// What a node knows of itself; the code that uses it is in `own`.
 #[derive(Clone)]

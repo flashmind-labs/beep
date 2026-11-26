@@ -74,7 +74,13 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
         request.tool,
         Tool::TeamRoster | Tool::TeamInvite | Tool::TeamApp
     ) {
-        return crate::team::apps::answer(&caller, &request).await;
+        return crate::team::apps::answer(
+            caller.team.as_ref(),
+            caller.mesh.as_ref(),
+            caller.desktop_here,
+            &request,
+        )
+        .await;
     }
 
     if matches!(

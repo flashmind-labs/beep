@@ -9,7 +9,7 @@ use super::{
     cards::Teammates,
     link::{TeamError, TeamLink},
 };
-use crate::{agents::caller::Caller, peer_stream::over_the_mesh};
+use crate::peer_stream::over_the_mesh;
 use beep_mesh::{Mesh, TeamWrites, take_roster};
 use beep_proto::{
     SessionId,
@@ -34,15 +34,21 @@ const MOVED: &str = "The team's gateway moved; try again";
 /// A result for the caller, or why the call did not work.
 type Outcome = Result<String, String>;
 
-/// Answers `Tool::TeamRoster`, `Tool::TeamInvite` and `Tool::TeamApp`.
-pub(crate) async fn answer(caller: &Caller, request: &Request) -> Reply {
-    let Some(link) = &caller.team else {
+/// Answers `Tool::TeamRoster`, `Tool::TeamInvite` and `Tool::TeamApp` for a
+/// caller on a machine with this team `link` and `mesh`; `desktop_here` is
+/// whether the machine is a desktop.
+pub(crate) async fn answer(
+    link: Option<&TeamLink>,
+    mesh: Option<&Mesh>,
+    desktop_here: bool,
+    request: &Request,
+) -> Reply {
+    let Some(link) = link else {
         return reply(Err("This machine does not act for a team.".to_owned()));
     };
-    let mesh = caller.mesh.as_ref();
 
     match request.tool {
-        Tool::TeamRoster | Tool::TeamInvite if !caller.desktop_here => {
+        Tool::TeamRoster | Tool::TeamInvite if !desktop_here => {
             reply(Err("Only a desktop records teams.".to_owned()))
         }
         Tool::TeamRoster => reply(roster(mesh, request).await),

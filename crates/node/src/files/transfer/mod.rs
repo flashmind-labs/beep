@@ -51,6 +51,32 @@ use crate::files::{
     place::{self, Folder, Journal, Room},
 };
 
+/// The node's transfers, set once its services are up and read by whoever
+/// holds a copy of the offers.
+#[derive(Clone)]
+pub(crate) struct Sharing(Arc<watch::Sender<Option<Transfers>>>);
+
+impl Default for Sharing {
+    fn default() -> Self {
+        Self(Arc::new(watch::Sender::new(None)))
+    }
+}
+
+impl Sharing {
+    pub(crate) fn get(&self) -> Option<Transfers> {
+        watched::read_sent(&self.0, Clone::clone)
+    }
+
+    pub(crate) fn set(&self, transfers: Transfers) {
+        self.0.send_replace(Some(transfers));
+    }
+
+    /// Changes when the transfers are set.
+    pub(crate) fn subscribe(&self) -> watch::Receiver<Option<Transfers>> {
+        self.0.subscribe()
+    }
+}
+
 /// The most transfers, offers and fetches together, running at once.
 const MAX_RUNNING: usize = 4;
 /// How long the collector, which drops the blobs no transfer holds any

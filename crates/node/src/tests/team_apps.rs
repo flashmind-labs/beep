@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::caller::Caller;
 use crate::{
     run::tasks::Table,
     team::board::tests::{Forge, member, repo},
@@ -18,6 +19,16 @@ async fn link() -> TeamLink {
         .expect("an endpoint");
 
     TeamLink::new(endpoint, Arc::new(Forge))
+}
+
+async fn answer(caller: &Caller, request: &Request) -> Reply {
+    super::answer(
+        caller.team.as_ref(),
+        caller.mesh.as_ref(),
+        caller.desktop_here,
+        request,
+    )
+    .await
 }
 
 fn caller(link: &TeamLink, table: Table, desktop_here: bool) -> Caller {
