@@ -1,8 +1,8 @@
 // What the "Add a project to a machine" sheet shows, as pure functions.
 // addmachine.tsx draws it.
-import { fileText, rateText, syncPct, syncedBySyncthing, timeLeft, type SyncDetail } from "./filesync.ts";
+import { fileText, rateText, syncPct, timeLeft, type SyncDetail } from "./filesync.ts";
 import { bytes } from "../ui/format.ts";
-import type { MachineFolder } from "./projects-state.ts";
+import { syncedBySyncthing, type MachineFolder } from "./projects-state.ts";
 import { projectUnder } from "../addproject/importproject-state.ts";
 
 /// A project's name without its org: `widget` for `acme/widget`.

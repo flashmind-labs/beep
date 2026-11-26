@@ -2,6 +2,7 @@
 // the changes still waiting, the conflicts with a way to keep either side,
 // Pause/Resume for every machine, and the board's File sync tile.
 import { gitSyncWarning } from "./gitsync-state.ts";
+import { syncedBySyncthing } from "./projects-state.ts";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 import type { AgentButtonItem } from "../review/feedback-view.tsx";
 import type { TileData, TileRow } from "./board.ts";
@@ -287,12 +288,6 @@ export function timeLeft(secs: number | null | undefined) {
   if (secs < 90) return "about 1 min";
   if (secs < 3600) return `about ${Math.round(secs / 60)} min`;
   return `about ${Math.round(secs / 3600)} h`;
-}
-
-/// Whether Syncthing keeps this machine's folder in step, so Beep leaves it
-/// alone until Syncthing pauses or lets go. The node says so in `error`.
-export function syncedBySyncthing(m: { status?: string; error?: string | null }) {
-  return m.status === "syncthing" || !!m.error?.startsWith("Already synced by Syncthing");
 }
 
 /// How far a machine is, 0 to 100, or null while it is not moving files.

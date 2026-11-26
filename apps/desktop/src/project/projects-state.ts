@@ -1,6 +1,5 @@
 import { dedupe, type MoveRecord } from "../agents/move-state.ts";
 import { plural } from "../ui/format.ts";
-import { syncedBySyncthing } from "./filesync.ts";
 import type { AgentQuestion, RunningAgent } from "../agents/running-state.ts";
 import type { HostRow } from "./runs.tsx";
 import type { Persona } from "../agents/agents-state.ts";
@@ -561,4 +560,10 @@ export function whereCount(rows: readonly Pick<WhereRow, "kind">[], known: boole
 /// A project's visible name, including rows from older cached responses.
 export function projectName(project: { name: string; display_name?: string | null }): string {
   return project.display_name ?? project.name;
+}
+
+/// Whether Syncthing keeps this machine's folder in step, so Beep leaves it
+/// alone until Syncthing pauses or lets go. The node says so in `error`.
+export function syncedBySyncthing(m: { status?: string; error?: string | null }) {
+  return m.status === "syncthing" || !!m.error?.startsWith("Already synced by Syncthing");
 }
