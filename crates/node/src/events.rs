@@ -5,18 +5,19 @@ use std::{
     collections::BTreeMap,
     panic::Location,
     sync::{Arc, LazyLock, Mutex},
-    time::Duration,
 };
 use tokio::sync::broadcast;
 
 host! {
+    use std::time::Duration;
+
+    /// How often a quiet stream to a desktop or phone says it is alive. Released
+    /// apps drop a stream after 35 s of silence, so it stays well under that.
+    pub(crate) const HEARTBEAT: Duration = Duration::from_secs(15);
+
     pub(crate) mod exits;
     pub(crate) mod paths;
 }
-
-/// How often a quiet stream to a desktop or phone says it is alive. Released
-/// apps drop a stream after 35 s of silence, so it stays well under that.
-pub(crate) const HEARTBEAT: Duration = Duration::from_secs(15);
 const SIGNAL_CAPACITY: usize = 1024;
 const MAX_PLUGIN_TOPICS: usize = 128;
 const MAX_PLUGIN_STATE: usize = 1024 * 1024;
