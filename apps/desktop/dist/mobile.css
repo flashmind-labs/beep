@@ -310,3 +310,10 @@ body.mobile .cc-view .painted-art.haze { display: var(--paintings); position: ab
 body.mobile.mb-kbd .cwin:has(#agfield:focus-within) .cc-top { min-height: 0; padding: env(safe-area-inset-top) 0 0 }
 body.mobile.mb-kbd .cwin:has(#agfield:focus-within) :is(.cc-top > *, #agmnav, .dhead :is(#agstate, #agproj, #agbranch, #aghere, #aguse)) { display: none }
 body.mobile.mb-kbd .cwin:has(#agfield:focus-within) .dhead { padding-block: 4px }
+
+/* Machines: chips wrap instead of sharing desktop's column grid. */
+body.mobile .dmt { display: block }
+body.mobile .dmt > .dmach { display: flex; flex-wrap: wrap; align-items: center; gap: 6px }
+body.mobile .dmt > .dmach > :is(.l1, .l3, .none, .ask, .dmad) { flex: 1 1 100% }
+body.mobile .dmt .ch { display: none }
+body.mobile .dmc-head { flex-wrap: wrap }

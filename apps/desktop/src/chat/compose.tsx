@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type Ref, type TextareaHTMLAttributes } from "react";
 import { NO_AUTO } from "../ui/kit.tsx";
+import { onPhone } from "../ui/platform.ts";
 import { ComposeOverlay, ComposePopup } from "./compose-overlay.tsx";
 import { composeMessage as compose, expandPills, fenceSpans, imagePath, lineCount, normalizeNewlines, PASTE_PILL_LINES, pillAt, pillsIn, Pastes, quoteAppend, snapCaret, snapSelection } from "./compose-text.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
 import { invoke } from "../ui/tauri.ts";
 import { sessionBody } from "../agents/session-frame-state.ts";
+
+/// Phones keep the keyboard's autocorrect and capitals for prose prompts.
+const PHONE_TYPING = { autoComplete: "off", autoCorrect: "on", autoCapitalize: "sentences", spellCheck: true } as const;
 
 // A composer's field as flsh's prompt: a long paste is one pill, removed
 // whole and previewed on a click; the part that will go out as code has a
@@ -162,7 +166,7 @@ export function ComposeField({ draft, images, grow, removeLast, ref, className, 
 
   return <>
     <div ref={layer} className="cx-layer" aria-hidden="true" hidden={!shown} style={box ?? undefined}>{shown && <ComposeOverlay value={value} pills={pills} fences={fences} pillNode={(id, node) => { if (node) pillNodes.current.set(id, node); else pillNodes.current.delete(id); }} />}</div>
-    <textarea ref={attach} defaultValue={initial} className={className ? `${className} cx-field` : "cx-field"} {...NO_AUTO} {...rest}
+    <textarea ref={attach} defaultValue={initial} className={className ? `${className} cx-field` : "cx-field"} {...(onPhone() ? PHONE_TYPING : NO_AUTO)} {...rest}
       onInput={event => { changed(event.currentTarget.value); setPop(null); onInput?.(event); }}
       onFocus={event => { setSize(n => n + 1); onFocus?.(event); }}
       onScroll={event => { if (layer.current) layer.current.scrollTop = event.currentTarget.scrollTop; onScroll?.(event); }}
