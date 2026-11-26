@@ -234,6 +234,46 @@ async fn a_followed_read_asks_the_node_when_its_subscription_is_slow() {
     ));
 }
 
+/// A reader whose subscriptions open one after the other: the first fails, the second ends,
+/// the third pushes the value.
+struct Reopening(std::sync::Mutex<Vec<tokio::sync::watch::Receiver<Followed>>>);
+
+impl SnapshotReader for Reopening {
+    fn snapshot(&self, _read: Read) -> SnapshotFuture<'_> {
+        Box::pin(async { None })
+    }
+
+    fn follow(&self, _read: Read) -> FollowFuture<'_> {
+        Box::pin(async { self.0.lock().unwrap().pop() })
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_wait_opens_its_subscription_again_when_it_fails_or_ends() {
+    use beep_proto::node::{events::Value, sync::Reply};
+
+    let status = Value::Sync(Box::new(Reply::Status {
+        projects: Vec::new(),
+    }));
+    let (_failed, failed) = tokio::sync::watch::channel(Some(Err("node failed".to_owned())));
+    let (ended, ending) = tokio::sync::watch::channel(None);
+    drop(ended);
+    let (_pushed, pushed) = tokio::sync::watch::channel(Some(Ok(status)));
+    let reader = Reopening(std::sync::Mutex::new(vec![pushed, ending, failed]));
+    let unasked: SessionFn = Arc::new(|_, _| panic!("the status is pushed, not asked"));
+    let client = PeerClient::local(unasked).with_snapshot_reader(Arc::new(reader));
+    let started = tokio::time::Instant::now();
+
+    let found = client
+        .snapshot_until(Read::SyncList, |value| {
+            matches!(value, Value::Sync(_)).then_some(())
+        })
+        .await;
+
+    assert!(found.is_ok());
+    assert_eq!(started.elapsed(), RETRY * 2);
+}
+
 fn link(e: impl StdError + Send + Sync + 'static) -> MeshError {
     MeshError::Link(anyhow::Error::new(e))
 }

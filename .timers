@@ -122,6 +122,7 @@ apps/desktop/src/ui/perf.ts | start | setTimeout#1 | pace | the recorder batches
 apps/desktop/src/ui/tauri.ts | recordTiming | setTimeout#1 | pace | sends collected timings in one batch every 5 s
 apps/desktop/src/ui/tauri.ts | trace | setTimeout#1 | deadline | fails a command that has not answered by its limit
 crates/fleet/src/alerts.rs | relinked | sleep#1 | retry | waits RETRY, then follows the machine's alerts again
+crates/mesh/src/client.rs | snapshot_until | sleep#1 | retry | waits RETRY, then follows the read again after its subscription failed or ended
 crates/mesh/src/link.rs | heartbeat | sleep#1 | deadline | closes a link after missed beats; connection stats cannot push
 crates/mesh/src/link.rs | streams | sleep_until#1 | deadline | lingers or drains before ending the stream task loop
 crates/mesh/src/mesh/owner.rs | dial | sleep#1 | pace | gives the other side a head start before dialing

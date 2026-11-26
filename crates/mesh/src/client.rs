@@ -442,7 +442,8 @@ impl PeerClient {
 
     /// Waits until `done` finds what it looks for in the values the node pushes for `read`,
     /// and gives it. The read stays subscribed for the whole wait. A subscription that ends or
-    /// fails meanwhile ends it with an error.
+    /// fails meanwhile is opened again after `RETRY`; the caller bounds the wait. An error when
+    /// this client has no subscription to follow.
     pub async fn snapshot_until<T>(
         &self,
         read: Read,
@@ -451,27 +452,34 @@ impl PeerClient {
         let snapshots = self.snapshots.as_ref().ok_or_else(no_subscription)?;
         let _hold = snapshots.hold(&read);
 
-        let mut followed = snapshots
-            .follow(read.clone())
-            .await
-            .ok_or_else(no_subscription)?;
-
         loop {
-            let step = watched::read_and_update(&mut followed, |held| match held {
-                None => Ok(None),
-                Some(Ok(value)) => Ok(done(value)),
-                Some(Err(reason)) => Err(reason.clone()),
-            });
+            let mut followed = snapshots
+                .follow(read.clone())
+                .await
+                .ok_or_else(no_subscription)?;
 
-            match step {
-                Ok(Some(found)) => return Ok(found),
-                Ok(None) => {}
-                Err(reason) => return Err(MeshError::Link(anyhow::anyhow!(reason))),
+            loop {
+                let step = watched::read_and_update(&mut followed, |held| match held {
+                    None => Ok(None),
+                    Some(Ok(value)) => Ok(done(value)),
+                    Some(Err(reason)) => Err(reason.clone()),
+                });
+
+                match step {
+                    Ok(Some(found)) => return Ok(found),
+                    Ok(None) => {}
+                    Err(reason) => {
+                        tracing::debug!("subscription failed, opening it again: {reason}");
+                        break;
+                    }
+                }
+
+                if followed.changed().await.is_err() {
+                    break;
+                }
             }
 
-            if followed.changed().await.is_err() {
-                return Err(MeshError::Link(anyhow::anyhow!("the subscription ended")));
-            }
+            tokio::time::sleep(RETRY).await;
         }
     }
 
