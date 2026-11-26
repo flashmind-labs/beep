@@ -85,7 +85,7 @@ struct Handed {
 
 /// The team link and the team `session`'s project is on, when it is on one.
 pub(super) fn team_of(offers: &Offers, session: &SessionId) -> Option<(TeamLink, TeamRepo)> {
-    let link = offers.reach.peers()?.team();
+    let link = offers.team.clone()?;
     let folder = offers.agents.folder_of(session)?;
     let repo = link.home(|home| home.team_of(&folder))?;
     link.with(|teams| teams.rosters.get(&repo).is_some()).then_some(())?;

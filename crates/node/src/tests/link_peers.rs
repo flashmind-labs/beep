@@ -1,6 +1,7 @@
 use super::*;
+use beep_mesh::PeerClient;
 use beep_proto::node::{Opened, report};
-use iroh::EndpointId;
+use iroh::{Endpoint, EndpointId};
 use iroh_tickets::Ticket;
 
 /// Answers the wait's probe, then one join, the way the node does.
@@ -638,19 +639,19 @@ async fn leaving_the_mesh_forgets_the_teams() {
         admitted_by: None,
         proof: None,
     };
-    peers.team().with(|teams| {
+    peers.inner.team.with(|teams| {
         teams
             .rosters
             .refresh([(repo.clone(), TeamRecord::new(repo.clone(), vec![alice]))].into());
     });
-    peers.team().publish(|served| {
+    peers.inner.team.publish(|served| {
         served.boards.set(&repo, Vec::new());
         served.gateways.insert(repo.clone(), endpoint.id());
     });
 
     peers.leave().await;
 
-    peers.team().with(|teams| assert!(teams.rosters.get(&repo).is_none()));
-    assert!(!peers.team().served(|served| served.boards.serves(&repo)));
-    assert!(peers.team().served(|served| served.gateways.is_empty()));
+    peers.inner.team.with(|teams| assert!(teams.rosters.get(&repo).is_none()));
+    assert!(!peers.inner.team.served(|served| served.boards.serves(&repo)));
+    assert!(peers.inner.team.served(|served| served.gateways.is_empty()));
 }

@@ -9,13 +9,12 @@ use crate::{
     files::transfer::Transfers,
     link::Protocol,
     link::protocol::SessionProtocol,
-    link::report::serve_report,
     link::restart::{self, Reopen},
     link::state::State,
     link::traffic::Traffic,
     link::watchdog,
     link::{
-        peers::{self, Inner, Offers, Peers, Who, withheld},
+        peers::{self, Inner, Offers, Own, Peers, Who, withheld},
     },
     machine::provision::Provision,
     team::{home::ForgeCli, link::TeamLink},
@@ -30,7 +29,7 @@ use beep_proto::logging::RequestTrace;
 use futures::future::BoxFuture;
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
 use beep_proto::node::{
-    LinkRx, LinkTx, Opened, report, version,
+    LinkRx, LinkTx, Opened, version,
 };
 use beep_proto::watched;
 use iroh::{Endpoint, endpoint::presets};
@@ -411,7 +410,7 @@ pub(super) async fn serve_open(
                         transfers: offers.transfers.get(),
                         agents: Some(offers.agents.clone()),
                         project_tools: offers.project_tools.clone(),
-                        team: offers.reach.peers().map(|peers| peers.team()),
+                        team: offers.team.clone(),
                         mesh: offers.mesh.get(),
                     },
                 };
@@ -527,18 +526,22 @@ pub async fn listen_hooks(agents: &Agents, dir: &Path) {
 
 
 impl Peers {
-    pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
-        let reach = offers.reach.clone();
+    pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, mut offers: Offers) -> Self {
         let team = TeamLink::new(endpoint.clone(), Arc::new(ForgeCli));
+        let own = Own {
+            endpoint,
+            dir,
+            name,
+            started: SystemTime::now(),
+        };
+        offers.team = Some(team.clone());
+        offers.own = Some(own.clone());
         let deliveries = AbortOnDropHandle::new(tokio::spawn(deliver_handoffs(
             offers.clone(),
             team.handoffs(),
         )));
         let inner = Arc::new(Inner {
-            endpoint,
-            dir,
-            name,
-            started: SystemTime::now(),
+            own,
             offers: Mutex::new(offers),
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
@@ -547,7 +550,6 @@ impl Peers {
             _deliveries: deliveries,
             serve_protocol: serve_stream,
         });
-        *crate::lock(&reach.0) = Arc::downgrade(&inner);
         Self { inner }
     }
 }
@@ -592,40 +594,12 @@ async fn serve_protocol(
         trace.long_lived();
         let offers = inner.offers().clone();
         // Diagnostics are open to every machine of the mesh, even when not lent.
-        let diagnostic = matches!(
-            protocol,
-            SessionProtocol::LogQuery
-                | SessionProtocol::Metrics
-                | SessionProtocol::MetricsQuery
-                | SessionProtocol::Report
-        );
-
-        if diagnostic {
-            let mut tx = tx;
-            tx.send(&Opened::Ready {}).await?;
-
-            return match protocol {
-                SessionProtocol::LogQuery => offers.log.serve_query(tx, rx).await,
-                SessionProtocol::MetricsQuery => {
-                    super::metrics::serve_query(tx, rx, inner.dir.join("metrics.log")).await
-                }
-                SessionProtocol::Report => match inner.local_status().await {
-                    Ok(status) => {
-                        serve_report(tx, rx, status, offers.log, inner.dir.join("metrics.log"))
-                            .await
-                    }
-                    Err(e) => {
-                        let reason = format!("this machine's status could not be read: {e:#}");
-                        tx.send(&report::Reply::Failed { reason }).await?;
-                        tx.finish().await
-                    }
-                },
-                _ => super::metrics::serve(tx, rx, inner.dir.join("metrics.log")).await,
-            };
+        if Own::is_diagnostic(&protocol) {
+            return inner.own.serve_diagnostic(protocol, tx, rx, offers).await;
         }
 
         // The person at this machine is not held to the setting; a device of the mesh is.
-        if who.id() != inner.endpoint.id()
+        if who.id() != inner.own.endpoint.id()
             && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
         {
             let mut tx = tx;

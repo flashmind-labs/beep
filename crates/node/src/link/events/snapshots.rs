@@ -597,9 +597,9 @@ impl Snapshots {
                             Ok(Value::Devices(listed))
                         }
                         Source::TeamCards(project) => Ok(offers
-                            .reach
-                            .peers()
-                            .and_then(|peers| crate::team::apps::cards_of(&peers.team(), &project))
+                            .team
+                            .as_ref()
+                            .and_then(|team| crate::team::apps::cards_of(team, &project))
                             .map_or(Value::Missing, Value::TeamCards)),
                         Source::Terminal(id) => {
                             let list = super::ask(
@@ -628,9 +628,9 @@ impl Snapshots {
                             .await,
                         )),
                         Source::TeamInvites => Ok(offers
-                            .reach
-                            .peers()
-                            .map_or(Value::Missing, |peers| Value::TeamInvites(peers.team().invites_waiting()))),
+                            .team
+                            .as_ref()
+                            .map_or(Value::Missing, |team| Value::TeamInvites(team.invites_waiting()))),
                         Source::Moves => Ok(Value::Sessions(Box::new(SessionsReply::Moves {
                             moves: offers.agents.move_entries(),
                         }))),

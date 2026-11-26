@@ -45,7 +45,7 @@ impl Caller {
             transfers: offers.transfers.get(),
             agents: Some(offers.agents.clone()),
             project_tools: offers.project_tools.clone(),
-            team: offers.reach.peers().map(|peers| peers.team()),
+            team: offers.team.clone(),
             mesh: offers.mesh.get(),
         }
     }

@@ -12,7 +12,7 @@ use crate::{
     link::Protocol,
     link::from_mesh,
     run::local_socket::{Listener, Stream},
-    link::local_status::{self, LocalStatus},
+    link::local_status::LocalStatus,
     link::protocol::SessionProtocol,
     link::watchdog::{self, Step},
     machine::{env, stats},
@@ -20,7 +20,7 @@ use crate::{
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerClient,
+    DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol,
     PeerStream, SessionFn,
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, link, status::Report};
@@ -28,9 +28,8 @@ use futures::future::BoxFuture;
 use beep_proto::watched;
 #[cfg(feature = "cli")]
 use beep_report::Share;
-use beep_report::{Target, collect};
+use beep_report::collect;
 use iroh::{
-    Endpoint,
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
 };
@@ -38,9 +37,9 @@ use serde::de::IgnoredAny;
 use std::{
     collections::BTreeSet,
     fmt::Write,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex, MutexGuard, Weak},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::Duration,
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, split},
@@ -51,8 +50,10 @@ use tokio::{
 use tokio_util::task::AbortOnDropHandle;
 
 mod offers;
+mod own;
 
 pub use offers::Offers;
+pub(crate) use own::Own;
 pub(crate) use offers::{Who, read_open, withheld};
 
 /// The socket `beep-node mesh` reaches the running node on, in its folder.
@@ -85,11 +86,8 @@ pub(super) struct Protocols {
 }
 
 pub(super) struct Inner {
-    pub(super) endpoint: Endpoint,
-    pub(super) dir: PathBuf,
-    pub(super) name: String,
-    /// When the node started.
-    pub(super) started: SystemTime,
+    /// The node's key, name and folder.
+    pub(super) own: Own,
     pub(super) offers: Mutex<Offers>,
     /// Protocols a host will offer once its services are up.
     pub(super) later: watch::Sender<BTreeSet<String>>,
@@ -135,58 +133,6 @@ impl Inner {
     fn active(&self) -> Option<Mesh> {
         self.offers().mesh.get()
     }
-
-    /// What `beep-node status` shows. Checks each project's folder on disk.
-    pub(super) async fn local_status(&self) -> Result<LocalStatus> {
-        let mesh = self.active().filter(|mesh| mesh.is_member(mesh.me()));
-        let devices = mesh
-            .as_ref()
-            .map(Mesh::devices)
-            .unwrap_or_default()
-            .into_iter()
-            .map(|status| local_status::Peer {
-                id: status.device.id,
-                name: status.device.name,
-                kind: status.device.kind,
-                online: status.online,
-                last_seen: status.last_seen.map(unix_secs),
-            })
-            .collect();
-        let syncs = self
-            .offers()
-            .transfers
-            .get()
-            .map(|transfers| transfers.syncs());
-        let projects = match syncs {
-            Some(syncs) => {
-                let held = syncs.held();
-                let statuses = syncs.status();
-                // A folder on a disk that hangs must not hold a worker.
-                tokio::task::spawn_blocking(move || {
-                    statuses
-                        .into_iter()
-                        .map(|status| local_status::Project {
-                            held: held.contains(&status.name),
-                            missing: !Path::new(&status.folder).exists(),
-                            status,
-                        })
-                        .collect()
-                })
-                .await?
-            }
-            None => Vec::new(),
-        };
-        Ok(LocalStatus {
-            version: env!("CARGO_PKG_VERSION").to_owned(),
-            started: unix_secs(self.started),
-            name: self.name.clone(),
-            id: self.endpoint.id(),
-            mesh: mesh.map(|mesh| mesh.id()),
-            devices,
-            projects,
-            agents: self.offers().agents.agent_report(),
-        })
-    }
 }
 
 /// The node's membership, shared by the router, the control socket and the
@@ -195,20 +141,6 @@ impl Inner {
 #[derive(Clone)]
 pub struct Peers {
     pub(super) inner: Arc<Inner>,
-}
-
-/// The node as the agents' Beep MCP server reaches it, for its own status,
-/// logs and problem reports. Shared by every copy of the offers, set by
-/// `Peers::new`. Weak: the node holds the offers.
-#[derive(Clone, Default)]
-pub(crate) struct Reach(pub(super) Arc<Mutex<Weak<Inner>>>);
-
-impl Reach {
-    /// The node, while it runs.
-    pub(crate) fn peers(&self) -> Option<Peers> {
-        let inner = crate::lock(&self.0);
-        inner.upgrade().map(|inner| Peers { inner })
-    }
 }
 
 impl Peers {
@@ -287,10 +219,6 @@ impl Peers {
         self.inner.team.handler()
     }
 
-    pub(crate) fn team(&self) -> TeamLink {
-        self.inner.team.clone()
-    }
-
     pub(super) fn channel_offers(&self) -> Offers {
         self.inner.offers().clone()
     }
@@ -357,8 +285,8 @@ impl Peers {
 
     /// Takes the mesh the node's folder holds, if it holds one.
     pub(crate) async fn open(&self) -> Result<bool> {
-        let dir = self.inner.dir.clone();
-        let opened = Mesh::open(&dir, self.inner.endpoint.clone())
+        let dir = self.inner.own.dir.clone();
+        let opened = Mesh::open(&dir, self.inner.own.endpoint.clone())
             .await
             .context("could not open the mesh")?;
         Ok(match opened {
@@ -388,10 +316,10 @@ impl Peers {
         }
 
         let mesh = Mesh::join_replacing_lone(
-            &self.inner.dir,
-            self.inner.endpoint.clone(),
+            &self.inner.own.dir,
+            self.inner.own.endpoint.clone(),
             invite,
-            &self.inner.name,
+            &self.inner.own.name,
         )
         .await
         .context("could not join")?;
@@ -409,17 +337,14 @@ impl Peers {
             close_within(old).await?;
         }
 
-        Mesh::forget(&self.inner.dir)
+        Mesh::forget(&self.inner.own.dir)
             .await
             .context("could not delete the mesh")
     }
 
     /// Whether this device is a desktop in the current device list.
     pub fn is_desktop(&self) -> bool {
-        let me = self.inner.endpoint.id();
-        self.devices()
-            .iter()
-            .any(|status| status.device.id == me && status.device.kind == DeviceKind::Desktop)
+        self.inner.own.is_desktop(&self.inner.offers())
     }
 
     /// Whether this device is in a mesh it was not removed from.
@@ -430,60 +355,11 @@ impl Peers {
 
     /// The mesh's devices, empty before the node joined.
     pub fn devices(&self) -> Vec<DeviceStatus> {
-        self.active()
-            .map(|mesh| mesh.devices())
-            .unwrap_or_default()
+        self.inner.own.devices(&self.inner.offers())
     }
 
     fn active(&self) -> Option<Mesh> {
         self.inner.active()
-    }
-
-    /// What a problem report asks: this node through its own `report/1`, the others
-    /// over their live links. This node alone before it joined a mesh.
-    pub(crate) fn report_targets(&self) -> Vec<Target> {
-        let me = self.inner.endpoint.id();
-        let active = self.active();
-        let own = |name: String, kind: DeviceKind| Target {
-            id: me,
-            name,
-            kind,
-            client: Ok(PeerClient::local(self.local_session())),
-        };
-
-        match active.filter(|mesh| mesh.is_member(me)) {
-            Some(mesh) => mesh
-                .code_hosts()
-                .into_iter()
-                .map(|status| {
-                    let device = status.device;
-
-                    if device.id == me {
-                        return own(device.name, device.kind);
-                    }
-                    Target {
-                        id: device.id,
-                        name: device.name,
-                        kind: device.kind,
-                        client: mesh
-                            .peer(device.id)
-                            .map(PeerClient::new)
-                            .ok_or_else(|| "offline".to_owned()),
-                    }
-                })
-                .collect(),
-            None => vec![own(self.inner.name.clone(), DeviceKind::Node)],
-        }
-    }
-
-    /// What `beep-node status` shows of this node.
-    pub(crate) async fn status(&self) -> Result<LocalStatus> {
-        self.inner.local_status().await
-    }
-
-    /// The key this node signs with, as a problem report is signed.
-    pub(crate) fn key(&self) -> iroh::SecretKey {
-        self.inner.endpoint.secret_key().clone()
     }
 
     /// The node's membership, for a service started beside the router.
@@ -518,25 +394,25 @@ impl Peers {
 
         let follow = from_mesh::follow(
             active.clone(),
-            self.inner.endpoint.id(),
+            self.inner.own.endpoint.id(),
             offers.clone(),
         );
         let reaches = crate::machine::elect::Reaches::new(active.clone());
         let runs = crate::machine::ci::watch(
             active.clone(),
-            self.inner.endpoint.id(),
-            self.inner.dir.clone(),
+            self.inner.own.endpoint.id(),
+            self.inner.own.dir.clone(),
             offers.agents.ci.clone(),
             reaches.clone(),
         );
         let skills = crate::agents::skills::follow(
             active.clone(),
-            self.inner.dir.clone(),
+            self.inner.own.dir.clone(),
             offers.skills.clone(),
         );
         let libraries = crate::agents::skill_library::follow(
             active.clone(),
-            self.inner.dir.clone(),
+            self.inner.own.dir.clone(),
             offers.skills.home().cloned(),
             offers.skills.libraries().clone(),
             offers.agents.clone(),
@@ -544,21 +420,21 @@ impl Peers {
         let team = crate::team::link::home_io::follow(active.clone(), self.inner.team.clone());
         let gateway = crate::team::gateway::run(
             active.clone(),
-            self.inner.endpoint.id(),
+            self.inner.own.endpoint.id(),
             self.inner.team.clone(),
             offers.clone(),
-            self.inner.dir.clone(),
+            self.inner.own.dir.clone(),
             reaches,
         );
         let search = crate::agents::follow_search(
             active.clone(),
-            self.inner.dir.clone(),
+            self.inner.own.dir.clone(),
             offers.agents.clone(),
         );
         let moves = crate::agents::follow_moves(
             active,
-            self.inner.endpoint.clone(),
-            self.inner.dir.clone(),
+            self.inner.own.endpoint.clone(),
+            self.inner.own.dir.clone(),
             offers.agents.clone(),
         );
         *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
@@ -579,7 +455,7 @@ impl Peers {
         Arc::new(move |tx: LinkTx, rx: LinkRx| {
             let peers = peers.clone();
             Box::pin(async move {
-                let who = Who::Everything(peers.inner.endpoint.id());
+                let who = Who::Everything(peers.inner.own.endpoint.id());
 
                 if let Err(e) = peers.inner.clone().serve(tx, rx, who).await {
                     log::debug!("a local session ended: {e:#}");
@@ -861,13 +737,15 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
         out.push_str("end\n");
         out
     } else if request == STATUS {
-        let status = peers.inner.local_status().await?;
+        let offers = peers.inner.offers().clone();
+        let status = peers.inner.own.local_status(&offers).await?;
         write.write_all(&rmp_serde::to_vec(&status)?).await?;
         write.shutdown().await?;
         return Ok(());
     } else if let Some(since) = request.strip_prefix(REPORT) {
         let since: i64 = since.trim().parse().context("reading the report's start")?;
-        let shares = collect(peers.report_targets(), since).await;
+        let offers = peers.inner.offers().clone();
+        let shares = collect(peers.inner.own.report_targets(&offers), since).await;
         write.write_all(&rmp_serde::to_vec(&shares)?).await?;
         write.shutdown().await?;
         return Ok(());
@@ -876,13 +754,6 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
     };
     write.write_all(reply.as_bytes()).await?;
     Ok(())
-}
-
-/// Seconds since the Unix epoch; 0 for a time before it.
-fn unix_secs(at: SystemTime) -> u64 {
-    at.duration_since(UNIX_EPOCH)
-        .map(|since| since.as_secs())
-        .unwrap_or(0)
 }
 
 /// The longest request the node reads; a ticket is far shorter.

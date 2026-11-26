@@ -8,7 +8,7 @@ use crate::agents::reply::{done, fail, parse};
 use super::server::ASK_LIMIT;
 use crate::{
     agents::{Answered, Asking},
-    link::{Offers, peers::Peers},
+    link::{Offers, peers::Own},
 };
 use beep_proto::SessionId;
 use beep_proto::node::{
@@ -27,6 +27,30 @@ use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::{task::spawn_blocking, time::timeout};
 
+/// This node and what it offers, which the tools read.
+struct Here<'a> {
+    own: &'a Own,
+    offers: &'a Offers,
+}
+
+impl Here<'_> {
+    fn report_targets(&self) -> Vec<Target> {
+        self.own.report_targets(self.offers)
+    }
+
+    fn key(&self) -> iroh::SecretKey {
+        self.own.key()
+    }
+
+    fn devices(&self) -> Vec<beep_mesh::DeviceStatus> {
+        self.own.devices(self.offers)
+    }
+
+    fn is_desktop(&self) -> bool {
+        self.own.is_desktop(self.offers)
+    }
+}
+
 const DEFAULT_MINUTES: u32 = 60;
 const MAX_MINUTES: u32 = 7 * 24 * 60;
 const DEFAULT_LINES: usize = 300;
@@ -36,9 +60,10 @@ const SEND_AND_ISSUE: &str = "issue";
 
 /// Answers one of the tools for the session that called it.
 pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
-    let Some(peers) = offers.reach.peers() else {
+    let Some(own) = offers.own.as_ref() else {
         return fail("This node is still starting; try again in a moment.");
     };
+    let peers = Here { own, offers };
     let answered = match dispatch(offers, &peers, request).await {
         Ok(answered) => answered,
         Err(bad_args) => return fail(bad_args),
@@ -58,7 +83,7 @@ pub(super) async fn call(offers: &Offers, request: &Request) -> Reply {
 
 async fn dispatch(
     offers: &Offers,
-    peers: &Peers,
+    peers: &Here<'_>,
     request: &Request,
 ) -> Result<Result<String, String>, String> {
     Ok(match request.tool {
@@ -102,7 +127,7 @@ fn heading(share: &Share) -> String {
 }
 
 /// Every machine's status, version and OS: no log.
-async fn status(peers: &Peers) -> String {
+async fn status(peers: &Here<'_>) -> String {
     let shares = collect_within(peers.report_targets(), now(), 0).await;
     let mut text = String::new();
 
@@ -121,7 +146,7 @@ fn named(target: &Target, name: &str) -> bool {
     command_name(&target.name) == command_name(name) || target.id.to_string() == name.trim()
 }
 
-fn find_target(peers: &Peers, machine: Option<&str>) -> Result<Target, String> {
+fn find_target(peers: &Here<'_>, machine: Option<&str>) -> Result<Target, String> {
     let me = peers.key().public();
     let name = machine.map(str::trim).unwrap_or_default();
 
@@ -283,7 +308,7 @@ impl LogsArgs {
 }
 
 /// One machine's log for the last `minutes`, its newest `lines` lines.
-async fn logs(peers: &Peers, args: LogsArgs) -> Result<String, String> {
+async fn logs(peers: &Here<'_>, args: LogsArgs) -> Result<String, String> {
     let query = args.query()?;
     let minutes = args.minutes();
     let lines = args.lines();
@@ -405,7 +430,7 @@ impl MetricsArgs {
     }
 }
 
-async fn metrics(peers: &Peers, args: MetricsArgs) -> Result<String, String> {
+async fn metrics(peers: &Here<'_>, args: MetricsArgs) -> Result<String, String> {
     use beep_proto::node::metrics::{PROTOCOL, QUERY_PROTOCOL, Reply, Request};
     let period = args.period.as_deref().unwrap_or("1h");
     let duration = humantime::parse_duration(period).map_err(|e| {
@@ -475,7 +500,7 @@ struct ReportArgs {
 /// problem does, and gives its reference.
 async fn file(
     offers: &Offers,
-    peers: &Peers,
+    peers: &Here<'_>,
     session: &SessionId,
     args: ReportArgs,
 ) -> Result<String, String> {
@@ -545,7 +570,12 @@ async fn file(
     let key = peers.key();
     let sender = Sender {
         id: key.public(),
-        mesh: peers.status().await.ok().and_then(|status| status.mesh),
+        mesh: peers
+            .own
+            .local_status(offers)
+            .await
+            .ok()
+            .and_then(|status| status.mesh),
         app: if desktop { "desktop" } else { "node" },
         app_version: env!("CARGO_PKG_VERSION").to_owned(),
     };

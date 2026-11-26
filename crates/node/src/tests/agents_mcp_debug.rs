@@ -1,6 +1,7 @@
 use super::*;
 use beep_mesh::DeviceKind;
 use iroh::SecretKey;
+use crate::link::peers::Own;
 
 fn share(answer: Answer) -> Share {
     Share {
@@ -32,28 +33,29 @@ fn a_heading_names_the_machine_and_how_it_answered() {
 }
 
 /// A node in no mesh whose log holds `log`, and its offers.
-async fn node(log: &str) -> (Peers, Offers, tempfile::TempDir) {
+async fn node(log: &str) -> (Own, Offers, tempfile::TempDir) {
     use crate::machine::service::logs::Logs;
     use iroh::{Endpoint, endpoint::presets};
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("beep.log");
     std::fs::write(&path, log).expect("the temp folder is writable");
-    let offers = Offers {
-        log: Logs::from(path),
-        ..Offers::default()
-    };
     let endpoint = Endpoint::builder(presets::Minimal)
         .secret_key(SecretKey::generate())
         .bind()
         .await
         .expect("the endpoint binds");
-    let peers = Peers::new(
+    let own = Own {
         endpoint,
-        dir.path().to_owned(),
-        "build-box".into(),
-        offers.clone(),
-    );
-    (peers, offers, dir)
+        dir: dir.path().to_owned(),
+        name: "build-box".into(),
+        started: std::time::SystemTime::now(),
+    };
+    let offers = Offers {
+        log: Logs::from(path),
+        own: Some(own.clone()),
+        ..Offers::default()
+    };
+    (own, offers, dir)
 }
 
 fn request(tool: Tool, args: &str) -> Request {
@@ -113,7 +115,11 @@ fn a_machine_is_named_as_list_machines_names_it() {
 
 #[tokio::test]
 async fn metric_periods_accept_human_durations_and_enforce_retention() {
-    let (peers, _offers, _dir) = node("").await;
+    let (own, offers, _dir) = node("").await;
+    let peers = Here {
+        own: &own,
+        offers: &offers,
+    };
 
     for period in ["1h", "4h", "1d", "7d", "1w", "1.5h", "1h 30m"] {
         assert!(

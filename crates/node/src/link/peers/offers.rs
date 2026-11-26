@@ -1,6 +1,6 @@
 //! What a node serves (`Offers`), and who opened a session (`Who`).
 
-use super::Reach;
+use super::Own;
 use crate::{
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
     files::{search::Searches, transfer::Transfers},
@@ -11,6 +11,7 @@ use crate::{
     protocol::Protocol,
     machine::{provision::Provision, service::logs::Logs},
     run::{device, shell, tasks, terminal},
+    team::link::TeamLink,
 };
 use anyhow::{Context, Result};
 use beep_proto::node::{
@@ -91,8 +92,10 @@ pub struct Offers {
     /// The user's coding agent skills, synced with the mesh when the host
     /// names their home folder.
     pub skills: Skills,
-    /// The node these offers are served by, once it is made.
-    pub(crate) reach: Reach,
+    /// The node's key, name and folder, once the node is made.
+    pub(crate) own: Option<Own>,
+    /// The node's team link, once the node is made.
+    pub(crate) team: Option<TeamLink>,
     /// Answers the assistant's project tools, for the desktop app. Other
     /// nodes send them to a desktop of the mesh.
     pub project_tools: Option<Arc<dyn ProjectTools>>,
@@ -131,7 +134,8 @@ impl Offers {
             #[cfg(test)]
             bind_gates: Arc::default(),
             skills: Skills::default(),
-            reach: Reach::default(),
+            own: None,
+            team: None,
             project_tools: None,
         }
     }
