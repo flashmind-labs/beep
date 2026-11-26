@@ -2,9 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   IDLE, UNEXPECTED, consentAction, consentTitle, consentVersions, flowStep, isNewPermission, openStage, parseFailure, parsePreview,
-  parseRows, pluginSkins, parseSource, parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence,
-  updateLine, type Flow, type PluginPreview, type PluginRow, type StagedPlugin,
+  parseStaged, parseUpdateCheck, permissionLabel, permissionMeaning, repositoryName, rowOffers, runLine, sourceLabel, sourceSentence,
+  updateLine, type Flow, type PluginPreview, type StagedPlugin,
 } from "../src/settings/plugins-settings-state.ts";
+import { parseRows, parseSource, pluginSkins, type PluginRow } from "../src/ui/plugin-rows.ts";
 
 const git = { kind: "git", url: "https://github.com/owner/repo.git", ref: null, subfolder: null, commit: "4f0915a8b3c2d1e0f9a8b7c6d5e4f30211223344" };
 const raw = (extra: Record<string, unknown> = {}) => ({

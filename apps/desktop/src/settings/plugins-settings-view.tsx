@@ -7,8 +7,9 @@ import { NO_AUTO, Spinner } from "../ui/kit.tsx";
 import type { PluginsSettings, PluginsState } from "./plugins-settings.ts";
 import {
   consentAction, consentTitle, consentVersions, isNewPermission, permissionLabel, permissionMeaning, rowOffers, runLine,
-  sourceLabel, sourceSentence, updateLine, type Flow, type PluginFailure, type PluginPermission, type PluginRow,
+  sourceLabel, sourceSentence, updateLine, type Flow, type PluginFailure,
 } from "./plugins-settings-state.ts";
+import type { PluginPermission, PluginRow } from "../ui/plugin-rows.ts";
 
 type Consenting = Extract<Flow, { kind: "consent" }>;
 

@@ -4,9 +4,10 @@ import { pickHere } from "../addproject/folderbrowser.tsx";
 import { createStore } from "zustand/vanilla";
 import { invoke, listen } from "../ui/tauri.ts";
 import {
-  IDLE, UNEXPECTED, flowStep, openStage, parseFailure, parsePreview, parseRows, parseStaged, parseUpdateCheck,
-  type Flow, type FlowEvent, type GitField, type PluginFailure, type PluginRow, type StagedPlugin, type UpdateState,
+  IDLE, UNEXPECTED, flowStep, openStage, parseFailure, parsePreview, parseStaged, parseUpdateCheck,
+  type Flow, type FlowEvent, type GitField, type PluginFailure, type StagedPlugin, type UpdateState,
 } from "./plugins-settings-state.ts";
+import { parseRows, type PluginRow } from "../ui/plugin-rows.ts";
 
 type Call = typeof invoke;
 type Listen = typeof listen;

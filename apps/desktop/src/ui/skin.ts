@@ -4,7 +4,7 @@
 // in the others at once. Also the layout picked for Home and a project's front
 // page.
 import { createStore } from "zustand";
-import { parseRows, pluginSkins, type PluginSkin } from "../settings/plugins-settings-state.ts";
+import { parseRows, pluginSkins, type PluginSkin } from "./plugin-rows.ts";
 import { APPLE, onPhone } from "./platform.ts";
 import { invoke, listen } from "./tauri.ts";
 
