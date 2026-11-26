@@ -40,6 +40,13 @@ npm run --silent tauri -- icon src-tauri/icons/phone.png -o "$icons" --ios-color
 
 if [[ $platform == ios ]]; then
     cp "$icons"/ios/*.png "$dir/Assets.xcassets/AppIcon.appiconset/"
+
+    # netdev, under iroh, reads the DNS servers through libresolv. The Rust
+    # library cannot carry the link, so the app links it.
+    if ! grep -q libresolv.tbd "$dir/project.yml"; then
+        perl -0pi -e 's|^(\s*)- sdk: SystemConfiguration\.framework\n|$&$1- sdk: libresolv.tbd\n|m' "$dir/project.yml"
+        (cd "$dir" && xcodegen generate --quiet)
+    fi
 else
     sed -i.bak 's/#[0-9A-Fa-f]\{6\}/#0B0E1D/' "$icons/android/values/ic_launcher_background.xml"
     rm "$icons/android/values/ic_launcher_background.xml.bak"
