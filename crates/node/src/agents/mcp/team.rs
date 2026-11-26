@@ -18,9 +18,9 @@ use crate::{
     agents::{Agents, Answered, Asking},
     link::Offers,
     team::{
-        asks::{Delivery, MAX_TEXT, Outgoing, Sessions},
+        asks::{Delivery, MAX_TEXT, Outgoing},
         cards::Teammates,
-        link::TeamLink,
+        link::{Handoff, TeamLink},
         pickup::{PickupStart, start_issue},
     },
 };
@@ -33,7 +33,6 @@ use beep_proto::{
     },
     team::{AgentRef, Card, Target, TeamRepo},
 };
-use futures::future::BoxFuture;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -41,7 +40,7 @@ use std::{
     path::PathBuf,
     time::{Duration, Instant},
 };
-use tokio::time::timeout;
+use tokio::{sync::mpsc, task::JoinSet, time::timeout};
 
 /// How long handing an ask to a session on another machine, or reading the
 /// team's issues, may take.
@@ -432,51 +431,61 @@ async fn team(link: &TeamLink, repo: &TeamRepo) -> Reply {
     )
 }
 
-/// The sessions of this node's mesh, which the team link hands asks to.
-pub(crate) struct TeamSessions(pub(crate) Offers);
+/// Puts what the team link took from teammates into the sessions of this
+/// node's mesh, and says on each handoff whether it got there. Ends with the
+/// team link's follower.
+pub(crate) async fn deliver_handoffs(offers: Offers, mut handoffs: mpsc::Receiver<Handoff>) {
+    let mut delivering = JoinSet::new();
 
-impl Sessions for TeamSessions {
-    fn deliver<'a>(
-        &'a self,
-        card: &'a str,
-        delivery: Delivery,
-        text: String,
-    ) -> BoxFuture<'a, Result<(), String>> {
-        Box::pin(async move {
-            let no_session = || format!("No session {card} runs on this mesh");
-            let (_, machine) = card.split_once('@').ok_or_else(no_session)?;
-            let mesh = self.0.mesh.get().ok_or_else(no_session)?;
-            let machine = find(&mesh, machine).ok_or_else(no_session)?;
-
-            if machine.id == mesh.me() {
-                return here(&self.0.agents, card, delivery, text).await;
+    loop {
+        tokio::select! {
+            Some(handoff) = handoffs.recv() => {
+                let offers = offers.clone();
+                delivering.spawn(async move {
+                    let Handoff { card, delivery, text, done } = handoff;
+                    let delivered = deliver(&offers, &card, delivery, text).await;
+                    done.send(delivered).ok();
+                });
             }
-
-            let handed = Handed {
-                card: card.to_owned(),
-                delivery,
-                text,
-            };
-            let request = Request {
-                session: SessionId::default(),
-                tool: Tool::TeamDeliver,
-                args: serde_json::to_string(&handed).map_err(|e| e.to_string())?,
-                approved: Approved::No,
-            };
-
-            match timeout(LIMIT, over_the_mesh(&mesh, machine.id, &request)).await {
-                Ok(Ok(Reply::Done { failed: false, .. })) => Ok(()),
-                Ok(Ok(Reply::Done { text, .. })) => Err(text),
-                Ok(other) => {
-                    log::info!("an ask did not reach {card}: {other:?}");
-                    Err(format!("The machine that runs {card} did not take it"))
-                }
-                Err(_) => Err(format!(
-                    "The machine that runs {card} did not answer in time"
-                )),
-            }
-        })
+            Some(_) = delivering.join_next() => {}
+            else => return,
+        }
     }
+}
+
+async fn deliver(offers: &Offers, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
+        let no_session = || format!("No session {card} runs on this mesh");
+        let (_, machine) = card.split_once('@').ok_or_else(no_session)?;
+        let mesh = offers.mesh.get().ok_or_else(no_session)?;
+        let machine = find(&mesh, machine).ok_or_else(no_session)?;
+
+        if machine.id == mesh.me() {
+            return here(&offers.agents, card, delivery, text).await;
+        }
+
+        let handed = Handed {
+            card: card.to_owned(),
+            delivery,
+            text,
+        };
+        let request = Request {
+            session: SessionId::default(),
+            tool: Tool::TeamDeliver,
+            args: serde_json::to_string(&handed).map_err(|e| e.to_string())?,
+            approved: Approved::No,
+        };
+
+        match timeout(LIMIT, over_the_mesh(&mesh, machine.id, &request)).await {
+            Ok(Ok(Reply::Done { failed: false, .. })) => Ok(()),
+            Ok(Ok(Reply::Done { text, .. })) => Err(text),
+            Ok(other) => {
+                log::info!("an ask did not reach {card}: {other:?}");
+                Err(format!("The machine that runs {card} did not take it"))
+            }
+            Err(_) => Err(format!(
+                "The machine that runs {card} did not answer in time"
+            )),
+        }
 }
 
 /// Puts what `from` handed into its session here, when that session works

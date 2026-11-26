@@ -9,7 +9,6 @@ use beep_proto::{
     SessionId,
     team::{AgentRef, Card, Target, TeamRepo},
 };
-use futures::future::BoxFuture;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -78,17 +77,6 @@ pub(crate) enum Delivery {
     Ask,
     /// The answer to the session's own ask: a note.
     Reply,
-}
-
-/// The sessions of this mesh, which asks and answers are handed to.
-pub(crate) trait Sessions: Send + Sync + 'static {
-    /// Puts `text` into the session `card` (`<session>@<machine>`) names.
-    fn deliver<'a>(
-        &'a self,
-        card: &'a str,
-        delivery: Delivery,
-        text: String,
-    ) -> BoxFuture<'a, Result<(), String>>;
 }
 
 /// `Tool::TeamAsk` from a session's node to its mesh's gateway: the ask as

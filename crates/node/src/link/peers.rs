@@ -98,6 +98,8 @@ pub(super) struct Inner {
     pub(super) follower: Mutex<Option<AbortOnDropHandle<()>>>,
     /// `beep-team/1`, served whether or not the node is in a mesh.
     pub(super) team: TeamLink,
+    /// Puts what the team link takes from teammates into sessions.
+    pub(super) _deliveries: AbortOnDropHandle<()>,
     /// Serves a stream once its protocol is known: set by the node's
     /// router, which this module does not import.
     pub(super) serve_protocol: ServeProtocol,

@@ -1,11 +1,35 @@
 use super::*;
 use crate::agents::tags::{Part, parts};
+use futures::future::BoxFuture;
 use crate::team::board::tests::{Pair, login, repo};
 use crate::team::link::TeamLink;
 use beep_proto::team::{Lane, TeamMsg, TeamRecord};
 use std::sync::{Arc, Mutex};
 
 const LIMIT: &str = "team_ask is limited to 10 messages an hour";
+
+/// Sessions of the mesh, which the team link hands asks and answers to.
+trait Sessions: Send + Sync + 'static {
+    fn deliver<'a>(
+        &'a self,
+        card: &'a str,
+        delivery: Delivery,
+        text: String,
+    ) -> BoxFuture<'a, Result<(), String>>;
+}
+
+/// Hands what `link` takes to `sessions`, the way the node's tools layer does.
+fn serve_sessions(link: &TeamLink, sessions: Arc<dyn Sessions>) {
+    let mut handoffs = link.handoffs();
+    tokio::spawn(async move {
+        while let Some(handoff) = handoffs.recv().await {
+            let delivered = sessions
+                .deliver(&handoff.card, handoff.delivery, handoff.text)
+                .await;
+            handoff.done.send(delivered).ok();
+        }
+    });
+}
 
 /// Sessions that keep what they are handed.
 #[derive(Default)]
@@ -56,7 +80,7 @@ async fn served() -> (Pair, Arc<Kept>) {
 /// The board's gateway, as `served` has it, handing to `sessions`.
 async fn serving(sessions: Arc<dyn Sessions>) -> Pair {
     let pair = Pair::new().await;
-    pair.gateway.serve_sessions(sessions);
+    serve_sessions(&pair.gateway, sessions);
     let bob = pair.bob.clone();
     pair.gateway.publish(|served| {
         served.boards.set(&repo(), Vec::new());
@@ -423,7 +447,7 @@ async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() 
 
     // Bob's device takes answers: it waits for one to that ask, from alice.
     let bobs_kept = Arc::new(Kept::default());
-    pair.bob_link.serve_sessions(bobs_kept.clone());
+    serve_sessions(&pair.bob_link, bobs_kept.clone());
     let _bobs_router = iroh::protocol::Router::builder(pair.bob_link.endpoint().clone())
         .accept(beep_proto::team::ALPN, pair.bob_link.handler())
         .spawn();

@@ -12,7 +12,7 @@ pub(crate) use super::served::Served;
 
 use super::{
     served::ServedBoards,
-    asks::{Asks, Sessions, not_served},
+    asks::{Asks, Delivery, not_served},
     home::{Home, Invites, TeamForge},
     proof::{PROOF_CONTEXTS, ProofError},
     roster::{Refusal, Rosters},
@@ -33,11 +33,11 @@ use iroh::{
 use std::{
     collections::BTreeMap,
     fmt,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
 use tokio::{
-    sync::{Notify, watch},
+    sync::{Notify, mpsc, oneshot, watch},
     time::{sleep, timeout},
 };
 
@@ -86,6 +86,19 @@ pub(super) struct Seen {
     pub(super) on_board: bool,
 }
 
+/// Asks queued for the follower of `TeamLink::handoffs`.
+const HANDOFFS: usize = 32;
+
+/// A text for a session of this mesh, taken from a teammate. The follower
+/// answers on `done` whether it reached the session.
+pub(crate) struct Handoff {
+    /// `<session>@<machine>`.
+    pub(crate) card: String,
+    pub(crate) delivery: Delivery,
+    pub(crate) text: String,
+    pub(crate) done: oneshot::Sender<Result<(), String>>,
+}
+
 /// The team link of this device, shared by its handler, its dialing and the
 /// task that follows the mesh.
 #[derive(Clone)]
@@ -108,8 +121,9 @@ struct Inner {
     /// The pickup queues the gateways handed this device, for its gateway
     /// loop to keep.
     queues: Mutex<BTreeMap<TeamRepo, Vec<u64>>>,
-    /// Where asks and their answers are handed, once the node runs sessions.
-    sessions: OnceLock<Arc<dyn Sessions>>,
+    /// Asks and answers taken, for the follower of `handoffs` to put into
+    /// sessions.
+    handing: Mutex<Option<mpsc::Sender<Handoff>>>,
     /// Rings when a roster or an invite waits for a desktop.
     waiting: Notify,
     /// Rings when an invite or a card was added, which may expire sooner than the next to.
@@ -129,7 +143,7 @@ impl TeamLink {
             served: ServedBoards::default(),
             invites: Mutex::default(),
             queues: Mutex::default(),
-            sessions: OnceLock::new(),
+            handing: Mutex::new(None),
             waiting: Notify::new(),
             expiring: Notify::new(),
             rostered: watch::channel(0).0,
@@ -158,15 +172,35 @@ impl TeamLink {
         self.inner.forge.as_ref()
     }
 
-    /// Hands asks and their answers to `sessions` from now on.
-    pub(crate) fn serve_sessions(&self, sessions: Arc<dyn Sessions>) {
-        if self.inner.sessions.set(sessions).is_err() {
-            log::warn!("the team link already serves sessions");
-        }
+    /// The asks and answers this link takes, for the sessions they are for.
+    /// One follower takes them: a call replaces the one before. Until there
+    /// is one, they are refused.
+    pub(crate) fn handoffs(&self) -> mpsc::Receiver<Handoff> {
+        let (sender, receiver) = mpsc::channel(HANDOFFS);
+        *crate::lock(&self.inner.handing) = Some(sender);
+        receiver
     }
 
-    pub(super) fn sessions(&self) -> Option<&dyn Sessions> {
-        self.inner.sessions.get().map(Arc::as_ref)
+    /// Hands `text` to the session on `card` and waits for the follower to
+    /// say whether it got there.
+    pub(super) async fn deliver(
+        &self,
+        card: &str,
+        delivery: Delivery,
+        text: String,
+    ) -> Result<(), String> {
+        let none = || "This device runs no sessions".to_owned();
+        let sender = crate::lock(&self.inner.handing).clone().ok_or_else(none)?;
+        let (done, delivered) = oneshot::channel();
+        let handoff = Handoff {
+            card: card.to_owned(),
+            delivery,
+            text,
+            done,
+        };
+        sender.send(handoff).await.map_err(|_| none())?;
+
+        delivered.await.unwrap_or_else(|_| Err(none()))
     }
 
     /// Reads or changes what the link knows. Keep `f` short: it holds the lock.

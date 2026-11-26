@@ -2,7 +2,7 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::mcp::{self, TeamSessions, peer_tools},
+    agents::mcp::{self, deliver_handoffs, peer_tools},
     agents::caller::Caller,
     agents::{AgentKind, Agents, SESSIONS_ALPN, skills::Skills},
     files::Folders,
@@ -530,7 +530,10 @@ impl Peers {
     pub fn new(endpoint: Endpoint, dir: PathBuf, name: String, offers: Offers) -> Self {
         let reach = offers.reach.clone();
         let team = TeamLink::new(endpoint.clone(), Arc::new(ForgeCli));
-        team.serve_sessions(Arc::new(TeamSessions(offers.clone())));
+        let deliveries = AbortOnDropHandle::new(tokio::spawn(deliver_handoffs(
+            offers.clone(),
+            team.handoffs(),
+        )));
         let inner = Arc::new(Inner {
             endpoint,
             dir,
@@ -541,6 +544,7 @@ impl Peers {
             active: Mutex::new(None),
             follower: Mutex::new(None),
             team,
+            _deliveries: deliveries,
             serve_protocol: serve_stream,
         });
         *crate::lock(&reach.0) = Arc::downgrade(&inner);

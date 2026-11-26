@@ -95,13 +95,6 @@ impl TeamLink {
             refused(reason)
         })
     }
-
-    async fn deliver(&self, card: &str, delivery: Delivery, text: String) -> Result<(), String> {
-        match self.sessions() {
-            Some(sessions) => sessions.deliver(card, delivery, text).await,
-            None => Err("This device runs no sessions".to_owned()),
-        }
-    }
 }
 
 /// Checks `ask` from `peer` and keeps it: its repository and the card of the

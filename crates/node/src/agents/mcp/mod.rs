@@ -46,7 +46,7 @@ mod transcripts;
 pub use super::calls::{SERVER_NAME, command_name};
 pub(crate) use desktop::answer as answer_projects;
 pub use super::desktop_call::ProjectTools;
-pub(crate) use team::{TeamSessions, answer as answer_team};
+pub(crate) use team::{answer as answer_team, deliver_handoffs};
 pub(crate) use server::Backend;
 use server::Called;
 
