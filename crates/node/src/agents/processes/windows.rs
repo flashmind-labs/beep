@@ -108,12 +108,6 @@ pub(super) async fn snapshot() -> anyhow::Result<HashMap<u32, Process>> {
     .await?
 }
 
-pub(super) fn alive(p: &Process) -> bool {
-    open(p.pid, PROCESS_QUERY_LIMITED_INFORMATION)
-        .and_then(|h| birth(&h))
-        .is_ok_and(|b| b == p.birth)
-}
-
 pub(super) fn signal(p: &Process, _kill: bool) -> io::Result<()> {
     let Ok(handle) = open(p.pid, PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE) else {
         return Ok(());

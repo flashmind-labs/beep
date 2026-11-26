@@ -5,11 +5,8 @@ use super::{Agents, found::Agent, text::valid_id};
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::{SessionInfo, Status};
 use beep_proto::watched;
-use std::{path::PathBuf, time::Duration};
-use tokio::{
-    task::spawn_blocking,
-    time::timeout,
-};
+use std::path::PathBuf;
+use tokio::task::spawn_blocking;
 
 impl Agents {
     /// Deletes session `id` of the harness `agent`, the agent's own id or
@@ -185,14 +182,16 @@ impl Agents {
     }
 }
 
-/// How long a process gets to exit after being asked to.
-const EXIT_WAIT: Duration = Duration::from_secs(5);
-
 /// Asks process `pid` to exit and waits for it; kills it when it does not.
 #[cfg(unix)]
 async fn end_process(pid: u32) -> Result<()> {
     use crate::events::exits::Exit;
     use rustix::process::{Pid, Signal, kill_process};
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    /// How long a process gets to exit after being asked to.
+    const EXIT_WAIT: Duration = Duration::from_secs(5);
 
     let target = i32::try_from(pid)
         .ok()
