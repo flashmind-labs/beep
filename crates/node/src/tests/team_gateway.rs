@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::start::team_repo_of;
+use crate::membership::team_repo_of;
 use crate::{
     machine::ci::projects::pinned,
     team::{
@@ -240,6 +240,64 @@ async fn a_folder_is_in_a_team_once_its_project_has_one() {
 
     assert!(in_team(&mesh, worktree));
     assert!(!in_team(&mesh, std::path::Path::new("/srv/other")));
+}
+
+#[tokio::test]
+async fn of_two_projects_on_one_repository_the_last_by_name_holds_the_team() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let project = ProjectRecord {
+        url: URL.to_owned(),
+        ..ProjectRecord::default()
+    };
+    for name in ["org/first", "org/second"] {
+        mesh.set(Key::Project(name.into()), Some(project.to_bytes().unwrap()))
+            .await
+            .unwrap();
+    }
+    let place = Place {
+        folder: "/srv/first".into(),
+        imported_ms: 0,
+        fork: None,
+    };
+    mesh.set(
+        Key::Project(format!("org/first/{}", mesh.me())),
+        Some(place.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
+    let mut team = TeamRecord::new(repo(), vec![]);
+    let mut mine = member("alice", mesh.me());
+    mine.mesh = mesh.id();
+    team.members.push(mine);
+    mesh.set(Key::Team(repo()), Some(rmp_serde::to_vec(&team).unwrap()))
+        .await
+        .unwrap();
+    let folder = std::path::Path::new("/srv/first");
+
+    // The later project has no checkout here and still takes the repository.
+    assert!(!in_team(&mesh, folder));
+
+    let place = Place {
+        folder: "/srv/second".into(),
+        ..place
+    };
+    mesh.set(
+        Key::Project(format!("org/second/{}", mesh.me())),
+        Some(place.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
+
+    assert!(in_team(&mesh, std::path::Path::new("/srv/second")));
+    assert!(!in_team(&mesh, folder));
 }
 
 #[tokio::test]

@@ -2,9 +2,17 @@
 //! to use: credentials and the servers they name.
 
 use beep_mesh::{Key, Mesh};
-use beep_proto::node::{MachineCredentials, mesh_state::{Credential, StateValue}};
-use beep_proto::watched;
-use std::sync::Arc;
+use beep_proto::node::{
+    MachineCredentials,
+    mesh_state::{Credential, Place, ProjectRecord, StateValue},
+};
+use beep_proto::{lenient, team::{TeamRecord, TeamRepo}, watched};
+use iroh::EndpointId;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tokio::sync::watch;
 
 /// The mesh the node belongs to, once it does.
@@ -76,4 +84,71 @@ pub(crate) fn credentials(mesh: &Mesh) -> MachineCredentials {
     }
 
     out
+}
+
+/// Whether `record` names this mesh: one a teammate removed it from does
+/// not, and is as good as left until a desktop deletes it.
+pub(crate) fn on_team(record: &TeamRecord, mesh: &Mesh) -> bool {
+    record.members.iter().any(|member| member.mesh == mesh.id())
+}
+
+/// `repo`'s team as the mesh holds it, when this mesh is on it.
+pub(crate) fn team_record(mesh: &Mesh, repo: &TeamRepo) -> Option<TeamRecord> {
+    let bytes = mesh.get(&Key::Team(repo.clone()))?;
+    let record = lenient::from_slice::<TeamRecord>(&bytes).ok()?;
+
+    on_team(&record, mesh).then_some(record)
+}
+
+/// The repository of the team whose project has the checkout `folder` is
+/// in here: the project whose place on this machine holds `folder`, the
+/// deepest one when several do, and only while this mesh is on its team.
+pub(crate) fn team_repo_of(mesh: &Mesh, folder: &Path) -> Option<TeamRepo> {
+    let me = mesh.me();
+    let mut records = BTreeMap::new();
+    let mut here: BTreeMap<String, PathBuf> = BTreeMap::new();
+
+    for (key, bytes) in mesh.scan("project/") {
+        let Key::Project(name) = key else { continue };
+
+        if let Some((project, machine)) = name.rsplit_once('/')
+            && let Ok(machine) = machine.parse::<EndpointId>()
+            && let Ok(place) = Place::from_bytes(&bytes)
+        {
+            if machine == me {
+                here.insert(project.to_owned(), PathBuf::from(&place.folder));
+            }
+        } else if let Ok(record) = ProjectRecord::from_bytes(&bytes) {
+            records.insert(name, record);
+        }
+    }
+
+    // As the team link's home reads them: of two projects on one repository the last
+    // by name wins, whether or not it has a checkout here.
+    let projects: BTreeMap<TeamRepo, Option<PathBuf>> = records
+        .into_iter()
+        .filter_map(|(name, record)| {
+            let repo = record.url.parse::<TeamRepo>().ok()?;
+            Some((repo, here.remove(&name)))
+        })
+        .collect();
+    deepest(
+        folder,
+        projects.iter().map(|(repo, checkout)| (repo, checkout.as_deref())),
+    )
+        .filter(|repo| team_record(mesh, repo).is_some())
+}
+
+/// The repository whose checkout holds `folder`, the deepest checkout when several do.
+/// The team link's home and `team_repo_of` both pick by this rule.
+pub(crate) fn deepest<'a>(
+    folder: &Path,
+    projects: impl Iterator<Item = (&'a TeamRepo, Option<&'a Path>)>,
+) -> Option<TeamRepo> {
+    projects
+        .filter_map(|(repo, checkout)| Some((repo, checkout?)))
+        .filter(|(_, checkout)| folder.starts_with(checkout))
+        .map(|(repo, checkout)| (checkout.as_os_str().len(), repo))
+        .max()
+        .map(|(_, repo)| repo.clone())
 }

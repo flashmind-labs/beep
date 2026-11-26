@@ -103,10 +103,10 @@ impl PaletteCache {
         // The sessions follow the lists as changed: opened ones and removed places count.
         let sessions = self.sessions(app);
         let changed = {
+            let mut held = lock(&self.index);
             let built = app
                 .state::<PaletteStore>()
                 .read(|lists| index_json(lists, &sessions));
-            let mut held = lock(&self.index);
 
             match built {
                 Ok(index) if index != *held => {

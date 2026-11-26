@@ -3,7 +3,7 @@
 //! the link takes go to a desktop, since only desktops write the state.
 
 use crate::{
-    agents::start::team_record,
+    membership::{deepest, team_record},
     process::spawn_env,
     process::{tail, tool_command},
 };
@@ -122,14 +122,12 @@ impl Home {
 
     /// The repository of the project whose checkout here holds `folder`.
     pub(crate) fn team_of(&self, folder: &Path) -> Option<TeamRepo> {
-        let held = self.projects.iter().filter_map(|(repo, project)| {
-            let checkout = &project.checkout.as_ref()?.folder;
-            folder
-                .starts_with(checkout)
-                .then(|| (checkout.as_os_str().len(), repo))
-        });
-
-        held.max().map(|(_, repo)| repo.clone())
+        deepest(
+            folder,
+            self.projects.iter().map(|(repo, project)| {
+                (repo, project.checkout.as_ref().map(|checkout| checkout.folder.as_path()))
+            }),
+        )
     }
 
     pub(crate) fn devices(&self, repo: &TeamRepo) -> Vec<EndpointAddr> {

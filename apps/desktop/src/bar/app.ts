@@ -1,5 +1,6 @@
 import "../agents/copy-markdown.ts";
 import "./bar-app.tsx";
+import "../center/screens.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.tsx";
 import { openSession } from "../agents/open-state.ts";
 import "../chat/diagrams.tsx";

@@ -772,7 +772,7 @@ impl Agents {
         };
         let team = self
             .mesh()
-            .and_then(|mesh| super::start::team_repo_of(&mesh, &cwd));
+            .and_then(|mesh| crate::membership::team_repo_of(&mesh, &cwd));
         let brief = match team {
             Some(_) => Some(Cow::Owned(match brief {
                 Some(brief) => format!("{brief}\n\n{}", super::brief::TEAM),

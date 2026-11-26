@@ -7,14 +7,8 @@ use super::{
 };
 use crate::machine::wsl;
 use anyhow::Result;
-use beep_mesh::{Key, Mesh};
-use beep_proto::{
-    lenient,
-    node::mesh_state::{Place, ProjectRecord, StateValue},
-    team::{TeamRecord, TeamRepo},
-};
-use iroh::EndpointId;
-use std::{collections::BTreeMap, future::Future, path::{Path, PathBuf}};
+use beep_proto::team::TeamRepo;
+use std::future::Future;
 use url::Url;
 use tokio::{
     io::DuplexStream,
@@ -115,60 +109,6 @@ where
             started: Some(started),
         },
     })
-}
-
-/// Whether `record` names this mesh: one a teammate removed it from does
-/// not, and is as good as left until a desktop deletes it.
-pub(crate) fn on_team(record: &TeamRecord, mesh: &Mesh) -> bool {
-    record.members.iter().any(|member| member.mesh == mesh.id())
-}
-
-/// `repo`'s team as the mesh holds it, when this mesh is on it.
-pub(crate) fn team_record(mesh: &Mesh, repo: &TeamRepo) -> Option<TeamRecord> {
-    let bytes = mesh.get(&Key::Team(repo.clone()))?;
-    let record = lenient::from_slice::<TeamRecord>(&bytes).ok()?;
-
-    on_team(&record, mesh).then_some(record)
-}
-
-/// The repository of the team whose project has the checkout `folder` is
-/// in here: the project whose place on this machine holds `folder`, the
-/// deepest one when several do, and only while this mesh is on its team.
-pub(crate) fn team_repo_of(mesh: &Mesh, folder: &Path) -> Option<TeamRepo> {
-    let me = mesh.me();
-    let mut records = BTreeMap::new();
-    let mut here: BTreeMap<String, PathBuf> = BTreeMap::new();
-
-    for (key, bytes) in mesh.scan("project/") {
-        let Key::Project(name) = key else { continue };
-
-        if let Some((project, machine)) = name.rsplit_once('/')
-            && let Ok(machine) = machine.parse::<EndpointId>()
-            && let Ok(place) = Place::from_bytes(&bytes)
-        {
-            if machine == me {
-                here.insert(project.to_owned(), PathBuf::from(&place.folder));
-            }
-        } else if let Ok(record) = ProjectRecord::from_bytes(&bytes) {
-            records.insert(name, record);
-        }
-    }
-
-    let projects: BTreeMap<TeamRepo, PathBuf> = records
-        .into_iter()
-        .filter_map(|(name, record)| {
-            let repo = record.url.parse::<TeamRepo>().ok()?;
-            Some((repo, here.remove(&name)?))
-        })
-        .collect();
-    let held = projects
-        .iter()
-        .filter(|(_, checkout)| folder.starts_with(checkout))
-        .map(|(repo, checkout)| (checkout.as_os_str().len(), repo));
-
-    held.max()
-        .map(|(_, repo)| repo.clone())
-        .filter(|repo| team_record(mesh, repo).is_some())
 }
 
 /// Whether `url` is the web page of issue `number` of `repo`, as the forge
