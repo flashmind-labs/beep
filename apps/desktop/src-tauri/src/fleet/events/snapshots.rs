@@ -84,7 +84,7 @@ impl Snapshots {
         wanted: &mut BTreeMap<EndpointId, Vec<Topic>>,
         online: &[EndpointId],
     ) {
-        let holds = self.holds.borrow().clone();
+        let holds = watched::read_sent(&self.holds, Clone::clone);
 
         for (machine, topic) in holds {
             if online.contains(&machine) {
