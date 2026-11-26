@@ -1,10 +1,11 @@
 //! Starting, finding and stopping the sessions this node runs.
 
+use crate::machine::env::locate::folder;
 use super::{
     AgentKind, Agents, Answered, Asking, Command, Session, Start, checkout,
     harnesses,
     live::Sent,
-    locate::folder, machine_list, models, plans, projects,
+    machine_list, models, plans, projects,
     session::{Begin, History},
     sessions::{self, new_id},
 };

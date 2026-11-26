@@ -5,9 +5,8 @@
 //! Windows.
 
 use crate::{
-    agents::locate,
     lock,
-    machine::env,
+    machine::env::{self, locate},
     machine::spawn_env::{self, Scope},
     run::process::{self, GroupLeader, STOP_GRACE},
 };

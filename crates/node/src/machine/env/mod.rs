@@ -4,10 +4,10 @@
 mod apps;
 mod gpu;
 mod latest;
+pub(crate) mod locate;
 
 pub(crate) use latest::{Probes, changed, fresh, machine};
 
-use crate::agents::locate;
 use crate::files::syncthing::Syncthing;
 use crate::machine::spawn_env::{self, Scope};
 use beep_proto::node::harness::parse_version;

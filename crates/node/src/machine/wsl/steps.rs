@@ -3,7 +3,7 @@
 //! Inside a distribution everything runs in its `sh`.
 
 use super::distro::{self, DistroName, Found, LinuxPath, Listed};
-use crate::agents::locate::{HOME_BINS, NODE_VERSIONS, SYSTEM_BINS};
+use crate::machine::env::locate::{HOME_BINS, NODE_VERSIONS, SYSTEM_BINS};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::harness::HARNESSES;
 use std::{ffi::OsString, process::Stdio, time::Duration};

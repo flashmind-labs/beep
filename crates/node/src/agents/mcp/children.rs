@@ -761,7 +761,7 @@ async fn find_persona(at: String, name: String, harness: String) -> Result<Custo
     let home = dirs::home_dir();
 
     tokio::task::spawn_blocking(move || {
-        let folder = crate::agents::locate::folder(Some(&at)).map_err(|e| format!("{e:#}"))?;
+        let folder = crate::machine::env::locate::folder(Some(&at)).map_err(|e| format!("{e:#}"))?;
         crate::agents::custom_agents::persona(&folder, home.as_deref(), &name, &harness)
     })
     .await

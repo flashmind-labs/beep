@@ -12,7 +12,7 @@ use std::{
 
 /// Where `program` is: on `PATH`, or in the usual install folders under
 /// `home`. `None` when neither has it.
-pub(super) fn find(program: &str, home: Option<&Path>) -> Option<PathBuf> {
+pub(crate) fn find(program: &str, home: Option<&Path>) -> Option<PathBuf> {
     which::which(program)
         .ok()
         .or_else(|| fallback(program, home?))
@@ -36,7 +36,7 @@ pub(crate) fn fallback(program: &str, home: &Path) -> Option<PathBuf> {
 /// `PATH` with the folders of `programs` (found under `home` or in the
 /// node's folder rather than on `PATH`) in front, first first, so what they
 /// start, such as `node`, is found beside them.
-pub(super) fn path_with(programs: &[&Path]) -> Option<OsString> {
+pub(crate) fn path_with(programs: &[&Path]) -> Option<OsString> {
     let current = env::var_os("PATH").unwrap_or_default();
     let mut dirs: Vec<PathBuf> = Vec::new();
 
@@ -125,7 +125,7 @@ fn newest_first(versions: &Path) -> Vec<PathBuf> {
 }
 
 #[cfg(all(test, unix))]
-#[path = "../tests/agents_locate.rs"]
+#[path = "../../tests/machine_env_locate.rs"]
 mod tests;
 
 /// The folder a session runs in: `cwd`, with `~` for the home folder, or

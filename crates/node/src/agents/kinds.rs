@@ -1,9 +1,10 @@
 //! The agents a node knows how to start, and how it starts them.
 
 use super::{
-    adapters, locate,
+    adapters,
     known::{Adapter, KNOWN, Known},
 };
+use crate::machine::env::locate;
 use beep_proto::ModelId;
 use beep_proto::node::harness::{AutoCompact, ModelCompact};
 use serde::{Deserialize, Serialize};

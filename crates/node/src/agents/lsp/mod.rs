@@ -3,8 +3,11 @@
 mod client;
 
 use self::client::{Client, ERR_CONTENT_MODIFIED, ERR_SERVER_CANCELLED, RpcError};
-use super::{locate, work_folder::WorkRoot};
-use crate::{AsyncMutex, machine::spawn_env};
+use super::work_folder::WorkRoot;
+use crate::{
+    AsyncMutex,
+    machine::{env::locate, spawn_env},
+};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{LspDefinitions, RelPath};
 use std::{

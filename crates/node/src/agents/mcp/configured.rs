@@ -3,7 +3,8 @@
 mod fields;
 
 use super::SERVER_NAME;
-use crate::agents::{Agents, found, kinds, locate};
+use crate::agents::{Agents, found, kinds};
+use crate::machine::env::locate;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::{
     SecretText,

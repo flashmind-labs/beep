@@ -59,7 +59,6 @@ host! {
     mod known;
     mod launch;
     mod live;
-    pub(crate) mod locate;
     pub(crate) mod machine_list;
     pub(crate) mod projects;
     mod lsp;
@@ -124,7 +123,7 @@ host! {
     use images::Images;
     use known::{Adapter, KNOWN, known, route};
     use models::ModelCache;
-    use locate::folder;
+    use crate::machine::env::locate::folder;
     use session::Begin;
     use session::{Command, Session, Start};
     use spend::Spend;
