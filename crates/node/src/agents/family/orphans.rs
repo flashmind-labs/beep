@@ -20,12 +20,12 @@ use beep_proto::{SessionId, watched};
 use iroh::EndpointId;
 use std::{
     future::{Future, pending},
-    sync::{Arc, OnceLock},
+    sync::Arc,
     time::Duration,
 };
 use tokio::{
     select,
-    sync::{Notify, mpsc},
+    sync::{Notify, SetOnce, mpsc, watch},
     time::{Instant, sleep, sleep_until},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -34,6 +34,8 @@ use tokio_util::task::AbortOnDropHandle;
 pub(super) const ORPHAN_CHECK: Duration = Duration::from_secs(60);
 /// How long a follow waits before it dials a machine that dropped again.
 const REDIAL: Duration = Duration::from_secs(5);
+/// How long an ask that got no answer waits before it is asked again.
+const REASK: Duration = Duration::from_secs(5);
 /// How long the parent may be gone or silent before the child closes: long
 /// enough for a restart of its node, which resumes it.
 pub(super) const ORPHAN_AFTER: Duration = Duration::from_secs(600);
@@ -88,26 +90,52 @@ pub(super) fn word(sessions: &[SessionInfo], last: &mut Option<SessionInfo>, lin
     Word::Moved
 }
 
-/// Asks whether the parent still keeps the child once `moved` rang, then lets
-/// `ORPHAN_CHECK` pass before the next ask: a burst of row changes is one ask,
-/// sent after the pause. Ends when `ask` has no one to ask or `tx` is closed.
+/// Asks whether the parent still keeps the child once `moved` rang, no
+/// sooner than `ORPHAN_CHECK` after the last ask (kept across redials: this
+/// runs for as long as the child is followed), so a burst of row changes is
+/// one ask. An ask that gets no answer is a failed call: it is asked again
+/// after `REASK` until it is answered or `there` says the parent is gone.
+/// Ends when `ask` has no one to ask or `tx` is closed.
 pub(super) async fn asks<F: Future<Output = Option<Parent>>>(
     moved: &Notify,
+    mut there: watch::Receiver<bool>,
     mut ask: impl FnMut() -> F,
     tx: &mpsc::Sender<Parent>,
 ) {
+    let mut last: Option<Instant> = None;
+
     loop {
         moved.notified().await;
 
-        let Some(answer) = ask().await else {
-            return;
-        };
-
-        if tx.send(answer).await.is_err() {
-            return;
+        if let Some(at) = last {
+            sleep_until(at + ORPHAN_CHECK).await;
         }
 
-        sleep(ORPHAN_CHECK).await;
+        loop {
+            last = Some(Instant::now());
+
+            let Some(answer) = ask().await else {
+                return;
+            };
+            let unanswered = answer == Parent::Silent;
+
+            if tx.send(answer).await.is_err() {
+                return;
+            }
+
+            if !unanswered {
+                break;
+            }
+
+            select! {
+                () = sleep(REASK) => {}
+                gone = watched::wait_for(&mut there, |there| !*there) => if gone.is_err() { return },
+            }
+
+            if !watched::read(&there, |there| *there) {
+                break;
+            }
+        }
     }
 }
 
@@ -184,7 +212,7 @@ impl Agents {
 /// The child's side: follows `peer`'s word on the parent until the child
 /// ends, and closes it when it is orphaned.
 async fn check_parent(
-    membership: Arc<OnceLock<Membership>>,
+    membership: Arc<SetOnce<Membership>>,
     session: std::sync::Weak<Session>,
     mut live: tokio::sync::watch::Receiver<super::Live>,
     peer: EndpointId,
@@ -212,17 +240,37 @@ async fn check_parent(
 
 /// Tells `tx` how the parent stands: from each list `peer` pushes, and
 /// silent while the machine is away. Ends when the child's side does.
-async fn feed(
-    membership: Arc<OnceLock<Membership>>,
+pub(super) async fn feed(
+    membership: Arc<SetOnce<Membership>>,
     session: std::sync::Weak<Session>,
     peer: EndpointId,
     link: ParentLink,
     tx: mpsc::Sender<Parent>,
 ) {
-    let Some(membership) = membership.get().cloned() else {
-        return;
-    };
+    // The node may not serve its mesh yet: the check waits for it.
+    let membership = membership.wait().await.clone();
     let mut meshes = membership.subscribe();
+    let (moved, there) = (Arc::new(Notify::new()), watch::channel(true).0);
+    // Asks for as long as the child is followed, so the pacing of its asks
+    // holds over redials.
+    let asker = {
+        let (moved, there, tx, session) = (moved.clone(), there.subscribe(), tx.clone(), session.clone());
+        let (meshes, link) = (meshes.clone(), link.clone());
+
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            let ask = || async {
+                let session = session.upgrade()?;
+                let Some(mesh) = watched::read(&meshes, Clone::clone) else {
+                    return Some(Parent::Silent);
+                };
+                let name = Agents::name_of(&session);
+
+                Some(super::peer::ask_parent(&mesh, peer, &link.session, &name, &session.id).await)
+            };
+
+            asks(&moved, there, ask, &tx).await;
+        }))
+    };
 
     loop {
         let mesh = watched::read(&meshes, Clone::clone);
@@ -257,7 +305,7 @@ async fn feed(
             continue;
         }
 
-        match follow(&mesh, &session, peer, &link, &tx).await {
+        match follow(&mesh, peer, &link, &tx, Rings { moved: &moved, there: &there, asker: &asker }).await {
             Err(e) if e.downcast_ref::<Refused>().is_some() => {
                 // Compat, until nodes before 0.8.28 are gone: it does not
                 // serve its list to a node, so it is asked.
@@ -277,34 +325,26 @@ async fn feed(
     }
 }
 
+/// What `follow` rings for the asker `feed` keeps.
+struct Rings<'a> {
+    moved: &'a Notify,
+    /// Whether the parent is in the list, for an ask that is retried.
+    there: &'a watch::Sender<bool>,
+    asker: &'a AbortOnDropHandle<()>,
+}
+
 /// Passes on what each list `peer` pushes says of the parent, until the
-/// stream ends: asking `peer` once whenever the parent's row changes whether
-/// it still keeps the child. `Ok` when the child's side is gone.
+/// stream ends: ringing the asker when the parent's row changes. `Ok` when
+/// the child's side is gone.
 async fn follow(
     mesh: &Mesh,
-    session: &std::sync::Weak<Session>,
     peer: EndpointId,
     link: &ParentLink,
     tx: &mpsc::Sender<Parent>,
+    rings: Rings<'_>,
 ) -> Result<()> {
     let mut watch = PeerWatch::open(mesh, peer, Topic::new("agents")).await?;
     let mut last = None;
-    let moved = Arc::new(Notify::new());
-    let asker = {
-        let (moved, tx, session) = (moved.clone(), tx.clone(), session.clone());
-        let (mesh, link) = (mesh.clone(), link.clone());
-        // Stops with this follow.
-        AbortOnDropHandle::new(tokio::spawn(async move {
-            let ask = || async {
-                let session = session.upgrade()?;
-                let name = Agents::name_of(&session);
-
-                Some(super::peer::ask_parent(&mesh, peer, &link.session, &name, &session.id).await)
-            };
-
-            asks(&moved, ask, &tx).await;
-        }))
-    };
 
     loop {
         let Value::Sessions(reply) = watch.next().await? else {
@@ -316,15 +356,20 @@ async fn follow(
 
         match word(&sessions, &mut last, link) {
             Word::Gone => {
+                rings.there.send_replace(false);
+
                 if tx.send(Parent::Gone).await.is_err() {
                     return Ok(());
                 }
             }
-            Word::Moved => moved.notify_one(),
+            Word::Moved => {
+                rings.there.send_replace(true);
+                rings.moved.notify_one();
+            }
             Word::Same => {}
         }
 
-        if asker.is_finished() {
+        if rings.asker.is_finished() {
             return Ok(());
         }
     }

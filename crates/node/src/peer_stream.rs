@@ -161,12 +161,19 @@ impl PeerWatch {
                     return Ok(snapshot.value);
                 }
                 Reply::Error { reason, .. } | Reply::SnapshotError { reason, .. } => {
-                    return Err(Refused(reason).into());
+                    return Err(said_error(&reason));
                 }
                 Reply::Ready | Reply::Watching { .. } | Reply::Pong { .. } => {}
             }
         }
     }
+}
+
+/// An error the machine sent on a stream it opened: a failed read, a full
+/// cache or too many watches. It says nothing of its version, so it is not
+/// `Refused` and the stream is dialed again.
+pub(crate) fn said_error(reason: &str) -> anyhow::Error {
+    anyhow::anyhow!("the machine reported an error: {reason}")
 }
 
 /// Sends `request` to the machine `peer` over `tools/1` and reads its reply.

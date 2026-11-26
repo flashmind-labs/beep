@@ -29,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     future::Future,
-    sync::{Arc, Mutex, OnceLock, Weak},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use tokio::{
@@ -303,7 +303,7 @@ struct Child {
 
 /// Follows a child's state and sends a note for each turn it finishes, each
 /// time it starts to ask and each stop by the user, until it ends.
-async fn follow(child: Child, to: To, membership: Arc<OnceLock<Membership>>) {
+async fn follow(child: Child, to: To, membership: Arc<tokio::sync::SetOnce<Membership>>) {
     let Child {
         id: key,
         mut live,

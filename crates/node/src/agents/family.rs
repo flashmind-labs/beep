@@ -20,11 +20,12 @@ use iroh::EndpointId;
 use std::{
     collections::HashMap,
     str::FromStr,
-    sync::{Arc, Mutex, OnceLock, Weak},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::sync::{
+    SetOnce,
     mpsc::{UnboundedReceiver, UnboundedSender},
     watch,
 };
@@ -59,7 +60,7 @@ pub(crate) const NO_AGENT: &str = "You have no agent";
 #[derive(Default)]
 pub(super) struct Family {
     remote: Arc<Mutex<Vec<RemoteKid>>>,
-    membership: Arc<OnceLock<Membership>>,
+    membership: Arc<SetOnce<Membership>>,
     /// Per parent with children elsewhere, the task that stops them when it
     /// ends for good.
     watchers: Mutex<HashMap<SessionId, AbortOnDropHandle<()>>>,
