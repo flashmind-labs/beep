@@ -17,7 +17,8 @@ import { single } from "../ui/active.ts";
 import type { Pushed } from "../ui/snapshot-state.ts";
 import { prSession } from "../project/pr-session.ts";
 
-const homeButtons = agentButtons(() => homeDataChanged.notify());
+const redrawHome = () => homeDataChanged.notify();
+const homeButtons = agentButtons(redrawHome);
 
 /// Review with agent on a PR of `project`: starts the reviewer at once in
 /// the project's checkout, on an online machine with it. Review again goes
@@ -39,7 +40,7 @@ export function reviewButton(item: GitItemRow, project: StartProject, machines: 
 /// Continue opens the session that created the PR. Work on PR starts a session on its branch.
 export function continueButton(item: GitItemRow, project: StartProject, machines: Hosts): AgentButtonItem {
   const machine = projectStart(project, machines).machine;
-  const session = prSession(item.url, () => homeDataChanged.notify());
+  const session = prSession(item.url, redrawHome);
   return homeButtons(`continue ${item.url}`, {
     project: project.name, machine, choose: true, label: "Work on PR", hint: "Start an agent on this pull request's branch",
     session: session === "checking" ? { kind: "checking" } : session

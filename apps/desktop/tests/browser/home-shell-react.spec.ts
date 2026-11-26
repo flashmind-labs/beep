@@ -68,6 +68,34 @@ test("Home lists pull requests and issues as a card per repository, with their b
   expect(await long.evaluate(body => body.scrollHeight > body.clientHeight)).toBe(true);
 });
 
+test("Home PRs and issues defers desktop PR session lookups until hover and handles many authored PRs on phone without freezing", async ({ page }) => {
+  const prs = Array.from({ length: 24 }, (_, index) => ({
+    host: "example.test", repo: "example/widget", number: index + 1, title: `Authored PR ${index + 1}`,
+    kind: "pull_request", url: `https://example.test/example/widget/pull/${index + 1}`, updated_at: 1000 - index,
+    authored: true, assigned: false, review_requested: false, draft: false, review: "none", checks_failing: false, labels: [],
+  }));
+  await openDesktop(page, false, { git_items: { hosts: [{ error: null }], items: prs }, agent_hosts: [], center_find_prompts: [] });
+  await page.getByRole("tab", { name: "PRs and issues" }).click();
+  await expect(page.locator("#sec-git .it")).toHaveCount(24);
+
+  // Desktop does not start PR session lookups for unhovered rows.
+  const lookups = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "center_find_prompts").map(call => call.args.query));
+  expect(await lookups()).toEqual([]);
+
+  const first = page.locator("#sec-git .it", { hasText: "Authored PR 1" }).first();
+  await first.hover();
+  await expect(first.getByRole("button", { name: "Work on PR", exact: true })).toBeVisible();
+  expect(await lookups()).toEqual(["https://example.test/example/widget/pull/1"]);
+
+  // Phone layout mounts row actions up front and resolves all 24 authored PRs without an exponential redraw storm.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openDesktop(page, false, { git_items: { hosts: [{ error: null }], items: prs }, agent_hosts: [], center_find_prompts: [] });
+  await page.getByRole("tab", { name: "PRs and issues" }).click();
+  await expect(page.locator("#sec-git .it")).toHaveCount(24);
+  await expect(page.locator("#sec-git .it").first().getByRole("button", { name: "Work on PR", exact: true })).toBeVisible();
+  expect((await lookups()).length).toBe(24);
+});
+
 test("Home keeps pull requests and issues to this week or one day, a day back at a time", async ({ page }) => {
   // A Thursday at noon: Monday of its week is three days back.
   const now = new Date(2026, 0, 15, 12).getTime(), hour = 3_600_000;

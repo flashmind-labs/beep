@@ -5,6 +5,7 @@ import { Icon } from "../ui/icons.tsx";
 import { AgentButton, type AgentButtonItem } from "../review/feedback-view.tsx";
 import { Button } from "../ui/kit.tsx";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
+import { isMobile } from "../ui/platform.ts";
 import { itemChips, itemTime, type GitItemRow, type GitSort } from "../center/openitems-state.ts";
 import { agentLabel, foundSessions, type FoundRow } from "./projects-state.ts";
 
@@ -51,10 +52,16 @@ function RepoLines({ repo, open }: { repo: RepoLine; open(url: string): void }) 
 
 /// An open PR or issue, with its age from `at`. `repo` names its repository when the list mixes them.
 function ItemLine({ item, repo, at, start, open }: { item: GitItemRow; repo: string | null; at: number; start: ItemStart | null; open(url: string): void }) {
-  return <div className={repo ? "pl-row it flat" : "pl-row it"} onClick={() => open(item.url)}>
+  // Desktop hides a row's actions until hover or focus; mounting them on first interaction
+  // avoids launching PR session lookups and review scans for hundreds of untouched rows.
+  const [activated, setActivated] = useState(false);
+  const showActs = start && !activated ? () => setActivated(true) : undefined;
+  const renderActs = !!start && (activated || isMobile());
+
+  return <div className={repo ? "pl-row it flat" : "pl-row it"} onClick={() => open(item.url)} onPointerEnter={showActs} onMouseEnter={showActs} onFocus={showActs}>
     <span className="ic"><Icon name={item.kind === "pull_request" ? "pr" : "issue"} /></span>
     <button type="button" className="t" title={item.url}>{repo && <span className="dim">{repo}</span>}<span className="num">#{item.number}</span><b>{item.title}</b>{item.labels?.map(label => <i key={label} className="pj-tag">{label}</i>)}</button>
-    <span className="r">{itemChips(item).map((chip, index) => <span className={chip.cls ? `chip ${chip.cls}` : "chip"} key={`${chip.text}:${index}`}>{chip.text}</span>)}<span className="age">{at ? formatAgo(at, "short") : ""}</span>{start && <span className="acts">{item.kind === "pull_request" && <span style={{ display: "contents" }} onClick={event => event.stopPropagation()}>{item.authored && <AgentButton item={start.continue(item)} />}<AgentButton item={start.review(item)} /></span>}<Button look="quiet" small aria-label={`More for #${item.number}`} aria-haspopup="menu" onClick={event => act(event, () => openMenu(event.nativeEvent, `#${item.number}`, start.menu(item)))}>&#8943;</Button></span>}</span>
+    <span className="r">{itemChips(item).map((chip, index) => <span className={chip.cls ? `chip ${chip.cls}` : "chip"} key={`${chip.text}:${index}`}>{chip.text}</span>)}<span className="age">{at ? formatAgo(at, "short") : ""}</span>{renderActs && <span className="acts">{item.kind === "pull_request" && <span style={{ display: "contents" }} onClick={event => event.stopPropagation()}>{item.authored && <AgentButton item={start.continue(item)} />}<AgentButton item={start.review(item)} /></span>}<Button look="quiet" small aria-label={`More for #${item.number}`} aria-haspopup="menu" onClick={event => act(event, () => openMenu(event.nativeEvent, `#${item.number}`, start.menu(item)))}>&#8943;</Button></span>}</span>
   </div>;
 }
 

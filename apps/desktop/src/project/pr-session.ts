@@ -52,23 +52,48 @@ const RETRY_MS = 60_000;
 type Lookup =
   | { kind: "checking"; listeners: Set<() => void> }
   | { kind: "checked"; session: AgentSession | null; at: number };
-const lookups = new Map<string, Lookup>();
+
+/// Shared PR-to-session lookup cache. Misses retry after `RETRY_MS` as recent
+/// transcripts reach the search index or another machine reconnects; found
+/// sessions stay cached and simultaneous completions coalesce redraws.
+export function createPrSessionLookup(
+  find: (url: string) => Promise<AgentSession | null> = findSession,
+  now: () => number = () => Date.now(),
+) {
+  const lookups = new Map<string, Lookup>();
+  const pendingRedraws = new Set<() => void>();
+  let redrawScheduled = false;
+
+  function scheduleRedraws(listeners: Iterable<() => void>) {
+    for (const listener of listeners) pendingRedraws.add(listener);
+    if (redrawScheduled) return;
+    redrawScheduled = true;
+    queueMicrotask(() => {
+      redrawScheduled = false;
+      const batch = [...pendingRedraws];
+      pendingRedraws.clear();
+      for (const listener of batch) listener();
+    });
+  }
+
+  return function prSession(url: string, redraw: () => void): AgentSession | "checking" | null {
+    const saved = lookups.get(url);
+    if (saved?.kind === "checked" && (saved.session !== null || now() - saved.at < RETRY_MS)) return saved.session;
+    if (saved?.kind === "checking") {
+      saved.listeners.add(redraw);
+      return "checking";
+    }
+
+    const listeners = new Set([redraw]);
+    lookups.set(url, { kind: "checking", listeners });
+    void find(url).catch(() => null).then(session => {
+      lookups.set(url, { kind: "checked", session, at: now() });
+      scheduleRedraws(listeners);
+    });
+    return "checking";
+  };
+}
 
 /// One lookup shared by Home and the project page. A miss can be retried as
 /// recent transcripts reach the search index or another machine reconnects.
-export function prSession(url: string, redraw: () => void): AgentSession | "checking" | null {
-  const saved = lookups.get(url);
-  if (saved?.kind === "checked" && Date.now() - saved.at < RETRY_MS) return saved.session;
-  if (saved?.kind === "checking") {
-    saved.listeners.add(redraw);
-    return "checking";
-  }
-
-  const listeners = new Set([redraw]);
-  lookups.set(url, { kind: "checking", listeners });
-  void findSession(url).catch(() => null).then(session => {
-    lookups.set(url, { kind: "checked", session, at: Date.now() });
-    for (const listener of listeners) listener();
-  });
-  return "checking";
-}
+export const prSession = createPrSessionLookup();
