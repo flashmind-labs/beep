@@ -1,7 +1,10 @@
 //! Read projections owned by the currently demanded node streams.
 
 use beep_mesh::{FollowFuture, Hold, MeshError, SnapshotFuture, SnapshotReader};
-use beep_proto::node::events::{self, Query, Read, Snapshot, Topic, Value};
+use beep_proto::node::events::{
+    self, MOVE_PROGRESS_TOPIC, Query, Read, Snapshot, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic,
+    Value,
+};
 use beep_proto::watched;
 use iroh::EndpointId;
 use std::{
@@ -75,6 +78,8 @@ pub(crate) struct Snapshots {
     held: Mutex<Held>,
     /// What the nodes say, for the bell and the team pages to follow.
     heard: broadcast::Sender<Heard>,
+    /// The last thing said on each followed topic, for a follower that missed some to read again.
+    latest: Mutex<HashMap<(EndpointId, Topic), Heard>>,
     changed: watch::Sender<()>,
     /// The topics waits on a node hold open, whatever views are open, one entry per hold.
     holds: watch::Sender<Vec<(EndpointId, Topic)>>,
@@ -105,6 +110,7 @@ impl Default for Snapshots {
         Self {
             held: Mutex::default(),
             heard: broadcast::channel(HEARD_BACKLOG).0,
+            latest: Mutex::default(),
             changed: watch::channel(()).0,
             holds: watch::channel(Vec::new()).0,
         }
@@ -117,8 +123,29 @@ const HEARD_BACKLOG: usize = 1024;
 impl Snapshots {
     /// Tells the followers what a node said.
     pub(super) fn tell(&self, heard: Heard) {
+        // Only what the bell and the team pages follow goes through: a busy topic such as a
+        // terminal screen never fills the backlog.
+        if !followed(&heard.topic) {
+            return;
+        }
+
+        self.latest
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert((heard.machine, heard.topic.clone()), heard.clone());
         // No follower is no news to anyone.
         let _ = self.heard.send(heard);
+    }
+
+    /// What each machine last said on each followed topic: a follower that was told it missed
+    /// some takes its state from here.
+    pub(crate) fn latest(&self) -> Vec<Heard> {
+        self.latest
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn heard(&self) -> broadcast::Receiver<Heard> {
@@ -173,7 +200,20 @@ impl Snapshots {
             changed |= before != machine.entries.len();
         }
 
+        let kept: Vec<(EndpointId, Vec<Topic>)> = held
+            .machines
+            .iter()
+            .map(|(id, machine)| (*id, machine.topics.clone()))
+            .collect();
         drop(held);
+
+        self.latest
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(id, topic), _| {
+                kept.iter()
+                    .any(|(kept, topics)| kept == id && demanded(topic, topics))
+            });
 
         if changed {
             self.changed.send_replace(());
@@ -429,6 +469,14 @@ impl Snapshots {
         }
         swept
     }
+}
+
+/// Whether the bell or the team pages follow what a node says on `topic`.
+fn followed(topic: &Topic) -> bool {
+    matches!(
+        topic.name(),
+        "sync" | "moves" | MOVE_PROGRESS_TOPIC | TEAM_CARDS_TOPIC | TEAM_INVITES_TOPIC
+    )
 }
 
 fn demanded(source: &Topic, wanted: &[Topic]) -> bool {

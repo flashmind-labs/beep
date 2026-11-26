@@ -511,6 +511,11 @@ impl Fleet {
         self.snapshots.heard()
     }
 
+    /// What each node last said on the topics `heard` carries, for a follower that lagged.
+    pub(crate) fn heard_latest(&self) -> Vec<events::Heard> {
+        self.snapshots.latest()
+    }
+
     /// Wakes on each change to the mesh or to its list of machines.
     pub(crate) fn changes(&self) -> Changes {
         let mut opened = self.mesh.subscribe();

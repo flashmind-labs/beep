@@ -217,7 +217,16 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
                     }
                 }
                 Err(RecvError::Closed) => return,
-                Err(RecvError::Lagged(_)) => slow.wanted = true,
+                // Some pushes were skipped: take the current ones again.
+                Err(RecvError::Lagged(_)) => {
+                    for said in fleet.heard_latest() {
+                        if let Some(value) = said.value() {
+                            looks.hear(said.machine, said.topic.name(), value);
+                        }
+                    }
+
+                    slow.wanted = true;
+                }
             },
             () = async {
                 match wake {

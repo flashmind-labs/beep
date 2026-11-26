@@ -396,8 +396,14 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>) {
             said = heard.recv() => match said {
                 Ok(said) => team_heard(&app, said.machine, &said.topic, said.value()),
                 Err(RecvError::Closed) => return,
-                // An answer was missed: ask again as when the mesh changes.
-                Err(RecvError::Lagged(_)) => mesh_changed(&app),
+                // An answer was missed: take the current ones again, and ask as when the mesh changes.
+                Err(RecvError::Lagged(_)) => {
+                    for said in fleet.heard_latest() {
+                        team_heard(&app, said.machine, &said.topic, said.value());
+                    }
+
+                    mesh_changed(&app);
+                }
             },
             changed = changes.changed() => {
                 if !changed {

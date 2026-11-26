@@ -439,3 +439,44 @@ async fn a_wait_keeps_its_topic_subscribed_while_no_view_wants_it() {
     assert!(nothing_wanted(&[], held));
     assert!(wanted_topics(&snapshots, &[], &[id], id).is_empty());
 }
+
+#[tokio::test]
+async fn a_follower_that_lagged_reads_the_latest_say_of_each_topic_again() {
+    use tokio::sync::broadcast::error::RecvError;
+
+    let snapshots = Snapshots::default();
+    let id = iroh::SecretKey::generate().public();
+    snapshots.reconcile(&BTreeMap::from([(id, vec![Topic::new("sync")])]));
+    let mut heard = snapshots.heard();
+    let sync = |revision| {
+        Arc::new(Snapshot {
+            topic: Topic::new("sync"),
+            query: None,
+            revision,
+            value: Value::Terminals(terminal::Reply::Terminals {
+                terminals: Vec::new(),
+            }),
+        })
+    };
+
+    for revision in 0..=HEARD_BACKLOG as u64 + 1 {
+        snapshots.tell(Heard::said(id, &sync(revision)));
+    }
+    // A screen is no news to the followers: it neither fills the backlog nor is kept.
+    snapshots.tell(Heard::said(
+        id,
+        &Arc::new(Snapshot {
+            topic: Topic::new("terminals"),
+            query: None,
+            revision: 0,
+            value: Value::Terminals(terminal::Reply::Terminals {
+                terminals: Vec::new(),
+            }),
+        }),
+    ));
+
+    assert!(matches!(heard.recv().await, Err(RecvError::Lagged(_))));
+    let latest = snapshots.latest();
+    assert_eq!(latest.len(), 1);
+    assert_eq!(latest[0].topic, Topic::new("sync"));
+}
