@@ -40,7 +40,7 @@ use std::{
 use strum::FromRepr;
 use tokio::{
     select,
-    sync::watch,
+    sync::{mpsc, watch},
     time::{Instant, sleep, sleep_until},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -425,6 +425,13 @@ enum Screen {
     Frame(Frame),
     /// The view cannot go on, and why.
     Ended(String),
+}
+
+/// Bounded encoder output. Dropping the attachment stops its producer.
+struct VideoFeed {
+    packets: mpsc::Receiver<beep_proto::node::device_video::Reply>,
+    controls: Controls,
+    work: AbortOnDropHandle<()>,
 }
 
 /// A device being shown: its screen, kept current by `_work`, and where

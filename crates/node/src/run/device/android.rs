@@ -2,7 +2,7 @@
 //! from the discovery files each emulator writes, and each one's gRPC
 //! `EmulatorController` for its screen and input.
 
-use super::{Controls as AnyControls, Live, Screen, Turn, Turned, follow, point};
+use super::{Controls as AnyControls, Live, Screen, Turn, Turned, VideoFeed, follow, point};
 use crate::{lock, machine::env, run::process};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{
@@ -370,8 +370,8 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
 }
 
 /// Uses Android's native encoder for both emulators and physical phones.
-pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<super::video::Live> {
-    use super::{phone as phones, video};
+pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<VideoFeed> {
+    use super::phone as phones;
     use beep_proto::node::device_video::Reply;
     use tokio::sync::{mpsc, watch};
 
@@ -408,7 +408,7 @@ pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<s
     });
     // Rotation is already encoded into Android's projection. Emulator touch
     // coordinates still use the physical display's upright coordinate system.
-    Ok(video::Live {
+    Ok(VideoFeed {
         packets: received,
         controls,
         work: AbortOnDropHandle::new(work),
@@ -472,7 +472,7 @@ async fn record(
             .spawn()
             .context("could not start Android video capture")?;
         let mut output = child.stdout.take().context("Android video has no output")?;
-        let mut bytes = vec![0; super::video::MAX_CHUNK];
+        let mut bytes = vec![0; beep_proto::node::device_video::MAX_CHUNK];
         let mut started = false;
         let checking = next_video_geometry(adb, id);
         tokio::pin!(checking);
@@ -490,7 +490,7 @@ async fn record(
                         break;
                     }
                     if !started {
-                        packets.send(Reply::Started { fps: super::video::FPS }).await?;
+                        packets.send(Reply::Started { fps: beep_proto::node::device_video::FPS }).await?;
                         started = true;
                     }
                     packets.send(Reply::Data { data: bytes[..count].to_vec(), rotation: Rotation::Upright }).await?;

@@ -2,7 +2,7 @@
 //! shown through an `idb_companion` the stream starts for itself, on a Unix
 //! socket only this node uses.
 
-use super::{Controls as AnyControls, Live, Screen, Turn, Turned, follow, point};
+use super::{Controls as AnyControls, Live, Screen, Turn, Turned, VideoFeed, follow, point};
 use crate::{lock, run::process};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{
@@ -369,8 +369,8 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
 }
 
 /// Passes the device's encoder output through without decoding or re-encoding.
-pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<super::video::Live> {
-    use beep_proto::node::device_video::{Reply, Rotation};
+pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<VideoFeed> {
+    use beep_proto::node::device_video::{self, Reply, Rotation};
     let Capture {
         mut client,
         mut screen,
@@ -416,10 +416,10 @@ pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<s
                         if data.is_empty() { continue; }
                         if !started {
                             dimensions.send_replace(screen);
-                            packets.send(Reply::Started { fps: super::video::FPS }).await?;
+                            packets.send(Reply::Started { fps: device_video::FPS }).await?;
                             started = true;
                         }
-                        for chunk in data.chunks(super::video::MAX_CHUNK) {
+                        for chunk in data.chunks(device_video::MAX_CHUNK) {
                             packets.send(Reply::Data { data: chunk.to_vec(), rotation: Into::<Rotation>::into(encoded_turn) }).await?;
                         }
                     }
@@ -451,7 +451,7 @@ pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<s
         );
         let _ = packets.send(Reply::Ended { reason }).await;
     });
-    Ok(super::video::Live {
+    Ok(VideoFeed {
         packets: received,
         controls,
         work: AbortOnDropHandle::new(work),
@@ -506,7 +506,7 @@ async fn capture_stream(
     let start = VideoStreamRequest {
         control: Some(Control::Start(Start {
             fps: if video {
-                u64::from(super::video::FPS)
+                u64::from(beep_proto::node::device_video::FPS)
             } else {
                 FPS
             },

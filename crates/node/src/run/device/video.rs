@@ -1,27 +1,15 @@
 //! Native H.264 capture and ordered forwarding. Encoder bytes are never dropped:
 //! losing one chunk can invalidate every following delta frame.
 
-use super::{Controls, DeviceId, DeviceState, MAX_SIDE, Platform, Turn, android, find};
+use super::{DeviceId, DeviceState, MAX_SIDE, Platform, Turn, VideoFeed, android, find};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
     device_video::{Reply, Request, Rotation},
 };
-use tokio::{
-    sync::mpsc,
-    time::{Duration, timeout},
-};
-use tokio_util::task::AbortOnDropHandle;
+use tokio::time::{Duration, timeout};
 
 pub use beep_proto::node::device_video::PROTOCOL;
-pub(super) use beep_proto::node::device_video::{FPS, MAX_CHUNK};
-
-/// Bounded encoder output. Dropping the attachment stops its producer.
-pub(super) struct Live {
-    pub packets: mpsc::Receiver<Reply>,
-    pub controls: Controls,
-    pub work: AbortOnDropHandle<()>,
-}
 
 pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     let Some(Request::Attach { id, max_side }) = rx.recv::<Request>().await? else {
@@ -43,7 +31,7 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
                 .await;
         }
     };
-    let Live {
+    let VideoFeed {
         mut packets,
         mut controls,
         work: _work,
@@ -90,7 +78,7 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     }
 }
 
-async fn open(id: &DeviceId, max_side: u32) -> Result<Live> {
+async fn open(id: &DeviceId, max_side: u32) -> Result<VideoFeed> {
     let device = find(id).await?;
     if device.state != DeviceState::On {
         bail!("the device is not running");

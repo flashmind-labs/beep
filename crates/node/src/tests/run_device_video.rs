@@ -1,5 +1,7 @@
 use super::super::{boot, shutdown};
 use super::*;
+use beep_proto::node::device_video::FPS;
+use tokio_util::task::AbortOnDropHandle;
 use tokio::time::{Instant, sleep, sleep_until};
 
 #[tokio::test(flavor = "multi_thread")]
