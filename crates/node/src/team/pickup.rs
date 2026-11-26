@@ -11,7 +11,7 @@ use super::{
 use crate::{
     agents::{Agents, child_view::{ChildView, full_id}, machine_list::{find, machine_name}},
     link::note,
-    machine::ci::forge::command,
+    run::process::tool_command,
     peer_stream::{CallFailed, over_the_mesh},
 };
 use beep_mesh::Mesh;
@@ -839,7 +839,7 @@ const GIT_LIMIT: Duration = Duration::from_secs(5);
 /// The branch checked out in `folder`; `None` when detached or unknown.
 pub(crate) async fn branch_of(folder: &str) -> Option<String> {
     let args = ["-C", folder, "rev-parse", "--abbrev-ref", "HEAD"].map(str::to_owned);
-    let out = timeout(GIT_LIMIT, command("git", &args).output())
+    let out = timeout(GIT_LIMIT, tool_command("git", &args).output())
         .await
         .ok()?
         .ok()?;

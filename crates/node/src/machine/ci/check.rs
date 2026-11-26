@@ -5,7 +5,6 @@
 //! rate limit, `X-Poll-Interval`) put the next check off, and failures back
 //! off up to `QUIET`.
 
-use super::watcher::QUIET;
 use anyhow::{Context, Result};
 use beep_proto::SecretText;
 use reqwest::{
@@ -17,6 +16,9 @@ use tokio::time::Instant;
 
 /// How often a GitHub project is checked.
 pub(super) const CHECK: Duration = Duration::from_secs(45);
+/// How often a quiet project's runs are listed, and the machines asked. A
+/// check that keeps failing backs off up to this.
+pub(super) const QUIET: Duration = Duration::from_secs(10 * 60);
 /// The runs a check asks for: enough to see a new or changed one.
 const RUNS: u32 = 5;
 /// The most doublings of `CHECK` after failures in a row.

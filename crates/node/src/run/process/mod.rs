@@ -2,7 +2,8 @@
 //! everything it started: the shell's commands, an agent's tools. On Unix
 //! the group is a process group; on Windows it is a job object.
 
-use std::{ffi::OsStr, process::Output, time::Duration};
+use crate::machine::spawn_env::{self, Scope};
+use std::{ffi::OsStr, process::{Output, Stdio}, time::Duration};
 use tokio::{
     process::{Child, Command},
     time::timeout,
@@ -19,6 +20,8 @@ use windows as imp;
 
 pub(crate) use imp::{Group, Held};
 
+/// The most of a CLI's output kept for a message.
+const MAX_DETAIL: usize = 300;
 /// How long a child has to exit after SIGTERM before the group is killed.
 pub(crate) const STOP_GRACE: Duration = Duration::from_secs(2);
 
@@ -39,6 +42,26 @@ pub(crate) fn command(program: impl AsRef<OsStr>) -> Command {
     }
 
     Command::from(background_command(program))
+}
+
+/// `program` with `args`, the tools' folders on `PATH` and the GitHub token,
+/// killed when dropped.
+pub(crate) fn tool_command(program: &str, args: &[String]) -> Command {
+    let mut command = command(program);
+    command.args(args).stdin(Stdio::null()).kill_on_drop(true);
+    spawn_env::apply(&mut command, Scope::Agent(None));
+    command
+}
+
+/// The end of what a CLI said, on one line.
+pub(crate) fn tail(text: &str) -> String {
+    let text = text.trim().replace('\n', " ");
+    let start = text
+        .char_indices()
+        .rev()
+        .nth(MAX_DETAIL)
+        .map_or(0, |(at, _)| at);
+    text[start..].to_owned()
 }
 
 /// A background command, with no console window allocated on Windows.

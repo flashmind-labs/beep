@@ -2,10 +2,10 @@
 //! they are about, kept current from the mesh's state. Rosters and invites
 //! the link takes go to a desktop, since only desktops write the state.
 
-use crate::machine::{
-        ci::forge::{command, tail},
-        spawn_env,
-    };
+use crate::{
+    machine::spawn_env,
+    run::process::{tail, tool_command},
+};
 use beep_mesh::{Key, Mesh};
 use beep_projects::{
     github_owner_var,
@@ -473,7 +473,7 @@ async fn listed(
 /// as [`ForgeCall::render`] has it in a shell: that owner's token when the
 /// user gave one, else the default account's.
 pub(super) fn forge_command(call: &ForgeCall, repo: &RepoName) -> Command {
-    let mut command = command(call.program, &call.args);
+    let mut command = tool_command(call.program, &call.args);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let owner = github_owner_var(repo.owner()).and_then(|var| spawn_env::secret(&var));
 

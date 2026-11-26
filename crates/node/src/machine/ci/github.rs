@@ -2,7 +2,7 @@
 //! exit says the run finished, a cancelled one too, and one `gh run view`
 //! after it says how it ended.
 
-use super::forge::{WAIT_LIMIT, command, tail};
+use crate::run::process::{tail, tool_command};
 use anyhow::{Context, Result, bail};
 use beep_projects::repo_watch::actions::state_of;
 use beep_proto::RunState;
@@ -13,6 +13,8 @@ use tokio::{
     time::{sleep, timeout},
 };
 
+/// How long one wait on a run may take; the run is listed again after.
+pub(super) const WAIT_LIMIT: Duration = Duration::from_secs(30 * 60);
 /// How long one read may take.
 const READ_LIMIT: Duration = Duration::from_secs(30);
 /// What `gh run view` is asked for.
@@ -78,7 +80,7 @@ pub(super) async fn wait(repo: &str, id: u64) -> Result<bool> {
     ]
     .map(String::from)
     .into();
-    let mut watch = command("gh", &args);
+    let mut watch = tool_command("gh", &args);
     watch.stdout(Stdio::null()).stderr(Stdio::null());
     let mut watch = watch.spawn().context("starting gh")?;
     let exited = select! {
@@ -106,7 +108,7 @@ async fn view(repo: &str, id: &str) -> Result<View> {
     let args: Vec<String> = ["run", "view", id, "-R", repo, "--json", FIELDS]
         .map(String::from)
         .into();
-    let mut command = command("gh", &args);
+    let mut command = tool_command("gh", &args);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let output = timeout(READ_LIMIT, command.output())
         .await

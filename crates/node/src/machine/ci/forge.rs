@@ -2,10 +2,14 @@
 //! machine: `gh` for GitHub, `teacli` for Forgejo and Gitea. Each is started
 //! as a program, with no shell between, so the same calls work on Windows.
 
-use super::check::{self, Answer};
+use super::{
+    check::{self, Answer},
+    github::{self, WAIT_LIMIT},
+};
 use crate::{
     lock,
-    machine::spawn_env::{self, Scope},
+    machine::spawn_env,
+    run::process::{tail, tool_command},
 };
 use anyhow::{Context, Result, bail};
 use beep_projects::repo_watch::actions::{HostRun, RunsReply, state_of};
@@ -16,7 +20,7 @@ use serde::Deserialize;
 use std::{future::Future, process::Stdio, sync::Mutex, time::Duration};
 use tokio::{
     io::AsyncRead,
-    process::{Child, Command},
+    process::Child,
     time::{Instant, timeout},
 };
 use tokio_util::codec::{FramedRead, LinesCodec};
@@ -27,14 +31,10 @@ const CALL_LIMIT: Duration = Duration::from_secs(30);
 const CONNECT_LIMIT: Duration = Duration::from_secs(10);
 /// How long the token `gh` is signed in with is kept before it is read again.
 const GH_TOKEN_AGE: Duration = Duration::from_secs(10 * 60);
-/// How long one wait on a run may take; the run is listed again after.
-pub(super) const WAIT_LIMIT: Duration = Duration::from_secs(30 * 60);
 /// The runs a list reads, newest first.
 const RUNS_PAGE: u32 = 20;
 /// How often a wait asks the host, in seconds.
 const WAIT_EVERY_SECS: u32 = 10;
-/// The most of a CLI's output kept for a message.
-const MAX_DETAIL: usize = 300;
 /// The longest progress line teacli's watch prints that is read.
 const MAX_LINE: usize = 256 * 1024;
 
@@ -135,7 +135,7 @@ impl Cli {
         }
 
         let args: Vec<String> = vec!["auth".into(), "token".into()];
-        let mut command = command("gh", &args);
+        let mut command = tool_command("gh", &args);
         command.stdout(Stdio::piped()).stderr(Stdio::null());
         let token = match timeout(CALL_LIMIT, command.output()).await {
             Ok(Ok(output)) if output.status.success() => {
@@ -165,7 +165,7 @@ impl Cli {
 
     async fn read(at: &Target, path: &str) -> Result<String> {
         let (program, args) = Self::api(at, path);
-        let mut command = command(program, &args);
+        let mut command = tool_command(program, &args);
         command.stdout(Stdio::piped()).stderr(Stdio::piped());
         let output = timeout(CALL_LIMIT, command.output())
             .await
@@ -212,7 +212,7 @@ impl Forge for Cli {
     async fn wait(&self, at: &Target, id: u64) -> Result<bool> {
         match &at.host {
             // The watch's exit says it ended, `gh run view` how.
-            Host::GitHub => super::github::wait(&at.repo, id).await,
+            Host::GitHub => github::wait(&at.repo, id).await,
             // teacli prints the run as one JSON line each time it changes,
             // the last one with how it ended.
             Host::Forgejo { url, .. } => {
@@ -230,7 +230,7 @@ impl Forge for Cli {
                     "--timeout".into(),
                     format!("{}m", WAIT_LIMIT.as_secs() / 60),
                 ];
-                let mut command = command("teacli", &args);
+                let mut command = tool_command("teacli", &args);
                 command.stdout(Stdio::piped()).stderr(Stdio::null());
                 let mut child = command.spawn().context("starting teacli")?;
                 let stdout = child.stdout.take().context("teacli has no output")?;
@@ -338,26 +338,6 @@ async fn read_watch(output: impl AsyncRead + Unpin) -> Watched {
     }
 
     watched
-}
-
-/// `program` with `args`, the tools' folders on `PATH` and the GitHub token,
-/// killed when dropped.
-pub(crate) fn command(program: &str, args: &[String]) -> Command {
-    let mut command = crate::run::process::command(program);
-    command.args(args).stdin(Stdio::null()).kill_on_drop(true);
-    spawn_env::apply(&mut command, Scope::Agent(None));
-    command
-}
-
-/// The end of what a CLI said, on one line.
-pub(crate) fn tail(text: &str) -> String {
-    let text = text.trim().replace('\n', " ");
-    let start = text
-        .char_indices()
-        .rev()
-        .nth(MAX_DETAIL)
-        .map_or(0, |(at, _)| at);
-    text[start..].to_owned()
 }
 
 #[cfg(test)]

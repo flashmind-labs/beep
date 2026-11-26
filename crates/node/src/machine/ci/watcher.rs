@@ -13,7 +13,7 @@
 use super::{
     Ci,
     book::{self, Books},
-    check::{Answer, CHECK, Checks},
+    check::{Answer, CHECK, Checks, QUIET},
     forge::{Cli, Forge, Host, Target},
     projects::{self, Project},
 };
@@ -50,8 +50,6 @@ use tokio::{
 /// How often a busy project's runs are listed: one with a run going, or
 /// pushed to within `BUSY`.
 pub(super) const POLL: Duration = Duration::from_secs(60);
-/// How often a quiet project's runs are listed, and the machines asked.
-pub(super) const QUIET: Duration = Duration::from_secs(10 * 60);
 /// How long a project stays busy after a push.
 const BUSY: Duration = Duration::from_secs(10 * 60);
 /// How long a list, a read or a login may take, on top of the CLI's own limit.
