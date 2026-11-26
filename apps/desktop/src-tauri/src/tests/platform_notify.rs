@@ -195,3 +195,95 @@ fn native_notification_keeps_its_actions_and_click_target() {
     .unwrap();
     assert!(!plain.hasActionButton());
 }
+
+#[cfg(desktop)]
+#[test]
+fn icon_cache_refreshes_only_when_an_existing_install_changes_icon() {
+    use std::path::Path;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let data_dir = tmp.path().join("data");
+    std::fs::create_dir_all(&data_dir).unwrap();
+    let icon = tmp.path().join("icon.icns");
+    std::fs::write(&icon, b"old-icon-bytes").unwrap();
+
+    // Brand new install: records hash without refreshing system caches.
+    let mut refreshes = 0;
+    icon_cache::sync_icon_cache(&data_dir, false, &icon, || {
+        refreshes += 1;
+        true
+    });
+    assert_eq!(refreshes, 0);
+
+    // Same icon on next launch: no refresh.
+    icon_cache::sync_icon_cache(&data_dir, true, &icon, || {
+        refreshes += 1;
+        true
+    });
+    assert_eq!(refreshes, 0);
+
+    // Icon bytes change on update: refreshes once and updates saved hash.
+    std::fs::write(&icon, b"new-icon-bytes").unwrap();
+    icon_cache::sync_icon_cache(&data_dir, true, &icon, || {
+        refreshes += 1;
+        true
+    });
+    assert_eq!(refreshes, 1);
+
+    // Subsequent launch with the same new icon: no refresh.
+    icon_cache::sync_icon_cache(&data_dir, true, &icon, || {
+        refreshes += 1;
+        true
+    });
+    assert_eq!(refreshes, 1);
+
+    // Failed refresh does not record the new hash, so the next launch can retry.
+    std::fs::write(&icon, b"third-icon-bytes").unwrap();
+    icon_cache::sync_icon_cache(&data_dir, true, &icon, || {
+        refreshes += 1;
+        false
+    });
+    assert_eq!(refreshes, 2);
+    icon_cache::sync_icon_cache(&data_dir, true, &icon, || {
+        refreshes += 1;
+        true
+    });
+    assert_eq!(refreshes, 3);
+
+    // Existing install upgrading from before hash tracking existed: refreshes once.
+    let upgrade_dir = tmp.path().join("upgrade");
+    std::fs::create_dir_all(&upgrade_dir).unwrap();
+    icon_cache::sync_icon_cache(&upgrade_dir, true, &icon, || {
+        refreshes += 1;
+        true
+    });
+    assert_eq!(refreshes, 4);
+    icon_cache::sync_icon_cache(&upgrade_dir, true, &icon, || {
+        refreshes += 1;
+        true
+    });
+    assert_eq!(refreshes, 4);
+
+    // App bundle path detection only matches `.app/Contents/MacOS/<bin>`.
+    assert_eq!(
+        icon_cache::app_bundle_dir(Path::new(
+            "/Applications/Beep.app/Contents/MacOS/beep-desktop"
+        )),
+        Some(Path::new("/Applications/Beep.app"))
+    );
+    assert_eq!(
+        icon_cache::app_bundle_dir(Path::new("/Users/test/target/debug/beep-desktop")),
+        None
+    );
+
+    // Bundled icon lookup prefers `icon.icns` and falls back to another `.icns`.
+    let bundle = tmp.path().join("Test.app");
+    let resources = bundle.join("Contents/Resources");
+    std::fs::create_dir_all(&resources).unwrap();
+    let custom = resources.join("beep.icns");
+    std::fs::write(&custom, b"custom").unwrap();
+    assert_eq!(icon_cache::bundle_icon_path(&bundle), Some(custom));
+    let default = resources.join("icon.icns");
+    std::fs::write(&default, b"default").unwrap();
+    assert_eq!(icon_cache::bundle_icon_path(&bundle), Some(default));
+}

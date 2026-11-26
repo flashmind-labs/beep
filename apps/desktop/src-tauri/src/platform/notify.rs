@@ -239,7 +239,209 @@ fn response(route: Route, interaction: Interaction) -> Response {
 }
 
 #[cfg(target_os = "macos")]
+pub(crate) use icon_cache::refresh_if_changed as refresh_icon_cache_if_changed;
+#[cfg(target_os = "macos")]
 pub(crate) use mac::init;
+
+/// Refreshes macOS IconServices when the bundled app icon changes.
+///
+/// `ISBundleIdentifierIcon` (which Notification Center uses for banner icons)
+/// caches bitmaps by bundle identifier in the user's `com.apple.iconservices/store.index`
+/// and does not invalidate them across in-place Sparkle updates or reboots.
+#[cfg(any(target_os = "macos", all(test, desktop)))]
+mod icon_cache {
+    use sha2::{Digest, Sha256};
+    use std::{
+        ffi::OsStr,
+        fs,
+        io::ErrorKind,
+        path::{Path, PathBuf},
+    };
+
+    const HASH_FILE: &str = "icon-hash";
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub(super) enum IconChange {
+        Unchanged,
+        FirstInstall,
+        Changed,
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn refresh_if_changed(data_dir: PathBuf, existing_install: bool) {
+        if tauri::is_dev() {
+            return;
+        }
+
+        let Some(bundle) = std::env::current_exe()
+            .ok()
+            .and_then(|exe| app_bundle_dir(&exe).map(Path::to_path_buf))
+        else {
+            return;
+        };
+
+        tauri::async_runtime::spawn_blocking(move || {
+            let Some(icon_path) = bundle_icon_path(&bundle) else {
+                return;
+            };
+
+            sync_icon_cache(&data_dir, existing_install, &icon_path, || {
+                refresh_macos_cache(&bundle)
+            });
+        });
+    }
+
+    pub(super) fn app_bundle_dir(exe: &Path) -> Option<&Path> {
+        let macos = exe.parent()?;
+        let contents = macos.parent()?;
+        let bundle = contents.parent()?;
+        (macos.file_name() == Some(OsStr::new("MacOS"))
+            && contents.file_name() == Some(OsStr::new("Contents"))
+            && bundle.extension() == Some(OsStr::new("app")))
+        .then_some(bundle)
+    }
+
+    pub(super) fn bundle_icon_path(bundle: &Path) -> Option<PathBuf> {
+        let resources = bundle.join("Contents/Resources");
+        let default = resources.join("icon.icns");
+        if default.is_file() {
+            return Some(default);
+        }
+
+        fs::read_dir(resources)
+            .ok()?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| path.extension() == Some(OsStr::new("icns")) && path.is_file())
+    }
+
+    pub(super) fn hash_bytes(bytes: &[u8]) -> String {
+        hex::encode(Sha256::digest(bytes))
+    }
+
+    pub(super) fn detect_change(
+        data_dir: &Path,
+        existing_install: bool,
+        current_hash: &str,
+    ) -> IconChange {
+        match fs::read_to_string(data_dir.join(HASH_FILE)) {
+            Ok(saved) if saved.trim() == current_hash => IconChange::Unchanged,
+            Ok(_) => IconChange::Changed,
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                if existing_install {
+                    IconChange::Changed
+                } else {
+                    IconChange::FirstInstall
+                }
+            }
+            Err(e) => {
+                log::warn!("reading the saved icon hash: {e}");
+                IconChange::Unchanged
+            }
+        }
+    }
+
+    pub(super) fn sync_icon_cache(
+        data_dir: &Path,
+        existing_install: bool,
+        icon_path: &Path,
+        refresh: impl FnOnce() -> bool,
+    ) {
+        let bytes = match fs::read(icon_path) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::warn!("reading {} for the icon hash: {e}", icon_path.display());
+                return;
+            }
+        };
+        let current_hash = hash_bytes(&bytes);
+
+        match detect_change(data_dir, existing_install, &current_hash) {
+            IconChange::Unchanged => return,
+            IconChange::FirstInstall => {}
+            IconChange::Changed => {
+                if !refresh() {
+                    return;
+                }
+            }
+        }
+
+        if let Err(e) = fs::write(data_dir.join(HASH_FILE), &current_hash) {
+            log::warn!("saving the icon hash: {e}");
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn refresh_macos_cache(bundle: &Path) -> bool {
+        use std::process::{Command, Stdio};
+
+        const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
+        let _ = Command::new(LSREGISTER)
+            .arg("-f")
+            .arg(bundle)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        let Some(cache_dir) = user_cache_dir() else {
+            log::warn!("could not locate the macOS user cache directory for icon refresh");
+            return false;
+        };
+        let store_index = cache_dir.join("com.apple.iconservices/store.index");
+
+        match fs::remove_file(&store_index) {
+            Ok(()) => {}
+            Err(e) if e.kind() == ErrorKind::NotFound => {}
+            Err(e) => {
+                log::warn!("clearing {}: {e}", store_index.display());
+                return false;
+            }
+        }
+
+        for process in ["iconservicesagent", "NotificationCenter"] {
+            if let Err(e) = Command::new("/usr/bin/killall")
+                .arg(process)
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+            {
+                log::warn!("restarting {process} after an icon change: {e}");
+            }
+        }
+
+        log::info!("refreshed the macOS notification icon cache");
+        true
+    }
+
+    #[cfg(target_os = "macos")]
+    fn user_cache_dir() -> Option<PathBuf> {
+        use std::os::unix::ffi::OsStrExt;
+
+        // SAFETY: `confstr` with a null buffer and zero length queries the required buffer size.
+        let len =
+            unsafe { libc::confstr(libc::_CS_DARWIN_USER_CACHE_DIR, std::ptr::null_mut(), 0) };
+        if len == 0 {
+            return None;
+        }
+
+        let mut buf = vec![0u8; len];
+        // SAFETY: `buf` has `len` writable bytes for `confstr` to fill with a NUL-terminated path.
+        let written = unsafe {
+            libc::confstr(
+                libc::_CS_DARWIN_USER_CACHE_DIR,
+                buf.as_mut_ptr().cast::<libc::c_char>(),
+                len,
+            )
+        };
+        if written == 0 || written > len {
+            return None;
+        }
+
+        let nul = buf.iter().position(|&b| b == 0).unwrap_or(written);
+        let path = OsStr::from_bytes(&buf[..nul]);
+        (!path.is_empty()).then(|| PathBuf::from(path))
+    }
+}
 
 #[cfg(target_os = "macos")]
 #[allow(deprecated)] // Keep the existing notification presentation and development identity.

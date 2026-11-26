@@ -714,7 +714,11 @@ fn setup(
     platform::startup::stage("window built");
 
     let dir = beep::identity::data_dir(&handle)?;
+    #[cfg(target_os = "macos")]
+    let existing_install = dir.join("identity.key").is_file();
     let identity = beep::identity::load_or_create(&dir.join("identity.key"))?;
+    #[cfg(target_os = "macos")]
+    platform::notify::refresh_icon_cache_if_changed(dir.clone(), existing_install);
     let prefs = Prefs::load(StateFile::new(dir.join("state.json")));
     let views = Arc::new(store::view_cache::ViewCache::load(
         dir.join("views.json"),
