@@ -10,14 +10,11 @@
 use super::team::{InviteView, TeamCardsView, TeamView, invite_views, team_view};
 use crate::{
     error::Result,
-    fleet::{
-        projects::{FleetState, desk, named},
-        view_signal::Interest,
-    },
+    fleet::projects::{FleetState, desk, named},
 };
 use beep_fleet::Session;
 use beep_proto::node::{
-    events::{TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic, Value},
+    events::{Topic, Value},
     tools::{TeamCards, TeamInviteArgs},
 };
 use iroh::EndpointId;
@@ -167,7 +164,10 @@ impl Held {
 
     /// The topics the nodes are asked for while the windows follow.
     #[cfg(desktop)]
-    fn interests(&self, me: EndpointId) -> Vec<Interest> {
+    fn interests(&self, me: EndpointId) -> Vec<crate::fleet::view_signal::Interest> {
+        use crate::fleet::view_signal::Interest;
+        use beep_proto::node::events::{TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC};
+
         let cards = self
             .projects
             .values()
