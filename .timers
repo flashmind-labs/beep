@@ -220,3 +220,4 @@ crates/node/src/team/link/board_io.rs | follow | sleep#1 | retry | dials a teamm
 crates/node/src/team/link/home_io.rs | follow | sleep#1 | deadline | drops an invite or card when it expires
 crates/node/src/team/link/home_io.rs | follow | sleep_until#1 | retry | offers what waits for a desktop again every 60 s
 crates/node/src/team/sightings.rs | follow | sleep#1 | retry | follows a dropped machine again after 5 s
+crates/node/src/agents/recovery.rs | follow_recoveries | sleep#1 | retry | waits RETRY, then starts the recovery follower again after it died

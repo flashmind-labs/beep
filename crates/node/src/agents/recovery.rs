@@ -33,7 +33,10 @@ impl Agents {
 
                     match run.await {
                         Ok(()) => return,
-                        Err(e) => log::error!("the recovery follower stopped, starting again: {e}"),
+                        Err(e) => {
+                            log::error!("the recovery follower stopped, starting again: {e}");
+                            tokio::time::sleep(beep_mesh::RETRY).await;
+                        }
                     }
                 }
             }))
