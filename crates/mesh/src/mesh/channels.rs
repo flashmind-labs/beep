@@ -2,7 +2,7 @@
 //! mesh replication.
 
 use super::Mesh;
-use crate::inner::channels::{CachedConnection, FailedDial};
+use crate::inner::{CachedConnection, FailedDial};
 use crate::timeouts::{OPEN_TIMEOUT, RETRY};
 use crate::{MeshError, wire};
 use futures::StreamExt;
