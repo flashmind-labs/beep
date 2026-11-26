@@ -18,7 +18,7 @@ export function routerWindowGlobals(view: DOMWindow) {
   return {
     self: view, history: view.history, localStorage: view.localStorage, sessionStorage: view.sessionStorage,
     addEventListener: view.addEventListener.bind(view), removeEventListener: view.removeEventListener.bind(view),
-    Element: view.Element, Node: view.Node, HTMLButtonElement: view.HTMLButtonElement,
+    Element: view.Element, Node: view.Node, HTMLButtonElement: view.HTMLButtonElement, SVGElement: view.SVGElement, HTMLTextAreaElement: view.HTMLTextAreaElement,
     requestAnimationFrame: (callback: FrameRequestCallback) => setTimeout(() => callback(performance.now()), 0),
     cancelAnimationFrame: (id: number) => clearTimeout(id),
   };

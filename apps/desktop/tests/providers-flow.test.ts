@@ -47,13 +47,13 @@ test("provider save retains edits made while the command is in flight", async ()
     assert.equal(screen.getByLabelText("Binary path"), input);
     assert.equal(dom.window.document.activeElement, input);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    fireEvent.change(screen.getByLabelText("Machine runtime settings"), { target: { value: "two" } });
+    fireEvent.click(screen.getByRole("button", { name: "gpu-box" }));
     await waitFor(() => assert.equal((screen.getByLabelText("Binary path") as HTMLInputElement).value, "gpu-agent"));
     reads.length = 0;
     savedProgram = "later";
     await act(async () => { finish(); await Promise.resolve(); });
     await waitFor(() => assert.ok(reads.includes("one"), "the saved machine must be reread"));
-    fireEvent.change(screen.getByLabelText("Machine runtime settings"), { target: { value: "one" } });
+    fireEvent.click(screen.getByRole("button", { name: "build-box" }));
     await waitFor(() => assert.equal((screen.getByLabelText("Binary path") as HTMLInputElement).value, "later"));
   } finally {
     act(() => view.unmount?.()); cleanup(); dom.window.close();

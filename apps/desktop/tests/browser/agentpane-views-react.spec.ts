@@ -34,7 +34,7 @@ test("a model tab keeps its canvas and focus, and draws again after reopening th
   await expect(canvas).toHaveCount(1);
   await expect(stage.locator(".agpmsg")).toHaveCount(0);
   await expect(page.locator(".agpacts.anim")).toBeVisible();
-  await expect(page.getByRole("combobox", { name: "Clip" })).toBeHidden();
+  await expect(page.getByRole("button", { name: /^Clip/ })).toHaveCount(0);
   await canvas.evaluate(element => { element.dataset.identity = "kept"; });
   const wire = page.getByRole("button", { name: "Wireframe" });
   await wire.click();

@@ -1,6 +1,6 @@
 // The Device tab's view: the picker with the device's state and Boot or
 // Shut down, its screen fitted to the view, and its hardware buttons.
-import { memo, useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent } from "react";
 import { useStore } from "zustand";
 import { Icon, type IconName } from "../ui/icons.tsx";
 import { deviceModel, pickDevice, power, sendInput, setDeviceShown, setPainter, setVideoElement, videoSizeChanged, videoPlaying, videoFailed, showAgain } from "./device.ts";
@@ -8,7 +8,7 @@ import {
   BUTTON_NAMES, type Device, type DeviceButton, type DeviceMachine, type Rect, type ScreenState, type Size, type TouchPhase,
   buttonsFor, fitRect, keyInput, takesInput, maxSide, missingLine, pickedDevice, pickValue, powerChip, readPickValue, touchPoint, rotatedSize,
 } from "./device-state.ts";
-import { Button, NO_AUTO, Spinner } from "../ui/kit.tsx";
+import { Button, NO_AUTO, Picker, Spinner } from "../ui/kit.tsx";
 
 const BUTTON_ICONS: Record<DeviceButton, IconName> = {
   Home: "devHome", Back: "devBack", AppSwitch: "devRecent", Rotate: "devRotate", Power: "devPower", VolumeDown: "devVolumeDown", VolumeUp: "devVolumeUp",
@@ -47,18 +47,14 @@ export const DevicePane = memo(function DevicePane({ hidden }: { hidden: boolean
 function DeviceHead({ machines, device, busy, listed }: { machines: readonly DeviceMachine[]; device: Device | null; busy: boolean; listed: boolean }) {
   const pick = useStore(deviceModel, s => s.pick);
   const chip = device ? powerChip(device.state) : null;
-  const choose = (event: ChangeEvent<HTMLSelectElement>) => {
-    const next = readPickValue(event.currentTarget.value);
+  const choose = (value: string) => {
+    const next = readPickValue(value);
     if (next) pickDevice(next);
   };
+  const options = machines.flatMap(m => m.devices.map(d => ({ id: pickValue({ machine: m.machine_id, device: d.id }), label: d.name, section: m.machine_name })));
 
   return <div className="agdevhead">
-    <select className="agdevpick" aria-label="Device" value={pick ? pickValue(pick) : ""} onChange={choose}>
-      {!pick && <option value="">{listed ? "Choose a device" : "Reading devices…"}</option>}
-      {machines.filter(m => m.devices.length > 0).map(m => <optgroup key={m.machine_id} label={m.machine_name}>
-        {m.devices.map(d => <option key={d.id} value={pickValue({ machine: m.machine_id, device: d.id })}>{d.name}</option>)}
-      </optgroup>)}
-    </select>
+    <Picker label="Device" className="agdevpick" options={options} value={pick ? pickValue(pick) : null} onChange={choose} placeholder={listed ? "Choose a device" : "Reading devices…"} />
     {device && chip && <span className={`chip ${chip.cls}`}>{device.state === "Booting" && <Spinner />}{chip.text}</span>}
     <span className="sp" />
     {device && !device.phone && (device.state === "Off"

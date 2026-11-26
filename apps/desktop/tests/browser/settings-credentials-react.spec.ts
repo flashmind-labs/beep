@@ -94,9 +94,13 @@ test("an API key is saved for the picked provider", async ({ page }) => {
   await expect(settings.getByText("…9f0c")).toBeVisible();
   await expect(settings.getByText("MESHY_API_KEY")).toBeVisible();
   await settings.getByRole("button", { name: "+ Add an API key" }).click();
-  const provider = settings.getByLabel("Provider");
-  await expect(provider.locator("option")).toHaveText(["OpenRouter", "ElevenLabs"]);
-  await provider.selectOption("elevenlabs");
+  await settings.getByRole("button", { name: "Provider OpenRouter" }).click();
+  await expect(page.getByRole("menuitemradio")).toHaveText(["OpenRouter", "ElevenLabs"]);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(settings).toBeVisible();
+  await settings.getByRole("button", { name: "Provider OpenRouter" }).click();
+  await page.getByRole("menuitemradio", { name: "ElevenLabs" }).click();
   await settings.getByLabel("Key", { exact: true }).fill("el-example");
   if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
   await settings.getByRole("button", { name: "Save", exact: true }).click();

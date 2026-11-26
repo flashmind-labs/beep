@@ -35,8 +35,8 @@ test("flsh input survives provider machine updates without remounting", async ()
     input.focus();
     fireEvent.change(input, { target: { value: "400k" } });
     input.setSelectionRange(1, 3);
-    fireEvent.change(screen.getByLabelText("Machine runtime settings"), { target: { value: "two" } });
-    await waitFor(() => assert.equal((screen.getByLabelText("Machine runtime settings") as HTMLSelectElement).value, "two"));
+    fireEvent.click(screen.getByRole("button", { name: "gpu-box" }));
+    await waitFor(() => assert.equal(screen.getByRole("button", { name: "gpu-box" }).getAttribute("aria-pressed"), "true"));
     assert.equal(screen.getByLabelText("Auto-compact threshold"), input);
     assert.equal(input.value, "400k");
     assert.equal(dom.window.document.activeElement, input);

@@ -20,7 +20,7 @@ test("the Device tab shows a device live, takes touches, keys and buttons, and s
   });
 
   await page.getByRole("tab", { name: "Device" }).click();
-  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\npixel");
+  await expect(page.getByRole("button", { name: "Device Pixel 9" })).toBeVisible();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().find(call => call.command === "device_attach")?.args.id)).toBe("pixel");
 
   // A 100 by 200 frame, as the node sends it: its size, then the JPEG.
@@ -86,7 +86,7 @@ test("an iOS project with no simulator says so in one line", async ({ page }) =>
   await page.evaluate(agent => window.__navigation.open({ agent }), session);
   await page.getByRole("tab", { name: "Device" }).click();
   await expect(page.locator(".agdevmiss")).toHaveText("No machine has an iOS simulator. A Mac with Xcode and idb_companion can run one.");
-  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("");
+  await expect(page.getByRole("button", { name: "Device", exact: true })).toBeVisible();
 });
 
 test("a phone shows without Boot or Shut down", async ({ page }) => {
@@ -94,7 +94,7 @@ test("a phone shows without Boot or Shut down", async ({ page }) => {
   await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Android"], device_list: [{ ...host, devices: [phone], error: null }] });
   await page.evaluate(agent => window.__navigation.open({ agent }), session);
   await page.getByRole("tab", { name: "Device" }).click();
-  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\nR5CT1234ABC");
+  await expect(page.getByRole("button", { name: "Device Pixel 8 Pro" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Boot|Shut down/ })).toHaveCount(0);
 });
 
@@ -201,16 +201,16 @@ test("a node that pushes its devices is not read again, and one that refuses the
   await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Android"], device_list: [{ ...host, devices: [pixel], error: null }] });
   await page.evaluate(agent => window.__navigation.open({ agent }), session);
   await page.getByRole("tab", { name: "Device" }).click();
-  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\npixel");
+  await expect(page.getByRole("button", { name: "Device Pixel 9" })).toBeVisible();
   const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_list").length);
   const before = await reads();
   await page.evaluate(device => window.__navigation.publish("device-list.*", null, { Devices: [device] }, "build-box"), second);
-  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\ntablet");
+  await expect(page.getByRole("button", { name: "Device Tablet" })).toBeVisible();
   expect(await reads()).toBe(before);
 
   await page.evaluate(() => window.__navigation.publish("device-list.*", null, { error: "no state has been published for this topic" }, "build-box"));
   await expect.poll(reads).toBeGreaterThan(before);
-  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\npixel");
+  await expect(page.getByRole("button", { name: "Device Pixel 9" })).toBeVisible();
 });
 
 test("a pushed boot reaches the live screen without a read, and a node with only the old topic is read on its ping", async ({ page }) => {
@@ -227,7 +227,7 @@ test("a pushed boot reaches the live screen without a read, and a node with only
   });
   await page.evaluate(agent => window.__navigation.open({ agent }), session);
   await page.getByRole("tab", { name: "Device" }).click();
-  await expect(page.getByRole("combobox", { name: "Device" })).toHaveValue("build-box\npixel");
+  await expect(page.getByRole("button", { name: "Device Pixel 9" })).toBeVisible();
   const reads = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_list").length);
   const attaches = () => page.evaluate(() => window.__navigation.calls().filter(call => call.command === "device_attach").length);
 

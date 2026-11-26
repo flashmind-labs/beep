@@ -1,11 +1,24 @@
 // Shared command-center building blocks. Each one draws the exact markup the
 // views wrote by hand (`cc-sec`, `cc-panel cc-empty`, `cc-line`, `chip`,
 // `dspin`), so a view can switch to it without a visible change.
-import { cloneElement, isValidElement, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
+import { cloneElement, isValidElement, lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, type ButtonHTMLAttributes, type CSSProperties, type HTMLAttributes, type KeyboardEvent, type ReactNode, type Ref, type SyntheticEvent } from "react";
 import parse from "html-react-parser";
 import { ErrorBoundary } from "react-error-boundary";
 import { copy } from "./clipboard.ts";
 import { Icon, type IconName } from "./icons.tsx";
+import type { DropdownProps } from "./dropdown.tsx";
+
+const LoadedDropdown = lazy(() => import("./dropdown.tsx").then(({ Dropdown }) => ({ default: Dropdown<string> })));
+
+/// `Dropdown`, loaded on first draw, so modules that only import a view stay free of the menu library.
+export function Picker<K extends string>({ onChange, ...props }: DropdownProps<K>) {
+  const choose = (id: string) => {
+    const option = props.options.find(option => option.id === id);
+    if (option) onChange(option.id);
+  };
+
+  return <Suspense fallback={null}><LoadedDropdown {...props} onChange={choose} /></Suspense>;
+}
 
 /// Sanitized HTML as React elements keyed by place, so a block that stays keeps its
 /// element: the reader's selection, and a diagram drawn next to it, survive an update.

@@ -199,8 +199,8 @@ body:not(.mobile) .hv-seg button { height: var(--ctl-h); line-height: var(--ctl-
 body:not(.mobile) .hv-seg button:is([aria-pressed="true"], [data-selected]) { background: var(--ctl-fill-hi); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 30%, transparent) }
 
 /* Fields: a quiet fill too, with the accent only while typing. */
-body:not(.mobile) .dfield :is(input, select, textarea, .f) { min-height: 28px; border-color: transparent; background: color-mix(in srgb, var(--fg) 5%, transparent); font-size: 13px }
-body:not(.mobile) .dfield :is(input, select, textarea):focus, body:not(.mobile) .dfield.on .f { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
+body:not(.mobile) :is(.dfield :is(input, textarea, .f), .dropdown-trigger.field) { min-height: 28px; border-color: transparent; background: color-mix(in srgb, var(--fg) 5%, transparent); font-size: 13px }
+body:not(.mobile) :is(.dfield :is(input, textarea):focus, .dropdown-trigger.field:is([data-pressed], [data-focus-visible])), body:not(.mobile) .dfield.on .f { border-color: color-mix(in srgb, var(--accent) 60%, transparent) }
 body:not(.mobile) .dfield.err :is(input, textarea, .f) { border-color: var(--err) }
 
 /* Keys: one small tile. */
@@ -301,7 +301,6 @@ body:not(.mobile) .agpbtn:not(.agaddterm, .agwt) { width: var(--ctl-h) }
 body:not(.mobile) .agaddterm { font: 10.5px var(--mono) }
 body:not(.mobile) .agdevhead { padding: 4px 8px; border-bottom: 0 }
 body:not(.mobile) .agdevhead .dbtn { min-height: var(--ctl-h); padding: 0 8px; font-size: 11.5px }
-body:not(.mobile) .agdevpick { height: var(--ctl-h); padding: 0 6px; border-color: transparent; background-color: var(--ctl-fill); font: 11.5px var(--mono) }
 
 /* ----- Work above the message field (running commands, queued messages): one quiet tray the field's width, resting on it ----- */
 body:not(.mobile) .ag-worklist:has(.ag-tasks, .ag-plan, .ag-queue .it) { box-sizing: border-box; width: calc(100% - 44px); max-width: 704px; margin-inline: auto; padding: 2px 0; border: 1px solid color-mix(in srgb, var(--fg) 8%, transparent); border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; background: color-mix(in srgb, var(--fg) 3%, transparent) }

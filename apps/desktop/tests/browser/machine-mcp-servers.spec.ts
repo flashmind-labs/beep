@@ -53,7 +53,7 @@ test("machine MCP servers are loaded, edited and applied for the selected harnes
   await page.evaluate(server => window.__navigation.respond("save_machine_mcp_server", { status: "saved", servers: [server] }), changed);
   await section.getByRole("button", { name: /^docs/ }).click();
   const editSheet = page.getByRole("dialog", { name: "Edit docs" });
-  await expect(editSheet.getByLabel("Transport", { exact: true })).toHaveValue("http");
+  await expect(editSheet.getByRole("button", { name: "Transport Streamable HTTP" })).toBeVisible();
   await expect(editSheet.getByLabel("Server URL")).toHaveValue(codexRemote.url);
   await expect(editSheet.getByLabel("Bearer token variable")).toHaveValue("DOCS_TOKEN");
   await expect(editSheet.locator("textarea")).toHaveCount(0);
@@ -64,7 +64,7 @@ test("machine MCP servers are loaded, edited and applied for the selected harnes
   await editSheet.getByRole("checkbox", { name: "Enabled" }).uncheck();
   await editSheet.getByText("Startup and tool settings", { exact: true }).click();
   await expect(editSheet.getByLabel("Startup timeout (seconds)")).toHaveValue("5.25");
-  await expect(editSheet.getByLabel("Default tool approval", { exact: true })).toHaveValue("prompt");
+  await expect(editSheet.getByRole("button", { name: "Default tool approval Prompt" })).toBeVisible();
   await editSheet.getByRole("checkbox", { name: "Only allow listed tools" }).check();
   await editSheet.getByRole("button", { name: "+ Add allowed tool", exact: true }).click();
   await editSheet.getByLabel("Tool name 1", { exact: true }).fill("search");
@@ -173,10 +173,14 @@ test("Antigravity offers its two transports and can disable a server", async ({ 
   await expect(section.getByRole("button", { name: "Harness Antigravity" })).toBeVisible();
   await section.getByRole("button", { name: "Add server" }).click();
   const sheet = page.getByRole("dialog", { name: "Add MCP server" });
-  await expect(sheet.getByLabel("Transport").getByRole("option")).toHaveText(["Stdio", "Streamable HTTP"]);
+  await sheet.getByRole("button", { name: "Transport Stdio" }).click();
+  await expect(page.getByRole("menuitemradio")).toHaveText(["Stdio", "Streamable HTTP"]);
+  await page.keyboard.press("Escape");
+  await expect(sheet).toBeVisible();
   await expect(sheet.getByLabel("Working directory")).toHaveCount(0);
   await sheet.getByLabel("Name", { exact: true }).fill("api");
-  await sheet.getByLabel("Transport").selectOption("http");
+  await sheet.getByRole("button", { name: "Transport Stdio" }).click();
+  await page.getByRole("menuitemradio", { name: "Streamable HTTP" }).click();
   await sheet.getByLabel("Server URL").fill(remote.url);
   await expect(sheet.getByLabel("Bearer token variable")).toHaveCount(0);
   await expect(sheet.getByText("OAuth settings")).toHaveCount(0);

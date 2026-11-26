@@ -6,10 +6,10 @@ div.am-sheet [aria-label="Edit docs" aria-modal="true" role="dialog"]
   form.dform.mcp-editor [autocomplete="off"]
     label.dfield "Name"
       input [autocapitalize="off" autocomplete="off" autocorrect="off" maxlength="128" name="name" required spellcheck="false" value="docs"] value="docs" (focused)
-    label.dfield "Transport"
-      select [aria-label="Transport"] value="http"
-        option [value="stdio"] "Stdio"
-        option [value="http"] "Streamable HTTP"
+    div.dfield "Transport"
+      button#<id>.dropdown-trigger.field [aria-expanded="false" aria-haspopup="true" aria-label="Transport Streamable HTTP" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+        span "Streamable HTTP"
+        svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
     label.dfield "Server URL"
       input.url [autocapitalize="off" autocomplete="off" autocorrect="off" required spellcheck="false" value="https://tools.example.test/mcp"] value="https://tools.example.test/mcp"
     fieldset.dfield.mcp-fields
@@ -33,13 +33,10 @@ div.am-sheet [aria-label="Edit docs" aria-modal="true" role="dialog"]
           input [step="any" type="number" value] value=""
         label.dfield "Tool timeout (seconds)"
           input [step="any" type="number" value] value=""
-        label.dfield "Default tool approval"
-          select [aria-label="Default tool approval"] value=""
-            option [value] "Use Codex default"
-            option [value="auto"] "Auto"
-            option [value="prompt"] "Prompt"
-            option [value="writes"] "Writes"
-            option [value="approve"] "Approve"
+        div.dfield "Default tool approval"
+          button#<id>.dropdown-trigger.field [aria-expanded="false" aria-haspopup="true" aria-label="Default tool approval Use Codex default" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+            span "Use Codex default"
+            svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
         label.dline "Only allow listed tools"
           input.dcheck [type="checkbox"] value="on" unchecked
         fieldset.dfield.mcp-fields

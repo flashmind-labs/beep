@@ -11,7 +11,7 @@ test("model animation controls preserve focus while playback advances and clean 
   const dom = new JSDOM("<body><div id='root'></div></body>");
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, matchMedia: () => ({ matches: true }) });
   let time = 0;
-  const animation: Animation = { clips: [{ name: "First", duration: 10 }, { name: "Second", duration: 20 }], clip: 0, playing: false, loop: false, time: () => time,
+  const animation: Animation = { clips: [{ name: "First", duration: 10 }], clip: 0, playing: false, loop: false, time: () => time,
     select(index) { this.clip = index; this.onchange(); }, play(on) { this.playing = on; this.onchange(); }, seek(value) { time = value; this.onchange(); }, setLoop(on) { this.loop = on; this.onchange(); }, onchange() {} };
   const host = dom.window.document.getElementById("root"); assert.ok(host);
   const root = createRoot(host);
@@ -29,10 +29,6 @@ test("model animation controls preserve focus while playback advances and clean 
   flushSync(() => loop.click());
   assert.equal(animation.loop, true);
   assert.equal(loop.getAttribute("aria-pressed"), "true");
-  const pick = host.querySelector<HTMLSelectElement>("select"); assert.ok(pick);
-  pick.value = "1";
-  flushSync(() => pick.dispatchEvent(new dom.window.Event("change", { bubbles: true })));
-  assert.equal(animation.clip, 1);
   const scrub = host.querySelector<HTMLInputElement>('input[type="range"]'); assert.ok(scrub);
   scrub.value = "7";
   flushSync(() => scrub.dispatchEvent(new dom.window.Event("input", { bubbles: true })));

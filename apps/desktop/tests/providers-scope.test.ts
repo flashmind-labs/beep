@@ -39,8 +39,8 @@ test("machine selection preserves shared drafts and each save writes only its sc
   await settle();
   const scopes = () => root.querySelectorAll<HTMLElement>(".hv-scope");
   assert.match(scopes()[0].textContent ?? "", /All machines/);
-  assert.equal(scopes()[0].querySelector("select"), null);
-  assert.ok(scopes()[1].querySelector('select[aria-label="Machine runtime settings"]'));
+  assert.equal(scopes()[0].querySelector(".hv-pick"), null);
+  assert.ok(scopes()[1].querySelector(".hv-pick"));
   assert.equal(scopes()[1].querySelector(":scope > h3"), null);
   assert.equal(scopes()[1].querySelector(".hv-bar .lbl"), null);
   const threshold = root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]');
@@ -48,9 +48,9 @@ test("machine selection preserves shared drafts and each save writes only its sc
   threshold.focus();
   fireEvent.change(threshold, { target: { value: "70%" } });
   threshold.setSelectionRange(1, 2);
-  const picker = root.querySelector<HTMLSelectElement>('select[aria-label="Machine runtime settings"]');
+  const picker = [...scopes()[1].querySelectorAll<HTMLButtonElement>(".hv-seg button")].find(button => button.textContent === "gpu-box");
   assert.ok(picker);
-  fireEvent.change(picker, { target: { value: "gpu" } });
+  fireEvent.click(picker);
   await settle();
   const restored = root.querySelector<HTMLInputElement>('[aria-label="Auto-compact threshold"]');
   assert.equal(restored, threshold);

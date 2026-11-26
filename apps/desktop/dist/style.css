@@ -198,8 +198,10 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dchat .acts { display: flex; gap: 4px; flex: none }
 .dchat input { flex: 1; min-width: 0; font: inherit; font-size: 14px; color: var(--fg); background: var(--surface); border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 2px 6px }
 .dfield input { min-height: 34px; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; outline: 0; caret-color: var(--accent) }
-.dfield select { min-height: 34px; padding: 0 8px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; outline: 0 }
-.dfield input:focus, .dfield textarea:focus, .dfield select:focus { border-color: var(--accent) }
+.dropdown-trigger.field { min-height: 34px; justify-content: space-between; padding: 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 14px; outline: 0; cursor: default }
+.dfield input:focus, .dfield textarea:focus, .dropdown-trigger.field:is([data-pressed], [data-focus-visible]) { border-color: var(--accent) }
+.dropdown-trigger.field[data-focus-visible] { outline: 0 }
+.dropdown-trigger[data-disabled] { opacity: .5 }
 .dfield.err input, .dfield.err textarea { border-color: var(--err) }
 .dfield input.mono { font-family: var(--mono); letter-spacing: .12em; font-size: 15px; text-transform: var(--label-case) }
 .dfield .note { font-size: 12px; color: var(--muted) } .dfield .note.why { color: var(--fg) } .dfield .note.why:empty { display: none } .dfield.err .note { color: var(--err) }
@@ -414,7 +416,6 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .agpacts .dbtn.ibtn { width: 26px; height: 26px; padding: 0; justify-content: center } .agpacts .dbtn.ibtn.on { color: var(--accent) }
 .agpacts .sp { flex: 1 } .agpacts .hint { color: var(--dim) } .agpacts .zoom { font-family: var(--mono); min-width: 4ch }
 .agpacts.anim[hidden] { display: none } .agpacts.anim input[type=range] { flex: 1; min-width: 80px; accent-color: var(--accent) } .agpacts.anim .time { font-family: var(--mono); color: var(--muted) }
-.agpacts.anim select { padding: 1px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px }
 @container (max-width: 520px) { .agpacts .hint { display: none } }
 .agpane-content { container-type: inline-size }
 .dcoderen.agent .agwarn { color: var(--warn) }
@@ -1210,7 +1211,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 /* The Device tab (#648): picker head, the screen fitted with its aspect, the button row. */
 .agdevhead { flex: none; display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 12px }
 .agdevhead .sp { flex: 1 } .agdevhead .dbtn { padding: 2px 10px; min-height: 0; font-size: 12px }
-.agdevpick { min-width: 0; max-width: 60%; padding: 1px 6px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--fg); font: inherit; font-size: 12px }
+.agdevpick { min-width: 0; max-width: 60% }
 .agpview.device > .derr { padding: 4px 8px }
 .agdevmiss { flex: none; padding: 5px 8px; border-bottom: 1px solid var(--border); color: var(--muted); font-size: 12px }
 .agdevmiss[hidden] { display: none }
@@ -1375,6 +1376,7 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 
 /* Shared single-choice dropdowns. React Aria owns focus, selection and dismissal. */
 .dropdown-trigger { display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap }
+.dropdown-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis }
 .dropdown-trigger > svg { flex: none; width: 14px; height: 14px; color: var(--muted) }
 .dropdown-trigger > svg:last-child { width: 12px; height: 12px }
 .dropdown-trigger[data-pressed] { background: var(--elev); color: var(--fg) }
@@ -1386,6 +1388,11 @@ mark.chat-match.current{background:#f0c14b;color:#181818}
 .dropdown-check { display: grid; place-items: center; width: 14px; flex: none; visibility: hidden; color: var(--accent) }
 .dropdown-option[data-selected] .dropdown-check { visibility: visible }
 .dropdown-option[data-selected] { font-weight: 500 }
+.dropdown-option[data-disabled] { color: var(--dim) }
+.dropdown-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.dropdown-tag { flex: none; padding: 0 6px; border-radius: var(--radius-sm); font: 500 10.5px/16px var(--mono); font-variant-numeric: tabular-nums; color: var(--dim) }
+.dropdown-section + .dropdown-section { margin-top: 4px; padding-top: 4px; border-top: 1px solid var(--border) }
+.dropdown-head { padding: 7px 9px 4px 32px; font: 500 10px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dim) }
 
 /* Attachment batches keep the composer and transcript readable. */
 .attachment-batch { width: 100%; min-width: 0; font-size: 12px; color: var(--muted) }

@@ -300,7 +300,9 @@ body.cbody
                   div.hv-bar
                     span.crowded.hv-pick
                       span.hv-seg [aria-label="Machine" role="group"]
-                      select.hv-sel [aria-label="Machine runtime settings"] value=""
+                      button#<id>.dbtn.dropdown-trigger.hv-sel.quiet.small [aria-expanded="false" aria-haspopup="true" aria-label="Machine runtime settings" data-rac data-react-aria-pressable="true" tabindex="0" type="button"]
+                        span "Machine runtime settings"
+                        svg [fill="none" height="16" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" stroke="currentColor" viewBox="0 0 24 24" width="16"]
                     span.sp
                     button.dbtn.quiet [disabled title="Check the versions again" type="button"] "Check for updates"
                     button.dbtn [disabled title="Everything is up to date" type="button"] "Update all"

@@ -47,7 +47,7 @@ body.mobile :is(.cc-menu button, .cc-menu [role="menuitem"], .cc-menu [role="men
 body.mobile .dbtn { min-height: 32px; padding: 0 12px; font-size: 14px }
 body.mobile .cc-top button { min-height: 36px }
 body.mobile .cc-row { min-height: 46px }
-body.mobile :is(input, textarea, select) { font-size: 16px }
+body.mobile :is(input, textarea) { font-size: 16px }
 body.mobile .cc-comp input { font-size: 16px }
 body.mobile .cc-comp { padding: 6px 10px 6px 14px }
 body.mobile .cc-comp .cc-err { max-width: 30% }

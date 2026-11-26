@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
-import { Button, Checkbox, EmptyPanel, LineRow, NO_AUTO, SectionHead, SheetHead, SkeletonRows } from "../ui/kit.tsx";
+import { useEffect, useState, type FormEvent } from "react";
+import { Button, Checkbox, EmptyPanel, LineRow, NO_AUTO, Picker, SectionHead, SheetHead, SkeletonRows } from "../ui/kit.tsx";
 import { confirmSheet, openMenu } from "../ui/menu.tsx";
 import { openSheet } from "../ui/parts.tsx";
 import { HarnessIcon, Icon } from "../ui/icons.tsx";
@@ -7,7 +7,6 @@ import type { invoke as Invoke } from "../ui/tauri.ts";
 import { errorText } from "./machines-state.ts";
 
 type Harness = "codex" | "claude" | "agy";
-const HarnessPicker = lazy(() => import("../ui/dropdown.tsx").then(({ Dropdown }) => ({ default: Dropdown<Harness> })));
 const HARNESS = { codex: "Codex", claude: "Claude Code", agy: "Antigravity" } satisfies Record<Harness, string>;
 const TRANSPORT = { stdio: "Stdio", http: "Streamable HTTP", sse: "SSE", ws: "WebSocket" };
 type Transport = keyof typeof TRANSPORT;
@@ -79,9 +78,7 @@ function Harnesses({ machineId, invoke }: MachineProps) {
   const options = load.value.map(id => ({ id, label: HARNESS[id] }));
   return <>
     <SectionHead title="MCP servers">
-      <Suspense fallback={null}>
-        <HarnessPicker label="Harness" value={harness} options={options} onChange={setSelected} icon={<HarnessIcon agent={harness} />} />
-      </Suspense>
+      <Picker<Harness> label="Harness" value={harness} options={options} onChange={setSelected} icon={<HarnessIcon agent={harness} />} />
     </SectionHead>
     <McpServers key={harness} machineId={machineId} harness={harness} invoke={invoke} />
   </>;
@@ -265,12 +262,9 @@ function ServerEditor({ title, harness, server, save, pending, close }: {
     <SheetHead title={<>{title}<small>{HARNESS[harness]} user configuration</small></>} />
     <form className="dform mcp-editor" onSubmit={event => void submit(event)} autoComplete="off">
       <label className="dfield">Name<input name="name" defaultValue={server?.name ?? ""} required maxLength={128} disabled={busy} {...NO_AUTO} autoFocus /></label>
-      <label className="dfield">Transport
-        <select aria-label="Transport" value={transport} disabled={busy} onChange={event => {
-          const next = transports.find(item => item === event.currentTarget.value);
-          if (next) setTransport(next);
-        }}>{transports.map(item => <option key={item} value={item}>{TRANSPORT[item]}</option>)}</select>
-      </label>
+      <div className="dfield">Transport
+        <Picker<Transport> label="Transport" field disabled={busy} options={transports.map(item => ({ id: item, label: TRANSPORT[item] }))} value={transport} onChange={setTransport} />
+      </div>
       {transport === "stdio" ? <>
         <StringField label="Command" value={command} change={setCommand} required busy={busy} />
         {codex && <StringField label="Working directory" value={cwd} change={setCwd} busy={busy} />}
@@ -294,16 +288,11 @@ function ServerEditor({ title, harness, server, save, pending, close }: {
             change={startup_timeout_sec => setOptions({ ...options, startup_timeout_sec })} />
           <NumberField label="Tool timeout (seconds)" value={options.tool_timeout_sec} busy={busy}
             change={tool_timeout_sec => setOptions({ ...options, tool_timeout_sec })} />
-          <label className="dfield">Default tool approval
-            <select aria-label="Default tool approval" value={options.default_tools_approval_mode ?? ""} disabled={busy} onChange={event => {
-              const value = event.currentTarget.value;
-              const mode = approvalModes.find(mode => mode === value) ?? null;
-              setOptions({ ...options, default_tools_approval_mode: mode });
-            }}>
-              <option value="">Use Codex default</option>
-              {approvalModes.map(mode => <option key={mode} value={mode}>{APPROVAL[mode]}</option>)}
-            </select>
-          </label>
+          <div className="dfield">Default tool approval
+            <Picker<Approval | "default"> label="Default tool approval" field disabled={busy} value={options.default_tools_approval_mode ?? "default"}
+              options={[{ id: "default", label: "Use Codex default" }, ...approvalModes.map(mode => ({ id: mode, label: APPROVAL[mode] }))]}
+              onChange={value => setOptions({ ...options, default_tools_approval_mode: value === "default" ? null : value })} />
+          </div>
           <label className="dline"><Checkbox checked={includeTools} change={setIncludeTools} disabled={busy} /> Only allow listed tools</label>
           {includeTools && <FieldRows label="Allowed tools" item="allowed tool" valueLabel="Tool name" rows={allowed} change={setAllowed} busy={busy} />}
           <FieldRows label="Blocked tools" item="blocked tool" valueLabel="Tool name" rows={blocked} change={setBlocked} busy={busy} />

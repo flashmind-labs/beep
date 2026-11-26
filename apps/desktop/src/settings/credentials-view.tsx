@@ -1,4 +1,4 @@
-import { Button, NO_AUTO, SkeletonRows, Spinner } from "../ui/kit.tsx";
+import { Button, NO_AUTO, Picker, SkeletonRows, Spinner } from "../ui/kit.tsx";
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { apiKeys, forgejoTokenPage, ghChoices, unsavedProviders, githubAccounts, hostOf, teaHas, teaOffers, GITHUB_TOKEN_PAGE, type ApiKey, type CredCheck, type Credential, type CredState, type GitHubAccount } from "./credentials.ts";
 import { Icon, type IconName } from "../ui/icons.tsx";
@@ -24,12 +24,14 @@ function CliChip({ cli, machines }: { cli: string; machines: Machines }) {
 }
 function Link({ href, actions, children }: { href: string; actions: CredentialActions; children: ReactNode }) { return <a href={href} className="dlink" onClick={e => { e.preventDefault(); e.stopPropagation(); actions.open(href); }}>{children}</a>; }
 function Form({ state, actions, title, subtitle, children }: { state: CredState; actions: CredentialActions; title: string; subtitle?: string; children: ReactNode }) {
-  const secret = useRef<HTMLInputElement>(null), url = useRef<HTMLInputElement>(null), pick = useRef<HTMLSelectElement>(null), edit = state.edit, key = edit?.kind === "api_key";
-  useLayoutEffect(() => { (url.current ?? pick.current ?? secret.current)?.focus(); }, []);
-  const save = () => actions.save(url.current?.value ?? pick.current?.value ?? "", secret.current?.value ?? "", () => { if (secret.current) secret.current.value = ""; });
+  const secret = useRef<HTMLInputElement>(null), url = useRef<HTMLInputElement>(null), edit = state.edit, key = edit?.kind === "api_key";
+  const providers = unsavedProviders(state), picking = key && edit.provider === null;
+  const [provider, setProvider] = useState(() => providers[0]?.provider ?? null);
+  useLayoutEffect(() => { (url.current ?? secret.current)?.focus(); }, []);
+  const save = () => actions.save(url.current?.value ?? (picking ? provider : null) ?? "", secret.current?.value ?? "", () => { if (secret.current) secret.current.value = ""; });
   return <div className="dcred-form"><div className="dline"><b>{title}</b>{subtitle && <span className="dfine">{subtitle}</span>}</div><div className={`dfield${state.error ? " err" : ""}`}>
     {edit?.kind === "forgejo" && !edit.id && <input ref={url} id="credUrl" className="url" type="url" placeholder="https://git.example.com" {...NO_AUTO} defaultValue={edit.url ?? ""} aria-label="Server URL" />}
-    <div className="dline">{key && edit.provider === null && <select ref={pick} id="credProvider" aria-label="Provider">{unsavedProviders(state).map(p => <option key={p.provider} value={p.provider}>{p.name}</option>)}</select>}<input ref={secret} id="credSecret" type="password" className="dsecret" placeholder={key ? "Paste the key" : "Paste the token"} {...NO_AUTO} aria-label={key ? "Key" : "Token"} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /><Button look="primary" id="credSave" disabled={!!state.busy} onClick={save}>{key ? state.busy ? "Saving…" : "Save" : state.busy ? "Checking…" : "Check and save"}</Button><Button look="quiet" id="credCancel" onClick={actions.cancel}>Cancel</Button></div></div><span className="dsub">{children}</span><div className="derr" id="credErr">{state.error || ""}</div></div>;
+    <div className="dline">{picking && <Picker label="Provider" field className="dprovider" options={providers.map(p => ({ id: p.provider, label: p.name }))} value={provider} onChange={setProvider} />}<input ref={secret} id="credSecret" type="password" className="dsecret" placeholder={key ? "Paste the key" : "Paste the token"} {...NO_AUTO} aria-label={key ? "Key" : "Token"} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); save(); } }} /><Button look="primary" id="credSave" disabled={!!state.busy} onClick={save}>{key ? state.busy ? "Saving…" : "Save" : state.busy ? "Checking…" : "Check and save"}</Button><Button look="quiet" id="credCancel" onClick={actions.cancel}>Cancel</Button></div></div><span className="dsub">{children}</span><div className="derr" id="credErr">{state.error || ""}</div></div>;
 }
 function Waiting({ state, actions }: { state: CredState; actions: CredentialActions }) { const flow = state.ghFlow; if (!flow) return null; return <div className="dflow">{flow.code && <span>Enter code <code className="dflowcode">{flow.code}</code> on <Link href={flow.url} actions={actions}>GitHub</Link>{flow.copied && <span className="dmut"> (copied)</span>}</span>}<span className="dmuted"><Spinner />{flow.code ? "Waiting for GitHub" : "Starting gh…"}</span></div>; }
 function Use({ label, busy, action }: { label: string; busy: boolean; action: () => void }) { return <Button look="primary" small disabled={busy} onClick={action}>{busy ? "Checking…" : label}</Button>; }

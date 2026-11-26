@@ -7,7 +7,7 @@ import { FailBanner } from "../ui/failbanner-view.tsx";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { adapterLine, type AdapterInstall } from "../machines/adapters-state.ts";
 import { compactKind, differsLabel, differsOn, draftChanged, envProblem, harnessName, hasUpdate, listRows, planOf, summaryLine, versionLine, type AutoCompactDraft, type HarnessDraft, type HarnessesView, type HarnessView, type MachineSettings, type SharedField } from "./providers-state.ts";
-import { Button, Checkbox, ChipToggle, CopyButton, EmptyPanel, NO_AUTO, onRowKey, Switch } from "../ui/kit.tsx";
+import { Button, Checkbox, ChipToggle, CopyButton, EmptyPanel, NO_AUTO, onRowKey, Picker, Switch } from "../ui/kit.tsx";
 import type { invoke as Invoke } from "../ui/tauri.ts";
 
 export interface SharedProviderSettings {
@@ -145,12 +145,12 @@ export function ProviderHeader(p: Pick<ProviderProps, "machines" | "machine" | "
   return <><MachinePick p={p} crowded={crowded} selectLabel="Machine" /><Button disabled={!!p.updateCount || !p.canUpdate} title={!p.canUpdate && !p.updateCount ? "Everything is up to date" : undefined} onClick={p.updateAll}>{p.updateCount ? `Updating ${p.updateCount}…` : "Update all"}</Button><Button look="quiet" disabled={p.loading || !p.machine} title="Check the versions again" onClick={p.refresh}>{p.loading ? "Checking…" : p.checked}</Button></>;
 }
 
-/// The machine picker: a row of buttons, or a select where they do not fit.
+/// The machine picker: a row of buttons, or a dropdown where they do not fit.
 function MachinePick({ p, crowded, selectLabel }: { p: Pick<ProviderProps, "machines" | "machine" | "pickMachine">; crowded: boolean; selectLabel: string }) {
   const machines = p.machines ?? [];
   const label = (machine: { name: string; online: boolean }) => machine.online ? machine.name : `${machine.name} (offline)`;
   return <span className={`hv-pick${crowded ? " crowded" : ""}`}>
     <span className="hv-seg" role="group" aria-label="Machine">{machines.map(machine => <button type="button" key={machine.id} title={label(machine)} aria-pressed={machine.id === p.machine} disabled={!machine.online} onClick={() => p.pickMachine(machine.id)}>{machine.name}</button>)}</span>
-    <select className="hv-sel" value={p.machine ?? ""} aria-label={selectLabel} onChange={event => p.pickMachine(event.currentTarget.value)}>{machines.map(machine => <option key={machine.id} value={machine.id} disabled={!machine.online}>{label(machine)}</option>)}</select>
+    <Picker label={selectLabel} className="hv-sel" options={machines.map(machine => ({ id: machine.id, label: machine.name, disabled: !machine.online, tag: machine.online ? undefined : "Offline" }))} value={p.machine} onChange={p.pickMachine} />
   </span>;
 }
