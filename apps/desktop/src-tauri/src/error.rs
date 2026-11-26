@@ -85,3 +85,11 @@ impl Serialize for DesktopError {
 }
 
 pub type Result<T, E = DesktopError> = std::result::Result<T, E>;
+
+/// A machine's reason on its own, without the "bad request:" before it.
+pub(crate) fn plain(e: DesktopError) -> DesktopError {
+    match e {
+        DesktopError::Api(ApiError::BadRequest { message }) => DesktopError::BadRequest(message),
+        other => other,
+    }
+}

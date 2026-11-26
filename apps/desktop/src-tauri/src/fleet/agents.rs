@@ -1180,7 +1180,7 @@ pub(crate) async fn harness_views(fleet: &std::sync::Arc<Fleet>) -> Vec<super::v
             Err(error) => Some(View::failed(
                 "agent_harnesses",
                 args,
-                &crate::settings::credentials::plain(error).to_string(),
+                &crate::error::plain(error).to_string(),
             )),
         }
     });

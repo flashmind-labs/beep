@@ -8,6 +8,7 @@ mod chat;
 mod error;
 mod fleet;
 mod machines;
+mod markdown;
 mod navigation;
 mod notices;
 mod palette;

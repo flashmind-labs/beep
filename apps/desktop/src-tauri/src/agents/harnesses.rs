@@ -2,13 +2,12 @@
 //! their settings, and installing or updating one there.
 
 use crate::{
-    error::Result,
+    error::{Result, plain},
     fleet::{
         Machines, agents as direct,
         node_actor::{FAST_JOB_WAIT, JobKind},
         projects::{FleetState, desk},
     },
-    settings::credentials::plain,
 };
 use beep_proto::{
     AgentHarnesses, AgentSlug, HarnessSettings, MachineHarnessSettings, ModelId,

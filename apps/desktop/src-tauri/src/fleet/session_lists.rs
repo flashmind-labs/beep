@@ -8,7 +8,7 @@ use super::{
     files::{Place, in_any_folder},
     session_mirror::{Rows, SessionMirror},
 };
-use crate::{beep::epoch_ms, chat::markdown};
+use crate::{beep::epoch_ms, markdown};
 use beep_mesh::machine::listing::{self, MAX_PROJECT_SESSIONS};
 use beep_proto::{
     AccountName, AgentQuestion, MachineSession, ModelId, SessionId,

@@ -6,7 +6,7 @@
 
 use crate::{
     center::{self, AgentTarget, CenterTarget},
-    chat::markdown::plain_text,
+    markdown::plain_text,
 };
 use beep_proto::{
     AgentNoticeKey, Notice,

@@ -2,7 +2,7 @@
 //! from the mesh in one go. Entry point: `center_home`; `section` and
 //! `is_unsupported` read any list.
 
-use crate::chat::markdown::inline_html;
+use crate::markdown::inline_html;
 use crate::store::view_cache::{View, ViewCache, cache_view};
 use crate::{
     agents::sessions::{MoveView, agent_sessions, moves, overlaid},

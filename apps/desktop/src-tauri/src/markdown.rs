@@ -663,5 +663,5 @@ fn escape_prices(out: &mut String, text: &str) {
 }
 
 #[cfg(test)]
-#[path = "../tests/chat_markdown.rs"]
+#[path = "tests/markdown.rs"]
 mod tests;

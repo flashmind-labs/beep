@@ -22,9 +22,10 @@
 
 use crate::{
     agents::files::read_part,
-    chat::{files::free_name, markdown},
+    chat::files::free_name,
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
+    markdown,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{AGENT_FILE_CHUNK, ReadWorkFile};

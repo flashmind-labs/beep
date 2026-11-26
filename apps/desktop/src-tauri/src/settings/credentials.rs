@@ -4,13 +4,11 @@
 
 use crate::{
     beep::epoch_ms,
-    error::{DesktopError, Result},
+    error::Result,
     fleet::projects::{FleetState, desk},
 };
 use beep_fleet::Session;
-use beep_proto::{
-    ApiError, ApiKey, Credential, CredentialCheck, GitHubAccount, SecretText, Service,
-};
+use beep_proto::{ApiKey, Credential, CredentialCheck, GitHubAccount, SecretText, Service};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use strum::VariantArray;
@@ -186,12 +184,4 @@ pub async fn set_default_github_account(fleet: FleetState<'_>, id: String) -> Re
     desk(&fleet).await?.set_default_github(&id).await?;
     fleet.forget();
     Ok(())
-}
-
-/// A machine's reason on its own, without the "bad request:" before it.
-pub(crate) fn plain(e: DesktopError) -> DesktopError {
-    match e {
-        DesktopError::Api(ApiError::BadRequest { message }) => DesktopError::BadRequest(message),
-        other => other,
-    }
 }

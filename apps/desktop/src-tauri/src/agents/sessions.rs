@@ -9,7 +9,6 @@ use crate::{
         starts::{Start, Started, Starts},
         steering::{DevicePick, uploads},
     },
-    chat::markdown,
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines, agents as direct,
@@ -20,6 +19,7 @@ use crate::{
         session_mirror::{Link, Rows, SessionMirror, StartId, showing},
         work_copy,
     },
+    markdown,
     projects::known,
 };
 use beep_node::agents::tags::own_words;

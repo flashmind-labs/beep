@@ -6,9 +6,9 @@
 use crate::{
     beep::epoch_ms,
     center::{AgentTarget, CenterTarget, RunAt},
-    chat::markdown::inline_html,
     error::{DesktopError, Result},
     fleet::Fleet,
+    markdown::inline_html,
     store::{lock, write_part},
 };
 use beep_fleet::{Read, digest};

@@ -3,9 +3,9 @@
 
 use crate::{
     beep::epoch_ms,
-    chat::markdown::untrusted_html,
     error::Result,
     fleet::projects::{FleetState, named},
+    markdown::untrusted_html,
 };
 use beep_proto::{
     GitItemKind, LinkedPr, ProjectIssue, ProjectPullRequest, PullRequestHead, ThreadDetail,

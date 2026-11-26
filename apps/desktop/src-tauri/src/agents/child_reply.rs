@@ -1,6 +1,6 @@
 //! Child notices as Markdown for the parent's conversation.
 
-use crate::chat::markdown;
+use crate::markdown;
 use beep_node::agents::tags::{Part, parts};
 
 /// HTML for each child part, in the order it appears in the entry.
