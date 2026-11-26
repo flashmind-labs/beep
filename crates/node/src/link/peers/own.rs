@@ -2,7 +2,7 @@
 //! diagnostics a problem report reads are served from these and the offers,
 //! so what asks for them needs no handle on the running node.
 
-use super::{Offers, read_open};
+use super::{Offers, Own, read_open};
 use crate::link::{
     local_status::{self, LocalStatus},
     protocol::SessionProtocol,
@@ -12,21 +12,11 @@ use anyhow::{Result, bail};
 use beep_mesh::{DeviceKind, Mesh, PeerClient, SessionFn};
 use beep_proto::node::{LinkRx, LinkTx, Opened, report};
 use beep_report::Target;
-use iroh::Endpoint;
 use std::{
-    path::{Path, PathBuf},
+    path::Path,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-
-#[derive(Clone)]
-pub(crate) struct Own {
-    pub(crate) endpoint: Endpoint,
-    pub(crate) dir: PathBuf,
-    pub(crate) name: String,
-    /// When the node started.
-    pub(crate) started: SystemTime,
-}
 
 impl Own {
     /// Whether `protocol` is one every machine of the mesh may read, shared

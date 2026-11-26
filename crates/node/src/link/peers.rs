@@ -12,7 +12,7 @@ use crate::{
     link::Protocol,
     link::from_mesh,
     run::local_socket::{Listener, Stream},
-    link::local_status::LocalStatus,
+
     link::protocol::SessionProtocol,
     link::watchdog::{self, Step},
     machine::{env, stats},
@@ -29,6 +29,8 @@ use beep_proto::watched;
 #[cfg(feature = "cli")]
 use beep_report::Share;
 use beep_report::collect;
+#[cfg(feature = "cli")]
+use crate::link::local_status::LocalStatus;
 use iroh::{
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
@@ -53,8 +55,7 @@ mod offers;
 mod own;
 
 pub use offers::Offers;
-pub(crate) use own::Own;
-pub(crate) use offers::{Who, read_open, withheld};
+pub(crate) use offers::{Own, Who, read_open, withheld};
 
 /// The socket `beep-node mesh` reaches the running node on, in its folder.
 const SOCKET: &str = "mesh.sock";

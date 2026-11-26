@@ -1,6 +1,5 @@
 //! What a node serves (`Offers`), and who opened a session (`Who`).
 
-use super::Own;
 use crate::{
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
     files::{search::Searches, transfer::Transfers},
@@ -18,14 +17,14 @@ use beep_proto::node::{
     LinkRx, Open, agent, desktop, mcp_servers, setup, sign_in, tool_update,
 };
 use beep_proto::watched;
-use iroh::EndpointId;
+use iroh::{Endpoint, EndpointId};
 use std::{
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime},
 };
 use tokio::{sync::watch, time::timeout};
 
@@ -56,6 +55,16 @@ impl Sharing {
     pub(crate) fn subscribe(&self) -> watch::Receiver<Option<Transfers>> {
         self.0.subscribe()
     }
+}
+
+/// What a node knows of itself; the code that uses it is in `own`.
+#[derive(Clone)]
+pub(crate) struct Own {
+    pub(crate) endpoint: Endpoint,
+    pub(crate) dir: PathBuf,
+    pub(crate) name: String,
+    /// When the node started.
+    pub(crate) started: SystemTime,
 }
 
 /// What a node serves beside its shell.
