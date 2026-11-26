@@ -8,9 +8,9 @@ use crate::{
         AgentKind, Agents,
         kinds::{self, Detection},
     },
-    link::local_status::{Agent, AgentState},
 };
 use beep_proto::node::AdapterInstall;
+use serde::{Deserialize, Serialize};
 use beep_proto::watched;
 use std::{
     collections::BTreeMap,
@@ -23,6 +23,28 @@ use tokio::{
     task::spawn_blocking,
 };
 use tokio_util::task::AbortOnDropHandle;
+
+/// A coding agent whose CLI the node found. Part of `LocalStatus`, so its
+/// fields follow the wire rules there.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Agent {
+    pub name: String,
+    pub state: AgentState,
+}
+
+/// Whether the node can start an agent, and how its adapter stands.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AgentState {
+    Ready,
+    /// Ready, on the ACP adapter the node installed itself.
+    OwnAdapter,
+    /// Its CLI is here but not its adapter: the node is installing it.
+    Installing,
+    /// Installing its adapter failed; the node tries again later.
+    Failed {
+        reason: String,
+    },
+}
 
 /// How long the node waits between two detections, and so before it tries
 /// a failed install again.

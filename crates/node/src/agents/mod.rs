@@ -51,7 +51,7 @@ host! {
     mod found_sessions;
     mod harnesses;
     mod holders;
-    mod installs;
+    pub(crate) mod installs;
     mod image_files;
     mod image_index;
     mod images;

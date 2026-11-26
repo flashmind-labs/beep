@@ -3,6 +3,7 @@
 //! by position with `beep_proto::lenient`: a new field goes at the end with
 //! `#[serde(default)]`, and none is ever inserted, reordered or removed.
 
+use crate::agents::installs::{Agent, AgentState};
 use beep_mesh::DeviceKind;
 use beep_proto::node::sync::{ProjectStatus, State};
 use iroh::EndpointId;
@@ -27,27 +28,6 @@ pub struct LocalStatus {
     /// The coding agents found here, and the ones waiting on an adapter.
     #[serde(default)]
     pub agents: Vec<Agent>,
-}
-
-/// A coding agent whose CLI the node found.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Agent {
-    pub name: String,
-    pub state: AgentState,
-}
-
-/// Whether the node can start an agent, and how its adapter stands.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum AgentState {
-    Ready,
-    /// Ready, on the ACP adapter the node installed itself.
-    OwnAdapter,
-    /// Its CLI is here but not its adapter: the node is installing it.
-    Installing,
-    /// Installing its adapter failed; the node tries again later.
-    Failed {
-        reason: String,
-    },
 }
 
 /// A device of the mesh.
