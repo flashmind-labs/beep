@@ -609,19 +609,19 @@ async fn leaving_the_mesh_forgets_the_teams() {
         admitted_by: None,
         proof: None,
     };
-    peers.inner.team().with(|teams| {
+    peers.inner.team.with(|teams| {
         teams
             .rosters
             .refresh([(repo.clone(), TeamRecord::new(repo.clone(), vec![alice]))].into());
     });
-    peers.inner.team().publish(|served| {
+    peers.inner.team.publish(|served| {
         served.boards.set(&repo, Vec::new());
         served.gateways.insert(repo.clone(), endpoint.id());
     });
 
     peers.leave().await;
 
-    peers.inner.team().with(|teams| assert!(teams.rosters.get(&repo).is_none()));
-    assert!(!peers.inner.team().served(|served| served.boards.serves(&repo)));
-    assert!(peers.inner.team().served(|served| served.gateways.is_empty()));
+    peers.inner.team.with(|teams| assert!(teams.rosters.get(&repo).is_none()));
+    assert!(!peers.inner.team.served(|served| served.boards.serves(&repo)));
+    assert!(peers.inner.team.served(|served| served.gateways.is_empty()));
 }

@@ -11,7 +11,7 @@
 use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
 use beep_node::agents::AgentKind;
 use beep_node::link::{
-    Offers,
+    Bound, Offers,
     peers::{Peers, ReportError},
 };
 use beep_node::machine::provision::Provision;
@@ -1977,7 +1977,7 @@ async fn an_agent_runs_a_command_on_another_machine_with_no_server() {
 /// A desktop with its node in this process, as the Mac app runs it with Let
 /// Beep use this Mac on: it creates the mesh and serves its streams through
 /// `Peers`, the offers it was given answering them.
-async fn desktop_with_node(agents: &[AgentKind]) -> (Member, Offers) {
+async fn desktop_with_node(agents: &[AgentKind]) -> (Member, Bound) {
     let dir = TempDir::new().expect("a temp folder");
     let endpoint = bind(&SecretKey::generate()).await;
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")

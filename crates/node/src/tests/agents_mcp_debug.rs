@@ -34,7 +34,7 @@ fn a_heading_names_the_machine_and_how_it_answered() {
 
 /// A node in no mesh whose log holds `log`, and the offers it hands to
 /// `mcp::start` after `Peers::new` took its own copy, as `serve` does.
-async fn node(log: &str) -> (Peers, Offers, tempfile::TempDir) {
+async fn node(log: &str) -> (Peers, crate::link::peers::Bound, tempfile::TempDir) {
     use crate::machine::service::logs::Logs;
     use iroh::{Endpoint, endpoint::presets};
     let dir = tempfile::tempdir().expect("temp dir");
@@ -112,7 +112,7 @@ fn a_machine_is_named_as_list_machines_names_it() {
 #[tokio::test]
 async fn metric_periods_accept_human_durations_and_enforce_retention() {
     let (_peers, offers, _dir) = node("").await;
-    let own = offers.own.clone().expect("the node is bound");
+    let own = offers.own.clone();
 
     for period in ["1h", "4h", "1d", "7d", "1w", "1.5h", "1h 30m"] {
         assert!(

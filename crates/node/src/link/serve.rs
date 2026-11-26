@@ -14,7 +14,7 @@ use crate::{
     link::traffic::Traffic,
     link::watchdog,
     link::{
-        peers::{self, Inner, Offers, Own, Peers, Who, withheld},
+        peers::{self, Bound, Inner, Offers, Own, Peers, Who, withheld},
     },
     machine::provision::Provision,
     machine::service::logs::Logs,
@@ -117,11 +117,10 @@ pub async fn serve(
     offers.extra.push(Arc::new(Logs::default()));
     // Only the CLI updates itself; the Mac app's node updates with the app.
     #[cfg(feature = "cli")]
-    offers
-        .extra
-        .push(Arc::new(crate::machine::update::Updates::new(
-            offers.agents.clone(),
-        )));
+    {
+        let updates = crate::machine::update::Updates::new(offers.agents.clone());
+        offers.extra.push(Arc::new(updates));
+    }
     // Files only when the owner shared folders in node.toml or a workspace.
     let shared: Vec<_> = workspace
         .map(Path::to_path_buf)
@@ -521,19 +520,18 @@ pub async fn listen_hooks(agents: &Agents, dir: &Path) {
 
 
 impl Peers {
-    /// The node's membership over `offers`, which must come from
-    /// `Offers::bound`: that is where the node's key and team link are made,
-    /// before any copy of the offers goes elsewhere.
-    pub fn new(offers: Offers) -> Self {
-        let team = offers
-            .team
-            .clone()
-            .expect("Peers::new takes offers made with Offers::bound");
+    /// The node's membership over `offers`, made by `Offers::bound`: that
+    /// is where the node's key and team link are made, before any copy of
+    /// the offers goes elsewhere.
+    pub fn new(bound: Bound) -> Self {
+        let Bound { offers, own, team } = bound;
         let deliveries = AbortOnDropHandle::new(tokio::spawn(deliver_handoffs(
             offers.clone(),
             team.handoffs(),
         )));
         let inner = Arc::new(Inner {
+            own,
+            team,
             offers: Mutex::new(offers),
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
@@ -586,11 +584,11 @@ async fn serve_protocol(
         let offers = inner.offers().clone();
         // Diagnostics are open to every machine of the mesh, even when not lent.
         if Own::is_diagnostic(&protocol) {
-            return inner.own().serve_diagnostic(protocol, tx, rx, offers).await;
+            return inner.own.serve_diagnostic(protocol, tx, rx, offers).await;
         }
 
         // The person at this machine is not held to the setting; a device of the mesh is.
-        if who.id() != inner.own().endpoint.id()
+        if who.id() != inner.own.endpoint.id()
             && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
         {
             let mut tx = tx;

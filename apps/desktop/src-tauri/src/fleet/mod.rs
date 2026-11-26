@@ -36,7 +36,7 @@ use beep_mesh::{
 #[cfg(desktop)]
 use beep_node::files::Folders;
 #[cfg(desktop)]
-use beep_node::{link::Offers, link::peers::Peers};
+use beep_node::{link::Bound, link::peers::Peers};
 use beep_proto::watched;
 use copies::Copies;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
@@ -202,7 +202,7 @@ impl Fleet {
     /// Does nothing slow: calls to this Mac work at once, and `run` opens
     /// the mesh.
     #[cfg(desktop)]
-    pub fn new(endpoint: Endpoint, dir: &Path, name: &str, offers: Offers) -> Self {
+    pub fn new(endpoint: Endpoint, dir: &Path, name: &str, offers: Bound) -> Self {
         let me = endpoint.id();
         let peers = Peers::new(offers);
         // Sessions that open these wait for the services `run` starts.

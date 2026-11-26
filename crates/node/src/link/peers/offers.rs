@@ -67,6 +67,29 @@ pub(crate) struct Own {
     pub(crate) started: SystemTime,
 }
 
+/// Offers made with the node's own values, which `Peers::new` takes. It
+/// derefs to the offers.
+#[derive(Clone)]
+pub struct Bound {
+    pub(crate) offers: Offers,
+    pub(crate) own: Own,
+    pub(crate) team: TeamLink,
+}
+
+impl std::ops::Deref for Bound {
+    type Target = Offers;
+
+    fn deref(&self) -> &Offers {
+        &self.offers
+    }
+}
+
+impl std::ops::DerefMut for Bound {
+    fn deref_mut(&mut self) -> &mut Offers {
+        &mut self.offers
+    }
+}
+
 /// What a node serves beside its shell.
 #[derive(Clone, Default)]
 pub struct Offers {
@@ -124,17 +147,20 @@ impl Offers {
 
     /// Makes the node's own values, its key, name, folder and team link,
     /// before any copy of the offers is handed out: every copy shares the
-    /// team link, and `Peers::new` takes both from here.
+    /// team link, and `Peers::new` takes both from the result.
     #[must_use]
-    pub fn bound(mut self, endpoint: &Endpoint, dir: &Path, name: &str) -> Self {
-        self.team = Some(TeamLink::new(endpoint.clone(), Arc::new(ForgeCli)));
-        self.own = Some(Own {
+    pub fn bound(mut self, endpoint: &Endpoint, dir: &Path, name: &str) -> Bound {
+        let team = TeamLink::new(endpoint.clone(), Arc::new(ForgeCli));
+        let own = Own {
             endpoint: endpoint.clone(),
             dir: dir.to_owned(),
             name: name.to_owned(),
             started: SystemTime::now(),
-        });
-        self
+        };
+        self.team = Some(team.clone());
+        self.own = Some(own.clone());
+
+        Bound { offers: self, own, team }
     }
 
     /// What every node serves, the CLI and the Mac app alike: the coding

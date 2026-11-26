@@ -11,7 +11,7 @@ use beep_node::{
         mcp::{self, ProjectTools},
         skills::Skills,
     },
-    link::{self, Offers, listen_hooks, state::Search},
+    link::{self, Bound, Offers, listen_hooks, state::Search},
     machine::{provision::Provision, service::logs::Logs},
 };
 use beep_proto::node::desktop::Permission;
@@ -43,7 +43,7 @@ struct NodeHome {
     /// What this node serves to the mesh: the same as `beep-node` serves,
     /// with agents found on the login shell's PATH (the app adopts it at
     /// start), plus desktop control.
-    offers: Offers,
+    offers: Bound,
 }
 
 impl Machine {
@@ -154,7 +154,7 @@ impl Machine {
     }
 
     /// What this node serves.
-    pub fn offers(&self) -> Offers {
+    pub fn offers(&self) -> Bound {
         self.home.offers.clone()
     }
 

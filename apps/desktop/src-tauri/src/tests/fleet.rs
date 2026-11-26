@@ -30,8 +30,12 @@ pub(super) async fn bind(key: &SecretKey) -> Endpoint {
         .expect("the endpoint binds")
 }
 
-pub(super) fn offers(dir: &TempDir, endpoint: &Endpoint, name: &str) -> Offers {
-    Offers::local(&[], Provision::new(dir.path())).bound(endpoint, dir.path(), name)
+pub(super) fn offers(dir: &TempDir, endpoint: &Endpoint, name: &str) -> Bound {
+    beep_node::link::Offers::local(&[], Provision::new(dir.path())).bound(
+        endpoint,
+        dir.path(),
+        name,
+    )
 }
 
 pub(super) struct Mac {
