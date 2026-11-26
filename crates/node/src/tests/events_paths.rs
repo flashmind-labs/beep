@@ -13,7 +13,7 @@ async fn a_missing_directory_only_watches_its_parent_non_recursively() {
     assert!(!held.installed.contains_key(&path));
     assert_eq!(
         held.installed
-            .get(&crate::agents::reach::real(root.path()).unwrap()),
+            .get(&crate::files::paths::real(root.path()).unwrap()),
         Some(&RecursiveMode::NonRecursive)
     );
 }
@@ -109,7 +109,7 @@ async fn a_directory_created_after_subscribing_becomes_recursive() {
 
             if crate::lock(&watcher.shared.inner)
                 .installed
-                .get(&crate::agents::reach::real(&path).unwrap())
+                .get(&crate::files::paths::real(&path).unwrap())
                 == Some(&RecursiveMode::Recursive)
             {
                 break;
@@ -168,7 +168,7 @@ fn a_checkout_watch_leaves_out_linked_worktrees_and_build_output() {
 #[tokio::test]
 async fn the_walk_skips_build_output_and_keeps_a_worktree_inside_as_its_own_root() {
     let root = tempfile::tempdir().unwrap();
-    let root = crate::agents::reach::real(root.path()).unwrap();
+    let root = crate::files::paths::real(root.path()).unwrap();
     for folder in ["a/b", "target/c", "app/node_modules/d", ".git/refs"] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
     }
@@ -207,7 +207,7 @@ async fn the_walk_skips_build_output_and_keeps_a_worktree_inside_as_its_own_root
 #[tokio::test]
 async fn a_folder_made_after_the_walk_is_watched_and_one_removed_is_let_go() {
     let root = tempfile::tempdir().unwrap();
-    let root = crate::agents::reach::real(root.path()).unwrap();
+    let root = crate::files::paths::real(root.path()).unwrap();
     let (changed, mut changes) = mpsc::channel(32);
     let watcher = Paths::new("test", move |paths| {
         let _ = changed.try_send(paths);
@@ -247,7 +247,7 @@ async fn until_reconciled(watcher: &Paths, done: impl Fn(&Inner) -> bool) {
 #[tokio::test]
 async fn readers_share_a_root_and_it_stays_watched_after_the_last_lets_go() {
     let root = tempfile::tempdir().unwrap();
-    let root = crate::agents::reach::real(root.path()).unwrap();
+    let root = crate::files::paths::real(root.path()).unwrap();
     let first = Paths::new("test", |_| {}).unwrap();
     first.replace(vec![root.clone()]).await.unwrap();
     let (changed, mut changes) = mpsc::channel(32);
@@ -274,7 +274,7 @@ async fn readers_share_a_root_and_it_stays_watched_after_the_last_lets_go() {
 #[tokio::test]
 async fn a_root_that_stops_lingering_leaves_other_readers_alone() {
     let gone = tempfile::tempdir().unwrap();
-    let gone = crate::agents::reach::real(gone.path()).unwrap();
+    let gone = crate::files::paths::real(gone.path()).unwrap();
     let kept = tempfile::tempdir().unwrap();
     let first = Paths::new("test", |_| {}).unwrap();
     first.replace(vec![gone.clone()]).await.unwrap();

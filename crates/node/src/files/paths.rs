@@ -2,10 +2,41 @@
 //! verbatim path there (`\\?\C:\x`), which Git for Windows and many other
 //! programs refuse, so the node never keeps or passes one on.
 
+use anyhow::{Context, Result, bail};
 use std::{
-    io,
-    path::{Path, PathBuf},
+    io::{self, ErrorKind},
+    path::{Component, Path, PathBuf},
 };
+
+/// `path`, absolute, with its links and `..` resolved. A path not there
+/// yet is its nearest folder that is, resolved, with the rest joined.
+/// Blocks on the file system.
+pub(crate) fn real(path: &Path) -> Result<PathBuf> {
+    let mut missing = Vec::new();
+    let mut at = path;
+
+    loop {
+        match canonicalize(at) {
+            Ok(mut found) => {
+                for name in missing.iter().rev() {
+                    found.push(name);
+                }
+
+                return Ok(found);
+            }
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                let mut parts = at.components();
+
+                match parts.next_back() {
+                    Some(Component::Normal(name)) => missing.push(name.to_owned()),
+                    _ => bail!("{} leads nowhere it can be checked", path.display()),
+                }
+                at = parts.as_path();
+            }
+            Err(e) => return Err(e).with_context(|| format!("could not open {}", path.display())),
+        }
+    }
+}
 
 /// The longest path the plain Windows APIs take.
 const MAX_PATH: usize = 260;

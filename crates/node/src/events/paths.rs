@@ -165,7 +165,7 @@ impl Paths {
             // Resolve the existing prefix even when a requested store is not created yet.
             let mut roots = roots
                 .iter()
-                .map(|root| crate::agents::reach::real(root))
+                .map(|root| crate::files::paths::real(root))
                 .collect::<Result<Vec<_>>>()?;
             roots.sort();
             roots.dedup();

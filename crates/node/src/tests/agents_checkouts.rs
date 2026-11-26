@@ -1,8 +1,5 @@
 use super::*;
-use crate::agents::{
-    checkout::tests::{has_git, repo},
-    reach,
-};
+use crate::agents::checkout::tests::{has_git, repo};
 use std::fs;
 use tokio::time::{advance, pause, timeout};
 
@@ -43,7 +40,7 @@ async fn readers_share_one_diff_until_the_checkout_changes() {
     }
 
     let (_dir, work) = repo("shared");
-    let root = reach::real(&work).unwrap();
+    let root = crate::files::paths::real(&work).unwrap();
     let checkouts = Checkouts::default();
     let first = kept(&checkouts, &root).await;
     assert_eq!((first.additions, first.deletions), (0, 0));
@@ -78,7 +75,7 @@ async fn readers_share_one_status_until_the_checkout_changes() {
     }
 
     let (_dir, work) = repo("status");
-    let root = reach::real(&work).unwrap();
+    let root = crate::files::paths::real(&work).unwrap();
     let checkouts = Checkouts::default();
     // The first reads come before the watch holds: they are not kept, and
     // the checkout answers none.
@@ -119,7 +116,7 @@ async fn readers_share_one_status_until_the_checkout_changes() {
 #[tokio::test]
 async fn a_folder_that_is_not_a_checkout_has_no_status() {
     let dir = tempfile::tempdir().unwrap();
-    let root = reach::real(dir.path()).unwrap();
+    let root = crate::files::paths::real(dir.path()).unwrap();
     assert!(Checkouts::default().status(root).await.is_none());
 }
 
@@ -130,7 +127,7 @@ async fn a_diff_of_another_branch_is_not_kept() {
     }
 
     let (_dir, work) = repo("branch");
-    let root = reach::real(&work).unwrap();
+    let root = crate::files::paths::real(&work).unwrap();
     let checkouts = Checkouts::default();
     kept(&checkouts, &root).await;
     let branch = DiffAsk {
