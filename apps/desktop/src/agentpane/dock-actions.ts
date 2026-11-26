@@ -1,6 +1,7 @@
 // What a click or a menu does to the pane's tabs and docks: the menu of a tab,
 // picking a tab, moving a dock's tabs to the other and folding one. Above the
 // commands in media.ts, which it calls, and used by dock-view.tsx.
+import { openSession } from "../agents/open-state.ts";
 import { hasPreview } from "./html-preview-state.ts";
 import { type Dock } from "./media-state.ts";
 import { draw } from "./media-draw.ts";
@@ -27,9 +28,9 @@ export function tabMenu(e: MouseEvent, id: string) {
     const split = t.splitSession;
     items.push({ label: "Open in main pane", on: () => {
       closeTab(t.id);
-      void import("../agents/session.tsx").then(({ openAgent }) => openAgent({
+      openSession({
         ...split, doing: null, started_at: 0, last_activity: 0, question: null, assistant: false, persona: null,
-      }));
+      });
     } });
   }
   const path = t.kind === "text" ? t.rel : t.path;

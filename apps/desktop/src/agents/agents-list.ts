@@ -19,7 +19,7 @@ import { draftEsc } from "./draft-state.ts";
 import { bar, S, windowHooks, setView } from "../bar/core.ts";
 import { hintModel } from "../bar/hints.ts";
 import { renderWaiting } from "../bar/waiting.ts";
-import { wantSession } from "./open-state.ts";
+import { openSession } from "./open-state.ts";
 import { sessionMenu } from "./sessionmenu.ts";
 import { closeModelPicker } from "./modelpill.tsx";
 import { ICON } from "../ui/icons.tsx";
@@ -144,8 +144,8 @@ export function toggleEnded() {
   });
 }
 
-export const openListed = (s: AgentSession) => wantSession(s, "agents");
-export const listedMenu = (e: MouseEvent, s: AgentSession) => void sessionMenu(e, s, row => wantSession(row, "agents"));
+export const openListed = (s: AgentSession) => openSession(s, { back: "agents" });
+export const listedMenu = (e: MouseEvent, s: AgentSession) => void sessionMenu(e, s, row => openSession(row, { back: "agents" }));
 
 /// Esc from an agent view: closes the model picker, leaves a subagent for
 /// its session, else goes back.
@@ -167,7 +167,7 @@ export function agentBack(closed = false) {
 
   // Esc from a child opens its parent; otherwise it returns to the previous page.
   const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;
-  if (up) return wantSession(up, AG.back);
+  if (up) return openSession(up, { back: AG.back });
   if (!closed && S.view === "agent" && leavePane()) return;
   if (!closed && (S.view === "agent" || S.view === "agentnew") && windowHooks?.stepOut?.()) return;
   if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back, !closed);

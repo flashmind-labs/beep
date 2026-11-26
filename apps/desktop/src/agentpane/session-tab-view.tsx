@@ -2,6 +2,7 @@
 // under the primary conversation: draws what the app holds of it at once, follows
 // its pushed updates while shown, renders its entries and open question, and lets
 // the user steer, answer or promote it.
+import { openSession } from "../agents/open-state.ts";
 import { useEffect, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 import type { AgentEntry, AgentPage, AgentQuestion, AgentRow } from "../agents/agents-state.ts";
 import { openOf, where } from "../agents/conversation-state.ts";
@@ -90,7 +91,7 @@ export function SessionTabView({ session, hidden, close, links }: { session: Spl
       external: session.external, question: null, assistant: false, persona: null,
     };
     close();
-    void import("../agents/session.tsx").then(m => m.openAgent(row));
+    openSession(row);
   };
 
   const submit = async (event?: FormEvent) => {

@@ -1,7 +1,7 @@
 import "../agents/copy-markdown.ts";
 import "./bar-app.tsx";
 import { initConversationSwitcher } from "../agents/conversation-switcher.tsx";
-import { openAgent } from "../agents/session.tsx";
+import { openSession } from "../agents/open-state.ts";
 import "../chat/diagrams.tsx";
 // bar/: the bar's page, its views, keys and hints, and the pane
 // the command center embeds it as. Entry: this file (dist/app.js).
@@ -16,7 +16,7 @@ followSkin();
 guardClicks();
 followToolUpdates();
 perfView("bar");
-initConversationSwitcher({ open: session => openAgent(session) });
+initConversationSwitcher({ open: session => openSession(session) });
 import "./events.ts";
 import { show } from "./views.ts";
 

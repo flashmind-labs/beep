@@ -1,7 +1,7 @@
 // The agent view with no session yet (⌘N, ⌘T in a project): a session's layout,
 // header and side pane, with the shared new-agent composer centered in the
 // empty conversation. Sending from it starts the session in place (session.ts
-// openAgent with `adopt`); the pane and its terminals stay.
+// openSession with `adopt`); the pane and its terminals stay.
 import { createStore } from "zustand/vanilla";
 import { S, windowHooks, setView } from "../bar/core.ts";
 import { rebindPane, startPane } from "../agentpane/media.ts";
@@ -11,7 +11,7 @@ import { barPlaced, pc } from "../project/barstate.ts";
 import { AG } from "./agents-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { DraftHead } from "./session-frame.tsx";
-import { openTarget } from "./open-state.ts";
+import { closeSession } from "./open-state.ts";
 import { draftMessage, showSessionFrame } from "./session-frame-state.ts";
 import { draftCwd } from "./draft-state.ts";
 import { agentHints, drawEditors } from "./session-head.tsx";
@@ -38,7 +38,7 @@ export function openDraft(project: string, on: string | null) {
     leaveLog();
     clearPage();
     Object.assign(AG, { open: null, draft: project, inflight: null });
-    openTarget.setState({ target: null });
+    closeSession();
     setView("agent");
     drawFrame(project);
   }

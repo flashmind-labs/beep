@@ -6,7 +6,7 @@ import { type AgentSession } from "../agents/agents-state.ts";
 import { folderName } from "../agents/agent-kind.ts";
 import { onPlaces, placeOf } from "../agents/place.ts";
 import { placeRepo } from "../agents/place-state.ts";
-import { wantSession } from "../agents/open-state.ts";
+import { openSession } from "../agents/open-state.ts";
 import { ensureSessions, sessions, sessionsRead } from "../agents/sessions.ts";
 import { onClosing, sessionVisible } from "../agents/closing.ts";
 import type { Note } from "../center/notices-state.ts";
@@ -73,7 +73,7 @@ function drawWaiting(focus = false) {
 /// Opens row `i` in the bar. Opening it reads its notifications on every device.
 function openRow(i: number) {
   const r = W.rows[i];
-  if (r) wantSession(r.session, "waiting");
+  if (r) openSession(r.session, { back: "waiting" });
 }
 
 /// Keys of the list; true when one was taken.

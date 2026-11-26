@@ -109,13 +109,23 @@ export const readStale = createStore<{ stale: number; now: boolean }>(() => ({ s
 export function wantRead(now: boolean) {
   readStale.setState(s => ({ stale: s.stale + 1, now }));
 }
-/// The session that should be open, and where Esc goes from it; null when none should be.
-/// The page makes what it shows match it.
-export const openTarget = createStore<{ target: { row: AgentRow; back: AgentReturn } | null }>(() => ({ target: null }));
+/// The session that should be open, how it was asked for, and null when none is (the empty view).
+/// Every opener sets it through `openSession`; the page shows whatever it says. `asked` counts
+/// the requests, so asking again for the session already open reaches the page as a change: it
+/// then keeps its log, reads again, scrolls to the latest entry and revives an ended page.
+export const openState = createStore<{ row: AgentRow | null; why: string; back: AgentReturn | undefined; adopt: boolean; asked: number }>(
+  () => ({ row: null, why: "", back: undefined, adopt: false, asked: 0 }),
+);
 
-/// Makes `row` the session that should be open.
-export function wantSession(row: AgentRow, back: AgentReturn) {
-  openTarget.setState({ target: { row, back } });
+/// Makes `row` the session that should be open. With `adopt`, the empty view that started it
+/// becomes the session in place.
+export function openSession(row: AgentRow, { why = "", back, adopt = false }: { why?: string; back?: AgentReturn; adopt?: boolean } = {}) {
+  openState.setState(s => ({ row, why, back, adopt, asked: s.asked + 1 }));
+}
+
+/// No session should be open: the empty view takes the page.
+export function closeSession() {
+  openState.setState({ row: null });
 }
 
 /// Follows the open session again after showing it or sending a message.

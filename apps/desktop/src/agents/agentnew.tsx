@@ -18,7 +18,7 @@ import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./
 import { loadAssistant, type AssistantPick } from "../settings/assistant.ts";
 import { ensureSessions, sessions } from "./sessions.ts";
 import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
-import { openAgent } from "./session.tsx";
+import { openSession } from "./open-state.ts";
 import { sessionPicks, startedWith } from "./open-state.ts";
 import { closedPicker, drawPicker as drawPickerIn, focusSearch, type Picked, pillContent } from "./agentpicker.tsx";
 import { knownModels, modelsOn } from "./model-store.ts";
@@ -705,7 +705,7 @@ export async function startAgent() {
     attachments.clear();
     view.phase = { kind: "editing", error: null };
     if (assistant && assistantDraft === typed && (startView === view || !startView || !AG.form.assistant)) assistantDraft = "";
-    if (showing()) openAgent(started.session, { why: started.why, back });
+    if (showing()) openSession(started.session, { why: started.why, back });
   } catch (e) {
     const message = String(e).replace(/^bad request: /, "");
     view.phase = { kind: "editing", error: { kind: "failed", message } };

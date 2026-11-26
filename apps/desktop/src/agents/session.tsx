@@ -3,7 +3,7 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { SessionField, SessionHead } from "./session-frame.tsx";
 import { agentMessage, sessionBody, showSessionFrame } from "./session-frame-state.ts";
-import { followsOnly, isOpen, keepLog, keptLogs, readStale, resumeFollow, openTarget, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
+import { followsOnly, isOpen, keepLog, keptLogs, readStale, resumeFollow, openSession, openState, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.tsx";
@@ -56,7 +56,7 @@ const became = new Map<string, AgentRow>();
 /// Opens session `s` (a session row) and follows it while it is on screen. With `adopt`,
 /// the empty view that started it, or the start it was until its machine named it, becomes
 /// the session in place: its pane, terminal tabs included, stays as it is.
-export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: AgentReturn; adopt?: boolean } = {}) {
+function showSession(s: AgentRow, { why = "", back: from, adopt = false }: { why?: string; back?: AgentReturn; adopt?: boolean } = {}) {
   s = became.get(s.id) ?? s;
   conversationHistory.visit(s);
   traceSession("opening", openOf(s), { status: s.status, adopt });
@@ -143,13 +143,9 @@ readStale.subscribe(({ stale, now }) => {
   readSeen = stale;
   void pollAgent(now);
 });
-// The target already shown, as opened, is not opened again.
-let shownTarget: { row: AgentRow; back: AgentReturn; open: OpenAgent | null } | null = null;
-openTarget.subscribe(({ target }) => {
-  if (!target) { shownTarget = null; return; }
-  if (shownTarget && shownTarget.row === target.row && shownTarget.back === target.back && isOpen(shownTarget.open)) return;
-  openAgent(target.row, { back: target.back });
-  shownTarget = { ...target, open: AG.open };
+// The page shows the session `openState` names, each time it is asked for.
+openState.subscribe(({ row, why, back, adopt }) => {
+  if (row) showSession(row, { why, back, adopt });
 });
 pushedUpdate.subscribe(({ due }) => {
   if (!due) return;
@@ -369,7 +365,7 @@ function watchRead(o: OpenAgent) {
 sessionsRead.add(() => {
   if (S.view !== "agent" || !AG.open) return;
   const there = movedTo(AG.open, moveStore.getState().records, sessions);
-  if (there) openAgent(there, { back: AG.back });
+  if (there) openSession(there, { back: AG.back });
 });
 
 /// The open session's kept log takes its page as the reader leaves it.
@@ -539,7 +535,7 @@ function leaveStart(start: string) {
   // A released node's row leaves out that the session is the assistant.
   const row = AG.page?.session.assistant ? { ...session, assistant: true } : session;
   if (windowHooks) windowHooks.openStarted(row);
-  else openAgent(row, { back: AG.back, adopt: true });
+  else openSession(row, { back: AG.back, adopt: true });
 }
 
 /// Sends what the field holds: while the turn runs it steers it after its current tool call.

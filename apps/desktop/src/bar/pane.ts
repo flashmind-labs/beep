@@ -4,7 +4,7 @@ import "./events.ts";
 import type { AgentPlace } from "../agents/agentnew.tsx";
 import { renderAgents } from "../agents/agents-list.ts";
 import { type AgentRow } from "../agents/agents-state.ts";
-import { openAgent } from "../agents/session.tsx";
+import { openSession } from "../agents/open-state.ts";
 import { type AssistantOpen, openAssistantPage, openedChat } from "../agents/assistant-page.tsx";
 import { closePaneTabs, newTerminal, openTerminal, showChanges } from "../agentpane/media.ts";
 import type { TerminalRow } from "../terminals/terminals.tsx";
@@ -54,7 +54,7 @@ export const pane = {
         openedChat(target.agent);
         const { machine_id, agent, id } = target.agent;
         const row = sessions.find(s => s.machine_id === machine_id && s.agent === agent && s.id === id);
-        openAgent(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
+        openSession(row ?? target.agent, { back: target.from ?? "agents", adopt: target.adopt });
         // A reviewer opens beside the changes it reviewed.
         if (target.agent.reviewer) showChanges(false);
         return;
