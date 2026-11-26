@@ -10,6 +10,7 @@ pub use work_diff::parse_git_patch;
 host! {
     mod brief;
     pub(crate) mod desktop_call;
+    pub(crate) mod child_reach;
     pub(crate) mod child_view;
     pub(crate) mod calls;
     pub(crate) mod caller;

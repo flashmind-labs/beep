@@ -7,18 +7,19 @@
 //! starts it and checks the limits. An agent stops and checks only its own
 //! children; it lists and messages any agent the user runs.
 
-use crate::agents::machine_list::{Machine, find_named, machine_name};
-use crate::agents::{calls::command_name, child_view::{ChildView, full_id}};
+use crate::agents::machine_list::Machine;
+use crate::agents::child_view::{ChildView, full_id};
 use crate::agents::reply::{fail, json_of, ok, parse};
 use crate::agents::{
-    Agents, Command, Session, live::{Live, Mark},
+    Agents, Command, Session, live::Live,
     family::{ChildNote, ChildStart, RemoteKid, WAIT_LIMIT, Waiting, Who},
 };
+use crate::agents::child_reach::{ChildId, Found, Reach};
 use crate::link::Offers;
 use beep_mesh::Mesh;
 use beep_proto::SessionId;
 use beep_proto::node::{
-    agent::{Entry, EntryKind, ParentLink},
+    agent::ParentLink,
     mesh_state::SyncSpec,
     tools::{Reply, Request, Tool},
 };
@@ -35,9 +36,6 @@ use crate::agents::family::peer::{
     Answer, Call, in_the_mesh, listed, CountCall, GONE, KEPT, PeerCall, REMOTE_LIMIT, fetch_view, parse_view, stop_remote,
 };
 
-/// The call that started a child, as its parent's transcript shows it:
-/// `Beep: Start <harness> agent ...`, then the JSON `start_agent` returned.
-const STARTED: &str = "Beep: Start ";
 
 /// What `start_agent` sends the machine that starts the child.
 #[derive(Debug, Serialize, Deserialize)]
@@ -80,41 +78,6 @@ pub(crate) async fn answer_peer(agents: &Agents, peer: EndpointId, request: Requ
         .unwrap_or_else(fail)
 }
 
-/// Shows each `start_agent` call among `entries` as the subagent card the
-/// apps draw: its title, harness and machine, how it stands now and what it
-/// last said. The child's own log is its own session, which the card links
-/// to with a `[child]` line. A call whose result cannot be read stays a
-/// plain call. A child on another machine shows as last read: the read
-/// never waits for the machine. A child that is gone shows as ended.
-pub(in crate::agents) fn show_children(agents: &Agents, session: &Session, entries: &mut [Entry]) {
-    let calls: Vec<usize> = entries
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| entry.kind == EntryKind::Tool && entry.text.starts_with(STARTED))
-        .map(|(at, _)| at)
-        .collect();
-
-    if calls.is_empty() {
-        return;
-    }
-
-    let Some((_, who)) = agents.caller(&session.id) else {
-        return;
-    };
-    let reach = Reach {
-        agents,
-        mesh: agents.mesh(),
-        who: &who,
-    };
-
-    for at in calls {
-        let text = entries[at].text.clone();
-        let Some(first) = started_view(&text) else {
-            continue;
-        };
-        entries[at].text = child_entry(&text, &reach.known_view(&first));
-    }
-}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -156,38 +119,9 @@ struct SendArgs {
     text: String,
 }
 
-/// The caller, and the ways it has to its children.
-struct Reach<'a> {
-    agents: &'a Agents,
-    mesh: Option<Mesh>,
-    who: &'a Who,
-}
 
-/// A child's id split into its session and the machine it runs on.
-struct ChildId<'a> {
-    session: SessionId,
-    machine: Option<&'a str>,
-}
 
-impl<'a> From<&'a str> for ChildId<'a> {
-    fn from(text: &'a str) -> Self {
-        match text.trim().split_once('@') {
-            Some((session, machine)) => Self {
-                session: Into::<SessionId>::into(session),
-                machine: Some(machine),
-            },
-            None => Self {
-                session: Into::<SessionId>::into(text.trim()),
-                machine: None,
-            },
-        }
-    }
-}
 
-enum Found {
-    Here(Arc<Session>),
-    There(RemoteKid),
-}
 
 /// What `StartArgs` hands on without the `wait`.
 struct StartParts {
@@ -200,15 +134,7 @@ struct StartParts {
 }
 
 impl Reach<'_> {
-    fn my_name(&self) -> String {
-        machine_name(self.mesh.as_ref())
-    }
 
-    fn mesh(&self) -> Result<&Mesh, String> {
-        self.mesh
-            .as_ref()
-            .ok_or_else(|| "This machine is in no mesh.".to_owned())
-    }
 
     /// `text` as the caller `sender` sends it, tagged with `id`, the id
     /// the receiver answers to, so its log tells it from the user's words.
@@ -219,29 +145,7 @@ impl Reach<'_> {
         crate::agents::tags::from_session(id, &name, text)
     }
 
-    /// `child` as it stands on this machine, which the caller has now seen.
-    fn view_here(&self, child: &Session) -> ChildView {
-        self.shown([child]);
-        ChildView::of(&child.info(), &Agents::name_of(child)).named(&self.my_name())
-    }
 
-    /// Notes that the caller was shown `children` as they stand, so its next
-    /// turn is not told of them again.
-    fn shown<'a>(&self, children: impl IntoIterator<Item = &'a Session>) {
-        if let Some(caller) = self.agents.get(&self.who.session) {
-            caller.see_soon(
-                children
-                    .into_iter()
-                    .map(|child| {
-                        (
-                            child.id.clone(),
-                            watched::read(&child.live, |live| Into::<Mark>::into(live)),
-                        )
-                    })
-                    .collect(),
-            );
-        }
-    }
 
     async fn dispatch(&self, session: &Arc<Session>, request: &Request) -> Result<Reply, String> {
         match request.tool {
@@ -263,18 +167,6 @@ impl Reach<'_> {
         }
     }
 
-    /// The machine `name` names: `None` is this one.
-    fn target(&self, name: Option<&str>) -> Result<Option<Machine>, String> {
-        let Some(name) = name.map(command_name).filter(|name| !name.is_empty()) else {
-            return Ok(None);
-        };
-        let mesh = self.mesh.as_ref().ok_or_else(|| {
-            format!("This machine is in no mesh, so it reaches no machine called {name}.")
-        })?;
-        let machine = find_named(mesh, &name)?;
-
-        Ok((machine.id != mesh.me()).then_some(machine))
-    }
 
     async fn start(&self, parent: &Arc<Session>, args: StartArgs) -> Result<Reply, String> {
         let StartArgs {
@@ -462,23 +354,6 @@ impl Reach<'_> {
         Ok(view)
     }
 
-    /// Where a child named by `id` is, and the child itself on this machine.
-    /// The same refusal whether it is not there or not the caller's.
-    fn find(&self, id: &str) -> Result<Found, String> {
-        let id = ChildId::from(id);
-        let none = || format!("You have no agent {}.", id.session);
-
-        match self.target(id.machine).map_err(|_| none())? {
-            None => Ok(Found::Here(self.agents.child_of(self.who, &id.session)?)),
-            Some(machine) => self
-                .agents
-                .remote_kids(&self.who.session)
-                .into_iter()
-                .find(|kid| kid.machine == machine.id && kid.id == id.session)
-                .map(Found::There)
-                .ok_or_else(none),
-        }
-    }
 
     async fn status(&self, id: &str) -> Result<Reply, String> {
         // A review's id: its reviewer is gone once it is done.
@@ -496,26 +371,6 @@ impl Reach<'_> {
         }
     }
 
-    /// How the child `started` names stands, without waiting on its machine.
-    /// One elsewhere that was never read shows as it started; one this parent
-    /// no longer has has ended.
-    fn known_view(&self, started: &ChildView) -> ChildView {
-        let Ok(found) = self.find(&started.id) else {
-            return ChildView {
-                state: "ended".to_owned(),
-                ..started.clone()
-            };
-        };
-
-        match found {
-            Found::Here(child) => self.view_here(&child),
-            Found::There(kid) => self
-                .mesh
-                .as_ref()
-                .and_then(|mesh| self.agents.family.views.of(mesh, &self.who.session, &kid))
-                .map_or_else(|| started.clone(), |view| view.named(&kid.name)),
-        }
-    }
 
     async fn view_there(&self, kid: &RemoteKid) -> Result<ChildView, String> {
         let view = fetch_view(self.mesh()?, &self.who.session, kid).await?;
@@ -768,65 +623,7 @@ async fn find_persona(at: String, name: String, harness: String) -> Result<Custo
     .map_err(|e| format!("The custom agents were not read: {e}"))?
 }
 
-/// The child a `start_agent` entry's text names, from the JSON line it holds.
-fn started_view(text: &str) -> Option<ChildView> {
-    text.lines()
-        .find(|line| line.starts_with('{'))
-        .and_then(|line| serde_json::from_str(line).ok())
-}
 
-/// A child as its parent's transcript entry writes it: the lines the apps
-/// read as a subagent, and `[child]` with the id to open and its state.
-fn child_entry(call: &str, view: &ChildView) -> String {
-    let title = view.title.clone().unwrap_or_else(|| {
-        let line = call.lines().next().unwrap_or_default();
-        let line = line
-            .strip_suffix(']')
-            .and_then(|l| l.rsplit_once(" ["))
-            .map_or(line, |(l, _)| l);
-        let line = line.strip_prefix(STARTED).unwrap_or(line);
-        line.split_once(": ")
-            .map_or(line, |(_, prompt)| prompt)
-            .to_owned()
-    });
-    let status = match view.state.as_str() {
-        "working" => "in_progress",
-        "ended" if view.error.is_some() => "failed",
-        _ => "completed",
-    };
-    // Keep the original prompt below the display title. The call's final
-    // line is its JSON result, so prompt lines may themselves contain JSON.
-    let prompt = call
-        .rsplit_once("\n{")
-        .and_then(|(head, _)| head.rsplit_once(" ["))
-        .and_then(|(title, _)| title.strip_prefix(STARTED))
-        .and_then(|start| start.split_once(": "))
-        .map(|(_, prompt)| prompt);
-    let title = title.lines().next().unwrap_or_default();
-    let title = prompt.map_or_else(|| title.to_owned(), |prompt| format!("{title}\n{prompt}"));
-    let mut text = format!(
-        "{title} [{status}]\n[steps] {}\n[agent] {} on {}\n[child] {} {} {}",
-        view.turns, view.harness, view.machine, view.id, view.state, view.key
-    );
-
-    // What the child spent, for the card only: it is the child's session's
-    // own spend, which the parent's numbers never include.
-    if view.tokens > 0 || view.cost_usd.is_some() {
-        let cost = view
-            .cost_usd
-            .map_or_else(|| "-".to_owned(), |usd| format!("{usd:.4}"));
-        text.push_str(&format!("\n[spend] {} {cost}", view.tokens));
-    }
-
-    if let Some(question) = &view.question {
-        text.push_str(&format!("\nWaiting for you: {question}"));
-    } else if !view.last_message.is_empty() {
-        text.push('\n');
-        text.push_str(&view.last_message);
-    }
-
-    text
-}
 
 async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Result<Reply, String> {
     let who = Who {

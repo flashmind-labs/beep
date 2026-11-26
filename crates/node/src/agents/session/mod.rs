@@ -207,7 +207,7 @@ impl From<&Order> for &'static str {
 /// Where a session's task leaves its state sender when it ends.
 pub(super) type Kept = Arc<Mutex<Option<watch::Sender<Live>>>>;
 
-pub(super) struct Session {
+pub(crate) struct Session {
     /// Private handle for the process and its MCP connection, never a public session id.
     pub(super) id: SessionId,
     pub(super) agent: String,

@@ -10,7 +10,7 @@ use super::{
     sessions::{self, new_id},
 };
 use crate::{
-    agents::{mcp, mcp_launch::Launch},
+    agents::{child_reach, mcp_launch::Launch},
     process::spawn_env::{self, Scope},
     process,
 };
@@ -166,7 +166,7 @@ impl Agents {
             }
         }
 
-        mcp::children::show_children(self, session, &mut entries);
+        child_reach::show_children(self, session, &mut entries);
         let start = native + earlier.saturating_sub(dropped);
         if let Some(history) = history
             && earlier == dropped
