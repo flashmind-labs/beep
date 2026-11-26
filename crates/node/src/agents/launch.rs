@@ -3,7 +3,7 @@
 //! the session over an in-memory pipe and starts the agent's CLI itself.
 //! The node never starts its own executable to run an agent.
 
-use super::{Line, LineReader};
+use crate::process::line_reader::{Line, LineReader};
 use crate::machine::wsl::{self, DistroName, LinuxPath};
 use crate::process::{GroupLeader, Held, command, own_group};
 use anyhow::{Context, Result};

@@ -3,11 +3,11 @@
 //! None sends a model request, and the node never reads their token files.
 
 use super::{
-    acp::{Line, LineReader},
+
     unix_now,
     usage::{WEEK_MINUTES, claude_window},
 };
-use crate::process::{GroupLeader, STOP_GRACE, own_group};
+use crate::process::{GroupLeader, STOP_GRACE, line_reader::{Line, LineReader}, own_group};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     AgentSlug,

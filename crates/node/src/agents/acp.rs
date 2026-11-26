@@ -21,4 +21,4 @@ pub(super) use session::{
 };
 pub(super) use tasks::{AsyncTask, async_task, stop_task};
 pub(super) use transport::transport;
-pub(crate) use transport::{Line, LineReader, MAX_MESSAGE};
+

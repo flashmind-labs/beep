@@ -2,7 +2,7 @@
 //! from its stdout, with paths turned across when it runs in WSL.
 
 use super::launch::{Cli, Process};
-use crate::agents::{Line, LineReader, acp::MAX_MESSAGE};
+use crate::process::line_reader::{Line, LineReader, MAX_MESSAGE};
 use crate::machine::wsl::{self, Toward};
 use crate::process::STOP_GRACE;
 use anyhow::Result;

@@ -7,7 +7,6 @@ use super::{
     turns::take_steers,
 };
 use crate::agents::{
-    acp,
     compaction::{COMPACT_PROMPT, COMPACTED_ENTRY},
 };
 use beep_proto::node::{
@@ -722,7 +721,7 @@ printf '"}}}}}}}}\n'
 echo '{UPDATE}{{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Still here"}}}}}}'
 cat > /dev/null
 "#,
-        acp::MAX_MESSAGE + 1
+        crate::process::line_reader::MAX_MESSAGE + 1
     );
     let session = started(dir, &body);
     until(&session, |live| {

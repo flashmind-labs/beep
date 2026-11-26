@@ -5,7 +5,7 @@
 //! paths change, never text.
 
 use super::distro::{linux_path, windows_drive_path};
-use crate::agents::{Line, LineReader, MAX_MESSAGE};
+use crate::process::line_reader::{Line, LineReader, MAX_MESSAGE};
 use anyhow::Result;
 use serde_json::Value;
 use std::path::Path;

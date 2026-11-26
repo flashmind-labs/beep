@@ -3,11 +3,11 @@
 //! waits, in order, for the bridge.
 
 use crate::agents::{
-    acp::MAX_MESSAGE,
     launch::Cli,
     pipe::{Frame, Pipe},
 };
 use crate::machine::wsl::DistroName;
+use crate::process::line_reader::MAX_MESSAGE;
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 use std::{collections::VecDeque, path::Path};

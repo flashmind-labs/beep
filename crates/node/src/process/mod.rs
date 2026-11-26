@@ -10,6 +10,7 @@ use tokio::{
     time::timeout,
 };
 
+pub(crate) mod line_reader;
 pub(crate) mod spawn_env;
 
 #[cfg(unix)]

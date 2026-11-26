@@ -954,7 +954,7 @@ impl Actor {
         let error = format!(
             "dropped a {} MiB message from the agent; at most {} MiB are read",
             length / (1024 * 1024),
-            acp::MAX_MESSAGE / (1024 * 1024)
+            crate::process::line_reader::MAX_MESSAGE / (1024 * 1024)
         );
         self.live
             .send_modify(|live| live.info.state.error = Some(error));

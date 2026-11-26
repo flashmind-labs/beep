@@ -7,7 +7,8 @@ use super::{
     media::Media,
 };
 use crate::{
-    agents::{Answered, Asking, Line, LineReader},
+    agents::{Answered, Asking},
+    process::line_reader::{Line, LineReader},
     process::spawn_env,
 };
 use anyhow::Result;
