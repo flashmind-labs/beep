@@ -121,7 +121,7 @@ pub fn run() {
         .manage(artifacts::Pages::default())
         .manage(machines::forwards::Forwards::default())
         .manage(Arc::new(chat::clipboard::ImageClipboard::default()))
-        .register_asynchronous_uri_scheme_protocol(artifacts::SCHEME, |ctx, request, responder| {
+        .register_asynchronous_uri_scheme_protocol(navigation::SCHEME, |ctx, request, responder| {
             let app = ctx.app_handle();
 
             match artifacts::route(&app.state::<artifacts::Pages>(), &request) {

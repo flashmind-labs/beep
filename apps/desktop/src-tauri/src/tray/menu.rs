@@ -4,7 +4,7 @@
 use super::waiting::{self, WaitingList};
 use crate::{
     bar,
-    center::{self, CenterTarget},
+    center::{self, CenterTarget, targets::REPORT},
     platform::update,
 };
 use tauri::{
@@ -14,8 +14,6 @@ use tauri::{
 };
 
 const TRAY: &str = "beep";
-/// Report a Problem, in the tray menu and the app's Help menu.
-pub(crate) const REPORT: &str = "report-problem";
 
 /// Puts the icon in the menu bar.
 pub(crate) fn install(app: &App) -> tauri::Result<()> {

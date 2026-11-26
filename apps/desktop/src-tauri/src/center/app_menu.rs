@@ -3,7 +3,7 @@
 //! for this item too.
 
 #[cfg(not(target_os = "windows"))]
-use crate::tray::REPORT;
+use super::targets::REPORT;
 use tauri::App;
 #[cfg(not(target_os = "windows"))]
 use tauri::menu::{HELP_SUBMENU_ID, Menu, MenuItem, Submenu};

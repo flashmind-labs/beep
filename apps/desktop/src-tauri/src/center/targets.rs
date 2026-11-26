@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Runtime, State};
 
+/// Report a Problem, in the tray menu and the app's Help menu.
+pub(crate) const REPORT: &str = "report-problem";
+
 /// A view of the window that the bar, the tray or another window can hand
 /// over to.
 #[derive(Deserialize, Serialize, Clone, Debug, PartialEq)]

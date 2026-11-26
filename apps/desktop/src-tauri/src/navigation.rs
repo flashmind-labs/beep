@@ -3,6 +3,9 @@
 use tauri::{Manager, Runtime, WebviewWindowBuilder, webview::NewWindowResponse};
 use url::Url;
 
+/// The scheme HTML artifacts are served from.
+pub const SCHEME: &str = "beepview";
+
 pub(crate) fn guard<'a, R: Runtime, M: Manager<R>>(
     builder: WebviewWindowBuilder<'a, R, M>,
 ) -> WebviewWindowBuilder<'a, R, M> {
@@ -19,7 +22,7 @@ fn allowed(url: &Url) -> bool {
     // own origin and are sandboxed without top navigation or popup access.
     // Hidden previews navigate to about:blank to stop their scripts.
     if url.as_str() == "about:blank"
-        || (url.scheme() == crate::agents::artifacts::SCHEME && url.host_str() == Some("localhost"))
+        || (url.scheme() == SCHEME && url.host_str() == Some("localhost"))
     {
         return true;
     }

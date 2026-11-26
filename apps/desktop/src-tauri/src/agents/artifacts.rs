@@ -26,6 +26,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{Fleet, Machines, files as direct},
     markdown,
+    navigation::SCHEME,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use beep_proto::{AGENT_FILE_CHUNK, ReadWorkFile};
@@ -46,9 +47,6 @@ use tauri::{
 };
 use tokio::sync::Semaphore;
 use uuid::Uuid;
-
-/// The scheme HTML artifacts are served from.
-pub const SCHEME: &str = "beepview";
 
 /// The largest artifact read, a page or a file beside it.
 const MAX_ARTIFACT: u64 = 5 * 1024 * 1024;
