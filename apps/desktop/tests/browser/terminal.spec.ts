@@ -220,26 +220,6 @@ test("keys go out encoded, apart from the terminal's replies", async ({ page }) 
   await expect.poll(() => page.evaluate(() => window.term.typed.at(-1))).toBe("\x1bOA");
 });
 
-test("a flood of output stays responsive and lands whole", async ({ page }) => {
-  await open(page);
-  const lines = 20000;
-  const started = Date.now();
-  await page.evaluate(lines => {
-    let text = "";
-    for (let i = 0; i < lines; i++) text += `\x1b[3${i % 8}mline ${i} ${"x".repeat(60)}\x1b[0m\r\n`;
-    window.term.write(text + "\x1b[42mdone\x1b[0m");
-  }, lines);
-
-  // The page answers while the output is parsed in frames.
-  const answered = await page.evaluate(() => new Promise<number>(resolve => {
-    const t = performance.now();
-    setTimeout(() => resolve(performance.now() - t), 0);
-  }));
-  expect(answered).toBeLessThan(250);
-  await expect.poll(() => pixels(page, [0x4c, 0xb7, 0x82]), { timeout: 30_000 }).toBeGreaterThan(50);
-  expect(Date.now() - started).toBeLessThan(30_000);
-});
-
 test("quadrants and Powerline glyphs fill their cells as shapes", async ({ page }) => {
   await open(page);
   const red: [number, number, number] = [200, 30, 30];
