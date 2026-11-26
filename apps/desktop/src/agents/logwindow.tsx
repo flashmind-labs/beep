@@ -233,7 +233,12 @@ const pinning = new WeakSet<ChatBody>();
 
 /// Scrolls a log that follows its end to its end, true when done now.
 export function pinEnd(b: ChatBody) {
-  if (!mayPin(b)) return false;
+  if (!mayPin(b)) {
+    // The gap may have grown with the pin held back: the next scroll is
+    // judged against where the box stands now, not where it last stood.
+    markPlace(b);
+    return false;
+  }
   b.scrollTop = b.scrollHeight;
   markPlace(b);
   return true;

@@ -310,7 +310,7 @@ interface AgentState {
   /// Whether the model picker by the field is open.
   modelOpen: boolean;
   /// The open conversation's history read and why it stopped early.
-  older: { stop: OlderStop; reading: Promise<void> | null };
+  older: { stop: OlderStop; reading: Promise<void> | null; all: boolean };
 }
 
 /// The modes and tasks of the open session, held by `transcripts`.
@@ -325,7 +325,7 @@ export const AG: AgentState = {
   sig: "", rest: "", changed: 0, answering: null,
   att: [], attError: "", attTimer: undefined,
   opened: new Set(), steps: new Map(), all: new Set(), outbox: [], outboxRevision: 0, polls: 0, stopping: null, modelOpen: false,
-  older: { stop: "", reading: null },
+  older: { stop: "", reading: null, all: false },
 };
 /// What a coding agent takes with a message, as the server checks it.
 export const AGENT_MAX_IMAGES = 5;

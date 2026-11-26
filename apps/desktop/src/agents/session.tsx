@@ -110,7 +110,7 @@ function showSession(s: AgentRow, { why = "", back: from, adopt = false }: { why
     why, back: from, note: "", readError: "", link: LINKED, sig: "", rest: "", changed: Date.now(), answering: null,
     opened: new Set(), steps: new Map(), all: new Set(),
     outbox: [], outboxRevision: 0, stopping: null, modelOpen: false,
-    older: { stop: "", reading: null },
+    older: { stop: "", reading: null, all: false },
   });
   setAttachError("");
   track.first = { open, at: performance.now() };

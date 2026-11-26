@@ -10,23 +10,22 @@ import { paneShown } from "../ui/active.ts";
 import { sessionBody } from "./session-frame-state.ts";
 import { takeEarlier } from "./open-page.ts";
 
-/// Whether the read in flight goes on to the first entry, for Home and Find.
-let everything = false;
-
 /// Reads earlier entries while the log is short of the view or the reader is
 /// near its top. With `all` it reads to the first entry, and a read in flight
-/// is widened to do so: Home and Find wait for it.
+/// is widened to do so: Home and Find wait for it. The wish belongs to the
+/// open session (`older.all`): a hidden window pauses it, and the next call
+/// after the pane shows again goes on, while another session starts clean.
 export function loadOlder(all = false): Promise<void> {
   const open = AG.open, older = AG.older;
-  if (all) everything = true;
+  if (all) older.all = true;
   if (older.reading) return older.reading;
-  if (!open || !AG.page || olderBefore(AG.page, older.stop) == null || !wantsOlder()) {
-    everything = false;
+  if (!open || !AG.page || olderBefore(AG.page, older.stop) == null) {
+    older.all = false;
     return Promise.resolve();
   }
+  if (!wantsOlder(older)) return Promise.resolve();
 
   older.reading = readOlder(open, older).finally(() => {
-    everything = false;
     older.reading = null;
     if (S.view === "agent" && AG.open === open) drawAgentBody(rowInView(), false, true);
   });
@@ -34,16 +33,19 @@ export function loadOlder(all = false): Promise<void> {
 }
 
 /// Whether the shown log asks for earlier entries now.
-function wantsOlder() {
-  return readsOlder(everything, paneShown(), sessionBody()?.scrollTop ?? null);
+function wantsOlder(older: typeof AG.older) {
+  return readsOlder(older.all, paneShown(), sessionBody()?.scrollTop ?? null);
 }
 
 async function readOlder(open: OpenAgent, older: typeof AG.older) {
   try {
     while (S.view === "agent" && AG.open === open && AG.page) {
-      if (!wantsOlder()) return;
+      if (!wantsOlder(older)) return;
       const before = olderBefore(AG.page, older.stop);
-      if (before == null) return;
+      if (before == null) {
+        older.all = false;
+        return;
+      }
 
       const got = await invoke<Run>("agent_older", { ...where(open), last: OLDER_PAGE, before });
       if (S.view !== "agent" || AG.open !== open || !AG.page) return;
@@ -52,13 +54,17 @@ async function readOlder(open: OpenAgent, older: typeof AG.older) {
 
       const taken = takeOlder(AG.page, got);
       older.stop = taken.stop;
-      if (taken.run === AG.page) return;
+      if (taken.run === AG.page) {
+        older.all = false;
+        return;
+      }
 
       const keep = rowInView();
       takeEarlier(taken.run);
       drawAgentBody(keep, false, "page");
     }
   } catch (e) {
+    older.all = false;
     console.warn("older entries not read", e);
   }
 }
@@ -67,7 +73,9 @@ async function readOlder(open: OpenAgent, older: typeof AG.older) {
 export async function jumpToStart() {
   const open = AG.open;
   await loadOlder(true);
-  if (AG.open !== open || S.view !== "agent") return;
+  if (AG.open !== open || S.view !== "agent" || !AG.page) return;
+  // A hidden window paused the read: the log stays where it is until it ends.
+  if (olderBefore(AG.page, AG.older.stop) != null && AG.older.all) return;
   const b = sessionBody();
   if (!b) return;
   b.stuck = false;

@@ -92,3 +92,28 @@ test("hiding the window while an older page arrives keeps the row in view", asyn
 
   expect(await firstRow()).toBe(row);
 });
+
+test("a row that grows during a wheel glide does not release the end on a nudge down", async ({ page }) => {
+  await openDesktop(page, false, { agent_view: view });
+  await serveOlder(page);
+  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), session);
+  const body = page.locator("#agbody");
+  const state = () => body.evaluate((el: HTMLElement & { stuck?: boolean }) => ({ stuck: el.stuck, gap: el.scrollHeight - el.clientHeight - el.scrollTop }));
+
+  await expect(body).toContainText(`Message ${TOTAL - 1}`);
+  await page.waitForTimeout(600);
+  expect((await state()).stuck).toBe(true);
+
+  // The wheel's glide holds the pin back while the last row grows.
+  await body.evaluate(el => {
+    el.dispatchEvent(new WheelEvent("wheel", { deltaY: 1, bubbles: true }));
+    const grown = document.createElement("div");
+    grown.style.height = "120px";
+    el.querySelectorAll("[data-row]").item(el.querySelectorAll("[data-row]").length - 1).appendChild(grown);
+  });
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+  await body.evaluate(el => { el.scrollTop += 5; });
+  await page.waitForTimeout(300);
+
+  expect((await state()).stuck).toBe(true);
+});

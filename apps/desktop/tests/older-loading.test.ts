@@ -17,7 +17,7 @@ function start() {
   Object.assign(document, { visibilityState: "visible" });
   bar.innerHTML = "";
   setView("agent");
-  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: "s1" }, page: page(400, 1), older: { stop: "", reading: null } });
+  Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: "s1" }, page: page(400, 1), older: { stop: "", reading: null, all: false } });
   calls.length = 0;
 }
 
@@ -50,7 +50,7 @@ test("switching conversations starts a new read and discards the previous answer
 
   try {
     const previous = loadOlder(true);
-    Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: "s2" }, page: page(20, 1), older: { stop: "", reading: null } });
+    Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: "s2" }, page: page(20, 1), older: { stop: "", reading: null, all: false } });
     answers.agent_older = page(0, 20);
     const current = loadOlder(true);
     await current;
@@ -79,4 +79,31 @@ test("a replaced opening page loads from its new start", async () => {
     assert.equal(AG.page.earlier, 0);
     assert.equal(AG.page.entries.length, 76);
   } finally { delete answers.agent_older; }
+});
+
+test("a read for every entry paused while hidden goes on when shown, and belongs to its session", async () => {
+  start();
+  answers.agent_older = page(0, 400);
+
+  try {
+    Object.assign(document, { visibilityState: "hidden" });
+    await loadOlder(true);
+    assert.equal(calls.filter(c => c.cmd === "agent_older").length, 0);
+    assert.equal(AG.older.all, true);
+
+    Object.assign(document, { visibilityState: "visible" });
+    await loadOlder();
+    assert.equal(AG.page?.earlier, 0);
+    assert.equal(AG.older.all, false);
+
+    // Another session opened meanwhile starts without the wish.
+    start();
+    Object.assign(document, { visibilityState: "hidden" });
+    await loadOlder(true);
+    Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: "s2" }, page: page(20, 1), older: { stop: "", reading: null, all: false } });
+    Object.assign(document, { visibilityState: "visible" });
+    await loadOlder();
+    assert.equal(calls.filter(c => c.cmd === "agent_older").length, 0);
+    assert.equal(AG.page?.earlier, 20);
+  } finally { Object.assign(document, { visibilityState: "visible" }); delete answers.agent_older; }
 });
