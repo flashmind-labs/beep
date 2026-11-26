@@ -5,8 +5,8 @@
 
 use crate::inner::{AddrNote, Inner};
 use crate::ticket::{Invitation, JoinSecret};
-use crate::wire::{self, FrameReader, MAX_FRAME, MAX_REQUEST};
-use crate::{DeviceOp, Devices, JOIN_ALPN, Key, MeshError};
+use crate::wire::{self, FrameReader, JOIN_ALPN, MAX_FRAME, MAX_REQUEST};
+use crate::{DeviceOp, Devices, Key, MeshError};
 use iroh::Endpoint;
 use iroh::endpoint::Connection;
 use serde::{Deserialize, Serialize};

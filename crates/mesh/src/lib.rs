@@ -28,14 +28,15 @@ pub(crate) use devices::{DeviceOp, Devices, Merged, WriteLimit};
 pub use error::MeshError;
 pub use mesh::values;
 pub use mesh::{
-    DEFAULT_TICKET_TTL, DeviceStatus, InUse, JOIN_ALPN, JoinProtocol, Lease, Mesh, MeshProtocol,
-    PEER_ALPN, PeerStream, router, transport_config, ways,
+    DEFAULT_TICKET_TTL, DeviceStatus, InUse, JoinProtocol, Lease, Mesh, MeshProtocol, PeerStream,
+    router, transport_config,
 };
 pub use state::Key;
 pub(crate) use state::{Applied, Entry, Heads, State};
 pub use team::{TeamTicket, TeamWrites, keep_contacts, secret_hash, take_roster};
 pub use ticket::{Invitation, JoinSecret, JoinTicket, ShortTicket, TicketError};
 pub use timeouts::{OPEN_TIMEOUT, RETRY};
+pub use wire::{JOIN_ALPN, PEER_ALPN, ways};
 
 #[cfg(test)]
 mod tests;

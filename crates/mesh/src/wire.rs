@@ -10,6 +10,7 @@ use crate::MeshError;
 use beep_proto::lenient;
 use bytes::{Bytes, BytesMut};
 use futures::StreamExt;
+use iroh::EndpointAddr;
 use iroh::endpoint::{RecvStream, SendStream};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -20,12 +21,38 @@ use std::time::Duration;
 use tokio::time::timeout;
 use tokio_util::codec::{Encoder, FramedRead, LengthDelimitedCodec};
 
+pub const PEER_ALPN: &[u8] = b"beep-peer/2";
+pub const JOIN_ALPN: &[u8] = b"beep-join/2";
+
 /// The largest frame either side accepts.
 pub(crate) const MAX_FRAME: usize = 4 * 1024 * 1024;
 /// The largest frame a stranger may send, such as a join request.
 pub(crate) const MAX_REQUEST: usize = 4 * 1024;
 /// A peer that takes this long to accept a frame is stalled.
 const WRITE: Duration = Duration::from_secs(10);
+
+/// The ways to reach `addr`, for a log or a report: its relay and its
+/// addresses, or that there are none and it is looked up by its id.
+pub fn ways(addr: &EndpointAddr) -> String {
+    let relays: Vec<_> = addr.relay_urls().map(ToString::to_string).collect();
+    let ips: Vec<_> = addr.ip_addrs().map(ToString::to_string).collect();
+
+    if relays.is_empty() && ips.is_empty() {
+        return "its id alone".to_owned();
+    }
+
+    let relay = if relays.is_empty() {
+        "no relay".to_owned()
+    } else {
+        format!("relay {}", relays.join(" "))
+    };
+
+    if ips.is_empty() {
+        return format!("{relay}, no address");
+    }
+
+    format!("{relay}, {}", ips.join(" "))
+}
 
 pub(crate) fn net(e: impl Display) -> MeshError {
     MeshError::Net(e.to_string())

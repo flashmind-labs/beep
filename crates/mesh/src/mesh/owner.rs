@@ -1,8 +1,9 @@
 //! Owns peer dialers and retires connections after membership changes.
 
-use super::{Inner, Mesh, PEER_ALPN, ways};
+use crate::inner::Inner;
 use crate::link;
 use crate::timeouts::{OPEN_TIMEOUT, RETRY};
+use crate::wire::{PEER_ALPN, ways};
 use beep_proto::watched;
 use iroh::endpoint::Connection;
 use iroh::{EndpointAddr, EndpointId, Watcher};
@@ -283,15 +284,5 @@ impl Inner {
         self.reset_channels();
         self.addr_wake.notify_waiters();
         self.bump();
-    }
-}
-
-impl Mesh {
-    /// Drops every connection, has iroh probe the network again and dials
-    /// every peer at once. For a phone app back from the background or on a
-    /// new network, whose links may be dead while they still look open.
-    pub async fn reconnect(&self) {
-        info!("dialing every peer again");
-        self.inner.woke().await;
     }
 }

@@ -90,7 +90,7 @@ reference in the issue. Use `just reports`, `just report <reference>` and
 - Terminal host `Request`, `Reply` and `Hello`, and transfer `Manifest`,
   cannot gain fields while released readers using plain `rmp_serde` are
   reachable. Bump the protocol name to change its bytes.
-- Mesh ALPNs are defined in `crates/mesh/src/mesh.rs`. The sync ALPN is
+- Mesh ALPNs are defined in `crates/mesh/src/wire.rs`. The sync ALPN is
   defined in `crates/node/src/files/sync/peer.rs`.
 
 ## Code conventions

@@ -27,12 +27,10 @@ use std::sync::atomic::Ordering;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, watch};
 use tokio::task::{AbortHandle, JoinHandle, spawn_blocking};
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 /// How long a ticket lives unless the caller says otherwise.
 pub const DEFAULT_TICKET_TTL: Duration = Duration::from_secs(60 * 60);
-pub const PEER_ALPN: &[u8] = b"beep-peer/2";
-pub const JOIN_ALPN: &[u8] = b"beep-join/2";
 
 /// iroh already pings each path every 5 s, which keeps a link up on its own;
 /// this ping only covers a connection whose paths stopped pinging.
@@ -79,29 +77,6 @@ pub struct DeviceStatus {
     /// When its link here last ended, since this mesh opened; `None` while
     /// online or when it was not reached since.
     pub last_seen: Option<SystemTime>,
-}
-
-/// The ways to reach `addr`, for a log or a report: its relay and its
-/// addresses, or that there are none and it is looked up by its id.
-pub fn ways(addr: &EndpointAddr) -> String {
-    let relays: Vec<_> = addr.relay_urls().map(ToString::to_string).collect();
-    let ips: Vec<_> = addr.ip_addrs().map(ToString::to_string).collect();
-
-    if relays.is_empty() && ips.is_empty() {
-        return "its id alone".to_owned();
-    }
-
-    let relay = if relays.is_empty() {
-        "no relay".to_owned()
-    } else {
-        format!("relay {}", relays.join(" "))
-    };
-
-    if ips.is_empty() {
-        return format!("{relay}, no address");
-    }
-
-    format!("{relay}, {}", ips.join(" "))
 }
 
 struct Guard {
@@ -277,5 +252,15 @@ impl Debug for InUse {
 impl fmt::Display for InUse {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.write_str("the mesh is still in use")
+    }
+}
+
+impl Mesh {
+    /// Drops every connection, has iroh probe the network again and dials
+    /// every peer at once. For a phone app back from the background or on a
+    /// new network, whose links may be dead while they still look open.
+    pub async fn reconnect(&self) {
+        info!("dialing every peer again");
+        self.inner.woke().await;
     }
 }
