@@ -6,7 +6,12 @@ use super::{Agents, MAX_IN_FOLDERS};
 use crate::files::{holds::RepositoryHold, sync::Syncs};
 use anyhow::{Result, ensure};
 use beep_proto::node::agent::Presence;
-use std::{path::Path, sync::Arc};
+use std::{
+    collections::{BTreeSet, HashMap},
+    path::{Path, PathBuf},
+    sync::{Arc, Weak},
+};
+use tokio::task::{Id, JoinSet};
 use tokio_util::task::AbortOnDropHandle;
 
 impl Agents {
@@ -16,23 +21,19 @@ impl Agents {
         self.recovering.get_or_init(|| {
             let agents = Arc::downgrade(self);
             let syncs = syncs.clone();
-            let mut asks = syncs.recoveries();
 
             AbortOnDropHandle::new(tokio::spawn(async move {
+                // The follower starts again if it dies; it ends when the
+                // agents or the syncs are gone.
                 loop {
-                    let roots: Vec<_> = beep_proto::watched::read_and_update(&mut asks, |roots| roots.iter().cloned().collect());
-                    let Some(held) = agents.upgrade() else {
-                        return;
-                    };
-                    futures::future::join_all(roots.iter().map(|root| async {
-                        let answer = held.reserve_repository(root).await;
-                        syncs.answer_recovery(root, answer);
-                    }))
-                    .await;
-                    drop(held);
+                    let run = AbortOnDropHandle::new(tokio::spawn(follow(
+                        agents.clone(),
+                        syncs.clone(),
+                    )));
 
-                    if asks.changed().await.is_err() {
-                        return;
+                    match run.await {
+                        Ok(()) => return,
+                        Err(e) => log::error!("the recovery follower stopped, starting again: {e}"),
                     }
                 }
             }))
@@ -45,7 +46,8 @@ impl Agents {
     pub(super) async fn reserve_repository(&self, folder: &Path) -> Result<RepositoryHold> {
         let holds = self.holds();
         let hold = holds.hold(folder).await?;
-        let root = folder.to_owned();
+        let folder = hold.folder().to_owned();
+        let root = folder.clone();
         let running = {
             let holds = holds.clone();
             tokio::task::spawn_blocking(move || holds.running_under(&root)).await?
@@ -70,5 +72,73 @@ impl Agents {
         );
 
         Ok(hold)
+    }
+}
+
+/// One task per root asking, so a slow read of one never delays another.
+/// A task that ends without answering answers the root as refused: recovery
+/// never runs without a read.
+async fn follow(agents: Weak<Agents>, syncs: Syncs) {
+    let mut asks = syncs.recoveries();
+    let mut tasks = JoinSet::new();
+    let mut roots: HashMap<Id, PathBuf> = HashMap::new();
+    let mut active = BTreeSet::new();
+
+    loop {
+        let asked: Vec<PathBuf> = beep_proto::watched::read_and_update(&mut asks, |asked| {
+            asked.iter().cloned().collect()
+        });
+
+        let fresh: Vec<PathBuf> = asked
+            .into_iter()
+            .filter(|root| !active.contains(root))
+            .collect();
+
+        for root in fresh {
+            let (agents, syncs, own) = (agents.clone(), syncs.clone(), root.clone());
+            let task = tasks.spawn(async move {
+                let answer = match agents.upgrade() {
+                    Some(agents) => agents.reserve_repository(&own).await,
+                    None => Err(anyhow::anyhow!("The node is stopping.")),
+                };
+                syncs.answer_recovery(&own, answer);
+            });
+            roots.insert(task.id(), root.clone());
+            active.insert(root);
+        }
+
+        tokio::select! {
+            changed = asks.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+            }
+            Some(done) = tasks.join_next_with_id() => {
+                let id = match done {
+                    Ok((id, ())) => id,
+                    Err(e) => {
+                        log::error!("a recovery check stopped: {e}");
+                        let id = e.id();
+
+                        if let Some(root) = roots.get(&id) {
+                            syncs.answer_recovery(
+                                root,
+                                Err(anyhow::anyhow!("The check of the running sessions stopped; recovery will ask again.")),
+                            );
+                        }
+
+                        id
+                    }
+                };
+
+                if let Some(root) = roots.remove(&id) {
+                    active.remove(&root);
+                }
+            }
+        }
+
+        if agents.strong_count() == 0 {
+            return;
+        }
     }
 }

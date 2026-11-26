@@ -58,6 +58,13 @@ pub struct RepositoryHold {
     folder: PathBuf,
 }
 
+impl RepositoryHold {
+    /// The checkout, as held: its links resolved.
+    pub fn folder(&self) -> &Path {
+        &self.folder
+    }
+}
+
 /// A folder a session runs in or starts in; released when dropped.
 pub struct Running {
     holds: RepositoryHolds,

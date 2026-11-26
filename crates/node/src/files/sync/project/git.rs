@@ -1,6 +1,6 @@
 //! Applying received branch histories without switching a user's checkout.
 
-use super::shared::{RecoveryTurn, Shared};
+use super::shared::Shared;
 use crate::files::sync::gitdir::{self, BranchTip, Repo};
 use anyhow::{Context, Result, anyhow, bail};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -18,6 +18,10 @@ pub(super) struct Alignment {
 impl Shared {
     /// Only the project task advances branches, so its own scans and writes cannot overlap.
     pub(super) async fn align_git(&self) -> Result<Alignment> {
+        // An answer is for this round only: one that goes unused is dropped
+        // on whatever way out, with its hold.
+        let (mut answer, waiting) = self.take_recovery_answer();
+
         if self.copies_git() {
             return Ok(Alignment::default());
         }
@@ -142,7 +146,7 @@ impl Shared {
             let asks = recovery.context(
                 "Local edits block Git sync; enable automatic recovery or commit or stash them.",
             )?;
-            match self.take_recovery_answer(&asks) {
+            match answer.take() {
                 Some(Ok(hold)) => Some(hold),
                 Some(Err(e)) => {
                     return Ok(Alignment {
@@ -152,6 +156,10 @@ impl Shared {
                     });
                 }
                 None => {
+                    if !waiting {
+                        self.ask_recovery(&asks);
+                    }
+
                     return Ok(Alignment {
                         checkout_changed: false,
                         warning: Some(anyhow!(
@@ -162,7 +170,6 @@ impl Shared {
                 }
             }
         } else {
-            *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
             None
         };
         let (snapshot, file) = {

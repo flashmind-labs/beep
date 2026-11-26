@@ -7,6 +7,7 @@ use super::{
     state::{Saved, Seen, State, read_saved},
     task::{ChangeTimer, DELETE_SETTLE, DeleteTimer, MAX_SETTLE, SETTLE, Task},
 };
+use crate::files::holds::{Recoveries, RepositoryHold, RepositoryHolds};
 use crate::files::paths;
 use crate::files::sync::{
     Parts,
@@ -1187,4 +1188,61 @@ async fn a_project_waiting_for_git_waits_for_a_change_not_a_timer() {
     );
     assert!(commits.has_changed().unwrap());
     project.stop().await;
+}
+
+/// A hold on the project's folder, as the agents answer an ask.
+async fn recovery_hold(project: &Project) -> (RepositoryHolds, RepositoryHold) {
+    let holds = RepositoryHolds::default();
+    let hold = holds.hold(project.task.shared.root()).await.unwrap();
+
+    (holds, hold)
+}
+
+fn starts_refused(holds: &RepositoryHolds, project: &Project) -> bool {
+    holds.check_start(project.task.shared.root()).is_err()
+}
+
+#[tokio::test]
+async fn an_answer_the_round_after_does_not_use_is_dropped_with_its_hold() {
+    let project = Project::new(&["a.txt"]).await;
+    let shared = project.task.shared.clone();
+    shared.set_recovery(Some(Recoveries::default()));
+    let (holds, hold) = recovery_hold(&project).await;
+    shared.ask_recovery(&Recoveries::default());
+    shared.answer_recovery(Ok(hold));
+    assert!(starts_refused(&holds, &project), "held until the round takes it");
+
+    // The round finds nothing to align (the user committed, a peer left):
+    // the answer ends with it, and Beep sessions may start again.
+    shared.align_git().await.unwrap();
+    assert!(!starts_refused(&holds, &project));
+    let (answer, waiting) = shared.take_recovery_answer();
+    assert!(answer.is_none() && !waiting);
+}
+
+#[tokio::test]
+async fn an_answer_that_arrives_when_nothing_asked_is_dropped_with_its_hold() {
+    let project = Project::new(&["a.txt"]).await;
+    let shared = project.task.shared.clone();
+    shared.set_recovery(Some(Recoveries::default()));
+    let (holds, hold) = recovery_hold(&project).await;
+    shared.ask_recovery(&Recoveries::default());
+    // The opt-in goes off while the sessions are being read.
+    shared.set_recovery(None);
+    shared.answer_recovery(Ok(hold));
+    assert!(!starts_refused(&holds, &project));
+}
+
+#[tokio::test]
+async fn a_mesh_change_that_keeps_the_opt_in_keeps_the_ask() {
+    let project = Project::new(&["a.txt"]).await;
+    let shared = project.task.shared.clone();
+    let asks = Recoveries::default();
+    shared.set_recovery(Some(asks.clone()));
+    shared.ask_recovery(&asks);
+    shared.set_recovery(Some(asks));
+    let (holds, hold) = recovery_hold(&project).await;
+    shared.answer_recovery(Ok(hold));
+    assert!(starts_refused(&holds, &project));
+    assert!(shared.take_recovery_answer().0.is_some());
 }

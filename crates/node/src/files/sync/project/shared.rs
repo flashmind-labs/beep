@@ -235,7 +235,12 @@ impl Shared {
             let mut current = crate::lock(&self.recovery);
             let changed = current.is_some() != holds.is_some();
             *current = holds;
-            *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
+
+            if changed {
+                // What was asked belongs to the opt-in that asked it.
+                *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
+            }
+
             changed
         };
 
@@ -404,35 +409,43 @@ impl Shared {
             .is_none_or(|allowed| allowed.contains(path))
     }
 
-    /// What sync was told about running recovery in this checkout: the hold
-    /// that lets it run, or why it may not. `None` while it waits, asking
-    /// once per round.
+    /// Takes the answer to the last ask, leaving the turn as it stood: an
+    /// answer belongs to the round that takes it, and any other round clears it.
+    /// Returns it with whether an ask is still waiting.
     pub(super) fn take_recovery_answer(
         &self,
-        asks: &crate::files::holds::Recoveries,
-    ) -> Option<Result<crate::files::holds::RepositoryHold>> {
+    ) -> (Option<Result<crate::files::holds::RepositoryHold>>, bool) {
         let mut turn = crate::lock(&self.recovery_turn);
 
         match std::mem::take(&mut *turn) {
-            RecoveryTurn::Answered(answer) => Some(answer),
+            RecoveryTurn::Answered(answer) => (Some(answer), false),
             RecoveryTurn::Asked => {
                 *turn = RecoveryTurn::Asked;
-                None
+                (None, true)
             }
-            RecoveryTurn::Idle => {
-                *turn = RecoveryTurn::Asked;
-                asks.ask(self.root());
-                None
-            }
+            RecoveryTurn::Idle => (None, false),
         }
     }
 
+    /// Publishes that local edits wait for recovery to be let run.
+    pub(super) fn ask_recovery(&self, asks: &crate::files::holds::Recoveries) {
+        *crate::lock(&self.recovery_turn) = RecoveryTurn::Asked;
+        asks.ask(self.root());
+    }
+
+    /// Keeps the answer only for the ask that is waiting; any other answer
+    /// is dropped, and its hold with it.
     pub(in crate::files::sync) fn answer_recovery(
         &self,
         answer: Result<crate::files::holds::RepositoryHold>,
     ) {
-        *crate::lock(&self.recovery_turn) = RecoveryTurn::Answered(answer);
-        self.forced.notify_one();
+        let mut turn = crate::lock(&self.recovery_turn);
+
+        if matches!(*turn, RecoveryTurn::Asked) {
+            *turn = RecoveryTurn::Answered(answer);
+            drop(turn);
+            self.forced.notify_one();
+        }
     }
 
     pub(super) fn recovery_enabled(&self) -> bool {
