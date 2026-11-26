@@ -210,7 +210,7 @@ impl Reaches {
         }
 
         let hear = self.hear.clone();
-        crate::lock(&hear.said).remove(&peer);
+        hear.forget(peer);
         follows.insert(
             peer,
             AbortOnDropHandle::new(tokio::spawn(async move { hear.hear(peer).await })),
@@ -224,16 +224,13 @@ impl Hear {
         loop {
             let ended = self.listen(peer).await;
             let refused = matches!(&ended, Err(e) if e.downcast_ref::<Refused>().is_some());
-            {
-                let mut said = crate::lock(&self.said);
 
-                if refused {
-                    said.insert(peer, Said::Refused);
-                    return;
-                }
-
-                said.remove(&peer);
+            if refused {
+                crate::lock(&self.said).insert(peer, Said::Refused);
+                return;
             }
+
+            self.forget(peer);
 
             if let Err(e) = ended {
                 log::debug!("the reach of {peer} is not followed: {e:#}");
@@ -244,6 +241,16 @@ impl Hear {
             if !online(&self.mesh).contains(&peer) {
                 return;
             }
+        }
+    }
+
+    /// Drops what `peer` said, and rings when it had pushed a reach: it no
+    /// longer pushes, so the watcher has to ask it again.
+    fn forget(&self, peer: EndpointId) {
+        let was = crate::lock(&self.said).remove(&peer);
+
+        if matches!(was, Some(Said::Reach(_))) {
+            self.changed.send_replace(());
         }
     }
 

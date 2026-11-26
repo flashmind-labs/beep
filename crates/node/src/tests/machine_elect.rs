@@ -1,4 +1,4 @@
-use super::{Reaches, elect, ranked};
+use super::{Reaches, Said, elect, ranked};
 use beep_mesh::Mesh;
 use iroh::{Endpoint, endpoint::presets};
 use std::time::Duration;
@@ -116,5 +116,33 @@ async fn dropping_the_reaches_ends_the_follows_and_lets_go_of_the_mesh() {
     tokio::time::timeout(Duration::from_secs(10), mesh.released())
         .await
         .expect("a follow still holds the mesh");
+    mesh.close().await.unwrap();
+}
+
+/// A machine whose follow ended no longer pushes, so the watcher is woken to
+/// ask it again instead of waiting for some other event.
+#[tokio::test]
+async fn a_machine_that_stops_pushing_rings_the_watcher() {
+    let dir = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let mesh = Mesh::create(&dir.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let reaches = Reaches::new(mesh.clone());
+    let peer = SecretKey::generate().public();
+    let mut changes = reaches.changes();
+    changes.mark_unchanged();
+
+    // Nothing was pushed, so nothing is lost.
+    reaches.hear.forget(peer);
+    assert!(!changes.has_changed().unwrap());
+
+    crate::lock(&reaches.hear.said).insert(peer, Said::Reach(ForgeReach::default()));
+    assert!(reaches.pushes(peer));
+    reaches.hear.forget(peer);
+    assert!(!reaches.pushes(peer));
+    assert!(changes.has_changed().unwrap());
+
+    drop(reaches);
     mesh.close().await.unwrap();
 }
