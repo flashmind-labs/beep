@@ -11,7 +11,6 @@ use crate::{actor, run::{process::STOP_GRACE, tasks::first_id}};
 use anyhow::Result;
 use beep_proto::watched;
 use beep_proto::node::{
-    EnvSecret,
     process::{Task, TaskId},
     terminal::{MAX_TERMINALS, Reply, Request, Size},
 };
@@ -136,7 +135,7 @@ impl Terminals {
 
     /// Sets the environment terminals started from now on get.
     #[cfg(all(unix, feature = "cli"))]
-    pub(super) fn set_env(&self, env: Vec<EnvSecret>) {
+    pub(super) fn set_env(&self, env: Vec<beep_proto::node::EnvSecret>) {
         self.opener.env.send_replace(Some(env));
     }
 
