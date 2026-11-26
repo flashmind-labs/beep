@@ -101,19 +101,21 @@ export const continuePicks = new Map<string, ContinuePick>();
 
 /// The open session's log changed: its page draws it again.
 export const logStale = signal();
-/// The open session is due to be read or followed again, until the page does it: `now` reads even while the view is hidden.
-export const readAsked = createStore<{ due: { now: boolean } | null }>(() => ({ due: null }));
+/// How many times the open session was marked stale, and whether the last mark reads even while
+/// the view is hidden. The page reads when `stale` is past what it last read.
+export const readStale = createStore<{ stale: number; now: boolean }>(() => ({ stale: 0, now: false }));
 
-/// Asks the page to read or follow the open session again.
+/// Marks the open session stale: it is to be read or followed again.
 export function wantRead(now: boolean) {
-  readAsked.setState({ due: { now } });
+  readStale.setState(s => ({ stale: s.stale + 1, now }));
 }
-/// The session row asked for, and where Esc goes from it, until the page opens it.
-export const sessionAsked = createStore<{ wanted: { row: AgentRow; back: AgentReturn } | null }>(() => ({ wanted: null }));
+/// The session that should be open, and where Esc goes from it; null when none should be.
+/// The page makes what it shows match it.
+export const openTarget = createStore<{ target: { row: AgentRow; back: AgentReturn } | null }>(() => ({ target: null }));
 
-/// Asks the page to show `row`.
+/// Makes `row` the session that should be open.
 export function wantSession(row: AgentRow, back: AgentReturn) {
-  sessionAsked.setState({ wanted: { row, back } });
+  openTarget.setState({ target: { row, back } });
 }
 
 /// Follows the open session again after showing it or sending a message.

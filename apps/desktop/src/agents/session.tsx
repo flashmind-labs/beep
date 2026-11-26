@@ -3,7 +3,7 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { SessionField, SessionHead } from "./session-frame.tsx";
 import { agentMessage, sessionBody, showSessionFrame } from "./session-frame-state.ts";
-import { followsOnly, isOpen, keepLog, keptLogs, readAsked, resumeFollow, sessionAsked, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
+import { followsOnly, isOpen, keepLog, keptLogs, readStale, resumeFollow, openTarget, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.tsx";
@@ -137,19 +137,22 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   });
 }
 
-readAsked.subscribe(({ due }) => {
-  if (!due) return;
-  readAsked.setState({ due: null });
-  void pollAgent(due.now);
+let readSeen = 0;
+readStale.subscribe(({ stale, now }) => {
+  if (stale === readSeen) return;
+  readSeen = stale;
+  void pollAgent(now);
 });
-sessionAsked.subscribe(({ wanted }) => {
-  if (!wanted) return;
-  sessionAsked.setState({ wanted: null });
-  openAgent(wanted.row, { back: wanted.back });
+// The target already shown, as opened, is not opened again.
+let shownTarget: { row: AgentRow; back: AgentReturn; open: OpenAgent | null } | null = null;
+openTarget.subscribe(({ target }) => {
+  if (!target) { shownTarget = null; return; }
+  if (shownTarget && shownTarget.row === target.row && shownTarget.back === target.back && isOpen(shownTarget.open)) return;
+  openAgent(target.row, { back: target.back });
+  shownTarget = { ...target, open: AG.open };
 });
 pushedUpdate.subscribe(({ due }) => {
   if (!due) return;
-  pushedUpdate.setState({ due: null });
   applyAgentPage(due.open, due.page, due.read, due.replace, true);
 });
 

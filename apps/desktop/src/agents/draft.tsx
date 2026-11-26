@@ -11,6 +11,7 @@ import { barPlaced, pc } from "../project/barstate.ts";
 import { AG } from "./agents-state.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { DraftHead } from "./session-frame.tsx";
+import { openTarget } from "./open-state.ts";
 import { draftMessage, showSessionFrame } from "./session-frame-state.ts";
 import { draftCwd } from "./draft-state.ts";
 import { agentHints, drawEditors } from "./session-head.tsx";
@@ -37,6 +38,7 @@ export function openDraft(project: string, on: string | null) {
     leaveLog();
     clearPage();
     Object.assign(AG, { open: null, draft: project, inflight: null });
+    openTarget.setState({ target: null });
     setView("agent");
     drawFrame(project);
   }
