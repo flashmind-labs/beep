@@ -5,7 +5,8 @@
 
 use crate::{
     chat::local_dictation::{
-        LocalDictation, LocalModelId, ModelPaths, installed_model_path, run_local,
+        AudioCommand, DictationEvent, LocalDictation, LocalModelId, ModelPaths,
+        installed_model_path, next_audio, run_local,
     },
     error::{DesktopError, Result},
     fleet::projects::{FleetState, desk},
@@ -16,7 +17,6 @@ use bytes::Bytes;
 use flashmind_llm::{ElevenLabsProvider, MistralProvider, elevenlabs, mistral};
 use futures::StreamExt as _;
 use secrecy::SecretString;
-use serde::Serialize;
 use std::{collections::HashMap, path::PathBuf, sync::Mutex, time::Duration};
 use tauri::{Manager as _, State, Window, ipc::Channel};
 use tokio::{sync::mpsc, time::timeout};
@@ -25,8 +25,6 @@ use uuid::Uuid;
 
 const AUDIO_QUEUE: usize = 128;
 const MAX_CHUNK_BYTES: usize = 262_144;
-/// Fifteen minutes of 16 kHz 16-bit mono audio.
-const MAX_SESSION_PCM_BYTES: usize = 32_000 * 60 * 15;
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 const DRAIN_TIMEOUT: Duration = Duration::from_millis(2500);
 
@@ -35,27 +33,6 @@ const DEFAULT_MISTRAL_MODEL: &str = "voxtral-mini-transcribe-realtime-3-0";
 
 const ELEVENLABS_BASE: &str = "https://api.elevenlabs.io/";
 const MISTRAL_BASE: &str = "https://api.mistral.ai/";
-
-/// Events streamed back to the composer over a Tauri channel.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum DictationEvent {
-    /// Connected and ready for microphone PCM.
-    Ready,
-    /// Updated transcript for this dictation turn: finalized words plus current interim segment.
-    Transcript { committed: String, partial: String },
-    /// Finishing transcription after a pause or stop.
-    Thinking,
-    /// Session ended cleanly.
-    Done { nothing_heard: bool },
-    /// Session failed with a user-facing message.
-    Error { message: String },
-}
-
-pub(crate) enum AudioCommand {
-    Append(Bytes),
-    Stop,
-}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Target {
@@ -415,16 +392,6 @@ impl Transcript {
 
         self.committed.trim().is_empty()
     }
-}
-
-/// The next microphone chunk, or `None` once the user stops or the session limit is reached.
-pub(crate) fn next_audio(command: Option<AudioCommand>, sent: &mut usize) -> Option<Bytes> {
-    let Some(AudioCommand::Append(pcm)) = command else {
-        return None;
-    };
-
-    *sent = sent.saturating_add(pcm.len());
-    (*sent <= MAX_SESSION_PCM_BYTES).then_some(pcm)
 }
 
 async fn run_elevenlabs(

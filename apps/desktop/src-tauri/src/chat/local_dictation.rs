@@ -4,9 +4,9 @@
 
 use crate::{
     beep,
-    chat::dictation::{AudioCommand, DictationEvent, next_audio},
     error::{DesktopError, Result},
 };
+use bytes::Bytes;
 use serde::Serialize;
 use sha2::{Digest as _, Sha256};
 use std::{
@@ -23,6 +23,9 @@ use std::{
 };
 use tauri::{AppHandle, Manager as _, State, ipc::Channel};
 use tokio::{io::AsyncWriteExt as _, sync::mpsc};
+
+/// Fifteen minutes of 16 kHz 16-bit mono audio.
+const MAX_SESSION_PCM_BYTES: usize = 32_000 * 60 * 15;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
 const READ_TIMEOUT: Duration = Duration::from_secs(60);
@@ -126,6 +129,37 @@ impl FromStr for LocalModelId {
         Self::from_slug(slug)
             .ok_or_else(|| DesktopError::BadRequest("Unknown local dictation model.".into()))
     }
+}
+
+/// Events streamed back to the composer over a Tauri channel.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DictationEvent {
+    /// Connected and ready for microphone PCM.
+    Ready,
+    /// Updated transcript for this dictation turn: finalized words plus current interim segment.
+    Transcript { committed: String, partial: String },
+    /// Finishing transcription after a pause or stop.
+    Thinking,
+    /// Session ended cleanly.
+    Done { nothing_heard: bool },
+    /// Session failed with a user-facing message.
+    Error { message: String },
+}
+
+pub(crate) enum AudioCommand {
+    Append(Bytes),
+    Stop,
+}
+
+/// The next microphone chunk, or `None` once the user stops or the session limit is reached.
+pub(crate) fn next_audio(command: Option<AudioCommand>, sent: &mut usize) -> Option<Bytes> {
+    let Some(AudioCommand::Append(pcm)) = command else {
+        return None;
+    };
+
+    *sent = sent.saturating_add(pcm.len());
+    (*sent <= MAX_SESSION_PCM_BYTES).then_some(pcm)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
