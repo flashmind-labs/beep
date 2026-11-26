@@ -1,6 +1,6 @@
 # Every timer and sleep outside tests, with what it is for. Kept by `depgraph timers`.
 # path | function | call#n | kind | reason
-# kinds: poll, retry, debounce, deadline, outside, ui, pace
+# kinds: poll, retry, debounce, deadline, outside, ui, pace, compat
 
 apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep#1 | retry | waits 500 ms, then reopens the session stream after a full node
 apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep_until#1 | pace | flushes held session updates at the off-screen rate
@@ -122,10 +122,10 @@ apps/desktop/src/ui/perf.ts | start | setTimeout#1 | pace | the recorder batches
 apps/desktop/src/ui/tauri.ts | recordTiming | setTimeout#1 | pace | sends collected timings in one batch every 5 s
 apps/desktop/src/ui/tauri.ts | trace | setTimeout#1 | deadline | fails a command that has not answered by its limit
 crates/fleet/src/alerts.rs | relinked | sleep#1 | retry | waits RETRY, then follows the machine's alerts again
-crates/fleet/src/left_folder.rs | stopped_syncing | sleep#1 | poll | asks the node every STOP_POLL if the project stopped syncing; a status push could replace it
+crates/fleet/src/left_folder.rs | poll_stopped_syncing | sleep#1 | compat | asks a node that pushes no sync status every STOP_POLL; ends with node 0.8.30
 crates/mesh/src/link.rs | heartbeat | sleep#1 | deadline | closes a link after missed beats; connection stats cannot push
 crates/mesh/src/link.rs | streams | sleep_until#1 | deadline | lingers or drains before ending the stream task loop
-crates/mesh/src/machine/codex_login.rs | wait_for_code | sleep#1 | poll | asks the machine for the sign-in code every CODE_POLL; process output could push it
+crates/mesh/src/machine/codex_login.rs | poll_for_code | sleep#1 | compat | asks a node that pushes no process output every CODE_POLL; ends with node 0.8.30
 crates/mesh/src/mesh/owner.rs | dial | sleep#1 | pace | gives the other side a head start before dialing
 crates/mesh/src/mesh/owner.rs | dial | sleep#2 | retry | waits RETRY before dialing a member again, ended early by address change
 crates/mesh/src/mesh/owner.rs | own | sleep#1 | deadline | grace before closing a removed member's connection

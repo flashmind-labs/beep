@@ -15,8 +15,8 @@ mod wire;
 
 pub(crate) use client::CALL_TIMEOUT;
 pub use client::{
-    DEADLINE, OPEN_TIMEOUT, Offline, PeerClient, RETRY, SessionFn, SnapshotFuture, SnapshotReader,
-    with_deadline,
+    DEADLINE, Followed, OPEN_TIMEOUT, Offline, PeerClient, RETRY, SessionFn, SnapshotFuture,
+    SnapshotReader, with_deadline,
 };
 pub use devices::{Device, DeviceKind, MeshError};
 pub(crate) use devices::{DeviceOp, Devices, Merged, WriteLimit};

@@ -22,6 +22,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
+use tokio::sync::watch;
 use tokio::task::spawn;
 use tokio::time::error::Elapsed;
 use tokio::time::timeout;
@@ -195,9 +196,19 @@ type OpenBi = Arc<
 pub type SnapshotFuture<'a> =
     Pin<Box<dyn Future<Output = Option<Result<Value, MeshError>>> + Send + 'a>>;
 
+/// A subscribed read as it stands: `None` until its first value, then each value the node
+/// pushes, or the reason it gave for failing.
+pub type Followed = Option<Result<Value, String>>;
+
 /// A caller-owned source of live read projections.
 pub trait SnapshotReader: Send + Sync {
     fn snapshot(&self, read: Read) -> SnapshotFuture<'_>;
+
+    /// `read` as its subscription holds it, changing with each push; `None` when no live
+    /// subscription owns it, as on a node that does not push it.
+    fn follow(&self, _read: Read) -> Option<watch::Receiver<Followed>> {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -410,6 +421,37 @@ impl PeerClient {
             None => "fallback",
         };
         value
+    }
+
+    /// Waits until `done` finds what it looks for in the values the node pushes for `read`,
+    /// and gives it. `None` when no live subscription owns `read`, so the caller asks the node
+    /// itself; an error when the node fails the read or the subscription ends first.
+    pub async fn snapshot_until<T>(
+        &self,
+        read: Read,
+        mut done: impl FnMut(&Value) -> Option<T>,
+    ) -> Option<Result<T, MeshError>> {
+        let mut followed = self.snapshots.as_ref()?.follow(read)?;
+
+        loop {
+            let step = watched::read_and_update(&mut followed, |held| match held {
+                None => Ok(None),
+                Some(Ok(value)) => Ok(done(value)),
+                Some(Err(reason)) => Err(reason.clone()),
+            });
+
+            match step {
+                Ok(Some(found)) => return Some(Ok(found)),
+                Ok(None) => {}
+                Err(reason) => return Some(Err(MeshError::Link(anyhow::anyhow!(reason)))),
+            }
+
+            if followed.changed().await.is_err() {
+                return Some(Err(MeshError::Link(anyhow::anyhow!(
+                    "the subscription ended"
+                ))));
+            }
+        }
     }
 
     /// Opens a stream for `protocol` and waits for the node to accept it.

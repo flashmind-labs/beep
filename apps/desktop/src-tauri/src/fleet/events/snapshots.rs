@@ -377,6 +377,10 @@ struct Reader {
 }
 
 impl SnapshotReader for Reader {
+    fn follow(&self, read: Read) -> Option<watch::Receiver<Current>> {
+        self.snapshots.follow(self.id, read)?.ok()
+    }
+
     fn snapshot(&self, read: Read) -> SnapshotFuture<'_> {
         Box::pin(async move {
             let wait = wait_for_snapshot(&read);

@@ -5,7 +5,10 @@ use super::{Tasks, said};
 use crate::{MeshError, PeerClient};
 use beep_proto::{
     CodexLogin, CodexLoginState,
-    node::process::{self, TaskId, TaskState},
+    node::{
+        events::{Read, Value},
+        process::{self, TaskId, TaskState},
+    },
 };
 use std::time::{Duration, SystemTime};
 use tokio::time::{sleep, timeout};
@@ -19,6 +22,8 @@ const CODE_LIMIT: Duration = Duration::from_secs(20);
 const CODE_POLL: Duration = Duration::from_millis(300);
 /// How long a code lasts when Codex does not say; it says 15 minutes.
 const CODE_LIFETIME: Duration = Duration::from_secs(15 * 60);
+/// Why the sign-in is over when its task is gone.
+const STOPPED: &str = "the sign-in stopped on the machine.";
 /// The longest reason from Codex passed on.
 const REASON_CHARS: usize = 200;
 
@@ -70,23 +75,47 @@ async fn give_up(client: &PeerClient, id: TaskId) {
     }
 }
 
-/// Reads the task's output until Codex prints its page and code, or what it said if it ended first.
+/// Follows the task's output until Codex prints its page and code, or what it said if it ended
+/// first.
 async fn wait_for_code(client: &PeerClient, id: TaskId) -> Result<Prompt, String> {
+    let read = Read::Process(process::Request::Status { id });
+    let outcome = client
+        .snapshot_until(read, |value| match value {
+            Value::Process(reply) => sign_in_step(reply),
+            _ => Some(Err(STOPPED.into())),
+        })
+        .await;
+
+    match outcome {
+        Some(found) => found.map_err(|e| format!("{e:#}"))?,
+        None => poll_for_code(client, id).await,
+    }
+}
+
+/// How the sign-in goes by one status: the prompt, what ended it, or `None` while it waits.
+fn sign_in_step(reply: &process::Reply) -> Option<Result<Prompt, String>> {
+    let process::Reply::Status { task, lines, .. } = reply else {
+        return Some(Err(STOPPED.into()));
+    };
+
+    if let Some(prompt) = Prompt::read(lines) {
+        return Some(Ok(prompt));
+    }
+
+    (!task.state.is_running()).then(|| Err(failure(lines)))
+}
+
+/// `wait_for_code` for a node that pushes no process output (compat): asks for it until the
+/// prompt appears. Ends with node 0.8.30.
+async fn poll_for_code(client: &PeerClient, id: TaskId) -> Result<Prompt, String> {
     loop {
         let reply = Tasks(client)
             .ask(&process::Request::Status { id })
             .await
             .map_err(|e| format!("{e:#}"))?;
-        let process::Reply::Status { task, lines, .. } = reply else {
-            return Err("the sign-in stopped on the machine.".into());
-        };
 
-        if let Some(prompt) = Prompt::read(&lines) {
-            return Ok(prompt);
-        }
-
-        if !task.state.is_running() {
-            return Err(failure(&lines));
+        if let Some(step) = sign_in_step(&reply) {
+            return step;
         }
 
         sleep(CODE_POLL).await;
