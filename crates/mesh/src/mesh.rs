@@ -12,7 +12,7 @@ use owner::own;
 pub use protocol::{JoinProtocol, MeshProtocol};
 
 use crate::inner::Inner;
-pub use crate::inner::PeerStream;
+pub use crate::inner::{Lease, PeerStream};
 use crate::store::{AddrNote, Core};
 use crate::wire;
 use crate::{Device, MeshError};

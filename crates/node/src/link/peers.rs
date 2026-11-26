@@ -83,6 +83,9 @@ pub(super) struct Protocols {
     peer: MeshProtocol,
     join: JoinProtocol,
     /// Serves the streams peers open, until the node lets go of the mesh.
+    /// Unlike a handler set on the mesh, it ends with `leave`, and streams
+    /// open then end with it; a join that keeps the old mesh installs it
+    /// again, so those are cut. A lone mesh is the only one that joins.
     _streams: Arc<AbortOnDropHandle<()>>,
 }
 
@@ -509,12 +512,14 @@ async fn serve_peer_stream(peers: Weak<Inner>, stream: PeerStream) {
         inner: inner.clone(),
     }
     .is_desktop();
+    // Held to the end of the function: the link counts the stream open
+    // while it is served.
     let PeerStream {
         peer,
         kind,
         send,
         recv,
-        ..
+        lease: _lease,
     } = stream;
     let who = match kind {
         DeviceKind::Desktop => Who::Everything(peer),

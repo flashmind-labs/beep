@@ -28,7 +28,7 @@ pub(crate) use devices::{DeviceOp, Devices, Merged, WriteLimit};
 pub use error::MeshError;
 pub use mesh::values;
 pub use mesh::{
-    DEFAULT_TICKET_TTL, DeviceStatus, InUse, JOIN_ALPN, JoinProtocol, Mesh, MeshProtocol,
+    DEFAULT_TICKET_TTL, DeviceStatus, InUse, JOIN_ALPN, JoinProtocol, Lease, Mesh, MeshProtocol,
     PEER_ALPN, PeerStream, router, transport_config, ways,
 };
 pub use state::Key;

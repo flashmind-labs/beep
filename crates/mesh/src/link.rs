@@ -556,7 +556,7 @@ async fn streams(
                 if let Some(kind) = kind
                     && watched::read_sent(&open, |n| *n < MAX_STREAMS)
                 {
-                    let stream = PeerStream { peer, kind, send, recv, _lease: Lease::take(&open) };
+                    let stream = PeerStream { peer, kind, send, recv, lease: Lease::take(&open) };
 
                     if let Err(refused) = inner.offer_stream(stream) {
                         // Nobody reads, or the queue is full.

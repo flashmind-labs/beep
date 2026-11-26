@@ -36,11 +36,13 @@ pub struct PeerStream {
     pub send: SendStream,
     pub recv: RecvStream,
     /// Counts against the peer's open streams until this is dropped.
-    pub(crate) _lease: Lease,
+    pub lease: Lease,
 }
 
-/// One open stream of a link, counted until dropped.
-pub(crate) struct Lease(Arc<watch::Sender<usize>>);
+/// One open stream of a link, counted until dropped. A link with no lease
+/// counts as idle and ends after a while, so hold it as long as the stream
+/// is served.
+pub struct Lease(Arc<watch::Sender<usize>>);
 
 impl Lease {
     pub(crate) fn take(open: &Arc<watch::Sender<usize>>) -> Self {
