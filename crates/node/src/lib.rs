@@ -29,6 +29,7 @@ host! {
     pub mod machine;
     pub mod peer_stream;
     mod joined_mesh;
+    mod known;
     mod process;
     mod fs;
     mod run;

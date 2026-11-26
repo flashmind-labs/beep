@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::known::known;
+use crate::known::known;
 
 fn kind(name: &str) -> AgentKind {
     AgentKind {

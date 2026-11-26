@@ -16,6 +16,7 @@ use beep_proto::{
         harness::{AutoCompact, ModelCompact},
     },
 };
+pub(super) use crate::known::Route;
 use std::collections::BTreeMap;
 
 /// The prompt that asks an agent to compact its conversation.
@@ -152,31 +153,7 @@ pub(super) struct EnvVar {
     pub(super) value: String,
 }
 
-/// What an agent takes to compact.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Route {
-    /// It compacts on its own trigger and takes no setting for it.
-    OwnTrigger,
-    /// Its own setting takes a percent of the window, and a variable that
-    /// turns it off.
-    Percent {
-        percent_var: &'static str,
-        off_var: &'static str,
-    },
-    /// Its own setting only turns on (its default) or off.
-    Toggle { off_var: &'static str },
-    /// Its own setting takes a percent (`80%`) or a token count in one
-    /// variable, and nothing turns it off.
-    Threshold { var: &'static str },
-    /// With `/compact`, when it advertises the command.
-    Advertised,
-    /// As `Advertised` for a percent. A token count is its own setting,
-    /// `key` in the JSON object in `config_var`.
-    TokenLimit {
-        config_var: &'static str,
-        key: &'static str,
-    },
-}
+
 
 impl Route {
     /// Whether the node sends `/compact` under `policy`, given the commands

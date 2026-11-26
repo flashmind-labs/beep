@@ -1,45 +1,71 @@
 //! The agents the node knows how to start (`KNOWN`) and how each one's ACP adapter runs.
 
-use super::compaction::Route;
 
-pub(super) const CODEX_CONFIG: &str = "CODEX_CONFIG";
+pub(crate) const CODEX_CONFIG: &str = "CODEX_CONFIG";
 /// OpenCode's permission rules, as JSON.
-pub(super) const OPENCODE_PERMISSION: &str = "OPENCODE_PERMISSION";
+pub(crate) const OPENCODE_PERMISSION: &str = "OPENCODE_PERMISSION";
+
+/// What an agent takes to compact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Route {
+    /// It compacts on its own trigger and takes no setting for it.
+    OwnTrigger,
+    /// Its own setting takes a percent of the window, and a variable that
+    /// turns it off.
+    Percent {
+        percent_var: &'static str,
+        off_var: &'static str,
+    },
+    /// Its own setting only turns on (its default) or off.
+    Toggle { off_var: &'static str },
+    /// Its own setting takes a percent (`80%`) or a token count in one
+    /// variable, and nothing turns it off.
+    Threshold { var: &'static str },
+    /// With `/compact`, when it advertises the command.
+    Advertised,
+    /// As `Advertised` for a percent. A token count is its own setting,
+    /// `key` in the JSON object in `config_var`.
+    TokenLimit {
+        config_var: &'static str,
+        key: &'static str,
+    },
+}
+
 
 /// An agent the daemon knows how to start, when its CLI is installed.
 /// Each starts with its own permission prompts off, so it never stops to
 /// ask; a permission request that comes anyway is allowed by the session.
-pub(super) struct Known {
-    pub(super) name: &'static str,
+pub(crate) struct Known {
+    pub(crate) name: &'static str,
     /// What people call it, such as Claude Code.
-    pub(super) title: &'static str,
+    pub(crate) title: &'static str,
     /// The CLI whose presence says the user has this agent.
-    pub(super) cli: &'static str,
-    pub(super) adapter: Adapter,
+    pub(crate) cli: &'static str,
+    pub(crate) adapter: Adapter,
     /// Variables that turn its permission prompts off.
-    pub(super) env: &'static [(&'static str, &'static str)],
+    pub(crate) env: &'static [(&'static str, &'static str)],
     /// Variables that make it show its thinking, set unless the node's own
     /// environment sets them.
-    pub(super) thinking_env: &'static [(&'static str, &'static str)],
+    pub(crate) thinking_env: &'static [(&'static str, &'static str)],
     /// The session mode that asks no permission, for an agent whose
     /// launch cannot set it, set once the session exists.
-    pub(super) bypass_mode: Option<&'static str>,
+    pub(crate) bypass_mode: Option<&'static str>,
     /// The id of the session mode that asks no permission, however the
     /// launch reaches it: shown first as Full access, and a child is never
     /// started above its parent's.
-    pub(super) full_mode: Option<&'static str>,
+    pub(crate) full_mode: Option<&'static str>,
     /// The id of the session mode that only reads, which a reviewer starts
     /// in; `None` when the agent offers none.
-    pub(super) read_only_mode: Option<&'static str>,
+    pub(crate) read_only_mode: Option<&'static str>,
     /// It starts on a model given as `--model` on its command line; the
     /// others switch over ACP once the session exists.
-    pub(super) model_flag: bool,
+    pub(crate) model_flag: bool,
     /// How it is asked to compact.
-    pub(super) compact: Route,
+    pub(crate) compact: Route,
     /// It reports the commands it runs in the background when the client
     /// says it takes them (Claude Code's `asyncTasks`), and stops one on
     /// request. Saying so also makes its adapter treat the client as AIR.
-    pub(super) async_tasks: bool,
+    pub(crate) async_tasks: bool,
 }
 
 /// The ACP adapters of the known agents, which the WSL probe looks for.
@@ -49,18 +75,18 @@ pub(crate) fn adapter_bins() -> impl Iterator<Item = &'static str> {
 
 /// How the agent `name` is asked to compact: one the node does not know
 /// takes `/compact` when it advertises it.
-pub(super) fn route(name: &str) -> Route {
+pub(crate) fn route(name: &str) -> Route {
     known(name).map_or(Route::Advertised, |known| known.compact)
 }
 
 /// What the node knows of the agent `name`, when it is a known one.
-pub(super) fn known(name: &str) -> Option<&'static Known> {
+pub(crate) fn known(name: &str) -> Option<&'static Known> {
     KNOWN.iter().find(|known| known.name == name)
 }
 
 impl Known {
     /// The program of its npm ACP adapter, when it has one.
-    pub(super) fn adapter_bin(&self) -> Option<&'static str> {
+    pub(crate) fn adapter_bin(&self) -> Option<&'static str> {
         match self.adapter {
             Adapter::Npm { bin, .. } => Some(bin),
             Adapter::Flags(_) => None,
@@ -68,7 +94,7 @@ impl Known {
     }
 }
 
-pub(super) enum Adapter {
+pub(crate) enum Adapter {
     /// An ACP adapter from npm: its binary when installed, the one the node
     /// installed in its folder, or run with npx.
     Npm {
@@ -82,7 +108,7 @@ pub(super) enum Adapter {
     Flags(&'static [&'static str]),
 }
 
-pub(super) const KNOWN: &[Known] = &[
+pub(crate) const KNOWN: &[Known] = &[
     // The session switches it to `bypassPermissions` once it has one.
     Known {
         name: "claude",

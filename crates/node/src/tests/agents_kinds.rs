@@ -1,7 +1,7 @@
 use super::*;
 
 fn known(name: &str) -> &'static Known {
-    crate::agents::known::known(name).expect("a known agent")
+    crate::known::known(name).expect("a known agent")
 }
 
 /// `found` for a machine that has exactly `programs`.

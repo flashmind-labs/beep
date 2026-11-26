@@ -58,7 +58,6 @@ host! {
     mod image_index;
     mod images;
     mod kinds;
-    mod known;
     mod launch;
     mod live;
     pub(crate) mod machine_list;
@@ -105,7 +104,7 @@ host! {
     pub use kinds::{AgentKind, Bridge, detect};
     pub use launch::{AgentIn, AgentOut, Running, Started};
     pub use start::start;
-    pub(crate) use known::adapter_bins;
+
     pub use moving::SESSIONS_ALPN;
     pub use moving::SessionsAlpn;
     pub(crate) use moving::follow as follow_moves;
@@ -123,7 +122,7 @@ host! {
     pub(crate) use processes::Demand as ProcessDemand;
     pub(crate) use processes::watch_ports;
     use images::Images;
-    use known::{Adapter, KNOWN, known, route};
+    use crate::known::{Adapter, KNOWN, known, route};
     use models::ModelCache;
     use crate::machine::env::locate::folder;
     use session::Begin;

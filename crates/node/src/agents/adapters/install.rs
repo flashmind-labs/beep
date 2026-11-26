@@ -7,7 +7,7 @@ use super::{
     node_dist::{self, NodeDist},
 };
 use crate::{
-    agents::known::{Adapter, Known},
+    known::{Adapter, Known},
     machine::provision::{curl, listed_sha256, remove_dir, unpack, verify}, process::spawn_env,
     process::command,
 };

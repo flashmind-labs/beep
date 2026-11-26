@@ -141,7 +141,7 @@ fn in_distro(distro: &DistroName, script: &str) -> Vec<OsString> {
 /// or in the install folders the node itself looks in (`locate`).
 fn probe_script() -> String {
     let agents: Vec<&str> = HARNESSES.iter().map(|harness| harness.agent).collect();
-    let tools: Vec<&str> = crate::agents::adapter_bins().chain(["npx"]).collect();
+    let tools: Vec<&str> = crate::known::adapter_bins().chain(["npx"]).collect();
     format!(
         "{prelude}\
          echo \"home $HOME\"\n\

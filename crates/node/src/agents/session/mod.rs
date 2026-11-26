@@ -2,6 +2,7 @@
 //! it through the official crate. The task owns the process; streams send
 //! it orders and follow its state through a watch channel.
 
+use crate::known::{CODEX_CONFIG, OPENCODE_PERMISSION, known};
 use super::{
     AgentKind,
     acp::Prompt,
@@ -9,7 +10,6 @@ use super::{
     checkouts::Checkouts,
     compaction::{Compactor, Policy, Route},
     images::Images,
-    known::{CODEX_CONFIG, OPENCODE_PERMISSION, known},
     live::{Live, Mark, Sent},
     processes::Processes,
     route, unix_now,
