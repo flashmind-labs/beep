@@ -71,6 +71,33 @@ test("a child started after the list was pushed is waited for through pushes tha
   await expect(page.getByText("That agent's session is no longer on its machine.")).toHaveCount(0);
 });
 
+test("a missing child's note does not land on a session opened during the wait", async ({ page }) => {
+  await openDesktop(page);
+  await page.evaluate(() => {
+    const invoke = window.__TAURI__.core.invoke;
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      const value = await invoke<T>(command, args);
+      if (command !== "agent_view" || !value || typeof value !== "object") return value;
+      const id = (args as { session?: string } | undefined)?.session;
+      const entries = id === "notice-one" ? [{ kind: "user", text: "Check" }, { kind: "tool", text: "Inspect first [completed]\n[steps] 0\n[child] first@build-box working key-1" }] : [{ kind: "user", text: "Other" }];
+      return { ...value, entries } as T;
+    };
+  });
+  const open = (id: string) => page.evaluate(sid => window.__navigation.open({ agent: { kind: "agent", machine_id: "build-box", machine_name: "build-box", id: sid, agent: "codex", title: sid, cwd: "/srv/project", status: "working", doing: null, started_at: 1, last_activity: 1, external: false } }), id);
+  await open("notice-one");
+  const kid = page.locator(".dsubgrp").locator('[data-kid="first@build-box"]');
+  await expect(kid).toContainText("Inspect first");
+
+  await kid.click();
+  await open("notice-two");
+  await expect(page.getByText("Other")).toBeVisible();
+  const note = page.getByText("That agent's session is no longer on its machine.");
+  // The wait is 3 s; the note would land by then.
+  await page.waitForTimeout(3500);
+  await expect(note).toHaveCount(0);
+  await expect(page.getByText("Other")).toBeVisible();
+});
+
 for (const width of [1280, 390]) {
   test(`session reply cards show the source project and title with wrapping tables at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

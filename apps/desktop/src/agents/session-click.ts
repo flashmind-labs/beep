@@ -239,10 +239,12 @@ function toggleRow(opened: Set<number>, at: number) {
 
 /// Opens the agent a card names. A child started after the list was pushed is not in it yet, so a miss waits
 /// for the lists that follow, until the row is in one or `KID_WAIT_MS` passes (a retitle or another session's
-/// push does not end it); one still missing is gone, which the log says.
+/// push does not end it); one still missing is gone, which the log says. Nothing comes back, and no note
+/// is set, once the session the click was in is no longer the open one.
 async function kidSession(id: string, key?: string) {
   const row = childRow(sessions, id, key);
   if (row) return row;
+  const o = AG.open;
   const until = Date.now() + KID_WAIT_MS;
   let found: ReturnType<typeof childRow>;
 
@@ -250,6 +252,7 @@ async function kidSession(id: string, key?: string) {
     await nextSessions(until - Date.now());
     found = childRow(sessions, id, key);
   }
+  if (!isOpen(o)) return undefined;
   if (!found) { setNote("That agent's session is no longer on its machine."); drawAgentBody(); }
   return found;
 }
