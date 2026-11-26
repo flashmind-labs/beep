@@ -231,12 +231,14 @@ impl Prefs {
     }
 
     /// The size of the last project window.
+    #[cfg(desktop)]
     pub fn project_window(&self) -> Option<LogicalSize<f64>> {
         self.saved().project_window
     }
 
     /// Notes a project window's size as it resizes, without writing it:
     /// `save` does when the window closes or Beep quits.
+    #[cfg(desktop)]
     pub fn note_project_window(&self, size: LogicalSize<f64>) {
         self.saved().project_window = Some(size);
     }

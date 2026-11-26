@@ -12,8 +12,8 @@ use std::{
 #[cfg(target_os = "macos")]
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, PhysicalSize, Runtime, WebviewUrl,
-    WebviewWindow, WebviewWindowBuilder, Window, WindowEvent,
+    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Runtime, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, Window, WindowEvent,
 };
 use tokio::sync::watch;
 
@@ -504,7 +504,7 @@ pub(crate) fn on_window_event<R: Runtime>(window: &Window<R>, event: &WindowEven
 /// Notes a project window's size for the next project window, unless it
 /// fills the screen or is minimized.
 #[cfg(desktop)]
-fn note_project_size<R: Runtime>(window: &Window<R>, size: PhysicalSize<u32>) {
+fn note_project_size<R: Runtime>(window: &Window<R>, size: tauri::PhysicalSize<u32>) {
     let filled = || {
         window.is_maximized().unwrap_or(true)
             || window.is_fullscreen().unwrap_or(true)

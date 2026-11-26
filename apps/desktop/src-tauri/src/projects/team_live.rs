@@ -11,8 +11,6 @@ use super::team::{InviteView, TeamCardsView, TeamView, invite_views, team_view};
 use crate::{
     error::Result,
     fleet::{
-        Fleet,
-        events::Events,
         projects::{FleetState, desk, named},
         view_signal::Interest,
     },
@@ -153,6 +151,7 @@ impl Held {
 
     /// Whether the task asking for project `id`'s cards goes on: not once the page left, the team
     /// is gone, or every node answers the topic.
+    #[cfg(desktop)]
     fn keep_asking(&mut self, id: Uuid) -> bool {
         let Some(project) = self.projects.get_mut(&id) else {
             return false;
@@ -167,6 +166,7 @@ impl Held {
     }
 
     /// The topics the nodes are asked for while the windows follow.
+    #[cfg(desktop)]
     fn interests(&self, me: EndpointId) -> Vec<Interest> {
         let cards = self
             .projects
@@ -284,9 +284,9 @@ impl TeamLive {
     fn hold(&self, app: &AppHandle) {
         #[cfg(desktop)]
         {
-            let fleet = app.state::<Arc<Fleet>>();
+            let fleet = app.state::<Arc<crate::fleet::Fleet>>();
             let interests = self.held().interests(fleet.id());
-            let events = app.state::<Events>();
+            let events = app.state::<crate::fleet::events::Events>();
 
             if let Err(error) = events.hold_set("team", interests) {
                 log::warn!("a team page cannot follow its team: {error}");
