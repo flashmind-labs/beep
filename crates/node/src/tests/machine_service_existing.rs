@@ -1,4 +1,4 @@
-use super::*;
+use super::{super::types::dir_arg, *};
 
 fn from(dir: &str) -> Installed {
     Installed::From(PathBuf::from(dir))

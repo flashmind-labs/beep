@@ -11,7 +11,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use super::{Manager, initd, launchd, systemd, windows};
+use super::{initd, launchd, systemd, types::Manager, windows};
 
 /// The service of this machine's manager, as far as its definition says.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,21 +105,6 @@ fn same_folder(a: &Path, b: &Path) -> bool {
         }
     };
     plain(a) == plain(b)
-}
-
-/// The argument after `--dir` in a node's command line.
-pub(super) fn dir_arg(args: &[String]) -> Option<PathBuf> {
-    let at = args.iter().position(|arg| arg == "--dir")?;
-    args.get(at + 1).map(PathBuf::from)
-}
-
-/// Text with the five XML entities replaced.
-pub(super) fn unescape(text: &str) -> String {
-    text.replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&")
 }
 
 #[cfg(test)]

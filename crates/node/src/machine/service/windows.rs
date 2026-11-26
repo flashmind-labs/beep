@@ -1,7 +1,7 @@
 //! The node as a Windows scheduled task (`install`), started at logon in the
 //! user's session with no window and without administrator rights.
 
-use super::{Launch, Manager, Restart, escape, run};
+use super::types::{Launch, Manager, Restart, escape, run};
 use crate::files::paths;
 use anyhow::{Context, Result};
 use std::{
@@ -96,8 +96,8 @@ pub(super) fn plan(exe: &Path) -> Result<Restart> {
 pub(super) fn dir_in(xml: &str) -> Option<PathBuf> {
     let start = xml.find("<Arguments>")? + "<Arguments>".len();
     let end = xml[start..].find("</Arguments>")? + start;
-    let line = super::existing::unescape(&xml[start..end]);
-    super::existing::dir_arg(&split(&line))
+    let line = super::types::unescape(&xml[start..end]);
+    super::types::dir_arg(&split(&line))
 }
 
 /// A command line split as `quote_arg` wrote it: backslashes are literal

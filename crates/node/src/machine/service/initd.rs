@@ -2,7 +2,7 @@
 //! an OpenRC service that restarts it, or a SysV init script that does not.
 //! Both write their output to `LOG`.
 
-use super::{Launch, Manager, Restart};
+use super::types::{Launch, Manager, Restart};
 use anyhow::{Context, Result, bail};
 use std::{
     fs,
@@ -191,7 +191,7 @@ pub(super) fn dir_in(script: &str) -> Option<PathBuf> {
         .lines()
         .find_map(|line| line.strip_prefix("command_args="))?;
     let args = words(args).into_iter().next()?;
-    super::existing::dir_arg(&words(&args))
+    super::types::dir_arg(&words(&args))
 }
 
 /// Whether `script` starts the node from `exe`.
@@ -270,7 +270,7 @@ fn words(line: &str) -> Vec<String> {
 }
 
 fn run(program: &str, args: &[&str]) -> Result<()> {
-    super::run(program, args)
+    super::types::run(program, args)
 }
 
 /// Runs `program`, saying only whether it worked.

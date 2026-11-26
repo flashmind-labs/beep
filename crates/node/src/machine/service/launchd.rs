@@ -1,7 +1,7 @@
 //! The node as a macOS LaunchAgent: started at login and restarted when it
 //! stops, with its output in the user's Logs folder.
 
-use super::{Launch, Manager, Restart, escape, run};
+use super::types::{Launch, Manager, Restart, escape, run};
 use anyhow::{Context, Result};
 use std::{
     env, fs,
@@ -159,7 +159,7 @@ pub(super) fn dir_in(plist: &str) -> Option<PathBuf> {
     let after = &plist[plist.find(flag)? + flag.len()..];
     let start = after.find("<string>")? + "<string>".len();
     let end = after[start..].find("</string>")? + start;
-    Some(PathBuf::from(super::existing::unescape(&after[start..end])))
+    Some(PathBuf::from(super::types::unescape(&after[start..end])))
 }
 
 /// Whether `plist` starts the node from `exe`: its first program argument.

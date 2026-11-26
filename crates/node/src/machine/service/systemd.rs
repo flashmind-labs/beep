@@ -2,7 +2,7 @@
 //! started at boot by lingering, or, for root without a user instance, a
 //! system unit.
 
-use super::{Launch, Manager, Restart};
+use super::types::{Launch, Manager, Restart};
 use anyhow::{Context, Result, bail};
 use std::{
     env, fs,
@@ -156,7 +156,7 @@ pub(super) fn dir_in(unit: &str) -> Option<PathBuf> {
     let exec = unit
         .lines()
         .find_map(|line| line.strip_prefix("ExecStart="))?;
-    super::existing::dir_arg(&split(exec))
+    super::types::dir_arg(&split(exec))
 }
 
 /// A command line as `quote_arg` wrote it: quoted words, where a backslash

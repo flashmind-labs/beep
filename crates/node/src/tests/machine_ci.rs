@@ -1,10 +1,10 @@
 use super::{
     Ci,
     book::{self, Books},
-    check::{Answer, CHECK},
+    check::{Answer, CHECK, QUIET},
     forge::{Forge, Host, Target},
     projects::Project,
-    watcher::{POLL, QUIET, Watcher, World},
+    watcher::{POLL, Watcher, World},
 };
 use crate::machine::elect::elect;
 use anyhow::{Result, bail};
