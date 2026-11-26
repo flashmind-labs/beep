@@ -1,7 +1,7 @@
 //! Remembering issue hosts a machine could not reach, so their reads stop for a while instead of
 //! each starting the host's CLI again.
 
-use super::{HostExit, HostTimeout, IssueSource, run_rendered};
+use super::command::{HostExit, HostTimeout, IssueSource, run_rendered};
 use crate::{Shell, model::IssueHost};
 use anyhow::{Result, anyhow};
 use beep_proto::watched;

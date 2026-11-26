@@ -6,6 +6,7 @@ use super::{
     fork::UsedFork,
     repo::{Host, RepoRef},
 };
+pub use crate::git_items::Hosts;
 use crate::{
     credentials::Opened,
     git_items::{
@@ -22,18 +23,8 @@ use beep_proto::{GitHostKind, NewRepository, ProjectForge};
 use futures::future::join_all;
 use reqwest::Client;
 use secrecy::ExposeSecret;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
 
 const GITHUB_API: &str = "https://api.github.com";
-
-/// What reaching a git host needs from where the code runs: a client and the limit on calls in
-/// flight.
-pub trait Hosts: Send + Sync {
-    fn client(&self) -> Result<Client>;
-
-    fn calls(&self) -> &Arc<Semaphore>;
-}
 
 /// The Forgejo servers among the user's credentials.
 pub fn forgejo_of(credentials: &[Opened]) -> Vec<ForgejoUrl> {

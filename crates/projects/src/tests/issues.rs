@@ -1,8 +1,9 @@
 use super::*;
-use crate::ShellOutput;
+use crate::{Shell, ShellOutput};
 use iroh::SecretKey;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 /// Answers every command the same way and counts them.
 struct FixedShell {

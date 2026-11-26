@@ -1,44 +1,43 @@
 //! Running issue-host commands and reporting failures across machines.
 
 use super::{
-    HOST_LIMIT, HostExit, HostTimeout, IssueHost, IssueSource, Machines, RepoName, Shell,
-    SourceError, Unreachable, gate::is_unreachable,
+    command::{HostExit, IssueSource, SourceError, run_rendered},
+    gate::{HostGates, Unreachable, is_unreachable},
 };
-use crate::commands::HostCommand;
+use crate::{
+    Shell,
+    commands::HostCommand,
+    model::{IssueHost, RepoName},
+};
 use anyhow::{Result, anyhow};
-use std::future::Future;
+use async_trait::async_trait;
+use iroh::EndpointId;
+use std::{future::Future, sync::Arc};
+
+/// The user's machines, for reading a host through one of them.
+#[async_trait]
+pub trait Machines: Send + Sync {
+    /// A shell on `machine`, while it is online and offers one.
+    fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>>;
+
+    /// Every machine's name, for messages; empty when they are unknown.
+    async fn names(&self) -> Vec<MachineName>;
+
+    /// The hosts each machine could not reach lately, kept across reads; `None` asks every time.
+    fn gates(&self) -> Option<&HostGates> {
+        None
+    }
+}
+
+/// A machine's id and the name its user gave it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MachineName {
+    pub id: EndpointId,
+    pub name: String,
+}
 
 /// teacli's exit code for a missing resource.
 const TEACLI_NOT_FOUND: i32 = 3;
-
-/// Runs the host command `rendered`, failing unless it exits 0.
-pub async fn run_rendered(shell: &dyn Shell, rendered: &str) -> Result<String> {
-    let out = shell.run(rendered, HOST_LIMIT).await?;
-
-    if out.timed_out {
-        return Err(HostTimeout.into());
-    }
-
-    match out.exit_code {
-        Some(0) => Ok(out.output),
-        code => {
-            let tail: String = out
-                .output
-                .chars()
-                .rev()
-                .take(400)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .rev()
-                .collect();
-            Err(HostExit {
-                code,
-                tail: tail.trim().to_owned(),
-            }
-            .into())
-        }
-    }
-}
 
 /// Runs `command` against `source`'s host through `machines`' gates, so a host its machine could
 /// not reach is left alone for a while and identical reads at once run the CLI once.

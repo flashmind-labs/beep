@@ -2,9 +2,9 @@
 //! repository they can write to, and only their own in one they cannot, such as the upstream of
 //! a fork.
 
+use super::Hosts;
 pub use super::host::{Repo, RepoUrlError};
 use super::{Caller, board::Login, github, host::HostError};
-use crate::imports::hosts::Hosts;
 use beep_proto::Service;
 use futures::future::join_all;
 use secrecy::ExposeSecret;

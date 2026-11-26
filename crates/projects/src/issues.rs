@@ -1,16 +1,17 @@
 //! Reading a project's issues host through its machines: which machines can reach it, and trying
 //! each in turn.
 
+mod command;
 mod gate;
 mod host;
 
+pub use command::{HOST_LIMIT, HostExit, HostTimeout, IssueSource, SourceError, run_rendered};
 pub use gate::{HostGates, Unreachable};
 pub(crate) use host::read_first;
-pub use host::{clipped, head, host_failed, read_any, run_rendered, run_source};
+pub use host::{MachineName, Machines, clipped, head, host_failed, read_any, run_source};
 use host::{failed_everywhere, is_not_found, read_sources, set_up_on};
 
 use crate::{
-    Shell,
     commands::{
         HostCommand, OpenIssue, OpenPr, parse_can_push, parse_login, parse_open_issues,
         parse_open_prs, parse_pr_head,
@@ -21,37 +22,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use beep_proto::{ProjectIssue, ProjectPullRequest, PullRequestHead};
 use iroh::EndpointId;
-use std::{collections::HashSet, sync::Arc, time::Duration};
-use thiserror::Error;
+use std::collections::HashSet;
 use url::Url;
-
-/// How long one host command may take.
-pub const HOST_LIMIT: Duration = Duration::from_secs(30);
-
-/// Why a host could not be read.
-#[derive(Debug, Error)]
-pub enum SourceError {
-    /// For the user, saying why.
-    #[error("{0}")]
-    Refused(String),
-    #[error(transparent)]
-    Store(#[from] anyhow::Error),
-}
-
-/// A host command that did not exit 0.
-#[derive(Debug, Clone, Error)]
-#[error("the host command exited with {}: {tail}", code.map_or("no code".to_owned(), |code| code.to_string()))]
-pub struct HostExit {
-    /// `None` when it was killed or timed out.
-    pub code: Option<i32>,
-    /// The end of what it printed.
-    pub tail: String,
-}
-
-/// A host command that ran longer than [`HOST_LIMIT`].
-#[derive(Debug, Clone, Copy, Error)]
-#[error("the host command timed out after {} seconds", HOST_LIMIT.as_secs())]
-pub struct HostTimeout;
 
 /// What the issue modules read about one project, kept by the desktop in its mesh state.
 #[async_trait]
@@ -62,21 +34,6 @@ pub trait ProjectStore: Send + Sync {
     async fn imports(&self) -> Result<Vec<ImportedPlace>>;
 }
 
-/// The user's machines, for reading a host through one of them.
-#[async_trait]
-pub trait Machines: Send + Sync {
-    /// A shell on `machine`, while it is online and offers one.
-    fn shell(&self, machine: &EndpointId) -> Option<Arc<dyn Shell>>;
-
-    /// Every machine's name, for messages; empty when they are unknown.
-    async fn names(&self) -> Vec<MachineName>;
-
-    /// The hosts each machine could not reach lately, kept across reads; `None` asks every time.
-    fn gates(&self) -> Option<&HostGates> {
-        None
-    }
-}
-
 /// A machine the project was imported on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportedPlace {
@@ -84,20 +41,6 @@ pub struct ImportedPlace {
     pub url: String,
     /// `None` when the machine is not known by an endpoint id; the page still names the host.
     pub machine: Option<EndpointId>,
-}
-
-/// A machine's id and the name its user gave it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MachineName {
-    pub id: EndpointId,
-    pub name: String,
-}
-
-/// Where a project's open issues are read: its host, via a shell on a machine with the project.
-pub struct IssueSource {
-    pub host: IssueHost,
-    pub machine: EndpointId,
-    pub shell: Arc<dyn Shell>,
 }
 
 /// The issues host a repository web page is on.

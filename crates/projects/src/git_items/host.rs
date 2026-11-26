@@ -1,5 +1,6 @@
 //! One git host API call with a user's token, and its failure in plain words.
 
+use anyhow::Result;
 use beep_proto::{GitItem, GitItemKind, GitReview, ProjectIssue};
 use reqwest::{Client, Response, StatusCode, header, header::HeaderMap};
 use secrecy::{ExposeSecret, SecretString};
@@ -7,6 +8,14 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use std::{sync::Arc, time::SystemTime};
 use thiserror::Error;
 use tokio::sync::Semaphore;
+
+/// What reaching a git host needs from where the code runs: a client and the limit on calls in
+/// flight.
+pub trait Hosts: Send + Sync {
+    fn client(&self) -> Result<Client>;
+
+    fn calls(&self) -> &Arc<Semaphore>;
+}
 
 /// A repository by host and `org/repo`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

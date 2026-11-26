@@ -1,7 +1,7 @@
 //! Asking every git host a user has a token for at once, and putting the answers together.
 
+use super::Hosts;
 use super::{Caller, HostError, forgejo, github, host::Found};
-use crate::imports::hosts::Hosts;
 use beep_proto::Service;
 use beep_proto::{GitHost, GitHostKind, GitItem, GitItems, GitReview, LabeledGitItems};
 use reqwest::Client;
