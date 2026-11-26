@@ -1,6 +1,6 @@
 //! Fetching blobs from peers, and copying them out of the store.
 
-use super::{shared::Shared, task::RETRY};
+use super::shared::Shared;
 use beep_mesh::OPEN_TIMEOUT;
 use crate::files::sync::{Parts, STALL, map::FileMeta, scan::MAX_BYTES};
 use crate::files::place::{Reserved, space_at};
@@ -33,6 +33,8 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
+/// How soon files that could not be fetched are tried again.
+pub(super) const RETRY: Duration = Duration::from_secs(30);
 /// What every disk keeps free beyond a fetch.
 const SPACE_MARGIN: u64 = 64 << 20;
 const CHUNK: usize = 1 << 20;

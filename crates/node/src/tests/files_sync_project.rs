@@ -1,4 +1,4 @@
-use super::scanning::Reason;
+use super::task::Reason;
 use super::{
     fetch::{Dials, copy_out, copy_store, fetch_within, peers_to_ask},
     list::{Merged, merge_peer, move_target, plan, record},

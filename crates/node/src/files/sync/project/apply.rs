@@ -1,11 +1,10 @@
 //! Bringing the folder in line with the list.
 
 use super::{
-    scanning::Reason,
     fetch::{Ahead, Fetched, Wanted, copy_out, read_store},
     list::{Work, move_target, plan, turn},
     state::{GitCopy, Seen},
-    task::{Task, WAITING_FOR_GIT},
+    task::{Reason, Task, WAITING_FOR_GIT},
 };
 use crate::files::sync::{
     disk::{self, Found, Stat},

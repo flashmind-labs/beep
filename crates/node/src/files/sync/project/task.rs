@@ -1,6 +1,9 @@
 //! The project's task: its loop, and how it saves and publishes its state.
 
-use super::{fetch::Fetcher, scanning::Reason, shared::Shared};
+use super::{
+    fetch::{Fetcher, RETRY},
+    shared::Shared,
+};
 use crate::files::sync::{
     Parts,
     map::is_conflict,
@@ -38,13 +41,35 @@ pub(super) const MAX_SETTLE: Duration = Duration::from_secs(30);
 /// Five seconds is well past such pauses and still sends an ordinary
 /// delete within seconds.
 pub(super) const DELETE_SETTLE: Duration = Duration::from_secs(5);
-/// How soon files that could not be fetched are tried again.
-pub(super) const RETRY: Duration = Duration::from_secs(30);
 /// The longest wait before trying failed files again: each retry that
 /// leaves files failing doubles the wait from `RETRY` up to this.
 const MAX_RETRY: Duration = Duration::from_secs(10 * 60);
 /// How often a changing state is saved; it is saved on stop as well.
 const SAVE_EVERY: Duration = Duration::from_secs(2);
+
+/// Why a scan ran, as the scan metric labels it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
+#[strum(serialize_all = "kebab-case")]
+pub(super) enum Reason {
+    /// The project started.
+    Startup,
+    /// The project was resumed after a pause.
+    Resume,
+    /// The watcher named changed paths.
+    Changes,
+    /// The watcher lost events or the rules changed.
+    Overflow,
+    /// The node changed the folder itself.
+    Touched,
+    /// No watcher covers the folder, so it is checked on a timer.
+    Unwatched,
+    /// Someone asked for a rescan.
+    Request,
+    /// An earlier scan or listing failed.
+    Retry,
+    /// The checkout moved or lost its marker.
+    Checkout,
+}
 
 /// The project's task.
 pub(super) struct Task {

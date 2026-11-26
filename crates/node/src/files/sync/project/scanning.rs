@@ -3,7 +3,7 @@
 use super::{
     list::record,
     state::{GitCopy, Seen},
-    task::Task,
+    task::{Reason, Task},
 };
 use crate::files::sync::{
     disk::{self, Found, OnDisk, same},
@@ -30,30 +30,6 @@ use tokio::task::spawn_blocking;
 const MAX_IMPORTS: usize = 16;
 /// How long a scan runs before the status says so.
 const SHOW_SCANNING: Duration = Duration::from_millis(500);
-
-/// Why a scan ran, as the scan metric labels it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::IntoStaticStr)]
-#[strum(serialize_all = "kebab-case")]
-pub(super) enum Reason {
-    /// The project started.
-    Startup,
-    /// The project was resumed after a pause.
-    Resume,
-    /// The watcher named changed paths.
-    Changes,
-    /// The watcher lost events or the rules changed.
-    Overflow,
-    /// The node changed the folder itself.
-    Touched,
-    /// No watcher covers the folder, so it is checked on a timer.
-    Unwatched,
-    /// Someone asked for a rescan.
-    Request,
-    /// An earlier scan or listing failed.
-    Retry,
-    /// The checkout moved or lost its marker.
-    Checkout,
-}
 
 impl Task {
     /// Looks for edits on disk and records them in the list.
