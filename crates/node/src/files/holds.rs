@@ -4,21 +4,29 @@
 //! the holds.
 
 use anyhow::{Result, ensure};
+use beep_proto::SessionId;
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
 };
+use tokio::sync::watch;
+
+/// The folders of the sessions started outside Beep that run, by agent and
+/// session id.
+pub type Externals = BTreeMap<(String, SessionId), PathBuf>;
 
 /// The held checkouts and the folders in use. Clones share them.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct RepositoryHolds(Arc<Inner>);
 
-#[derive(Default)]
 struct Inner {
+    /// The folders of running sessions started outside Beep, published by
+    /// the agents.
+    external: watch::Receiver<Arc<Externals>>,
     held: Mutex<HashSet<PathBuf>>,
     running: Mutex<Vec<(u64, PathBuf)>>,
     next: AtomicU64,
@@ -37,6 +45,15 @@ pub struct Running {
 }
 
 impl RepositoryHolds {
+    pub fn new(external: watch::Receiver<Arc<Externals>>) -> Self {
+        Self(Arc::new(Inner {
+            external,
+            held: Mutex::default(),
+            running: Mutex::default(),
+            next: AtomicU64::default(),
+        }))
+    }
+
     /// Marks `cwd` as the folder of a start or session until the guard drops.
     pub fn running(&self, cwd: PathBuf) -> Running {
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
@@ -70,7 +87,13 @@ impl RepositoryHolds {
             folder: folder.clone(),
         };
         let holds = self.clone();
-        let busy = tokio::task::spawn_blocking(move || holds.running_under(&folder)).await?;
+        let external: Vec<PathBuf> = beep_proto::watched::read(&self.0.external, |external| {
+            external.values().cloned().collect()
+        });
+        let busy = tokio::task::spawn_blocking(move || {
+            holds.running_under(&folder) || under(&external, &folder)
+        })
+        .await?;
         ensure!(
             !busy,
             "Local edits block Git sync; close running sessions before automatic recovery."
@@ -86,10 +109,7 @@ impl RepositoryHolds {
             .map(|(_, path)| path.clone())
             .collect();
 
-        running.iter().any(|path| {
-            path.starts_with(folder)
-                || crate::files::paths::canonicalize(path).is_ok_and(|real| real.starts_with(folder))
-        })
+        under(&running, folder)
     }
 
     /// Refuses a session in `cwd` while sync preserves the local edits of
@@ -105,6 +125,14 @@ impl RepositoryHolds {
 
         Ok(())
     }
+}
+
+/// Whether any of `paths` is in `folder`, as named or with its links resolved.
+fn under(paths: &[PathBuf], folder: &Path) -> bool {
+    paths.iter().any(|path| {
+        path.starts_with(folder)
+            || crate::files::paths::canonicalize(path).is_ok_and(|real| real.starts_with(folder))
+    })
 }
 
 impl Drop for RepositoryHold {

@@ -71,10 +71,38 @@ fn active_roots(
 }
 
 impl Agents {
+    /// Publishes where the running sessions among `sessions` work, and that
+    /// the others no longer do, for Git sync to read.
+    fn publish_external_folders(&self, sessions: &[beep_proto::node::agent::ExternalSession]) {
+        self.external_folders.send_if_modified(|folders| {
+            let mut changed = false;
+
+            for session in sessions {
+                let key = (session.agent.clone(), session.id.clone());
+                let folder = PathBuf::from(&session.cwd);
+                let known = folders.get(&key);
+
+                if !session.presence.is_live() {
+                    if known.is_some() {
+                        Arc::make_mut(folders).remove(&key);
+                        changed = true;
+                    }
+                } else if known != Some(&folder) {
+                    Arc::make_mut(folders).insert(key, folder);
+                    changed = true;
+                }
+            }
+
+            changed
+        });
+    }
+
     pub(in crate::agents) fn observe_external(
         &self,
         sessions: &[beep_proto::node::agent::ExternalSession],
     ) {
+        self.publish_external_folders(sessions);
+
         let Some(source) = crate::lock(&self.event_watcher).upgrade() else {
             return;
         };

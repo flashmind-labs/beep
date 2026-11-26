@@ -134,3 +134,27 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     assert!(!holds.running_under(root));
     holds.reserve(root).await.unwrap();
 }
+
+#[tokio::test]
+async fn a_session_started_outside_beep_blocks_recovery_while_it_runs() {
+    use beep_proto::node::agent::{ExternalSession, Presence};
+
+    let dir = tempfile::tempdir().unwrap();
+    let agents = Agents::new(vec![silent()]);
+    let holds = agents.holds();
+    let mut outside = ExternalSession {
+        id: SessionId::from("outside-1"),
+        agent: "codex".into(),
+        cwd: dir.path().join("sub").to_string_lossy().into_owned(),
+        presence: Presence::Running,
+        ..ExternalSession::default()
+    };
+
+    agents.observe_external(std::slice::from_ref(&outside));
+    let blocked = holds.reserve(dir.path()).await;
+    assert!(blocked.err().unwrap().to_string().contains("close running sessions"));
+
+    outside.presence = Presence::Stopped;
+    agents.observe_external(std::slice::from_ref(&outside));
+    holds.reserve(dir.path()).await.unwrap();
+}

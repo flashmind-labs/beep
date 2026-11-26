@@ -502,7 +502,11 @@ impl Agents {
 
     /// The checkouts held for Git recovery, shared with the sync that holds them.
     pub fn holds(&self) -> crate::files::holds::RepositoryHolds {
-        self.holds.clone()
+        self.holds
+            .get_or_init(|| {
+                crate::files::holds::RepositoryHolds::new(self.external_folders.subscribe())
+            })
+            .clone()
     }
 
     /// The sessions now, as last published.
@@ -689,7 +693,7 @@ impl Agents {
         signs_in(&kind.name, begin.account.as_ref())?;
         let (cwd, _) = in_project(cwd, begin.resume.is_some(), None)?;
 
-        self.holds.check_start(&cwd)
+        self.holds().check_start(&cwd)
     }
 
     /// The harness Auto starts here, as a desktop picks one when the start
@@ -796,8 +800,8 @@ impl Agents {
         // spawns. Recovery reads the starts under way.
         let reservation = self.sessions.reserve(resume.clone())?;
         let id = reservation.id.clone();
-        let running = self.holds.running(cwd.clone());
-        self.holds.check_start(&cwd)?;
+        let running = self.holds().running(cwd.clone());
+        self.holds().check_start(&cwd)?;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
         let instructions = crate::lock(&self.instructions)

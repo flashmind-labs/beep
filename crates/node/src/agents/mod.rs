@@ -174,7 +174,10 @@ host! {
     #[derive(Default)]
     pub struct Agents {
         /// Checkouts held for local Git recovery, and the folders sessions run in.
-        holds: crate::files::holds::RepositoryHolds,
+        holds: OnceLock<crate::files::holds::RepositoryHolds>,
+        /// The folders of the running sessions started outside Beep, as the
+        /// listings last saw them.
+        external_folders: watch::Sender<Arc<crate::files::holds::Externals>>,
         pub events: crate::events::Hub,
         event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
         event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
