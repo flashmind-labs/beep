@@ -17,7 +17,7 @@ use std::{
 };
 use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::{
-    sync::{mpsc, oneshot, watch},
+    sync::{oneshot, watch},
     task::JoinSet,
     time::timeout,
 };
@@ -26,9 +26,9 @@ use uuid::Uuid;
 mod commands;
 mod snapshots;
 mod subscriptions;
-use commands::CommandWorker;
 #[cfg(test)]
 use commands::Registered;
+use commands::{Call, CommandWorker, Commands};
 pub(crate) use snapshots::{Current, Snapshots};
 use subscriptions::SubscriptionWorker;
 
@@ -466,12 +466,6 @@ impl Registry {
         topics
     }
 }
-
-struct Call {
-    operation: Operation,
-    reply: oneshot::Sender<std::result::Result<CallReply, String>>,
-}
-type Commands = Arc<Mutex<HashMap<EndpointId, (Uuid, mpsc::Sender<Call>)>>>;
 
 pub(crate) struct Events {
     registry: Mutex<Registry>,

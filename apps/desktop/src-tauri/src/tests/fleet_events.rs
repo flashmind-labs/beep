@@ -1,5 +1,6 @@
 use super::*;
 use beep_proto::watched;
+use tokio::sync::mpsc;
 
 #[test]
 fn dotted_topics_cross_ipc_and_prefixes_compact_without_widening() {

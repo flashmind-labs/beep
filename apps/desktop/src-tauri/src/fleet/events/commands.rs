@@ -1,22 +1,34 @@
 //! One action worker per machine, independent of topic subscriptions.
 
-use super::{Call, Commands, Fleet};
-use crate::error::{DesktopError, Result};
+use crate::{
+    error::{DesktopError, Result},
+    fleet::Fleet,
+};
 use beep_mesh::RETRY;
-use beep_proto::node::commands::{Reply, Request};
+use beep_proto::node::{
+    commands::{Reply, Request},
+    events::{CallReply, Operation},
+};
 use iroh::EndpointId;
 use std::{
     collections::HashMap,
     future::Future,
     pin::Pin,
-    sync::{Arc, PoisonError},
+    sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
 use tokio::{
-    sync::mpsc,
+    sync::{mpsc, oneshot},
     time::{Sleep, sleep, timeout},
 };
 use uuid::Uuid;
+
+/// One order for a machine, and where its answer goes.
+pub(super) struct Call {
+    pub(super) operation: Operation,
+    pub(super) reply: oneshot::Sender<std::result::Result<CallReply, String>>,
+}
+pub(super) type Commands = Arc<Mutex<HashMap<EndpointId, (Uuid, mpsc::Sender<Call>)>>>;
 
 const IDLE: Duration = Duration::from_secs(35);
 const SEND_LIMIT: Duration = Duration::from_secs(15);
