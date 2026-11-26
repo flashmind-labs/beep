@@ -2,6 +2,7 @@
 //! member; `link` runs each connection; `join` handles tickets.
 
 mod channels;
+pub(crate) use channels::Mark;
 mod lifecycle;
 mod membership;
 mod owner;

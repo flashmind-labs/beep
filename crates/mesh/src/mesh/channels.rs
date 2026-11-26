@@ -25,6 +25,32 @@ fn protocol_alpn(connection: &Connection) -> Option<&'static [u8]> {
     .find(|alpn| *alpn == connection.alpn())
 }
 
+/// What a connection had received, and how often it ran out of stream
+/// credit, when an open began.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Mark {
+    received: u64,
+    blocked: u64,
+}
+
+impl Mark {
+    pub(crate) fn of(connection: &Connection) -> Self {
+        let stats = connection.stats();
+
+        Self {
+            received: stats.udp_rx.datagrams,
+            blocked: stats.frame_tx.streams_blocked_bidi,
+        }
+    }
+
+    /// Whether the connection took datagrams since `self` and never ran out
+    /// of credit for a new stream: a slow open on it is not a dead link,
+    /// and the streams already on it are still being served.
+    fn still_receiving(self, now: Self) -> bool {
+        now.received > self.received && now.blocked == self.blocked
+    }
+}
+
 impl Mesh {
     /// Tracks an accepted protocol connection for membership and restart invalidation.
     pub fn track_protocol_connection(&self, connection: &Connection) -> Result<(), MeshError> {
@@ -75,6 +101,7 @@ impl Mesh {
         port: u16,
     ) -> Result<(SendStream, RecvStream), MeshError> {
         let connection = self.forward_connection(peer).await?;
+        let mark = Mark::of(&connection);
         let opened = timeout(OPEN_TIMEOUT, async {
             let (mut send, recv) = connection.open_bi().await.map_err(wire::net)?;
             send.write_all(&port.to_be_bytes())
@@ -82,11 +109,12 @@ impl Mesh {
                 .map_err(wire::net)?;
             Ok((send, recv))
         })
-        .await
-        .unwrap_or_else(|_| Err(wire::net("the peer took no new stream")));
+        .await;
+        let timed_out = opened.is_err();
+        let opened = opened.unwrap_or_else(|_| Err(wire::net("the peer took no new stream")));
 
         if opened.is_err() {
-            self.drop_protocol_connection(&connection);
+            self.drop_protocol_connection(&connection, timed_out.then_some(mark));
         }
 
         opened
@@ -196,10 +224,17 @@ impl Mesh {
 
     /// Closes a protocol connection that is still open but took no new
     /// stream, so the next one dials again instead of reusing it until the
-    /// app restarts. A node that is full resets new streams, and a link
+    /// app restarts. With a `mark`, a connection that has received data
+    /// since and has stream credit is kept: only that open failed. A node that is full resets new streams, and a link
     /// that went quiet after a network change or a suspended app never
     /// answers them; either way the mesh link may still be up.
-    pub(crate) fn drop_protocol_connection(&self, connection: &Connection) {
+    pub(crate) fn drop_protocol_connection(&self, connection: &Connection, mark: Option<Mark>) {
+        if mark.is_some_and(|mark| mark.still_receiving(Mark::of(connection))) {
+            tracing::warn!(peer = ?connection.remote_id(), protocol = %String::from_utf8_lossy(connection.alpn()), state = %describe(connection), "a protocol connection was slow to open a stream; keeping it");
+
+            return;
+        }
+
         let slot = protocol_alpn(connection).and_then(|alpn| {
             self.inner
                 .channels

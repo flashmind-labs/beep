@@ -1,6 +1,7 @@
 //! The client side of a node's sessions: open a stream to a peer's
 //! `session()`, or to the node in this process with no network at all.
 
+use crate::mesh::Mark;
 use crate::timeouts::{OPEN_TIMEOUT, RETRY};
 use crate::{Mesh, MeshError};
 use beep_proto::node::events::{Read, Value};
@@ -358,6 +359,7 @@ impl PeerClient {
         not_ready: &'static str,
     ) -> Result<(LinkTx, LinkRx), MeshError> {
         let channel = self.channel(alpn).await?;
+        let mark = channel.as_ref().map(Mark::of);
         let opened = timeout(OPEN_TIMEOUT, async {
             let (tx, mut rx) = match &channel {
                 Some(connection) => {
@@ -378,7 +380,7 @@ impl PeerClient {
         .await
         .map_err(|error| MeshError::Link(error.into()))
         .and_then(|opened| opened);
-        self.stalled(channel.as_ref(), &opened);
+        self.stalled(channel.as_ref(), mark, &opened);
         opened
     }
 
@@ -409,11 +411,22 @@ impl PeerClient {
     /// reset or never answered, leaves the connection stuck for every
     /// later stream while it still looks open: it is closed, and the next
     /// stream dials a new one.
-    fn stalled<T>(&self, channel: Option<&Connection>, opened: &Result<T, MeshError>) {
+    ///
+    /// A call that only ran out of time keeps the connection when it took
+    /// datagrams meanwhile and has stream credit (`mark` is how it stood
+    /// when the call began): the open alone failed.
+    fn stalled<T>(
+        &self,
+        channel: Option<&Connection>,
+        mark: Option<Mark>,
+        opened: &Result<T, MeshError>,
+    ) {
         if let (Some(mesh), Some(connection), Err(error)) = (&self.channels, channel, opened)
             && error.is_transport()
         {
-            mesh.drop_protocol_connection(connection);
+            let timed_out =
+                matches!(error, MeshError::Link(e) if e.chain().any(|c| c.is::<Elapsed>()));
+            mesh.drop_protocol_connection(connection, mark.filter(|_| timed_out));
         }
     }
 
@@ -485,6 +498,7 @@ impl PeerClient {
     #[tracing::instrument(name = "node_call", skip_all, fields(peer = %self.label(), protocol = %protocol))]
     pub async fn open(&self, protocol: &str) -> Result<(LinkTx, LinkRx), MeshError> {
         let channel = self.channel_for(protocol).await?;
+        let mark = channel.as_ref().map(Mark::of);
         let opened = timeout(OPEN_TIMEOUT, async {
             let (tx, mut rx) = self.begin(protocol, channel.as_ref(), OPEN_TIMEOUT).await?;
             self.confirmed(&mut rx, protocol).await?;
@@ -493,7 +507,7 @@ impl PeerClient {
         .await
         .map_err(|error| MeshError::Link(error.into()))
         .and_then(|opened| opened);
-        self.stalled(channel.as_ref(), &opened);
+        self.stalled(channel.as_ref(), mark, &opened);
         opened
     }
 
@@ -517,6 +531,7 @@ impl PeerClient {
         first: &Q,
     ) -> Result<(LinkTx, LinkRx), MeshError> {
         let channel = self.channel_for(protocol).await?;
+        let mark = channel.as_ref().map(Mark::of);
         let opened = timeout(OPEN_TIMEOUT, async {
             let (mut tx, mut rx) = self.begin(protocol, channel.as_ref(), OPEN_TIMEOUT).await?;
             let sent = tx.send(first).await;
@@ -527,7 +542,7 @@ impl PeerClient {
         .await
         .map_err(|error| MeshError::Link(error.into()))
         .and_then(|opened| opened);
-        self.stalled(channel.as_ref(), &opened);
+        self.stalled(channel.as_ref(), mark, &opened);
         opened
     }
 

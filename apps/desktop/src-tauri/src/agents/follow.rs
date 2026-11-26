@@ -21,6 +21,7 @@ use beep_proto::{
     },
 };
 use serde::Serialize;
+use std::pin::Pin;
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
@@ -32,7 +33,7 @@ use std::{
 use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::{
     sync::watch,
-    time::{Instant as TokioInstant, sleep, sleep_until, timeout},
+    time::{Instant as TokioInstant, Sleep, sleep, sleep_until},
 };
 use uuid::Uuid;
 
@@ -47,6 +48,9 @@ const WINDOW_READERS: usize = 16;
 
 /// How long a released reader gets to close its stream before the shown
 /// session asks the node again.
+/// The node sends a heartbeat every 15 s, so a stream with no frame in this
+/// long is dead.
+const SILENT_AFTER: Duration = Duration::from_secs(35);
 const RELEASE_WAIT: Duration = Duration::from_millis(500);
 
 /// Whether the node turned a follow away because it has as many session
@@ -367,14 +371,19 @@ pub async fn agent_follow(
         let mut watching = true;
         pace.window(hidden(&window_shown), Instant::now());
 
+        let mut silence = Silence::new();
+
         loop {
             let due = pace.due();
             let keep_due = keeper.due();
-            // Heartbeats detect a half-open link even when the session is idle.
             let update = tokio::select! {
-                update = timeout(Duration::from_secs(35), rx.recv::<SessionUpdate>()) => update
-                    .map_err(|_| DesktopError::BadRequest("session stream stopped responding".into()))??
-                    .ok_or_else(|| DesktopError::BadRequest("session stream disconnected".into()))?,
+                update = rx.recv::<SessionUpdate>() => {
+                    silence.heard();
+                    update?.ok_or_else(|| DesktopError::BadRequest("session stream disconnected".into()))?
+                }
+                () = silence.expired() => {
+                    return Err(DesktopError::BadRequest("session stream stopped responding".into()));
+                }
                 () = sleep_until(due.map_or_else(TokioInstant::now, TokioInstant::from_std)), if due.is_some() => {
                     if let Some(pushed) = pace.flush(Instant::now()) {
                         on_event.send(pushed.into())?;
@@ -455,6 +464,7 @@ pub async fn agent_follow(
                     (_tx, rx) = client
                         .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
                         .await?;
+                    silence.heard();
                     continue;
                 }
                 SessionUpdate::Error { reason } => return Err(DesktopError::BadRequest(reason)),
@@ -566,6 +576,24 @@ pub async fn agent_follow(
     }
 
     result
+}
+
+/// A deadline for the next frame from the node. Only a frame resets it,
+/// never the pace, keeper or window arms of the follow loop.
+struct Silence(Pin<Box<Sleep>>);
+
+impl Silence {
+    fn new() -> Self {
+        Self(Box::pin(sleep(SILENT_AFTER)))
+    }
+
+    fn heard(&mut self) {
+        self.0.as_mut().reset(TokioInstant::now() + SILENT_AFTER);
+    }
+
+    async fn expired(&mut self) {
+        self.0.as_mut().await;
+    }
 }
 
 #[cfg(test)]

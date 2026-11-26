@@ -181,3 +181,29 @@ fn a_full_node_is_told_apart_from_other_follow_errors() {
     assert!(node_full("too many session readers"));
     assert!(!node_full("session not found"));
 }
+
+#[tokio::test(start_paused = true)]
+async fn only_a_frame_postpones_the_silence_deadline() {
+    let mut silence = Silence::new();
+
+    // Nothing but time passes (window events do not reach it): it expires.
+    tokio::time::advance(SILENT_AFTER - Duration::from_secs(1)).await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), silence.expired())
+            .await
+            .is_err()
+    );
+    tokio::time::advance(Duration::from_secs(1)).await;
+    silence.expired().await;
+
+    // A frame restarts the full wait.
+    let mut silence = Silence::new();
+    tokio::time::advance(SILENT_AFTER - Duration::from_secs(1)).await;
+    silence.heard();
+    tokio::time::advance(SILENT_AFTER - Duration::from_secs(1)).await;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), silence.expired())
+            .await
+            .is_err()
+    );
+}
