@@ -1,6 +1,6 @@
 [package]
 name = "beep-desktop"
-version = "0.10.41"
+version = "0.10.42"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

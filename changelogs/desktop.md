@@ -7,6 +7,15 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.42] - 2026-11-26
+
+### Fixed
+
+- Long conversations open at the latest message at once on desktop and read earlier messages as you scroll up, instead of loading the whole history first.
+- Scrolling up while a conversation loads no longer snaps back to the end, and a conversation keeps its place when the window is hidden and shown.
+- Desktop: Antigravity and Hermes sessions hide the composer mode pill while in their starting full-access mode, showing it only after switching to Plan, Accept edits or another mode.
+- Opening Home's PRs and issues tab with many authored pull requests no longer freezes the desktop app at 100% CPU, and row actions load when hovered or focused.
+
 ## [0.10.41] - 2026-11-26
 
 ### Changed

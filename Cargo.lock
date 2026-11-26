@@ -592,7 +592,7 @@ dependencies = [
 
 [[package]]
 name = "beep-desktop"
-version = "0.10.41"
+version = "0.10.42"
 dependencies = [
  "ammonia",
  "anyhow",
