@@ -286,7 +286,7 @@ button.cc-row:hover { background: color-mix(in srgb, var(--fg) 4%, transparent) 
 /* Home's open PRs and issues by project: counts and chips on one line, the
    items indented under their project. */
 /* Machines as cards: the top line, four stats, what needs a look, and a fold for the rest. */
-.mcards { display: grid; gap: 12px }
+.mcards { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px }
 .mcard { display: grid; gap: 12px; padding: 14px 16px 8px; border-radius: var(--radius); background: color-mix(in srgb, var(--fg) 4%, transparent); scroll-margin-top: 30px }
 .mcard.off { padding-bottom: 14px }
 .mcard.off .mname { opacity: .6 }
