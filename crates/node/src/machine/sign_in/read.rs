@@ -1,4 +1,7 @@
-use super::{REASON_CHARS, State, Tool};
+use beep_proto::node::sign_in::{State, Tool};
+
+/// The longest line of the agent's passed on as the reason it failed.
+const REASON_CHARS: usize = 200;
 
 /// Where each agent sends the user: only these links are passed on.
 fn hosts(tool: Tool) -> &'static [&'static str] {

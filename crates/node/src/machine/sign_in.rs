@@ -36,8 +36,6 @@ const LIMIT: Duration = Duration::from_secs(10 * 60);
 const LINK_LIMIT: Duration = Duration::from_secs(30);
 /// The most of the agent's output kept for reading its link and why it failed.
 const MAX_OUTPUT: usize = 64 * 1024;
-/// The longest line of the agent's passed on as the reason it failed.
-const REASON_CHARS: usize = 200;
 /// The longest code a user may paste.
 const MAX_ANSWER: usize = 4096;
 
