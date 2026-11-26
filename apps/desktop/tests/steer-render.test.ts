@@ -433,6 +433,38 @@ test("mode and plan controls share the queue owner without losing focus", async 
   AG.answering = null;
 });
 
+test("mode pill hides only in each harness's own full-access mode", async t => {
+  const { page } = setup();
+  const { drawModes } = await import("../src/agents/modepill.tsx");
+  t.after(() => { disposeQueue(); setModes(null); });
+
+  page.session.agent = "agy";
+  AG.open = { machine_id: "m1", agent: "agy", session: "steer-render" };
+  setModes({ current: "default", modes: [{ id: "default", name: "Default" }, { id: "accept-edits", name: "Accept edits" }, { id: "plan", name: "Plan" }], plan: null });
+  drawModes();
+  assert.equal(bar.querySelector("#agmodeb"), null);
+
+  setModes({ current: "plan", modes: [{ id: "default", name: "Default" }, { id: "accept-edits", name: "Accept edits" }, { id: "plan", name: "Plan" }], plan: null });
+  drawModes();
+  assert.equal(bar.querySelector("#agmodeb")?.textContent, "Plan");
+
+  page.session.agent = "hermes";
+  AG.open = { machine_id: "m1", agent: "hermes", session: "steer-render" };
+  setModes({ current: "dont_ask", modes: [{ id: "dont_ask", name: "Full access" }, { id: "accept_edits", name: "Accept edits" }], plan: null });
+  drawModes();
+  assert.equal(bar.querySelector("#agmodeb"), null);
+
+  page.session.agent = "claude";
+  AG.open = { machine_id: "m1", agent: "claude", session: "steer-render" };
+  setModes({ current: "bypassPermissions", modes: [{ id: "bypassPermissions", name: "Full access" }, { id: "default", name: "Default" }], plan: null });
+  drawModes();
+  assert.equal(bar.querySelector("#agmodeb"), null);
+
+  setModes({ current: "default", modes: [{ id: "bypassPermissions", name: "Full access" }, { id: "default", name: "Default" }], plan: null });
+  drawModes();
+  assert.equal(bar.querySelector("#agmodeb")?.textContent, "Default");
+});
+
 test("log shell retains the transcript and defers a focused approval update", t => {
   const { page } = setup();
   t.after(() => { disposeQueue(); forgetAgentFollows(); });

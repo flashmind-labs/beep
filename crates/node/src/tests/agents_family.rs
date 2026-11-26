@@ -1004,6 +1004,8 @@ fn every_harness_is_held_to_any_mode_but_its_own_full_access() {
     for (agent, full) in [
         ("claude", "bypassPermissions"),
         ("codex", "agent-full-access"),
+        ("agy", "default"),
+        ("hermes", "dont_ask"),
     ] {
         let offers = [full, "plan", "read-only"];
         assert_eq!(
@@ -1012,7 +1014,10 @@ fn every_harness_is_held_to_any_mode_but_its_own_full_access() {
             "{agent}"
         );
 
-        for mode in ["plan", "read-only", "default"] {
+        for mode in ["plan", "read-only", "default", "accept-edits"]
+            .into_iter()
+            .filter(|mode| *mode != full)
+        {
             assert_eq!(
                 held_to(&info_in(agent, Some(mode), &offers)),
                 Ok(Some(mode.to_owned())),

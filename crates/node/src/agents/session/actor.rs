@@ -1340,9 +1340,9 @@ impl Actor {
         self.offers.made(&offered);
 
         if let Some(modes) = offered.modes {
-            let bypass = self.bypass_mode();
+            let full = self.full_mode();
             self.live.send_modify(|live| {
-                live.info.modes = cycle(modes.available, bypass);
+                live.info.modes = cycle(modes.available, full);
             });
             self.mode_is(cx, modes.current);
         }
@@ -1424,6 +1424,11 @@ impl Actor {
     /// anyway is allowed rather than asked.
     pub(super) fn bypass_mode(&self) -> Option<&'static str> {
         known(&self.agent).and_then(|known| known.bypass_mode)
+    }
+
+    /// The session mode that asks no permission, however launch reached it.
+    pub(super) fn full_mode(&self) -> Option<&'static str> {
+        known(&self.agent).and_then(|known| known.full_mode)
     }
 
     /// Why the running turn was asked to stop, once it was.
@@ -1547,15 +1552,15 @@ impl Actor {
 /// The modes an agent offers in the order a switch goes through them: the one
 /// that asks no permission, shown as Full access, then plan mode, then the
 /// others as the agent lists them.
-fn cycle(mut modes: Vec<ModeOption>, bypass: Option<&str>) -> Vec<ModeOption> {
-    let is_bypass = |mode: &ModeOption| Some(mode.id.as_str()) == bypass;
+fn cycle(mut modes: Vec<ModeOption>, full: Option<&str>) -> Vec<ModeOption> {
+    let is_full = |mode: &ModeOption| Some(mode.id.as_str()) == full;
     modes.sort_by_key(|mode| match mode.id.as_str() {
-        _ if is_bypass(mode) => 0,
+        _ if is_full(mode) => 0,
         acp::PLAN_MODE => 1,
         _ => 2,
     });
 
-    for mode in modes.iter_mut().filter(|mode| is_bypass(mode)) {
+    for mode in modes.iter_mut().filter(|mode| is_full(mode)) {
         mode.name = "Full access".to_owned();
     }
 

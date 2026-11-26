@@ -44,12 +44,18 @@ export function cycleMode() {
   return true;
 }
 
-/// The agents' full access modes, the one Beep runs them in: no pill for it.
-const FULL_MODES = new Set(["bypassPermissions", "agent-full-access"]);
+/// Each harness's full access mode, the one Beep runs it in: no pill for it.
+const FULL_MODES: Record<string, string> = {
+  claude: "bypassPermissions",
+  codex: "agent-full-access",
+  agy: "default",
+  hermes: "dont_ask",
+};
 
 export function drawModes() {
   const m = openModes(), s = AG.page?.session, q = s?.question;
+  const full = s ? FULL_MODES[s.agent] : undefined;
   const name = m?.modes.find(x => x.id === m.current)?.name ?? m?.current ?? "";
-  showAgentControl("mode", hasModes() && !FULL_MODES.has(m?.current ?? "") ? <AgentMode name={name} plan={m?.current === "plan"} /> : null);
+  showAgentControl("mode", hasModes() && !!m?.current && m.current !== full ? <AgentMode name={name} plan={m.current === "plan"} /> : null);
   showAgentControl("plan", s && q && m?.plan != null ? <AgentPlan harness={agentKind(s.agent).name} plan={m.plan} question={q} approvalKey={questionKey(q, openOf(s))} answering={AG.answering} /> : null);
 }

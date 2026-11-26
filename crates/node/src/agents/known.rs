@@ -22,11 +22,11 @@ pub(super) struct Known {
     /// environment sets them.
     pub(super) thinking_env: &'static [(&'static str, &'static str)],
     /// The session mode that asks no permission, for an agent whose
-    /// launch cannot set it, set once the session exists. Switching modes
-    /// shows it as Full access, first.
+    /// launch cannot set it, set once the session exists.
     pub(super) bypass_mode: Option<&'static str>,
     /// The id of the session mode that asks no permission, however the
-    /// launch reaches it: a child is never started above its parent's.
+    /// launch reaches it: shown first as Full access, and a child is never
+    /// started above its parent's.
     pub(super) full_mode: Option<&'static str>,
     /// The id of the session mode that only reads, which a reviewer starts
     /// in; `None` when the agent offers none.
@@ -133,8 +133,8 @@ pub(super) const KNOWN: &[Known] = &[
         },
         async_tasks: false,
     },
-    // Google's Antigravity CLI. It has no session modes; the flag approves
-    // every tool. Model and thinking are its ACP config options.
+    // Google's Antigravity CLI. The flag approves every tool in `default`
+    // mode; `plan` and `accept-edits` are its other ACP session modes.
     Known {
         name: "agy",
         title: "Antigravity",
@@ -143,7 +143,7 @@ pub(super) const KNOWN: &[Known] = &[
         env: &[],
         thinking_env: &[],
         bypass_mode: None,
-        full_mode: None,
+        full_mode: Some("default"),
         read_only_mode: None,
         model_flag: false,
         compact: Route::Threshold {

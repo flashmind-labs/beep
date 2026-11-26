@@ -621,7 +621,7 @@ impl Actor {
             self.returning = self
                 .left_plan_for
                 .clone()
-                .or_else(|| self.bypass_mode().map(str::to_owned));
+                .or_else(|| self.full_mode().map(str::to_owned));
         }
 
         if let Some(prompt) = follow_up {
