@@ -128,6 +128,10 @@ impl Task {
 
     /// Whether the folder was checked, so what the round did counts.
     async fn apply_round(&mut self) -> bool {
+        // An answer to a recovery ask is for this round only, whatever stops
+        // the round: it is dropped, with its hold, on any way out.
+        let (answer, waiting) = self.shared.take_recovery_answer();
+
         // A merge may set this off long after the last scan; the folder
         // may have been swapped or unmounted since.
         let checked = match self.check_root().await {
@@ -154,7 +158,7 @@ impl Task {
             return false;
         }
 
-        let aligned = self.shared.align_git().await;
+        let aligned = self.shared.align_git(answer, waiting).await;
 
         if aligned
             .as_ref()

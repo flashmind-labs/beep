@@ -1214,7 +1214,8 @@ async fn an_answer_the_round_after_does_not_use_is_dropped_with_its_hold() {
 
     // The round finds nothing to align (the user committed, a peer left):
     // the answer ends with it, and Beep sessions may start again.
-    shared.align_git().await.unwrap();
+    let (answer, waiting) = shared.take_recovery_answer();
+    shared.align_git(answer, waiting).await.unwrap();
     assert!(!starts_refused(&holds, &project));
     let (answer, waiting) = shared.take_recovery_answer();
     assert!(answer.is_none() && !waiting);
@@ -1245,4 +1246,20 @@ async fn a_mesh_change_that_keeps_the_opt_in_keeps_the_ask() {
     shared.answer_recovery(Ok(hold));
     assert!(starts_refused(&holds, &project));
     assert!(shared.take_recovery_answer().0.is_some());
+}
+
+#[tokio::test]
+async fn an_answer_that_arrives_while_paused_is_dropped_with_its_hold() {
+    let project = Project::new(&["a.txt"]).await;
+    let shared = project.task.shared.clone();
+    let asks = Recoveries::default();
+    shared.set_recovery(Some(asks.clone()));
+    shared.ask_recovery(&asks);
+    shared.set_paused(true);
+    let (holds, hold) = recovery_hold(&project).await;
+    shared.answer_recovery(Ok(hold));
+    // Beep sessions start during the pause, and the resume has no old read.
+    assert!(!starts_refused(&holds, &project));
+    shared.set_paused(false);
+    assert!(shared.take_recovery_answer().0.is_none());
 }

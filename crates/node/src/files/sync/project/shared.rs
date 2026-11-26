@@ -723,11 +723,16 @@ impl Shared {
 
     /// Pauses the project or resumes it; the task follows.
     pub(in crate::files::sync) fn set_paused(&self, paused: bool) {
-        self.paused.send_if_modified(|now| {
+        let changed = self.paused.send_if_modified(|now| {
             let changed = *now != paused;
             *now = paused;
             changed
         });
+
+        if changed && paused {
+            // No round runs while paused to take an answer: the resume asks again.
+            *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
+        }
     }
 
     /// Scans the folder now and brings it in line with what the peers

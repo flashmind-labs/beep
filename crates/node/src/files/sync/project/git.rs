@@ -1,6 +1,7 @@
 //! Applying received branch histories without switching a user's checkout.
 
 use super::shared::Shared;
+use crate::files::holds::RepositoryHold;
 use crate::files::sync::gitdir::{self, BranchTip, Repo};
 use anyhow::{Context, Result, anyhow, bail};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -17,11 +18,14 @@ pub(super) struct Alignment {
 
 impl Shared {
     /// Only the project task advances branches, so its own scans and writes cannot overlap.
-    pub(super) async fn align_git(&self) -> Result<Alignment> {
-        // An answer is for this round only: one that goes unused is dropped
-        // on whatever way out, with its hold.
-        let (mut answer, waiting) = self.take_recovery_answer();
-
+    /// `answer` is what the round took with `take_recovery_answer`, and
+    /// `waiting` whether an ask is still out. One that goes unused is dropped
+    /// on whatever way out, with its hold.
+    pub(super) async fn align_git(
+        &self,
+        mut answer: Option<Result<RepositoryHold>>,
+        waiting: bool,
+    ) -> Result<Alignment> {
         if self.copies_git() {
             return Ok(Alignment::default());
         }
