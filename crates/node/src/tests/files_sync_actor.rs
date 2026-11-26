@@ -1,6 +1,6 @@
 use super::*;
 use crate::files::sync::STOPPING;
-use crate::{files::Folders, files::paths, files::syncthing::Syncthing};
+use crate::{files::Folders, fs::paths, files::syncthing::Syncthing};
 use futures::FutureExt;
 use std::{path::Path, time::Duration};
 use iroh::{SecretKey, endpoint::presets};

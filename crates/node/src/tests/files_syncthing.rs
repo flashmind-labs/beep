@@ -1,5 +1,5 @@
 use super::*;
-use crate::files::paths;
+use crate::fs::paths;
 use std::net::SocketAddr;
 use tempfile::TempDir;
 use tokio::{

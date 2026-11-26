@@ -1,5 +1,5 @@
 use super::*;
-use crate::files::paths;
+use crate::fs::paths;
 
 /// A machine that joins a mesh before it ever ran has no folder: starting
 /// its state makes the folder and key a service launch needs.

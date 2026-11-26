@@ -3,7 +3,7 @@
 use beep_proto::SessionId;
 use super::work_folder::{self, UNUSED, WorkRoot, idle, prune};
 use super::Agents;
-use crate::{files::paths, lock};
+use crate::{fs::paths, lock};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::Status;
 use beep_proto::watched;

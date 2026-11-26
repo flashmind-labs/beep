@@ -1,7 +1,7 @@
 //! The git side of the diff: runs git in a checkout and reads what it says.
 
 use super::DiffParser;
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::{MAX_DIFF_FILES, WorkDiff, node::agent::DiffAsk};
 use std::{

@@ -3,7 +3,7 @@
 //! each manager keeps: a systemd unit, an init.d script, a launchd plist, a
 //! Windows task.
 
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::{Context, Result, bail};
 use std::{
     fs,

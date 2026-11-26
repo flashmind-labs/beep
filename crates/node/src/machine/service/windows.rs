@@ -2,7 +2,7 @@
 //! user's session with no window and without administrator rights.
 
 use super::types::{Launch, Manager, Restart, escape, run};
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::{Context, Result};
 use std::{
     env, fs,

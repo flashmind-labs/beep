@@ -1,5 +1,5 @@
 use super::*;
-use crate::files::paths;
+use crate::fs::paths;
 use std::io::Write;
 
 /// A temporary folder and its real path, which the checks compare against.

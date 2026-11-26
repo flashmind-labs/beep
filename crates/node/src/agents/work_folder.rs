@@ -7,7 +7,7 @@ mod actions;
 pub(super) use actions::edit;
 
 use super::media_file::Chunk;
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     AGENT_FILE_CHUNK, AgentFileChunk, GitChange, MAX_TREE_DEPTH, MAX_TREE_ENTRIES,
@@ -474,7 +474,7 @@ pub(super) fn read(root: &WorkRoot, path: &str, offset: u64, len: u32) -> Result
         return Ok(None);
     };
     let mut file =
-        crate::files::fsat::open_read(&full).with_context(|| format!("could not open {path}"))?;
+        crate::fs::fsat::open_read(&full).with_context(|| format!("could not open {path}"))?;
     let meta = file
         .metadata()
         .with_context(|| format!("could not read {path}"))?;
@@ -540,7 +540,7 @@ fn hash(root: &WorkRoot, path: &str) -> Result<Option<[u8; 32]>> {
     let Some(full) = root.find(&names(path)?)? else {
         return Ok(None);
     };
-    let mut file = crate::files::fsat::open_read(&full)?;
+    let mut file = crate::fs::fsat::open_read(&full)?;
     let meta = file.metadata()?;
     if !meta.is_file() {
         return Ok(None);

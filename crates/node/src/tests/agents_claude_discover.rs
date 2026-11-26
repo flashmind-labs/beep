@@ -1,6 +1,6 @@
 use super::*;
 use crate::agents::claude::transcript::tests::FIXTURE;
-use crate::files::paths;
+use crate::fs::paths;
 
 const ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
 const OTHER: &str = "7a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d";

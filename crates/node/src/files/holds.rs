@@ -90,7 +90,7 @@ impl RepositoryHolds {
     pub async fn hold(&self, folder: &Path) -> Result<RepositoryHold> {
         let folder = folder.to_owned();
         let folder =
-            tokio::task::spawn_blocking(move || crate::files::paths::canonicalize(&folder))
+            tokio::task::spawn_blocking(move || crate::fs::paths::canonicalize(&folder))
                 .await??;
         let mut held = crate::lock(&self.0.held);
         ensure!(
@@ -118,7 +118,7 @@ impl RepositoryHolds {
     /// Refuses a session in `cwd` while sync preserves the local edits of
     /// its checkout.
     pub fn check_start(&self, cwd: &Path) -> Result<()> {
-        let real = crate::files::paths::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
+        let real = crate::fs::paths::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
         ensure!(
             !crate::lock(&self.0.held)
                 .iter()
@@ -133,7 +133,7 @@ impl RepositoryHolds {
 /// Whether `path` is in `folder`, as named or with its links resolved.
 fn is_under(path: &Path, folder: &Path) -> bool {
     path.starts_with(folder)
-        || crate::files::paths::canonicalize(path).is_ok_and(|real| real.starts_with(folder))
+        || crate::fs::paths::canonicalize(path).is_ok_and(|real| real.starts_with(folder))
 }
 
 impl Drop for RepositoryHold {

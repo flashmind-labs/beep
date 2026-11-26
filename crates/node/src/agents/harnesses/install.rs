@@ -2,7 +2,7 @@
 //! `run`): Homebrew, a global npm package, else the harness's own updater.
 //! Nothing runs with sudo.
 
-use crate::files::paths;
+use crate::fs::paths;
 use crate::process::spawn_env::{self, Scope};
 use anyhow::{Result, bail};
 use beep_proto::node::harness::{clean_output, failure_line, harness};

@@ -7,9 +7,7 @@ use super::{
     gitdir,
     rules::{Rules, Skip},
 };
-use crate::files::{
-    fsat::self,
-};
+use crate::fs::fsat;
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::sync::{Rule, SkippedPath};
 use iroh_blobs::{

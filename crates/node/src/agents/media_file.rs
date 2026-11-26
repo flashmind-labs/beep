@@ -28,7 +28,7 @@ pub(super) fn read_chunk(path: &str, offset: u64, home: Option<&Path>) -> Result
         bail!("{path} is not a picture, video, audio file, 3D model or PDF");
     };
     let full = resolve(path, home)?;
-    let mut file = match crate::files::fsat::open_read(&full) {
+    let mut file = match crate::fs::fsat::open_read(&full) {
         Ok(file) => file,
         Err(e) if e.kind() == ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e).with_context(|| format!("could not open {path}")),

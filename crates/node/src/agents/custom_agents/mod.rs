@@ -4,7 +4,7 @@
 
 pub(crate) mod parse;
 
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::{
     CustomAgent, CustomAgentHarness, CustomAgentScope, MAX_CUSTOM_AGENT_PROMPT, MAX_CUSTOM_AGENTS,

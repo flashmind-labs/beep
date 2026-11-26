@@ -8,7 +8,7 @@ use super::{
 use crate::{
     AsyncMutex, lock,
     run::local_socket::{Listener, Stream, connect, is_listening},
-    files::note,
+    fs::note,
     process::spawn_env::{self, Scope},
 };
 use anyhow::{Context, Result, bail};

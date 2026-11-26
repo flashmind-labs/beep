@@ -1,5 +1,5 @@
 use super::*;
-use crate::files::paths;
+use crate::fs::paths;
 use crate::files::syncthing::Syncthing;
 use beep_mesh::transport_config;
 use beep_proto::node::sync::Project;

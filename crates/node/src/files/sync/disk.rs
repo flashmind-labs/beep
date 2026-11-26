@@ -3,7 +3,7 @@
 //! blocks.
 
 use crate::{
-    files::fsat::{self, Dir, FileId},
+    fs::fsat::{self, Dir, FileId},
     files::place::{Folder, make_dirs_at},
 };
 use anyhow::{Context, Result, bail};

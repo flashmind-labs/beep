@@ -72,5 +72,5 @@ pub(crate) fn plain(path: &Path) -> PathBuf {
 }
 
 #[cfg(test)]
-#[path = "../tests/files_paths.rs"]
+#[path = "../tests/fs_paths.rs"]
 mod tests;

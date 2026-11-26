@@ -113,10 +113,10 @@ impl Repo {
             recovery.stash = Some(stash);
             self.set_ref(&recovery.reference, stash, None)?;
             recovery.phase = Phase::Stashed;
-            crate::files::note::write_json(&file, &recovery)?;
+            crate::fs::note::write_json(&file, &recovery)?;
             self.fast_forward(before, target, branch)?;
             recovery.phase = Phase::Restoring;
-            crate::files::note::write_json(&file, &recovery)?;
+            crate::fs::note::write_json(&file, &recovery)?;
             self.run(&["stash", "apply", "--index", &stash.to_string()])?;
             ensure!(
                 self.head() == Some(target) && self.head_ref().as_deref() == Some(branch),

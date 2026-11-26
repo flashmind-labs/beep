@@ -53,7 +53,7 @@ impl Repo {
                 );
                 let pack = String::from_utf8(output.stdout)?.trim().to_owned();
                 anyhow::ensure!(valid_pack(&pack), "Git returned an invalid pack name");
-                crate::files::note::write_json(&manifest, &(key, &pack))?;
+                crate::fs::note::write_json(&manifest, &(key, &pack))?;
                 pack
             }
         };

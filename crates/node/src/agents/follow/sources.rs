@@ -241,7 +241,7 @@ impl Agents {
         let source = spawn_blocking(move || {
             let roots = roots
                 .into_iter()
-                .map(|(agent, path)| crate::files::paths::real(&path).map(|path| (agent, path)))
+                .map(|(agent, path)| crate::fs::paths::real(&path).map(|path| (agent, path)))
                 .collect::<Result<Vec<_>>>()?;
             let watched: Vec<_> = roots.iter().map(|(_, path)| path.clone()).collect();
             let (dirty, mut summaries) = mpsc::channel(1);

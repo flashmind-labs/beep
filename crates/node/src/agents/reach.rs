@@ -3,7 +3,7 @@
 //! `..` resolved.
 
 use super::{Agents, SIGHTING_WAIT, media_file::resolve, worktrees};
-use crate::files::paths::{self, real};
+use crate::fs::paths::{self, real};
 use crate::run::device::{self, Served};
 use beep_proto::node::{LinkRx, LinkTx};
 use crate::agents::{claude_dir, found::LogRoots};

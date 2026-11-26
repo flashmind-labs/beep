@@ -1,6 +1,6 @@
 use super::*;
 use crate::files::git_read::tests::{has_git, run};
-use crate::files::paths;
+use crate::fs::paths;
 use std::{fs, path::PathBuf};
 
 #[test]

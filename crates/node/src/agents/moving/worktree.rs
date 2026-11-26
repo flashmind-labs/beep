@@ -4,7 +4,7 @@
 //! Everything here blocks: call it from `spawn_blocking`.
 
 use serde::{Deserialize, Serialize};
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::{Context, Result, bail};
 use std::{
     io::{Read, Write},

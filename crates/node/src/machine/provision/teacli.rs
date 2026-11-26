@@ -2,7 +2,7 @@
 //! servers and the user's, plus a shim first on `PATH` that points teacli at
 //! it.
 
-use crate::files::fsat;
+use crate::fs::fsat;
 use anyhow::{Context, Result};
 use beep_proto::node::ForgejoLogin;
 use std::{

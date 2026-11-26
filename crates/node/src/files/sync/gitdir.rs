@@ -26,7 +26,7 @@ use std::{
 };
 
 use super::disk::{Found, Stat};
-use crate::files::paths;
+use crate::fs::paths;
 
 mod branches;
 mod recovery;

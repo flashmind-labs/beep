@@ -3,7 +3,7 @@
 
 use beep_proto::SessionId;
 use super::{Agent, Stores};
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::{Context, Result, bail, ensure};
 use std::{
     fs, io,

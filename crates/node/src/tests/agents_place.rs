@@ -1,6 +1,6 @@
 use super::*;
 use crate::agents::checkout::tests::{has_git, run};
-use crate::files::paths;
+use crate::fs::paths;
 use serde_json::json;
 use std::fs;
 

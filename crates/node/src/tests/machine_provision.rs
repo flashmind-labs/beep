@@ -31,7 +31,7 @@ async fn forgetting_removes_the_tokens_from_disk() {
     let teacli = dir.path().join("bin/teacli");
     fs::create_dir_all(teacli.parent().unwrap()).unwrap();
     fs::write(&teacli, "#!/bin/sh\n").unwrap();
-    crate::files::fsat::set_mode(&teacli, 0o755).unwrap();
+    crate::fs::fsat::set_mode(&teacli, 0o755).unwrap();
     let provision = Provision::new(dir.path());
     provision
         .apply(MachineCredentials {

@@ -3,13 +3,10 @@
 
 host! {
     mod folders;
-    pub(crate) mod fsat;
     pub(crate) mod git_read;
     pub(crate) mod grants;
     pub mod holds;
     pub(crate) mod place;
-    pub(crate) mod note;
-    pub(crate) mod paths;
     pub(crate) mod search;
     pub mod sync;
     pub mod syncthing;

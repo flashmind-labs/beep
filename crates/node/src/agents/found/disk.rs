@@ -4,7 +4,7 @@
 //! next start's `walk` looks again.
 
 use crate::files::git_read::{self as git, Checkout};
-use crate::{files::note, lock};
+use crate::{fs::note, lock};
 use anyhow::{Context, Result};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use std::{

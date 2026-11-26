@@ -3,7 +3,7 @@
 //! two tools syncing one folder fight over every change. A folder paused in
 //! Syncthing is not kept in step, so Beep syncs it until Syncthing resumes it.
 
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::SyncthingFolder;
 use futures::{StreamExt, stream::FuturesUnordered};

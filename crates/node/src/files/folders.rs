@@ -1,9 +1,9 @@
 //! `files/1` (see `beep_proto::node::files`): reads and writes files in the
 //! folders shared in `node.toml`, through `Folders::answer`.
 
-use crate::files::paths;
+use crate::fs::paths;
 use crate::{
-    files::fsat,
+    fs::fsat,
     protocol::{Protocol, Session},
 };
 use anyhow::{Context, Result, bail};

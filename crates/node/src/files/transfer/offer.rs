@@ -3,7 +3,7 @@
 //! files or empty folders.
 
 use super::{Out, Ticker};
-use crate::files::fsat;
+use crate::fs::fsat;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::transfer::{
     Content, ContentKind, MANIFEST_NAME, MAX_BYTES, MAX_FILES, Manifest, Reply, Stage,

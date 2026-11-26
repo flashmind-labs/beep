@@ -2,7 +2,7 @@
 
 use crate::{
     AsyncMutex,
-    files::paths,
+    fs::paths,
     lock,
     machine::env, process::spawn_env,
     process::{GroupLeader, STOP_GRACE, command, own_group},

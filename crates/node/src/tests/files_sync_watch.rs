@@ -1,5 +1,5 @@
 use super::*;
-use crate::files::paths;
+use crate::fs::paths;
 
 #[test]
 fn opening_and_reading_files_is_not_a_change() {

@@ -4,7 +4,7 @@
 
 use crate::{
     files::Folders,
-    files::fsat::{self, Dir},
+    fs::fsat::{self, Dir},
     lock,
 };
 use anyhow::{Context, Result, bail, ensure};

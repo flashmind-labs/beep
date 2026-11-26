@@ -2,7 +2,7 @@
 //! user's files live and on its other disks, memory in use and the load
 //! average.
 
-use crate::files::fsat;
+use crate::fs::fsat;
 use anyhow::{Context, Result};
 use beep_proto::node::{DiskUsage, StatsReport};
 use std::path::{Path, PathBuf};

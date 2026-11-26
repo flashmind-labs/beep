@@ -1,7 +1,7 @@
 //! File browser mutations, anchored to open directories and never overwriting a destination.
 
 use super::{PART, WorkRoot};
-use crate::files::fsat::{self, Dir};
+use crate::fs::fsat::{self, Dir};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{FileAction, RelPath};
 use std::{

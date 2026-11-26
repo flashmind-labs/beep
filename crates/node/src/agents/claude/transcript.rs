@@ -15,7 +15,7 @@ use crate::{
         found::unix_millis,
         window::{Excerpt, content_text, finish_tool_call, window},
     },
-    files::fsat::{self, FileId},
+    fs::fsat::{self, FileId},
 };
 use beep_proto::{
     AgentToolCall,

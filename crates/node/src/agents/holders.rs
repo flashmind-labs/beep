@@ -2,7 +2,7 @@
 //! keeps its session's rollout open while it has the session loaded, so a
 //! process holding the file is the sign, not when the file was written.
 
-use crate::{events::exits::Exit, files::paths};
+use crate::{events::exits::Exit, fs::paths};
 use beep_proto::node::agent::Presence;
 use futures::future::BoxFuture;
 #[cfg(target_os = "linux")]

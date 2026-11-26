@@ -2,7 +2,7 @@
 //! it runs under, what a restart did, and the small text and process helpers
 //! they all use. Nothing here names a manager's own file.
 
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::{Context, Result, bail};
 use std::{
     env, fmt,

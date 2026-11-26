@@ -8,7 +8,7 @@ use super::{
     task::{ChangeTimer, DELETE_SETTLE, DeleteTimer, MAX_SETTLE, SETTLE, Task},
 };
 use crate::files::holds::{Recoveries, RepositoryHold, RepositoryHolds};
-use crate::files::paths;
+use crate::fs::paths;
 use crate::files::sync::{
     Parts,
     disk::{Found, Stat},

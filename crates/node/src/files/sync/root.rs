@@ -4,7 +4,7 @@
 
 use super::rules::MARKER;
 use crate::{
-    files::fsat::{self, FileId},
+    fs::fsat::{self, FileId},
     files::place::Folder,
 };
 use anyhow::{Context, Result, bail};

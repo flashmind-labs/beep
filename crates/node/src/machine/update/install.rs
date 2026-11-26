@@ -1,7 +1,7 @@
 //! Putting a new binary in place of the running one.
 
 use super::types::Error;
-use crate::files::paths;
+use crate::fs::paths;
 use std::{
     env,
     fs::{self, File, OpenOptions},

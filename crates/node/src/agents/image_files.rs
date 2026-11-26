@@ -3,7 +3,7 @@
 //! the turn ends (`read`, `read_since`), only inside the session's folder.
 
 use super::picture::Picture;
-use crate::files::paths;
+use crate::fs::paths;
 use beep_proto::sniff_image;
 use std::{
     io::Read,
@@ -87,7 +87,7 @@ fn read_one(cwd: &Path, path: &Path, since: SystemTime) -> std::io::Result<Optio
         return Ok(None);
     }
 
-    let file = crate::files::fsat::open_read(&path)?;
+    let file = crate::fs::fsat::open_read(&path)?;
     let meta = file.metadata()?;
     let limit = u64::try_from(MAX_FILE).unwrap_or(u64::MAX);
 

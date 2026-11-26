@@ -7,7 +7,7 @@
 //! branch switch or a new remote rewrites one of them. A folder with no
 //! `.git` above it is in no checkout, and the repository is not opened.
 
-use crate::files::paths;
+use crate::fs::paths;
 use crate::lock;
 use beep_proto::node::agent::WorkPlace;
 use serde::{Deserialize, Serialize};

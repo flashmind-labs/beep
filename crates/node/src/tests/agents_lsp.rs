@@ -54,13 +54,13 @@ async fn frame_round_trip_and_headers() {
 #[test]
 fn parse_locations_handles_all_lsp_forms_and_deduplicates() {
     let dir = tempfile::tempdir().unwrap();
-    let root = crate::files::paths::canonicalize(dir.path()).unwrap();
+    let root = crate::fs::paths::canonicalize(dir.path()).unwrap();
     let inside = root.join("src").join("lib.rs");
     fs::create_dir_all(inside.parent().unwrap()).unwrap();
     fs::write(&inside, "pub fn demo() {}\n").unwrap();
 
     let outside_dir = tempfile::tempdir().unwrap();
-    let outside = crate::files::paths::canonicalize(outside_dir.path())
+    let outside = crate::fs::paths::canonicalize(outside_dir.path())
         .unwrap()
         .join("ext.rs");
     fs::write(&outside, "pub fn ext() {}\n").unwrap();
@@ -148,7 +148,7 @@ async fn client_handles_handshake_server_request_did_change_definition_and_grace
     }
 
     let dir = tempfile::tempdir().unwrap();
-    let root = crate::files::paths::canonicalize(dir.path()).unwrap();
+    let root = crate::fs::paths::canonicalize(dir.path()).unwrap();
     let file = root.join("demo.rs");
     let marker = root.join("clean-exit");
     fs::write(&file, "fn alpha() {}\n").unwrap();

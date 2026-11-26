@@ -108,7 +108,7 @@ impl Checkouts {
     /// viewer counts them against the default branch with the working tree.
     /// `None` outside a git checkout.
     pub(crate) async fn changes(&self, folder: PathBuf) -> Option<LineChanges> {
-        let root = spawn_blocking(move || crate::files::paths::real(&folder))
+        let root = spawn_blocking(move || crate::fs::paths::real(&folder))
             .await
             .ok()?
             .ok()?;

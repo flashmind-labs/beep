@@ -16,7 +16,7 @@ use crate::files::sync::{
     rules::MARKER,
     scan,
 };
-use crate::files::{fsat::Dir, place::Folder};
+use crate::{files::place::Folder, fs::fsat::Dir};
 use crate::{files::place::Partial, read_lock};
 use anyhow::{Context, Result, anyhow, bail};
 use beep_proto::node::sync::{FileProgress, MAX_WAITING, State as SyncState};

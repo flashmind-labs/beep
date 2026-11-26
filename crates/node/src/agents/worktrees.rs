@@ -5,7 +5,7 @@
 
 use super::found::{Memo, common_dir, git_dir};
 use super::work_diff::git;
-use crate::files::paths;
+use crate::fs::paths;
 use anyhow::Result;
 use beep_proto::{SessionId, node::agent::Worktree};
 use std::{

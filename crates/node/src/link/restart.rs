@@ -5,7 +5,7 @@
 use beep_proto::SessionId;
 use crate::{
     agents::{Agents, OpenSession, SavedSession},
-    files::note,
+    fs::note,
     run::local_socket::{Listener, Stream},
     link::watchdog::{self, Step},
     run::terminal::{self, OpenTerminal},

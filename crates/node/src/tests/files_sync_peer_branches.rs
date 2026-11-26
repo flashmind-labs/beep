@@ -141,7 +141,7 @@ async fn new_pulls_fall_back_after_a_legacy_reader_rejects_the_new_variant() {
         .accept(ALPN, legacy.clone())
         .spawn();
     let temp = tempfile::tempdir().unwrap();
-    let base = crate::files::paths::canonicalize(temp.path()).unwrap();
+    let base = crate::fs::paths::canonicalize(temp.path()).unwrap();
     let folder = base.join("project");
     std::fs::create_dir(&folder).unwrap();
     let shared = test_project(&base, &folder, &server);
@@ -172,7 +172,7 @@ async fn new_pulls_fall_back_after_a_legacy_reader_rejects_the_new_variant() {
 #[tokio::test]
 async fn live_branch_pack_cut_short_leaves_the_checkout_unchanged_and_retries() {
     let temp = tempfile::tempdir().unwrap();
-    let base = crate::files::paths::canonicalize(temp.path()).unwrap();
+    let base = crate::fs::paths::canonicalize(temp.path()).unwrap();
     let target = base.join("project");
     let (source_dir, source) = init();
     let source_file = source_dir.path().join("tracked");

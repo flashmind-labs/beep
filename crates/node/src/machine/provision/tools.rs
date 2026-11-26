@@ -356,7 +356,7 @@ impl Download {
             None => download,
         };
         let executable = program.clone();
-        tokio::task::spawn_blocking(move || crate::files::fsat::set_mode(&executable, 0o755))
+        tokio::task::spawn_blocking(move || crate::fs::fsat::set_mode(&executable, 0o755))
             .await??;
         let target = bin.join(format!("{}{}", self.name, env::consts::EXE_SUFFIX));
         tokio::fs::rename(&program, &target)

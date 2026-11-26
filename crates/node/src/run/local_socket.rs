@@ -15,7 +15,7 @@ pub(crate) use windows::{Listener, Stream, connect, is_listening};
 #[cfg(unix)]
 mod unix {
     use super::*;
-    use crate::files::fsat;
+    use crate::fs::fsat;
     use std::fs;
     use tokio::net::{UnixListener, UnixStream};
 

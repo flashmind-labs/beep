@@ -466,7 +466,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::files::paths;
+    use crate::fs::paths;
     use std::process::Command;
 
     /// A temporary repository with one commit on `main`.
