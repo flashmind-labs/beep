@@ -165,3 +165,76 @@ test("holding Option on screen runs push-to-talk and stops on release, while tap
   await expect(page.getByRole("button", { name: "Dictate prompt" })).toBeEnabled();
   await expect(input).toHaveValue("push to talk works");
 });
+
+test("pauses playing audio before opening the mic and resumes it only after leaving call mode", async ({ page }) => {
+  await openDesktop(page, false, { agent_hosts: hosts, dictation_settings_get: { enabled: true, model: null } });
+  await fakeDictation(page);
+  await openStartForm(page);
+
+  await page.evaluate(() => {
+    const events: string[] = [];
+    Reflect.set(window, "audioEvents", events);
+
+    const makeTrack = (id: string, initiallyPaused: boolean) => {
+      const audio = document.createElement("audio");
+      audio.id = id;
+      let isPaused = initiallyPaused;
+      Object.defineProperty(audio, "paused", { get: () => isPaused });
+      Object.defineProperty(audio, "ended", { get: () => false });
+      audio.pause = () => {
+        isPaused = true;
+        events.push(`${id}:pause`);
+      };
+      audio.play = async () => {
+        isPaused = false;
+        events.push(`${id}:play`);
+      };
+      document.body.append(audio);
+    };
+
+    makeTrack("music-playing", false);
+    makeTrack("music-already-paused", true);
+
+    const getUserMedia = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+    navigator.mediaDevices.getUserMedia = async constraints => {
+      events.push("mic:open");
+      return getUserMedia(constraints);
+    };
+
+    window.__navigation.hold("dictation_mic_leave");
+  });
+
+  await page.getByRole("button", { name: "Dictate prompt" }).click();
+  await expect.poll(() => page.evaluate(() => typeof Reflect.get(window, "say") === "function")).toBe(true);
+
+  const startOrder = await page.evaluate(() => ({
+    events: Reflect.get(window, "audioEvents") as string[],
+    enterArgs: window.__navigation.calls().find(call => call.command === "dictation_mic_enter")?.args ?? null,
+    callNames: window.__navigation.calls().map(call => call.command),
+  }));
+  expect(startOrder.events).toEqual(["music-playing:pause", "mic:open"]);
+  expect(startOrder.enterArgs).toEqual({ pagePaused: true });
+  expect(startOrder.callNames.indexOf("dictation_mic_enter")).toBeLessThan(startOrder.callNames.indexOf("dictation_start"));
+
+  await page.evaluate(() => {
+    const say = Reflect.get(window, "say");
+    if (typeof say === "function") {
+      say({ kind: "ready" });
+      say({ kind: "transcript", committed: "hello", partial: "" });
+    }
+  });
+
+  await page.getByRole("button", { name: "Stop dictation (Esc cancels)" }).click();
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_mic_leave"))).toBe(true);
+
+  // While headphones are still in call mode (`dictation_mic_leave` held), music remains paused.
+  expect(await page.evaluate(() => Reflect.get(window, "audioEvents"))).toEqual(["music-playing:pause", "mic:open"]);
+
+  // Once the output device returns to non-call mode, only the track dictation paused resumes.
+  await page.evaluate(() => window.__navigation.release("dictation_mic_leave"));
+  await expect.poll(() => page.evaluate(() => Reflect.get(window, "audioEvents"))).toEqual([
+    "music-playing:pause",
+    "mic:open",
+    "music-playing:play",
+  ]);
+});

@@ -580,3 +580,38 @@ export interface OptionKey {
 export function isBareOptionDown(event: OptionKey): boolean {
   return event.key === "Alt" && !event.repeat && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.isComposing;
 }
+
+export interface PlayableMedia {
+  readonly paused: boolean;
+  readonly ended: boolean;
+  pause(): void;
+  play(): Promise<unknown> | void;
+}
+
+/// Pauses every currently playing media element and returns the ones it paused.
+export function pausePlayingMedia<T extends PlayableMedia>(elements: Iterable<T>): T[] {
+  const paused: T[] = [];
+  for (const el of elements) {
+    if (el.paused || el.ended) continue;
+    try {
+      el.pause();
+      paused.push(el);
+    } catch {
+      // Detached or restricted media elements are skipped.
+    }
+  }
+  return paused;
+}
+
+/// Resumes media elements paused for dictation that are still paused.
+export function resumePausedMedia(elements: Iterable<PlayableMedia>): void {
+  for (const el of elements) {
+    if (!el.paused || el.ended) continue;
+    try {
+      const started = el.play();
+      if (started && typeof started.catch === "function") void started.catch(() => {});
+    } catch {
+      // Ignore elements removed or blocked while dictating.
+    }
+  }
+}

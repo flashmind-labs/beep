@@ -173,9 +173,11 @@ webpki-roots = "1"
 webview2-com = "0.39"
 which = "8"
 windows = "0.62"
+windows-core = "0.62"
 winreg = "0.56"
 windows-sys = "0.61"
 yawc = { version = "0.5", default-features = false }
+zbus = "6"
 zip = { version = "9", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [profile.release]

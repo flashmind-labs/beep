@@ -10,7 +10,7 @@ import { Channel, invoke, logError } from "../ui/tauri.ts";
 import { APPLE, onPhone } from "../ui/platform.ts";
 import { motionAllowed } from "../ui/motion.ts";
 import { Icon } from "../ui/icons.tsx";
-import { applyTranscript, createDictationSettings, elapsed, HOLD_OPTION_MS, IDLE, isBareOptionDown, nextTurn, parseEvent, pcmChunks, reanchorDraft, Resampler, startDraft, type DictationDraft, type Turn } from "./dictation-state.ts";
+import { applyTranscript, createDictationSettings, elapsed, HOLD_OPTION_MS, IDLE, isBareOptionDown, nextTurn, parseEvent, pausePlayingMedia, pcmChunks, reanchorDraft, Resampler, resumePausedMedia, startDraft, type DictationDraft, type Turn } from "./dictation-state.ts";
 
 /// The shared setting, read once per window.
 export const dictationSettings = createDictationSettings(invoke, () => new Channel<unknown>());
@@ -38,6 +38,10 @@ interface Mic { stream: MediaStream; context: AudioContext; analyser: AnalyserNo
 interface Run {
   id: string | null;
   mic: Mic | null;
+  micTask: Promise<Mic | null> | null;
+  micLease: string | null;
+  micReleased: boolean;
+  pausedMedia: WeakRef<HTMLMediaElement>[];
   draft: DictationDraft;
   writing: boolean;
   /// Started by holding Option/Alt for push-to-talk.
@@ -61,10 +65,38 @@ function Dictation({ field, host }: Props) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const glow = useRef(new Glow());
 
+  const releaseMic = (r: Run) => {
+    const mic = r.mic;
+    const micTask = r.micTask;
+    r.mic = null;
+    r.micTask = null;
+    if (r.micReleased) {
+      if (mic) void closeMic(mic);
+      return;
+    }
+    r.micReleased = true;
+
+    const closed = mic
+      ? closeMic(mic)
+      : micTask
+        ? micTask.then(opened => (opened ? closeMic(opened) : undefined))
+        : Promise.resolve();
+    const lease = r.micLease;
+    r.micLease = null;
+    const paused = r.pausedMedia.splice(0);
+    if (lease === null) {
+      if (paused.length) void closed.then(() => resumeWeakMedia(paused));
+      return;
+    }
+    void closed
+      .then(() => invoke<boolean>("dictation_mic_leave", { id: lease }))
+      .then(shouldResume => { if (shouldResume) resumeWeakMedia(paused); })
+      .catch(() => {});
+  };
+
   const finish = (r: Run) => {
     if (run.current === r) run.current = null;
-    if (r.mic) closeMic(r.mic);
-    r.mic = null;
+    releaseMic(r);
   };
 
   const write = (r: Run, committed: string, partial: string) => {
@@ -95,7 +127,7 @@ function Dictation({ field, host }: Props) {
 
     if (event.kind === "transcript") write(r, event.committed, event.partial);
     if (event.kind === "done" || event.kind === "error") finish(r);
-    if (event.kind === "thinking" && r.mic) { closeMic(r.mic); r.mic = null; }
+    if (event.kind === "thinking") releaseMic(r);
     setTurn(t => nextTurn(t, event));
   };
 
@@ -119,16 +151,51 @@ function Dictation({ field, host }: Props) {
     if (!node) return;
 
     node.focus();
-    const r: Run = { id: null, mic: null, draft: startDraft(node.value, node.selectionStart, node.selectionEnd), writing: false, held, stopping: false, pending: [], sending: Promise.resolve(), startedAt: performance.now() };
+    const pausedEls = pausePlayingMedia(document.querySelectorAll<HTMLMediaElement>("audio, video"));
+    const r: Run = {
+      id: null,
+      mic: null,
+      micTask: null,
+      micLease: null,
+      micReleased: false,
+      pausedMedia: pausedEls.map(el => new WeakRef(el)),
+      draft: startDraft(node.value, node.selectionStart, node.selectionEnd),
+      writing: false,
+      held,
+      stopping: false,
+      pending: [],
+      sending: Promise.resolve(),
+      startedAt: performance.now(),
+    };
     run.current = r;
     setTurn({ phase: "starting", error: "" });
 
-    let mic: Mic;
-    try { mic = await openMic(pcm => send(r, pcm), () => fail(r, "Microphone disconnected.")); }
-    catch { fail(r, "Microphone blocked."); return; }
-    if (run.current !== r) { closeMic(mic); return; }
-    if (r.stopping) closeMic(mic);
-    else r.mic = mic;
+    const lease = await invoke<string>("dictation_mic_enter", { pagePaused: pausedEls.length > 0 }).catch(() => null);
+    if (run.current !== r || r.stopping || r.micReleased) {
+      const paused = r.pausedMedia.splice(0);
+      if (lease !== null) {
+        void invoke<boolean>("dictation_mic_leave", { id: lease })
+          .then(shouldResume => { if (shouldResume) resumeWeakMedia(paused); })
+          .catch(() => {});
+      } else if (paused.length) {
+        resumeWeakMedia(paused);
+      }
+      if (run.current === r && r.stopping) cancel();
+      return;
+    }
+    r.micLease = lease;
+
+    const micTask = openMic(pcm => send(r, pcm), () => fail(r, "Microphone disconnected.")).then(opened => opened, () => null);
+    r.micTask = micTask;
+    const mic = await micTask;
+    if (!mic) { fail(r, "Microphone blocked."); return; }
+    if (run.current !== r) {
+      if (!r.micReleased) void closeMic(mic);
+      return;
+    }
+    r.micTask = null;
+    r.mic = mic;
+    if (r.stopping) releaseMic(r);
 
     const channel = new Channel<unknown>();
     channel.onmessage = message => received(r, message);
@@ -152,8 +219,7 @@ function Dictation({ field, host }: Props) {
     if (!r) return;
     r.held = false;
     const hadMic = r.mic !== null || r.pending.length > 0;
-    if (r.mic) closeMic(r.mic);
-    r.mic = null;
+    releaseMic(r);
     if (r.id === null) {
       if (!hadMic) { cancel(); return; }
       r.stopping = true;
@@ -353,9 +419,18 @@ async function openMic(take: (pcm: Int16Array) => void, lost: () => void): Promi
   return { stream, context, analyser, levels: new Uint8Array(analyser.frequencyBinCount) };
 }
 
-function closeMic(mic: Mic) {
+async function closeMic(mic: Mic): Promise<void> {
   for (const track of mic.stream.getTracks()) track.stop();
-  void mic.context.close().catch(() => {});
+  await mic.context.close().catch(() => {});
+}
+
+function resumeWeakMedia(paused: readonly WeakRef<HTMLMediaElement>[]): void {
+  const live: HTMLMediaElement[] = [];
+  for (const ref of paused) {
+    const el = ref.deref();
+    if (el && el.isConnected) live.push(el);
+  }
+  resumePausedMedia(live);
 }
 
 // ----- The animation -----

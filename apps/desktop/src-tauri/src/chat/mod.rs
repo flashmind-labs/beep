@@ -7,3 +7,5 @@ pub(crate) mod dictation;
 pub(crate) mod files;
 #[cfg(desktop)]
 pub(crate) mod local_dictation;
+#[cfg(desktop)]
+pub(crate) mod mic_media;

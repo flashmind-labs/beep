@@ -3,10 +3,13 @@ use std::{path::PathBuf, process::Command};
 fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rerun-if-changed=src/center/spaces.m");
+        println!("cargo:rerun-if-changed=src/chat/mic_media_macos.m");
         cc::Build::new()
             .file("src/center/spaces.m")
+            .file("src/chat/mic_media_macos.m")
             .flag("-fobjc-arc")
             .compile("window_spaces");
+        println!("cargo:rustc-link-lib=framework=CoreAudio");
         println!("cargo:rustc-link-arg=-Wl,-rpath,@executable_path/../Frameworks");
 
         // rustc links macOS binaries with `-nodefaultlibs`, omitting Clang's

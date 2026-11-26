@@ -80,7 +80,8 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder
         .manage(chat::dictation::Dictations::default())
-        .manage(chat::local_dictation::LocalDictation::default());
+        .manage(chat::local_dictation::LocalDictation::default())
+        .manage(chat::mic_media::MicMedia::default());
     #[cfg(target_os = "windows")]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
         if let Err(e) = center::open(app) {
@@ -192,6 +193,8 @@ pub fn run() {
                 app.state::<machines::devices::Attached>().clear(label);
                 #[cfg(desktop)]
                 app.state::<chat::dictation::Dictations>().clear(label);
+                #[cfg(desktop)]
+                app.state::<chat::mic_media::MicMedia>().clear_window(label);
                 center::window::forget(app, label);
                 center::closed(app, label);
             }
@@ -327,6 +330,10 @@ pub fn run() {
             chat::dictation::dictation_stop,
             #[cfg(desktop)]
             chat::dictation::dictation_cancel,
+            #[cfg(desktop)]
+            chat::mic_media::dictation_mic_enter,
+            #[cfg(desktop)]
+            chat::mic_media::dictation_mic_leave,
             #[cfg(desktop)]
             chat::local_dictation::dictation_local_models,
             #[cfg(desktop)]

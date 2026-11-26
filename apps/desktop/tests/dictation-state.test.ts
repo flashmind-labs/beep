@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { activeModel, activeProvider, addedWords, anchorOf, applyTranscript, createDictationSettings, dictationNote, IDLE, isBareOptionDown, keysFrom, nextTurn, parseEvent, parseSettings, pcmChunks, providerOf, reanchorDraft, Resampler, spliceTranscript, startDraft, MAX_CHUNK_BYTES, type DownloadChannel } from "../src/chat/dictation-state.ts";
+import { activeModel, activeProvider, addedWords, anchorOf, applyTranscript, createDictationSettings, dictationNote, IDLE, isBareOptionDown, keysFrom, nextTurn, parseEvent, parseSettings, pausePlayingMedia, pcmChunks, providerOf, reanchorDraft, Resampler, resumePausedMedia, spliceTranscript, startDraft, MAX_CHUNK_BYTES, type DownloadChannel, type PlayableMedia } from "../src/chat/dictation-state.ts";
 
 test("only live local and cloud models resolve to a provider; legacy OpenRouter settings reset to Automatic", () => {
   assert.equal(providerOf("local:parakeet-unified"), "local");
@@ -172,4 +172,38 @@ test("only a bare non-repeating Option press starts a push-to-talk hold", () => 
   assert.equal(isBareOptionDown({ ...base, metaKey: true }), false);
   assert.equal(isBareOptionDown({ ...base, shiftKey: true }), false);
   assert.equal(isBareOptionDown({ ...base, key: "Tab" }), false);
+});
+
+test("pauses only playing media elements and skips ones resumed or ended before dictation finishes", () => {
+  const make = (paused: boolean, ended = false) => {
+    let curPaused = paused;
+    let curEnded = ended;
+    let plays = 0;
+    const item: PlayableMedia & { plays(): number; setEnded(): void } = {
+      get paused() { return curPaused; },
+      get ended() { return curEnded; },
+      pause() { curPaused = true; },
+      play() { curPaused = false; plays++; return Promise.resolve(); },
+      plays: () => plays,
+      setEnded: () => { curEnded = true; },
+    };
+    return item;
+  };
+
+  const playing = make(false);
+  const alreadyPaused = make(true);
+  const finishedLater = make(false);
+
+  const paused = pausePlayingMedia([playing, alreadyPaused, finishedLater]);
+  assert.equal(paused.length, 2);
+  assert.equal(playing.paused, true);
+  assert.equal(finishedLater.paused, true);
+
+  finishedLater.setEnded();
+  resumePausedMedia(paused);
+  assert.equal(playing.paused, false);
+  assert.equal(playing.plays(), 1);
+  assert.equal(alreadyPaused.paused, true);
+  assert.equal(alreadyPaused.plays(), 0);
+  assert.equal(finishedLater.plays(), 0);
 });
