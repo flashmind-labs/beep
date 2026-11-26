@@ -1,6 +1,8 @@
 use super::*;
+use crate::fleet::events::{Interest, demand_or_hold_changed, nothing_wanted, wake, wanted_topics};
 use beep_proto::node::{process, terminal};
 use beep_proto::watched;
+use tokio::sync::watch;
 
 fn demanded_machine(snapshots: &Snapshots, topic: &str) -> (EndpointId, Uuid) {
     let id = iroh::SecretKey::generate().public();
@@ -373,13 +375,40 @@ async fn a_wait_keeps_its_topic_subscribed_while_no_view_wants_it() {
     let snapshots = Arc::new(Snapshots::default());
     let id = iroh::SecretKey::generate().public();
     let reader = snapshots.reader(id);
-    let hold = reader.hold(&Read::SyncList);
+    let (_demand_sender, mut demand) = watch::channel(Vec::<Interest>::new());
+    let mut holds = snapshots.holds();
+    holds.mark_unchanged();
 
-    // What the events loop does with no view open.
-    let mut wanted = BTreeMap::new();
-    snapshots.add_holds(&mut wanted, &[id]);
+    // No view and no wait: the loop idles and a hold wakes it.
+    assert!(nothing_wanted(&[], false));
+    {
+        let wake = wake(&mut demand, &mut holds);
+        tokio::pin!(wake);
+        assert!(futures::poll!(&mut wake).is_pending());
+        let hold = reader.hold(&Read::SyncList);
+        wake.await.unwrap();
+        drop(hold);
+    }
+    holds.mark_unchanged();
+
+    // A hold made while the loop runs wakes its select.
+    {
+        let changed = demand_or_hold_changed(&mut demand, &mut holds);
+        tokio::pin!(changed);
+        assert!(futures::poll!(&mut changed).is_pending());
+        let hold = reader.hold(&Read::SyncList);
+        changed.await.unwrap();
+        drop(hold);
+    }
+
+    let hold = reader.hold(&Read::SyncList);
+    let held = watched::read_and_update(&mut holds, |holds| !holds.is_empty());
+    assert!(!nothing_wanted(&[], held));
+
+    // What the events loop then subscribes to, with no view open.
+    let wanted = wanted_topics(&snapshots, &[], &[id], id);
     snapshots.reconcile(&wanted);
-    let topics = wanted.remove(&id).unwrap();
+    let topics = wanted[&id].clone();
     assert_eq!(topics, [Read::SyncList.topic().unwrap()]);
 
     let follow = reader.follow(Read::SyncList);
@@ -406,7 +435,7 @@ async fn a_wait_keeps_its_topic_subscribed_while_no_view_wants_it() {
     );
 
     drop(hold);
-    let mut wanted = BTreeMap::new();
-    snapshots.add_holds(&mut wanted, &[id]);
-    assert!(wanted.is_empty());
+    let held = watched::read_and_update(&mut holds, |holds| !holds.is_empty());
+    assert!(nothing_wanted(&[], held));
+    assert!(wanted_topics(&snapshots, &[], &[id], id).is_empty());
 }

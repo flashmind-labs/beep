@@ -1386,6 +1386,52 @@ fn mesh_is_open(mesh: &watch::Receiver<Opened>) -> bool {
     watched::read(mesh, |opened| matches!(opened, Opened::Open(_)))
 }
 
+/// Whether the loop has nothing to subscribe to: no view wants a topic and no wait holds one.
+fn nothing_wanted(interests: &[Interest], held: bool) -> bool {
+    interests.is_empty() && !held
+}
+
+/// Resolves when a view wants a topic or a wait holds one.
+async fn wake(
+    demand: &mut watch::Receiver<Vec<Interest>>,
+    holds: &mut watch::Receiver<Vec<(EndpointId, Topic)>>,
+) -> std::result::Result<(), watch::error::RecvError> {
+    tokio::select! {
+        woken = watched::wait_for(demand, |interests| !interests.is_empty()) => woken,
+        woken = watched::wait_for(holds, |holds| !holds.is_empty()) => woken,
+    }
+}
+
+/// Resolves when what views want or what waits hold changes.
+async fn demand_or_hold_changed(
+    demand: &mut watch::Receiver<Vec<Interest>>,
+    holds: &mut watch::Receiver<Vec<(EndpointId, Topic)>>,
+) -> std::result::Result<(), watch::error::RecvError> {
+    tokio::select! {
+        changed = demand.changed() => changed,
+        changed = holds.changed() => changed,
+    }
+}
+
+/// The topics to subscribe to on each machine: what views want plus what waits hold.
+fn wanted_topics(
+    snapshots: &Snapshots,
+    interests: &[Interest],
+    machines: &[EndpointId],
+    me: EndpointId,
+) -> BTreeMap<EndpointId, Vec<Topic>> {
+    let mut wanted: BTreeMap<_, _> = machines
+        .iter()
+        .filter_map(|&machine| {
+            let topics = topics_for(interests, machine, me);
+            (!topics.is_empty()).then_some((machine, topics))
+        })
+        .collect();
+    snapshots.add_holds(&mut wanted, machines);
+
+    wanted
+}
+
 async fn run(
     app: AppHandle,
     fleet: Arc<Fleet>,
@@ -1409,7 +1455,7 @@ async fn run(
         let interests = watched::read_and_update(&mut demand, Clone::clone);
         let held = watched::read_and_update(&mut holds, |holds| !holds.is_empty());
 
-        if interests.is_empty() && !held {
+        if nothing_wanted(&interests, held) {
             command_workers.clear();
             subscriptions.clear();
             workers.abort_all();
@@ -1417,12 +1463,7 @@ async fn run(
             ring(&app, Change::FilesKept);
             materialized.clear();
 
-            let woken = tokio::select! {
-                woken = watched::wait_for(&mut demand, |interests| !interests.is_empty()) => woken,
-                woken = watched::wait_for(&mut holds, |holds| !holds.is_empty()) => woken,
-            };
-
-            if woken.is_err() {
+            if wake(&mut demand, &mut holds).await.is_err() {
                 return;
             }
             revision = watched::read_and_update(&mut status, |status| *status);
@@ -1442,14 +1483,7 @@ async fn run(
         machines.push(fleet.me);
         machines.sort();
         machines.dedup();
-        let mut wanted: BTreeMap<_, _> = machines
-            .iter()
-            .filter_map(|&machine| {
-                let topics = topics_for(&interests, machine, fleet.me);
-                (!topics.is_empty()).then_some((machine, topics))
-            })
-            .collect();
-        fleet.snapshots.add_holds(&mut wanted, &machines);
+        let wanted = wanted_topics(&fleet.snapshots, &interests, &machines, fleet.me);
         fleet.snapshots.reconcile(&wanted);
         ring(&app, Change::FilesKept);
         command_workers.retain(|machine, task| {
@@ -1519,8 +1553,7 @@ async fn run(
         }
 
         tokio::select! {
-            changed = demand.changed() => if changed.is_err() { return; },
-            changed = holds.changed() => if changed.is_err() { return; },
+            changed = demand_or_hold_changed(&mut demand, &mut holds) => if changed.is_err() { return; },
             changed = mesh.changed() => {
                 if changed.is_err() { return; }
                 watched::read_and_update(&mut mesh, |_| ());
