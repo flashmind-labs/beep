@@ -30,7 +30,7 @@ fn restores_only_open_windows_and_keeps_a_closed_windows_preferences() {
     assert_eq!(restored.open_windows(), vec![chat]);
     let kept = lock(&restored.session);
     assert_eq!(
-        serde_json::to_value(&kept.windows[&project.label()].desktop).unwrap(),
+        serde_json::to_value(kept.windows[&project.label()].desktop).unwrap(),
         desk
     );
 }
