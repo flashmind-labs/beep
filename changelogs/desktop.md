@@ -7,6 +7,12 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.39] - 2026-11-26
+
+### Changed
+
+- Desktop windows draw Home, project pages and file views from state pushed to them, with fewer requests between parts of the app on macOS, Windows and Linux.
+
 ## [0.10.38] - 2026-11-25
 
 ### Added

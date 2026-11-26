@@ -2,6 +2,12 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.29] - 2026-11-26
+
+### Fixed
+
+- Antigravity sessions now compact at the auto-compact percent or token count set in Beep.
+
 ## [0.8.28] - 2026-11-25
 
 ### Added
