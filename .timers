@@ -186,7 +186,7 @@ crates/node/src/link/commands.rs | serve | interval_at#1 | pace | heartbeat to k
 crates/node/src/link/diagnostics.rs | start | interval#1 | outside | writes a transport metrics snapshot every minute
 crates/node/src/link/events.rs | run | interval_at#1 | pace | heartbeat to keep the stream alive
 crates/node/src/link/events.rs | run | sleep_until#1 | pace | holds a dirty snapshot read until its not-before time
-crates/node/src/link/local_socket.rs | connect | sleep#1 | retry | retries a busy pipe every 10 ms
+crates/node/src/run/local_socket.rs | connect | sleep#1 | retry | retries a busy pipe every 10 ms
 crates/node/src/link/peers.rs | wait_for_node | sleep#1 | retry | retries connecting to the local node every 100 ms
 crates/node/src/link/sampler.rs | sampling | interval#1 | outside | samples disk, memory and traffic every minute
 crates/node/src/link/watchdog.rs | look | sleep#1 | outside | thread checks for a stalled runtime every 15 s
