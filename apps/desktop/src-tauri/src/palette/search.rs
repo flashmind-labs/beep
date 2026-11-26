@@ -6,7 +6,7 @@ use super::{
     lists::PaletteCache,
     projects::{Entry, Found, session_entry},
 };
-use crate::{error::Result, fleet::Fleet};
+use crate::{error::Result, fleet::Fleet, palette_store::PaletteStore};
 use beep_proto::{AgentStatus, ImportedProject, MachineSession, node::agent::folded_at};
 use regex::Regex;
 use std::{
@@ -30,7 +30,7 @@ pub async fn center_find_prompts(app: AppHandle, query: String) -> Result<Vec<En
             .into_iter()
             .map(|host| (host.device.id.to_string(), host.device.name))
             .collect(),
-        None => cache.machine_names(),
+        None => cache.machine_names(&app),
     };
 
     #[cfg(mobile)]
@@ -41,7 +41,7 @@ pub async fn center_find_prompts(app: AppHandle, query: String) -> Result<Vec<En
     Ok(entries(
         hits,
         &sessions,
-        &cache.projects(),
+        &app.state::<PaletteStore>().projects(),
         &machines,
         &query,
     ))

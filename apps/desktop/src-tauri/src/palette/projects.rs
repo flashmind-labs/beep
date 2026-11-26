@@ -1,7 +1,7 @@
 //! Projects and coding-agent sessions for the palette: imported projects and
 //! the folders agents worked in, listed once each.
 
-use crate::fleet::session_lists::SessionRow;
+use crate::{fleet::session_lists::SessionRow, palette_store::places::within};
 use beep_proto::{ImportedProject, MachineSession, node::agent::SearchHit};
 use serde::Serialize;
 use std::{cmp::Reverse, collections::HashSet};
@@ -95,15 +95,6 @@ fn harness_name(agent: &str) -> &str {
 /// The last part of a path or of `org/repo`; `None` for a root or nothing.
 fn last_part(path: &str) -> Option<&str> {
     path.rsplit(['/', '\\']).find(|part| !part.is_empty())
-}
-
-/// True when `cwd` is `folder` or inside it.
-pub(super) fn within(cwd: &str, folder: &str) -> bool {
-    let folder = folder.trim_end_matches(['/', '\\']);
-    !folder.is_empty()
-        && cwd
-            .strip_prefix(folder)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '\\']))
 }
 
 /// The project a session runs in: the imported project whose folder on its

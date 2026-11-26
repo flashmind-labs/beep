@@ -7,7 +7,6 @@
 pub(crate) mod copies;
 pub(crate) mod index;
 pub(crate) mod lists;
-mod places;
 mod projects;
 pub(crate) mod search;
 

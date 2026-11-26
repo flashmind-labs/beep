@@ -273,7 +273,7 @@ pub async fn project_remove_from_machine(
         )));
     }
 
-    let cache = app.state::<crate::palette::PaletteCache>();
+    let cache = app.state::<crate::palette_store::PaletteStore>();
     let desk = desk(&fleet).await?;
     let removed = desk
         .remove_from_machine(&project, &machine_id, delete_folder.unwrap_or(false))

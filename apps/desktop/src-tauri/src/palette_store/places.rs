@@ -22,22 +22,20 @@ impl From<&ImportedProject> for Place {
 
 impl Place {
     pub fn contains(&self, session: &MachineSession) -> bool {
-        self.machine == session.machine_id && super::projects::within(&session.cwd, &self.folder)
+        self.machine == session.machine_id && within(&session.cwd, &self.folder)
     }
 }
 
 /// A removed nested project still wins over its surviving parent. An
 /// explicit import at the same location makes that location searchable again.
-pub(super) fn retired(
+pub(crate) fn retired(
     session: &MachineSession,
     active: &[ImportedProject],
     removed: &[Place],
 ) -> bool {
     let current = active
         .iter()
-        .filter(|p| {
-            p.machine_id == session.machine_id && super::projects::within(&session.cwd, &p.folder)
-        })
+        .filter(|p| p.machine_id == session.machine_id && within(&session.cwd, &p.folder))
         .map(|p| p.folder.len())
         .max();
     let old = removed
@@ -46,4 +44,13 @@ pub(super) fn retired(
         .map(|p| p.folder.len())
         .max();
     old.is_some_and(|old| current.is_none_or(|current| old > current))
+}
+
+/// True when `cwd` is `folder` or inside it.
+pub(crate) fn within(cwd: &str, folder: &str) -> bool {
+    let folder = folder.trim_end_matches(['/', '\\']);
+    !folder.is_empty()
+        && cwd
+            .strip_prefix(folder)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['/', '\\']))
 }

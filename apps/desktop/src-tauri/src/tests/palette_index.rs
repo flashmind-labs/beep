@@ -1,4 +1,5 @@
 use super::*;
+use crate::palette_store::lists::{BranchRow, PaletteLists};
 use beep_proto::SessionId;
 use beep_proto::{AgentStatus, ImportedProject, MachineSession};
 use std::time::{Duration, SystemTime};

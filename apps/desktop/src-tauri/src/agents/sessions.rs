@@ -684,8 +684,12 @@ pub async fn agent_view(
         beep_fleet::session_titles::apply(&mesh, &mut view.session);
     }
 
-    app.state::<crate::palette::PaletteCache>()
-        .found_session(&app, view.session.clone());
+    let rows = app.state::<Arc<SessionMirror>>().current();
+    let mirrored = overlaid(&app, &fleet, &rows)
+        .iter()
+        .any(|s| s.machine_id == view.session.machine_id && s.id == view.session.id);
+    app.state::<crate::palette_store::PaletteStore>()
+        .found_session(&app, view.session.clone(), mirrored);
     Ok(view.into())
 }
 

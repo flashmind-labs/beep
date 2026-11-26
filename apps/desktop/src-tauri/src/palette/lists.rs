@@ -1,30 +1,27 @@
 //! What the palette searches. `follow` reads it for the app's whole life,
 //! each source apart so a slow one holds up none of the rest, and rebuilds
-//! the index on each answer. The lists are saved in the views file, so a new
-//! launch finds them before the machines answer. The sessions are not kept
+//! the index on each change of the lists, which `palette_store` keeps and saves. The sessions are not kept
 //! here: the index takes them from the session mirror each time it is built,
 //! which is when a window asks for it or opens the palette, and adds the few
 //! the user opened that the mirror does not hold.
 
-use super::index::{BranchRow, PaletteLists, build_index};
+use super::index::build_index;
 use crate::{
     agents::overlay::overlaid,
     center::{section, sections::mesh_imports},
     fleet::{Fleet, session_mirror::SessionMirror},
-    projects::branches::read_branches as read_project_branches,
-    store::{
-        lock,
-        view_cache::{View, ViewCache, cache_view},
+    palette_store::{
+        PaletteStore,
+        lists::{BranchRow, PaletteLists},
     },
+    projects::branches::read_branches as read_project_branches,
+    store::lock,
 };
 use beep_fleet::Session as FleetSession;
-use beep_proto::{ImportedProject, MachineSession};
+use beep_proto::MachineSession;
 use std::{
     collections::{HashMap, HashSet},
-    sync::{
-        Arc, Mutex, MutexGuard,
-        atomic::{AtomicU64, Ordering},
-    },
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tauri::{AppHandle, Emitter, Manager, State, ipc::Response};
@@ -40,22 +37,13 @@ const LOCAL_GAP: Duration = Duration::from_secs(2);
 /// The most projects whose branches are read.
 const BRANCH_PROJECTS: usize = 8;
 
-struct Held {
-    lists: PaletteLists,
-    /// The index as JSON, as the windows read it.
-    index: String,
-}
-
-/// The lists and their index.
+/// The index, as the windows read it.
 pub(crate) struct PaletteCache {
-    held: Mutex<Held>,
+    index: Mutex<String>,
     read_lists: Notify,
     /// Waits for the rows the opening of the palette asked for, which end with the palette's next
     /// build of the index.
     settling: Mutex<Option<AbortOnDropHandle<()>>>,
-    /// Counts the reads of the mesh's projects and the removals, so a read
-    /// taken before a removal cannot bring the project back.
-    tickets: AtomicU64,
 }
 
 fn index_json(lists: &PaletteLists, sessions: &[MachineSession]) -> anyhow::Result<String> {
@@ -63,34 +51,16 @@ fn index_json(lists: &PaletteLists, sessions: &[MachineSession]) -> anyhow::Resu
 }
 
 impl PaletteCache {
-    /// Starts from the lists saved in `views`, if it holds them.
-    pub(crate) fn load(views: &ViewCache) -> anyhow::Result<Self> {
-        let mut lists: PaletteLists = match views.get(View::Palette).map(serde_json::from_value) {
-            Some(Ok(lists)) => lists,
-            Some(Err(e)) => {
-                // Only a head start: the machines' lists replace it.
-                log::info!("the saved palette lists do not parse: {e}");
-                PaletteLists::default()
-            }
-            None => PaletteLists::default(),
-        };
-        lists.prune();
+    /// Starts from the lists `store` holds.
+    pub(crate) fn load(store: &PaletteStore) -> anyhow::Result<Self> {
         // The sessions join the index once the mirror holds them.
-        let index = index_json(&lists, &[])?;
+        let index = store.read(|lists| index_json(lists, &[]))?;
+
         Ok(Self {
-            held: Mutex::new(Held { lists, index }),
+            index: Mutex::new(index),
             read_lists: Notify::new(),
             settling: Mutex::new(None),
-            tickets: AtomicU64::new(0),
         })
-    }
-
-    fn held(&self) -> MutexGuard<'_, Held> {
-        lock(&self.held)
-    }
-
-    pub(crate) fn projects(&self) -> Vec<ImportedProject> {
-        self.held().lists.projects.clone().unwrap_or_default()
     }
 
     /// The mirror's sessions as the windows list them, with the opened ones it lacks, less
@@ -99,94 +69,48 @@ impl PaletteCache {
         let fleet = app.state::<Arc<Fleet>>();
         let rows = app.state::<Arc<SessionMirror>>().current();
         let mut sessions = overlaid(app, &fleet, &rows);
-        let held = self.held();
-        let lacking: Vec<_> = held
-            .lists
-            .opened
-            .iter()
-            .filter(|opened| {
-                !sessions
-                    .iter()
-                    .any(|s| s.machine_id == opened.machine_id && s.id == opened.id)
-            })
-            .cloned()
-            .collect();
-        sessions.extend(lacking);
-        held.lists.without_retired(&mut sessions);
+        app.state::<PaletteStore>().read(|lists| {
+            let lacking: Vec<_> = lists
+                .opened
+                .iter()
+                .filter(|opened| {
+                    !sessions
+                        .iter()
+                        .any(|s| s.machine_id == opened.machine_id && s.id == opened.id)
+                })
+                .cloned()
+                .collect();
+            sessions.extend(lacking);
+            lists.without_retired(&mut sessions);
+        });
 
         sessions
     }
 
-    /// The user opened `session`: the palette finds it even when the mirror does not hold it.
-    pub(crate) fn found_session(&self, app: &AppHandle, session: MachineSession) {
-        let held = self
-            .sessions(app)
-            .iter()
-            .any(|s| s.machine_id == session.machine_id && s.id == session.id);
-
-        if !held {
-            self.update(app, |lists| lists.open(session));
-        }
+    pub(super) fn machine_names(&self, app: &AppHandle) -> HashMap<String, String> {
+        app.state::<PaletteStore>().read(|lists| {
+            lists
+                .machines
+                .iter()
+                .flatten()
+                .map(|machine| (machine.id.clone(), machine.name.clone()))
+                .collect()
+        })
     }
 
-    pub(super) fn machine_names(&self) -> HashMap<String, String> {
-        self.held()
-            .lists
-            .machines
-            .iter()
-            .flatten()
-            .map(|machine| (machine.id.clone(), machine.name.clone()))
-            .collect()
-    }
-
-    /// The ticket of a read of the mesh's projects that starts now.
-    pub(crate) fn ticket(&self) -> u64 {
-        self.tickets.fetch_add(1, Ordering::Relaxed) + 1
-    }
-
-    /// `projects` are the imports as the mesh held them at the read with ticket `read`.
-    pub(crate) fn project_list(&self, app: &AppHandle, read: u64, projects: Vec<ImportedProject>) {
-        let mut changed = false;
-        self.update(app, |lists| changed = lists.read_projects(read, projects));
-
-        if changed {
-            let _ = app.emit("palette-text-changed", ());
-        }
-    }
-
-    /// A machine's place of a project was removed: a read taken before now may still hold it.
-    pub(crate) fn place_removed(&self, app: &AppHandle) {
-        let removed_at = self.ticket();
-        self.update(app, |lists| lists.removed_at = removed_at);
-    }
-
-    pub(crate) fn forget_project(&self, app: &AppHandle, project: &str) {
-        let removed_at = self.ticket();
-        self.update(app, |lists| {
-            lists.removed_at = removed_at;
-            lists.forget_project(project);
-        });
-        let _ = app.emit("palette-text-changed", ());
-    }
-
-    /// Changes the lists and rebuilds the index. The windows hear of it only
-    /// when the index came out different.
-    fn update(&self, app: &AppHandle, change: impl FnOnce(&mut PaletteLists)) {
-        {
-            let mut held = self.held();
-            change(&mut held.lists);
-            held.lists.prune();
-            cache_view(&app.state::<Arc<ViewCache>>(), View::Palette, &held.lists);
-        }
-
+    /// Builds the index again. The windows hear of it only when it came out different.
+    fn rebuild(&self, app: &AppHandle) {
         // The sessions follow the lists as changed: opened ones and removed places count.
         let sessions = self.sessions(app);
         let changed = {
-            let mut held = self.held();
+            let built = app
+                .state::<PaletteStore>()
+                .read(|lists| index_json(lists, &sessions));
+            let mut held = lock(&self.index);
 
-            match index_json(&held.lists, &sessions) {
-                Ok(index) if index != held.index => {
-                    held.index = index.clone();
+            match built {
+                Ok(index) if index != *held => {
+                    *held = index.clone();
                     Some(index)
                 }
                 Ok(_) => None,
@@ -208,9 +132,9 @@ impl PaletteCache {
 /// The index as JSON, with the sessions the mirror holds now.
 #[tauri::command]
 pub fn center_palette_index(app: AppHandle, cache: State<'_, PaletteCache>) -> Response {
-    cache.update(&app, |_| {});
+    cache.rebuild(&app);
 
-    Response::new(cache.held().index.clone())
+    Response::new(lock(&cache.index).clone())
 }
 
 /// The palette opened: read the lists again, without anyone waiting for it. The windows get
@@ -223,12 +147,12 @@ pub async fn center_palette_refresh(app: AppHandle) {
     cache.read_lists.notify_one();
     // Lists what is old; the mirror's rows follow into the index.
     mirror.rows();
-    cache.update(&app, |_| {});
+    cache.rebuild(&app);
 
     let handle = app.clone();
     let settling = tokio::spawn(async move {
         if rows.changed().await.is_ok() {
-            handle.state::<PaletteCache>().update(&handle, |_| {});
+            handle.state::<PaletteCache>().rebuild(&handle);
         }
     });
     *lock(&cache.settling) = Some(AbortOnDropHandle::new(settling));
@@ -242,7 +166,25 @@ pub(crate) async fn follow(app: AppHandle) {
     #[cfg(mobile)]
     let copies = std::future::ready(());
 
-    join!(follow_local(&app), follow_branches(&app), copies);
+    join!(
+        follow_store(&app),
+        follow_local(&app),
+        follow_branches(&app),
+        copies
+    );
+}
+
+/// Builds the index again on each change of the lists.
+async fn follow_store(app: &AppHandle) {
+    let mut changes = app.state::<PaletteStore>().watch();
+
+    loop {
+        app.state::<PaletteCache>().rebuild(app);
+
+        if changes.changed().await.is_err() {
+            return;
+        }
+    }
 }
 
 async fn follow_branches(app: &AppHandle) {
@@ -279,23 +221,22 @@ async fn read_local_lists(app: &AppHandle) {
         return;
     }
 
-    let cache = app.state::<PaletteCache>();
-    let read = cache.ticket();
+    let store = app.state::<PaletteStore>();
+    let read = store.ticket();
     let projects = mesh_imports(&fleet, &session).await;
-    cache.project_list(app, read, projects);
+    store.project_list(app, read, projects);
     let machines = fleet.status().machines();
-    app.state::<PaletteCache>().update(app, |lists| {
+    store.update(app, |lists| {
         lists.machines = Some(machines);
     });
 }
 
 /// Each project's are read on a machine.
 async fn read_branches(app: &AppHandle) {
-    let cache = app.state::<PaletteCache>();
-    let projects: Vec<String> = {
-        let held = cache.held();
+    let store = app.state::<PaletteStore>();
+    let projects: Vec<String> = store.read(|lists| {
         let mut seen = HashSet::new();
-        held.lists
+        lists
             .projects
             .iter()
             .flatten()
@@ -303,7 +244,7 @@ async fn read_branches(app: &AppHandle) {
             .map(|p| p.project.clone())
             .take(BRANCH_PROJECTS)
             .collect()
-    };
+    });
     let mut reads = JoinSet::new();
 
     for project in projects {
@@ -342,7 +283,7 @@ async fn read_branches(app: &AppHandle) {
     }
 
     rows.sort_by(|a, b| (&a.project, &a.name).cmp(&(&b.project, &b.name)));
-    cache.update(app, |lists| lists.branches = Some(rows));
+    store.update(app, |lists| lists.branches = Some(rows));
 }
 
 #[cfg(test)]

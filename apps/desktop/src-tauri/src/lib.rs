@@ -14,6 +14,7 @@ mod navigation;
 mod notes;
 mod notices;
 mod palette;
+mod palette_store;
 mod platform;
 mod plugins;
 mod projects;
@@ -736,7 +737,9 @@ fn setup(
         env!("CARGO_PKG_VERSION"),
     ));
 
-    app.manage(palette::PaletteCache::load(&views)?);
+    let palette_store = palette_store::PaletteStore::load(&views);
+    app.manage(palette::PaletteCache::load(&palette_store)?);
+    app.manage(palette_store);
     #[cfg(desktop)]
     app.manage(Arc::new(palette::copies::Copies::load(&dir)));
     app.manage(views);
