@@ -1,10 +1,17 @@
 import { Fragment, memo, useSyncExternalStore, type ReactNode } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
-import { Guarded } from "./kit.tsx";
+import { ErrorBoundary } from "react-error-boundary";
 
 interface Entry<Slot extends string> { slot: Slot; host: HTMLElement | null; content: ReactNode; identity?: string }
 interface Scope { id: number; render(): ReactNode; subscribe(listener: () => void): () => void; snapshot(): number }
+/// Keeps a render error inside its part of the window: the rest stays up and this part
+/// offers another try. React reports the error to the root's `onCaughtError`. Plain markup
+/// (the kit's `EmptyPanel` and `Button` classes), since the kit sits above this file.
+export function Guarded({ children }: { children: ReactNode }) {
+  return <ErrorBoundary fallbackRender={({ resetErrorBoundary }) => <><div className="cc-panel cc-empty"><b>This part failed to draw</b></div><button type="button" className="dbtn small" onClick={resetErrorBoundary}>Try again</button></>}>{children}</ErrorBoundary>;
+}
+
 const scopes = new Map<number, Scope>();
 let next = 0, root: Root | null = null;
 /// Set when a window's own tree renders the scopes in place of the shared root.

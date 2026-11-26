@@ -1,10 +1,9 @@
 import { Fragment, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
-import { createDocumentScope, documentScopes } from "../ui/document-root.tsx";
+import { createDocumentScope, documentScopes, Guarded } from "../ui/document-root.tsx";
 import { RouterContextProvider, RouterProvider } from "@tanstack/react-router";
 import { windowHistory } from "./window-router.ts";
-import { Guarded } from "../ui/kit.tsx";
 import { CenterWindow, shell, type ShellPart } from "./window-shell.tsx";
 
 // The window's one React tree. It renders synchronously as this module loads, so the
