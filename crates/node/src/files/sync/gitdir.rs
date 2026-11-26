@@ -25,7 +25,7 @@ use std::{
     str::FromStr,
 };
 
-use super::scan::{Found, Stat};
+use super::disk::{Found, Stat};
 use crate::files::paths;
 
 mod branches;

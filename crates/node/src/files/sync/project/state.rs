@@ -1,9 +1,9 @@
 //! What a project keeps on disk between runs, and its state in memory.
 
 use crate::files::sync::{
+    disk::Stat,
     map::{Map, Replica, Version},
     root::RootId,
-    scan::Stat,
 };
 use serde::{Deserialize, Serialize};
 use std::{

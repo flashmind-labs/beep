@@ -2,35 +2,81 @@
 //! relative to the open folder and without following links. Everything here
 //! blocks.
 
-use super::scan::Stat;
 use crate::{
-    files::fsat::{self, Dir},
+    files::fsat::{self, Dir, FileId},
     files::place::{Folder, make_dirs_at},
 };
 use anyhow::{Context, Result, bail};
 use std::{
     ffi::OsStr,
-    fs::File,
+    fs::{File, Metadata},
     io,
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
 };
 
+/// What a file looked like on disk, to see whether it changed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(super) struct Stat {
+    pub(super) size: u64,
+    pub(super) mtime_ns: i64,
+    pub(super) ctime_ns: i64,
+    pub(super) inode: u64,
+    pub(super) device: u64,
+    pub(super) executable: bool,
+}
+
+impl From<&Metadata> for Stat {
+    fn from(meta: &Metadata) -> Self {
+        let id = fsat::id_of_metadata(meta);
+        Self {
+            size: meta.len(),
+            mtime_ns: fsat::mtime_ns(meta),
+            ctime_ns: fsat::ctime_ns(meta),
+            inode: id.inode,
+            device: id.device,
+            executable: fsat::is_executable(meta),
+        }
+    }
+}
+
+impl Stat {
+    pub(super) fn mtime_ms(&self) -> i64 {
+        self.mtime_ns.div_euclid(1_000_000)
+    }
+
+    pub(super) fn id(&self) -> FileId {
+        FileId {
+            device: self.device,
+            inode: self.inode,
+        }
+    }
+}
+
+/// A file sync keeps.
+#[derive(Debug, Clone)]
+pub(super) struct Found {
+    /// Relative to the project folder, parts joined with `/`.
+    pub(super) path: String,
+    pub(super) abs: PathBuf,
+    pub(super) stat: Stat,
+}
+
 /// What is at a path now.
 #[derive(Debug)]
-pub(super) enum Found {
+pub(super) enum OnDisk {
     Missing,
     File(Stat),
     /// A folder, a link or a special file.
     Other,
 }
 
-impl Found {
+impl OnDisk {
     /// Whether it is what the last scan saw: `expected` a file, or nothing.
     fn is(&self, expected: Option<&Stat>) -> bool {
         match (self, expected) {
-            (Found::Missing, None) => true,
-            (Found::File(now), Some(then)) => same(now, then),
+            (OnDisk::Missing, None) => true,
+            (OnDisk::File(now), Some(then)) => same(now, then),
             _ => false,
         }
     }
@@ -70,25 +116,25 @@ fn open_dirs(dir: &Dir, path: &Path) -> io::Result<Option<Dir>> {
     Ok(Some(current))
 }
 
-fn found_at(dir: &Dir, name: &OsStr) -> io::Result<Found> {
+fn found_at(dir: &Dir, name: &OsStr) -> io::Result<OnDisk> {
     Ok(match dir.metadata(name) {
-        Ok(Some(meta)) if meta.is_file() => Found::File(Stat::from(&meta)),
-        Ok(Some(_)) => Found::Other,
-        Ok(None) => Found::Missing,
-        Err(e) if e.kind() == io::ErrorKind::InvalidInput => Found::Other,
+        Ok(Some(meta)) if meta.is_file() => OnDisk::File(Stat::from(&meta)),
+        Ok(Some(_)) => OnDisk::Other,
+        Ok(None) => OnDisk::Missing,
+        Err(e) if e.kind() == io::ErrorKind::InvalidInput => OnDisk::Other,
         Err(e) => return Err(e),
     })
 }
 
 /// What is at `path` in the project folder.
-pub(super) fn look(root: &Folder, path: &str) -> io::Result<Found> {
+pub(super) fn look(root: &Folder, path: &str) -> io::Result<OnDisk> {
     let (parent, name) = split(path);
 
     match open_dirs(root.dir(), parent) {
         Ok(Some(dir)) => found_at(&dir, name),
-        Ok(None) => Ok(Found::Missing),
+        Ok(None) => Ok(OnDisk::Missing),
         // A part of the folder is a file or a link.
-        Err(e) if fsat::not_a_folder(&e) => Ok(Found::Other),
+        Err(e) if fsat::not_a_folder(&e) => Ok(OnDisk::Other),
         Err(e) => Err(e),
     }
 }
@@ -141,7 +187,7 @@ pub(super) fn place(
     }
 
     match found_at(&dir, name)? {
-        Found::File(stat) => Ok(stat),
+        OnDisk::File(stat) => Ok(stat),
         _ => bail!("{path} changed while it was put in place"),
     }
 }
@@ -155,7 +201,7 @@ pub(super) fn remove(root: &Folder, path: &str, expected: &Stat) -> Result<bool>
     };
 
     match found_at(&dir, name)? {
-        Found::Missing => return Ok(true),
+        OnDisk::Missing => return Ok(true),
         found if !found.is(Some(expected)) => return Ok(false),
         _ => {}
     }
@@ -198,7 +244,7 @@ pub(super) fn rename(root: &Folder, from: &str, to: &str, expected: &Stat) -> Re
     fsat::rename_new(&from_dir, from_name, &to_dir, to_name, false)
         .with_context(|| format!("moving {from} to {to}"))?;
     match found_at(&to_dir, to_name)? {
-        Found::File(stat) => Ok(Some(stat)),
+        OnDisk::File(stat) => Ok(Some(stat)),
         _ => bail!("{to} changed while it was moved"),
     }
 }

@@ -6,7 +6,7 @@ use super::{
     task::Task,
 };
 use crate::files::sync::{
-    disk::{self, Found as OnDisk, same},
+    disk::{self, Found, OnDisk, same},
     gitdir::{self, Checkout, CheckoutPaths, Repo},
     root::{self, Checked, RootId},
     rules::{MARKER, Rules},
@@ -276,7 +276,7 @@ impl Task {
                 {
                     continue;
                 }
-                walked.files.push(scan::Found {
+                walked.files.push(Found {
                     abs: root.join(&path),
                     path,
                     stat: prior.stat,

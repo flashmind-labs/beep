@@ -10,10 +10,11 @@ use super::{
 use crate::files::paths;
 use crate::files::sync::{
     Parts,
+    disk::{Found, Stat},
     gitdir::{BranchTip, Checkout, Oid},
     map::{Entry, FileMeta, Map, Order, Version, is_conflict},
     rules::{MARKER, Rules},
-    scan::{self, Found, MAX_FILES, Stat},
+    scan::{self, MAX_FILES},
     watch::{Mode, Watcher},
 };
 use crate::{

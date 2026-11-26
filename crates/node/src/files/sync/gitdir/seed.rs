@@ -1,7 +1,7 @@
 //! Recovery objects stay local even when a new machine imports this repository.
 
 use super::{GIT, RefNow, Repo};
-use crate::files::sync::scan::{Found, Stat};
+use crate::files::sync::disk::{Found, Stat};
 use anyhow::{Context, Result};
 use std::{fs, io::Write, path::Path, process::Stdio};
 

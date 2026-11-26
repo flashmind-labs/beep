@@ -3,10 +3,11 @@
 
 use super::state::{Seen, State};
 use crate::files::sync::{
+    disk::{Found, Stat},
     gitdir::{self, Kind},
     map::{Entry, FileMeta, Map, Order, Version, valid_path},
     rules::Rules,
-    scan::{Found, MAX_FILES, Stat},
+    scan::MAX_FILES,
 };
 use std::path::Path;
 

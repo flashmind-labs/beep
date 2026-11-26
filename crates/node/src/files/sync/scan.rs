@@ -3,11 +3,12 @@
 //! reference (`TryReference`), so a big file is read but not copied.
 
 use super::{
+    disk::{Found, Stat},
     gitdir,
     rules::{Rules, Skip},
 };
 use crate::files::{
-    fsat::{self, FileId},
+    fsat::self,
 };
 use anyhow::{Context, Result, ensure};
 use beep_proto::node::sync::{Rule, SkippedPath};
@@ -17,7 +18,7 @@ use iroh_blobs::{
 };
 use std::{
     collections::BTreeSet,
-    fs::{self, Metadata},
+    fs,
     path::{Component, Path, PathBuf},
 };
 use tokio::task::spawn_blocking;
@@ -26,53 +27,6 @@ use tokio::task::spawn_blocking;
 /// should be pinned to its machine.
 pub(super) const MAX_FILES: usize = 50_000;
 pub(super) const MAX_BYTES: u64 = 64 << 30;
-
-/// What a file looked like on disk, to see whether it changed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub(super) struct Stat {
-    pub(super) size: u64,
-    pub(super) mtime_ns: i64,
-    pub(super) ctime_ns: i64,
-    pub(super) inode: u64,
-    pub(super) device: u64,
-    pub(super) executable: bool,
-}
-
-impl From<&Metadata> for Stat {
-    fn from(meta: &Metadata) -> Self {
-        let id = fsat::id_of_metadata(meta);
-        Self {
-            size: meta.len(),
-            mtime_ns: fsat::mtime_ns(meta),
-            ctime_ns: fsat::ctime_ns(meta),
-            inode: id.inode,
-            device: id.device,
-            executable: fsat::is_executable(meta),
-        }
-    }
-}
-
-impl Stat {
-    pub(super) fn mtime_ms(&self) -> i64 {
-        self.mtime_ns.div_euclid(1_000_000)
-    }
-
-    fn id(&self) -> FileId {
-        FileId {
-            device: self.device,
-            inode: self.inode,
-        }
-    }
-}
-
-/// A file sync keeps.
-#[derive(Debug, Clone)]
-pub(super) struct Found {
-    /// Relative to the project folder, parts joined with `/`.
-    pub(super) path: String,
-    pub(super) abs: PathBuf,
-    pub(super) stat: Stat,
-}
 
 /// What a walk found.
 #[derive(Debug, Default)]

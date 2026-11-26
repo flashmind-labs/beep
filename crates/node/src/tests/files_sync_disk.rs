@@ -98,7 +98,7 @@ fn a_rename_never_replaces_and_links_are_not_files() {
         "a"
     );
     std::os::unix::fs::symlink("b.txt", dir.path().join("l")).unwrap();
-    assert!(matches!(look(&folder, "l").unwrap(), Found::Other));
-    assert!(matches!(look(&folder, "l/x").unwrap(), Found::Other));
-    assert!(matches!(look(&folder, "nope/x").unwrap(), Found::Missing));
+    assert!(matches!(look(&folder, "l").unwrap(), OnDisk::Other));
+    assert!(matches!(look(&folder, "l/x").unwrap(), OnDisk::Other));
+    assert!(matches!(look(&folder, "nope/x").unwrap(), OnDisk::Missing));
 }

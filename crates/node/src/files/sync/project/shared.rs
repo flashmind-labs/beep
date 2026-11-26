@@ -5,12 +5,12 @@ use super::{
     state::{Cursor, GitCopy, State, read_saved},
 };
 use crate::files::sync::{
-    disk::{self},
+    disk::{self, Stat},
     gitdir::{self, BranchTip, Checkout, Oid, Repo, WriteGuard},
     ignored::IgnoredRoot,
     map::{Changes, Entry, Replica, is_conflict, original_of, valid_path},
     rules::Rules,
-    scan::{MAX_FILES, Stat},
+    scan::MAX_FILES,
     watch::Key,
 };
 use crate::files::place::Folder;

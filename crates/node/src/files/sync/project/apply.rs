@@ -8,14 +8,14 @@ use super::{
     task::{Task, WAITING_FOR_GIT},
 };
 use crate::files::sync::{
-    disk::{self},
+    disk::{self, Found, Stat},
     gitconfig,
     gitdir::{self, Checkout, Kind, Oid, RefMove, Repo, Stay, ref_stat},
     map::{FileMeta, is_conflict, original_of},
     progress::{self, Meter},
     root::{Checked, exclude_from_git},
     rules::MARKER,
-    scan::{self, Found, Stat},
+    scan,
 };
 use crate::files::{fsat::Dir, place::Folder};
 use crate::{files::place::Partial, read_lock};
