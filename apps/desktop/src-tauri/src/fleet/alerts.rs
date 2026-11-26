@@ -113,7 +113,7 @@ fn direct(told: Told) -> Direct {
             notice, options, ..
         } => Direct::Notice {
             notice,
-            allow_deny: crate::notices::notify::allow_deny(&options),
+            allow_deny: crate::platform::notify::allow_deny(&options),
         },
         Told::Run(news) => Direct::Run(news),
     }

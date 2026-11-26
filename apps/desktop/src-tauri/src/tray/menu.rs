@@ -4,8 +4,9 @@
 use super::waiting::{self, WaitingList};
 use crate::{
     bar,
-    center::{self, CenterTarget, targets::REPORT},
+    center::{self, targets::REPORT},
     platform::update,
+    targets::CenterTarget,
 };
 use tauri::{
     App, AppHandle, Manager, Wry,

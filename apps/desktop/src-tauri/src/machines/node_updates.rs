@@ -6,7 +6,7 @@ use crate::{
     beep::state::Prefs,
     error::DesktopError,
     fleet::{Fleet, files},
-    notices::notify,
+    platform::notify,
 };
 use beep_mesh::Device;
 use futures::{StreamExt, stream::FuturesUnordered};

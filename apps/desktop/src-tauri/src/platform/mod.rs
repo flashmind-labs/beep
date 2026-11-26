@@ -1,4 +1,4 @@
-//! The desktop app: its log, login `PATH`, installed editors and updates.
+//! The desktop app: its log, login `PATH`, installed editors, updates and system notifications.
 
 pub(crate) mod editors;
 #[cfg(desktop)]
@@ -15,6 +15,7 @@ pub(crate) mod logfile;
 #[cfg(all(unix, desktop))]
 pub(crate) mod login_path;
 pub(crate) mod metrics;
+pub(crate) mod notify;
 pub(crate) mod startup;
 #[cfg(all(desktop, not(target_os = "macos")))]
 pub(crate) mod update;

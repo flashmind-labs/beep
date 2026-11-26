@@ -4,7 +4,7 @@
 //! downloaded update too. The configured feed has minor releases only;
 //! Developer mode reads the feed of every release beside it.
 
-use crate::{beep::state::Prefs, notices::notify};
+use crate::{beep::state::Prefs, platform::notify};
 use std::{
     sync::{Mutex, MutexGuard, PoisonError},
     time::Duration,

@@ -1,10 +1,6 @@
 //! What each notice a machine of the mesh sends does to the tray and the
 //! windows, and when it shows as a macOS notification.
 
-use super::{
-    history,
-    notify::{self, Action},
-};
 use crate::{
     agents::outbox,
     bar,
@@ -13,6 +9,9 @@ use crate::{
     error::Result,
     fleet::Fleet,
     fleet::{alerts::Direct, session_mirror::SessionMirror},
+    notes,
+    platform::notify::{self, Action},
+    targets::CenterTarget,
 };
 use beep_fleet::Read;
 use beep_mesh::machine::listing::Host;
@@ -35,6 +34,7 @@ const SETTLE: Duration = Duration::from_secs(5);
 pub(crate) async fn follow_actions(app: AppHandle, mut actions: mpsc::UnboundedReceiver<Action>) {
     while let Some(action) = actions.recv().await {
         match action {
+            Action::Open(target) => open(&app, target),
             Action::Answer(key, allow) => {
                 if let Err(e) = answer_agent(&app, key, allow).await {
                     log::warn!("answering from a notification: {e}");
@@ -50,6 +50,22 @@ pub(crate) async fn follow_actions(app: AppHandle, mut actions: mpsc::UnboundedR
             #[cfg(mobile)]
             Action::UpdateNodes => {}
         }
+    }
+}
+
+/// Opens `target` in the command center, from the main thread as the tray does.
+fn open(app: &AppHandle, target: CenterTarget) {
+    let handle = app.clone();
+    let opened = app.run_on_main_thread(move || {
+        let pending = handle.state::<center::Pending>();
+
+        if let Err(e) = center::open_on(&handle, &pending, target) {
+            log::warn!("opening what a notification is about: {e}");
+        }
+    });
+
+    if let Err(e) = opened {
+        log::warn!("opening what a notification is about: {e}");
     }
 }
 
@@ -85,7 +101,7 @@ pub(crate) async fn serve(app: AppHandle, mut direct: mpsc::Receiver<Direct>) {
             // A build: the bell keeps it, and the first machine to tell
             // it shows it.
             Direct::Run(news) => {
-                if let Some(note) = history::run_ended(&app, &news)
+                if let Some(note) = notes::run_ended(&app, &news)
                     && !note.read
                     && let Some(target) = note.target.clone()
                 {
@@ -138,7 +154,7 @@ fn agent_notice(
     let shown =
         app.state::<crate::agents::shown::AgentsShown>()
             .shows(&on_screen, key, Instant::now());
-    let unread = history::agent_notice(app, key, &notice, allow_deny, shown, reviewer);
+    let unread = notes::agent_notice(app, key, &notice, allow_deny, shown, reviewer);
 
     if !app.state::<Prefs>().agent_notices() || shown {
         return;
@@ -167,7 +183,7 @@ fn show_unread(
     tauri::async_runtime::spawn(async move {
         sleep_until(settle.into()).await;
 
-        if history::still_unread(&app, &read) {
+        if notes::still_unread(&app, &read) {
             show(&app);
         }
     });

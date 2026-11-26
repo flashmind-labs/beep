@@ -5,8 +5,8 @@
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
 use crate::{
-    center::{self, AgentTarget, CenterTarget},
     markdown::plain_text,
+    targets::{AgentTarget, CenterTarget},
 };
 use beep_proto::{
     AgentNoticeKey, Notice,
@@ -151,25 +151,9 @@ fn ask(notice: &Notice) -> Option<AgentNoticeKey> {
     key.question.is_some().then_some(key)
 }
 
-/// Opens `target` in the command center, from the main thread as the tray
-/// does.
-fn open(app: &AppHandle, target: CenterTarget) {
-    let handle = app.clone();
-    let opened = app.run_on_main_thread(move || {
-        let pending = handle.state::<center::Pending>();
-
-        if let Err(e) = center::open_on(&handle, &pending, target) {
-            log::warn!("opening what a notification is about: {e}");
-        }
-    });
-
-    if let Err(e) = opened {
-        log::warn!("opening what a notification is about: {e}");
-    }
-}
-
-/// What a notification's button asks for, which `route::follow_actions` carries out.
+/// What a click or a button on a notification asks for, which `route::follow_actions` carries out.
 pub(crate) enum Action {
+    Open(CenterTarget),
     Answer(AgentNoticeKey, bool),
     UpdateNodes,
 }
@@ -260,7 +244,7 @@ pub(crate) use mac::init;
 #[cfg(target_os = "macos")]
 #[allow(deprecated)] // Keep the existing notification presentation and development identity.
 mod mac {
-    use super::{Action, Interaction, Response, Route, notification_icon, open, response, ring};
+    use super::{Action, Interaction, Response, Route, notification_icon, response, ring};
     use objc2::{
         AnyThread, DefinedClass, define_class, msg_send,
         rc::Retained,
@@ -333,7 +317,7 @@ mod mac {
             };
 
             match response(route, interaction) {
-                Response::Open(target) => open(self.ivars(), target),
+                Response::Open(target) => ring(self.ivars(), Action::Open(target)),
                 Response::Answer(key, allow) => ring(self.ivars(), Action::Answer(key, allow)),
                 Response::UpdateNodes => ring(self.ivars(), Action::UpdateNodes),
                 Response::Nothing => {}
@@ -438,5 +422,5 @@ mod mac {
 }
 
 #[cfg(test)]
-#[path = "../tests/notices_notify.rs"]
+#[path = "../tests/platform_notify.rs"]
 mod tests;

@@ -63,19 +63,19 @@ pub fn follow_feed(app: &AppHandle) {
 
 #[cfg(not(feature = "sparkle"))]
 pub async fn check(app: &AppHandle, _asked: bool) {
-    crate::notices::notify::text(app, "Updates require an installed Beep app", "");
+    crate::platform::notify::text(app, "Updates require an installed Beep app", "");
 }
 
 #[cfg(feature = "sparkle")]
 pub async fn check(app: &AppHandle, _asked: bool) {
     let Some(updater) = app.sparkle_updater() else {
-        crate::notices::notify::text(app, "Updates require an installed Beep app", "");
+        crate::platform::notify::text(app, "Updates require an installed Beep app", "");
         return;
     };
 
     if let Err(error) = updater.check_for_updates() {
         log::warn!("checking for an update: {error}");
-        crate::notices::notify::text(app, "Could not check for updates", "Try again later.");
+        crate::platform::notify::text(app, "Could not check for updates", "Try again later.");
     }
 }
 
