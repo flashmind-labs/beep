@@ -367,3 +367,46 @@ fn a_waiting_reader_keeps_its_query() {
     assert!(!snapshots.sweep(id, &Topic::new("terminals"), Instant::now() + LINGER * 2));
     drop(waiting);
 }
+
+#[tokio::test]
+async fn a_wait_keeps_its_topic_subscribed_while_no_view_wants_it() {
+    let snapshots = Arc::new(Snapshots::default());
+    let id = iroh::SecretKey::generate().public();
+    let reader = snapshots.reader(id);
+    let hold = reader.hold(&Read::SyncList);
+
+    // What the events loop does with no view open.
+    let mut wanted = BTreeMap::new();
+    snapshots.add_holds(&mut wanted, &[id]);
+    snapshots.reconcile(&wanted);
+    let topics = wanted.remove(&id).unwrap();
+    assert_eq!(topics, [Read::SyncList.topic().unwrap()]);
+
+    let follow = reader.follow(Read::SyncList);
+    tokio::pin!(follow);
+    assert!(futures::poll!(&mut follow).is_pending());
+
+    let generation = Uuid::new_v4();
+    assert!(snapshots.connected(id, topics[0].clone(), generation));
+    let current = follow.await.unwrap();
+    let query = snapshots.queries(id).pop().unwrap();
+    let status = Value::Sync(Box::new(beep_proto::node::sync::Reply::Status {
+        projects: Vec::new(),
+    }));
+    let snapshot = Snapshot {
+        topic: query.topic.clone(),
+        query: Some(query.id),
+        revision: 1,
+        value: status.clone(),
+    };
+    assert_eq!(snapshots.install(id, generation, &snapshot), Some(true));
+    assert_eq!(
+        watched::read(&current, |held| held.clone()),
+        Some(Ok(status))
+    );
+
+    drop(hold);
+    let mut wanted = BTreeMap::new();
+    snapshots.add_holds(&mut wanted, &[id]);
+    assert!(wanted.is_empty());
+}

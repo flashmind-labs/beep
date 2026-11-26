@@ -1395,6 +1395,7 @@ async fn run(
     let mut mesh = fleet.mesh.subscribe();
     let mut members = fleet.mesh().map(|mesh| mesh.updates());
     let mut status = fleet.status.changes();
+    let mut holds = fleet.snapshots.holds();
     let mut local = beep_node::events::system().subscribe();
     let mut revision = watched::read_and_update(&mut status, |status| *status);
     let mut materialized = Vec::new();
@@ -1406,8 +1407,9 @@ async fn run(
     loop {
         while workers.try_join_next().is_some() {}
         let interests = watched::read_and_update(&mut demand, Clone::clone);
+        let held = watched::read_and_update(&mut holds, |holds| !holds.is_empty());
 
-        if interests.is_empty() {
+        if interests.is_empty() && !held {
             command_workers.clear();
             subscriptions.clear();
             workers.abort_all();
@@ -1415,10 +1417,12 @@ async fn run(
             ring(&app, Change::FilesKept);
             materialized.clear();
 
-            if watched::wait_for(&mut demand, |interests| !interests.is_empty())
-                .await
-                .is_err()
-            {
+            let woken = tokio::select! {
+                woken = watched::wait_for(&mut demand, |interests| !interests.is_empty()) => woken,
+                woken = watched::wait_for(&mut holds, |holds| !holds.is_empty()) => woken,
+            };
+
+            if woken.is_err() {
                 return;
             }
             revision = watched::read_and_update(&mut status, |status| *status);
@@ -1438,13 +1442,14 @@ async fn run(
         machines.push(fleet.me);
         machines.sort();
         machines.dedup();
-        let wanted: BTreeMap<_, _> = machines
-            .into_iter()
-            .filter_map(|machine| {
+        let mut wanted: BTreeMap<_, _> = machines
+            .iter()
+            .filter_map(|&machine| {
                 let topics = topics_for(&interests, machine, fleet.me);
                 (!topics.is_empty()).then_some((machine, topics))
             })
             .collect();
+        fleet.snapshots.add_holds(&mut wanted, &machines);
         fleet.snapshots.reconcile(&wanted);
         ring(&app, Change::FilesKept);
         command_workers.retain(|machine, task| {
@@ -1515,6 +1520,7 @@ async fn run(
 
         tokio::select! {
             changed = demand.changed() => if changed.is_err() { return; },
+            changed = holds.changed() => if changed.is_err() { return; },
             changed = mesh.changed() => {
                 if changed.is_err() { return; }
                 watched::read_and_update(&mut mesh, |_| ());

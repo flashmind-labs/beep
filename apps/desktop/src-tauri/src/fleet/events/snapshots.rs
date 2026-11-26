@@ -1,6 +1,6 @@
 //! Read projections owned by the currently demanded node streams.
 
-use beep_mesh::{MeshError, SnapshotFuture, SnapshotReader};
+use beep_mesh::{FollowFuture, Hold, MeshError, SnapshotFuture, SnapshotReader};
 use beep_proto::node::events::{self, Query, Read, Snapshot, Topic, Value};
 use beep_proto::watched;
 use iroh::EndpointId;
@@ -43,6 +43,28 @@ struct Held {
 pub(crate) struct Snapshots {
     held: Mutex<Held>,
     changed: watch::Sender<()>,
+    /// The topics waits on a node hold open, whatever views are open, one entry per hold.
+    holds: watch::Sender<Vec<(EndpointId, Topic)>>,
+}
+
+/// A wait's demand for a topic on one machine, given up when it is dropped.
+struct Holding {
+    snapshots: Arc<Snapshots>,
+    machine: EndpointId,
+    topic: Topic,
+}
+
+impl Drop for Holding {
+    fn drop(&mut self) {
+        self.snapshots.holds.send_modify(|holds| {
+            if let Some(at) = holds
+                .iter()
+                .position(|(machine, topic)| *machine == self.machine && *topic == self.topic)
+            {
+                holds.remove(at);
+            }
+        });
+    }
 }
 
 impl Default for Snapshots {
@@ -50,11 +72,34 @@ impl Default for Snapshots {
         Self {
             held: Mutex::default(),
             changed: watch::channel(()).0,
+            holds: watch::channel(Vec::new()).0,
         }
     }
 }
 
 impl Snapshots {
+    /// Demands what waits hold on top of what views want, for the machines in `online`.
+    pub(super) fn add_holds(
+        &self,
+        wanted: &mut BTreeMap<EndpointId, Vec<Topic>>,
+        online: &[EndpointId],
+    ) {
+        let holds = self.holds.borrow().clone();
+
+        for (machine, topic) in holds {
+            if online.contains(&machine) {
+                let topics = wanted.entry(machine).or_default();
+                topics.push(topic);
+                topics.sort();
+                topics.dedup();
+            }
+        }
+    }
+
+    pub(super) fn holds(&self) -> watch::Receiver<Vec<(EndpointId, Topic)>> {
+        self.holds.subscribe()
+    }
+
     pub(super) fn reconcile(&self, wanted: &BTreeMap<EndpointId, Vec<Topic>>) {
         let mut held = self.held.lock().unwrap_or_else(PoisonError::into_inner);
         let mut changed = held.machines.len() != wanted.len();
@@ -101,6 +146,9 @@ impl Snapshots {
                     entry.current.send_replace(None);
                 }
             }
+            drop(held);
+            // Waits for the stream to open follow this.
+            self.changed.send_replace(());
             return true;
         }
 
@@ -377,8 +425,36 @@ struct Reader {
 }
 
 impl SnapshotReader for Reader {
-    fn follow(&self, read: Read) -> Option<watch::Receiver<Current>> {
-        self.snapshots.follow(self.id, read)?.ok()
+    fn hold(&self, read: &Read) -> Hold {
+        let Some(topic) = read.topic() else {
+            return Box::new(());
+        };
+        self.snapshots
+            .holds
+            .send_modify(|holds| holds.push((self.id, topic.clone())));
+
+        Box::new(Holding {
+            snapshots: self.snapshots.clone(),
+            machine: self.id,
+            topic,
+        })
+    }
+
+    fn follow(&self, read: Read) -> FollowFuture<'_> {
+        Box::pin(async move {
+            read.topic()?;
+            let mut changes = self.snapshots.changes();
+
+            loop {
+                match self.snapshots.follow(self.id, read.clone()) {
+                    Some(Ok(current)) => return Some(current),
+                    Some(Err(_)) => return None,
+                    None => {}
+                }
+
+                changes.changed().await.ok()?;
+            }
+        })
     }
 
     fn snapshot(&self, read: Read) -> SnapshotFuture<'_> {

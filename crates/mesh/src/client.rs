@@ -200,15 +200,32 @@ pub type SnapshotFuture<'a> =
 /// pushes, or the reason it gave for failing.
 pub type Followed = Option<Result<Value, String>>;
 
+/// Demand for a subscribed read that lasts until it is dropped.
+pub type Hold = Box<dyn Send + Sync>;
+
+/// A subscription's pushed values once it is open, or `None` when none can own the read.
+pub type FollowFuture<'a> =
+    Pin<Box<dyn Future<Output = Option<watch::Receiver<Followed>>> + Send + 'a>>;
+
 /// A caller-owned source of live read projections.
 pub trait SnapshotReader: Send + Sync {
     fn snapshot(&self, read: Read) -> SnapshotFuture<'_>;
 
-    /// `read` as its subscription holds it, changing with each push; `None` when no live
-    /// subscription owns it, as on a node that does not push it.
-    fn follow(&self, _read: Read) -> Option<watch::Receiver<Followed>> {
-        None
+    /// Keeps `read` subscribed, whatever views are open, until the hold is dropped.
+    fn hold(&self, _read: &Read) -> Hold {
+        Box::new(())
     }
+
+    /// `read` as its subscription holds it, changing with each push, once the subscription is
+    /// open; `None` when none can own it. A subscription that ends or fails is followed again
+    /// by calling this again.
+    fn follow(&self, _read: Read) -> FollowFuture<'_> {
+        Box::pin(async { None })
+    }
+}
+
+fn no_subscription() -> MeshError {
+    MeshError::Link(anyhow::anyhow!("this node has no subscription to follow"))
 }
 
 #[derive(Clone)]
@@ -424,14 +441,20 @@ impl PeerClient {
     }
 
     /// Waits until `done` finds what it looks for in the values the node pushes for `read`,
-    /// and gives it. `None` when no live subscription owns `read`, so the caller asks the node
-    /// itself; an error when the node fails the read or the subscription ends first.
+    /// and gives it. The read stays subscribed for the whole wait. A subscription that ends or
+    /// fails meanwhile ends it with an error.
     pub async fn snapshot_until<T>(
         &self,
         read: Read,
         mut done: impl FnMut(&Value) -> Option<T>,
-    ) -> Option<Result<T, MeshError>> {
-        let mut followed = self.snapshots.as_ref()?.follow(read)?;
+    ) -> Result<T, MeshError> {
+        let snapshots = self.snapshots.as_ref().ok_or_else(no_subscription)?;
+        let _hold = snapshots.hold(&read);
+
+        let mut followed = snapshots
+            .follow(read.clone())
+            .await
+            .ok_or_else(no_subscription)?;
 
         loop {
             let step = watched::read_and_update(&mut followed, |held| match held {
@@ -441,15 +464,13 @@ impl PeerClient {
             });
 
             match step {
-                Ok(Some(found)) => return Some(Ok(found)),
+                Ok(Some(found)) => return Ok(found),
                 Ok(None) => {}
-                Err(reason) => return Some(Err(MeshError::Link(anyhow::anyhow!(reason)))),
+                Err(reason) => return Err(MeshError::Link(anyhow::anyhow!(reason))),
             }
 
             if followed.changed().await.is_err() {
-                return Some(Err(MeshError::Link(anyhow::anyhow!(
-                    "the subscription ended"
-                ))));
+                return Err(MeshError::Link(anyhow::anyhow!("the subscription ended")));
             }
         }
     }

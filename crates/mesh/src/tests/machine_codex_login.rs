@@ -49,8 +49,8 @@ impl crate::SnapshotReader for PushedStatus {
         Box::pin(async { None })
     }
 
-    fn follow(&self, _read: Read) -> Option<tokio::sync::watch::Receiver<crate::Followed>> {
-        Some(self.0.subscribe())
+    fn follow(&self, _read: Read) -> crate::FollowFuture<'_> {
+        Box::pin(async { Some(self.0.subscribe()) })
     }
 }
 

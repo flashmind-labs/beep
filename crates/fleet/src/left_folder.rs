@@ -10,12 +10,10 @@ use beep_proto::node::{
 };
 use iroh::EndpointId;
 use std::time::Duration;
-use tokio::time::{Instant, sleep, timeout};
+use tokio::time::timeout;
 
 /// How long the node there has to stop syncing the project.
 const STOP_WAIT: Duration = Duration::from_secs(20);
-/// How often a node that pushes no sync status is asked meanwhile.
-const STOP_POLL: Duration = Duration::from_millis(250);
 /// How long the delete may take.
 const DELETE_LIMIT: Duration = Duration::from_secs(120);
 /// What the script prints before what it did.
@@ -83,46 +81,21 @@ impl Desk {
     /// Whether the node on `machine` no longer syncs `project`: waits for the sync status the
     /// node pushes to drop it.
     async fn stopped_syncing(&self, machine: EndpointId, project: &str) -> bool {
-        if let Ok(client) = self.peers.client(machine).await {
-            let dropped = client.snapshot_until(Read::SyncList, |value| match value {
-                Value::Sync(reply) => match reply.as_ref() {
-                    Reply::Status { projects } => projects
-                        .iter()
-                        .all(|status| status.name != project)
-                        .then_some(()),
-                    _ => None,
-                },
+        let Ok(client) = self.peers.client(machine).await else {
+            return false;
+        };
+        let dropped = client.snapshot_until(Read::SyncList, |value| match value {
+            Value::Sync(reply) => match reply.as_ref() {
+                Reply::Status { projects } => projects
+                    .iter()
+                    .all(|status| status.name != project)
+                    .then_some(()),
                 _ => None,
-            });
+            },
+            _ => None,
+        });
 
-            match timeout(STOP_WAIT, dropped).await {
-                Ok(Some(ended)) => return ended.is_ok(),
-                Ok(None) => {}
-                Err(_) => return false,
-            }
-        }
-
-        self.poll_stopped_syncing(machine, project).await
-    }
-
-    /// `stopped_syncing` for a node that pushes no sync status (compat): asks its statuses until
-    /// the project is gone. Ends with node 0.8.30.
-    async fn poll_stopped_syncing(&self, machine: EndpointId, project: &str) -> bool {
-        let until = Instant::now() + STOP_WAIT;
-
-        loop {
-            if let Some(projects) = self.node_statuses(machine).await
-                && !projects.iter().any(|status| status.name == project)
-            {
-                return true;
-            }
-
-            if Instant::now() >= until {
-                return false;
-            }
-
-            sleep(STOP_POLL).await;
-        }
+        matches!(timeout(STOP_WAIT, dropped).await, Ok(Ok(())))
     }
 }
 

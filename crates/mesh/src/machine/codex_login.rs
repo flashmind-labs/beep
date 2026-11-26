@@ -11,15 +11,13 @@ use beep_proto::{
     },
 };
 use std::time::{Duration, SystemTime};
-use tokio::time::{sleep, timeout};
+use tokio::time::timeout;
 use url::Url;
 
 /// What the node runs for Codex's device sign-in.
 const CODEX_LOGIN: &str = "codex login --device-auth";
 /// How long Codex may take to print its page and code.
 const CODE_LIMIT: Duration = Duration::from_secs(20);
-/// How often its output is read while waiting for the code.
-const CODE_POLL: Duration = Duration::from_millis(300);
 /// How long a code lasts when Codex does not say; it says 15 minutes.
 const CODE_LIFETIME: Duration = Duration::from_secs(15 * 60);
 /// Why the sign-in is over when its task is gone.
@@ -79,17 +77,13 @@ async fn give_up(client: &PeerClient, id: TaskId) {
 /// first.
 async fn wait_for_code(client: &PeerClient, id: TaskId) -> Result<Prompt, String> {
     let read = Read::Process(process::Request::Status { id });
-    let outcome = client
+    client
         .snapshot_until(read, |value| match value {
             Value::Process(reply) => sign_in_step(reply),
             _ => Some(Err(STOPPED.into())),
         })
-        .await;
-
-    match outcome {
-        Some(found) => found.map_err(|e| format!("{e:#}"))?,
-        None => poll_for_code(client, id).await,
-    }
+        .await
+        .map_err(|e| format!("{e:#}"))?
 }
 
 /// How the sign-in goes by one status: the prompt, what ended it, or `None` while it waits.
@@ -103,23 +97,6 @@ fn sign_in_step(reply: &process::Reply) -> Option<Result<Prompt, String>> {
     }
 
     (!task.state.is_running()).then(|| Err(failure(lines)))
-}
-
-/// `wait_for_code` for a node that pushes no process output (compat): asks for it until the
-/// prompt appears. Ends with node 0.8.30.
-async fn poll_for_code(client: &PeerClient, id: TaskId) -> Result<Prompt, String> {
-    loop {
-        let reply = Tasks(client)
-            .ask(&process::Request::Status { id })
-            .await
-            .map_err(|e| format!("{e:#}"))?;
-
-        if let Some(step) = sign_in_step(&reply) {
-            return step;
-        }
-
-        sleep(CODE_POLL).await;
-    }
 }
 
 fn login_state(state: TaskState, lines: &[String]) -> CodexLoginState {
