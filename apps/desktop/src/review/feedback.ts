@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { flushSync } from "react-dom";
 import type { FeedbackState } from "./feedback-view.tsx";
 import { subscribeEach, topic } from "../ui/mesh-events.ts";
+import { windowRequests } from "../bar/core.ts";
 // Review with agent: the diff header's button, the start form's picker
 // under it, and what follows a pick. A pick asks the node of the diff's
 // checkout to start a temporary reviewer there, a child of the session whose
@@ -168,9 +169,8 @@ function say(key: string, text: string) {
 }
 
 /// Opens the reviewer's conversation beside the changes it reviews.
-/// Read when needed: the agent views need the window.
 function openReviewer(run: Run, machineName: string) {
-  void import("../bar/pane.ts").then(({ pane }) => pane.open({ agent: { machine_id: run.machineId, machine_name: machineName, id: run.id, agent: run.agent, cwd: run.root, status: "working", external: false, reviewer: true } }));
+  windowRequests.notify({ kind: "open-agent", agent: { machine_id: run.machineId, machine_name: machineName, id: run.id, agent: run.agent, cwd: run.root, status: "working", external: false, reviewer: true } });
 }
 
 // ----- The button -----

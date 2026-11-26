@@ -12,7 +12,7 @@ import { agentName, runningKey } from "./running-state.ts";
 import { ensureSessions, sessions, sessionsRead } from "./sessions.ts";
 import { sessionVisible } from "./closing.ts";
 import { S } from "../bar/core.ts";
-import type { Location } from "../center/state.ts";
+import { ASSISTANT_CHATS } from "./leave.ts";
 import { shell } from "../center/window-shell.tsx";
 import { paneModel } from "../agentpane/media-layout.ts";
 import { RailList, Row, RunningStatus } from "../project/split-view.tsx";
@@ -26,9 +26,6 @@ import { CHATS, WidthGrip } from "../ui/width-grip.tsx";
 
 /// What the Assistant page opens on: its chats (the phone shows only the list), or a new chat.
 export type AssistantOpen = "chats" | "new";
-
-/// Where a chat's Back goes, and the page's own on the phone.
-export const ASSISTANT_CHATS: Location = { view: "pane", arg: { assistant: "chats" } };
 
 /// The open chat's key, which its row shows as the current item.
 const openChat = createStore<{ key: string | null }>(() => ({ key: null }));

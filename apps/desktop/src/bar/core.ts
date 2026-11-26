@@ -1,6 +1,6 @@
-import type { ProjectWindowProps } from "../project/projectwindow.ts";
 // The bar's page, and the pane the command center window shows it in.
 import { refreshTopicSubscriptions } from "../ui/mesh-events.ts";
+import { signal } from "../ui/signal.ts";
 import { invoke } from "../ui/tauri.ts";
 import type { ViewName, ViewArg, Location } from "../center/state.ts";
 import type { AgentRow } from "../agents/agents-state.ts";
@@ -52,32 +52,35 @@ if (PANE) bar.dataset.view = S.view;
 
 export const $ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel);
 
-/// What the command center window does for the pane. The bar has none.
-export interface WindowHooks {
+/// What the pane asks of the command center window, which follows `windowRequests`. The bar has
+/// no window: nothing follows there.
+export type WindowRequest =
   /// Opens the window's Settings sheet.
-  openSettings(): void;
+  | { kind: "settings" }
   /// Settings' Report a problem row: the sheet closes and the report sheet opens.
-  openReport(): void;
+  | { kind: "report" }
   /// Settings' Keyboard shortcuts row: the sheet closes and the shortcuts sheet opens.
-  openShortcuts(): void;
-  /// Draws window view `name` (such as "providers") inside `root`, a page of
-  /// the Settings sheet, opened with `arg`.
-  embedView?(name: ViewName, root: HTMLElement, arg: ViewArg): () => void;
+  | { kind: "shortcuts" }
   /// ⌘N in the pane: the window picks where the agent starts.
-  newAgent(): void;
-  /// Esc from an agent view goes back to the view that opened it. A session that
-  /// closed leaves at once, with `move` false, so a failed close finds the page it left for.
-  goBack(from: BackTo, move: boolean): void;
-  /// Esc in an agent view, before `AG.back`: steps out of a chat's threads rail or leaves the
-  /// Assistant page for Home. False when `AG.back` should handle it.
-  stepOut?(): boolean;
-  /// The session a start became takes over the page that shows the start, and its navigation
-  /// entry. Nothing happens while the window shows another page.
-  openStarted(session: AgentRow): void;
-  /// The project a coding session runs in, and how to open it.
-  sessionDestinations?(s: { machine_id: string; cwd: string }): { name: string; folder: string }[];
-  projectWindowProps?(project: string): ProjectWindowProps;
-  sessionProject?(s: { machine_id: string; cwd: string }): { label: string; name: string; open(): void; afterClose(s: { machine_id: string; id: string; started_at?: number }): void } | null;
+  | { kind: "new-agent" }
+  /// Draws window view `name` (such as "providers") inside `root`, a page of the Settings sheet,
+  /// opened with `arg`. `unembed` with the same token mounts it back into its own element.
+  | { kind: "embed"; name: ViewName; root: HTMLElement; arg: ViewArg; token: object }
+  | { kind: "unembed"; token: object }
+  /// Opens machine `id`'s page in Settings.
+  | { kind: "machine-settings"; id: string }
+  /// Opens the Skills of the chat in `folder`.
+  | { kind: "chat-skills"; folder: string; title: string }
+  /// Shows the agent view of `agent` in the pane.
+  | { kind: "open-agent"; agent: AgentRow };
+
+export const windowRequests = signal<WindowRequest>();
+
+/// Draws window view `name` in `root`; what it returns mounts the view back into its own element.
+export function embedInWindow(name: ViewName, root: HTMLElement, arg: ViewArg): () => void {
+  const token = {};
+  windowRequests.notify({ kind: "embed", name, root, arg, token });
+  return () => windowRequests.notify({ kind: "unembed", token });
 }
 
 /// A window view to go back to, as the window opened an agent view from it.
@@ -93,12 +96,6 @@ export function toWindow(target: unknown) {
 
 /// A new chat starts in a project: the window's own pick, else Projects.
 export function newChat() {
-  if (windowHooks) return windowHooks.newAgent();
+  if (PANE) return windowRequests.notify({ kind: "new-agent" });
   void toWindow({ projects: { project: null } });
-}
-
-/// Set by the window once it has loaded the pane.
-export let windowHooks: WindowHooks | null = null;
-export function connectWindow(hooks: WindowHooks) {
-  windowHooks = hooks;
 }

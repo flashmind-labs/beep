@@ -79,23 +79,22 @@ export function openMachineSettings(id: string) {
   });
 }
 
-/// A window view temporarily mounted in the Settings sheet. Unmounting the
-/// sheet restores it only when the underlying page still shows that view.
-let embedded: { name: ViewName } | null = null;
+/// A window view temporarily mounted in the Settings sheet, by the request that mounted it.
+/// Unmounting the sheet restores it only when the underlying page still shows that view.
+let embedded: { name: ViewName; token: object } | null = null;
 
-/// Mounts view `name` into `root` in the sheet. What it returns mounts the
-/// view back into its own element when the window shows it.
-export function embedView(name: ViewName, root: HTMLElement, arg: ViewArg) {
+/// Mounts view `name` into `root` in the sheet, for the request `token`.
+export function embedView(name: ViewName, root: HTMLElement, arg: ViewArg, token: object) {
   const view = embeddable(name);
-  if (!view) return () => {};
-  const mine = { name };
+  if (!view) return;
   unembed();
-  embedded = mine;
+  embedded = { name, token };
   view.mount(root, arg);
-  return () => {
-    if (embedded !== mine) return;
-    unembed();
-  };
+}
+
+/// Mounts the view of request `token` back into its own element, unless another took the sheet.
+export function unembedView(token: object) {
+  if (embedded?.token === token) unembed();
 }
 
 /// The pages Settings shows inside its sheet.

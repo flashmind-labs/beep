@@ -13,7 +13,7 @@ import { AppearanceView, ComputerView } from "./local-view.tsx";
 import { SettingsBreadcrumb, SettingsNavigation, SettingsShell, SettingsSection, SettingsHost, AgentSettingsSection, SettingsFailure, SettingsLoading } from "./settings-shell-view.tsx";
 import { onPhone } from "../ui/platform.ts";
 import { agentAccountsContent, credentialsContent, renderCreds, CRED, ensureAgentAccounts, loadCreds } from "./accounts.tsx";
-import { bar, toWindow, windowHooks, setView } from "../bar/core.ts";
+import { bar, embedInWindow, PANE, toWindow, windowRequests, setView } from "../bar/core.ts";
 import { type BarPageSlot, openBarPage } from "../bar/bar-page.ts";
 import { hintModel } from "../bar/hints.ts";
 import { machinesIn, machinesOut, renderMachines } from "../machines/machines.tsx";
@@ -54,7 +54,7 @@ export async function renderSettings(root?: HTMLElement, page?: string) {
   if (root !== undefined) SET.root = root;
   else if (SET.root && !SET.root.isConnected) SET.root = null;
   // The window shows Settings as its sheet, never as a page of the pane.
-  if (!SET.root && windowHooks) return windowHooks.openSettings();
+  if (!SET.root && PANE) return windowRequests.notify({ kind: "settings" });
   if (!SET.root) setView("settings");
   const token = ++SET.token;
   const alive = () => SET.token === token && setShown();
@@ -241,14 +241,13 @@ function mountPage(path: SettingsPath) {
     return renderMachines(sub?.kind === "machine" ? sub.id : null);
   }
 
-  const embed = windowHooks?.embedView;
-  if (!embed) return;
+  if (!PANE) return;
 
   if (path.page === "agents" && sub?.kind === "agent") {
     // The view draws its machine picker in a toolbar of its own, under the breadcrumb.
-    SET.unembed = embed("providers", box, { agent: sub.id, settings: true });
+    SET.unembed = embedInWindow("providers", box, { agent: sub.id, settings: true });
   } else if (path.page === "instr") {
-    SET.unembed = embed("instructions", box, null);
+    SET.unembed = embedInWindow("instructions", box, null);
   }
 }
 
@@ -342,8 +341,8 @@ function localView(kind: LocalView): ReactNode {
       developer={(enabled: boolean) => void change(generalPending, "developer", "set_developer_mode", { enabled })}
       chooseSaves={() => void pickHere("Save files to", local.set.save_folder).then(folder => { if (folder !== null) void change(generalPending, "saves", "set_save_folder", { folder }); }, e => console.warn(e))}
       useDownloads={() => void change(generalPending, "saves", "use_downloads", {})}
-      shortcuts={() => windowHooks ? windowHooks.openShortcuts() : toggleShortcuts()}
-      report={() => windowHooks ? windowHooks.openReport() : toWindow("report")}
+      shortcuts={() => PANE ? windowRequests.notify({ kind: "shortcuts" }) : toggleShortcuts()}
+      report={() => PANE ? windowRequests.notify({ kind: "report" }) : toWindow("report")}
       credentials={() => goTo(selectPage("creds"))} /> : null;
     case "appearance": return <AppearanceView />;
     case "assistant": return <AssistantView />;
@@ -356,7 +355,7 @@ function localView(kind: LocalView): ReactNode {
     case "creds": return credentialsContent();
     case "plugins": return <PluginsView store={pluginsSettings} />;
     case "skills": return <SkillsView />;
-    case "skills-bar": return <SkillsOverview open={() => windowHooks ? windowHooks.openSettings() : toWindow("settings")} />;
+    case "skills-bar": return <SkillsOverview open={() => PANE ? windowRequests.notify({ kind: "settings" }) : toWindow("settings")} />;
     case "agent-bar": return <AgentsOverview open={() => toWindow("providers")} />;
     case "agent-overview": return <CodingAgentOverview open={(sub: SettingsSub) => { SET.agentsTab = "config"; goTo(openSub(sub)); }} />;
   }

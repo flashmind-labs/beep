@@ -25,7 +25,7 @@ import { filterProjects } from "./projects-state.ts";
 import { openMenu } from "../ui/menu.tsx";
 import { localProjectId } from "./localid.ts";
 import { addHosts, type BarPlace, type BarTarget, barCheckout, barPlace, barPrompt, barReadiness, blockedHosts, forgeOf, nextBarMachine, reviewPrompt, reviewTitled, type SessionTask, sessionIn, type TaskSession, taskSession, taskTitle, targetCheckout, targetFolders, targetPlan } from "./projectbar.ts";
-import { keepMachine, lastMachine, openAgents, openMachine, openMachines } from "../agents/agentnew.tsx";
+import { keepMachine, lastMachine, openAgents, openMachines } from "../agents/agentnew.tsx";
 import { TASK_WORDS } from "../agents/assistant-state.ts";
 import { AGENT_ORDER, allowedOf, type BaseBranches, baseFor, byPreference, type CheckoutPick, DEFAULT_CHECKOUT, harnessFor, keepEffort, knownWorktrees, machineRows, type MachineRow, startPlace } from "../agents/agentpick.ts";
 import { BlockedHelp, NoAgentHelp } from "../agents/start-composer-view.tsx";
@@ -35,7 +35,7 @@ import { projectHarnesses, readProjectHarnesses } from "./project-harnesses.tsx"
 import { AG, accountsOf, type AgentHost, ensureAgentHosts, loadAccountNames } from "../agents/agents-state.ts";
 import { agentKind } from "../agents/agent-kind.ts";
 import { ensureMachines, MACHINES } from "../machines/machine-store.ts";
-import { S } from "../bar/core.ts";
+import { S, windowRequests } from "../bar/core.ts";
 import { ensureSessions, sessions } from "../agents/sessions.ts";
 import { AGENT_ACTIVE } from "../agents/sessionmenu-state.ts";
 import { issueBranch, issuePrompt, type DiscussionTopic, type IssueRow, type PullRequestHead, type PullRequestRow } from "./threads.ts";
@@ -334,7 +334,7 @@ export function drawProjectComp(name: string) {
     harnessDisabled: !agent || pc.starting, open: pc.open ? "pick" : null,
     sendDisabled: pc.starting || barAttachments().reading || !place || !!pc.adding, busy: pc.starting,
     notes: readiness.kind === "no agent" ? <NoAgentHelp openAgents={openAgents} openMachines={openMachines} />
-      : readiness.kind === "blocked" && !pc.adding ? <BlockedHelp host={readiness.host} open={() => openMachine(readiness.host.machine_id)} /> : null,
+      : readiness.kind === "blocked" && !pc.adding ? <BlockedHelp host={readiness.host} open={() => windowRequests.notify({ kind: "machine-settings", id: readiness.host.machine_id })} /> : null,
   });
   drawBarPicker(host, offered);
   barAttachments().setBusy(pc.starting);

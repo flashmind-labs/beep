@@ -3,7 +3,8 @@
 import { createStore } from "zustand/vanilla";
 import { AgentFeed, type Activity } from "./agentfeed-state.ts";
 import { transcripts, transcriptKey, type TranscriptCursor, type TranscriptUpdate } from "./transcript-cache-state.ts";
-import { $, S, changeListeners, windowHooks } from "../bar/core.ts";
+import { $, PANE, S, changeListeners } from "../bar/core.ts";
+import { currentLocation, go } from "../center/nav.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, type AgentModes, type AgentTask, AG, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, openModes, openTasks, where } from "./agents-state.ts";
 import { drawAgentBody } from "./logview.tsx";
 import { disposeQueue } from "./composer-ui.tsx";
@@ -389,8 +390,9 @@ export function leaveStart(start: string) {
   if (!session) return startLost.setState(s => ({ lost: s.lost + 1 }));
   // A released node's row leaves out that the session is the assistant.
   const row = AG.page?.session.assistant ? { ...session, assistant: true } : session;
-  if (windowHooks) windowHooks.openStarted(row);
-  else openSession(row, { back: AG.back, adopt: true });
+  // The window shows the session in the page that shows the start; nothing happens while it shows another page.
+  if (!PANE) openSession(row, { back: AG.back, adopt: true });
+  else if (currentLocation()?.view === "pane") go("pane", { agent: row, adopt: true });
 }
 
 

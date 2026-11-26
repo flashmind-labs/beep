@@ -1,11 +1,16 @@
 import { answers, bar, calls } from "./bar-env.ts";
+import { noMedia } from "./window-mode.ts";
 import test, { type TestContext } from "node:test";
 import { JSDOM } from "jsdom";
 import assert from "node:assert/strict";
 import { flushSync } from "react-dom";
 import "../src/bar/bar-app.tsx";
 import { openBarPage } from "../src/bar/bar-page.ts";
-import { S, setView, connectWindow, windowHooks, type BackTo, type AgentReturn, type WindowHooks } from "../src/bar/core.ts";
+import { S, setView, type BackTo, type AgentReturn } from "../src/bar/core.ts";
+import { nav, wanted } from "../src/center/nav.ts";
+import { state } from "../src/center/state.ts";
+import type { HomeView } from "../src/center/home-state.ts";
+import type { Location } from "../src/center/state.ts";
 import { agentKeys } from "../src/agents/agents.ts";
 import { agentBack, agentsList, drawAgents } from "../src/agents/agents-list.ts";
 import { AG, type AgentPage, type AgentRow, usageLine } from "../src/agents/agents-state.ts";
@@ -474,6 +479,7 @@ function agentsListDom(t: TestContext) {
   Object.defineProperty(dom.window.document, "visibilityState", { value: "visible", configurable: true, writable: true });
   // JSDOM does no layout, so it has no scrolling into view.
   dom.window.HTMLElement.prototype.scrollIntoView = () => {};
+  Object.assign(dom.window, { matchMedia: noMedia });
   const actual = dom.window.document.getElementById("root"); assert.ok(actual);
   const previous = new Map<string, PropertyDescriptor | undefined>();
   for (const [key, value] of Object.entries({ document: dom.window.document, window: dom.window, Event: dom.window.Event, MutationObserver: dom.window.MutationObserver })) {
@@ -545,41 +551,47 @@ test("close refuses ended and external sessions and empty drafts", async () => {
   AG.draft = null;
 });
 
+/// The pages the window was asked for. Opening a project leaves the agent view, as the window does.
+const went: Location[] = [];
+wanted.follow(target => {
+  went.push(target);
+  nav.opened = true;
+  if (target.view === "projects" && !target.arg?.tile) setView("agents");
+});
+
+/// The window knows the project `acme/widget`, which the open session runs in.
+function windowProject() {
+  went.length = 0;
+  state.home = { machines: [], running: [], needs_you: [], projects: [{ name: "acme/widget", machine_id: "m1", folder: "/srv/project" }] } as unknown as HomeView;
+}
+
 for (const back of ["agents", { view: "projects", arg: { project: "acme/widget", tile: "running" } }] satisfies AgentReturn[]) {
   test(`Esc returns to ${typeof back === "string" ? "Running agents" : "the project's Running section"} before the project overview`, async t => {
     agentsListDom(t);
-    const previous = windowHooks;
     t.mock.timers.enable({ apis: ["setInterval"] });
-    t.after(() => { connectWindow(previous!); setView("agent"); });
+    t.after(() => { state.home = null; setView("agent"); });
     openSession("idle");
     Object.assign(AG, { back, draft: null, child: null, modelOpen: false });
     show({});
     answers.agent_sessions = [];
-    let projectOpened = false;
-    let returned: BackTo | undefined;
-    connectWindow({
-      goBack(from: BackTo) { returned = from; },
-      sessionProject() { return { label: "widget", name: "acme/widget", open() { projectOpened = true; } }; },
-    } as unknown as WindowHooks);
+    windowProject();
 
     await agentBack();
 
-    assert.equal(projectOpened, false);
-    if (typeof back === "string") assert.equal(S.view, "agents");
-    else assert.deepEqual(returned, back);
+    if (typeof back === "string") {
+      assert.equal(S.view, "agents");
+      assert.deepEqual(went, []);
+    } else {
+      assert.deepEqual(went, [back]);
+    }
   });
 }
 
-// Keep navigation real while replacing the window's destination renderer: a closed
-// session opens its project, whatever page it was opened from.
+// Keep navigation real: a closed session opens its project, whatever page it was opened from.
 function closeDestination(t: test.TestContext, from: BackTo = { view: "home", arg: null }) {
-  const previous = windowHooks;
-  connectWindow({
-    goBack() { assert.fail("should open the session's project"); },
-    sessionProject() { return { label: "widget", name: "acme/widget", open() { setView("agents"); }, afterClose() { setView("agents"); } }; },
-  } as unknown as WindowHooks);
+  windowProject();
   AG.back = from;
-  t.after(() => connectWindow(previous!));
+  t.after(() => { state.home = null; });
 }
 
 test("a refused background close shows an error without reopening the session", async t => {

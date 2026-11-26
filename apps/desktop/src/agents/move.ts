@@ -11,7 +11,8 @@ import { isAssistant } from "./assistant-state.ts";
 import { isStarting } from "./starting-state.ts";
 import { moveStore, nameOf, onMoves, stateOf } from "./move-store.ts";
 import { sessions, sessionsRead } from "./sessions.ts";
-import { S, windowHooks } from "../bar/core.ts";
+import { S } from "../bar/core.ts";
+import { sessionProject } from "../project/sessionproject.ts";
 import { placeOf } from "./place.ts";
 import { invoke } from "../ui/tauri.ts";
 import { latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
@@ -65,7 +66,7 @@ export function drawMove() {
   const key = agentKey(s);
   if (menuSession !== key) { menuSession = key; menuRead.cancel(); UI.open = false; UI.loading = false; UI.targets = []; closeOutside(); }
   // A chat on a node from before chat moves is refused when asked, in words.
-  const placed = isChat(s) || !!windowHooks?.sessionProject?.(s)?.name;
+  const placed = isChat(s) || !!sessionProject(s)?.name;
   const eligible = canMove(s) && !s.external && !isStarting(s.id) && placed;
   const mid = going(stateOf(s.id)) && here(s)?.from === s.machine_id;
   moveViews.setState({
@@ -140,7 +141,7 @@ async function toggle(s: AgentRow) {
 
 /// The machines of the mesh the session could go to, with what each has.
 async function targets(s: AgentRow): Promise<MoveTarget[]> {
-  const project = windowHooks?.sessionProject?.(s)?.name;
+  const project = sessionProject(s)?.name;
   if (!project) return [];
   const [rows, hosts] = await Promise.all([
     invoke<ProjectMachineRow[] | null>("project_machines", { project }).catch(() => null),
@@ -187,7 +188,7 @@ async function start(s: AgentRow, to: MoveTarget, stop: boolean) {
 }
 
 function moveSession(s: AgentRow, to: MoveTarget, stop: boolean) {
-  const project = windowHooks?.sessionProject?.(s)?.name ?? "";
+  const project = sessionProject(s)?.name ?? "";
   // A session that worked in a worktree resumes in the project folder.
   const tree = placeOf(s);
   return invoke<MoveRecord>("session_move", {

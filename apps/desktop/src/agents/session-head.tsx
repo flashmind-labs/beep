@@ -2,7 +2,8 @@
 // editors that open its folder.
 import { agentMessage, removeSessionPortal, sessionEditHost, setSessionPortal, updateSessionHints } from "./session-frame-state.ts";
 import { updateSessionHead } from "./session-frame.tsx";
-import { PANE, windowHooks } from "../bar/core.ts";
+import { PANE } from "../bar/core.ts";
+import { sessionProject } from "../project/sessionproject.ts";
 import { hintModel, type Hint } from "../bar/hints.ts";
 import { type AgentRow, AG, openModes, sessionUsage } from "./agents-state.ts";
 import { agentKind, folderName } from "./agent-kind.ts";
@@ -21,7 +22,7 @@ import { followsOnly, hasModes, stoppingNow, turnRuns } from "./open-state.ts";
 export function agentHints() {
   const s = AG.page?.session, q = s?.question;
   const slim = (items: readonly Hint[]) => {
-    const project = AG.draft ?? (s && windowHooks?.sessionProject?.(s)?.name) ?? null;
+    const project = AG.draft ?? (s && sessionProject(s)?.name) ?? null;
     return { value: { ...hintModel(items), window: !PANE && !!s && !AG.draft }, project };
   };
   if (AG.draft) return slim([["⌘T", "terminal"], ["⌘2", "files"], ["esc", "back"]]);
@@ -101,7 +102,7 @@ onPlaces(drawAgentHeading);
 
 /// The head's title, the folder and worktree the session works in, and the custom agent it runs as.
 export function headText(s: AgentRow) {
-  const project = windowHooks?.sessionProject?.(s), place = placeOf(s), name = agentKind(s.agent).name;
+  const project = sessionProject(s), place = placeOf(s), name = agentKind(s.agent).name;
   return {
     title: s.title || name,
     folder: project?.label || (place ? placeRepo(place) : shortCwd(s.cwd)) || name,

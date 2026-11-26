@@ -4,7 +4,7 @@ import { JSDOM } from "jsdom";
 process.env.NODE_ENV = "test";
 
 export const calls: { cmd: string; args: unknown }[] = [];
-const dom = new JSDOM("<!doctype html><html><body></body></html>", { url: "https://app.test" });
+const dom = new JSDOM("<!doctype html><html><body><div id='bar'></div></body></html>", { url: "https://app.test" });
 const view = dom.window;
 Object.defineProperty(view.document, "visibilityState", { configurable: true, writable: true, value: "visible" });
 Object.assign(globalThis, {

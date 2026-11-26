@@ -16,7 +16,9 @@ import { parentSession, ensureSessions, sessions, sessionsRead } from "./session
 import { AMBIENT_MS, ambient } from "../ui/active.ts";
 import { leavePane } from "../agentpane/pane-tabs.ts";
 import { draftEsc } from "./draft-state.ts";
-import { bar, S, windowHooks, setView } from "../bar/core.ts";
+import { bar, PANE, S, setView } from "../bar/core.ts";
+import { goBack, stepOut } from "./leave.ts";
+import { sessionProject } from "../project/sessionproject.ts";
 import { hintModel } from "../bar/hints.ts";
 import { renderWaiting } from "../bar/waiting.ts";
 import { openSession } from "./open-state.ts";
@@ -155,26 +157,26 @@ export function agentBack(closed = false) {
   if (S.view === "agent" && AG.draft) {
     if (leavePane()) return;
     const typed = draftMessage.current?.value ?? "";
-    if (draftEsc(typed) === "project") windowHooks?.goBack({ view: "projects", arg: { project: AG.draft } }, true);
+    if (draftEsc(typed) === "project" && PANE) goBack({ view: "projects", arg: { project: AG.draft } }, true);
     return;
   }
 
   if (!closed && S.view === "agent" && (closeModelPicker() || closeMoveMenu())) return;
   // A closed session opens the project's next running one, else the project; one without a
   // return target goes to its project.
-  const project = S.view === "agent" && windowHooks && AG.page ? windowHooks.sessionProject?.(AG.page.session) : null;
+  const project = S.view === "agent" && PANE && AG.page ? sessionProject(AG.page.session) : null;
   if (closed && project && AG.page) return project.afterClose(AG.page.session);
 
   // Esc from a child opens its parent; otherwise it returns to the previous page.
   const up = !closed && S.view === "agent" && AG.open ? AG.page && parentSession(AG.page.session) : undefined;
   if (up) return openSession(up, { back: AG.back });
   if (!closed && S.view === "agent" && leavePane()) return;
-  if (!closed && (S.view === "agent" || S.view === "agentnew") && windowHooks?.stepOut?.()) return;
-  if (typeof AG.back === "object" && AG.back.view && windowHooks) return windowHooks.goBack(AG.back, !closed);
+  if (!closed && (S.view === "agent" || S.view === "agentnew") && PANE && stepOut()) return;
+  if (typeof AG.back === "object" && AG.back.view && PANE) return goBack(AG.back, !closed);
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "agents") return renderAgents();
   if ((S.view === "agent" || S.view === "agentnew") && AG.back === "waiting") return renderWaiting();
   if (project) return project.open();
 
-  if (windowHooks) return windowHooks.goBack({ view: "home", arg: null }, !closed);
+  if (PANE) return goBack({ view: "home", arg: null }, !closed);
   void invoke("hide_bar");
 }

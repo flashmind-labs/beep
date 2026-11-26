@@ -11,7 +11,9 @@ import { agentDrop } from "../chat/attach.tsx";
 import { fileLinkMenu } from "./filelinks.ts";
 import { agentKey, conversationHistory, conversationKey, retitle, sessionKey, type Retitled } from "./conversation-state.ts";
 
-import { $, type AgentReturn, bar, S, windowHooks, setView } from "../bar/core.ts";
+import { $, type AgentReturn, bar, S, setView } from "../bar/core.ts";
+import { sessionProject } from "../project/sessionproject.ts";
+import { projectWindowProps } from "../project/projectops.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
 import { rebindPane, restorePane, startPane } from "../agentpane/media.ts";
 import { openLinked } from "../agentpane/pane-open.ts";
@@ -151,7 +153,7 @@ frameStale.subscribe(({ inPlace }) => drawAgentFrame(inPlace, sessionBody()));
 export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
   const page = AG.page!, s = page.session, k = agentKind(s.agent);
   disposeQueue();
-  const project = windowHooks?.sessionProject?.(s);
+  const project = sessionProject(s);
   // Out of the page a box reads 0: it keeps where the reader left it.
   const keptTop = kept ? (kept.isConnected ? kept.scrollTop : kept.top ?? 0) : 0;
   const b = kept ?? document.createElement("div") as ChatBody;
@@ -167,7 +169,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     await invoke("agent_title_save", { ...where(openOf(s)), title });
     await retitleOpen({ ...openOf(s), title: title || null });
   };
-  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} windowProps={project ? windowHooks?.projectWindowProps?.(project.name) ?? null : null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={page.usage ? sessionUsage(page.usage) : null} moveKey={agentKey(s)} saveTitle={starting ? null : saveTitle} />;
+  const head = <SessionHead agent={s.agent} {...headText(s)} openProject={project?.open ?? null} windowProps={project ? projectWindowProps(project.name) : null} cwd={s.cwd} machine={s.machine_name} machineId={s.machine_id} session={s.id} usage={page.usage ? sessionUsage(page.usage) : null} moveKey={agentKey(s)} saveTitle={starting ? null : saveTitle} />;
   const field = <SessionField mode={mode} name={k.name} banner={banner} moveKey={agentKey(s)} machine={s.machine_id} session={s.id} continueHere={continueHere} attach={agentDrop} draft={conversationKey(s)} removeLast={removeLastAttachment} send={submitAgentMessage} stop={() => void interruptAgent()} openParent={openParent} retry={starting && s.status !== "starting" ? () => void retryStart() : null} cancel={() => void closeOpenSession()} />;
   showSessionFrame({ head, field, body: b, hints: agentHints() }, inPlace, disposeQueue);
   activateMentions(s);

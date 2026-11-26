@@ -1,13 +1,13 @@
 // What a project's name does wherever it shows: pin it, open it in a window, its menu, remove it.
 import { type MouseEvent as ReactMouseEvent } from "react";
 import { invoke, openUrl } from "../ui/tauri.ts";
+import { signal } from "../ui/signal.ts";
 import { onPhone } from "../ui/platform.ts";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { MACHINES } from "../machines/machine-store.ts";
 import { whereRows, openOnLabel, removeProjectSheet, REMOVE_PROJECT } from "./projects-state.ts";
 import { openInEditor } from "./editors.ts";
 import { NEW_WINDOW, opensNewWindow, type Alone, type ProjectWindowProps } from "./projectwindow.ts";
-import { prefetchOnHover } from "./loads.tsx";
 import { openProjects, loadFound } from "./addflow.ts";
 import { projectRows } from "./projectrows.ts";
 import { state, whereOf, homeDataChanged, listsChanged, projectLoaded } from "../center/state.ts";
@@ -52,6 +52,9 @@ function openWindow(alone: Alone) {
   invoke("center_open_window", { alone }).catch(e => console.warn("opening a window:", e));
 }
 
+/// The project the pointer rests on, or null when it leaves; the project page reads it ahead.
+export const projectHover = signal<string | null>();
+
 /// What lets project `name` open in a window of its own: ⌘-click or middle-click on the
 /// element given `clicks`, which also reads the project ahead on hover, or "Open in New Window"
 /// from a right-click on the one given `menu`. The capture runs before the click opens it here.
@@ -63,7 +66,7 @@ export function projectWindowProps(name: string): ProjectWindowProps {
     openProjectWindow(name);
   };
   return {
-    clicks: { onClickCapture: open, onAuxClick: open, ...prefetchOnHover(name) },
+    clicks: { onClickCapture: open, onAuxClick: open, onMouseEnter: () => projectHover.notify(name), onMouseLeave: () => projectHover.notify(null) },
     menu: { onContextMenu: (e: ReactMouseEvent) => { e.stopPropagation(); openProjectMenu(e.nativeEvent, name); } },
   };
 }

@@ -1,4 +1,5 @@
-import { S, windowHooks } from "../bar/core.ts";
+import { S, windowRequests } from "../bar/core.ts";
+import { sessionDestinations } from "../project/sessionproject.ts";
 import { forgetView } from "../agentpane/view-memory.ts";
 import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { NEW_WINDOW } from "../project/projectwindow.ts";
@@ -69,7 +70,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
       if (!onPhone()) openGroup.push({ label: NEW_WINDOW, icon: "openWindow", on: () => openChatWindow(s) });
       openGroup.push({ label: "New thread", icon: "chat", on: () => { draftNewThread(s); open(s); } });
       const chatDir = chatFolder(s.cwd);
-      if (chatDir) openGroup.push({ label: "Skills", icon: "skill", chevron: true, on: () => void import("../project/project-skills.tsx").then(({ openChatSkills }) => openChatSkills(chatDir, s.title || "this chat")) });
+      if (chatDir) openGroup.push({ label: "Skills", icon: "skill", chevron: true, on: () => windowRequests.notify({ kind: "chat-skills", folder: chatDir, title: s.title || "this chat" }) });
     }
 
     const runGroup: MenuLine[] = [];
@@ -91,7 +92,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
       workspaceGroup.push({ label: "Open folder", icon: "folder", on: () => void invoke("open_folder", { path: folder }).catch(err => console.warn("open folder:", err)) });
     }
     if (offers.delete) {
-      const targets = windowHooks?.sessionDestinations?.(s) ?? [];
+      const targets = sessionDestinations(s);
       if (targets.length) workspaceGroup.push({ label: "Move to project", icon: "move", chevron: true, on: () => {
         openMenu(e, "Move to project", [
           { label: "Back", icon: "back", on: () => void sessionMenu(e, s, open) },

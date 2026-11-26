@@ -26,6 +26,7 @@ import { machineTile } from "./board.ts";
 import { state, pages, keep, pageFresh, whereOf, sessionsOf, gitOf, sessionsDue, projectLoaded } from "../center/state.ts";
 import { refreshGit } from "../center/openitems.ts";
 import { currentLocation, go, windowAlone } from "../center/nav.ts";
+import { projectHover } from "./projectops.ts";
 import { projectRows, projectPlaces } from "./projectrows.ts";
 import { sessionChanges, loadSessions, readingSessions, railSessions } from "./sessionsload.ts";
 import { importSheet, addProject, importFromPage, loadFound, openProjects } from "./addflow.ts";
@@ -124,15 +125,14 @@ const HOVER_MS = 150;
 /// last are read ahead.
 const IDLE_PREFETCH_MS = 4000;
 
-/// Reads project `name` ahead once the pointer rests on the element given these handlers.
+/// Reads project `name` ahead once the pointer rests on it.
 /// The pointer rests on one element at a time, so one timer serves them all.
 let hoverTimer: ReturnType<typeof setTimeout> | undefined;
-export function prefetchOnHover(name: string) {
-  return {
-    onMouseEnter: () => { clearTimeout(hoverTimer); hoverTimer = setTimeout(() => prefetch(name), HOVER_MS); },
-    onMouseLeave: () => clearTimeout(hoverTimer),
-  };
+function prefetchOnHover(name: string | null) {
+  clearTimeout(hoverTimer);
+  if (name !== null) hoverTimer = setTimeout(() => prefetch(name), HOVER_MS);
 }
+projectHover.follow(prefetchOnHover);
 
 /// Reads the projects opened last ahead, one after another, while the
 /// window shows; one round at a time.

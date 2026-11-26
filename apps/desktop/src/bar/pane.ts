@@ -10,7 +10,7 @@ import { closePaneTabs, newTerminal, openTerminal } from "../agentpane/media.ts"
 import { showChanges } from "../agentpane/changes.ts";
 import type { TerminalRow } from "../terminals/terminals.tsx";
 import { sessions } from "../agents/sessions.ts";
-import { type BackTo, changeListeners, connectWindow, current, type PaneNow } from "./core.ts";
+import { type BackTo, changeListeners, current, type PaneNow, windowRequests } from "./core.ts";
 import { mountPane } from "./keys.ts";
 import { loadHosts } from "./views.ts";
 import { setPaneShown } from "../ui/active.ts";
@@ -31,8 +31,6 @@ export type PaneTarget =
   | { assistant: AssistantOpen };
 
 export const pane = {
-  /// Hands the pane what the window does for it.
-  connect: connectWindow,
   /// Draws Settings into `el`, the window's sheet, leaving the pane as it
   /// is. It opens on `page` when given, else on the page picked last.
   settings(el: HTMLElement, page?: string) {
@@ -89,3 +87,7 @@ export const pane = {
     setPaneShown(on);
   },
 };
+
+windowRequests.follow(request => {
+  if (request.kind === "open-agent") void pane.open({ agent: request.agent });
+});

@@ -2,21 +2,21 @@
 import { ensureMac } from "../machines/machine-store.ts";
 import "../bar/bar-app.tsx";
 import "./window-root.tsx";
-import { isMobile, onPhone, WINDOWS } from "../ui/platform.ts";
+import { onPhone, WINDOWS } from "../ui/platform.ts";
 import { initConversationSwitcher } from "../agents/conversation-switcher.tsx";
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
 import "../ui/window-defaults.ts";
 import "../ui/zoom.ts";
 import { initMobile } from "./mobile.tsx";
-import { shell, stepOutOfRail, toggleSide } from "./window-shell.tsx";
+import { shell, toggleSide } from "./window-shell.tsx";
 import { closeFocusedTab } from "../agentpane/media.ts";
 import { isCloseKey, isZoomKey } from "../agentpane/media-state.ts";
 import { isNewKey } from "../terminals/newkey-state.ts";
 import { allTerms } from "./allterms.ts";
 import { invoke } from "../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.tsx";
-import { type BackTo, S } from "../bar/core.ts";
+import { windowRequests } from "../bar/core.ts";
 import { seed, type CachedViews } from "./cached.ts";
 import { savedWindowSession, windowTitle, type Alone, type CenterTarget } from "../project/projectwindow.ts";
 import { ensureSessions } from "../agents/sessions.ts";
@@ -28,25 +28,23 @@ import { windowCommand } from "../ui/windowkeys.ts";
 import { state, pagesAccount, keepPagesFile } from "./state.ts";
 import { draw, homeTab, jump } from "./home.tsx";
 import { openDetachedWindow } from "./views.tsx";
-import { asBack, currentLocation, windowAlone, aloneProject, go, goHistory, hasHistory, goTo } from "./nav.ts";
+import { currentLocation, windowAlone, aloneProject, go, goHistory, hasHistory } from "./nav.ts";
 import { drawSide, paneOn, projectHere } from "./sidebar.tsx";
 import { openProjects, addProject, openAddMachine } from "../project/addflow.ts";
-import { projectWindowProps, openProjectWindow } from "../project/projectops.ts";
+import { openProjectWindow } from "../project/projectops.ts";
 import { escUp } from "./escup-state.ts";
-import { nextRunning } from "../project/sessionsload.ts";
+import { runningKey } from "../agents/running-state.ts";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../ui/motion.ts";
 import { pa } from "../project/barstate.ts";
 import { newThreadHere } from "../agents/agents.ts";
 import { AG } from "../agents/agents-state.ts";
-import { ASSISTANT_CHATS } from "../agents/assistant-page.tsx";
-import { pane } from "../bar/pane.ts";
 import { debugWithAgent, initPaneView, readPending, showPending } from "./pane.tsx";
 import { homeCached, refresh } from "./refresh.ts";
-import { openSettings, embedView, closeSettings } from "../settings/sheet.ts";
+import { openSettings, embedView, unembedView, closeSettings, openMachineSettings } from "../settings/sheet.ts";
+import { openChatSkills } from "../project/project-skills.tsx";
 import { followSkin } from "../ui/skin.ts";
 import { guardClicks } from "../ui/clickguard.ts";
 import { keepConnecting } from "../machines/machine-state.ts";
-import { projectOf, repoOf, runningKey } from "../agents/running-state.ts";
 import { followToolUpdates } from "../machines/machines.tsx";
 import { dialogOpen } from "../ui/parts.tsx";
 import { startupDrawn, startupStage } from "../ui/perf.ts";
@@ -175,67 +173,23 @@ function newAgentHere() {
   if (currentLocation()?.view === "home") return void go("pane", { assistant: "new" });
   go("projects", { project: null });
 }
-pane.connect({
-  openSettings,
-  openShortcuts() {
-    closeSettings();
-    showShortcuts();
-  },
-  openReport() {
-    closeSettings();
-    showReport();
-  },
-  embedView,
-  newAgent: newAgentHere,
-  stepOut() {
-    if (S.view === "agent" && stepOutOfRail()) return true;
-
-    const { assistant } = shell.getState();
-    if (!assistant) return false;
-    if (windowAlone?.kind === "chat") return true;
-
-    if (isMobile()) {
-      asBack(() => { goTo(assistant.picked ? ASSISTANT_CHATS : { view: "home", arg: null }); });
-      return true;
-    }
-
-    goBack({ view: "home", arg: null }, S.view === "agent");
-
-    return true;
-  },
-  goBack,
-  openStarted(session) {
-    if (currentLocation()?.view === "pane") go("pane", { agent: session, adopt: true });
-  },
-  sessionDestinations(s) {
-    const projects = state.home?.projects ?? [];
-    const current = projectOf(s, projects);
-    return projects
-      .filter(p => p.machine_id === s.machine_id && p.name !== current?.name && p.folder !== s.cwd)
-      .map(p => ({ name: p.name, folder: p.folder }));
-  },
-  projectWindowProps,
-  sessionProject(s) {
-    const projects = state.home?.projects ?? [], p = projectOf(s, projects);
-    if (!p) return null;
-    const open = () => void openProjects(p.name);
-    // A closed session hands over to the project's next running one, else to the project.
-    const afterClose = (closed: { machine_id: string; id: string; started_at?: number }) => {
-      const next = nextRunning(p.name, closed);
-      if (next) go("pane", { agent: next }); else open();
-    };
-    return { label: repoOf(s, projects) || p.name, name: p.name, open, afterClose };
-  },
+windowRequests.follow(request => {
+  switch (request.kind) {
+    case "settings": return openSettings();
+    case "shortcuts":
+      closeSettings();
+      return showShortcuts();
+    case "report":
+      closeSettings();
+      return showReport();
+    case "new-agent": return newAgentHere();
+    case "embed": return embedView(request.name, request.root, request.arg, request.token);
+    case "unembed": return unembedView(request.token);
+    case "machine-settings": return openMachineSettings(request.id);
+    case "chat-skills": return openChatSkills(request.folder, request.title);
+    case "open-agent": return;
+  }
 });
-
-// The session shrinks back into its card on the board.
-function goBack(from: BackTo, move: boolean) {
-  if (!move) return void goTo(from);
-
-  const session = AG.page?.session;
-  if (session) setHeroCard(runningKey(session));
-  withMove("back", () => { goTo(from); });
-}
 
 /// What the window opens on: its project or chat, with the chat's row as far as the sessions
 /// know it, or for the main window what the bar or tray asked for. Asked at load, beside the

@@ -7,7 +7,7 @@ import { isCommandCall } from "./tool-details-state.ts";
 import { esc, linkified, money, plural, tokenCount } from "../ui/format.ts";
 import { beepCall, beepLine, commandOf, duration, keptSteps, liveThought, onlyNotes, rowParts, runLabel, span, splitTurns, stepLabel, stepOpen, progressSummary, toolKind, toolRuns, turnSections, type Turn, type TurnState } from "./agentturns.ts";
 import { cachedCommandHtml } from "./command-state.ts";
-import { windowHooks } from "../bar/core.ts";
+import { sessionProject } from "../project/sessionproject.ts";
 import { drawPane } from "../agentpane/media-draw.ts";
 import type { SubagentRow } from "../agentpane/subagents-view.tsx";
 import type { ActivityRow, ToolActivity, ToolBody } from "./activity-view.tsx";
@@ -515,7 +515,7 @@ function messageSource(id: string, name: string): { name: string; project: strin
   const source = childRow(sessions, id);
   return {
     name: source?.title || name,
-    project: source ? windowHooks?.sessionProject?.(source)?.label || folderName(source.cwd) || null : null,
+    project: source ? sessionProject(source)?.label || folderName(source.cwd) || null : null,
   };
 }
 

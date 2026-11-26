@@ -3,7 +3,9 @@
 // empty conversation. Sending from it starts the session in place (session.ts
 // openSession with `adopt`); the pane and its terminals stay.
 import { createStore } from "zustand/vanilla";
-import { S, windowHooks, setView } from "../bar/core.ts";
+import { S, setView } from "../bar/core.ts";
+import { goBack } from "./leave.ts";
+import { projectWindowProps } from "../project/projectops.ts";
 import { rebindPane, startPane } from "../agentpane/media.ts";
 import { drawProjectComp, pointBar, projectComp } from "../project/composer.tsx";
 import type { BarPlace } from "../project/projectbar.ts";
@@ -56,9 +58,9 @@ function drawFrame(project: string) {
   const body: ChatBody = document.createElement("div");
   body.className = "dbody agdraft-body"; body.id = "agbody";
   const draft = host = document.createElement("div"); draft.id = "agdraft"; body.append(draft);
-  const openProject = () => windowHooks?.goBack({ view: "projects", arg: { project } }, true);
+  const openProject = () => goBack({ view: "projects", arg: { project } }, true);
   machine.setState("", true);
-  showSessionFrame({ head: <DraftHead windowProps={windowHooks?.projectWindowProps?.(project) ?? null} project={project} openProject={openProject} machine={machine} />, field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; });
+  showSessionFrame({ head: <DraftHead windowProps={projectWindowProps(project)} project={project} openProject={openProject} machine={machine} />, field: null, body, hints: agentHints() }, false, () => { draftMessage.current = null; });
   draft.append(projectComp().form);
   bound = "";
   drawProjectComp(project);

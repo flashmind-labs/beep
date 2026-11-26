@@ -1,7 +1,7 @@
 import { bindPromptStash } from "../chat/stash.tsx";
 import { draftText } from "../chat/compose.tsx";
 import { stashFile } from "../chat/stash-state.ts";
-import { windowHooks } from "../bar/core.ts";
+import { sessionProject } from "../project/sessionproject.ts";
 import { AG } from "./agents-state.ts";
 import type { Attached } from "./agentqueue.ts";
 import { attachPreview } from "./images.tsx";
@@ -11,7 +11,7 @@ import { MN, attachmentKey, setAttached } from "./mentions.ts";
 export function bindSessionStash(field: HTMLTextAreaElement) {
   const open = AG.open;
   bindPromptStash(field, {
-    project: () => AG.open === open && AG.page ? windowHooks?.sessionProject?.(AG.page.session)?.name ?? null : null,
+    project: () => AG.open === open && AG.page ? sessionProject(AG.page.session)?.name ?? null : null,
     hasAttachments: () => !!AG.att.length || !!MN.paths.length,
     capture: async () => {
       if (MN.uploads.length || MN.reading || MN.ask) throw new Error("Wait for the attachments to finish loading");
