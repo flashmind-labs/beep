@@ -31,38 +31,6 @@ use std::{collections::BTreeMap, sync::Arc, time::Instant};
 use tokio::sync::{broadcast::error::RecvError, watch};
 use tokio_util::task::AbortOnDropHandle;
 
-/// The mesh the node belongs to, once it does.
-#[derive(Clone)]
-pub struct Membership {
-    mesh: Arc<watch::Sender<Option<Mesh>>>,
-}
-
-impl Default for Membership {
-    fn default() -> Self {
-        Self {
-            mesh: Arc::new(watch::Sender::new(None)),
-        }
-    }
-}
-
-impl Membership {
-    pub(crate) fn set(&self, mesh: Mesh) {
-        self.mesh.send_replace(Some(mesh));
-    }
-
-    pub(crate) fn clear(&self) {
-        self.mesh.send_replace(None);
-    }
-
-    pub(crate) fn subscribe(&self) -> watch::Receiver<Option<Mesh>> {
-        self.mesh.subscribe()
-    }
-
-    pub(crate) fn get(&self) -> Option<Mesh> {
-        watched::read_sent(&self.mesh, Clone::clone)
-    }
-}
-
 /// Applies the mesh's state to the node now and on every change, until the
 /// mesh stops.
 pub(crate) async fn follow(mesh: Mesh, me: EndpointId, offers: Offers) {

@@ -7,7 +7,7 @@ use crate::{
     files::Folders,
     files::sync::{self, PeerHandler, Syncs},
     files::syncthing::Syncthing,
-    link::Membership,
+    joined_mesh::Membership,
     protocol::{Protocol, Session},
 };
 use anyhow::{Context, Result, anyhow, bail, ensure};

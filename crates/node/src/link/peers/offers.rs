@@ -1,10 +1,11 @@
 //! What a node serves (`Offers`), and who opened a session (`Who`).
 
 use crate::{
+    joined_mesh::Membership,
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
     files::{search::Searches, transfer::Transfers},
     link::{
-        EventSources, from_mesh::Membership, protocol::SessionProtocol, sampler::Sampler,
+        EventSources, protocol::SessionProtocol, sampler::Sampler,
         state::Search, traffic::Traffic,
     },
     protocol::Protocol,

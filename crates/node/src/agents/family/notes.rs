@@ -21,7 +21,7 @@ use super::{Agents, Command, Live, Session};
 use crate::agents::live::Mark;
 use crate::agents::child_view::{ChildView, full_id};
 use super::peer::NoteFailed;
-use crate::{agents::tags, link::Membership, team::asks::Delivery};
+use crate::{agents::tags, joined_mesh::Membership, team::asks::Delivery};
 use beep_proto::node::agent::{Status, StopReason};
 use beep_proto::watched;
 use iroh::EndpointId;

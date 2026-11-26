@@ -8,7 +8,7 @@ use super::{
 };
 use crate::{
     agents::{Agents, conversation},
-    link::Membership,
+    joined_mesh::Membership,
 };
 use beep_mesh::{Key, Mesh};
 use beep_proto::SessionId;

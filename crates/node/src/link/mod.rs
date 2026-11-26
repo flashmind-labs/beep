@@ -16,7 +16,6 @@ host! {
     pub(crate) use events::sources::Registry as EventSources;
     pub(crate) mod from_mesh;
     mod project_remotes;
-    pub use from_mesh::Membership;
     pub mod local_status;
     pub mod peers;
     mod report;

@@ -7,7 +7,7 @@
 
 use super::{Agents, Session};
 use crate::agents::session::{NODE_STOPPED, ended_for_good};
-use crate::link::Membership;
+use crate::joined_mesh::Membership;
 use crate::machine::elect::online;
 use crate::peer_stream::{PeerWatch, Refused};
 use anyhow::Result;

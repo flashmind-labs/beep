@@ -367,7 +367,7 @@ impl Peers {
     }
 
     /// The node's membership, for a service started beside the router.
-    pub fn membership(&self) -> from_mesh::Membership {
+    pub fn membership(&self) -> crate::joined_mesh::Membership {
         self.inner.offers().mesh.clone()
     }
 
