@@ -25,13 +25,13 @@ use std::{
 };
 use tokio::{
     select,
-    sync::mpsc,
+    sync::{Notify, mpsc},
     time::{Instant, sleep, sleep_until},
 };
 use tokio_util::task::AbortOnDropHandle;
 
 /// How often a child asks a machine from before 0.8.28 (compat).
-const ORPHAN_CHECK: Duration = Duration::from_secs(60);
+pub(super) const ORPHAN_CHECK: Duration = Duration::from_secs(60);
 /// How long a follow waits before it dials a machine that dropped again.
 const REDIAL: Duration = Duration::from_secs(5);
 /// How long the parent may be gone or silent before the child closes: long
@@ -60,28 +60,55 @@ fn parent_row<'a>(sessions: &'a [SessionInfo], link: &ParentLink) -> Option<&'a 
     })
 }
 
-/// What a pushed list says of the parent, given the row `last` seen. A parent
-/// that is gone from it is gone. One whose row changed (or first showed) is
-/// asked whether it still keeps the child, which a list does not say. One
-/// whose row did not change says nothing new: `None`.
-pub(super) async fn word<F: Future<Output = Parent>>(
-    sessions: &[SessionInfo],
-    last: &mut Option<SessionInfo>,
-    link: &ParentLink,
-    ask: impl FnOnce() -> F,
-) -> Option<Parent> {
+/// What a pushed list says of the parent.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum Word {
+    /// It is not in the list, or ended for good.
+    Gone,
+    /// Its row changed, or first showed. No field of it says whether it still
+    /// keeps the child, so it is asked, paced by `asks`.
+    Moved,
+    /// Its row is as it was.
+    Same,
+}
+
+/// What a pushed list says of the parent, given the row `last` seen.
+pub(super) fn word(sessions: &[SessionInfo], last: &mut Option<SessionInfo>, link: &ParentLink) -> Word {
     let Some(row) = parent_row(sessions, link) else {
         *last = None;
-        return Some(Parent::Gone);
+        return Word::Gone;
     };
 
     if last.as_ref() == Some(row) {
-        return None;
+        return Word::Same;
     }
 
     *last = Some(row.clone());
 
-    Some(ask().await)
+    Word::Moved
+}
+
+/// Asks whether the parent still keeps the child once `moved` rang, then lets
+/// `ORPHAN_CHECK` pass before the next ask: a burst of row changes is one ask,
+/// sent after the pause. Ends when `ask` has no one to ask or `tx` is closed.
+pub(super) async fn asks<F: Future<Output = Option<Parent>>>(
+    moved: &Notify,
+    mut ask: impl FnMut() -> F,
+    tx: &mpsc::Sender<Parent>,
+) {
+    loop {
+        moved.notified().await;
+
+        let Some(answer) = ask().await else {
+            return;
+        };
+
+        if tx.send(answer).await.is_err() {
+            return;
+        }
+
+        sleep(ORPHAN_CHECK).await;
+    }
 }
 
 /// Reads what `heard` says of the parent until the child is orphaned (true):
@@ -262,6 +289,22 @@ async fn follow(
 ) -> Result<()> {
     let mut watch = PeerWatch::open(mesh, peer, Topic::new("agents")).await?;
     let mut last = None;
+    let moved = Arc::new(Notify::new());
+    let asker = {
+        let (moved, tx, session) = (moved.clone(), tx.clone(), session.clone());
+        let (mesh, link) = (mesh.clone(), link.clone());
+        // Stops with this follow.
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            let ask = || async {
+                let session = session.upgrade()?;
+                let name = Agents::name_of(&session);
+
+                Some(super::peer::ask_parent(&mesh, peer, &link.session, &name, &session.id).await)
+            };
+
+            asks(&moved, ask, &tx).await;
+        }))
+    };
 
     loop {
         let Value::Sessions(reply) = watch.next().await? else {
@@ -270,17 +313,18 @@ async fn follow(
         let SessionsReply::Sessions { sessions } = *reply else {
             continue;
         };
-        let Some(session) = session.upgrade() else {
-            return Ok(());
-        };
-        let name = Agents::name_of(&session);
-        let ask = || async {
-            super::peer::ask_parent(mesh, peer, &link.session, &name, &session.id).await
-        };
 
-        if let Some(word) = word(&sessions, &mut last, link, ask).await
-            && tx.send(word).await.is_err()
-        {
+        match word(&sessions, &mut last, link) {
+            Word::Gone => {
+                if tx.send(Parent::Gone).await.is_err() {
+                    return Ok(());
+                }
+            }
+            Word::Moved => moved.notify_one(),
+            Word::Same => {}
+        }
+
+        if asker.is_finished() {
             return Ok(());
         }
     }

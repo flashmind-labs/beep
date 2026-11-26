@@ -134,6 +134,7 @@ crates/node/src/agents/checkouts.rs | supervise | interval#1 | deadline | drops 
 crates/node/src/agents/claude/watch.rs | serve | sleep_until#1 | deadline | grace for a turn-end hook before the transcript end counts
 crates/node/src/agents/family/notes.rs | tell_until_heard | sleep#1 | retry | sends an unanswered note to the parent again after 5 s
 crates/node/src/agents/family/orphans.rs | ask_every | sleep#1 | compat | asks a parent's machine every 60 s if it lives, only nodes before 0.8.28 that do not push their list; ends with them
+crates/node/src/agents/family/orphans.rs | asks | sleep#1 | pace | at most one ask per 60 s whether the parent keeps the child, sent after a row change; no row field says it
 crates/node/src/agents/family/orphans.rs | feed | sleep#1 | retry | redials the parent's machine after 5 s while it stays online
 crates/node/src/agents/family/orphans.rs | orphaned | sleep_until#1 | deadline | closes the child after the parent was gone or silent for 10 min
 crates/node/src/agents/family/peer.rs | retrying | sleep#1 | retry | pause before trying a failed peer call again

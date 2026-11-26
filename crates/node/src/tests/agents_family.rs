@@ -1098,9 +1098,12 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     after.shutdown().await;
 }
 
-#[tokio::test]
-async fn a_pushed_list_says_whether_the_parent_is_still_there() {
-    use orphans::{Parent, word};
+#[tokio::test(start_paused = true)]
+async fn a_pushed_list_says_whether_the_parent_is_there_and_a_burst_of_changes_is_one_ask() {
+    use orphans::{ORPHAN_CHECK, Parent, Word, asks, word};
+    use std::sync::{Arc, atomic::{AtomicU32, Ordering::SeqCst}};
+    use tokio::{sync::{Notify, mpsc}, task::yield_now, time::advance};
+
     let link = ParentLink {
         machine: None,
         session: "p1".into(),
@@ -1113,51 +1116,63 @@ async fn a_pushed_list_says_whether_the_parent_is_still_there() {
         mode: None,
         background: false,
     };
-    let row = |id: &str, status: Status, error: Option<&str>| SessionInfo {
+    let row = |id: &str, status: Status, error: Option<&str>, summary: &str| SessionInfo {
         id: id.into(),
         state: beep_proto::node::agent::State {
             status,
             error: error.map(str::to_owned),
+            summary: summary.into(),
             ..Default::default()
         },
         ..SessionInfo::default()
     };
-    // What the parent's node answers when asked, and how often it is asked.
-    let asked = std::cell::Cell::new(0u32);
-    let answer = std::cell::Cell::new(Parent::Keeps);
-    async fn said(
-        list: Vec<SessionInfo>,
-        last: &mut Option<SessionInfo>,
-        link: &ParentLink,
-        (asked, answer): (&std::cell::Cell<u32>, &std::cell::Cell<Parent>),
-    ) -> Option<Parent> {
-        word(&list, last, link, || async {
-            asked.set(asked.get() + 1);
-            answer.get()
-        })
-        .await
-    }
     let mut last = None;
 
-    assert_eq!(said(vec![], &mut last, &link, (&asked, &answer)).await, Some(Parent::Gone));
-    assert_eq!(said(vec![row("other", Status::Idle, None)], &mut last, &link, (&asked, &answer)).await, Some(Parent::Gone));
-    assert_eq!(asked.get(), 0, "a parent that is gone is not asked");
-    // It shows: asked once. The same row again says nothing new.
-    assert_eq!(said(vec![row("p1", Status::Idle, None)], &mut last, &link, (&asked, &answer)).await, Some(Parent::Keeps));
-    assert_eq!(said(vec![row("p1", Status::Idle, None)], &mut last, &link, (&asked, &answer)).await, None);
-    assert_eq!(asked.get(), 1);
-    // Alive but it stops keeping the child: the next change of its row asks
-    // again, and the answer orphans the child.
-    answer.set(Parent::Gone);
-    assert_eq!(said(vec![row("p1", Status::Working, None)], &mut last, &link, (&asked, &answer)).await, Some(Parent::Gone));
-    assert_eq!(asked.get(), 2);
+    assert_eq!(word(&[], &mut last, &link), Word::Gone);
+    assert_eq!(word(&[row("other", Status::Idle, None, "")], &mut last, &link), Word::Gone);
+    assert_eq!(word(&[row("p1", Status::Idle, None, "")], &mut last, &link), Word::Moved);
+    assert_eq!(word(&[row("p1", Status::Idle, None, "")], &mut last, &link), Word::Same);
     // By the id it was listed under when the child began, too.
-    assert_eq!(said(vec![row("k1", Status::Working, None)], &mut None, &link, (&asked, &answer)).await, Some(Parent::Gone));
-    // Ended for good is gone without asking; an end with the node is not.
-    assert_eq!(said(vec![row("p1", Status::Ended, None)], &mut last, &link, (&asked, &answer)).await, Some(Parent::Gone));
-    answer.set(Parent::Keeps);
-    let stopped = row("p1", Status::Ended, Some(crate::agents::session::NODE_STOPPED));
-    assert_eq!(said(vec![stopped], &mut last, &link, (&asked, &answer)).await, Some(Parent::Keeps));
+    assert_eq!(word(&[row("k1", Status::Idle, None, "")], &mut None, &link), Word::Moved);
+    // Ended for good is gone; an end with the node is not.
+    assert_eq!(word(&[row("p1", Status::Ended, None, "")], &mut last, &link), Word::Gone);
+    let stopped = row("p1", Status::Ended, Some(crate::agents::session::NODE_STOPPED), "");
+    assert_eq!(word(&[stopped], &mut last, &link), Word::Moved);
+
+    // Activity-only changes of the row are one ask; the answer that the
+    // parent no longer keeps the child orphans it.
+    let moved = Arc::new(Notify::new());
+    let asked = Arc::new(AtomicU32::new(0));
+    let (tx, mut heard) = mpsc::channel(4);
+    let task = {
+        let (moved, asked) = (moved.clone(), asked.clone());
+        tokio::spawn(async move {
+            let ask = || async {
+                asked.fetch_add(1, SeqCst);
+                Some(Parent::Gone)
+            };
+            asks(&moved, ask, &tx).await;
+        })
+    };
+
+    for turn in 0..20 {
+        let doing = format!("Edit file {turn}");
+        let changed = word(&[row("p1", Status::Working, None, &doing)], &mut last, &link);
+        assert_eq!(changed, Word::Moved);
+        moved.notify_one();
+        yield_now().await;
+    }
+
+    assert_eq!(asked.load(SeqCst), 1, "a burst of changes is one ask");
+    assert_eq!(heard.recv().await, Some(Parent::Gone));
+    // The next one waits for the pause.
+    advance(ORPHAN_CHECK / 2).await;
+    yield_now().await;
+    assert_eq!(asked.load(SeqCst), 1);
+    advance(ORPHAN_CHECK).await;
+    yield_now().await;
+    assert_eq!(asked.load(SeqCst), 2, "the changes during the pause are asked once after it");
+    task.abort();
 }
 
 // The child closes once its parent has been gone or silent for
