@@ -2,6 +2,7 @@ import { useDialogRef } from "../ui/parts.tsx";
 import { createRef, isValidElement, useLayoutEffect, useRef, useState, useEffect, lazy, Suspense, type MouseEvent, type ReactElement, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { createStore, useStore } from "zustand";
+import { closeMove } from "./move.ts";
 import { AgentQueue } from "./queue-view.tsx";
 import { AgentStopFace } from "./mode-view.tsx";
 import type { OutboxRow } from "./agentqueue.ts";
@@ -79,7 +80,7 @@ export function batchComposerUi(run: () => void) {
 export const modelPickHost = createRef<HTMLDivElement>();
 
 /// Forgets what the composer showed, as when its session leaves the page.
-export function disposeComposerUi() { flushSync(() => fieldUi.setState(EMPTY, true)); }
+export function disposeQueue() { flushSync(() => fieldUi.setState(EMPTY, true)); closeMove(); }
 
 export function showAgentControl(slot: FieldSlot, node: ReactElement | null) {
   const prior = fieldUi.getState().slots[slot] ?? null;

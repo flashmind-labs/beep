@@ -6,7 +6,7 @@ import { setView } from "../src/bar/core.ts";
 import { sendAgentMessage, steerMessage, resumeEndedSession } from "../src/agents/messages.ts";
 import { stopAllWork } from "../src/agents/sessionmenu.ts";
 import { MN, activateMentions, resetMentions, currentMentions } from "../src/agents/mentions.ts";
-import { disposeComposerUi } from "../src/agents/composer-ui.tsx";
+import { disposeQueue } from "../src/agents/composer-ui.tsx";
 import { staysInline } from "../src/agents/images.tsx";
 import { disposeLogShell } from "../src/agents/log-shell.tsx";
 import { showSessionBody } from "./session-frame-env.ts";
@@ -17,7 +17,7 @@ const png = { name: "shot.png", mime: "image/png", size: 8, data: "iVBORw0KGgo="
 Object.assign(globalThis, { getSelection: () => null, getComputedStyle: () => ({ rowGap: "0" }) });
 function openSession(status: string): AgentPage {
   answers.outbox_attach = true;
-  disposeComposerUi();
+  disposeQueue();
   resetMentions();
   const previous = bar.querySelector<HTMLElement>("#agbody");
   if (previous) disposeLogShell(previous);

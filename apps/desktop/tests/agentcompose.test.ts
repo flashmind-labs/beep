@@ -11,13 +11,14 @@ import { agentBack, agentsList, drawAgents } from "../src/agents/agents-list.ts"
 import { AG, type AgentPage, type AgentRow, usageLine } from "../src/agents/agents-state.ts";
 import { closeSession, visibleRunning } from "../src/agents/closing.ts";
 import { loadSessions } from "../src/agents/sessions.ts";
-import { closeOpenSession, pollAgent } from "../src/agents/session.tsx";
+import { closeOpenSession } from "../src/agents/session.tsx";
+import { pollAgent } from "../src/agents/session-follow.ts";
 import { sessionPicks } from "../src/agents/open-state.ts";
 import { agentHints } from "../src/agents/session-head.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { interruptAgent, sendAgentMessage } from "../src/agents/messages.ts";
 import { drawModelPill, switchSessionModel } from "../src/agents/modelpill.tsx";
-import { disposeComposerUi, FieldControl } from "../src/agents/composer-ui.tsx";
+import { disposeQueue, FieldControl } from "../src/agents/composer-ui.tsx";
 import { createElement } from "react";
 import { createDocumentView } from "../src/ui/document-root.tsx";
 import { MN } from "../src/agents/mentions.ts";
@@ -297,11 +298,11 @@ function fieldControl(t: TestContext, slot: "model" | "tasks" = "model") {
   const pill = dom.window.document.getElementById("pill");
   assert.ok(pill);
   // The session field draws the pill from the composer's state.
-  disposeComposerUi();
+  disposeQueue();
   const view = createDocumentView(pill);
   flushSync(() => view.render(createElement(FieldControl, { slot })));
   t.after(async () => {
-    view.unmount(); disposeComposerUi(); pill.remove(); await new Promise(resolve => setImmediate(resolve)); dom.window.close();
+    view.unmount(); disposeQueue(); pill.remove(); await new Promise(resolve => setImmediate(resolve)); dom.window.close();
     for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
   });
   return pill;
@@ -343,7 +344,7 @@ test("the model pill returns when its composer owner is recreated", t => {
   const first = pill.querySelector("#agmodelb"); assert.ok(first);
   drawModelPill();
   assert.equal(pill.querySelector("#agmodelb"), first);
-  disposeComposerUi();
+  disposeQueue();
   assert.equal(pill.querySelector("#agmodelb"), null);
   drawModelPill();
   assert.ok(pill.querySelector("#agmodelb"));

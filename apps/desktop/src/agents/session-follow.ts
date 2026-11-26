@@ -1,22 +1,31 @@
 // The sessions followed by stream: the open one and, off screen, those that
 // run or ask, and the pushed updates held until the next frame.
+import { createStore } from "zustand/vanilla";
 import { AgentFeed, type Activity } from "./agentfeed-state.ts";
 import { transcripts, transcriptKey, type TranscriptCursor, type TranscriptUpdate } from "./transcript-cache-state.ts";
-import { S, changeListeners } from "../bar/core.ts";
-import { type AgentRow, type AgentPage, type OpenAgent, type AgentModes, type AgentTask, AG, AGENT_ACTIVE, where } from "./agents-state.ts";
+import { $, S, changeListeners, windowHooks } from "../bar/core.ts";
+import { type AgentRow, type AgentPage, type OpenAgent, type AgentModes, type AgentTask, AG, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, openModes, openTasks, where } from "./agents-state.ts";
 import { drawAgentBody } from "./logview.tsx";
-import { disposeQueue } from "./messages.ts";
-import { Channel, invoke } from "../ui/tauri.ts";
-import { joinRuns, viewRead } from "./older-state.ts";
-import { readFailed } from "./reconnect-state.ts";
-import { mergePage } from "./open-page.ts";
-import { isOpen, setReadNote, wantRead } from "./open-state.ts";
-import { createStore } from "zustand/vanilla";
-import { paneShown } from "../ui/active.ts";
-import { publishTurn } from "../plugins/plugins-state.ts";
+import { disposeQueue } from "./composer-ui.tsx";
+import { Channel, invoke, logError, logInfo, recordTiming } from "../ui/tauri.ts";
+import { joinRuns, newestRead, viewRead } from "./older-state.ts";
+import { hasNews, LINKED, noteAfterRead, readFailed, RETRY_MS, viewError } from "./reconnect-state.ts";
+import { endPage, mergePage } from "./open-page.ts";
+import { followStale, followsOnly, isOpen, setNote, setReadNote, openSession, staleFrame, stoppingNow } from "./open-state.ts";
+import { sessionBody } from "./session-frame-state.ts";
+import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
+import { keepNativeSession, sessions } from "./sessions.ts";
+import { isStarting } from "./starting-state.ts";
+import { loadOlder } from "./older.ts";
+import { readModes } from "./modepill.tsx";
+import { readTasks } from "./tasks.tsx";
+import { drawModelPill } from "./modelpill.tsx";
+import { drawAgentHeading } from "./session-head.tsx";
+import { stopPending } from "./agentqueue.ts";
+import { continueAfterTurn } from "./continue-here.ts";
 
-/// A pushed update of the open session `open`, due to be shown, until its page applies it.
-export const pushedUpdate = createStore<{ due: { open: OpenAgent; page: AgentPage; read: number; replace: boolean } | null }>(() => ({ due: null }));
+import { paneShown, visibilitySnapshot } from "../ui/active.ts";
+import { publishTurn } from "../plugins/plugins-state.ts";
 
 interface FeedUpdate extends TranscriptUpdate<AgentPage> {
   modes: AgentModes | null;
@@ -54,7 +63,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
 
       if (isOpen(open)) {
         flushDraw(true);
-        wantRead(true);
+        void pollAgent(true);
       }
 
       return;
@@ -84,10 +93,10 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     AG.link = failed.link;
     setReadNote(failed.note);
     drawAgentBody();
-    wantRead(false);
+    void pollAgent(false);
   },
   // A node without the follow, or one that failed to open it: the shown session is read instead.
-  failed: o => { if (isOpen(o) && paneShown()) wantRead(false); },
+  failed: o => { if (isOpen(o) && paneShown()) void pollAgent(false); },
 });
 
 /// What the app kept of a session, as `transcript_kept` gives it.
@@ -154,7 +163,7 @@ export function flushDraw(now = false) {
   if (!now && isOpen(next.open) && !paneShown()) return;
   held = null;
 
-  if (isOpen(next.open)) pushedUpdate.setState({ due: { open: next.open, page: next.page, read: next.read, replace: next.replace } });
+  if (isOpen(next.open)) applyAgentPage(next.open, next.page, next.read, next.replace, true);
   else if (AG.open === next.open && AG.page) mergePage(next.page, next.replace);
 }
 
@@ -180,4 +189,214 @@ export function forgetAgentFollows() {
 changeListeners.push(() => {
   // What was held joins the model now: a later update must not come before it.
   if (S.view !== "agent") { flushDraw(true); stopAgentFollow(); disposeQueue(); }
+});
+
+/// The session each start kept on this device became, by the start's id: a page that still
+/// names the start opens the session.
+export const became = new Map<string, AgentRow>();
+
+/// Asks for the open session, and opens its follow again after `RETRY_MS`
+/// while it stays on screen without one. Opening reads once even if the webview's
+/// visibility has not caught up. Never two calls at once for one session.
+export async function pollAgent(readNow = false) {
+  clearTimeout(AG.timer);
+  const o = AG.open;
+  if (!o) { feed.leave(); return; }
+  const trace = readNow || !AG.sig;
+  const skip = !isOpen(o) ? "different-view" : AG.inflight === o || track.kept === o ? "in-flight" : !readNow && !paneShown() ? "hidden" : null;
+
+  if (skip) {
+    if (skip !== "in-flight") feed.leave();
+    if (trace) traceSession("read-skipped", o, { reason: skip, readNow });
+    return;
+  }
+
+  // A start has no stream: this device answers its reads.
+  if (paneShown() && !isStarting(o.session)) feed.follow(o);
+  else feed.leave();
+
+  // Followed all along: what came while it was away is drawn once from its model.
+  if (feed.live(o)) {
+    flushDraw();
+    if (!AG.sig) shownFromModel(o);
+    // Shown again with its log already drawn: it is ready now, not at the next change.
+    else finishFirstRead(o, "ok");
+    void loadOlder();
+    return;
+  }
+
+  // The follow answers with the page; a read is only for when it fails.
+  if (feed.waiting(o)) return;
+  const version = feed.version(o);
+  AG.inflight = o;
+  const read = ++AG.polls;
+  const current = { open: o, at: Date.now(), pending: new Set(["view", "modes", "tasks"]) };
+  reading = current;
+  if (trace) traceSession("read-started", o, { readNow });
+  const tracked = <T,>(name: string, call: Promise<T>) => call.finally(() => {
+    current.pending.delete(name);
+    if (trace) traceSession("read-settled", o, { part: name, ms: Date.now() - current.at, pending: [...current.pending] });
+  });
+
+  const still = () => isOpen(o) && feed.version(o) === version;
+  // The page shows as soon as it comes; modes and tasks join it as each arrives.
+  void tracked("modes", readModes(o)).then(modes => { if (still()) { transcripts.setModes(transcriptKey(o), modes); drawRest(); } });
+  void tracked("tasks", readTasks(o)).then(tasks => { if (still()) { transcripts.setTasks(transcriptKey(o), tasks); drawRest(); } });
+
+  try {
+    const page = await tracked("view", invoke<AgentPage>("agent_view", { ...where(o), last: newestRead(AG.page, AGENT_LAST, window.innerHeight) }, AGENT_READ_WAIT_MS));
+
+    if (still()) {
+      // A push received while this fallback read ran is newer than its reply.
+      flushDraw(true);
+      applyAgentPage(o, page, read);
+      if (trace) traceSession("read-applied", o, { status: page.session.status, entries: page.entries.length, ms: Date.now() - current.at });
+    }
+  } catch (e) {
+    if (trace) traceSession("read-failed", o, { pending: [...current.pending], ms: Date.now() - current.at });
+
+    if (still() && isStarting(o.session) && viewError(e).kind === "gone") {
+      leaveStart(o.session);
+    } else if (still()) {
+      // A dropped link is read again with backoff; a session its machine
+      // came back without has ended, and no turn runs on.
+      const failed = readFailed(AG.link, e, AG.page?.session.machine_name || "the machine");
+      AG.link = failed.link;
+      setReadNote(failed.note);
+      if (failed.link.ended) endPage();
+      drawAgentBody();
+      finishFirstRead(o, "error");
+    }
+  } finally {
+    if (AG.inflight === o) AG.inflight = null;
+    if (reading === current) reading = null;
+  }
+
+  // Another session opened while this one was asked: follow that one.
+  if (AG.open !== o) { if (isOpen(AG.open) && !AG.inflight) pollAgent(); return; }
+
+  if (!isOpen(o) || !paneShown()) {
+    if (trace) traceSession("polling-stopped", o, { reason: !isOpen(o) ? "different-view" : "hidden" });
+    return;
+  }
+
+  // The follow is opened again every `RETRY_MS`. A start says when it changes (`sessions-changed`), and an ended session does not change.
+  const quiet = isStarting(o.session) || AG.page?.session.status === "ended";
+  if (!feed.live(o) && (AG.link.lost || !quiet)) AG.timer = setTimeout(pollAgent, RETRY_MS);
+}
+
+/// What a session's first read and its kept page are doing: when the read began, the session whose
+/// page kept on disk is being read (its follow starts after, from its cursor), and the timing of
+/// a kept page to its first fresh read.
+export const track: { first: { open: OpenAgent; at: number } | null; kept: OpenAgent | null; fresh: { open: OpenAgent; done: () => void } | null } = { first: null, kept: null, fresh: null };
+function finishFirstRead(open: OpenAgent, outcome: "ok" | "error") {
+  if (track.fresh?.open === open) { if (outcome === "ok") track.fresh.done(); track.fresh = null; }
+  if (!track.first || track.first.open !== open) return;
+  recordTiming("data", "agent", performance.now() - track.first.at, outcome);
+  track.first = null;
+}
+
+/// A session opened that still has no read after this long leaves a line in the log.
+const READ_WATCH_MS = 30_000;
+
+let reading: { open: OpenAgent; at: number; pending: Set<string> } | null = null;
+
+export function traceSession(stage: string, o: OpenAgent, details: Record<string, unknown> = {}) {
+  logInfo(`session view: ${JSON.stringify({ stage, session: o.session, machine: o.machine_id, view: S.view, body: !!sessionBody(), ...visibilitySnapshot(), ...details })}`);
+}
+
+/// Logs it when the session `o` opened still shows nothing read after
+/// `READ_WATCH_MS` with no error said: the view is stuck, and why (#427).
+export function watchRead(o: OpenAgent) {
+  setTimeout(() => {
+    if (AG.open !== o || !isOpen(o) || AG.sig || AG.readError) return;
+    logError(`session view: nothing read for session ${o.session} after ${READ_WATCH_MS / 1000} s ${JSON.stringify({ reading: AG.inflight === o, pending: reading?.open === o ? [...reading.pending] : [], view: S.view, body: !!sessionBody(), ...visibilitySnapshot() })}`);
+  }, READ_WATCH_MS);
+}
+
+
+/// A `pushed` update always holds something new; a polled one is compared
+/// with the last read.
+function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false, pushed = false) {
+  if (AG.page) page = { ...page, session: nativeUpdate(AG.page.session, page.session) };
+
+  if (isNativeSession(page.session.id)) {
+    const row = sessions.find(s => s.machine_id === page.session.machine_id && s.id === page.session.id);
+    if (row) keepNativeSession({ ...row, ...page.session });
+  }
+
+  const sig = pushed ? `pushed ${read}` : JSON.stringify(page);
+  const moved = pushed || sig !== AG.sig;
+  if (moved) { AG.sig = sig; AG.changed = Date.now(); }
+  if (page.session.question?.id !== AG.answering) AG.answering = null;
+  // A session opened with no folder (from a notice) draws again once a read gives it.
+  const placed = !AG.page?.session.cwd && !!page.session.cwd;
+  // The session closed or was taken over: the composer replaces the banner. A start's banner
+  // says what it does now.
+  const field = !!AG.page && (followsOnly(AG.page.session) !== followsOnly(page.session)
+    || (isStarting(page.session.id) && (AG.page.session.doing !== page.session.doing || AG.page.session.status !== page.session.status)));
+  const news = hasNews(AG.page, page);
+  // The older entries held stay while the newest are read again.
+  const earlier = AG.page?.earlier;
+  if (mergePage(page, replace).earlier !== earlier) AG.older.stop = "";
+  drawModelPill();
+  drawAgentHeading();
+  // The frame around the log is drawn again; the log itself stays.
+  if (placed) staleFrame(false);
+  else if (field && $("#agconv")) staleFrame(true);
+  // Back after a lost link, or something new came: earlier errors no longer hold.
+  setNote(noteAfterRead({ note: AG.note, failed: AG.readError, link: AG.link, news }));
+  AG.readError = "";
+  AG.link = LINKED;
+  AG.stopping = stopPending(AG.stopping, page.session.id, AGENT_ACTIVE.has(page.session.status), page.turns);
+  continueAfterTurn(page.session);
+  drawRest(moved, placed);
+  finishFirstRead(o, "ok");
+  void loadOlder();
+}
+
+/// Draws the log again when the page `moved` or what shows with it changed; nothing the log
+/// shows changed: no draw.
+function drawRest(moved = false, placed = false) {
+  const rest = JSON.stringify([openModes(), openTasks(), AG.note, AG.answering, stoppingNow(), AG.page?.queued_messages ?? [], placed]);
+  if (!moved && rest === AG.rest) return;
+  // Only the page moved: the turns it left as they were keep their rows.
+  const news = rest === AG.rest;
+  AG.rest = rest;
+  drawAgentBody(undefined, true, false, news);
+}
+
+/// The session opened again was followed off screen: its model, drawn with
+/// the frame, counts as its first read.
+function shownFromModel(o: OpenAgent) {
+  const read = ++AG.polls;
+  AG.sig = `pushed ${read}`;
+  AG.changed = Date.now();
+  drawAgentHeading();
+  // Live: the connecting line under the kept log goes.
+  drawRest(true);
+  finishFirstRead(o, "ok");
+}
+
+
+/// The open start `start` is no longer kept: the session it became takes over its view, and one
+/// that became none, cancelled from another window, is left as Cancel leaves it.
+/// How many open starts ended with no session: the page leaves their view, as Cancel does.
+export const startLost = createStore<{ lost: number }>(() => ({ lost: 0 }));
+
+export function leaveStart(start: string) {
+  const session = became.get(start);
+  if (!session) return startLost.setState(s => ({ lost: s.lost + 1 }));
+  // A released node's row leaves out that the session is the assistant.
+  const row = AG.page?.session.assistant ? { ...session, assistant: true } : session;
+  if (windowHooks) windowHooks.openStarted(row);
+  else openSession(row, { back: AG.back, adopt: true });
+}
+
+
+let followed = 0;
+followStale.subscribe(({ stale }) => {
+  if (stale === followed) return;
+  followed = stale;
+  void pollAgent(false);
 });

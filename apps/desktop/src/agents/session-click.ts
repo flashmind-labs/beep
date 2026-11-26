@@ -20,7 +20,7 @@ import { readError } from "../agentpane/read-file.ts";
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { continuedFrom, continuedIn } from "./continue-state.ts";
 import { nativeSession } from "./native-session-state.ts";
-import { isOpen, resumeFollow, openSession, setNote } from "./open-state.ts";
+import { isOpen, openSession, resumeFollow, setNote } from "./open-state.ts";
 import { agentMessage, sessionBody } from "./session-frame-state.ts";
 
 /// How long a card waits for the machine to list a child that is not in the list yet.

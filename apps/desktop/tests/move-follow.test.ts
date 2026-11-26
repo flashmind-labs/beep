@@ -8,7 +8,7 @@ import { moveStore } from "../src/agents/move-store.ts";
 import { drawAgentFrame } from "../src/agents/session.tsx";
 import { forgetAgentFollows } from "../src/agents/session-follow.ts";
 import { imageLines } from "../src/agents/agentlog.ts";
-import { disposeQueue } from "../src/agents/messages.ts";
+import { disposeQueue } from "../src/agents/composer-ui.tsx";
 import type { ChatBody } from "../src/ui/turn.ts";
 import { fillLog } from "../src/agents/logwindow.tsx";
 import "../src/bar/bar-app.tsx";

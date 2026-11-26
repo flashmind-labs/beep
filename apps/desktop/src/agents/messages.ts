@@ -14,7 +14,7 @@ import { bytesOf } from "../agentpane/media-state.ts";
 import { StartFiles } from "./start-files.ts";
 import { paneSession } from "../agentpane/pane-state.ts";
 import { MN, attachReads, attachmentKey, currentMentions, mentionImages, setAttachError, setAttached, setMentionImages, type MentionState } from "./mentions.ts";
-import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
+import { disposeQueue, showAgentQueue } from "./composer-ui.tsx";
 import { type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, sentImage, where } from "./agents-state.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
 import { continuePicks, isOpen, logStale, questionKey, resumeFollow, resumePicks, sessionPicks, openSession, setNote, startedWith, turnRuns } from "./open-state.ts";
@@ -27,9 +27,6 @@ import { reopened } from "./closing.ts";
 import { loadSessions, sessions } from "./sessions.ts";
 import { agentMessage, sessionBody } from "./session-frame-state.ts";
 import { shownQuestionsIn } from "./mode-view.tsx";
-import { closeMove } from "./move.ts";
-
-export function disposeQueue() { disposeComposerUi(); closeMove(); }
 
 /// The steers the open session's node holds for the turn, as its last update lists them.
 export const heldQueue = () => AG.page?.queued_messages ?? [];

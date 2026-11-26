@@ -101,14 +101,7 @@ export const continuePicks = new Map<string, ContinuePick>();
 
 /// The open session's log changed: its page draws it again.
 export const logStale = signal();
-/// How many times the open session was marked stale, and whether the last mark reads even while
-/// the view is hidden. The page reads when `stale` is past what it last read.
-export const readStale = createStore<{ stale: number; now: boolean }>(() => ({ stale: 0, now: false }));
 
-/// Marks the open session stale: it is to be read or followed again.
-export function wantRead(now: boolean) {
-  readStale.setState(s => ({ stale: s.stale + 1, now }));
-}
 /// The session that should be open, how it was asked for, and null when none is (the empty view).
 /// Every opener sets it through `openSession`; the page shows whatever it says. `asked` counts
 /// the requests, so asking again for the session already open reaches the page as a change: it
@@ -128,8 +121,22 @@ export function closeSession() {
   openState.setState({ row: null });
 }
 
+
+/// How many times the open session was to be followed again, by a send or a click. The reader
+/// (session-follow.ts) follows it and reads when it is past what it last read; messages.ts sits
+/// below the views the reader draws, so it marks the staleness instead of reading.
+export const followStale = createStore<{ stale: number }>(() => ({ stale: 0 }));
+
 /// Follows the open session again after showing it or sending a message.
 export function resumeFollow() {
   AG.changed = Date.now();
-  wantRead(false);
+  followStale.setState(s => ({ stale: s.stale + 1 }));
+}
+
+/// The frame around the session's log is stale: `staleFrame` marks it, and the page draws it again.
+/// `inPlace` keeps the pane beside the log as it is.
+export const frameStale = createStore<{ stale: number; inPlace: boolean }>(() => ({ stale: 0, inPlace: false }));
+
+export function staleFrame(inPlace: boolean) {
+  frameStale.setState(s => ({ stale: s.stale + 1, inPlace }));
 }
