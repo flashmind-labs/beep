@@ -11,16 +11,17 @@ mod mesh;
 mod state;
 mod store;
 mod team;
+mod ticket;
+mod timeouts;
 mod wire;
 
 pub(crate) use client::CALL_TIMEOUT;
 pub use client::{
-    DEADLINE, FollowFuture, Followed, Hold, OPEN_TIMEOUT, Offline, PeerClient, RETRY, SessionFn,
-    SnapshotFuture, SnapshotReader, with_deadline,
+    DEADLINE, FollowFuture, Followed, Hold, Offline, PeerClient, SessionFn, SnapshotFuture,
+    SnapshotReader, with_deadline,
 };
 pub use devices::{Device, DeviceKind, MeshError};
 pub(crate) use devices::{DeviceOp, Devices, Merged, WriteLimit};
-pub use join::{Invitation, JoinSecret, JoinTicket, ShortTicket, TicketError};
 pub use mesh::values;
 pub use mesh::{
     DEFAULT_TICKET_TTL, DeviceStatus, InUse, JOIN_ALPN, JoinProtocol, Mesh, MeshProtocol,
@@ -29,6 +30,8 @@ pub use mesh::{
 pub use state::Key;
 pub(crate) use state::{Applied, Entry, Heads, State};
 pub use team::{TeamTicket, TeamWrites, keep_contacts, secret_hash, take_roster};
+pub use ticket::{Invitation, JoinSecret, JoinTicket, ShortTicket, TicketError};
+pub use timeouts::{OPEN_TIMEOUT, RETRY};
 
 #[cfg(test)]
 mod tests;

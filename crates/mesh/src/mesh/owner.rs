@@ -1,7 +1,8 @@
 //! Owns peer dialers and retires connections after membership changes.
 
 use super::{Inner, Mesh, PEER_ALPN, ways};
-use crate::{OPEN_TIMEOUT, RETRY, link};
+use crate::link;
+use crate::timeouts::{OPEN_TIMEOUT, RETRY};
 use beep_proto::watched;
 use iroh::endpoint::Connection;
 use iroh::{EndpointAddr, EndpointId, Watcher};

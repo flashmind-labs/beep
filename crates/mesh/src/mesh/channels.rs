@@ -2,7 +2,8 @@
 //! mesh replication.
 
 use super::{Inner, Mesh};
-use crate::{MeshError, OPEN_TIMEOUT, RETRY, wire};
+use crate::timeouts::{OPEN_TIMEOUT, RETRY};
+use crate::{MeshError, wire};
 use futures::StreamExt;
 use iroh::{
     EndpointAddr, EndpointId,

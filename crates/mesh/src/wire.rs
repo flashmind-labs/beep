@@ -108,7 +108,6 @@ pub(crate) mod sig {
 
 /// Heads, a map from origin to sequence number, with `bin` keys.
 pub(crate) mod heads {
-    use crate::state::Heads;
     use iroh::EndpointId;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
     use std::collections::BTreeMap;
@@ -116,11 +115,16 @@ pub(crate) mod heads {
     #[derive(Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
     struct Origin(#[serde(with = "super::id")] EndpointId);
 
-    pub(crate) fn serialize<S: Serializer>(heads: &Heads, s: S) -> Result<S::Ok, S::Error> {
+    pub(crate) fn serialize<S: Serializer>(
+        heads: &BTreeMap<EndpointId, u64>,
+        s: S,
+    ) -> Result<S::Ok, S::Error> {
         s.collect_map(heads.iter().map(|(id, seq)| (Origin(*id), seq)))
     }
 
-    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Heads, D::Error> {
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+        d: D,
+    ) -> Result<BTreeMap<EndpointId, u64>, D::Error> {
         let map = BTreeMap::<Origin, u64>::deserialize(d)?;
         Ok(map.into_iter().map(|(Origin(id), seq)| (id, seq)).collect())
     }
