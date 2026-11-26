@@ -796,7 +796,7 @@ impl Agents {
         // spawns. Recovery reads the starts under way.
         let reservation = self.sessions.reserve(resume.clone())?;
         let id = reservation.id.clone();
-        let mut running = Some(self.holds.running(cwd.clone()));
+        let running = self.holds.running(cwd.clone());
         self.holds.check_start(&cwd)?;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
@@ -847,6 +847,7 @@ impl Agents {
             alerts,
             checkouts: self.checkouts.clone(),
             stopping: self.stopping.clone(),
+            running: Some(running),
             docker,
         })?;
         session.reviewer = review;
@@ -863,10 +864,6 @@ impl Agents {
                 let (info, effort, fast) = watched::read_and_update(&mut updates, |live| {
                     (live.info.clone(), live.effort, live.fast)
                 });
-
-                if info.state.status == Status::Ended {
-                    drop(running.take());
-                }
 
                 // What the saved session keeps, noted as it changes.
                 let keeps = (

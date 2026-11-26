@@ -227,6 +227,8 @@ pub(super) struct Node {
     pub(super) checkouts: Arc<Checkouts>,
     /// Set once the node is stopping.
     pub(super) stopping: Arc<AtomicBool>,
+    /// The folder the session runs in, marked to Git sync until it ends.
+    pub(super) running: Option<crate::files::holds::Running>,
 }
 
 pub(super) struct Actor {
@@ -575,6 +577,8 @@ impl Actor {
                 live.info.state.error = Some(reason);
             }
         });
+        // Released with the end, so a hold taken as `close` returns finds the folder free.
+        drop(self.node.running.take());
         *kept = Some(self.live);
         drop(kept);
         crate::events::open_changed();

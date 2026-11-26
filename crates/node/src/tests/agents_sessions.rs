@@ -130,11 +130,7 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     assert!(blocked.err().unwrap().to_string().contains("close running sessions"));
 
     session.close().await;
-    timeout(LONG, async {
-        while holds.reserve(root).await.is_err() {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .expect("an ended session still holds its folder");
+    // No yield between the end and the check: the folder is free at once.
+    assert!(!holds.running_under(root));
+    holds.reserve(root).await.unwrap();
 }

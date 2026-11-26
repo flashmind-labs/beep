@@ -11,6 +11,7 @@ fn actor() -> Actor {
             alerts: Arc::default(),
             checkouts: Arc::default(),
             stopping: Arc::default(),
+            running: None,
         },
         moving: false,
         agent: "test-agent".into(),

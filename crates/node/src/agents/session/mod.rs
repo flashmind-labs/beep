@@ -280,6 +280,8 @@ pub(super) struct Start<'a> {
     /// Set once the node is stopping: an agent that ends then ended with
     /// the node, whatever its exit says.
     pub(super) stopping: Arc<AtomicBool>,
+    /// The folder it runs in, marked to Git sync until it ends.
+    pub(super) running: Option<crate::files::holds::Running>,
     /// The agent's own Docker socket, set as its `DOCKER_HOST`.
     pub(super) docker: Option<super::processes::Docker>,
 }
@@ -320,6 +322,7 @@ impl Session {
             alerts,
             checkouts,
             stopping,
+            running,
             docker,
         } = start;
         let Begin {
@@ -533,6 +536,7 @@ impl Session {
                 alerts,
                 checkouts,
                 stopping,
+                running,
             },
             moving: false,
             agent: kind.name.clone(),

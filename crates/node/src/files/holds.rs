@@ -69,24 +69,27 @@ impl RepositoryHolds {
             holds: self.clone(),
             folder: folder.clone(),
         };
-        let running: Vec<PathBuf> = crate::lock(&self.0.running)
-            .iter()
-            .map(|(_, path)| path.clone())
-            .collect();
-        let busy = tokio::task::spawn_blocking(move || {
-            running.iter().any(|path| {
-                path.starts_with(&folder)
-                    || crate::files::paths::canonicalize(path)
-                        .is_ok_and(|real| real.starts_with(&folder))
-            })
-        })
-        .await?;
+        let holds = self.clone();
+        let busy = tokio::task::spawn_blocking(move || holds.running_under(&folder)).await?;
         ensure!(
             !busy,
             "Local edits block Git sync; close running sessions before automatic recovery."
         );
 
         Ok(hold)
+    }
+
+    /// Whether a session runs in `folder` or below it. Blocks on the file system.
+    pub fn running_under(&self, folder: &Path) -> bool {
+        let running: Vec<PathBuf> = crate::lock(&self.0.running)
+            .iter()
+            .map(|(_, path)| path.clone())
+            .collect();
+
+        running.iter().any(|path| {
+            path.starts_with(folder)
+                || crate::files::paths::canonicalize(path).is_ok_and(|real| real.starts_with(folder))
+        })
     }
 
     /// Refuses a session in `cwd` while sync preserves the local edits of

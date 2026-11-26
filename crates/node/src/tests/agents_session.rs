@@ -1006,6 +1006,7 @@ fn start_on<'a>(kind: &'a AgentKind, dir: &'a Path, model: Option<&str>) -> Star
         alerts: Arc::default(),
         checkouts: Arc::default(),
         stopping: Arc::default(),
+        running: None,
         docker: None,
     }
 }
