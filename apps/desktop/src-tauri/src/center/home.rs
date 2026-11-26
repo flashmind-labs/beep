@@ -2,15 +2,19 @@
 //! from the mesh in one go. Entry point: `center_home`; `section` and
 //! `is_unsupported` read any list.
 
+use super::sections::{is_unsupported, mesh_imports, section};
 use crate::markdown::inline_html;
 use crate::store::view_cache::{View, ViewCache, cache_view};
 use crate::{
-    agents::sessions::{MoveView, agent_sessions, moves, overlaid},
+    agents::{
+        overlay::overlaid,
+        sessions::{MoveView, agent_sessions, moves},
+    },
     beep::epoch_ms,
     error::{DesktopError, Result},
     fleet::{
         Fleet,
-        projects::{FleetState, desk},
+        projects::FleetState,
         session_lists::SessionRow,
         session_mirror::{Rows, SessionMirror},
     },
@@ -332,35 +336,6 @@ async fn read_home(app: &AppHandle, mut rows: watch::Receiver<Arc<Rows>>) -> Res
     Ok(view)
 }
 
-/// The projects the mesh holds, one row per machine of it that has one; none while the mesh is
-/// not open, so Home never waits for it.
-pub(crate) async fn mesh_imports(fleet: &Fleet, session: &FleetState<'_>) -> Vec<ImportedProject> {
-    if fleet.mesh().is_none() {
-        return Vec::new();
-    }
-
-    match desk(session).await {
-        Ok(desk) => desk.imported().await,
-        Err(e) => {
-            log::info!("no projects from the mesh: {e}");
-            Vec::new()
-        }
-    }
-}
-
-/// `None` for a request a machine does not know; any other failure goes to
-/// the log.
-pub(crate) fn section<T>(what: &str, result: Result<T>) -> Option<T> {
-    match result {
-        Ok(listed) => Some(listed),
-        Err(e) if is_unsupported(&e) => None,
-        Err(e) => {
-            log::warn!("listing {what} for the command center: {e}");
-            None
-        }
-    }
-}
-
 /// Home from the mesh's answers. A failed machine list that is not a plain
 /// "not here" means the link itself is down, so the whole Home is stale and
 /// the caller keeps what it showed.
@@ -389,15 +364,6 @@ fn home_view(parts: HomeParts) -> Result<HomeView> {
         projects: section("projects", parts.projects)
             .map(|projects| projects.into_iter().map(ProjectRow::from).collect()),
     })
-}
-
-/// Whether a machine does not know the request or may not take it, as
-/// opposed to a failure on the way.
-pub(crate) fn is_unsupported(e: &DesktopError) -> bool {
-    matches!(
-        e,
-        DesktopError::Api(ApiError::BadRequest { .. } | ApiError::Unauthorized {})
-    )
 }
 
 /// Online machines first, then the busiest, then by name.

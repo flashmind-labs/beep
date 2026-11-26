@@ -8,8 +8,8 @@
 
 use super::index::{BranchRow, PaletteLists, build_index};
 use crate::{
-    agents::sessions::overlaid,
-    center::{home::mesh_imports, section},
+    agents::overlay::overlaid,
+    center::{section, sections::mesh_imports},
     fleet::{Fleet, session_mirror::SessionMirror},
     projects::branches::read_branches as read_project_branches,
     store::{

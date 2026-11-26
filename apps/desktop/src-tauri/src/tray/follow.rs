@@ -8,7 +8,7 @@ use super::{
 #[cfg(desktop)]
 use crate::platform::update;
 use crate::{
-    agents::sessions::overlaid,
+    agents::overlay::overlaid,
     center,
     fleet::{Fleet, home_signal::HomeSignal, session_mirror::SessionMirror},
 };

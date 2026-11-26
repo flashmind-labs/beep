@@ -5,6 +5,7 @@
 use crate::{
     agents::{
         kept_folder::PastedImage,
+        overlay::{overlaid, overlaid_children},
         shown::AgentsShown,
         starts::{Start, Started, Starts},
         steering::{DevicePick, uploads},
@@ -15,8 +16,8 @@ use crate::{
         asked::{BEFORE_SET_DEVICE, ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT, newer_than},
         node_actor::{FAST_JOB_WAIT, JobKind},
         projects::{FleetState, desk},
-        session_lists::{SessionLists, SessionRow, overlay},
-        session_mirror::{Link, Rows, SessionMirror, StartId, showing},
+        session_lists::{SessionLists, SessionRow},
+        session_mirror::{SessionMirror, StartId},
         work_copy,
     },
     markdown,
@@ -28,13 +29,13 @@ use beep_proto::node::mesh_state::SessionMove;
 use beep_proto::{
     AccountName, AgentEntry, AgentEntryKind, AgentMode, AgentModels, AgentPlanStep,
     AgentSessionModes, AgentSessionUsage, AgentSessionView, AgentTask, AgentToolCall, ApiError,
-    GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, ListAgentModels, MachineSession,
-    ModelId, ResumeAgentSession, StartAgentSession,
+    GetAgentSession, GetAgentSessionModes, GetAgentSessionTasks, ListAgentModels, ModelId,
+    ResumeAgentSession, StartAgentSession,
     node::agent::{CheckoutPlan, Effort, StopReason},
 };
 use iroh::EndpointId;
 use serde::Serialize;
-use std::{collections::HashSet, str::FromStr, sync::Arc, time::Instant};
+use std::{str::FromStr, sync::Arc, time::Instant};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::broadcast;
 
@@ -214,34 +215,6 @@ pub(crate) async fn follow_titles(app: AppHandle, fleet: Arc<Fleet>) {
             log::warn!("could not tell the windows a session title changed: {e}");
         }
     }
-}
-
-/// `rows` with what this app knows on top: presence, deletes and moves under
-/// way, the user's titles and the starts it holds.
-pub(crate) fn overlaid(app: &AppHandle, fleet: &Fleet, rows: &Rows) -> Vec<MachineSession> {
-    let mut sessions: Vec<MachineSession> = rows.iter_of(shown(fleet).as_ref()).cloned().collect();
-    sessions.retain_mut(|session| overlay(fleet, session));
-
-    sessions.extend(app.state::<Arc<Starts>>().rows());
-    sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
-    sessions
-}
-
-/// The child and reviewer sessions in `rows`, under the same overlays as
-/// the other rows.
-fn overlaid_children(fleet: &Fleet, rows: &Rows) -> Vec<(MachineSession, Link)> {
-    rows.children_of(shown(fleet).as_ref())
-        .map(|(session, link)| (session.clone(), link.clone()))
-        .filter_map(|(mut session, link)| overlay(fleet, &mut session).then_some((session, link)))
-        .collect()
-}
-
-/// The machines whose rows show. Once the mesh is open, a machine that is
-/// off shows no sessions: the mirror keeps them for when it is back.
-fn shown(fleet: &Fleet) -> Option<HashSet<EndpointId>> {
-    fleet
-        .mesh()
-        .map(|_| showing(&fleet.online(), &fleet.status().connecting(), fleet.id()))
 }
 
 /// Starts a session; no `machine_id` lets the mesh pick. `model`, from
