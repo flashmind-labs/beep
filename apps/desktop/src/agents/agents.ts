@@ -22,6 +22,7 @@ import { pageDirection } from "./logkeys-state.ts";
 import { toggleModelPicker } from "./modelpill.tsx";
 import { interruptAgent, answerFirst } from "./messages.ts";
 import { cycleMode } from "./modepill.tsx";
+import { openChatWindow } from "../project/projectops.ts";
 import { agentMessage, sessionBody, shownMessage } from "./session-frame-state.ts";
 
 /// Keys of the agent views; true when one was taken.
@@ -111,7 +112,7 @@ export function agentKeys(e: KeyboardEvent, cmd: boolean) {
 function chatWindowHere() {
   const s = AG.draft ? null : AG.page?.session, chat = s ? chatOf(sessions, s) : null;
   if (!chat?.assistant || onPhone()) return false;
-  void import("../center/sidebar.tsx").then(({ openChatWindow }) => openChatWindow(chat));
+  openChatWindow(chat);
   return true;
 }
 

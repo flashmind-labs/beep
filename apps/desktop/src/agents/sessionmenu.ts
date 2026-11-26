@@ -24,6 +24,7 @@ import { forgetLog, resumeFollow, setNote, turnRuns } from "./open-state.ts";
 import { conversationKey } from "./conversation-state.ts";
 import { currentMentions, mentionsOf } from "./mentions.ts";
 import { heldMessage } from "./agentqueue.ts";
+import { openChatWindow } from "../project/projectops.ts";
 import { redrawAgentHints } from "./session-head.tsx";
 
 /// Stops the turn of `s`, its subagents, background commands and the agents it started; asks
@@ -65,7 +66,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
     const parent = parentSession(s);
     if (parent) openGroup.push({ label: "Open parent", icon: "back", on: () => open(parent) });
     if (!s.external && s.assistant && !s.reviewer) {
-      if (!onPhone()) openGroup.push({ label: NEW_WINDOW, icon: "openWindow", on: () => void import("../center/sidebar.tsx").then(({ openChatWindow }) => openChatWindow(s)) });
+      if (!onPhone()) openGroup.push({ label: NEW_WINDOW, icon: "openWindow", on: () => openChatWindow(s) });
       openGroup.push({ label: "New thread", icon: "chat", on: () => { draftNewThread(s); open(s); } });
       const chatDir = chatFolder(s.cwd);
       if (chatDir) openGroup.push({ label: "Skills", icon: "skill", chevron: true, on: () => void import("../project/project-skills.tsx").then(({ openChatSkills }) => openChatSkills(chatDir, s.title || "this chat")) });

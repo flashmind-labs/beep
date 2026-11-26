@@ -18,8 +18,7 @@ import { projectRail } from "../project/loads.tsx";
 import { railSessions } from "../project/sessionsload.ts";
 import { openAddMachine, openProjects, addProject } from "../project/addflow.ts";
 import { projectRows } from "../project/projectrows.ts";
-import { openWindow, projectWindowProps, setProjectOnTop } from "../project/projectops.ts";
-import type { AgentRow } from "../agents/agents-state.ts";
+import { projectWindowProps, setProjectOnTop } from "../project/projectops.ts";
 import { IC, Icon } from "../ui/icons.tsx";
 import type { MachineCard } from "../machines/machine-state.ts";
 import { type ReactNode } from "react";
@@ -151,12 +150,6 @@ function pinnedProjects(): Placed<Project>[] {
   const rows = projectRows();
   if (!rows) return [];
   return splitOnTop(rows, state.top).onTop;
-}
-
-/// Opens assistant chat `chat` with its threads in a window of its own, or brings up the one it
-/// already has.
-export function openChatWindow(chat: Pick<AgentRow, "machine_id" | "id">) {
-  openWindow({ kind: "chat", machine_id: chat.machine_id, session: chat.id });
 }
 
 function projectReact(project: Placed<Project>, label: string, pinned: boolean, indented: boolean) {

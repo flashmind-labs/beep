@@ -13,6 +13,7 @@ import { projectRows } from "./projectrows.ts";
 import { state, whereOf, homeDataChanged, listsChanged, projectLoaded } from "../center/state.ts";
 import { currentLocation } from "../center/nav.ts";
 import { forgetProject } from "../center/homeedit.ts";
+import type { AgentRow } from "../agents/agents-state.ts";
 
 /// Pins project `name` to the top of the sidebar, or unpins it. Not the
 /// file sync pin, which keeps a project on the machines it is on.
@@ -39,6 +40,12 @@ function redrawProjectPins() {
 /// already has.
 export function openProjectWindow(name: string) {
   openWindow({ kind: "project", project: name });
+}
+
+/// Opens assistant chat `chat` with its threads in a window of its own, or brings up the one it
+/// already has.
+export function openChatWindow(chat: Pick<AgentRow, "machine_id" | "id">) {
+  openWindow({ kind: "chat", machine_id: chat.machine_id, session: chat.id });
 }
 
 export function openWindow(alone: Alone) {
