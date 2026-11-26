@@ -9,7 +9,6 @@ pub(crate) mod alerts;
 pub(crate) mod asked;
 #[cfg(desktop)]
 mod carry;
-pub(crate) mod event_views;
 pub(crate) mod events;
 pub(crate) mod files;
 pub(crate) mod home_signal;

@@ -2,10 +2,10 @@
 //! rows, pins to the top, and removing one.
 
 use crate::{
-    center::kept,
-    center::view_cache::{View, ViewCache},
     error::Result,
     fleet::projects::{FleetState, desk},
+    store::kept,
+    store::view_cache::{View, ViewCache},
 };
 use beep_fleet::{RenameRepositoryTarget, RepositoryRename, RepositoryRenameResult};
 use beep_proto::ImportedProject;

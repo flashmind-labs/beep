@@ -118,7 +118,7 @@ pub fn install(app: &AppHandle) {
 
 /// Installs the downloaded update and starts it.
 pub fn restart(app: &AppHandle) {
-    crate::center::window_session::checkpoint(app);
+    crate::store::window_session::checkpoint(app);
     install(app);
     app.restart();
 }

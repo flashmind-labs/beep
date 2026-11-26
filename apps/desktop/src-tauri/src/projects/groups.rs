@@ -2,10 +2,10 @@
 //! under, in place of their org. The page matches projects to them.
 
 use crate::{
-    center::kept,
-    center::view_cache::{View, ViewCache},
     error::Result,
     fleet::projects::{FleetState, desk},
+    store::kept,
+    store::view_cache::{View, ViewCache},
 };
 use beep_proto::ProjectGroup;
 use std::sync::Arc;

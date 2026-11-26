@@ -2,8 +2,8 @@
 //! from the mesh in one go. Entry point: `center_home`; `section` and
 //! `is_unsupported` read any list.
 
-use super::view_cache::{View, ViewCache, cache_view};
 use crate::chat::markdown::inline_html;
+use crate::store::view_cache::{View, ViewCache, cache_view};
 use crate::{
     agents::sessions::{MoveView, agent_sessions, moves, overlaid},
     beep::epoch_ms,
@@ -217,7 +217,7 @@ impl HomeReads {
     }
 
     fn flight(&self) -> MutexGuard<'_, Flight> {
-        super::lock(&self.flight)
+        crate::store::lock(&self.flight)
     }
 
     /// The all-sessions list pushed beside Home. It lives here so the view layer

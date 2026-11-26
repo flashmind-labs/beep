@@ -4,7 +4,7 @@
 //! a `JoinSet` and comes back as a message.
 
 use super::{Fleet, agents as direct};
-use crate::center::{
+use crate::store::{
     cache_view,
     view_cache::{View, ViewCache},
 };

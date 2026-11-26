@@ -9,13 +9,13 @@
 use super::index::{BranchRow, PaletteLists, build_index};
 use crate::{
     agents::sessions::overlaid,
-    center::{
-        home::mesh_imports,
-        lock, section,
-        view_cache::{View, ViewCache, cache_view},
-    },
+    center::{home::mesh_imports, section},
     fleet::{Fleet, session_mirror::SessionMirror},
     projects::branches::read_branches as read_project_branches,
+    store::{
+        lock,
+        view_cache::{View, ViewCache, cache_view},
+    },
 };
 use beep_fleet::Session as FleetSession;
 use beep_proto::{ImportedProject, MachineSession};

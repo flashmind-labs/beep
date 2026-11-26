@@ -16,7 +16,9 @@ mod plugins;
 mod projects;
 mod report;
 mod settings;
+mod store;
 mod tray;
+mod views;
 
 use agents::artifacts;
 use beep::state::{Prefs, StateFile};
@@ -165,7 +167,7 @@ pub fn run() {
             WindowEvent::CloseRequested { api, .. } => {
                 #[cfg(desktop)]
                 if !platform::update::relaunching(window.app_handle()) {
-                    center::window_session::closing(window);
+                    store::window_session::closing(window);
                 }
                 if center::hide_on_close(window) {
                     api.prevent_close();
@@ -174,7 +176,7 @@ pub fn run() {
             WindowEvent::Destroyed => {
                 let app = window.app_handle();
                 let label = window.label();
-                app.state::<center::AgentsShown>().clear(label);
+                app.state::<agents::shown::AgentsShown>().clear(label);
                 app.state::<agents::follow::Follows>().clear(label);
                 app.state::<fleet::events::Events>().clear(label);
                 app.state::<projects::live::Followed>().clear(label);
@@ -342,8 +344,8 @@ pub fn run() {
             center::targets::center_open,
             center::targets::center_pending,
             center::usage::usage_get,
-            center::view_cache::center_cached,
-            center::view_cache::center_keep_pages,
+            store::view_cache::center_cached,
+            store::view_cache::center_keep_pages,
             center::window::center_close_window,
             center::window::center_open_window,
             center::window::center_window_alone,
@@ -561,13 +563,13 @@ pub fn run() {
                         api.prevent_exit();
                     } else {
                         #[cfg(desktop)]
-                        center::window_session::checkpoint(app);
+                        store::window_session::checkpoint(app);
                     }
                 }
                 // Quitting: the windows go at once, whatever stopping takes.
                 RunEvent::ExitRequested { code: Some(_), .. } => {
                     #[cfg(desktop)]
-                    center::window_session::checkpoint(app);
+                    store::window_session::checkpoint(app);
                     hide_windows(app);
                 }
                 RunEvent::Exit => quit(app),
@@ -610,7 +612,7 @@ fn hide_windows(app: &AppHandle) {
 /// Everything quitting does, within `QUIT_LIMIT` unless an update installs.
 fn quit(app: &AppHandle) {
     #[cfg(desktop)]
-    center::window_session::checkpoint(app);
+    store::window_session::checkpoint(app);
     #[cfg(desktop)]
     if let Some(sampling) = app.try_state::<platform::energy::Sampling>() {
         sampling.stop();
@@ -621,7 +623,7 @@ fn quit(app: &AppHandle) {
     app.state::<Prefs>().save();
     // The sessions as they stand now, for the next start.
     fleet::session_mirror::save(
-        app.state::<Arc<center::view_cache::ViewCache>>().inner(),
+        app.state::<Arc<store::view_cache::ViewCache>>().inner(),
         &app.state::<Arc<fleet::session_mirror::SessionMirror>>()
             .current()
             .sessions(),
@@ -649,7 +651,7 @@ fn quit(app: &AppHandle) {
         }
     });
     // The views a window drew last are kept for the next start.
-    app.state::<Arc<center::view_cache::ViewCache>>().flush();
+    app.state::<Arc<store::view_cache::ViewCache>>().flush();
     app.state::<Arc<agents::outbox::Outbox>>().sync();
     app.state::<Arc<agents::starts::Starts>>().sync();
     // Background tasks the agent started here end with the app.
@@ -710,7 +712,7 @@ fn setup(
     let dir = beep::identity::data_dir(&handle)?;
     let identity = beep::identity::load_or_create(&dir.join("identity.key"))?;
     let prefs = Prefs::load(StateFile::new(dir.join("state.json")));
-    let views = Arc::new(center::view_cache::ViewCache::load(
+    let views = Arc::new(store::view_cache::ViewCache::load(
         dir.join("views.json"),
         env!("CARGO_PKG_VERSION"),
     ));
@@ -772,7 +774,7 @@ fn setup(
     }
     app.manage(prefs);
     #[cfg(desktop)]
-    app.manage(center::window_session::WindowSession::load(
+    app.manage(store::window_session::WindowSession::load(
         dir.join("windows.json"),
     ));
     #[cfg(desktop)]
@@ -839,7 +841,7 @@ fn setup(
     app.manage(machines::add::Tickets::default());
     app.manage(agents::files_live::FilesLive::default());
     let cache = handle
-        .state::<Arc<center::view_cache::ViewCache>>()
+        .state::<Arc<store::view_cache::ViewCache>>()
         .inner()
         .clone();
     let mirror = tauri::async_runtime::block_on(async {
@@ -856,17 +858,11 @@ fn setup(
         fleet::session_mirror::save(&kept, rows)
     }));
     let home_signal = Arc::new(fleet::home_signal::HomeSignal::new());
-    tauri::async_runtime::spawn(fleet::event_views::follow_signal(
-        handle.clone(),
-        home_signal.follow(),
-    ));
+    tauri::async_runtime::spawn(views::follow_signal(handle.clone(), home_signal.follow()));
     app.manage(home_signal);
     let (views_signal, changes) = fleet::view_signal::ViewSignal::new();
     app.manage(views_signal);
-    tauri::async_runtime::spawn(fleet::event_views::follow_rows(
-        handle.clone(),
-        mirror.watch(),
-    ));
+    tauri::async_runtime::spawn(views::follow_rows(handle.clone(), mirror.watch()));
     app.state::<fleet::session_lists::SessionLists>()
         .follow(mirror.watch());
     app.manage(Arc::new(mirror));
@@ -876,11 +872,11 @@ fn setup(
     app.manage(settings::gh_sign_in::GhSignIn::default());
     app.manage(agents::accounts::ClaudeSignIn::default());
     app.manage(platform::update::Updates::default());
-    app.manage(center::AgentsShown::default());
+    app.manage(agents::shown::AgentsShown::default());
     app.manage(center::window::OnScreen::default());
     app.manage(agents::follow::Follows::default());
     app.manage(fleet::events::Events::default());
-    app.manage(fleet::event_views::Views::new(
+    app.manage(views::Views::new(
         app.state::<fleet::events::Events>().wants(),
     ));
     app.manage(center::home::HomeReads::new(
@@ -888,8 +884,8 @@ fn setup(
             .watch(),
     ));
     // What it applies is managed above: a change handled before that would panic it.
-    tauri::async_runtime::spawn(fleet::event_views::follow_changes(handle.clone(), changes));
-    fleet::event_views::listen(&handle);
+    tauri::async_runtime::spawn(views::follow_changes(handle.clone(), changes));
+    views::listen(&handle);
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
     app.manage(Arc::new(notices::history::Notes::load(

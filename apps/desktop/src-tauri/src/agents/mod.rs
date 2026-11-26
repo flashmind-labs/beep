@@ -23,6 +23,7 @@ pub(crate) mod outbox;
 pub(crate) mod processes;
 pub(crate) mod review;
 pub(crate) mod sessions;
+pub(crate) mod shown;
 pub(crate) mod starts;
 pub(crate) mod stash;
 pub(crate) mod steer;

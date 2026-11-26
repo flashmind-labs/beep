@@ -120,11 +120,11 @@ pub(crate) struct Pending(Mutex<Option<CenterTarget>>);
 
 impl Pending {
     fn put(&self, target: CenterTarget) {
-        *super::lock(&self.0) = Some(target);
+        *crate::store::lock(&self.0) = Some(target);
     }
 
     fn take(&self) -> Option<CenterTarget> {
-        super::lock(&self.0).take()
+        crate::store::lock(&self.0).take()
     }
 }
 

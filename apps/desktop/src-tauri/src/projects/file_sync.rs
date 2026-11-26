@@ -3,10 +3,10 @@
 //! view, which also pauses sync and settles conflicts.
 
 use crate::{
-    center::kept,
-    center::view_cache::{View, ViewCache},
     error::Result,
     fleet::projects::{FleetState, desk},
+    store::kept,
+    store::view_cache::{View, ViewCache},
 };
 use beep_fleet::Desk;
 use beep_projects::model::plain_path;

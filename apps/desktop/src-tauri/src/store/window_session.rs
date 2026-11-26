@@ -2,7 +2,7 @@
 //! an explicit close. The window-state plugin owns each label's geometry.
 use super::{
     lock,
-    window::{Alone, alone},
+    window_label::{Alone, alone},
     write_part,
 };
 use serde::{Deserialize, Serialize};
@@ -91,7 +91,7 @@ impl WindowSession {
 }
 
 /// Runs on the window thread, where native desktop APIs can access the window.
-pub(super) fn opened<R: Runtime>(window: &Window<R>) {
+pub(crate) fn opened<R: Runtime>(window: &Window<R>) {
     let store = window.state::<WindowSession>();
     let desk = lock(&store.session)
         .windows
@@ -116,7 +116,7 @@ pub(crate) fn closing<R: Runtime>(window: &Window<R>) {
 
 /// Coalesce geometry and focus changes. A system shutdown may stop the process
 /// without going through the tray or the updater.
-pub(super) fn changed<R: Runtime>(window: &Window<R>) {
+pub(crate) fn changed<R: Runtime>(window: &Window<R>) {
     if !alone(window.label()) {
         return;
     }

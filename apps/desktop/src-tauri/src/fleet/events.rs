@@ -1661,7 +1661,7 @@ async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
                 _ = ticks.tick() => {
                     let read = crate::projects::git_items::git_items(
                         app.state::<Arc<beep_fleet::Session>>(),
-                        app.state::<Arc<crate::center::view_cache::ViewCache>>());
+                        app.state::<Arc<crate::store::view_cache::ViewCache>>());
                     let result = tokio::select! {
                         result = read => result,
                         _ = watched::wait_for(&mut active, |active| !*active) => break,

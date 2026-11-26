@@ -2,7 +2,7 @@
 //! listing, worktrees and the places of its sessions when it opens them; that read makes the
 //! desktop remember what was asked. The node pushes a change to the folder on its `files`
 //! topic, and the reads asked of it are made again and sent as views in an update of that
-//! topic, so the window takes them from the push instead of asking again. `event_views` hears
+//! topic, so the window takes them from the push instead of asking again. `views` hears
 //! the push, reserves the read here and sends the views.
 
 use super::file_reads::{places_of, tree_of};

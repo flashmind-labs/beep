@@ -5,10 +5,11 @@
 
 use crate::{
     beep::epoch_ms,
-    center::{AgentTarget, CenterTarget, RunAt, lock, write_part},
+    center::{AgentTarget, CenterTarget, RunAt},
     chat::markdown::inline_html,
     error::{DesktopError, Result},
     fleet::Fleet,
+    store::{lock, write_part},
 };
 use beep_fleet::{Read, digest};
 use beep_proto::SessionId;

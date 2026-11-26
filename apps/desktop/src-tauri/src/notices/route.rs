@@ -135,9 +135,9 @@ fn agent_notice(
         on_screen.push(bar::LABEL);
     }
 
-    let shown = app
-        .state::<center::AgentsShown>()
-        .shows(&on_screen, key, Instant::now());
+    let shown =
+        app.state::<crate::agents::shown::AgentsShown>()
+            .shows(&on_screen, key, Instant::now());
     let unread = history::agent_notice(app, key, &notice, allow_deny, shown, reviewer);
 
     if !app.state::<Prefs>().agent_notices() || shown {

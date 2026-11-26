@@ -5,10 +5,10 @@
 use crate::{
     agents::{
         kept_folder::PastedImage,
+        shown::AgentsShown,
         starts::{Start, Started, Starts},
         steering::{DevicePick, uploads},
     },
-    center::AgentsShown,
     chat::markdown,
     error::{DesktopError, Result},
     fleet::{

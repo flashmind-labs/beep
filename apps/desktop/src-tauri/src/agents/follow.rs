@@ -4,12 +4,10 @@
 use super::{
     kept_transcripts::{KeptTranscripts, SessionKey},
     sessions::{ModesRow, SessionPage},
+    shown::AgentsShown,
 };
 use crate::{
-    center::{
-        AgentsShown,
-        window::{OnScreen, hidden},
-    },
+    center::window::{OnScreen, hidden},
     error::{DesktopError, Result},
     fleet::Machines,
 };

@@ -29,7 +29,7 @@ struct ShownAgent {
 
 impl AgentsShown {
     fn views(&self) -> MutexGuard<'_, HashMap<String, ShownAgent>> {
-        super::lock(&self.0)
+        crate::store::lock(&self.0)
     }
 
     /// Webview `label` read `session` of `agent` on `machine_id` at `at`.
@@ -69,5 +69,5 @@ impl AgentsShown {
 }
 
 #[cfg(test)]
-#[path = "../tests/center_shown.rs"]
+#[path = "../tests/agents_shown.rs"]
 mod tests;

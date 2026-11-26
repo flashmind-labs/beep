@@ -96,7 +96,7 @@ fn save_to(path: &Path, app: &str, frame: &HomeFrame) -> anyhow::Result<()> {
         app: app.to_owned(),
         frame: frame.clone(),
     })?;
-    super::write_part(path, &bytes)
+    crate::store::write_part(path, &bytes)
 }
 
 /// Keeps `frame` as the Home the next launch paints first.

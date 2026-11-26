@@ -1,14 +1,14 @@
 //! Render controller-owned state once, then send the same snapshot to every window.
 
-use super::{
-    Fleet,
-    events::Events,
-    session_mirror::Rows,
-    view_signal::{Change, LiveRow, Update, View, Wants, changed_paths},
-};
 use crate::{
     agents::files_live::{self, FilesLive, Reserve},
     error::Result,
+    fleet::{
+        Fleet,
+        events::Events,
+        session_mirror::Rows,
+        view_signal::{Change, LiveRow, Update, View, Wants, changed_paths},
+    },
     machines::terminals,
     projects::team_live::{self, Heard},
 };
@@ -742,5 +742,5 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
 }
 
 #[cfg(test)]
-#[path = "../tests/fleet_event_views.rs"]
+#[path = "tests/views.rs"]
 mod tests;

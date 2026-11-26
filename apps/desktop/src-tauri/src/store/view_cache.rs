@@ -269,5 +269,5 @@ pub fn center_keep_pages(cache: State<'_, Arc<ViewCache>>, pages: Value) -> erro
 }
 
 #[cfg(test)]
-#[path = "../tests/center_view_cache.rs"]
+#[path = "../tests/store_view_cache.rs"]
 mod tests;

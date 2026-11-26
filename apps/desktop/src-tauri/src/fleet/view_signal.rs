@@ -1,5 +1,5 @@
 //! What the view layer follows. Whoever changes state a view shows rings it with a [`Change`];
-//! `event_views` follows it and draws. It depends on no feature, so any module may ring it.
+//! `views` follows it and draws. It depends on no feature, so any module may ring it.
 
 use beep_proto::{
     HostedRuns, LabeledProjectLists,
@@ -178,7 +178,7 @@ pub(crate) enum Change {
     Mesh,
 }
 
-/// Takes the changes to `event_views::follow_changes`.
+/// Takes the changes to `views::follow_changes`.
 pub(crate) struct ViewSignal(mpsc::UnboundedSender<Change>);
 
 impl ViewSignal {

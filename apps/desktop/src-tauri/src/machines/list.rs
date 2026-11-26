@@ -3,10 +3,10 @@
 
 use crate::{
     beep::{epoch_ms, state::Prefs},
-    center::lock,
     chat::files::{file_name, free_name},
     error::{DesktopError, Result},
     fleet::{ClockOff, Fleet, Machines},
+    store::lock,
 };
 use beep_projects::imports::found::MachineFound;
 use beep_proto::{Machine, MachineEnv, Terminal, node::AdapterInstall, node::device::PROTOCOL};

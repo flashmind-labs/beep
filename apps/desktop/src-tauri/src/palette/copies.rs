@@ -3,7 +3,7 @@
 //! copies, so it answers at once and finds sessions of offline machines too.
 
 use super::projects::Found;
-use crate::{center::lock, fleet::Fleet};
+use crate::{fleet::Fleet, store::lock};
 use anyhow::{Context, bail};
 use beep_fleet::alerts::each_machine;
 use beep_mesh::RETRY;
