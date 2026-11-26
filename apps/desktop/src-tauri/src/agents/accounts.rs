@@ -45,8 +45,6 @@ const SIGN_IN_LIMIT: Duration = Duration::from_secs(10 * 60);
 const EXIT_WAIT: Duration = Duration::from_secs(3);
 /// The most of `claude`'s output kept while looking for the token.
 const MAX_OUTPUT: usize = 256 * 1024;
-/// What every Claude Code OAuth token starts with.
-const TOKEN_PREFIX: &str = "sk-ant-oat";
 
 /// A coding agent's token as the bar shows it: never the secret.
 #[derive(Debug, Serialize)]

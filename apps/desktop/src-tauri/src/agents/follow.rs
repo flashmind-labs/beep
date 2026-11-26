@@ -39,7 +39,7 @@ use uuid::Uuid;
 mod keep;
 mod pace;
 use keep::Keeper;
-use pace::{Pace, Pushed};
+use pace::{Pace, Pushed, UpdateKind};
 
 /// The most readers one window keeps; past it the oldest is cancelled, so a
 /// reloaded page cannot leave readers behind without bound.
@@ -227,13 +227,6 @@ impl Drop for Reading<'_> {
     fn drop(&mut self) {
         self.follows.remove(&self.window, self.id);
     }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "lowercase")]
-enum UpdateKind {
-    Snapshot,
-    Delta,
 }
 
 #[derive(Serialize)]

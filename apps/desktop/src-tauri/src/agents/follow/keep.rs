@@ -2,10 +2,7 @@
 //! updates as the webview joins them: when its run ends or it idles, when its
 //! window hides, when the follow ends, and at most once a minute while it runs.
 
-use super::{
-    UpdateKind,
-    pace::{Pushed, join_view, running},
-};
+use super::pace::{Pushed, UpdateKind, join_view, running};
 use crate::agents::{
     kept_transcripts::{KeptTranscript, KeptTranscripts, SessionKey},
     sessions::SessionPage,

@@ -3,10 +3,17 @@
 //! ends, it asks something, or it shows again. While its window is hidden
 //! everything is held, and the newest state goes once the window shows.
 
-use super::UpdateKind;
 use crate::agents::sessions::ModesRow;
 use beep_proto::{AgentSessionView, AgentStatus, AgentTask, node::agent::SessionCursor};
+use serde::Serialize;
 use std::time::{Duration, Instant};
+
+#[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum UpdateKind {
+    Snapshot,
+    Delta,
+}
 
 /// How often a session off screen goes to the webview, at most.
 const OFF_SCREEN_EVERY: Duration = Duration::from_secs(1);

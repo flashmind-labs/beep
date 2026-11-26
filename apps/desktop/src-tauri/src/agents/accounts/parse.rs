@@ -1,4 +1,5 @@
-use super::TOKEN_PREFIX;
+/// What every Claude Code OAuth token starts with.
+const TOKEN_PREFIX: &str = "sk-ant-oat";
 
 /// The longest line of `claude`'s passed on as the reason it failed.
 const REASON_CHARS: usize = 200;
