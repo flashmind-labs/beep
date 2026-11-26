@@ -7,7 +7,6 @@ host! {
     pub(crate) mod grants;
     pub mod holds;
     pub(crate) mod place;
-    pub(crate) mod search;
     pub mod sync;
     pub mod syncthing;
     pub mod transfer;

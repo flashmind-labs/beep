@@ -1,7 +1,7 @@
 //! An authenticated peer can replace topics and send commands while updates arrive.
 
 use super::Offers;
-use crate::events::Touched;
+use crate::{events::Touched, peer_stream::HEARTBEAT};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -26,9 +26,6 @@ use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
 use tokio_util::task::AbortOnDropHandle;
 
 const WRITE_WAIT: Duration = Duration::from_secs(15);
-/// How often a quiet stream to a desktop or phone says it is alive. Released
-/// apps drop a stream after 35 s of silence, so it stays well under that.
-pub(crate) const HEARTBEAT: Duration = Duration::from_secs(15);
 const MAX_CALLS: usize = 16;
 const MAX_QUEUED_WATCHES: usize = 16;
 const MAX_FILE_ROOTS: usize = 512;

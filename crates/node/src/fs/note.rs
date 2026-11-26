@@ -10,6 +10,13 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// The folder a node keeps its state in when none is given.
+pub fn default_dir() -> Result<PathBuf> {
+    Ok(dirs::config_dir()
+        .context("this system has no config folder; pass --dir")?
+        .join("beep-node"))
+}
+
 /// The JSON at `path`, or the default when there is none or it cannot be
 /// read.
 pub(crate) fn read<T: DeserializeOwned + Default>(path: &Path) -> T {

@@ -12,13 +12,13 @@ host! {
     pub mod forward;
     pub mod subscriptions;
     mod events;
-    pub(crate) use events::HEARTBEAT;
     pub(crate) use events::sources::Registry as EventSources;
     pub(crate) mod from_mesh;
     mod project_remotes;
     pub mod local_status;
     pub mod peers;
     mod report;
+    pub(crate) mod search;
     mod metrics;
     pub(crate) mod restart;
     pub use restart::{note_on_quit, reopen_and_keep};

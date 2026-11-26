@@ -23,6 +23,9 @@ use tokio::time::timeout;
 const HANDSHAKES: u32 = 3;
 /// How long all attempts to connect and open a call's stream have together.
 const OPEN_LIMIT: Duration = Duration::from_secs(15);
+/// How often a quiet stream to a desktop or phone says it is alive. Released
+/// apps drop a stream after 35 s of silence, so it stays well under that.
+pub(crate) const HEARTBEAT: Duration = Duration::from_secs(15);
 /// A silent stream is lost after this long without a message; the peer
 /// sends one every `HEARTBEAT`.
 const IDLE: Duration = Duration::from_secs(35);

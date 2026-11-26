@@ -3,9 +3,9 @@
 use crate::{
     joined_mesh::Membership,
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
-    files::{search::Searches, transfer::Transfers},
+    files::transfer::Transfers,
     link::{
-        EventSources, protocol::SessionProtocol, sampler::Sampler,
+        EventSources, protocol::SessionProtocol, sampler::Sampler, search::Searches,
         state::Search, traffic::Traffic,
     },
     protocol::Protocol,

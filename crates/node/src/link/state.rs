@@ -1,5 +1,6 @@
 //! The node's key and settings, kept in one folder.
 
+pub use crate::fs::note::default_dir;
 use crate::{agents::AgentKind, agents::found};
 use anyhow::{Context, Result, bail};
 use beep_proto::port::NODE_PORT;
@@ -101,12 +102,6 @@ fn expand(search: Option<&Path>, home: Option<PathBuf>) -> Option<PathBuf> {
         Err(_) if search.is_absolute() => Some(search.to_owned()),
         Err(_) => Some(home?.join(search)),
     }
-}
-
-pub fn default_dir() -> Result<PathBuf> {
-    Ok(dirs::config_dir()
-        .context("this system has no config folder; pass --dir")?
-        .join("beep-node"))
 }
 
 impl State {

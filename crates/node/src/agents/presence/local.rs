@@ -67,7 +67,7 @@ fn locator_path(set: Option<OsString>, dir: Option<&Path>) -> Result<PathBuf> {
 
     let dir = match dir {
         Some(dir) => std::path::absolute(dir)?,
-        None => crate::link::state::default_dir()?,
+        None => crate::fs::note::default_dir()?,
     };
     Ok(dir.join("presence.json"))
 }

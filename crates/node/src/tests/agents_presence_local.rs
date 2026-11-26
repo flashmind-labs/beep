@@ -85,7 +85,7 @@ async fn oversized_registrations_are_refused_without_tracking_a_session() {
 
 #[test]
 fn a_node_with_its_own_folder_keeps_its_own_locator() {
-    let usual = crate::link::state::default_dir().unwrap();
+    let usual = crate::fs::note::default_dir().unwrap();
     assert_eq!(
         locator_path(None, Some(&usual)).unwrap(),
         locator_path(None, None).unwrap(),
