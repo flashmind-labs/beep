@@ -469,6 +469,8 @@ impl Shared {
 
     pub(in crate::files::sync) fn stop(&self) {
         self.stop.cancel();
+        // A stopped project recovers nothing: a waiting answer and its hold go now.
+        *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
     }
 
     pub(in crate::files::sync) fn cursor(&self, peer: &EndpointId) -> Cursor {
