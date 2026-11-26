@@ -1,8 +1,10 @@
 //! History of an imported project, read over its existing mesh shell.
 
-use super::branches::placed;
+use super::{
+    branches::placed,
+    diff_view::{DiffView, view},
+};
 use crate::{
-    agents::diff::{DiffView, view},
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
