@@ -42,7 +42,7 @@ mod transcript;
 
 pub(crate) use delete::{remove_dir_in, remove_file_in};
 pub(crate) use disk::{forget_checkouts, rescan, saved_checkouts, walk};
-pub(crate) use crate::files::git_read::{
+pub(crate) use crate::fs::git_read::{
     Checkout, checkout, common_dir, default_branch, git_dir, last_commit, place, repository,
 };
 pub(crate) use memo::Memo;

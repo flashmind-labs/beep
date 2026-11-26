@@ -1,6 +1,6 @@
 //! Commands on their own authenticated QUIC connection.
 
-use crate::peer_stream::HEARTBEAT;
+use crate::events::HEARTBEAT;
 use super::{
     Offers, Session, channels, events,
     peers::{CHANNEL_OPEN_WAIT, Peers},

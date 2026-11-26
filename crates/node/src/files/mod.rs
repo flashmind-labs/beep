@@ -3,7 +3,6 @@
 
 host! {
     mod folders;
-    pub(crate) mod git_read;
     pub(crate) mod grants;
     pub mod holds;
     pub(crate) mod place;

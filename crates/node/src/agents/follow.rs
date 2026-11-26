@@ -6,7 +6,7 @@ use super::{
     found::{Agent, Seen},
     transcript_stage,
 };
-use crate::peer_stream::HEARTBEAT;
+use crate::events::HEARTBEAT;
 use anyhow::{Context, Result, bail};
 use beep_proto::SessionId;
 use beep_proto::node::{

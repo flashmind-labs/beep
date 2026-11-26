@@ -5,7 +5,7 @@ use super::{
     Ci,
     forge::{Host, Target},
 };
-use crate::{link::from_mesh, machine::elect::elect};
+use crate::{machine::elect::elect, membership};
 use beep_mesh::{Key, Mesh};
 use beep_projects::{
     imports::{
@@ -59,7 +59,7 @@ fn server_of(url: &str, host: &str) -> Option<ForgejoUrl> {
 /// Every pinned project with its repository on GitHub, or on any other
 /// host, taken as a Forgejo or Gitea server.
 pub(crate) fn pinned(mesh: &Mesh) -> Vec<Project> {
-    let servers: Vec<ForgejoUrl> = from_mesh::forgejo_servers(mesh)
+    let servers: Vec<ForgejoUrl> = membership::forgejo_servers(mesh)
         .iter()
         .filter_map(|url| url.parse().ok())
         .collect();

@@ -1347,7 +1347,7 @@ async fn the_orphan_check_waits_for_the_node_to_set_its_membership() {
     assert!(!task.is_finished(), "an unset membership is waited for");
     assert!(heard.try_recv().is_err());
 
-    membership.set(crate::joined_mesh::Membership::default()).ok();
+    membership.set(crate::membership::Membership::default()).ok();
     assert_eq!(tokio::time::timeout(Duration::from_millis(1), heard.recv()).await.ok().flatten(), Some(orphans::Parent::Silent));
     task.abort();
 }

@@ -8,7 +8,7 @@ use crate::{
         grants::Access,
         place::{Journal, Room, open_target},
     },
-    joined_mesh::Membership,
+    membership::Membership,
     lock,
     protocol::{Protocol, Session},
 };

@@ -364,5 +364,5 @@ impl<T: Clone> Kept<Option<T>> {
 }
 
 #[cfg(test)]
-#[path = "../tests/files_git_read.rs"]
+#[path = "../tests/fs_git_read.rs"]
 pub(crate) mod tests;

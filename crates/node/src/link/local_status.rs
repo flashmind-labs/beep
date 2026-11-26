@@ -3,7 +3,7 @@
 //! by position with `beep_proto::lenient`: a new field goes at the end with
 //! `#[serde(default)]`, and none is ever inserted, reordered or removed.
 
-use crate::agents::installs::{Agent, AgentState};
+use crate::status::{Agent, AgentState};
 use beep_mesh::DeviceKind;
 use beep_proto::node::sync::{ProjectStatus, State};
 use iroh::EndpointId;

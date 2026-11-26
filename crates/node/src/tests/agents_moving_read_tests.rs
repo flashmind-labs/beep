@@ -5,7 +5,7 @@ use super::{
 use super::saved::{Folder, Outgoing, Phase, Saved};
 use crate::{
     agents::{Agents, found::Stores},
-    joined_mesh::Membership,
+    membership::Membership,
 };
 use beep_proto::SessionId;
 use beep_proto::{AgentSlug, node::link};

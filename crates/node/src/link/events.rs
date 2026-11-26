@@ -1,7 +1,7 @@
 //! An authenticated peer can replace topics and send commands while updates arrive.
 
 use super::Offers;
-use crate::{events::Touched, peer_stream::HEARTBEAT};
+use crate::events::{HEARTBEAT, Touched};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,

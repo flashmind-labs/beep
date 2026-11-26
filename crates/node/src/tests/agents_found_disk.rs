@@ -1,5 +1,5 @@
 use super::*;
-use crate::files::git_read::tests::{has_git, run};
+use crate::fs::git_read::tests::{has_git, run};
 use crate::fs::paths;
 use std::{fs, path::PathBuf};
 

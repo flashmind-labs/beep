@@ -8,6 +8,7 @@
 //! the device list applies what differs from what was applied before.
 
 use crate::{
+    membership::{credentials, read},
     files::{sync::Syncs, syncthing::Syncthing},
     link::Offers,
     link::watchdog::{self, Step},
@@ -20,7 +21,7 @@ use beep_proto::{
         MachineCredentials,
         harness::{AgentSettings, HarnessConfig},
         mesh_state::{
-            Credential, Place, ProjectRecord, ProjectSyncSettings, SavedVersion, StateValue,
+            Place, ProjectRecord, ProjectSyncSettings, SavedVersion, StateValue,
             SyncSpec,
         },
         sync::{Project, ignored_project},
@@ -291,44 +292,8 @@ async fn apply_sync_sets(syncs: Syncs, mut sets: watch::Receiver<Option<Vec<Proj
     }
 }
 
-/// The values under `prefix` that read as `T`; one that does not is left
-/// out and its key logged, never its content.
-fn read<T: StateValue>(mesh: &Mesh, prefix: &str) -> Vec<(Key, T)> {
-    mesh.scan(prefix)
-        .into_iter()
-        .filter_map(|(key, bytes)| match T::from_bytes(&bytes) {
-            Ok(value) => Some((key, value)),
-            Err(_) => {
-                log::warn!("ignored {key} in the mesh: it does not read");
-                None
-            }
-        })
-        .collect()
-}
 
-/// The base URLs of the Forgejo and Gitea servers the mesh holds logins for.
-pub(crate) fn forgejo_servers(mesh: &Mesh) -> Vec<String> {
-    credentials(mesh)
-        .forgejo
-        .into_iter()
-        .map(|login| login.url)
-        .collect()
-}
 
-/// The credentials the node uses.
-fn credentials(mesh: &Mesh) -> MachineCredentials {
-    let mut out = MachineCredentials::default();
-
-    for (_, credential) in read::<Credential>(mesh, "credential/") {
-        match credential {
-            Credential::Env(secret) => out.env.push(secret),
-            Credential::Forgejo(login) => out.forgejo.push(login),
-            Credential::Agent(login) => out.agents.push(login),
-        }
-    }
-
-    out
-}
 
 fn settings(mesh: &Mesh) -> AgentSettings {
     let flsh = mesh

@@ -5,7 +5,7 @@
 use beep_proto::SessionId;
 use super::{Agents, Family, Session};
 use crate::agents::session::parent_gone;
-use crate::{agents::unix_now, joined_mesh::Membership};
+use crate::{agents::unix_now, membership::Membership};
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{sync::Mutex, time::Duration};

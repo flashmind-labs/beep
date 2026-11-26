@@ -28,7 +28,8 @@ host! {
     pub mod actor;
     pub mod machine;
     pub mod peer_stream;
-    mod joined_mesh;
+    mod membership;
+    mod status;
     mod known;
     mod process;
     mod fs;

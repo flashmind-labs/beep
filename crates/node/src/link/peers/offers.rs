@@ -1,7 +1,7 @@
 //! What a node serves (`Offers`), and who opened a session (`Who`).
 
 use crate::{
-    joined_mesh::Membership,
+    membership::Membership,
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
     files::transfer::Sharing,
     link::{

@@ -3,7 +3,7 @@
 //! The last walk's list is saved and served from `saved_checkouts` while the
 //! next start's `walk` looks again.
 
-use crate::files::git_read::{self as git, Checkout};
+use crate::fs::git_read::{self as git, Checkout};
 use crate::{fs::note, lock};
 use anyhow::{Context, Result};
 use ignore::{DirEntry, WalkBuilder, WalkState};
