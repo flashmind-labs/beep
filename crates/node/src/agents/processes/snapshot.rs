@@ -1,6 +1,12 @@
 //! One OS process-table read shared by the sessions observing their children.
 
-use super::{Process, os};
+use super::process::Process;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use super::linux as os;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use super::macos as os;
+#[cfg(windows)]
+use super::windows as os;
 use crate::AsyncMutex;
 use std::{collections::HashMap, future::Future, sync::Arc, time::Duration};
 use tokio::time::Instant;

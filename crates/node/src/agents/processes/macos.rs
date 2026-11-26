@@ -1,4 +1,4 @@
-use super::Process;
+use super::process::Process;
 use std::{
     collections::HashMap,
     mem::{MaybeUninit, size_of},
