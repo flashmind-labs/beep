@@ -7,6 +7,12 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.40] - 2026-11-26
+
+### Fixed
+
+- macOS: fixed a release build link failure that kept the local voice dictation update from publishing.
+
 ## [0.10.39] - 2026-11-26
 
 ### Changed
