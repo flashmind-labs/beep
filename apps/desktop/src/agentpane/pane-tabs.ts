@@ -7,7 +7,7 @@ import type { IconName } from "../ui/icons.tsx";
 import { AGENTS, ARTS, FILES, RUNNING, SUBS } from "./media-state.ts";
 import { dockHolding, dockOf, docked, openTabs, paneModel, place, setOn, type PaneCounts } from "./media-layout.ts";
 import { rememberPane } from "./pane-memory.ts";
-import { P, redraw, type MediaTab, type TabKind } from "./pane-state.ts";
+import { P, redraw, wantPane, type MediaTab, type TabKind } from "./pane-state.ts";
 import { dropTerm, killTerm } from "./terminal.ts";
 import type { PaneTabItem } from "./tabs-view.tsx";
 
@@ -29,6 +29,7 @@ export function discardSheet(tab: MediaTab, discard: () => void) {
 }
 
 export function closeTab(id: string) {
+  wantPane(null);
   const i = openTabs().findIndex(t => t.id === id);
   if (i < 0) return;
   // The tab goes once its terminal stopped, and says why when it could not.

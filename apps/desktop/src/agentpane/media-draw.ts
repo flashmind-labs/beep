@@ -60,9 +60,9 @@ export function syncCounts(): PaneCounts {
 /// What the docks draw comes from the model; this works out what the model cannot read.
 export function draw() {
   foldNarrow();
+  const counts = syncCounts();
   // A tab being dragged is not drawn over until it drops.
   if (drag?.ghost) return;
-  const counts = syncCounts();
   const split = docked();
   for (const d of DOCKS) syncDock(d, split[d]);
   followFiles();

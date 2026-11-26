@@ -218,12 +218,12 @@ export function openTerminal(row: TerminalRow) {
 
 /// Opens `rel`, a file in the session's folder, from the Files tab: a
 /// picture, video, audio, 3D model or PDF in its viewer, anything else as text.
-export function openWorkFile(rel: string) {
+function openWorkFile(rel: string) {
   openIn(paneRoot(), rel);
 }
 
 /// Opens an image, HTML or Markdown file directly in its preview.
-export function previewWorkFile(rel: string) {
+function previewWorkFile(rel: string) {
   const tab = openIn(paneRoot(), rel);
   if (tab) previewTab(tab);
 }
@@ -297,7 +297,7 @@ export function openLinked(ref: FileRef) {
 /// Opens a definition target returned by LSP at its 0-based line and column.
 /// When `preferEdit` is set, opens or focuses the target in CodeMirror edit mode
 /// so Cmd+click and Vim `gd` keep the editing flow intact.
-export function openLocation(root: string, location: LspLocation, preferEdit: boolean) {
+function openLocation(root: string, location: LspLocation, preferEdit: boolean) {
   const s = P.session;
   if (!s) return;
 
@@ -409,7 +409,7 @@ export function openSessionBeside(s: SplitSession, dock: Dock = "right") {
 }
 
 /// Shows the Files tab, unfolding its dock.
-export function showFiles() {
+function showFiles() {
   const d = dockOf(FILES);
   leaveLog();
   requestRightPane(d);
@@ -436,7 +436,7 @@ function showList(id: typeof RUNNING | typeof SUBS) {
 
 /// Turns the Device tab's dock to it, unfolded, without taking the keys
 /// from the conversation. A phone keeps its screen.
-export function showDevice() {
+function showDevice() {
   syncCounts();
   if (!shell() || paneModel.getState().phone || !tabIds().includes(DEVICE)) return;
   const d = dockOf(DEVICE);

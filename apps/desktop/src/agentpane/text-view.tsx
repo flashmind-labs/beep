@@ -439,6 +439,6 @@ export function TextView({ tab, text }: { tab: MediaTab; text: TreeText }) {
       {!text.binary && hasPreview(rel) && <Button data-preview="1" onClick={() => void togglePreview(tab)}>{preview?.active ? "Source" : "Preview"}</Button>}
       {editable && !preview?.active && <Button data-tedit="1" onClick={event => startEdit(tab, event.currentTarget)}>Edit</Button>}
       <Button data-tment="1" onClick={() => addMention(mentioned(tab.root ?? P.session?.cwd ?? "", P.session?.cwd ?? "", rel))}>Mention</Button>
-      <Button data-tdownload="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root ?? P.session?.cwd ?? "")}>Download</Button>
+      <Button data-tdownload="1" onClick={() => saveWorkFile(rel, text => noteTab(tab, text), tab.root ?? "")}>Download</Button>
     </div></>;
 }

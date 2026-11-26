@@ -149,6 +149,7 @@ openState.subscribe(({ row, why, back, adopt }) => {
 });
 pushedUpdate.subscribe(({ due }) => {
   if (!due) return;
+  pushedUpdate.setState({ due: null });
   applyAgentPage(due.open, due.page, due.read, due.replace, true);
 });
 
@@ -384,7 +385,7 @@ function keptPage(log: KeptLog | null, held: AgentPage | null): AgentPage | null
 
 /// A `pushed` update always holds something new; a polled one is compared
 /// with the last read.
-export function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false, pushed = false) {
+function applyAgentPage(o: OpenAgent, page: AgentPage, read: number, replace = false, pushed = false) {
   if (AG.page) page = { ...page, session: nativeUpdate(AG.page.session, page.session) };
 
   if (isNativeSession(page.session.id)) {
