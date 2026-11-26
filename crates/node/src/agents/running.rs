@@ -10,7 +10,7 @@ use super::{
     sessions::{self, new_id},
 };
 use crate::{
-    agents::mcp::{self, Launch},
+    agents::{mcp, mcp_launch::Launch},
     process::spawn_env::{self, Scope},
     process,
 };

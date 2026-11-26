@@ -1,4 +1,9 @@
 use super::*;
+use crate::agents::{
+    calls::SERVER_NAME,
+    mcp_launch::{Invocation, Launch, SOCKET_ENV, TOKEN_ENV},
+};
+use agent_client_protocol::v1::schema::McpServer;
 
 #[test]
 fn a_token_is_good_for_its_own_session_only() {

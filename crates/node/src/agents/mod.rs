@@ -15,7 +15,7 @@ host! {
     pub(crate) mod caller;
     mod text;
     pub(crate) use text::cut;
-    use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp::Launch};
+    use crate::{AsyncMutex, agents::claude::External, agents::found::Stores, agents::mcp_launch::Launch};
     use beep_proto::SessionId;
     use std::{
         collections::HashMap,
@@ -31,6 +31,7 @@ host! {
     mod codex_direct;
     pub(crate) mod found;
     pub mod mcp;
+    pub(crate) mod mcp_launch;
     pub(crate) mod skill_disk;
     pub(crate) mod skill_library;
     pub mod skills;

@@ -5,11 +5,14 @@
 
 use beep_proto::SessionId;
 use crate::{
-    agents::{Answered, Asking, socket},
+    agents::{
+        Answered, Asking,
+        mcp_launch::{Launch, SOCKET_ENV, TOKEN_ENV},
+        socket,
+    },
     link::Offers,
     run::local_socket::{self, Listener},
 };
-use agent_client_protocol::v1::schema::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::tools::{Reply, Request, Tool};
 use serde::Deserialize;
@@ -44,118 +47,20 @@ mod transcripts;
 
 
 pub use super::calls::{SERVER_NAME, command_name};
+pub use super::mcp_launch::Invocation;
 pub(crate) use desktop::answer as answer_projects;
 pub use super::desktop_call::ProjectTools;
 pub(crate) use team::{answer as answer_team, deliver_handoffs};
 pub(crate) use server::Backend;
 use server::Called;
 
-/// The env var the token reaches `beep-node mcp` in.
-pub const TOKEN_ENV: &str = "BEEP_MCP_TOKEN";
-/// The env var the socket the node bound reaches `beep-node mcp` in.
-pub const SOCKET_ENV: &str = "BEEP_MCP_SOCKET";
 /// The most MCP connections served at once: one per running session, and
 /// a node runs at most a few dozen.
 const MAX_CONNECTIONS: usize = 64;
 /// How long a connection has to say whose it is.
 const HELLO_LIMIT: Duration = Duration::from_secs(5);
 const MAX_HELLO: u64 = 4096;
-/// How sessions start the server, and the key their tokens are made with.
-pub struct Launch {
-    /// The `beep-node` to run.
-    exe: PathBuf,
-    /// The node's folder.
-    dir: PathBuf,
-    /// The socket the node listens on, handed to sessions as it is.
-    socket: PathBuf,
-    /// Made fresh each run: a token is good while this node runs.
-    key: [u8; 32],
-}
-
-impl Launch {
-    /// Sessions run `exe mcp` against the node in `dir`.
-    pub fn new(exe: PathBuf, dir: PathBuf) -> Self {
-        let socket = socket::path_for(&dir);
-        Self {
-            exe,
-            dir,
-            socket,
-            key: rand::random(),
-        }
-    }
-
-    fn token(&self, session: &SessionId) -> blake3::Hash {
-        blake3::keyed_hash(&self.key, session.as_ref().as_bytes())
-    }
-
-    /// Whether `token` is the one `session` was given. The comparison
-    /// takes the same time however much matches.
-    fn verify(&self, session: &SessionId, token: &str) -> bool {
-        blake3::Hash::from_hex(token.trim()).is_ok_and(|given| given == self.token(session))
-    }
-
-    /// The entry `session/new` passes for `session`.
-    pub(crate) fn server(&self, session: &SessionId) -> McpServer {
-        let args = Invocation {
-            dir: self.dir.clone(),
-            session: session.clone(),
-        }
-        .args();
-        let token = self.token(session).to_hex().to_string();
-        McpServer::Stdio(
-            McpServerStdio::new(SERVER_NAME, &self.exe)
-                .args(args)
-                .env(vec![
-                    EnvVariable::new(TOKEN_ENV, token),
-                    EnvVariable::new(SOCKET_ENV, self.socket.display().to_string()),
-                ]),
-        )
-    }
-}
-
-/// A session's `mcp` command after the binary: `--dir <dir> mcp --session
-/// <id>`. `beep-node` reads it with its own parser; the Mac app, whose own
-/// executable is the command, reads it with `parse` before it starts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Invocation {
-    /// The node's folder, which holds the socket.
-    pub dir: PathBuf,
-    /// The node's id of the agent's session.
-    pub session: SessionId,
-}
-
 impl Invocation {
-    fn args(&self) -> Vec<String> {
-        vec![
-            "--dir".to_owned(),
-            self.dir.display().to_string(),
-            "mcp".to_owned(),
-            "--session".to_owned(),
-            self.session.to_string(),
-        ]
-    }
-
-    /// The invocation `args` (after the binary) make, when they are
-    /// exactly the arguments `Launch` gives a session.
-    pub fn parse<I>(args: I) -> Option<Self>
-    where
-        I: IntoIterator,
-        I::Item: Into<OsString>,
-    {
-        let args: Vec<OsString> = args.into_iter().map(Into::into).collect();
-        let [flag, dir, command, session_flag, session] = <[OsString; 5]>::try_from(args).ok()?;
-
-        if flag != "--dir" || command != "mcp" || session_flag != "--session" || dir.is_empty() {
-            return None;
-        }
-
-        let session = session.into_string().ok().filter(|id| !id.is_empty()).map(Into::<SessionId>::into)?;
-        Some(Self {
-            dir: PathBuf::from(dir),
-            session,
-        })
-    }
-
     /// Pipes stdin and stdout to the node until either side ends.
     pub async fn run(&self) -> Result<()> {
         pipe(&self.dir, &self.session).await
