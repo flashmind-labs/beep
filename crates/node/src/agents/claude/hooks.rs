@@ -3,7 +3,6 @@
 //! `beep-node hook` (`forward`), which hands the event over `socket_path`.
 
 use beep_proto::SessionId;
-use super::watch::MAX_MESSAGE;
 use crate::agents::cut;
 use crate::link::local_socket as socket;
 use anyhow::{Context, Result, bail};
@@ -48,6 +47,8 @@ const SEND_TIMEOUT: Duration = Duration::from_secs(1);
 const MAX_INPUT: u64 = 1024 * 1024;
 /// The most of the node's answer read.
 const MAX_ANSWER: u64 = 64 * 1024;
+/// The longest message an activity carries.
+pub(super) const MAX_MESSAGE: usize = 1500;
 /// The longest tool detail and error kept.
 const MAX_DETAIL: usize = 300;
 /// What marks a hook as this node's.

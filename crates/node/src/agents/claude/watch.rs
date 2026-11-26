@@ -28,8 +28,6 @@ use tokio::{
     time::{Instant, sleep_until, timeout},
 };
 
-/// The longest message an activity carries.
-pub(super) const MAX_MESSAGE: usize = 1500;
 /// The most sessions one stream follows.
 const MAX_WATCHED: usize = 32;
 /// How long a turn end seen in a transcript waits for its hook.
