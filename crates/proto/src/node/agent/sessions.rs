@@ -598,70 +598,7 @@ impl From<&RelPath> for std::path::PathBuf {
 /// The most paths one `Present` asks about.
 pub const MAX_PRESENT_PATHS: usize = 200;
 
-impl SessionsRequest {
-    /// A one-shot read that changes nothing on the node, so asking twice
-    /// is safe: one lost with its connection may be sent again on the
-    /// next. Streams that follow the node and anything that writes,
-    /// installs or steers are not.
-    pub fn is_read(&self) -> bool {
-        match self {
-            Self::List {}
-            | Self::ListAll {}
-            | Self::Transcript { .. }
-            | Self::External { .. }
-            | Self::ExternalNamed { .. }
-            | Self::Folders { .. }
-            | Self::InFolders { .. }
-            | Self::InFoldersPage { .. }
-            | Self::Image { .. }
-            | Self::Thumb { .. }
-            | Self::Models { .. }
-            | Self::Harnesses { .. }
-            | Self::File { .. }
-            | Self::Share { .. }
-            | Self::Folder { .. }
-            | Self::ReadFile { .. }
-            | Self::CustomAgents { .. }
-            | Self::Diff { .. }
-            | Self::Worktrees { .. }
-            | Self::Commands { .. }
-            | Self::MoveProgress { .. }
-            | Self::MoveCheck { .. }
-            | Self::Copies {}
-            | Self::Present { .. }
-            | Self::HashFiles { .. }
-            | Self::Search { .. }
-            | Self::Review { .. }
-            | Self::Reviews { .. }
-            | Self::Processes { .. }
-            | Self::Live { .. }
-            | Self::LspDefinition { .. } => true,
-            Self::Watch { .. }
-            | Self::FollowPresence {}
-            | Self::Steer { .. }
-            | Self::UpdateHarness { .. }
-            | Self::FollowImages {}
-            | Self::FollowUsage { .. }
-            | Self::RefreshPlanUsage {}
-            | Self::EditFiles { .. }
-            | Self::WriteFile { .. }
-            | Self::UploadFile { .. }
-            | Self::DiscardDraftAttachment { .. }
-            | Self::RelocateSession { .. }
-            | Self::DeleteSession { .. }
-            | Self::ContinueCopy { .. }
-            | Self::DiscardCopy { .. }
-            | Self::FollowAlerts {}
-            | Self::FollowIndex { .. }
-            | Self::FollowRuns {}
-            | Self::StopProcess { .. }
-            | Self::StopContainer { .. }
-            | Self::CloseExternal { .. }
-            | Self::InstallAdapters {}
-            | Self::StartReview { .. } => false,
-        }
-    }
-}
+impl SessionsRequest {}
 
 /// What `SessionsRequest::Diff` reads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

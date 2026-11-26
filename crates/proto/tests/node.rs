@@ -1911,7 +1911,6 @@ mod agent {
                     root: "/srv/project".into(),
                     action,
                 };
-                assert!(!request.is_read());
                 let bytes = rmp_serde::to_vec(&request).expect("encodes");
                 assert_eq!(
                     beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).expect("decodes"),
@@ -1949,30 +1948,7 @@ mod agent {
         }
 
         #[test]
-        fn only_one_shot_reads_may_be_asked_again() {
-            let folder = SessionsRequest::Folder {
-                root: "/srv/project".into(),
-                path: "src".into(),
-                ignored: false,
-                depth: 3,
-            };
-            let read = SessionsRequest::ReadFile {
-                root: "/srv/project".into(),
-                path: "notes.txt".into(),
-                offset: 0,
-                len: 10,
-            };
-            assert!(folder.is_read());
-            assert!(read.is_read());
-            assert!(SessionsRequest::List {}.is_read());
-            let write = SessionsRequest::WriteFile {
-                root: "/srv/project".into(),
-                path: "notes.txt".into(),
-                offset: 0,
-                size: 2,
-                data: b"hi".to_vec(),
-            };
-            assert!(!write.is_read());
+        fn an_upload_survives_a_round_trip() {
             let upload = SessionsRequest::UploadFile {
                 root: "/srv/project".into(),
                 agent: "codex".into(),
@@ -1982,24 +1958,15 @@ mod agent {
                 size: 2,
                 data: b"hi".to_vec(),
             };
-            assert!(!upload.is_read());
             let bytes = rmp_serde::to_vec(&upload).unwrap();
             assert_eq!(
                 beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).unwrap(),
                 upload
             );
-            assert!(
-                !SessionsRequest::UpdateHarness {
-                    agent: "claude".into()
-                }
-                .is_read()
-            );
-            assert!(!SessionsRequest::FollowAlerts {}.is_read());
-            assert!(!SessionsRequest::Watch { sessions: vec![] }.is_read());
         }
 
         #[test]
-        fn process_requests_are_new_and_only_the_list_is_retryable() {
+        fn process_requests_survive_a_round_trip() {
             let read = SessionsRequest::Processes {
                 session: "s1".into(),
             };
@@ -2011,9 +1978,6 @@ mod agent {
                 session: "s1".into(),
                 id: "c0ffee".into(),
             };
-            assert!(read.is_read());
-            assert!(!stop.is_read());
-            assert!(!stop_container.is_read());
 
             for request in [read, stop, stop_container] {
                 let bytes = rmp_serde::to_vec(&request).unwrap();
@@ -2062,7 +2026,6 @@ mod agent {
                 agent: "claude".into(),
                 session: "s1".into(),
             };
-            assert!(!close.is_read());
             let bytes = rmp_serde::to_vec(&close).unwrap();
             assert_eq!(
                 beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).unwrap(),
@@ -2111,7 +2074,6 @@ mod agent {
                 beep_proto::lenient::from_slice::<SessionsRequest>(&fixture).expect("decodes"),
                 asked
             );
-            assert!(asked.is_read());
             assert!(rmp_serde::from_slice::<BeforeMoves>(&bytes).is_err());
             let start = SessionsRequest::StartReview {
                 order: ReviewOrder {
@@ -2122,7 +2084,6 @@ mod agent {
                     ..ReviewOrder::default()
                 },
             };
-            assert!(!start.is_read());
             let bytes = rmp_serde::to_vec(&start).expect("encodes");
             assert_eq!(
                 beep_proto::lenient::from_slice::<SessionsRequest>(&bytes).expect("decodes"),
@@ -2162,12 +2123,11 @@ mod agent {
         }
 
         #[test]
-        fn worktrees_round_trip_and_may_be_asked_again() {
+        fn worktrees_round_trip() {
             let ask = SessionsRequest::Worktrees {
                 folder: "/srv/project".into(),
                 session: Some("a3f9c1".into()),
             };
-            assert!(ask.is_read());
             let body = rmp_serde::to_vec(&ask).unwrap();
             assert_eq!(
                 rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
@@ -2191,11 +2151,10 @@ mod agent {
         }
 
         #[test]
-        fn commands_round_trip_and_may_be_asked_again() {
+        fn commands_round_trip() {
             let ask = SessionsRequest::Commands {
                 session: "a3f9c1".into(),
             };
-            assert!(ask.is_read());
             let body = rmp_serde::to_vec(&ask).unwrap();
             assert_eq!(
                 rmp_serde::from_slice::<SessionsRequest>(&body).unwrap(),
