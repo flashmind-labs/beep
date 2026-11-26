@@ -1,7 +1,7 @@
 //! Creative and developer apps: app bundles on macOS, desktop entries on Linux,
 //! install folders and Epic's launcher list on Windows.
 
-use super::{PROBE_TIMEOUT, first_line};
+use super::probe::{PROBE_TIMEOUT, first_line};
 use beep_proto::node::{AppInfo, AppName};
 use serde::Deserialize;
 use std::{

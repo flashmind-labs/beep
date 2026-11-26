@@ -1,7 +1,7 @@
 //! Graphics cards: `nvidia-smi` when it is installed, else `system_profiler`
 //! on macOS or `lspci` on Linux.
 
-use super::output;
+use super::probe::output;
 use beep_proto::node::{GpuInfo, GpuVendor};
 use serde_json::Value;
 use std::env;

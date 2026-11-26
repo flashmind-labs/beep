@@ -4,9 +4,12 @@
 mod apps;
 mod gpu;
 mod latest;
+mod probe;
 pub(crate) mod locate;
 
 pub(crate) use latest::{Probes, changed, fresh, machine};
+pub(crate) use probe::{beside, output};
+use probe::{first_line, ran};
 
 use crate::files::syncthing::Syncthing;
 use crate::machine::spawn_env::{self, Scope};
@@ -15,18 +18,16 @@ use beep_proto::node::{EnvReport, Login, ToolInfo};
 use std::{
     env,
     path::{Path, PathBuf},
-    process::Stdio,
-    time::Duration,
 };
-use tokio::{sync::OnceCell, time::timeout};
+#[cfg(windows)]
+use std::time::Duration;
+use tokio::sync::OnceCell;
+#[cfg(windows)]
+use tokio::time::timeout;
 
-/// How long one probe command may take.
-const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long listing and looking into the WSL distributions may take.
 #[cfg(windows)]
 const WSL_LIMIT: Duration = Duration::from_secs(20);
-/// The longest version line kept.
-const MAX_VERSION: usize = 80;
 
 /// Tools worth knowing about, with the arguments that print their version.
 const KNOWN_TOOLS: &[(&str, &[&str])] = &[
@@ -192,52 +193,6 @@ pub(crate) async fn probe_tools(scope: ToolScope) -> (Vec<ToolInfo>, Vec<(&'stat
         }
     }
     (tools, found)
-}
-
-/// What `program args` printed, stdout then stderr, when it ran in time.
-pub(crate) async fn output(program: impl AsRef<std::ffi::OsStr>, args: &[&str]) -> Option<String> {
-    ran(program, args, Scope::Probe).await.map(|(_, text)| text)
-}
-
-/// What `program` printed, stdout then stderr, and whether it succeeded;
-/// `None` when it could not run or took too long. It gets the credentials
-/// `scope` allows.
-async fn ran(
-    program: impl AsRef<std::ffi::OsStr>,
-    args: &[&str],
-    scope: Scope,
-) -> Option<(bool, String)> {
-    let mut command = crate::run::process::probe(program.as_ref());
-    spawn_env::apply(&mut command, scope);
-    beside(&mut command, Path::new(program.as_ref()));
-    let run = command
-        .args(args)
-        .stdin(Stdio::null())
-        .kill_on_drop(true)
-        .output();
-    let out = timeout(PROBE_TIMEOUT, run).await.ok()?.ok()?;
-    let mut text = String::from_utf8_lossy(&out.stdout).into_owned();
-    text.push_str(&String::from_utf8_lossy(&out.stderr));
-    Some((out.status.success(), text))
-}
-
-/// `program`'s folder first on the `PATH` of `command`, when it was found
-/// outside `PATH`, so what it starts (`node` for an npm install) is found.
-pub(crate) fn beside(command: &mut tokio::process::Command, program: &Path) {
-    let Some(dir) = program.parent().filter(|_| program.is_absolute()) else {
-        return;
-    };
-    let inherited = spawn_env::search_path().unwrap_or_default();
-    let dirs = std::iter::once(dir.to_owned()).chain(env::split_paths(&inherited));
-
-    if let Ok(path) = env::join_paths(dirs) {
-        command.env("PATH", path);
-    }
-}
-
-fn first_line(text: &str) -> Option<String> {
-    let line = text.lines().map(str::trim).find(|line| !line.is_empty())?;
-    Some(line.chars().take(MAX_VERSION).collect())
 }
 
 /// The bare version in `line`, what tool `name` printed first: `0.162.1`
