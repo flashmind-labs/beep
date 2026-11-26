@@ -44,7 +44,7 @@ import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
 import { type AgentStarted, isStarting } from "./starting-state.ts";
-import { feed, flushDraw, forgetUnfollowedExtras, keptTranscript, pushedPage } from "./session-follow.ts";
+import { feed, flushDraw, forgetUnfollowedExtras, keptTranscript, pushedUpdate } from "./session-follow.ts";
 import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./session-head.tsx";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
@@ -147,7 +147,11 @@ sessionAsked.subscribe(({ wanted }) => {
   sessionAsked.setState({ wanted: null });
   openAgent(wanted.row, { back: wanted.back });
 });
-pushedPage.follow(({ open, page, read, replace }) => applyAgentPage(open, page, read, replace, true));
+pushedUpdate.subscribe(({ due }) => {
+  if (!due) return;
+  pushedUpdate.setState({ due: null });
+  applyAgentPage(due.open, due.page, due.read, due.replace, true);
+});
 
 /// The parts that stay while the session updates: the head, the body and the field.
 /// With `inPlace` only the head and the conversation are replaced, so the pane

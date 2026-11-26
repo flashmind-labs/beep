@@ -11,12 +11,12 @@ import { joinRuns, viewRead } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
 import { mergePage } from "./open-page.ts";
 import { isOpen, setReadNote, wantRead } from "./open-state.ts";
-import { signal } from "../ui/signal.ts";
+import { createStore } from "zustand/vanilla";
 import { paneShown } from "../ui/active.ts";
 import { publishTurn } from "../plugins/plugins-state.ts";
 
-/// A pushed update of the open session `open`, due to be shown: its page applies it.
-export const pushedPage = signal<{ open: OpenAgent; page: AgentPage; read: number; replace: boolean }>();
+/// A pushed update of the open session `open`, due to be shown, until its page applies it.
+export const pushedUpdate = createStore<{ due: { open: OpenAgent; page: AgentPage; read: number; replace: boolean } | null }>(() => ({ due: null }));
 
 interface FeedUpdate extends TranscriptUpdate<AgentPage> {
   modes: AgentModes | null;
@@ -154,7 +154,7 @@ export function flushDraw(now = false) {
   if (!now && isOpen(next.open) && !paneShown()) return;
   held = null;
 
-  if (isOpen(next.open)) pushedPage.notify({ open: next.open, page: next.page, read: next.read, replace: next.replace });
+  if (isOpen(next.open)) pushedUpdate.setState({ due: { open: next.open, page: next.page, read: next.read, replace: next.replace } });
   else if (AG.open === next.open && AG.page) mergePage(next.page, next.replace);
 }
 
