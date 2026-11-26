@@ -16,7 +16,7 @@ import {
 } from "./lsp-state.ts";
 import { openTabs } from "./media-layout.ts";
 import { rememberPane } from "./pane-memory.ts";
-import { type MediaTab, type TextPlace, type TreeText, askPane, newFileEdit, P } from "./pane-state.ts";
+import { type MediaTab, type TextPlace, type TreeText, wantPane, newFileEdit, P } from "./pane-state.ts";
 import { discardSheet, noteTab, touchTab } from "./pane-tabs.ts";
 import { fileError, readError, saveWorkFile } from "./read-file.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
@@ -294,7 +294,7 @@ async function lookupDefinition(
 
     const result = parseLspResult(raw);
     if (result.locations.length === 1) {
-      askPane({ kind: "location", root, location: result.locations[0], preferEdit });
+      wantPane({ kind: "location", root, location: result.locations[0], preferEdit });
       return;
     }
 
@@ -304,7 +304,7 @@ async function lookupDefinition(
         "Definitions",
         result.locations.map(loc => ({
           label: formatLocationLabel(loc),
-          on: () => askPane({ kind: "location", root, location: loc, preferEdit }),
+          on: () => wantPane({ kind: "location", root, location: loc, preferEdit }),
         })),
       );
       return;

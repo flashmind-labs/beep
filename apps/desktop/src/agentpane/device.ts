@@ -8,7 +8,7 @@ import { indexedChannel, invoke, listen } from "../ui/tauri.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList } from "../ui/snapshot-state.ts";
 import { ambient, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
-import { askPane, paneSession, redraw } from "./pane-state.ts";
+import { wantPane, paneSession, redraw } from "./pane-state.ts";
 import { sessionKey } from "./running.ts";
 import { paneRoot } from "./worktree.ts";
 import {
@@ -135,7 +135,7 @@ export function followDeviceCalls(entries: readonly { kind: string; text: string
 
   agentUsed = session;
   wanted = target;
-  askPane({ kind: "show", tab: "device" });
+  wantPane({ kind: "show", tab: "device" });
   void readDevices();
 }
 

@@ -9,7 +9,7 @@
 import type { DiffView } from "../review/diff-state.ts";
 import { type DiffViewHandle, type DiffOwner, diffView } from "../review/diff.tsx";
 import { CHANGES } from "./media-state.ts";
-import { askPane, paneSession } from "./pane-state.ts";
+import { wantPane, paneSession } from "./pane-state.ts";
 import { dockOf, paneModel } from "./media-layout.ts";
 import { localFileItems } from "./localfile.ts";
 import { touchesRepo } from "./touched.ts";
@@ -126,7 +126,7 @@ function make(key: string) {
   const view = diffView({
     owner,
     uncommitted: true,
-    zoom: { zoomed: () => paneModel.getState().zoomed === dockOf(CHANGES), subscribe: paneModel.subscribe, enter: () => askPane({ kind: "show", tab: "changes" }) },
+    zoom: { zoomed: () => paneModel.getState().zoomed === dockOf(CHANGES), subscribe: paneModel.subscribe, enter: () => wantPane({ kind: "show", tab: "changes" }) },
     load: async (only, lockfiles, uncommitted, context) => {
       const full = !only.length;
 
@@ -145,7 +145,7 @@ function make(key: string) {
       if (full) { entry.lines = linesOf(view); trim(); }
       return view;
     },
-    open: { label: "Open in a tab", run: rel => askPane({ kind: "open", rel, preview: false }) },
+    open: { label: "Open in a tab", run: rel => wantPane({ kind: "open", rel, preview: false }) },
     menu: (path, at) => localFileItems({ machineId: entry.machine, root: entry.root, path }, at),
     review: { key: viewKey(s.machine_id, s.id), heading: () => reviewHeading(homeShort(entry.root), paneLinked()), send: async text => await paneSession()?.sendReview?.(text) ?? "No session is open." },
     agent: { machine: { id: s.machine_id, name: s.machine_name }, prefer: s.agent, session: s.id },

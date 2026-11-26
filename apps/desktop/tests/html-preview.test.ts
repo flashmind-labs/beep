@@ -18,7 +18,7 @@ const stubs = new Map(Object.entries({
   "agentpane/pane-tabs.ts": "export const touchTab = t => globalThis.previewDraw(t); export const noteTab = () => {}; export const discardSheet = () => {};",
   "agentpane/media-layout.ts": "export const openTabs = () => globalThis.previewState.tabs;",
   "agentpane/pane-memory.ts": "export const rememberPane = () => {};",
-  "agentpane/pane-state.ts": "export const P = globalThis.previewState; export const askPane = () => {}; export const newFileEdit = base => ({ base, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at: null });",
+  "agentpane/pane-state.ts": "export const P = globalThis.previewState; export const wantPane = () => {}; export const newFileEdit = base => ({ base, view: null, state: null, generation: 0, dirty: false, saving: false, conflict: false, at: null });",
   "agentpane/read.ts": "export const readFile = () => {}; export const readError = e => e.message; export const fileError = e => e.message; export const drawTermStatus = () => {};",
   "agentpane/terminal.ts": "export const attach = () => {}; export const detachTerm = () => {}; export const killTerm = () => {};",
   "ui/tauri.ts": "export const invoke = globalThis.previewInvoke; export const listen = async () => () => {};",

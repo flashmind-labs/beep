@@ -18,7 +18,7 @@ import { paneRoot, watchRoot, worktreesReady } from "./worktree.ts";
 import { mentioned } from "./worktree-state.ts";
 import { sessions } from "../agents/sessions.ts";
 import { threadFolders } from "../agents/threads-state.ts";
-import { askPane, paneSession } from "./pane-state.ts";
+import { wantPane, paneSession } from "./pane-state.ts";
 import { saveWorkFile } from "./read-file.ts";
 import { desktopChatPane, place, setPaneModel } from "./media-layout.ts";
 import { localFileItems } from "./localfile.ts";
@@ -294,7 +294,7 @@ export function revealPath(rel: string) {
   if (inRoot == null) return;
   const parts = inRoot.split("/").filter(Boolean);
   if (!parts.length) return;
-  askPane({ kind: "show", tab: "files" });
+  wantPane({ kind: "show", tab: "files" });
   current.filter = "";
 
   for (let i = 1; i < parts.length; i++) {
@@ -617,7 +617,7 @@ function menu(path: string, folder: boolean, x: number, y: number) {
     closeFilesMenu();
 
     if (act === "open") openPicked();
-    else if (act === "preview") askPane({ kind: "open", rel: path, preview: true });
+    else if (act === "preview") wantPane({ kind: "open", rel: path, preview: true });
     else if (act === "mention") paths.forEach(p => addMention(mentioned(paneRoot(), s.cwd, p)));
     else if (act === "abs" || act === "rel") {
       const text = paths.map(p => act === "abs" ? resolvePath(paneRoot(), p) : p).join("\n");
@@ -662,7 +662,7 @@ function openPicked() {
   const row = rowsNow().find(r => r.path === current.picked);
   if (row?.folder) toggle(row.path); else openFile(current.picked);
 }
-const openFile = (path: string) => askPane({ kind: "open", rel: path, preview: hasPreview(path) });
+const openFile = (path: string) => wantPane({ kind: "open", rel: path, preview: hasPreview(path) });
 
 type FileAction = { CreateFile: { path: string } } | { CreateFolder: { path: string } }
   | { Rename: { path: string; to: string } } | { Copy: { paths: string[]; folder: string } }

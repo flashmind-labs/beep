@@ -25,7 +25,7 @@ import { frameResize } from "../ui/dom.ts";
 import { draw, flipTab, pickPhoneTab, syncCounts } from "./media-draw.ts";
 import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, drawPaneNow, openTabs, paneModel, paneOf, place, setHidden, setOn, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { loadLayout, memory, readTerminal, rememberPane, savedPane, saveLayout, startingTerminals } from "./pane-memory.ts";
-import { P, newFileEdit, paneCommands, type MediaTab, type PaneCommand, type PaneSession, type SplitSession, type WorkFile } from "./pane-state.ts";
+import { P, newFileEdit, paneAsked, type MediaTab, type PaneWant, type PaneSession, type SplitSession, type WorkFile } from "./pane-state.ts";
 import { closeTab, dropTab, touchTab } from "./pane-tabs.ts";
 import { onPhone, savedIn } from "../ui/platform.ts";
 
@@ -506,19 +506,23 @@ function readWorktrees(s: PaneSession) {
 // keep their views of the last few folders, to show again as they were.
 changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); unfollowFiles(); P.watch?.disconnect(); P.watch = null; watchShell(null); } });
 
-// The tabs ask for these from below, where they cannot reach the commands.
-paneCommands.subscribe(({ command }) => { if (command) runCommand(command); });
+// The tabs below record what they are to show; the pane shows it.
+paneAsked.subscribe(({ wanted }) => {
+  if (!wanted) return;
+  paneAsked.setState({ wanted: null });
+  showWanted(wanted);
+});
 
-function runCommand(command: PaneCommand) {
-  if (command.kind === "show") {
-    if (command.tab === "files") showFiles();
-    else if (command.tab === "device") showDevice();
+function showWanted(wanted: PaneWant) {
+  if (wanted.kind === "show") {
+    if (wanted.tab === "files") showFiles();
+    else if (wanted.tab === "device") showDevice();
     else showChanges();
-  } else if (command.kind === "open") {
-    if (command.preview) previewWorkFile(command.rel); else openWorkFile(command.rel);
-  } else if (command.kind === "openPath") {
-    openPath(command.path);
+  } else if (wanted.kind === "open") {
+    if (wanted.preview) previewWorkFile(wanted.rel); else openWorkFile(wanted.rel);
+  } else if (wanted.kind === "openPath") {
+    openPath(wanted.path);
   } else {
-    openLocation(command.root, command.location, command.preferEdit);
+    openLocation(wanted.root, wanted.location, wanted.preferEdit);
   }
 }

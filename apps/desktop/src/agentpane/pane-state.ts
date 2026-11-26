@@ -196,16 +196,16 @@ export function refollow() {
   paneAsks.setState(s => ({ follows: s.follows + 1 }));
 }
 
-/// What a tab asks of the commands in media.ts, which carries them out.
-export type PaneCommand =
+/// What a tab is to show or open, until media.ts, which owns the pane's tabs, does it.
+export type PaneWant =
   | { kind: "show"; tab: "files" | "device" | "changes" }
   | { kind: "open"; rel: string; preview: boolean }
   | { kind: "openPath"; path: string }
   | { kind: "location"; root: string; location: LspLocation; preferEdit: boolean };
 
-export const paneCommands = createStore<{ command: PaneCommand | null }>(() => ({ command: null }));
+export const paneAsked = createStore<{ wanted: PaneWant | null }>(() => ({ wanted: null }));
 
-/// Asks media.ts to run `command`.
-export function askPane(command: PaneCommand) {
-  paneCommands.setState({ command });
+/// Asks the pane to show or open `wanted`.
+export function wantPane(wanted: PaneWant) {
+  paneAsked.setState({ wanted });
 }
