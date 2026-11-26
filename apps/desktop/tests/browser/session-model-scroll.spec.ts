@@ -11,7 +11,7 @@ const view = (row = session) => ({
   earlier: 0, error: null, queued: 0, queued_messages: [], turns: 20,
 });
 
-test("opening a short transcript page reads all earlier messages without scrolling", async ({ page }) => {
+test("opening a transcript reads earlier messages until the view is full, then as the reader nears the top", async ({ page }) => {
   const active = { ...session, status: "idle", external: false };
   const entries = [{ kind: "other", text: "[conversation compacted]\nEarlier context." }, { kind: "agent", text: "Latest reply" }];
   await openDesktop(page, false, { agent_view: { ...view(active), entries, earlier: 202 } });
@@ -21,7 +21,7 @@ test("opening a short transcript page reads all earlier messages without scrolli
     window.__TAURI__.core.invoke = <T>(command: string, args?: Record<string, unknown>) => {
       if (command === "agent_older") {
         const batch = args?.before === 202
-          ? { earlier: 2, entries: Array.from({ length: 200 }, () => ({ kind: "thought", text: "Thinking" })) }
+          ? { earlier: 2, entries: Array.from({ length: 200 }, (_, i) => ({ kind: i % 2 ? "agent" : "user", text: `Earlier ${i}\n${"Conversation text. ".repeat(30)}` })) }
           : { earlier: 0, entries: [{ kind: "user", text: "First prompt" }, { kind: "agent", text: "First reply" }] };
         window.__navigation.respond(command, batch);
       }
@@ -35,12 +35,19 @@ test("opening a short transcript page reads all earlier messages without scrolli
   expect(await body.evaluate(b => b.scrollHeight === b.clientHeight)).toBe(true);
   await expect.poll(reads).toEqual([202]);
 
+  // One page fills the view with room above it: no more is read until the reader nears the top.
   await page.evaluate(() => window.__navigation.release("agent_older"));
+  await expect(body).toContainText("Latest reply");
+  await expect.poll(() => body.evaluate(b => b.scrollTop)).toBeGreaterThan(900);
+  await page.waitForTimeout(300);
+  expect(await reads()).toEqual([202]);
+
+  await body.evaluate(b => { b.scrollTop = 0; });
   await expect.poll(reads).toEqual([202, 2]);
   await expect(body).toContainText("First prompt");
+  await body.evaluate(b => { b.scrollTop = b.scrollHeight; });
   await body.getByText("Context summarized", { exact: true }).click();
   await expect(body.getByText("Earlier context.", { exact: true })).toBeVisible();
-  await expect(body).toContainText("Latest reply");
 });
 
 test("an imported session with an unknown model can choose before continuing", async ({ page }) => {

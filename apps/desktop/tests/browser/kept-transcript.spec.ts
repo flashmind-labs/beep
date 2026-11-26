@@ -93,7 +93,7 @@ test("a kept log reopens at the latest message with its older entries still load
 
   await open("notice-one");
   await expect(body).toContainText("Answer 399");
-  await expect.poll(() => calls(page, "agent_older")).toHaveLength(1);
+  expect(await calls(page, "agent_older")).toHaveLength(0);
   await page.keyboard.press("Home");
   await expect(body).toContainText("Question 0");
   await body.evaluate(b => { b.scrollTop = 160; });

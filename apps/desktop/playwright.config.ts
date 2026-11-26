@@ -24,6 +24,6 @@ export default defineConfig({
       use: { userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/145.0.0.0 Safari/537.36" },
     },
     // Input and selection in WebKit, the engine of the app on macOS, iOS and Linux.
-    { name: "WebKit", testMatch: /(?:file-editor|assistant-rail|image-attachments|project-rail|project-window-links|terminal|selection-feedback|machine-mcp-servers|device-react|session-model-scroll|session-header|compose-pills|usage-react|zoom-focus-chat)\.spec\.ts/, use: { browserName: "webkit" } },
+    { name: "WebKit", testMatch: /(?:file-editor|assistant-rail|image-attachments|project-rail|project-window-links|terminal|selection-feedback|machine-mcp-servers|device-react|session-model-scroll|big-log|session-header|compose-pills|usage-react|zoom-focus-chat)\.spec\.ts/, use: { browserName: "webkit" } },
   ],
 });
