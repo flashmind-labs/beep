@@ -11,7 +11,7 @@ use crate::{
     files::transfer::Transfers,
     link::Protocol,
     link::from_mesh,
-    link::local_socket::{Listener, Stream},
+    run::local_socket::{Listener, Stream},
     link::local_status::{self, LocalStatus},
     link::protocol::SessionProtocol,
     link::watchdog::{self, Step},
@@ -891,7 +891,7 @@ pub async fn leave(dir: &Path) -> Result<()> {
 /// Whether a node is running from `dir` and takes mesh commands.
 #[cfg(feature = "cli")]
 pub fn is_running(dir: &Path) -> bool {
-    crate::link::local_socket::is_listening(&dir.join(SOCKET))
+    crate::run::local_socket::is_listening(&dir.join(SOCKET))
 }
 
 /// How long `join_when_up` waits for a node that was just started.
@@ -912,7 +912,7 @@ pub async fn join_when_up(dir: &Path, ticket: &str, limit: Duration) -> Result<(
 /// `retrying` runs after each failed attempt.
 #[cfg(feature = "cli")]
 async fn wait_for_node(dir: &Path, limit: Duration, mut retrying: impl FnMut()) -> Result<()> {
-    use crate::link::local_socket;
+    use crate::run::local_socket;
     /// The pause between attempts.
     const RETRY: Duration = Duration::from_millis(100);
     let socket = dir.join(SOCKET);
@@ -948,7 +948,7 @@ pub async fn devices(dir: &Path) -> Result<Vec<String>> {
 /// runs from there.
 #[cfg(feature = "cli")]
 pub async fn local_status(dir: &Path) -> Result<Option<LocalStatus>> {
-    use crate::link::local_socket;
+    use crate::run::local_socket;
     /// How long the node may take to answer.
     const STATUS_LIMIT: Duration = Duration::from_secs(20);
     /// The most bytes read: far more than a status takes.
@@ -1001,7 +1001,7 @@ pub async fn collect_report_within(
     since: i64,
     limit: Duration,
 ) -> Result<Option<Vec<Share>>> {
-    use crate::link::local_socket;
+    use crate::run::local_socket;
     /// The most bytes read: every device's share at its cap, and more.
     const MAX_SHARES: u64 = 64 * 1024 * 1024;
     let Ok(stream) = local_socket::connect(&dir.join(SOCKET)).await else {
@@ -1028,7 +1028,7 @@ pub async fn collect_report_within(
 
 #[cfg(feature = "cli")]
 async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
-    use crate::link::local_socket;
+    use crate::run::local_socket;
     /// How long a command waits for the running node.
     const ASK_LIMIT: Duration = Duration::from_secs(60);
     let stream = local_socket::connect(&dir.join(SOCKET))

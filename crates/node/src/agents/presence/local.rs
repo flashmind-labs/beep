@@ -6,7 +6,7 @@
 use beep_proto::SessionId;
 use super::Registration;
 use crate::agents::Agents;
-use crate::link::local_socket::{Listener, Stream};
+use crate::run::local_socket::{Listener, Stream};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
 use std::{
@@ -135,7 +135,7 @@ async fn serve_at(agents: Arc<Agents>, dir: &Path, path: PathBuf) -> Result<()> 
         .context("presence socket path is not UTF-8")?
         .to_owned();
     #[cfg(windows)]
-    let address = crate::link::local_socket::pipe_name(&socket);
+    let address = crate::run::local_socket::pipe_name(&socket);
     let _published = tokio::task::spawn_blocking(move || publish(&path, &address)).await??;
     serve(&mut listener, agents).await
 }

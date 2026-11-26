@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     agents::{Agents, child_view::{ChildView, full_id}, machine_list::{find, machine_name}},
-    link::note,
+    files::note,
     run::process::tool_command,
     peer_stream::{CallFailed, over_the_mesh},
 };

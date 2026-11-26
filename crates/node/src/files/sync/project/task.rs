@@ -471,7 +471,7 @@ impl Task {
         let seq = snapshot.map.seq();
         let written = spawn_blocking(move || {
             let bytes = rmp_serde::to_vec(&snapshot)?;
-            crate::link::note::write(&file, &bytes)
+            crate::files::note::write(&file, &bytes)
         })
         .await
         .map_err(anyhow::Error::from)

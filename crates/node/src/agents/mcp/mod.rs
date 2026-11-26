@@ -7,7 +7,7 @@ use beep_proto::SessionId;
 use crate::{
     agents::{Answered, Asking, socket},
     link::Offers,
-    link::local_socket::{self, Listener},
+    run::local_socket::{self, Listener},
 };
 use agent_client_protocol::v1::schema::{EnvVariable, McpServer, McpServerStdio};
 use anyhow::{Context, Result, bail};

@@ -5,6 +5,7 @@
 
 pub(crate) mod device;
 pub(crate) mod lines;
+pub(crate) mod local_socket;
 pub(crate) mod process;
 pub(crate) mod shell;
 pub(crate) mod tasks;

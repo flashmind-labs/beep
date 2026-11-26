@@ -9,7 +9,7 @@ use super::{
     live::Live,
     transcript::{Digest, read_from},
 };
-use crate::link::local_socket::{self as socket, Listener, Stream};
+use crate::run::local_socket::{self as socket, Listener, Stream};
 use anyhow::{Context, Result};
 use crate::events::Change;
 use beep_proto::node::{

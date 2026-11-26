@@ -17,9 +17,7 @@ host! {
     pub(crate) mod from_mesh;
     mod project_remotes;
     pub use from_mesh::Membership;
-    pub(crate) mod local_socket;
     pub mod local_status;
-    pub(crate) mod note;
     pub mod peers;
     mod report;
     mod metrics;

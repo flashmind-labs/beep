@@ -5,8 +5,8 @@
 use beep_proto::SessionId;
 use crate::{
     agents::{Agents, OpenSession, SavedSession},
-    link::local_socket::{Listener, Stream},
-    link::note,
+    files::note,
+    run::local_socket::{Listener, Stream},
     link::watchdog::{self, Step},
     run::terminal::{self, OpenTerminal},
 };
@@ -227,7 +227,7 @@ async fn answer(stream: Stream, agents: &Agents) -> Result<()> {
 #[cfg(feature = "cli")]
 mod client {
     use super::*;
-    use crate::link::local_socket;
+    use crate::run::local_socket;
     use std::time::Duration;
     use tokio::{
         io::{Lines, ReadHalf, WriteHalf},

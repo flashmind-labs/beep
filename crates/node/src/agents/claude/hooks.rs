@@ -4,7 +4,7 @@
 
 use beep_proto::SessionId;
 use crate::agents::cut;
-use crate::link::local_socket as socket;
+use crate::run::local_socket as socket;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::agent::{Activity, ActivityKind, PlanEntry, PlanStatus};
 use serde::{Deserialize, Serialize};

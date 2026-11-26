@@ -176,7 +176,7 @@ impl Shared {
                 !dirty || crate::lock(&policy).is_some(),
                 "Automatic Git recovery was disabled; local edits stay in place."
             );
-            crate::link::note::write(&file, &rmp_serde::to_vec(&snapshot)?)?;
+            crate::files::note::write(&file, &rmp_serde::to_vec(&snapshot)?)?;
             if dirty {
                 repo.recover_fast_forward(own, target, &branch)
             } else {

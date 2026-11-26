@@ -4,7 +4,7 @@
 //! next start's `walk` looks again.
 
 use super::git::{self, Checkout};
-use crate::{link::note, lock};
+use crate::{files::note, lock};
 use anyhow::{Context, Result};
 use ignore::{DirEntry, WalkBuilder, WalkState};
 use std::{
