@@ -3,6 +3,7 @@
 
 use iroh::{EndpointId, endpoint::Connection};
 use std::collections::BTreeMap;
+use std::sync::atomic::AtomicU32;
 use std::sync::{Arc, Mutex, PoisonError};
 use tokio::{sync::Mutex as AsyncMutex, time::Instant};
 
@@ -15,6 +16,19 @@ pub(crate) struct FailedDial {
 pub(crate) struct CachedConnection {
     pub connection: Connection,
     pub peer_session: Option<u64>,
+    /// Opens in a row that timed out on this connection while it still
+    /// received data. A second one closes it.
+    pub slow_opens: AtomicU32,
+}
+
+impl CachedConnection {
+    pub(crate) fn new(connection: Connection, peer_session: Option<u64>) -> Self {
+        Self {
+            connection,
+            peer_session,
+            slow_opens: AtomicU32::new(0),
+        }
+    }
 }
 
 #[derive(Default)]

@@ -183,27 +183,75 @@ fn a_full_node_is_told_apart_from_other_follow_errors() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn only_a_frame_postpones_the_silence_deadline() {
+async fn only_a_frame_postpones_the_silence_deadline_in_the_follow_loop() {
+    let (frames, mut incoming) = tokio::sync::mpsc::unbounded_channel::<u8>();
+    let (_screen, mut on_screen) = watch::channel(false);
+    let (window, mut window_shown) = watch::channel(None);
     let mut silence = Silence::new();
+    let step = Duration::from_secs(10);
 
-    // Nothing but time passes (window events do not reach it): it expires.
-    tokio::time::advance(SILENT_AFTER - Duration::from_secs(1)).await;
+    // Window events every 10 s, three times 10 s, then the deadline passes.
+    for shown in [Some(true), Some(false), Some(true)] {
+        tokio::time::advance(step).await;
+        window.send_replace(shown);
+        let woke = wake::<u8, DesktopError>(
+            async { Ok(incoming.recv().await) },
+            &mut silence,
+            None,
+            None,
+            &mut on_screen,
+            &mut window_shown,
+            true,
+        )
+        .await
+        .unwrap();
+        assert!(matches!(woke, Woke::Window { closed: false }));
+    }
+
+    tokio::time::advance(SILENT_AFTER - 3 * step).await;
+    let silent = wake::<u8, DesktopError>(
+        async { Ok(incoming.recv().await) },
+        &mut silence,
+        None,
+        None,
+        &mut on_screen,
+        &mut window_shown,
+        true,
+    )
+    .await;
     assert!(
-        tokio::time::timeout(Duration::from_millis(500), silence.expired())
-            .await
-            .is_err()
+        matches!(silent, Err(DesktopError::BadRequest(reason)) if reason.contains("stopped responding"))
     );
-    tokio::time::advance(Duration::from_secs(1)).await;
-    silence.expired().await;
 
     // A frame restarts the full wait.
     let mut silence = Silence::new();
     tokio::time::advance(SILENT_AFTER - Duration::from_secs(1)).await;
-    silence.heard();
+    frames.send(7).unwrap();
+    let woke = wake::<u8, DesktopError>(
+        async { Ok(incoming.recv().await) },
+        &mut silence,
+        None,
+        None,
+        &mut on_screen,
+        &mut window_shown,
+        true,
+    )
+    .await
+    .unwrap();
+    assert!(matches!(woke, Woke::Frame(7)));
     tokio::time::advance(SILENT_AFTER - Duration::from_secs(1)).await;
-    assert!(
-        tokio::time::timeout(Duration::from_millis(500), silence.expired())
-            .await
-            .is_err()
-    );
+    let waiting = tokio::time::timeout(
+        Duration::from_millis(500),
+        wake::<u8, DesktopError>(
+            async { Ok(incoming.recv().await) },
+            &mut silence,
+            None,
+            None,
+            &mut on_screen,
+            &mut window_shown,
+            true,
+        ),
+    )
+    .await;
+    assert!(waiting.is_err());
 }

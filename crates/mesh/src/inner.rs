@@ -9,7 +9,7 @@ pub(crate) use crate::store::AddrNote;
 use crate::store::{Core, SharedView, Store, View};
 use crate::{DeviceKind, Key, MeshError};
 use channels::Channels;
-pub(crate) use channels::{CachedConnection, FailedDial};
+pub(crate) use channels::{CachedConnection, ChannelConnection, FailedDial};
 use iroh::endpoint::{Connection, RecvStream, SendStream};
 use iroh::{Endpoint, EndpointId};
 use std::collections::BTreeMap;

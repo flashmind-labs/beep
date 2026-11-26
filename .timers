@@ -2,10 +2,10 @@
 # path | function | call#n | kind | reason
 # kinds: poll, retry, debounce, deadline, outside, ui, pace, compat
 
-apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep#1 | deadline | dead-stream timer for the session follow, reset only by a frame from the node
-apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep#2 | retry | waits 500 ms, then reopens the session stream after a full node
-apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep_until#1 | pace | flushes held session updates at the off-screen rate
-apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep_until#2 | pace | writes the running session page at most every RUNNING_EVERY
+apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep#1 | retry | waits 500 ms, then reopens the session stream after a full node
+apps/desktop/src-tauri/src/agents/follow.rs | wake | sleep#1 | deadline | dead-stream timer for the session follow, reset only by a frame from the node
+apps/desktop/src-tauri/src/agents/follow.rs | wake | sleep_until#1 | pace | flushes held session updates at the off-screen rate
+apps/desktop/src-tauri/src/agents/follow.rs | wake | sleep_until#2 | pace | writes the running session page at most every RUNNING_EVERY
 apps/desktop/src-tauri/src/agents/outbox.rs | reachable | sleep#1 | retry | waits RETRY after the machine is back online, then tries again
 apps/desktop/src-tauri/src/agents/starts.rs | pause | sleep#1 | retry | waits RETRY before trying the session start again
 apps/desktop/src-tauri/src/store/view_cache.rs | write_later | sleep#1 | debounce | writes the view cache once, 2 s after the first change

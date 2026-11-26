@@ -2,7 +2,7 @@
 //! mesh replication.
 
 use super::Mesh;
-use crate::inner::{CachedConnection, FailedDial};
+use crate::inner::{CachedConnection, ChannelConnection, FailedDial};
 use crate::timeouts::{OPEN_TIMEOUT, RETRY};
 use crate::{MeshError, wire};
 use futures::StreamExt;
@@ -11,7 +11,8 @@ use iroh::{
     endpoint::{Connection, PathEvent, RecvStream, SendStream},
 };
 use std::fmt::Write as _;
-use std::sync::PoisonError;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, PoisonError};
 use tokio::time::{Instant, timeout};
 
 /// The command, subscription or forward protocol `connection` speaks, if any.
@@ -25,8 +26,8 @@ fn protocol_alpn(connection: &Connection) -> Option<&'static [u8]> {
     .find(|alpn| *alpn == connection.alpn())
 }
 
-/// What a connection had received, and how often it ran out of stream
-/// credit, when an open began.
+/// How many UDP datagrams (acks included) a connection had received, and how
+/// often it ran out of stream credit, when an open began.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Mark {
     received: u64,
@@ -69,10 +70,7 @@ impl Mesh {
         slot.incoming
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
-            .push(CachedConnection {
-                connection: connection.clone(),
-                peer_session,
-            });
+            .push(CachedConnection::new(connection.clone(), peer_session));
         Ok(())
     }
 
@@ -214,35 +212,24 @@ impl Mesh {
         *slot
             .connection
             .lock()
-            .unwrap_or_else(PoisonError::into_inner) = Some(CachedConnection {
-            connection: connection.clone(),
-            peer_session,
-        });
+            .unwrap_or_else(PoisonError::into_inner) =
+            Some(CachedConnection::new(connection.clone(), peer_session));
         tokio::spawn(log_paths(connection.clone(), peer, alpn));
         Ok(connection)
     }
 
     /// Closes a protocol connection that is still open but took no new
     /// stream, so the next one dials again instead of reusing it until the
-    /// app restarts. With a `mark`, a connection that has received data
-    /// since and has stream credit is kept: only that open failed. A node that is full resets new streams, and a link
-    /// that went quiet after a network change or a suspended app never
-    /// answers them; either way the mesh link may still be up.
+    /// app restarts. With a `mark`, a connection that has received packets
+    /// since and has stream credit is kept for the first such open: only
+    /// that open failed. A second one in a row closes it, so a peer whose
+    /// transport answers but whose handlers never do cannot fail opens for
+    /// minutes. A node that is full resets new streams, and a link that went
+    /// quiet after a network change or a suspended app never answers them;
+    /// either way the mesh link may still be up.
     pub(crate) fn drop_protocol_connection(&self, connection: &Connection, mark: Option<Mark>) {
-        if mark.is_some_and(|mark| mark.still_receiving(Mark::of(connection))) {
-            tracing::warn!(peer = ?connection.remote_id(), protocol = %String::from_utf8_lossy(connection.alpn()), state = %describe(connection), "a protocol connection was slow to open a stream; keeping it");
-
-            return;
-        }
-
-        let slot = protocol_alpn(connection).and_then(|alpn| {
-            self.inner
-                .channels
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .get(&(connection.remote_id(), alpn))
-                .cloned()
-        });
+        let slot = self.cached_slot(connection);
+        let keep = mark.is_some_and(|mark| mark.still_receiving(Mark::of(connection)));
 
         if let Some(slot) = slot {
             let mut cached = slot
@@ -250,18 +237,51 @@ impl Mesh {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner);
 
-            if cached
+            if let Some(held) = cached
                 .as_ref()
-                .is_some_and(|held| held.connection.stable_id() == connection.stable_id())
+                .filter(|held| held.connection.stable_id() == connection.stable_id())
             {
+                if keep && held.slow_opens.fetch_add(1, Ordering::Relaxed) == 0 {
+                    tracing::info!(peer = ?connection.remote_id(), protocol = %String::from_utf8_lossy(connection.alpn()), state = %describe(connection), "a protocol connection was slow to open a stream; keeping it");
+
+                    return;
+                }
+
                 *cached = None;
             }
+        } else if keep {
+            return;
         }
 
         if connection.close_reason().is_none() {
             tracing::warn!(peer = ?connection.remote_id(), protocol = %String::from_utf8_lossy(connection.alpn()), state = %describe(connection), "a protocol connection took no new stream; dialing again");
             connection.close(4u32.into(), b"stalled");
         }
+    }
+
+    /// A stream opened on `connection`: its run of slow opens ends.
+    pub(crate) fn opened_on(&self, connection: &Connection) {
+        if let Some(slot) = self.cached_slot(connection)
+            && let Some(held) = slot
+                .connection
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .as_ref()
+                .filter(|held| held.connection.stable_id() == connection.stable_id())
+        {
+            held.slow_opens.store(0, Ordering::Relaxed);
+        }
+    }
+
+    fn cached_slot(&self, connection: &Connection) -> Option<Arc<ChannelConnection>> {
+        let alpn = protocol_alpn(connection)?;
+
+        self.inner
+            .channels
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&(connection.remote_id(), alpn))
+            .cloned()
     }
 
     fn check_channel_member(&self, peer: EndpointId) -> Result<(), MeshError> {

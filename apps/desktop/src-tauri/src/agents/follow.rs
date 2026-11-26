@@ -21,6 +21,7 @@ use beep_proto::{
     },
 };
 use serde::Serialize;
+use std::future::Future;
 use std::pin::Pin;
 use std::{
     collections::{HashMap, VecDeque},
@@ -46,11 +47,11 @@ use pace::{Pace, Pushed, UpdateKind};
 /// reloaded page cannot leave readers behind without bound.
 const WINDOW_READERS: usize = 16;
 
-/// How long a released reader gets to close its stream before the shown
-/// session asks the node again.
 /// The node sends a heartbeat every 15 s, so a stream with no frame in this
 /// long is dead.
 const SILENT_AFTER: Duration = Duration::from_secs(35);
+/// How long a released reader gets to close its stream before the shown
+/// session asks the node again.
 const RELEASE_WAIT: Duration = Duration::from_millis(500);
 
 /// Whether the node turned a follow away because it has as many session
@@ -376,27 +377,31 @@ pub async fn agent_follow(
         loop {
             let due = pace.due();
             let keep_due = keeper.due();
-            let update = tokio::select! {
-                update = rx.recv::<SessionUpdate>() => {
-                    silence.heard();
-                    update?.ok_or_else(|| DesktopError::BadRequest("session stream disconnected".into()))?
-                }
-                () = silence.expired() => {
-                    return Err(DesktopError::BadRequest("session stream stopped responding".into()));
-                }
-                () = sleep_until(due.map_or_else(TokioInstant::now, TokioInstant::from_std)), if due.is_some() => {
+            let update = match wake(
+                rx.recv::<SessionUpdate>(),
+                &mut silence,
+                due,
+                keep_due,
+                &mut on_screen,
+                &mut window_shown,
+                watching,
+            )
+            .await?
+            {
+                Woke::Frame(update) => update,
+                Woke::Pace => {
                     if let Some(pushed) = pace.flush(Instant::now()) {
                         on_event.send(pushed.into())?;
                     }
 
                     continue;
                 }
-                () = sleep_until(keep_due.map_or_else(TokioInstant::now, TokioInstant::from_std)), if keep_due.is_some() => {
+                Woke::Keep => {
                     keeper.write(Instant::now());
                     continue;
                 }
-                changed = on_screen.changed() => {
-                    if changed.is_err() {
+                Woke::Screen { closed } => {
+                    if closed {
                         return Ok(());
                     }
 
@@ -409,10 +414,10 @@ pub async fn agent_follow(
 
                     continue;
                 }
-                changed = window_shown.changed(), if watching => {
+                Woke::Window { closed } => {
                     // The window is gone: the next update ends the follow.
-                    let hidden = changed.is_ok() && hidden(&window_shown);
-                    watching = changed.is_ok();
+                    let hidden = !closed && hidden(&window_shown);
+                    watching = !closed;
 
                     if hidden {
                         keeper.write(Instant::now());
@@ -576,6 +581,50 @@ pub async fn agent_follow(
     }
 
     result
+}
+
+/// What ended one wait of the follow loop.
+enum Woke<T> {
+    Frame(T),
+    Pace,
+    Keep,
+    Screen { closed: bool },
+    Window { closed: bool },
+}
+
+/// Waits for the node's next frame or for something else the loop does:
+/// held pages due, a transcript write due, a change of what is on screen or
+/// of the window. Only a frame postpones `silence`; the node's heartbeats
+/// make a quiet but healthy stream send one at least every 15 s.
+async fn wake<T, E: Into<DesktopError>>(
+    recv: impl Future<Output = std::result::Result<Option<T>, E>>,
+    silence: &mut Silence,
+    due: Option<Instant>,
+    keep_due: Option<Instant>,
+    on_screen: &mut watch::Receiver<bool>,
+    window_shown: &mut watch::Receiver<Option<bool>>,
+    watching: bool,
+) -> Result<Woke<T>> {
+    tokio::select! {
+        frame = recv => {
+            silence.heard();
+            frame
+                .map_err(Into::into)?
+                .map(Woke::Frame)
+                .ok_or_else(|| DesktopError::BadRequest("session stream disconnected".into()))
+        }
+        () = silence.expired() => {
+            Err(DesktopError::BadRequest("session stream stopped responding".into()))
+        }
+        () = sleep_until(due.map_or_else(TokioInstant::now, TokioInstant::from_std)), if due.is_some() => {
+            Ok(Woke::Pace)
+        }
+        () = sleep_until(keep_due.map_or_else(TokioInstant::now, TokioInstant::from_std)), if keep_due.is_some() => {
+            Ok(Woke::Keep)
+        }
+        changed = on_screen.changed() => Ok(Woke::Screen { closed: changed.is_err() }),
+        changed = window_shown.changed(), if watching => Ok(Woke::Window { closed: changed.is_err() }),
+    }
 }
 
 /// A deadline for the next frame from the node. Only a frame resets it,

@@ -2,13 +2,13 @@
 //! member; `link` runs each connection; `join` handles tickets.
 
 mod channels;
-pub(crate) use channels::Mark;
 mod lifecycle;
 mod membership;
 mod owner;
 mod protocol;
 pub mod values;
 
+pub(crate) use channels::Mark;
 use owner::own;
 pub use protocol::{JoinProtocol, MeshProtocol};
 

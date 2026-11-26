@@ -412,8 +412,8 @@ impl PeerClient {
     /// later stream while it still looks open: it is closed, and the next
     /// stream dials a new one.
     ///
-    /// A call that only ran out of time keeps the connection when it took
-    /// datagrams meanwhile and has stream credit (`mark` is how it stood
+    /// A call that only ran out of time keeps the connection when it received
+    /// UDP datagrams (acks included) meanwhile and has stream credit (`mark` is how it stood
     /// when the call began): the open alone failed.
     fn stalled<T>(
         &self,
@@ -421,6 +421,10 @@ impl PeerClient {
         mark: Option<Mark>,
         opened: &Result<T, MeshError>,
     ) {
+        if let (Some(mesh), Some(connection), Ok(_)) = (&self.channels, channel, opened) {
+            mesh.opened_on(connection);
+        }
+
         if let (Some(mesh), Some(connection), Err(error)) = (&self.channels, channel, opened)
             && error.is_transport()
         {
