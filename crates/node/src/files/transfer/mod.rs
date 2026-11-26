@@ -411,8 +411,7 @@ impl Transfers {
             membership,
         )
         .await?;
-        let grants = Arc::new(Grants::default());
-        grants.set_access(syncs.access());
+        let grants = Arc::new(Grants::new(syncs.access()));
         let (events, events_task) = grants::events(grants.clone());
         let served = Served {
             blobs: BlobsProtocol::new(&parts.store, Some(events)),

@@ -1,9 +1,22 @@
 use super::*;
 use iroh::SecretKey;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// A mesh that lists nobody and removes nobody.
+struct Alone;
+
+impl Access for Alone {
+    fn may_connect(&self, _: &EndpointId) -> bool {
+        false
+    }
+    fn may_get(&self, _: &EndpointId, _: &Hash) -> bool {
+        false
+    }
+}
 
 #[test]
 fn only_the_granted_peer_gets_the_granted_root() {
-    let grants = Arc::new(Grants::default());
+    let grants = Arc::new(Grants::new(Arc::new(Alone)));
     let peer = SecretKey::generate().public();
     let stranger = SecretKey::generate().public();
     let file = Hash::new(b"file");
@@ -44,12 +57,24 @@ impl Access for Member {
     }
 }
 
-/// A mesh from which `gone` was removed.
-struct Removed(EndpointId);
+/// A mesh from which `gone` is removed once `removed` is set.
+struct Removed {
+    gone: EndpointId,
+    removed: AtomicBool,
+}
+
+impl Removed {
+    fn new(gone: EndpointId, removed: bool) -> Arc<Self> {
+        Arc::new(Self {
+            gone,
+            removed: AtomicBool::new(removed),
+        })
+    }
+}
 
 impl Access for Removed {
     fn allows(&self, peer: &EndpointId) -> bool {
-        *peer != self.0
+        *peer != self.gone || !self.removed.load(Ordering::SeqCst)
     }
     fn may_connect(&self, _: &EndpointId) -> bool {
         false
@@ -61,15 +86,16 @@ impl Access for Removed {
 
 #[test]
 fn a_removed_device_cannot_fetch_an_open_offer() {
-    let grants = Arc::new(Grants::default());
     let gone = SecretKey::generate().public();
+    let mesh = Removed::new(gone, false);
+    let grants = Arc::new(Grants::new(mesh.clone()));
     let kept = SecretKey::generate().public();
     let file = Hash::new(b"offered");
     let _gone_guard = grants.grant(gone, HashAndFormat::raw(file));
     let _kept_guard = grants.grant(kept, HashAndFormat::raw(file));
     // Admitted before the removal, then removed while connected.
     assert!(grants.connect(1, Some(gone)).is_ok());
-    grants.set_access(Arc::new(Removed(gone)));
+    mesh.removed.store(true, Ordering::SeqCst);
     assert!(grants.get(1, &GetRequest::blob(file)).is_err());
     assert!(grants.connect(2, Some(gone)).is_err());
     assert!(grants.connect(3, Some(kept)).is_ok());
@@ -78,12 +104,11 @@ fn a_removed_device_cannot_fetch_an_open_offer() {
 
 #[test]
 fn a_device_outside_the_mesh_keeps_the_grant_the_server_issued() {
-    let grants = Arc::new(Grants::default());
     let gone = SecretKey::generate().public();
+    let grants = Arc::new(Grants::new(Removed::new(gone, true)));
     let stranger = SecretKey::generate().public();
     let nobody = SecretKey::generate().public();
     let file = Hash::new(b"brokered");
-    grants.set_access(Arc::new(Removed(gone)));
     let _guard = grants.grant(stranger, HashAndFormat::raw(file));
     assert!(grants.connect(1, Some(stranger)).is_ok());
     assert!(grants.get(1, &GetRequest::blob(file)).is_ok());
@@ -93,11 +118,10 @@ fn a_device_outside_the_mesh_keeps_the_grant_the_server_issued() {
 
 #[test]
 fn a_synced_peer_gets_only_the_project_blobs_and_only_raw() {
-    let grants = Arc::new(Grants::default());
     let member = SecretKey::generate().public();
     let stranger = SecretKey::generate().public();
     let file = Hash::new(b"synced");
-    grants.set_access(Arc::new(Member(member, file)));
+    let grants = Arc::new(Grants::new(Arc::new(Member(member, file))));
     assert!(grants.connect(1, Some(stranger)).is_err());
     assert!(grants.connect(2, Some(member)).is_ok());
     assert!(grants.get(2, &GetRequest::blob(file)).is_ok());

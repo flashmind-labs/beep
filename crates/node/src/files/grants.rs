@@ -17,7 +17,7 @@ use irpc::channel::mpsc::Receiver;
 use std::{
     collections::HashMap,
     fmt,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
 };
 use tokio::sync::watch;
 use tokio_util::task::AbortOnDropHandle;
@@ -38,10 +38,9 @@ pub(crate) trait Access: Send + Sync {
     fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool;
 }
 
-#[derive(Default)]
 pub(crate) struct Grants {
     inner: Mutex<Inner>,
-    access: OnceLock<Arc<dyn Access>>,
+    access: Arc<dyn Access>,
 }
 
 impl fmt::Debug for Grants {
@@ -90,6 +89,14 @@ impl Drop for GrantGuard {
 }
 
 impl Grants {
+    /// Grants that let `access` admit peers beside the open offers.
+    pub(crate) fn new(access: Arc<dyn Access>) -> Self {
+        Self {
+            inner: Mutex::default(),
+            access,
+        }
+    }
+
     /// Lets `peer` fetch `content` until the guard drops.
     pub(crate) fn grant(self: &Arc<Self>, peer: EndpointId, content: HashAndFormat) -> GrantGuard {
         let mut inner = lock(&self.inner);
@@ -111,23 +118,13 @@ impl Grants {
         }
     }
 
-    /// Lets `access` admit peers beside the open offers. Set once.
-    pub(crate) fn set_access(&self, access: Arc<dyn Access>) {
-        if self.access.set(access).is_err() {
-            log::warn!("blob access was set twice; the first stays");
-        }
-    }
 
     fn connect(&self, connection: u64, peer: Option<EndpointId>) -> Result<(), AbortReason> {
         if peer.is_some_and(|peer| !self.allows(&peer)) {
             return Err(AbortReason::Permission);
         }
 
-        let synced = peer.is_some_and(|peer| {
-            self.access
-                .get()
-                .is_some_and(|access| access.may_connect(&peer))
-        });
+        let synced = peer.is_some_and(|peer| self.access.may_connect(&peer));
         let mut inner = lock(&self.inner);
 
         match peer {
@@ -140,7 +137,7 @@ impl Grants {
     }
 
     fn allows(&self, peer: &EndpointId) -> bool {
-        self.access.get().is_none_or(|access| access.allows(peer))
+        self.access.allows(peer)
     }
 
     fn closed(&self, connection: u64) {
@@ -171,10 +168,7 @@ impl Grants {
         });
         let synced = || {
             request.ranges.is_blob()
-                && self
-                    .access
-                    .get()
-                    .is_some_and(|access| access.may_get(peer, &request.hash))
+                && self.access.may_get(peer, &request.hash)
         };
         match granted {
             Some(grant) => Ok(Some(grant.sent.clone())),
