@@ -5,7 +5,7 @@ import { signal } from "../ui/signal.ts";
 import { sentText } from "./agentlog.ts";
 import { disposeLogShell } from "./log-shell.tsx";
 import { sessionKey } from "./conversation-state.ts";
-import { type AgentReturn, S } from "../bar/core.ts";
+import { type AgentReturn, S, changeListeners } from "../bar/core.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { type AgentQuestion, type AgentRow, type AgentPage, type OpenAgent, AG, AGENT_ACTIVE, canTakeOver, openModes } from "./agents-state.ts";
 import { setFirstMessage } from "./open-page.ts";
@@ -102,25 +102,27 @@ export const continuePicks = new Map<string, ContinuePick>();
 /// The open session's log changed: its page draws it again.
 export const logStale = signal();
 
-/// The session that should be open, how it was asked for, and null when none is (the empty view).
-/// Every opener sets it through `openSession`; the page shows whatever it says. `asked` counts
-/// the requests, so asking again for the session already open reaches the page as a change: it
-/// then keeps its log, reads again, scrolls to the latest entry and revives an ended page.
-export const openState = createStore<{ row: AgentRow | null; why: string; back: AgentReturn | undefined; adopt: boolean; asked: number }>(
-  () => ({ row: null, why: "", back: undefined, adopt: false, asked: 0 }),
+/// The session the page shows, and how it was asked for; null when none shows (the empty view, or
+/// another view). Every opener sets it through `openSession` and the page shows whatever it says.
+/// Asking again for the session already shown sets it again, so the page keeps its log, reads,
+/// scrolls to the latest entry and revives an ended page.
+export const openState = createStore<{ row: AgentRow | null; why: string; back: AgentReturn | undefined; adopt: boolean }>(
+  () => ({ row: null, why: "", back: undefined, adopt: false }),
 );
 
-/// Makes `row` the session that should be open. With `adopt`, the empty view that started it
-/// becomes the session in place.
+/// Makes `row` the session to show. With `adopt`, the empty view that started it becomes the
+/// session in place.
 export function openSession(row: AgentRow, { why = "", back, adopt = false }: { why?: string; back?: AgentReturn; adopt?: boolean } = {}) {
-  openState.setState(s => ({ row, why, back, adopt, asked: s.asked + 1 }));
+  openState.setState({ row, why, back, adopt });
 }
 
-/// No session should be open: the empty view takes the page.
+/// No session shows: the empty view takes the page.
 export function closeSession() {
   openState.setState({ row: null });
 }
 
+// Leaving the session view leaves the session.
+changeListeners.push(() => { if (S.view !== "agent") closeSession(); });
 
 /// How many times the open session was to be followed again, by a send or a click. The reader
 /// (session-follow.ts) follows it and reads when it is past what it last read; messages.ts sits

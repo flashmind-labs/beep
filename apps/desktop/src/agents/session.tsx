@@ -136,7 +136,7 @@ function showSession(s: AgentRow, { why = "", back: from, adopt = false }: { why
   });
 }
 
-// The page shows the session `openState` names, each time it is asked for.
+// The page shows the session `openState` names, each time it is set.
 openState.subscribe(({ row, why, back, adopt }) => {
   if (row) showSession(row, { why, back, adopt });
 });
