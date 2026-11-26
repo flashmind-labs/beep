@@ -9,6 +9,7 @@ pub(crate) mod alerts;
 pub(crate) mod asked;
 #[cfg(desktop)]
 mod carry;
+mod copies;
 pub(crate) mod events;
 pub(crate) mod files;
 pub(crate) mod home_signal;
@@ -32,8 +33,11 @@ use beep_mesh::{
     SessionFn, machine::releases::ToolReleases, with_deadline,
 };
 #[cfg(desktop)]
-use beep_node::{files::Folders, link::Offers, link::peers::Peers};
+use beep_node::files::Folders;
+#[cfg(desktop)]
+use beep_node::{link::Offers, link::peers::Peers};
 use beep_proto::watched;
+use copies::Copies;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 #[cfg(desktop)]
 use mesh::Serving;
@@ -49,7 +53,6 @@ use std::{
 };
 use tauri::State;
 use tokio::{sync::watch, time::timeout};
-use work_copy::Copies;
 
 pub type AsyncMutex<T> = tokio::sync::Mutex<T>;
 

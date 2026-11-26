@@ -4,7 +4,10 @@
 //! machine and nothing asks whether sync is running. A project with no folder here, or a file not here yet, goes
 //! to the node as if this were not here. The log says why a folder has no copy.
 
-use super::Fleet;
+use super::{
+    Fleet,
+    copies::{Asked, LocalCopy},
+};
 use crate::error::{DesktopError, Result};
 use beep_mesh::{Key, Mesh};
 #[cfg(desktop)]
@@ -13,12 +16,7 @@ use beep_proto::{
     AgentFileChunk, ListWorkTree, WorkTree,
     node::mesh_state::{StateValue, SyncSpec},
 };
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    sync::{Mutex, PoisonError},
-    time::{Duration, Instant},
-};
+use std::path::{Path, PathBuf};
 use tokio::task::spawn_blocking;
 
 /// A phone reads files from the remote machine.
@@ -44,36 +42,6 @@ fn local_tree(_root: &Path, _path: &str, _ignored: bool, _depth: u32) -> anyhow:
     anyhow::bail!("this build reads project files from a remote machine")
 }
 
-/// How long an answer about one folder stands. Reads come a part at a time,
-/// and a pause or a new sync shows within this.
-const FRESH: Duration = Duration::from_secs(60);
-/// Folders whose answers are kept at once.
-const MAX_KEPT: usize = 256;
-
-/// What is known about the folders asked about so far.
-#[derive(Default)]
-pub struct Copies {
-    known: Mutex<HashMap<Asked, Known>>,
-}
-
-#[derive(PartialEq, Eq, Hash)]
-struct Asked {
-    machine_id: String,
-    folder: String,
-}
-
-struct Known {
-    at: Instant,
-    copy: Option<LocalCopy>,
-}
-
-/// A project's folder on the machine, and where sync keeps it on this Mac.
-#[derive(Debug, Clone, PartialEq)]
-struct LocalCopy {
-    remote: String,
-    local: PathBuf,
-}
-
 /// Why a folder on a machine has no copy here.
 #[derive(Debug, PartialEq, thiserror::Error)]
 enum Miss {
@@ -81,31 +49,6 @@ enum Miss {
     NoProject,
     #[error("{project} has no folder on this computer; its folders elsewhere: {tried:?}")]
     NotHere { project: String, tried: Vec<String> },
-}
-
-impl Copies {
-    fn kept(&self, asked: &Asked) -> Option<Option<LocalCopy>> {
-        let known = self.known.lock().unwrap_or_else(PoisonError::into_inner);
-        let found = known.get(asked)?;
-        (found.at.elapsed() < FRESH).then(|| found.copy.clone())
-    }
-
-    /// Whether no answer about the folder was standing: reads running at
-    /// once all look, and their miss is logged once.
-    fn keep(&self, asked: Asked, copy: Option<LocalCopy>) -> bool {
-        let mut known = self.known.lock().unwrap_or_else(PoisonError::into_inner);
-
-        if known.len() >= MAX_KEPT {
-            known.clear();
-        }
-
-        let first = known
-            .get(&asked)
-            .is_none_or(|found| found.at.elapsed() >= FRESH);
-        let at = Instant::now();
-        known.insert(asked, Known { at, copy });
-        first
-    }
 }
 
 /// `path` inside `root`, as the machine would name it.
