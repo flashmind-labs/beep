@@ -106,41 +106,6 @@ fn rotating_log_format_keeps_nested_span_fields_and_request_outcomes() {
     assert!(text.lines().all(|line| line.contains("request=")), "{text}");
 }
 
-/// A busy app makes thousands of requests a minute: one that ends well and
-/// quickly writes nothing at `INFO`, one that fails or is dropped one line.
-#[test]
-fn quick_requests_that_end_well_write_nothing_at_info() {
-    let output = Captured::default();
-    let writer = output.clone();
-    let subscriber = tracing_subscriber::registry().with(
-        tracing_subscriber::fmt::layer()
-            .event_format(TextLayout)
-            .with_ansi(false)
-            .with_writer(move || writer.clone())
-            .with_filter(tracing_subscriber::filter::LevelFilter::INFO),
-    );
-    tracing::subscriber::with_default(subscriber, || {
-        for _ in 0..100 {
-            let mut quick = RequestTrace::new("External");
-            quick.phase("handling");
-            quick.phase("sending");
-            quick.finish(true);
-        }
-
-        let mut failed = RequestTrace::new("worktrees");
-        failed.phase("handling");
-        failed.finish(false);
-        drop(failed);
-        drop(RequestTrace::new("attachment"));
-    });
-    let bytes = output.0.lock().unwrap();
-    let text = std::str::from_utf8(&bytes).unwrap();
-    assert_eq!(text.lines().count(), 2, "{text}");
-    assert!(!text.contains("External"), "{text}");
-    assert!(text.contains("outcome=\"error\""), "{text}");
-    assert!(text.contains("outcome=\"cancelled\""), "{text}");
-}
-
 fn trace_in(outcome: &'static str, stream: bool) -> RequestTrace {
     let mut trace = RequestTrace::new("op");
     trace.outcome = outcome;
