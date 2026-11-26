@@ -84,6 +84,11 @@ pub fn ready(_app: &AppHandle) -> Option<String> {
     None
 }
 
+/// Sparkle keeps its downloads, so nothing is ever ready here.
+pub fn changes(_app: &AppHandle) -> tokio::sync::watch::Receiver<Option<String>> {
+    tokio::sync::watch::channel(None).1
+}
+
 pub fn install(_app: &AppHandle) {}
 
 pub fn restart(app: &AppHandle) {

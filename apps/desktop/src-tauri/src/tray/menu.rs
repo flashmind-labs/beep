@@ -80,6 +80,15 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     Ok(menu)
 }
 
+/// Draws the menu again when an update has been downloaded.
+pub(crate) async fn follow_update(app: AppHandle) {
+    let mut ready = update::changes(&app);
+
+    while ready.changed().await.is_ok() {
+        refresh(&app);
+    }
+}
+
 pub(crate) fn refresh(app: &AppHandle) {
     let Some(tray) = app.tray_by_id(TRAY) else {
         return;

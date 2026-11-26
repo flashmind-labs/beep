@@ -4,13 +4,14 @@
 //! downloaded update too. The configured feed has minor releases only;
 //! Developer mode reads the feed of every release beside it.
 
-use crate::{beep::state::Prefs, notices::notify, tray};
+use crate::{beep::state::Prefs, notices::notify};
 use std::{
     sync::{Mutex, MutexGuard, PoisonError},
     time::Duration,
 };
 use tauri::{AppHandle, Manager};
 use tauri_plugin_updater::{Update, UpdaterExt};
+use tokio::sync::watch;
 
 const FIRST_CHECK: Duration = Duration::from_secs(60);
 const CHECK_EVERY: Duration = Duration::from_secs(6 * 60 * 60);
@@ -26,8 +27,14 @@ struct Ready {
     bytes: Vec<u8>,
 }
 
-#[derive(Default)]
-pub struct Updates(Mutex<Option<Ready>>);
+/// The downloaded update, and its version for whoever follows it.
+pub struct Updates(Mutex<Option<Ready>>, watch::Sender<Option<String>>);
+
+impl Default for Updates {
+    fn default() -> Self {
+        Self(Mutex::default(), watch::channel(None).0)
+    }
+}
 
 impl Updates {
     fn lock(&self) -> MutexGuard<'_, Option<Ready>> {
@@ -41,6 +48,11 @@ pub fn ready(app: &AppHandle) -> Option<String> {
         .lock()
         .as_ref()
         .map(|ready| ready.update.version.clone())
+}
+
+/// The version of the downloaded update, as it changes.
+pub fn changes(app: &AppHandle) -> watch::Receiver<Option<String>> {
+    app.state::<Updates>().1.subscribe()
 }
 
 pub async fn follow(app: AppHandle) {
@@ -66,7 +78,6 @@ pub async fn check(app: &AppHandle, asked: bool) {
 
     match download(app).await {
         Ok(Some(version)) => {
-            tray::refresh(app);
             notify::text(
                 app,
                 &format!("Beep {version} is ready"),
@@ -98,7 +109,9 @@ async fn download(app: &AppHandle) -> tauri_plugin_updater::Result<Option<String
     let bytes = update.download(|_, _| {}, || {}).await?;
     let version = update.version.clone();
     log::info!("downloaded Beep {version}");
-    *app.state::<Updates>().lock() = Some(Ready { update, bytes });
+    let updates = app.state::<Updates>();
+    *updates.lock() = Some(Ready { update, bytes });
+    updates.1.send_replace(Some(version.clone()));
     Ok(Some(version))
 }
 
@@ -107,9 +120,11 @@ pub fn follow_feed(_app: &AppHandle) {}
 
 /// Installs the downloaded update, if any; the next launch runs it.
 pub fn install(app: &AppHandle) {
-    let Some(ready) = app.state::<Updates>().lock().take() else {
+    let updates = app.state::<Updates>();
+    let Some(ready) = updates.lock().take() else {
         return;
     };
+    updates.1.send_replace(None);
 
     if let Err(e) = ready.update.install(&ready.bytes) {
         log::warn!("installing Beep {}: {e}", ready.update.version);
