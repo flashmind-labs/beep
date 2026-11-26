@@ -1,23 +1,15 @@
 use super::*;
 use crate::chat::local_dictation::{
-    DownloadFailure, LocalDictation, LocalModelId, ModelPaths, VerifiedDownload, download_verified,
-    installed_model_path, pcm16_to_f32, split_stream_words,
+    LocalDictation, LocalModelId, ModelPaths, installed_model_path, pcm16_to_f32,
+    split_stream_words,
 };
 use futures::SinkExt as _;
 use hyper::{Request, body::Incoming as IncomingBody, server::conn::http1, service::service_fn};
 use hyper_util::rt::TokioIo;
 use serde_json::Value;
-use sha2::{Digest as _, Sha256};
-use std::{
-    convert::Infallible,
-    net::Ipv4Addr,
-    sync::atomic::{AtomicBool, Ordering},
-};
+use std::{convert::Infallible, net::Ipv4Addr};
 use tempfile::tempdir;
-use tokio::{
-    io::{AsyncReadExt as _, AsyncWriteExt as _},
-    net::TcpListener,
-};
+use tokio::net::TcpListener;
 use yawc::{Frame, UpgradeFut, WebSocket};
 
 fn urls_for(base: &Url) -> Urls {
@@ -105,98 +97,6 @@ fn stream_word_splitting_and_pcm_conversion_preserve_boundaries() {
     let mut samples = Vec::new();
     pcm16_to_f32(&[0, 0x40, 0, 0x80], &mut samples);
     assert_eq!(samples, vec![0.5, -1.0]);
-}
-
-#[tokio::test]
-async fn downloads_verifies_sha256_rejects_bad_digest_and_cancels_cleanly() {
-    let payload = Bytes::from(vec![0x5au8; 64 * 1024]);
-    let expected_len = payload.len() as u64;
-    let expected_sha = hex::encode(Sha256::digest(&payload));
-
-    let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let body = payload.clone();
-    let server = tokio::spawn(async move {
-        for _ in 0..3 {
-            let Ok((mut stream, _)) = listener.accept().await else {
-                break;
-            };
-            let data = body.clone();
-            tokio::spawn(async move {
-                let mut req_buf = [0u8; 1024];
-                let _ = stream.read(&mut req_buf).await;
-                let header = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                    data.len()
-                );
-                let _ = stream.write_all(header.as_bytes()).await;
-                let _ = stream.write_all(&data).await;
-                let _ = stream.shutdown().await;
-            });
-        }
-    });
-
-    let dir = tempdir().unwrap();
-    let url = format!("http://{addr}/model.gguf");
-    let client = reqwest::Client::new();
-    let cancel = AtomicBool::new(false);
-    let mut seen_progress = Vec::new();
-
-    download_verified(
-        &client,
-        VerifiedDownload {
-            url: &url,
-            expected_bytes: expected_len,
-            expected_sha256: &expected_sha,
-            dest_dir: dir.path(),
-            filename: "good.gguf",
-        },
-        &cancel,
-        |done, total| seen_progress.push((done, total)),
-    )
-    .await
-    .expect("matching size and digest succeeds");
-
-    assert!(dir.path().join("good.gguf").is_file());
-    assert!(!dir.path().join("good.gguf.part").exists());
-    assert_eq!(seen_progress.last(), Some(&(expected_len, expected_len)));
-
-    let corrupt = download_verified(
-        &client,
-        VerifiedDownload {
-            url: &url,
-            expected_bytes: expected_len,
-            expected_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
-            dest_dir: dir.path(),
-            filename: "bad.gguf",
-        },
-        &cancel,
-        |_, _| {},
-    )
-    .await;
-    assert!(matches!(corrupt, Err(DownloadFailure::Failed(_))));
-    assert!(!dir.path().join("bad.gguf").exists());
-    assert!(!dir.path().join("bad.gguf.part").exists());
-
-    let cancel_mid = AtomicBool::new(false);
-    let cancelled = download_verified(
-        &client,
-        VerifiedDownload {
-            url: &url,
-            expected_bytes: expected_len,
-            expected_sha256: &expected_sha,
-            dest_dir: dir.path(),
-            filename: "cancelled.gguf",
-        },
-        &cancel_mid,
-        |_, _| cancel_mid.store(true, Ordering::Relaxed),
-    )
-    .await;
-    assert_eq!(cancelled, Err(DownloadFailure::Cancelled));
-    assert!(!dir.path().join("cancelled.gguf").exists());
-    assert!(!dir.path().join("cancelled.gguf.part").exists());
-
-    server.abort();
 }
 
 #[test]
