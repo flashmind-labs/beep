@@ -3,7 +3,7 @@
 import type { Lane } from "../center/lanes-state.ts";
 
 /// A person on the team (MemberView).
-export interface TeamMember {
+interface TeamMember {
   login: string;
   mesh: string;
   /// In milliseconds since the Unix epoch.

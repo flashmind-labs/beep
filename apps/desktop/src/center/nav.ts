@@ -42,7 +42,7 @@ export function asBack(step: () => void) {
   }
 }
 
-export const boxes = new Map<Page, HTMLElement>();
+const boxes = new Map<Page, HTMLElement>();
 export const keepBox = Object.fromEntries(PAGES.map(name => [name, (el: HTMLDivElement | null) => { if (el) boxes.set(name, el); else boxes.delete(name); }]));
 /// How often each page drew; 0 leaves its box empty.
 export const shown = createStore<{ drawn: Record<Page, number> }>(() => ({

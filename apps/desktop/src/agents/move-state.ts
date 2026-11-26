@@ -174,7 +174,7 @@ function filesLine(p: MoveProgress, timing: FilesTiming | null) {
 }
 
 /// A new move may still be reaching its target through the mesh.
-export const awaitingMove = (record: MoveRecord, now: number) => now - record.at < 2 * 60_000;
+const awaitingMove = (record: MoveRecord, now: number) => now - record.at < 2 * 60_000;
 
 /// What the target says of a move, read for the window: a target that has
 /// not heard of a recent move yet still has to take it up, so it waits; one

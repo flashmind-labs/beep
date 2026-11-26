@@ -140,7 +140,7 @@ export interface DockModel {
 }
 
 /// Where a dock sits as last laid out.
-export interface DockPlace {
+interface DockPlace {
   /// The pane shows, or only its strip.
   shown: boolean;
   strip: boolean;

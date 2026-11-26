@@ -12,7 +12,7 @@ import { parseRows, type PluginRow } from "../ui/plugin-rows.ts";
 type Call = typeof invoke;
 type Listen = typeof listen;
 
-export type ListState = { kind: "loading" } | { kind: "ready"; rows: PluginRow[] } | { kind: "failed"; failure: PluginFailure };
+type ListState = { kind: "loading" } | { kind: "ready"; rows: PluginRow[] } | { kind: "failed"; failure: PluginFailure };
 
 export interface PluginsState {
   list: ListState;
@@ -27,7 +27,7 @@ export interface PluginsState {
 
 const START: PluginsState = { list: { kind: "loading" }, flow: IDLE, busy: [], failures: new Map(), updates: new Map() };
 
-export function createPluginsSettings(call: Call, hear: Listen) {
+function createPluginsSettings(call: Call, hear: Listen) {
   const state = createStore<PluginsState>()(() => START);
   let reads = 0;
 

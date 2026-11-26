@@ -450,7 +450,7 @@ function entryPic(n: string, original: string | null = null) {
 /// by each draw of the turns.
 let liveAt: number | null = null;
 /// The running turn thinks: a thought streams or is about to.
-export let thinking = false;
+let thinking = false;
 
 /// Thoughts start folded because the progress line already shows what
 /// the agent thinks. The reader's choice stays as the group grows or ends.

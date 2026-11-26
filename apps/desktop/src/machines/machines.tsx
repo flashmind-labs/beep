@@ -40,7 +40,7 @@ export interface MachineSearch { id: string; folder: string | null; draft: strin
 
 // The machines running beep-node (ListMachines), from Settings; `asking`
 // the machine whose Remove waits for an answer.
-export const MC: {
+const MC: {
   error: string;
   asking: Asking | null;
   /// The newest beep-node release, null until read or while offline.

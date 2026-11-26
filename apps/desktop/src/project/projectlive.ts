@@ -20,7 +20,7 @@ export interface LiveMode {
 }
 
 /// What an update changed of a project, with the views it pushed.
-export interface ProjectUpdate {
+interface ProjectUpdate {
   lists: boolean;
   runs: boolean;
   /// The pushed view `command` read with `args`, null when the update did not carry it.

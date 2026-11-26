@@ -56,8 +56,6 @@ export interface CenterView<K extends ViewName = ViewName> {
   unmount?(): void;
 }
 
-export const $ = <T extends HTMLElement = HTMLElement>(sel: string) => document.querySelector<T>(sel)!;
-
 export const OFFLINE_NOTE_MS = 60 * 60 * 1000;
 /// Before Home first loads: how long "Connecting" shows before "Still
 /// connecting".

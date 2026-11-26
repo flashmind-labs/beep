@@ -39,7 +39,7 @@ export function harnessesOn(hosts: readonly { machine_id: string; agents: readon
 }
 
 /// Sorts harnesses by their place in `order`; those it lacks go last.
-export function byOrder(order: readonly string[]) {
+function byOrder(order: readonly string[]) {
   const rank = (a: string) => order.indexOf(a) + 1 || 99;
   return (a: string, b: string) => rank(a) - rank(b);
 }

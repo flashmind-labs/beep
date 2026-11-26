@@ -4,7 +4,7 @@
 
 import { isRecord, isText, parseSource, permissions, textOrNull, type PluginPermission, type PluginRow, type PluginRun, type PluginSource } from "../ui/plugin-rows.ts";
 
-export type PreviewKind = "new" | "update" | "allow";
+type PreviewKind = "new" | "update" | "allow";
 
 /// What installing, updating or allowing a plugin would do.
 export interface PluginPreview {
@@ -165,7 +165,7 @@ export type Flow =
   | { kind: "consent"; consent: Consent; busy: boolean; failure: PluginFailure | null };
 
 /// What the consent sheet agrees to: a staged plugin, or an installed one that waits for approval.
-export type Consent = { source: "staged"; stage: string; preview: PluginPreview } | { source: "installed"; preview: PluginPreview };
+type Consent = { source: "staged"; stage: string; preview: PluginPreview } | { source: "installed"; preview: PluginPreview };
 
 export type GitField = "repository" | "reference" | "folder";
 

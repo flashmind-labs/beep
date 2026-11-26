@@ -40,7 +40,7 @@ import { placeOf } from "../agents/place.ts";
 import { newChatTarget } from "../project/agent.ts";
 import { runningKey } from "../agents/running-state.ts";
 
-export function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
+function registerSidebarGroup<T>(name: string, group: SidebarGroup<T>) {
   groups.set(name, group as SidebarGroup<unknown>);
 }
 

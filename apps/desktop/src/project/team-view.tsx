@@ -37,7 +37,7 @@ export function boardFiltered(project: string) {
 }
 
 /// A board card with whose it is, for the filter.
-export interface OwnedCard { login: string; card: BoardCard }
+interface OwnedCard { login: string; card: BoardCard }
 
 /// The cards on project `project`'s board: the user's own `mine`, its team's
 /// asks and teammates' cards, through the board's filter. `openThread` opens

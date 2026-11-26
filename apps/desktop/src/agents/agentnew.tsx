@@ -168,7 +168,7 @@ export function agentNewKeys(e: KeyboardEvent, cmd: boolean) {
 }
 
 /// Redraws the form, keeping the prompt as typed when it shows already.
-export function drawAgentNew() {
+function drawAgentNew() {
   if (startView?.composer.box.isConnected) drawParts();
   else drawFrame();
 }
@@ -508,7 +508,7 @@ function typeBase() {
 }
 
 /// Opens or closes the picker; open, the search takes the keys.
-export function togglePicker() {
+function togglePicker() {
   const f = AG.form;
   if (S.view !== "agentnew" || !f.agent) return;
   f.open = f.open === "pick" ? null : "pick";

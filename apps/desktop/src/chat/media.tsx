@@ -90,7 +90,7 @@ async function readText(machine: string, cwd: string, path: string): Promise<Fil
 }
 
 /// Opens the file the viewer shows in this computer's app for it.
-export function openFileElsewhere(file: ViewerFile) {
+function openFileElsewhere(file: ViewerFile) {
   invoke("agent_file_open", { machineId: file.machine, path: file.path, session: file.session }).catch(e => notice(readError(e), { bad: true }));
 }
 
@@ -101,7 +101,7 @@ function drawViewer() {
   overlays.set([{ slot: "viewer", host: viewer.host, content }]);
 }
 
-export function viewerAct(a: ViewerAct) {
+function viewerAct(a: ViewerAct) {
   if (V.file) return void (a === "close" && closeViewer());
   const p = V.pics[V.at];
 

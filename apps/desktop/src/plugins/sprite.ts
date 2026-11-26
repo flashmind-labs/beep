@@ -1,9 +1,9 @@
 /// When a motion plays: `loop` again and again (the only motion of its sprite), `once` when the
 /// sprite appears, `every` after a random delay in the range and after each play.
-export type SpriteRepeat = { kind: "loop" } | { kind: "once" } | { kind: "every"; minMs: number; maxMs: number };
+type SpriteRepeat = { kind: "loop" } | { kind: "once" } | { kind: "every"; minMs: number; maxMs: number };
 
 /// Show frame `frame` (an index into the sprite's frames) for `ms`.
-export interface SpriteStep { frame: number; ms: number }
+interface SpriteStep { frame: number; ms: number }
 
 /// Steps played in turn. After the last one the sprite goes back to its rest frame.
 export interface SpriteMotion { steps: SpriteStep[]; repeat: SpriteRepeat }
@@ -14,13 +14,13 @@ export type SpriteReactions = Record<string, SpriteStep[]>;
 /// A request to play the reaction `name` once. A new `id` asks again.
 export interface SpritePlay { name: string; id: number }
 
-export const MAX_MOTIONS = 8;
-export const MAX_STEPS = 64;
+const MAX_MOTIONS = 8;
+const MAX_STEPS = 64;
 export const MAX_FRAMES = 32;
-export const MIN_STEP_MS = 16;
-export const MAX_STEP_MS = 60_000;
-export const MIN_EVERY_MS = 100;
-export const MAX_EVERY_MS = 3_600_000;
+const MIN_STEP_MS = 16;
+const MAX_STEP_MS = 60_000;
+const MIN_EVERY_MS = 100;
+const MAX_EVERY_MS = 3_600_000;
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 const isInt = (value: unknown, min: number, max: number): value is number => typeof value === "number" && Number.isInteger(value) && value >= min && value <= max;
@@ -81,7 +81,7 @@ export const isPlay = (raw: unknown, reactions: SpriteReactions): raw is SpriteP
   isRecord(raw) && typeof raw.name === "string" && Object.hasOwn(reactions, raw.name) && isInt(raw.id, 0, 0xffffffff);
 
 /// What to show now, and how long until `next` should be called. `wait` null: nothing more happens.
-export interface Tick { frame: number; wait: number | null }
+interface Tick { frame: number; wait: number | null }
 
 /// The order a sprite's motions play in, as a state machine with no timers of its own.
 export interface SpriteScript {

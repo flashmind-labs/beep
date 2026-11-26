@@ -181,7 +181,7 @@ function takeAccounts(data: AgentAccounts, machines: readonly Machine[]) {
 
 /// Reads the accounts, for the first draw and after a sign-in on a machine. Tokens saved or revoked here
 /// come back as a push.
-export async function loadAgentAccounts() {
+async function loadAgentAccounts() {
   try {
     const [data, machines] = await Promise.all([
       invoke<AgentAccounts>("agent_accounts"),

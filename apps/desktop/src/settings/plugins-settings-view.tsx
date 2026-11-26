@@ -119,7 +119,7 @@ function PermissionChip({ permission }: { permission: PluginPermission }) {
 }
 
 /// What the consent sheet shows: what the plugin is, what it asks for, and what changed.
-export function ConsentView({ flow, confirm, cancel }: { flow: Consenting; confirm(): void; cancel(): void }) {
+function ConsentView({ flow, confirm, cancel }: { flow: Consenting; confirm(): void; cancel(): void }) {
   const { preview } = flow.consent;
   const action = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => { action.current?.focus(); }, []);

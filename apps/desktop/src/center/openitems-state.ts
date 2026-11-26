@@ -116,7 +116,7 @@ export function dayLabel(back: number, now: number) {
 }
 
 /// The repository's web page from an item's.
-export function repoUrl(url: string | null | undefined) {
+function repoUrl(url: string | null | undefined) {
   return String(url || "").replace(/\/(pull|pulls|issues)\/\d+([/?#].*)?$/, "");
 }
 

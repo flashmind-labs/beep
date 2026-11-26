@@ -122,12 +122,6 @@ pub enum Slot {
 }
 
 impl Slot {
-    /// Whether nodes stand on the slot's edge, placed by `align`, `offset` and
-    /// `sink`, rather than in normal flow.
-    pub fn is_edge(self) -> bool {
-        matches!(self, Slot::Composer)
-    }
-
     /// Whether buttons, toggles and inputs may appear in the slot.
     pub fn is_interactive(self) -> bool {
         !matches!(self, Slot::SessionRow)

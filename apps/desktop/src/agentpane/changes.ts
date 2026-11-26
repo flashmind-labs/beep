@@ -269,7 +269,7 @@ function check(entry: Kept, now: boolean, appeared: boolean) {
 }
 
 /// Puts the keyboard in the diff.
-export function focusChanges() {
+function focusChanges() {
   shown?.view.focus();
 }
 

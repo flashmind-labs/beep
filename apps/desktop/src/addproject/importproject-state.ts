@@ -42,7 +42,7 @@ function orgAndName(repo: string) {
 }
 
 /// Strips whitespace and trailing slashes from a folder path, keeping `/`.
-export function cleanFolder(path: string | null | undefined) {
+function cleanFolder(path: string | null | undefined) {
   return String(path || "").trim().replace(/(.)\/+$/, "$1");
 }
 

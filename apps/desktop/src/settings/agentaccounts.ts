@@ -29,7 +29,7 @@ interface CliLogin {
 
 /// A machine with Antigravity and whether it is signed in there, as the
 /// machine last reported it.
-export interface AgyMachine {
+interface AgyMachine {
   id: string;
   name: string;
   online: boolean;
@@ -75,7 +75,7 @@ export type CodexFlow =
   | { error: string; starting?: undefined; task?: undefined; code?: undefined };
 
 /// The named account being added.
-export interface AccountDraft {
+interface AccountDraft {
   agent: AccountAgent;
   error: string;
 }
@@ -116,11 +116,6 @@ export function accountName(name: string): { name: string; error: null } | { nam
   if (/[~/\p{Cc}]/u.test(trimmed)) return { name: null, error: "An account name cannot hold ~, / or control characters." };
   if (trimmed.toLowerCase() === "default") return { name: null, error: "Default is the account without a name; pick another name." };
   return { name: trimmed, error: null };
-}
-
-/// The names of `agent`'s named accounts, in the order Settings lists them.
-export function accountNames(data: AgentAccounts | null | undefined, agent: string): string[] {
-  return (data?.named ?? []).filter(account => account.agent === agent).map(account => account.name);
 }
 
 /// What a `processes` update says of the node task `task`: whether it still runs. Null when the

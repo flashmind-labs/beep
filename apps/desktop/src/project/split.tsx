@@ -85,7 +85,7 @@ const listLabel = new Map<string, string>();
 
 /// `items` filtered to the label picked for list `key`, and the chips that
 /// pick one; `redraw` runs on a pick. A label gone from every item clears.
-export function labelFilter<T>(key: string, items: T[], tags: (i: T) => string[] | undefined, redraw: () => void) {
+function labelFilter<T>(key: string, items: T[], tags: (i: T) => string[] | undefined, redraw: () => void) {
   const all = [...new Set(items.flatMap(i => tags(i) || []))].sort();
   const pick = listLabel.get(key), on = pick && all.includes(pick) ? pick : undefined;
   const labels: LabelFilter = { all, on, pick: l => {
@@ -262,7 +262,7 @@ function projectOverview(p: Project, running: RunningAgent[], open: { run: Split
 
 /// What the Pull requests and Issues sections do on project `p`'s page:
 /// Work on it and Work on PR fill the bar.
-export function repoActs(p: Project): RepoActs {
+function repoActs(p: Project): RepoActs {
   return {
     workOn: (issue: IssueRow) => workOnIssue(p.name, issue),
     startIssue: (issue: IssueRow, pick: ProjectPick, machine: string | null) => startIssue(p.name, issue, pick, machine),

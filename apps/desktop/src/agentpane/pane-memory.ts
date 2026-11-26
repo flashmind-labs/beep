@@ -28,7 +28,7 @@ export function rememberPane() {
   writeView(windowPreferenceKey(key), { on: paneModel.getState().on, layout: keptLayout(), zoom: paneModel.getState().zoom, tabs: openTabs().filter(t => !t.closed && !t.exported).map(savedTab) });
 }
 
-export function savedTab(t: MediaTab) {
+function savedTab(t: MediaTab) {
   if (t.kind === "term") return { id: t.id, name: t.name, terminal: t.term?.row ?? t.existing ?? null };
   if (t.rel && t.root) return { root: t.root, rel: t.rel, preview: t.previewQueued === true || t.preview?.active === true };
   return { path: t.path, url: t.path ? null : t.url, name: t.name };

@@ -48,7 +48,7 @@ export function openChatWindow(chat: Pick<AgentRow, "machine_id" | "id">) {
   openWindow({ kind: "chat", machine_id: chat.machine_id, session: chat.id });
 }
 
-export function openWindow(alone: Alone) {
+function openWindow(alone: Alone) {
   invoke("center_open_window", { alone }).catch(e => console.warn("opening a window:", e));
 }
 

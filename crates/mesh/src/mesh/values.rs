@@ -51,16 +51,6 @@ impl Mesh {
             .collect()
     }
 
-    /// Whether any key whose text form starts with `prefix` was ever
-    /// written, even if deleted since.
-    pub fn has_held(&self, prefix: &str) -> bool {
-        self.inner
-            .view()
-            .held
-            .iter()
-            .any(|key| key.to_string().starts_with(prefix))
-    }
-
     /// Keys that changed, written here or taken from a peer. A receiver that
     /// falls behind gets `Lagged` and must rescan; subscribe before the first
     /// `scan` so nothing falls between the two.

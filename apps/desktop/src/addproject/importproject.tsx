@@ -8,8 +8,8 @@ import { syncthingImportChoice } from "../project/syncthing.ts";
 // default <Projects in>/<org>/<repo>), then Import.
 import { invoke } from "../ui/tauri.ts";
 import { openSheet } from "../ui/parts.tsx";
-import { START, next, looksLikeRepo, folderNote, goesInText, hasCustomFolder, keepLastImport, lastImport, typedFolder } from "./importproject-state.ts";
-export { keepLastImport, lastImport };
+import { START, next, looksLikeRepo, folderNote, goesInText, hasCustomFolder, keepLastImport, typedFolder } from "./importproject-state.ts";
+export { keepLastImport };
 import type { ImportEvent } from "./importproject-state.ts";
 import type { MachineFolder, ProjectRow } from "../project/projects-state.ts";
 import { defaultPlaces, worktreesToAsk } from "../review/branchwork.ts";

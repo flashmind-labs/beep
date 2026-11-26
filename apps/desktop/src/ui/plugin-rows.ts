@@ -46,7 +46,7 @@ export interface PluginSkin {
 
 export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
 export const isText = (value: unknown): value is string => typeof value === "string";
-export const isFlag = (value: unknown): value is boolean => typeof value === "boolean";
+const isFlag = (value: unknown): value is boolean => typeof value === "boolean";
 export const textOrNull = (value: unknown): string | null | undefined => value === null ? null : isText(value) ? value : undefined;
 
 function permission(value: unknown): PluginPermission | null {

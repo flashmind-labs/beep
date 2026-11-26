@@ -50,7 +50,7 @@ export function removeLastAttachment() {
   else if (AG.att.length) removeImage(AG.att.length - 1);
 }
 
-export function AgentAttachments() {
+function AgentAttachments() {
   const ask = MN.ask, there = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => { if (ask) queueMicrotask(() => { if (MN.ask === ask) there.current?.focus(); }); }, [ask]);
   const machine = paneSession()?.machine_name ?? "the machine";

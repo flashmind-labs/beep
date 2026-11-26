@@ -3,7 +3,7 @@ export function isHtmlFile(path: string): boolean {
   return /\.html?$/i.test(path);
 }
 
-export function isMarkdownFile(path: string): boolean {
+function isMarkdownFile(path: string): boolean {
   return /\.(md|markdown)$/i.test(path);
 }
 

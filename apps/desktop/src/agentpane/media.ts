@@ -6,7 +6,7 @@
 // media-layout.ts.
 import { viewKey } from "./view-memory.ts";
 import { hasPreview } from "./html-preview-state.ts";
-import { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS, baseName, type Dock, DOCKS, moveTab, type PaneLayout, readLayout, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
+import { ARTS, FILES, RUNNING, SUBS, baseName, type Dock, DOCKS, moveTab, type PaneLayout, readLayout, SIDE_BY_SIDE_MIN, tabDock } from "./media-state.ts";
 import { terminalName } from "./files-state.ts";
 import { artifactCount, pickArtifact } from "./artifacts.ts";
 import { changeListeners, PANE, S } from "../bar/core.ts";
@@ -30,7 +30,7 @@ import { closeTab, dropTab, touchTab } from "./pane-tabs.ts";
 import { addTab, focusTab, leaveLog, open, openIn, openPath, openPicture, previewTab, requestRightPane, setFolded } from "./pane-open.ts";
 import { savedIn } from "../ui/platform.ts";
 
-export { AGENTS, ARTS, CHANGES, DEVICE, FILES, RUNNING, SUBS };
+export { RUNNING, SUBS };
 /// Starts the pane for session `s`, closing what the last one had open.
 export function startPane(s: PaneSession) {
   closePaneTabs();

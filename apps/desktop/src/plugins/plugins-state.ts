@@ -4,10 +4,10 @@ import { isPlay, MAX_FRAMES, parseMotions, parseReactions, type SpriteMotion, ty
 
 /// A named place in the app. A slot can be on the page many times, each with its own context.
 export type PluginSlotName = "composer" | "session.row" | "session.header";
-export type PluginAlign = "start" | "center" | "end";
-export type PluginTone = "normal" | "dim" | "accent";
+type PluginAlign = "start" | "center" | "end";
+type PluginTone = "normal" | "dim" | "accent";
 /// How a placement comes and goes: a short fade or rise, or nothing.
-export type PluginTransition = "none" | "fade" | "rise";
+type PluginTransition = "none" | "fade" | "rise";
 
 /// Names a function the plugin passed in a tree, valid for one render of one instance.
 export type CallbackId = number;
@@ -231,8 +231,8 @@ export type UiUpdate = { name: "ui.composer"; data: ComposerShown | null };
 
 /// Where a session's turn stands, as the `session.turn` topic tells plugins. `turn` counts the turns
 /// that ended: a larger number than before is a new end, the same number is a repeat.
-export type TurnState = "starting" | "working" | "asking" | "idle" | "ended";
-export type TurnOutcome = "finished" | "cancelled" | "failed" | "refused" | "token-limit" | "request-limit" | "stopped";
+type TurnState = "starting" | "working" | "asking" | "idle" | "ended";
+type TurnOutcome = "finished" | "cancelled" | "failed" | "refused" | "token-limit" | "request-limit" | "stopped";
 export interface SessionTurn { session: string; state: TurnState; outcome: TurnOutcome | null; turn: number }
 
 /// What `session.turn` is built from: the page the open session shows. `last_stop` is the node's
@@ -374,8 +374,8 @@ export function connectPluginTopics(bridge: TopicsBridge): Promise<void> {
 }
 
 /// The context of an instance of each slot, as the page tells plugins.
-export interface SessionRef { machine: string; session: string }
-export interface SessionRowContext extends SessionRef { title: string }
+interface SessionRef { machine: string; session: string }
+interface SessionRowContext extends SessionRef { title: string }
 
 /// One place a slot is on the page now, and what it is about.
 export type SlotInstance =
@@ -383,16 +383,16 @@ export type SlotInstance =
   | { slot: "session.row"; key: string; context: SessionRowContext }
   | { slot: "session.header"; key: string; context: SessionRef };
 
-export interface InstanceRef { slot: PluginSlotName; key: string }
+interface InstanceRef { slot: PluginSlotName; key: string }
 
 /// What changed about the slots on the page. `reset` says the page started over.
 export interface InstanceBatch { reset: boolean; shown: SlotInstance[]; gone: InstanceRef[] }
 
 /// The host keeps no more instances of a slot than this.
-export const MAX_INSTANCES_PER_SLOT = 200;
+const MAX_INSTANCES_PER_SLOT = 200;
 /// The longest text in a context, and a context as JSON, in bytes.
-export const MAX_CONTEXT_TEXT = 512;
-export const MAX_CONTEXT_BYTES = 1024;
+const MAX_CONTEXT_TEXT = 512;
+const MAX_CONTEXT_BYTES = 1024;
 
 /// `text` cut to at most `max` bytes, at a character boundary.
 export function clipBytes(text: string, max: number): string {

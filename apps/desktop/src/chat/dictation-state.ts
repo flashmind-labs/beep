@@ -7,7 +7,7 @@ import { bytes, reason } from "../ui/format.ts";
 /// `settings/dictation` (DictationSettings): `model` null picks the first ready live model.
 export interface DictationSettings { enabled: boolean; model: string | null }
 
-export type CloudDictationProvider = "elevenlabs" | "mistral";
+type CloudDictationProvider = "elevenlabs" | "mistral";
 export type DictationProvider = "local" | CloudDictationProvider;
 
 export interface DictationModel {
@@ -154,7 +154,7 @@ export function keysFrom(list: unknown): DictationKeys {
   return keys;
 }
 
-export function parseLocalModels(value: unknown): LocalModels {
+function parseLocalModels(value: unknown): LocalModels {
   const out: LocalModels = {};
   if (!Array.isArray(value)) return out;
   const rows: unknown[] = value;
@@ -177,7 +177,7 @@ export type LocalDownloadEvent =
   | { kind: "cancelled" }
   | { kind: "error"; message: string };
 
-export function parseDownloadEvent(value: unknown): LocalDownloadEvent | null {
+function parseDownloadEvent(value: unknown): LocalDownloadEvent | null {
   if (typeof value !== "object" || value === null || !("kind" in value)) return null;
 
   switch (value.kind) {
@@ -326,7 +326,7 @@ export function parseEvent(value: unknown): DictationEvent | null {
 }
 
 /// `starting` waits for the microphone and the provider; `settling` lets the animation finish.
-export type DictationPhase = "idle" | "starting" | "listening" | "thinking" | "settling" | "error";
+type DictationPhase = "idle" | "starting" | "listening" | "thinking" | "settling" | "error";
 
 export interface Turn { phase: DictationPhase; error: string }
 
@@ -503,7 +503,7 @@ export function addedWords(prev: string, next: string): { before: string; word: 
 
 // ----- Microphone audio -----
 
-export const SAMPLE_RATE = 16_000;
+const SAMPLE_RATE = 16_000;
 /// The app takes chunks of at most 256 KB.
 export const MAX_CHUNK_BYTES = 262_144;
 

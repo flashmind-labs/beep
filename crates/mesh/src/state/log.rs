@@ -317,11 +317,6 @@ impl State {
             .collect()
     }
 
-    /// Every key that has an entry, deleted ones included.
-    pub fn held(&self) -> Vec<Key> {
-        self.winners.keys().cloned().collect()
-    }
-
     /// Whether `key` has an entry, a deleted one included.
     pub fn holds(&self, key: &Key) -> bool {
         self.winners.contains_key(key)

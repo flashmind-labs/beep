@@ -20,10 +20,10 @@ import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import type { TileData } from "./board.ts";
 import { PageCache, REFRESH_MS, type SectionStore } from "../ui/pagecache.ts";
 import {
-  Bounded, DetailCache, HOVER_MS, ahead, detailDue, detailKey, going, hostLabel, limited, runChip, runKey, runsCount,
+  Bounded, DetailCache, HOVER_MS, ahead, detailDue, detailKey, hostLabel, limited, runChip, runKey, runsCount,
 } from "./runs-state.ts";
 
-export { going, runKey };
+export { runKey };
 
 /// The current step of a running job (StepRow).
 interface StepNow {

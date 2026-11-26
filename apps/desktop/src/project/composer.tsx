@@ -222,7 +222,7 @@ function projectOf(name: string) {
 
 /// Whether the bar of project `name` is on screen: under its page, or in the
 /// empty agent view.
-export function barOn(name: string) {
+function barOn(name: string) {
   return (currentLocation()?.view === "projects" && state.picked === name) || (currentLocation()?.view === "pane" && S.view === "agent" && AG.draft === name);
 }
 
@@ -955,7 +955,7 @@ async function addToMachine(project: string, m: AgentHost) {
 /// Before an agent starts on `issue` of project `name`: in a team project the
 /// user takes it on the forge first. An issue someone else has is not taken:
 /// the held sheet asks them, or `start`s anyway as a second assignee.
-export async function takeIssue(name: string, issue: Pick<IssueRow, "number" | "title" | "url">, start: () => unknown): Promise<void> {
+async function takeIssue(name: string, issue: Pick<IssueRow, "number" | "title" | "url">, start: () => unknown): Promise<void> {
   if (!teamOf(name)) await readTeam(name);
   const view = teamOf(name);
   // The list says who has it; one not read yet is read first.
