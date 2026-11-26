@@ -2,7 +2,7 @@
 //! the server.
 
 use super::{recent, window};
-use crate::link::{Protocol, Session};
+use crate::protocol::{Protocol, Session};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,

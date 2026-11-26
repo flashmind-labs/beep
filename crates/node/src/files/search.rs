@@ -6,7 +6,7 @@ use crate::{
     agents::Agents,
     agents::found,
     link::state::{self, Search},
-    link::{Protocol, Session},
+    protocol::{Protocol, Session},
 };
 use anyhow::Result;
 use beep_proto::node::{

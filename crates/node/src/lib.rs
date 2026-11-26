@@ -22,6 +22,7 @@ pub mod agents;
 pub mod events;
 pub mod files;
 pub mod link;
+mod protocol;
 
 host! {
     pub mod actor;

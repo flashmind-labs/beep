@@ -4,7 +4,7 @@
 
 mod protocol;
 
-pub use protocol::{Protocol, Session};
+pub use crate::protocol::{Protocol, Session};
 
 host! {
     mod channels;

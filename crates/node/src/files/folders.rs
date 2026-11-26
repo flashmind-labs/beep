@@ -4,7 +4,7 @@
 use crate::files::paths;
 use crate::{
     files::fsat,
-    link::{Protocol, Session},
+    protocol::{Protocol, Session},
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{

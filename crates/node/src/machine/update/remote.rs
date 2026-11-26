@@ -7,8 +7,8 @@ use super::{
 };
 use crate::{
     agents::Agents,
-    link::{Protocol, Session},
     lock,
+    protocol::{Protocol, Session},
     machine::service::{self, Restart},
 };
 use beep_proto::node::{

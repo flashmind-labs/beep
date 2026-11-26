@@ -8,8 +8,9 @@ use crate::{
         grants::Access,
         place::{Journal, Room, open_target},
     },
-    link::{Membership, Protocol, Session},
+    link::Membership,
     lock,
+    protocol::{Protocol, Session},
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{

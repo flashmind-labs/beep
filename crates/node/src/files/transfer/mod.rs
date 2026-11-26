@@ -7,7 +7,8 @@ use crate::{
     files::Folders,
     files::sync::{self, PeerHandler, Syncs},
     files::syncthing::Syncthing,
-    link::{Membership, Protocol, Session},
+    link::Membership,
+    protocol::{Protocol, Session},
 };
 use anyhow::{Context, Result, anyhow, bail, ensure};
 use beep_proto::node::{
