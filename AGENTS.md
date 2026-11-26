@@ -106,6 +106,9 @@ reference in the issue. Use `just reports`, `just report <reference>` and
   reason. `compat` asks an older peer that cannot push and names the version
   that ends it.
   Add a line for a new timer. A new `poll` needs the user's approval.
+- Dependencies point down: a module never imports, calls or orders what uses
+  it. Upward values are pushes the upper side follows. Run `just deps` before
+  merging: it fails on a new import cycle (areas and files) or a new poll.
 
 ### TypeScript and React
 

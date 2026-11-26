@@ -86,6 +86,16 @@ release *apps:
     if [[ $# == 0 ]]; then set -- all; fi
     uv run --script scripts/release.py patch "$@"
 
+# Fail on an import cycle or a poll that the base revision does not have
+deps base="origin/main":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    dir="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.worktrees/deps-base"
+    git fetch -q origin
+    if [[ -d $dir ]]; then git -C "$dir" checkout -q --detach "{{base}}"; else git worktree add -q --detach "$dir" "{{base}}"; fi
+    python3 scripts/depgraph diff "$dir" .
+    python3 scripts/depgraph timers . --check --base "$dir"
+
 # Format, lint and test the desktop app
 desktop-check:
     cd apps/desktop && npm ci --silent && npm run build && npm run check
