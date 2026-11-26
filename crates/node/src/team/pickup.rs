@@ -9,7 +9,7 @@ use super::{
     membership::Team,
 };
 use crate::{
-    agents::{Agents, child_view::{ChildView, full_id}, machine_list::{find, machine_name}},
+    agents::{Agents, start::issue_of_repo, child_view::{ChildView, full_id}, machine_list::{find, machine_name}},
     fs::note,
     process::tool_command,
     peer_stream::{CallFailed, over_the_mesh},
@@ -30,7 +30,7 @@ use std::{
     time::{Duration, SystemTime},
 };
 use tokio::time::timeout;
-use url::Url;
+
 
 /// What starts the id of the Needs you card of an automatic session that
 /// ended without a pull request, and of a Queued card, before the issue.
@@ -146,59 +146,8 @@ pub(crate) fn issue_prompt(number: u64, title: &str, url: &str) -> String {
     )
 }
 
-/// Whether `url` is the web page of issue `number` of `repo`, as the forge
-/// lists it: on its host, ending in `/<org>/<name>/issues/<number>`.
-pub(crate) fn issue_of_repo(repo: &TeamRepo, number: u64, url: &str) -> bool {
-    let Ok(url) = Url::parse(url) else {
-        return false;
-    };
-    let wanted = format!("/{}/issues/{number}", repo.repo).to_lowercase();
 
-    matches!(url.scheme(), "https" | "http")
-        && url.host_str().is_some_and(|host| host.eq_ignore_ascii_case(repo.hostname()))
-        && url.path().to_lowercase().ends_with(&wanted)
-}
 
-/// The issue of `repo` that `prompt` names: the first URL in it that
-/// `issue_of_repo` accepts, else the first `issue #<n>` (any case). A bare
-/// `#<n>` names nothing: it may be a pull request or another repository's.
-pub(crate) fn issue_of_prompt(repo: &TeamRepo, prompt: &str) -> Option<u64> {
-    let urls = prompt
-        .split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '<' | '>' | '[' | ']' | '"' | '\''))
-        .map(|word| word.trim_end_matches(['.', ',', ';', ':', '!', '?']))
-        .filter(|word| word.contains("/issues/"))
-        .find_map(|url| {
-            let (_, tail) = url.rsplit_once("/issues/")?;
-            let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
-            let number = digits.parse().ok()?;
-
-            issue_of_repo(repo, number, url).then_some(number)
-        });
-
-    urls.or_else(|| issue_number_in_words(prompt))
-}
-
-/// The first `issue #<n>` in `text`, in any case, not the end of a longer
-/// word.
-fn issue_number_in_words(text: &str) -> Option<u64> {
-    const WORDS: &str = "issue #";
-    let lower = text.to_ascii_lowercase();
-
-    lower.match_indices(WORDS).find_map(|(at, _)| {
-        let before = lower[..at].chars().next_back();
-
-        if before.is_some_and(char::is_alphanumeric) {
-            return None;
-        }
-
-        let digits: String = lower[at + WORDS.len()..]
-            .chars()
-            .take_while(char::is_ascii_digit)
-            .collect();
-
-        digits.parse().ok()
-    })
-}
 
 /// Snapshots the issues `assigned` now, but those queued, as the backlog
 /// the first round pickup is on, then plans the round as `due` does with

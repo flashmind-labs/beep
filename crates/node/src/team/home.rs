@@ -3,6 +3,7 @@
 //! the link takes go to a desktop, since only desktops write the state.
 
 use crate::{
+    agents::start::team_record,
     process::spawn_env,
     process::{tail, tool_command},
 };
@@ -23,7 +24,7 @@ use beep_proto::{
         mesh_state::{Place, ProjectRecord, StateValue},
         tools::TeamInviteArgs,
     },
-    team::{ContactRecord, ForgeLogin, TeamRecord, TeamRepo},
+    team::{ContactRecord, ForgeLogin, TeamRepo},
 };
 use futures::future::BoxFuture;
 use iroh::{EndpointAddr, EndpointId};
@@ -139,33 +140,14 @@ impl Home {
     }
 }
 
-/// Whether `record` names this mesh: one a teammate removed it from does
-/// not, and is as good as left until a desktop deletes it.
-pub(super) fn on_team(record: &TeamRecord, mesh: &Mesh) -> bool {
-    record.members.iter().any(|member| member.mesh == mesh.id())
-}
 
-/// The repository of the team whose project has the checkout `folder` is
-/// in here.
-pub(crate) fn team_repo_of(mesh: &Mesh, folder: &Path) -> Option<TeamRepo> {
-    read(mesh)
-        .team_of(folder)
-        .filter(|repo| team(mesh, repo).is_some())
-}
 
 /// Whether `repo`'s team, as the mesh holds it, picks up issues assigned to
 /// this mesh's person.
 pub(crate) fn picks_up(mesh: &Mesh, repo: &TeamRepo) -> bool {
-    team(mesh, repo).is_some_and(|record| record.pickup)
+    team_record(mesh, repo).is_some_and(|record| record.pickup)
 }
 
-/// `repo`'s team as the mesh holds it, when this mesh is on it.
-fn team(mesh: &Mesh, repo: &TeamRepo) -> Option<TeamRecord> {
-    let bytes = mesh.get(&Key::Team(repo.clone()))?;
-    let record = lenient::from_slice::<TeamRecord>(&bytes).ok()?;
-
-    on_team(&record, mesh).then_some(record)
-}
 
 pub(crate) fn read(mesh: &Mesh) -> Home {
     let me = mesh.me();

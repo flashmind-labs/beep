@@ -88,7 +88,7 @@ host! {
     mod sessions;
     mod socket;
     mod spend;
-    mod start;
+    pub(crate) mod start;
     mod subagent;
     mod tool_diff;
     pub(crate) mod uploads;

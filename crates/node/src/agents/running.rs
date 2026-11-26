@@ -772,7 +772,7 @@ impl Agents {
         };
         let team = self
             .mesh()
-            .and_then(|mesh| crate::team::home::team_repo_of(&mesh, &cwd));
+            .and_then(|mesh| super::start::team_repo_of(&mesh, &cwd));
         let brief = match team {
             Some(_) => Some(Cow::Owned(match brief {
                 Some(brief) => format!("{brief}\n\n{}", super::brief::TEAM),
@@ -786,7 +786,7 @@ impl Agents {
             && begin.issue.is_none()
             && let (Some(repo), Some(prompt)) = (&team, &begin.prompt)
         {
-            begin.issue = crate::team::pickup::issue_of_prompt(repo, prompt);
+            begin.issue = super::start::issue_of_prompt(repo, prompt);
         }
 
         if let Some(mesh) = self.mesh() {

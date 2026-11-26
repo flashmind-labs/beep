@@ -7,7 +7,15 @@ use super::{
 };
 use crate::machine::wsl;
 use anyhow::Result;
-use std::future::Future;
+use beep_mesh::{Key, Mesh};
+use beep_proto::{
+    lenient,
+    node::mesh_state::{Place, ProjectRecord, StateValue},
+    team::{TeamRecord, TeamRepo},
+};
+use iroh::EndpointId;
+use std::{collections::BTreeMap, future::Future, path::{Path, PathBuf}};
+use url::Url;
 use tokio::{
     io::DuplexStream,
     process::Command,
@@ -106,5 +114,113 @@ where
             task: Some(AbortOnDropHandle::new(tokio::spawn(task))),
             started: Some(started),
         },
+    })
+}
+
+/// Whether `record` names this mesh: one a teammate removed it from does
+/// not, and is as good as left until a desktop deletes it.
+pub(crate) fn on_team(record: &TeamRecord, mesh: &Mesh) -> bool {
+    record.members.iter().any(|member| member.mesh == mesh.id())
+}
+
+/// `repo`'s team as the mesh holds it, when this mesh is on it.
+pub(crate) fn team_record(mesh: &Mesh, repo: &TeamRepo) -> Option<TeamRecord> {
+    let bytes = mesh.get(&Key::Team(repo.clone()))?;
+    let record = lenient::from_slice::<TeamRecord>(&bytes).ok()?;
+
+    on_team(&record, mesh).then_some(record)
+}
+
+/// The repository of the team whose project has the checkout `folder` is
+/// in here: the project whose place on this machine holds `folder`, the
+/// deepest one when several do, and only while this mesh is on its team.
+pub(crate) fn team_repo_of(mesh: &Mesh, folder: &Path) -> Option<TeamRepo> {
+    let me = mesh.me();
+    let mut records = BTreeMap::new();
+    let mut here: BTreeMap<String, PathBuf> = BTreeMap::new();
+
+    for (key, bytes) in mesh.scan("project/") {
+        let Key::Project(name) = key else { continue };
+
+        if let Some((project, machine)) = name.rsplit_once('/')
+            && let Ok(machine) = machine.parse::<EndpointId>()
+            && let Ok(place) = Place::from_bytes(&bytes)
+        {
+            if machine == me {
+                here.insert(project.to_owned(), PathBuf::from(&place.folder));
+            }
+        } else if let Ok(record) = ProjectRecord::from_bytes(&bytes) {
+            records.insert(name, record);
+        }
+    }
+
+    let projects: BTreeMap<TeamRepo, PathBuf> = records
+        .into_iter()
+        .filter_map(|(name, record)| {
+            let repo = record.url.parse::<TeamRepo>().ok()?;
+            Some((repo, here.remove(&name)?))
+        })
+        .collect();
+    let held = projects
+        .iter()
+        .filter(|(_, checkout)| folder.starts_with(checkout))
+        .map(|(repo, checkout)| (checkout.as_os_str().len(), repo));
+
+    held.max()
+        .map(|(_, repo)| repo.clone())
+        .filter(|repo| team_record(mesh, repo).is_some())
+}
+
+/// Whether `url` is the web page of issue `number` of `repo`, as the forge
+/// lists it: on its host, ending in `/<org>/<name>/issues/<number>`.
+pub(crate) fn issue_of_repo(repo: &TeamRepo, number: u64, url: &str) -> bool {
+    let Ok(url) = Url::parse(url) else {
+        return false;
+    };
+    let wanted = format!("/{}/issues/{number}", repo.repo).to_lowercase();
+
+    matches!(url.scheme(), "https" | "http")
+        && url.host_str().is_some_and(|host| host.eq_ignore_ascii_case(repo.hostname()))
+        && url.path().to_lowercase().ends_with(&wanted)
+}
+
+/// The issue of `repo` that `prompt` names: the first URL in it that
+/// `issue_of_repo` accepts, else the first `issue #<n>` (any case). A bare
+/// `#<n>` names nothing: it may be a pull request or another repository's.
+pub(crate) fn issue_of_prompt(repo: &TeamRepo, prompt: &str) -> Option<u64> {
+    let urls = prompt
+        .split(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '<' | '>' | '[' | ']' | '"' | '\''))
+        .map(|word| word.trim_end_matches(['.', ',', ';', ':', '!', '?']))
+        .filter(|word| word.contains("/issues/"))
+        .find_map(|url| {
+            let (_, tail) = url.rsplit_once("/issues/")?;
+            let digits: String = tail.chars().take_while(char::is_ascii_digit).collect();
+            let number = digits.parse().ok()?;
+
+            issue_of_repo(repo, number, url).then_some(number)
+        });
+
+    urls.or_else(|| issue_number_in_words(prompt))
+}
+
+/// The first `issue #<n>` in `text`, in any case, not the end of a longer
+/// word.
+fn issue_number_in_words(text: &str) -> Option<u64> {
+    const WORDS: &str = "issue #";
+    let lower = text.to_ascii_lowercase();
+
+    lower.match_indices(WORDS).find_map(|(at, _)| {
+        let before = lower[..at].chars().next_back();
+
+        if before.is_some_and(char::is_alphanumeric) {
+            return None;
+        }
+
+        let digits: String = lower[at + WORDS.len()..]
+            .chars()
+            .take_while(char::is_ascii_digit)
+            .collect();
+
+        digits.parse().ok()
     })
 }

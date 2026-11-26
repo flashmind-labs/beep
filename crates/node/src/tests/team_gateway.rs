@@ -1,9 +1,10 @@
 use super::*;
+use crate::agents::start::team_repo_of;
 use crate::{
     machine::ci::projects::pinned,
     team::{
         board::tests::{URL, member, repo},
-        home::{Home, Project, picks_up, read, team_repo_of},
+        home::{Home, Project, picks_up, read},
         link::Teams,
     },
 };

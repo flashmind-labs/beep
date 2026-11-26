@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::start::{issue_of_prompt, issue_of_repo};
 use crate::{
     agents::child_view::{ChildView, full_id},
     team::cards::{Facts, IssueTitles, card_of},
