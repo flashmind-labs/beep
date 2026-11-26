@@ -276,6 +276,24 @@ impl Agents {
         Ok(folders)
     }
 
+    /// Reads every store once, so Git recovery can tell an idle checkout
+    /// from one whose sessions are not known yet.
+    pub async fn read_externals_at_start(&self) {
+        let read = async {
+            let seen = self.sightings().await?;
+            let mut folders: Vec<PathBuf> = seen.iter().map(|seen| seen.cwd.clone()).collect();
+            folders.sort();
+            folders.dedup();
+
+            self.describe_history(seen, &folders).await
+        };
+
+        match read.await {
+            Ok(sessions) => self.publish_read(None, &sessions),
+            Err(e) => log::warn!("the sessions started outside Beep were not read: {e:#}"),
+        }
+    }
+
     /// The sessions that ran in `folders` or below, newest first.
     pub async fn sessions_in(
         &self,
@@ -287,6 +305,12 @@ impl Agents {
         let picked = found::in_folders(self.sightings().await?, &folders, limit);
         let mut sessions = self.describe_history(picked, &folders).await?;
         sessions.truncate(limit);
+
+        // Under the limit, the listing is every session of these folders.
+        if sessions.len() < limit {
+            self.publish_read(Some(&folders), &sessions);
+        }
+
         Ok(sessions)
     }
 

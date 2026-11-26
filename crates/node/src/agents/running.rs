@@ -471,7 +471,9 @@ impl Agents {
                     agents.delete_closed_background(closed).await;
                 }
             };
-            tokio::join!(harness_checks, background_children);
+            // Git recovery waits for one read of the stores.
+            let stores_read = agents.read_externals_at_start();
+            tokio::join!(harness_checks, background_children, stores_read);
         }))
     }
 

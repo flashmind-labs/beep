@@ -1,7 +1,7 @@
 use crate::agents::{AgentKind, Agents, session::Begin};
 use beep_proto::SessionId;
 use super::reserve;
-use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::timeout};
 
 /// Generous: only a hang can reach it.
@@ -110,6 +110,7 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     let kind = silent();
     let agents = Agents::new(vec![kind.clone()]);
     let holds = agents.holds();
+    agents.publish_read(None, &[]);
     let hold = holds.reserve(root).await.unwrap();
     let blocked = agents.start(&kind, root.to_str(), Begin::default()).await;
     assert!(blocked.err().unwrap().to_string().contains("preserving local edits"));
@@ -150,11 +151,66 @@ async fn a_session_started_outside_beep_blocks_recovery_while_it_runs() {
         ..ExternalSession::default()
     };
 
-    agents.observe_external(std::slice::from_ref(&outside));
+    agents.publish_read(None, std::slice::from_ref(&outside));
     let blocked = holds.reserve(dir.path()).await;
-    assert!(blocked.err().unwrap().to_string().contains("close running sessions"));
+    assert!(blocked.err().unwrap().to_string().contains("external session is running"));
+
+    // An unknown presence is not idle either.
+    outside.presence = Presence::Unknown;
+    agents.publish_read(None, std::slice::from_ref(&outside));
+    assert!(holds.reserve(dir.path()).await.is_err());
 
     outside.presence = Presence::Stopped;
-    agents.observe_external(std::slice::from_ref(&outside));
+    agents.publish_read(None, std::slice::from_ref(&outside));
     holds.reserve(dir.path()).await.unwrap();
+}
+
+#[tokio::test]
+async fn recovery_is_refused_until_the_stores_were_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let agents = Agents::new(vec![silent()]);
+    let holds = agents.holds();
+    let blocked = holds.reserve(dir.path()).await;
+    assert!(blocked.err().unwrap().to_string().contains("presence is unknown"));
+
+    agents.publish_read(None, &[]);
+    holds.reserve(dir.path()).await.unwrap();
+}
+
+#[tokio::test]
+async fn a_session_that_drops_off_a_read_no_longer_blocks_recovery() {
+    use beep_proto::node::agent::{ExternalSession, Presence};
+
+    let dir = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let agents = Agents::new(vec![silent()]);
+    let holds = agents.holds();
+    let session = |id: &str, cwd: &Path| ExternalSession {
+        id: SessionId::from(id),
+        agent: "codex".into(),
+        cwd: cwd.to_string_lossy().into_owned(),
+        presence: Presence::Running,
+        ..ExternalSession::default()
+    };
+    let here = session("here", dir.path());
+    let there = session("there", elsewhere.path());
+
+    agents.publish_read(None, &[here.clone(), there]);
+    assert!(holds.reserve(dir.path()).await.is_err());
+
+    // The next read of the folder lists nothing: the session is gone. A
+    // session of another folder is not touched by it.
+    agents.publish_read(Some(&[dir.path().to_owned()]), &[]);
+    holds.reserve(dir.path()).await.unwrap();
+    assert!(holds.reserve(elsewhere.path()).await.is_err());
+
+    // A session at the cap of listed sessions cannot be known idle.
+    let many: Vec<_> = (0..crate::files::holds::MAX_IN_FOLDERS)
+        .map(|n| ExternalSession {
+            presence: Presence::Stopped,
+            ..session(&format!("old-{n}"), dir.path())
+        })
+        .collect();
+    agents.publish_read(Some(&[dir.path().to_owned()]), &many);
+    assert!(holds.reserve(dir.path()).await.is_err());
 }

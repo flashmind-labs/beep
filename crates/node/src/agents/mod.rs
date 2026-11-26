@@ -139,7 +139,7 @@ host! {
     const MAX_FOLDERS: usize = 800;
     const DEFAULT_FOLDERS: usize = 100;
     /// The most sessions `InFolders` answers, and how many by default.
-    const MAX_IN_FOLDERS: usize = 100;
+    const MAX_IN_FOLDERS: usize = crate::files::holds::MAX_IN_FOLDERS;
     const DEFAULT_IN_FOLDERS: usize = 50;
     /// The most folders one `InFolders` names.
     const MAX_ASKED_FOLDERS: usize = 32;
@@ -175,8 +175,8 @@ host! {
     pub struct Agents {
         /// Checkouts held for local Git recovery, and the folders sessions run in.
         holds: OnceLock<crate::files::holds::RepositoryHolds>,
-        /// The folders of the running sessions started outside Beep, as the
-        /// listings last saw them.
+        /// The sessions started outside Beep, as the stores' reads last saw
+        /// them, and whether any read happened.
         external_folders: watch::Sender<Arc<crate::files::holds::Externals>>,
         pub events: crate::events::Hub,
         event_watcher: Mutex<std::sync::Weak<follow::Sources>>,

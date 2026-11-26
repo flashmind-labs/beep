@@ -2115,6 +2115,7 @@ async fn git_recovery_keeps_staged_unstaged_untracked_and_ignored_work() {
     git(&b.folder(), &["config", "user.name", "Test"]);
     git(&b.folder(), &["config", "user.email", "test@example.com"]);
     let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
+    agents.read_externals_at_start().await;
     b.running()
         .transfers
         .syncs()
@@ -2187,6 +2188,7 @@ async fn git_recovery_conflicts_keep_the_backup_and_do_not_repeat_after_restart(
     git(&b.folder(), &["config", "user.name", "Test"]);
     git(&b.folder(), &["config", "user.email", "test@example.com"]);
     let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
+    agents.read_externals_at_start().await;
     b.running()
         .transfers
         .syncs()
@@ -2238,6 +2240,7 @@ async fn git_recovery_never_stashes_for_divergent_histories() {
     git(&b.folder(), &["config", "user.name", "Test"]);
     git(&b.folder(), &["config", "user.email", "test@example.com"]);
     let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
+    agents.read_externals_at_start().await;
     b.running()
         .transfers
         .syncs()
