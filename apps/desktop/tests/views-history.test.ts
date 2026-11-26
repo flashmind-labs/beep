@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
 import { JSDOM } from "jsdom";
 import type { CenterView, ViewArg, ViewName } from "../src/center/state.ts";
+import { pa } from "../src/project/barstate.ts";
 
 // Load the real navigation with the window's DOM and services replaced.
 const dom = new JSDOM("<!doctype html><body><div class='cwin'></div></body>");
@@ -14,7 +15,6 @@ const views = new Map<ViewName, CenterView>();
 const view = (name: ViewName): CenterView => ({
   mount: (el, arg) => views.get(name)?.mount(el, arg),
   unmount: () => views.get(name)?.unmount?.(),
-  currentArg: () => views.get(name)?.currentArg?.() ?? null,
 });
 const register = <K extends ViewName>(name: K, page: CenterView<K>) => { views.set(name, page); };
 Object.assign(globalThis, {
@@ -71,46 +71,44 @@ function projectMounted(page: CenterView<"projects">): Promise<void> {
 }
 
 test("Back and Forward restore the project section a resumed session came from", async () => {
-  let tile: string | null = null;
   const mounted: { arg: ViewArg } = { arg: null };
   register("home", { mount() {} });
   const ready = projectMounted({
-    currentArg: () => ({ project: state.picked, tile }),
     mount(_el, arg) {
       state.picked = arg?.project ?? null;
-      tile = arg?.tile ?? null;
+      pa.tile = arg?.tile ?? null;
     },
-    unmount() { tile = null; },
+    unmount() { pa.tile = null; },
   });
   register("pane", { mount(_el, arg) { mounted.arg = arg; } });
 
   go("home");
   go("projects", { project: "acme/widget" });
   await ready;
-  tile = "running";
+  pa.tile = "running";
   const session = { agent: { machine_id: "build-box", machine_name: "build-box", id: "session", cwd: "/srv/project", agent: "codex", status: "idle", external: false } };
   go("pane", session);
-  assert.equal(tile, null, "leaving the project clears its live selection");
+  assert.equal(pa.tile, null, "leaving the project clears its live selection");
   assert.deepEqual(returnTarget(mounted.arg), {
     view: "projects", arg: { project: "acme/widget", tile: "running" },
   });
   goHistory(false);
   assert.equal(state.picked, "acme/widget");
-  assert.equal(tile, "running");
+  assert.equal(pa.tile, "running");
   goHistory(true);
   assert.ok(mounted.arg && typeof mounted.arg === "object" && "agent" in mounted.arg);
   goHistory(false);
-  assert.equal(tile, "running");
+  assert.equal(pa.tile, "running");
   goHistory(false);
   assert.equal(dom.window.document.getElementById("home-box")?.hidden, false, "the section adds no extra history step");
   goHistory(true);
-  assert.equal(tile, "running");
+  assert.equal(pa.tile, "running");
 
   go("projects", { project: "acme/other" });
-  assert.equal(tile, null, "opening another project starts at Overview");
+  assert.equal(pa.tile, null, "opening another project starts at Overview");
   goHistory(false);
   assert.equal(state.picked, "acme/widget");
-  assert.equal(tile, "running");
+  assert.equal(pa.tile, "running");
 });
 
 test("notifications keep the project return target across conversations", async () => {
@@ -118,7 +116,7 @@ test("notifications keep the project return target across conversations", async 
   register("pane", { mount(_el, arg) { mounted.arg = arg; } });
   const agent = { machine_id: "build-box", machine_name: "build-box", id: "notice", cwd: "/srv/project", agent: "codex", status: "idle", external: false };
   const project = { project: "acme/widget", tile: "running" };
-  const ready = projectMounted({ currentArg: () => project, mount() {} });
+  const ready = projectMounted({ mount() { state.picked = project.project; pa.tile = project.tile; } });
   go("projects", project);
   await ready;
   go("pane", { agent });

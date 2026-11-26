@@ -142,7 +142,6 @@ function restoreScroll(el: HTMLElement) {
 }
 
 export const projectsView: CenterView<"projects"> = {
-  currentArg: () => ({ project: state.picked, tile: pa.tile }),
   title() {
     if (!state.picked) {
       const rows = projectRows();

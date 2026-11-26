@@ -51,8 +51,6 @@ export interface ViewHead { title: string; sub?: string; reactTools?: ReactNode;
 export interface CenterView<K extends ViewName = ViewName> {
   title?: string | (() => ViewHead);
   mount(el: HTMLElement, arg: ViewArgs[K]): void | Promise<void>;
-  /// The current location, including selections made since mounting.
-  currentArg?(): ViewArgs[K];
   unmount?(): void;
 }
 

@@ -1,12 +1,14 @@
 // Where the window stands and how it moves: the page showing, its history, and `go`.
-// views.tsx draws the pages and installs what `go` and `drawTop` run, so every
+// `go` announces the page wanted and views.tsx, which draws the pages, follows it, so every
 // view can send the window somewhere without importing the router.
 import { flushSync } from "react-dom";
 import { invoke } from "../ui/tauri.ts";
 import type { CenterTarget } from "../project/projectwindow.ts";
 import { createStore } from "zustand";
 import type { Alone } from "../project/projectwindow.ts";
-import type { Location, NavigationArgs, ViewName } from "./state.ts";
+import { state, type Location, type NavigationArgs, type ViewName } from "./state.ts";
+import { pa } from "../project/barstate.ts";
+import { signal } from "../ui/signal.ts";
 import { windowHost } from "./window-shell.tsx";
 import { windowHistory } from "./window-router.ts";
 
@@ -14,12 +16,11 @@ import { windowHistory } from "./window-router.ts";
 export const PAGES = ["projects", "instructions", "providers", "terminals"] as const;
 export type Page = typeof PAGES[number];
 
-/// What the router, views.tsx, runs for `goTo`, `drawTop` and the projects page's current argument.
-export const router = {
-  goTo: (_page: Location): boolean => false,
-  drawTop: (): void => {},
-  projectArg: (): Extract<Location, { view: "projects" }>["arg"] | undefined => undefined,
-};
+/// The page `goTo` asks for. views.tsx follows it, opens the page and records in `nav.opened`
+/// whether it showed here, before `goTo` returns.
+export const wanted = signal<Location>();
+/// The head of the page showing is to be drawn again.
+export const headWanted = signal();
 
 /// The page showing, and how the window is moving to the next.
 export const nav: {
@@ -28,7 +29,11 @@ export const nav: {
   moving: boolean;
   /// Set while a Back moves, so the page comes in from the left on the phone.
   goingBack: boolean;
-} = { page: null, moving: false, goingBack: false };
+  /// Whether the page `goTo` asked for last showed in this window.
+  opened: boolean;
+  /// Set by views.tsx once the projects page has loaded, which holds its section.
+  projectsLoaded: boolean;
+} = { page: null, moving: false, goingBack: false, opened: false, projectsLoaded: false };
 
 export const pages = windowHistory;
 /// Runs `step` as a Back: the phone's Back goes up a level without a history step.
@@ -83,10 +88,7 @@ export function currentLocation(): Location | null {
   if (!nav.page) return null;
 
   // Project sections change without mounting the page again.
-  if (nav.page.view === "projects") {
-    const arg = router.projectArg();
-    if (arg && typeof arg === "object" && "project" in arg) return { view: "projects", arg };
-  }
+  if (nav.page.view === "projects") return { view: "projects", arg: nav.projectsLoaded ? { project: state.picked, tile: pa.tile } : { project: null, tile: null } };
 
   return nav.page;
 }
@@ -114,12 +116,15 @@ export function goHistory(forward: boolean): boolean {
 }
 
 export function goTo(target: Location): boolean {
-  return router.goTo(target);
+  nav.opened = false;
+  wanted.notify(target);
+
+  return nav.opened;
 }
 
 /// Draws the head again: the title, tools and date of the page showing.
 export function drawTop() {
-  router.drawTop();
+  headWanted.notify();
 }
 
 /// Shows view `name`, passing `arg` to its mount.

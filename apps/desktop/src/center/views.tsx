@@ -22,7 +22,7 @@ import { instructionsView, openSettings, providersView } from "../settings/sheet
 import { paneView } from "./pane.tsx";
 import { homeView } from "./home.tsx";
 import { TerminalsPage, terminalsView } from "../terminals/view.tsx";
-import { boxOf, drawTop, toMain, go, goTo, keepBox, nav, pages, router, setWindowAlone, shown, windowAlone, aloneProject, currentLocation, PAGES, type Page } from "./nav.ts";
+import { boxOf, drawTop, toMain, go, goTo, keepBox, nav, pages, setWindowAlone, shown, windowAlone, aloneProject, currentLocation, headWanted, wanted, PAGES, type Page } from "./nav.ts";
 import { PageTiming, pageName } from "./page-timing.ts";
 import { S } from "../bar/core.ts";
 import { isStarting } from "../agents/starting-state.ts";
@@ -33,10 +33,10 @@ import { movePlaying, swipePlaying, type Swipe } from "../ui/motion.ts";
 
 let loadedProjects: typeof import("../project/page.tsx") | null = null;
 const projectsView: CenterView<"projects"> = {
-  currentArg: () => loadedProjects?.projectsView.currentArg?.() ?? { project: null, tile: null },
   title: () => loadedProjects ? (typeof loadedProjects.projectsView.title === "function" ? loadedProjects.projectsView.title() : { title: loadedProjects.projectsView.title ?? "Projects" }) : { title: "Projects" },
   async mount(el, arg) {
     loadedProjects ??= await import("../project/page.tsx");
+    nav.projectsLoaded = true;
     await loadedProjects.projectsView.mount(el, arg);
     if (nav.page?.view === "projects") drawTop();
   },
@@ -78,7 +78,8 @@ const PageContent = memo(function PageContent({ name }: { name: Page; drawn: num
 
 placeWindowParts({ pages: <CenterPages /> });
 
-Object.assign(router, { goTo: openPage, drawTop: drawHead, projectArg: () => projectsView.currentArg?.() });
+wanted.follow(target => { nav.opened = openPage(target); });
+headWanted.follow(drawHead);
 
 function show(name: ViewName) {
   flushSync(() => shell.setState({ view: name }));
