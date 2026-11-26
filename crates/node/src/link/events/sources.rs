@@ -368,7 +368,7 @@ pub(super) async fn subscribe(offers: &Offers, topics: &[Topic]) -> Result<Subsc
 /// The running source of `topic`, started when no stream holds one, with its roots looked up now.
 async fn source_of(offers: &Offers, topic: &Topic) -> Result<Arc<Source>> {
     let source = {
-        let mut registry = offers.agents.event_sources.lock().await;
+        let mut registry = offers.event_sources.lock().await;
         registry.retain(|_, source| source.strong_count() > 0);
         registry.get(topic).and_then(Weak::upgrade)
     };
@@ -377,7 +377,7 @@ async fn source_of(offers: &Offers, topic: &Topic) -> Result<Arc<Source>> {
         Some(source) => (source, true),
         None => {
             let candidate = Arc::new(Source::new(offers, topic).await?);
-            let mut registry = offers.agents.event_sources.lock().await;
+            let mut registry = offers.event_sources.lock().await;
 
             match registry.get(topic).and_then(Weak::upgrade) {
                 Some(source) => (source, true),

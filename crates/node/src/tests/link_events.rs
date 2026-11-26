@@ -361,7 +361,7 @@ async fn a_ping_is_answered_while_a_watch_is_looked_up_and_watches_keep_their_or
     let (mut tx, mut rx, _task) = start(offers.clone()).await;
     let topic = Topic::keyed("files", root.path().to_str().unwrap());
     // Holding the registry stops every source lookup, so the watches wait.
-    let registry = offers.agents.event_sources.lock().await;
+    let registry = offers.event_sources.lock().await;
 
     for id in [1, 2] {
         tx.send(&Request::Watch {

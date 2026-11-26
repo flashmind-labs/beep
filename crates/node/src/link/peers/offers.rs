@@ -5,9 +5,10 @@ use crate::{
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
     files::{search::Searches, transfer::Transfers},
     link::{
-        Protocol, from_mesh::Membership, protocol::SessionProtocol, sampler::Sampler,
+        EventSources, from_mesh::Membership, protocol::SessionProtocol, sampler::Sampler,
         state::Search, traffic::Traffic,
     },
+    protocol::Protocol,
     machine::{provision::Provision, service::logs::Logs},
     run::{device, shell, tasks, terminal},
 };
@@ -79,6 +80,8 @@ pub struct Offers {
     /// Shared by every copy of the offers, so one made before the services
     /// started sees them once they do.
     pub(crate) transfers: Sharing,
+    /// The sources the event streams share, by topic.
+    pub(crate) event_sources: Arc<EventSources>,
     /// Set while the host does not lend this machine to other devices: they
     /// get its status, but no shell, task or screen.
     pub(crate) withheld: Arc<AtomicBool>,
@@ -123,6 +126,7 @@ impl Offers {
             sampler: Sampler::default(),
             mesh: Membership::default(),
             transfers: Sharing::default(),
+            event_sources: Arc::default(),
             withheld: Arc::default(),
             #[cfg(test)]
             bind_gates: Arc::default(),
