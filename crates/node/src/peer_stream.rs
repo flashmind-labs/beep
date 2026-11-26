@@ -149,31 +149,32 @@ impl PeerWatch {
                 .context("the machine went quiet")??
                 .context("the machine closed the stream")?;
 
-            match reply {
-                Reply::Snapshot(snapshot) => {
-                    // A delta that does not follow the last message means one
-                    // was missed: watching again starts with the whole list.
-                    let snapshot = self
-                        .held
-                        .hear(*snapshot)
-                        .context("a change of the list was missed")?;
-
-                    return Ok(snapshot.value);
-                }
-                Reply::Error { reason, .. } | Reply::SnapshotError { reason, .. } => {
-                    return Err(said_error(&reason));
-                }
-                Reply::Ready | Reply::Watching { .. } | Reply::Pong { .. } => {}
+            if let Some(value) = heard(reply, &mut self.held)? {
+                return Ok(value);
             }
         }
     }
 }
 
-/// An error the machine sent on a stream it opened: a failed read, a full
-/// cache or too many watches. It says nothing of its version, so it is not
-/// `Refused` and the stream is dialed again.
-pub(crate) fn said_error(reason: &str) -> anyhow::Error {
-    anyhow::anyhow!("the machine reported an error: {reason}")
+/// The value a reply carries, if it carries one. A delta that does not follow
+/// the last message means one was missed: watching again starts with the
+/// whole list. An error the machine sent on a stream it opened (a failed
+/// read, a full cache, too many watches) says nothing of its version, so it
+/// is not `Refused` and the stream is dialed again.
+pub(crate) fn heard(reply: Reply, held: &mut HeldSessions) -> Result<Option<Value>> {
+    match reply {
+        Reply::Snapshot(snapshot) => {
+            let snapshot = held
+                .hear(*snapshot)
+                .context("a change of the list was missed")?;
+
+            Ok(Some(snapshot.value))
+        }
+        Reply::Error { reason, .. } | Reply::SnapshotError { reason, .. } => {
+            Err(anyhow::anyhow!("the machine reported an error: {reason}"))
+        }
+        Reply::Ready | Reply::Watching { .. } | Reply::Pong { .. } => Ok(None),
+    }
 }
 
 /// Sends `request` to the machine `peer` over `tools/1` and reads its reply.

@@ -326,11 +326,11 @@ pub(super) async fn feed(
 }
 
 /// What `follow` rings for the asker `feed` keeps.
-struct Rings<'a> {
-    moved: &'a Notify,
+pub(super) struct Rings<'a> {
+    pub(super) moved: &'a Notify,
     /// Whether the parent is in the list, for an ask that is retried.
-    there: &'a watch::Sender<bool>,
-    asker: &'a AbortOnDropHandle<()>,
+    pub(super) there: &'a watch::Sender<bool>,
+    pub(super) asker: &'a AbortOnDropHandle<()>,
 }
 
 /// Passes on what each list `peer` pushes says of the parent, until the
@@ -347,32 +347,46 @@ async fn follow(
     let mut last = None;
 
     loop {
-        let Value::Sessions(reply) = watch.next().await? else {
-            continue;
-        };
-        let SessionsReply::Sessions { sessions } = *reply else {
-            continue;
-        };
+        let value = watch.next().await?;
 
-        match word(&sessions, &mut last, link) {
-            Word::Gone => {
-                rings.there.send_replace(false);
-
-                if tx.send(Parent::Gone).await.is_err() {
-                    return Ok(());
-                }
-            }
-            Word::Moved => {
-                rings.there.send_replace(true);
-                rings.moved.notify_one();
-            }
-            Word::Same => {}
-        }
-
-        if rings.asker.is_finished() {
+        if hear_list(value, &mut last, link, tx, &rings).await {
             return Ok(());
         }
     }
+}
+
+/// What one pushed value says of the parent, passed on: ringing the asker
+/// when its row changed. True when the child's side is gone.
+pub(super) async fn hear_list(
+    value: Value,
+    last: &mut Option<SessionInfo>,
+    link: &ParentLink,
+    tx: &mpsc::Sender<Parent>,
+    rings: &Rings<'_>,
+) -> bool {
+    let Value::Sessions(reply) = value else {
+        return false;
+    };
+    let SessionsReply::Sessions { sessions } = *reply else {
+        return false;
+    };
+
+    match word(&sessions, last, link) {
+        Word::Gone => {
+            rings.there.send_replace(false);
+
+            if tx.send(Parent::Gone).await.is_err() {
+                return true;
+            }
+        }
+        Word::Moved => {
+            rings.there.send_replace(true);
+            rings.moved.notify_one();
+        }
+        Word::Same => {}
+    }
+
+    rings.asker.is_finished()
 }
 
 /// Asks a machine that does not push its list, every `ORPHAN_CHECK`.

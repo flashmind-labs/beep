@@ -1176,10 +1176,9 @@ async fn a_pushed_list_says_whether_the_parent_is_there_and_a_burst_of_changes_i
 }
 
 // An ask nobody answers is a failed call: it goes out again until it is
-// answered, though the parent's row never changes. A redial's first push
-// rings the asker again and is paced by the last ask.
+// answered, though the parent's row never changes.
 #[tokio::test(start_paused = true)]
-async fn an_unanswered_ask_is_asked_again_and_a_redial_does_not_reset_the_pacing() {
+async fn an_unanswered_ask_is_asked_again_until_it_is_answered() {
     use orphans::{ORPHAN_CHECK, Parent, asks};
     use std::sync::{Arc, Mutex, atomic::{AtomicU32, Ordering::SeqCst}};
     use tokio::{sync::{Notify, mpsc, watch}, task::yield_now, time::advance};
@@ -1213,18 +1212,6 @@ async fn an_unanswered_ask_is_asked_again_and_a_redial_does_not_reset_the_pacing
     yield_now().await;
     assert_eq!(asked.load(SeqCst), 2, "an answered ask is not asked again");
 
-    // A redial rings again 31 s after the last ask: it waits out the pause.
-    moved.notify_one();
-    yield_now().await;
-    assert_eq!(asked.load(SeqCst), 2);
-    advance(ORPHAN_CHECK - Duration::from_secs(31 + 1)).await;
-    yield_now().await;
-    assert_eq!(asked.load(SeqCst), 2);
-    advance(Duration::from_secs(2)).await;
-    yield_now().await;
-    assert_eq!(asked.load(SeqCst), 3);
-    assert_eq!(tokio::time::timeout(Duration::from_millis(1), heard.recv()).await.ok().flatten(), Some(Parent::Keeps));
-
     // Retries stop when the parent is gone.
     answers.lock().unwrap().extend([Parent::Silent, Parent::Silent]);
     advance(ORPHAN_CHECK).await;
@@ -1244,10 +1231,87 @@ async fn an_unanswered_ask_is_asked_again_and_a_redial_does_not_reset_the_pacing
 // compat path; an error it sends mid-stream is a drop that is dialed again.
 #[test]
 fn a_transient_error_on_a_stream_is_not_a_refusal() {
-    use crate::peer_stream::{Refused, said_error};
+    use crate::peer_stream::{Refused, heard};
+    use beep_proto::node::{events::{HeldSessions, Topic}, subscriptions::Reply};
 
-    assert!(!said_error("failed to list").is::<Refused>());
-    assert!(anyhow::Error::from(Refused("not for nodes".into())).is::<Refused>());
+    let mut held = HeldSessions::default();
+    let errors = [
+        Reply::Error { id: 1, reason: "too many pending watches".into() },
+        Reply::SnapshotError { query: None, topic: Topic::new("agents"), reason: "failed to list".into() },
+    ];
+
+    for reply in errors {
+        let failed = heard(reply, &mut held).unwrap_err();
+        assert!(!failed.is::<Refused>(), "{failed:#}");
+    }
+
+    assert!(heard(Reply::Ready, &mut held).unwrap().is_none());
+}
+
+// A redial opens a new list, whose first push is a change again. The asker
+// outlives it, so that push is paced by the last ask instead of asking at
+// once.
+#[tokio::test(start_paused = true)]
+async fn a_redial_does_not_reset_the_pacing_of_the_asks() {
+    use beep_proto::node::{agent::SessionsReply, events::Value};
+    use orphans::{ORPHAN_CHECK, Parent, Rings, asks, hear_list};
+    use std::sync::{Arc, atomic::{AtomicU32, Ordering::SeqCst}};
+    use tokio::{sync::{Notify, mpsc, watch}, task::yield_now, time::advance};
+    use tokio_util::task::AbortOnDropHandle;
+
+    let link = ParentLink {
+        machine: None,
+        session: "p1".into(),
+        key: "k1".into(),
+        root_machine: None,
+        root: "p0".into(),
+        depth: 1,
+        others: 0,
+        agent: "claude".into(),
+        mode: None,
+        background: false,
+    };
+    let list = || -> Value {
+        let parent = SessionInfo { id: "p1".into(), ..SessionInfo::default() };
+
+        Value::Sessions(Box::new(SessionsReply::Sessions { sessions: vec![parent] }))
+    };
+    let (moved, asked) = (Arc::new(Notify::new()), Arc::new(AtomicU32::new(0)));
+    let (there, there_rx) = watch::channel(true);
+    let (tx, _heard) = mpsc::channel(8);
+    let asker = {
+        let (moved, asked, tx) = (moved.clone(), asked.clone(), tx.clone());
+        AbortOnDropHandle::new(tokio::spawn(async move {
+            let ask = || async {
+                asked.fetch_add(1, SeqCst);
+                Some(Parent::Keeps)
+            };
+            asks(&moved, there_rx, ask, &tx).await;
+        }))
+    };
+    let rings = Rings { moved: &moved, there: &there, asker: &asker };
+    // A dialed list starts with nothing seen: the parent's row shows as a change.
+    let follow = async || {
+        let mut last = None;
+        assert!(!hear_list(list(), &mut last, &link, &tx, &rings).await);
+    };
+
+    follow().await;
+    yield_now().await;
+    assert_eq!(asked.load(SeqCst), 1);
+    assert!(!asker.is_finished(), "a list ending does not end the asker");
+
+    // Dialed again 31 s later, its first push waits out the pause.
+    advance(Duration::from_secs(31)).await;
+    follow().await;
+    yield_now().await;
+    assert_eq!(asked.load(SeqCst), 1);
+    advance(ORPHAN_CHECK - Duration::from_secs(31 + 1)).await;
+    yield_now().await;
+    assert_eq!(asked.load(SeqCst), 1);
+    advance(Duration::from_secs(2)).await;
+    yield_now().await;
+    assert_eq!(asked.load(SeqCst), 2);
 }
 
 // The orphan check waits for the node to serve its mesh instead of giving
