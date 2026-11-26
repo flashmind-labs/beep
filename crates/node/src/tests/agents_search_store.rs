@@ -280,3 +280,31 @@ fn a_batch_of_rows_ends_once_it_carries_enough_text() -> Result<()> {
     assert_eq!(store.rows_after(0, 500)?.len(), 2);
     Ok(())
 }
+
+#[test]
+fn session_lookup_finds_by_agent_id_and_managed_id() -> Result<()> {
+    let mut node = Store::open(Path::new(":memory:"))?;
+    let meta = SearchSession {
+        agent: "flsh".into(),
+        cwd: "/path/to/work".into(),
+        title: Some("Migration work".into()),
+        started_at: 100,
+        managed: Some("m12345".into()),
+    };
+    node.set_metadata(&SessionId::from("session_deadbeef"), 2000, &meta)?;
+    let epoch = node.epoch()?;
+
+    let mut copy = IndexCopy::open(Path::new(":memory:"))?;
+    copy.apply(&epoch, &node.rows_after(0, 10)?)?;
+
+    assert_eq!(
+        copy.session(&SessionId::from("session_deadbeef"))?,
+        Some((SessionId::from("session_deadbeef"), 2000, meta.clone()))
+    );
+    assert_eq!(
+        copy.session(&SessionId::from("m12345"))?,
+        Some((SessionId::from("session_deadbeef"), 2000, meta))
+    );
+    assert_eq!(copy.session(&SessionId::from("missing"))?, None);
+    Ok(())
+}

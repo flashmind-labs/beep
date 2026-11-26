@@ -1,13 +1,39 @@
-// File references in the log use the same local apps as the Files tab.
+// File and session references in the log open their context menus here.
 import { localFileItems, type FileTarget } from "../agentpane/localfile.ts";
 import { type FileRef, linkedPath, resolvePath } from "../agentpane/media-state.ts";
+import { linkedSession, parseSessionRef, type SessionLinkRef } from "./nesting-state.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { copy } from "../ui/clipboard.ts";
+import { onPhone } from "../ui/platform.ts";
 import { invoke } from "../ui/tauri.ts";
 
-export function fileLinkMenu(e: MouseEvent, folder: Omit<FileTarget, "path">, session: string, open: (ref: FileRef) => void) {
-  const ref = (e.target as Element).closest<HTMLElement>("a[href], [data-media], [data-made], a[data-path], code[data-file]");
+export function fileLinkMenu(
+  e: MouseEvent,
+  folder: Omit<FileTarget, "path">,
+  session: string,
+  open: (ref: FileRef) => void,
+  openSessionRef?: (ref: SessionLinkRef, beside: boolean) => void,
+) {
+  const ref = (e.target as Element).closest<HTMLElement>("a[href], [data-media], [data-made], a[data-path], code[data-file], code[data-session]");
   if (!ref) return;
+
+  const sessionRef = ref.dataset.session
+    ? parseSessionRef(ref.dataset.session)
+    : linkedSession(ref.getAttribute("href") ?? "");
+  if (sessionRef && openSessionRef) {
+    const href = sessionRef.machine
+      ? `beep://session/${encodeURI(sessionRef.id)}@${encodeURI(sessionRef.machine)}`
+      : `beep://session/${encodeURI(sessionRef.id)}`;
+    const items: MenuItem[] = [
+      { label: "Open session", icon: "move", on: () => openSessionRef(sessionRef, false) },
+      ...(!onPhone() ? [{ label: "Open beside", icon: "splitPane" as const, on: () => openSessionRef(sessionRef, true) }] : []),
+      { label: "Copy link", icon: "copy", on: () => void copy(href) },
+      { label: "Copy id", icon: "copy", on: () => void copy(sessionRef.id) },
+    ];
+    openMenu(e, sessionRef.id, items);
+    return;
+  }
+
   const plain = ref.dataset.media ?? ref.dataset.made ?? ref.dataset.path;
   const file = plain ? { path: plain, line: null } : linkedPath(ref.dataset.file ?? ref.getAttribute("href") ?? "");
   if (!file) return;

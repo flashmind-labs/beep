@@ -212,6 +212,54 @@ impl Store {
         Ok(())
     }
 
+    /// Looks up a single session's metadata by its agent id or Beep managed id.
+    pub fn session(&self, id: &SessionId) -> Result<Option<(SessionId, u64, SearchSession)>> {
+        let row: Option<(String, i64, String)> = self
+            .0
+            .query_row(
+                "SELECT id, activity, metadata FROM sessions WHERE id=?1 AND metadata IS NOT NULL",
+                [id.as_ref()],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()?;
+
+        if let Some((found, activity, raw)) = row
+            && let Ok(meta) = serde_json::from_str::<SearchSession>(&raw)
+        {
+            return Ok(Some((
+                Into::<SessionId>::into(found),
+                u64::try_from(activity).unwrap_or(0),
+                meta,
+            )));
+        }
+
+        // A Beep-managed id can differ from the harness id stored in `sessions.id`.
+        let mut stmt = self.0.prepare(
+            "SELECT id, activity, metadata FROM sessions
+             WHERE metadata IS NOT NULL AND instr(metadata, ?1) > 0
+             ORDER BY activity DESC",
+        )?;
+        let mut rows = stmt.query([id.as_ref()])?;
+
+        while let Some(row) = rows.next()? {
+            let found: String = row.get(0)?;
+            let activity: i64 = row.get(1)?;
+            let raw: String = row.get(2)?;
+
+            if let Ok(meta) = serde_json::from_str::<SearchSession>(&raw)
+                && meta.managed.as_ref() == Some(id)
+            {
+                return Ok(Some((
+                    Into::<SessionId>::into(found),
+                    u64::try_from(activity).unwrap_or(0),
+                    meta,
+                )));
+            }
+        }
+
+        Ok(None)
+    }
+
     /// The sessions holding every word of `query`, newest activity first;
     /// only those of `only` when it names any. A word of three characters
     /// or more finds its candidates by its trigrams.
@@ -425,6 +473,11 @@ impl IndexCopy {
 
     pub fn find(&self, query: &str, only: &[SessionId]) -> Result<Vec<SearchHit>> {
         self.0.find(query, only)
+    }
+
+    /// Looks up a single session's metadata by its agent id or Beep managed id.
+    pub fn session(&self, id: &SessionId) -> Result<Option<(SessionId, u64, SearchSession)>> {
+        self.0.session(id)
     }
 }
 

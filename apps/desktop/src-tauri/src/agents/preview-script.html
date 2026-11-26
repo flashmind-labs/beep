@@ -25,7 +25,7 @@
     } catch {
       return;
     }
-    if (url.protocol !== "https:" && url.protocol !== "http:") return;
+    if (url.protocol !== "https:" && url.protocol !== "http:" && url.protocol !== "beep:") return;
     if (url.protocol === location.protocol && url.host === location.host) return;
 
     event.preventDefault();

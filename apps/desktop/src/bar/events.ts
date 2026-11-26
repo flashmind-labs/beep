@@ -1,5 +1,6 @@
 import "./keys.ts";
 import { linkedPath } from "../agentpane/media-state.ts";
+import { linkedSession } from "../agents/nesting-state.ts";
 import { bar, PANE } from "./core.ts";
 import { openViewer } from "../chat/media.tsx";
 import { forgetHeight } from "./size.ts";
@@ -27,8 +28,9 @@ bar.addEventListener("click", e => {
   const a = t.closest<HTMLAnchorElement>("a[href]");
   if (!a) return;
   e.preventDefault();
-  // A link to a file, not a web address: the session's pane opens it.
-  if (linkedPath(a.getAttribute("href")!)) return;
+  // A link to a file or another session, not a web address: the session view opens it.
+  const href = a.getAttribute("href")!;
+  if (linkedPath(href) || linkedSession(href)) return;
   invoke("open_url", { url: a.href }).catch(() => {});
 });
 

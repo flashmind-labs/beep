@@ -278,6 +278,7 @@ pub fn run() {
             agents::sessions::agent_models,
             agents::sessions::agent_resume,
             agents::sessions::agent_sessions,
+            agents::sessions::agent_session_find,
             agents::sessions::agent_title_save,
             agents::sessions::agent_start,
             agents::starts::agent_begin,

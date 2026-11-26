@@ -188,6 +188,8 @@ windowRequests.follow(request => {
     case "machine-settings": return openMachineSettings(request.id);
     case "chat-skills": return openChatSkills(request.folder, request.title);
     case "open-agent": return;
+    case "open-session": return void go("pane", { agent: request.agent });
+    case "open-session-link": return;
   }
 });
 

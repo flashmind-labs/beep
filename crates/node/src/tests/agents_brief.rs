@@ -36,10 +36,12 @@ fn environment_includes_machine_project_and_gates_multi_machine_and_native_build
 fn chat_gates_image_titling_guidance() {
     let new_session = chat(true);
     assert!(new_session.contains("never `file://` URLs"));
+    assert!(new_session.contains("beep://session/<id>"));
     assert!(new_session.contains("Session title"));
 
     let resumed_or_named = chat(false);
     assert!(resumed_or_named.contains("never `file://` URLs"));
+    assert!(resumed_or_named.contains("beep://session/<id>"));
     assert!(!resumed_or_named.contains("Session title"));
 }
 

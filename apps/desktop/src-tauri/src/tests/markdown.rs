@@ -139,6 +139,45 @@ fn links_an_address_in_inline_code() {
 }
 
 #[test]
+fn links_beep_session_urls_in_markdown_and_plain_text() {
+    let md = to_html("[Main work](beep://session/session_abc123@build-box)");
+    assert!(
+        md.contains(r#"<a href="beep://session/session_abc123@build-box" rel="noopener noreferrer">Main work</a>"#),
+        "{md}"
+    );
+
+    let bare = to_html(
+        "Open beep://session/00000000-0000-4000-8000-000000000042. (See beep://session/abc@box)",
+    );
+    assert!(
+        bare.contains(r#"<a href="beep://session/00000000-0000-4000-8000-000000000042" rel="noopener noreferrer">beep://session/00000000-0000-4000-8000-000000000042</a>."#),
+        "{bare}"
+    );
+    assert!(
+        bare.contains(r#"<a href="beep://session/abc@box" rel="noopener noreferrer">beep://session/abc@box</a>)"#),
+        "{bare}"
+    );
+
+    let code = to_html("Run `beep://session/s1@box`.");
+    assert!(
+        code.contains(r#"<a href="beep://session/s1@box" rel="noopener noreferrer"><code>beep://session/s1@box</code></a>."#),
+        "{code}"
+    );
+
+    let user = user_html("Check [old chat](beep://session/s2) and beep://session/s3.");
+    assert!(user.contains(r#"href="beep://session/s2""#), "{user}");
+    assert!(user.contains(r#"href="beep://session/s3""#), "{user}");
+
+    // Untrusted external markdown (e.g. GitHub issues) does not keep beep:// links.
+    let untrusted = untrusted_html("[x](beep://session/s1)");
+    assert!(!untrusted.contains("beep://"), "{untrusted}");
+
+    // Bare scheme prefix with no id stays plain text.
+    let empty = to_html("Use beep://session/ to link.");
+    assert!(!empty.contains("<a "), "{empty}");
+}
+
+#[test]
 fn renders_math_in_every_delimiter() {
     for source in [
         "so $A = [s]B$ holds",

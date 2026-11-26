@@ -112,6 +112,7 @@ pub fn to_html(markdown: &str) -> String {
     // The renderer copies some LaTeX through unescaped (`\operatorname{<b>}`),
     // so its MathML goes through the cleaner like everything else.
     ammonia::Builder::default()
+        .add_url_schemes(["beep"])
         .add_tags(MATH_TAGS)
         .add_generic_attributes(MATH_ATTRIBUTES)
         .attribute_filter(|_, attribute, value| match attribute {
@@ -194,6 +195,7 @@ pub fn user_html(markdown: &str) -> String {
     html::push_html(&mut out, autolink(TextMergeStream::new(events)).into_iter());
     let out = restore_ip_hosts(out);
     let mut clean = ammonia::Builder::default()
+        .add_url_schemes(["beep"])
         .rm_tags(["img"])
         .clean(&out)
         .to_string();
@@ -379,7 +381,7 @@ fn restore_ip_hosts(html: String) -> String {
 /// Where the first bare web address in `text` is. Trailing punctuation
 /// stays out, and so does a closing bracket the address did not open.
 fn find_url(text: &str) -> Option<Range<usize>> {
-    let start = ["https://", "http://"]
+    let start = ["https://", "http://", "beep://session/"]
         .iter()
         .filter_map(|scheme| text.find(scheme))
         .min()?;
@@ -401,7 +403,7 @@ fn find_url(text: &str) -> Option<Range<usize>> {
         url = trimmed;
     }
 
-    let scheme_only = url.ends_with("://");
+    let scheme_only = url.ends_with("://") || url == "beep://session/";
 
     if scheme_only {
         let next = start + url.len();

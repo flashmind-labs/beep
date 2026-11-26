@@ -103,6 +103,9 @@ pub(crate) fn chat(image_titling: bool) -> String {
          a repo), including any worktree prefix (e.g. `src/main.rs:42`, \
          `.worktrees/fix/src/main.rs`). Use inline code or Markdown links—never `file://` URLs, \
          bare filenames, or `..`. Clicking opens the file pane at that line.\n\
+         - **Session links**: link to another Beep session with a Markdown link to \
+         `beep://session/<id>` or `beep://session/<id>@<machine>` (e.g. \
+         `[session title](beep://session/<id>)`). Clicking opens that session directly in Beep.\n\
          - **Media & artifacts**: naming image, video, audio, 3D (`glb`, `gltf`, `obj`, `stl`), \
          or PDF paths opens them in the pane (media plays, 3D opens in a viewer with clips). \
          HTML, Markdown, SVG, image, and PDF files you write appear in the Artifacts tab \

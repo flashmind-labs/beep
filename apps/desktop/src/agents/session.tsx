@@ -51,7 +51,7 @@ import { isNativeSession } from "./native-session-state.ts";
 import { type AgentStarted, isStarting } from "./starting-state.ts";
 import { became, feed, flushDraw, forgetUnfollowedExtras, keptTranscript, leaveStart, pollAgent, track, traceSession, watchRead } from "./session-follow.ts";
 import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./session-head.tsx";
-import { agentClick, openParent, toolKey } from "./session-click.ts";
+import { agentClick, openParent, openSessionLink, toolKey } from "./session-click.ts";
 import { startLost } from "./session-follow.ts";
 import { askContinueHere, keepContinuing } from "./continue-here.ts";
 
@@ -231,7 +231,7 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     b.addEventListener("keydown", toolKey);
   }
 
-  b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, s.id, openLinked);
+  b.oncontextmenu = e => fileLinkMenu(e, { machineId: s.machine_id, root: s.cwd }, s.id, openLinked, (ref, beside) => { void openSessionLink(ref, beside); });
   drawAgentBody();
   // On a touch layout a focused composer raises the keyboard and lays the page out for it.
   if (!document.body.classList.contains("mobile")) agentMessage.current?.focus();

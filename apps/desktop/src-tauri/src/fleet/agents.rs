@@ -209,8 +209,78 @@ pub(crate) async fn scanned_sessions_of(
 
 /// What `listing::outside_sessions` and `listing::ended_conversations` ask a node for.
 const SCANNED_AGENTS: [&str; 3] = ["claude", "codex", "flsh"];
+/// Every harness whose sessions can be looked up by id on a node.
+const EXTERNAL_AGENTS: [&str; 6] = ["claude", "codex", "pi", "flsh", "opencode", "agy"];
 const EXTERNAL_LIMIT: u32 = 20;
 const CONVERSATIONS_LIMIT: u32 = 100;
+
+/// Looks up one session by id on `machine`, checking Beep's own sessions and
+/// every harness's external store. Returns `None` on miss or timeout.
+pub(crate) async fn find_session(
+    fleet: &Fleet,
+    machine: EndpointId,
+    session: &SessionId,
+) -> Option<MachineSession> {
+    let lookup = async {
+        let client = fleet.client(machine).await.ok()?;
+        let host = fleet.host_of(machine);
+        let asks: Vec<agent::ExternalAsk> = EXTERNAL_AGENTS
+            .iter()
+            .map(|agent| agent::ExternalAsk {
+                agent: (*agent).to_owned(),
+                session: session.clone(),
+            })
+            .collect();
+        let (listed, external) = tokio::join!(
+            limited(sessions::list_all(&client)),
+            limited(sessions::external_named(&client, asks)),
+        );
+
+        if let Ok(list) = listed
+            && let Some(info) = list.into_iter().find(|info| info.id == *session)
+        {
+            return Some(machine::beep_view(&host, info).session);
+        }
+
+        match external {
+            Ok(Some(found)) => {
+                if let Some(ext) = found.into_iter().find(|s| s.id == *session) {
+                    return Some(machine::external_session(&host, ext));
+                }
+            }
+            Ok(None) => {
+                // Older node without `ExternalNamed`: query each harness.
+                let asks: Vec<_> = EXTERNAL_AGENTS
+                    .into_iter()
+                    .map(|harness| {
+                        let client = client.clone();
+                        let session = session.clone();
+                        async move {
+                            limited(sessions::external(&client, harness, 1, Some(session)))
+                                .await
+                                .ok()
+                                .and_then(|rows| rows.into_iter().next())
+                        }
+                    })
+                    .collect();
+                let mut checks = stream::iter(asks).buffer_unordered(IN_FLIGHT);
+
+                while let Some(found) = checks.next().await {
+                    if let Some(ext) = found
+                        && ext.id == *session
+                    {
+                        return Some(machine::external_session(&host, ext));
+                    }
+                }
+            }
+            Err(_) => {}
+        }
+
+        None
+    };
+
+    timeout(SCAN_LIMIT, lookup).await.ok().flatten()
+}
 
 /// Holds the reads a scan of `machine` makes, so its node keeps pushing them, until the
 /// stream that carries them ends. False when no stream was open to hold them on.

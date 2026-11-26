@@ -88,8 +88,56 @@ export function nest(rows: AgentSession[]): Nested[] {
 }
 
 /// A machine as agents name it: lower case, one word, as `command_name` makes it.
-const machineName = (name: string) =>
+export const machineName = (name: string) =>
   name.toLowerCase().replace(/['\u2019]/g, "").split(/[^\p{L}\p{N}]+/u).filter(part => part !== "").join("-");
+
+/// A session named by a `beep://session/...` link or an inline session id.
+export interface SessionLinkRef {
+  id: string;
+  machine: string | null;
+}
+
+/// Splits `<id>` or `<id>@<machine>` into its session id and optional machine qualifier.
+export function parseSessionRef(text: string): SessionLinkRef | null {
+  const trimmed = text.trim();
+  if (!trimmed || /\s/.test(trimmed)) return null;
+  const at = trimmed.lastIndexOf("@");
+
+  if (at >= 0) {
+    const id = trimmed.slice(0, at), machine = trimmed.slice(at + 1);
+    return id && machine ? { id, machine } : null;
+  }
+
+  return { id: trimmed, machine: null };
+}
+
+/// The session a `beep://session/<id>` or `beep://session/<id>@<machine>` link points at, or null.
+export function linkedSession(href: string): SessionLinkRef | null {
+  const match = /^beep:\/\/session\/(.+)$/i.exec(href.trim());
+  if (!match) return null;
+  let raw = match[1].replace(/[?#].*$/, "").replace(/\/+$/, "");
+
+  try { raw = decodeURI(raw); } catch {}
+  return raw ? parseSessionRef(raw) : null;
+}
+
+/// The canonical `beep://session/...` URL for `session`.
+export function sessionHref(session: Pick<AgentSession, "id" | "machine_name">): string {
+  const host = session.machine_name ? machineName(session.machine_name) : "";
+  return host ? `beep://session/${encodeURI(session.id)}@${encodeURI(host)}` : `beep://session/${encodeURI(session.id)}`;
+}
+
+/// The session in `rows` matching `ref`, preferring `preferMachineId` when `ref.machine` is unset.
+export function findLinkedSession<T extends Pick<AgentSession, "id" | "machine_id" | "machine_name">>(
+  rows: readonly T[],
+  ref: SessionLinkRef,
+  preferMachineId?: string | null,
+): T | undefined {
+  const wanted = ref.machine ? machineName(ref.machine) : "";
+  const matches = rows.filter(r => r.id === ref.id && (!ref.machine || r.machine_id === ref.machine || (!!wanted && machineName(r.machine_name) === wanted)));
+  if (!matches.length) return undefined;
+  return (preferMachineId ? matches.find(r => r.machine_id === preferMachineId) : undefined) ?? matches[0];
+}
 
 /// The row a card in a parent's log opens: its `[child]` line gives the id
 /// (`<id>@<machine>`) and the id the machine listed it under.

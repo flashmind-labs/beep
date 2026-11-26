@@ -72,7 +72,11 @@ export type WindowRequest =
   /// Opens the Skills of the chat in `folder`.
   | { kind: "chat-skills"; folder: string; title: string }
   /// Shows the agent view of `agent` in the pane.
-  | { kind: "open-agent"; agent: AgentRow };
+  | { kind: "open-agent"; agent: AgentRow }
+  /// Opens `agent` through window navigation so history, sidebar and detached windows stay in sync.
+  | { kind: "open-session"; agent: AgentRow }
+  /// Opens the session named by a `beep://session/...` link (e.g. from an artifact preview).
+  | { kind: "open-session-link"; href: string };
 
 export const windowRequests = signal<WindowRequest>();
 

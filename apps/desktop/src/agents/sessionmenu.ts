@@ -8,7 +8,7 @@ import { confirmSheet, openMenu, type MenuItem, type MenuLine } from "../ui/menu
 import { writeClipboard } from "../ui/clipboard.ts";
 import { invoke } from "../ui/tauri.ts";
 import { openInEditor } from "../project/editors.ts";
-import { chatFolder } from "./nesting-state.ts";
+import { chatFolder, sessionHref } from "./nesting-state.ts";
 import type { AgentRow } from "./agents-state.ts";
 import { parentSession, sessions } from "./sessions.ts";
 import { type SideWork, sessionOffers, stopAllAsks } from "./sessionmenu-state.ts";
@@ -109,6 +109,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
       } });
     }
     workspaceGroup.push({ label: "Copy id", icon: "copy", on: () => void writeClipboard(s.id) });
+    workspaceGroup.push({ label: "Copy link", icon: "copy", on: () => void writeClipboard(sessionHref(s)) });
 
     const dangerGroup: MenuLine[] = [];
     if (offers.close) {

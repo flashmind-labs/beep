@@ -1,7 +1,7 @@
 import { attachmentPictures, promptAttachments } from "./promptparts-state.ts";
 // A coding agent session's log as the bar draws it: turns, tool steps,
 // thoughts, subagents and questions, and where it scrolls.
-import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, mediaPaths, parseTool, sentFiles, subagent, tailLines } from "./agentlog.ts";
+import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkCodeSessions, linkImagePaths, markWarnings, mediaPaths, parseTool, sentFiles, subagent, tailLines } from "./agentlog.ts";
 import { toolDetails } from "./tool-details.ts";
 import { isCommandCall } from "./tool-details-state.ts";
 import { esc, linkified, money, plural, tokenCount } from "../ui/format.ts";
@@ -614,7 +614,7 @@ function rowsOf(p: AgentPage, ats: number[]) {
 function agentReply(en: AgentEntry, at: number): (ReplyRow | BlockedRow)[] {
   const { text, names } = imageLines(en.text);
   const pics = names.length ? `<span class="pics">${names.map(n => entryPic(n)).join("")}</span>` : "";
-  const linked = (html: string) => markWarnings(linkCodeFiles(linkImagePaths(html).html));
+  const linked = (html: string) => markWarnings(linkCodeSessions(linkCodeFiles(linkImagePaths(html).html), sessions, AG.page?.session));
   const html = en.html ?? esc(text);
   const block = blockedReply(text, html);
   const body = block?.html ?? html;

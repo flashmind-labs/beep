@@ -2,6 +2,7 @@
 
 import { MEDIA_EXTENSIONS } from "../agentpane/media-state.ts";
 import { codeFile } from "../agentpane/files-state.ts";
+import { findLinkedSession, parseSessionRef } from "./nesting-state.ts";
 import { bytes } from "../ui/format.ts";
 
 const STATUSES = ["pending", "in_progress", "completed", "failed"];
@@ -248,6 +249,39 @@ export function linkImagePaths(html: string) {
 export function linkCodeFiles(html: string) {
   return html.replace(/(?<!<pre>)<code>([^<&]+)<\/code>/g, (whole, text: string) =>
     codeFile(text) ? `<code class="fref" data-file="${attr(text)}" role="link" tabindex="0">${text}</code>` : whole);
+}
+
+/// Inline code in a reply that matches another known session's id (or `<id>@<machine>`),
+/// marked to open that session on click; code blocks and existing links stay as they are.
+export function linkCodeSessions(
+  html: string,
+  rows: readonly { id: string; machine_id: string; machine_name: string; title?: string | null }[],
+  current?: { machine_id: string; id: string } | null,
+) {
+  if (!rows.length || !html.includes("<code>")) return html;
+  let inLink = 0, inPre = 0;
+  const parts = html.split(/(<[^>]+>)/);
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part.startsWith("<")) {
+      if (/^<a\b/i.test(part)) inLink++;
+      else if (/^<\/a>/i.test(part)) inLink = Math.max(0, inLink - 1);
+      else if (/^<pre\b/i.test(part)) inPre++;
+      else if (/^<\/pre>/i.test(part)) inPre = Math.max(0, inPre - 1);
+      else if (!inLink && !inPre && part === "<code>" && i + 2 < parts.length && parts[i + 2] === "</code>") {
+        const text = parts[i + 1];
+        const ref = !text.includes("&") ? parseSessionRef(text) : null;
+        const hit = ref && findLinkedSession(rows, ref, current?.machine_id);
+        if (hit && !(current && hit.machine_id === current.machine_id && hit.id === current.id)) {
+          const title = hit.title ? `Open ${hit.title}` : "Open session";
+          parts[i] = `<code class="fref" data-session="${attr(text)}" title="${attr(title)}" role="link" tabindex="0">`;
+        }
+      }
+    }
+  }
+
+  return parts.join("");
 }
 
 /// The media files a line of text names, each once, in order: for the

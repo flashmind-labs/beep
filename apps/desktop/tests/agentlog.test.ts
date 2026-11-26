@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkImagePaths, markWarnings, parseTool, sentFiles, subagent, tailLines } from "../src/agents/agentlog.ts";
+import { answeredQuestions, exitCode, imageLines, linkCodeFiles, linkCodeSessions, linkImagePaths, markWarnings, parseTool, sentFiles, subagent, tailLines } from "../src/agents/agentlog.ts";
+import { findLinkedSession, linkedSession, parseSessionRef, sessionHref } from "../src/agents/nesting-state.ts";
 
 test("image lines come out of an entry's text anywhere, in order", () => {
   const a = "image-0123456789abcdef", b = "image-fedcba9876543210";
@@ -128,4 +129,41 @@ test("a running file send names the bytes it has sent, apart from its output", (
   assert.deepEqual(sentFiles("[sent] 412000000 1200000000"), { sent: "412 MB of 1.2 GB", output: "" });
   assert.deepEqual(sentFiles("[sent] 0 2048\n- a.apk: sent"), { sent: "0 B of 2.0 KB", output: "- a.apk: sent" });
   assert.deepEqual(sentFiles("- a.apk: sent"), { sent: null, output: "- a.apk: sent" });
+});
+
+test("session link URLs and inline session references parse and format cleanly", () => {
+  assert.deepEqual(linkedSession("beep://session/session_abc123"), { id: "session_abc123", machine: null });
+  assert.deepEqual(linkedSession("beep://session/00000000-0000-4000-8000-000000000042@build-box"), {
+    id: "00000000-0000-4000-8000-000000000042", machine: "build-box",
+  });
+  assert.deepEqual(linkedSession("BEEP://SESSION/s1@gpu-box/"), { id: "s1", machine: "gpu-box" });
+  assert.equal(linkedSession("beep://session/"), null);
+  assert.equal(linkedSession("https://example.com/session/s1"), null);
+  assert.equal(parseSessionRef("bad id"), null);
+  assert.equal(sessionHref({ id: "s1", machine_name: "Build Box" }), "beep://session/s1@build-box");
+  assert.equal(sessionHref({ id: "s1", machine_name: "" }), "beep://session/s1");
+
+  const rows = [
+    { id: "s1", machine_id: "m1", machine_name: "Build Box", title: "Migration work" },
+    { id: "s1", machine_id: "m2", machine_name: "GPU Box", title: "Other" },
+    { id: "s2", machine_id: "m2", machine_name: "GPU Box", title: null },
+  ];
+  assert.equal(findLinkedSession(rows, { id: "s1", machine: "gpu-box" })?.machine_id, "m2");
+  assert.equal(findLinkedSession(rows, { id: "s1", machine: null }, "m2")?.machine_id, "m2");
+  assert.equal(findLinkedSession(rows, { id: "s1", machine: "m1" })?.machine_id, "m1");
+  assert.equal(findLinkedSession(rows, { id: "s3", machine: null }), undefined);
+});
+
+test("inline code matching another known session becomes a session reference", () => {
+  const rows = [
+    { id: "current", machine_id: "m1", machine_name: "Build Box", title: "Here" },
+    { id: "session_abc123", machine_id: "m1", machine_name: "Build Box", title: "Example work" },
+    { id: "00000000-0000-4000-8000-000000000042", machine_id: "m2", machine_name: "GPU Box", title: null },
+  ];
+  const html = "<p>See <code>session_abc123</code>, <code>00000000-0000-4000-8000-000000000042@gpu-box</code>, <code>current</code>, and <code>unknown</code>. <a href=\"beep://session/session_abc123\"><code>session_abc123</code></a></p><pre><code>session_abc123</code></pre>";
+  const out = linkCodeSessions(html, rows, { machine_id: "m1", id: "current" });
+  assert.equal(
+    out,
+    '<p>See <code class="fref" data-session="session_abc123" title="Open Example work" role="link" tabindex="0">session_abc123</code>, <code class="fref" data-session="00000000-0000-4000-8000-000000000042@gpu-box" title="Open session" role="link" tabindex="0">00000000-0000-4000-8000-000000000042@gpu-box</code>, <code>current</code>, and <code>unknown</code>. <a href="beep://session/session_abc123"><code>session_abc123</code></a></p><pre><code>session_abc123</code></pre>',
+  );
 });

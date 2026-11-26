@@ -1,22 +1,23 @@
 // What a click in the open session's log and pane does.
-import { S } from "../bar/core.ts";
+import { PANE, S, windowRequests } from "../bar/core.ts";
 import { shell } from "../center/window-shell.tsx";
 import { openFileViewer, openViewer } from "../chat/media.tsx";
 import { linkedPath, resolvePath } from "../agentpane/media-state.ts";
-import { showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
+import { openSessionBeside, showArtifact, showRunning, showSubagents } from "../agentpane/media.ts";
 import { openLinked, openPath, openPicture } from "../agentpane/pane-open.ts";
 import { paneSession } from "../agentpane/pane-state.ts";
 import { atBottom } from "./logscroll.ts";
 import { copyCode } from "./turnrows.ts";
-import { AG, openOf, where } from "./agents-state.ts";
+import { AG, type AgentRow, type AgentSession, openOf, where } from "./agents-state.ts";
 import { fullPic } from "./images.tsx";
-import { childRow } from "./nesting-state.ts";
+import { childRow, findLinkedSession, linkedSession, parseSessionRef, type SessionLinkRef } from "./nesting-state.ts";
 import { parentSession, keepNativeSession, nextSessions, sessions } from "./sessions.ts";
 import { turnsOf, clickedRow, drawAgentBody, jumpToLatest, closeSub } from "./logview.tsx";
 import { toggleModelPicker, closeModelPicker, retryWithModel } from "./modelpill.tsx";
 import { cycleMode } from "./modepill.tsx";
 import { answerAgentQuestion, interruptAgent } from "./messages.ts";
 import { invoke } from "../ui/tauri.ts";
+import { onPhone, primaryModifier } from "../ui/platform.ts";
 import { readError } from "../agentpane/read-file.ts";
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { continuedFrom, continuedIn } from "./continue-state.ts";
@@ -155,6 +156,15 @@ export function agentClick(e: MouseEvent) {
   const attachment = inLog<HTMLElement>("[data-attachment-path]");
   if (attachment?.dataset.attachmentPath) { if (!openOver(attachment.dataset.attachmentPath)) openPath(attachment.dataset.attachmentPath); return; }
 
+  // A markdown link to another session opens it (Cmd/Ctrl-click opens beside on desktop).
+  const sessionAnchor = inLogOrPane<HTMLAnchorElement>("a[href]");
+  const linkedSess = sessionAnchor && linkedSession(sessionAnchor.getAttribute("href") ?? "");
+  if (linkedSess) { void openSessionLink(linkedSess, primaryModifier(e)); return; }
+  // Inline code that names a known session opens it the same way.
+  const sessionCode = inLog("code.fref[data-session]");
+  const codeSess = sessionCode && parseSessionRef(sessionCode.dataset.session ?? "");
+  if (codeSess) { void openSessionLink(codeSess, primaryModifier(e)); return; }
+
   // A markdown link to a file opens it in the pane; bar/events.ts sends web links out.
   const fileLink = inLog<HTMLAnchorElement>("a[href]");
   const linkedFile = fileLink && linkedPath(fileLink.getAttribute("href")!);
@@ -249,6 +259,51 @@ async function openKid(id: string, key?: string) {
   if (row) openSession(row, { back: AG.back });
 }
 
+/// Opens a session referenced by a `beep://session/...` link or inline session id.
+/// Checks the loaded list first, then asks the backend (mirror, search index, online nodes).
+export async function openSessionLink(ref: SessionLinkRef, beside = false) {
+  const origin = AG.open;
+  const preferMachineId = AG.page?.session.machine_id ?? null;
+  let row: AgentRow | null = findLinkedSession(sessions, ref, preferMachineId) ?? null;
+
+  if (!row) {
+    try {
+      row = await invoke<AgentSession | null>("agent_session_find", {
+        session: ref.id,
+        machine: ref.machine,
+        preferMachineId,
+      });
+    } catch (e) {
+      if (!origin || isOpen(origin)) { setNote(readError(e)); drawAgentBody(); }
+      return;
+    }
+    if (origin && !isOpen(origin)) return;
+  }
+
+  if (!row) {
+    setNote("That session was not found on your machines.");
+    drawAgentBody();
+    return;
+  }
+
+  if (beside && !onPhone()) {
+    openSessionBeside({
+      machine_id: row.machine_id, machine_name: row.machine_name, agent: row.agent, id: row.id,
+      title: row.title ?? null, cwd: row.cwd, status: row.status, external: row.external,
+    });
+    return;
+  }
+
+  if (PANE) windowRequests.notify({ kind: "open-session", agent: row });
+  else openSession(row, { back: AG.back });
+}
+
+windowRequests.follow(request => {
+  if (request.kind !== "open-session-link") return;
+  const ref = linkedSession(request.href);
+  if (ref) void openSessionLink(ref, false);
+});
+
 /// Stop on a running child's row: stops its turn, as Stop in its own log does.
 async function stopKid(x: HTMLElement) {
   const kid = x.closest<HTMLElement>("[data-kid]");
@@ -279,7 +334,7 @@ export function openParent() {
 /// Tool rows also open from the keyboard; details stay selectable.
 export function toolKey(event: KeyboardEvent) {
   const target = event.target;
-  if (!(target instanceof HTMLElement) || !target.matches('.dcoderen.tool[data-at][role="button"], code.fref[data-file]') || !sessionBody()?.contains(target) || !["Enter", " "].includes(event.key)) return;
+  if (!(target instanceof HTMLElement) || !target.matches('.dcoderen.tool[data-at][role="button"], code.fref[data-file], code.fref[data-session]') || !sessionBody()?.contains(target) || !["Enter", " "].includes(event.key)) return;
   event.preventDefault();
   target.click();
 }

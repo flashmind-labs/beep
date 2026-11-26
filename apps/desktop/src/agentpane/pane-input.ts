@@ -4,7 +4,7 @@
 import { fileBase64 } from "../chat/pics.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
 import { invoke } from "../ui/tauri.ts";
-import { S } from "../bar/core.ts";
+import { S, windowRequests } from "../bar/core.ts";
 import { type Dock, frameKey, onZoomKey, paneSize } from "./media-state.ts";
 import { dockHolding, docked, drawPaneNow, foldNarrow, main, paneModel, paneOf, place, setHidden, shell, shellSize, shownDocks } from "./media-layout.ts";
 import { openPreviewExport, showTab } from "./media.ts";
@@ -53,6 +53,8 @@ window.addEventListener("message", (event: MessageEvent<unknown>) => {
     if (data.beep === "export") {
       const port = event.ports[0], dock = dockHolding(frame);
       if (port && dock) acceptPreviewExport(frame, port, dock);
+    } else if ("url" in data && typeof data.url === "string" && /^beep:\/\/session\//i.test(data.url)) {
+      windowRequests.notify({ kind: "open-session-link", href: data.url });
     } else if ("url" in data && typeof data.url === "string" && /^https?:\/\//.test(data.url)) {
       invoke("open_url", { url: data.url }).catch(e => console.warn("opening a preview link:", e));
     }

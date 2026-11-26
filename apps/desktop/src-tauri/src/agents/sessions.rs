@@ -35,7 +35,11 @@ use beep_proto::{
 };
 use iroh::EndpointId;
 use serde::Serialize;
-use std::{str::FromStr, sync::Arc, time::Instant};
+use std::{
+    str::FromStr,
+    sync::Arc,
+    time::{Duration, Instant, UNIX_EPOCH},
+};
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 use tokio::sync::broadcast;
 
@@ -158,6 +162,211 @@ pub async fn agent_sessions(app: AppHandle, fleet: Machines<'_>) -> Result<Vec<S
             ..SessionRow::from(session)
         }))
         .collect())
+}
+
+/// Normalizes a machine name to the lowercase hyphenated form agents use in
+/// `<session>@<machine>` ids.
+pub(crate) fn machine_slug(name: &str) -> String {
+    let stripped: String = name
+        .to_lowercase()
+        .chars()
+        .filter(|&c| c != '\'' && c != '\u{2019}')
+        .collect();
+    stripped
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+/// Whether `machine` matches a machine with `id` and `name`.
+pub(crate) fn machine_matches(wanted: &str, id: &str, name: &str) -> bool {
+    let wanted = wanted.trim();
+    if wanted.is_empty() {
+        return true;
+    }
+    id == wanted || (!name.is_empty() && machine_slug(name) == machine_slug(wanted))
+}
+
+/// Finds a session by id (and optional machine name or id) so chat links can
+/// open sessions that are not in the active sidebar list. Checks the session
+/// mirror, the desktop search index copies, and then online machines.
+#[tauri::command]
+pub async fn agent_session_find(
+    app: AppHandle,
+    fleet: Machines<'_>,
+    session: SessionId,
+    machine: Option<String>,
+    prefer_machine_id: Option<String>,
+) -> Result<Option<SessionRow>> {
+    if session.as_ref().trim().is_empty() {
+        return Ok(None);
+    }
+
+    let wanted_machine = machine.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let prefer_id = prefer_machine_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let prefer_ep = prefer_id.and_then(|id| EndpointId::from_str(id).ok());
+
+    // 1. Check the in-memory session mirror (live, recent external, and child sessions).
+    let rows = app.state::<Arc<SessionMirror>>().current();
+    let mirror_sessions = overlaid(&app, &fleet, &rows)
+        .into_iter()
+        .map(|s| (s, None))
+        .chain(
+            overlaid_children(&fleet, &rows)
+                .into_iter()
+                .map(|(s, link)| (s, Some(link))),
+        );
+    let mut best_mirror: Option<(
+        beep_proto::MachineSession,
+        Option<crate::fleet::session_mirror::Link>,
+    )> = None;
+
+    for (cand, link) in mirror_sessions {
+        if cand.id != session {
+            continue;
+        }
+        if let Some(wanted) = wanted_machine
+            && !machine_matches(wanted, &cand.machine_id, &cand.machine_name)
+        {
+            continue;
+        }
+        let better = match &best_mirror {
+            None => true,
+            Some((prev, _)) => {
+                let is_pref = prefer_id == Some(cand.machine_id.as_str());
+                let prev_pref = prefer_id == Some(prev.machine_id.as_str());
+                (is_pref && !prev_pref)
+                    || (is_pref == prev_pref && cand.last_activity > prev.last_activity)
+            }
+        };
+        if better {
+            best_mirror = Some((cand, link));
+        }
+    }
+
+    if let Some((found, link)) = best_mirror {
+        let row = match link {
+            Some(link) => SessionRow {
+                parent: link.parent(&found.machine_id),
+                reviewer: link.reviewer,
+                background: link.background(),
+                ..SessionRow::from(found)
+            },
+            None => SessionRow::from(found),
+        };
+        return Ok(Some(row));
+    }
+
+    // Resolve optional machine filter to an EndpointId when a mesh is loaded.
+    let target_ep = match wanted_machine {
+        None => None,
+        Some(wanted) => {
+            if let Ok(ep) = EndpointId::from_str(wanted) {
+                Some(ep)
+            } else {
+                let matched = fleet.mesh().and_then(|mesh| {
+                    mesh.code_hosts().into_iter().find_map(|host| {
+                        machine_matches(wanted, &host.device.id.to_string(), &host.device.name)
+                            .then_some(host.device.id)
+                    })
+                });
+                let Some(ep) = matched else {
+                    return Ok(None);
+                };
+                Some(ep)
+            }
+        }
+    };
+
+    // 2. Check desktop search index copies (instant, includes archived & offline machines).
+    #[cfg(desktop)]
+    if let Some((peer, found_id, activity_ms, meta)) =
+        crate::palette::copies::find_session(&app, &session, target_ep, prefer_ep).await
+    {
+        let mut found = beep_proto::MachineSession {
+            machine_id: peer.to_string(),
+            machine_name: fleet.host_of(peer).name,
+            id: meta.managed.clone().unwrap_or(found_id),
+            agent: meta.agent,
+            title: meta.title,
+            cwd: meta.cwd,
+            status: beep_proto::AgentStatus::Ended {},
+            doing: None,
+            started_at: UNIX_EPOCH
+                .checked_add(Duration::from_secs(meta.started_at))
+                .unwrap_or(UNIX_EPOCH),
+            last_activity: UNIX_EPOCH
+                .checked_add(Duration::from_millis(activity_ms))
+                .unwrap_or(UNIX_EPOCH),
+            external: meta.managed.is_none(),
+            question: None,
+            subagents: 0,
+            model: None,
+            assistant: false,
+            reply: None,
+            changes: None,
+            account: None,
+            persona: None,
+            place: None,
+            continues: None,
+        };
+        if let Some(mesh) = fleet.mesh() {
+            beep_fleet::session_titles::apply(&mesh, &mut found);
+        }
+        return Ok(Some(SessionRow::from(found)));
+    }
+
+    // 3. Query online nodes directly (covers mobile and newly created unindexed sessions).
+    let online = fleet.online();
+    let candidates: Vec<EndpointId> = match target_ep {
+        Some(ep) => online.into_iter().filter(|&m| m == ep).collect(),
+        None => online,
+    };
+
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    // Check the preferred machine first to avoid unnecessary fan-out when local.
+    if let Some(pref) = prefer_ep
+        && candidates.contains(&pref)
+        && let Some(mut found) = direct::find_session(&fleet, pref, &session).await
+    {
+        if let Some(mesh) = fleet.mesh() {
+            beep_fleet::session_titles::apply(&mesh, &mut found);
+        }
+        return Ok(Some(SessionRow::from(found)));
+    }
+
+    use futures::{StreamExt, stream};
+    let rest: Vec<EndpointId> = candidates
+        .into_iter()
+        .filter(|&m| Some(m) != prefer_ep)
+        .collect();
+    let mut found_all: Vec<beep_proto::MachineSession> = stream::iter(rest)
+        .map(|machine| {
+            let fleet = fleet.inner().clone();
+            let session = session.clone();
+            async move { direct::find_session(&fleet, machine, &session).await }
+        })
+        .buffer_unordered(4)
+        .filter_map(|res| async move { res })
+        .collect()
+        .await;
+    found_all.sort_by_key(|s| std::cmp::Reverse(s.last_activity));
+
+    if let Some(mut found) = found_all.into_iter().next() {
+        if let Some(mesh) = fleet.mesh() {
+            beep_fleet::session_titles::apply(&mesh, &mut found);
+        }
+        return Ok(Some(SessionRow::from(found)));
+    }
+
+    Ok(None)
 }
 
 /// Saves the user's title independently of the agent's generated title.

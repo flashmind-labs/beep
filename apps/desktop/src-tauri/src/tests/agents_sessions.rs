@@ -105,3 +105,12 @@ fn a_dropped_link_reads_as_lost_and_a_missing_session_as_gone() {
         }
     );
 }
+
+#[test]
+fn machine_matching_normalizes_display_names_and_accepts_ids() {
+    assert_eq!(machine_slug("Build Box's Mac"), "build-boxs-mac");
+    assert!(machine_matches("build-box", "ep-1", "Build Box"));
+    assert!(machine_matches("ep-1", "ep-1", "Build Box"));
+    assert!(!machine_matches("gpu-box", "ep-1", "Build Box"));
+    assert!(machine_matches("", "ep-1", "Build Box"));
+}

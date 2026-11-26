@@ -8,7 +8,10 @@ use anyhow::{Context, bail};
 use beep_fleet::alerts::each_machine;
 use beep_mesh::RETRY;
 use beep_node::agents::search::IndexCopy;
-use beep_proto::node::agent::{SESSIONS_PROTOCOL, SessionsReply, SessionsRequest};
+use beep_proto::{
+    SessionId,
+    node::agent::{SESSIONS_PROTOCOL, SearchSession, SessionsReply, SessionsRequest},
+};
 use futures::StreamExt;
 use iroh::EndpointId;
 use std::{
@@ -71,6 +74,49 @@ impl Copies {
         }
 
         found
+    }
+
+    /// Looks up one session across the kept copies (or `machine` alone).
+    /// Prefers `prefer` when several machines hold it, else newest activity.
+    fn find_session(
+        &self,
+        id: &SessionId,
+        machine: Option<EndpointId>,
+        prefer: Option<EndpointId>,
+    ) -> Option<(EndpointId, SessionId, u64, SearchSession)> {
+        let held: Vec<_> = self
+            .held()
+            .iter()
+            .filter(|(peer, _)| machine.is_none_or(|wanted| **peer == wanted))
+            .map(|(peer, copy)| (*peer, copy.clone()))
+            .collect();
+        let mut best: Option<(EndpointId, SessionId, u64, SearchSession)> = None;
+
+        for (peer, copy) in held {
+            let hit = match lock(&copy).session(id) {
+                Ok(Some(hit)) => hit,
+                Ok(None) => continue,
+                Err(e) => {
+                    log::warn!("reading the copy of {peer}: {e:#}");
+                    continue;
+                }
+            };
+            let better = match &best {
+                None => true,
+                Some((best_peer, _, best_activity, _)) => {
+                    let is_preferred = prefer == Some(peer);
+                    let best_preferred = prefer == Some(*best_peer);
+                    (is_preferred && !best_preferred)
+                        || (is_preferred == best_preferred && hit.1 > *best_activity)
+                }
+            };
+
+            if better {
+                best = Some((peer, hit.0, hit.1, hit.2));
+            }
+        }
+
+        best
     }
 
     fn copy(&self, machine: EndpointId) -> anyhow::Result<Arc<Mutex<IndexCopy>>> {
@@ -204,4 +250,19 @@ pub(super) async fn find(app: &AppHandle, query: &str) -> anyhow::Result<Vec<Fou
     let copies = app.state::<Arc<Copies>>().inner().clone();
     let query = query.to_owned();
     Ok(spawn_blocking(move || copies.find(&query)).await?)
+}
+
+/// One session's metadata from the kept copies, when indexed.
+pub(crate) async fn find_session(
+    app: &AppHandle,
+    id: &SessionId,
+    machine: Option<EndpointId>,
+    prefer: Option<EndpointId>,
+) -> Option<(EndpointId, SessionId, u64, SearchSession)> {
+    let copies = app.state::<Arc<Copies>>().inner().clone();
+    let id = id.clone();
+    spawn_blocking(move || copies.find_session(&id, machine, prefer))
+        .await
+        .ok()
+        .flatten()
 }
