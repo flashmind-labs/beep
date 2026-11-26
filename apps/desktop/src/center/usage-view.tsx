@@ -20,10 +20,10 @@ function Provider({ provider }: { provider: string }) {
 function Limits({ plan, now }: { plan: PlanLimits; now: number }) {
   const credits = plan.credits ?? [], single = !plan.windows.length && credits.length === 1;
   const name = [agentLabel(plan.agent), plan.account, planName(plan.agent, plan.plan), single ? `${providerName(credits[0].provider)} credits` : ""].filter(Boolean).join(" · ");
-  return <div><h5 title={`Read on ${plan.machine_name}`}><span>{harnessMark(plan.agent) && <Mark agent={plan.agent} />}{name}</span><span>{asOf(plan.as_of, now)}</span></h5>
-    {plan.windows.map((window, index) => { const used = windowUsed(window), reset = window.resets_at != null ? ` · resets ${resetName(window.resets_at, now)}` : ""; return <div className="us-lim" key={index}><span>{windowName(window)}</span><Bar used={used} /><small>{used}% used{reset}</small></div>; })}
+  return <section className="us-card"><h5 title={`Read on ${plan.machine_name}`}><span>{harnessMark(plan.agent) && <Mark agent={plan.agent} />}{name}</span><span>{asOf(plan.as_of, now)}</span></h5>
+    {plan.windows.map((window, index) => { const used = windowUsed(window), reset = window.resets_at != null ? ` · resets ${resetName(window.resets_at, now)}` : ""; return <div className="us-lim" key={index}><span>{windowName(window)}</span><small>{used}% used{reset}</small><Bar used={used} /></div>; })}
     {credits.map((credit, index) => <Fragment key={index}><div className="us-row"><span>{single ? creditScope(credit.scope) : `${providerName(credit.provider)} · ${creditScope(credit.scope)}`}</span><span>{credit.remaining_full ?? creditAmount(credit, credit.remaining)} remaining</span></div><div className="us-row"><small>{credit.resets ? `Resets ${credit.resets}` : ""}</small><small>{credit.used_full ?? creditAmount(credit, credit.used)} used · {credit.total_full ?? creditAmount(credit, credit.total)} total</small></div>{credit.provider === "openrouter" && credit.scope === "api_key" && credit.remaining == null && <div className="us-note">Account balance unavailable.</div>}</Fragment>)}
-  </div>;
+  </section>;
 }
 const shortDate = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
 
@@ -71,7 +71,7 @@ function Period({ view, periodKey, allProjects, pick, more }: {
   const [showHistory, setShowHistory] = useState(false);
   const hasSpend = period.tokens > 0 || period.total.cost_usd > 0;
 
-  return <div>
+  return <section className="us-card us-spend">
     <div className="us-seg">{PERIODS.map(p =>
       <Button look="plain" key={p.key} className={p.key === periodKey ? "on" : ""} aria-pressed={p.key === periodKey} onClick={() => pick(p.key)}>{p.label}</Button>
     )}</div>
@@ -92,7 +92,7 @@ function Period({ view, periodKey, allProjects, pick, more }: {
       <tbody>{models.map(model => <tr key={model.name}><td>{model.name}</td><td className="num">{tokenCount(model.tokens)}</td></tr>)}</tbody>
     </table>}
     {historical.length > 0 && <ProjectTable rows={historical} historical expanded={showHistory} toggle={() => setShowHistory(!showHistory)} />}
-  </div>;
+  </section>;
 }
 export function UsageWidget({ view, open, period, allProjects, toggle, pick, more }: { view: UsageView; open: boolean; period: PeriodKey; allProjects: boolean; toggle(): void; pick(key: PeriodKey): void; more(): void }) {
   const pop = useRef<HTMLDivElement>(null), dialog = useDialogRef(pop), shown = view[period] ?? view.today;
