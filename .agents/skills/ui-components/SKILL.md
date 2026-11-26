@@ -42,6 +42,11 @@ For copy-ready TSX and CSS templates, read
   `--muted`, `--dim`, `--accent`, `--on-accent`, `--ok`, `--warn`, `--err`,
   `--ctl-h`, `--ctl-fill`, `--ctl-fill-hi`, `--lit-edge`, `--radius`,
   `--radius-sm`, `--body`, `--mono`, `--glass`, `--glass-solid`, `--shade`).
+- **Scope layout container rules to direct children (`>`), never bare tag descendants.**
+  Writing `.dtoggle span { flex: 1; display: grid }` leaks layout properties
+  into nested badges, `.dgchip` pills, and button labels inside `extra` or
+  `children`. Target `.dtoggle > span:first-child` or a dedicated slot class,
+  and put `flex: none; white-space: nowrap` on compact triggers and pills.
 - **Promote shared controls to `apps/desktop/src/ui/kit.tsx`.** Reuse `Button`,
   `Switch`, `Checkbox`, `Chip`, `ChipToggle`, `Spinner`, `ProgressBar`,
   `Section`, `SectionHead`, `SheetHead`, `LineRow`, `EmptyPanel`, and

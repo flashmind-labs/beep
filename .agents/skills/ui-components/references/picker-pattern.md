@@ -108,6 +108,7 @@ export function StructuredPicker<K extends string>({
 
 ```css
 .dict-trigger {
+  flex: none;
   height: var(--ctl-h);
   padding: 0 8px 0 9px;
   border-radius: var(--radius-sm);
@@ -115,6 +116,7 @@ export function StructuredPicker<K extends string>({
   background: var(--ink);
   color: var(--fg);
   font: 500 12.5px/1 var(--body);
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   gap: 7px;
