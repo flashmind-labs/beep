@@ -3,7 +3,7 @@ import { useStore } from "zustand";
 import { Button, EndedFold, Spinner } from "../ui/kit.tsx";
 import { HintView, type HintViewModel } from "../bar/hints-view.tsx";
 import { newChat } from "../bar/core.ts";
-import { AGENT_ICON, agentsList, listedMenu, openListed, toggleEnded, type ListedSession } from "./agents.ts";
+import { AGENT_ICON, agentsList, listedMenu, openListed, toggleEnded, type ListedSession } from "./agents-list.ts";
 import { HarnessIcon } from "../ui/icons.tsx";
 import { SessionRowSlot } from "../plugins/slot-view.tsx";
 import type { MachinesReach } from "../machines/machine-state.ts";

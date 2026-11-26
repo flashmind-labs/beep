@@ -15,12 +15,16 @@ import { AG, AGENT_ACTIVE, openOf, where } from "./agents-state.ts";
 import { sameSession } from "./running-state.ts";
 import { canContinueElsewhere } from "./continue-state.ts";
 import { canContinueWith, toggleModelPicker } from "./modelpill.tsx";
-import { workingSubagents } from "./logview.tsx";
-import { draftNewThread, resumeEndedSession, stopAllWork } from "./messages.ts";
+import { drawAgentBody, workingSubagents } from "./logview.tsx";
+import { type Draft, draftNewThread, drainOutbox, drawQueue, heldQueue, restoreDraft, resumeEndedSession, sendOnce } from "./messages.ts";
 import { runs, transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { closeSession } from "./closing.ts";
-import { forgetTranscript } from "./session-follow.ts";
-import { forgetLog } from "./open-state.ts";
+import { clearHeldSteers, forgetTranscript, heldSteers } from "./session-follow.ts";
+import { forgetLog, resumeFollow, setNote, turnRuns } from "./open-state.ts";
+import { conversationKey } from "./conversation-state.ts";
+import { currentMentions, mentionsOf } from "./mentions.ts";
+import { heldMessage } from "./agentqueue.ts";
+import { redrawAgentHints } from "./session-head.tsx";
 
 /// Stops the turn of `s`, its subagents, background commands and the agents it started; asks
 /// first while any of those run.
@@ -139,4 +143,63 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
   // Shown at once with what is known; the folder and the mesh fill in a moment later.
   const update = openMenu(e, s.title || "Session", build(null, false), s.machine_name || undefined);
   update(build(await folder, await reachable));
+}
+
+type StopAllPhase = { kind: "draining" } | { kind: "stopping"; drafts: Draft[] };
+const stoppingSessions = new Map<string, StopAllPhase>();
+
+/// Stops the session and its side work, returning the pending messages to its draft.
+export async function stopAllWork(target: Pick<AgentRow, "machine_id" | "agent" | "id">) {
+  const key = conversationKey(target), o = openOf(target);
+  if (stoppingSessions.has(key)) return;
+
+  const showing = () => S.view === "agent" && sameSession(AG.open, target);
+  const mentions = showing() ? currentMentions() : mentionsOf(target);
+  stoppingSessions.set(key, { kind: "draining" });
+  let stoppedSteers: Draft[] = [];
+
+  try {
+    const drafts = await drainOutbox(o);
+    stoppingSessions.set(key, { kind: "stopping", drafts });
+
+    const stopping = showing() && turnRuns() ? { id: target.id, turns: AG.page?.turns ?? 0 } : null;
+
+    if (stopping) {
+      AG.stopping = stopping;
+      drawQueue();
+      redrawAgentHints();
+      drawAgentBody();
+    }
+
+    const failed = await sendOnce(o, { stop_all: null }, null);
+    if (!failed) {
+      // What the node still listed when it answered: a steer it delivered meanwhile is not taken back.
+      const held = showing() ? heldQueue() : heldSteers(o);
+      clearHeldSteers(o);
+      stoppedSteers = held.map(text => ({ typed: heldMessage(text).words, paths: [], images: [] }));
+    }
+
+    if (showing()) {
+      if (failed && AG.stopping === stopping) AG.stopping = null;
+      setNote(failed?.message ?? "");
+    } else if (failed) {
+      throw new Error(failed.message);
+    }
+  } finally {
+    const phase = stoppingSessions.get(key);
+    stoppingSessions.delete(key);
+
+    if (phase?.kind === "stopping") {
+      const state = showing() ? currentMentions() : mentions;
+      // Prepend newest first so the field keeps the original order.
+      for (const q of [...stoppedSteers, ...phase.drafts].reverse()) restoreDraft(q, state, o);
+    }
+
+    if (showing()) {
+      drawQueue();
+      redrawAgentHints();
+      drawAgentBody();
+      resumeFollow();
+    }
+  }
 }

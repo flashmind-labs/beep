@@ -20,8 +20,7 @@ import { readError } from "../agentpane/read-file.ts";
 import { imageLines, parseTool, subagent } from "./agentlog.ts";
 import { continuedFrom, continuedIn } from "./continue-state.ts";
 import { nativeSession } from "./native-session-state.ts";
-import { openAgent, resumeAgent } from "./session.tsx";
-import { isOpen, setNote } from "./open-state.ts";
+import { isOpen, resumeFollow, sessionWanted, setNote } from "./open-state.ts";
 import { agentMessage, sessionBody } from "./session-frame-state.ts";
 
 /// How long a card waits for the machine to list a child that is not in the list yet.
@@ -47,7 +46,7 @@ function openNative(at: number) {
   if (!row) return false;
 
   keepNativeSession(row, AG.page.session);
-  openAgent(row, { back: AG.back });
+  sessionWanted.notify({ row: row, back: AG.back });
   return true;
 }
 
@@ -218,7 +217,7 @@ export function agentClick(e: MouseEvent) {
     return;
   }
 
-  if (target.closest("#agresume")) return resumeAgent();
+  if (target.closest("#agresume")) return resumeFollow();
 }
 
 /// Opens or folds the row at `at`, which stays where it is on screen.
@@ -246,7 +245,7 @@ async function kidSession(id: string, key?: string) {
 
 async function openKid(id: string, key?: string) {
   const row = await kidSession(id, key);
-  if (row) openAgent(row, { back: AG.back });
+  if (row) sessionWanted.notify({ row: row, back: AG.back });
 }
 
 /// Stop on a running child's row: stops its turn, as Stop in its own log does.
@@ -267,13 +266,13 @@ async function stopKid(x: HTMLElement) {
 function openContinued(onward: boolean) {
   const s = AG.open && AG.page?.session;
   const row = s && (onward ? continuedIn(s, sessions) : continuedFrom(s, sessions));
-  if (row) openAgent(row, { back: AG.back });
+  if (row) sessionWanted.notify({ row: row, back: AG.back });
 }
 
 /// Opens the session that started the open one.
 export function openParent() {
   const row = AG.open && AG.page && parentSession(AG.page.session);
-  if (row) openAgent(row, { back: AG.back });
+  if (row) sessionWanted.notify({ row: row, back: AG.back });
 }
 
 /// Tool rows also open from the keyboard; details stay selectable.

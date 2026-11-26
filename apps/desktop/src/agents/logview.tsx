@@ -28,7 +28,7 @@ import { stepMark, tickClocks, turnHeading } from "./turn-heading-view.tsx";
 import { type AgentEntry, type AgentPage, AG, openModes, openTasks, openOf, agentPics, agentThumbs, AGENT_ACTIVE } from "./agents-state.ts";
 import { agentKind, folderName } from "./agent-kind.ts";
 import { continuedFrom, continuedIn, continuedLine } from "./continue-state.ts";
-import { stoppingNow } from "./open-state.ts";
+import { logStale, stoppingNow } from "./open-state.ts";
 import { redrawAgentHints } from "./session-head.tsx";
 import { promptParts } from "./promptparts-state.ts";
 import { childRow } from "./nesting-state.ts";
@@ -52,6 +52,8 @@ import { AgentStatus } from "./mode-view.tsx";
 import type { BlockedRow, ContextRow, PromptRow, ReplyRow } from "./reply-view.tsx";
 import { sessionBody } from "./session-frame-state.ts";
 import { glide } from "../ui/motion.ts";
+
+logStale.follow(() => drawAgentBody());
 
 /// Draws the log again. `keep` finds the row the reader just opened or
 /// folded, which stays where it is on screen. With `older` it is the row in

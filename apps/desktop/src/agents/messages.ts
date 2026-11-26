@@ -2,7 +2,6 @@
 // answers to its questions, and interrupting it.
 import { appendEntry, clearQuestion, removeEntry } from "./open-page.ts";
 import { type Attached, attachOf, heldMessage, type Extras, type OutboxRow, type Resume, type Waiting } from "./agentqueue.ts";
-import { continuePicks, resumePicks } from "./modelpill.tsx";
 import { canContinueElsewhere } from "./continue-state.ts";
 import { imageLines, sentText } from "./agentlog.ts";
 import { promptParts } from "./promptparts-state.ts";
@@ -14,16 +13,14 @@ import { withMentions } from "../agentpane/files-state.ts";
 import { bytesOf } from "../agentpane/media-state.ts";
 import { StartFiles } from "./start-files.ts";
 import { paneSession } from "../agentpane/pane-state.ts";
-import { MN, attachReads, attachmentKey, currentMentions, mentionImages, mentionsOf, setAttachError, setAttached, setMentionImages, type MentionState } from "./mentions.ts";
+import { MN, attachReads, attachmentKey, currentMentions, mentionImages, setAttachError, setAttached, setMentionImages, type MentionState } from "./mentions.ts";
 import { disposeComposerUi, showAgentQueue } from "./composer-ui.tsx";
-import { type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, openOf, sentImage, where } from "./agents-state.ts";
+import { type AgentRow, type AgentSession, type OpenAgent, type SentImage, type Started, type Steer, AG, AGENT_SEND_WAIT_MS, sentImage, where } from "./agents-state.ts";
 import { type SendError, sendError } from "./reconnect-state.ts";
-import { openAgent, resumeAgent } from "./session.tsx";
-import { isOpen, questionKey, sessionPicks, setNote, startedWith, turnRuns } from "./open-state.ts";
+import { continuePicks, isOpen, logStale, questionKey, resumeFollow, resumePicks, sessionPicks, sessionWanted, setNote, startedWith, turnRuns } from "./open-state.ts";
 import { redrawAgentHints } from "./session-head.tsx";
 import { drawAgentAttached } from "./attachments-view.tsx";
 import { fitAttachedImages, keepSentImages, keepAgentPics } from "./images.tsx";
-import { drawAgentBody } from "./logview.tsx";
 import { sameSession } from "./running-state.ts";
 import { conflicted, invoke, listen } from "../ui/tauri.ts";
 import { reopened } from "./closing.ts";
@@ -31,12 +28,11 @@ import { loadSessions, sessions } from "./sessions.ts";
 import { agentMessage, sessionBody } from "./session-frame-state.ts";
 import { shownQuestionsIn } from "./mode-view.tsx";
 import { closeMove } from "./move.ts";
-import { clearHeldSteers, heldSteers } from "./session-follow.ts";
 
 export function disposeQueue() { disposeComposerUi(); closeMove(); }
 
 /// The steers the open session's node holds for the turn, as its last update lists them.
-const heldQueue = () => AG.page?.queued_messages ?? [];
+export const heldQueue = () => AG.page?.queued_messages ?? [];
 
 /// The steers the node holds above the field, then the messages kept on this device.
 export function drawQueue() {
@@ -70,7 +66,7 @@ function takeMessage(input: HTMLTextAreaElement | null, reading = false): Waitin
 }
 
 /// Puts `q` back in the field, before what is typed there.
-type Draft = Pick<Waiting, "typed" | "paths" | "images" | "files">;
+export type Draft = Pick<Waiting, "typed" | "paths" | "images" | "files">;
 
 function backInField(q: Draft, sep = "\n") {
   const input = agentMessage.current;
@@ -82,7 +78,7 @@ function backInField(q: Draft, sep = "\n") {
   input?.focus();
 }
 
-function restoreDraft(draft: Draft, state: MentionState, session: OpenAgent | null) {
+export function restoreDraft(draft: Draft, state: MentionState, session: OpenAgent | null) {
   const target = session ? { ...session, id: session.session } : null;
   if ((!target || sameSession(AG.open, target)) && currentMentions() === state && S.view === "agent" && agentMessage.current?.isConnected) {
     setAttachError(state.error);
@@ -328,7 +324,7 @@ async function sendSteer(q: Waiting, back = true) {
   if (sent === "failed") forgetPics(pics);
 
   if (sent === "failed" && back && isOpen(o)) backInField(q);
-  if (isOpen(o)) drawAgentBody();
+  if (isOpen(o)) logStale.notify();
   return sent !== "failed";
 }
 
@@ -343,69 +339,10 @@ export function interruptAgent() {
   AG.stopping = { id: AG.page!.session.id, turns: AG.page!.turns };
   drawQueue();
   redrawAgentHints();
-  drawAgentBody();
+  logStale.notify();
   steerAgent({ cancel: null });
   agentMessage.current?.focus();
   return true;
-}
-
-type StopAllPhase = { kind: "draining" } | { kind: "stopping"; drafts: Draft[] };
-const stoppingSessions = new Map<string, StopAllPhase>();
-
-/// Stops the session and its side work, returning the pending messages to its draft.
-export async function stopAllWork(target: Pick<AgentRow, "machine_id" | "agent" | "id">) {
-  const key = conversationKey(target), o = openOf(target);
-  if (stoppingSessions.has(key)) return;
-
-  const showing = () => S.view === "agent" && sameSession(AG.open, target);
-  const mentions = showing() ? currentMentions() : mentionsOf(target);
-  stoppingSessions.set(key, { kind: "draining" });
-  let stoppedSteers: Draft[] = [];
-
-  try {
-    const drafts = await drainOutbox(o);
-    stoppingSessions.set(key, { kind: "stopping", drafts });
-
-    const stopping = showing() && turnRuns() ? { id: target.id, turns: AG.page?.turns ?? 0 } : null;
-
-    if (stopping) {
-      AG.stopping = stopping;
-      drawQueue();
-      redrawAgentHints();
-      drawAgentBody();
-    }
-
-    const failed = await sendOnce(o, { stop_all: null }, null);
-    if (!failed) {
-      // What the node still listed when it answered: a steer it delivered meanwhile is not taken back.
-      const held = showing() ? heldQueue() : heldSteers(o);
-      clearHeldSteers(o);
-      stoppedSteers = held.map(text => ({ typed: heldMessage(text).words, paths: [], images: [] }));
-    }
-
-    if (showing()) {
-      if (failed && AG.stopping === stopping) AG.stopping = null;
-      setNote(failed?.message ?? "");
-    } else if (failed) {
-      throw new Error(failed.message);
-    }
-  } finally {
-    const phase = stoppingSessions.get(key);
-    stoppingSessions.delete(key);
-
-    if (phase?.kind === "stopping") {
-      const state = showing() ? currentMentions() : mentions;
-      // Prepend newest first so the field keeps the original order.
-      for (const q of [...stoppedSteers, ...phase.drafts].reverse()) restoreDraft(q, state, o);
-    }
-
-    if (showing()) {
-      drawQueue();
-      redrawAgentHints();
-      drawAgentBody();
-      resumeAgent();
-    }
-  }
 }
 
 /// Sends `reply` to question `id` of `o`: null when the node took it, else what it refused with.
@@ -422,11 +359,11 @@ export async function replyToQuestion(o: OpenAgent, id: number, reply: string): 
 /// that still shows it does not bring them back, until the node moves on.
 export async function answerAgentQuestion(i: number, shown: string) {
   const o = AG.open, q = AG.page?.session.question ?? null;
-  if (!o || !q || questionKey(q, o) !== shown) { drawAgentBody(); return; }
+  if (!o || !q || questionKey(q, o) !== shown) { logStale.notify(); return; }
   const opt = q.options[i];
   if (!opt || AG.answering === q.id) return;
   AG.answering = q.id;
-  drawAgentBody();
+  logStale.notify();
 
   const failed = await replyToQuestion(o, q.id, opt.id);
 
@@ -439,7 +376,7 @@ export async function answerAgentQuestion(i: number, shown: string) {
     if (isOpen(o)) setNote(conflict ? "" : String(failed.error));
   }
 
-  if (isOpen(o)) { drawAgentBody(); resumeAgent(); }
+  if (isOpen(o)) { logStale.notify(); resumeFollow(); }
 }
 /// The first option of the open permission question that allows, or that does not.
 export function answerFirst(allow: boolean) {
@@ -459,7 +396,7 @@ export async function steerAgent(steer: Steer) {
   const o = AG.open;
   if (!o || AG.page?.session.external) return false;
   const failed = await sendOnce(o, steer, null);
-  if (isOpen(o)) { setNote(failed?.message ?? ""); drawAgentBody(); resumeAgent(); }
+  if (isOpen(o)) { setNote(failed?.message ?? ""); logStale.notify(); resumeFollow(); }
   return !failed;
 }
 
@@ -480,8 +417,8 @@ async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen:
 
   if (isOpen(o)) {
     setNote(failed && sent === "failed" ? failed.message : "");
-    drawAgentBody();
-    resumeAgent();
+    logStale.notify();
+    resumeFollow();
   }
 
   return sent;
@@ -533,7 +470,7 @@ async function continueChat(o: OpenAgent, draft: Waiting, state: MentionState) {
     sessionPicks.set(started.session.id, { model: model ?? "", effort: pick.effort, fast });
     startedWith(started.session, text, images ?? []);
     uploads.forget();
-    if (isOpen(o)) openAgent(started.session, { back: AG.back });
+    if (isOpen(o)) sessionWanted.notify({ row: started.session, back: AG.back });
   } catch (e) {
     uploads.discardAll();
     state.error = String(e).replace(/^bad request: /, "");
@@ -555,7 +492,7 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
   const mine = { kind: "user", text: sentText(text, images) };
   const seen = seenNow();
   appendEntry(mine);
-  drawAgentBody();
+  logStale.notify();
   const sent = await sendText({ steer: outgoing(text, images) }, seen, extrasOf(o, draft ?? null, ended));
   if (sent === "sent" || !isOpen(o)) return sent !== "failed";
   // A poll may have drawn more since: take out this message, not the last.
@@ -563,14 +500,14 @@ async function sendMessage(input: HTMLTextAreaElement, text: string, images: Att
 
   if (sent === "waiting") {
     // It shows in the queue, waiting for the connection; the field stays as it is.
-    drawAgentBody();
+    logStale.notify();
     return true;
   }
 
   // Nothing went: the message and its images wait in the field again,
   // before anything typed since, under the note that says why.
   backInField(draft ?? { typed: text, paths: [], images });
-  drawAgentBody();
+  logStale.notify();
   drawAgentAttached();
   return false;
 }
@@ -598,13 +535,13 @@ export async function sendPrompt(text: string) {
   } else {
     const mine = { kind: "user", text }, seen = seenNow();
     appendEntry(mine);
-    drawAgentBody();
+    logStale.notify();
     const sent = await sendText({ prompt: outgoing(text, []) }, seen);
     ok = sent !== "failed";
 
     if (sent !== "sent") {
       removeEntry(mine);
-      drawAgentBody();
+      logStale.notify();
     }
   }
 
@@ -657,7 +594,7 @@ export async function readOutbox(o: OpenAgent) {
 
     const known = (list: readonly AgentSession[]) => list.find(s => s.machine_id === o.machine_id && s.id === listed.session);
     const resumed = known(sessions) ?? known(await loadSessions());
-    if (resumed && AG.open === o) openAgent(resumed, { back: AG.back });
+    if (resumed && AG.open === o) sessionWanted.notify({ row: resumed, back: AG.back });
   } catch (e) {
     console.warn("reading the outbox:", e);
   }
@@ -684,7 +621,7 @@ listen<OutboxChanged>("outbox-changed", ({ payload }) => {
   const o = AG.open;
   if (!o || !sameSession(o, { machine_id: payload.machine_id, agent: payload.agent, id: payload.session })) return;
   // The conversation goes on in the session that resumed, in the background.
-  if (payload.resumed) { openAgent(payload.resumed, { back: AG.back }); return; }
+  if (payload.resumed) { sessionWanted.notify({ row: payload.resumed, back: AG.back }); return; }
   showOutbox(payload.rows, payload.revision);
 });
 
@@ -704,13 +641,13 @@ async function takeOutbox(id: number): Promise<Draft | null> {
     return draftOf(await invoke<Taken>("outbox_take", { id }));
   } catch (e) {
     setNote(String(e));
-    drawAgentBody();
+    logStale.notify();
     return null;
   }
 }
 
 /// Takes every message waiting on this device for `o` out, oldest first.
-async function drainOutbox(o: OpenAgent): Promise<Draft[]> {
+export async function drainOutbox(o: OpenAgent): Promise<Draft[]> {
   try {
     const taken = await invoke<Taken[] | null>("outbox_drain", where(o));
     return (taken ?? []).map(draftOf);

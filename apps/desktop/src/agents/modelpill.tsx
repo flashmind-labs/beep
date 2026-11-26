@@ -5,20 +5,15 @@ import { modelPickHost, showAgentControl, showAgentControlFor } from "./composer
 import type { SessionPick } from "./agentmodels.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { harnessesOn, keepEffort, modelId } from "./agentpick.ts";
-import { canContinueElsewhere, type ContinuePick } from "./continue-state.ts";
+import { canContinueElsewhere } from "./continue-state.ts";
 import { closedPicker, drawPicker, type Picked, pillContent } from "./agentpicker.tsx";
 import { knownModels, modelsOn } from "./model-store.ts";
 import { type AgentRow, AG, canTakeOver, ensureAgentHosts } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";
-import { SWITCHES, sessionPicks, setNote } from "./open-state.ts";
-import { drawAgentBody } from "./logview.tsx";
+import { SWITCHES, continuePicks, logStale, resumePicks, sessionPicks, setNote } from "./open-state.ts";
 import { resendPrompt, steerAgent } from "./messages.ts";
 import { perfLayer, perfOpen } from "../ui/perf.ts";
 
-export const resumePicks = new Map<string, SessionPick>();
-/// The harness, model and thinking a chat goes on with at its next message,
-/// by session id, when it was not its own harness. The one place it is kept.
-export const continuePicks = new Map<string, ContinuePick>();
 /// The model pill, which the picker opens from.
 const modelPill = createRef<HTMLButtonElement>();
 /// The session whose failed prompt goes again once a model is picked.
@@ -187,7 +182,7 @@ export async function switchSessionModel(s: AgentRow, next: SessionPick, what: "
     }
   } else if (what === "effort" ? was.effort : was.model) {
     setNote(`A running session cannot go back to Default; pick ${what === "effort" ? "a level" : "a model"} by name.`);
-    drawAgentBody();
+    logStale.notify();
   }
 
   drawModelPicker();

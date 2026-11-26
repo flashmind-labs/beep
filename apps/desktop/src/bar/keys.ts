@@ -4,7 +4,8 @@ import { logSearchSources, revealLogUnit, watchLogSearch } from "../agents/logwi
 import type { ChatBody } from "../ui/turn.ts";
 import { commandKey, WINDOWS } from "../ui/platform.ts";
 import { closeAgentNewMenus } from "../agents/agentnew.tsx";
-import { agentBack, agentKeys } from "../agents/agents.ts";
+import { agentKeys } from "../agents/agents.ts";
+import { agentBack } from "../agents/agents-list.ts";
 import { agentNewKeys } from "../agents/agentnew.tsx";
 import { $, bar, newChat, PANE, S } from "./core.ts";
 import { closeFilesMenu } from "../agentpane/files.ts";

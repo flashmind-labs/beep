@@ -10,10 +10,13 @@ import { Channel, invoke } from "../ui/tauri.ts";
 import { joinRuns, viewRead } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
 import { mergePage } from "./open-page.ts";
-import { applyAgentPage, pollAgent } from "./session.tsx";
-import { isOpen, setReadNote } from "./open-state.ts";
+import { isOpen, readWanted, setReadNote } from "./open-state.ts";
+import { signal } from "../ui/signal.ts";
 import { paneShown } from "../ui/active.ts";
 import { publishTurn } from "../plugins/plugins-state.ts";
+
+/// A pushed update of the open session `open`, due to be shown: its page applies it.
+export const pushedPage = signal<{ open: OpenAgent; page: AgentPage; read: number; replace: boolean }>();
 
 interface FeedUpdate extends TranscriptUpdate<AgentPage> {
   modes: AgentModes | null;
@@ -51,7 +54,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
 
       if (isOpen(open)) {
         flushDraw(true);
-        void pollAgent(true);
+        readWanted.notify(true);
       }
 
       return;
@@ -81,10 +84,10 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     AG.link = failed.link;
     setReadNote(failed.note);
     drawAgentBody();
-    void pollAgent();
+    readWanted.notify(false);
   },
   // A node without the follow, or one that failed to open it: the shown session is read instead.
-  failed: o => { if (isOpen(o) && paneShown()) void pollAgent(); },
+  failed: o => { if (isOpen(o) && paneShown()) readWanted.notify(false); },
 });
 
 /// What the app kept of a session, as `transcript_kept` gives it.
@@ -151,7 +154,7 @@ export function flushDraw(now = false) {
   if (!now && isOpen(next.open) && !paneShown()) return;
   held = null;
 
-  if (isOpen(next.open)) applyAgentPage(next.open, next.page, next.read, next.replace, true);
+  if (isOpen(next.open)) pushedPage.notify({ open: next.open, page: next.page, read: next.read, replace: next.replace });
   else if (AG.open === next.open && AG.page) mergePage(next.page, next.replace);
 }
 

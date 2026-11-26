@@ -1,8 +1,10 @@
-import { SessionPicks } from "./agentmodels.ts";
+import { SessionPicks, type SessionPick } from "./agentmodels.ts";
+import type { ContinuePick } from "./continue-state.ts";
+import { signal } from "../ui/signal.ts";
 import { sentText } from "./agentlog.ts";
 import { disposeLogShell } from "./log-shell.tsx";
 import { sessionKey } from "./conversation-state.ts";
-import { S } from "../bar/core.ts";
+import { type AgentReturn, S } from "../bar/core.ts";
 import type { ChatBody } from "../ui/turn.ts";
 import { type AgentQuestion, type AgentRow, type AgentPage, type OpenAgent, AG, AGENT_ACTIVE, canTakeOver, openModes } from "./agents-state.ts";
 import { setFirstMessage } from "./open-page.ts";
@@ -88,4 +90,23 @@ export function hasModes() {
 /// so an answer reaches only the question it was shown for.
 export function questionKey(q: AgentQuestion, session: OpenAgent) {
   return JSON.stringify([session.machine_id, session.agent, session.session, q.id, q.text, q.detail, q.options.map(o => [o.id, o.name, o.allow])]);
+}
+
+/// The model and thinking an ended session resumes with, by session id.
+export const resumePicks = new Map<string, SessionPick>();
+/// The harness, model and thinking a chat goes on with at its next message,
+/// by session id, when it was not its own harness. The one place it is kept.
+export const continuePicks = new Map<string, ContinuePick>();
+
+/// The open session's log changed: its page draws it again.
+export const logStale = signal();
+/// The open session is to be read or followed again: `true` reads even while the view is hidden.
+export const readWanted = signal<boolean>();
+/// A session row to show, and where Esc goes from it: the page opens it.
+export const sessionWanted = signal<{ row: AgentRow; back: AgentReturn }>();
+
+/// Follows the open session again after showing it or sending a message.
+export function resumeFollow() {
+  AG.changed = Date.now();
+  readWanted.notify(false);
 }

@@ -11,7 +11,7 @@ import { FolderChoice, NewAgentNotes } from "./start-composer-view.tsx";
 import { ChoiceMenuView, type ChoiceAction, type ChoiceMenu, type ChoiceRow } from "./choice-menu-view.tsx";
 import { AccountChoice, BaseChoice, BaseInput, FolderInput } from "./choice-extra-view.tsx";
 import { go } from "../center/nav.ts";
-import { renderAgents } from "./agents.ts";
+import { renderAgents } from "./agents-list.ts";
 import { AG, accountsOf, type AgentHost, ensureAgentHosts, loadAccountNames, onAgentHosts, sentImage, type SentImage, type Started } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";
 import { ASSISTANT_WORDS, TASK_WORDS, assistantHost, resolveAssistant } from "./assistant-state.ts";

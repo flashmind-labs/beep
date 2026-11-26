@@ -3,7 +3,7 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { SessionField, SessionHead } from "./session-frame.tsx";
 import { agentMessage, sessionBody, showSessionFrame } from "./session-frame-state.ts";
-import { followsOnly, isOpen, keepLog, keptLogs, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
+import { followsOnly, isOpen, keepLog, keptLogs, readWanted, resumeFollow, sessionPicks, sessionWanted, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.tsx";
@@ -16,7 +16,7 @@ import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/med
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, activateMentions, rememberMentionImages, setAttachError } from "./mentions.ts";
-import { agentBack } from "./agents.ts";
+import { agentBack } from "./agents-list.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, AG, openModes, openTasks, sessionUsage, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, canTakeOver, openOf, where } from "./agents-state.ts";
 import { agentKind } from "./agent-kind.ts";
 import { agentAttachError, drawAgentAttached, removeLastAttachment } from "./attachments-view.tsx";
@@ -44,7 +44,7 @@ import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
 import { isNativeSession, nativeUpdate } from "./native-session-state.ts";
 import { type AgentStarted, isStarting } from "./starting-state.ts";
-import { feed, flushDraw, forgetUnfollowedExtras, keptTranscript } from "./session-follow.ts";
+import { feed, flushDraw, forgetUnfollowedExtras, keptTranscript, pushedPage } from "./session-follow.ts";
 import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./session-head.tsx";
 import { agentClick, openParent, toolKey } from "./session-click.ts";
 import { askContinueHere, continueAfterTurn, keepContinuing } from "./continue-here.ts";
@@ -136,6 +136,10 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
     void pollAgent(true);
   });
 }
+
+readWanted.follow(readNow => void pollAgent(readNow));
+sessionWanted.follow(({ row, back }) => openAgent(row, { back }));
+pushedPage.follow(({ open, page, read, replace }) => applyAgentPage(open, page, read, replace, true));
 
 /// The parts that stay while the session updates: the head, the body and the field.
 /// With `inPlace` only the head and the conversation are replaced, so the pane
@@ -430,12 +434,6 @@ function shownFromModel(o: OpenAgent) {
   finishFirstRead(o, "ok");
 }
 
-/// Follows the open session again after showing it or sending a message.
-export function resumeAgent() {
-  AG.changed = Date.now();
-  pollAgent();
-}
-
 // A conversation opened again starts at its latest message. Gestures on
 // its previous visit no longer control the scroll.
 function followLatest(body: ChatBody | null) {
@@ -459,7 +457,7 @@ function restoreAgentScroll(b = sessionBody()) {
 
 // A pane shown again resumes its subscription.
 window.addEventListener("agent-pane-shown", () => {
-  if (S.view === "agent") resumeAgent();
+  if (S.view === "agent") resumeFollow();
 });
 
 void window.__TAURI__.webviewWindow.getCurrentWebviewWindow().listen("center-reopened", () => {
