@@ -442,11 +442,12 @@ pub(crate) async fn emit_snapshot(app: &AppHandle, mut row: LiveRow) {
     }
 
     let machine = app.state::<Arc<crate::fleet::Fleet>>().id();
-    app.state::<crate::fleet::events::Events>().publish_views(
-        machine,
-        beep_proto::node::events::Topic::keyed("forge", row.project_id.to_string()),
-        serde_json::json!({ "views": row.views }),
-    );
+    app.state::<crate::fleet::outbox::WindowOutbox>()
+        .publish_views(
+            machine,
+            beep_proto::node::events::Topic::keyed("forge", row.project_id.to_string()),
+            serde_json::json!({ "views": row.views }),
+        );
 
     if let Err(e) = app.emit("project-live", row) {
         log::debug!("the project page missed an update: {e}");

@@ -154,12 +154,6 @@ pub(crate) enum Change {
     Failed { topic: Topic, reason: String },
     /// What the page of a followed project hears.
     Project(LiveRow),
-    /// A node answered on a team topic; `None` when it refused.
-    Team {
-        machine: EndpointId,
-        topic: Topic,
-        value: Option<events::Value>,
-    },
     /// A node from before the topics of one screen said its terminals or tasks changed.
     TerminalsChanged { machine: EndpointId, topic: Topic },
     /// A node pushed the screen of one of its terminals or tasks.
@@ -170,12 +164,6 @@ pub(crate) enum Change {
     },
     /// A node pushed a folder's `files` topic; what is followed there is read again.
     FilesHeard { machine: EndpointId, update: Update },
-    /// The windows' subscriptions changed: what no window follows any more is forgotten. What
-    /// the windows follow is read when this is applied, not when it was rung: terminal output
-    /// may have kept it waiting while a window followed a folder again.
-    FilesKept,
-    /// The mesh's members changed: a team's record or a contact may have.
-    Mesh,
 }
 
 /// Takes the changes to `views::follow_changes`.

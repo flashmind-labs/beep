@@ -5,14 +5,13 @@ use crate::{
     error::Result,
     fleet::{
         Fleet,
-        events::Events,
+        outbox::WindowOutbox,
         session_mirror::Rows,
         view_signal::{Change, LiveRow, Update, View, Wants, changed_paths},
     },
     machines::terminals,
-    projects::team_live::{self, Heard},
 };
-use beep_proto::node::events::{self, MOVE_PROGRESS_TOPIC, Topic};
+use beep_proto::node::events::{MOVE_PROGRESS_TOPIC, Topic};
 use futures::{StreamExt, stream::FuturesUnordered};
 use iroh::EndpointId;
 use serde::Serialize;
@@ -201,11 +200,6 @@ pub(crate) async fn follow_changes(app: AppHandle, mut changes: mpsc::UnboundedR
             Change::Resumed => resumed(app.clone()),
             Change::Failed { topic, reason } => failed(&app, &topic, &reason),
             Change::Project(row) => project_changed(app.clone(), row),
-            Change::Team {
-                machine,
-                topic,
-                value,
-            } => team_heard(&app, machine, &topic, value.as_ref()),
             Change::TerminalsChanged { machine, topic } => {
                 terminals::list_changed(&app, machine, &topic)
             }
@@ -215,14 +209,6 @@ pub(crate) async fn follow_changes(app: AppHandle, mut changes: mpsc::UnboundedR
                 value,
             } => terminals::output_pushed(&app, machine, &topic, &value),
             Change::FilesHeard { machine, update } => files_heard(&app, machine, update),
-            Change::FilesKept => {
-                let wants = app.state::<Views>().wants();
-                app.state::<FilesLive>().keep(
-                    |machine, root| wants.node_wanted(machine, &Topic::keyed("files", root)),
-                    wants.window_labels(),
-                );
-            }
-            Change::Mesh => team_live::mesh_changed(&app),
         }
     }
 }
@@ -237,13 +223,13 @@ fn files_heard(app: &AppHandle, machine: EndpointId, update: Update) {
     let initial = update.initial;
 
     match app.state::<FilesLive>().reserve(wanted, machine, &update) {
-        Reserve::Unfollowed => return app.state::<Events>().dispatch_node(update),
+        Reserve::Unfollowed => return app.state::<WindowOutbox>().dispatch_node(update),
         Reserve::Busy => {}
         Reserve::Start => views.spawn(files_read(app.clone(), machine, update.clone())),
     }
 
     if initial {
-        app.state::<Events>().dispatch_node(update);
+        app.state::<WindowOutbox>().dispatch_node(update);
     }
 }
 
@@ -252,7 +238,7 @@ fn files_heard(app: &AppHandle, machine: EndpointId, update: Update) {
 async fn files_read(app: AppHandle, machine: EndpointId, mut update: Update) {
     loop {
         let views = files_live::read(&app, machine, &update.topic).await;
-        let events = app.state::<Events>();
+        let events = app.state::<WindowOutbox>();
 
         if !views.is_empty() {
             events.push_node_views(
@@ -273,23 +259,6 @@ async fn files_read(app: AppHandle, machine: EndpointId, mut update: Update) {
     }
 }
 
-/// A node answered on a team topic: the team pages hear it.
-fn team_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
-    match topic.name() {
-        events::TEAM_CARDS_TOPIC => {
-            if let Some(heard) = Heard::of(value) {
-                team_live::cards_heard(app, machine, topic, heard);
-            }
-        }
-        events::TEAM_INVITES_TOPIC => {
-            if let Some(events::Value::TeamInvites(invites)) = value {
-                team_live::invites_heard(app, invites.clone());
-            }
-        }
-        _ => {}
-    }
-}
-
 /// Source reads may wait for node projections, so they run outside the stream reader.
 fn changed(app: AppHandle, topic: Topic) {
     let views = app.state::<Views>();
@@ -297,7 +266,7 @@ fn changed(app: AppHandle, topic: Topic) {
     let affected = affected(topic.name());
 
     if affected.contains(&"home") {
-        app.state::<crate::center::home::HomeReads>().forget();
+        app.state::<crate::home::HomeReads>().forget();
     }
 
     let mut pending = views.pending.lock().unwrap_or_else(PoisonError::into_inner);
@@ -424,7 +393,7 @@ impl Views {
 /// Errors wake consumers without starting a read loop inside the source worker.
 fn failed(app: &AppHandle, topic: &Topic, reason: &str) {
     let machine = app.state::<Arc<Fleet>>().id();
-    let events = app.state::<Events>();
+    let events = app.state::<WindowOutbox>();
 
     for &name in affected(topic.name()) {
         let views: Vec<_> = commands(name)
@@ -563,7 +532,7 @@ async fn draw(app: AppHandle, name: &'static str) {
 
             if !data.is_empty() {
                 let machine = app.state::<Arc<Fleet>>().id();
-                app.state::<Events>().publish_views(
+                app.state::<WindowOutbox>().publish_views(
                     machine,
                     views_topic(name),
                     json!({ "views": data }),
@@ -619,7 +588,7 @@ async fn snapshot(app: &AppHandle, name: &'static str) -> Vec<View> {
 
     match name {
         "home" => {
-            let reads = app.state::<crate::center::home::HomeReads>();
+            let reads = app.state::<crate::home::HomeReads>();
             let (home, sessions, moves) =
                 tokio::join!(reads.read(app), reads.sessions(app), reads.moves(app));
             append(&mut views, "center_home", home);

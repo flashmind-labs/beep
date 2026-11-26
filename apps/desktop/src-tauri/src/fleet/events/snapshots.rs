@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
     time::{Duration, Instant},
 };
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 use uuid::Uuid;
 
 pub(crate) type Current = Option<std::result::Result<Value, String>>;
@@ -40,8 +40,41 @@ struct Held {
     machines: HashMap<EndpointId, Machine>,
 }
 
+/// What a node said on a topic, told to whoever follows `Snapshots::heard`.
+#[derive(Clone)]
+pub(crate) struct Heard {
+    pub(crate) machine: EndpointId,
+    pub(crate) topic: Topic,
+    /// What it answered; `None` when it refused the topic.
+    answer: Option<Arc<Snapshot>>,
+}
+
+impl Heard {
+    pub(crate) fn said(machine: EndpointId, snapshot: &Arc<Snapshot>) -> Self {
+        Self {
+            machine,
+            topic: snapshot.topic.clone(),
+            answer: Some(snapshot.clone()),
+        }
+    }
+
+    pub(crate) fn refused(machine: EndpointId, topic: Topic) -> Self {
+        Self {
+            machine,
+            topic,
+            answer: None,
+        }
+    }
+
+    pub(crate) fn value(&self) -> Option<&Value> {
+        self.answer.as_ref().map(|snapshot| &snapshot.value)
+    }
+}
+
 pub(crate) struct Snapshots {
     held: Mutex<Held>,
+    /// What the nodes say, for the bell and the team pages to follow.
+    heard: broadcast::Sender<Heard>,
     changed: watch::Sender<()>,
     /// The topics waits on a node hold open, whatever views are open, one entry per hold.
     holds: watch::Sender<Vec<(EndpointId, Topic)>>,
@@ -71,13 +104,27 @@ impl Default for Snapshots {
     fn default() -> Self {
         Self {
             held: Mutex::default(),
+            heard: broadcast::channel(HEARD_BACKLOG).0,
             changed: watch::channel(()).0,
             holds: watch::channel(Vec::new()).0,
         }
     }
 }
 
+/// How many nodes' answers wait for a follower before it is told it missed some.
+const HEARD_BACKLOG: usize = 1024;
+
 impl Snapshots {
+    /// Tells the followers what a node said.
+    pub(super) fn tell(&self, heard: Heard) {
+        // No follower is no news to anyone.
+        let _ = self.heard.send(heard);
+    }
+
+    pub(crate) fn heard(&self) -> broadcast::Receiver<Heard> {
+        self.heard.subscribe()
+    }
+
     /// Demands what waits hold on top of what views want, for the machines in `online`.
     pub(super) fn add_holds(
         &self,

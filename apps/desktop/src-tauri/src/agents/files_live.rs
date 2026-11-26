@@ -10,6 +10,7 @@ use crate::fleet::{
     Fleet,
     agents::PlaceAsk,
     asked::{BEFORE_WORKTREE_CREATORS, newer_than},
+    outbox::WindowOutbox,
     view_signal::{Update, View, join_changed},
 };
 use beep_proto::{
@@ -20,7 +21,7 @@ use iroh::EndpointId;
 use serde_json::json;
 use std::{
     collections::{HashMap, HashSet, hash_map::Entry},
-    sync::{Mutex, PoisonError},
+    sync::{Arc, Mutex, PoisonError},
 };
 use tauri::{AppHandle, Manager};
 
@@ -301,9 +302,23 @@ fn created_by(list: &[Worktree], session: Option<&SessionId>) -> Vec<Worktree> {
         .collect()
 }
 
+/// Ends what no window follows each time what the windows want changes, which is also when the
+/// nodes' streams are subscribed again.
+pub(crate) async fn follow(app: AppHandle) {
+    let mut wants = app.state::<WindowOutbox>().wants();
+
+    while wants.changed().await.is_ok() {
+        let wants = beep_proto::watched::read_and_update(&mut wants, Arc::clone);
+        app.state::<FilesLive>().keep(
+            |machine, root| wants.node_wanted(machine, &Topic::keyed("files", root)),
+            wants.window_labels(),
+        );
+    }
+}
+
 /// The views of everything followed for `topic`, each as the command it answers.
 pub(crate) async fn read(app: &AppHandle, machine: EndpointId, topic: &Topic) -> Vec<View> {
-    let fleet = app.state::<std::sync::Arc<Fleet>>();
+    let fleet = app.state::<Arc<Fleet>>();
     let (root, folder, places) = app.state::<FilesLive>().followed(machine, topic);
     let machine_id = machine.to_string();
     let trees = folder.trees.into_iter().map(|read| {

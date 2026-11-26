@@ -233,10 +233,14 @@ pub(crate) async fn sent(
         request: beep_mesh::machine::node_request(steer.clone())?,
     };
     let events = app.state::<crate::fleet::events::Events>();
+    let outbox = app.state::<crate::fleet::outbox::WindowOutbox>();
     let called = if window.is_empty() {
         events.call_machine(machine, operation, limit).await?
     } else {
-        match events.call(window, machine, operation.clone()).await? {
+        match events
+            .call(&outbox, window, machine, operation.clone())
+            .await?
+        {
             Some(reply) => Some(reply),
             None => events.call_machine(machine, operation, limit).await?,
         }

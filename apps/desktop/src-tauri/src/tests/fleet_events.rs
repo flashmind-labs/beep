@@ -1,4 +1,5 @@
 use super::*;
+use crate::fleet::outbox::*;
 use beep_proto::watched;
 use tokio::sync::mpsc;
 
@@ -35,7 +36,7 @@ fn interest(name: &str, machine: Option<EndpointId>) -> Interest {
     }
 }
 fn register(
-    events: &Events,
+    events: &WindowOutbox,
     label: &str,
     id: Uuid,
     topics: Vec<Interest>,
@@ -52,7 +53,7 @@ fn register(
 
 #[test]
 fn windows_share_demand_and_unused_nodes_are_not_dialed() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let local = iroh::SecretKey::generate().public();
     let remote = iroh::SecretKey::generate().public();
     let topics = vec![interest("files", Some(remote))];
@@ -111,7 +112,7 @@ fn early_topic_changes_and_late_cleanup_preserve_the_replacement() {
 
 #[test]
 fn dispatch_filters_topics_and_keeps_failed_windows_out_of_demand() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let heard = Arc::new(Mutex::new(Vec::new()));
     let output = heard.clone();
@@ -153,9 +154,10 @@ fn dispatch_filters_topics_and_keeps_failed_windows_out_of_demand() {
 #[tokio::test]
 async fn a_lost_command_reply_has_an_unknown_outcome_and_is_not_replayed() {
     let events = Events::default();
+    let outbox = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let _reader = register(
-        &events,
+        &outbox,
         "view",
         Uuid::new_v4(),
         vec![interest("agents", None)],
@@ -172,7 +174,7 @@ async fn a_lost_command_reply_has_an_unknown_outcome_and_is_not_replayed() {
         drop(call.reply);
     };
     let operation = Operation::Process(beep_proto::node::process::Request::List {});
-    let (result, ()) = tokio::join!(events.call("view", machine, operation), receive);
+    let (result, ()) = tokio::join!(events.call(&outbox, "view", machine, operation), receive);
     assert!(matches!(result, Err(DesktopError::Unsure(_))));
     assert!(input.try_recv().is_err());
 }
@@ -208,7 +210,7 @@ fn update(machine: EndpointId, sequence: u64, topic: &str) -> Update {
 
 #[test]
 fn an_attaching_window_is_primed_when_shared_demand_does_not_change() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let topics = vec![interest("reviews", Some(machine))];
     let _first = events
@@ -252,7 +254,7 @@ fn an_attaching_window_is_primed_when_shared_demand_does_not_change() {
 #[test]
 fn a_destroyed_window_cannot_register_or_retain_demand() {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let topics = vec![interest("agents", None)];
     assert!(
         events
@@ -287,7 +289,7 @@ fn a_destroyed_window_cannot_register_or_retain_demand() {
 
 #[test]
 fn an_overflowing_window_does_not_disrupt_existing_subscriptions() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let mut topics: Vec<_> = (0..events::MAX_TOPICS)
         .map(|number| interest(&format!("plugin_{number}"), None))
@@ -361,7 +363,7 @@ fn topic_limits_apply_separately_to_distinct_nodes() {
 
 #[test]
 fn broad_namespace_subscriptions_compact_redundant_resource_topics() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let local = iroh::SecretKey::generate().public();
     let topics = vec![interest("reviews", None)];
     let _first = events
@@ -400,7 +402,7 @@ fn broad_namespace_subscriptions_compact_redundant_resource_topics() {
 
 #[test]
 fn controller_topics_are_unscoped_and_ignore_other_nodes_snapshots() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let local = iroh::SecretKey::generate().public();
     let remote = iroh::SecretKey::generate().public();
     events.controller.set(local).unwrap();
@@ -571,7 +573,7 @@ fn a_new_node_stream_clears_old_resources_and_keeps_controller_owned_views() {
 
 #[test]
 fn new_windows_request_fresh_snapshots_and_retired_query_states_are_not_primed() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let mut refresh = events.refresh.subscribe();
     let topics = vec![interest("processes", Some(machine))];
@@ -615,7 +617,7 @@ fn new_windows_request_fresh_snapshots_and_retired_query_states_are_not_primed()
 
 #[test]
 fn output_subscribers_receive_their_projected_state_under_the_requested_topic() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let heard = Arc::new(Mutex::new(Vec::new()));
     let output = heard.clone();
@@ -652,7 +654,7 @@ fn scheduling_workers_does_not_consume_a_pending_mesh_swap() {
 
 #[test]
 fn an_unchanged_view_is_not_sent_again_and_a_new_window_still_gets_it() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let heard = Arc::new(Mutex::new(Vec::new()));
     let output = heard.clone();
@@ -690,7 +692,7 @@ fn an_unchanged_view_is_not_sent_again_and_a_new_window_still_gets_it() {
 
 #[test]
 fn a_window_that_takes_a_topic_is_primed_with_its_held_view() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let _one = register(
         &events,
@@ -731,7 +733,7 @@ fn a_window_that_takes_a_topic_is_primed_with_its_held_view() {
 }
 
 fn heard_window(
-    events: &Events,
+    events: &WindowOutbox,
     label: &str,
     id: Uuid,
     topics: Vec<Interest>,
@@ -757,7 +759,7 @@ fn heard_window(
 
 #[test]
 fn a_window_shown_again_within_grace_gets_only_what_changed_without_a_refresh() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let topics = vec![
         interest("reviews", Some(machine)),
@@ -827,7 +829,7 @@ fn a_window_shown_again_within_grace_gets_only_what_changed_without_a_refresh() 
 
 #[test]
 fn a_window_hidden_past_grace_releases_its_streams_and_restarts_them_when_shown() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let id = Uuid::new_v4();
     let heard = heard_window(&events, "one", id, vec![interest("reviews", Some(machine))]);
@@ -859,7 +861,7 @@ fn a_window_hidden_past_grace_releases_its_streams_and_restarts_them_when_shown(
 
 #[test]
 fn a_hidden_window_that_missed_a_dropped_update_is_primed_in_full() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let id = Uuid::new_v4();
     let heard = heard_window(&events, "one", id, vec![interest("files", Some(machine))]);
@@ -880,7 +882,7 @@ fn a_hidden_window_that_missed_a_dropped_update_is_primed_in_full() {
 
 #[test]
 fn topics_taken_while_hidden_are_primed_in_full_when_shown() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let _other = heard_window(
         &events,
@@ -913,7 +915,7 @@ fn topics_taken_while_hidden_are_primed_in_full_when_shown() {
 
 #[test]
 fn a_reader_that_attaches_again_with_a_sequence_gets_only_newer_updates() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let topics = vec![interest("files", Some(machine))];
     let _other = heard_window(&events, "other", Uuid::new_v4(), topics.clone());
@@ -959,7 +961,7 @@ fn a_reader_that_attaches_again_with_a_sequence_gets_only_newer_updates() {
 
 #[test]
 fn the_tray_keeps_the_agents_topic_subscribed_with_every_window_hidden_past_grace() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let id = Uuid::new_v4();
     let _window = heard_window(&events, "one", id, vec![interest("agents", None)]);
     events.registry.lock().unwrap().grace = Duration::ZERO;
@@ -980,7 +982,7 @@ fn the_tray_keeps_the_agents_topic_subscribed_with_every_window_hidden_past_grac
 
 #[test]
 fn standing_interests_of_different_holders_stay_apart_and_a_replaced_one_changes_the_demand() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     events
         .hold_set("tray", vec![interest("agents", None)])
         .unwrap();
@@ -1009,7 +1011,7 @@ fn standing_interests_of_different_holders_stay_apart_and_a_replaced_one_changes
 
 #[test]
 fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     events
         .hold_set("tray", vec![interest("agents", None)])
@@ -1042,7 +1044,7 @@ fn the_tray_standing_interest_keeps_the_stream_on_and_takes_no_updates() {
 
 #[test]
 fn a_standing_interest_in_a_view_has_it_neither_drawn_nor_kept() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     events
         .hold_set(
             "notices",
@@ -1061,7 +1063,7 @@ fn a_standing_interest_in_a_view_has_it_neither_drawn_nor_kept() {
 
 #[test]
 fn a_terminal_list_is_not_taken_for_a_terminals_output() {
-    let events = Events::default();
+    let events = WindowOutbox::default();
     let machine = iroh::SecretKey::generate().public();
     let output = Interest {
         machine: None,
@@ -1080,6 +1082,6 @@ fn a_terminal_list_is_not_taken_for_a_terminals_output() {
 }
 
 /// Whether a shown window wants the controller view `topic`, as `Views` hears it.
-fn wanted(events: &Events, topic: &Topic) -> bool {
+fn wanted(events: &WindowOutbox, topic: &Topic) -> bool {
     watched::read_sent(&events.wants, |wants| wants.controller_wanted(topic))
 }

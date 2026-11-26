@@ -7,7 +7,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
-        events::Events,
+        outbox::WindowOutbox,
         terminal_rows,
         terminals::{self as direct, Opened},
     },
@@ -211,7 +211,7 @@ pub(crate) fn output_pushed(app: &AppHandle, machine: EndpointId, topic: &Topic,
     };
     let pty = topic.name() == "terminal-output";
     let fleet = app.state::<Arc<Fleet>>();
-    let followed = app.state::<Events>().terminals_followed();
+    let followed = app.state::<WindowOutbox>().terminals_followed();
 
     for place in terminal_rows::places(&fleet) {
         if place.machine == machine
@@ -260,7 +260,7 @@ pub(crate) fn list_changed(app: &AppHandle, machine: EndpointId, topic: &Topic) 
     tauri::async_runtime::spawn(async move {
         loop {
             let fleet = app.state::<Arc<Fleet>>();
-            let followed = app.state::<Events>().terminals_followed();
+            let followed = app.state::<WindowOutbox>().terminals_followed();
 
             for place in terminal_rows::places(&fleet) {
                 if place.machine == machine && place.pty == pty && followed.contains(&place.id) {
@@ -297,7 +297,7 @@ fn publish_output(app: &AppHandle, fleet: &Arc<Fleet>, id: Uuid, output: Result<
             &error.to_string(),
         )),
     };
-    app.state::<Events>().publish_views(
+    app.state::<WindowOutbox>().publish_views(
         fleet.id(),
         Topic::keyed("terminal-output", id.to_string()),
         serde_json::json!({ "views": view.into_iter().collect::<Vec<_>>() }),

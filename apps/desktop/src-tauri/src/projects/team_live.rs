@@ -10,11 +10,14 @@
 use super::team::{InviteView, TeamCardsView, TeamView, invite_views, team_view};
 use crate::{
     error::Result,
-    fleet::projects::{FleetState, desk, named},
+    fleet::{
+        Fleet,
+        projects::{FleetState, desk, named},
+    },
 };
 use beep_fleet::Session;
 use beep_proto::node::{
-    events::{Topic, Value},
+    events::{TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic, Value},
     tools::{TeamCards, TeamInviteArgs},
 };
 use iroh::EndpointId;
@@ -24,6 +27,7 @@ use std::{
     sync::{Arc, Mutex, PoisonError},
 };
 use tauri::{AppHandle, Emitter, Manager, WebviewWindow};
+use tokio::sync::broadcast::error::RecvError;
 use uuid::Uuid;
 
 /// How often a node from before the topic is asked for a team's cards, while a page shows them.
@@ -166,7 +170,6 @@ impl Held {
     #[cfg(desktop)]
     fn interests(&self, me: EndpointId) -> Vec<crate::fleet::view_signal::Interest> {
         use crate::fleet::view_signal::Interest;
-        use beep_proto::node::events::{TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC};
 
         let cards = self
             .projects
@@ -284,11 +287,10 @@ impl TeamLive {
     fn hold(&self, app: &AppHandle) {
         #[cfg(desktop)]
         {
-            let fleet = app.state::<Arc<crate::fleet::Fleet>>();
+            let fleet = app.state::<Arc<Fleet>>();
             let interests = self.held().interests(fleet.id());
-            let events = app.state::<crate::fleet::events::Events>();
 
-            if let Err(error) = events.hold_set("team", interests) {
+            if let Err(error) = app.state::<crate::fleet::outbox::WindowOutbox>().hold_set("team", interests) {
                 log::warn!("a team page cannot follow its team: {error}");
             }
 
@@ -329,7 +331,7 @@ pub async fn team_invites(
 }
 
 /// A node answered on a project's cards topic.
-pub(crate) fn cards_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, heard: Heard) {
+fn cards_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, heard: Heard) {
     let Some(name) = topic.key() else {
         return;
     };
@@ -379,15 +381,57 @@ async fn keep_asking(app: AppHandle, id: Uuid) {
     }
 }
 
+/// Follows what the nodes say on the team topics, and the mesh: the record and the contacts are
+/// its, so a change to it sends them again.
+pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>) {
+    let mut heard = fleet.heard();
+    let mut changes = fleet.changes();
+
+    loop {
+        tokio::select! {
+            said = heard.recv() => match said {
+                Ok(said) => team_heard(&app, said.machine, &said.topic, said.value()),
+                Err(RecvError::Closed) => return,
+                // An answer was missed: ask again as when the mesh changes.
+                Err(RecvError::Lagged(_)) => mesh_changed(&app),
+            },
+            changed = changes.changed() => {
+                if !changed {
+                    return;
+                }
+
+                mesh_changed(&app);
+            }
+        }
+    }
+}
+
+/// A node answered on a team topic: the team pages hear it.
+fn team_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&Value>) {
+    match topic.name() {
+        TEAM_CARDS_TOPIC => {
+            if let Some(heard) = Heard::of(value) {
+                cards_heard(app, machine, topic, heard);
+            }
+        }
+        TEAM_INVITES_TOPIC => {
+            if let Some(Value::TeamInvites(invites)) = value {
+                invites_heard(app, invites.clone());
+            }
+        }
+        _ => {}
+    }
+}
+
 /// The invites waiting on this desktop's node changed.
-pub(crate) fn invites_heard(app: &AppHandle, invites: Vec<TeamInviteArgs>) {
+fn invites_heard(app: &AppHandle, invites: Vec<TeamInviteArgs>) {
     app.state::<TeamLive>().held().waiting = Some(invites);
     let app = app.clone();
     tauri::async_runtime::spawn(async move { emit_invites(&app).await });
 }
 
 /// The mesh changed: a team's record or a contact may have.
-pub(crate) fn mesh_changed(app: &AppHandle) {
+fn mesh_changed(app: &AppHandle) {
     let ids: Vec<Uuid> = app
         .state::<TeamLive>()
         .held()

@@ -16,6 +16,7 @@ pub(crate) mod home_signal;
 #[cfg(desktop)]
 mod mesh;
 pub(crate) mod node_actor;
+pub(crate) mod outbox;
 pub(crate) mod phone;
 pub(crate) mod projects;
 pub(crate) mod session_lists;
@@ -502,6 +503,11 @@ impl Fleet {
     /// What the machines of the mesh last reported.
     pub fn status(&self) -> &Status {
         &self.status
+    }
+
+    /// What the nodes say on the topics the windows and standing interests follow.
+    pub(crate) fn heard(&self) -> tokio::sync::broadcast::Receiver<events::Heard> {
+        self.snapshots.heard()
     }
 
     /// Wakes on each change to the mesh or to its list of machines.

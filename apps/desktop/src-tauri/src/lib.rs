@@ -7,9 +7,11 @@ mod center;
 mod chat;
 mod error;
 mod fleet;
+mod home;
 mod machines;
 mod markdown;
 mod navigation;
+mod notes;
 mod notices;
 mod palette;
 mod platform;
@@ -18,6 +20,7 @@ mod projects;
 mod report;
 mod settings;
 mod store;
+mod targets;
 mod tray;
 mod views;
 
@@ -162,9 +165,9 @@ pub fn run() {
                 bar::hide(window.app_handle());
             }
             #[cfg(mobile)]
-            WindowEvent::Suspended => notices::notify::set_foreground(false),
+            WindowEvent::Suspended => platform::notify::set_foreground(false),
             #[cfg(mobile)]
-            WindowEvent::Resumed => notices::notify::set_foreground(true),
+            WindowEvent::Resumed => platform::notify::set_foreground(true),
             WindowEvent::CloseRequested { api, .. } => {
                 #[cfg(desktop)]
                 if !platform::update::relaunching(window.app_handle()) {
@@ -179,7 +182,7 @@ pub fn run() {
                 let label = window.label();
                 app.state::<agents::shown::AgentsShown>().clear(label);
                 app.state::<agents::follow::Follows>().clear(label);
-                app.state::<fleet::events::Events>().clear(label);
+                app.state::<fleet::outbox::WindowOutbox>().clear(label);
                 app.state::<projects::live::Followed>().clear(label);
                 app.state::<projects::team_live::TeamLive>()
                     .clear(app, label);
@@ -333,14 +336,14 @@ pub fn run() {
             bar::window::resize_bar,
             bar::zoom::set_zoom_level,
             bar::zoom::zoom_level,
-            center::home::notes_answer,
-            notices::history::notes_dismiss,
-            notices::history::skill_keep,
-            notices::history::skill_reveal,
-            notices::history::notes_list,
-            notices::history::notes_read,
-            center::home::center_answer_agent,
-            center::home::center_home,
+            home::notes_answer,
+            notes::notes_dismiss,
+            notes::skill_keep,
+            notes::skill_reveal,
+            notes::notes_list,
+            notes::notes_read,
+            home::center_answer_agent,
+            home::center_home,
             center::home_frame::keep_home_frame,
             center::targets::center_open,
             center::targets::center_pending,
@@ -671,11 +674,11 @@ fn setup(
     {
         app.manage(std::sync::Mutex::new(guard));
     }
-    let (actions, asked) = notices::notify::Actions::new();
+    let (actions, asked) = platform::notify::Actions::new();
     tauri::async_runtime::spawn(notices::follow_actions(app.handle().clone(), asked));
     app.manage(actions);
     #[cfg(target_os = "macos")]
-    notices::notify::init(app.handle());
+    platform::notify::init(app.handle());
     #[cfg(all(unix, desktop))]
     beep_node::machine::raise_open_files();
     #[cfg(target_os = "macos")]
@@ -877,25 +880,25 @@ fn setup(
     app.manage(center::window::OnScreen::default());
     app.manage(agents::follow::Follows::default());
     app.manage(fleet::events::Events::default());
+    app.manage(fleet::outbox::WindowOutbox::default());
     app.manage(views::Views::new(
-        app.state::<fleet::events::Events>().wants(),
+        app.state::<fleet::outbox::WindowOutbox>().wants(),
     ));
-    app.manage(center::home::HomeReads::new(
+    app.manage(home::HomeReads::new(
         app.state::<Arc<fleet::session_mirror::SessionMirror>>()
             .watch(),
     ));
     // What it applies is managed above: a change handled before that would panic it.
     tauri::async_runtime::spawn(views::follow_changes(handle.clone(), changes));
+    tauri::async_runtime::spawn(agents::files_live::follow(handle.clone()));
     views::listen(&handle);
     tauri::async_runtime::spawn(projects::git_items::forge_source(
         handle.clone(),
-        app.state::<fleet::events::Events>().forge(),
+        app.state::<fleet::outbox::WindowOutbox>().forge(),
     ));
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
-    app.manage(Arc::new(notices::history::Notes::load(
-        dir.join("notes.json"),
-    )));
+    app.manage(Arc::new(notes::Notes::load(dir.join("notes.json"))));
     app.manage(machines::terminals::Attached::default());
     app.manage(machines::devices::Attached::default());
     app.state::<machines::this_mac::Machine>().start();
@@ -927,10 +930,8 @@ fn setup(
         desks.clone(),
     ));
     tauri::async_runtime::spawn(notices::follow(handle.clone(), fleet.clone(), desks));
-    tauri::async_runtime::spawn(notices::history::follow_reads(
-        handle.clone(),
-        fleet.clone(),
-    ));
+    tauri::async_runtime::spawn(projects::team_live::follow(handle.clone(), fleet.clone()));
+    tauri::async_runtime::spawn(notes::follow_reads(handle.clone(), fleet.clone()));
     tauri::async_runtime::spawn(agents::sessions::follow_titles(
         handle.clone(),
         fleet.clone(),

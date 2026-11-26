@@ -1,13 +1,13 @@
 //! What the bell learns by looking at the mesh: a machine offline for
 //! `AWAY` and back, a temporary machine removed once gone for a day,
 //! sync conflicts on a machine, and a session move that failed. Each becomes
-//! a note in `history`.
+//! a note in `notes`.
 
-use super::history::{self, Note, NoteKind, now_ms};
+use crate::notes::{self, Note, NoteKind, now_ms};
 use crate::{
     beep::epoch_ms,
-    center::{AgentTarget, CenterTarget},
     fleet::Fleet,
+    targets::{AgentTarget, CenterTarget},
 };
 use beep_fleet::{
     Desk, MoveState, Session,
@@ -36,7 +36,7 @@ use std::{
 use tauri::{AppHandle, Manager};
 use tokio::{
     select,
-    sync::{broadcast::error::RecvError, watch},
+    sync::broadcast::error::RecvError,
     time::{Instant as TokioInstant, sleep_until},
 };
 
@@ -62,7 +62,6 @@ type Said = Vec<(String, BTreeSet<String>)>;
 /// conflicts it tells without asking anyone, how the moves to each machine stand, and whether
 /// a move of a machine that does not push them changed.
 pub(crate) struct Looks {
-    pushed: watch::Sender<u64>,
     said: Mutex<HashMap<EndpointId, Said>>,
     /// A machine's latest `move-progress`; a node from before it has none.
     moves: Mutex<HashMap<EndpointId, Vec<MoveEntry>>>,
@@ -73,7 +72,6 @@ pub(crate) struct Looks {
 impl Looks {
     pub(crate) fn new() -> Self {
         Self {
-            pushed: watch::channel(0).0,
             said: Mutex::default(),
             moves: Mutex::default(),
             moves_pushed: AtomicBool::new(false),
@@ -124,11 +122,8 @@ impl Looks {
 
                 self.moved.store(true, Ordering::Relaxed);
             }
-            _ => return,
+            _ => {}
         }
-
-        self.pushed
-            .send_modify(|count| *count = count.wrapping_add(1));
     }
 
     fn pushed_moves(&self) -> HashMap<EndpointId, Vec<MoveEntry>> {
@@ -142,12 +137,6 @@ impl Looks {
     fn take_said(&self) -> HashMap<EndpointId, Said> {
         std::mem::take(&mut *self.said.lock().unwrap_or_else(PoisonError::into_inner))
     }
-}
-
-/// A machine pushed `value` on `topic`: its sync carries its conflicts, and a change of the
-/// moves says a move may have failed.
-pub(crate) fn heard(app: &AppHandle, machine: EndpointId, topic: &str, value: &Value) {
-    app.state::<Looks>().hear(machine, topic, value);
 }
 
 /// The moves each machine last pushed, by machine; a machine from before `move-progress` has none.
@@ -166,7 +155,7 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
     let mut changes = fleet.changes();
     let mut local = beep_node::events::system().subscribe();
     let mut slow = Slow::default();
-    let mut pushed = app.state::<Looks>().pushed.subscribe();
+    let mut heard = fleet.heard();
     #[cfg(desktop)]
     let _standing = hold_pushes(&app, &fleet);
 
@@ -221,11 +210,15 @@ pub(crate) async fn follow(app: AppHandle, fleet: Arc<Fleet>, session: Arc<Sessi
                 Ok(_) | Err(RecvError::Closed) => {}
                 Err(RecvError::Lagged(_)) => slow.wanted = true,
             },
-            changed = pushed.changed() => {
-                if changed.is_err() {
-                    return;
+            said = heard.recv() => match said {
+                Ok(said) => {
+                    if let Some(value) = said.value() {
+                        looks.hear(said.machine, said.topic.name(), value);
+                    }
                 }
-            }
+                Err(RecvError::Closed) => return,
+                Err(RecvError::Lagged(_)) => slow.wanted = true,
+            },
             () = async {
                 match wake {
                     Some(wake) => sleep_until(TokioInstant::from_std(wake)).await,
@@ -275,7 +268,7 @@ impl Slow {
 /// failed move on one is told as it comes.
 #[cfg(desktop)]
 fn hold_pushes(app: &AppHandle, fleet: &Arc<Fleet>) -> Option<()> {
-    use crate::fleet::{events::Events, view_signal::Interest};
+    use crate::fleet::{events::Events, outbox::WindowOutbox, view_signal::Interest};
     use beep_proto::node::events::Topic;
 
     let events = app.state::<Events>();
@@ -286,7 +279,7 @@ fn hold_pushes(app: &AppHandle, fleet: &Arc<Fleet>) -> Option<()> {
         })
         .to_vec();
 
-    match events.hold_set("notices", interests) {
+    match app.state::<WindowOutbox>().hold_set("notices", interests) {
         Ok(()) => {
             events.start(app.clone(), fleet.clone());
             Some(())
@@ -334,11 +327,11 @@ fn machines(app: &AppHandle, fleet: &Fleet, away: &mut Away<EndpointId>) {
                         name,
                     )
                 };
-                history::record(app, note);
+                notes::record(app, note);
             }
             Change::Back(id) => {
                 let note = machine_note(id);
-                history::finish(app, |n| n.id == note);
+                notes::finish(app, |n| n.id == note);
             }
         }
     }
@@ -365,7 +358,7 @@ async fn temporaries(app: &AppHandle, fleet: &Fleet, leftovers: &mut Leftovers<E
             format!("{} was removed after a day offline", device.name),
             device.name,
         );
-        history::record(app, note);
+        notes::record(app, note);
     }
 }
 
@@ -375,7 +368,7 @@ fn machine_note(id: EndpointId) -> String {
 
 /// The conflicts the open note `id` holds, one per line.
 fn kept_lines(app: &AppHandle, id: &str) -> BTreeSet<String> {
-    history::get(app, id)
+    notes::get(app, id)
         .filter(|note| !note.done)
         .map(|note| note.text.lines().map(str::to_owned).collect())
         .unwrap_or_default()
@@ -394,7 +387,7 @@ fn sync(
         let id = format!("conflict:{project}:{machine}");
         match conflicts.step(&id, &paths, || kept_lines(app, &id)) {
             Settle::Same => {}
-            Settle::Settled => history::finish(app, |note| note.id == id),
+            Settle::Settled => notes::finish(app, |note| note.id == id),
             Settle::Raise => {
                 let title = match paths.len() {
                     1 => format!("Sync conflict in {project}"),
@@ -405,7 +398,7 @@ fn sync(
                     text,
                     ..Note::new(NoteKind::Conflict, id, title, fleet.name_of(machine))
                 };
-                history::record(app, note);
+                notes::record(app, note);
             }
         }
     }
@@ -436,7 +429,7 @@ async fn skill_conflicts(app: &AppHandle, fleet: &Fleet, conflicts: &mut Conflic
     let mut ids: HashSet<String> = now.iter().map(|c| skill_note(&c.name)).collect();
     // A note still open for a name that no longer differs is settled.
     ids.extend(
-        history::open_of(app, NoteKind::SkillConflict)
+        notes::open_of(app, NoteKind::SkillConflict)
             .into_iter()
             .map(|note| note.id),
     );
@@ -448,7 +441,7 @@ async fn skill_conflicts(app: &AppHandle, fleet: &Fleet, conflicts: &mut Conflic
             .unwrap_or_default();
         match conflicts.step(&id, &copies, || kept_lines(app, &id)) {
             Settle::Same => {}
-            Settle::Settled => history::finish(app, |note| note.id == id),
+            Settle::Settled => notes::finish(app, |note| note.id == id),
             Settle::Raise => {
                 if let Some(conflict) = conflict {
                     let note = Note {
@@ -462,7 +455,7 @@ async fn skill_conflicts(app: &AppHandle, fleet: &Fleet, conflicts: &mut Conflic
                             "Skills".to_owned(),
                         )
                     };
-                    history::record(app, note);
+                    notes::record(app, note);
                 }
             }
         }
@@ -526,7 +519,7 @@ async fn failed_moves(
             let id = format!("move:{}:{}", record.id, record.at);
             (record, id)
         })
-        .filter(|(_, id)| !told.contains(id) && history::get(app, id).is_none())
+        .filter(|(_, id)| !told.contains(id) && notes::get(app, id).is_none())
         .collect();
     let mut silent = Vec::new();
 
@@ -593,7 +586,7 @@ async fn failed_moves(
 }
 
 fn tell_failed(app: &AppHandle, fleet: &Fleet, record: &SessionMove, id: String, reason: String) {
-    history::record(
+    notes::record(
         app,
         Note {
             text: reason,

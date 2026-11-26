@@ -5,7 +5,7 @@ use crate::{
     error::Result,
     fleet::{
         Fleet,
-        events::Events,
+        outbox::WindowOutbox,
         projects::{FleetState, desk},
         view_signal::View as ViewUpdate,
     },
@@ -158,7 +158,7 @@ pub(crate) async fn forge_source(app: AppHandle, mut active: watch::Receiver<boo
                             if current != previous {
                                 previous = current;
                                 let fleet = app.state::<Arc<Fleet>>();
-                                app.state::<Events>().publish_views(fleet.me, Topic::new("forge"),
+                                app.state::<WindowOutbox>().publish_views(fleet.me, Topic::new("forge"),
                                     serde_json::json!({ "views": [{ "command": "git_items", "args": {}, "value": items }] }));
                             }
                         },
@@ -167,7 +167,7 @@ pub(crate) async fn forge_source(app: AppHandle, mut active: watch::Receiver<boo
                             previous = None;
                             let fleet = app.state::<Arc<Fleet>>();
                             let view = ViewUpdate::failed("git_items", serde_json::json!({}), &error.to_string());
-                            app.state::<Events>().publish_views(fleet.me, Topic::new("forge"), serde_json::json!({ "views": [view] }));
+                            app.state::<WindowOutbox>().publish_views(fleet.me, Topic::new("forge"), serde_json::json!({ "views": [view] }));
                         },
                     }
                 }

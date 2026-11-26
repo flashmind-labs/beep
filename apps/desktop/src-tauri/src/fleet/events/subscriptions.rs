@@ -1,7 +1,8 @@
 //! One snapshot worker per demanded topic, independent of action delivery.
 
-use super::{Events, Fleet, Snapshots, Update, commands::retrying, controller_topic, invalidate};
+use super::{Fleet, Heard, Snapshots, Update, commands::retrying, invalidate};
 use crate::error::{DesktopError, Result};
+use crate::fleet::outbox::{WindowOutbox, controller_topic};
 use crate::fleet::{
     session_mirror::SessionMirror,
     view_signal::{Change, moving, ring},
@@ -90,9 +91,9 @@ impl SubscriptionWorker {
             generation,
         };
         let mut query_changes = fleet.snapshots.changes();
-        let mut refresh = app.state::<Events>().refresh.subscribe();
+        let mut refresh = app.state::<WindowOutbox>().refresh();
         let queries = fleet.snapshots.queries_for(machine, topic);
-        app.state::<Events>()
+        app.state::<WindowOutbox>()
             .forget_queries(machine, &fleet.snapshots.queries(machine));
         let mut sent = queries.clone();
         log::debug!(
@@ -122,7 +123,7 @@ impl SubscriptionWorker {
         loop {
             if dirty && watches.is_empty() {
                 let queries = fleet.snapshots.queries_for(machine, topic);
-                app.state::<Events>()
+                app.state::<WindowOutbox>()
                     .forget_queries(machine, &fleet.snapshots.queries(machine));
 
                 if queries == sent {
@@ -188,22 +189,21 @@ impl SubscriptionWorker {
                             };
                             log::debug!("node snapshot received machine={machine} generation={generation} query={:?} topic={} revision={}", snapshot.query, snapshot.topic.name(), snapshot.revision);
                             revision = snapshot.revision;
+                            let snapshot = Arc::new(snapshot);
                             let Some(initial) = fleet.snapshots.install(machine, generation, &snapshot) else { continue; };
 
                             if snapshot.topic.name() == super::TOOL_UPDATES {
                                 tool_updates_heard(app, fleet, machine, Some(&snapshot.value));
                             }
 
-                            team_heard(app, machine, &snapshot.topic, Some(&snapshot.value));
+                            fleet.snapshots.tell(Heard::said(machine, &snapshot));
 
                             if snapshot.topic.name() == "terminals" {
                                 fleet.projections().terminal_pushes.heard(machine, Some(&snapshot.value));
                             }
 
-                            crate::notices::heard(app, machine, snapshot.topic.name(), &snapshot.value);
-
                             if let events::Value::Resources(resources) = &snapshot.value {
-                                app.state::<Events>().resources(machine, &snapshot.topic, resources);
+                                app.state::<WindowOutbox>().resources(machine, &snapshot.topic, resources);
                             }
 
                             // The first agents list of a subscription is pushed to the mirror too: nothing reads it back.
@@ -229,15 +229,15 @@ impl SubscriptionWorker {
                                 // The windows get the screen as the view the command gives.
                                 ring(app, Change::OutputPushed { machine, topic: snapshot.topic.clone(), value: snapshot.value.clone() });
                             } else if (machine != fleet.me || !controller_topic(&snapshot.topic))
-                                && app.state::<Events>().node_wanted(machine, &snapshot.topic) {
+                                && app.state::<WindowOutbox>().node_wanted(machine, &snapshot.topic) {
                                 let data = serde_json::to_value(&snapshot.value).ok();
-                                let update = Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic, seq: 0 };
+                                let update = Update { machine_id: machine.to_string(), revision: snapshot.revision, query: snapshot.query, initial, data, topic: snapshot.topic.clone(), seq: 0 };
 
                                 // A folder's followed reads go out as views in its place, so its readers have nothing to read again.
                                 if update.topic.name() == "files" {
                                     ring(app, Change::FilesHeard { machine, update });
                                 } else {
-                                    app.state::<Events>().dispatch_node(update);
+                                    app.state::<WindowOutbox>().dispatch_node(update);
                                 }
                             }
                         },
@@ -249,7 +249,7 @@ impl SubscriptionWorker {
                                 tool_updates_heard(app, fleet, machine, None);
                             }
                             invalidate(app, machine, &topic, None);
-                            team_heard(app, machine, &topic, None);
+                            fleet.snapshots.tell(Heard::refused(machine, topic.clone()));
 
                             if topic.name() == "terminals" {
                                 fleet.projections().terminal_pushes.heard(machine, None);
@@ -259,8 +259,8 @@ impl SubscriptionWorker {
                                 ring(app, Change::Failed { topic: topic.clone(), reason: reason.clone() });
                             }
 
-                            if (machine != fleet.me || !controller_topic(&topic)) && app.state::<Events>().node_wanted(machine, &topic) {
-                                app.state::<Events>().dispatch_node(Update { machine_id: machine.to_string(), revision, query, initial: false, data: Some(serde_json::json!({ "error": reason })), topic, seq: 0 });
+                            if (machine != fleet.me || !controller_topic(&topic)) && app.state::<WindowOutbox>().node_wanted(machine, &topic) {
+                                app.state::<WindowOutbox>().dispatch_node(Update { machine_id: machine.to_string(), revision, query, initial: false, data: Some(serde_json::json!({ "error": reason })), topic, seq: 0 });
                             }
                         },
                         Reply::Error { id, reason } if watches.remove(&id) => {
@@ -271,23 +271,6 @@ impl SubscriptionWorker {
                 }
             }
         }
-    }
-}
-
-/// A node answered on a team topic: the team pages hear it.
-fn team_heard(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option<&events::Value>) {
-    if matches!(
-        topic.name(),
-        events::TEAM_CARDS_TOPIC | events::TEAM_INVITES_TOPIC
-    ) {
-        ring(
-            app,
-            Change::Team {
-                machine,
-                topic: topic.clone(),
-                value: value.cloned(),
-            },
-        );
     }
 }
 
