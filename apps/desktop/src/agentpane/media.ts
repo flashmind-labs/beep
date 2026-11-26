@@ -25,7 +25,7 @@ import { frameResize } from "../ui/dom.ts";
 import { draw, flipTab, pickPhoneTab, syncCounts } from "./media-draw.ts";
 import { desktopChatPane, dockHolding, dockOf, docked, dockWidth, drawPaneNow, openTabs, paneModel, paneOf, place, setHidden, setOn, shell, shellResized, shownDocks, watchShell, tabIds } from "./media-layout.ts";
 import { loadLayout, memory, readTerminal, rememberPane, savedPane, saveLayout, startingTerminals } from "./pane-memory.ts";
-import { P, newFileEdit, paneAsked, type MediaTab, type PaneWant, type PaneSession, type SplitSession, type WorkFile } from "./pane-state.ts";
+import { P, newFileEdit, paneTarget, wantPane, type MediaTab, type PaneWant, type PaneSession, type SplitSession, type WorkFile } from "./pane-state.ts";
 import { closeTab, dropTab, touchTab } from "./pane-tabs.ts";
 import { onPhone, savedIn } from "../ui/platform.ts";
 
@@ -116,6 +116,7 @@ export function restorePane() {
 }
 
 export function closePaneTabs() {
+  wantPane(null);
   rememberPane();
   memory.released = true;
   for (const t of openTabs()) {
@@ -506,14 +507,15 @@ function readWorktrees(s: PaneSession) {
 // keep their views of the last few folders, to show again as they were.
 changeListeners.push(() => { if (S.view !== "agent") { closePaneTabs(); unfollowFiles(); P.watch?.disconnect(); P.watch = null; watchShell(null); } });
 
-// The tabs below record what they are to show; the pane shows it.
-paneAsked.subscribe(({ wanted }) => {
-  if (!wanted) return;
-  paneAsked.setState({ wanted: null });
-  showWanted(wanted);
+// The tab that should show, and its file: the pane makes itself match it.
+let shownTarget: PaneWant | null = null;
+paneTarget.subscribe(({ target }) => {
+  if (target === shownTarget) return;
+  shownTarget = target;
+  if (target) showTarget(target);
 });
 
-function showWanted(wanted: PaneWant) {
+function showTarget(wanted: PaneWant) {
   if (wanted.kind === "show") {
     if (wanted.tab === "files") showFiles();
     else if (wanted.tab === "device") showDevice();

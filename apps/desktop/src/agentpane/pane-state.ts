@@ -196,16 +196,16 @@ export function refollow() {
   paneAsks.setState(s => ({ follows: s.follows + 1 }));
 }
 
-/// What a tab is to show or open, until media.ts, which owns the pane's tabs, does it.
+/// The tab that should show, with its file or location.
 export type PaneWant =
   | { kind: "show"; tab: "files" | "device" | "changes" }
   | { kind: "open"; rel: string; preview: boolean }
   | { kind: "openPath"; path: string }
   | { kind: "location"; root: string; location: LspLocation; preferEdit: boolean };
 
-export const paneAsked = createStore<{ wanted: PaneWant | null }>(() => ({ wanted: null }));
+export const paneTarget = createStore<{ target: PaneWant | null }>(() => ({ target: null }));
 
-/// Asks the pane to show or open `wanted`.
-export function wantPane(wanted: PaneWant) {
-  paneAsked.setState({ wanted });
+/// Makes `target` the tab that should show; null when the pane has none.
+export function wantPane(target: PaneWant | null) {
+  paneTarget.setState({ target });
 }
