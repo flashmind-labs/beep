@@ -65,8 +65,8 @@ apps/desktop/src/agents/move.ts | probe | setTimeout#1 | deadline | gives a mach
 apps/desktop/src/agents/move.ts | warn | setTimeout#1 | ui | clears the move error after 5 s
 apps/desktop/src/agents/place.ts | changed | setTimeout#1 | debounce | redraws once after a burst of answers
 apps/desktop/src/agents/session-follow.ts | activityOf | setTimeout#1 | retry | the feed schedules a follow reopen or idle drop after its delay
-apps/desktop/src/agents/session.tsx | still | setTimeout#1 | retry | reopens a lost session follow every RETRY_MS
-apps/desktop/src/agents/session.tsx | watchRead | setTimeout#1 | deadline | logs if nothing was read after the watch time
+apps/desktop/src/agents/session-follow.ts | still | setTimeout#1 | retry | reopens a lost session follow every RETRY_MS
+apps/desktop/src/agents/session-follow.ts | watchRead | setTimeout#1 | deadline | logs if nothing was read after the watch time
 apps/desktop/src/agents/sessionmenu.ts | build | setTimeout#1 | ui | opens the model picker after the menu closes
 apps/desktop/src/agents/sessions.ts | finish | setTimeout#1 | deadline | stops waiting for a session list after ms
 apps/desktop/src/agents/turn-heading-view.tsx | tickClocks | setInterval#1 | ui | ticks the running turn clock each second while shown
