@@ -19,7 +19,7 @@ use beep_proto::node::{
 use beep_proto::{SessionId, watched};
 use iroh::EndpointId;
 use std::{
-    future::pending,
+    future::{Future, pending},
     sync::{Arc, OnceLock},
     time::Duration,
 };
@@ -50,16 +50,38 @@ pub(crate) enum Parent {
     Silent,
 }
 
-/// What a pushed list of the parent's machine says of the parent: it is
-/// there and not ended for good (an end with the node resumes), or it is gone.
-pub(super) fn parent_in(sessions: &[SessionInfo], link: &ParentLink) -> Parent {
-    let alive = sessions.iter().any(|info| {
+/// The parent's row in a pushed list, when it is there and not ended for
+/// good (an end with the node resumes).
+fn parent_row<'a>(sessions: &'a [SessionInfo], link: &ParentLink) -> Option<&'a SessionInfo> {
+    sessions.iter().find(|info| {
         (info.id == link.session || info.id == link.key)
             && !(info.state.status == Status::Ended
                 && info.state.error.as_deref() != Some(NODE_STOPPED))
-    });
+    })
+}
 
-    if alive { Parent::Keeps } else { Parent::Gone }
+/// What a pushed list says of the parent, given the row `last` seen. A parent
+/// that is gone from it is gone. One whose row changed (or first showed) is
+/// asked whether it still keeps the child, which a list does not say. One
+/// whose row did not change says nothing new: `None`.
+pub(super) async fn word<F: Future<Output = Parent>>(
+    sessions: &[SessionInfo],
+    last: &mut Option<SessionInfo>,
+    link: &ParentLink,
+    ask: impl FnOnce() -> F,
+) -> Option<Parent> {
+    let Some(row) = parent_row(sessions, link) else {
+        *last = None;
+        return Some(Parent::Gone);
+    };
+
+    if last.as_ref() == Some(row) {
+        return None;
+    }
+
+    *last = Some(row.clone());
+
+    Some(ask().await)
 }
 
 /// Reads what `heard` says of the parent until the child is orphaned (true):
@@ -208,7 +230,7 @@ async fn feed(
             continue;
         }
 
-        match follow(&mesh, peer, &link, &tx).await {
+        match follow(&mesh, &session, peer, &link, &tx).await {
             Err(e) if e.downcast_ref::<Refused>().is_some() => {
                 // Compat, until nodes before 0.8.28 are gone: it does not
                 // serve its list to a node, so it is asked.
@@ -229,19 +251,35 @@ async fn feed(
 }
 
 /// Passes on what each list `peer` pushes says of the parent, until the
-/// stream ends. `Ok` when the child's side is gone.
+/// stream ends: asking `peer` once whenever the parent's row changes whether
+/// it still keeps the child. `Ok` when the child's side is gone.
 async fn follow(
     mesh: &Mesh,
+    session: &std::sync::Weak<Session>,
     peer: EndpointId,
     link: &ParentLink,
     tx: &mpsc::Sender<Parent>,
 ) -> Result<()> {
     let mut watch = PeerWatch::open(mesh, peer, Topic::new("agents")).await?;
+    let mut last = None;
 
     loop {
-        if let Value::Sessions(reply) = watch.next().await?
-            && let SessionsReply::Sessions { sessions } = *reply
-            && tx.send(parent_in(&sessions, link)).await.is_err()
+        let Value::Sessions(reply) = watch.next().await? else {
+            continue;
+        };
+        let SessionsReply::Sessions { sessions } = *reply else {
+            continue;
+        };
+        let Some(session) = session.upgrade() else {
+            return Ok(());
+        };
+        let name = Agents::name_of(&session);
+        let ask = || async {
+            super::peer::ask_parent(mesh, peer, &link.session, &name, &session.id).await
+        };
+
+        if let Some(word) = word(&sessions, &mut last, link, ask).await
+            && tx.send(word).await.is_err()
         {
             return Ok(());
         }

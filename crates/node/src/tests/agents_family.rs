@@ -1098,9 +1098,9 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     after.shutdown().await;
 }
 
-#[test]
-fn a_pushed_list_says_whether_the_parent_is_still_there() {
-    use orphans::{Parent, parent_in};
+#[tokio::test]
+async fn a_pushed_list_says_whether_the_parent_is_still_there() {
+    use orphans::{Parent, word};
     let link = ParentLink {
         machine: None,
         session: "p1".into(),
@@ -1122,18 +1122,42 @@ fn a_pushed_list_says_whether_the_parent_is_still_there() {
         },
         ..SessionInfo::default()
     };
+    // What the parent's node answers when asked, and how often it is asked.
+    let asked = std::cell::Cell::new(0u32);
+    let answer = std::cell::Cell::new(Parent::Keeps);
+    async fn said(
+        list: Vec<SessionInfo>,
+        last: &mut Option<SessionInfo>,
+        link: &ParentLink,
+        (asked, answer): (&std::cell::Cell<u32>, &std::cell::Cell<Parent>),
+    ) -> Option<Parent> {
+        word(&list, last, link, || async {
+            asked.set(asked.get() + 1);
+            answer.get()
+        })
+        .await
+    }
+    let mut last = None;
 
-    assert_eq!(parent_in(&[], &link), Parent::Gone);
-    assert_eq!(parent_in(&[row("other", Status::Idle, None)], &link), Parent::Gone);
-    assert_eq!(parent_in(&[row("p1", Status::Idle, None)], &link), Parent::Keeps);
+    assert_eq!(said(vec![], &mut last, &link, (&asked, &answer)).await, Some(Parent::Gone));
+    assert_eq!(said(vec![row("other", Status::Idle, None)], &mut last, &link, (&asked, &answer)).await, Some(Parent::Gone));
+    assert_eq!(asked.get(), 0, "a parent that is gone is not asked");
+    // It shows: asked once. The same row again says nothing new.
+    assert_eq!(said(vec![row("p1", Status::Idle, None)], &mut last, &link, (&asked, &answer)).await, Some(Parent::Keeps));
+    assert_eq!(said(vec![row("p1", Status::Idle, None)], &mut last, &link, (&asked, &answer)).await, None);
+    assert_eq!(asked.get(), 1);
+    // Alive but it stops keeping the child: the next change of its row asks
+    // again, and the answer orphans the child.
+    answer.set(Parent::Gone);
+    assert_eq!(said(vec![row("p1", Status::Working, None)], &mut last, &link, (&asked, &answer)).await, Some(Parent::Gone));
+    assert_eq!(asked.get(), 2);
     // By the id it was listed under when the child began, too.
-    assert_eq!(parent_in(&[row("k1", Status::Working, None)], &link), Parent::Keeps);
-    assert_eq!(parent_in(&[row("p1", Status::Ended, None)], &link), Parent::Gone);
-    // An end with the node resumes with it.
-    assert_eq!(
-        parent_in(&[row("p1", Status::Ended, Some(crate::agents::session::NODE_STOPPED))], &link),
-        Parent::Keeps
-    );
+    assert_eq!(said(vec![row("k1", Status::Working, None)], &mut None, &link, (&asked, &answer)).await, Some(Parent::Gone));
+    // Ended for good is gone without asking; an end with the node is not.
+    assert_eq!(said(vec![row("p1", Status::Ended, None)], &mut last, &link, (&asked, &answer)).await, Some(Parent::Gone));
+    answer.set(Parent::Keeps);
+    let stopped = row("p1", Status::Ended, Some(crate::agents::session::NODE_STOPPED));
+    assert_eq!(said(vec![stopped], &mut last, &link, (&asked, &answer)).await, Some(Parent::Keeps));
 }
 
 // The child closes once its parent has been gone or silent for
