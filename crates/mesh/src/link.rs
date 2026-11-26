@@ -1,7 +1,7 @@
 //! One connection to a peer. The first bi stream (opened by whoever
 //! dialed) is the sync stream: both sides send `Hello`, then their device
 //! ops, then the entries the other lacks, then pushes on every change.
-//! Further bi streams go to the handler set with `on_stream`.
+//! Further bi streams go to `Mesh::incoming`.
 //!
 //! Device ops are merged before entries are applied, because `apply`
 //! checks origins against the list. Sync never decides "in sync" from
