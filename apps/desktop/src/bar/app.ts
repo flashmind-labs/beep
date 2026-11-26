@@ -19,5 +19,14 @@ perfView("bar");
 initConversationSwitcher({ open: session => openSession(session) });
 import "./events.ts";
 import { show } from "./views.ts";
+import { PANE, windowRequests } from "./core.ts";
+import { openChatSkills } from "../project/project-skills.tsx";
+
+// The bar has no window to follow requests: the session menu's Skills row opens its sheet here.
+if (!PANE) {
+  windowRequests.follow(request => {
+    if (request.kind === "chat-skills") void openChatSkills(request.folder, request.title);
+  });
+}
 
 show(null);

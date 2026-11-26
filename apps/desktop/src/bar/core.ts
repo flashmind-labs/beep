@@ -53,7 +53,7 @@ if (PANE) bar.dataset.view = S.view;
 export const $ = <T extends Element = HTMLElement>(sel: string) => bar.querySelector<T>(sel);
 
 /// What the pane asks of the command center window, which follows `windowRequests`. The bar has
-/// no window: nothing follows there.
+/// no window: it follows only `chat-skills`, which its session menu shows.
 export type WindowRequest =
   /// Opens the window's Settings sheet.
   | { kind: "settings" }
