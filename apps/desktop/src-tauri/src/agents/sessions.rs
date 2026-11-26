@@ -451,7 +451,7 @@ pub async fn agent_view(
         &session,
         Instant::now(),
     );
-    crate::notices::history::agent_viewed(&app, &machine_id, &agent, &session);
+    crate::notes::agent_viewed(&app, &machine_id, &agent, &session);
     let request = GetAgentSession {
         machine_id,
         agent,

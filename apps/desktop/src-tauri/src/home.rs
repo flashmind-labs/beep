@@ -2,7 +2,7 @@
 //! from the mesh in one go. Entry point: `center_home`; `section` and
 //! `is_unsupported` read any list.
 
-use super::sections::{is_unsupported, mesh_imports, section};
+use crate::center::sections::{is_unsupported, mesh_imports, section};
 use crate::markdown::inline_html;
 use crate::store::view_cache::{View, ViewCache, cache_view};
 use crate::{
@@ -77,7 +77,7 @@ pub async fn notes_answer(app: AppHandle, id: String, allow: bool) -> Result<()>
         .map_err(|_| DesktopError::BadRequest("not a question".into()))?;
     match crate::notices::answer_agent(&app, key.clone(), allow).await {
         Ok(()) | Err(DesktopError::Api(ApiError::Conflict { .. } | ApiError::NotFound {})) => {
-            crate::notices::history::answered(&app, &key);
+            crate::notes::answered(&app, &key);
             Ok(())
         }
         Err(e) => Err(e),
@@ -463,5 +463,5 @@ pub(crate) fn needs_you<'a>(sessions: impl Iterator<Item = &'a MachineSession>) 
 }
 
 #[cfg(test)]
-#[path = "../tests/center_home.rs"]
+#[path = "tests/home.rs"]
 mod tests;

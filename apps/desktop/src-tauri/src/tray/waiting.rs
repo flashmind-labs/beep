@@ -2,8 +2,9 @@
 //! ask, as Home lists them under Needs you.
 
 use crate::{
-    center::{AgentTarget, CenterTarget, NeedsYou},
-    notices::history,
+    home::NeedsYou,
+    notes,
+    targets::{AgentTarget, CenterTarget},
 };
 use beep_proto::SessionId;
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -106,8 +107,8 @@ pub(crate) fn no_longer_waiting(app: &AppHandle, gone: &[String]) {
         return;
     }
 
-    history::finish(app, |note| {
-        history::asked(note).is_some_and(|key| {
+    notes::finish(app, |note| {
+        notes::asked(note).is_some_and(|key| {
             key.question.is_some_and(|question| {
                 gone.contains(&agent_item(&key.machine_id, &key.session, question))
             })

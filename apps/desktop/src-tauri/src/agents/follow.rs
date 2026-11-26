@@ -281,7 +281,7 @@ pub fn agent_follow_show(
     } = &followed;
     app.state::<AgentsShown>()
         .read(window.label(), machine_id, agent, session, Instant::now());
-    crate::notices::history::agent_viewed(&app, machine_id, agent, session);
+    crate::notes::agent_viewed(&app, machine_id, agent, session);
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -550,12 +550,7 @@ pub async fn agent_follow(
             }
 
             if shown {
-                crate::notices::history::agent_viewed(
-                    &app,
-                    &machine_id,
-                    request.agent.as_ref(),
-                    &session,
-                );
+                crate::notes::agent_viewed(&app, &machine_id, request.agent.as_ref(), &session);
             }
         }
     };

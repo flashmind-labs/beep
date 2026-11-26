@@ -1,10 +1,7 @@
-//! Notices from the machines of the mesh: routing each one, macOS
-//! notifications, and the bell's history. Entry point: `serve`.
+//! Notices from the machines of the mesh: routing each one, and the bell. Entry point: `serve`.
 
-pub(crate) mod history;
-pub(crate) mod notify;
 mod route;
 mod watch;
 
 pub(crate) use route::{answer_agent, follow_actions, serve};
-pub(crate) use watch::{Looks, follow, heard, pushed_moves};
+pub(crate) use watch::{Looks, follow, pushed_moves};

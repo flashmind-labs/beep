@@ -2152,7 +2152,7 @@ async fn send_node_order(app: &AppHandle, machine: EndpointId, order: &Order) ->
 /// do not stay stuck waiting on a slow node link. The one place an answer is applied: the
 /// order's later settling changes nothing more.
 fn answered_locally(app: &AppHandle, key: &AgentNoticeKey) {
-    crate::notices::history::answered(app, key);
+    crate::notes::answered(app, key);
 
     if let Some(mirror) = app.try_state::<Arc<SessionMirror>>() {
         mirror.answered(&key.machine_id, &key.session, key.question);

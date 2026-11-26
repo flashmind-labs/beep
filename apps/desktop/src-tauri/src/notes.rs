@@ -1,15 +1,15 @@
-//! The bell's history on this Mac: what the mesh told the user, kept in one
+//! The bell's notes on this Mac: what the mesh told the user, kept in one
 //! file (the newest `KEEP`, none older than `MAX_AGE_MS`), so the pane lists
 //! it at once. Coding agents' notices and CI runs come from `route`;
 //! sync conflicts, failed moves and machines that went away from `watch`.
 
 use crate::{
     beep::epoch_ms,
-    center::{AgentTarget, CenterTarget, RunAt},
     error::{DesktopError, Result},
     fleet::Fleet,
     markdown::inline_html,
     store::{lock, write_part},
+    targets::{AgentTarget, CenterTarget, RunAt},
 };
 use beep_fleet::{Read, digest};
 use beep_proto::SessionId;
@@ -659,5 +659,5 @@ pub async fn skill_keep(
 }
 
 #[cfg(test)]
-#[path = "../tests/notices_history.rs"]
+#[path = "tests/notes.rs"]
 mod tests;

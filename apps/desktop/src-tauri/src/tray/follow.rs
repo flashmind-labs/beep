@@ -9,7 +9,6 @@ use super::{
 use crate::platform::update;
 use crate::{
     agents::overlay::overlaid,
-    center,
     fleet::{Fleet, home_signal::HomeSignal, session_mirror::SessionMirror},
 };
 use std::{sync::Arc, time::Duration};
@@ -31,7 +30,7 @@ pub(crate) async fn follow_waiting(app: AppHandle) {
 
     loop {
         let sessions = overlaid(&app, &fleet, &mirror.current());
-        let entries = entries(center::needs_you(sessions.iter()));
+        let entries = entries(crate::home::needs_you(sessions.iter()));
         let gone: Vec<String> = list
             .entries()
             .into_iter()
