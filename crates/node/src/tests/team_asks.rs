@@ -1,55 +1,46 @@
 use super::*;
 use crate::agents::tags::{Part, parts};
-use futures::future::BoxFuture;
 use crate::team::board::tests::{Pair, login, repo};
 use crate::team::link::TeamLink;
 use beep_proto::team::{Lane, TeamMsg, TeamRecord};
 use std::sync::{Arc, Mutex};
+use tokio_util::task::AbortOnDropHandle;
 
 const LIMIT: &str = "team_ask is limited to 10 messages an hour";
 
-/// Sessions of the mesh, which the team link hands asks and answers to.
-trait Sessions: Send + Sync + 'static {
-    fn deliver<'a>(
-        &'a self,
-        card: &'a str,
-        delivery: Delivery,
-        text: String,
-    ) -> BoxFuture<'a, Result<(), String>>;
-}
-
-/// Hands what `link` takes to `sessions`, the way the node's tools layer does.
-fn serve_sessions(link: &TeamLink, sessions: Arc<dyn Sessions>) {
-    let mut handoffs = link.handoffs();
-    tokio::spawn(async move {
-        while let Some(handoff) = handoffs.recv().await {
-            let delivered = sessions
-                .deliver(&handoff.card, handoff.delivery, handoff.text)
-                .await;
-            handoff.done.send(delivered).ok();
-        }
-    });
-}
-
-/// Sessions that keep what they are handed.
-#[derive(Default)]
-struct Kept(Mutex<Vec<(String, Delivery, String)>>);
-
-impl Sessions for Kept {
-    fn deliver<'a>(
-        &'a self,
-        card: &'a str,
-        delivery: Delivery,
-        text: String,
-    ) -> BoxFuture<'a, Result<(), String>> {
-        crate::lock(&self.0).push((card.to_owned(), delivery, text));
-        Box::pin(async { Ok(()) })
-    }
+/// What the team link handed to sessions, as the node's tools layer takes
+/// it. The task that takes it ends with this.
+struct Kept {
+    taken: Arc<Mutex<Vec<(String, Delivery, String)>>>,
+    _serving: AbortOnDropHandle<()>,
 }
 
 impl Kept {
+    /// Takes what `link` hands over; `reach` says whether the session was
+    /// reached, and only what reached it is kept.
+    fn serve(link: &TeamLink, mut reach: impl FnMut() -> Result<(), String> + Send + 'static) -> Self {
+        let taken = Arc::<Mutex<Vec<(String, Delivery, String)>>>::default();
+        let mut handoffs = link.handoffs();
+        let keep = taken.clone();
+        let serving = AbortOnDropHandle::new(tokio::spawn(async move {
+            while let Some(handoff) = handoffs.recv().await {
+                let delivered = reach();
+
+                if delivered.is_ok() {
+                    crate::lock(&keep).push((handoff.card, handoff.delivery, handoff.text));
+                }
+                handoff.done.send(delivered).ok();
+            }
+        }));
+
+        Self {
+            taken,
+            _serving: serving,
+        }
+    }
+
     fn taken(&self) -> Vec<(String, Delivery, String)> {
-        crate::lock(&self.0).clone()
+        crate::lock(&self.taken).clone()
     }
 }
 
@@ -71,16 +62,17 @@ fn card(id: &str, owner: &str) -> Card {
 
 /// The board's gateway, alice's, with sessions that keep what they get,
 /// following bob's board with his asking session on it.
-async fn served() -> (Pair, Arc<Kept>) {
-    let kept = Arc::new(Kept::default());
-
-    (serving(kept.clone()).await, kept)
+async fn served() -> (Pair, Kept) {
+    serving(|| Ok(())).await
 }
 
-/// The board's gateway, as `served` has it, handing to `sessions`.
-async fn serving(sessions: Arc<dyn Sessions>) -> Pair {
+/// The board's gateway, as `served` has it, whose sessions are reached as
+/// `reach` says.
+async fn serving(
+    reach: impl FnMut() -> Result<(), String> + Send + 'static,
+) -> (Pair, Kept) {
     let pair = Pair::new().await;
-    serve_sessions(&pair.gateway, sessions);
+    let kept = Kept::serve(&pair.gateway, reach);
     let bob = pair.bob.clone();
     pair.gateway.publish(|served| {
         served.boards.set(&repo(), Vec::new());
@@ -88,7 +80,7 @@ async fn serving(sessions: Arc<dyn Sessions>) -> Pair {
         teammates.board(bob.mesh, &bob.login, vec![card(BOBS, "bob")]);
     });
 
-    pair
+    (pair, kept)
 }
 
 fn ask(id: &str, to: Target, text: &str) -> TeamMsg {
@@ -262,32 +254,18 @@ async fn reply_reaches_asking_session() {
     assert_eq!(again, Err(NOT_WAITING.to_owned()));
 }
 
-/// Sessions that cannot be reached once, then keep what they are handed.
-#[derive(Default)]
-struct Flaky {
-    failed: std::sync::atomic::AtomicBool,
-    kept: Kept,
-}
-
-impl Sessions for Flaky {
-    fn deliver<'a>(
-        &'a self,
-        card: &'a str,
-        delivery: Delivery,
-        text: String,
-    ) -> BoxFuture<'a, Result<(), String>> {
-        if !self.failed.swap(true, std::sync::atomic::Ordering::Relaxed) {
-            return Box::pin(async { Err("The machine that runs it did not answer".to_owned()) });
-        }
-
-        self.kept.deliver(card, delivery, text)
-    }
-}
-
 #[tokio::test]
 async fn a_reply_that_did_not_reach_the_asking_session_can_be_sent_again() {
-    let flaky = Arc::new(Flaky::default());
-    let pair = serving(flaky.clone()).await;
+    // The sessions cannot be reached once, then keep what they are handed.
+    let mut failed = false;
+    let (pair, kept) = serving(move || {
+        if std::mem::replace(&mut failed, true) {
+            Ok(())
+        } else {
+            Err("The machine that runs it did not answer".to_owned())
+        }
+    })
+    .await;
     let bob = pair.bob.clone();
     pair.gateway.asks(|asks| {
         let sent = Sent {
@@ -311,7 +289,7 @@ async fn a_reply_that_did_not_reach_the_asking_session_can_be_sent_again() {
     );
     pair.bob_link.reach(&pair.alice, &reply).await.unwrap();
 
-    let taken = flaky.kept.taken();
+    let taken = kept.taken();
     assert_eq!(taken.len(), 1);
     assert!(taken[0].2.contains("Take it"));
 }
@@ -446,8 +424,7 @@ async fn an_ask_for_the_person_is_answered_from_any_session_and_its_card_goes() 
     assert!(card(&pair.gateway));
 
     // Bob's device takes answers: it waits for one to that ask, from alice.
-    let bobs_kept = Arc::new(Kept::default());
-    serve_sessions(&pair.bob_link, bobs_kept.clone());
+    let bobs_kept = Kept::serve(&pair.bob_link, || Ok(()));
     let _bobs_router = iroh::protocol::Router::builder(pair.bob_link.endpoint().clone())
         .accept(beep_proto::team::ALPN, pair.bob_link.handler())
         .spawn();
