@@ -4,7 +4,7 @@
 
 use super::{
     billing::{Accounts, flsh_provider},
-    ledger::{Bucket, BucketKey, Part, UNKNOWN_MODEL},
+    ledger::{Bucket, BucketKey, Counted, Part, UNKNOWN_MODEL},
 };
 use crate::agents::found::unix_seconds;
 use crate::agents::found::{Agent, open_database};
@@ -14,7 +14,7 @@ use beep_proto::{
     ModelId, SessionId,
     node::usage::{Billing, HistoricalSpend},
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{collections::BTreeMap, path::Path};
 
 /// The most rows one database gives in a pass.
@@ -356,36 +356,6 @@ impl From<&FlshTurn> for Counted {
             output: turn.output_tokens,
             cost: turn.cost.parse().unwrap_or(0.0),
         }
-    }
-}
-
-/// What a flsh session spent until it moved here, counted on the machine
-/// it ran on.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
-pub(super) struct Counted {
-    input: u64,
-    cached: u64,
-    output: u64,
-    cost: f64,
-}
-
-impl Counted {
-    /// What `self` has beyond `before`, and what is left of `before` after it.
-    fn beyond(self, before: Self) -> (Self, Self) {
-        let sub = |a: Self, b: Self| Self {
-            input: a.input.saturating_sub(b.input),
-            cached: a.cached.saturating_sub(b.cached),
-            output: a.output.saturating_sub(b.output),
-            cost: (a.cost - b.cost).max(0.0),
-        };
-        (sub(self, before), sub(before, self))
-    }
-
-    fn add(&mut self, other: Self) {
-        self.input += other.input;
-        self.cached += other.cached;
-        self.output += other.output;
-        self.cost += other.cost;
     }
 }
 

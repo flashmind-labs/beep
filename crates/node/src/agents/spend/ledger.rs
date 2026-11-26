@@ -221,7 +221,37 @@ pub(super) struct Database {
     /// For a flsh session file that moved here: what it had spent on the
     /// machine it came from.
     #[serde(default)]
-    pub(super) counted: Option<super::databases::Counted>,
+    pub(super) counted: Option<Counted>,
+}
+
+/// What a flsh session spent until it moved here, counted on the machine
+/// it ran on.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub(super) struct Counted {
+    pub(super) input: u64,
+    pub(super) cached: u64,
+    pub(super) output: u64,
+    pub(super) cost: f64,
+}
+
+impl Counted {
+    /// What `self` has beyond `before`, and what is left of `before` after it.
+    pub(super) fn beyond(self, before: Self) -> (Self, Self) {
+        let sub = |a: Self, b: Self| Self {
+            input: a.input.saturating_sub(b.input),
+            cached: a.cached.saturating_sub(b.cached),
+            output: a.output.saturating_sub(b.output),
+            cost: (a.cost - b.cost).max(0.0),
+        };
+        (sub(self, before), sub(before, self))
+    }
+
+    pub(super) fn add(&mut self, other: Self) {
+        self.input += other.input;
+        self.cached += other.cached;
+        self.output += other.output;
+        self.cost += other.cost;
+    }
 }
 
 /// Everything read so far.
