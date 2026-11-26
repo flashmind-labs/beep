@@ -102,7 +102,9 @@ reference in the issue. Use `just reports`, `just report <reference>` and
   blank lines between stages, around control flow and before tail returns.
 - Push values from their owner; never poll state Beep owns. Every timer and
   sleep outside tests is listed in `.timers` with its kind (`retry`,
-  `debounce`, `deadline`, `outside`, `ui`, `pace` or `poll`) and a reason.
+  `debounce`, `deadline`, `outside`, `ui`, `pace`, `compat` or `poll`) and a
+  reason. `compat` asks an older peer that cannot push and names the version
+  that ends it.
   Add a line for a new timer. A new `poll` needs the user's approval.
 
 ### TypeScript and React

@@ -38,14 +38,14 @@ apps/desktop/src-tauri/src/platform/login_path.rs | login_path | sleep#1 | outsi
 apps/desktop/src-tauri/src/platform/update.rs | follow | sleep#1 | pace | delays the first update check after launch
 apps/desktop/src-tauri/src/platform/update.rs | follow | sleep#2 | outside | checks the update feed periodically; the feed cannot push
 apps/desktop/src-tauri/src/projects/live.rs | poll | interval#1 | poll | rereads project lists and runs every 120 s; the lists and runs topics could push
-apps/desktop/src-tauri/src/projects/team_live.rs | keep_asking | sleep#1 | poll | asks nodes for project cards every 10 s; the topic could push instead
+apps/desktop/src-tauri/src/projects/team_live.rs | keep_asking | sleep#1 | compat | asks nodes before 0.8.26 for project cards every 10 s; newer ones push the topic
 apps/desktop/src-tauri/src/settings/skill_libraries.rs | follow | sleep#1 | outside | waits for the next skill library check against its remote
 apps/desktop/src-tauri/src/tray/waiting.rs | follow | sleep#1 | pace | waits GAP between tray rebuilds before listening for changes
 apps/desktop/src/addproject/folderbrowser.tsx | show | setTimeout#1 | debounce | waits for typing to settle, then lists the typed folder
 apps/desktop/src/addproject/importproject.tsx | run | setTimeout#1 | debounce | waits 150 ms after typing, then asks for folder suggestions
 apps/desktop/src/addproject/importproject.tsx | schedulePreview | setTimeout#1 | debounce | waits for repo text to settle, then loads the preview
 apps/desktop/src/agentpane/device.ts | failed | setTimeout#1 | deadline | gives the video stream 5 s to start before the fallback
-apps/desktop/src/agentpane/device.ts | readDevices | setTimeout#1 | poll | rereads device lists every 2 s or 60 s; nodes could push them all
+apps/desktop/src/agentpane/device.ts | readDevices | setTimeout#1 | compat | rereads devices of hosts that do not announce them; announcing hosts push
 apps/desktop/src/agentpane/drag.ts | endDrag | setTimeout#1 | ui | clears the dragged flag after the drag's click
 apps/desktop/src/agentpane/files-menu.tsx | away | setTimeout#1 | ui | adds the outside-click listener after the opening click
 apps/desktop/src/agentpane/image-view.tsx | zoom | setTimeout#1 | ui | ends the zooming style 300 ms after the last zoom
@@ -140,13 +140,13 @@ crates/node/src/agents/follow/sources.rs | watch_event_sources | sleep#1 | debou
 crates/node/src/agents/installs.rs | install_adapters | sleep#1 | outside | hourly detection of installed adapters; woken early by events
 crates/node/src/agents/lsp/mod.rs | query_definition | sleep#1 | retry | repeats a language server definition call once
 crates/node/src/agents/mcp/children.rs | wait_for_settled | sleep#1 | deadline | bounds how long a wait on a child lasts
-crates/node/src/agents/mcp/children.rs | wait_for_settled | sleep#2 | poll | rereads a remote child's view every 5 s; the node notes could push
+crates/node/src/agents/mcp/children.rs | wait_for_settled | sleep#2 | compat | rereads a remote child's view every 5 s for nodes before 0.8.25, which send no settle notes
 crates/node/src/agents/mcp/devices.rs | drive | sleep#1 | pace | lets the screen settle before the screenshot
 crates/node/src/agents/mcp/devices.rs | view | sleep#1 | pace | pause after each input sent to a device
 crates/node/src/agents/mcp/devices.rs | view | sleep_until#1 | deadline | ends an idle device view
 crates/node/src/agents/mcp/machines.rs | show_sent | sleep#1 | pace | shows send progress at most once a second
 crates/node/src/agents/mcp/peer_tools.rs | sync_project | sleep_until#1 | deadline | bounds the wait for a project sync to settle
-crates/node/src/agents/moving/dial.rs | poll_target | sleep#1 | poll | asks an old target every 2-10 s; new targets push via Follow
+crates/node/src/agents/moving/dial.rs | poll_target | sleep#1 | compat | asks a move target every 2 to 10 s for nodes before 0.8.28, which cannot follow
 crates/node/src/agents/moving/dial.rs | watch_target | sleep#1 | retry | follows a lost target again after 5 s
 crates/node/src/agents/moving/source.rs | target_outcome | sleep#1 | retry | asks the target for the outcome again after 500 ms
 crates/node/src/agents/moving/target.rs | checkouts | sleep#1 | retry | backoff before reading the source checkout again
@@ -210,7 +210,7 @@ crates/node/src/run/device/phone.rs | track_phones | sleep#1 | retry | follows a
 crates/node/src/run/terminal/host.rs | listening | sleep#1 | outside | checks every 25 ms whether the terminal host listens
 crates/node/src/run/terminal/pty.rs | reap | sleep#1 | outside | fallback check for child exit every 25 ms
 crates/node/src/run/terminal/terminals.rs | run | sleep_until#1 | deadline | drops an ended terminal when its keep time ends
-crates/node/src/team/gateway.rs | drive | sleep_until#1 | poll | asks machines for their reach every 10 min; they could push
+crates/node/src/team/gateway.rs | drive | sleep_until#1 | compat | asks machines before 0.8.28 for their reach every 10 min; newer ones push it
 crates/node/src/team/gateway.rs | drive | sleep_until#2 | debounce | makes cards after changes settle, and every 60 s for the forge
 crates/node/src/team/link/board_io.rs | follow | sleep#1 | retry | dials a teammate's board again after 60 s
 crates/node/src/team/link/home_io.rs | follow | sleep#1 | deadline | drops an invite or card when it expires
