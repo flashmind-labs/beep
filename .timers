@@ -41,7 +41,7 @@ apps/desktop/src-tauri/src/projects/git_items.rs | forge_source | interval#1 | o
 apps/desktop/src-tauri/src/projects/live.rs | poll | interval#1 | poll | rereads project lists and runs every 120 s; the lists and runs topics could push
 apps/desktop/src-tauri/src/projects/team_live.rs | keep_asking | sleep#1 | compat | asks nodes before 0.8.26 for project cards every 10 s; newer ones push the topic
 apps/desktop/src-tauri/src/settings/skill_libraries.rs | follow | sleep#1 | outside | waits for the next skill library check against its remote
-apps/desktop/src-tauri/src/tray/waiting.rs | follow | sleep#1 | pace | waits GAP between tray rebuilds before listening for changes
+apps/desktop/src-tauri/src/tray/follow.rs | follow_waiting | sleep#1 | pace | waits GAP between tray rebuilds before listening for changes
 apps/desktop/src/addproject/folderbrowser.tsx | show | setTimeout#1 | debounce | waits for typing to settle, then lists the typed folder
 apps/desktop/src/addproject/importproject.tsx | run | setTimeout#1 | debounce | waits 150 ms after typing, then asks for folder suggestions
 apps/desktop/src/addproject/importproject.tsx | schedulePreview | setTimeout#1 | debounce | waits for repo text to settle, then loads the preview

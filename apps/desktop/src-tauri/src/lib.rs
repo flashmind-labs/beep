@@ -918,7 +918,7 @@ fn setup(
     // while every window is hidden.
     #[cfg(desktop)]
     tauri::async_runtime::spawn(fleet::events::hold_tray(handle.clone()));
-    tauri::async_runtime::spawn(tray::waiting::follow(handle.clone()));
+    tauri::async_runtime::spawn(tray::follow_waiting(handle.clone()));
     #[cfg(desktop)]
     tauri::async_runtime::spawn(tray::follow_update(handle.clone()));
     let desks = app.state::<Arc<beep_fleet::Session>>().inner().clone();

@@ -2,18 +2,12 @@
 //! ask, as Home lists them under Needs you.
 
 use crate::{
-    agents::sessions::overlaid,
-    center::{self, AgentTarget, CenterTarget, NeedsYou},
-    fleet::{Fleet, home_signal::HomeSignal, session_mirror::SessionMirror},
+    center::{AgentTarget, CenterTarget, NeedsYou},
     notices::history,
 };
 use beep_proto::SessionId;
-use std::{
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
-    time::Duration,
-};
-use tauri::{AppHandle, Manager};
-use tokio::{select, time::sleep};
+use std::sync::{Mutex, MutexGuard, PoisonError};
+use tauri::AppHandle;
 
 /// Menu ids of Waiting's items start with this.
 pub const ITEM: &str = "wait:";
@@ -25,8 +19,6 @@ pub const MORE: &str = "wait-more";
 pub const SHOWN: usize = 8;
 /// The longest label, in characters, so the menu keeps its width.
 const LABEL_MAX: usize = 60;
-/// The least time between two reads of the mirror, so a burst of changes makes one.
-const GAP: Duration = Duration::from_secs(2);
 
 /// One thing that waits, as the tray lists it.
 #[derive(Debug, Clone, PartialEq)]
@@ -64,7 +56,7 @@ impl WaitingList {
     }
 
     /// Replaces the list; true when it changed.
-    fn set(&self, entries: Vec<Entry>) -> bool {
+    pub(super) fn set(&self, entries: Vec<Entry>) -> bool {
         let mut slot = self.slot();
 
         if *slot == entries {
@@ -149,39 +141,6 @@ pub fn tooltip(count: usize) -> String {
         0 => "Beep".into(),
         1 => "Beep: 1 waits on you".into(),
         n => format!("Beep: {n} wait on you"),
-    }
-}
-
-/// Keeps the list current while Beep runs: it follows the mirror's rows and the signal Home
-/// follows, and reads the rows as they stand. Alerts and pushes reach the rows, so nothing asks
-/// the machines.
-pub async fn follow(app: AppHandle) {
-    let list = app.state::<WaitingList>();
-    let fleet = app.state::<Arc<Fleet>>().inner().clone();
-    let mirror = app.state::<Arc<SessionMirror>>();
-    let mut rows = mirror.watch();
-    let mut pokes = app.state::<Arc<HomeSignal>>().follow();
-
-    loop {
-        let sessions = overlaid(&app, &fleet, &mirror.current());
-        let entries = entries(center::needs_you(sessions.iter()));
-        let gone: Vec<String> = list
-            .entries()
-            .into_iter()
-            .map(|e| e.id)
-            .filter(|id| !entries.iter().any(|e| &e.id == id))
-            .collect();
-
-        if list.set(entries) {
-            crate::tray::refresh(&app);
-            no_longer_waiting(&app, &gone);
-        }
-
-        sleep(GAP).await;
-        select! {
-            changed = rows.changed() => if changed.is_err() { return },
-            changed = pokes.changed() => if changed.is_err() { return },
-        }
     }
 }
 
