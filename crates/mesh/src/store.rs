@@ -3,7 +3,8 @@
 //! code sends it closures and awaits the answer, so a slow disk delays the
 //! caller but never an async worker. Readers use the published `View`.
 
-use crate::state::{MESH_DIR, OLD_MESH_DIR, now_ms, private_dir, private_options, sync_dir};
+use crate::clock::now_ms;
+use crate::state::{MESH_DIR, OLD_MESH_DIR, private_dir, private_options, sync_dir};
 use crate::{
     Applied, Device, DeviceKind, DeviceOp, Devices, Entry, Heads, JoinSecret, JoinTicket, Key,
     Merged, MeshError, State, WriteLimit,

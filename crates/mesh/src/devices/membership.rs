@@ -1,7 +1,8 @@
 //! Membership and authorization over signed operations.
 
-use super::{Device, DeviceKind, DeviceOp, MeshError, OpBody};
-use crate::state::now_ms;
+use super::{Device, DeviceKind, DeviceOp, OpBody};
+use crate::clock::now_ms;
+use crate::error::MeshError;
 use iroh::{EndpointId, SecretKey};
 use std::collections::BTreeMap;
 

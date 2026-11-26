@@ -261,7 +261,7 @@ async fn until_addr(mesh: &Mesh, id: iroh::EndpointId, want: &EndpointAddr) {
 }
 
 fn in_a_minute(ms: u64) -> u64 {
-    crate::state::now_ms() + ms
+    crate::clock::now_ms() + ms
 }
 
 #[tokio::test]

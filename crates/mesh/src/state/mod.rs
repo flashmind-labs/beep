@@ -25,5 +25,5 @@ mod log;
 pub(crate) use entry::Entry;
 pub use key::Key;
 pub(crate) use log::{
-    Applied, Heads, MESH_DIR, OLD_MESH_DIR, State, now_ms, private_dir, private_options, sync_dir,
+    Applied, Heads, MESH_DIR, OLD_MESH_DIR, State, private_dir, private_options, sync_dir,
 };

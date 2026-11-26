@@ -11,7 +11,7 @@ pub mod values;
 use owner::own;
 pub use protocol::{JoinProtocol, MeshProtocol};
 
-use crate::state::now_ms;
+use crate::clock::now_ms;
 pub(crate) use crate::store::AddrNote;
 use crate::store::{Core, SharedView, Store, View};
 use crate::wire;

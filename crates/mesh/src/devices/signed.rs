@@ -1,6 +1,6 @@
 //! Signed device operations and their wire representation.
 
-use super::MeshError;
+use crate::error::MeshError;
 use iroh::{EndpointId, SecretKey, Signature};
 use serde::{Deserialize, Serialize};
 use strum::{Display, IntoStaticStr};

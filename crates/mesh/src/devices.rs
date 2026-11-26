@@ -15,11 +15,9 @@
 //! Accepted limit: an `Add` signed by a removed device, seen by a member
 //! before the `Remove`, stays. Remove that device too.
 
-mod error;
 mod membership;
 mod signed;
 
-pub use error::MeshError;
 pub use membership::{Devices, Merged, WriteLimit};
 pub(crate) use signed::OpBody;
 pub use signed::{Device, DeviceKind, DeviceOp};

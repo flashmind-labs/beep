@@ -3,7 +3,9 @@
 //! device's list and state current over iroh.
 
 mod client;
+mod clock;
 mod devices;
+mod error;
 mod join;
 mod link;
 pub mod machine;
@@ -20,8 +22,9 @@ pub use client::{
     DEADLINE, FollowFuture, Followed, Hold, Offline, PeerClient, SessionFn, SnapshotFuture,
     SnapshotReader, with_deadline,
 };
-pub use devices::{Device, DeviceKind, MeshError};
+pub use devices::{Device, DeviceKind};
 pub(crate) use devices::{DeviceOp, Devices, Merged, WriteLimit};
+pub use error::MeshError;
 pub use mesh::values;
 pub use mesh::{
     DEFAULT_TICKET_TTL, DeviceStatus, InUse, JOIN_ALPN, JoinProtocol, Mesh, MeshProtocol,

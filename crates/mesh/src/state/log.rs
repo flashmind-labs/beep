@@ -1,4 +1,5 @@
 use super::{Entry, Key};
+use crate::clock::now_ms;
 use crate::{Devices, MeshError, WriteLimit};
 use beep_proto::lenient;
 use iroh::{EndpointId, SecretKey};
@@ -8,7 +9,6 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::warn;
 
 /// The folder under a device's directory that holds its mesh. The postcard
@@ -65,13 +65,6 @@ impl fmt::Debug for State {
             .field("heads", &self.heads)
             .finish_non_exhaustive()
     }
-}
-
-pub(crate) fn now_ms() -> u64 {
-    let since = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis());
-    u64::try_from(since).unwrap_or(u64::MAX)
 }
 
 pub(crate) fn private_options() -> OpenOptions {
