@@ -6,13 +6,14 @@ import { hasPreview } from "./html-preview-state.ts";
 import { type Dock } from "./media-state.ts";
 import { draw } from "./media-draw.ts";
 import { paneModel, setOn } from "./media-layout.ts";
-import { focusTab, previewTab, setFolded, showTab } from "./media.ts";
+import { showTab } from "./media.ts";
+import { focusTab, previewTab, setFolded } from "./pane-open.ts";
 import { saveLayout } from "./pane-memory.ts";
 import { P } from "./pane-state.ts";
 import { closeTab, noteTab } from "./pane-tabs.ts";
 import { paneRoot } from "./worktree.ts";
 import { saveFile, saveWorkFile } from "./read-file.ts";
-import { togglePreview } from "./text-view.tsx";
+import { togglePreview } from "./read.ts";
 import { openMenu, type MenuItem } from "../ui/menu.tsx";
 import { writeClipboard } from "../ui/clipboard.ts";
 

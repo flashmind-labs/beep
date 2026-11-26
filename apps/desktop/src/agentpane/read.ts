@@ -1,10 +1,9 @@
-import { togglePreview } from "./text-view.tsx";
 // Reading a tab's file from the session's machine, a part at a time, and
 // starting a terminal tab.
 import { viewKey } from "./view-memory.ts";
 import { dropTerm, followTerm, forgetTerm, killTerm, openTerm } from "./terminal.ts";
 import { openTabs } from "./media-layout.ts";
-import { rememberTerminal } from "./pane-memory.ts";
+import { rememberPane, rememberTerminal } from "./pane-memory.ts";
 import { type TreeText, type MediaTab, P, newFileEdit, redraw, refollow } from "./pane-state.ts";
 import { closeTab, leavePane, touchTab } from "./pane-tabs.ts";
 import { onPhone } from "../ui/platform.ts";
@@ -180,4 +179,54 @@ function replacing(t: MediaTab) {
 
   t.model?.dispose();
   t.model = null;
+}
+
+/// Shows an HTML or Markdown file's preview in its tab, reading it the first time, or its source again.
+export async function togglePreview(tab: MediaTab) {
+  const session = P.session;
+  if (!session || !tab.rel) return;
+  const preview = tab.preview ??= { active: false, loading: false, src: "", html: "", error: "" };
+  tab.findRequest = 0;
+  preview.active = !preview.active;
+  rememberPane();
+  if (!preview.active || preview.src || preview.html || preview.loading) { touchTab(tab); return; }
+  preview.loading = true; preview.error = ""; touchTab(tab);
+
+  try {
+    Object.assign(preview, await readPreview(session, tab.root ?? session.cwd, tab.rel));
+  } catch (error) {
+    preview.error = fileError(error, tab.rel);
+  } finally {
+    preview.loading = false; touchTab(tab);
+  }
+}
+
+/// Reads a tab's preview again after its file or one beside it changed,
+/// keeping the one shown until the new one is read. One not shown is read
+/// when it next shows.
+export async function refreshPreview(tab: MediaTab) {
+  const session = P.session, preview = tab.preview;
+  if (!session || !tab.rel || !preview) return true;
+
+  if (!preview.active) {
+    Object.assign(preview, { src: "", html: "" });
+    return true;
+  }
+
+  try {
+    Object.assign(preview, await readPreview(session, tab.root ?? session.cwd, tab.rel), { error: "" });
+    touchTab(tab);
+    return true;
+  } catch {
+    // Keep the old stamp so the next check retries the preview.
+    return false;
+  }
+}
+
+/// An HTML file's page URL, fresh at each read, or a Markdown file's HTML.
+async function readPreview(session: { machine_id: string }, root: string, path: string) {
+  const result = await invoke<{ kind: string; src?: string; html?: string }>("agent_artifact", { machineId: session.machine_id, root, path, preview: true });
+  if (result.kind === "html" && result.src) return { src: result.src, html: "" };
+  if (result.kind === "md" && result.html !== undefined) return { src: "", html: result.html };
+  throw new Error("This file cannot be previewed.");
 }

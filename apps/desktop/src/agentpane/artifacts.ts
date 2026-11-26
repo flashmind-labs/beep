@@ -7,7 +7,8 @@ import type { ArtifactAction, ArtifactPreview, ArtifactsModel } from "./artifact
 import { type Artifact, artifactVersion, goneArtifacts, goneMessage, KIND_NAMES, readPlace, relativeTo } from "./artifacts-state.ts";
 import { revealPath } from "./files.ts";
 import { fileSize } from "../chat/media.tsx";
-import { wantPane, paneSession, refollow } from "./pane-state.ts";
+import { openPath } from "./pane-open.ts";
+import { paneSession, refollow } from "./pane-state.ts";
 import { writeClipboard } from "../ui/clipboard.ts";
 import { invoke } from "../ui/tauri.ts";
 import { onShownChange, paneShown } from "../ui/active.ts";
@@ -277,7 +278,7 @@ function action(act: ArtifactAction) {
   const key = A.key, version = A.version;
   const stillPicked = () => A.key === key && A.picked === a.path && A.version === version;
 
-  if (act === "pdf") wantPane({ kind: "openPath", path: a.path });
+  if (act === "pdf") openPath(a.path);
   else if (act === "claude" && a.url) invoke("open_url", { url: a.url }).catch(e => { if (stillPicked()) note(readError(e)); });
   else if (act === "file") {
     const rel = relativeTo(s.cwd, a.path);

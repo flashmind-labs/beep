@@ -10,7 +10,7 @@ import type { BranchSessionRow } from "../review/history-state.ts";
 import { sessions } from "../agents/sessions.ts";
 import { placeOf } from "../agents/place.ts";
 import { sessionVisible, shownStatus } from "../agents/closing.ts";
-import { showChanges } from "../agentpane/media.ts";
+import { showChanges } from "../agentpane/changes.ts";
 import type { SessionRow } from "./projects-state.ts";
 import { sessionsOf, projectLoaded } from "../center/state.ts";
 import { boxOf, go } from "../center/nav.ts";

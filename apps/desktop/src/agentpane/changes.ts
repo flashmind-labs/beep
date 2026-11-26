@@ -9,8 +9,10 @@
 import type { DiffView } from "../review/diff-state.ts";
 import { type DiffViewHandle, type DiffOwner, diffView } from "../review/diff.tsx";
 import { CHANGES } from "./media-state.ts";
-import { wantPane, paneSession } from "./pane-state.ts";
-import { dockOf, paneModel } from "./media-layout.ts";
+import { paneSession, redraw } from "./pane-state.ts";
+import { dockOf, drawPaneNow, paneModel, place, setOn, shell } from "./media-layout.ts";
+import { openWorkFile, setFolded } from "./pane-open.ts";
+import { rememberPane } from "./pane-memory.ts";
 import { localFileItems } from "./localfile.ts";
 import { touchesRepo } from "./touched.ts";
 import { paneLinked, paneRoot, removedBranch, watchRoot, worktreesReady, worktreesSettled } from "./worktree.ts";
@@ -126,7 +128,7 @@ function make(key: string) {
   const view = diffView({
     owner,
     uncommitted: true,
-    zoom: { zoomed: () => paneModel.getState().zoomed === dockOf(CHANGES), subscribe: paneModel.subscribe, enter: () => wantPane({ kind: "show", tab: "changes" }) },
+    zoom: { zoomed: () => paneModel.getState().zoomed === dockOf(CHANGES), subscribe: paneModel.subscribe, enter: () => showChanges() },
     load: async (only, lockfiles, uncommitted, context) => {
       const full = !only.length;
 
@@ -145,7 +147,7 @@ function make(key: string) {
       if (full) { entry.lines = linesOf(view); trim(); }
       return view;
     },
-    open: { label: "Open in a tab", run: rel => wantPane({ kind: "open", rel, preview: false }) },
+    open: { label: "Open in a tab", run: rel => openWorkFile(rel) },
     menu: (path, at) => localFileItems({ machineId: entry.machine, root: entry.root, path }, at),
     review: { key: viewKey(s.machine_id, s.id), heading: () => reviewHeading(homeShort(entry.root), paneLinked()), send: async text => await paneSession()?.sendReview?.(text) ?? "No session is open." },
     agent: { machine: { id: s.machine_id, name: s.machine_name }, prefer: s.agent, session: s.id },
@@ -269,4 +271,25 @@ function check(entry: Kept, now: boolean, appeared: boolean) {
 /// Puts the keyboard in the diff.
 export function focusChanges() {
   shown?.view.focus();
+}
+
+/// View diff: the Changes tab zoomed over the conversation, the keyboard in the diff.
+/// Not `zoomed`, it shows beside the conversation. A folded dock opens; the
+/// layout is otherwise as it was.
+export function showChanges(zoomed = true) {
+  if (!shell()) return;
+  const d = dockOf(CHANGES);
+  setOn(d, CHANGES);
+  setFolded(d, false);
+  paneModel.setState({ log: false });
+  redraw();
+
+  if (zoomed) {
+    paneModel.setState({ zoom: d });
+    place();
+    drawPaneNow();
+    focusChanges();
+  }
+
+  rememberPane();
 }

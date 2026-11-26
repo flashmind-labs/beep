@@ -8,7 +8,11 @@ import { indexedChannel, invoke, listen } from "../ui/tauri.ts";
 import { subscribeChanges, subscribeEach, topic } from "../ui/mesh-events.ts";
 import { pushedList } from "../ui/snapshot-state.ts";
 import { ambient, latest, onShownChange, paneShown, STALE } from "../ui/active.ts";
-import { wantPane, paneSession, redraw } from "./pane-state.ts";
+import { paneSession, redraw } from "./pane-state.ts";
+import { dockOf, paneModel, setOn, shell } from "./media-layout.ts";
+import { DEVICE } from "./media-state.ts";
+import { rememberPane, saveLayout } from "./pane-memory.ts";
+import { requestRightPane, setFolded } from "./pane-open.ts";
 import { sessionKey } from "./running.ts";
 import { paneRoot } from "./worktree.ts";
 import {
@@ -135,7 +139,7 @@ export function followDeviceCalls(entries: readonly { kind: string; text: string
 
   agentUsed = session;
   wanted = target;
-  wantPane({ kind: "show", tab: "device" });
+  showDevice();
   void readDevices();
 }
 
@@ -542,4 +546,17 @@ async function drain() {
   } finally {
     sending = false;
   }
+}
+
+/// Turns the Device tab's dock to it, unfolded, without taking the keys
+/// from the conversation. A phone keeps its screen.
+function showDevice() {
+  if (!shell() || paneModel.getState().phone || !hasDeviceTab()) return;
+  const d = dockOf(DEVICE);
+  requestRightPane(d);
+  setFolded(d, false);
+  saveLayout();
+  setOn(d, DEVICE);
+  rememberPane();
+  redraw();
 }

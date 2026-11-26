@@ -13,7 +13,8 @@ import { agentKey, conversationHistory, conversationKey, retitle, sessionKey, ty
 
 import { $, type AgentReturn, bar, S, windowHooks, setView } from "../bar/core.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
-import { openLinked, rebindPane, restorePane, startPane } from "../agentpane/media.ts";
+import { rebindPane, restorePane, startPane } from "../agentpane/media.ts";
+import { openLinked } from "../agentpane/pane-open.ts";
 import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, activateMentions, rememberMentionImages, setAttachError } from "./mentions.ts";

@@ -11,7 +11,7 @@ import type { PaneTabItem } from "./tabs-view.tsx";
 import type { SubagentRow } from "./subagents-view.tsx";
 import type { WorktreeMenuModel } from "./worktree-view.tsx";
 import { PANE } from "../bar/core.ts";
-import { P, wantPane, type MediaTab } from "./pane-state.ts";
+import { P, type MediaTab } from "./pane-state.ts";
 import { sessions } from "../agents/sessions.ts";
 import { sessionVisible } from "../agents/closing.ts";
 import { chatOf, chatRail } from "../agents/threads-state.ts";
@@ -212,8 +212,6 @@ export const openTabs = () => paneModel.getState().tabs;
 
 /// Shows tab `id` in dock `d` at the next draw.
 export function setOn(d: Dock, id: string) {
-  // The tab shown moved: what was last asked for no longer stands.
-  wantPane(null);
   paneModel.setState(s => ({ on: { ...s.on, [d]: id } }));
 }
 

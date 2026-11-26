@@ -8,7 +8,7 @@ import type { AgentSession } from "../agents/agents-state.ts";
 import type { TerminalRow } from "../terminals/terminals.tsx";
 import type { Dock, ImageView, MediaKind } from "./media-state.ts";
 import type { ModelView } from "./model3d.ts";
-import type { LspLocation } from "./lsp-state.ts";
+
 import type { PaneTerm, TermPlace } from "./terminal.ts";
 
 
@@ -194,18 +194,4 @@ export function redraw() {
 /// Asks live reload to look at the files the pane shows now.
 export function refollow() {
   paneAsks.setState(s => ({ follows: s.follows + 1 }));
-}
-
-/// The tab that should show, with its file or location.
-export type PaneWant =
-  | { kind: "show"; tab: "files" | "device" | "changes" }
-  | { kind: "open"; rel: string; preview: boolean }
-  | { kind: "openPath"; path: string }
-  | { kind: "location"; root: string; location: LspLocation; preferEdit: boolean };
-
-export const paneTarget = createStore<{ target: PaneWant | null }>(() => ({ target: null }));
-
-/// Makes `target` the tab that should show; null when the pane has none.
-export function wantPane(target: PaneWant | null) {
-  paneTarget.setState({ target });
 }

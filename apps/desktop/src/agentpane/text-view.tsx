@@ -15,10 +15,11 @@ import {
   wordSpanAt,
 } from "./lsp-state.ts";
 import { openTabs } from "./media-layout.ts";
-import { rememberPane } from "./pane-memory.ts";
-import { type MediaTab, type TextPlace, type TreeText, wantPane, newFileEdit, P } from "./pane-state.ts";
+import { type MediaTab, type TextPlace, type TreeText, newFileEdit, P } from "./pane-state.ts";
 import { discardSheet, noteTab, touchTab } from "./pane-tabs.ts";
-import { fileError, readError, saveWorkFile } from "./read-file.ts";
+import { readError, saveWorkFile } from "./read-file.ts";
+import { togglePreview } from "./read.ts";
+import { openLocation } from "./pane-open.ts";
 import { readView, viewKey, writeView } from "./view-memory.ts";
 import { mentioned } from "./worktree-state.ts";
 
@@ -83,56 +84,6 @@ function trackDefinitionModifier() {
 
 const CodeEditor = lazy(() => import("./code-editor.tsx"));
 const SourceSearch = lazy(() => import("./code-editor.tsx").then(module => ({ default: module.SourceSearch })));
-
-/// Shows an HTML or Markdown file's preview in its tab, reading it the first time, or its source again.
-export async function togglePreview(tab: MediaTab) {
-  const session = P.session;
-  if (!session || !tab.rel) return;
-  const preview = tab.preview ??= { active: false, loading: false, src: "", html: "", error: "" };
-  tab.findRequest = 0;
-  preview.active = !preview.active;
-  rememberPane();
-  if (!preview.active || preview.src || preview.html || preview.loading) { touchTab(tab); return; }
-  preview.loading = true; preview.error = ""; touchTab(tab);
-
-  try {
-    Object.assign(preview, await readPreview(session, tab.root ?? session.cwd, tab.rel));
-  } catch (error) {
-    preview.error = fileError(error, tab.rel);
-  } finally {
-    preview.loading = false; touchTab(tab);
-  }
-}
-
-/// Reads a tab's preview again after its file or one beside it changed,
-/// keeping the one shown until the new one is read. One not shown is read
-/// when it next shows.
-export async function refreshPreview(tab: MediaTab) {
-  const session = P.session, preview = tab.preview;
-  if (!session || !tab.rel || !preview) return true;
-
-  if (!preview.active) {
-    Object.assign(preview, { src: "", html: "" });
-    return true;
-  }
-
-  try {
-    Object.assign(preview, await readPreview(session, tab.root ?? session.cwd, tab.rel), { error: "" });
-    touchTab(tab);
-    return true;
-  } catch {
-    // Keep the old stamp so the next check retries the preview.
-    return false;
-  }
-}
-
-/// An HTML file's page URL, fresh at each read, or a Markdown file's HTML.
-async function readPreview(session: { machine_id: string }, root: string, path: string) {
-  const result = await invoke<{ kind: string; src?: string; html?: string }>("agent_artifact", { machineId: session.machine_id, root, path, preview: true });
-  if (result.kind === "html" && result.src) return { src: result.src, html: "" };
-  if (result.kind === "md" && result.html !== undefined) return { src: "", html: result.html };
-  throw new Error("This file cannot be previewed.");
-}
 
 /// Shows `now`, the file as it is now, in a text tab. An editor starts again
 /// from it, or stops when the file can no longer be edited here.
@@ -294,7 +245,7 @@ async function lookupDefinition(
 
     const result = parseLspResult(raw);
     if (result.locations.length === 1) {
-      wantPane({ kind: "location", root, location: result.locations[0], preferEdit });
+      openLocation(root, result.locations[0], preferEdit);
       return;
     }
 
@@ -304,7 +255,7 @@ async function lookupDefinition(
         "Definitions",
         result.locations.map(loc => ({
           label: formatLocationLabel(loc),
-          on: () => wantPane({ kind: "location", root, location: loc, preferEdit }),
+          on: () => openLocation(root, loc, preferEdit),
         })),
       );
       return;

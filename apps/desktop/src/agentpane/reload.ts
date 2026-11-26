@@ -14,9 +14,9 @@ import { type MediaTab, type TreeText, P, paneAsks } from "./pane-state.ts";
 import { touchTab } from "./pane-tabs.ts";
 import { resolvePath } from "./media-state.ts";
 import { dockOf, openTabs, paneModel } from "./media-layout.ts";
-import { load } from "./read.ts";
+import { load, refreshPreview } from "./read.ts";
 import { type Followed, type Stamp, followedAt, folderStamp, hashedStamp, listedSize, nextStamp, splitPath, textStamp } from "./reload-state.ts";
-import { refreshPreview, takeText } from "./text-view.tsx";
+import { takeText } from "./text-view.tsx";
 import { touches } from "./touched.ts";
 import { paneRoot, watchRoot } from "./worktree.ts";
 
