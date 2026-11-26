@@ -14,7 +14,7 @@ import type { ActivityRow, ToolActivity, ToolBody } from "./activity-view.tsx";
 import { followAgent } from "../agentpane/worktree.ts";
 import { followDeviceCalls } from "../agentpane/device.ts";
 import { collectArtifacts, madeFiles, toolArtifacts } from "../agentpane/artifacts-state.ts";
-import { atBottom, keptScrollTop, logScroll } from "./logscroll.ts";
+import { atBottom, keptScrollTop, logScroll, markPlace } from "./logscroll.ts";
 import { attachLive, trackLive } from "./thoughtlive.ts";
 import { groupThoughts, mergedThought } from "./thoughts-state.ts";
 import { showLogShell } from "./log-shell.tsx";
@@ -58,14 +58,15 @@ logStale.follow(() => drawAgentBody());
 /// Draws the log again. `keep` finds the row the reader just opened or
 /// folded, which stays where it is on screen. With `older` it is the row in
 /// view while older entries come in above, kept only when the reader is not
-/// at the end. With `news` only the page's entries changed since the last
-/// draw: the turns whose entries stayed keep their rows.
-export function drawAgentBody(keep?: string, polled = false, older = false, news = false) {
+/// at the end; `page` is one of several in a row, which leaves the pane and
+/// the controls for the last one. With `news` only the page's entries
+/// changed since the last draw: the turns whose entries stayed keep their rows.
+export function drawAgentBody(keep?: string, polled = false, older: boolean | "page" = false, news = false) {
   const b = sessionBody(), p = AG.page;
   if (!b || !p) return;
   const s = p.session, q = s.question;
   const stopping = stoppingNow();
-  if (p.entries.some(subCall)) {
+  if (older !== "page" && p.entries.some(subCall)) {
     modelsOn(s.machine_id, s.agent, () => {
       if (AG.page?.session.id === s.id && AG.page.session.machine_id === s.machine_id) drawAgentBody();
     });
@@ -98,32 +99,33 @@ export function drawAgentBody(keep?: string, polled = false, older = false, news
     : AG.note ? { text: AG.note, tone: "error" }
     : !AG.sig && p.entries.length ? { text: connectingNote(s.machine_name || "the machine"), tone: "connecting" } : null;
   const retry = !!(AG.readError && AG.note === AG.readError && !AG.link.lost && AG.note !== "gone");
-  const subs = paneSubs(p);
   const shell = { why, starting: s.status === "starting", log: !!units,
     question: question ? { ...question, options: question.options.map(option => ({ ...option })) } : null,
     questionKey: question ? questionKey(question, openOf(s)) : null,
     answering: !!question && question.id === AG.answering,
     error: p.error, external: s.external, switchModel: !!p.error && canSwitchModel(s), note, retry };
   if (!showLog(b, shell, units, polled)) { AG.rest = ""; return; }
-  // The pane follows the open conversation into its worktree.
-  followAgent(p.entries, p.earlier, null);
-  // The Device tab follows the agent's device calls.
-  followDeviceCalls(p.entries, p.earlier);
-  const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
-  drawPane(subs, arts);
-  batchComposerUi(() => {
-    drawModelPill();
-    drawModes();
-    drawPlan(p);
-    drawTasks();
-    drawQueue();
-    showAgentControl("state", <AgentStatus status={s.status} stopping={stopping} />);
-    // Only a turn that runs can be stopped; stopped, it says so at once,
-    // while the agent winds the turn down.
-    showAgentStop({ shown: AGENT_ACTIVE.has(s.status), stopping });
-  });
-  tickClocks();
-  redrawAgentHints();
+  if (older !== "page") {
+    // The pane follows the open conversation into its worktree.
+    followAgent(p.entries, p.earlier, null);
+    // The Device tab follows the agent's device calls.
+    followDeviceCalls(p.entries, p.earlier);
+    const arts = { list: collectArtifacts(p.entries, p.earlier, s.cwd), turnStart: (k: number) => turnStarts.get(k) };
+    drawPane(paneSubs(p), arts);
+    batchComposerUi(() => {
+      drawModelPill();
+      drawModes();
+      drawPlan(p);
+      drawTasks();
+      drawQueue();
+      showAgentControl("state", <AgentStatus status={s.status} stopping={stopping} />);
+      // Only a turn that runs can be stopped; stopped, it says so at once,
+      // while the agent winds the turn down.
+      showAgentStop({ shown: AGENT_ACTIVE.has(s.status), stopping });
+    });
+    tickClocks();
+    redrawAgentHints();
+  }
 
   // A log goes to its end as `fillLog` draws it, with one layout.
   if (scroll === "bottom" && !units) pinEnd(b);
@@ -796,6 +798,7 @@ function restoreScroll(b: HTMLElement, a: ScrollAnchor) {
   const el = a.sel != null ? b.querySelector<HTMLElement>(a.sel) : null;
   const top = el ? keptScrollTop(b.scrollTop, a.off, el.getBoundingClientRect().top - b.getBoundingClientRect().top) : a.scroll;
   if (top !== b.scrollTop) b.scrollTop = top;
+  markPlace(b);
 }
 
 /// The first line of a thought, without its Markdown bold or heading marks.

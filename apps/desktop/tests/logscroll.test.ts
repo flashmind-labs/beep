@@ -1,19 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { followsAfterScroll, keptScrollTop, logScroll, pinWait, returnScroll } from "../src/agents/logscroll.ts";
+import { followsAfterScroll, keptScrollTop, markPlace, logScroll, pinWait, returnScroll } from "../src/agents/logscroll.ts";
 
 test("scrolling up from the end lets go at once, inside the slack too", () => {
   // The regression (#369): a move up of a few pixels still counted as at
   // the bottom, so the log was pinned back down until the reader's scroll
   // grew past the slack.
   const box = { scrollTop: 990, scrollHeight: 2000, clientHeight: 1000 };
-  assert.equal(followsAfterScroll(true, 1000, box), false);
+  assert.equal(followsAfterScroll(true, 0, box), false);
   // Down, or still: it keeps following, and the bottom takes it back.
-  assert.equal(followsAfterScroll(true, 900, { ...box, scrollTop: 950 }), true);
-  assert.equal(followsAfterScroll(false, 900, box), true);
+  assert.equal(followsAfterScroll(true, 100, { ...box, scrollTop: 950 }), true);
+  assert.equal(followsAfterScroll(false, 100, box), true);
   assert.equal(followsAfterScroll(false, 500, { ...box, scrollTop: 600 }), false);
   // A bounce past the end settling back is not a move up.
-  assert.equal(followsAfterScroll(true, 1030, { ...box, scrollTop: 1000 }), true);
+  assert.equal(followsAfterScroll(true, 0, { ...box, scrollTop: 1000 }), true);
 });
 
 test("a pin to the end waits while the wheel turns", () => {
@@ -58,7 +58,24 @@ test("a kept row goes back to where it was on screen", () => {
 
 test("a layout adjustment after sending attachments preserves following the bottom", () => {
   const adjusted = { scrollTop: 800, scrollHeight: 2300, clientHeight: 1100 };
-  assert.equal(followsAfterScroll(true, 1000, adjusted, true), true);
-  assert.equal(followsAfterScroll(true, 1000, adjusted, false), false);
-  assert.equal(followsAfterScroll(false, 1000, adjusted, true), false);
+  assert.equal(followsAfterScroll(true, 0, adjusted, true), true);
+  assert.equal(followsAfterScroll(true, 0, adjusted, false), false);
+  assert.equal(followsAfterScroll(false, 0, adjusted, true), false);
+});
+
+test("a move up that arrives with a pin to the end still lets go", () => {
+  // Older entries came in above and the log was pinned (gap 0); the reader
+  // scrolled up 300 px in the same event. The raw scrollTop is far past the
+  // one last seen, but the gap grew.
+  const box = { scrollTop: 9700, scrollHeight: 11000, clientHeight: 1000 };
+  assert.equal(followsAfterScroll(true, 0, box), false);
+});
+
+test("the place is noted only for a box in the page", () => {
+  const box: { scrollTop: number; scrollHeight: number; clientHeight: number; top?: number; gap?: number } = { scrollTop: 500, scrollHeight: 2000, clientHeight: 1000 };
+  markPlace(box);
+  assert.deepEqual([box.top, box.gap], [500, 500]);
+  Object.assign(box, { scrollTop: 0, clientHeight: 0 });
+  markPlace(box);
+  assert.deepEqual([box.top, box.gap], [500, 500]);
 });

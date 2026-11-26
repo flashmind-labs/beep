@@ -17,13 +17,26 @@ export function atBottom(b: ScrollBox) {
   return b.scrollHeight - b.scrollTop - b.clientHeight < BOTTOM_SLACK;
 }
 
-/// Whether a log that `stuck` to its end still does after the reader moved
-/// it from `was`: any move up lets go, even inside the slack, and reaching
-/// the bottom takes it back. A move up from past the end (a bounce
-/// settling) is not the reader's.
-export function followsAfterScroll(stuck: boolean, was: number, b: ScrollBox, layoutChanged = false) {
+/// How far `b` is from its end, never below 0 (a bounce past the end is not a gap).
+export const gapOf = (b: ScrollBox) => Math.max(0, b.scrollHeight - b.scrollTop - b.clientHeight);
+
+/// Notes where `b` stands, as the reader or the code left it: the place a
+/// hidden log comes back to, and the gap a later scroll is judged against.
+/// A box out of the page reads 0 and says nothing.
+export function markPlace(b: ScrollBox & { top?: number; gap?: number }) {
+  if (!b.clientHeight) return;
+  b.top = b.scrollTop;
+  b.gap = gapOf(b);
+}
+
+/// Whether a log that `stuck` to its end still does after a scroll that
+/// found it `gapBefore` pixels from the end: any move away from the end lets
+/// go, even inside the slack, and reaching the bottom takes it back. The gap
+/// is compared, not `scrollTop`, so a pin to the end and the reader's move
+/// up that arrive as one scroll event still count as up.
+export function followsAfterScroll(stuck: boolean, gapBefore: number, b: ScrollBox, layoutChanged = false) {
   if (stuck && layoutChanged) return true;
-  if (b.scrollTop < Math.min(was, b.scrollHeight - b.clientHeight)) return false;
+  if (gapOf(b) > gapBefore) return false;
   return stuck || atBottom(b);
 }
 

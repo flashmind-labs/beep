@@ -14,6 +14,7 @@ function page(earlier: number, count: number): AgentPage {
 }
 
 function start() {
+  Object.assign(document, { visibilityState: "visible" });
   bar.innerHTML = "";
   setView("agent");
   Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: "s1" }, page: page(400, 1), older: { stop: "", reading: null } });
@@ -28,8 +29,8 @@ test("find joins the background read and waits for the whole history", async () 
   Object.defineProperty(answers, "agent_older", { configurable: true, get: () => ++reads === 1 ? pending : page(0, 200) });
 
   try {
-    const background = loadOlder();
-    const find = loadOlder();
+    const background = loadOlder(true);
+    const find = loadOlder(true);
     assert.equal(find, background);
     assert.equal(reads, 1);
     resolve(page(200, 200));
@@ -48,10 +49,10 @@ test("switching conversations starts a new read and discards the previous answer
   answers.agent_older = pending;
 
   try {
-    const previous = loadOlder();
+    const previous = loadOlder(true);
     Object.assign(AG, { open: { machine_id: "m1", agent: "codex", session: "s2" }, page: page(20, 1), older: { stop: "", reading: null } });
     answers.agent_older = page(0, 20);
-    const current = loadOlder();
+    const current = loadOlder(true);
     await current;
     assert.equal(AG.page?.entries.length, 21);
 
@@ -68,7 +69,7 @@ test("a replaced opening page loads from its new start", async () => {
   answers.agent_older = new Promise<AgentPage>(done => { resolve = done; });
 
   try {
-    const reading = loadOlder();
+    const reading = loadOlder(true);
     AG.page = page(75, 1);
     answers.agent_older = page(0, 75);
     resolve(page(200, 200));

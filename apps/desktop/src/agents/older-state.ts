@@ -73,3 +73,15 @@ export function olderNote(run: Run, stop: OlderStop, loading: boolean) {
   if (stop === "gone") return "The agent no longer keeps the entries before this one.";
   return loading ? "Loading earlier entries…" : "";
 }
+
+/// How near the top, in pixels, the view must come before earlier entries
+/// are read: a log that fills the view reads on only as the reader nears
+/// its start.
+export const NEAR_TOP = 900;
+
+/// Whether earlier entries are read now: every one was asked for, or the pane
+/// shows a log scrolled near its top (a log shorter than the view always is).
+/// Nothing is read while the pane is hidden or has no log.
+export function readsOlder(all: boolean, shown: boolean, scrollTop: number | null) {
+  return shown && (all || (scrollTop != null && scrollTop < NEAR_TOP));
+}

@@ -60,7 +60,7 @@ document.addEventListener("keydown", e => {
         sources: () => { const l = log(); return l ? logSearchSources(l) : [{ key: "chat", root: body }]; },
         reveal: key => revealLogUnit(body, key),
         watch: changed => { const l = log(); return l ? watchLogSearch(l, changed) : () => {}; },
-        prepare: loadOlder,
+        prepare: () => loadOlder(true),
       });
       return;
     }

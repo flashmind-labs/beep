@@ -17,7 +17,8 @@ import { projectWindowProps } from "../project/projectops.ts";
 import { showFailure } from "../ui/failbanner-view.tsx";
 import { rebindPane, restorePane, startPane } from "../agentpane/media.ts";
 import { openLinked } from "../agentpane/pane-open.ts";
-import { followsAfterScroll, pinWait, returnScroll } from "./logscroll.ts";
+import { followsAfterScroll, markPlace, pinWait, returnScroll } from "./logscroll.ts";
+import { loadOlder } from "./older.ts";
 import { bindMentionMenu } from "./mentionmenu.ts";
 import { MN, activateMentions, rememberMentionImages, setAttachError } from "./mentions.ts";
 import { agentBack } from "./agents-list.ts";
@@ -195,22 +196,24 @@ export function drawAgentFrame(inPlace = false, kept: ChatBody | null = null) {
     if (kept.stuck === false) kept.scrollTop = keptTop;
   } else {
     b.stuck = true;
+    markPlace(b);
     // Release the end immediately; redraw visible turns once per frame.
     // Wheel and touch gestures hold off pins to the end (`pinEnd`).
-    let frame = 0, top = b.scrollTop, height = b.clientHeight, total = b.scrollHeight;
+    let frame = 0, height = b.clientHeight, total = b.scrollHeight;
     b.onscroll = () => {
       if (!b.isConnected || !paneShown()) return;
       const layoutChanged = height !== b.clientHeight || total !== b.scrollHeight;
       const readerScrolling = b.touching || pinWait(performance.now(), b.wheel) > 0;
-      b.stuck = followsAfterScroll(b.stuck !== false, top, b, layoutChanged && !readerScrolling);
+      b.stuck = followsAfterScroll(b.stuck !== false, b.gap ?? 0, b, layoutChanged && !readerScrolling);
       height = b.clientHeight;
       total = b.scrollHeight;
-      top = b.top = b.scrollTop;
+      markPlace(b);
       frame ||= requestAnimationFrame(() => {
         frame = 0;
         if (!b.isConnected || !paneShown()) return;
         scrolledLog(b);
-        top = b.top = b.scrollTop;
+        markPlace(b);
+        void loadOlder();
         height = b.clientHeight;
         total = b.scrollHeight;
         syncJump(b);

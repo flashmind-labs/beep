@@ -9,4 +9,6 @@ export interface ChatBody extends HTMLElement {
   touching?: boolean;
   /// Where the reader last left it, kept while it is out of the page.
   top?: number;
+  /// How far from its end it stood then, in pixels.
+  gap?: number;
 }

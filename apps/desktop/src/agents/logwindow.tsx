@@ -12,7 +12,7 @@ import type { ActivityRow } from "./activity-view.tsx";
 import { TurnRows } from "./log-shell-view.tsx";
 import { frameResize } from "../ui/dom.ts";
 import { endOf, guess, shiftAbove, spacer, windowOf, type Resized } from "./logwindow-state.ts";
-import { keptScrollTop, pinWait } from "./logscroll.ts";
+import { keptScrollTop, markPlace, pinWait } from "./logscroll.ts";
 import type { ChatBody } from "../ui/turn.ts";
 
 export type TranscriptRow = TurnHeading | BlockedRow | ReplyRow | PromptRow | ContextRow | ActivityRow;
@@ -187,7 +187,7 @@ export function fillLog(b: ChatBody, follow: boolean) {
     const needsMeasure = shown.some(u => !w.sizes.has(u.key) || w.dirty.has(u.key));
 
     if (same && !needsMeasure) {
-      if (pin) b.scrollTop = b.scrollHeight;
+      if (pin) { b.scrollTop = b.scrollHeight; markPlace(b); }
       break;
     }
 
@@ -214,6 +214,9 @@ export function fillLog(b: ChatBody, follow: boolean) {
       if (top !== b.scrollTop) b.scrollTop = top;
     }
 
+    // The place is what the code left, so a hidden log comes back to the same row.
+    markPlace(b);
+
     if (same) break;
   }
 
@@ -232,6 +235,7 @@ const pinning = new WeakSet<ChatBody>();
 export function pinEnd(b: ChatBody) {
   if (!mayPin(b)) return false;
   b.scrollTop = b.scrollHeight;
+  markPlace(b);
   return true;
 }
 
@@ -372,6 +376,7 @@ function resized(w: LogWindow) {
   else if (anchor && before != null) {
     const top = keptScrollTop(b.scrollTop, before - shiftAbove(moved), anchor.getBoundingClientRect().top);
     if (top !== b.scrollTop) b.scrollTop = top;
+    markPlace(b);
   }
 }
 

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { OLDER_PAGE, answersBefore, joinRuns, newestRead, olderBefore, viewRead, olderNote, takeOlder } from "../src/agents/older-state.ts";
+import { OLDER_PAGE, answersBefore, joinRuns, newestRead, olderBefore, readsOlder, viewRead, olderNote, takeOlder } from "../src/agents/older-state.ts";
 import { onlyNotes, splitTurns } from "../src/agents/agentturns.ts";
 
 const at = (from: number, to: number, kind = "agent") => Array.from({ length: to - from }, (_, i) => ({ kind, text: `e${from + i}` }));
@@ -86,4 +86,13 @@ test("a session opens with a view's worth of its newest entries, then polls ask 
   const polled = joinRuns(opened, run(total - 58, total + 2));
   assert.equal(polled.earlier, total - 70);
   assert.equal(polled.entries.length, 72);
+});
+
+test("earlier entries are read near the top, or all at once, and never while hidden", () => {
+  assert.equal(readsOlder(false, true, 0), true);
+  assert.equal(readsOlder(false, true, 899), true);
+  assert.equal(readsOlder(false, true, 900), false);
+  assert.equal(readsOlder(false, true, null), false);
+  assert.equal(readsOlder(true, true, 5000), true);
+  assert.equal(readsOlder(true, false, 0), false);
 });
