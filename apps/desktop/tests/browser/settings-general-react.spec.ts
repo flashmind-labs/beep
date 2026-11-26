@@ -108,7 +108,12 @@ test("voice dictation turns on, lists only live models and points to the key in 
   await toggle.click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_settings_save" && JSON.stringify(call.args.settings) === JSON.stringify({ enabled: true, model: null })))).toBe(true);
   await expect(settings.getByText("Live via Mistral · mic button or hold Option in composers")).toBeVisible();
-  await expect(settings.getByText("Mistral key …9c12")).toBeVisible();
+  const chip = settings.locator(".dgchip", { hasText: "Mistral key …9c12" });
+  await expect(chip).toBeVisible();
+  const triggerBox = await page.locator("#dictationModel").boundingBox();
+  const chipBox = await chip.boundingBox();
+  expect(triggerBox && triggerBox.height <= 28).toBe(true);
+  expect(chipBox && chipBox.width < 200).toBe(true);
 
   await page.locator("#dictationModel").click();
   const menu = page.getByRole("menu", { name: "Dictation model" });
@@ -124,6 +129,8 @@ test("voice dictation turns on, lists only live models and points to the key in 
   await page.locator("#dictationModel").click();
   await page.getByRole("menuitemradio", { name: /Scribe v3 Live/ }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().some(call => call.command === "dictation_settings_save" && JSON.stringify(call.args.settings) === JSON.stringify({ enabled: true, model: "elevenlabs:scribe_v3_live" })))).toBe(true);
+  const scribeBox = await page.locator("#dictationModel").boundingBox();
+  expect(scribeBox && scribeBox.height <= 28).toBe(true);
   await expect(settings.getByText("Add your ElevenLabs API key in Credentials to start dictating")).toBeVisible();
   await settings.getByRole("button", { name: "Add API key…" }).click();
   await expect(settings.getByRole("navigation", { name: "Settings pages" }).getByRole("button", { name: "Credentials", exact: true })).toHaveAttribute("aria-current", "true");

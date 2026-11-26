@@ -206,7 +206,8 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 .dform .row { display: flex; gap: 8px; align-items: center; justify-content: flex-end }
 .dtoggle { display: flex; gap: 12px; align-items: center; transition: background-color .4s }
 .dtoggle.pointed { background: var(--ctl-fill-hi); box-shadow: 0 0 0 6px var(--ctl-fill-hi); border-radius: var(--radius-sm) }
-.dtoggle span { flex: 1; display: grid; line-height: 19px }
+.dtoggle > span:first-child { flex: 1; min-width: 0; display: grid; line-height: 19px }
+.dtoggle > span + span { display: inline-flex; gap: 8px; align-items: center; flex: none }
 .dtoggle span.dtag { flex: none; display: inline-block; line-height: 15px }
 .dtoggle b { font-weight: 500; font-size: 13.5px }
 .dtoggle small { font-size: 12px; color: var(--muted) }

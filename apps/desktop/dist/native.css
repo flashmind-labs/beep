@@ -533,7 +533,7 @@ body:not(.mobile) .dict-sub { display: flex; flex-wrap: wrap; align-items: cente
 body:not(.mobile) .dict-sub .fs-pct { display: inline-flex; font: 500 11px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--muted) }
 body:not(.mobile) .dict-sub .fs-bar { width: 112px }
 body:not(.mobile) .dict-sub .fs-bar i { background: var(--accent) }
-body:not(.mobile) .dict-trigger { height: var(--ctl-h); padding: 0 8px 0 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--ink); color: var(--fg); font: 500 12.5px/1 var(--body); display: inline-flex; align-items: center; gap: 7px; outline: 0; transition: border-color .12s, background .12s }
+body:not(.mobile) .dict-trigger { flex: none; height: var(--ctl-h); padding: 0 8px 0 9px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--ink); color: var(--fg); font: 500 12.5px/1 var(--body); white-space: nowrap; display: inline-flex; align-items: center; gap: 7px; outline: 0; transition: border-color .12s, background .12s }
 body:not(.mobile) .dict-trigger:hover:not([data-disabled]) { border-color: var(--border-hi); background: var(--elev) }
 body:not(.mobile) .dict-trigger[data-pressed], body:not(.mobile) .dict-trigger[aria-expanded="true"], body:not(.mobile) .dict-trigger[data-focus-visible] { border-color: var(--accent) }
 body:not(.mobile) .dict-trigger[data-disabled] { opacity: .55 }
