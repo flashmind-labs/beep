@@ -1,4 +1,7 @@
-use super::read::{ALPN, Access, Leaving, MovingWorktree, Pulled, pull};
+use super::{
+    read::{ALPN, Access, Leaving, Pulled, pull},
+    worktree::MovingWorktree,
+};
 use super::saved::{Folder, Outgoing, Phase, Saved};
 use crate::{
     agents::{Agents, found::Stores},

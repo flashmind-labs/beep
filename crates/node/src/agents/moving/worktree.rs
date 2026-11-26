@@ -3,7 +3,6 @@
 //! committed, the target makes a worktree on the same branch and applies it.
 //! Everything here blocks: call it from `spawn_blocking`.
 
-use super::read::MovingWorktree;
 use serde::{Deserialize, Serialize};
 use crate::files::paths;
 use anyhow::{Context, Result, bail};
@@ -12,6 +11,16 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
 };
+
+/// A worktree that moves with its session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct MovingWorktree {
+    /// Its folder, relative to the project's checkout.
+    pub(crate) path: String,
+    pub(crate) branch: String,
+    /// The commit it is at.
+    pub(crate) head: String,
+}
 
 /// The largest patch of uncommitted work that moves.
 pub(super) const MAX_PATCH: usize = 64 * 1024 * 1024;

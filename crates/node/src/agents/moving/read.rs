@@ -11,7 +11,7 @@ use super::{
     Harness, files,
     progress::{Landing, Target},
     saved::{MOVED_AWAY, Outgoing, Previous, SentTree},
-    worktree::{self, Work},
+    worktree::{self, MovingWorktree, Work},
 };
 use crate::agents::{Agents, SavedSession, found::Agent};
 use anyhow::{Context, Result, bail};
@@ -185,16 +185,6 @@ pub(crate) enum Reply {
         #[serde(default)]
         files: u64,
     },
-}
-
-/// A worktree that moves with its session.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct MovingWorktree {
-    /// Its folder, relative to the project's checkout.
-    pub(crate) path: String,
-    pub(crate) branch: String,
-    /// The commit it is at.
-    pub(crate) head: String,
 }
 
 /// What `Checkout` answers.
