@@ -3,7 +3,8 @@
 //! runs of those it holds: every minute while a run goes or after a push
 //! from a checkout here, every `QUIET` otherwise, and at once when a GitHub
 //! project's check every `CHECK` sees its runs changed. The other machines are
-//! asked how they reach the hosts every `QUIET`, and when one comes or goes.
+//! asked how they reach the hosts when one comes or goes, and every `QUIET`
+//! only those from before 0.8.28, which do not push it.
 //! A mesh change elects again. Going runs are waited on by at most
 //! `MAX_WAITS` CLI processes at once, owned here and killed when the role
 //! moves away or the node stops. Every call to a forge runs in its own task,
@@ -79,6 +80,11 @@ pub(super) trait World: Send + Sync + 'static {
     /// whose machines push nothing.
     fn reached(&self) -> Option<watch::Receiver<()>> {
         None
+    }
+    /// Whether `peer` pushes its reach, so asking it again says nothing new;
+    /// false for a node before 0.8.28, which is asked every `QUIET`.
+    fn pushes(&self, _peer: EndpointId) -> bool {
+        false
     }
     /// When this machine's checkout of `project` last moved a remote's ref,
     /// as a push does; `None` with no checkout here or no such ref.
@@ -235,7 +241,8 @@ impl<F: Forge, W: World> Watcher<F, W> {
             select! {
                 _ = check.tick(), if !parked => self.check_due(),
                 _ = tick.tick(), if !parked => self.poll().await,
-                () = sleep_until(parked_until), if parked => {
+                // Compat: only a machine before 0.8.28 does not push its reach.
+                () = sleep_until(parked_until), if parked && self.asks_needed() => {
                     parked_until = Instant::now() + QUIET;
                     self.poll().await;
                 }
@@ -272,6 +279,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
                     if let Ok(peers) = done {
                         self.peers = peers;
                         self.answered = true;
+                        parked_until = Instant::now() + QUIET;
 
                         for project in self.elect() {
                             self.begin(project, Todo::List);
@@ -294,7 +302,7 @@ impl<F: Forge, W: World> Watcher<F, W> {
         let due = self
             .asked
             .as_ref()
-            .is_none_or(|(at, _)| at.elapsed() >= QUIET);
+            .is_none_or(|(at, _)| at.elapsed() >= QUIET && self.asks_needed());
         if due {
             self.ask_peers();
         }
@@ -306,6 +314,19 @@ impl<F: Forge, W: World> Watcher<F, W> {
 
         self.elect();
         self.list_due().await;
+    }
+
+    /// Whether an online machine with a checkout does not push its reach, and
+    /// so has to be asked again to see it change.
+    fn asks_needed(&self) -> bool {
+        let me = self.world.me();
+        let online = self.world.online();
+
+        self.world
+            .projects()
+            .iter()
+            .flat_map(|project| project.machines.iter().copied())
+            .any(|machine| machine != me && online.contains(&machine) && !self.world.pushes(machine))
     }
 
     /// Starts asking every online machine with a checkout of a pinned project
@@ -784,6 +805,10 @@ impl World for MeshWorld {
 
     fn reached(&self) -> Option<watch::Receiver<()>> {
         Some(self.reaches.changes())
+    }
+
+    fn pushes(&self, peer: EndpointId) -> bool {
+        self.reaches.pushes(peer)
     }
 
     async fn changed(&mut self) -> bool {

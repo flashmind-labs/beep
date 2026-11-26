@@ -196,6 +196,11 @@ impl Reaches {
         }
     }
 
+    /// Whether `peer` has pushed its reach and so keeps pushing changes.
+    pub(crate) fn pushes(&self, peer: EndpointId) -> bool {
+        matches!(crate::lock(&self.hear.said).get(&peer), Some(Said::Reach(_)))
+    }
+
     /// Starts following `peer`, unless it is followed already.
     fn follow(&self, peer: EndpointId) {
         let mut follows = crate::lock(&self.follows);

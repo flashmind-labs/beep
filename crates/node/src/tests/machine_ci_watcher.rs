@@ -1,6 +1,6 @@
 use super::*;
 use crate::machine::ci::check::Answer;
-use std::future::pending;
+use std::{future::pending, sync::atomic::Ordering::SeqCst};
 use tempfile::TempDir;
 
 struct Idle;
@@ -296,4 +296,71 @@ async fn a_silent_machine_does_not_hold_up_a_poll() {
     assert!(watcher.held.contains("quiet"), "later polls go on with what is known");
     assert!(!watcher.calls.is_empty(), "and list the held project");
     assert_eq!(watcher.asking.len(), 1, "one gather at a time");
+}
+
+/// One other machine, which holds the only checkout, is online. It answers
+/// each ask, and `pushes` says whether it also pushes its reach.
+struct Pusher {
+    peer: EndpointId,
+    pushes: bool,
+    asks: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl World for Pusher {
+    fn me(&self) -> EndpointId {
+        iroh::SecretKey::from_bytes(&[1; 32]).public()
+    }
+
+    fn projects(&self) -> Vec<Project> {
+        let mut project = project("far", "far/repo");
+        project.machines = [self.peer].into();
+        vec![project]
+    }
+
+    fn online(&self) -> BTreeSet<EndpointId> {
+        [self.peer].into()
+    }
+
+    fn ask(&self, _: EndpointId) -> impl Future<Output = Result<ForgeReach>> + Send + 'static {
+        self.asks.fetch_add(1, SeqCst);
+        async { Ok(ForgeReach::default()) }
+    }
+
+    fn pushes(&self, _: EndpointId) -> bool {
+        self.pushes
+    }
+
+    async fn changed(&mut self) -> bool {
+        pending().await
+    }
+
+    async fn pushed(&self, _: &Project) -> Option<SystemTime> {
+        None
+    }
+}
+
+/// How many times the peer is asked over three `QUIET` spans with nothing held.
+async fn asks_while_parked(pushes: bool) -> usize {
+    let dir = TempDir::new().expect("a temp dir");
+    let asks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let world = Pusher {
+        peer: iroh::SecretKey::from_bytes(&[2; 32]).public(),
+        pushes,
+        asks: asks.clone(),
+    };
+    let watcher = Watcher::start(Idle, world, Arc::new(Ci::default()), dir.path().join("runs.json")).await;
+    let task = tokio::spawn(watcher.run());
+
+    tokio::time::sleep(QUIET * 3 + Duration::from_secs(1)).await;
+    task.abort();
+
+    asks.load(SeqCst)
+}
+
+// A machine that pushes its reach is not asked again while nothing is held;
+// one from before 0.8.28 is, every `QUIET`.
+#[tokio::test(start_paused = true)]
+async fn a_machine_that_pushes_its_reach_is_not_asked_again() {
+    assert_eq!(asks_while_parked(true).await, 1, "asked once, then followed");
+    assert!(asks_while_parked(false).await >= 3, "an old machine is asked every QUIET");
 }

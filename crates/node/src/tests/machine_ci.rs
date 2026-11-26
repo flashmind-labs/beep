@@ -323,7 +323,7 @@ impl World for Empty {
 }
 
 #[tokio::test(start_paused = true)]
-async fn a_watcher_holding_nothing_wakes_only_every_quiet_period() {
+async fn a_watcher_holding_nothing_with_no_machine_to_ask_never_wakes() {
     let dir = TempDir::new().expect("a temp dir");
     let host = Arc::new(StandIn::default());
     let looks = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -342,11 +342,8 @@ async fn a_watcher_holding_nothing_wakes_only_every_quiet_period() {
     let first = count();
     assert!(first > 0);
 
-    tokio::time::sleep(QUIET - POLL * 2).await;
+    tokio::time::sleep(QUIET * 3).await;
     assert_eq!(count(), first);
-
-    polls(2).await;
-    assert!(count() > first);
     assert_eq!(host.lists(), 0);
 }
 
