@@ -110,8 +110,7 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     let kind = silent();
     let agents = Agents::new(vec![kind.clone()]);
     let holds = agents.holds();
-    agents.publish_read(None, &[]);
-    let hold = holds.reserve(root).await.unwrap();
+    let hold = holds.hold(root).await.unwrap();
     let blocked = agents.start(&kind, root.to_str(), Begin::default()).await;
     assert!(blocked.err().unwrap().to_string().contains("preserving local edits"));
 
@@ -127,90 +126,70 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
 
     drop(hold);
     let session = agents.start(&kind, alias.to_str(), Begin::default()).await.unwrap();
-    let blocked = holds.reserve(root).await;
+    let blocked = agents.reserve_repository(root).await;
     assert!(blocked.err().unwrap().to_string().contains("close running sessions"));
 
     session.close().await;
     // No yield between the end and the check: the folder is free at once.
     assert!(!holds.running_under(root));
-    holds.reserve(root).await.unwrap();
+    agents.reserve_repository(root).await.unwrap();
 }
 
-#[tokio::test]
-async fn a_session_started_outside_beep_blocks_recovery_while_it_runs() {
-    use beep_proto::node::agent::{ExternalSession, Presence};
-
-    let dir = tempfile::tempdir().unwrap();
-    let agents = Agents::new(vec![silent()]);
-    let holds = agents.holds();
-    let mut outside = ExternalSession {
-        id: SessionId::from("outside-1"),
-        agent: "codex".into(),
-        cwd: dir.path().join("sub").to_string_lossy().into_owned(),
-        presence: Presence::Running,
-        ..ExternalSession::default()
+/// Agents whose Claude Code sessions are read from `claude` and that find
+/// no others.
+fn reading(claude: &Path) -> (Agents, tempfile::TempDir) {
+    use crate::agents::{claude::External, found::Stores};
+    let nothing = tempfile::tempdir().unwrap();
+    let agents = Agents {
+        external: External::locate_in(claude),
+        stores: Stores::at(Some(nothing.path()), Some(nothing.path()), None),
+        ..Agents::default()
     };
 
-    agents.publish_read(None, std::slice::from_ref(&outside));
-    let blocked = holds.reserve(dir.path()).await;
+    (agents, nothing)
+}
+
+/// A Claude Code session of `cwd` whose last message came `ago` ago, as it
+/// is when written again for a resume.
+fn transcript(claude: &Path, id: &str, cwd: &Path, ago: Duration) -> std::path::PathBuf {
+    let project = claude.join("projects/-checkout");
+    std::fs::create_dir_all(&project).unwrap();
+    let file = project.join(format!("{id}.jsonl"));
+    let line = format!(
+        r#"{{"type":"user","cwd":{},"timestamp":"{}","message":{{"role":"user","content":"hi"}}}}"#,
+        serde_json::to_string(&cwd.to_string_lossy()).unwrap(),
+        (chrono::Utc::now() - ago).to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+    );
+    std::fs::write(&file, format!("{line}\n")).unwrap();
+    file
+}
+
+
+const ID: &str = "0f3c2a9e-1111-4222-8333-944455556666";
+const LONG_AGO: Duration = Duration::from_secs(24 * 3600);
+
+#[tokio::test]
+async fn recovery_reads_the_sessions_when_it_reserves() {
+    let (claude, checkout) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (agents, _nothing) = reading(claude.path());
+
+    // Nothing runs: the checkout is idle.
+    drop(agents.reserve_repository(checkout.path()).await.unwrap());
+
+    // A session started since, with no listing in between.
+    transcript(claude.path(), ID, checkout.path(), Duration::ZERO);
+    let blocked = agents.reserve_repository(checkout.path()).await;
     assert!(blocked.err().unwrap().to_string().contains("external session is running"));
-
-    // An unknown presence is not idle either.
-    outside.presence = Presence::Unknown;
-    agents.publish_read(None, std::slice::from_ref(&outside));
-    assert!(holds.reserve(dir.path()).await.is_err());
-
-    outside.presence = Presence::Stopped;
-    agents.publish_read(None, std::slice::from_ref(&outside));
-    holds.reserve(dir.path()).await.unwrap();
 }
 
 #[tokio::test]
-async fn recovery_is_refused_until_the_stores_were_read() {
-    let dir = tempfile::tempdir().unwrap();
-    let agents = Agents::new(vec![silent()]);
-    let holds = agents.holds();
-    let blocked = holds.reserve(dir.path()).await;
-    assert!(blocked.err().unwrap().to_string().contains("presence is unknown"));
+async fn a_resumed_session_blocks_recovery() {
+    let (claude, checkout) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let (agents, _nothing) = reading(claude.path());
+    transcript(claude.path(), ID, checkout.path(), LONG_AGO);
+    drop(agents.reserve_repository(checkout.path()).await.unwrap());
 
-    agents.publish_read(None, &[]);
-    holds.reserve(dir.path()).await.unwrap();
-}
-
-#[tokio::test]
-async fn a_session_that_drops_off_a_read_no_longer_blocks_recovery() {
-    use beep_proto::node::agent::{ExternalSession, Presence};
-
-    let dir = tempfile::tempdir().unwrap();
-    let elsewhere = tempfile::tempdir().unwrap();
-    let agents = Agents::new(vec![silent()]);
-    let holds = agents.holds();
-    let session = |id: &str, cwd: &Path| ExternalSession {
-        id: SessionId::from(id),
-        agent: "codex".into(),
-        cwd: cwd.to_string_lossy().into_owned(),
-        presence: Presence::Running,
-        ..ExternalSession::default()
-    };
-    let here = session("here", dir.path());
-    let there = session("there", elsewhere.path());
-
-    agents.publish_read(None, &[here.clone(), there]);
-    assert!(holds.reserve(dir.path()).await.is_err());
-
-    // The next read of the folder lists nothing: the session is gone. A
-    // session of another folder is not touched by it.
-    agents.publish_read(Some(&[dir.path().to_owned()]), &[]);
-    holds.reserve(dir.path()).await.unwrap();
-    assert!(holds.reserve(elsewhere.path()).await.is_err());
-
-    // A session at the cap of listed sessions cannot be known idle.
-    let many: Vec<_> = (0..crate::files::holds::MAX_IN_FOLDERS)
-        .map(|n| ExternalSession {
-            presence: Presence::Stopped,
-            ..session(&format!("old-{n}"), dir.path())
-        })
-        .collect();
-    agents.publish_read(Some(&[dir.path().to_owned()]), &many);
-    assert!(holds.reserve(dir.path()).await.is_err());
+    transcript(claude.path(), ID, checkout.path(), Duration::ZERO);
+    let blocked = agents.reserve_repository(checkout.path()).await;
+    assert!(blocked.err().unwrap().to_string().contains("external session is running"));
 }

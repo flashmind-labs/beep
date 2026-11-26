@@ -1,6 +1,6 @@
 //! Applying received branch histories without switching a user's checkout.
 
-use super::shared::Shared;
+use super::shared::{RecoveryTurn, Shared};
 use crate::files::sync::gitdir::{self, BranchTip, Repo};
 use anyhow::{Context, Result, anyhow, bail};
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -139,20 +139,30 @@ impl Shared {
             .await??
         };
         let hold = if dirty {
-            let holds = recovery.context(
+            let asks = recovery.context(
                 "Local edits block Git sync; enable automatic recovery or commit or stash them.",
             )?;
-            match holds.reserve(self.root()).await {
-                Ok(hold) => Some(hold),
-                Err(e) => {
+            match self.take_recovery_answer(&asks) {
+                Some(Ok(hold)) => Some(hold),
+                Some(Err(e)) => {
                     return Ok(Alignment {
                         checkout_changed: false,
                         warning: Some(e),
                         held: true,
                     });
                 }
+                None => {
+                    return Ok(Alignment {
+                        checkout_changed: false,
+                        warning: Some(anyhow!(
+                            "Local edits block Git sync; waiting to check that no session runs in this checkout."
+                        )),
+                        held: true,
+                    });
+                }
             }
         } else {
+            *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
             None
         };
         let (snapshot, file) = {

@@ -471,9 +471,7 @@ impl Agents {
                     agents.delete_closed_background(closed).await;
                 }
             };
-            // Git recovery waits for one read of the stores.
-            let stores_read = agents.read_externals_at_start();
-            tokio::join!(harness_checks, background_children, stores_read);
+            tokio::join!(harness_checks, background_children);
         }))
     }
 
@@ -505,9 +503,7 @@ impl Agents {
     /// The checkouts held for Git recovery, shared with the sync that holds them.
     pub fn holds(&self) -> crate::files::holds::RepositoryHolds {
         self.holds
-            .get_or_init(|| {
-                crate::files::holds::RepositoryHolds::new(self.external_folders.subscribe())
-            })
+            .get_or_init(crate::files::holds::RepositoryHolds::default)
             .clone()
     }
 

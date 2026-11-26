@@ -71,55 +71,10 @@ fn active_roots(
 }
 
 impl Agents {
-    /// Publishes the sessions of a listing that may not be the whole of its
-    /// folders: each is added or updated, none is removed. A read that is
-    /// whole goes through `publish_read`.
-    fn publish_external_folders(&self, sessions: &[beep_proto::node::agent::ExternalSession]) {
-        self.external_folders.send_if_modified(|state| {
-            let mut changed = false;
-
-            for session in sessions {
-                let (key, outside) = outside_of(session);
-
-                if state.sessions.get(&key) != Some(&outside) {
-                    Arc::make_mut(state).sessions.insert(key, outside);
-                    changed = true;
-                }
-            }
-
-            changed
-        });
-    }
-
-    /// Publishes a read of the stores that saw every session in `folders`,
-    /// or every session when `folders` is `None`: what it names replaces
-    /// what was published for them, so a session the read no longer finds is
-    /// no longer held against Git recovery.
-    pub(in crate::agents) fn publish_read(
-        &self,
-        folders: Option<&[PathBuf]>,
-        sessions: &[beep_proto::node::agent::ExternalSession],
-    ) {
-        self.external_folders.send_modify(|state| {
-            let state = Arc::make_mut(state);
-            state.read = true;
-            state.sessions.retain(|_, outside| {
-                folders.is_some_and(|folders| {
-                    !folders
-                        .iter()
-                        .any(|folder| crate::agents::found::within(&outside.cwd, folder))
-                })
-            });
-            state.sessions.extend(sessions.iter().map(outside_of));
-        });
-    }
-
     pub(in crate::agents) fn observe_external(
         &self,
         sessions: &[beep_proto::node::agent::ExternalSession],
     ) {
-        self.publish_external_folders(sessions);
-
         let Some(source) = crate::lock(&self.event_watcher).upgrade() else {
             return;
         };
@@ -369,19 +324,6 @@ impl Agents {
         *held = Arc::downgrade(&source);
         Ok(source)
     }
-}
-
-/// A session as Git recovery holds it: busy unless known stopped.
-fn outside_of(
-    session: &beep_proto::node::agent::ExternalSession,
-) -> ((String, SessionId), crate::files::holds::Outside) {
-    (
-        (session.agent.clone(), session.id.clone()),
-        crate::files::holds::Outside {
-            cwd: PathBuf::from(&session.cwd),
-            busy: session.presence != beep_proto::node::agent::Presence::Stopped,
-        },
-    )
 }
 
 #[cfg(test)]

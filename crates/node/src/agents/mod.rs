@@ -74,6 +74,7 @@ host! {
     mod prices;
     mod processes;
     pub(crate) mod reach;
+    mod recovery;
     pub mod search;
     mod tool_details;
     mod requests;
@@ -173,9 +174,8 @@ host! {
     pub struct Agents {
         /// Checkouts held for local Git recovery, and the folders sessions run in.
         holds: OnceLock<crate::files::holds::RepositoryHolds>,
-        /// The sessions started outside Beep, as the stores' reads last saw
-        /// them, and whether any read happened.
-        external_folders: watch::Sender<Arc<crate::files::holds::Externals>>,
+        /// Follows the checkouts that wait for Git recovery, once started.
+        recovering: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
         pub events: crate::events::Hub,
         event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
         event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,

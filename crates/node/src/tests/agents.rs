@@ -657,8 +657,7 @@ async fn a_start_git_sync_holds_back_makes_no_worktree() {
     let (_dir, work) = checkout::tests::repo("held");
     let kind = sh_agent("codex", "cat > /dev/null");
     let agents = Arc::new(Agents::new(vec![kind.clone()]));
-    agents.publish_read(None, &[]);
-    let _hold = agents.holds().reserve(&work).await.unwrap();
+    let _hold = agents.holds().hold(&work).await.unwrap();
     let plan = CheckoutPlan::NamedWorktree {
         base: None,
         branch: "issue-7-fix".to_owned(),

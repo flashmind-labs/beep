@@ -25,7 +25,7 @@ use iroh::{Endpoint, EndpointAddr, EndpointId};
 use iroh_blobs::{Hash, store::fs::FsStore};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     fs,
     io::ErrorKind,
     path::{Path, PathBuf},
@@ -117,7 +117,10 @@ enum Source {
 }
 
 struct Inner {
-    recoveries: Mutex<BTreeMap<String, crate::files::holds::RepositoryHolds>>,
+    /// The projects that opted in to automatic Git recovery.
+    recoveries: Mutex<BTreeSet<String>>,
+    /// The checkouts waiting for recovery to be let run.
+    asks: crate::files::holds::Recoveries,
     parts: Parts,
     folders: Folders,
     /// Where the projects' state is kept.
@@ -249,6 +252,7 @@ impl Syncs {
             inner: Arc::new(Inner {
                 parts,
                 recoveries: Mutex::default(),
+                asks: crate::files::holds::Recoveries::default(),
                 folders,
                 dir,
                 watcher,
@@ -286,22 +290,48 @@ impl Syncs {
     }
 
     /// Applies the replicated opt-in. A missing preference always leaves local edits alone.
-    pub fn set_git_auto_recovery(
-        &self,
-        holds: &crate::files::holds::RepositoryHolds,
-        projects: BTreeSet<String>,
-    ) {
-        let recoveries: BTreeMap<_, _> = projects
-            .into_iter()
-            .map(|project| (project, holds.clone()))
-            .collect();
-        *lock(&self.inner.recoveries) = recoveries.clone();
+    /// A project that opted in publishes the checkout in `recoveries` when
+    /// local edits block it, and recovers when `answer_recovery` holds it.
+    pub fn set_git_auto_recovery(&self, projects: BTreeSet<String>) {
+        *lock(&self.inner.recoveries) = projects.clone();
 
         for (name, entry) in self.inner.projects.seen().iter() {
             if let Some(shared) = entry.running() {
-                shared.set_recovery(recoveries.get(name).cloned());
+                shared.set_recovery(self.recovery_of(name));
             }
         }
+    }
+
+    /// The checkouts whose local edits wait for recovery to be let run.
+    pub fn recoveries(&self) -> tokio::sync::watch::Receiver<BTreeSet<PathBuf>> {
+        self.inner.asks.subscribe()
+    }
+
+    /// Answers the checkout `root` that waits in `recoveries`: the hold that
+    /// lets its recovery run, which sync releases when it ends, or why not.
+    pub fn answer_recovery(
+        &self,
+        root: &Path,
+        answer: anyhow::Result<crate::files::holds::RepositoryHold>,
+    ) {
+        let shared = self
+            .inner
+            .projects
+            .seen()
+            .values()
+            .filter_map(|entry| entry.running().cloned())
+            .find(|shared| shared.root() == root);
+        self.inner.asks.answered(root);
+
+        if let Some(shared) = shared {
+            shared.answer_recovery(answer);
+        }
+    }
+
+    fn recovery_of(&self, project: &str) -> Option<crate::files::holds::Recoveries> {
+        lock(&self.inner.recoveries)
+            .contains(project)
+            .then(|| self.inner.asks.clone())
     }
 
     /// Syncs exactly `projects`, and says which it refused. A project left
@@ -514,7 +544,7 @@ impl Syncs {
         self.inner.projects.start_run(project, from, running);
         // Again now it is listed: opt-ins that changed while it loaded
         // find a run listed as running, or are read here.
-        shared.set_recovery(lock(&self.inner.recoveries).get(&project.name).cloned());
+        shared.set_recovery(self.recovery_of(&project.name));
     }
 
     async fn run(&self, project: &Project, from: Source) -> Result<Running> {
@@ -571,7 +601,7 @@ impl Syncs {
             rules: project.rules.clone(),
         };
         let shared = spawn_blocking(move || Shared::load(start)).await??;
-        shared.set_recovery(lock(&self.inner.recoveries).get(&project.name).cloned());
+        shared.set_recovery(self.recovery_of(&project.name));
         let task = tokio::spawn(project::run(
             shared.clone(),
             self.inner.parts.clone(),

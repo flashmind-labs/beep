@@ -35,10 +35,23 @@ use tokio_util::sync::CancellationToken;
 /// The longest a scan before matching a peer may take; the pull tries again.
 const MATCH_SCAN: Duration = Duration::from_secs(30);
 
+/// A project's request to run Git recovery.
+#[derive(Default)]
+pub(super) enum RecoveryTurn {
+    /// Nothing asked, or the answer was taken.
+    #[default]
+    Idle,
+    /// Published in the recoveries; no answer yet.
+    Asked,
+    Answered(Result<crate::files::holds::RepositoryHold>),
+}
+
 /// What a project's task shares with the pulls and the node.
 pub(in crate::files::sync) struct Shared {
     pub(super) bootstrap_paths: RwLock<Option<HashSet<String>>>,
-    pub(super) recovery: Arc<Mutex<Option<crate::files::holds::RepositoryHolds>>>,
+    pub(super) recovery: Arc<Mutex<Option<crate::files::holds::Recoveries>>>,
+    /// Where this checkout is in asking for its recovery to be let run.
+    pub(super) recovery_turn: Mutex<RecoveryTurn>,
     pub(super) name: String,
     pub(super) key: Key,
     pub(super) root: Arc<Folder>,
@@ -163,6 +176,7 @@ impl Shared {
                     .then(HashSet::new),
             ),
             recovery: Arc::default(),
+            recovery_turn: Mutex::default(),
             name: start.name,
             key: start.key,
             root: start.root,
@@ -215,12 +229,13 @@ impl Shared {
 
     pub(in crate::files::sync) fn set_recovery(
         &self,
-        holds: Option<crate::files::holds::RepositoryHolds>,
+        holds: Option<crate::files::holds::Recoveries>,
     ) {
         let changed = {
             let mut current = crate::lock(&self.recovery);
             let changed = current.is_some() != holds.is_some();
             *current = holds;
+            *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
             changed
         };
 
@@ -387,6 +402,37 @@ impl Shared {
         crate::read_lock(&self.bootstrap_paths)
             .as_ref()
             .is_none_or(|allowed| allowed.contains(path))
+    }
+
+    /// What sync was told about running recovery in this checkout: the hold
+    /// that lets it run, or why it may not. `None` while it waits, asking
+    /// once per round.
+    pub(super) fn take_recovery_answer(
+        &self,
+        asks: &crate::files::holds::Recoveries,
+    ) -> Option<Result<crate::files::holds::RepositoryHold>> {
+        let mut turn = crate::lock(&self.recovery_turn);
+
+        match std::mem::take(&mut *turn) {
+            RecoveryTurn::Answered(answer) => Some(answer),
+            RecoveryTurn::Asked => {
+                *turn = RecoveryTurn::Asked;
+                None
+            }
+            RecoveryTurn::Idle => {
+                *turn = RecoveryTurn::Asked;
+                asks.ask(self.root());
+                None
+            }
+        }
+    }
+
+    pub(in crate::files::sync) fn answer_recovery(
+        &self,
+        answer: Result<crate::files::holds::RepositoryHold>,
+    ) {
+        *crate::lock(&self.recovery_turn) = RecoveryTurn::Answered(answer);
+        self.forced.notify_one();
     }
 
     pub(super) fn recovery_enabled(&self) -> bool {

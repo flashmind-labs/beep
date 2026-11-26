@@ -2115,11 +2115,11 @@ async fn git_recovery_keeps_staged_unstaged_untracked_and_ignored_work() {
     git(&b.folder(), &["config", "user.name", "Test"]);
     git(&b.folder(), &["config", "user.email", "test@example.com"]);
     let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
-    agents.read_externals_at_start().await;
+    agents.follow_recoveries(&b.running().transfers.syncs());
     b.running()
         .transfers
         .syncs()
-        .set_git_auto_recovery(&agents.holds(), [PROJECT.to_owned()].into());
+        .set_git_auto_recovery([PROJECT.to_owned()].into());
     a.pause(&b, false).await;
     b.pause(&a, false).await;
     eventually("automatic recovery to restore all local work", || {
@@ -2188,11 +2188,11 @@ async fn git_recovery_conflicts_keep_the_backup_and_do_not_repeat_after_restart(
     git(&b.folder(), &["config", "user.name", "Test"]);
     git(&b.folder(), &["config", "user.email", "test@example.com"]);
     let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
-    agents.read_externals_at_start().await;
+    agents.follow_recoveries(&b.running().transfers.syncs());
     b.running()
         .transfers
         .syncs()
-        .set_git_auto_recovery(&agents.holds(), [PROJECT.to_owned()].into());
+        .set_git_auto_recovery([PROJECT.to_owned()].into());
     a.pause(&b, false).await;
     b.pause(&a, false).await;
     eventually("a recovery conflict warning", || {
@@ -2214,7 +2214,7 @@ async fn git_recovery_conflicts_keep_the_backup_and_do_not_repeat_after_restart(
     b.running()
         .transfers
         .syncs()
-        .set_git_auto_recovery(&agents.holds(), [PROJECT.to_owned()].into());
+        .set_git_auto_recovery([PROJECT.to_owned()].into());
     eventually(
         "the pending recovery to remain visible after restart",
         || {
@@ -2240,11 +2240,11 @@ async fn git_recovery_never_stashes_for_divergent_histories() {
     git(&b.folder(), &["config", "user.name", "Test"]);
     git(&b.folder(), &["config", "user.email", "test@example.com"]);
     let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
-    agents.read_externals_at_start().await;
+    agents.follow_recoveries(&b.running().transfers.syncs());
     b.running()
         .transfers
         .syncs()
-        .set_git_auto_recovery(&agents.holds(), [PROJECT.to_owned()].into());
+        .set_git_auto_recovery([PROJECT.to_owned()].into());
     a.pause(&b, false).await;
     b.pause(&a, false).await;
     eventually("divergent histories to require review", || {

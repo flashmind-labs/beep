@@ -1,12 +1,11 @@
 //! Checkouts that Git sync holds while it preserves and restores local
-//! edits, and the folders sessions run in. Sync reserves a checkout here;
-//! the agents register their sessions' folders and check a start against
+//! edits, and the folders sessions run in. The agents hold a checkout here
+//! for sync, register their sessions' folders and check a start against
 //! the holds.
 
 use anyhow::{Result, ensure};
-use beep_proto::SessionId;
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeSet, HashSet},
     path::{Path, PathBuf},
     sync::{
         Arc, Mutex,
@@ -19,40 +18,42 @@ use tokio::sync::watch;
 /// folder with that many or more cannot be known idle.
 pub const MAX_IN_FOLDERS: usize = 100;
 
-/// A session started outside Beep, as the agents' last read of the stores
-/// saw it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Outside {
-    pub cwd: PathBuf,
-    /// Anything but known to be stopped: an unknown presence is not idle.
-    pub busy: bool,
-}
+/// The checkouts whose local edits wait for Git recovery, published by the
+/// sync that wants it. Whoever may let it run follows this, checks the
+/// checkout is idle and answers each root through `Syncs::answer_recovery`.
+#[derive(Clone, Default)]
+pub struct Recoveries(Arc<watch::Sender<BTreeSet<PathBuf>>>);
 
-/// What the agents know of the sessions started outside Beep, by agent and
-/// session id, published for Git sync to read.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Externals {
-    /// Whether the agents have read their stores. Until then no presence is
-    /// established, and no checkout is known to be idle.
-    pub read: bool,
-    pub sessions: BTreeMap<(String, SessionId), Outside>,
+impl Recoveries {
+    /// The roots waiting for an answer, changing on every ask.
+    pub fn subscribe(&self) -> watch::Receiver<BTreeSet<PathBuf>> {
+        self.0.subscribe()
+    }
+
+    pub(crate) fn ask(&self, root: &Path) {
+        self.0.send_modify(|roots| {
+            roots.insert(root.to_owned());
+        });
+    }
+
+    pub(crate) fn answered(&self, root: &Path) {
+        self.0.send_if_modified(|roots| roots.remove(root));
+    }
 }
 
 /// The held checkouts and the folders in use. Clones share them.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct RepositoryHolds(Arc<Inner>);
 
+#[derive(Default)]
 struct Inner {
-    /// The folders of running sessions started outside Beep, published by
-    /// the agents.
-    external: watch::Receiver<Arc<Externals>>,
     held: Mutex<HashSet<PathBuf>>,
     running: Mutex<Vec<(u64, PathBuf)>>,
     next: AtomicU64,
 }
 
 /// A checkout held; released when dropped.
-pub(crate) struct RepositoryHold {
+pub struct RepositoryHold {
     holds: RepositoryHolds,
     folder: PathBuf,
 }
@@ -64,15 +65,6 @@ pub struct Running {
 }
 
 impl RepositoryHolds {
-    pub fn new(external: watch::Receiver<Arc<Externals>>) -> Self {
-        Self(Arc::new(Inner {
-            external,
-            held: Mutex::default(),
-            running: Mutex::default(),
-            next: AtomicU64::default(),
-        }))
-    }
-
     /// Marks `cwd` as the folder of a start or session until the guard drops.
     pub fn running(&self, cwd: PathBuf) -> Running {
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
@@ -85,53 +77,25 @@ impl RepositoryHolds {
     }
 
     /// Holds the checkout `folder` while sync preserves its local edits,
-    /// refused while a session runs in it or another hold has it.
-    pub(crate) async fn reserve(&self, folder: &Path) -> Result<RepositoryHold> {
+    /// refused while another hold has it. A start registers its folder
+    /// before it checks the holds, so a start this misses finds the folder
+    /// held; whether a session already runs in it is for the caller to ask.
+    pub async fn hold(&self, folder: &Path) -> Result<RepositoryHold> {
         let folder = folder.to_owned();
         let folder =
             tokio::task::spawn_blocking(move || crate::files::paths::canonicalize(&folder))
                 .await??;
-        {
-            let mut held = crate::lock(&self.0.held);
-            ensure!(
-                !held.contains(&folder),
-                "Git recovery already runs in this checkout."
-            );
-            held.insert(folder.clone());
-        }
-        // A start registers its folder before it checks the holds, so a start
-        // this misses finds the folder held.
-        let hold = RepositoryHold {
+        let mut held = crate::lock(&self.0.held);
+        ensure!(
+            !held.contains(&folder),
+            "Git recovery already runs in this checkout."
+        );
+        held.insert(folder.clone());
+
+        Ok(RepositoryHold {
             holds: self.clone(),
-            folder: folder.clone(),
-        };
-        let holds = self.clone();
-        let (read, outside) = beep_proto::watched::read(&self.0.external, |external| {
-            let outside: Vec<(PathBuf, bool)> = external
-                .sessions
-                .values()
-                .map(|session| (session.cwd.clone(), session.busy))
-                .collect();
-
-            (external.read, outside)
-        });
-        let (here, count, outside_busy) = tokio::task::spawn_blocking(move || {
-            let (count, outside_busy) = outside_under(&outside, &folder);
-
-            (holds.running_under(&folder), count, outside_busy)
+            folder,
         })
-        .await?;
-        ensure!(
-            !here,
-            "Local edits block Git sync; close running sessions before automatic recovery."
-        );
-        // A presence that cannot be established is not evidence of an idle checkout.
-        ensure!(
-            read && count < MAX_IN_FOLDERS && !outside_busy,
-            "Local edits block Git sync; an external session is running or its presence is unknown."
-        );
-
-        Ok(hold)
     }
 
     /// Whether a session runs in `folder` or below it. Blocks on the file system.
@@ -163,17 +127,6 @@ impl RepositoryHolds {
 fn is_under(path: &Path, folder: &Path) -> bool {
     path.starts_with(folder)
         || crate::files::paths::canonicalize(path).is_ok_and(|real| real.starts_with(folder))
-}
-
-/// How many of the outside sessions `paths` run in `folder` or below, and
-/// whether one of them may run.
-fn outside_under(paths: &[(PathBuf, bool)], folder: &Path) -> (usize, bool) {
-    paths
-        .iter()
-        .filter(|(path, _)| is_under(path, folder))
-        .fold((0, false), |(count, running), (_, busy)| {
-            (count + 1, running || *busy)
-        })
 }
 
 impl Drop for RepositoryHold {

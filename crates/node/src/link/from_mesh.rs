@@ -245,8 +245,8 @@ impl Applied {
                 self.projects = Some(projects);
             }
 
+            offers.agents.follow_recoveries(&transfers.syncs());
             transfers.syncs().set_git_auto_recovery(
-                &offers.agents.holds(),
                 mesh.scan("project/")
                     .into_iter()
                     .filter_map(|(key, bytes)| {
