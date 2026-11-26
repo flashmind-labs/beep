@@ -18,7 +18,6 @@ mod phone;
 mod platforms;
 pub(crate) mod video;
 
-use crate::agents::{Agents, reach::Access};
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -31,6 +30,7 @@ use beep_proto::{node::events::Topic, watched};
 use futures::{FutureExt, Stream, StreamExt};
 use std::{
     future::Future,
+    path::{Path, PathBuf},
     sync::{
         Arc, LazyLock, Mutex,
         atomic::{AtomicU8, Ordering},
@@ -58,11 +58,43 @@ const NO_SIMULATORS: &str = "iOS simulators only run on a Mac.";
 /// something.
 const MIN_SIDE: u32 = 64;
 
-/// Serves one stream: answers `List`, `Boot`, `Shutdown`, `Logs` and `Platforms`
-/// until the desktop closes it, or follows a device once it asks to
-/// `Attach`, or the phones once it asks to `FollowPhones`.
-pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -> Result<()> {
-    while let Some(request) = rx.recv::<Request>().await? {
+/// One stream, answered request by request. A request that names a folder
+/// or file (`named`) is answered with the path its caller checked.
+pub(crate) struct Served {
+    tx: LinkTx,
+    rx: LinkRx,
+}
+
+/// The folder or file `request` names, for the caller to check and resolve
+/// for reading before it answers.
+pub(crate) fn named(request: &Request) -> Option<&str> {
+    match request {
+        Request::Install { path, .. } => Some(path),
+        Request::Platforms { root } => Some(root),
+        _ => None,
+    }
+}
+
+impl Served {
+    pub(crate) fn new(tx: LinkTx, rx: LinkRx) -> Self {
+        Self { tx, rx }
+    }
+
+    /// The next request, or none once the desktop closes the stream.
+    pub(crate) async fn next(&mut self) -> Result<Option<Request>> {
+        self.rx.recv::<Request>().await
+    }
+
+    /// Answers `request`: `List`, `Boot`, `Shutdown`, `Logs` and `Platforms`
+    /// until the desktop closes it, or follows a device once it asks to
+    /// `Attach`, or the phones once it asks to `FollowPhones`. `path` is
+    /// what `named(&request)` names, checked and resolved. The stream goes on
+    /// unless the request handed it to a follower.
+    pub(crate) async fn answer(
+        mut self,
+        request: Request,
+        path: Option<Result<PathBuf>>,
+    ) -> Result<Option<Self>> {
         let reply = match request {
             Request::List {} => Reply::Devices {
                 devices: list().await,
@@ -75,33 +107,45 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx, agents: Arc<Agents>) -
                     .map(|text| Reply::Logs { text }),
             ),
             Request::Ui { id } => answer(ui(&id).await.map(|elements| Reply::Ui { elements })),
-            Request::Install { id, path } => done(install(&agents, &id, &path).await),
+            Request::Install { id, .. } => done(match checked(path) {
+                Ok(real) => install(&id, &real).await,
+                Err(e) => Err(e),
+            }),
             Request::Launch { id, target } => done(launch(&id, &target).await),
             Request::Reset { id, app } => done(reset(&id, &app).await),
-            Request::Attach { id, max_side } => return attach(tx, rx, &id, max_side).await,
-            Request::FollowPhones {} => return phone::follow(tx, rx).await,
+            Request::Attach { id, max_side } => {
+                attach(self.tx, self.rx, &id, max_side).await?;
+                return Ok(None);
+            }
+            Request::FollowPhones {} => {
+                phone::follow(self.tx, self.rx).await?;
+                return Ok(None);
+            }
             Request::Input { .. } => Reply::Failed {
                 reason: "No device is attached.".to_owned(),
             },
-            Request::Platforms { root } => answer(
-                platforms_in(&agents, &root)
-                    .await
+            Request::Platforms { .. } => answer(
+                platforms_in(checked(path)).await
                     .map(|platforms| Reply::Platforms { platforms }),
             ),
             other => Reply::Failed {
                 reason: format!("Unknown request {other:?}."),
             },
         };
-        tx.send(&reply).await?;
-    }
+        self.tx.send(&reply).await?;
 
-    Ok(())
+        Ok(Some(self))
+    }
 }
 
-/// The platforms the app in folder `root` builds for, once `root` is a
-/// folder the desktop may read.
-async fn platforms_in(agents: &Agents, root: &str) -> Result<Vec<Platform>> {
-    let real = agents.reachable(root, Access::Read).await?;
+/// The checked path of a request that names one.
+fn checked(path: Option<Result<PathBuf>>) -> Result<PathBuf> {
+    path.context("the request's path was not checked")?
+}
+
+/// The platforms the app in the checked folder `root` builds for.
+async fn platforms_in(root: Result<PathBuf>) -> Result<Vec<Platform>> {
+    let real = root?;
 
     tokio::task::spawn_blocking(move || platforms::platforms(&real))
         .await
@@ -308,16 +352,14 @@ async fn ui(id: &DeviceId) -> Result<Vec<Element>> {
     }
 }
 
-/// Installs the app at `path`, a file the caller may read, on device `id`.
-async fn install(agents: &Agents, id: &DeviceId, path: &str) -> Result<()> {
-    let real = agents.reachable(path, Access::Read).await?;
-
+/// Installs the app at `real`, a file the caller may read, on device `id`.
+async fn install(id: &DeviceId, real: &Path) -> Result<()> {
     match reach(id).await? {
-        Reached::Adb(serial) => adb::install(&serial, &real).await,
+        Reached::Adb(serial) => adb::install(&serial, real).await,
         #[cfg(target_os = "macos")]
-        Reached::Simulator(udid) => ios::install(&udid, &real).await,
+        Reached::Simulator(udid) => ios::install(&udid, real).await,
         #[cfg(target_os = "macos")]
-        Reached::Iphone(udid) => iphone::install(&udid, &real).await,
+        Reached::Iphone(udid) => iphone::install(&udid, real).await,
     }
 }
 

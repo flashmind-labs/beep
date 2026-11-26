@@ -719,7 +719,7 @@ impl Repo {
     /// process instead of by a git process. Like [`Self::git`], it ignores the
     /// environment and global config that could point it elsewhere.
     pub(super) fn gix(&self) -> Result<gix::Repository> {
-        crate::agents::found::repository(&self.root).context("opening the Git repository")
+        crate::files::git_read::repository(&self.root).context("opening the Git repository")
     }
 
     /// Every ref that travels, as the list names them. The sync asks this on
@@ -762,7 +762,7 @@ impl Repo {
     /// The commit HEAD is at, if it is at one. Git is asked again only once
     /// `HEAD` or the ref it names changes.
     pub(super) fn head(&self) -> Option<Oid> {
-        crate::agents::found::head(&self.root, || {
+        crate::files::git_read::head(&self.root, || {
             let id = self.gix().ok()?.head_commit().ok()?.id;
             Some(id.to_string())
         })?

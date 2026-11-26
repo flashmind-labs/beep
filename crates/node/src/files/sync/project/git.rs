@@ -43,9 +43,7 @@ impl Shared {
             // Ignored-folder datasets and non-Git projects have no branch histories.
             return Ok(Alignment::default());
         };
-        let recovery = crate::lock(&self.recovery)
-            .as_ref()
-            .and_then(std::sync::Weak::upgrade);
+        let recovery = crate::lock(&self.recovery).clone();
         let can_recover = recovery.is_some();
         let root = self.root().to_owned();
         let (repo, branch, target, warning) = spawn_blocking(move || -> Result<_> {
@@ -141,10 +139,10 @@ impl Shared {
             .await??
         };
         let hold = if dirty {
-            let agents = recovery.context(
+            let holds = recovery.context(
                 "Local edits block Git sync; enable automatic recovery or commit or stash them.",
             )?;
-            match agents.reserve_repository(self.root()).await {
+            match holds.reserve(self.root()).await {
                 Ok(hold) => Some(hold),
                 Err(e) => {
                     return Ok(Alignment {

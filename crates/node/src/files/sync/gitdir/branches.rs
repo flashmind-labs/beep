@@ -97,7 +97,7 @@ impl Repo {
         let name = self
             .gix()
             .ok()
-            .and_then(|repo| crate::agents::found::default_branch(&repo));
+            .and_then(|repo| crate::files::git_read::default_branch(&repo));
         format!("{HEADS}{}", name.as_deref().unwrap_or("main"))
     }
 

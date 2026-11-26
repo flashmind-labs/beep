@@ -143,5 +143,5 @@ impl Protocol for Searches {
 }
 
 #[cfg(test)]
-#[path = "../tests/files_search.rs"]
+#[path = "../tests/agents_folder_search.rs"]
 mod tests;

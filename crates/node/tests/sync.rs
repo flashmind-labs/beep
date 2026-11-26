@@ -2118,7 +2118,7 @@ async fn git_recovery_keeps_staged_unstaged_untracked_and_ignored_work() {
     b.running()
         .transfers
         .syncs()
-        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+        .set_git_auto_recovery(&agents.holds(), [PROJECT.to_owned()].into());
     a.pause(&b, false).await;
     b.pause(&a, false).await;
     eventually("automatic recovery to restore all local work", || {
@@ -2190,7 +2190,7 @@ async fn git_recovery_conflicts_keep_the_backup_and_do_not_repeat_after_restart(
     b.running()
         .transfers
         .syncs()
-        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+        .set_git_auto_recovery(&agents.holds(), [PROJECT.to_owned()].into());
     a.pause(&b, false).await;
     b.pause(&a, false).await;
     eventually("a recovery conflict warning", || {
@@ -2212,7 +2212,7 @@ async fn git_recovery_conflicts_keep_the_backup_and_do_not_repeat_after_restart(
     b.running()
         .transfers
         .syncs()
-        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+        .set_git_auto_recovery(&agents.holds(), [PROJECT.to_owned()].into());
     eventually(
         "the pending recovery to remain visible after restart",
         || {
@@ -2241,7 +2241,7 @@ async fn git_recovery_never_stashes_for_divergent_histories() {
     b.running()
         .transfers
         .syncs()
-        .set_git_auto_recovery(&agents, [PROJECT.to_owned()].into());
+        .set_git_auto_recovery(&agents.holds(), [PROJECT.to_owned()].into());
     a.pause(&b, false).await;
     b.pause(&a, false).await;
     eventually("divergent histories to require review", || {

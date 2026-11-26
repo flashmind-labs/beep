@@ -131,7 +131,7 @@ pub(crate) fn place(dir: &Path) -> Option<WorkPlace> {
 }
 
 /// The `origin` remote of the checkout at `root`; empty when it has none.
-pub(super) fn origin(root: &Path) -> String {
+pub(crate) fn origin(root: &Path) -> String {
     repository(root)
         .and_then(|repo| {
             let remote = repo.find_remote("origin").ok()?;
@@ -364,5 +364,5 @@ impl<T: Clone> Kept<Option<T>> {
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_found_git.rs"]
-pub(super) mod tests;
+#[path = "../tests/files_git_read.rs"]
+pub(crate) mod tests;

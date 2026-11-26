@@ -29,7 +29,7 @@ use beep_proto::{AccountName, AgentAccount, AgentHost, AgentSlug};
 use std::time::Duration;
 use std::{
     borrow::Cow,
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     env,
     path::{Path, PathBuf},
     str::FromStr,
@@ -500,6 +500,11 @@ impl Agents {
         self.stopping.store(true, Ordering::Relaxed);
     }
 
+    /// The checkouts held for Git recovery, shared with the sync that holds them.
+    pub fn holds(&self) -> crate::files::holds::RepositoryHolds {
+        self.holds.clone()
+    }
+
     /// The sessions now, as last published.
     pub(super) fn session_map(&self) -> Arc<sessions::Map> {
         self.sessions.read()
@@ -684,7 +689,7 @@ impl Agents {
         signs_in(&kind.name, begin.account.as_ref())?;
         let (cwd, _) = in_project(cwd, begin.resume.is_some(), None)?;
 
-        not_recovering(&crate::lock(&self.recovering), &cwd)
+        self.holds.check_start(&cwd)
     }
 
     /// The harness Auto starts here, as a desktop picks one when the start
@@ -789,9 +794,10 @@ impl Agents {
         let resume = begin.resume.clone();
         // The id is taken first, so no other start takes it while this one
         // spawns. Recovery reads the starts under way.
-        let reservation = self.sessions.reserve(resume.clone(), cwd.clone())?;
+        let reservation = self.sessions.reserve(resume.clone())?;
         let id = reservation.id.clone();
-        not_recovering(&crate::lock(&self.recovering), &cwd)?;
+        let mut running = Some(self.holds.running(cwd.clone()));
+        self.holds.check_start(&cwd)?;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
         let instructions = crate::lock(&self.instructions)
@@ -857,6 +863,11 @@ impl Agents {
                 let (info, effort, fast) = watched::read_and_update(&mut updates, |live| {
                     (live.info.clone(), live.effort, live.fast)
                 });
+
+                if info.state.status == Status::Ended {
+                    drop(running.take());
+                }
+
                 // What the saved session keeps, noted as it changes.
                 let keeps = (
                     info.id.clone(),
@@ -946,18 +957,6 @@ fn signs_in(agent: &str, account: Option<&AccountName>) -> Result<()> {
         spawn_env::has_account(keeps, account),
         "this machine does not have {agent}'s account {account} yet; try again once it has synced, or add it in Agent accounts"
     );
-    Ok(())
-}
-
-/// Refuses a session in `cwd` while git sync preserves the local edits of
-/// its checkout, one of `recovering`.
-fn not_recovering(recovering: &HashSet<PathBuf>, cwd: &Path) -> Result<()> {
-    let real = crate::files::paths::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
-    anyhow::ensure!(
-        !recovering.iter().any(|root| real.starts_with(root)),
-        "Git sync is preserving local edits in this checkout; try starting the session again shortly."
-    );
-
     Ok(())
 }
 

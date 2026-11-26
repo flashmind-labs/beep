@@ -29,7 +29,7 @@ async fn input_with_nothing_attached_fails_and_the_stream_goes_on() {
     let link = beep_proto::node::local_link();
     let (node_tx, node_rx) = link.node;
     let (mut tx, mut rx) = link.caller;
-    let serving = tokio::spawn(serve(node_tx, node_rx, no_agents()));
+    let serving = tokio::spawn(serve(node_tx, node_rx));
 
     let input = Input::Text {
         text: "hi".to_owned(),
@@ -42,8 +42,19 @@ async fn input_with_nothing_attached_fails_and_the_stream_goes_on() {
     serving.await.expect("joined").expect("served");
 }
 
-fn no_agents() -> Arc<Agents> {
-    Arc::new(Agents::new(Vec::new()))
+/// Answers the stream's requests, none of which names a path.
+async fn serve(tx: LinkTx, rx: LinkRx) -> Result<()> {
+    let mut stream = Served::new(tx, rx);
+
+    while let Some(request) = stream.next().await? {
+        assert!(named(&request).is_none());
+        let Some(more) = stream.answer(request, None).await? else {
+            break;
+        };
+        stream = more;
+    }
+
+    Ok(())
 }
 
 /// One request on a stream of its own, and its reply.
@@ -51,7 +62,7 @@ async fn ask(request: Request) -> Reply {
     let link = beep_proto::node::local_link();
     let (node_tx, node_rx) = link.node;
     let (mut tx, mut rx) = link.caller;
-    let _serving = AbortOnDropHandle::new(tokio::spawn(serve(node_tx, node_rx, no_agents())));
+    let _serving = AbortOnDropHandle::new(tokio::spawn(serve(node_tx, node_rx)));
     tx.send(&request).await.expect("sent");
     rx.recv().await.expect("read").expect("a reply")
 }
@@ -135,7 +146,7 @@ async fn a_real_device_shows_its_screen_and_takes_input() {
     let link = beep_proto::node::local_link();
     let (node_tx, node_rx) = link.node;
     let (mut tx, mut rx) = link.caller;
-    let _serving = AbortOnDropHandle::new(tokio::spawn(serve(node_tx, node_rx, no_agents())));
+    let _serving = AbortOnDropHandle::new(tokio::spawn(serve(node_tx, node_rx)));
     let attach = Request::Attach {
         id: id.clone(),
         max_side: 800,

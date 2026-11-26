@@ -392,7 +392,7 @@ pub(super) fn git_status(dir: &Path) -> Option<GitStatus> {
 
 /// What `git <args>` printed in `dir`, when it succeeded. Takes no locks,
 /// so a running agent's own git commands are never in its way.
-pub(in crate::agents) fn git(dir: &Path, args: &[&str]) -> Option<String> {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> Option<String> {
     let out = crate::run::process::background_command("git")
         .args(args)
         .current_dir(dir)

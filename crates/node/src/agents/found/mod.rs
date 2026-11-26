@@ -27,7 +27,6 @@ mod codex_run;
 mod delete;
 mod disk;
 mod flsh;
-mod git;
 pub(crate) mod memo;
 mod opencode;
 
@@ -43,8 +42,8 @@ mod transcript;
 
 pub(crate) use delete::{remove_dir_in, remove_file_in};
 pub(crate) use disk::{forget_checkouts, rescan, saved_checkouts, walk};
-pub(crate) use git::{
-    Checkout, checkout, common_dir, default_branch, git_dir, head, last_commit, place, repository,
+pub(crate) use crate::files::git_read::{
+    Checkout, checkout, common_dir, default_branch, git_dir, last_commit, place, repository,
 };
 pub(crate) use memo::Memo;
 

@@ -2,7 +2,7 @@ use super::*;
 use crate::agents::work_folder::git;
 use std::fs;
 
-pub(in crate::agents::found) use crate::agents::checkout::tests::{has_git, run};
+pub(crate) use crate::agents::checkout::tests::{has_git, run};
 
 #[test]
 fn a_main_folder_comes_from_the_shared_git_dir() {

@@ -117,7 +117,7 @@ enum Source {
 }
 
 struct Inner {
-    recoveries: Mutex<BTreeMap<String, std::sync::Weak<crate::agents::Agents>>>,
+    recoveries: Mutex<BTreeMap<String, crate::files::holds::RepositoryHolds>>,
     parts: Parts,
     folders: Folders,
     /// Where the projects' state is kept.
@@ -288,12 +288,12 @@ impl Syncs {
     /// Applies the replicated opt-in. A missing preference always leaves local edits alone.
     pub fn set_git_auto_recovery(
         &self,
-        agents: &Arc<crate::agents::Agents>,
+        holds: &crate::files::holds::RepositoryHolds,
         projects: BTreeSet<String>,
     ) {
         let recoveries: BTreeMap<_, _> = projects
             .into_iter()
-            .map(|project| (project, Arc::downgrade(agents)))
+            .map(|project| (project, holds.clone()))
             .collect();
         *lock(&self.inner.recoveries) = recoveries.clone();
 

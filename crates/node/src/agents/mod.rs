@@ -40,7 +40,8 @@ host! {
     mod adapters;
     pub(crate) mod alerts;
     pub(crate) mod ci;
-    mod checkout;
+    pub(crate) mod checkout;
+    pub(crate) mod device_paths;
     pub(crate) mod checkouts;
     mod compaction;
     mod conversation;
@@ -74,8 +75,8 @@ host! {
     mod prices;
     mod processes;
     pub(crate) mod reach;
-    mod repository_recovery;
     pub mod search;
+    pub mod folder_search;
     mod tool_details;
     mod requests;
     mod restart;
@@ -93,7 +94,7 @@ host! {
     mod usage;
     mod window;
     pub use follow::serve_follow;
-    mod work_folder;
+    pub(crate) mod work_folder;
     mod worktrees;
 
     pub use work_folder::{local_hashes, local_read, local_tree};
@@ -172,8 +173,8 @@ host! {
     /// to the daemon, so they outlive the streams and the connection.
     #[derive(Default)]
     pub struct Agents {
-        /// Checkouts temporarily held for local Git recovery.
-        recovering: Mutex<std::collections::HashSet<PathBuf>>,
+        /// Checkouts held for local Git recovery, and the folders sessions run in.
+        holds: crate::files::holds::RepositoryHolds,
         pub events: crate::events::Hub,
         event_watcher: Mutex<std::sync::Weak<follow::Sources>>,
         event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,

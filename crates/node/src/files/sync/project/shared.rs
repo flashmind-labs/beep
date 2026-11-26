@@ -38,7 +38,7 @@ const MATCH_SCAN: Duration = Duration::from_secs(30);
 /// What a project's task shares with the pulls and the node.
 pub(in crate::files::sync) struct Shared {
     pub(super) bootstrap_paths: RwLock<Option<HashSet<String>>>,
-    pub(super) recovery: Arc<Mutex<Option<std::sync::Weak<crate::agents::Agents>>>>,
+    pub(super) recovery: Arc<Mutex<Option<crate::files::holds::RepositoryHolds>>>,
     pub(super) name: String,
     pub(super) key: Key,
     pub(super) root: Arc<Folder>,
@@ -215,12 +215,12 @@ impl Shared {
 
     pub(in crate::files::sync) fn set_recovery(
         &self,
-        agents: Option<std::sync::Weak<crate::agents::Agents>>,
+        holds: Option<crate::files::holds::RepositoryHolds>,
     ) {
         let changed = {
             let mut current = crate::lock(&self.recovery);
-            let changed = current.is_some() != agents.is_some();
-            *current = agents;
+            let changed = current.is_some() != holds.is_some();
+            *current = holds;
             changed
         };
 

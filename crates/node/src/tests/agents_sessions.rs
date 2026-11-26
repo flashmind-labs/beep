@@ -1,7 +1,7 @@
 use crate::agents::{AgentKind, Agents, session::Begin};
 use beep_proto::SessionId;
 use super::reserve;
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::timeout};
 
 /// Generous: only a hang can reach it.
@@ -54,7 +54,7 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
     // process spawns.
     let _slow = agents
         .sessions
-        .reserve(None, PathBuf::from("/srv/slow"))
+        .reserve(None)
         .unwrap();
 
     let others = async {
@@ -65,8 +65,6 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
         assert!(agents.get(&second.id).is_some());
     };
     timeout(LONG, others).await.expect("another start was held up");
-
-    assert_eq!(agents.sessions.starting(), [PathBuf::from("/srv/slow")]);
 }
 
 #[tokio::test]
@@ -76,7 +74,7 @@ async fn one_session_is_not_taken_over_while_another_takeover_starts() {
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let first = agents
         .sessions
-        .reserve(Some(SessionId::from(id)), PathBuf::from("/"))
+        .reserve(Some(SessionId::from(id)))
         .unwrap();
 
     let refused = agents.start(&kind, Some("/"), resuming(id)).await.err().unwrap();
@@ -85,7 +83,6 @@ async fn one_session_is_not_taken_over_while_another_takeover_starts() {
     // A start that gave up frees the session and its folder.
     drop(first);
     agents.start(&kind, Some("/"), resuming(id)).await.unwrap();
-    assert!(agents.sessions.starting().is_empty());
 }
 
 #[tokio::test]
@@ -93,15 +90,51 @@ async fn a_new_id_skips_the_ids_of_starts_under_way() {
     let sessions = watch::Sender::new(Arc::default());
     let mut pending = Vec::new();
     let mut ids = ["aaaaaa", "aaaaaa", "bbbbbb"].into_iter().map(SessionId::from);
-    let first = reserve(&sessions, &mut pending, None, PathBuf::from("/"), || {
+    let first = reserve(&sessions, &mut pending, None, || {
         ids.next().unwrap()
     })
     .unwrap();
-    let second = reserve(&sessions, &mut pending, None, PathBuf::from("/"), || {
+    let second = reserve(&sessions, &mut pending, None, || {
         ids.next().unwrap()
     })
     .unwrap();
 
     assert_eq!(first.0, SessionId::from("aaaaaa"));
     assert_eq!(second.0, SessionId::from("bbbbbb"));
+}
+
+#[tokio::test]
+async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let kind = silent();
+    let agents = Agents::new(vec![kind.clone()]);
+    let holds = agents.holds();
+    let hold = holds.reserve(root).await.unwrap();
+    let blocked = agents.start(&kind, root.to_str(), Begin::default()).await;
+    assert!(blocked.err().unwrap().to_string().contains("preserving local edits"));
+
+    let alias = dir.path().join("alias");
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(root, &alias).unwrap();
+        let blocked = agents.start(&kind, alias.to_str(), Begin::default()).await;
+        assert!(blocked.err().unwrap().to_string().contains("preserving local edits"));
+    }
+    #[cfg(not(unix))]
+    let alias = root.to_owned();
+
+    drop(hold);
+    let session = agents.start(&kind, alias.to_str(), Begin::default()).await.unwrap();
+    let blocked = holds.reserve(root).await;
+    assert!(blocked.err().unwrap().to_string().contains("close running sessions"));
+
+    session.close().await;
+    timeout(LONG, async {
+        while holds.reserve(root).await.is_err() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("an ended session still holds its folder");
 }

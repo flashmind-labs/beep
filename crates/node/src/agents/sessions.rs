@@ -11,7 +11,6 @@ use beep_proto::{
 use std::{
     collections::{HashMap, hash_map::RandomState},
     hash::BuildHasher,
-    path::PathBuf,
     sync::{Arc, Mutex, MutexGuard, Weak},
 };
 use tokio::sync::watch;
@@ -37,7 +36,6 @@ pub(super) struct Reservation {
 /// A start that holds an id.
 struct Pending {
     id: SessionId,
-    cwd: PathBuf,
     held: Weak<()>,
 }
 
@@ -47,11 +45,11 @@ impl Sessions {
         watched::read_sent(&self.map, Arc::clone)
     }
 
-    /// Takes the id for a session started in `cwd`, or the agent's `resume`
+    /// Takes the id for a new session, or the agent's `resume`
     /// id of one taken over. Refused while another run of that session is
     /// live or starting.
-    pub(super) fn reserve(&self, resume: Option<SessionId>, cwd: PathBuf) -> Result<Reservation> {
-        let (id, held) = reserve(&self.map, &mut self.pending(), resume, cwd, new_id)
+    pub(super) fn reserve(&self, resume: Option<SessionId>) -> Result<Reservation> {
+        let (id, held) = reserve(&self.map, &mut self.pending(), resume, new_id)
             .map_err(anyhow::Error::msg)?;
 
         Ok(Reservation { id, _held: held })
@@ -91,11 +89,6 @@ impl Sessions {
         });
     }
 
-    /// The folders of the starts under way.
-    pub(super) fn starting(&self) -> Vec<PathBuf> {
-        self.pending().iter().map(|start| start.cwd.clone()).collect()
-    }
-
     /// The starts under way. One that was dropped before it inserted gives
     /// its id back here.
     fn pending(&self) -> MutexGuard<'_, Vec<Pending>> {
@@ -109,7 +102,6 @@ fn reserve(
     map: &watch::Sender<Arc<Map>>,
     pending: &mut Vec<Pending>,
     resume: Option<SessionId>,
-    cwd: PathBuf,
     mut new_id: impl FnMut() -> SessionId,
 ) -> Result<(SessionId, Arc<()>), String> {
     let sessions = watched::read_sent(map, Arc::clone);
@@ -141,7 +133,6 @@ fn reserve(
     let held = Arc::new(());
     pending.push(Pending {
         id: id.clone(),
-        cwd,
         held: Arc::downgrade(&held),
     });
 

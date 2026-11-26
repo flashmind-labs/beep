@@ -2,7 +2,7 @@
 
 use crate::{
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, desktop_call::ProjectTools, skills::Skills},
-    files::{search::Searches, transfer::Transfers},
+    agents::folder_search::Searches, files::transfer::Transfers,
     link::{
         EventSources, from_mesh::Membership, protocol::SessionProtocol, sampler::Sampler,
         state::Search, traffic::Traffic,

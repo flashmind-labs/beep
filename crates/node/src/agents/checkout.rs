@@ -464,13 +464,13 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 }
 
 #[cfg(test)]
-pub(super) mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::files::paths;
     use std::process::Command;
 
     /// A temporary repository with one commit on `main`.
-    pub(in crate::agents) fn repo(name: &str) -> (tempfile::TempDir, PathBuf) {
+    pub(crate) fn repo(name: &str) -> (tempfile::TempDir, PathBuf) {
         let dir = tempfile::Builder::new()
             .prefix(&format!("beep-checkout-{name}"))
             .tempdir()
@@ -485,12 +485,12 @@ pub(super) mod tests {
         (dir, work)
     }
 
-    pub(in crate::agents) fn has_git() -> bool {
+    pub(crate) fn has_git() -> bool {
         Command::new("git").arg("--version").output().is_ok()
     }
 
     /// Runs git with a fixed identity, as a test sets a repository up.
-    pub(in crate::agents) fn run(dir: &Path, args: &[&str]) -> String {
+    pub(crate) fn run(dir: &Path, args: &[&str]) -> String {
         let out = Command::new("git")
             .args(args)
             .current_dir(dir)
