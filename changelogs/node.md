@@ -2,6 +2,13 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.30] - 2026-11-26
+
+### Changed
+
+- Node: beep-node notices sooner when the parent session stops keeping one of its agents. It follows the parent's agent list as the parent sends it, which means less network traffic.
+- Node: the machine that watches CI runs is picked from live reachability updates, and picked again when it stops reporting.
+
 ## [0.8.29] - 2026-11-26
 
 ### Fixed

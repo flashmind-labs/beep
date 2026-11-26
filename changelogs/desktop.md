@@ -7,6 +7,19 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.41] - 2026-11-26
+
+### Changed
+
+- Desktop: the device, model clip, provider machine, credential provider and MCP server pickers open themed menus instead of the system menu. Offline machines show as Offline, and devices are grouped by machine.
+- Desktop: on macOS, Windows and Linux, session pages, the open session and agent pane tabs now arrive as they change instead of the window asking again and again. Leaving a session view clears it.
+- Desktop: on macOS, Windows and Linux, removing a synced folder and Codex sign-in update as soon as the machine reports the change, instead of waiting for a timer.
+- Desktop: the plan usage popover groups each plan in a card, keeps limit names on one line with full-width bars, and labels its tables more clearly.
+
+### Fixed
+
+- Desktop: fixed the Voice dictation model picker wrapping multi-word model names and stretching the API key chip in Settings.
+
 ## [0.10.40] - 2026-11-26
 
 ### Fixed
