@@ -6,106 +6,26 @@ mod archive;
 mod http;
 mod install;
 pub mod reexec;
+mod release;
 mod remote;
 mod target;
-mod version;
+mod types;
 
-use crate::files::paths;
 use crate::{
     link::restart::{self, Drained},
-    machine::service::{self, Restart},
+    machine::service,
 };
 use beep_proto::node::update::ReleaseChannel;
-use reqwest::{Client, StatusCode, Url};
-use std::{
-    cmp::Ordering,
-    env, io,
-    path::{Path, PathBuf},
-    str::FromStr,
-    time::Duration,
-};
-use tokio::task::{JoinError, spawn_blocking};
+use http::{base, client};
+use install::this_binary;
+use release::{Newest, download, newest, said};
+use std::{cmp::Ordering, path::{Path, PathBuf}, time::Duration};
+use tokio::task::spawn_blocking;
 
 pub use remote::{Updates, WAIT_MINUTES};
 pub use target::Target;
-pub use version::Version;
+pub use types::{Error, Version};
 
-use archive::{unpack, verify};
-use http::{base, client, fetch, url};
-use install::{replace, writable};
-
-/// This binary's version.
-const CURRENT: &str = env!("CARGO_PKG_VERSION");
-
-/// Why the update stopped.
-#[derive(Debug, thiserror::Error)]
-pub enum Error {
-    #[error("bad version {0:?}")]
-    BadVersion(String),
-    #[error("bad download location {text:?}")]
-    BadBase {
-        text: String,
-        #[source]
-        source: <Url as FromStr>::Err,
-    },
-    #[error("could not set up downloads")]
-    Client(#[source] reqwest::Error),
-    #[error("could not reach {url}; is this machine online?")]
-    Network {
-        url: Url,
-        #[source]
-        source: reqwest::Error,
-    },
-    #[error("{url} answered {status}")]
-    Status { url: Url, status: StatusCode },
-    #[error("there is no beep-node build for {os} on {arch}")]
-    Platform {
-        os: &'static str,
-        arch: &'static str,
-    },
-    #[error("{archive} is not listed in SHA256SUMS")]
-    NotListed { archive: String },
-    #[error(
-        "checksum mismatch for {archive} (expected {expected}, got {actual}); nothing was installed"
-    )]
-    Checksum {
-        archive: String,
-        expected: String,
-        actual: String,
-    },
-    #[error("could not unpack {archive}")]
-    Unpack {
-        archive: String,
-        #[source]
-        source: io::Error,
-    },
-    #[error("{archive} holds no {binary}")]
-    Missing {
-        archive: String,
-        binary: &'static str,
-    },
-    #[error(
-        "cannot write to {}; rerun `beep-node update` as the user that owns it, \
-         or with sudo if it is a system folder",
-        dir.display()
-    )]
-    NoPermission { dir: PathBuf },
-    #[error("{action} {}", path.display())]
-    Io {
-        action: &'static str,
-        path: PathBuf,
-        #[source]
-        source: io::Error,
-    },
-    #[error("installed beep-node {version}, but could not restart its service")]
-    Restart {
-        version: Version,
-        #[source]
-        source: anyhow::Error,
-    },
-    #[error("the update stopped")]
-    Join(#[from] JoinError),
-}
 
 /// `beep-node update`: installs the newest release over this binary and
 /// restarts its service. With `check`, only says whether there is one.
@@ -187,17 +107,6 @@ async fn restarted(
     Ok(())
 }
 
-/// Where this binary is.
-fn this_binary() -> Result<PathBuf, Error> {
-    env::current_exe()
-        .and_then(paths::canonicalize)
-        .map_err(|source| Error::Io {
-            action: "finding",
-            path: PathBuf::from("this binary"),
-            source,
-        })
-}
-
 /// The version of the node running from `dir`, if one runs and says it.
 #[cfg(feature = "cli")]
 async fn running(dir: &Path) -> Option<Version> {
@@ -209,72 +118,6 @@ async fn running(dir: &Path) -> Option<Version> {
 #[cfg(not(feature = "cli"))]
 async fn running(_dir: &Path) -> Option<Version> {
     None
-}
-
-/// What restarting did, in words for the user.
-fn said(restart: &Restart, latest: &Version) -> String {
-    match restart {
-        Restart::Restarted(_) => format!("Restarted the beep-node service on {latest}."),
-        Restart::Stopped(manager) => format!(
-            "The beep-node service is stopped, so it was left so. Start it on {latest} with:\n  {}",
-            manager.start_command()
-        ),
-        Restart::OtherBinary(file) => format!(
-            "The beep-node service ({}) runs another binary, so it was not restarted.",
-            file.display()
-        ),
-        Restart::NotInstalled => "beep-node is not installed as a service here, so nothing was \
-             restarted. A beep-node still running keeps the old version until it restarts."
-            .to_owned(),
-    }
-}
-
-/// This binary's version and the newest release's.
-struct Newest {
-    current: Version,
-    latest: Version,
-}
-
-async fn newest(client: &Client, base: &str, channel: ReleaseChannel) -> Result<Newest, Error> {
-    let current: Version = CURRENT.parse()?;
-    let latest = fetch(client, &url(base, Into::<&str>::into(channel))?).await?;
-    let latest: Version = String::from_utf8_lossy(&latest).parse()?;
-    Ok(Newest { current, latest })
-}
-
-/// A verified release, not yet in place of this binary.
-struct Download {
-    exe: PathBuf,
-    binary: Vec<u8>,
-}
-
-/// Downloads `latest` and checks it against the release's `SHA256SUMS`.
-async fn download(client: &Client, base: &str, latest: &Version) -> Result<Download, Error> {
-    let target = Target::current()?;
-    let exe = this_binary()?;
-    // Fails before the download when the binary cannot be replaced.
-    let probe = exe.clone();
-    spawn_blocking(move || writable(&probe)).await??;
-
-    let archive = target.archive(latest);
-    let packed = fetch(client, &url(base, &format!("{latest}/{archive}"))?).await?;
-    let sums = fetch(client, &url(base, &format!("{latest}/SHA256SUMS"))?).await?;
-    let binary = spawn_blocking(move || {
-        verify(&archive, &packed, &String::from_utf8_lossy(&sums))?;
-        unpack(target, &archive, &packed)
-    })
-    .await??;
-    Ok(Download { exe, binary })
-}
-
-impl Download {
-    /// Puts it in place of this binary, whose path it gives.
-    async fn install(self) -> Result<PathBuf, Error> {
-        let Download { exe, binary } = self;
-        let installed = exe.clone();
-        spawn_blocking(move || replace(&installed, &binary)).await??;
-        Ok(exe)
-    }
 }
 
 /// Asks the running node to finish its agents' turns,

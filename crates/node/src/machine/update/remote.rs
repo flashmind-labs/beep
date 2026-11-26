@@ -1,9 +1,10 @@
 //! `update/1`: an update asked for from Beep.
 
 use super::{
-    Error, Newest, download,
     http::{base, client},
-    newest, reexec, said,
+    reexec,
+    release::{Newest, download, newest, said},
+    types::Error,
 };
 use crate::{
     agents::Agents,

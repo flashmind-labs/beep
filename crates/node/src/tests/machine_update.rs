@@ -1,4 +1,5 @@
 use super::*;
+use reqwest::StatusCode;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpListener,

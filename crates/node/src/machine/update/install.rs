@@ -1,11 +1,24 @@
 //! Putting a new binary in place of the running one.
 
-use super::Error;
+use super::types::Error;
+use crate::files::paths;
 use std::{
+    env,
     fs::{self, File, OpenOptions},
     io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
 };
+
+/// Where this binary is.
+pub(super) fn this_binary() -> Result<PathBuf, Error> {
+    env::current_exe()
+        .and_then(paths::canonicalize)
+        .map_err(|source| Error::Io {
+            action: "finding",
+            path: PathBuf::from("this binary"),
+            source,
+        })
+}
 
 /// Maps an I/O error on `path`, telling a missing permission apart.
 fn io_error(action: &'static str, path: &Path) -> impl FnOnce(io::Error) -> Error {

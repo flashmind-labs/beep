@@ -1,8 +1,8 @@
 //! Checking a release archive and taking the binary out of it.
 
 use super::{
-    Error,
     target::{Format, Target},
+    types::Error,
 };
 use sha2::{Digest, Sha256};
 use std::io::{self, Cursor, Read};

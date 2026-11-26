@@ -1,6 +1,6 @@
 //! Downloads from the release folder.
 
-use super::Error;
+use super::types::Error;
 use reqwest::{Client, Url};
 use std::{env, time::Duration};
 

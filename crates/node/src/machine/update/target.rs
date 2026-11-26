@@ -1,7 +1,7 @@
 //! The platforms a release has a build for, and how their archives are
 //! named and packed.
 
-use super::{Error, version::Version};
+use super::types::{Error, Version};
 use std::env;
 
 /// A platform a release has a build for.
