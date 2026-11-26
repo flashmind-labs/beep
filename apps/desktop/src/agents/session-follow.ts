@@ -10,7 +10,7 @@ import { Channel, invoke } from "../ui/tauri.ts";
 import { joinRuns, viewRead } from "./older-state.ts";
 import { readFailed } from "./reconnect-state.ts";
 import { mergePage } from "./open-page.ts";
-import { isOpen, readWanted, setReadNote } from "./open-state.ts";
+import { isOpen, setReadNote, wantRead } from "./open-state.ts";
 import { signal } from "../ui/signal.ts";
 import { paneShown } from "../ui/active.ts";
 import { publishTurn } from "../plugins/plugins-state.ts";
@@ -54,7 +54,7 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
 
       if (isOpen(open)) {
         flushDraw(true);
-        readWanted.notify(true);
+        wantRead(true);
       }
 
       return;
@@ -84,10 +84,10 @@ export const feed = new AgentFeed<OpenAgent, FeedUpdate>({
     AG.link = failed.link;
     setReadNote(failed.note);
     drawAgentBody();
-    readWanted.notify(false);
+    wantRead(false);
   },
   // A node without the follow, or one that failed to open it: the shown session is read instead.
-  failed: o => { if (isOpen(o) && paneShown()) readWanted.notify(false); },
+  failed: o => { if (isOpen(o) && paneShown()) wantRead(false); },
 });
 
 /// What the app kept of a session, as `transcript_kept` gives it.

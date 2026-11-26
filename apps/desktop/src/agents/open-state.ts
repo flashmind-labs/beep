@@ -101,8 +101,13 @@ export const continuePicks = new Map<string, ContinuePick>();
 
 /// The open session's log changed: its page draws it again.
 export const logStale = signal();
-/// The open session is to be read or followed again: `true` reads even while the view is hidden.
-export const readWanted = signal<boolean>();
+/// The open session is due to be read or followed again, until the page does it: `now` reads even while the view is hidden.
+export const readAsked = createStore<{ due: { now: boolean } | null }>(() => ({ due: null }));
+
+/// Asks the page to read or follow the open session again.
+export function wantRead(now: boolean) {
+  readAsked.setState({ due: { now } });
+}
 /// The session row asked for, and where Esc goes from it, until the page opens it.
 export const sessionAsked = createStore<{ wanted: { row: AgentRow; back: AgentReturn } | null }>(() => ({ wanted: null }));
 
@@ -114,5 +119,5 @@ export function wantSession(row: AgentRow, back: AgentReturn) {
 /// Follows the open session again after showing it or sending a message.
 export function resumeFollow() {
   AG.changed = Date.now();
-  readWanted.notify(false);
+  wantRead(false);
 }

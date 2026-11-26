@@ -3,7 +3,7 @@
 // in session-head.ts and what a click in it does in session-click.ts.
 import { SessionField, SessionHead } from "./session-frame.tsx";
 import { agentMessage, sessionBody, showSessionFrame } from "./session-frame-state.ts";
-import { followsOnly, isOpen, keepLog, keptLogs, readWanted, resumeFollow, sessionAsked, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
+import { followsOnly, isOpen, keepLog, keptLogs, readAsked, resumeFollow, sessionAsked, sessionPicks, setNote, setReadNote, stoppingNow, turnRuns, type KeptLog } from "./open-state.ts";
 import { bindSessionStash } from "./stash.ts";
 import { transcriptKey, transcripts } from "./transcript-cache-state.ts";
 import { agentDrop } from "../chat/attach.tsx";
@@ -137,7 +137,11 @@ export function openAgent(s: AgentRow, { why = "", back: from, adopt = false }: 
   });
 }
 
-readWanted.follow(readNow => void pollAgent(readNow));
+readAsked.subscribe(({ due }) => {
+  if (!due) return;
+  readAsked.setState({ due: null });
+  void pollAgent(due.now);
+});
 sessionAsked.subscribe(({ wanted }) => {
   if (!wanted) return;
   sessionAsked.setState({ wanted: null });
