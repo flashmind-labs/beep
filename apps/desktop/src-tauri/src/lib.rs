@@ -887,6 +887,10 @@ fn setup(
     // What it applies is managed above: a change handled before that would panic it.
     tauri::async_runtime::spawn(views::follow_changes(handle.clone(), changes));
     views::listen(&handle);
+    tauri::async_runtime::spawn(projects::git_items::forge_source(
+        handle.clone(),
+        app.state::<fleet::events::Events>().forge(),
+    ));
     app.manage(center::Pending::default());
     app.manage(tray::waiting::WaitingList::default());
     app.manage(Arc::new(notices::history::Notes::load(

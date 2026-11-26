@@ -157,7 +157,7 @@ impl Changes {
 }
 
 pub struct Fleet {
-    me: EndpointId,
+    pub(crate) me: EndpointId,
     endpoint: Endpoint,
     /// The embedded node's folder, which holds the mesh.
     dir: PathBuf,

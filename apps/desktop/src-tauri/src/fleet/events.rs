@@ -4,7 +4,7 @@ use super::{
     Fleet, Machines, Opened, agents as direct,
     session_mirror::SessionMirror,
     terminal_rows,
-    view_signal::{Change, Interest, Update, View, Wants, join_changed, ring},
+    view_signal::{Change, Interest, Update, Wants, join_changed, ring},
 };
 use crate::error::{DesktopError, Result};
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
@@ -19,7 +19,7 @@ use tauri::{AppHandle, Manager, State, WebviewWindow, ipc::Channel};
 use tokio::{
     sync::{mpsc, oneshot, watch},
     task::JoinSet,
-    time::{MissedTickBehavior, timeout},
+    time::timeout,
 };
 use uuid::Uuid;
 
@@ -481,7 +481,8 @@ pub(crate) struct Events {
     refresh: watch::Sender<()>,
     commands: Commands,
     manager: Mutex<Option<Job>>,
-    source: Mutex<Option<Source>>,
+    /// Whether a window wants the forge items, for `projects::git_items` to follow.
+    forge: watch::Sender<bool>,
     controller: OnceLock<EndpointId>,
     revision: Mutex<u64>,
 }
@@ -495,7 +496,7 @@ impl Default for Events {
             refresh: watch::channel(()).0,
             commands: Commands::default(),
             manager: Mutex::default(),
-            source: Mutex::default(),
+            forge: watch::channel(false).0,
             controller: OnceLock::new(),
             revision: Mutex::new(0),
         }
@@ -507,10 +508,6 @@ impl Drop for Job {
     fn drop(&mut self) {
         self.0.abort();
     }
-}
-struct Source {
-    active: watch::Sender<bool>,
-    _task: Job,
 }
 
 impl Events {
@@ -741,18 +738,11 @@ impl Events {
             }
         });
 
-        if let Some(source) = self
-            .source
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-        {
-            source.active.send_if_modified(|held| {
-                let changed = *held != forge;
-                *held = forge;
-                changed
-            });
-        }
+        self.forge.send_if_modified(|held| {
+            let changed = *held != forge;
+            *held = forge;
+            changed
+        });
     }
 
     fn register(
@@ -861,17 +851,6 @@ impl Events {
         }
 
         drop(manager);
-        let mut source = self.source.lock().unwrap_or_else(PoisonError::into_inner);
-
-        if source.is_none() {
-            let (active, changes) = watch::channel(false);
-            *source = Some(Source {
-                active,
-                _task: Job(tokio::spawn(forge_source(app, changes))),
-            });
-        }
-
-        drop(source);
         self.changed();
     }
 
@@ -968,6 +947,11 @@ impl Events {
     /// What the windows want, as of the last change to them.
     pub(crate) fn wants(&self) -> watch::Receiver<Arc<Wants>> {
         self.wants.subscribe()
+    }
+
+    /// Whether a window wants the forge items.
+    pub(crate) fn forge(&self) -> watch::Receiver<bool> {
+        self.forge.subscribe()
     }
 
     pub(crate) fn node_wanted(&self, machine: EndpointId, topic: &Topic) -> bool {
@@ -1635,60 +1619,6 @@ fn invalidate(app: &AppHandle, machine: EndpointId, topic: &Topic, value: Option
             }
         }
         _ => {}
-    }
-}
-
-/// Hosts without a push feed are read once for all windows. Results arrive as IPC events.
-async fn forge_source(app: AppHandle, mut active: watch::Receiver<bool>) {
-    loop {
-        if watched::wait_for(&mut active, |active| *active)
-            .await
-            .is_err()
-        {
-            return;
-        }
-
-        let mut previous = None;
-        let mut ticks = tokio::time::interval(Duration::from_secs(60));
-        ticks.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-        loop {
-            tokio::select! {
-                changed = active.changed() => {
-                    if changed.is_err() { return; }
-                    if !watched::read_and_update(&mut active, |active| *active) { break; }
-                },
-                _ = ticks.tick() => {
-                    let read = crate::projects::git_items::git_items(
-                        app.state::<Arc<beep_fleet::Session>>(),
-                        app.state::<Arc<crate::store::view_cache::ViewCache>>());
-                    let result = tokio::select! {
-                        result = read => result,
-                        _ = watched::wait_for(&mut active, |active| !*active) => break,
-                    };
-
-                    match result {
-                        Ok(Some(items)) => {
-                            let current = serde_json::to_value(&items).ok();
-
-                            if current != previous {
-                                previous = current;
-                                let fleet = app.state::<Arc<Fleet>>();
-                                app.state::<Events>().publish_views(fleet.me, Topic::new("forge"),
-                                    serde_json::json!({ "views": [{ "command": "git_items", "args": {}, "value": items }] }));
-                            }
-                        },
-                        Ok(None) => {},
-                        Err(error) => {
-                            previous = None;
-                            let fleet = app.state::<Arc<Fleet>>();
-                            let view = View::failed("git_items", serde_json::json!({}), &error.to_string());
-                            app.state::<Events>().publish_views(fleet.me, Topic::new("forge"), serde_json::json!({ "views": [view] }));
-                        },
-                    }
-                }
-            }
-        }
     }
 }
 

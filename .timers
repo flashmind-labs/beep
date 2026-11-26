@@ -7,10 +7,10 @@ apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep_until#1 | pac
 apps/desktop/src-tauri/src/agents/follow.rs | agent_follow | sleep_until#2 | pace | writes the running session page at most every RUNNING_EVERY
 apps/desktop/src-tauri/src/agents/outbox.rs | reachable | sleep#1 | retry | waits RETRY after the machine is back online, then tries again
 apps/desktop/src-tauri/src/agents/starts.rs | pause | sleep#1 | retry | waits RETRY before trying the session start again
-apps/desktop/src-tauri/src/center/view_cache.rs | write_later | sleep#1 | debounce | writes the view cache once, 2 s after the first change
-apps/desktop/src-tauri/src/center/window_session.rs | changed | sleep#1 | debounce | saves the window session once, 1 s after a change burst
+apps/desktop/src-tauri/src/store/view_cache.rs | write_later | sleep#1 | debounce | writes the view cache once, 2 s after the first change
+apps/desktop/src-tauri/src/store/window_session.rs | changed | sleep#1 | debounce | saves the window session once, 1 s after a change burst
 apps/desktop/src-tauri/src/fleet/alerts.rs | again | sleep#1 | retry | waits RETRY after the machine is online, then follows again
-apps/desktop/src-tauri/src/fleet/event_views.rs | paced | sleep_until#1 | pace | spaces repeated change signals for a topic to a minimum gap
+apps/desktop/src-tauri/src/views.rs | paced | sleep_until#1 | pace | spaces repeated change signals for a topic to a minimum gap
 apps/desktop/src-tauri/src/fleet/events/commands.rs | <top> | sleep#1 | deadline | dead-link timer for the command stream, reset on each message
 apps/desktop/src-tauri/src/fleet/events/commands.rs | retrying | sleep#1 | retry | waits RETRY before reconnecting the command stream
 apps/desktop/src-tauri/src/fleet/events/subscriptions.rs | <top> | sleep#1 | deadline | dead-link timer for the event stream, reset on each message
@@ -37,6 +37,7 @@ apps/desktop/src-tauri/src/platform/energy.rs | start | interval#1 | outside | s
 apps/desktop/src-tauri/src/platform/login_path.rs | login_path | sleep#1 | outside | waits for a login shell child to exit; no process event
 apps/desktop/src-tauri/src/platform/update.rs | follow | sleep#1 | pace | delays the first update check after launch
 apps/desktop/src-tauri/src/platform/update.rs | follow | sleep#2 | outside | checks the update feed periodically; the feed cannot push
+apps/desktop/src-tauri/src/projects/git_items.rs | forge_source | interval#1 | outside | reads the git hosts every 60 s while a window follows them
 apps/desktop/src-tauri/src/projects/live.rs | poll | interval#1 | poll | rereads project lists and runs every 120 s; the lists and runs topics could push
 apps/desktop/src-tauri/src/projects/team_live.rs | keep_asking | sleep#1 | compat | asks nodes before 0.8.26 for project cards every 10 s; newer ones push the topic
 apps/desktop/src-tauri/src/settings/skill_libraries.rs | follow | sleep#1 | outside | waits for the next skill library check against its remote
