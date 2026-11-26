@@ -2,11 +2,11 @@
 //! shared state.
 
 use super::{
-    OpenTerminal, lock,
     pty::{Live, Opener, Term},
     screen::Phase,
-    unknown,
 };
+use crate::lock;
+use serde::{Deserialize, Serialize};
 use crate::{actor, run::{process::STOP_GRACE, tasks::first_id}};
 use anyhow::Result;
 use beep_proto::watched;
@@ -38,6 +38,17 @@ const STOP_WAIT: Duration = Duration::from_secs(5);
 const KEEP_ENDED: Duration = Duration::from_secs(30);
 /// Commands waiting for the actor.
 const MAILBOX: usize = 16;
+
+/// A terminal open when the node stopped, to open again as a new shell
+/// under the same id when it starts.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct OpenTerminal {
+    pub(super) id: u32,
+    /// Where its shell was last, else where it started.
+    pub(super) cwd: Option<PathBuf>,
+    /// What it ran.
+    pub(super) command: String,
+}
 
 /// The node's terminals. An actor owns the set and is its only writer; the
 /// set is published as `list`, and everything that only looks reads that.
@@ -241,6 +252,12 @@ impl Terminals {
         });
 
         &started.commands
+    }
+}
+
+pub(super) fn unknown(id: TaskId) -> Reply {
+    Reply::Error {
+        message: format!("No terminal {id}."),
     }
 }
 

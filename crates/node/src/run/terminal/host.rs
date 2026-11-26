@@ -1,9 +1,12 @@
 //! The terminal host, `beep-node pty-host` (`run`): a process of its own
 //! that keeps the node's pseudo-terminals so they outlive it, as dtach does.
 
-use super::{OpenTerminal, Peer, Terminals, lock, unknown};
+use super::{
+    serve::{Peer, serve_with},
+    terminals::{OpenTerminal, Terminals, unknown},
+};
 use crate::{
-    AsyncMutex,
+    AsyncMutex, lock,
     link::local_socket::{Listener, Stream, connect, is_listening},
     link::note,
     machine::spawn_env::{self, Scope},
@@ -220,7 +223,7 @@ async fn connection(stream: Stream, host: &Host<'_>) {
             }
         }
 
-        super::serve_with(host.terminals, &mut conn).await
+        serve_with(host.terminals, &mut conn).await
     };
 
     if let Err(e) = served.await {

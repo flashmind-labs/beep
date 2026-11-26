@@ -6,27 +6,21 @@
 pub(crate) mod host;
 mod pty;
 mod screen;
+mod serve;
 mod terminals;
 
-use crate::lock;
 use anyhow::Result;
-use beep_proto::node::{
-    LinkRx, LinkTx,
-    process::TaskId,
-    terminal::{MAX_INPUT, Reply, Request},
-};
-use beep_proto::watched;
-use serde::{Deserialize, Serialize};
-use serde_bytes::ByteBuf;
+use beep_proto::node::{LinkRx, LinkTx};
+use serve::Link;
+#[cfg(not(all(unix, feature = "cli")))]
+use serve::serve_with;
 #[cfg(not(all(unix, feature = "cli")))]
 use std::sync::LazyLock;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
-use pty::Live;
+use std::path::Path;
+#[cfg(not(all(unix, feature = "cli")))]
 use terminals::Terminals;
 
+pub(crate) use terminals::OpenTerminal;
 pub use beep_proto::node::terminal::PROTOCOL;
 
 /// The node's terminals, when it keeps them itself: one set per process,
@@ -39,17 +33,6 @@ static TERMINALS: LazyLock<Terminals> = LazyLock::new(Terminals::default);
 pub fn kill_all() {
     #[cfg(not(all(unix, feature = "cli")))]
     TERMINALS.kill_all();
-}
-
-/// A terminal open when the node stopped, to open again as a new shell
-/// under the same id when it starts.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub(crate) struct OpenTerminal {
-    id: u32,
-    /// Where its shell was last, else where it started.
-    cwd: Option<PathBuf>,
-    /// What it ran.
-    command: String,
 }
 
 /// The terminals the node keeps itself and that run now; none when a
@@ -94,99 +77,4 @@ pub async fn serve(tx: LinkTx, rx: LinkRx) -> Result<()> {
     return host::relay(&mut link).await;
     #[cfg(not(all(unix, feature = "cli")))]
     serve_with(&TERMINALS, &mut link).await
-}
-
-/// The far side of a `terminal/1` stream: the caller, over the link, or
-/// the node, over the terminal host's socket.
-trait Peer {
-    async fn send(&mut self, reply: &Reply) -> Result<()>;
-    async fn recv(&mut self) -> Result<Option<Request>>;
-}
-
-struct Link {
-    tx: LinkTx,
-    rx: LinkRx,
-}
-
-impl Peer for Link {
-    async fn send(&mut self, reply: &Reply) -> Result<()> {
-        self.tx.send(reply).await
-    }
-
-    async fn recv(&mut self) -> Result<Option<Request>> {
-        self.rx.recv().await
-    }
-}
-
-async fn serve_with(terminals: &Terminals, peer: &mut impl Peer) -> Result<()> {
-    while let Some(request) = peer.recv().await? {
-        if let Request::Attach { id, from } = request {
-            return match terminals.live(id) {
-                Some(live) => attach(live, from, peer).await,
-                None => peer.send(&unknown(id)).await,
-            };
-        }
-
-        let reply = terminals.answer(request).await;
-        peer.send(&reply).await?;
-    }
-
-    Ok(())
-}
-
-fn unknown(id: TaskId) -> Reply {
-    Reply::Error {
-        message: format!("No terminal {id}."),
-    }
-}
-
-/// Streams terminal `live` from byte `from` and types what the peer sends
-/// into it, until it ends or the peer closes the stream.
-async fn attach(live: Arc<Live>, from: u64, peer: &mut impl Peer) -> Result<()> {
-    let mut changed = live.changed.subscribe();
-    let mut next = from;
-
-    loop {
-        // Marked seen before reading, so output that lands after the read
-        // still wakes the wait below.
-        watched::read_and_update(&mut changed, |_| ());
-        let (chunk, state) = {
-            let screen = lock(&live.screen);
-            (screen.read_from(next), screen.phase.state())
-        };
-
-        if let Some((at, data)) = chunk {
-            next = at + data.len() as u64;
-            peer.send(&Reply::Output {
-                at,
-                data: ByteBuf::from(data),
-            })
-            .await?;
-            continue;
-        }
-
-        if !state.is_running() {
-            return peer.send(&Reply::Ended { task: live.task() }).await;
-        }
-
-        tokio::select! {
-            woke = changed.changed() => if woke.is_err() {
-                return Ok(());
-            },
-            request = peer.recv() => match request {
-                Ok(Some(Request::Input { data })) if data.len() <= MAX_INPUT => {
-                    live.type_keys(data.into_vec());
-                }
-                Ok(Some(Request::Input { data })) => {
-                    log::debug!("dropped {} bytes of input past the limit", data.len());
-                }
-                Ok(Some(Request::Resize { size })) => {
-                    live.resize(size);
-                }
-                Ok(Some(other)) => log::debug!("ignored {other:?} on an attached terminal"),
-                // The peer detached.
-                Ok(None) | Err(_) => return Ok(()),
-            },
-        }
-    }
 }
