@@ -1099,31 +1099,76 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
 }
 
 #[test]
-fn a_child_closes_once_its_parent_has_been_gone_or_silent_for_long_enough() {
+fn a_pushed_list_says_whether_the_parent_is_still_there() {
+    use orphans::{Parent, parent_in};
+    let link = ParentLink {
+        machine: None,
+        session: "p1".into(),
+        key: "k1".into(),
+        root_machine: None,
+        root: "p0".into(),
+        depth: 1,
+        others: 0,
+        agent: "claude".into(),
+        mode: None,
+        background: false,
+    };
+    let row = |id: &str, status: Status, error: Option<&str>| SessionInfo {
+        id: id.into(),
+        state: beep_proto::node::agent::State {
+            status,
+            error: error.map(str::to_owned),
+            ..Default::default()
+        },
+        ..SessionInfo::default()
+    };
+
+    assert_eq!(parent_in(&[], &link), Parent::Gone);
+    assert_eq!(parent_in(&[row("other", Status::Idle, None)], &link), Parent::Gone);
+    assert_eq!(parent_in(&[row("p1", Status::Idle, None)], &link), Parent::Keeps);
+    // By the id it was listed under when the child began, too.
+    assert_eq!(parent_in(&[row("k1", Status::Working, None)], &link), Parent::Keeps);
+    assert_eq!(parent_in(&[row("p1", Status::Ended, None)], &link), Parent::Gone);
+    // An end with the node resumes with it.
+    assert_eq!(
+        parent_in(&[row("p1", Status::Ended, Some(crate::agents::session::NODE_STOPPED))], &link),
+        Parent::Keeps
+    );
+}
+
+// The child closes once its parent has been gone or silent for
+// `ORPHAN_AFTER`, on the pushed word and the clock only.
+#[tokio::test(start_paused = true)]
+async fn a_child_closes_once_its_parent_has_been_gone_or_silent_for_long_enough() {
     use orphans::{ORPHAN_AFTER, Parent, orphaned};
-    let start = tokio::time::Instant::now();
-    let mut silent = None;
+    use tokio::{sync::mpsc, task::yield_now, time::advance};
+
+    let (tx, heard) = mpsc::channel(4);
+    let mut orphan = tokio::spawn(orphaned(heard));
     // A parent that keeps it never orphans it.
-    assert!(!orphaned(Parent::Keeps, &mut silent, start));
+    tx.send(Parent::Keeps).await.unwrap();
     // Gone or silent starts the clock; only the time passing closes it.
-    assert!(!orphaned(Parent::Silent, &mut silent, start));
-    assert!(!orphaned(
-        Parent::Gone,
-        &mut silent,
-        start + ORPHAN_AFTER / 2
-    ));
+    tx.send(Parent::Gone).await.unwrap();
+    yield_now().await;
+    advance(ORPHAN_AFTER / 2).await;
+    tx.send(Parent::Silent).await.unwrap();
+    yield_now().await;
+    assert!(!orphan.is_finished());
     // Hearing from the parent in between starts it over.
-    assert!(!orphaned(
-        Parent::Keeps,
-        &mut silent,
-        start + ORPHAN_AFTER / 2
-    ));
-    assert!(!orphaned(Parent::Silent, &mut silent, start + ORPHAN_AFTER));
-    assert!(orphaned(
-        Parent::Silent,
-        &mut silent,
-        start + ORPHAN_AFTER * 2
-    ));
+    tx.send(Parent::Keeps).await.unwrap();
+    tx.send(Parent::Gone).await.unwrap();
+    yield_now().await;
+    advance(ORPHAN_AFTER - Duration::from_secs(1)).await;
+    yield_now().await;
+    assert!(!orphan.is_finished());
+    advance(Duration::from_secs(2)).await;
+    assert!((&mut orphan).await.unwrap());
+
+    // A follow that ends orphans nothing.
+    let (tx, heard) = mpsc::channel(4);
+    tx.send(Parent::Gone).await.unwrap();
+    drop(tx);
+    assert!(!orphaned(heard).await);
 }
 
 #[tokio::test]

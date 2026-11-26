@@ -1,22 +1,39 @@
-//! A child whose parent is on another machine asks that machine now and
-//! then whether its parent still keeps it. A parent that is gone, or a
-//! machine that stays silent, for `ORPHAN_AFTER` closes the child, so a
-//! parent that never got to stop it leaves no agent running for good.
+//! A child whose parent is on another machine follows that machine's
+//! `agents` list. A parent that is gone from it, or a machine that drops and
+//! stays away, for `ORPHAN_AFTER` closes the child, so a parent that never
+//! got to stop it leaves no agent running for good. A machine from before
+//! 0.8.28 does not serve its list to a node: it is asked every
+//! `ORPHAN_CHECK` instead.
 
-use beep_proto::SessionId;
 use super::{Agents, Session};
-use crate::agents::session::ended_for_good;
+use crate::agents::session::{NODE_STOPPED, ended_for_good};
 use crate::link::Membership;
-use beep_proto::watched;
+use crate::machine::elect::online;
+use crate::peer_stream::{PeerWatch, Refused};
+use anyhow::Result;
+use beep_mesh::Mesh;
+use beep_proto::node::{
+    agent::{ParentLink, SessionInfo, SessionsReply, Status},
+    events::{Topic, Value},
+};
+use beep_proto::{SessionId, watched};
 use iroh::EndpointId;
 use std::{
-    sync::{Arc, Weak},
+    future::pending,
+    sync::{Arc, OnceLock},
     time::Duration,
 };
-use tokio::time::{Instant, sleep};
+use tokio::{
+    select,
+    sync::mpsc,
+    time::{Instant, sleep, sleep_until},
+};
+use tokio_util::task::AbortOnDropHandle;
 
-/// How often a child asks.
+/// How often a child asks a machine from before 0.8.28 (compat).
 const ORPHAN_CHECK: Duration = Duration::from_secs(60);
+/// How long a follow waits before it dials a machine that dropped again.
+const REDIAL: Duration = Duration::from_secs(5);
 /// How long the parent may be gone or silent before the child closes: long
 /// enough for a restart of its node, which resumes it.
 pub(super) const ORPHAN_AFTER: Duration = Duration::from_secs(600);
@@ -33,16 +50,41 @@ pub(crate) enum Parent {
     Silent,
 }
 
-/// Whether the child is orphaned: the parent has not kept it since `silent`
-/// began, for `ORPHAN_AFTER`.
-pub(super) fn orphaned(answer: Parent, silent: &mut Option<Instant>, now: Instant) -> bool {
-    match answer {
-        Parent::Keeps => {
-            *silent = None;
-            false
-        }
-        Parent::Gone | Parent::Silent => {
-            now.duration_since(*silent.get_or_insert(now)) >= ORPHAN_AFTER
+/// What a pushed list of the parent's machine says of the parent: it is
+/// there and not ended for good (an end with the node resumes), or it is gone.
+pub(super) fn parent_in(sessions: &[SessionInfo], link: &ParentLink) -> Parent {
+    let alive = sessions.iter().any(|info| {
+        (info.id == link.session || info.id == link.key)
+            && !(info.state.status == Status::Ended
+                && info.state.error.as_deref() != Some(NODE_STOPPED))
+    });
+
+    if alive { Parent::Keeps } else { Parent::Gone }
+}
+
+/// Reads what `heard` says of the parent until the child is orphaned (true):
+/// gone or silent since `ORPHAN_AFTER`, with no word that it keeps the child
+/// in between. False once `heard` ends.
+pub(super) async fn orphaned(mut heard: mpsc::Receiver<Parent>) -> bool {
+    let mut silent: Option<Instant> = None;
+
+    loop {
+        let due = async {
+            match silent {
+                Some(since) => sleep_until(since + ORPHAN_AFTER).await,
+                None => pending().await,
+            }
+        };
+
+        select! {
+            answer = heard.recv() => match answer {
+                Some(Parent::Keeps) => silent = None,
+                Some(Parent::Gone | Parent::Silent) => {
+                    silent.get_or_insert_with(Instant::now);
+                }
+                None => return false,
+            },
+            () = due => return true,
         }
     }
 }
@@ -64,7 +106,8 @@ impl Agents {
             return;
         };
         let (membership, session_ref) = (self.family.membership.clone(), Arc::downgrade(session));
-        let task = tokio::spawn(check_parent(membership, session_ref, peer, link.session));
+        let live = session.live.clone();
+        let task = tokio::spawn(check_parent(membership, session_ref, live, peer, link));
         session.keep(task);
     }
 
@@ -89,44 +132,140 @@ impl Agents {
     }
 }
 
-/// The child's side: asks `peer` about `parent` until the child ends, and
-/// closes it when it is orphaned.
+/// The child's side: follows `peer`'s word on the parent until the child
+/// ends, and closes it when it is orphaned.
 async fn check_parent(
-    membership: Arc<std::sync::OnceLock<Membership>>,
-    session: Weak<Session>,
+    membership: Arc<OnceLock<Membership>>,
+    session: std::sync::Weak<Session>,
+    mut live: tokio::sync::watch::Receiver<super::Live>,
     peer: EndpointId,
-    parent: SessionId,
+    link: ParentLink,
 ) {
-    let mut silent = None;
+    let (tx, heard) = mpsc::channel(8);
+    let parent = link.session.clone();
+    let _feed = AbortOnDropHandle::new(tokio::spawn(feed(membership, session.clone(), peer, link, tx)));
 
-    loop {
-        sleep(ORPHAN_CHECK).await;
-        let Some(session) = session.upgrade() else {
-            return;
-        };
+    select! {
+        orphan = orphaned(heard) => {
+            let Some(session) = session.upgrade().filter(|_| orphan) else {
+                return;
+            };
 
-        if watched::read(&session.live, |live| {
-            live.status() == beep_proto::node::agent::Status::Ended
-        }) {
-            return;
-        }
-
-        let mesh = membership.get().and_then(Membership::get);
-        let answer = match &mesh {
-            Some(mesh) if mesh.me() == peer => return,
-            Some(mesh) => {
-                super::peer::ask_parent(mesh, peer, &parent, &Agents::name_of(&session), &session.id)
-                    .await
-            }
-            None => Parent::Silent,
-        };
-
-        if orphaned(answer, &mut silent, Instant::now()) {
             log::info!(
                 "closing session {}: its parent {parent} is gone or unreachable",
                 session.id
             );
             session.close().await;
+        }
+        _ = watched::wait_for(&mut live, |live| live.status() == Status::Ended) => {}
+    }
+}
+
+/// Tells `tx` how the parent stands: from each list `peer` pushes, and
+/// silent while the machine is away. Ends when the child's side does.
+async fn feed(
+    membership: Arc<OnceLock<Membership>>,
+    session: std::sync::Weak<Session>,
+    peer: EndpointId,
+    link: ParentLink,
+    tx: mpsc::Sender<Parent>,
+) {
+    let Some(membership) = membership.get().cloned() else {
+        return;
+    };
+    let mut meshes = membership.subscribe();
+
+    loop {
+        let mesh = watched::read(&meshes, Clone::clone);
+
+        let Some(mesh) = mesh else {
+            // Not in a mesh: whatever the parent's machine does is unknown.
+            if tx.send(Parent::Silent).await.is_err() || meshes.changed().await.is_err() {
+                return;
+            }
+
+            continue;
+        };
+
+        if mesh.me() == peer {
+            return;
+        }
+
+        let mut updates = mesh.updates();
+
+        // Presence moves the follow: dial while the machine is online, wait
+        // for the mesh to say it is back while it is not.
+        if !online(&mesh).contains(&peer) {
+            if tx.send(Parent::Silent).await.is_err() {
+                return;
+            }
+
+            select! {
+                changed = updates.changed() => if changed.is_err() { return },
+                changed = meshes.changed() => if changed.is_err() { return },
+            }
+
+            continue;
+        }
+
+        match follow(&mesh, peer, &link, &tx).await {
+            Err(e) if e.downcast_ref::<Refused>().is_some() => {
+                // Compat, until nodes before 0.8.28 are gone: it does not
+                // serve its list to a node, so it is asked.
+                ask_every(&mesh, &session, peer, &link, &tx).await;
+                return;
+            }
+            Err(e) => log::debug!("the parent {} is not followed: {e:#}", link.session),
+            Ok(()) => return,
+        }
+
+        if tx.send(Parent::Silent).await.is_err() {
+            return;
+        }
+
+        // Retry while the machine stays online; a drop it shows is waited on above.
+        sleep(REDIAL).await;
+    }
+}
+
+/// Passes on what each list `peer` pushes says of the parent, until the
+/// stream ends. `Ok` when the child's side is gone.
+async fn follow(
+    mesh: &Mesh,
+    peer: EndpointId,
+    link: &ParentLink,
+    tx: &mpsc::Sender<Parent>,
+) -> Result<()> {
+    let mut watch = PeerWatch::open(mesh, peer, Topic::new("agents")).await?;
+
+    loop {
+        if let Value::Sessions(reply) = watch.next().await?
+            && let SessionsReply::Sessions { sessions } = *reply
+            && tx.send(parent_in(&sessions, link)).await.is_err()
+        {
+            return Ok(());
+        }
+    }
+}
+
+/// Asks a machine that does not push its list, every `ORPHAN_CHECK`.
+async fn ask_every(
+    mesh: &Mesh,
+    session: &std::sync::Weak<Session>,
+    peer: EndpointId,
+    link: &ParentLink,
+    tx: &mpsc::Sender<Parent>,
+) {
+    loop {
+        sleep(ORPHAN_CHECK).await;
+        let Some(session) = session.upgrade() else {
+            return;
+        };
+        let answer =
+            super::peer::ask_parent(mesh, peer, &link.session, &Agents::name_of(&session), &session.id)
+                .await;
+
+        if tx.send(answer).await.is_err() {
             return;
         }
     }
