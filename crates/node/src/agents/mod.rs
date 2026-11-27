@@ -133,7 +133,7 @@ host! {
         /// The CI runs this node tells, and how it reaches the hosts.
         pub(crate) ci: Arc<ci::Ci>,
         /// How the moves of sessions to this machine stand.
-        moves: moving::Moves,
+        pub(crate) moves: moving::Moves,
         /// What file requests may reach: the shared folders and the sessions'.
         pub(crate) reach: Arc<reach::Reach>,
         /// The sessions that started sessions, and the children on other machines.

@@ -323,3 +323,46 @@ fn a_refused_request_and_one_whose_caller_left_end_differently() {
     assert_eq!(end_trace(&mut trace, &left, &fine), "error");
     assert_eq!(end_trace(&mut trace, &Ok(()), &fine), "ok");
 }
+
+#[tokio::test]
+async fn a_found_session_reads_from_the_listings_alone() {
+    let codex = tempfile::tempdir().expect("a temp folder");
+    let nothing = tempfile::tempdir().expect("a temp folder");
+    let dir = codex.path().join("sessions/2026/11/02");
+    fs::create_dir_all(&dir).expect("folders");
+    fs::write(
+        dir.join(format!("rollout-2026-11-02T02-32-34-{CODEX_ID}.jsonl")),
+        lines(&[
+            json!({"type": "session_meta", "payload": {"id": CODEX_ID, "cwd": "/srv/project",
+                "timestamp": "2026-11-02T01:32:34.000Z", "source": "cli"}}),
+            json!({"type": "event_msg", "payload": {"type": "user_message", "message": "fix the retry flag"}}),
+        ]),
+    )
+    .expect("a rollout");
+    let events = crate::events::Hub::default();
+    let sessions = Arc::new(crate::agents::sessions::Sessions::default());
+    let listings = crate::agents::listings::Listings::new(
+        sessions.clone(),
+        crate::occupancy::Occupancy::over(
+            crate::logs::claude::Store::at(nothing.path()),
+            crate::logs::found::Stores::at(Some(codex.path()), None, None),
+        ),
+        Arc::default(),
+        events.clone(),
+        Arc::new(crate::agents::reviews::kept::Reviews::new(events, sessions.clone())),
+        Arc::new(crate::agents::reopen::Reopen::new(
+            sessions,
+            Arc::new(crate::agents::family::links::Links::new(Default::default())),
+        )),
+    );
+
+    let (entries, earlier) = listings
+        .found_transcript(&SessionId::from(CODEX_ID), 10, None, None, true)
+        .await
+        .expect("a read")
+        .expect("the session is found");
+
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].text, "fix the retry flag");
+    assert_eq!(earlier, 0);
+}

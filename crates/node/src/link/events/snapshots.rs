@@ -665,7 +665,7 @@ impl Snapshots {
                             .as_ref()
                             .map_or(Value::Missing, |team| Value::TeamInvites(team.invites_waiting()))),
                         Source::Moves => Ok(Value::Sessions(Box::new(SessionsReply::Moves {
-                            moves: offers.agents.move_entries(),
+                            moves: offers.agents.moves.entries(),
                         }))),
                         Source::ForgeReach => Ok(Value::ForgeReach(offers.agents.ci.reach())),
                         Source::ToolUpdates => Ok(offers

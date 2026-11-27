@@ -48,11 +48,6 @@ pub(crate) async fn serve_transcripts(
 }
 
 impl Agents {
-    /// How each move to this node stands, as the `move-progress` topic pushes it.
-    pub(crate) fn move_entries(&self) -> Vec<beep_proto::node::agent::MoveEntry> {
-        self.moves.entries()
-    }
-
     /// The answer to a transcript read: the last `last` entries of a
     /// session this node runs, or else of a Claude Code session started
     /// outside Beep, read from its file.

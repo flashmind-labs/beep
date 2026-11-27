@@ -1,6 +1,6 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
-use super::{AgentKind, Agents, Begin, SavedSession, Session, claude, listings::{Listed, Listings}, sessions, limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS}, session::Command};
+use super::{AgentKind, Agents, Begin, SavedSession, Session, claude, listings::{Listed, Listings}, sessions, limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS}, session::{Command, History}};
 use crate::logs::{claude::Store, found::Stores};
 use crate::occupancy::Holding;
 use crate::logs::picture::Picture;
@@ -590,6 +590,156 @@ impl Listings {
 
         sessions
     }
+
+    pub(super) async fn claude_history(
+        &self,
+        session: &Session,
+        last: usize,
+        before: Option<u64>,
+    ) -> Option<History> {
+        let mut cached = session.history.as_ref()?.lock().await;
+        let (id, (dropped, retained)) = watched::read(&session.live, |live| {
+            (
+                live.agent_session
+                    .clone()
+                    .filter(|_| live.status() != Status::Starting),
+                live.retained_range(),
+            )
+        });
+        let id = id?;
+        // Fresh sessions have a private handle until the agent assigns an id.
+        // Their entire conversation is already live until the first eviction.
+        if session.id != id && dropped == 0 {
+            return None;
+        }
+        if let Some(history) = cached
+            .as_ref()
+            && (history.dropped == dropped || (before.is_none() && last <= retained))
+        {
+            return Some(history.clone());
+        }
+
+        // Realign after live entries were evicted only when a page needs disk
+        // history. Newest-page polls can keep their existing position.
+        let result: Result<History> = async {
+            let path = self
+                .external()
+                .file(&id)
+                .await?
+                .context("native transcript not found")?;
+            let (replay, dropped) = watched::read(&session.live, |live| {
+                live.transcript_before(usize::MAX, None)
+            });
+            let native = self.external().prefix_len(path.clone(), replay).await?;
+            Ok(History {
+                path,
+                native,
+                dropped,
+            })
+        }
+        .await;
+        match result {
+            Ok(history) => {
+                *cached = Some(history.clone());
+                Some(history)
+            }
+            Err(error) => {
+                log::warn!("native history not recovered: {error:#}");
+                None
+            }
+        }
+    }
+
+    pub(super) async fn codex_transcript(
+        &self,
+        session: &Session,
+        last: usize,
+        before: Option<u64>,
+    ) -> (Vec<Entry>, u64) {
+        if session.agent == "codex" {
+            let parent = watched::read(&session.live, |live| live.agent_session.clone());
+            if let Some(parent) = parent {
+                let stores = self.stores().clone();
+                match spawn_blocking(move || stores.codex_children(&parent)).await {
+                    Ok(runs) if !runs.is_empty() => {
+                        let _ = session.order(Command::RecoverCodexChildren(runs)).await;
+                    }
+                    Err(error) => log::debug!("Codex child discovery failed: {error}"),
+                    _ => {}
+                }
+            }
+        }
+
+        let (mut entries, earlier) =
+            watched::read(&session.live, |live| live.transcript_before(last, before));
+        let children = watched::read(&session.live, |live| live.codex_children(earlier));
+
+        if children.is_empty() {
+            return (entries, earlier);
+        }
+
+        let stores = self.stores().clone();
+        let read = spawn_blocking(move || {
+            children
+                .into_iter()
+                .filter_map(|child| Some((child.call, stores.codex_run(&child.threads)?)))
+                .collect::<Vec<_>>()
+        })
+        .await;
+        let runs = match read {
+            Ok(runs) => runs,
+            Err(e) => {
+                log::warn!("subagent rollouts not read: {e}");
+                return (entries, earlier);
+            }
+        };
+
+        watched::read(&session.live, |live| {
+            for (call, run) in runs {
+                let Some((at, text)) = live.with_run(&call, &run) else {
+                    continue;
+                };
+                let index = at
+                    .checked_sub(earlier)
+                    .and_then(|i| usize::try_from(i).ok());
+                if let Some(entry) = index.and_then(|i| entries.get_mut(i)) {
+                    entry.text = text;
+                }
+            }
+        });
+        (entries, earlier)
+    }
+
+    /// The last `last` entries of a session this node does not run, read
+    /// from the file an agent started outside Beep left, or from the
+    /// stream `followed` reads.
+    pub(super) async fn found_transcript(
+        &self,
+        session: &SessionId,
+        last: usize,
+        before: Option<u64>,
+        followed: Option<(&crate::logs::claude::Followed, Option<u64>)>,
+        keep_pictures: bool,
+    ) -> Result<Option<(Vec<Entry>, u64)>> {
+        let read = match followed {
+            Some((f, from)) => Some(self.external().followed_transcript(f, last, from).await?),
+            None => match self.external().transcript(session, last, before).await? {
+                Some(read) => Some(read),
+                None => {
+                    let (stores, id) = (self.stores().clone(), session.to_owned());
+                    spawn_blocking(move || stores.transcript(&id, last, before)).await??
+                }
+            },
+        };
+        Ok(read.map(|read| {
+            if keep_pictures {
+                for picture in read.pictures {
+                    self.images.keep(session, picture);
+                }
+            }
+            (read.entries, read.earlier)
+        }))
+    }
 }
 
 impl Agents {
@@ -605,24 +755,9 @@ impl Agents {
             return Ok(Some(self.live_transcript(&found, last, before).await));
         }
 
-        let read = match followed {
-            Some((f, from)) => Some(self.listings.external().followed_transcript(f, last, from).await?),
-            None => match self.listings.external().transcript(session, last, before).await? {
-                Some(read) => Some(read),
-                None => {
-                    let (stores, id) = (self.listings.stores().clone(), session.to_owned());
-                    spawn_blocking(move || stores.transcript(&id, last, before)).await??
-                }
-            },
-        };
-        Ok(read.map(|read| {
-            if keep_pictures {
-                for picture in read.pictures {
-                    self.images.keep(session, picture);
-                }
-            }
-            (read.entries, read.earlier)
-        }))
+        self.listings
+            .found_transcript(session, last, before, followed, keep_pictures)
+            .await
     }
 
     /// Takes over the Claude Code session `id` started outside Beep, once

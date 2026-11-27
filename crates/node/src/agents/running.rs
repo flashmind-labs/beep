@@ -1,7 +1,7 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use crate::machine::env::locate::folder;
-use super::{AgentKind, Agents, Session, checkout, harnesses, machine_list, projects, session::{Begin, Command, History, Start}, sessions::new_id};
+use super::{AgentKind, Agents, Session, checkout, harnesses, machine_list, projects, session::{Begin, Start}, sessions::new_id};
 use crate::{
     agents::child_reach,
     process::spawn_env,
@@ -20,7 +20,6 @@ use std::{
     str::FromStr,
     sync::Arc,
 };
-use tokio::task::spawn_blocking;
 
 impl Agents {
     /// The last `last` entries of a session this node runs and how many
@@ -32,10 +31,10 @@ impl Agents {
         last: usize,
         before: Option<u64>,
     ) -> (Vec<agent::Entry>, u64) {
-        let history = self.claude_history(session, last, before).await;
+        let history = self.listings.claude_history(session, last, before).await;
         let (native, dropped) = history.as_ref().map_or((0, 0), |h| (h.native, h.dropped));
         let live_before = before.map(|end| end.saturating_sub(native).saturating_add(dropped));
-        let (mut entries, earlier) = self.codex_transcript(session, last, live_before).await;
+        let (mut entries, earlier) = self.listings.codex_transcript(session, last, live_before).await;
 
         if session.agent == "claude" {
             let (id, calls) = {
@@ -86,125 +85,6 @@ impl Agents {
         }
 
         (entries, start)
-    }
-
-    async fn claude_history(
-        &self,
-        session: &Session,
-        last: usize,
-        before: Option<u64>,
-    ) -> Option<History> {
-        let mut cached = session.history.as_ref()?.lock().await;
-        let (id, (dropped, retained)) = watched::read(&session.live, |live| {
-            (
-                live.agent_session
-                    .clone()
-                    .filter(|_| live.status() != Status::Starting),
-                live.retained_range(),
-            )
-        });
-        let id = id?;
-        // Fresh sessions have a private handle until the agent assigns an id.
-        // Their entire conversation is already live until the first eviction.
-        if session.id != id && dropped == 0 {
-            return None;
-        }
-        if let Some(history) = cached
-            .as_ref()
-            && (history.dropped == dropped || (before.is_none() && last <= retained))
-        {
-            return Some(history.clone());
-        }
-
-        // Realign after live entries were evicted only when a page needs disk
-        // history. Newest-page polls can keep their existing position.
-        let result: Result<History> = async {
-            let path = self
-                .listings.external()
-                .file(&id)
-                .await?
-                .context("native transcript not found")?;
-            let (replay, dropped) = watched::read(&session.live, |live| {
-                live.transcript_before(usize::MAX, None)
-            });
-            let native = self.listings.external().prefix_len(path.clone(), replay).await?;
-            Ok(History {
-                path,
-                native,
-                dropped,
-            })
-        }
-        .await;
-        match result {
-            Ok(history) => {
-                *cached = Some(history.clone());
-                Some(history)
-            }
-            Err(error) => {
-                log::warn!("native history not recovered: {error:#}");
-                None
-            }
-        }
-    }
-
-    async fn codex_transcript(
-        &self,
-        session: &Session,
-        last: usize,
-        before: Option<u64>,
-    ) -> (Vec<agent::Entry>, u64) {
-        if session.agent == "codex" {
-            let parent = watched::read(&session.live, |live| live.agent_session.clone());
-            if let Some(parent) = parent {
-                let stores = self.listings.stores().clone();
-                match spawn_blocking(move || stores.codex_children(&parent)).await {
-                    Ok(runs) if !runs.is_empty() => {
-                        let _ = session.order(Command::RecoverCodexChildren(runs)).await;
-                    }
-                    Err(error) => log::debug!("Codex child discovery failed: {error}"),
-                    _ => {}
-                }
-            }
-        }
-
-        let (mut entries, earlier) =
-            watched::read(&session.live, |live| live.transcript_before(last, before));
-        let children = watched::read(&session.live, |live| live.codex_children(earlier));
-
-        if children.is_empty() {
-            return (entries, earlier);
-        }
-
-        let stores = self.listings.stores().clone();
-        let read = spawn_blocking(move || {
-            children
-                .into_iter()
-                .filter_map(|child| Some((child.call, stores.codex_run(&child.threads)?)))
-                .collect::<Vec<_>>()
-        })
-        .await;
-        let runs = match read {
-            Ok(runs) => runs,
-            Err(e) => {
-                log::warn!("subagent rollouts not read: {e}");
-                return (entries, earlier);
-            }
-        };
-
-        watched::read(&session.live, |live| {
-            for (call, run) in runs {
-                let Some((at, text)) = live.with_run(&call, &run) else {
-                    continue;
-                };
-                let index = at
-                    .checked_sub(earlier)
-                    .and_then(|i| usize::try_from(i).ok());
-                if let Some(entry) = index.and_then(|i| entries.get_mut(i)) {
-                    entry.text = text;
-                }
-            }
-        });
-        (entries, earlier)
     }
 
     /// While the node runs: checks installed harness releases once an hour
