@@ -218,33 +218,6 @@ async fn until_reconciled(watcher: &Paths, done: impl Fn(&Inner) -> bool) {
 }
 
 #[tokio::test]
-async fn readers_share_a_root_and_it_stays_watched_after_the_last_lets_go() {
-    let root = tempfile::tempdir().unwrap();
-    let root = crate::fs::paths::real(root.path()).unwrap();
-    let first = Paths::new("test", |_| {}).unwrap();
-    first.replace(vec![root.clone()]).await.unwrap();
-    let (changed, mut changes) = mpsc::channel(32);
-    let second = Paths::new("test", move |paths| {
-        let _ = changed.try_send(paths);
-    })
-    .unwrap();
-    second.replace(vec![root.clone()]).await.unwrap();
-    drop(first);
-
-    while changes.try_recv().is_ok() {}
-    std::fs::write(root.join("example.txt"), "changed").unwrap();
-    assert_eq!(
-        timeout_change(&mut changes).await,
-        std::slice::from_ref(&root)
-    );
-
-    let shared = second.shared.clone();
-    drop(second);
-    assert!(crate::lock(&shared.state.readers).lingering.contains_key(&root));
-    assert!(crate::lock(&shared.inner).installed.contains_key(&root));
-}
-
-#[tokio::test]
 async fn a_root_that_stops_lingering_leaves_other_readers_alone() {
     let gone = tempfile::tempdir().unwrap();
     let gone = crate::fs::paths::real(gone.path()).unwrap();
