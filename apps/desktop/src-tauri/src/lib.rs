@@ -18,6 +18,7 @@ mod palette_store;
 mod platform;
 mod plugins;
 mod projects;
+mod quit;
 mod report;
 mod settings;
 mod store;
@@ -39,7 +40,6 @@ use tauri::{App, AppHandle, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 #[cfg(desktop)]
 use tauri_plugin_window_state::StateFlags;
-use tokio::time::timeout;
 
 #[cfg(desktop)]
 const WINDOW_GEOMETRY: StateFlags = StateFlags::POSITION
@@ -129,6 +129,7 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_notification::init());
     builder
         .plugin(tauri_plugin_opener::init())
+        .manage(Arc::new(quit::Quitting::default()))
         .manage(artifacts::Pages::default())
         .manage(machines::forwards::Forwards::default())
         .manage(Arc::new(chat::clipboard::ImageClipboard::default()))
@@ -576,7 +577,7 @@ pub fn run() {
         .run(|app, event| {
             match event {
                 // Closing the last window leaves Beep in the menu bar; only
-                // Quit (an exit with a code) ends it.
+                // Quit (an exit with a code) or an updater relaunch ends it.
                 RunEvent::ExitRequested {
                     code: None, api, ..
                 } => {
@@ -584,14 +585,26 @@ pub fn run() {
                         api.prevent_exit();
                     } else {
                         #[cfg(desktop)]
-                        store::window_session::checkpoint(app);
+                        if begin_exit(app, None) {
+                            api.prevent_exit();
+                        }
                     }
                 }
                 // Quitting: the windows go at once, whatever stopping takes.
-                RunEvent::ExitRequested { code: Some(_), .. } => {
+                RunEvent::ExitRequested {
+                    code: Some(code),
+                    api,
+                    ..
+                } => {
                     #[cfg(desktop)]
-                    store::window_session::checkpoint(app);
-                    hide_windows(app);
+                    if begin_exit(app, Some(code)) {
+                        api.prevent_exit();
+                    }
+                    #[cfg(mobile)]
+                    {
+                        let _ = (code, api);
+                        hide_windows(app);
+                    }
                 }
                 RunEvent::Exit => quit(app),
                 // Opening Beep again while it runs shows the window.
@@ -630,8 +643,30 @@ fn hide_windows(app: &AppHandle) {
     }
 }
 
-/// Everything quitting does, within `QUIT_LIMIT` unless an update installs.
-fn quit(app: &AppHandle) {
+#[cfg(desktop)]
+fn begin_exit(app: &AppHandle, code: Option<i32>) -> bool {
+    let handle = app.clone();
+    app.state::<Arc<quit::Quitting>>().defer_or_exit_now(
+        QUIT_LIMIT,
+        |stopped| prepare_and_spawn_stop(app, stopped),
+        move || match code {
+            Some(tauri::RESTART_EXIT_CODE) => handle.request_restart(),
+            Some(code) => handle.exit(code),
+            None => handle.exit(0),
+        },
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn should_terminate_now(app: &AppHandle) -> bool {
+    !app.state::<Arc<quit::Quitting>>().defer_or_exit_now(
+        QUIT_LIMIT,
+        |stopped| prepare_and_spawn_stop(app, stopped),
+        quit::finish_macos_terminate,
+    )
+}
+
+fn prepare_and_spawn_stop(app: &AppHandle, stopped: Arc<quit::Stopped>) {
     #[cfg(desktop)]
     store::window_session::checkpoint(app);
     #[cfg(desktop)]
@@ -658,19 +693,25 @@ fn quit(app: &AppHandle) {
     let fleet = app.state::<Arc<Fleet>>().inner().clone();
     // What this Mac has open is noted for the next start.
     let noting = app.state::<machines::this_mac::Machine>().quit();
-    let stopping = tauri::async_runtime::spawn(async move {
+    tauri::async_runtime::spawn(async move {
+        let mut guard = quit::StopGuard::new(stopped);
         tokio::join!(noting, fleet.stop(), claude, gh);
+        guard.succeed();
     });
     // However Beep quits, a downloaded update is installed for next time.
     // With none this returns at once.
     platform::update::install(app);
-    tauri::async_runtime::block_on(async move {
-        match timeout(QUIT_LIMIT, stopping).await {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => log::warn!("stopping the mesh failed: {e}"),
-            Err(_) => log::warn!("quitting before the mesh stopped"),
-        }
-    });
+}
+
+/// Everything quitting does, within `QUIT_LIMIT` unless an update installs.
+fn quit(app: &AppHandle) {
+    if !app
+        .state::<Arc<quit::Quitting>>()
+        .finish(QUIT_LIMIT, |stopped| prepare_and_spawn_stop(app, stopped))
+    {
+        return;
+    }
+
     // The views a window drew last are kept for the next start.
     app.state::<Arc<store::view_cache::ViewCache>>().flush();
     app.state::<Arc<agents::outbox::Outbox>>().sync();
@@ -1003,6 +1044,11 @@ fn setup(
     center::window::restore_detached(app.handle());
     #[cfg(desktop)]
     refresh_login_item(app.handle());
+    #[cfg(target_os = "macos")]
+    {
+        let handle = app.handle().clone();
+        quit::install_macos_hook(move || should_terminate_now(&handle));
+    }
     platform::startup::stage("setup done");
     Ok(())
 }

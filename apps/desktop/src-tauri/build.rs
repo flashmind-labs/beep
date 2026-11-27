@@ -4,9 +4,11 @@ fn main() {
     if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos") {
         println!("cargo:rerun-if-changed=src/center/spaces.m");
         println!("cargo:rerun-if-changed=src/chat/mic_media_macos.m");
+        println!("cargo:rerun-if-changed=src/quit_macos.m");
         cc::Build::new()
             .file("src/center/spaces.m")
             .file("src/chat/mic_media_macos.m")
+            .file("src/quit_macos.m")
             .flag("-fobjc-arc")
             .compile("window_spaces");
         println!("cargo:rustc-link-lib=framework=CoreAudio");
