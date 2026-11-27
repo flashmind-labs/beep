@@ -69,19 +69,29 @@ export type WindowScope =
 /// Where a target opens: in this window, or in the main one.
 type Route = "here" | "main";
 
-/// A coding agent session, as far as routing needs it.
-interface AgentLike {
+/// A coding agent session, as far as routing and project scoping need it.
+export interface AgentLike {
   machine_id: string;
+  machine_name?: string;
+  id?: string;
+  agent?: string;
+  title?: string | null;
   cwd?: string | null;
+  last_activity?: number;
+  place?: { main?: string | null } | null;
+}
+
+function withinFolder(path: string | null | undefined, folder: string): boolean {
+  if (!path) return false;
+  const root = folder.replace(/\/+$/, "");
+  return !!root && (path === root || path.startsWith(root + "/"));
 }
 
 /// Whether `agent` runs in one of the project's folders, a worktree under it
-/// included.
-function agentInProject(agent: AgentLike, folders: Extract<WindowScope, { kind: "project" }>["folders"]): boolean {
+/// or a linked worktree of it included.
+export function agentInProject(agent: AgentLike, folders: Extract<WindowScope, { kind: "project" }>["folders"]): boolean {
   if (!folders.length) return true;
-  const cwd = agent.cwd || "";
-  if (!cwd) return false;
-  return folders.some(f => f.id === agent.machine_id && (cwd === f.folder || cwd.startsWith(f.folder.replace(/\/+$/, "") + "/")));
+  return folders.some(f => f.id === agent.machine_id && (withinFolder(agent.cwd, f.folder) || withinFolder(agent.place?.main, f.folder)));
 }
 
 /// Where `go(view, arg)` opens.
@@ -155,42 +165,4 @@ function paneTarget(target: PaneTarget): CenterTarget {
   }
 
   return "home";
-}
-
-/// A search hit, as far as ordering needs it.
-interface HitLike {
-  kind: string;
-  id: string;
-  title: string;
-  detail: string;
-  top?: boolean;
-}
-
-/// Whether hit `h` is about `project`: the project itself, one of its
-/// branches, or a hit that names it.
-function aboutProject(h: HitLike, project: string): boolean {
-  if (h.kind === "project") return h.id === project;
-  if (h.kind === "branch") return h.id.startsWith(project + " ");
-  const text = `${h.title} ${h.detail}`.toLowerCase();
-  const name = project.toLowerCase(), short = name.slice(name.lastIndexOf("/") + 1);
-  return text.includes(name) || (short.length >= 3 && text.includes(short));
-}
-
-/// The palette's hits with `project`'s first within each group, the
-/// groups and the top hit where they were. Without a project, unchanged.
-export function projectFirst<H extends HitLike>(hits: readonly H[], project: string | null | undefined): H[] {
-  if (!project) return [...hits];
-  const out: H[] = [];
-  let run: H[] = [];
-  const flush = () => {
-    out.push(...run.filter(h => aboutProject(h, project)), ...run.filter(h => !aboutProject(h, project)));
-    run = [];
-  };
-  hits.forEach((h, i) => {
-    const prev = hits[i - 1];
-    if (prev && (h.top || prev.top || h.kind !== prev.kind)) flush();
-    run.push(h);
-  });
-  flush();
-  return out;
 }

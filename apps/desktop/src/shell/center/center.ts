@@ -2,7 +2,7 @@
 import { ensureMac } from "../../stores/machines/machine-store.ts";
 import "../bar/bar-app.tsx";
 import "../../parts/center/window-root.tsx";
-import { onPhone, WINDOWS } from "../../ui/platform.ts";
+import { isMobile, onPhone, WINDOWS } from "../../ui/platform.ts";
 import { initConversationSwitcher } from "../../parts/session/conversation-switcher.tsx";
 // center/: the command center window: sidebar, Home, palette, usage pill and
 // the window's shared state (state.ts). Entry: this file (dist/center.js).
@@ -16,33 +16,44 @@ import { isNewKey } from "../../stores/terminals/newkey-state.ts";
 import { allTerms } from "../../parts/center/allterms.ts";
 import { invoke } from "../../ui/tauri.ts";
 import { initPalette, openPalette } from "./palette.tsx";
+import type { ProjectPaletteScope } from "./palette-rank.ts";
 import { windowRequests } from "../../stores/bar/core.ts";
 import { seed, type CachedViews } from "../../stores/center/cached.ts";
 import { savedWindowSession, windowTitle, type Alone, type CenterTarget } from "../../stores/project/projectwindow.ts";
 import { ensureSessions } from "../../stores/agents/sessions.ts";
+import { sessionVisible } from "../../stores/agents/closing.ts";
 import { mountUsage } from "../../screens/center/usage.tsx";
 import type { UsageView } from "../../stores/center/usage-state.ts";
 import { mountNotices } from "../../screens/center/notices.tsx";
 import { pairing } from "../../screens/center/pairing.tsx";
 import { windowCommand } from "../../ui/windowkeys.ts";
-import { state, pagesAccount, keepPagesFile } from "../../stores/center/state.ts";
+import { state, pagesAccount, keepPagesFile, listsChanged, sessionsChanged, sessionsDue, sessionsOf } from "../../stores/center/state.ts";
 import { draw, homeTab, jump } from "../../screens/center/home.tsx";
 import { openDetachedWindow } from "./views.tsx";
 import { currentLocation, windowAlone, aloneProject, go, goHistory, hasHistory } from "../../parts/center/nav.ts";
 import { drawSide, paneOn, projectHere } from "./sidebar.tsx";
 import { openProjects, addProject, openAddMachine } from "../../parts/project/addflow.ts";
 import { openProjectWindow } from "../../parts/project/projectops.ts";
+import { projectRows } from "../../stores/project/projectrows.ts";
+import { projectName } from "../../stores/project/projects-state.ts";
+import { projectRef } from "../../stores/project/localid.ts";
+import { shortName } from "../../stores/project/agent.ts";
+import { loadSessions } from "../../parts/project/sessionsload.ts";
+import { terms, thr } from "../../parts/project/stores.ts";
+import { sortedPrs } from "../../parts/project/threads.ts";
+import { teamNote } from "../../parts/project/team.ts";
+import { openProjectHarnesses } from "../../parts/project/project-harnesses.tsx";
 import { escUp } from "../../stores/center/escup-state.ts";
 import { runningKey } from "../../stores/agents/running-state.ts";
 import { itemScroll, setHeroCard, trackpadSwipe, withMove } from "../../ui/motion.ts";
-import { pa } from "../../stores/project/barstate.ts";
+import { pa, projectChanged } from "../../stores/project/barstate.ts";
 import { newThreadHere } from "../../parts/session/agents.ts";
-import { AG } from "../../stores/agents/agents-state.ts";
+import { AG, type AgentRow } from "../../stores/agents/agents-state.ts";
 import { debugWithAgent, initPaneView, readPending, showPending } from "./pane.tsx";
 import { homeCached, refresh } from "../../parts/center/refresh.ts";
 import { openSettings, embedView, unembedView, closeSettings, openMachineSettings } from "../settings/sheet.ts";
-import { openChatSkills } from "../../screens/project/project-skills.tsx";
-import { followSkin } from "../../ui/skin.ts";
+import { openChatSkills, openProjectSkills } from "../../screens/project/project-skills.tsx";
+import { followSkin, frontLayout } from "../../ui/skin.ts";
 import { guardClicks } from "../../ui/clickguard.ts";
 import { keepConnecting } from "../../parts/machines/machine-state.ts";
 import { followToolUpdates } from "../../screens/machines/machines.tsx";
@@ -88,12 +99,64 @@ for (const type of ["mousedown", "mouseup"] as const) document.addEventListener(
 }, true);
 mountUsage(refresh => invoke<UsageView | null>("usage_get", { refresh }));
 
+function paletteScope(): ProjectPaletteScope<AgentRow> | null {
+  const project = aloneProject();
+  if (!project) return null;
+  const row = projectRows()?.find(r => r.name === project) ?? null;
+  const pid = projectRef(project).project_id;
+  const prs = thr.prs(pid);
+  return {
+    project,
+    label: row ? projectName(row) : shortName(project),
+    imported: row ? row.imported : true,
+    board: frontLayout("project") === "board",
+    hasTeam: !isMobile() && teamNote(project) !== null,
+    hasCheckout: !!row?.machines.length,
+    folders: row?.machines ?? [],
+    prs: prs ? sortedPrs(prs) : null,
+    issues: thr.issues(pid) ?? null,
+    terminals: terms.list(project) ?? null,
+    sessions: sessionsOf(project)?.filter(sessionVisible) ?? null,
+  };
+}
+
+function preparePaletteScope(project: string) {
+  const row = projectRows()?.find(r => r.name === project) ?? null;
+  if (row && !row.imported) return;
+  const pid = projectRef(project).project_id;
+  thr.ensure(pid);
+  if (terms.list(project) === undefined) terms.load(project);
+  if (sessionsOf(project) === undefined || sessionsDue.has(project)) void loadSessions(project);
+}
+
+function openProjectTerminal() {
+  const to = projectHere();
+  const project = to?.project ?? aloneProject();
+  if (!project) return;
+  const machine = to?.machine ?? state.home?.projects?.find(p => p.name === project)?.machine_id ?? null;
+  go("pane", { draft: { project, machine, terminal: true } });
+}
+
 initPalette({
-  go, jump, scope: aloneProject, settings: openSettings, providers: () => go("providers"),
+  go, jump, scope: paletteScope, prepareScope: preparePaletteScope,
+  followScope: redraw => {
+    projectChanged.follow(redraw);
+    listsChanged.follow(redraw);
+    sessionsChanged.follow(project => { if (project === null || project === aloneProject()) redraw(); });
+  },
+  settings: openSettings, providers: () => go("providers"),
   project: openProjects, projects: () => void openProjects(null), terminals: () => void go("terminals"),
-  newSession: newAgentHere, addProject, joinTeam: onPhone() ? undefined : () => void import("../../screens/project/teamjoin.tsx").then(t => t.openTeamJoin(null)),
+  newSession: newAgentHere, newTerminal: openProjectTerminal,
+  addProject, joinTeam: onPhone() ? undefined : () => void import("../../screens/project/teamjoin.tsx").then(t => t.openTeamJoin(null)),
   addMachine: openAddMachine, shortcuts: showShortcuts, report: showReport,
-  branches: name => { if (openProjects(name)) void import("../../screens/project/tiles.tsx").then(m => m.openTile("branches")); },
+  branches: name => { void go("projects", { project: name, tile: "branches" }); },
+  openTile: (project, tile) => { void go("projects", { project, tile }); },
+  openTerminal: (project, id) => {
+    const row = terms.list(project)?.find(t => t.id === id);
+    if (row) go("pane", { draft: { project, machine: row.machine_id, terminal: row } });
+  },
+  projectSkills: openProjectSkills,
+  projectHarnesses: openProjectHarnesses,
 });
 
 // Capture before the terminal handles the key, so Shift+Esc never reaches the shell.

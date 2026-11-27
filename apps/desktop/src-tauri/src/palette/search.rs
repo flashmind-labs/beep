@@ -20,7 +20,11 @@ use tauri::{AppHandle, Manager};
 const MOST_HITS: usize = 64;
 
 #[tauri::command]
-pub async fn center_find_prompts(app: AppHandle, query: String) -> Result<Vec<Entry>> {
+pub async fn center_find_prompts(
+    app: AppHandle,
+    query: String,
+    project: Option<String>,
+) -> Result<Vec<Entry>> {
     let cache = app.state::<PaletteCache>();
     let sessions = cache.sessions(&app);
     let fleet = app.state::<Arc<Fleet>>();
@@ -44,6 +48,7 @@ pub async fn center_find_prompts(app: AppHandle, query: String) -> Result<Vec<En
         &app.state::<PaletteStore>().projects(),
         &machines,
         &query,
+        project.as_deref(),
     ))
 }
 
@@ -101,6 +106,7 @@ fn entries(
     projects: &[ImportedProject],
     machines: &HashMap<String, String>,
     query: &str,
+    project: Option<&str>,
 ) -> Vec<Entry> {
     let listed: HashMap<(&str, &str), &MachineSession> = sessions
         .iter()
@@ -135,6 +141,10 @@ fn entries(
             }
 
             let mut entry = session_entry(&session, projects);
+            if project.is_some_and(|wanted| entry.project.as_deref() != Some(wanted)) {
+                return None;
+            }
+
             entry.snippet = snippet(&found.hit.texts, query);
             Some(entry)
         })

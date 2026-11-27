@@ -357,6 +357,53 @@ test("palette project sessions", async ({ page }) => {
   await baseline(page, "palette-sessions");
 });
 
+test("palette detached project", async ({ page }) => {
+  const widgetSession = {
+    kind: "agent_session",
+    id: "build-box s1",
+    title: "Fix the redirect check",
+    detail: projectName,
+    keys: ["fix the redirect check", projectName, "codex", "build-box"],
+    project: projectName,
+    session: { machine_id: machineId, machine_name: machineId, id: "s1", agent: "codex", title: "Fix the redirect check", cwd: `/srv/${projectName}`, status: "idle", doing: null, started_at: NOW - 3_600_000, last_activity: NOW - 60_000, external: false },
+  };
+  const otherSession = {
+    kind: "agent_session",
+    id: "build-box s2",
+    title: "Other redirect work",
+    detail: "example/gadget",
+    keys: ["other redirect work", "example/gadget", "claude", "build-box"],
+    project: "example/gadget",
+    session: { machine_id: machineId, machine_name: machineId, id: "s2", agent: "claude", title: "Other redirect work", cwd: "/srv/example/gadget", status: "idle", doing: null, started_at: NOW - 3_600_000, last_activity: NOW - 30_000, external: false },
+  };
+  const index = {
+    actions: [{ kind: "action", id: "home", title: "Home", detail: "", keys: ["home"] }],
+    settings: [{ kind: "setting", id: "creds", title: "Redirect token", detail: "Settings", keys: ["redirect token"] }],
+    machines: [],
+    projects: [{ kind: "project", id: "example/gadget", title: "example/gadget", detail: "build-box", keys: ["example/gadget", "redirect"] }],
+    code: [{ kind: "branch", id: `${projectName} fix-redirect`, title: `${projectName} · fix-redirect`, detail: "Branch · 2 ahead · Guard redirect URL", keys: ["fix-redirect", projectName] }],
+    sessions: [widgetSession, otherSession],
+  };
+  const lists = {
+    prs: [{ number: 42, title: "Tighten redirect check", url: `https://example.test/${projectName}/pull/42`, author: "alice", draft: false, mine: false, created_at: NOW - 120_000, labels: ["security"] }],
+    prs_error: null,
+    issues: [{ number: 19, title: "Redirect loop on sign-out", labels: ["bug"], author: "bob", opened_at: NOW - 300_000, comments: 2, url: `https://example.test/${projectName}/issues/19`, assignees: ["carol"] }],
+    issues_error: null,
+  };
+  await openDesktop(page, false, {
+    center_home: home,
+    center_window_alone: { kind: "project", project: projectName },
+    center_palette_index: index,
+    center_find_prompts: [],
+    center_project_lists: lists,
+  }, "project-widget");
+  await expect(page.locator(".pj-strip")).toBeVisible();
+  await page.keyboard.press("Meta+k");
+  await page.getByRole("dialog", { name: "Search" }).getByRole("combobox").fill("redirect");
+  await expect(page.locator(".cc-pal .it")).toHaveCount(4);
+  await baseline(page, "palette-project");
+});
+
 test("start screen", async ({ page }) => {
   await openDesktop(page, false, { center_home: home });
   // The headline is drawn by lot when the screen opens; the screenshot needs the same one each run.

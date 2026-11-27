@@ -9,11 +9,21 @@ import { commandKey } from "../../ui/platform.ts";
 // sessions in place of the hits.
 import { invoke, listen } from "../../ui/tauri.ts";
 import type { AgentRow } from "../../stores/agents/agents-state.ts";
-import { rank, type Entry, type Hit as FoundHit, type HitKind, type PaletteIndex } from "./palette-rank.ts";
+import {
+  projectPaletteIndex,
+  projectPalettePlaceholder,
+  projectPromptEntries,
+  rank,
+  type Entry,
+  type Hit as FoundHit,
+  type HitKind,
+  type PaletteIndex,
+  type ProjectPaletteScope,
+} from "./palette-rank.ts";
 import { PaletteSearch } from "./palette-search.ts";
 import { projectWindowProps } from "../../parts/project/projectops.ts";
-import { opensNewWindow, projectFirst } from "../../stores/project/projectwindow.ts";
-import { HarnessIcon, IC } from "../../ui/icons.tsx";
+import { opensNewWindow } from "../../stores/project/projectwindow.ts";
+import { HarnessIcon, IC, Icon, type IconName } from "../../ui/icons.tsx";
 
 /// One search result. A branch's id is its project and the branch, split by
 /// a space.
@@ -34,6 +44,7 @@ export interface PaletteDeps {
   projects?(): void;
   terminals?(): void;
   newSession?(): void;
+  newTerminal?(): void;
   /// The Add a project sheet, which lists the folders agents worked in.
   addProject(): void;
   joinTeam?(): void;
@@ -42,8 +53,17 @@ export interface PaletteDeps {
   report?(): void;
   /// The project's Branches list.
   branches(name: string): void;
-  /// The project whose hits list first: a project window's own.
-  scope(): string | null;
+  /// Opens a tile or thread of `project` in this window.
+  openTile?(project: string, tile: string | null): void;
+  openTerminal?(project: string, id: string): void;
+  projectSkills?(project: string): void;
+  projectHarnesses?(project: string): void;
+  /// The detached project window's scope, when this window is one; null in the main window.
+  scope(): ProjectPaletteScope<AgentRow> | null;
+  /// Starts reading `project`'s lists when the palette opens on it.
+  prepareScope?(project: string): void;
+  /// Calls `refresh` when a project list read for `scope` changes.
+  followScope?(refresh: () => void): void;
 }
 
 /// The icons the window's IC has none of.
@@ -53,17 +73,61 @@ const ICONS = {
   agent_session: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9l3 3-3 3M12 15h5"/></svg>',
 };
 
-const GROUPS: Record<HitKind, string> = { action: "Actions", setting: "Settings", project: "Projects", folder: "Projects", agent_session: "Coding agents", code: "Projects and code", branch: "Projects and code", machine: "Machines" };
+const GROUPS: Record<HitKind, string> = {
+  action: "Actions",
+  setting: "Settings",
+  project: "Projects",
+  folder: "Projects",
+  agent_session: "Coding agents",
+  pr: "Pull requests",
+  issue: "Issues",
+  code: "Projects and code",
+  branch: "Projects and code",
+  terminal: "Terminals",
+  machine: "Machines",
+};
 /// The icon each kind draws with, from ICONS or IC; one not here has its own name.
-const ICON_OF: Partial<Record<HitKind, keyof typeof ICONS | keyof typeof IC>> = { branch: "code", folder: "project", setting: "gear", action: "plus" };
+const ICON_OF: Partial<Record<HitKind, keyof typeof ICONS | keyof typeof IC>> = { branch: "code", folder: "project", setting: "gear", action: "plus", terminal: "term" };
 
 const ACTION_ICONS: Record<string, keyof typeof ICONS | keyof typeof IC> = {
   home: "home",
   projects: "project",
   terminals: "term",
+  new_terminal: "term",
   coding_agents: "agent_session",
+  project_sessions: "agent_session",
+  project_overview: "project",
   settings: "gear",
 };
+
+const REACT_ACTION_ICONS: Record<string, IconName> = {
+  project_prs: "pr",
+  project_issues: "issue",
+  project_branches: "branch",
+  project_actions: "run",
+  project_machines: "laptop",
+  project_team: "group",
+  project_skills: "skill",
+  project_harnesses: "sliders",
+};
+
+const PROJECT_ACTION_TILES: Record<string, string | null> = {
+  project_overview: null,
+  project_prs: "prs",
+  project_issues: "issues",
+  project_branches: "branches",
+  project_actions: "actions",
+  project_sessions: "agents",
+  project_machines: "machines",
+  project_team: "team",
+};
+
+function hitReactIcon(hit: Hit): IconName | null {
+  if (hit.kind === "pr") return "pr";
+  if (hit.kind === "issue") return "issue";
+  if (hit.kind === "action" && hit.id in REACT_ACTION_ICONS) return REACT_ACTION_ICONS[hit.id];
+  return null;
+}
 
 function hitIcon(hit: Hit): keyof typeof ICONS | keyof typeof IC {
   if (hit.kind === "action" && hit.id in ACTION_ICONS) return ACTION_ICONS[hit.id];
@@ -97,6 +161,7 @@ export function initPalette(window_: PaletteDeps) {
     searching?.refresh();
   });
   listen("palette-text-changed", () => searching?.requery());
+  window_.followScope?.(() => { if (open) searching?.refresh(); });
 }
 
 export function openPalette() {
@@ -108,14 +173,25 @@ export function openPalette() {
   sel = 0;
   drawnQuery = "";
   inside = null;
+  const initialScope = deps.scope();
+  if (initialScope) deps.prepareScope?.(initialScope.project);
   searching = new PaletteSearch<Entry<AgentRow>>(
-    query => invoke<Entry<AgentRow>[]>("center_find_prompts", { query }),
+    query => {
+      const scoped = deps?.scope();
+      return invoke<Entry<AgentRow>[]>(
+        "center_find_prompts",
+        scoped ? { query, project: scoped.project } : { query },
+      );
+    },
     (q, text) => {
       // A redraw of the same query keeps the row the user is on.
       const on = q === drawnQuery ? hits[sel] : undefined;
-      const sessions = inside ? sessionsOf(inside) : [];
+      const scoped = deps?.scope() ?? null;
+      const activeIndex = scoped ? projectPaletteIndex(index, scoped) : index;
+      const activeText = scoped ? projectPromptEntries(text, scoped) : text;
+      const sessions = !scoped && inside ? sessionsOf(inside) : [];
       if (!sessions.length) inside = null;
-      hits = inside ? sessions : projectFirst(rank(q, index, text), deps?.scope());
+      hits = inside ? sessions : rank(q, activeIndex, activeText);
       sel = on ? Math.max(0, hits.findIndex(h => h.kind === on.kind && h.id === on.id)) : 0;
       drawnQuery = q;
       draw(q.trim());
@@ -159,14 +235,18 @@ function leave() {
 
 function draw(q: string) {
   if (!open) return;
-  const listing = inside?.title ?? null, more = !inside && hits[sel] && sessionsOf(hits[sel]).length > 0;
+  const scoped = deps?.scope() ?? null;
+  const listing = inside?.title ?? null, more = !scoped && !inside && hits[sel] && sessionsOf(hits[sel]).length > 0;
   placeWindowParts({ palette: <div className="cc-scrim" onMouseDown={(e: ReactMouseEvent) => { if (e.target === e.currentTarget) { e.preventDefault(); close(); } }}>
     <PaletteView
       input={field} hits={hits} selected={sel} query={q} searchIcon={IC.find}
-      group={(hit: Hit) => listing ? `Sessions · ${listing}` : hit.top ? "Top hit" : GROUPS[hit.kind]}
+      placeholder={scoped ? projectPalettePlaceholder(scoped.label) : undefined}
+      group={(hit: Hit) => listing ? `Sessions · ${listing}` : hit.top ? "Top hit" : scoped && hit.kind === "branch" ? "Branches" : GROUPS[hit.kind]}
       keys={[["↑↓", "move"], ["↵", "open"], ...(listing ? [["←", "back"]] : more ? [["→", "sessions"]] : []), ["esc", "close"]]}
       icon={(hit: Hit) => {
         if (hit.session) return <HarnessIcon agent={hit.session.agent} className="dmag-ic" />;
+        const reactIcon = hitReactIcon(hit);
+        if (reactIcon) return <Icon name={reactIcon} />;
         const name = hitIcon(hit);
         return <span style={{ display: "contents" }} dangerouslySetInnerHTML={{ __html: name in ICONS ? ICONS[name as keyof typeof ICONS] : IC[name as keyof typeof IC] }} />;
       }}
@@ -189,12 +269,17 @@ function draw(q: string) {
 function mark() { draw(drawnQuery.trim()); }
 
 function pick(hit: Hit) {
+  const scopedProject = deps?.scope()?.project ?? null;
   close();
   const { go, jump, settings, project, branches, addProject } = deps!;
 
   switch (hit.kind) {
     case "action":
       if (hit.id === "new_session") return deps!.newSession?.();
+      if (hit.id === "new_terminal") return deps!.newTerminal?.();
+      if (scopedProject && hit.id in PROJECT_ACTION_TILES) return deps!.openTile?.(scopedProject, PROJECT_ACTION_TILES[hit.id]);
+      if (scopedProject && hit.id === "project_skills") return deps!.projectSkills?.(scopedProject);
+      if (scopedProject && hit.id === "project_harnesses") return deps!.projectHarnesses?.(scopedProject);
       if (hit.id === "home") return go("home");
       if (hit.id === "projects") return deps!.projects ? deps!.projects() : project("");
       if (hit.id === "terminals") return deps!.terminals?.();
@@ -212,6 +297,9 @@ function pick(hit: Hit) {
     // Only coding agents worked there: the sheet that imports it.
     case "folder": return addProject();
     case "agent_session": return hit.session ? go("pane", { agent: hit.session }) : undefined;
+    case "pr": return scopedProject ? deps!.openTile?.(scopedProject, `pr:${hit.id}`) : undefined;
+    case "issue": return scopedProject ? deps!.openTile?.(scopedProject, `issue:${hit.id}`) : undefined;
+    case "terminal": return scopedProject ? deps!.openTerminal?.(scopedProject, hit.id) : undefined;
     // The project's Branches list, where its Review button is.
     case "branch": return branches(hit.id.slice(0, hit.id.indexOf(" ")));
     case "code": return invoke("open_url", { url: hit.id }).catch(e => console.warn("opening a pull request:", e));

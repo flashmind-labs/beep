@@ -56,9 +56,61 @@ fn legacy_hits_use_listed_metadata_and_come_newest_first_with_an_excerpt() {
         ("gpu-box".into(), "gpu-box".into()),
     ]
     .into();
-    let shown = entries(hits, &sessions, &[], &machines, "retry");
+    let shown = entries(hits, &sessions, &[], &machines, "retry", None);
     let snippets: Vec<_> = shown.iter().map(|entry| entry.snippet.as_deref()).collect();
     assert_eq!(snippets, [Some("retry in new"), Some("retry in old")]);
+}
+
+#[test]
+fn project_scope_filters_before_hit_cap() {
+    let projects = [
+        ImportedProject {
+            project: "acme/widget".into(),
+            url: "https://example.test/acme/widget".into(),
+            machine_id: "build-box".into(),
+            machine_name: "build-box".into(),
+            folder: "/srv/widget".into(),
+            cloned: true,
+            imported_at: UNIX_EPOCH,
+            display_name: None,
+        },
+        ImportedProject {
+            project: "acme/other".into(),
+            url: "https://example.test/acme/other".into(),
+            machine_id: "build-box".into(),
+            machine_name: "build-box".into(),
+            folder: "/srv/other".into(),
+            cloned: true,
+            imported_at: UNIX_EPOCH,
+            display_name: None,
+        },
+    ];
+    let mut target = session("build-box", "target", 1);
+    target.cwd = "/srv/widget".into();
+
+    let mut sessions = vec![target];
+    let mut hits = vec![found("build-box", "target", 1)];
+
+    for i in 0..70 {
+        let id = format!("other-{i}");
+        let mut s = session("build-box", &id, 10 + i);
+        s.cwd = "/srv/other".into();
+        sessions.push(s);
+        hits.push(found("build-box", &id, 10 + i));
+    }
+
+    let machines = [("build-box".into(), "build-box".into())].into();
+    let scoped = entries(
+        hits,
+        &sessions,
+        &projects,
+        &machines,
+        "retry",
+        Some("acme/widget"),
+    );
+    assert_eq!(scoped.len(), 1);
+    assert_eq!(scoped[0].id, "build-box target");
+    assert_eq!(scoped[0].project.as_deref(), Some("acme/widget"));
 }
 
 #[test]
@@ -104,7 +156,7 @@ fn copied_history_opens_without_projects_or_listed_sessions() -> anyhow::Result<
         })
         .collect();
     let machines = [("build-box".into(), "Build box".into())].into();
-    let entries = entries(found, &[], &[], &machines, "retry");
+    let entries = entries(found, &[], &[], &machines, "retry", None);
     let [entry] = entries.as_slice() else {
         panic!("expected one historical hit");
     };
