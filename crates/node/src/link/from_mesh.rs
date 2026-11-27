@@ -10,8 +10,10 @@
 use crate::{
     membership::{credentials, read},
     files::{sync::Syncs, syncthing::Syncthing},
-    link::Offers,
     link::watchdog::{self, Step},
+    link::{Offers, peers::Inner},
+    status::Own,
+    team::link::TeamLink,
 };
 use beep_mesh::{Key, Mesh};
 use beep_proto::watched;
@@ -28,9 +30,101 @@ use beep_proto::{
     },
 };
 use iroh::{EndpointAddr, EndpointId};
-use std::{collections::BTreeMap, sync::Arc, time::Instant};
+use std::{
+    collections::BTreeMap,
+    sync::{Arc, Weak},
+    time::Instant,
+};
 use tokio::sync::{broadcast::error::RecvError, watch};
 use tokio_util::task::AbortOnDropHandle;
+
+/// Starts the follower set whenever the node's mesh or its transfers are set,
+/// and ends it when the mesh goes: what a node does in a mesh. Starts over on
+/// the current mesh and the offers as they are then, which a service started
+/// later may have added to. Ends with the node.
+pub(super) async fn run(node: Weak<Inner>) {
+    let Some(inner) = node.upgrade() else {
+        return;
+    };
+    let (mut mesh, mut transfers) = {
+        let offers = inner.offers();
+        (offers.mesh.subscribe(), offers.transfers.subscribe())
+    };
+    drop(inner);
+
+    loop {
+        let Some(inner) = node.upgrade() else {
+            return;
+        };
+        follow_current(&inner);
+        drop(inner);
+
+        let ended = tokio::select! {
+            changed = mesh.changed() => changed.is_err(),
+            changed = transfers.changed() => changed.is_err(),
+        };
+
+        if ended {
+            return;
+        }
+    }
+}
+
+/// Ends what followed before and starts it on the mesh the node is in now, if
+/// any. The slot is held from reading the mesh to filling it, so `Peers::leave`
+/// takes what it left or finds nothing.
+fn follow_current(inner: &Inner) {
+    let mut slot = crate::lock(&inner.follower);
+    let following = inner.active().map(|active| {
+        let offers = inner.offers().clone();
+        let (own, team) = (inner.own.clone(), inner.team.clone());
+        AbortOnDropHandle::new(tokio::spawn(set(own, team, active, offers)))
+    });
+
+    *slot = following;
+}
+
+/// What the node runs while it is in `active`: the mesh's state applied to
+/// the node, the CI watch, the skills, the team and the sessions' follows.
+async fn set(own: Own, link: TeamLink, active: Mesh, offers: Offers) {
+    let me = own.endpoint.id();
+    let dir = own.dir.clone();
+    let follow = follow(active.clone(), me, offers.clone());
+    let reaches = crate::machine::elect::Reaches::new(active.clone());
+    let runs = crate::machine::ci::watch(
+        active.clone(),
+        me,
+        dir.clone(),
+        offers.agents.ci.clone(),
+        reaches.clone(),
+    );
+    let skills = crate::agents::skills::follow(active.clone(), dir.clone(), offers.skills.clone());
+    let libraries = crate::agents::skill_library::follow(
+        active.clone(),
+        dir.clone(),
+        offers.skills.home().cloned(),
+        offers.skills.libraries().clone(),
+        offers.agents.clone(),
+    );
+    let team = crate::team::link::home_io::follow(active.clone(), link.clone());
+    let gateway = crate::team::gateway::run(
+        active.clone(),
+        me,
+        link,
+        offers.agents.clone(),
+        dir.clone(),
+        reaches,
+    );
+    let search = crate::agents::follow_search(active.clone(), dir.clone(), offers.agents.clone());
+    let moves = crate::agents::follow_moves(
+        active,
+        own.endpoint.clone(),
+        dir,
+        offers.agents.clone(),
+    );
+
+    tokio::join!(follow, moves, runs, skills, libraries, search, team, gateway);
+}
 
 /// Applies the mesh's state to the node now and on every change, until the
 /// mesh stops.

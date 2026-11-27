@@ -8,16 +8,10 @@ use beep_proto::SessionId;
 use crate::{
     agents::{
         Answered, Asking,
-        Agents,
         mcp_launch::{Launch, SOCKET_ENV, TOKEN_ENV},
         socket,
     },
-    files::transfer::Sharing,
-    machine::service::logs::Logs,
-    membership::Membership,
     run::local_socket::{self, Listener},
-    status::Own,
-    team::link::TeamLink,
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::tools::{Reply, Request, Tool};
@@ -48,19 +42,19 @@ pub(crate) mod harness;
 mod machines;
 pub(crate) mod peer_tools;
 mod media;
+mod node;
 pub(crate) mod review;
 mod server;
-mod team;
+pub(crate) mod team;
 pub(crate) mod team_link;
 mod transcripts;
 
 
 pub use crate::agents::calls::{SERVER_NAME, command_name};
 pub use crate::agents::mcp_launch::Invocation;
+pub use node::Node;
 pub(crate) use caller::Caller;
-pub(crate) use desktop::answer as answer_projects;
 pub use desktop_call::ProjectTools;
-pub(crate) use team::answer as answer_team;
 pub(crate) use server::Backend;
 use server::Called;
 
@@ -95,20 +89,6 @@ pub fn start(dir: &Path, node: Node) -> Option<AbortOnDropHandle<()>> {
             log::warn!("not serving the Beep MCP server: {e:#}");
         }
     })))
-}
-
-/// What the tools read of this node, which `link` builds from what it
-/// serves: the sessions, the mesh and the node's own values.
-#[derive(Clone)]
-pub struct Node {
-    pub(crate) agents: Arc<Agents>,
-    pub(crate) mesh: Membership,
-    pub(crate) transfers: Sharing,
-    pub(crate) team: TeamLink,
-    pub(crate) project_tools: Option<Arc<dyn ProjectTools>>,
-    pub(crate) own: Own,
-    /// The node's log, which `beep_logs` reads through the report targets.
-    pub(crate) log: Logs,
 }
 
 /// What `server` uses on a node: the mesh for calls, the sessions for

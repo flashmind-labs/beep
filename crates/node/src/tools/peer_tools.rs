@@ -3,7 +3,7 @@
 //! that has one; between nodes there is no server to ask, and no rules to
 //! check, since the mesh's members are the user's own machines.
 
-use super::{Caller, answer_projects, answer_team, children, harness};
+use super::{caller::Caller, desktop::answer as answer_projects, team::answer as answer_team};
 use crate::{
     files::transfer::Incoming,
     run::tasks::{self, Table},
@@ -46,7 +46,7 @@ type Outcome = Result<String, String>;
 pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     if request.tool == Tool::HarnessInfo {
         return match &caller.agents {
-            Some(agents) => harness::answer(agents, &request).await,
+            Some(agents) => super::harness::answer(agents, &request).await,
             None => Reply::Done {
                 text: "This machine has no coding harnesses available.".to_owned(),
                 failed: true,
@@ -175,7 +175,7 @@ async fn agent_call(request: Request, caller: &Caller) -> Reply {
         return failed(reason);
     }
 
-    children::answer_peer(agents, peer, request).await
+    super::children::answer_peer(agents, peer, request).await
 }
 
 fn parse<T: for<'de> Deserialize<'de>>(args: Value) -> Result<T, String> {

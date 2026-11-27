@@ -1821,7 +1821,7 @@ async fn handed(
         approved: Default::default(),
     };
 
-    match crate::tools::answer_team(link, agents, from, &request).await {
+    match crate::tools::team::answer(link, agents, from, &request).await {
         beep_proto::node::tools::Reply::Done { text, failed } => (text, failed),
         other => panic!("not done: {other:?}"),
     }

@@ -6,6 +6,7 @@ use crate::{
     files::Folders,
     files::transfer::Transfers,
     link::Protocol,
+    link::from_mesh,
     link::protocol::SessionProtocol,
     link::restart::{self, Reopen},
     link::state::State,
@@ -524,13 +525,14 @@ impl Peers {
     /// the offers goes elsewhere.
     pub async fn new(bound: Bound) -> Self {
         let Bound { offers, own, team } = bound;
-        let inner = Arc::new(Inner {
+        let inner = Arc::new_cyclic(|inner| Inner {
             own,
             team,
             offers: Mutex::new(offers),
             later: watch::channel(BTreeSet::new()).0,
             active: Mutex::new(None),
             follower: Mutex::new(None),
+            _following: AbortOnDropHandle::new(tokio::spawn(from_mesh::run(inner.clone()))),
             serve_protocol: serve_stream,
         });
         Self { inner }

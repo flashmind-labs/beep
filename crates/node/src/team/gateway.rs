@@ -16,12 +16,12 @@ use super::{
 };
 use crate::{
     agents::{
+        Agents,
         ci::Ci,
         child_view::ChildView,
         calls::command_name,
         family::peer::{Listed, in_the_mesh},
     },
-    link::Offers,
     machine::{
         elect::{Reaches, elect, gather, online, ranked},
     },
@@ -42,6 +42,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     mem::take,
     path::PathBuf,
+    sync::Arc,
     time::{Duration, SystemTime},
 };
 use tokio::{
@@ -95,13 +96,13 @@ pub(crate) async fn run(
     mesh: Mesh,
     me: EndpointId,
     link: TeamLink,
-    offers: Offers,
+    agents: Arc<Agents>,
     dir: PathBuf,
     reaches: Reaches,
 ) {
     let (heard, hearing) = mpsc::channel(CHANGES);
 
-    Gateway::new(mesh, me, link, offers, heard, dir, reaches)
+    Gateway::new(mesh, me, link, agents, heard, dir, reaches)
         .drive(hearing)
         .await;
 }
@@ -110,7 +111,7 @@ struct Gateway {
     mesh: Mesh,
     me: EndpointId,
     link: TeamLink,
-    offers: Offers,
+    agents: Arc<Agents>,
     heard: mpsc::Sender<Followed>,
     dir: PathBuf,
     /// What the online machines said of their reach, and when they were
@@ -166,7 +167,7 @@ struct Job {
     mesh: Mesh,
     me: EndpointId,
     link: TeamLink,
-    offers: Offers,
+    agents: Arc<Agents>,
     teams: Vec<Team>,
     projects: BTreeMap<TeamRepo, Project>,
     peers: BTreeMap<EndpointId, ForgeReach>,
@@ -186,7 +187,7 @@ impl Gateway {
         mesh: Mesh,
         me: EndpointId,
         link: TeamLink,
-        offers: Offers,
+        agents: Arc<Agents>,
         heard: mpsc::Sender<Followed>,
         dir: PathBuf,
         reaches: Reaches,
@@ -197,7 +198,7 @@ impl Gateway {
             mesh,
             me,
             link,
-            offers,
+            agents,
             heard,
             sighting: Some(sighting),
             peers: BTreeMap::new(),
@@ -232,8 +233,8 @@ impl Gateway {
         let mut updates = self.mesh.updates();
         let mut home = self.link.home_changes();
         let mut edits = self.link.roster_edits();
-        let mut reaches = self.offers.agents.ci.reaches();
-        let mut sessions = self.offers.agents.events.subscribe();
+        let mut reaches = self.agents.ci.reaches();
+        let mut sessions = self.agents.events.subscribe();
         let mut pushed = self.reaches.changes();
 
         self.step();
@@ -343,7 +344,7 @@ impl Gateway {
             .filter(|(peer, _)| online.contains(*peer))
             .map(|(peer, reach)| (*peer, reach.clone()))
             .collect();
-        let ci = &self.offers.agents.ci;
+        let ci = &self.agents.ci;
         let me = self.me;
         let gateways: BTreeMap<TeamRepo, EndpointId> = teams
             .iter()
@@ -437,7 +438,7 @@ impl Gateway {
             mesh: self.mesh.clone(),
             me: self.me,
             link: self.link.clone(),
-            offers: self.offers.clone(),
+            agents: self.agents.clone(),
             teams,
             projects,
             peers: self.peers.clone(),
@@ -643,7 +644,7 @@ impl Cards {
         let Job {
             mesh,
             link,
-            offers,
+            agents,
             teams,
             projects,
             rows,
@@ -681,7 +682,7 @@ impl Cards {
         // The machines that push their sessions are heard; the others are asked.
         let sessions = async {
             let mut listed =
-                in_the_mesh(&offers.agents, Some(mesh), &caller, Some(refused), Some(ended_since)).await;
+                in_the_mesh(&agents, Some(mesh), &caller, Some(refused), Some(ended_since)).await;
             listed.extend(
                 rows.iter()
                     .flat_map(|(peer, rows)| pushed_sessions(mesh, *peer, rows, ended_since)),
@@ -740,7 +741,7 @@ impl Cards {
                 let round = Round {
                     link,
                     mesh,
-                    agents: &offers.agents,
+                    agents: &agents,
                     team,
                     project,
                     cards: &fresh,
@@ -826,7 +827,7 @@ async fn read_titles(link: &TeamLink, repo: &TeamRepo) -> Result<IssueTitles, St
 /// one runs no agent or refuses: the other online ones with its
 /// checkout, desktops and nodes, ranked as the gateway is elected.
 fn elsewhere(job: &Job, project: &Project, repo: &TeamRepo) -> Vec<EndpointId> {
-    let reach = job.offers.agents.ci.reach_of(&repo.host);
+    let reach = job.agents.ci.reach_of(&repo.host);
     let machines = starters(project, &online(&job.mesh));
 
     ranked(&machines, job.me, reach, &job.peers, &repo.host)

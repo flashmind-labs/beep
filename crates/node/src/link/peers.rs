@@ -10,7 +10,6 @@ use crate::{
     agents::SessionsAlpn,
     files::transfer::Transfers,
     link::Protocol,
-    link::from_mesh,
     run::local_socket::{Listener, Stream},
 
     link::protocol::SessionProtocol,
@@ -100,8 +99,12 @@ pub(super) struct Inner {
     /// Protocols a host will offer once its services are up.
     pub(super) later: watch::Sender<BTreeSet<String>>,
     pub(super) active: Mutex<Option<Protocols>>,
-    /// Applies the mesh's state to the node while it is a member.
+    /// Applies the mesh's state to the node while it is a member: started
+    /// by `from_mesh::run` when the mesh or the transfers are set, and ended
+    /// by `leave`.
     pub(super) follower: Mutex<Option<AbortOnDropHandle<()>>>,
+    /// Watches the mesh and the transfers to start the follower.
+    pub(super) _following: AbortOnDropHandle<()>,
     /// Serves a stream once its protocol is known: set by the node's
     /// router, which this module does not import.
     pub(super) serve_protocol: ServeProtocol,
@@ -134,7 +137,7 @@ impl Inner {
         crate::lock(&self.follower)
     }
 
-    fn active(&self) -> Option<Mesh> {
+    pub(super) fn active(&self) -> Option<Mesh> {
         self.offers().mesh.get()
     }
 
@@ -175,6 +178,9 @@ impl Peers {
     /// Lets go of the mesh, so it can stop: nothing in the node holds it
     /// once this returns. Peers are refused until `install`.
     pub async fn leave(&self) {
+        let offers = self.inner.offers().clone();
+        // Cleared first: the follower starts nothing on a mesh that is gone.
+        offers.mesh.clear();
         let follower = self.inner.follower().take();
 
         if let Some(follower) = follower {
@@ -182,9 +188,6 @@ impl Peers {
             // Returns once the task, and the mesh it held, is gone.
             follower.await.ok();
         }
-
-        let offers = self.inner.offers().clone();
-        offers.mesh.clear();
 
         if let Some(transfers) = offers.transfers.get() {
             transfers.syncs().forget_recoveries();
@@ -388,73 +391,11 @@ impl Peers {
             join,
             _streams: streams,
         });
-        self.follow();
-    }
-
-    /// From here on the mesh, not the server, says what the node syncs,
-    /// holds and runs agents with. Starts over on the current mesh and
-    /// offers, which a service started later may have added to, and ends
-    /// what followed before.
-    fn follow(&self) {
-        let Some(active) = self.active() else {
-            return;
-        };
-        let offers = self.inner.offers().clone();
-
-        let follow = from_mesh::follow(
-            active.clone(),
-            self.inner.own.endpoint.id(),
-            offers.clone(),
-        );
-        let reaches = crate::machine::elect::Reaches::new(active.clone());
-        let runs = crate::machine::ci::watch(
-            active.clone(),
-            self.inner.own.endpoint.id(),
-            self.inner.own.dir.clone(),
-            offers.agents.ci.clone(),
-            reaches.clone(),
-        );
-        let skills = crate::agents::skills::follow(
-            active.clone(),
-            self.inner.own.dir.clone(),
-            offers.skills.clone(),
-        );
-        let libraries = crate::agents::skill_library::follow(
-            active.clone(),
-            self.inner.own.dir.clone(),
-            offers.skills.home().cloned(),
-            offers.skills.libraries().clone(),
-            offers.agents.clone(),
-        );
-        let team = crate::team::link::home_io::follow(active.clone(), self.inner.team.clone());
-        let gateway = crate::team::gateway::run(
-            active.clone(),
-            self.inner.own.endpoint.id(),
-            self.inner.team.clone(),
-            offers.clone(),
-            self.inner.own.dir.clone(),
-            reaches,
-        );
-        let search = crate::agents::follow_search(
-            active.clone(),
-            self.inner.own.dir.clone(),
-            offers.agents.clone(),
-        );
-        let moves = crate::agents::follow_moves(
-            active,
-            self.inner.own.endpoint.clone(),
-            self.inner.own.dir.clone(),
-            offers.agents.clone(),
-        );
-        *self.inner.follower() = Some(AbortOnDropHandle::new(tokio::spawn(async move {
-            tokio::join!(follow, moves, runs, skills, libraries, search, team, gateway);
-        })));
     }
 
     /// The node's transfer and sync services started: the mesh drives them.
     pub fn serve_transfers(&self, transfers: Transfers) {
         self.inner.offers().transfers.set(transfers);
-        self.follow();
     }
 
     /// The node's session for a caller in this process, which is a desktop

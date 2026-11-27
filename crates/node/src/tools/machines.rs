@@ -6,8 +6,7 @@
 use super::catalog::REMOTE_RUN;
 use crate::agents::machine_list::{Machine, find_named, machines, no_machine};
 use crate::agents::calls::command_name;
-use super::{Node, peer_tools};
-use super::Caller;
+use super::{Node, caller::Caller, peer_tools};
 use crate::peer_stream::{handshake, over_the_mesh};
 use crate::agents::reply::{done, fail, ok};
 use crate::{
