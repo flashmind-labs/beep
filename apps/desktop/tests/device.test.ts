@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   type DeviceInput, type DeviceMachine, buttonsFor, defaultPick, fitRect, rotatedSize, keyInput, maxSide, missingLine, pickValue, queueInput,
-  keptPick, readAnnounced, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, touchPoint, commandName, deviceCall, followedDevice, targetPick,
+  keptPick, nextPick, readAnnounced, readKeptDevice, readMachines, readPickValue, readPlatforms, readScreenMessage, touchPoint, commandName, deviceCall, followedDevice, targetPick,
 } from "../src/stores/agentpane/device-state.ts";
 
 const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null, phone: false });
@@ -172,6 +172,10 @@ test("a session's kept device shows while it runs and is forgotten once off or g
   assert.deepEqual(keptPick(listed, null), { pick: null, forget: false });
   const loading = [{ machine_id: "b", machine_name: "gpu-box", devices: [], error: null, loading: true }];
   assert.deepEqual(keptPick(loading, { machine: "b", device: "tablet" }), { pick: null, forget: false });
+  // While the kept device's machine lists, a running device elsewhere does not replace it.
+  const elsewhere = [...loading, { machine_id: "e", machine_name: "mac-box", devices: [device("sim", "On")], error: null, loading: false }];
+  assert.deepEqual(nextPick(elsewhere, null, null, { machine: "b", device: "tablet" }, ["Android", "Ios"]), { machine: "b", device: "tablet" });
+  assert.equal(missingLine(loading, ["Ios"]), null);
   assert.deepEqual(readKeptDevice({ kind: "kept", pick: { machine: "b", device: "tablet" } }), { kind: "kept", pick: { machine: "b", device: "tablet" } });
   assert.deepEqual(readKeptDevice({ kind: "kept", pick: null }), { kind: "kept", pick: null });
   assert.deepEqual(readKeptDevice({ kind: "unsupported" }), { kind: "unsupported" });
@@ -200,7 +204,7 @@ test("quarter turns swap the displayed video dimensions", () => {
 test("a node's pushed devices read as its list, and the error of a node without the topic as refused", () => {
   const pushed = readAnnounced({ Devices: [{ id: "p", name: "Pixel", platform: "Android", state: "On", os: null, phone: true }, { id: "q" }] });
   assert.deepEqual(pushed, [{ id: "p", name: "Pixel", platform: "Android", state: "On", os: null, phone: true }]);
-  assert.equal(readAnnounced({ error: "no state has been published for this topic", loading: false }), "refused");
+  assert.equal(readAnnounced({ error: "no state has been published for this topic" }), "refused");
   assert.equal(readAnnounced({ Terminals: [] }), null);
   assert.equal(readAnnounced(null), null);
 });

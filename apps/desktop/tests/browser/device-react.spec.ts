@@ -89,6 +89,15 @@ test("an iOS project with no simulator says so in one line", async ({ page }) =>
   await expect(page.getByRole("button", { name: "Device", exact: true })).toBeVisible();
 });
 
+test("a machine still listing says so, not that it has no devices", async ({ page }) => {
+  await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Ios"], device_list: [{ ...host, devices: [], error: null, loading: true }] });
+  await page.evaluate(agent => window.__navigation.open({ agent }), session);
+  await page.getByRole("tab", { name: "Device" }).click();
+  await expect(page.locator(".cc-empty")).toHaveText("Listing devices on build-box…");
+  await expect(page.getByText("No emulator or simulator")).toHaveCount(0);
+  await expect(page.getByText("No machine has an iOS simulator")).toHaveCount(0);
+});
+
 test("a phone shows without Boot or Shut down", async ({ page }) => {
   const phone = { ...pixel, id: "R5CT1234ABC", name: "Pixel 8 Pro", phone: true };
   await openDesktop(page, true, { device_hosts: [host], device_platforms: ["Android"], device_list: [{ ...host, devices: [phone], error: null }] });

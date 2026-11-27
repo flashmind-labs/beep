@@ -99,6 +99,14 @@ export function defaultPick(machines: readonly DeviceMachine[], session: string 
   return pick ? { machine: pick.machine, device: pick.device.id } : null;
 }
 
+/// The device to show: the one held (the view's, else the node's kept one) while its machine is
+/// still listing, so a running device elsewhere does not replace it; else the default.
+export function nextPick(machines: readonly DeviceMachine[], session: string | null, last: DevicePick | null, stored: DevicePick | null, platforms: readonly DevicePlatform[]): DevicePick | null {
+  const held = last ?? stored;
+  if (held && machines.some(m => m.machine_id === held.machine && m.loading)) return held;
+  return defaultPick(machines, session, last ?? keptPick(machines, stored).pick, platforms);
+}
+
 /// The device a session keeps among `machines`: shown while it is on or
 /// booting, forgotten once its machine lists it off or no longer has it. A
 /// machine that is not listed, is still listing, or did not list its devices,
@@ -136,6 +144,7 @@ const MISSING: Record<DevicePlatform, string> = {
 /// The line for the project's platforms no machine has a device for, or
 /// null when each has one.
 export function missingLine(machines: readonly DeviceMachine[], platforms: readonly DevicePlatform[]): string | null {
+  if (machines.some(m => m.loading)) return null;
   const missing = platforms.filter(p => !machines.some(m => m.devices.some(d => d.platform === p)));
   return missing.length > 0 ? missing.map(p => MISSING[p]).join(" ") : null;
 }

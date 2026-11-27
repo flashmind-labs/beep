@@ -453,13 +453,25 @@ pub(crate) struct GitStateRow {
     pub(crate) error: Option<String>,
 }
 
+/// How long a machine has to list its devices: a Mac's `simctl` and
+/// `devicectl` take up to about 20 s with nothing attached, plus margin.
+pub(crate) const DEVICE_LIST_LIMIT: Duration = Duration::from_secs(35);
+
+/// What a machine's device list holds: its devices, or why the first read of
+/// them failed, kept so a window that stopped waiting hears of it.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum Listing {
+    Devices(Vec<Device>),
+    Failed(String),
+}
+
 /// All per-node read projections shared on [`Fleet`].
 pub(crate) struct Projections {
     pub(crate) models: Arc<Projected<(EndpointId, String), AgentModels>>,
     pub(crate) custom_agents: Arc<Projected<(EndpointId, String), Vec<CustomAgent>>>,
     pub(crate) harnesses: Arc<Projected<EndpointId, HarnessReport>>,
     pub(crate) git_state: Arc<Projected<(EndpointId, String), GitStateRow>>,
-    pub(crate) devices: Arc<Projected<EndpointId, Vec<Device>>>,
+    pub(crate) devices: Arc<Projected<EndpointId, Listing>>,
     pub(crate) reviews: Arc<Projected<(EndpointId, SessionId), Vec<ReviewRun>>>,
     pub(crate) search: Arc<Projected<EndpointId, String>>,
     /// Syncthing places of a project, cached across sync progress redraws.
@@ -592,7 +604,7 @@ impl Default for Projections {
             devices: Projected::new(
                 Duration::from_secs(10),
                 Duration::from_millis(600),
-                Duration::from_secs(8),
+                DEVICE_LIST_LIMIT,
             ),
             reviews: Projected::new(
                 Duration::from_secs(8),
@@ -1318,7 +1330,11 @@ async fn execute_job(
 
 /// Optimistically marks `id` booting or off in `machine`'s cached device list.
 pub(crate) fn mark_device_power(fleet: &Fleet, machine: EndpointId, id: &DeviceId, boot: bool) {
-    fleet.projections().devices.edit(&machine, |devices| {
+    fleet.projections().devices.edit(&machine, |listing| {
+        let Listing::Devices(devices) = listing else {
+            return;
+        };
+
         if let Some(device) = devices.iter_mut().find(|d| d.id == *id) {
             device.state = if boot {
                 DeviceState::Booting

@@ -17,7 +17,7 @@ import { sessionKey } from "./running.ts";
 import { paneRoot } from "../../stores/agentpane/worktree.ts";
 import {
   type DeviceMedia, type VideoRotation, type DeviceFollow, type DeviceHost, type KeptDevice, type DeviceInput, type Device, type DeviceMachine, type DevicePick, type DevicePlatform, type DeviceTarget, type ScreenState,
-  defaultPick, deviceError, readAnnounced, followedDevice, keptPick, pickedDevice, queueInput, readHosts, readKeptDevice, readMachines, readPlatforms, readScreenMessage, showsDeviceTab, targetPick,
+  nextPick, deviceError, readAnnounced, followedDevice, keptPick, pickedDevice, queueInput, readHosts, readKeptDevice, readMachines, readPlatforms, readScreenMessage, showsDeviceTab, targetPick,
 } from "../../stores/agentpane/device-state.ts";
 
 /// How often the list is read again while the tab shows, for the machines whose node does not
@@ -269,7 +269,7 @@ async function readDevices() {
     const known = keptPick(machines, stored);
     // The agent's node already keeps the device its calls used.
     if (asked && kept?.session === session && kept.device.kind === "kept") kept = { session, device: { kind: "kept", pick: asked } };
-    const pick = asked ?? defaultPick(machines, at?.machine ?? null, last ?? known.pick, platforms);
+    const pick = asked ?? nextPick(machines, at?.machine ?? null, last, stored, platforms);
     pickedFor = session;
     if (asked) wanted = null;
     // The agent's device shows again even when its view had ended.

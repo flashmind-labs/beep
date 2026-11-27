@@ -8,7 +8,7 @@ import {
   BUTTON_NAMES, type Device, type DeviceButton, type DeviceMachine, type Rect, type ScreenState, type Size, type TouchPhase,
   buttonsFor, fitRect, keyInput, takesInput, maxSide, missingLine, pickedDevice, pickValue, powerChip, readPickValue, touchPoint, rotatedSize,
 } from "../../stores/agentpane/device-state.ts";
-import { Button, NO_AUTO, Picker, Spinner } from "../../ui/kit.tsx";
+import { Button, EmptyPanel, NO_AUTO, Picker, Spinner } from "../../ui/kit.tsx";
 
 const BUTTON_ICONS: Record<DeviceButton, IconName> = {
   Home: "devHome", Back: "devBack", AppSwitch: "devRecent", Rotate: "devRotate", Power: "devPower", VolumeDown: "devVolumeDown", VolumeUp: "devVolumeUp",
@@ -25,6 +25,10 @@ export const DevicePane = memo(function DevicePane({ hidden }: { hidden: boolean
 
   const missing = model.listed ? missingLine(model.machines, model.platforms) : null;
   const anyDevice = model.machines.some(m => m.devices.length > 0);
+  const listing = model.machines.filter(m => m.loading);
+  if (model.listed && !anyDevice && listing.length > 0) {
+    return <div className="agpview device" hidden={hidden}><EmptyPanel spin text={`Listing devices on ${listing.map(m => m.machine_name).join(" and ")}…`} /></div>;
+  }
   if (model.listed && !anyDevice) {
     const names = model.machines.map(m => m.machine_name).join(" or ");
     return <div className="agpview device" hidden={hidden}><div className="agdevnote">{model.error || missing || `No emulator or simulator on ${names || "the machines"}.`}{model.machines.filter(m => m.error).map(m => <small key={m.machine_id}>{m.machine_name}: {m.error}</small>)}</div></div>;

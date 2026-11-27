@@ -33,6 +33,7 @@ use std::{
     path::{Path, PathBuf},
     sync::{
         LazyLock, Mutex,
+        atomic::{AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -185,6 +186,12 @@ const SIMULATORS_EVERY: Duration = Duration::from_secs(5);
 static LISTED: LazyLock<watch::Sender<Option<Vec<Device>>>> =
     LazyLock::new(|| watch::Sender::new(None));
 
+/// The follower task that may store the list, or 0 when none may. Set before
+/// `LISTED` is cleared and checked inside the store, so a task that was mid-read
+/// when its last client left cannot write an old list back.
+static ACTIVE: AtomicU64 = AtomicU64::new(0);
+static TASKS: AtomicU64 = AtomicU64::new(0);
+
 /// The clients that follow the list, and the task that reads it for them.
 static FOLLOWING: Mutex<Following> = Mutex::new(Following {
     clients: 0,
@@ -209,9 +216,12 @@ impl Follow {
         following.clients += 1;
 
         if following.task.is_none() {
+            let mine = TASKS.fetch_add(1, Ordering::Relaxed) + 1;
+            ACTIVE.store(mine, Ordering::SeqCst);
             let following_task = following_list(
                 list,
                 &LISTED,
+                move || ACTIVE.load(Ordering::SeqCst) == mine,
                 CHANGED.subscribe(),
                 || crate::events::system().changed(Topic::new(TOPIC)),
             );
@@ -229,6 +239,7 @@ impl Drop for Follow {
 
         if following.clients == 0 {
             following.task = None;
+            ACTIVE.store(0, Ordering::SeqCst);
             LISTED.send_replace(None);
         }
     }
@@ -245,6 +256,7 @@ pub(crate) fn stored() -> watch::Receiver<Option<Vec<Device>>> {
 async fn following_list<Read, Reading>(
     read: Read,
     listed: &'static watch::Sender<Option<Vec<Device>>>,
+    current: impl Fn() -> bool + Send + 'static,
     mut changed: watch::Receiver<()>,
     ping: impl Fn() + Send + 'static,
 ) where
@@ -268,6 +280,11 @@ async fn following_list<Read, Reading>(
         .find_map(|(needed, every)| needed.then_some(every));
         let mut moved = false;
         listed.send_if_modified(|last| {
+            // Checked under the sender's lock, which clearing the list takes too.
+            if !current() {
+                return false;
+            }
+
             moved = last.as_ref().is_some_and(|last| *last != now);
             let changed = last.as_ref() != Some(&now);
             *last = Some(now);

@@ -8,7 +8,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
-        node_actor::{JobKind, Projected, mark_device_power},
+        node_actor::{DEVICE_LIST_LIMIT, JobKind, Listing, Projected, mark_device_power},
     },
     machines::{Registry, Unfollow},
 };
@@ -44,9 +44,6 @@ use tokio::{
 };
 use uuid::Uuid;
 
-/// How long a machine has to list its devices: a Mac's `simctl` and
-/// `devicectl` take up to about 20 s with nothing attached, plus margin.
-const LIST_LIMIT: Duration = Duration::from_secs(35);
 /// Freshness window while a device on the machine is booting.
 const BOOTING_LIST_FRESH: Duration = Duration::from_secs(1);
 /// Freshness window while all devices on the machine are settled.
@@ -153,9 +150,11 @@ pub async fn device_list(
 /// What `machine` shows now: the held list, or none once the list took longer
 /// than the projection's first wait. This machine's own node is capped the same
 /// as any other, so a cold or hung node does not hold the window. The list
-/// goes on being read for up to `LIST_LIMIT` and `notify` says when it came.
+/// goes on being read for up to `DEVICE_LIST_LIMIT` and `notify` says when it
+/// came, or that it failed: a machine with no list yet keeps the failure, and
+/// one with a list keeps that list.
 async fn read_devices<F, Fut>(
-    devices: Arc<Projected<EndpointId, Vec<Device>>>,
+    devices: Arc<Projected<EndpointId, Listing>>,
     machine: EndpointId,
     notify: impl FnOnce() + Send + 'static,
     fetch: F,
@@ -164,21 +163,34 @@ where
     F: FnOnce() -> Fut + Send + 'static,
     Fut: Future<Output = Result<Vec<Device>>> + Send + 'static,
 {
-    let fresh_for = |devices: &Vec<Device>| {
-        if devices.iter().any(|d| d.state == DeviceState::Booting) {
+    let fresh_for = |listing: &Listing| match listing {
+        Listing::Devices(devices) if devices.iter().any(|d| d.state == DeviceState::Booting) => {
             BOOTING_LIST_FRESH
-        } else {
-            IDLE_LIST_FRESH
+        }
+        Listing::Devices(_) => IDLE_LIST_FRESH,
+        Listing::Failed(_) => BOOTING_LIST_FRESH,
+    };
+    let held = devices.clone();
+    let fetch = move || async move {
+        match fetch().await {
+            Ok(devices) => Ok(Listing::Devices(devices)),
+            Err(e) if held.peek(&machine).is_none() => Ok(Listing::Failed(e.to_string())),
+            Err(e) => Err(e),
         }
     };
 
-    devices
+    match devices
         .read_fast_with_fresh(machine, fresh_for, PartialEq::eq, notify, fetch)
-        .await
+        .await?
+    {
+        Ok(Listing::Devices(devices)) => Some(Ok(devices)),
+        Ok(Listing::Failed(reason)) => Some(Err(DesktopError::BadRequest(reason))),
+        Err(e) => Some(Err(e)),
+    }
 }
 
 async fn list(fleet: &Fleet, machine: EndpointId) -> Result<Vec<Device>> {
-    match ask(fleet, machine, &Request::List {}, LIST_LIMIT).await? {
+    match ask(fleet, machine, &Request::List {}, DEVICE_LIST_LIMIT).await? {
         Reply::Devices { devices } => Ok(devices),
         other => Err(answered(other)),
     }

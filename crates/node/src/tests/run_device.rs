@@ -424,6 +424,8 @@ struct Followed {
     list: Arc<std::sync::Mutex<Vec<Device>>>,
     reads: Arc<AtomicU8>,
     changed: watch::Sender<()>,
+    /// Whether the task may still store its list.
+    current: Arc<std::sync::atomic::AtomicBool>,
     listed: &'static watch::Sender<Option<Vec<Device>>>,
     /// The stored list at each ping.
     pings: tokio::sync::mpsc::UnboundedReceiver<Option<Vec<Device>>>,
@@ -434,6 +436,7 @@ fn followed(first: Vec<Device>) -> Followed {
     let list = Arc::new(std::sync::Mutex::new(first));
     let reads = Arc::new(AtomicU8::new(0));
     let (changed, rings) = watch::channel(());
+    let current = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let listed: &'static _ = Box::leak(Box::new(watch::Sender::new(None)));
     let (ping, pings) = tokio::sync::mpsc::unbounded_channel();
     let task = tokio::spawn(following_list(
@@ -446,6 +449,10 @@ fn followed(first: Vec<Device>) -> Followed {
             }
         },
         listed,
+        {
+            let current = current.clone();
+            move || current.load(Ordering::SeqCst)
+        },
         rings,
         move || {
             let _ = ping.send(watched::read_sent(listed, Clone::clone));
@@ -456,6 +463,7 @@ fn followed(first: Vec<Device>) -> Followed {
         list,
         reads,
         changed,
+        current,
         listed,
         pings,
         task: AbortOnDropHandle::new(task),
@@ -593,4 +601,18 @@ fn nothing_followed_or_a_device_not_listed_on_is_read_again() {
 
         assert!(matches!(reached, Some(Ok(Reached::Adb(_)))));
     }
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_read_that_ends_after_the_last_client_left_stores_nothing() {
+    let follow = followed(vec![device(DeviceState::On)]);
+    follow.started().await;
+    follow.current.store(false, Ordering::SeqCst);
+    follow.listed.send_replace(None);
+    *follow.list.lock().unwrap() = vec![device(DeviceState::Off)];
+
+    follow.changed.send_replace(());
+    tokio::time::sleep(SIMULATORS_EVERY * 2).await;
+
+    assert!(watched::read_sent(follow.listed, Option::is_none));
 }

@@ -354,7 +354,7 @@ async fn this_machines_cold_list_is_capped_by_the_first_wait() {
     let devices = Projected::new(
         Duration::from_secs(10),
         Duration::from_millis(600),
-        Duration::from_secs(8),
+        DEVICE_LIST_LIMIT,
     );
     let started = Instant::now();
 
@@ -379,4 +379,38 @@ fn a_list_still_loading_is_not_an_empty_machine() {
 
     assert!(loading.loading && loading.devices.is_empty() && loading.error.is_none());
     assert!(!empty.loading);
+}
+
+#[tokio::test(start_paused = true)]
+async fn a_list_that_fails_after_the_first_wait_tells_the_window() {
+    let machine = iroh::SecretKey::from_bytes(&[7; 32]).public();
+    let devices = Projected::new(
+        Duration::from_secs(10),
+        Duration::from_millis(600),
+        DEVICE_LIST_LIMIT,
+    );
+    let (fail, failing) = tokio::sync::oneshot::channel::<()>();
+    let (tell, told) = tokio::sync::oneshot::channel::<()>();
+    let slow = || async {
+        let _ = failing.await;
+        Err(DesktopError::Other(anyhow::anyhow!("no answer")))
+    };
+
+    assert!(
+        read_devices(
+            devices.clone(),
+            machine,
+            move || {
+                let _ = tell.send(());
+            },
+            slow
+        )
+        .await
+        .is_none()
+    );
+    fail.send(()).unwrap();
+    told.await.expect("the window is told");
+
+    let again = read_devices(devices, machine, || {}, || async { Ok(Vec::new()) }).await;
+    assert!(matches!(again, Some(Err(_))));
 }
