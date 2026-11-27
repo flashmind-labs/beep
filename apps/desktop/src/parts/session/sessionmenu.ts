@@ -60,8 +60,13 @@ function continueSteps(e: MouseEvent, s: AgentRow, open: (s: AgentRow) => void) 
   const back = (to: () => void): MenuItem[] => [{ label: "Back", icon: "back", on: to }, { kind: "separator" }];
   const start = (agent: string, model: string, effort: string | null) => {
     continuePicks.set(s.id, { agent, model: modelId(knownModels(s.machine_id, agent), model), effort, fast: null });
-    if (!sameSession(AG.open, s)) open(s);
-    setTimeout(() => void continueSessionNow(openOf(s)), 0);
+    // Opening shows the session even when it is the one held behind another view.
+    open(s);
+    setTimeout(() => {
+      // Another window may show it instead: this one's draft is not its.
+      if (!AG.open || !sameSession(AG.open, s)) return void continuePicks.delete(s.id);
+      void continueSessionNow(AG.open);
+    }, 0);
   };
 
   const harnesses = () => openMenu(e, "Continue with", [
