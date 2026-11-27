@@ -123,18 +123,25 @@ desktop-smoke:
     cleanup() {
         if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
             kill -TERM "$pid" 2>/dev/null || true
+            for _ in $(seq 10); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 1
+            done
+            kill -KILL "$pid" 2>/dev/null || true
         fi
         wait "$runner" 2>/dev/null || true
         rm -rf "$scratch"
     }
     trap cleanup EXIT
     mkdir -p "$scratch/home" "$scratch/data" "$scratch/config" "$scratch/cache" "$scratch/state"
-    # Scratch dirs keep the run off the real data; no session bus keeps it off the real keyring.
-    env -u DBUS_SESSION_BUS_ADDRESS \
+    mkdir -m 700 "$scratch/run"
+    # Scratch dirs and a private session bus keep the run off the real data and desktop.
+    env \
         HOME="$scratch/home" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" \
         XDG_CACHE_HOME="$scratch/cache" XDG_STATE_HOME="$scratch/state" \
+        XDG_RUNTIME_DIR="$scratch/run" TMPDIR="$scratch" \
         WEBKIT_DISABLE_COMPOSITING_MODE=1 \
-        xvfb-run -a sh -c 'echo $$ > "$1"; exec "$2"' sh "$scratch/app.pid" "$bin" 2>"$err" &
+        xvfb-run -a dbus-run-session -- sh -c 'echo $$ > "$1"; exec "$2"' sh "$scratch/app.pid" "$bin" 2>"$err" &
     runner=$!
     until [ -s "$scratch/app.pid" ]; do
         kill -0 "$runner" 2>/dev/null || break

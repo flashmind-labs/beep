@@ -65,6 +65,13 @@ pub fn run() {
         std::process::exit(status);
     }
 
+    let context = tauri::generate_context!();
+    // SAFETY: nothing else runs yet; Tauri starts its threads below.
+    #[cfg(all(unix, desktop))]
+    if let Some(refresh) = unsafe { platform::login_path::adopt(&context.config().identifier) } {
+        std::thread::spawn(move || refresh.run());
+    }
+
     // The main thread builds the app and runs setup, callbacks and sync commands:
     // it stays inside the runtime so anything they build can spawn.
     let runtime = tauri::async_runtime::handle();
@@ -76,12 +83,6 @@ pub fn run() {
     // Made beside the app's start, off the main thread: see `diagnostics::install`.
     #[cfg(desktop)]
     let recorder = std::thread::spawn(beep_node::link::diagnostics::install);
-    let context = tauri::generate_context!();
-    // SAFETY: nothing else runs yet; Tauri starts its threads below.
-    #[cfg(all(unix, desktop))]
-    if let Some(refresh) = unsafe { platform::login_path::adopt(&context.config().identifier) } {
-        std::thread::spawn(move || refresh.run());
-    }
     let builder = tauri::Builder::default();
     #[cfg(desktop)]
     let builder = builder
