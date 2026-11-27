@@ -1,8 +1,8 @@
-//! A transcript read from the files Codex, pi and flsh keep (`Stores::transcript`):
+//! A transcript read from the files Codex, pi, flsh and Antigravity keep (`Stores::transcript`):
 //! the last entries as the node answers a transcript request with them.
 
 use super::common::Agent;
-use super::{Stores, codex_run};
+use super::{Stores, agy, codex_run};
 use crate::calls::Tool as BeepTool;
 use crate::logs::subagent::Run as SubagentRun;
 use crate::logs::subagent::Subagent;
@@ -43,19 +43,28 @@ impl Stores {
         let Some(seen) = self.seen(None, id) else {
             return Ok(None);
         };
-        let (parse, file): (Parse, _) = match (seen.agent, &seen.file) {
-            (Agent::Codex, Some(file)) => (codex, file),
-            (Agent::Pi, Some(file)) => (pi, file),
-            (Agent::Flsh, Some(file)) => (flsh, file),
-            (agent, _) => bail!(
-                "{}'s transcript cannot be read yet, only its title and folder",
-                agent.as_ref()
-            ),
+        let mut entries = match (seen.agent, &seen.file, &self.agy) {
+            (Agent::Agy, _, Some(root)) => {
+                let database = agy::database(root, id);
+                self.memos
+                    .transcripts
+                    .read_database(&database, || agy::transcript(&database).map(Arc::new))?
+            }
+            (agent, file, _) => {
+                let (parse, file): (Parse, _) = match (agent, file) {
+                    (Agent::Codex, Some(file)) => (codex, file),
+                    (Agent::Pi, Some(file)) => (pi, file),
+                    (Agent::Flsh, Some(file)) => (flsh, file),
+                    (agent, _) => bail!(
+                        "{}'s transcript cannot be read yet, only its title and folder",
+                        agent.as_ref()
+                    ),
+                };
+                self.memos
+                    .transcripts
+                    .read(file, || parse(file).map(Arc::new))?
+            }
         };
-        let mut entries = self
-            .memos
-            .transcripts
-            .read(file, || parse(file).map(Arc::new))?;
         if seen.agent == Agent::Codex {
             let parent = id
                 .as_ref()

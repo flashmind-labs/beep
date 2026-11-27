@@ -65,3 +65,90 @@ fn lists_conversations_with_titles_and_skips_subagents() {
     assert_eq!(found[1].title.as_deref(), Some("Fix the build"));
     assert_eq!(found[1].agent, Agent::Agy);
 }
+
+#[test]
+fn reads_a_conversations_steps_as_its_transcript() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let path = dir.path().join("talk.db");
+    let conn = Connection::open(&path).expect("a database");
+    conn.execute_batch(
+        "CREATE TABLE steps (idx INTEGER PRIMARY KEY, step_type INTEGER, status INTEGER, step_payload BLOB);",
+    )
+    .expect("the schema");
+    let call = Call {
+        id: "c1".into(),
+        name: "run_command".into(),
+        args: r#"{"CommandLine":"cargo test\n--all","toolSummary":"Run tests"}"#.into(),
+    };
+    let steps = [
+        (
+            14,
+            3,
+            Step {
+                user: Some(UserInput {
+                    text: "Fix the build".into(),
+                }),
+                ..Default::default()
+            },
+        ),
+        (101, 3, Step::default()),
+        (
+            15,
+            3,
+            Step {
+                reply: Some(Reply {
+                    text: "Running the tests.".into(),
+                    thinking: "Tests first.".into(),
+                    calls: vec![call.clone()],
+                }),
+                ..Default::default()
+            },
+        ),
+        (
+            132,
+            7,
+            Step {
+                meta: Some(StepMeta { call: Some(call) }),
+                ..Default::default()
+            },
+        ),
+        (
+            17,
+            3,
+            Step {
+                error: Some(StepError {
+                    detail: Some(ErrorDetail {
+                        text: "API error".into(),
+                    }),
+                }),
+                ..Default::default()
+            },
+        ),
+        (23, 3, Step::default()),
+    ];
+    for (idx, (kind, status, step)) in (0_i64..).zip(steps) {
+        conn.execute(
+            "INSERT INTO steps VALUES (?1, ?2, ?3, ?4)",
+            rusqlite::params![idx, kind, status, step.encode_to_vec()],
+        )
+        .expect("a step");
+    }
+    drop(conn);
+
+    let read: Vec<(EntryKind, String)> = transcript(&path)
+        .expect("the conversation reads")
+        .into_iter()
+        .map(|entry| (entry.kind, entry.text))
+        .collect();
+    assert_eq!(
+        read,
+        [
+            (EntryKind::User, "Fix the build".into()),
+            (EntryKind::Thought, "Tests first.".into()),
+            (EntryKind::Agent, "Running the tests.".into()),
+            (EntryKind::Tool, "run_command: cargo test (failed)".into()),
+            (EntryKind::Other, "API error".into()),
+            (EntryKind::Compacted, COMPACTED_ENTRY.into()),
+        ]
+    );
+}
