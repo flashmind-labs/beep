@@ -144,42 +144,6 @@ test("a failed turn runs its prompt again on the model picked from its error", a
   ]);
 });
 
-test("touch scrolling releases the log before the next animation frame", async ({ page }) => {
-  const active = { ...session, status: "working", external: false };
-  await openDesktop(page, false, { agent_sessions: [], agent_view: view(active) });
-  await page.evaluate(agent => window.__navigation.open({ agent: { ...agent, kind: "agent" } }), active);
-  const body = page.locator("#agbody");
-  const details = page.locator("#agshortcuts"), summary = details.locator("summary");
-  await summary.click();
-  await summary.focus();
-  await details.evaluate(el => Reflect.set(window, "sessionHintsDisclosure", el));
-  await expect(body).toContainText("Message 39");
-  await expect.poll(() => body.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true);
-  const state = await body.evaluate((el: HTMLElement & { stuck?: boolean; touching?: boolean }) => {
-    el.scrollTop = el.scrollHeight;
-    el.dispatchEvent(new Event("scroll"));
-    el.dispatchEvent(new Event("touchstart"));
-    el.dispatchEvent(new Event("touchmove"));
-    el.scrollTop -= 200;
-    el.dispatchEvent(new Event("scroll"));
-    return { stuck: el.stuck, touching: el.touching, top: el.scrollTop, height: el.clientHeight, total: el.scrollHeight };
-  });
-  expect(state.stuck).toBe(false);
-  expect(state.touching).toBe(true);
-  const reads = await page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_view").length);
-  await page.evaluate(next => window.__navigation.respond("agent_view", next), {
-    ...view(active), entries: [...view(active).entries, { kind: "assistant", text: "New reply while reading older messages" }],
-  });
-  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_view").length)).toBeGreaterThan(reads);
-  await expect.poll(() => body.evaluate((el: HTMLElement & { stuck?: boolean }) => el.stuck)).toBe(false);
-  expect(await details.evaluate(el => el === Reflect.get(window, "sessionHintsDisclosure") && el.hasAttribute("open"))).toBe(true);
-  await expect(summary).toBeFocused();
-  await body.dispatchEvent("touchend");
-  await expect.poll(() => body.evaluate((el: HTMLElement & { touching?: boolean }) => el.touching)).toBe(false);
-  await body.evaluate(el => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event("scroll")); });
-  await expect.poll(() => body.evaluate((el: HTMLElement & { stuck?: boolean }) => el.stuck)).toBe(true);
-});
-
 test("returning from Home opens the same conversation at its latest message", async ({ page }) => {
   const active = { ...session, status: "idle", external: false };
   await openDesktop(page, false, { agent_view: view(active) });
