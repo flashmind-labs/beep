@@ -24,7 +24,8 @@ test("project-window Back retains its button across page updates", async ({ page
   } }));
   await expect(back).toBeVisible();
   await back.evaluate(element => Reflect.set(window, "projectBack", element));
-  expect(await back.evaluate(element => element.nextElementSibling?.id)).toBe("title");
+  // Back is a child of the main column, ahead of the header row that the grid lays beside it.
+  expect(await back.evaluate(element => element.parentElement?.id === "main" && element.nextElementSibling?.classList.contains("cc-top"))).toBe(true);
   await back.click();
   await expect(back).toBeHidden();
   expect(await back.evaluate(element => element === Reflect.get(window, "projectBack"))).toBe(true);

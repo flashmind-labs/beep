@@ -22,6 +22,8 @@ test("the sidebar's Assistant lists the chats and opens one beside them", async 
     agent_hosts: [host], assistant_settings_get: { agent: "flsh", model: null, effort: null, fast: null },
     agent_sessions: [{ ...session, title: "Set up the widget project" }, other],
     agent_view: view(other, "Two pull requests wait for review."),
+    // The chat's pane stays hidden while its folder is empty.
+    agent_tree: { folders: [{ path: "", entries: [{ name: "notes.txt", folder: false, size: 1, ignored: false, change: null }], more: 0, git: false }], truncated: false },
   });
   await page.locator("#side").getByRole("button", { name: "Assistant", exact: true }).click();
   const list = page.locator(".asst-list");
