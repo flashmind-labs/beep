@@ -10,7 +10,7 @@ use crate::{
     targets::CenterTarget,
 };
 use tauri::{
-    App, AppHandle, Manager, Wry,
+    App, AppHandle, Manager, State, Wry,
     menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
 };
@@ -77,6 +77,14 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     separator()?;
     item("quit", "Quit Beep", true, Some("CmdOrCtrl+q"))?;
     Ok(menu)
+}
+
+/// Whether tapping Option twice opens or hides the bar. The menu names the
+/// taps only while they work.
+#[tauri::command]
+pub(crate) fn set_option_taps(app: AppHandle, prefs: State<'_, Prefs>, enabled: bool) {
+    prefs.set_option_taps(enabled);
+    refresh(&app);
 }
 
 pub(crate) fn refresh(app: &AppHandle) {

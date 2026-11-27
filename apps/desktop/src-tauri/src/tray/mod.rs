@@ -3,10 +3,10 @@
 
 mod follow;
 #[cfg(desktop)]
-mod menu;
+pub(crate) mod menu;
 #[cfg(mobile)]
 #[path = "mobile.rs"]
-mod menu;
+pub(crate) mod menu;
 pub(crate) mod waiting;
 
 #[cfg(desktop)]

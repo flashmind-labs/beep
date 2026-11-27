@@ -104,13 +104,6 @@ pub fn set_agent_notices(prefs: State<'_, Prefs>, enabled: bool) {
     prefs.set_agent_notices(enabled);
 }
 
-/// Whether tapping Option twice opens or hides the bar.
-#[tauri::command]
-pub fn set_option_taps(app: AppHandle, prefs: State<'_, Prefs>, enabled: bool) {
-    prefs.set_option_taps(enabled);
-    crate::tray::refresh(&app);
-}
-
 /// Whether machines running an older beep-node update themselves when seen online.
 #[tauri::command]
 pub fn set_node_auto_update(prefs: State<'_, Prefs>, enabled: bool) {
