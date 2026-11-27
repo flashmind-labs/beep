@@ -53,6 +53,7 @@ async fn the_gate_asks_sync_before_the_grants() {
         Folders::new(&[shared.path().to_owned()]),
         Syncthing::at(vec![state.path().join("syncthing")], None),
         membership,
+        crate::occupancy::Occupancy::default(),
         false,
     )
     .await

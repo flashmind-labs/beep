@@ -14,6 +14,7 @@ use crate::files::sync::{
     scan::MAX_FILES,
     watch::Key,
 };
+use crate::occupancy::Occupancy;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::sync::{Keep, ProjectStatus};
 use beep_proto::watched;
@@ -22,7 +23,10 @@ use iroh_blobs::Hash;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard, RwLock},
+    sync::{
+        Arc, Mutex, MutexGuard, RwLock,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use tokio::{
@@ -35,23 +39,13 @@ use tokio_util::sync::CancellationToken;
 /// The longest a scan before matching a peer may take; the pull tries again.
 const MATCH_SCAN: Duration = Duration::from_secs(30);
 
-/// A project's request to run Git recovery.
-#[derive(Default)]
-pub(super) enum RecoveryTurn {
-    /// Nothing asked, or the answer was taken.
-    #[default]
-    Idle,
-    /// Published in the recoveries; no answer yet.
-    Asked,
-    Answered(Result<crate::occupancy::RepositoryHold>),
-}
-
 /// What a project's task shares with the pulls and the node.
 pub(in crate::files::sync) struct Shared {
     pub(super) bootstrap_paths: RwLock<Option<HashSet<String>>>,
-    pub(super) recovery: Arc<Mutex<Option<crate::files::holds::Recoveries>>>,
-    /// Where this checkout is in asking for its recovery to be let run.
-    pub(super) recovery_turn: Mutex<RecoveryTurn>,
+    /// Whether the project opted in to automatic Git recovery.
+    pub(super) recovery: Arc<AtomicBool>,
+    /// Who works in this checkout, which a recovery asks.
+    pub(super) occupancy: Occupancy,
     pub(super) name: String,
     pub(super) key: Key,
     pub(super) root: Arc<Folder>,
@@ -110,6 +104,7 @@ pub(in crate::files::sync) struct Start {
     pub(in crate::files::sync) paused: bool,
     /// The project's sync rules from the mesh.
     pub(in crate::files::sync) rules: String,
+    pub(in crate::files::sync) occupancy: Occupancy,
 }
 
 impl Shared {
@@ -176,7 +171,7 @@ impl Shared {
                     .then(HashSet::new),
             ),
             recovery: Arc::default(),
-            recovery_turn: Mutex::default(),
+            occupancy: start.occupancy,
             name: start.name,
             key: start.key,
             root: start.root,
@@ -227,25 +222,11 @@ impl Shared {
         crate::lock(&self.state)
     }
 
-    pub(in crate::files::sync) fn set_recovery(
-        &self,
-        holds: Option<crate::files::holds::Recoveries>,
-    ) {
-        let changed = {
-            let mut current = crate::lock(&self.recovery);
-            let changed = current.is_some() != holds.is_some();
-            *current = holds;
-
-            if changed {
-                // What was asked belongs to the opt-in that asked it.
-                *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
-            }
-
-            changed
-        };
+    pub(in crate::files::sync) fn set_recovery(&self, enabled: bool) {
+        let changed = self.recovery.swap(enabled, Ordering::SeqCst) != enabled;
 
         if changed {
-            if crate::lock(&self.recovery).is_some() {
+            if enabled {
                 *crate::write_lock(&self.bootstrap_paths) = Some(HashSet::new());
             }
 
@@ -409,54 +390,8 @@ impl Shared {
             .is_none_or(|allowed| allowed.contains(path))
     }
 
-    /// Takes the answer to the last ask, leaving the turn as it stood: an
-    /// answer belongs to the round that takes it, and any other round clears it.
-    /// Returns it with whether an ask is still waiting.
-    pub(super) fn take_recovery_answer(
-        &self,
-    ) -> (Option<Result<crate::occupancy::RepositoryHold>>, bool) {
-        let mut turn = crate::lock(&self.recovery_turn);
-
-        match std::mem::take(&mut *turn) {
-            RecoveryTurn::Answered(answer) => (Some(answer), false),
-            RecoveryTurn::Asked => {
-                *turn = RecoveryTurn::Asked;
-                (None, true)
-            }
-            RecoveryTurn::Idle => (None, false),
-        }
-    }
-
-    /// Publishes that local edits wait for recovery to be let run.
-    pub(super) fn ask_recovery(&self, asks: &crate::files::holds::Recoveries) {
-        *crate::lock(&self.recovery_turn) = RecoveryTurn::Asked;
-        asks.ask(self.root());
-    }
-
-    /// Keeps the answer only for the ask that is waiting; any other answer
-    /// is dropped, and its hold with it.
-    pub(in crate::files::sync) fn answer_recovery(
-        &self,
-        answer: Result<crate::occupancy::RepositoryHold>,
-    ) {
-        let mut turn = crate::lock(&self.recovery_turn);
-
-        // Paused, no round runs to use it: the answer and its hold go, and the
-        // round after the pause asks afresh.
-        if self.is_paused() {
-            *turn = RecoveryTurn::Idle;
-            return;
-        }
-
-        if matches!(*turn, RecoveryTurn::Asked) {
-            *turn = RecoveryTurn::Answered(answer);
-            drop(turn);
-            self.forced.notify_one();
-        }
-    }
-
     pub(super) fn recovery_enabled(&self) -> bool {
-        crate::lock(&self.recovery).is_some()
+        self.recovery.load(Ordering::SeqCst)
     }
 
     pub(in crate::files::sync) async fn stopped(&self) {
@@ -469,8 +404,6 @@ impl Shared {
 
     pub(in crate::files::sync) fn stop(&self) {
         self.stop.cancel();
-        // A stopped project recovers nothing: a waiting answer and its hold go now.
-        *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
     }
 
     pub(in crate::files::sync) fn cursor(&self, peer: &EndpointId) -> Cursor {
@@ -732,16 +665,11 @@ impl Shared {
 
     /// Pauses the project or resumes it; the task follows.
     pub(in crate::files::sync) fn set_paused(&self, paused: bool) {
-        let changed = self.paused.send_if_modified(|now| {
+        self.paused.send_if_modified(|now| {
             let changed = *now != paused;
             *now = paused;
             changed
         });
-
-        if changed && paused {
-            // No round runs while paused to take an answer: the resume asks again.
-            *crate::lock(&self.recovery_turn) = RecoveryTurn::Idle;
-        }
     }
 
     /// Scans the folder now and brings it in line with what the peers

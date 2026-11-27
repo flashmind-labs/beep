@@ -63,9 +63,9 @@ impl StoreRoots {
     /// home folder. `None` without a home folder to fall back on.
     pub(crate) fn locate() -> Option<Self> {
         let claude = claude_dir::config_dir()?.join("projects");
-        let codex = found::codex_home()?;
-        let pi = found::pi_sessions()?;
-        let flsh = found::flsh_sessions_dir()?;
+        let codex = found::codex::configured()?;
+        let pi = found::pi::configured()?;
+        let flsh = found::flsh::sessions_dir()?;
         Some(Self {
             claude,
             codex,

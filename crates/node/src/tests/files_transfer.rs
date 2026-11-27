@@ -49,6 +49,7 @@ async fn quitting_saves_the_projects_while_a_peer_hangs() {
         Folders::new(&[shared.path().to_owned()]),
         syncthing,
         Membership::default(),
+        crate::occupancy::Occupancy::default(),
         false,
     )
     .await
@@ -93,6 +94,7 @@ async fn a_shared_file_is_fetched_by_the_device_that_asked_and_no_other() {
         Folders::new(&[]),
         syncthing,
         Membership::default(),
+        crate::occupancy::Occupancy::default(),
         true,
     )
     .await

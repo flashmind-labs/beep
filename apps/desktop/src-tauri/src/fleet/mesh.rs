@@ -131,9 +131,14 @@ impl Serving {
             return;
         }
 
-        let started =
-            Transfers::start_shared(endpoint, &dir.join("blobs"), folders, peers.membership())
-                .await;
+        let started = Transfers::start_shared(
+            endpoint,
+            &dir.join("blobs"),
+            folders,
+            peers.membership(),
+            peers.occupancy(),
+        )
+        .await;
 
         match started {
             Ok((transfers, served)) => {

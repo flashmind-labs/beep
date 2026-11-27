@@ -29,7 +29,7 @@ mod docker;
 pub(super) use docker::Docker;
 mod pages;
 use crate::logs::processes::{
-    Process, UNWATCHED, WATCHED, invalidate, os, read as read_table, signal,
+    Process, UNWATCHED, WATCHED, invalidate, os as process_table, read as read_table, signal,
 };
 
 
@@ -554,7 +554,7 @@ impl Observed {
                 None => Ok(Vec::new()),
             }
         };
-        let (ports, containers) = tokio::join!(os::ports(&visible), containers);
+        let (ports, containers) = tokio::join!(process_table::ports(&visible), containers);
         self.ports = ports;
 
         match containers {

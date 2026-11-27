@@ -60,7 +60,6 @@ host! {
     mod models;
     pub(crate) mod moving;
     mod pipe;
-    mod recovery;
     pub(crate) mod reply;
     mod plans;
     mod presence_stream;
@@ -150,8 +149,6 @@ host! {
     pub struct Agents {
         /// Who works in which folder here, shared with sync.
         occupancy: Occupancy,
-        /// Follows the checkouts that wait for Git recovery, once started.
-        recovering: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
         pub events: crate::events::Hub,
         sources: Mutex<std::sync::Weak<follow::Sources>>,
         event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,

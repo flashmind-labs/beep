@@ -4,7 +4,6 @@
 host! {
     mod folders;
     pub(crate) mod grants;
-    pub mod holds;
     pub(crate) mod place;
     pub mod sync;
     pub mod syncthing;

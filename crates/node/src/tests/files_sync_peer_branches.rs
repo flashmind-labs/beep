@@ -268,6 +268,7 @@ fn test_project(base: &Path, folder: &Path, peer: &Endpoint) -> Arc<Shared> {
         file: base.join("state"),
         paused: false,
         rules: String::new(),
+        occupancy: crate::occupancy::Occupancy::default(),
     })
     .unwrap()
 }

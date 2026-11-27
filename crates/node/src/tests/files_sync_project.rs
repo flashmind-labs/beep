@@ -7,8 +7,11 @@ use super::{
     state::{Saved, Seen, State, read_saved},
     task::{ChangeTimer, DELETE_SETTLE, DeleteTimer, MAX_SETTLE, SETTLE, Task},
 };
-use crate::files::holds::Recoveries;
-use crate::occupancy::{RepositoryHold, RepositoryHolds};
+use crate::files::sync::gitdir::{
+    Repo,
+    tests::{commit, init},
+};
+use crate::fs::paths;
 use crate::files::sync::{
     Parts,
     disk::{Found, Stat},
@@ -36,6 +39,7 @@ use std::{
     fs,
     io::{SeekFrom, Write as _},
     path::PathBuf,
+    process::Command,
     sync::Arc,
     time::Duration,
 };
@@ -85,6 +89,7 @@ impl Project {
             file: base.join("state"),
             paused: false,
             rules: String::new(),
+            occupancy: crate::occupancy::Occupancy::default(),
         })
         .unwrap();
         let watcher = Watcher::with_budget(None, None);
@@ -179,6 +184,7 @@ async fn consecutive_crashes_do_not_reuse_a_published_edit() {
             file: old.file.clone(),
             paused: false,
             rules: String::new(),
+            occupancy: crate::occupancy::Occupancy::default(),
         })
         .unwrap();
         project.task = Task::new(
@@ -1191,79 +1197,87 @@ async fn a_project_waiting_for_git_waits_for_a_change_not_a_timer() {
     project.stop().await;
 }
 
-/// A hold on the project's folder, as the agents answer an ask.
-async fn recovery_hold(project: &Project) -> (RepositoryHolds, RepositoryHold) {
-    let holds = RepositoryHolds::default();
-    let hold = holds.hold(project.task.shared.root()).await.unwrap();
+/// A checkout with local edits, and a peer that is a commit ahead of it,
+/// whose commit the checkout already has.
+async fn dirty_behind_a_peer(
+    occupancy: crate::occupancy::Occupancy,
+) -> (tempfile::TempDir, std::path::PathBuf, Arc<Shared>, Endpoint) {
+    let temp = tempfile::tempdir().unwrap();
+    let base = crate::fs::paths::canonicalize(temp.path()).unwrap();
+    let target = base.join("project");
+    let (source_dir, source) = init();
+    fs::write(source_dir.path().join("tracked"), "base").unwrap();
+    source.run(&["add", "tracked"]).unwrap();
+    commit(&source, "base");
+    let cloned = Command::new("git")
+        .args(["clone", "-q", "--no-local"])
+        .arg(source_dir.path())
+        .arg(&target)
+        .output()
+        .unwrap();
+    assert!(cloned.status.success());
+    fs::write(source_dir.path().join("tracked"), "peer edit").unwrap();
+    source.run(&["add", "tracked"]).unwrap();
+    commit(&source, "peer edit");
+    let fetched = Command::new("git")
+        .current_dir(&target)
+        .arg("fetch")
+        .arg("-q")
+        .arg(source_dir.path())
+        .output()
+        .unwrap();
+    assert!(fetched.status.success());
+    fs::write(target.join("untracked"), "mine").unwrap();
+    let peer = Endpoint::builder(presets::Minimal).bind().await.unwrap();
+    let shared = {
+        let folders = Folders::new(std::slice::from_ref(&base));
+        let root = open_target(&folders, &target.to_string_lossy()).unwrap();
+        Shared::load(Start {
+            name: "project".into(),
+            key: 1,
+            root: Arc::new(root),
+            peers: vec![peer.addr()],
+            file: base.join("state"),
+            paused: false,
+            rules: String::new(),
+            occupancy,
+        })
+        .unwrap()
+    };
+    crate::lock(&shared.peer_branches).insert(peer.id(), source.branches().unwrap());
+    shared.set_recovery(true);
 
-    (holds, hold)
-}
-
-fn starts_refused(holds: &RepositoryHolds, project: &Project) -> bool {
-    holds.check_start(project.task.shared.root()).is_err()
-}
-
-#[tokio::test]
-async fn an_answer_the_round_after_does_not_use_is_dropped_with_its_hold() {
-    let project = Project::new(&["a.txt"]).await;
-    let shared = project.task.shared.clone();
-    shared.set_recovery(Some(Recoveries::default()));
-    let (holds, hold) = recovery_hold(&project).await;
-    shared.ask_recovery(&Recoveries::default());
-    shared.answer_recovery(Ok(hold));
-    assert!(
-        starts_refused(&holds, &project),
-        "held until the round takes it"
-    );
-
-    // The round finds nothing to align (the user committed, a peer left):
-    // the answer ends with it, and Beep sessions may start again.
-    let (answer, waiting) = shared.take_recovery_answer();
-    shared.align_git(answer, waiting).await.unwrap();
-    assert!(!starts_refused(&holds, &project));
-    let (answer, waiting) = shared.take_recovery_answer();
-    assert!(answer.is_none() && !waiting);
-}
-
-#[tokio::test]
-async fn an_answer_that_arrives_when_nothing_asked_is_dropped_with_its_hold() {
-    let project = Project::new(&["a.txt"]).await;
-    let shared = project.task.shared.clone();
-    shared.set_recovery(Some(Recoveries::default()));
-    let (holds, hold) = recovery_hold(&project).await;
-    shared.ask_recovery(&Recoveries::default());
-    // The opt-in goes off while the sessions are being read.
-    shared.set_recovery(None);
-    shared.answer_recovery(Ok(hold));
-    assert!(!starts_refused(&holds, &project));
-}
-
-#[tokio::test]
-async fn a_mesh_change_that_keeps_the_opt_in_keeps_the_ask() {
-    let project = Project::new(&["a.txt"]).await;
-    let shared = project.task.shared.clone();
-    let asks = Recoveries::default();
-    shared.set_recovery(Some(asks.clone()));
-    shared.ask_recovery(&asks);
-    shared.set_recovery(Some(asks));
-    let (holds, hold) = recovery_hold(&project).await;
-    shared.answer_recovery(Ok(hold));
-    assert!(starts_refused(&holds, &project));
-    assert!(shared.take_recovery_answer().0.is_some());
+    (temp, target, shared, peer)
 }
 
 #[tokio::test]
-async fn an_answer_that_arrives_while_paused_is_dropped_with_its_hold() {
-    let project = Project::new(&["a.txt"]).await;
-    let shared = project.task.shared.clone();
-    let asks = Recoveries::default();
-    shared.set_recovery(Some(asks.clone()));
-    shared.ask_recovery(&asks);
-    shared.set_paused(true);
-    let (holds, hold) = recovery_hold(&project).await;
-    shared.answer_recovery(Ok(hold));
-    // Beep sessions start during the pause, and the resume has no old read.
-    assert!(!starts_refused(&holds, &project));
-    shared.set_paused(false);
-    assert!(shared.take_recovery_answer().0.is_none());
+async fn local_edits_wait_while_the_occupancy_refuses_the_checkout() {
+    let occupancy = crate::occupancy::Occupancy::default();
+    let (_temp, target, shared, peer) = dirty_behind_a_peer(occupancy.clone()).await;
+    let head = Repo::open(&target).unwrap().head();
+    let _session = occupancy.holds().running(target.clone());
+
+    let aligned = shared.align_git().await.unwrap();
+
+    assert!(aligned.held && !aligned.checkout_changed);
+    let warning = format!("{:#}", aligned.warning.unwrap());
+    assert!(warning.contains("close running sessions"), "{warning}");
+    assert_eq!(Repo::open(&target).unwrap().head(), head);
+    assert_eq!(fs::read(target.join("untracked")).unwrap(), b"mine");
+    peer.close().await;
+}
+
+#[tokio::test]
+async fn local_edits_are_kept_while_the_checkout_moves_under_the_hold() {
+    let occupancy = crate::occupancy::Occupancy::default();
+    let (_temp, target, shared, peer) = dirty_behind_a_peer(occupancy).await;
+    let head = Repo::open(&target).unwrap().head();
+
+    let aligned = shared.align_git().await.unwrap();
+
+    assert!(aligned.checkout_changed && !aligned.held);
+    assert_ne!(Repo::open(&target).unwrap().head(), head);
+    assert_eq!(fs::read(target.join("untracked")).unwrap(), b"mine");
+    assert_eq!(fs::read(target.join("tracked")).unwrap(), b"peer edit");
+    peer.close().await;
 }

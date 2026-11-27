@@ -308,7 +308,6 @@ impl Applied {
                 self.projects = Some(projects);
             }
 
-            offers.agents.follow_recoveries(&transfers.syncs());
             transfers.syncs().set_git_auto_recovery(
                 mesh.scan("project/")
                     .into_iter()

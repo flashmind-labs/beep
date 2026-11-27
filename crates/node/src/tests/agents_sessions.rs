@@ -126,13 +126,13 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
 
     drop(hold);
     let session = agents.start(&kind, alias.to_str(), Begin::default()).await.unwrap();
-    let blocked = agents.reserve_repository(root).await;
+    let blocked = agents.occupancy.reserve(root).await;
     assert!(blocked.err().unwrap().to_string().contains("close running sessions"));
 
     session.close().await;
     // No yield between the end and the check: the folder is free at once.
     assert!(!holds.running_under(root));
-    agents.reserve_repository(root).await.unwrap();
+    agents.occupancy.reserve(root).await.unwrap();
 }
 
 /// Agents whose Claude Code sessions are read from `claude` and that find
@@ -172,11 +172,11 @@ async fn recovery_reads_the_sessions_when_it_reserves() {
     let (agents, _nothing) = reading(claude.path());
 
     // Nothing runs: the checkout is idle.
-    drop(agents.reserve_repository(checkout.path()).await.unwrap());
+    drop(agents.occupancy.reserve(checkout.path()).await.unwrap());
 
     // A session started since, with no listing in between.
     transcript(claude.path(), ID, checkout.path(), Duration::ZERO);
-    let blocked = agents.reserve_repository(checkout.path()).await;
+    let blocked = agents.occupancy.reserve(checkout.path()).await;
     assert!(blocked.err().unwrap().to_string().contains("external session is running"));
 }
 
@@ -185,9 +185,9 @@ async fn a_resumed_session_blocks_recovery() {
     let (claude, checkout) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let (agents, _nothing) = reading(claude.path());
     transcript(claude.path(), ID, checkout.path(), LONG_AGO);
-    drop(agents.reserve_repository(checkout.path()).await.unwrap());
+    drop(agents.occupancy.reserve(checkout.path()).await.unwrap());
 
     transcript(claude.path(), ID, checkout.path(), Duration::ZERO);
-    let blocked = agents.reserve_repository(checkout.path()).await;
+    let blocked = agents.occupancy.reserve(checkout.path()).await;
     assert!(blocked.err().unwrap().to_string().contains("external session is running"));
 }

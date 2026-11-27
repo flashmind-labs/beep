@@ -145,6 +145,7 @@ pub async fn serve(
         &state.dir.join("blobs"),
         folders.clone(),
         offers.mesh.clone(),
+        offers.occupancy.clone(),
     )
     .await
     {

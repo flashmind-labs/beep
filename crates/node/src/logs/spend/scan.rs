@@ -9,7 +9,7 @@ use super::{
     ledger::{Database, Ledger, LogFile, Part, Stamp},
     pi,
 };
-use crate::logs::found::{self, Agent, LogRoots, is_jsonl, is_rollout, wal_path, walk_files};
+use crate::logs::found::{self, Agent, LogRoots, codex::is_rollout, is_jsonl, wal_path, walk_files};
 use beep_proto::SessionId;
 use std::{
     cmp::Reverse,
@@ -322,7 +322,7 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
 
     if let Some(root) = &roots.opencode {
         out.extend(
-            found::opencode_databases(root)
+            found::opencode::databases_at(root)
                 .into_iter()
                 .map(|path| (Agent::OpenCode, path)),
         );
@@ -330,7 +330,7 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
 
     if let Some(root) = &roots.flsh {
         out.extend(
-            found::flsh_databases(root)
+            found::flsh::databases(root)
                 .take(MAX_DATABASES)
                 .map(|path| (Agent::Flsh, path)),
         );

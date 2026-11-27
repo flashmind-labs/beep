@@ -1,10 +1,12 @@
 //! Applying received branch histories without switching a user's checkout.
 
 use super::shared::Shared;
-use crate::occupancy::RepositoryHold;
 use crate::files::sync::gitdir::{self, BranchTip, Repo};
-use anyhow::{Context, Result, anyhow, bail};
-use std::collections::{BTreeMap, HashMap, HashSet};
+use anyhow::{Context, Result, anyhow, bail, ensure};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    sync::atomic::Ordering,
+};
 use tokio::task::spawn_blocking;
 
 #[derive(Default)]
@@ -18,14 +20,7 @@ pub(super) struct Alignment {
 
 impl Shared {
     /// Only the project task advances branches, so its own scans and writes cannot overlap.
-    /// `answer` is what the round took with `take_recovery_answer`, and
-    /// `waiting` whether an ask is still out. One that goes unused is dropped
-    /// on whatever way out, with its hold.
-    pub(super) async fn align_git(
-        &self,
-        mut answer: Option<Result<RepositoryHold>>,
-        waiting: bool,
-    ) -> Result<Alignment> {
+    pub(super) async fn align_git(&self) -> Result<Alignment> {
         if self.copies_git() {
             return Ok(Alignment::default());
         }
@@ -51,8 +46,7 @@ impl Shared {
             // Ignored-folder datasets and non-Git projects have no branch histories.
             return Ok(Alignment::default());
         };
-        let recovery = crate::lock(&self.recovery).clone();
-        let can_recover = recovery.is_some();
+        let can_recover = self.recovery_enabled();
         let root = self.root().to_owned();
         let (repo, branch, target, warning) = spawn_blocking(move || -> Result<_> {
             repo.check_recovery()?;
@@ -147,28 +141,17 @@ impl Shared {
             .await??
         };
         let hold = if dirty {
-            let asks = recovery.context(
-                "Local edits block Git sync; enable automatic recovery or commit or stash them.",
-            )?;
-            match answer.take() {
-                Some(Ok(hold)) => Some(hold),
-                Some(Err(e)) => {
+            ensure!(
+                self.recovery_enabled(),
+                "Local edits block Git sync; enable automatic recovery or commit or stash them."
+            );
+
+            match self.occupancy.reserve(self.root()).await {
+                Ok(hold) => Some(hold),
+                Err(e) => {
                     return Ok(Alignment {
                         checkout_changed: false,
                         warning: Some(e),
-                        held: true,
-                    });
-                }
-                None => {
-                    if !waiting {
-                        self.ask_recovery(&asks);
-                    }
-
-                    return Ok(Alignment {
-                        checkout_changed: false,
-                        warning: Some(anyhow!(
-                            "Local edits block Git sync; waiting to check that no session runs in this checkout."
-                        )),
                         held: true,
                     });
                 }
@@ -192,7 +175,7 @@ impl Shared {
             // Cancellation must not release the session hold during stash/restore.
             let _hold = hold;
             anyhow::ensure!(
-                !dirty || crate::lock(&policy).is_some(),
+                !dirty || policy.load(Ordering::SeqCst),
                 "Automatic Git recovery was disabled; local edits stay in place."
             );
             crate::fs::note::write(&file, &rmp_serde::to_vec(&snapshot)?)?;

@@ -10,8 +10,6 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-/// The hidden folder in the home folder that holds what Beep keeps there.
-
 /// How many ids are tried for a folder nobody has yet.
 const TRIES: usize = 8;
 

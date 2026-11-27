@@ -1292,7 +1292,7 @@ impl Actor {
         self.replies.push(
             async move {
                 let read = tokio::task::spawn_blocking(move || {
-                    let sessions = crate::logs::found::pi_sessions()?;
+                    let sessions = crate::logs::found::pi::configured()?;
                     crate::agents::spend::pi_session_cost(&sessions, &id)
                 });
                 let cost = read.await.ok().flatten();

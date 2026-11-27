@@ -2096,8 +2096,6 @@ async fn git_recovery_keeps_staged_unstaged_untracked_and_ignored_work() {
     let target = commit(&a, "upstream.txt", "committed remotely\n");
     git(&b.folder(), &["config", "user.name", "Test"]);
     git(&b.folder(), &["config", "user.email", "test@example.com"]);
-    let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
-    agents.follow_recoveries(&b.running().transfers.syncs());
     b.running()
         .transfers
         .syncs()
@@ -2169,8 +2167,6 @@ async fn git_recovery_conflicts_keep_the_backup_and_do_not_repeat_after_restart(
     let target = commit(&a, "README.md", "remote work\n");
     git(&b.folder(), &["config", "user.name", "Test"]);
     git(&b.folder(), &["config", "user.email", "test@example.com"]);
-    let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
-    agents.follow_recoveries(&b.running().transfers.syncs());
     b.running()
         .transfers
         .syncs()
@@ -2221,8 +2217,6 @@ async fn git_recovery_never_stashes_for_divergent_histories() {
     write(&b.path("local.txt"), "uncommitted local work\n");
     git(&b.folder(), &["config", "user.name", "Test"]);
     git(&b.folder(), &["config", "user.email", "test@example.com"]);
-    let agents = std::sync::Arc::new(beep_node::agents::Agents::default());
-    agents.follow_recoveries(&b.running().transfers.syncs());
     b.running()
         .transfers
         .syncs()

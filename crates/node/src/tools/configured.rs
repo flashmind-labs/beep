@@ -73,7 +73,7 @@ fn config_path(agents: &Agents, harness: Harness) -> Option<PathBuf> {
     let override_dir = |key| native.and_then(|kind| kind.env.get(key)).filter(|value| !value.is_empty()).map(PathBuf::from);
     let path = match harness {
         Harness::Codex => override_dir("CODEX_HOME")
-            .or_else(found::codex_home)?
+            .or_else(found::codex::configured)?
             .join("config.toml"),
         Harness::Claude => override_dir("CLAUDE_CONFIG_DIR")
             .or_else(|| env::var_os("CLAUDE_CONFIG_DIR").filter(|dir| !dir.is_empty()).map(PathBuf::from))

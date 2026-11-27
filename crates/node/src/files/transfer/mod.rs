@@ -2,7 +2,7 @@
 //! to other nodes over iroh-blobs. `Transfers` owns the blob store and serves
 //! it only to the peers an open offer names.
 
-use crate::lock;
+use crate::{lock, occupancy::Occupancy};
 use crate::{
     files::Folders,
     files::sync::{self, PeerHandler, Syncs},
@@ -299,9 +299,17 @@ impl Transfers {
     ) -> Result<Self> {
         let membership = Membership::default();
 
-        Ok(Self::build(endpoint, dir, folders, syncthing, membership, true)
-            .await?
-            .0)
+        Ok(Self::build(
+            endpoint,
+            dir,
+            folders,
+            syncthing,
+            membership,
+            Occupancy::default(),
+            true,
+        )
+        .await?
+        .0)
     }
 
     /// `start`, but the blobs and sync protocols are left to the caller's
@@ -312,6 +320,7 @@ impl Transfers {
         dir: &Path,
         folders: Folders,
         membership: Membership,
+        occupancy: Occupancy,
     ) -> Result<(Self, Served)> {
         Self::build(
             endpoint,
@@ -319,6 +328,7 @@ impl Transfers {
             folders,
             Syncthing::local(),
             membership,
+            occupancy,
             false,
         )
         .await
@@ -330,6 +340,7 @@ impl Transfers {
         folders: Folders,
         syncthing: Syncthing,
         membership: Membership,
+        occupancy: Occupancy,
         own_router: bool,
     ) -> Result<(Self, Served)> {
         let collect = Arc::new(Notify::new());
@@ -363,6 +374,7 @@ impl Transfers {
             dir.join("sync"),
             syncthing,
             membership,
+            occupancy,
         )
         .await?;
         let grants = Arc::new(Grants::new());

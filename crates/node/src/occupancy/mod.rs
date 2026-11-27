@@ -8,6 +8,8 @@ pub mod claude;
 pub mod holds;
 mod holders;
 pub(crate) mod presence;
+mod read;
+mod reserve;
 mod sighted;
 
 pub(crate) use holders::{Holding, settle};
@@ -54,7 +56,7 @@ struct Inner {
     /// exit lately, by id, with when.
     closed: Mutex<HashMap<SessionId, Instant>>,
     /// The one read of every store, and who waits for it.
-    reading: sighted::Reading,
+    reading: Arc<sighted::Reading>,
     /// Where Claude Code keeps its sessions.
     claude: Store,
     /// Where Codex, pi, flsh and OpenCode keep theirs.

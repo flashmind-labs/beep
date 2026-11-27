@@ -281,7 +281,7 @@ pub(super) fn flsh_dir_of(kind: &AgentKind) -> Option<PathBuf> {
 
 /// Where `kind` keeps pi's `models.json`.
 pub(super) fn pi_dir_of(kind: &AgentKind) -> Option<PathBuf> {
-    crate::logs::found::pi_agent_dir(&env_of(kind))
+    crate::logs::found::pi::agent_dir_in(&env_of(kind))
 }
 
 /// The variables `kind` runs with: its own on top of the node's.

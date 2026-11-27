@@ -7,6 +7,7 @@ use crate::{
     files::syncthing::{Managed, Syncthing},
     lock,
     membership::Membership,
+    occupancy::Occupancy,
     protocol::{Protocol, Session},
 };
 use anyhow::{Context, Result, bail};
@@ -117,8 +118,9 @@ enum Source {
 struct Inner {
     /// The projects that opted in to automatic Git recovery.
     recoveries: Mutex<BTreeSet<String>>,
-    /// The checkouts waiting for recovery to be let run.
-    asks: crate::files::holds::Recoveries,
+    /// Who works in which folder here, which a recovery asks before it
+    /// stashes local edits.
+    occupancy: Occupancy,
     parts: Parts,
     folders: Folders,
     /// Where the projects' state is kept.
@@ -236,6 +238,7 @@ impl Syncs {
         dir: PathBuf,
         syncthing: Syncthing,
         mesh: Membership,
+        occupancy: Occupancy,
     ) -> Result<Self> {
         fs::create_dir_all(&dir).with_context(|| format!("making {}", dir.display()))?;
         let config = match fs::read(dir.join(CONFIG)) {
@@ -252,7 +255,7 @@ impl Syncs {
             inner: Arc::new(Inner {
                 parts,
                 recoveries: Mutex::default(),
-                asks: crate::files::holds::Recoveries::default(),
+                occupancy,
                 folders,
                 dir,
                 watcher,
@@ -291,8 +294,8 @@ impl Syncs {
     }
 
     /// Applies the replicated opt-in. A missing preference always leaves local edits alone.
-    /// A project that opted in publishes the checkout in `recoveries` when
-    /// local edits block it, and recovers when `answer_recovery` holds it.
+    /// A project that opted in recovers when local edits block it and the
+    /// occupancy holds its checkout.
     pub fn set_git_auto_recovery(&self, projects: BTreeSet<String>) {
         *lock(&self.inner.recoveries) = projects.clone();
 
@@ -303,36 +306,8 @@ impl Syncs {
         }
     }
 
-    /// The checkouts whose local edits wait for recovery to be let run.
-    pub fn recoveries(&self) -> tokio::sync::watch::Receiver<BTreeSet<PathBuf>> {
-        self.inner.asks.subscribe()
-    }
-
-    /// Answers the checkout `root` that waits in `recoveries`: the hold that
-    /// lets its recovery run, which sync releases when it ends, or why not.
-    pub fn answer_recovery(
-        &self,
-        root: &Path,
-        answer: anyhow::Result<crate::occupancy::RepositoryHold>,
-    ) {
-        let shared = self
-            .inner
-            .projects
-            .seen()
-            .values()
-            .filter_map(|entry| entry.running().cloned())
-            .find(|shared| shared.root() == root);
-        self.inner.asks.answered(root);
-
-        if let Some(shared) = shared {
-            shared.answer_recovery(answer);
-        }
-    }
-
-    fn recovery_of(&self, project: &str) -> Option<crate::files::holds::Recoveries> {
-        lock(&self.inner.recoveries)
-            .contains(project)
-            .then(|| self.inner.asks.clone())
+    fn recovery_of(&self, project: &str) -> bool {
+        lock(&self.inner.recoveries).contains(project)
     }
 
     /// Syncs exactly `projects`, and says which it refused. A project left
@@ -352,7 +327,7 @@ impl Syncs {
             .values()
             .filter_map(Entry::running)
         {
-            shared.set_recovery(None);
+            shared.set_recovery(false);
         }
     }
 
@@ -608,6 +583,7 @@ impl Syncs {
             file: self.state_file(key),
             paused: project.paused,
             rules: project.rules.clone(),
+            occupancy: self.inner.occupancy.clone(),
         };
         let shared = spawn_blocking(move || Shared::load(start)).await??;
         shared.set_recovery(self.recovery_of(&project.name));
