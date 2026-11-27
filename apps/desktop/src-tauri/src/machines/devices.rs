@@ -43,8 +43,9 @@ use tokio::{
 };
 use uuid::Uuid;
 
-/// How long a machine has to list its devices.
-const LIST_LIMIT: Duration = Duration::from_secs(8);
+/// How long a machine has to list its devices: the node's own 30 s limit for
+/// a Mac with nothing attached, plus margin for the network.
+const LIST_LIMIT: Duration = Duration::from_secs(35);
 /// Freshness window while a device on the machine is booting.
 const BOOTING_LIST_FRESH: Duration = Duration::from_secs(1);
 /// Freshness window while all devices on the machine are settled.

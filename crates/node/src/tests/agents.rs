@@ -1088,7 +1088,7 @@ while read -r line; do :; done
     append(&tree);
     let listed = agents.listed_with_places(false).await;
     let place = listed[0].place.as_ref().expect("a reported checkout");
-    // macOS temp folders sit behind a `/var` link that git resolves.
+    // macOS temp folders sit behind a `/var` link that `paths::canonicalize` resolves.
     let tree = tree.canonicalize().expect("the linked checkout");
     assert_eq!(place.folder, tree.to_string_lossy());
     assert!(place.linked);

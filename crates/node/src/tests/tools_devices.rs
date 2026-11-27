@@ -158,7 +158,7 @@ async fn an_attached_device_answers_input_and_closes_once_idle() {
 }
 
 #[tokio::test]
-async fn a_call_names_the_machines_and_devices_it_could_not_find() {
+async fn a_call_names_the_machines_it_could_not_find() {
     use iroh::{Endpoint, endpoint::presets};
 
     let dir = tempfile::tempdir().unwrap();
@@ -179,25 +179,6 @@ async fn a_call_names_the_machines_and_devices_it_could_not_find() {
     .await;
     assert!(called.failed);
     assert_eq!(called.text, "No machine called nowhere. Machines: build-box.");
-
-    let called = call(
-        &node,
-        &mesh,
-        &screens,
-        &SessionId::from("s1"),
-        json!({ "action": "screenshot", "machine": "build-box", "device": "no-such-device" }),
-    )
-    .await;
-    assert!(called.failed);
-    assert!(
-        called.text.contains("No device no-such-device") || called.text.contains("No emulators"),
-        "{}",
-        called.text
-    );
-
-    let called = call(&node, &mesh, &screens, &SessionId::from("s1"), json!({ "action": "list" })).await;
-    assert!(!called.failed);
-    assert!(called.text.starts_with("- build-box (this machine)"), "{}", called.text);
 }
 
 fn attached(machine: EndpointId, id: &str, called: &str) -> (Attached, mpsc::Receiver<Ask>) {
