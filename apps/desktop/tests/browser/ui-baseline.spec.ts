@@ -606,7 +606,7 @@ test("terminals", async ({ page }) => {
   await baseline(page, "terminals");
 });
 
-const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false, developer: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true, docker_containers_get: true, dictation_settings_get: { enabled: true, model: null } };
+const settingsResponses = { settings: { name: machineId, version: "0.9.0", autostart: false, agent_notices: false, forge_notices: false, developer: false }, list_machines: [], list_credentials: [], list_github_accounts: [], skill_sync_get: true, project_sync_get: true, docker_containers_get: true, dictation_settings_get: { enabled: true, model: null } };
 test("settings machines", async ({ page }) => {
   const tool = (name: string, version: string) => ({ name, version, path: `/usr/bin/${name}` });
   const env = (os_version: string, tools: string[]) => ({ os: "linux", os_version, arch: "x86_64", cpus: 16, memory_mb: 65536, tools: [tool("claude", "2.1.0"), tool("codex", "0.60.0"), ...tools.map(name => tool(name, "1.0.0"))], logins: [{ tool: "claude", signed_in: true, account: null }, { tool: "codex", signed_in: false, account: null }] });

@@ -58,9 +58,14 @@ fn cleared(app: &AppHandle, flag: Flag, url: &str) {
 }
 
 /// Reads `items` against the last read: a new request or assignment is a note and a
-/// notification when they are on, one that ended is done. Off, it only keeps its baseline.
+/// notification when they are on, one that ended is done. Off, it
+/// makes none but still keeps its baseline and finishes what ended.
 fn follow(app: &AppHandle, seen: &mut Seen, found: &Found) {
     let changes = seen.update(&found.items, &found.answered);
+
+    for (flag, url) in changes.cleared {
+        cleared(app, flag, &url);
+    }
 
     if !app.state::<Prefs>().forge_notices() {
         return;
@@ -71,9 +76,5 @@ fn follow(app: &AppHandle, seen: &mut Seen, found: &Found) {
             let body = note.text.clone();
             show_new(app, note, body, Instant::now());
         }
-    }
-
-    for (flag, url) in changes.cleared {
-        cleared(app, flag, &url);
     }
 }
