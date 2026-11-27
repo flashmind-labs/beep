@@ -111,7 +111,12 @@ async fn set(own: Own, link: TeamLink, active: Mesh, offers: Offers) {
         active.clone(),
         me,
         link,
-        offers.agents.clone(),
+        offers.agents.ci.clone(),
+        offers.agents.events.clone(),
+        offers.agents.catalog.clone(),
+        offers.agents.starter.clone(),
+        offers.agents.sessions.clone(),
+        offers.agents.links.clone(),
         dir.clone(),
         reaches,
     );

@@ -8,6 +8,7 @@ use super::{
     transcripts::Transcripts,
     work_folder, worktrees,
 };
+use super::{follow::sources::EventBridge, search::Opener, usage::Usage};
 use crate::{custom_agents, files::transfer::Transfers};
 use anyhow::{Context, Result};
 use beep_mesh::machine::thumb::{Picture, thumb_of};
@@ -251,12 +252,19 @@ pub async fn serve_sessions(
         }
         SessionsRequest::FollowUsage { history } => {
             return trace
-                .stream(send_usage(tx, rx, &agents, history, caller))
+                .stream(send_usage(
+                    tx,
+                    rx,
+                    &agents.usage,
+                    &agents.bridge,
+                    history,
+                    caller,
+                ))
                 .await;
         }
         SessionsRequest::FollowIndex { epoch, after } => {
             return trace
-                .stream(send_index(tx, rx, &agents, &epoch, after))
+                .stream(send_index(tx, rx, &agents.search, &epoch, after))
                 .await;
         }
         SessionsRequest::Search { query, sessions } => match agents.search.get() {
@@ -798,11 +806,11 @@ async fn send_alerts<T: Clone>(
 async fn send_usage(
     mut tx: LinkTx,
     mut rx: LinkRx,
-    agents: &Arc<Agents>,
+    usage: &Arc<Usage>,
+    bridge: &Arc<EventBridge>,
     history: bool,
     caller: EndpointId,
 ) -> Result<()> {
-    let usage = &agents.usage;
     let turns = usage.hub.turns.follow(caller);
     let mut plans = usage.hub.plans();
     // What earlier reads left goes out at once: a desktop opens a stream per
@@ -837,7 +845,7 @@ async fn send_usage(
     // reports so far go out at once, the later ones as the scan changes them.
     let (_scan, mut spend) = match history {
         true => {
-            let (scan, mut spend) = usage.spend.follow(agents.bridge.log_changes().await?);
+            let (scan, mut spend) = usage.spend.follow(bridge.log_changes().await?);
             spend.mark_changed();
             (Some(scan), Some(spend))
         }
@@ -897,11 +905,11 @@ const INDEX_BATCH: u32 = 500;
 async fn send_index(
     mut tx: LinkTx,
     mut rx: LinkRx,
-    agents: &Arc<Agents>,
+    search: &Opener,
     epoch: &str,
     mut after: u64,
 ) -> Result<()> {
-    let Some(index) = agents.search.get() else {
+    let Some(index) = search.get() else {
         return tx
             .send(&failed("this node's search index is not open yet"))
             .await;

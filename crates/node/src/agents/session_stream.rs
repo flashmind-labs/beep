@@ -52,58 +52,57 @@ impl TryFrom<Request> for Command {
     }
 }
 
-impl Agents {
-    /// Orders from the duplex events stream use the same actor as ACP and legacy streams.
-    pub(crate) async fn send_session(
-        &self,
-        agent: &str,
-        id: &SessionId,
-        request: Request,
-    ) -> Result<SessionInfo, String> {
-        let found = self
-            .sessions
-            .get(id)
-            .filter(|session| session.agent == agent);
-        let message = matches!(
-            request,
-            Request::Prompt { .. } | Request::PromptImages { .. } | Request::Steer { .. }
-        );
-        let ended = found
-            .as_ref()
-            .is_none_or(|session| matches!(session.info().state.status, Status::Ended));
+/// Orders from the duplex events stream use the same actor as ACP and legacy streams.
+pub(crate) async fn send_session(
+    agents: &Agents,
+    agent: &str,
+    id: &SessionId,
+    request: Request,
+) -> Result<SessionInfo, String> {
+    let found = agents
+        .sessions
+        .get(id)
+        .filter(|session| session.agent == agent);
+    let message = matches!(
+        request,
+        Request::Prompt { .. } | Request::PromptImages { .. } | Request::Steer { .. }
+    );
+    let ended = found
+        .as_ref()
+        .is_none_or(|session| matches!(session.info().state.status, Status::Ended));
 
-        // A message to a session that ended opens it again first.
-        let session = match found {
-            _ if message && ended => {
-                let kind = self.catalog.kind_or_refusal(agent)?;
-                self.starter
-                    .resume(&kind, id, None, None)
-                    .await
-                    .map_err(|e| format!("{e:#}"))?
-            }
-            Some(session) => session,
-            None => return Err("session is no longer on the machine".to_owned()),
-        };
-
-        if matches!(request, Request::Close {}) {
-            session.close().await;
-            return Ok(session.info());
+    // A message to a session that ended opens it again first.
+    let session = match found {
+        _ if message && ended => {
+            let kind = agents.catalog.kind_or_refusal(agent)?;
+            agents
+                .starter
+                .resume(&kind, id, None, None)
+                .await
+                .map_err(|e| format!("{e:#}"))?
         }
+        Some(session) => session,
+        None => return Err("session is no longer on the machine".to_owned()),
+    };
 
-        let cascade = matches!(request, Request::StopAll {});
-        let command = Command::try_from(request).map_err(|refused| match refused {
-            Refused::Images(error) => error,
-            Refused::Request(_) => "this request cannot order an existing session".to_owned(),
-        })?;
-
-        self.family.order_by_user(&session, command).await?;
-
-        if cascade {
-            self.family.cancel_family(&session).await;
-        }
-
-        Ok(session.info())
+    if matches!(request, Request::Close {}) {
+        session.close().await;
+        return Ok(session.info());
     }
+
+    let cascade = matches!(request, Request::StopAll {});
+    let command = Command::try_from(request).map_err(|refused| match refused {
+        Refused::Images(error) => error,
+        Refused::Request(_) => "this request cannot order an existing session".to_owned(),
+    })?;
+
+    agents.family.order_by_user(&session, command).await?;
+
+    if cascade {
+        agents.family.cancel_family(&session).await;
+    }
+
+    Ok(session.info())
 }
 
 /// Serves one agent stream: starts or attaches to a session, then passes
@@ -283,8 +282,8 @@ pub async fn serve_session(
                 if cascade {
                     // The session keeps the task, so it ends with it; it is
                     // bounded by the time each machine has to answer.
-                    let (agents, family) = (agents.clone(), session.clone());
-                    session.keep(tokio::spawn(async move { agents.family.cancel_family(&family).await }));
+                    let (cancel, family) = (agents.family.clone(), session.clone());
+                    session.keep(tokio::spawn(async move { cancel.cancel_family(&family).await }));
                 }
 
                 tx.send(&Event::Ack { error }).await?;

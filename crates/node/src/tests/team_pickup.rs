@@ -597,3 +597,96 @@ fn a_start_that_never_reached_its_machine_is_tried_again() {
     assert!(matches!(started_there(refused), Err(Unstarted::Refused(e)) if e == "no checkout"));
     assert!(matches!(started_there(done), Ok(started) if started == auto));
 }
+
+/// Answers `initialize` and `session/new` with the agent's own id, then
+/// anything else with nothing, until its input closes.
+#[cfg(unix)]
+const NAMING_ADAPTER: &str = r#"
+id() { printf '%s\n' "$line" | sed -nE 's/.*"id":("[^"]*"|[0-9]+).*/\1/p'; }
+reply() { printf '{"jsonrpc":"2.0","id":%s,"result":%s}\n' "$(id)" "$1"; }
+read -r line
+reply '{"protocolVersion":1,"agentCapabilities":{}}'
+read -r line
+reply '{"sessionId":"0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b"}'
+while read -r line; do reply '{}'; done
+"#;
+
+/// The team's pickup starts an issue's session through the starter alone.
+#[cfg(unix)]
+#[tokio::test]
+async fn pickup_starts_an_issue_session_from_the_starter_alone() {
+    use crate::team::board::tests::{URL, member, repo};
+    use beep_mesh::Key;
+    use beep_proto::node::mesh_state::{Place, ProjectRecord, StateValue};
+    use beep_proto::team::TeamRecord;
+    use iroh::{Endpoint, SecretKey, endpoint::presets};
+
+    let (_dir, work) = crate::agents::checkout::tests::repo("issue");
+    let home = tempfile::tempdir().unwrap();
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .unwrap();
+    let mesh = beep_mesh::Mesh::create(&home.path().join("mesh"), endpoint, "build-box")
+        .await
+        .unwrap();
+    let record = ProjectRecord {
+        url: URL.to_owned(),
+        ..ProjectRecord::default()
+    };
+    mesh.set(
+        Key::Project("org/repo".into()),
+        Some(record.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
+    let place = Place {
+        folder: work.to_string_lossy().into_owned(),
+        imported_ms: 0,
+        fork: None,
+    };
+    mesh.set(
+        Key::Project(format!("org/repo/{}", mesh.me())),
+        Some(place.to_bytes().unwrap()),
+    )
+    .await
+    .unwrap();
+    let mut team = TeamRecord::new(repo(), vec![]);
+    let mut mine = member("alice", mesh.me());
+    mine.mesh = mesh.id();
+    team.members.push(mine);
+    mesh.set(Key::Team(repo()), Some(rmp_serde::to_vec(&team).unwrap()))
+        .await
+        .unwrap();
+    let agents = crate::agents::Agents::new(crate::agents::Parts {
+        kinds: vec![crate::agents::AgentKind {
+            name: "codex".into(),
+            program: "sh".into(),
+            args: vec!["-c".into(), NAMING_ADAPTER.into()],
+            env: Default::default(),
+            compact: None,
+            compact_models: Vec::new(),
+            default_model: None,
+            bridge: None,
+        }],
+        ..crate::agents::Parts::default()
+    });
+    let order = PickupStart {
+        repo: repo(),
+        number: 7,
+        title: "Fix it".to_owned(),
+        url: "https://git.example.com/org/repo/issues/7".to_owned(),
+    };
+
+    let auto = tokio::time::timeout(
+        Duration::from_secs(10),
+        start_issue(&agents.starter, &mesh, &order),
+    )
+    .await
+    .expect("the agent names the session")
+    .expect("the issue starts");
+
+    assert_eq!(auto.branch, "issue-7-fix-it");
+    agents.shutdown().await;
+}

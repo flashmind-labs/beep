@@ -19,12 +19,18 @@ use super::{
 };
 use crate::{
     agents::{
-        Agents,
         calls::command_name,
+        catalog::Catalog,
         child_view::ChildView,
         ci::Ci,
-        family::peer::{Listed, in_the_mesh},
+        family::{
+            links::Links,
+            peer::{Listed, in_the_mesh},
+        },
+        running::Starter,
+        sessions::Sessions,
     },
+    events::Hub,
     machine::elect::{Reaches, elect, gather, online, ranked},
 };
 use beep_mesh::Mesh;
@@ -93,26 +99,42 @@ pub(crate) fn elected(
 
 /// Acts for the team projects this node is elected for, until the mesh is gone.
 /// Pickup keeps what it remembers in `dir`, the node's folder.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "one owner per lower owner it reads"
+)]
 pub(crate) async fn run(
     mesh: Mesh,
     me: EndpointId,
     link: TeamLink,
-    agents: Arc<Agents>,
+    ci: Arc<Ci>,
+    events: Hub,
+    catalog: Arc<Catalog>,
+    starter: Arc<Starter>,
+    sessions: Arc<Sessions>,
+    links: Arc<Links>,
     dir: PathBuf,
     reaches: Reaches,
 ) {
     let (heard, hearing) = mpsc::channel(CHANGES);
 
-    Gateway::new(mesh, me, link, agents, heard, dir, reaches)
-        .drive(hearing)
-        .await;
+    Gateway::new(
+        mesh, me, link, ci, events, catalog, starter, sessions, links, heard, dir, reaches,
+    )
+    .drive(hearing)
+    .await;
 }
 
 struct Gateway {
     mesh: Mesh,
     me: EndpointId,
     link: TeamLink,
-    agents: Arc<Agents>,
+    ci: Arc<Ci>,
+    events: Hub,
+    catalog: Arc<Catalog>,
+    starter: Arc<Starter>,
+    sessions: Arc<Sessions>,
+    links: Arc<Links>,
     heard: mpsc::Sender<Followed>,
     dir: PathBuf,
     /// What the online machines said of their reach, and when they were
@@ -168,7 +190,11 @@ struct Job {
     mesh: Mesh,
     me: EndpointId,
     link: TeamLink,
-    agents: Arc<Agents>,
+    ci: Arc<Ci>,
+    catalog: Arc<Catalog>,
+    starter: Arc<Starter>,
+    sessions: Arc<Sessions>,
+    links: Arc<Links>,
     teams: Vec<Team>,
     projects: BTreeMap<TeamRepo, Project>,
     peers: BTreeMap<EndpointId, ForgeReach>,
@@ -184,11 +210,20 @@ struct Made {
 }
 
 impl Gateway {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one owner per lower owner it reads"
+    )]
     fn new(
         mesh: Mesh,
         me: EndpointId,
         link: TeamLink,
-        agents: Arc<Agents>,
+        ci: Arc<Ci>,
+        events: Hub,
+        catalog: Arc<Catalog>,
+        starter: Arc<Starter>,
+        sessions: Arc<Sessions>,
+        links: Arc<Links>,
         heard: mpsc::Sender<Followed>,
         dir: PathBuf,
         reaches: Reaches,
@@ -199,7 +234,12 @@ impl Gateway {
             mesh,
             me,
             link,
-            agents,
+            ci,
+            events,
+            catalog,
+            starter,
+            sessions,
+            links,
             heard,
             sighting: Some(sighting),
             peers: BTreeMap::new(),
@@ -234,8 +274,8 @@ impl Gateway {
         let mut updates = self.mesh.updates();
         let mut home = self.link.home_changes();
         let mut edits = self.link.roster_edits();
-        let mut reaches = self.agents.ci.reaches();
-        let mut sessions = self.agents.events.subscribe();
+        let mut reaches = self.ci.reaches();
+        let mut sessions = self.events.subscribe();
         let mut pushed = self.reaches.changes();
 
         self.step();
@@ -349,7 +389,7 @@ impl Gateway {
             .filter(|(peer, _)| online.contains(*peer))
             .map(|(peer, reach)| (*peer, reach.clone()))
             .collect();
-        let ci = &self.agents.ci;
+        let ci = &self.ci;
         let me = self.me;
         let gateways: BTreeMap<TeamRepo, EndpointId> = teams
             .iter()
@@ -443,7 +483,11 @@ impl Gateway {
             mesh: self.mesh.clone(),
             me: self.me,
             link: self.link.clone(),
-            agents: self.agents.clone(),
+            ci: self.ci.clone(),
+            catalog: self.catalog.clone(),
+            starter: self.starter.clone(),
+            sessions: self.sessions.clone(),
+            links: self.links.clone(),
             teams,
             projects,
             peers: self.peers.clone(),
@@ -658,7 +702,10 @@ impl Cards {
         let Job {
             mesh,
             link,
-            agents,
+            catalog,
+            starter,
+            sessions: kept,
+            links,
             teams,
             projects,
             rows,
@@ -696,8 +743,8 @@ impl Cards {
         // The machines that push their sessions are heard; the others are asked.
         let sessions = async {
             let mut listed = in_the_mesh(
-                &agents.sessions,
-                &agents.links,
+                kept,
+                links,
                 Some(mesh),
                 &caller,
                 Some(refused),
@@ -763,7 +810,8 @@ impl Cards {
                 let round = Round {
                     link,
                     mesh,
-                    agents,
+                    catalog,
+                    starter,
                     team,
                     project,
                     cards: &fresh,
@@ -851,7 +899,7 @@ async fn read_titles(link: &TeamLink, repo: &TeamRepo) -> Result<IssueTitles, St
 /// one runs no agent or refuses: the other online ones with its
 /// checkout, desktops and nodes, ranked as the gateway is elected.
 fn elsewhere(job: &Job, project: &Project, repo: &TeamRepo) -> Vec<EndpointId> {
-    let reach = job.agents.ci.reach_of(&repo.host);
+    let reach = job.ci.reach_of(&repo.host);
     let machines = starters(project, &online(&job.mesh));
 
     ranked(&machines, job.me, reach, &job.peers, &repo.host)

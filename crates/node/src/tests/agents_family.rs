@@ -4,7 +4,7 @@ use crate::agents::{
     AgentKind, OpenSession, SavedSession,
     family::links::{Links, Waits},
 };
-use crate::agents::{Agents, Begin, Parts};
+use crate::agents::{Agents, Begin, Parts, send_session};
 use crate::team::{asks::Delivery, link::TeamLink};
 use beep_proto::node::agent::{Persona, Request};
 use beep_proto::watched;
@@ -441,8 +441,7 @@ async fn a_users_stop_of_a_thread_waits_for_the_main_chats_next_turn() {
         "{entries:?}"
     );
     // The idle parent runs no turn for it: its next one says so.
-    rig.agents
-        .send_session("top", &parent.id, said("where are we"))
+    send_session(&rig.agents, "top", &parent.id, said("where are we"))
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 2).await;
@@ -461,16 +460,14 @@ async fn a_users_message_to_the_main_chat_says_what_its_threads_came_to() {
     // The turn the parent started tells it, as a prompt.
     until(&parent, |live| live.info.turns == 2).await;
     // The turn the user starts in the thread does not.
-    rig.agents
-        .send_session("kid", &child.id, said("say it"))
+    send_session(&rig.agents, "kid", &child.id, said("say it"))
         .await
         .expect("the thread takes the user's message");
     until(&child, |live| {
         live.info.turns == 2 && live.status() == Status::Idle
     })
     .await;
-    rig.agents
-        .send_session("top", &parent.id, said("where are we"))
+    send_session(&rig.agents, "top", &parent.id, said("where are we"))
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 3).await;
@@ -487,8 +484,7 @@ async fn a_users_message_to_the_main_chat_says_what_its_threads_came_to() {
         "{entries:?}"
     );
     // What it was told is not told again.
-    rig.agents
-        .send_session("top", &parent.id, said("and now"))
+    send_session(&rig.agents, "top", &parent.id, said("and now"))
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 4).await;
@@ -504,14 +500,12 @@ async fn a_users_message_to_a_thread_says_what_its_siblings_and_main_came_to() {
     until(&parent, |live| live.info.turns == 2).await;
     let second = child_of(&rig.agents, &parent, "kid", "say it", rig.dir.path()).await;
     until(&parent, |live| live.info.turns == 3).await;
-    rig.agents
-        .send_session("top", &parent.id, said("say it"))
+    send_session(&rig.agents, "top", &parent.id, said("say it"))
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 4).await;
 
-    rig.agents
-        .send_session("kid", &first.id, said("next"))
+    send_session(&rig.agents, "kid", &first.id, said("next"))
         .await
         .expect("the thread takes the user's message");
     until(&first, |live| live.info.turns == 2).await;
@@ -533,8 +527,7 @@ async fn a_slash_command_takes_no_context() {
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
     until(&parent, |live| live.info.turns == 2).await;
-    rig.agents
-        .send_session("kid", &child.id, said("say it"))
+    send_session(&rig.agents, "kid", &child.id, said("say it"))
         .await
         .expect("the thread takes the user's message");
     until(&child, |live| {
@@ -542,14 +535,12 @@ async fn a_slash_command_takes_no_context() {
     })
     .await;
     // A command must stay the whole message, so the news waits for the next.
-    rig.agents
-        .send_session("top", &parent.id, said("/status"))
+    send_session(&rig.agents, "top", &parent.id, said("/status"))
         .await
         .expect("the parent takes the command");
     until(&parent, |live| live.info.turns == 3).await;
     assert_eq!(rig.read("top.log").matches(CHANGES).count(), 0);
-    rig.agents
-        .send_session("top", &parent.id, said("go"))
+    send_session(&rig.agents, "top", &parent.id, said("go"))
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 4).await;
@@ -563,8 +554,7 @@ async fn news_for_a_message_a_session_did_not_take_comes_with_the_next() {
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
     until(&parent, |live| live.info.turns == 2).await;
-    rig.agents
-        .send_session("kid", &child.id, said("say it"))
+    send_session(&rig.agents, "kid", &child.id, said("say it"))
         .await
         .expect("the thread takes the user's message");
     until(&child, |live| {
@@ -578,8 +568,7 @@ async fn news_for_a_message_a_session_did_not_take_comes_with_the_next() {
         .heard(&parent, String::from("go").into())
         .await;
     assert!(refused.context.is_some());
-    rig.agents
-        .send_session("top", &parent.id, said("go"))
+    send_session(&rig.agents, "top", &parent.id, said("go"))
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 3).await;
@@ -593,8 +582,7 @@ async fn the_words_that_resume_an_ended_thread_are_the_users() {
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &parent, "kid", "work", rig.dir.path()).await;
     until(&parent, |live| live.info.turns == 2).await;
-    rig.agents
-        .send_session("top", &parent.id, said("say it"))
+    send_session(&rig.agents, "top", &parent.id, said("say it"))
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 3).await;
@@ -616,8 +604,7 @@ async fn the_words_that_resume_an_ended_thread_are_the_users() {
     assert!(log.contains("- parent session: It is done."), "{log}");
 
     // And its turn woke no idle parent: the parent's next turn is the user's.
-    rig.agents
-        .send_session("top", &parent.id, said("and now"))
+    send_session(&rig.agents, "top", &parent.id, said("and now"))
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 4).await;
@@ -635,8 +622,7 @@ async fn a_parents_message_makes_the_turn_its_own() {
         live.info.turns == 1 && live.status() == Status::Idle
     })
     .await;
-    rig.agents
-        .send_session("kid", &child.id, said("hang on"))
+    send_session(&rig.agents, "kid", &child.id, said("hang on"))
         .await
         .expect("the thread takes the user's message");
     assert!(child.user_turn());
@@ -691,8 +677,7 @@ async fn a_reviewer_is_no_thread_of_its_parents_chat() {
         live.info.turns >= 1 && live.status() == Status::Idle
     })
     .await;
-    rig.agents
-        .send_session("top", &parent.id, said("where are we"))
+    send_session(&rig.agents, "top", &parent.id, said("where are we"))
         .await
         .expect("the parent takes the user's message");
     until(&parent, |live| live.info.turns == 2).await;
@@ -759,17 +744,17 @@ async fn a_users_steer_into_a_working_thread_still_tells_the_main_chat() {
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let child = child_of(&rig.agents, &parent, "kid", "hang on", rig.dir.path()).await;
     until(&child, |live| live.status() == Status::Working).await;
-    rig.agents
-        .send_session(
-            "kid",
-            &child.id,
-            Request::Steer {
-                text: "note".to_owned(),
-                images: Vec::new(),
-            },
-        )
-        .await
-        .expect("the thread takes the user's steer");
+    send_session(
+        &rig.agents,
+        "kid",
+        &child.id,
+        Request::Steer {
+            text: "note".to_owned(),
+            images: Vec::new(),
+        },
+    )
+    .await
+    .expect("the thread takes the user's steer");
     // The parent's turn goes on: it stops it and sends the next prompt itself.
     child
         .order(Command::Cancel { by_user: false })
@@ -862,8 +847,7 @@ async fn a_thread_with_its_parent_elsewhere_takes_the_message_unchanged() {
         .await
         .expect("the child starts");
     until(&child, |live| live.info.turns == 1).await;
-    rig.agents
-        .send_session("kid", &child.id, said("go on"))
+    send_session(&rig.agents, "kid", &child.id, said("go on"))
         .await
         .expect("the thread takes the user's message");
     until(&child, |live| live.info.turns == 2).await;
@@ -895,15 +879,13 @@ async fn stop_leaves_a_parent_s_children_working_and_stop_all_stops_them() {
     until(&child, |live| live.status() == Status::Working).await;
     let id = parent.info().id;
 
-    rig.agents
-        .send_session("top", &id, Request::Cancel {})
+    send_session(&rig.agents, "top", &id, Request::Cancel {})
         .await
         .expect("the parent takes the stop");
     assert!(!rig.read("kid.log").contains("session/cancel"));
     assert_eq!(child.info().state.status, Status::Working);
 
-    rig.agents
-        .send_session("top", &id, Request::StopAll {})
+    send_session(&rig.agents, "top", &id, Request::StopAll {})
         .await
         .expect("the parent takes the stop");
     until(&child, |live| live.status() == Status::Idle).await;
@@ -2076,16 +2058,16 @@ async fn another_machine_s_agent_lists_and_messages_any_agent_until_the_user_spe
         "{refused:?}"
     );
 
-    rig.agents
-        .send_session(
-            "top",
-            &session.id,
-            Request::Prompt {
-                text: "carry on".into(),
-            },
-        )
-        .await
-        .expect("the user's prompt goes");
+    send_session(
+        &rig.agents,
+        "top",
+        &session.id,
+        Request::Prompt {
+            text: "carry on".into(),
+        },
+    )
+    .await
+    .expect("the user's prompt goes");
     let reply = send().await;
     assert!(
         matches!(&reply, Reply::Done { failed: false, .. }),
@@ -2114,17 +2096,16 @@ async fn a_prompt_to_a_session_that_ended_resumes_it() {
     let id = session.info().id;
     session.close().await;
 
-    let info = rig
-        .agents
-        .send_session(
-            "top",
-            &id,
-            Request::Prompt {
-                text: "carry on".into(),
-            },
-        )
-        .await
-        .expect("the prompt resumes the session");
+    let info = send_session(
+        &rig.agents,
+        "top",
+        &id,
+        Request::Prompt {
+            text: "carry on".into(),
+        },
+    )
+    .await
+    .expect("the prompt resumes the session");
     let resumed = rig
         .agents
         .sessions

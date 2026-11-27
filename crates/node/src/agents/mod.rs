@@ -182,6 +182,7 @@ pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts, transcript_rep
 pub(crate) use search::follow as follow_search;
 #[cfg(feature = "host")]
 pub(crate) use session::{Answered, Asking};
+pub(crate) use session_stream::send_session;
 #[cfg(feature = "host")]
 pub use session_stream::serve_session;
 

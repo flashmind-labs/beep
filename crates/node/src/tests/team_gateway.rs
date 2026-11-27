@@ -16,6 +16,32 @@ use beep_proto::node::{
 use beep_proto::team::{TeamMsg, TeamRecord};
 use iroh::{Endpoint, EndpointAddr, SecretKey, endpoint::presets};
 
+/// A gateway over the owners of a bare `Agents`.
+fn gateway_of(
+    mesh: &Mesh,
+    me: EndpointId,
+    link: TeamLink,
+    heard: mpsc::Sender<Followed>,
+    dir: &std::path::Path,
+) -> Gateway {
+    let agents = crate::agents::Agents::default();
+
+    Gateway::new(
+        mesh.clone(),
+        me,
+        link,
+        agents.ci.clone(),
+        agents.events.clone(),
+        agents.catalog.clone(),
+        agents.starter.clone(),
+        agents.sessions.clone(),
+        agents.links.clone(),
+        heard,
+        dir.join("node"),
+        Reaches::new(mesh.clone()),
+    )
+}
+
 #[tokio::test]
 async fn gateway_and_ci_watcher_elect_the_same_machine() {
     let dir = tempfile::tempdir().unwrap();
@@ -440,15 +466,7 @@ async fn teammates_are_heard_while_the_machines_are_asked() {
     let me = mesh.me();
     let (link, _router) = device().await;
     let (heard, hearing) = mpsc::channel(8);
-    let mut gateway = Gateway::new(
-        mesh.clone(),
-        me,
-        link.clone(),
-        Arc::default(),
-        heard.clone(),
-        dir.path().join("node"),
-        Reaches::new(mesh.clone()),
-    );
+    let mut gateway = gateway_of(&mesh, me, link.clone(), heard.clone(), dir.path());
     let bob = member("bob", SecretKey::generate().public());
     let follow = AbortOnDropHandle::new(tokio::spawn(std::future::pending()));
     gateway
@@ -497,15 +515,7 @@ async fn the_gateway_elects_when_the_home_changes() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, hearing) = mpsc::channel(8);
-    let mut gateway = Gateway::new(
-        mesh.clone(),
-        me,
-        link.clone(),
-        Arc::default(),
-        heard,
-        dir.path().join("node"),
-        Reaches::new(mesh.clone()),
-    );
+    let mut gateway = gateway_of(&mesh, me, link.clone(), heard, dir.path());
     gateway.answered = true;
     let alice = member("alice", me);
     let team = TeamRecord::new(repo(), vec![alice.clone()]);
@@ -544,15 +554,7 @@ async fn the_gateway_elects_when_a_roster_is_edited() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, hearing) = mpsc::channel(8);
-    let mut gateway = Gateway::new(
-        mesh.clone(),
-        me,
-        link.clone(),
-        Arc::default(),
-        heard,
-        dir.path().join("node"),
-        Reaches::new(mesh.clone()),
-    );
+    let mut gateway = gateway_of(&mesh, me, link.clone(), heard, dir.path());
     gateway.answered = true;
     let alice = member("alice", me);
     link.edit_home(|home| {
@@ -660,15 +662,7 @@ async fn a_pushed_session_change_makes_the_cards_again_without_a_round() {
     let me = mesh.me();
     let (link, _router) = crate::team::board::tests::device().await;
     let (heard, _hearing) = mpsc::channel(8);
-    let mut gateway = Gateway::new(
-        mesh.clone(),
-        me,
-        link,
-        Arc::default(),
-        heard,
-        dir.path().join("node"),
-        Reaches::new(mesh.clone()),
-    );
+    let mut gateway = gateway_of(&mesh, me, link, heard, dir.path());
     let peer = SecretKey::generate().public();
     gateway.held.insert(repo());
     gateway.sightings.insert(

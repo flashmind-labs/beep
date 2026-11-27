@@ -39,8 +39,7 @@ pub(in crate::link) async fn execute(
             session,
             request,
         } => {
-            let info = agents
-                .send_session(&agent, &session, request)
+            let info = crate::agents::send_session(&agents, &agent, &session, request)
                 .await
                 .map_err(anyhow::Error::msg)?;
             Ok(CallReply::Agent {

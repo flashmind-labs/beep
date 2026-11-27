@@ -13,9 +13,10 @@ use super::{
 };
 use crate::{
     agents::{
-        Agents,
+        catalog::Catalog,
         child_view::{ChildView, full_id},
         machine_list::{find, machine_name},
+        running::Starter,
         start::issue_of_repo,
     },
     fs::note,
@@ -237,7 +238,8 @@ pub(super) struct Pickups {
 pub(super) struct Round<'a> {
     pub(super) link: &'a TeamLink,
     pub(super) mesh: &'a Mesh,
-    pub(super) agents: &'a Agents,
+    pub(super) catalog: &'a Catalog,
+    pub(super) starter: &'a Starter,
     pub(super) team: &'a Team,
     pub(super) project: &'a Project,
     /// This mesh's cards of the team now.
@@ -649,8 +651,8 @@ async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> 
     };
     let mut refused = "no machine of the mesh with the project runs an agent".to_owned();
 
-    if round.project.checkout.is_some() && round.agents.catalog.auto_harness().is_some() {
-        match timeout(START_LIMIT, start_issue(round.agents, round.mesh, &order)).await {
+    if round.project.checkout.is_some() && round.catalog.auto_harness().is_some() {
+        match timeout(START_LIMIT, start_issue(round.starter, round.mesh, &order)).await {
             Ok(Ok(auto)) => return Ok(auto),
             Ok(Err(e)) => refused = e,
             Err(_) => {
@@ -715,7 +717,7 @@ pub(crate) struct PickupStart {
 /// on the branch Work on it names, when the mesh's team of its repository
 /// picks up issues and the order names one of its issues.
 pub(crate) async fn start_issue(
-    agents: &Agents,
+    starter: &Starter,
     mesh: &Mesh,
     order: &PickupStart,
 ) -> Result<Auto, String> {
@@ -740,8 +742,7 @@ pub(crate) async fn start_issue(
         base: None,
         branch: branch.clone(),
     };
-    let (id, worktree) = agents
-        .starter
+    let (id, worktree) = starter
         .start_on_issue(
             &checkout.folder.to_string_lossy(),
             plan,
