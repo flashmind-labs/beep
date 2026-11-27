@@ -26,6 +26,7 @@ pub struct BuildCapabilities {
     autostart: bool,
     image_clipboard: bool,
     desktop_control: bool,
+    option_taps: bool,
 }
 
 #[tauri::command]
@@ -36,6 +37,7 @@ pub fn build_capabilities() -> BuildCapabilities {
         autostart: cfg!(desktop),
         image_clipboard: cfg!(desktop),
         desktop_control: cfg!(target_os = "macos"),
+        option_taps: cfg!(target_os = "macos"),
     }
 }
 
@@ -54,6 +56,8 @@ pub struct Settings {
     developer: bool,
     /// Machines running an older beep-node update themselves when seen online.
     node_auto_update: bool,
+    /// Tapping Option twice opens or hides the bar.
+    option_taps: bool,
 }
 
 #[tauri::command]
@@ -70,6 +74,7 @@ pub fn settings(app: AppHandle, prefs: State<'_, Prefs>) -> Settings {
         save_folder_picked: prefs.save_folder().is_some(),
         developer: prefs.developer(),
         node_auto_update: prefs.node_auto_update(),
+        option_taps: prefs.option_taps(),
     }
 }
 
@@ -97,6 +102,13 @@ pub fn use_downloads(prefs: State<'_, Prefs>) {
 #[tauri::command]
 pub fn set_agent_notices(prefs: State<'_, Prefs>, enabled: bool) {
     prefs.set_agent_notices(enabled);
+}
+
+/// Whether tapping Option twice opens or hides the bar.
+#[tauri::command]
+pub fn set_option_taps(app: AppHandle, prefs: State<'_, Prefs>, enabled: bool) {
+    prefs.set_option_taps(enabled);
+    crate::tray::refresh(&app);
 }
 
 /// Whether machines running an older beep-node update themselves when seen online.

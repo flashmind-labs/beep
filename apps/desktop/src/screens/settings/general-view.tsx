@@ -27,7 +27,7 @@ import {
 
 interface Props {
   settings: MacSettings; phone: boolean; busy: ReadonlySet<string>;
-  autostart(enabled: boolean): void; notices(enabled: boolean): void; nodeUpdates(enabled: boolean): void; developer(enabled: boolean): void; chooseSaves(): void; useDownloads(): void; shortcuts(): void; report(): void; credentials(): void;
+  autostart(enabled: boolean): void; notices(enabled: boolean): void; optionTaps(enabled: boolean): void; nodeUpdates(enabled: boolean): void; developer(enabled: boolean): void; chooseSaves(): void; useDownloads(): void; shortcuts(): void; report(): void; credentials(): void;
 }
 const PREFERENCES: Record<SyncSettingKind, { store: typeof skillSync; id: string; title: string; loading: string; on: string; off: string }> = {
   skills: { store: skillSync, id: "skillSyncSetting", title: "Sync coding agent skills", loading: "Loading skill sync setting...", on: "Keep your coding agent skills in sync across your machines.", off: "Skill syncing is paused on all your machines. Existing files stay in place." },
@@ -170,6 +170,7 @@ export function GeneralView(p: Props) {
   const capabilities = useBuildCapabilities();
   return <>
     {!p.phone && capabilities.autostart && <SettingRow title="Launch at login" note="Keep Beep in the tray after a restart"><Switch id="autostart" label="Launch at login" on={s.autostart} disabled={p.busy.size > 0} flip={() => p.autostart(!s.autostart)} /></SettingRow>}
+    {!p.phone && capabilities.option_taps && <SettingRow title="Open with Option twice" note={s.option_taps ? "Tap Option twice in any app to open or hide the quick agent" : "Open the quick agent from the tray menu"}><Switch id="optionTaps" label="Open with Option twice" on={s.option_taps} disabled={p.busy.size > 0} flip={() => p.optionTaps(!s.option_taps)} /></SettingRow>}
     <SettingRow title="Coding agent notifications" note={s.agent_notices ? "When a coding agent asks something or finishes a turn" : "Coding agents only show under Waiting"}><Switch id="agentNotices" label="Coding agent notifications" on={s.agent_notices} disabled={p.busy.size > 0} flip={() => p.notices(!s.agent_notices)} /></SettingRow>
     <SyncPreference kind="docker" />
     {/* A phone hosts no files and has no keyboard: these belong to the desktops. */}

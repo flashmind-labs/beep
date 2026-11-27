@@ -61,6 +61,9 @@ pub struct Saved {
     /// Machines running an older beep-node update themselves when seen online.
     #[serde(default = "on")]
     pub node_auto_update: bool,
+    /// Tapping Option twice opens or hides the bar, on macOS.
+    #[serde(default = "on")]
+    pub option_taps: bool,
     /// Page zoom of every window, ⌘= ⌘- ⌘0.
     #[serde(default)]
     pub zoom: Zoom,
@@ -109,6 +112,7 @@ impl Default for Saved {
             mac_on: Some(true),
             agent_notices: true,
             node_auto_update: true,
+            option_taps: true,
             zoom: Zoom::default(),
             save_folder: None,
             developer: false,
@@ -193,6 +197,15 @@ impl Prefs {
 
     pub fn set_node_auto_update(&self, on: bool) {
         self.update(|s| s.node_auto_update = on);
+    }
+
+    /// Whether tapping Option twice opens or hides the bar.
+    pub fn option_taps(&self) -> bool {
+        self.saved().option_taps
+    }
+
+    pub fn set_option_taps(&self, on: bool) {
+        self.update(|s| s.option_taps = on);
     }
 
     /// The folder picked for saves, if any.

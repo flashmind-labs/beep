@@ -82,6 +82,17 @@ fn agent_notices_are_on_until_turned_off() {
 }
 
 #[test]
+fn option_taps_are_on_until_turned_off() {
+    assert!(parse("{}").option_taps);
+    let saved = Saved {
+        option_taps: false,
+        ..Saved::default()
+    };
+    let json = serde_json::to_string(&saved).expect("the state serializes");
+    assert!(!parse(&json).option_taps);
+}
+
+#[test]
 fn developer_mode_is_off_until_turned_on() {
     assert!(!parse("{}").developer);
     let saved = Saved {

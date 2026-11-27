@@ -223,6 +223,11 @@ body.cbody
                 button#autostart.dswitch [aria-checked="false" aria-label="Launch at login" role="switch" type="button"]
               div.dtoggle
                 span
+                  b "Open with Option twice"
+                  small "Open the quick agent from the tray menu"
+                button#optionTaps.dswitch [aria-label="Open with Option twice" role="switch" type="button"]
+              div.dtoggle
+                span
                   b "Coding agent notifications"
                   small "Coding agents only show under Waiting"
                 button#agentNotices.dswitch [aria-checked="false" aria-label="Coding agent notifications" role="switch" type="button"]

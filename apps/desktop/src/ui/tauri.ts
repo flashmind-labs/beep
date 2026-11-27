@@ -66,11 +66,13 @@ export interface BuildCapabilities {
   autostart: boolean;
   image_clipboard: boolean;
   desktop_control: boolean;
+  /// Tapping Option twice opens the bar (macOS).
+  option_taps: boolean;
 }
 
 const NO_CAPABILITIES: BuildCapabilities = {
   local_host: false, metrics_recording: false, autostart: false,
-  image_clipboard: false, desktop_control: false,
+  image_clipboard: false, desktop_control: false, option_taps: false,
 };
 
 function capabilitiesFrom(value: unknown): BuildCapabilities {
@@ -79,14 +81,15 @@ function capabilitiesFrom(value: unknown): BuildCapabilities {
     || !("metrics_recording" in value) || typeof value.metrics_recording !== "boolean"
     || !("autostart" in value) || typeof value.autostart !== "boolean"
     || !("image_clipboard" in value) || typeof value.image_clipboard !== "boolean"
-    || !("desktop_control" in value) || typeof value.desktop_control !== "boolean") {
+    || !("desktop_control" in value) || typeof value.desktop_control !== "boolean"
+    || !("option_taps" in value) || typeof value.option_taps !== "boolean") {
     throw new Error("The app did not report its available features.");
   }
 
   return {
     local_host: value.local_host, metrics_recording: value.metrics_recording,
     autostart: value.autostart, image_clipboard: value.image_clipboard,
-    desktop_control: value.desktop_control,
+    desktop_control: value.desktop_control, option_taps: value.option_taps,
   };
 }
 

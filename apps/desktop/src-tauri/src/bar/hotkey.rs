@@ -10,6 +10,8 @@
 
 use std::time::{Duration, Instant};
 use tauri::AppHandle;
+#[cfg(target_os = "macos")]
+use {crate::beep::state::Prefs, tauri::Manager};
 
 /// Longest a tap may be held, and longest between two taps.
 pub const WINDOW: Duration = Duration::from_millis(300);
@@ -83,12 +85,15 @@ impl Taps {
     }
 }
 
-/// Toggles the bar on two taps of Option, for as long as the app runs.
+/// Toggles the bar on two taps of Option, for as long as the app runs,
+/// unless turned off in Settings.
 #[cfg(target_os = "macos")]
 pub fn start(app: AppHandle) {
     let taps = std::cell::RefCell::new(Taps::default());
     monitor::start(move |input| {
-        if taps.borrow_mut().on_event(input, Instant::now()) == TapStep::Two {
+        if taps.borrow_mut().on_event(input, Instant::now()) == TapStep::Two
+            && app.state::<Prefs>().option_taps()
+        {
             super::toggle(&app);
         }
     });

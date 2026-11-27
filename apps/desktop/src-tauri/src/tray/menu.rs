@@ -4,6 +4,7 @@
 use super::waiting::{self, WaitingList};
 use crate::{
     bar,
+    beep::state::Prefs,
     center::{self, targets::REPORT},
     platform::update,
     targets::CenterTarget,
@@ -40,12 +41,11 @@ fn menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
     item("open-center", "Open Beep", true, None)?;
     item("open-bar", "Quick agent", true, None)?;
     // A menu shortcut cannot show a double tap, so it gets a line of its own.
-    let shortcut = if cfg!(target_os = "windows") {
-        "Or press Ctrl+Alt+Space, anywhere"
-    } else {
-        "Or press Option twice, anywhere"
-    };
-    item("hotkey", shortcut, false, None)?;
+    if cfg!(target_os = "windows") {
+        item("hotkey", "Or press Ctrl+Alt+Space, anywhere", false, None)?;
+    } else if app.state::<Prefs>().option_taps() {
+        item("hotkey", "Or press Option twice, anywhere", false, None)?;
+    }
     separator()?;
 
     let waiting = app.state::<WaitingList>().entries();

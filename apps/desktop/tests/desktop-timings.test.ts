@@ -8,7 +8,7 @@ test("batches desktop timings without sending command arguments", async () => {
     __TAURI__: {
       core: {
         Channel: class {},
-        invoke: async (cmd: string, args?: Record<string, unknown>) => { calls.push({ cmd, args }); return cmd === "build_capabilities" ? { local_host: true, metrics_recording: true, autostart: true, image_clipboard: true, desktop_control: true } : null; },
+        invoke: async (cmd: string, args?: Record<string, unknown>) => { calls.push({ cmd, args }); return cmd === "build_capabilities" ? { local_host: true, metrics_recording: true, autostart: true, image_clipboard: true, desktop_control: true, option_taps: true } : null; },
       },
       event: { listen: async () => () => {} }, webviewWindow: { getCurrentWebviewWindow: () => ({ listen: async () => () => {} }) },
     },

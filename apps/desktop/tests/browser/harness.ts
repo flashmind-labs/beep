@@ -208,7 +208,7 @@ function installNativeBoundary(data: Fixture & { responses: Record<string, unkno
   let pending: CenterTarget | ProjectTileTarget | null = null;
   let pendingReads = 0;
   const answers: Record<string, unknown> = {
-    build_capabilities: { local_host: true, metrics_recording: true, autostart: true, image_clipboard: true, desktop_control: true },
+    build_capabilities: { local_host: true, metrics_recording: true, autostart: true, image_clipboard: true, desktop_control: true, option_taps: true },
     mac_control: { id: data.project.machine_id, name: data.project.machine_name, enabled: true, status: "connected", error: null, permissions: {} },
     agent_tree_text: { size: 10000, text: Array.from({ length: 500 }, (_, i) => `const value${i} = ${i};`).join("\n"), cut: false, binary: false },
     center_home: data.home,
