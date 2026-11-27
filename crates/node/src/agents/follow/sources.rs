@@ -125,24 +125,6 @@ impl Agents {
             })
     }
 
-    pub(crate) fn start_event_bridge(&self) {
-        self.event_forward.get_or_init(|| {
-            let mut source = crate::events::system().subscribe();
-            let hub = self.events.clone();
-            tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
-                loop {
-                    match source.recv().await {
-                        Ok(event) => hub.forward(event),
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                            hub.changed(beep_proto::node::events::Topic::new("*"))
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
-                    }
-                }
-            }))
-        });
-    }
-
     /// The rings of the agents' logs changing, for the spend scan, which holds
     /// the log observers while it runs.
     pub(crate) async fn log_changes(

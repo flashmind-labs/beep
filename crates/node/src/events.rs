@@ -170,6 +170,23 @@ impl Hub {
         }
     }
 
+    /// Passes on what the process-wide hub counts, until the handle drops.
+    #[cfg(feature = "host")]
+    pub fn forward_system(&self) -> tokio_util::task::AbortOnDropHandle<()> {
+        let mut source = system().subscribe();
+        let hub = self.clone();
+
+        tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            loop {
+                match source.recv().await {
+                    Ok(event) => hub.forward(event),
+                    Err(broadcast::error::RecvError::Lagged(_)) => hub.changed(Topic::new("*")),
+                    Err(broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        }))
+    }
+
     #[cfg(feature = "host")]
     pub(crate) fn register(&self, topic: Topic, sender: &broadcast::Sender<Change>) {
         let mut topics = crate::lock(&self.0.topics);

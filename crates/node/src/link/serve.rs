@@ -100,6 +100,7 @@ pub async fn serve(
         Offers::local(&state.agents, provision).bound(&endpoint, &state.dir, &state.name);
     offers.agents.catalog.list_beep_skills();
     let _upkeep = offers.agents.start_upkeep();
+    let _events = offers.agents.events.forward_system();
     let _uploads = crate::agents::uploads::maintain(offers.agents.sessions.subscribe());
     // The ACP adapters an agent found here lacks, installed in the node's
     // folder; the work stops with the node.

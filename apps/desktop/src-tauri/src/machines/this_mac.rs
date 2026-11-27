@@ -104,6 +104,7 @@ impl Machine {
                 .catalog
                 .install_adapters(home.dir.clone(), Vec::new());
             let _upkeep = home.offers.agents.start_upkeep();
+            let _events = home.offers.agents.events.forward_system();
             let _mcp = tools::start(&home.dir, Node::of(&home.offers));
             // Terminal Claude Code sessions report their state here; the
             // MCP server stops when this task does, with the app. The

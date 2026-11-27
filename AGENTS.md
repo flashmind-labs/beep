@@ -50,7 +50,7 @@ reference in the issue. Use `just reports`, `just report <reference>` and
 | --- | --- |
 | `crates/mesh` | Signed membership, pairing tickets and replicated state |
 | `crates/fleet` | Controller-side projects, credentials, settings and mesh operations |
-| `crates/node` | Agents, MCP tools, files, sync, machines and processes |
+| `crates/node` | Agents, MCP tools (`tools`), files, sync, machines and processes, plus `upkeep`, `occupancy` and `logs` |
 | `crates/projects` | Git and project operations shared by node and desktop |
 | `crates/proto` | Wire types, framing and the lenient MessagePack reader |
 | `crates/plugins` | Plugin runtime and host API |

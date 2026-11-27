@@ -426,6 +426,7 @@ mod node_caller {
     #[tokio::test]
     async fn a_node_is_refused_every_topic_but_agents_and_forge_reach() {
         let offers = Offers::default();
+        let _events = offers.agents.events.forward_system();
         let link = local_link();
         let _task = AbortOnDropHandle::new(tokio::spawn(serve_subscriptions(
             link.node.0,

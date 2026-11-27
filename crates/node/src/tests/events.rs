@@ -25,3 +25,35 @@ async fn unchanged_plugin_state_does_not_wake_readers() {
         Err(broadcast::error::TryRecvError::Empty)
     ));
 }
+
+#[cfg(feature = "host")]
+#[tokio::test]
+async fn a_system_change_reaches_a_hub_only_while_its_forward_is_held() {
+    let hub = Hub::default();
+    let mut changes = hub.subscribe();
+    let topic = Topic::keyed("plugin", "forward-system-test");
+
+    system().changed(topic.clone());
+    assert!(matches!(
+        changes.try_recv(),
+        Err(broadcast::error::TryRecvError::Empty)
+    ));
+
+    let forward = hub.forward_system();
+    // The task takes its subscription when it first runs.
+    tokio::task::yield_now().await;
+    system().changed(topic.clone());
+    let heard = tokio::time::timeout(std::time::Duration::from_secs(10), changes.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(heard.topic, topic);
+
+    drop(forward);
+    tokio::task::yield_now().await;
+    system().changed(topic);
+    assert!(matches!(
+        changes.try_recv(),
+        Err(broadcast::error::TryRecvError::Empty)
+    ));
+}

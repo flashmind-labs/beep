@@ -199,7 +199,6 @@ async fn run(
     let mut project_changes = watched::read_and_update(&mut membership, |mesh| {
         mesh.as_ref().map(beep_mesh::Mesh::changes)
     });
-    offers.agents.start_event_bridge();
     let mut topics = Vec::new();
     let mut queries = Vec::new();
     let mut subscriptions = Subscriptions::new();

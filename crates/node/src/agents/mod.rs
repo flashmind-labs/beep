@@ -120,7 +120,6 @@ host! {
         occupancy: Occupancy,
         pub events: crate::events::Hub,
         sources: Mutex<std::sync::Weak<follow::observers::Sources>>,
-        event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
         /// The agents it can start, how their adapters stand and the user's
         /// settings for them.
         pub(crate) catalog: Arc<catalog::Catalog>,
