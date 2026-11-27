@@ -143,3 +143,72 @@ fn a_desktop_of_the_mesh_runs_commands_and_agents_only_while_this_machine_is_len
     offers.lend_to_peers(true);
     assert!(desktop_commands_off(&offers, remote, own).is_none());
 }
+
+/// What a desktop's `tools/1` RunOn answers, through the real serve path.
+async fn desktop_runs(offers: &Offers, who: Who) -> beep_proto::node::tools::Reply {
+    use beep_proto::node::{
+        local_link,
+        tools::{Request, Tool},
+    };
+
+    let link = local_link();
+    let (mut tx, mut rx) = link.caller;
+    let (node_tx, node_rx) = link.node;
+    let node = tokio::spawn(serve_open(
+        node_tx,
+        node_rx,
+        SessionProtocol::Tools,
+        offers.clone(),
+        who,
+        false,
+    ));
+    tx.send(&Request {
+        session: beep_proto::SessionId::from("a3f9c1"),
+        tool: Tool::RunOn,
+        args: r#"{"command":"echo ran-here"}"#.to_owned(),
+        approved: Default::default(),
+    })
+    .await
+    .expect("the call is sent");
+    assert!(matches!(
+        rx.recv::<Opened>().await.expect("opened"),
+        Some(Opened::Ready {})
+    ));
+    let reply = rx.recv().await.expect("a reply").expect("a reply came");
+    node.await.expect("joined").expect("served");
+
+    reply
+}
+
+#[tokio::test]
+async fn a_desktop_of_the_mesh_runs_commands_over_tools_only_while_lent() {
+    use beep_proto::node::tools::Reply;
+    use iroh::{SecretKey, endpoint::presets};
+
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .bind()
+        .await
+        .expect("the endpoint binds");
+    let dir = tempfile::tempdir().expect("temp dir");
+    let offers = Offers::default().bound(&endpoint, dir.path(), "box");
+    let remote = SecretKey::generate().public();
+    let outcome = |reply| match reply {
+        Reply::Done { text, failed } => (text, failed),
+        _ => panic!("not done"),
+    };
+
+    offers.lend_to_peers(false);
+    let (text, failed) = outcome(desktop_runs(&offers, Who::Everything(remote)).await);
+    assert!(
+        failed && text.contains("Let Beep use this computer is off"),
+        "{text}"
+    );
+    assert!(!text.contains("ran-here"));
+    let (text, failed) = outcome(desktop_runs(&offers, Who::Everything(endpoint.id())).await);
+    assert!(!failed && text.contains("ran-here"), "{text}");
+
+    offers.lend_to_peers(true);
+    let (text, failed) = outcome(desktop_runs(&offers, Who::Everything(remote)).await);
+    assert!(!failed && text.contains("ran-here"), "{text}");
+}
