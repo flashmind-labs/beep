@@ -372,7 +372,12 @@ impl Live {
             .or_else(|| known.map(|tool| tool.title.clone()))
             .unwrap_or_else(|| "Use a tool".into());
         // A call to Beep's own tools asks in its words, not by the tool's name.
-        let beep = BeepTool::of_call(&title, call.meta.as_ref(), call.fields.raw_input.as_ref())
+        let name = call
+            .fields
+            .name
+            .as_deref()
+            .or_else(|| known.and_then(|tool| tool.details.name.as_deref()));
+        let beep = BeepTool::of_call(name, &title, call.meta.as_ref(), call.fields.raw_input.as_ref())
             .or_else(|| known.and_then(|tool| tool.beep.as_ref().map(|beep| beep.tool)));
         let text = match beep {
             Some(tool) => {

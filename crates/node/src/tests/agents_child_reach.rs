@@ -86,4 +86,36 @@ fn a_start_call_reads_back_as_a_subagent_card_with_a_link_to_the_child() {
         started_view("Beep: Start codex agent: x [completed]\nnot json"),
         None
     );
+
+    // flsh sends no rawInput on live MCP tool calls, so the call line has no prompt.
+    let no_args = format!(
+        "Beep: Start an agent [completed]\n{}",
+        serde_json::to_string(&ChildView {
+            state: "working".into(),
+            turns: 0,
+            title: None,
+            last_message: String::new(),
+            ..done.clone()
+        })
+        .unwrap()
+    );
+    assert_eq!(
+        child_entry(
+            &no_args,
+            &ChildView {
+                state: "working".into(),
+                turns: 0,
+                title: None,
+                last_message: String::new(),
+                ..done.clone()
+            }
+        ),
+        "codex agent [in_progress]\n[steps] 0\n[agent] codex on mac-box\n\
+         [child] a3f9c1@mac-box working k1"
+    );
+    assert_eq!(
+        child_entry(&no_args, &done),
+        "iOS build [completed]\n[steps] 1\n[agent] codex on mac-box\n\
+         [child] a3f9c1@mac-box idle k1\nBuilt and tested."
+    );
 }

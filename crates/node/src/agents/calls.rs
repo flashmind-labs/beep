@@ -145,17 +145,19 @@ impl Tool {
         tool.parse().ok()
     }
 
-    /// The tool an ACP tool call runs, from Claude Code's `_meta`, its
-    /// title (`mcp__beep__remote_run`, Codex's `beep/remote_run`) or an
-    /// input that names the server, as Codex's does.
+    /// The tool an ACP tool call runs, from its `name`, Claude Code's `_meta`,
+    /// its title (`mcp__beep__remote_run`, flsh's `mcp__beep__start_agent: ...`,
+    /// Codex's `beep/remote_run`) or an input that names the server, as Codex's does.
     pub(crate) fn of_call(
+        name: Option<&str>,
         title: &str,
         meta: Option<&Map<String, Value>>,
         input: Option<&Value>,
     ) -> Option<Self> {
-        let named = meta
-            .and_then(|meta| meta.get("claudeCode")?.get("toolName")?.as_str())
-            .and_then(Self::of_name);
+        let named = name.and_then(Self::of_name).or_else(|| {
+            meta.and_then(|meta| meta.get("claudeCode")?.get("toolName")?.as_str())
+                .and_then(Self::of_name)
+        });
 
         named
             .or_else(|| Self::of_title(title))
@@ -164,12 +166,14 @@ impl Tool {
 
     fn of_title(title: &str) -> Option<Self> {
         let title = title.trim();
+        let head = title.split_once(':').map_or(title, |(head, _)| head.trim());
 
-        if let Some(tool) = Self::of_name(title) {
+        if let Some(tool) = Self::of_name(head) {
             return Some(tool);
         }
 
         let bare = title.strip_prefix("Tool: ").unwrap_or(title);
+        let bare = bare.split_once(':').map_or(bare, |(head, _)| head.trim());
 
         let rest = bare.strip_prefix(SERVER_NAME)?;
         let tool = rest.strip_prefix('/').or_else(|| rest.strip_prefix('.'))?;

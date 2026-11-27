@@ -186,9 +186,12 @@ fn child_entry(call: &str, view: &ChildView) -> String {
             .and_then(|l| l.rsplit_once(" ["))
             .map_or(line, |(l, _)| l);
         let line = line.strip_prefix(STARTED).unwrap_or(line);
-        line.split_once(": ")
-            .map_or(line, |(_, prompt)| prompt)
-            .to_owned()
+        match line.split_once(": ") {
+            Some((_, prompt)) => prompt.to_owned(),
+            None if line == "an agent" => format!("{} agent", view.harness),
+            None if line == "thread" => "Thread".to_owned(),
+            None => line.to_owned(),
+        }
     });
     let status = match view.state.as_str() {
         "working" => "in_progress",

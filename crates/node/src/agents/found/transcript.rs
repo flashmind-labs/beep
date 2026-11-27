@@ -5,11 +5,11 @@ use beep_proto::SessionId;
 use super::{Agent, Stores, codex_run};
 use crate::agents::{
     SubagentRun,
-    window::Excerpt,
+    calls::Tool as BeepTool,
     cut,
     subagent::Subagent,
     tags,
-    window::{content_text, finish_tool_call, tail_lines, titled_call, window},
+    window::{Excerpt, content_text, finish_tool_call, tail_lines, titled_call, window},
 };
 use anyhow::{Result, bail};
 use beep_proto::node::agent::{Entry, EntryKind};
@@ -270,9 +270,14 @@ fn pi(path: &Path) -> io::Result<Vec<Entry>> {
                                     continue;
                                 }
 
-                                let detail = codex_run::detail(&part["arguments"]);
-                                let made =
-                                    entry(EntryKind::Tool, &titled_call(name, detail.as_deref()));
+                                let title = match BeepTool::of_name(name) {
+                                    Some(beep) => beep.title(Some(&part["arguments"])),
+                                    None => titled_call(
+                                        name,
+                                        codex_run::detail(&part["arguments"]).as_deref(),
+                                    ),
+                                };
+                                let made = entry(EntryKind::Tool, &title);
                                 if let Some(id) = part["id"].as_str() {
                                     calls.insert(id.to_owned(), entries.len());
                                 }
@@ -334,11 +339,11 @@ fn flsh(path: &Path) -> io::Result<Vec<Entry>> {
                         continue;
                     }
 
-                    let detail = codex_run::detail(&call["arguments"]);
-                    entries.extend(entry(
-                        EntryKind::Tool,
-                        &titled_call(name, detail.as_deref()),
-                    ));
+                    let title = match BeepTool::of_name(name) {
+                        Some(beep) => beep.title(Some(&call["arguments"])),
+                        None => titled_call(name, codex_run::detail(&call["arguments"]).as_deref()),
+                    };
+                    entries.extend(entry(EntryKind::Tool, &title));
                 }
             }
             _ => {}

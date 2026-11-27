@@ -89,6 +89,31 @@ fn saved_flsh_delegations_show_as_agent_cards() {
 }
 
 #[test]
+fn saved_flsh_and_pi_beep_calls_use_beep_titles() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let flsh_path = dir.path().join("flsh.jsonl");
+    let flsh_line = json!({"type": "assistant", "message": {"content": "", "toolCalls": [{
+        "id": "call-1", "name": "mcp__beep__start_agent",
+        "arguments": {"harness": "pi", "machine": "build-box", "prompt": "Fix the tests"}
+    }]}});
+    fs::write(&flsh_path, format!("{flsh_line}\n")).expect("a flsh file");
+    let flsh_entries = flsh(&flsh_path).expect("flsh reads");
+    assert_eq!(
+        flsh_entries[0].text,
+        "Beep: Start pi agent on build-box: Fix the tests"
+    );
+
+    let pi_path = dir.path().join("pi.jsonl");
+    let pi_line = json!({"type": "message", "message": {"role": "assistant", "content": [{
+        "type": "toolCall", "id": "call-1", "name": "mcp__beep__remote_run",
+        "arguments": {"machine": "build-box", "command": "cargo test"}
+    }]}});
+    fs::write(&pi_path, format!("{pi_line}\n")).expect("a pi file");
+    let pi_entries = pi(&pi_path).expect("pi reads");
+    assert_eq!(pi_entries[0].text, "Beep: Run on build-box: cargo test");
+}
+
+#[test]
 fn saved_pi_subagent_calls_show_as_agent_cards() {
     let dir = tempfile::tempdir().expect("a temp folder");
     let path = dir.path().join("session.jsonl");

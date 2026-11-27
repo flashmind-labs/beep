@@ -1695,6 +1695,29 @@ fn replayed_flsh_delegations_keep_the_agent_card() {
     assert!(entries[0].text.contains("[agent] worker"));
 }
 
+#[test]
+fn flsh_beep_mcp_calls_with_summarized_arguments_format_as_beep_calls() {
+    let mut live = live();
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call", "toolCallId": "start-1",
+        "title": "mcp__beep__start_agent: background, cwd, harness, machine, prompt, title",
+        "status": "in_progress"
+    })));
+    let (entries, _) = live.transcript(10);
+    assert_eq!(entries[0].text, "Beep: Start an agent [in_progress]");
+
+    live.apply(&update(json!({
+        "sessionUpdate": "tool_call_update", "toolCallId": "start-1",
+        "status": "completed",
+        "content": [{"type": "content", "content": {"type": "text", "text": "{\"id\":\"a1@build-box\"}"}}]
+    })));
+    let (entries, _) = live.transcript(10);
+    assert_eq!(
+        entries[0].text,
+        "Beep: Start an agent [completed]\n{\"id\":\"a1@build-box\"}"
+    );
+}
+
 /// The next finished turn, taken as a stream does: read, then sent.
 async fn next_turn(turns: &crate::agents::alerts::Follow<'_, beep_proto::node::usage::TurnUsage>) -> beep_proto::node::usage::TurnUsage {
     let turn = turns.next().await;

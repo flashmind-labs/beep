@@ -8,24 +8,41 @@ fn calls_are_found_however_the_agent_names_them() {
     assert_eq!(Tool::of_name("mcp__other__remote_run"), None);
     let meta = json!({"claudeCode": {"toolName": "mcp__beep__send_files"}});
     assert_eq!(
-        Tool::of_call("Other", meta.as_object(), None),
+        Tool::of_call(None, "Other", meta.as_object(), None),
         Some(Tool::SendFiles)
     );
     assert_eq!(
-        Tool::of_call("mcp__beep__list_machines", None, None),
+        Tool::of_call(Some("mcp__beep__remote_run"), "Other", None, None),
+        Some(Tool::RunOn)
+    );
+    assert_eq!(
+        Tool::of_call(None, "mcp__beep__list_machines", None, None),
         Some(Tool::ListMachines)
     );
     assert_eq!(
-        Tool::of_call("Tool: beep/job_status", None, None),
+        Tool::of_call(
+            None,
+            "mcp__beep__start_agent: background, cwd, harness, machine, prompt, title",
+            None,
+            None,
+        ),
+        Some(Tool::StartAgent)
+    );
+    assert_eq!(
+        Tool::of_call(None, "Tool: beep/job_status", None, None),
+        Some(Tool::JobStatus)
+    );
+    assert_eq!(
+        Tool::of_call(None, "Tool: beep/job_status: id", None, None),
         Some(Tool::JobStatus)
     );
     let codex = json!({"server": "beep", "tool": "ask_user", "arguments": {"question": "Go?"}});
     assert_eq!(
-        Tool::of_call("Working", None, Some(&codex)),
+        Tool::of_call(None, "Working", None, Some(&codex)),
         Some(Tool::AskUser)
     );
-    assert_eq!(Tool::of_call("Run cargo test", None, None), None);
-    assert_eq!(Tool::of_call("beep/unknown", None, None), None);
+    assert_eq!(Tool::of_call(None, "Run cargo test", None, None), None);
+    assert_eq!(Tool::of_call(None, "beep/unknown", None, None), None);
     assert_eq!(Tool::of_name("mcp__beep__remember"), None);
 }
 

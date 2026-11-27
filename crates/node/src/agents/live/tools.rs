@@ -225,12 +225,16 @@ impl Live {
             status: call.status,
             paths: paths(&call.locations, call.raw_input.as_ref()),
             parent: parent.clone(),
-            beep: BeepTool::of_call(&call.title, call.meta.as_ref(), call.raw_input.as_ref()).map(
-                |tool| BeepCall {
-                    tool,
-                    input: call.raw_input.clone(),
-                },
-            ),
+            beep: BeepTool::of_call(
+                name.as_deref(),
+                &call.title,
+                call.meta.as_ref(),
+                call.raw_input.as_ref(),
+            )
+            .map(|tool| BeepCall {
+                tool,
+                input: call.raw_input.clone(),
+            }),
             details: AgentToolCall {
                 name,
                 ..AgentToolCall::default()
@@ -412,9 +416,13 @@ impl Live {
         }
         // Claude Code sends a call's arguments once they have all come.
         if call.beep.is_none() {
-            call.beep =
-                BeepTool::of_call(&call.title, update.meta.as_ref(), fields.raw_input.as_ref())
-                    .map(|tool| BeepCall { tool, input: None });
+            call.beep = BeepTool::of_call(
+                call.details.name.as_deref(),
+                &call.title,
+                update.meta.as_ref(),
+                fields.raw_input.as_ref(),
+            )
+            .map(|tool| BeepCall { tool, input: None });
         }
 
         if let Some(beep) = &mut call.beep {
