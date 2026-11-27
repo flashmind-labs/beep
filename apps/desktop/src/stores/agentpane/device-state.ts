@@ -24,6 +24,8 @@ export interface DeviceMachine {
   machine_name: string;
   devices: Device[];
   error: string | null;
+  /// The list has not arrived: the machine's devices are unknown, not none.
+  loading: boolean;
 }
 
 /// A machine that serves `device/1`.
@@ -99,10 +101,11 @@ export function defaultPick(machines: readonly DeviceMachine[], session: string 
 
 /// The device a session keeps among `machines`: shown while it is on or
 /// booting, forgotten once its machine lists it off or no longer has it. A
-/// machine that is not listed, or did not list its devices, leaves it be.
+/// machine that is not listed, is still listing, or did not list its devices,
+/// leaves it be.
 export function keptPick(machines: readonly DeviceMachine[], kept: DevicePick | null): { pick: DevicePick | null; forget: boolean } {
   const machine = kept ? machines.find(m => m.machine_id === kept.machine) : null;
-  if (!kept || !machine || machine.error !== null) return { pick: null, forget: false };
+  if (!kept || !machine || machine.error !== null || machine.loading) return { pick: null, forget: false };
   const state = machine.devices.find(d => d.id === kept.device)?.state ?? "Off";
   return state === "Off" ? { pick: null, forget: true } : { pick: kept, forget: false };
 }
@@ -264,7 +267,7 @@ export function readMachines(value: unknown): DeviceMachine[] {
   return value.flatMap(item => {
     if (!isRecord(item) || typeof item.machine_id !== "string" || typeof item.machine_name !== "string") return [];
     const devices = Array.isArray(item.devices) ? item.devices.flatMap(readDevice) : [];
-    return [{ machine_id: item.machine_id, machine_name: item.machine_name, devices, error: typeof item.error === "string" ? item.error : null }];
+    return [{ machine_id: item.machine_id, machine_name: item.machine_name, devices, error: typeof item.error === "string" ? item.error : null, loading: item.loading === true }];
   });
 }
 

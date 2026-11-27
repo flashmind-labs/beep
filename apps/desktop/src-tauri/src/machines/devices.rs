@@ -80,6 +80,27 @@ pub struct DeviceMachine {
     machine_name: String,
     devices: Vec<Device>,
     error: Option<String>,
+    /// The list has not arrived yet: `devices` is empty because nothing is
+    /// known, not because the machine has none. It is pushed when it comes.
+    loading: bool,
+}
+
+impl DeviceMachine {
+    fn new(machine: EndpointId, name: String, outcome: Option<Result<Vec<Device>>>) -> Self {
+        let (devices, error, loading) = match outcome {
+            Some(Ok(devices)) => (devices, None, false),
+            Some(Err(e)) => (Vec::new(), Some(e.to_string()), false),
+            None => (Vec::new(), None, true),
+        };
+
+        Self {
+            machine_id: machine.to_string(),
+            machine_name: name,
+            devices,
+            error,
+            loading,
+        }
+    }
 }
 
 /// The devices of `machine_id`, or of every machine serving `device/1`,
@@ -118,17 +139,7 @@ pub async fn device_list(
                     move || async move { list(&fleet_fetch, machine).await },
                 )
                 .await;
-                let (devices, error) = match outcome {
-                    Some(Ok(devices)) => (devices, None),
-                    Some(Err(e)) => (Vec::new(), Some(e.to_string())),
-                    None => (Vec::new(), None),
-                };
-                DeviceMachine {
-                    machine_id: machine.to_string(),
-                    machine_name: fleet_arc.name_of(machine),
-                    devices,
-                    error,
-                }
+                DeviceMachine::new(machine, fleet_arc.name_of(machine), outcome)
             }
         })
         .buffer_unordered(IN_FLIGHT)

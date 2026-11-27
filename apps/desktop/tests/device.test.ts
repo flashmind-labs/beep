@@ -7,9 +7,9 @@ import {
 
 const device = (id: string, state: "Off" | "Booting" | "On" = "Off") => ({ id, name: id, platform: "Android" as const, state, os: null, phone: false });
 const machines: DeviceMachine[] = [
-  { machine_id: "a", machine_name: "build-box", devices: [], error: null },
-  { machine_id: "b", machine_name: "gpu-box", devices: [device("pixel"), device("tablet", "On")], error: null },
-  { machine_id: "c", machine_name: "mac-box", devices: [device("phone")], error: null },
+  { machine_id: "a", machine_name: "build-box", devices: [], error: null, loading: false },
+  { machine_id: "b", machine_name: "gpu-box", devices: [device("pixel"), device("tablet", "On")], error: null, loading: false },
+  { machine_id: "c", machine_name: "mac-box", devices: [device("phone")], error: null, loading: false },
 ];
 
 test("the pick starts on the session's machine, a running device first", () => {
@@ -23,8 +23,8 @@ test("the pick starts on the session's machine, a running device first", () => {
 
 const simulator = (id: string, state: "Off" | "On" = "Off") => ({ id, name: id, platform: "Ios" as const, state, os: null, phone: false });
 const mixed: DeviceMachine[] = [
-  { machine_id: "linux", machine_name: "build-box", devices: [device("pixel", "On")], error: null },
-  { machine_id: "mac", machine_name: "mac-box", devices: [device("pixel-mac"), simulator("iphone"), simulator("ipad", "On")], error: null },
+  { machine_id: "linux", machine_name: "build-box", devices: [device("pixel", "On")], error: null, loading: false },
+  { machine_id: "mac", machine_name: "mac-box", devices: [device("pixel-mac"), simulator("iphone"), simulator("ipad", "On")], error: null, loading: false },
 ];
 
 test("the pick is a device of the project's platform, wherever it is", () => {
@@ -105,7 +105,7 @@ test("frames read as their size and JPEG, notices as JSON", () => {
 });
 
 test("device lists are checked, and only Android has Back and Recent apps", () => {
-  const read = readMachines([{ machine_id: "a", machine_name: "x", devices: [{ id: "p", name: "Pixel", platform: "Android", state: "On", os: "Android 16" }, { id: "q" }], error: null }, 7]);
+  const read = readMachines([{ machine_id: "a", machine_name: "x", devices: [{ id: "p", name: "Pixel", platform: "Android", state: "On", os: "Android 16" }, { id: "q" }], error: null, loading: false }, 7]);
   assert.equal(read.length, 1);
   assert.equal(read[0].devices.length, 1);
   const device = (platform: "Android" | "Ios", phone: boolean) => ({ id: "d", name: "d", platform, state: "On" as const, os: null, phone });
@@ -149,7 +149,7 @@ test("the tab follows device calls that finish after the view opened, not histor
 
 test("a device call's target is found by machine name and device id or name", () => {
   const listed: DeviceMachine[] = [
-    { machine_id: "k1", machine_name: "Mac Box", devices: [simulator("UDID-1"), { ...simulator("UDID-2"), name: "iPhone 17" }], error: null },
+    { machine_id: "k1", machine_name: "Mac Box", devices: [simulator("UDID-1"), { ...simulator("UDID-2"), name: "iPhone 17" }], error: null, loading: false },
   ];
   assert.equal(commandName("Sam's Mac Box"), "sams-mac-box");
   assert.deepEqual(targetPick(listed, { machine: "mac-box", device: "UDID-1" }), { machine: "k1", device: "UDID-1" });
@@ -161,7 +161,7 @@ test("a device call's target is found by machine name and device id or name", ()
 test("a session's kept device shows while it runs and is forgotten once off or gone", () => {
   const listed: DeviceMachine[] = [
     ...machines,
-    { machine_id: "d", machine_name: "old-box", devices: [], error: "beep-node there is too old for devices." },
+    { machine_id: "d", machine_name: "old-box", devices: [], error: "beep-node there is too old for devices.", loading: false },
   ];
   assert.deepEqual(keptPick(listed, { machine: "b", device: "tablet" }), { pick: { machine: "b", device: "tablet" }, forget: false });
   assert.deepEqual(keptPick(listed, { machine: "b", device: "pixel" }), { pick: null, forget: true });
@@ -170,6 +170,8 @@ test("a session's kept device shows while it runs and is forgotten once off or g
   assert.deepEqual(keptPick(listed, { machine: "z", device: "pixel" }), { pick: null, forget: false });
   assert.deepEqual(keptPick(listed, { machine: "d", device: "pixel" }), { pick: null, forget: false });
   assert.deepEqual(keptPick(listed, null), { pick: null, forget: false });
+  const loading = [{ machine_id: "b", machine_name: "gpu-box", devices: [], error: null, loading: true }];
+  assert.deepEqual(keptPick(loading, { machine: "b", device: "tablet" }), { pick: null, forget: false });
   assert.deepEqual(readKeptDevice({ kind: "kept", pick: { machine: "b", device: "tablet" } }), { kind: "kept", pick: { machine: "b", device: "tablet" } });
   assert.deepEqual(readKeptDevice({ kind: "kept", pick: null }), { kind: "kept", pick: null });
   assert.deepEqual(readKeptDevice({ kind: "unsupported" }), { kind: "unsupported" });
@@ -198,7 +200,7 @@ test("quarter turns swap the displayed video dimensions", () => {
 test("a node's pushed devices read as its list, and the error of a node without the topic as refused", () => {
   const pushed = readAnnounced({ Devices: [{ id: "p", name: "Pixel", platform: "Android", state: "On", os: null, phone: true }, { id: "q" }] });
   assert.deepEqual(pushed, [{ id: "p", name: "Pixel", platform: "Android", state: "On", os: null, phone: true }]);
-  assert.equal(readAnnounced({ error: "no state has been published for this topic" }), "refused");
+  assert.equal(readAnnounced({ error: "no state has been published for this topic", loading: false }), "refused");
   assert.equal(readAnnounced({ Terminals: [] }), null);
   assert.equal(readAnnounced(null), null);
 });

@@ -296,7 +296,7 @@ async function listMachines(): Promise<DeviceMachine[]> {
     .map(host => invoke<unknown>("device_list", { machineId: host.machine_id }).then(readMachines)));
   const pushed = hosts.flatMap(host => {
     const devices = announced.get(host.machine_id);
-    return devices ? [{ machine_id: host.machine_id, machine_name: host.machine_name, devices, error: null }] : [];
+    return devices ? [{ machine_id: host.machine_id, machine_name: host.machine_name, devices, error: null, loading: false }] : [];
   });
   const all = [...read.flat(), ...pushed];
   return hosts.flatMap(host => all.filter(machine => machine.machine_id === host.machine_id));

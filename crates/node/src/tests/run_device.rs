@@ -556,28 +556,41 @@ async fn nothing_is_read_once_nobody_follows() {
     assert_eq!(reads.load(Ordering::Relaxed), before);
 }
 
-#[test]
-fn a_command_for_a_device_just_listed_does_not_read_every_platform_again() {
-    use futures::FutureExt;
-
-    let last = Mutex::new(vec![device(DeviceState::On)]);
-    let id = last.lock().unwrap().first().unwrap().id.clone();
-    let never = || std::future::pending::<Vec<Device>>();
-
-    let found = find_on(&id, &last, never).now_or_never();
-
-    assert_eq!(found.unwrap().unwrap().id, id);
+fn phone() -> Device {
+    Device {
+        phone: true,
+        ..device(DeviceState::On)
+    }
 }
 
 #[test]
-fn a_device_not_listed_on_is_read_again() {
+fn a_command_for_a_device_in_the_followed_list_does_not_read_every_platform_again() {
     use futures::FutureExt;
 
-    let last = Mutex::new(vec![device(DeviceState::Booting)]);
-    let id = last.lock().unwrap().first().unwrap().id.clone();
-    let came_up = vec![device(DeviceState::On)];
+    let device = phone();
+    let (_keep, stored) = watch::channel(Some(vec![device.clone()]));
+    let never = || std::future::pending::<Vec<Device>>();
 
-    let found = find_on(&id, &last, || std::future::ready(came_up)).now_or_never();
+    let reached = reach_with(&device.id, &stored, never).now_or_never();
 
-    assert_eq!(found.unwrap().unwrap().state, DeviceState::On);
+    assert!(matches!(reached, Some(Ok(Reached::Adb(id))) if id == device.id));
+}
+
+#[test]
+fn nothing_followed_or_a_device_not_listed_on_is_read_again() {
+    use futures::FutureExt;
+
+    let device = phone();
+    let came_up = || std::future::ready(vec![device.clone()]);
+    let (_keep, none) = watch::channel(None);
+    let (_keep2, booting) = watch::channel(Some(vec![Device {
+        state: DeviceState::Booting,
+        ..device.clone()
+    }]));
+
+    for stored in [none, booting] {
+        let reached = reach_with(&device.id, &stored, came_up).now_or_never();
+
+        assert!(matches!(reached, Some(Ok(Reached::Adb(_)))));
+    }
 }

@@ -369,3 +369,14 @@ async fn this_machines_cold_list_is_capped_by_the_first_wait() {
     assert!(read.is_none());
     assert!(started.elapsed() < Duration::from_secs(1));
 }
+
+#[test]
+fn a_list_still_loading_is_not_an_empty_machine() {
+    let machine = iroh::SecretKey::from_bytes(&[7; 32]).public();
+
+    let loading = DeviceMachine::new(machine, "box".to_owned(), None);
+    let empty = DeviceMachine::new(machine, "box".to_owned(), Some(Ok(Vec::new())));
+
+    assert!(loading.loading && loading.devices.is_empty() && loading.error.is_none());
+    assert!(!empty.loading);
+}
