@@ -7,6 +7,7 @@ use std::sync::Arc;
 fn caller(table: Table) -> Caller {
     Caller {
         table,
+        from: None,
         desktop_here: false,
         commands_off: None,
         transfers: None,
@@ -298,4 +299,38 @@ async fn a_desktop_lists_a_nodes_agents() {
         panic!("not done");
     };
     assert!(failed);
+}
+
+fn note() -> Request {
+    Request {
+        session: SessionId::from("a3f9c1").to_owned(),
+        tool: Tool::AgentNote,
+        args: "{}".to_owned(),
+        approved: Default::default(),
+    }
+}
+
+#[tokio::test]
+async fn a_desktops_agent_call_is_answered_not_refused() {
+    let agents = Some(Arc::new(crate::agents::Agents::new(crate::agents::Parts::default())));
+    let from_desktop = Caller {
+        from: Some(iroh::SecretKey::generate().public()),
+        agents: agents.clone(),
+        ..caller(Table::Shared)
+    };
+    let Reply::Done { text, failed } = answer(note(), from_desktop).await else {
+        panic!("not a done reply");
+    };
+    assert!(!text.contains("own Beep MCP server"), "{text}");
+    assert!(failed, "{text}");
+
+    let own = Caller {
+        from: None,
+        agents,
+        ..caller(Table::Shared)
+    };
+    let Reply::Done { text, failed } = answer(note(), own).await else {
+        panic!("not a done reply");
+    };
+    assert!(failed && text.contains("own Beep MCP server"), "{text}");
 }

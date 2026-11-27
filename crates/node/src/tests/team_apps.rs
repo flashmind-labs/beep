@@ -35,6 +35,7 @@ async fn answer(caller: &Caller, request: &Request) -> Reply {
 fn caller(link: &TeamLink, table: Table, desktop_here: bool) -> Caller {
     Caller {
         table,
+        from: None,
         desktop_here,
         commands_off: None,
         transfers: None,

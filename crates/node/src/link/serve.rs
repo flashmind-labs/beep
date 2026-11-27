@@ -430,9 +430,13 @@ pub(super) async fn serve_open(
             SessionProtocol::Tools => {
                 let node = offers.made_node().context("this node is not made yet")?;
                 let caller = match who {
-                    Who::Everything(_) => Caller::of(&node),
+                    Who::Everything(peer) => Caller {
+                        from: Some(peer),
+                        ..Caller::of(&node)
+                    },
                     Who::Node { peer, desktop_here } => Caller {
                         table: tasks::Table::Peer(peer),
+                        from: Some(peer),
                         desktop_here,
                         commands_off: commands_off(&offers),
                         ..Caller::of(&node)

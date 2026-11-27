@@ -1,4 +1,4 @@
-//! `tools/1` as a node answers it for another node of its mesh: the agent
+//! `tools/1` as a node answers it for another device of its mesh: the agent
 //! tools that act on this machine. The server runs the same calls for a node
 //! that has one; between nodes there is no server to ask, and no rules to
 //! check, since the mesh's members are the user's own machines.
@@ -151,7 +151,7 @@ pub(crate) async fn answer(request: Request, caller: Caller) -> Reply {
     }
 }
 
-/// An agent tool another node's agent calls on this machine.
+/// An agent tool another device's agent calls on this machine.
 async fn agent_call(request: Request, caller: &Caller) -> Reply {
     let failed = |text: &str| Reply::Done {
         text: text.to_owned(),
@@ -165,7 +165,7 @@ async fn agent_call(request: Request, caller: &Caller) -> Reply {
         return crate::agents::family::peer::listed(agents, &request.args);
     }
 
-    let Table::Peer(peer) = caller.table else {
+    let Some(peer) = caller.from else {
         return failed("Agents are started through the node's own Beep MCP server.");
     };
 

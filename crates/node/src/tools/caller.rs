@@ -10,6 +10,8 @@ use std::sync::Arc;
 pub(crate) struct Caller {
     /// The tasks the caller's jobs live in and can see.
     pub table: Table,
+    /// The device of the mesh this call came from over tools/1; None for this node's own agent.
+    pub from: Option<iroh::EndpointId>,
     /// Whether this device is a desktop, used for team roster and invite writes.
     pub desktop_here: bool,
     /// Why a node may not run commands or start agents here, if the host
@@ -35,6 +37,7 @@ impl Caller {
     pub(crate) fn of(node: &Node) -> Self {
         Self {
             table: Table::Shared,
+            from: None,
             desktop_here: false,
             commands_off: None,
             transfers: node.transfers.get(),
