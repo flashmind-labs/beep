@@ -815,9 +815,9 @@ async fn send_usage(
                 let Some(agents) = agents.upgrade() else {
                     return;
                 };
-                agents.read_plans_soon();
+                let wait = agents.read_plans_if_due(PLAN_EVERY);
                 drop(agents);
-                sleep(PLAN_EVERY).await;
+                sleep(wait).await;
             }
         }))
     });

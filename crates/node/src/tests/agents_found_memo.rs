@@ -36,13 +36,16 @@ fn a_failed_read_is_not_kept() {
 }
 
 #[test]
-fn a_new_wal_file_counts_as_a_change() {
+fn only_a_non_empty_wal_file_counts_as_a_change() {
     let root = tempfile::tempdir().expect("a temp folder");
     let db = root.path().join("s.db");
+    let wal = root.path().join("s.db-wal");
     fs::write(&db, "x").expect("a database");
     let memo: Memo<u32> = Memo::new(8);
     assert_eq!(memo.read_database(&db, || Ok::<_, Infallible>(1)), Ok(1));
     assert_eq!(memo.read_database(&db, || Ok::<_, Infallible>(2)), Ok(1));
-    File::create(root.path().join("s.db-wal")).expect("a wal");
-    assert_eq!(memo.read_database(&db, || Ok::<_, Infallible>(3)), Ok(3));
+    File::create(&wal).expect("an empty wal");
+    assert_eq!(memo.read_database(&db, || Ok::<_, Infallible>(3)), Ok(1));
+    fs::write(&wal, "frames").expect("a non-empty wal");
+    assert_eq!(memo.read_database(&db, || Ok::<_, Infallible>(4)), Ok(4));
 }

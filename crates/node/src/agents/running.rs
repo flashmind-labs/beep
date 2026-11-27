@@ -39,6 +39,7 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::{
     sync::{oneshot, watch},
     task::spawn_blocking,
+    time::Instant,
 };
 
 impl Agents {
@@ -376,15 +377,34 @@ impl Agents {
     /// CLI that answers after it left still has its answer kept for the next
     /// look. A read ends within `plans::READ_TIMEOUT`.
     pub(crate) fn read_plans_soon(self: &Arc<Self>) {
-        if self.reading_plans.swap(true, Ordering::Relaxed) {
-            return;
+        let _ = self.read_plans_if_due(Duration::ZERO);
+    }
+
+    /// Starts reading the plans when at least `min_gap` passed since the last
+    /// read began, and returns how long to wait until the next due read.
+    pub(crate) fn read_plans_if_due(self: &Arc<Self>, min_gap: Duration) -> Duration {
+        let mut last = crate::lock(&self.last_plan_read);
+
+        if let Some(at) = *last
+            && let Some(remaining) = min_gap.checked_sub(at.elapsed())
+            && !remaining.is_zero()
+        {
+            return remaining;
         }
+
+        if self.reading_plans.swap(true, Ordering::Relaxed) {
+            return min_gap;
+        }
+
+        *last = Some(Instant::now());
+        drop(last);
 
         let agents = self.clone();
         tokio::spawn(async move {
             agents.read_plans().await;
             agents.reading_plans.store(false, Ordering::Relaxed);
         });
+        min_gap
     }
 
     /// Reads the plans once the node starts, so the first desktop to look

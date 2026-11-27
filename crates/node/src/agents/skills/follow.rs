@@ -160,11 +160,21 @@ pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, skills: Skills) {
 /// Watches the skills folders under `home`, sending on `edited` when a file
 /// under one changes. None when the watcher could not start.
 async fn watch(home: &Path, edited: mpsc::Sender<()>) -> Option<Paths> {
-    let watcher = Paths::new("skills", move |_| {
-        let _ = edited.try_send(());
+    let roots = skill_disk::roots(home);
+    let filter_roots: Vec<PathBuf> = roots
+        .iter()
+        .map(|root| crate::fs::paths::real(root).unwrap_or_else(|_| root.clone()))
+        .collect();
+    let watcher = Paths::with_paths("skills", move |_, _, paths| {
+        if paths
+            .as_deref()
+            .is_none_or(|paths| skill_disk::relevant_change(&filter_roots, paths))
+        {
+            let _ = edited.try_send(());
+        }
     });
     let watching = match watcher {
-        Ok(watcher) => watcher.replace(skill_disk::roots(home)).await.map(|()| watcher),
+        Ok(watcher) => watcher.replace(roots).await.map(|()| watcher),
         Err(e) => Err(e),
     };
 

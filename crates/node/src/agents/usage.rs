@@ -88,12 +88,18 @@ impl UsageHub {
         })
     }
 
-    /// Takes `plan` in place of the agent's report before.
+    /// Takes `plan` in place of the agent's report before when its content changed.
     pub(crate) fn set_plan(&self, plan: PlanUsage) {
         let changed = self.plans.send_if_modified(|plans| {
             let of = (plan.agent.clone(), plan.account.clone());
-            let changed = plans.get(&of) != Some(&plan);
-            plans.insert(of, plan);
+            let changed = plans.get(&of).is_none_or(|before| {
+                before.plan != plan.plan
+                    || before.windows != plan.windows
+                    || before.credits != plan.credits
+            });
+            if changed {
+                plans.insert(of, plan);
+            }
             changed
         });
 

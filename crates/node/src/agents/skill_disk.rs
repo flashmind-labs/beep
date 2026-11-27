@@ -83,6 +83,27 @@ pub(crate) fn roots(home: &Path) -> Vec<PathBuf> {
     READ.iter().map(|rel| home.join(rel)).collect()
 }
 
+/// Whether any path in a watcher event can change a synced skill under `roots`.
+/// Ignores hidden entries such as `.system` or `.DS_Store` that `scan` skips.
+pub(crate) fn relevant_change(roots: &[PathBuf], paths: &[PathBuf]) -> bool {
+    paths.iter().any(|path| {
+        roots.iter().any(|root| {
+            if path == root {
+                return true;
+            }
+            if root.starts_with(path) {
+                return root.exists();
+            }
+            let Ok(relative) = path.strip_prefix(root) else {
+                return false;
+            };
+            relative
+                .components()
+                .all(|part| part.as_os_str().to_str().is_some_and(valid_part))
+        })
+    })
+}
+
 /// Reads every skills folder under `home`; only folders whose files
 /// changed since `hashes` saw them are read and hashed.
 pub(super) fn scan(home: &Path, hashes: &mut Hashes) -> Scan {

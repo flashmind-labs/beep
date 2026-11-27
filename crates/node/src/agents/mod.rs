@@ -208,6 +208,8 @@ host! {
         spend: Arc<Spend>,
         /// Set while the agents' plans are read.
         reading_plans: AtomicBool,
+        /// When the last plan read started, so short-lived streams do not re-run it before `PLAN_EVERY`.
+        last_plan_read: Mutex<Option<Instant>>,
         /// How the moves of sessions to this machine stand.
         moves: moving::Moves,
         /// The models each agent offers, found lately.

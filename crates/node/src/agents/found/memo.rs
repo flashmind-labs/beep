@@ -29,6 +29,17 @@ impl TryFrom<&Metadata> for Stamp {
     }
 }
 
+fn stamp_of(file: &Path) -> Option<Stamp> {
+    fs::metadata(file)
+        .ok()
+        .as_ref()
+        .and_then(|meta| Stamp::try_from(meta).ok())
+}
+
+fn non_empty_stamp_of(file: &Path) -> Option<Stamp> {
+    stamp_of(file).filter(|stamp| stamp.len > 0)
+}
+
 /// Values read from files, by the first file's path, at most `cap`; past
 /// that the half used longest ago is dropped.
 #[derive(Debug)]
@@ -86,14 +97,16 @@ impl<V: Clone> Memo<V> {
     }
 
     /// As `read`, for the SQLite database at `database`, kept while neither
-    /// it nor its `-wal` file changes.
+    /// it nor a non-empty `-wal` file changes. An empty `-wal` holds no
+    /// frames and can be created whenever a reader opens a WAL database.
     pub(crate) fn read_database<E>(
         &self,
         database: &Path,
         read: impl FnOnce() -> Result<V, E>,
     ) -> Result<V, E> {
         let wal = super::wal_path(database);
-        self.read_files(&[database, &wal], |_| read())
+        let stamps = vec![stamp_of(database), non_empty_stamp_of(&wal)];
+        self.read_with_stamps(database, stamps, |_| read())
     }
 
     /// A value made from `files`, kept while none of them changes, appears
@@ -103,18 +116,22 @@ impl<V: Clone> Memo<V> {
         files: &[&Path],
         read: impl FnOnce(Option<V>) -> Result<V, E>,
     ) -> Result<V, E> {
-        let stamps: Vec<Option<Stamp>> = files
-            .iter()
-            .map(|file| {
-                fs::metadata(file)
-                    .ok()
-                    .as_ref()
-                    .and_then(|meta| Stamp::try_from(meta).ok())
-            })
-            .collect();
-        let Some((key, Some(_))) = files.first().zip(stamps.first()) else {
+        let stamps: Vec<Option<Stamp>> = files.iter().map(|file| stamp_of(file)).collect();
+        let Some(key) = files.first() else {
             return read(None);
         };
+        self.read_with_stamps(key, stamps, read)
+    }
+
+    fn read_with_stamps<E>(
+        &self,
+        key: &Path,
+        stamps: Vec<Option<Stamp>>,
+        read: impl FnOnce(Option<V>) -> Result<V, E>,
+    ) -> Result<V, E> {
+        if stamps.first().and_then(|stamp| *stamp).is_none() {
+            return read(None);
+        }
         let before = match self.kept_value(key, &stamps) {
             Ok(value) => return Ok(value),
             Err(before) => before,

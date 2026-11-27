@@ -78,3 +78,26 @@ fn a_finished_run_stays_fresh_and_a_running_one_polls_unless_the_limit_is_low() 
     };
     assert_eq!(run_fresh(&partly, fresh, now), fresh);
 }
+
+#[test]
+fn spent_hear_ignores_timestamp_only_plan_updates() {
+    let now = SystemTime::now();
+    let plan = |as_of: SystemTime, used_percent: f64| PlanLimits {
+        agent: beep_proto::AgentSlug::CLAUDE,
+        plan: Some("max".into()),
+        machine_name: "host".into(),
+        as_of,
+        windows: vec![beep_proto::PlanWindow {
+            minutes: 300,
+            used_percent,
+            resets_at: None,
+            scope: None,
+        }],
+        credits: Vec::new(),
+        account: None,
+    };
+    let spent = Spent::new(None);
+    assert!(spent.hear(vec![plan(now, 10.0)]));
+    assert!(!spent.hear(vec![plan(now + Duration::from_secs(30), 10.0)]));
+    assert!(spent.hear(vec![plan(now + Duration::from_secs(60), 15.0)]));
+}

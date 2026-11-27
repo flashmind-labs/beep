@@ -142,3 +142,25 @@ fn unsafe_names_and_paths_are_refused() {
     assert!(install(temp.path(), "ok", &[file("a\\..\\b")]).is_err());
     assert!(!temp.path().join("out").exists());
 }
+
+#[test]
+fn relevant_change_ignores_hidden_skill_entries() {
+    let temp = tempfile::tempdir().unwrap();
+    let codex_skills = temp.path().join(".codex/skills");
+    fs::create_dir_all(&codex_skills).unwrap();
+    let missing_skills = temp.path().join(".gemini/skills");
+    let roots = vec![codex_skills.clone(), missing_skills];
+
+    assert!(!relevant_change(
+        &roots,
+        &[
+            codex_skills.join(".system/skill-creator/SKILL.md"),
+            codex_skills.join(".DS_Store"),
+            temp.path().join(".gemini"),
+        ],
+    ));
+    assert!(relevant_change(
+        &roots,
+        &[codex_skills.join("my-skill/SKILL.md")],
+    ));
+}

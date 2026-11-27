@@ -81,6 +81,38 @@ fn only_changed_credits_move_the_plans() {
     assert_eq!(watched::read(&plans, |plans| plans[&claude].at), 30);
 }
 
+#[test]
+fn set_plan_ignores_timestamp_only_updates() {
+    let hub = UsageHub::default();
+    let mut plans = hub.plans();
+    let claude = (AgentSlug::CLAUDE, None);
+    let make = |at: u64, used_percent: f64| PlanUsage {
+        agent: AgentSlug::CLAUDE,
+        plan: Some("max".into()),
+        windows: vec![LimitWindow {
+            minutes: 300,
+            used_percent,
+            resets_at: Some(100),
+            scope: None,
+        }],
+        credits: Vec::new(),
+        at,
+        account: None,
+    };
+
+    hub.set_plan(make(10, 12.0));
+    assert!(plans.has_changed().unwrap());
+    plans.mark_unchanged();
+
+    hub.set_plan(make(20, 12.0));
+    assert!(!plans.has_changed().unwrap());
+    assert_eq!(watched::read(&plans, |plans| plans[&claude].at), 10);
+
+    hub.set_plan(make(30, 15.0));
+    assert!(plans.has_changed().unwrap());
+    assert_eq!(watched::read(&plans, |plans| plans[&claude].at), 30);
+}
+
 #[tokio::test]
 async fn every_follower_gets_every_finished_turn() {
     let hub = UsageHub::default();

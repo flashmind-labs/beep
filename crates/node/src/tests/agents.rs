@@ -1253,3 +1253,15 @@ done
         session.close().await;
     }
 }
+
+#[tokio::test]
+async fn read_plans_if_due_enforces_min_gap_across_streams() {
+    let agents = Arc::new(Agents::default());
+    let gap = Duration::from_secs(300);
+
+    let first = agents.read_plans_if_due(gap);
+    assert_eq!(first, gap);
+
+    let second = agents.read_plans_if_due(gap);
+    assert!(second < gap && !second.is_zero());
+}

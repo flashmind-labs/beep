@@ -265,11 +265,11 @@ impl Spent {
         watched::read_sent(&self.plans, Clone::clone)
     }
 
-    /// Takes the freshest of `plans` and those held; true when that changed anything.
+    /// Takes the freshest of `plans` and those held; true when any visible plan field changed.
     fn hear(&self, plans: Vec<PlanLimits>) -> bool {
         self.plans.send_if_modified(|held| {
             let merged = freshest(held.iter().cloned().chain(plans));
-            let changed = merged != *held;
+            let changed = !same_limits(held, &merged);
             *held = merged;
             changed
         })
@@ -667,8 +667,9 @@ impl Session {
             match async { this.desk().await?.spend_and_follow().await }.await {
                 Ok((read, follows)) => {
                     this.spend_waited.store(false, Ordering::Release);
-                    this.keep_spend(read, follows);
-                    (this.changed)(Changed::Usage);
+                    if this.keep_spend(read, follows) {
+                        (this.changed)(Changed::Usage);
+                    }
                 }
                 Err(e) => {
                     log::info!("the usage did not read again: {e}");
@@ -681,10 +682,21 @@ impl Session {
     }
 
     /// Keeps `read` and its plans, and listens on for the plans `follows` owe.
-    fn keep_spend(self: &Arc<Self>, read: SpendReport, follows: Vec<PlanFollow>) {
-        self.spent.hear(read.limits.clone());
+    /// Returns whether the cached spend or visible plan limits changed.
+    fn keep_spend(self: &Arc<Self>, read: SpendReport, follows: Vec<PlanFollow>) -> bool {
+        let previous = self
+            .spent
+            .report
+            .get(&(), Duration::ZERO)
+            .map(|(held, _)| held);
+        let limits_changed = self.spent.hear(read.limits.clone());
+        let report_changed = previous
+            .as_ref()
+            .is_none_or(|before| !same_spend(before, &read));
         self.spent.report.put((), read);
-        self.save_spend();
+        if limits_changed || report_changed {
+            self.save_spend();
+        }
 
         // A plan shown already is waited for too: it may be one kept from the last run, and over a
         // slow link the newer reading comes after every read went quiet.
@@ -716,13 +728,16 @@ impl Session {
                     && let Ok(desk) = this.desk().await
                 {
                     let updated = desk.spend_from_cache();
-                    this.keep_spend(updated, Vec::new());
-                    (this.changed)(Changed::Usage);
+                    if this.keep_spend(updated, Vec::new()) {
+                        (this.changed)(Changed::Usage);
+                    }
                 }
 
                 this.following.fetch_sub(1, Ordering::Relaxed);
             });
         }
+
+        limits_changed || report_changed
     }
 
     /// Writes the report held and its plans to `usage_file`, off the async workers.
@@ -758,6 +773,24 @@ impl Session {
             std::mem::take(&mut *self.tasks.lock().unwrap_or_else(PoisonError::into_inner));
         while reads.join_next().await.is_some() {}
     }
+}
+
+/// Whether two plan lists carry the same visible values (ignoring read timestamps).
+fn same_limits(a: &[PlanLimits], b: &[PlanLimits]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(left, right)| {
+            left.agent == right.agent
+                && left.account == right.account
+                && left.plan == right.plan
+                && left.machine_name == right.machine_name
+                && left.windows == right.windows
+                && left.credits == right.credits
+        })
+}
+
+/// Whether two spend reports carry the same spend totals and history (limits are checked via `same_limits`).
+fn same_spend(a: &SpendReport, b: &SpendReport) -> bool {
+    a.today == b.today && a.week == b.week && a.month == b.month && a.historical == b.historical
 }
 
 /// Whether the host's rate limit is low at `now`, by what a read said.

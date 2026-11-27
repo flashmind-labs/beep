@@ -348,16 +348,16 @@ fn list_databases(roots: &Roots, since: u64) -> Vec<(Agent, PathBuf)> {
     out
 }
 
-/// A database's stamp, its write-ahead log counted: SQLite writes there
-/// first.
+/// A database's stamp, its write-ahead log counted when non-empty: SQLite
+/// writes there first, whereas an empty `-wal` holds no frames.
 fn database_stamp(path: &Path) -> io::Result<Stamp> {
     let main = Stamp::of(path)?;
     Ok(match Stamp::of(&wal_path(path)) {
-        Ok(wal) => Stamp {
+        Ok(wal) if wal.len > 0 => Stamp {
             len: main.len.saturating_add(wal.len),
             modified_ns: main.modified_ns.max(wal.modified_ns),
         },
-        Err(_) => main,
+        _ => main,
     })
 }
 

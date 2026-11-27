@@ -363,6 +363,8 @@ impl State {
                 .increment(1);
         }
 
+        let mut needs_refresh = false;
+
         match &event {
             Ok(event) if !event.need_rescan() => {
                 if renames(event) {
@@ -373,10 +375,23 @@ impl State {
                         .flat_map(|path| lost(&roots, path))
                         .cloned()
                         .collect();
-                    crate::lock(&self.lost).extend(lost);
+
+                    if !lost.is_empty() {
+                        crate::lock(&self.lost).extend(lost);
+                        needs_refresh = true;
+                    } else if event.paths.iter().any(|path| {
+                        roots.iter().any(|root| root == path || root.starts_with(path))
+                    }) {
+                        // A previously missing root or its ancestor changed, so the
+                        // watch anchor may graduate from its parent folder.
+                        needs_refresh = true;
+                    }
                 }
             }
-            _ => self.stale.store(true, Ordering::Release),
+            _ => {
+                self.stale.store(true, Ordering::Release);
+                needs_refresh = true;
+            }
         }
         drop(readers);
 
@@ -399,7 +414,7 @@ impl State {
             changed(roots, structural, paths);
         }
 
-        if structural {
+        if needs_refresh {
             let _ = self.refresh.try_send(());
         }
     }
