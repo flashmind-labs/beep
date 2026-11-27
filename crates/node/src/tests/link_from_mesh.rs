@@ -2,6 +2,7 @@ use super::*;
 use beep_proto::node::mesh_state::Credential;
 use beep_mesh::transport_config;
 use iroh::{Endpoint, SecretKey, endpoint::presets};
+use crate::link::peers::Peers;
 use tempfile::TempDir;
 
 #[tokio::test]
@@ -182,4 +183,67 @@ async fn instructions_use_the_latest_saved_version_including_an_empty_one() {
         .unwrap();
         assert_eq!(instructions(&mesh).as_deref(), Some(text));
     }
+}
+
+/// What `run` holds of the follower set: its task, once it is started.
+fn following(peers: &Peers) -> Option<tokio::task::Id> {
+    crate::lock(&peers.inner.follower)
+        .as_ref()
+        .map(|follower| follower.abort_handle().id())
+}
+
+/// Waits, in the test's own time, for the follower set to change from `was`.
+async fn changed_from(peers: &Peers, was: Option<tokio::task::Id>) -> Option<tokio::task::Id> {
+    tokio::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            let now = following(peers);
+
+            if now != was {
+                return now;
+            }
+
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the follower set changed")
+}
+
+#[tokio::test]
+async fn the_follower_set_starts_on_install_restarts_on_transfers_and_ends_on_leave() {
+    use crate::files::{Folders, syncthing::Syncthing};
+    use crate::link::Offers;
+
+    let dir = TempDir::new().expect("a temp folder");
+    let endpoint = Endpoint::builder(presets::Minimal)
+        .secret_key(SecretKey::generate())
+        .transport_config(transport_config())
+        .bind()
+        .await
+        .expect("the endpoint binds");
+    let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
+        .await
+        .expect("the mesh is made");
+    let peers = Peers::new(Offers::default().bound(&endpoint, dir.path(), "box")).await;
+    assert!(following(&peers).is_none());
+
+    peers.install(mesh);
+    let started = changed_from(&peers, None).await;
+    assert!(started.is_some());
+
+    let transfers = crate::files::transfer::Transfers::start_with(
+        &endpoint,
+        &dir.path().join("blobs"),
+        Folders::new(&[]),
+        Syncthing::at(vec![dir.path().join("syncthing")], None),
+    )
+    .await
+    .expect("the transfers start");
+    peers.serve_transfers(transfers.clone());
+    let restarted = changed_from(&peers, started).await;
+    assert!(restarted.is_some());
+
+    peers.leave().await;
+    assert!(following(&peers).is_none());
+    transfers.shutdown().await.expect("the transfers stop");
 }
