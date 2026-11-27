@@ -956,7 +956,7 @@ fn affected(read: &Topic, change: &Topic) -> bool {
 
 async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Result<Value> {
     match read {
-        Read::Git { root, query } => super::git::read(&offers.agents, &root, query)
+        Read::Git { root, query } => super::git::read(&offers.agents.reach, &root, query)
             .await
             .map(Value::Git),
         Read::Sessions(request) => {

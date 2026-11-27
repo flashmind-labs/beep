@@ -991,7 +991,7 @@ async fn callers_asking_during_a_store_read_share_it() {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
         ..Agents::default()
     };
-    let (first, second) = (agents.sightings(), agents.sighted_folders());
+    let (first, second) = (agents.sightings(), crate::agents::reach::sighted_folders(&agents.occupancy));
     tokio::pin!(first, second);
     assert!(futures::poll!(first.as_mut()).is_pending());
     assert!(futures::poll!(second.as_mut()).is_pending());

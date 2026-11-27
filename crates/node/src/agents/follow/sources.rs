@@ -1,7 +1,7 @@
 //! Event sources for sessions on this machine.
 
 use super::{SummaryCache, observers::*, recent_deadline};
-use crate::{agents::Agents, logs::found::Agent};
+use crate::{agents::Agents, fs::paths::real, logs::found::Agent};
 use anyhow::{Context, Result};
 use std::{
     path::PathBuf,
@@ -15,6 +15,37 @@ use tokio::{
 };
 
 impl Agents {
+    /// Work directories currently authorized for namespace-wide file subscriptions.
+    pub(crate) async fn notification_roots(&self) -> Result<Vec<PathBuf>> {
+        let mut work = self.reach.folders.clone();
+        work.extend(self.session_map().values().filter_map(|session| {
+            let info = session.info();
+            (info.state.status != beep_proto::node::agent::Status::Ended)
+                .then(|| PathBuf::from(info.cwd))
+        }));
+        work.extend(self.reach.live_presence_folders());
+        work.extend(self.observed_work_roots());
+        spawn_blocking(move || {
+            let mut roots: Vec<_> = work
+                .into_iter()
+                .filter_map(|root| real(&root).ok())
+                .filter(|root| root.parent().is_some() && (root.is_dir() || !root.exists()))
+                .collect();
+            roots.sort();
+            roots.dedup();
+            let parents = roots.clone();
+            // A worktree inside a checkout stays a root of its own: the
+            // checkout's watch leaves out its changes.
+            roots.retain(|root| {
+                !parents
+                    .iter()
+                    .any(|parent| crate::events::paths::reports(parent, root))
+            });
+            Ok(roots)
+        })
+        .await
+        .context("finding notification roots stopped")?
+    }
     pub(in crate::agents) fn observe_external(
         &self,
         sessions: &[beep_proto::node::agent::ExternalSession],

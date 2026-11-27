@@ -104,7 +104,8 @@ async fn set(own: Own, link: TeamLink, active: Mesh, offers: Offers) {
         dir.clone(),
         offers.skills.home().cloned(),
         offers.skills.libraries().clone(),
-        offers.agents.clone(),
+        offers.agents.sessions.clone(),
+        offers.agents.events.clone(),
     );
     let team = crate::team::link::home_io::follow(active.clone(), link.clone());
     let gateway = crate::team::gateway::run(

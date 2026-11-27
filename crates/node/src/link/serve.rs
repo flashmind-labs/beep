@@ -461,7 +461,7 @@ pub(super) async fn serve_open(
             }
             SessionProtocol::Tasks => tasks::serve(tx, rx).await,
             SessionProtocol::Terminal => terminal::serve(tx, rx).await,
-            SessionProtocol::Device => offers.agents.serve_device(tx, rx).await,
+            SessionProtocol::Device => offers.agents.reach.serve_device(tx, rx).await,
             SessionProtocol::DeviceVideo => device::video::serve(tx, rx).await,
             SessionProtocol::SignIn => crate::machine::sign_in::serve(tx, rx).await,
             SessionProtocol::McpServers => tools::configured::serve(offers.agents, tx, rx).await,

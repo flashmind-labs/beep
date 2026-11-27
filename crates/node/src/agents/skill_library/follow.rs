@@ -9,10 +9,10 @@ use super::{
 };
 use crate::{
     agents::{
-        Agents, conversation, project_folder,
+        conversation, project_folder, sessions::Sessions,
         skill_disk,
     },
-    events::Change,
+    events::{Change, Hub},
     files::syncthing::expand,
 };
 use anyhow::{Context, Result, bail};
@@ -57,7 +57,8 @@ pub(crate) async fn follow(
     dir: PathBuf,
     home: Option<PathBuf>,
     libraries: Libraries,
-    agents: Arc<Agents>,
+    placed: Arc<Sessions>,
+    events: Hub,
 ) {
     // The same folder each time the task starts over.
     let _ = libraries.shared.dir.set(dir.clone());
@@ -66,7 +67,7 @@ pub(crate) async fn follow(
     };
     let mut changes = mesh.changes();
     let mut updates = mesh.updates();
-    let mut sessions = agents.events.subscribe();
+    let mut sessions = events.subscribe();
     let file_dir = dir.clone();
     let mut record = match spawn_blocking(move || Record::load(&file_dir)).await {
         Ok(Ok(record)) => record,
@@ -84,7 +85,7 @@ pub(crate) async fn follow(
 
     loop {
         let now = online(&mesh);
-        let folders = agents.sessions.folders();
+        let folders = placed.folders();
         let pass = Pass {
             mesh: &mesh,
             dir: &dir,
@@ -126,9 +127,9 @@ pub(crate) async fn follow(
                 }
                 // A thread of a chat with picks gets them in its folder as it starts.
                 change = sessions.recv() => match change {
-                    Ok(Change { topic, .. }) if topic.name() == "agents" && agents.sessions.folders() != folders => break,
+                    Ok(Change { topic, .. }) if topic.name() == "agents" && placed.folders() != folders => break,
                     Err(RecvError::Lagged(_)) => break,
-                    Err(RecvError::Closed) => sessions = agents.events.subscribe(),
+                    Err(RecvError::Closed) => sessions = events.subscribe(),
                     Ok(_) => {}
                 },
             }

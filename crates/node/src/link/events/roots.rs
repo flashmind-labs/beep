@@ -46,6 +46,7 @@ pub(super) async fn resolve(offers: &Offers, topics: &[Topic]) -> Result<BTreeMa
     let reached = join_all(projects.iter().map(|(_, path)| {
         offers
             .agents
+            .reach
             .reachable(path, crate::agents::reach::Access::Read)
     }))
     .await;
@@ -74,6 +75,7 @@ pub(super) async fn resolve(offers: &Offers, topics: &[Topic]) -> Result<BTreeMa
     let reached = join_all(literal.iter().map(|(_, path)| {
         offers
             .agents
+            .reach
             .reachable(path, crate::agents::reach::Access::Read)
     }))
     .await;

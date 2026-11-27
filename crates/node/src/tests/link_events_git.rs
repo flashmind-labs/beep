@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::Parts;
+use crate::agents::{Agents, Parts};
 use crate::agents::checkouts::watch_paths;
 use crate::link::Offers;
 use beep_projects::{Shell, ShellOutput};
@@ -198,12 +198,12 @@ async fn git_reads_validate_revisions_authorize_roots_and_leave_refs_unchanged()
     git(root.path(), &["init", "--initial-branch=main"]).await;
     let agents = Agents::new(Parts { folders: vec![root.path().to_owned()], ..Parts::default() });
     assert!(
-        read(&agents, outside.path().to_str().unwrap(), GitRead::State)
+        read(&agents.reach, outside.path().to_str().unwrap(), GitRead::State)
             .await
             .is_err()
     );
     let before = std::fs::read(root.path().join(".git/HEAD")).unwrap();
-    let output = read(&agents, root.path().to_str().unwrap(), GitRead::State)
+    let output = read(&agents.reach, root.path().to_str().unwrap(), GitRead::State)
         .await
         .unwrap();
     let state = checkout_sync::parse_state(&output.output).unwrap();

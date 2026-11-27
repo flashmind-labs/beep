@@ -2,7 +2,9 @@
 //! requests (`Reach`, `Access`). Every path is checked with its links and
 //! `..` resolved.
 
-use super::{Agents, limits::SIGHTING_WAIT, media_file::resolve, worktrees};
+use super::{limits::SIGHTING_WAIT, media_file::resolve, sessions::Sessions, worktrees};
+use crate::occupancy::Occupancy;
+use std::sync::Arc;
 use crate::fs::paths::{self, real};
 use crate::run::device::{self, Served};
 use beep_proto::node::{LinkRx, LinkTx};
@@ -34,7 +36,7 @@ pub(crate) enum Access {
 
 /// The folders a request may reach, as they were named.
 #[derive(Debug, Default, Clone)]
-pub(super) struct Reach {
+pub(super) struct Reached {
     /// Read and written.
     pub(super) work: Vec<PathBuf>,
     /// Only read.
@@ -45,7 +47,7 @@ pub(super) struct Reach {
     pub(super) sessions: Vec<PathBuf>,
 }
 
-impl Reach {
+impl Reached {
     /// This reach with the checkout of each session folder that is a removed
     /// worktree added to `work`, so the apps can move the session there.
     /// Blocks on git.
@@ -93,7 +95,25 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
     )
 }
 
-impl Agents {
+/// What file requests may reach on this node: the folders it shares and
+/// the folders of the sessions it runs.
+#[derive(Default)]
+pub(crate) struct Reach {
+    /// The workspace and the folders shared in `node.toml`.
+    pub(super) folders: Vec<PathBuf>,
+    sessions: Arc<Sessions>,
+    occupancy: Occupancy,
+}
+
+impl Reach {
+    pub(crate) fn new(folders: Vec<PathBuf>, sessions: Arc<Sessions>, occupancy: Occupancy) -> Self {
+        Self {
+            folders,
+            sessions,
+            occupancy,
+        }
+    }
+
     /// The folders the node's sessions work in, once each.
     fn session_folders(&self) -> Vec<PathBuf> {
         let mut folders = self.session_cwds();
@@ -104,14 +124,14 @@ impl Agents {
 
     /// The folder of each session this node runs.
     fn session_cwds(&self) -> Vec<PathBuf> {
-        self.session_map()
+        self.sessions.read()
             .values()
             .map(|session| PathBuf::from(session.info().cwd))
             .collect()
     }
 
     /// The folders of the sessions started outside Beep that run now.
-    fn live_presence_folders(&self) -> Vec<PathBuf> {
+    pub(super) fn live_presence_folders(&self) -> Vec<PathBuf> {
         self.occupancy
             .presence()
             .snapshot()
@@ -123,7 +143,7 @@ impl Agents {
 
     /// What file requests may reach, the sessions' folders among them;
     /// those of sessions started outside Beep only with `sighted`.
-    fn reach(&self, sighted: Vec<PathBuf>) -> Reach {
+    fn reached(&self, sighted: Vec<PathBuf>) -> Reached {
         let mut work: Vec<PathBuf> = self.folders.clone();
         let mut sessions = self.session_cwds();
         sessions.extend(sighted);
@@ -145,44 +165,12 @@ impl Agents {
         .into_iter()
         .flatten()
         .collect();
-        Reach {
+        Reached {
             work,
             read,
             no_write: temp.into_iter().chain(uploads).collect(),
             sessions,
         }
-    }
-
-    /// Work directories currently authorized for namespace-wide file subscriptions.
-    pub(crate) async fn notification_roots(&self) -> Result<Vec<PathBuf>> {
-        let mut work = self.folders.clone();
-        work.extend(self.session_map().values().filter_map(|session| {
-            let info = session.info();
-            (info.state.status != beep_proto::node::agent::Status::Ended)
-                .then(|| PathBuf::from(info.cwd))
-        }));
-        work.extend(self.live_presence_folders());
-        work.extend(self.observed_work_roots());
-        spawn_blocking(move || {
-            let mut roots: Vec<_> = work
-                .into_iter()
-                .filter_map(|root| real(&root).ok())
-                .filter(|root| root.parent().is_some() && (root.is_dir() || !root.exists()))
-                .collect();
-            roots.sort();
-            roots.dedup();
-            let parents = roots.clone();
-            // A worktree inside a checkout stays a root of its own: the
-            // checkout's watch leaves out its changes.
-            roots.retain(|root| {
-                !parents
-                    .iter()
-                    .any(|parent| crate::events::paths::reports(parent, root))
-            });
-            Ok(roots)
-        })
-        .await
-        .context("finding notification roots stopped")?
     }
 
     /// `device/1` for the node and its agents: the stream's requests that
@@ -211,7 +199,7 @@ impl Agents {
     /// otherwise.
     pub(crate) async fn reachable(&self, asked: &str, access: Access) -> Result<PathBuf> {
         let home = dirs::home_dir();
-        let reach = self.reach(Vec::new());
+        let reach = self.reached(Vec::new());
         let owned = asked.to_owned();
         let (real, held) = spawn_blocking(move || -> Result<(PathBuf, bool)> {
             let real = real(&resolve(&owned, home.as_deref())?)?;
@@ -243,17 +231,39 @@ impl Agents {
         // The folders of sessions started outside Beep cost a look in the
         // harnesses' logs, so only when the others did not hold it. The
         // look is kept a while and bounded, so a request answers in time.
-        let sighted = timeout(SIGHTING_WAIT, self.sighted_folders())
+        let sighted = timeout(SIGHTING_WAIT, sighted_folders(&self.occupancy))
             .await
             .map_err(|_| refused(asked, access))
             .context("the agents' logs took too long to read")??;
-        let reach = self.reach(sighted);
+        let reach = self.reached(sighted);
         let held =
             spawn_blocking(move || reach.with_checkouts().holds(&real, access).then_some(real))
                 .await
                 .context("the path check stopped")?;
         held.ok_or_else(|| refused(asked, access))
     }
+}
+
+/// The folders sessions started outside Beep worked in, with those of
+/// sessions known only from a live connection.
+pub(super) async fn sighted_folders(occupancy: &Occupancy) -> Result<Vec<PathBuf>> {
+    let folders = occupancy.sighted().await?.folders;
+    let mut folders = folders.as_ref().clone();
+    let before = folders.len();
+    folders.extend(
+        occupancy
+            .presence()
+            .snapshot()
+            .into_iter()
+            .map(|native| PathBuf::from(native.cwd)),
+    );
+
+    if folders.len() > before {
+        folders.sort();
+        folders.dedup();
+    }
+
+    Ok(folders)
 }
 
 /// Claude Code's temp folder for this user. See [`claude_temp_in`].

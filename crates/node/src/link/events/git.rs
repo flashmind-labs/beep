@@ -1,4 +1,4 @@
-use crate::agents::{Agents, reach::Access};
+use crate::agents::reach::{Access, Reach};
 use anyhow::{Context, Result, bail, ensure};
 use beep_projects::{
     branches, checkout_sync, for_machine,
@@ -35,8 +35,8 @@ fn script(root: &str, query: GitRead) -> Result<String> {
     })
 }
 
-pub(super) async fn read(agents: &Agents, root: &str, query: GitRead) -> Result<GitOutput> {
-    let root = agents.reachable(root, Access::Read).await?;
+pub(super) async fn read(reach: &Reach, root: &str, query: GitRead) -> Result<GitOutput> {
+    let root = reach.reachable(root, Access::Read).await?;
 
     if let Some(output) = read_in_process(&root, &query).await {
         return Ok(output);

@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::Parts;
+use crate::agents::{Agents, Parts};
 use std::fs;
 use tempfile::TempDir;
 
@@ -17,7 +17,7 @@ fn a_missing_path_resolves_through_its_folder() {
 fn reads_reach_further_than_writes() {
     let work = TempDir::new().unwrap();
     let logs = TempDir::new().unwrap();
-    let reach = Reach {
+    let reach = Reached {
         work: vec![work.path().to_owned()],
         read: vec![logs.path().to_owned()],
         no_write: Vec::new(),
@@ -33,7 +33,7 @@ fn reads_reach_further_than_writes() {
 
 /// `asked` checked as `reachable` does, without the sessions found in
 /// the harnesses' logs.
-fn check(reach: &Reach, asked: &Path, access: Access) -> Result<PathBuf> {
+fn check(reach: &Reached, asked: &Path, access: Access) -> Result<PathBuf> {
     let asked = asked.to_str().expect("temp paths are UTF-8");
     let found = real(&resolve(asked, None)?)?;
     if reach.holds(&found, access) {
@@ -43,10 +43,10 @@ fn check(reach: &Reach, asked: &Path, access: Access) -> Result<PathBuf> {
     }
 }
 
-fn project_reach(project: &TempDir) -> Reach {
-    Reach {
+fn project_reach(project: &TempDir) -> Reached {
+    Reached {
         work: vec![project.path().to_owned()],
-        ..Reach::default()
+        ..Reached::default()
     }
 }
 
@@ -102,8 +102,8 @@ fn a_symlink_escape_is_refused() {
 
 /// A reach with `temp` as Claude Code's temp folder, which a session
 /// also works in.
-fn temp_reach(temp: &TempDir) -> Reach {
-    Reach {
+fn temp_reach(temp: &TempDir) -> Reached {
+    Reached {
         work: vec![temp.path().to_owned()],
         read: vec![temp.path().to_owned()],
         no_write: vec![temp.path().to_owned()],
@@ -160,6 +160,7 @@ async fn a_shared_folder_is_reached_through_the_agents() {
     let agents = Agents::new(Parts { folders: vec![project.path().to_owned()], ..Parts::default() });
     let asked = project.path().join("model.glb");
     let real = agents
+        .reach
         .reachable(asked.to_str().unwrap(), Access::Write)
         .await
         .unwrap();
@@ -178,7 +179,7 @@ fn custom_agents_are_listed_only_in_a_work_folder() {
     )
     .unwrap();
     fs::create_dir_all(outside.path().join(".claude/agents")).unwrap();
-    let reach = Reach {
+    let reach = Reached {
         work: vec![project.path().to_owned()],
         read: vec![logs.path().to_owned()],
         no_write: Vec::new(),
@@ -201,9 +202,9 @@ fn custom_agents_are_listed_only_in_a_work_folder() {
 fn a_session_in_a_removed_worktree_reaches_its_checkout_only() {
     let (tmp, main, gone) =
         super::super::worktrees::tests::repo_with_removed_worktree(".worktrees");
-    let reach = |folder: &Path| Reach {
+    let reach = |folder: &Path| Reached {
         sessions: vec![folder.to_owned()],
-        ..Reach::default()
+        ..Reached::default()
     };
     let before = reach(&gone);
     assert!(!before.holds(&main, Access::Work));
@@ -221,9 +222,24 @@ fn a_session_in_a_removed_worktree_reaches_its_checkout_only() {
 
 #[test]
 fn the_root_folder_is_never_a_reach() {
-    let reach = Reach {
+    let reach = Reached {
         work: vec![PathBuf::from("/")],
-        ..Reach::default()
+        ..Reached::default()
     };
     assert!(!reach.holds(Path::new("/etc/passwd"), Access::Read));
+}
+
+/// Built from the owners below it: every field is a value of a lower type.
+#[test]
+fn reach_is_built_from_sessions_and_occupancy_alone() {
+    let Reach {
+        folders,
+        sessions,
+        occupancy,
+    } = Reach::new(vec![PathBuf::from("/srv/work")], Arc::default(), Occupancy::default());
+    let _: &Vec<PathBuf> = &folders;
+    let _: &Arc<Sessions> = &sessions;
+    let _: &Occupancy = &occupancy;
+
+    assert_eq!(folders, [PathBuf::from("/srv/work")]);
 }

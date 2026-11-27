@@ -281,7 +281,7 @@ pub async fn serve_sessions(
             other => other,
         },
         SessionsRequest::File { path, offset } => {
-            match agents.reachable(&path, reach::Access::Read).await {
+            match agents.reach.reachable(&path, reach::Access::Read).await {
                 Ok(real) => {
                     let read = spawn_blocking(move || {
                         let real = real.to_str().context("the file's path is not UTF-8")?;
@@ -392,7 +392,7 @@ pub async fn serve_sessions(
             text,
         } => {
             let lookup = async {
-                let real = agents.reachable(&root, reach::Access::Work).await?;
+                let real = agents.reach.reachable(&root, reach::Access::Work).await?;
                 agents.lsp.definition(&real, &path, line, column, text).await
             };
 
@@ -411,7 +411,7 @@ pub async fn serve_sessions(
         }
         SessionsRequest::Diff { ask } => {
             let read = async {
-                let real = agents.reachable(&ask.root, reach::Access::Diff).await?;
+                let real = agents.reach.reachable(&ask.root, reach::Access::Diff).await?;
                 agents.checkouts.diff(real, ask).await
             };
 
@@ -665,7 +665,7 @@ async fn share_reply(
         ));
     }
 
-    let real = match agents.reachable(path, reach::Access::Read).await {
+    let real = match agents.reach.reachable(path, reach::Access::Read).await {
         Ok(real) => real,
         Err(e) => return failed(e),
     };
@@ -695,7 +695,7 @@ async fn folder_reply(
     ignored: bool,
     depth: u32,
 ) -> SessionsReply {
-    let real = match agents.reachable(root, reach::Access::Read).await {
+    let real = match agents.reach.reachable(root, reach::Access::Read).await {
         Ok(real) => real,
         Err(e) => return failed(e),
     };
@@ -737,7 +737,7 @@ async fn work_request(
     access: reach::Access,
     job: impl FnOnce(PathBuf) -> Result<SessionsReply> + Send + 'static,
 ) -> SessionsReply {
-    let real = match agents.reachable(path, access).await {
+    let real = match agents.reach.reachable(path, access).await {
         Ok(real) => real,
         Err(e) => return failed(e),
     };

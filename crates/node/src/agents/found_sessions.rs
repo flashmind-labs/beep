@@ -102,7 +102,7 @@ impl Agents {
     }
 
     async fn read_logs_ahead(&self) {
-        if let Err(e) = self.sighted_folders().await {
+        if let Err(e) = super::reach::sighted_folders(&self.occupancy).await {
             log::debug!("the agents' logs were not read ahead: {e:#}");
         }
     }
@@ -114,28 +114,6 @@ impl Agents {
         crate::lock(&self.listings.on_disk)
             .clone()
             .context("still looking for checkouts on this machine")
-    }
-
-    /// The folders sessions started outside Beep worked in, with those of
-    /// sessions known only from a live connection.
-    pub(super) async fn sighted_folders(&self) -> Result<Vec<PathBuf>> {
-        let folders = self.occupancy.sighted().await?.folders;
-        let mut folders = folders.as_ref().clone();
-        let before = folders.len();
-        folders.extend(
-            self.occupancy
-                .presence()
-                .snapshot()
-                .into_iter()
-                .map(|native| PathBuf::from(native.cwd)),
-        );
-
-        if folders.len() > before {
-            folders.sort();
-            folders.dedup();
-        }
-
-        Ok(folders)
     }
 
     /// Where Claude Code keeps the sessions started outside Beep.

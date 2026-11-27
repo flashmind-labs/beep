@@ -135,9 +135,8 @@ host! {
         pub(crate) ci: Arc<ci::Ci>,
         /// How the moves of sessions to this machine stand.
         moves: moving::Moves,
-        /// The workspace and the folders shared in `node.toml`, which file
-        /// requests may reach beside the sessions' folders.
-        folders: Vec<PathBuf>,
+        /// What file requests may reach: the shared folders and the sessions'.
+        pub(crate) reach: Arc<reach::Reach>,
         /// The sessions that started sessions, and the children on other machines.
         pub(crate) links: Arc<family::links::Links>,
         /// The background children that closed for good, to delete.
@@ -174,16 +173,18 @@ host! {
     impl Agents {
         pub fn new(parts: Parts) -> Self {
             let events = crate::events::Hub::default();
+            let sessions = Arc::new(sessions::Sessions::default());
             let catalog = Arc::new(catalog::Catalog::new(parts.kinds, parts.launch, parts.skills_dir));
 
             Self {
                 events: events.clone(),
                 usage: Arc::new(usage::Usage::new(catalog.clone())),
                 catalog,
-                occupancy: parts.occupancy,
+                occupancy: parts.occupancy.clone(),
                 reviews: reviews::kept::Reviews::new(events),
                 links: Arc::new(family::links::Links::new(parts.mesh)),
-                folders: parts.folders,
+                reach: Arc::new(reach::Reach::new(parts.folders, sessions.clone(), parts.occupancy.clone())),
+                sessions,
                 search: parts.search,
                 ..Self::default()
             }

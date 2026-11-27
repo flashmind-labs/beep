@@ -615,9 +615,9 @@ impl Reach<'_> {
 
         let link = beep_proto::node::local_link();
         let (node_tx, node_rx) = link.node;
-        let agents = self.node.agents.clone();
+        let reach = self.node.agents.reach.clone();
         let task = tokio::spawn(async move {
-            if let Err(e) = agents.serve_device(node_tx, node_rx).await {
+            if let Err(e) = reach.serve_device(node_tx, node_rx).await {
                 log::debug!("an agent's device stream ended: {e:#}");
             }
         });
