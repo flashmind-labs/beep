@@ -191,8 +191,8 @@ crates/node/src/link/events.rs | run | sleep_until#1 | pace | holds a dirty snap
 crates/node/src/run/local_socket.rs | connect | sleep#1 | retry | retries a busy pipe every 10 ms
 crates/node/src/link/peers.rs | wait_for_node | sleep#1 | retry | retries connecting to the local node every 100 ms
 crates/node/src/link/sampler.rs | sampling | interval#1 | outside | samples disk, memory and traffic every minute
-crates/node/src/link/watchdog.rs | look | sleep#1 | outside | thread checks for a stalled runtime every 15 s
-crates/node/src/link/watchdog.rs | start | interval#1 | pace | runtime beat the watchdog thread checks
+crates/node/src/watchdog.rs | look | sleep#1 | outside | thread checks for a stalled runtime every 15 s
+crates/node/src/watchdog.rs | start | interval#1 | pace | runtime beat the watchdog thread checks
 crates/node/src/upkeep/ci/github.rs | wait | sleep#1 | deadline | stops waiting on a gh run watch after 30 min
 crates/node/src/upkeep/ci/watcher.rs | run | interval#1 | outside | lists busy projects' forge runs every 60 s
 crates/node/src/upkeep/ci/watcher.rs | run | interval_at#1 | outside | checks GitHub projects every 45 s

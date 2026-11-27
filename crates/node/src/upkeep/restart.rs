@@ -7,7 +7,7 @@ use crate::{
     agents::{Agents, OpenSession, SavedSession},
     fs::note,
     run::local_socket::{Listener, Stream},
-    link::watchdog::{self, Step},
+    watchdog::{self, Step},
     run::terminal::{self, OpenTerminal},
 };
 use anyhow::{Context, Result};

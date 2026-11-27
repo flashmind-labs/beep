@@ -14,7 +14,7 @@ use crate::{
     status::{MESH_SOCKET, STATUS_LINE},
 
     link::protocol::SessionProtocol,
-    link::watchdog::{self, Step},
+    watchdog::{self, Step},
     machine::{env, stats},
     team::link::TeamLink,
     tools::{Node, team_link::TeamAlpn},

@@ -180,5 +180,5 @@ fn look(stop: &AtomicBool) {
 }
 
 #[cfg(test)]
-#[path = "../tests/link_watchdog.rs"]
+#[path = "tests/watchdog.rs"]
 mod tests;

@@ -10,7 +10,7 @@
 use crate::{
     membership::{credentials, read},
     files::{sync::Syncs, syncthing::Syncthing},
-    link::watchdog::{self, Step},
+    watchdog::{self, Step},
     link::{Offers, peers::Inner},
     status::Own,
     team::link::TeamLink,

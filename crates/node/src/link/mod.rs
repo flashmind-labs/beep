@@ -26,7 +26,6 @@ host! {
     pub mod state;
     mod sampler;
     mod traffic;
-    pub(crate) mod watchdog;
 
     pub use peers::{Bound, Offers};
     pub use serve::{listen_hooks, serve};

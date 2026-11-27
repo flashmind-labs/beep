@@ -35,6 +35,7 @@ host! {
     mod fs;
     mod run;
     mod team;
+    pub(crate) mod watchdog;
     mod custom_agents;
     pub mod tools;
     pub mod upkeep;

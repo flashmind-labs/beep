@@ -11,7 +11,7 @@ use crate::{
     link::restart::{self, Reopen},
     link::state::State,
     link::traffic::Traffic,
-    link::watchdog,
+    watchdog,
     link::{
         peers::{self, Bound, Inner, Offers, Own, Peers, Who, withheld},
     },
