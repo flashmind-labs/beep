@@ -1,9 +1,9 @@
-//! Reaching a machine of the mesh: the client the desktop hands in, a shell and the list of found
-//! folders over it, and what the machine says about itself.
+//! Reaching a machine of the mesh: a shell and the list of found folders over its client, and what
+//! the machine says about itself.
 
 use crate::error::{FleetError, Result};
 use async_trait::async_trait;
-use beep_mesh::{Mesh, PeerClient};
+use beep_mesh::PeerClient;
 use beep_projects::{Clip, Shell, ShellOutput, for_machine, imports::machine::FoundFolders};
 use beep_proto::node::{
     EnvReport,
@@ -11,7 +11,6 @@ use beep_proto::node::{
     shell::{self, Event, Request},
     status::{self, Report},
 };
-use iroh::EndpointId;
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -19,31 +18,6 @@ use tokio::time::timeout;
 const PROBE: Duration = Duration::from_secs(3);
 /// Slack past a command's own limit, for the machine to say it timed out.
 const SHELL_SLACK: Duration = Duration::from_secs(10);
-
-/// The desktop's hold on the mesh: the mesh itself, and a client for each member.
-#[async_trait]
-pub trait Peers: Send + Sync {
-    /// The mesh, waiting for it to open.
-    async fn mesh(&self) -> Result<Mesh>;
-
-    /// This Mac's own id.
-    fn me(&self) -> EndpointId;
-
-    /// A client for `machine`, which may be this Mac's own node.
-    async fn client(&self, machine: EndpointId) -> Result<PeerClient>;
-
-    /// What `machine` last said about itself, kept from before: its probe is slow, and an
-    /// offline machine says nothing now. Nothing is kept by default.
-    fn last_env(&self, _machine: EndpointId) -> Option<EnvReport> {
-        None
-    }
-
-    /// The protocols `machine` last reported offering on `status/1`, when a background
-    /// status follower keeps them.
-    fn last_offers(&self, _machine: EndpointId) -> Option<Vec<String>> {
-        None
-    }
-}
 
 /// A shell on one machine, over its `shell/1` protocol. Scripts are POSIX sh, and on Windows
 /// they run in the sh of Git for Windows. A script may carry a token, so nothing here logs it.

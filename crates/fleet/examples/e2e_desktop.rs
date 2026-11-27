@@ -17,8 +17,7 @@
 //! A ticket is written to `<dir>/ticket-<label>`, never printed.
 
 use anyhow::{Context, Result, anyhow, bail};
-use async_trait::async_trait;
-use beep_fleet::{Desk, FleetError, ImportJob, Peers};
+use beep_fleet::{Desk, ImportJob, Machines, Opened as MeshOpened};
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient,
     machine::{
@@ -51,28 +50,6 @@ use tokio::{
     io::{AsyncBufReadExt, BufReader},
     time::timeout,
 };
-
-struct Mine {
-    mesh: Mesh,
-    me: EndpointId,
-}
-
-#[async_trait]
-impl Peers for Mine {
-    async fn mesh(&self) -> beep_fleet::Result<Mesh> {
-        Ok(self.mesh.clone())
-    }
-
-    fn me(&self) -> EndpointId {
-        self.me
-    }
-
-    async fn client(&self, machine: EndpointId) -> beep_fleet::Result<PeerClient> {
-        beep_mesh::with_deadline(machine, &self.mesh)
-            .await
-            .map_err(|_| FleetError::Offline(machine.fmt_short().to_string()))
-    }
-}
 
 fn key_in(dir: &Path) -> Result<SecretKey> {
     let file = dir.join("key");
@@ -546,11 +523,9 @@ async fn main() -> Result<()> {
         .accept(JOIN_ALPN, join)
         .spawn();
     let me = endpoint.id();
-    let desk = Desk::open(Arc::new(Mine {
-        mesh: mesh.clone(),
-        me,
-    }))
-    .await?;
+    let machines = Machines::new(me, None);
+    machines.set_opened(MeshOpened::Open(mesh.clone()));
+    let desk = Desk::open(Arc::new(machines)).await?;
     println!("up as {}", me.fmt_short());
     let mut driver = Driver {
         dir,

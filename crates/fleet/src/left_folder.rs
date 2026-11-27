@@ -81,7 +81,7 @@ impl Desk {
     /// Whether the node on `machine` no longer syncs `project`: waits for the sync status the
     /// node pushes to drop it.
     async fn stopped_syncing(&self, machine: EndpointId, project: &str) -> bool {
-        let Ok(client) = self.peers.client(machine).await else {
+        let Ok(client) = self.machines.client(machine).await else {
             return false;
         };
         let dropped = client.snapshot_until(Read::SyncList, |value| match value {

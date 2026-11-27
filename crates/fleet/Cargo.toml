@@ -6,6 +6,10 @@ license.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 
+[features]
+# `Machines::serve`, for tests of crates above.
+test-util = ["beep-mesh/test-util"]
+
 [dependencies]
 anyhow.workspace = true
 async-trait.workspace = true
@@ -30,6 +34,8 @@ tracing.workspace = true
 uuid = { workspace = true, features = ["v4", "v5"] }
 
 [dev-dependencies]
+beep-fleet = { path = ".", features = ["test-util"] }
+beep-mesh = { workspace = true, features = ["test-util"] }
 serde_bytes.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["io-util", "io-std", "net", "rt-multi-thread"] }

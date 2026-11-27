@@ -6,7 +6,7 @@
 use crate::{
     error::{FleetError, Result},
     left_folder::{normal, within},
-    peer::Peers,
+    machines::Machines,
     records::projects,
     session_titles,
 };
@@ -78,18 +78,18 @@ impl AsRef<str> for Follows {
 /// What follows every machine of `mesh`, now and as it changes, and the receiver for what it
 /// hears. The future runs until the receiver is dropped or the mesh closes; the caller spawns it.
 pub fn follow(
-    peers: Arc<dyn Peers>,
+    machines: Arc<Machines>,
     mesh: Mesh,
 ) -> (impl Future<Output = ()>, mpsc::Receiver<Heard>) {
     let (out, heard) = mpsc::channel(QUEUE);
-    (run(peers, mesh, out), heard)
+    (run(machines, mesh, out), heard)
 }
 
-async fn run(peers: Arc<dyn Peers>, mesh: Mesh, out: mpsc::Sender<Heard>) {
+async fn run(machines: Arc<Machines>, mesh: Mesh, out: mpsc::Sender<Heard>) {
     let (inner, mut raw) = mpsc::channel(QUEUE);
     let mut seen = Seen::default();
     let watching = each_machine(&mesh, |id| {
-        tokio::spawn(machine(peers.clone(), mesh.clone(), id, inner.clone()))
+        tokio::spawn(machine(machines.clone(), mesh.clone(), id, inner.clone()))
     });
     tokio::pin!(watching);
 
@@ -171,10 +171,10 @@ pub async fn each_machine(mesh: &Mesh, mut start: impl FnMut(EndpointId) -> Join
 
 /// Follows `id`'s alerts and runs until the receiver goes.
 #[tracing::instrument(skip_all, fields(peer = %id.fmt_short()))]
-async fn machine(peers: Arc<dyn Peers>, mesh: Mesh, id: EndpointId, out: mpsc::Sender<Heard>) {
+async fn machine(machines: Arc<Machines>, mesh: Mesh, id: EndpointId, out: mpsc::Sender<Heard>) {
     tokio::join!(
-        follow_one(&*peers, &mesh, id, &out, Follows::Alerts),
-        follow_one(&*peers, &mesh, id, &out, Follows::Runs),
+        follow_one(&machines, &mesh, id, &out, Follows::Alerts),
+        follow_one(&machines, &mesh, id, &out, Follows::Runs),
     );
 }
 
@@ -207,7 +207,7 @@ fn project_at(mesh: &Mesh, machine: EndpointId, cwd: &str) -> Option<String> {
 /// Follows one of `id`'s streams, again after each break, until the receiver goes or the machine
 /// is not one this side can reach at all.
 async fn follow_one(
-    peers: &dyn Peers,
+    machines: &Machines,
     mesh: &Mesh,
     id: EndpointId,
     out: &mpsc::Sender<Heard>,
@@ -222,7 +222,7 @@ async fn follow_one(
         let mut replied = false;
         let link = link_of(mesh, id);
 
-        match stream(peers, mesh, id, out, what, &mut replied).await {
+        match stream(machines, mesh, id, out, what, &mut replied).await {
             Ok(()) | Err(FleetError::NotFound) => return,
             Err(e) => {
                 let error = e.to_string();
@@ -291,14 +291,14 @@ fn ended() -> FleetError {
 /// One stream's life. `Ok` when the receiver is gone; `replied` says whether the machine sent
 /// anything.
 async fn stream(
-    peers: &dyn Peers,
+    machines: &Machines,
     mesh: &Mesh,
     id: EndpointId,
     out: &mpsc::Sender<Heard>,
     what: Follows,
     replied: &mut bool,
 ) -> Result<()> {
-    let client = peers.client(id).await?;
+    let client = machines.client(id).await?;
     let (mut tx, mut rx) = client
         .open(SESSIONS_PROTOCOL)
         .await
@@ -374,12 +374,12 @@ impl Seen {
 
 /// Answers the question `key` names, on the machine that asked it. Refused as a conflict when the
 /// session no longer asks it.
-pub async fn answer(peers: &dyn Peers, key: &AgentNoticeKey, reply: &str) -> Result<()> {
+pub async fn answer(machines: &Machines, key: &AgentNoticeKey, reply: &str) -> Result<()> {
     let (Some(question), Ok(machine)) = (key.question, EndpointId::from_str(&key.machine_id))
     else {
         return Err(FleetError::Refused("not a question".into()));
     };
-    let client = peers.client(machine).await?;
+    let client = machines.client(machine).await?;
     timeout(ANSWERING, attached(&client, key, question, reply))
         .await
         .map_err(|elapsed| {

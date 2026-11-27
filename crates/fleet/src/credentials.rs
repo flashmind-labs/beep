@@ -643,7 +643,7 @@ impl Desk {
             let Ok(id) = machine.id.parse::<EndpointId>() else {
                 continue;
             };
-            let Ok(client) = self.peers.client(id).await else {
+            let Ok(client) = self.machines.client(id).await else {
                 continue;
             };
             let has_teacli = probe(&client).await.is_ok_and(|said| {
@@ -751,7 +751,7 @@ impl Desk {
     async fn agent_env(&self, status: &DeviceStatus) -> Option<EnvReport> {
         let id = status.device.id;
 
-        if let Some(env) = self.peers.last_env(id) {
+        if let Some(env) = self.machines.last_env(id) {
             return Some(env);
         }
 
@@ -760,7 +760,7 @@ impl Desk {
         }
 
         timeout(ACCOUNTS_PER_MACHINE, async {
-            let client = self.peers.client(id).await.ok()?;
+            let client = self.machines.client(id).await.ok()?;
             probe(&client).await.ok()?.env
         })
         .await

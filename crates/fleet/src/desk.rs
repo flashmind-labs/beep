@@ -5,7 +5,8 @@ use crate::{
     AsyncMutex,
     changed::Changed,
     error::{FleetError, Result},
-    peer::{PeerFound, PeerShell, Peers, Probe, probe},
+    machines::Machines,
+    peer::{PeerFound, PeerShell, Probe, probe},
 };
 use beep_mesh::{
     DeviceStatus, Mesh,
@@ -43,7 +44,7 @@ const LOOK: Duration = Duration::from_secs(6);
 
 /// The desktop's view of the mesh for one call.
 pub struct Desk {
-    pub(crate) peers: Arc<dyn Peers>,
+    pub(crate) machines: Arc<Machines>,
     pub(crate) mesh: Mesh,
     pub(crate) hosts: DesktopHosts,
     /// This Mac's own node, which answers at once.
@@ -55,18 +56,18 @@ pub struct Desk {
 }
 
 impl Desk {
-    /// A desk over `peers`, once its mesh is open.
-    pub async fn open(peers: Arc<dyn Peers>) -> Result<Self> {
+    /// A desk over `machines`, once its mesh is open.
+    pub async fn open(machines: Arc<Machines>) -> Result<Self> {
         let (changes, _) = tokio::sync::mpsc::unbounded_channel();
-        Self::with(peers, DesktopHosts::new(changes)?).await
+        Self::with(machines, DesktopHosts::new(changes)?).await
     }
 
-    /// A desk over `peers` that shares `hosts` with the others: one client for the session.
-    pub(crate) async fn with(peers: Arc<dyn Peers>, hosts: DesktopHosts) -> Result<Self> {
-        let mesh = peers.mesh().await?;
+    /// A desk over `machines` that shares `hosts` with the others: one client for the session.
+    pub(crate) async fn with(machines: Arc<Machines>, hosts: DesktopHosts) -> Result<Self> {
+        let mesh = machines.mesh().await?;
         Ok(Self {
-            local: peers.me(),
-            peers,
+            local: machines.me(),
+            machines,
             mesh,
             hosts,
             settle: crate::usage_cache::SETTLE,
@@ -140,7 +141,7 @@ impl Desk {
             .filter_map(|(at, m)| Some((at, m.id.parse::<EndpointId>().ok()?)))
             .map(|(at, id)| async move {
                 let ask = async {
-                    let client = self.peers.client(id).await?;
+                    let client = self.machines.client(id).await?;
                     Ok::<_, FleetError>(search(&client).await?)
                 };
                 (at, within_look(ask).await)
@@ -186,12 +187,12 @@ impl Desk {
             return Seen { machine, env: None };
         }
 
-        let cached_offers = self.peers.last_offers(id);
-        let cached_env = self.peers.last_env(id);
+        let cached_offers = self.machines.last_offers(id);
+        let cached_env = self.machines.last_env(id);
         let said = match (cached_offers, cached_env) {
             (Some(offers), Some(env)) => {
                 within_look(async {
-                    let client = self.peers.client(id).await?;
+                    let client = self.machines.client(id).await?;
                     Ok((
                         client,
                         Probe {
@@ -204,7 +205,7 @@ impl Desk {
             }
             (offers, env) => {
                 let ask = async {
-                    let client = self.peers.client(id).await?;
+                    let client = self.machines.client(id).await?;
                     let mut probed = probe(&client).await?;
 
                     if probed.offers.is_empty()

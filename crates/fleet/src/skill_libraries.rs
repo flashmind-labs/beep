@@ -236,7 +236,7 @@ impl Desk {
     }
 
     async fn inspect_on(&self, machine: EndpointId, request: &Request) -> Result<Reply> {
-        let client = self.peers.client(machine).await?;
+        let client = self.machines.client(machine).await?;
         Ok(client.call_within(INSPECT_LIMIT, PROTOCOL, request).await?)
     }
 

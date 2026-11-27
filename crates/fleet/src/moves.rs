@@ -245,7 +245,7 @@ impl Desk {
     /// them does not, and a session must not be sent to it.
     pub async fn takes_moves(&self, machine: EndpointId) -> Result<bool> {
         let probed = timeout(MOVE_POLL_LIMIT, async {
-            let client = self.peers.client(machine).await?;
+            let client = self.machines.client(machine).await?;
             Ok::<_, FleetError>(move_progress(&client, &SessionId::from(PROBE)).await?)
         })
         .await
@@ -279,7 +279,7 @@ impl Desk {
         let record: SessionMove =
             read(&self.mesh, &Key::SessionMove(id.clone())).ok_or(FleetError::NotFound)?;
         let asked = timeout(MOVE_POLL_LIMIT, async {
-            let client = self.peers.client(record.to).await?;
+            let client = self.machines.client(record.to).await?;
             Ok::<_, FleetError>(move_progress(&client, id).await?)
         })
         .await;

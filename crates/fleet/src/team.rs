@@ -450,7 +450,7 @@ impl Desk {
             args: serde_json::to_string(args).map_err(anyhow::Error::from)?,
             approved: Approved::No,
         };
-        let client = self.peers.client(machine).await?;
+        let client = self.machines.client(machine).await?;
         let reply = client.call_within(limit, tools::PROTOCOL, &request).await?;
 
         match reply {

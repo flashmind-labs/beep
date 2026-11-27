@@ -1,8 +1,7 @@
 use super::*;
-use crate::Peers;
 use crate::direct_syncs::SYNC_FRESH;
-use async_trait::async_trait;
-use beep_mesh::{Mesh, PeerClient, transport_config};
+use crate::{Machines, Opened};
+use beep_mesh::{Mesh, transport_config};
 use beep_proto::node::mesh_state::StateValue;
 use beep_proto::{
     ModelId,
@@ -11,23 +10,6 @@ use beep_proto::{
 use iroh::{Endpoint, endpoint::presets};
 use std::{sync::Arc, time::Instant};
 use tempfile::TempDir;
-
-struct TestPeers(Mesh);
-
-#[async_trait]
-impl Peers for TestPeers {
-    async fn mesh(&self) -> Result<Mesh> {
-        Ok(self.0.clone())
-    }
-
-    fn me(&self) -> EndpointId {
-        self.0.me()
-    }
-
-    async fn client(&self, _machine: EndpointId) -> Result<PeerClient> {
-        Err(FleetError::Offline("offline".into()))
-    }
-}
 
 #[tokio::test]
 async fn master_pause_preserves_preferences_and_resumes_new_projects() {
@@ -40,7 +22,7 @@ async fn master_pause_preserves_preferences_and_resumes_new_projects() {
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
         .await
         .unwrap();
-    let desk = Desk::open(Arc::new(TestPeers(mesh.clone()))).await.unwrap();
+    let desk = Desk::open(Machines::for_tests(mesh.clone())).await.unwrap();
     for (name, paused) in [
         ("acme/one", false),
         ("acme/two", false),
@@ -122,7 +104,7 @@ async fn reading_ignored_sync_does_not_wait_for_a_write() {
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
         .await
         .unwrap();
-    let desk = Desk::open(Arc::new(TestPeers(mesh))).await.unwrap();
+    let desk = Desk::open(Machines::for_tests(mesh)).await.unwrap();
     let _writing = WRITES.lock().await;
 
     let read = desk
@@ -150,7 +132,7 @@ async fn two_harness_saves_at_once_keep_both_fields() {
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
         .await
         .unwrap();
-    let desk = Desk::open(Arc::new(TestPeers(mesh))).await.unwrap();
+    let desk = Desk::open(Machines::for_tests(mesh)).await.unwrap();
 
     let model = ModelId::from("some-model");
     let compact = AutoCompact {
@@ -183,84 +165,17 @@ async fn two_harness_saves_at_once_keep_both_fields() {
     assert_eq!(desk.harness_compact("codex").unwrap(), Some(compact));
 }
 
-struct DegradedSyncPeers {
-    mesh: Mesh,
-    slow: EndpointId,
-    release: tokio::sync::watch::Receiver<bool>,
-}
-
-#[async_trait]
-impl Peers for DegradedSyncPeers {
-    async fn mesh(&self) -> Result<Mesh> {
-        Ok(self.mesh.clone())
-    }
-
-    fn me(&self) -> EndpointId {
-        self.mesh.me()
-    }
-
-    async fn client(&self, machine: EndpointId) -> Result<PeerClient> {
-        if machine == self.slow {
-            let _ = beep_proto::watched::wait_for(&mut self.release.clone(), |open| *open).await;
-            let slow_projects = vec![ProjectStatus {
-                name: "acme/widget".into(),
-                folder: "/srv/widget".into(),
-                state: State::Idle,
-                paused: false,
-                git_only: false,
-                files: 4,
-                bytes: 128,
-                pending: 0,
-                waiting: Vec::new(),
-                progress: None,
-                conflicts: Vec::new(),
-                rescan_secs: None,
-                hint: None,
-                error: None,
-            }];
-            return Ok(PeerClient::local(Arc::new(move |mut tx, mut rx| {
-                let slow_projects = slow_projects.clone();
-                Box::pin(async move {
-                    let _ = rx.recv::<beep_proto::node::Open>().await;
-                    let _ = tx.send(&beep_proto::node::Opened::Ready {}).await;
-                    let _ = rx.recv::<Request>().await;
-                    let _ = tx
-                        .send(&Reply::Status {
-                            projects: slow_projects,
-                        })
-                        .await;
-                })
-            })));
-        }
-
-        Ok(PeerClient::local(Arc::new(|mut tx, mut rx| {
-            Box::pin(async move {
-                let _ = rx.recv::<beep_proto::node::Open>().await;
-                let _ = tx.send(&beep_proto::node::Opened::Ready {}).await;
-                let _ = rx.recv::<Request>().await;
-                let _ = tx
-                    .send(&Reply::Status {
-                        projects: vec![ProjectStatus {
-                            name: "acme/widget".into(),
-                            folder: "/srv/widget".into(),
-                            state: State::Idle,
-                            paused: false,
-                            git_only: false,
-                            files: 10,
-                            bytes: 512,
-                            pending: 0,
-                            waiting: Vec::new(),
-                            progress: None,
-                            conflicts: Vec::new(),
-                            rescan_secs: None,
-                            hint: None,
-                            error: None,
-                        }],
-                    })
-                    .await;
-            })
-        })))
-    }
+/// A node that answers `Status` with `projects`.
+fn answering(projects: Vec<ProjectStatus>) -> beep_mesh::SessionFn {
+    Arc::new(move |mut tx, mut rx| {
+        let projects = projects.clone();
+        Box::pin(async move {
+            let _ = rx.recv::<beep_proto::node::Open>().await;
+            let _ = tx.send(&beep_proto::node::Opened::Ready {}).await;
+            let _ = rx.recv::<Request>().await;
+            let _ = tx.send(&Reply::Status { projects }).await;
+        })
+    })
 }
 
 #[tokio::test]
@@ -329,12 +244,18 @@ async fn degraded_node_does_not_stall_sync_and_shows_its_answer_on_the_next_read
     .unwrap();
 
     let (release, opened) = tokio::sync::watch::channel(false);
-    let peers = Arc::new(DegradedSyncPeers {
-        mesh: mesh.clone(),
-        slow: node.me(),
-        release: opened,
-    });
-    let session = Session::new(peers, Options::default()).unwrap();
+    let widget = |files, bytes| ProjectStatus {
+        files,
+        bytes,
+        ..widget(files)
+    };
+    let machines = Arc::new(Machines::new(
+        mesh.me(),
+        Some(answering(vec![widget(10, 512)])),
+    ));
+    machines.set_opened(Opened::Open(mesh.clone()));
+    machines.serve_when(node.me(), answering(vec![widget(4, 128)]), opened);
+    let session = Session::new(machines, Options::default()).unwrap();
     let desk = session.desk().await.unwrap();
 
     let started = Instant::now();
@@ -375,33 +296,6 @@ async fn degraded_node_does_not_stall_sync_and_shows_its_answer_on_the_next_read
     ep2.close().await;
 }
 
-/// Answers every direct status call with a file count that grows by one each time.
-struct CountingPeers {
-    mesh: Mesh,
-    calls: Arc<std::sync::atomic::AtomicU64>,
-    /// The file count the node pushes on its subscription; 0 when it pushes nothing.
-    pushed: Arc<std::sync::atomic::AtomicU64>,
-}
-
-struct Pushed(Arc<std::sync::atomic::AtomicU64>);
-
-impl beep_mesh::SnapshotReader for Pushed {
-    fn snapshot(&self, read: beep_proto::node::events::Read) -> beep_mesh::SnapshotFuture<'_> {
-        let files = self.0.load(std::sync::atomic::Ordering::SeqCst);
-        Box::pin(async move {
-            if files == 0 || read != beep_proto::node::events::Read::SyncList {
-                return None;
-            }
-
-            Some(Ok(beep_proto::node::events::Value::Sync(Box::new(
-                Reply::Status {
-                    projects: vec![widget(files)],
-                },
-            ))))
-        })
-    }
-}
-
 fn widget(files: u64) -> ProjectStatus {
     ProjectStatus {
         name: "acme/widget".into(),
@@ -421,35 +315,39 @@ fn widget(files: u64) -> ProjectStatus {
     }
 }
 
-#[async_trait]
-impl Peers for CountingPeers {
-    async fn mesh(&self) -> Result<Mesh> {
-        Ok(self.mesh.clone())
-    }
+fn status_of(files: u64) -> beep_proto::node::events::Value {
+    beep_proto::node::events::Value::Sync(Box::new(Reply::Status {
+        projects: vec![widget(files)],
+    }))
+}
 
-    fn me(&self) -> EndpointId {
-        self.mesh.me()
-    }
+/// This machine's own node, which answers every direct status call with a file count that
+/// grows by one each time, or never when `hangs`.
+fn counting(mesh: &Mesh, hangs: bool) -> (Arc<Machines>, Arc<std::sync::atomic::AtomicU64>) {
+    let calls = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let counted = calls.clone();
+    let node: beep_mesh::SessionFn = Arc::new(move |mut tx, mut rx| {
+        let calls = counted.clone();
+        Box::pin(async move {
+            let _ = rx.recv::<beep_proto::node::Open>().await;
+            let _ = tx.send(&beep_proto::node::Opened::Ready {}).await;
+            let _ = rx.recv::<Request>().await;
+            if hangs {
+                std::future::pending::<()>().await;
+            }
 
-    async fn client(&self, _machine: EndpointId) -> Result<PeerClient> {
-        let calls = self.calls.clone();
-        let reader = Arc::new(Pushed(self.pushed.clone()));
-        Ok(PeerClient::local(Arc::new(move |mut tx, mut rx| {
-            let calls = calls.clone();
-            Box::pin(async move {
-                let _ = rx.recv::<beep_proto::node::Open>().await;
-                let _ = tx.send(&beep_proto::node::Opened::Ready {}).await;
-                let _ = rx.recv::<Request>().await;
-                let files = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-                let _ = tx
-                    .send(&Reply::Status {
-                        projects: vec![widget(files)],
-                    })
-                    .await;
-            })
-        }))
-        .with_snapshot_reader(reader))
-    }
+            let files = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+            let _ = tx
+                .send(&Reply::Status {
+                    projects: vec![widget(files)],
+                })
+                .await;
+        })
+    });
+    let machines = Arc::new(Machines::new(mesh.me(), Some(node)));
+    machines.set_opened(Opened::Open(mesh.clone()));
+
+    (machines, calls)
 }
 
 #[tokio::test]
@@ -458,7 +356,7 @@ async fn a_node_without_the_topic_answers_from_its_last_call_and_redraws_when_it
         changed::Changed,
         session::{Options, Session},
     };
-    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::atomic::Ordering;
 
     let dir = TempDir::new().unwrap();
     let endpoint = Endpoint::builder(presets::Minimal)
@@ -485,13 +383,8 @@ async fn a_node_without_the_topic_answers_from_its_last_call_and_redraws_when_it
     .await
     .unwrap();
 
-    let calls = Arc::new(AtomicU64::new(0));
-    let peers = Arc::new(CountingPeers {
-        mesh: mesh.clone(),
-        calls: calls.clone(),
-        pushed: Arc::default(),
-    });
-    let session = Session::new(peers, Options::default()).unwrap();
+    let (machines, calls) = counting(&mesh, false);
+    let session = Session::new(machines, Options::default()).unwrap();
     let mut heard = session.changes().expect("the feed is taken once");
     let desk = session.desk().await.unwrap();
     let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
@@ -514,7 +407,6 @@ async fn a_node_without_the_topic_answers_from_its_last_call_and_redraws_when_it
 #[tokio::test]
 async fn a_node_that_pushes_is_not_answered_from_an_old_direct_call() {
     use crate::session::{Options, Session};
-    use std::sync::atomic::{AtomicU64, Ordering};
 
     let dir = TempDir::new().unwrap();
     let endpoint = Endpoint::builder(presets::Minimal)
@@ -541,131 +433,39 @@ async fn a_node_that_pushes_is_not_answered_from_an_old_direct_call() {
     .await
     .unwrap();
 
-    let calls = Arc::new(AtomicU64::new(0));
-    let pushed = Arc::new(AtomicU64::new(0));
-    let peers = Arc::new(CountingPeers {
-        mesh: mesh.clone(),
-        calls: calls.clone(),
-        pushed: pushed.clone(),
-    });
-    let session = Session::new(peers, Options::default()).unwrap();
+    let (machines, _calls) = counting(&mesh, false);
+    let pushed = machines.snapshots().clone();
+    let session = Session::new(machines, Options::default()).unwrap();
     let desk = session.desk().await.unwrap();
     let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
 
     // One slow stretch with no subscription keeps a direct answer.
     assert_eq!(files(&desk.sync().await), 1);
 
-    pushed.store(50, Ordering::SeqCst);
+    let generation = pushed.open_stream(mesh.me(), Read::SyncList.topic().unwrap());
+    pushed.push(mesh.me(), Read::SyncList, status_of(50));
     assert_eq!(files(&desk.sync().await), 50);
 
     // The subscription drops: the old direct answer is gone, so this asks again, and a node
     // that pushed before has no direct answer kept: each read asks.
-    pushed.store(0, Ordering::SeqCst);
+    pushed.end(mesh.me(), generation);
     assert_eq!(files(&desk.sync().await), 2);
     assert_eq!(files(&desk.sync().await), 3);
 
     endpoint.close().await;
 }
 
-/// What a node's subscription does to a `SyncList` read.
-#[derive(Clone, Copy)]
-enum Subscription {
-    /// Pushes this many files.
-    Pushes(u64),
-    /// Does not answer in time.
-    Silent,
-    /// Answers with an error, as a node without the topic does.
-    Refuses,
-}
-
-/// A node whose subscription is set by the test, and whose client and snapshot wait `delay`.
-struct SteppedPeers {
-    mesh: Mesh,
-    subscription: Arc<std::sync::Mutex<Subscription>>,
-    delay: Arc<std::sync::Mutex<Duration>>,
-    /// Direct status calls answered, each with its count as the file count.
-    calls: Arc<std::sync::atomic::AtomicU64>,
-    /// Whether a direct call never answers.
-    hangs: bool,
-}
-
-struct SteppedReader {
-    subscription: Arc<std::sync::Mutex<Subscription>>,
-    delay: Arc<std::sync::Mutex<Duration>>,
-}
-
-impl beep_mesh::SnapshotReader for SteppedReader {
-    fn snapshot(&self, read: beep_proto::node::events::Read) -> beep_mesh::SnapshotFuture<'_> {
-        let subscription = *self.subscription.lock().unwrap();
-        let delay = *self.delay.lock().unwrap();
-        Box::pin(async move {
-            if read != beep_proto::node::events::Read::SyncList {
-                return None;
-            }
-
-            tokio::time::sleep(delay).await;
-            match subscription {
-                Subscription::Pushes(files) => Some(Ok(beep_proto::node::events::Value::Sync(
-                    Box::new(Reply::Status {
-                        projects: vec![widget(files)],
-                    }),
-                ))),
-                Subscription::Silent => std::future::pending().await,
-                Subscription::Refuses => Some(Err(beep_mesh::MeshError::Link(anyhow::anyhow!(
-                    "no state has been published for this topic"
-                )))),
-            }
-        })
-    }
-}
-
-#[async_trait]
-impl Peers for SteppedPeers {
-    async fn mesh(&self) -> Result<Mesh> {
-        Ok(self.mesh.clone())
-    }
-
-    fn me(&self) -> EndpointId {
-        self.mesh.me()
-    }
-
-    async fn client(&self, _machine: EndpointId) -> Result<PeerClient> {
-        let delay = *self.delay.lock().unwrap();
-        tokio::time::sleep(delay).await;
-        let calls = self.calls.clone();
-        let hangs = self.hangs;
-        let reader = Arc::new(SteppedReader {
-            subscription: self.subscription.clone(),
-            delay: self.delay.clone(),
-        });
-        Ok(PeerClient::local(Arc::new(move |mut tx, mut rx| {
-            let calls = calls.clone();
-            Box::pin(async move {
-                let _ = rx.recv::<beep_proto::node::Open>().await;
-                let _ = tx.send(&beep_proto::node::Opened::Ready {}).await;
-                let _ = rx.recv::<Request>().await;
-                if hangs {
-                    std::future::pending::<()>().await;
-                }
-
-                let files = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
-                let _ = tx
-                    .send(&Reply::Status {
-                        projects: vec![widget(files)],
-                    })
-                    .await;
-            })
-        }))
-        .with_snapshot_reader(reader))
-    }
-}
-
-/// A session over one project that this machine's folder holds, read through `peers`.
+/// A session over one project that this machine's folder holds, read from `counting`.
 async fn widget_desk(
     dir: &TempDir,
     endpoint: &Endpoint,
-    peers: impl FnOnce(Mesh) -> SteppedPeers,
-) -> (crate::Desk, Arc<SteppedPeers>) {
+    hangs: bool,
+) -> (
+    crate::Desk,
+    Mesh,
+    Arc<Machines>,
+    Arc<std::sync::atomic::AtomicU64>,
+) {
     use crate::session::{Options, Session};
 
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
@@ -687,9 +487,9 @@ async fn widget_desk(
     .await
     .unwrap();
 
-    let peers = Arc::new(peers(mesh));
-    let session = Session::new(peers.clone(), Options::default()).unwrap();
-    (session.desk().await.unwrap(), peers)
+    let (machines, calls) = counting(&mesh, hangs);
+    let session = Session::new(machines.clone(), Options::default()).unwrap();
+    (session.desk().await.unwrap(), mesh, machines, calls)
 }
 
 #[tokio::test]
@@ -700,23 +500,20 @@ async fn a_pushing_node_that_stalls_is_read_within_one_wait() {
         .bind()
         .await
         .unwrap();
-    let (desk, peers) = widget_desk(&dir, &endpoint, |mesh| SteppedPeers {
-        mesh,
-        subscription: Arc::new(std::sync::Mutex::new(Subscription::Pushes(7))),
-        delay: Arc::default(),
-        calls: Arc::default(),
-        hangs: true,
-    })
-    .await;
+    let (desk, mesh, machines, _calls) = widget_desk(&dir, &endpoint, true).await;
+    let id = mesh.me();
+    let snapshots = machines.snapshots();
+    let topic = Read::SyncList.topic().unwrap();
+    snapshots.open_stream(id, topic.clone());
+    snapshots.push(id, Read::SyncList, status_of(7));
     let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
     assert_eq!(files(&desk.sync().await), 7);
 
-    // The subscription goes quiet and every step takes most of a wait: a read is cut at one.
-    *peers.subscription.lock().unwrap() = Subscription::Silent;
-    *peers.delay.lock().unwrap() = Duration::from_millis(300);
+    // The subscription goes quiet and the direct call never answers: a read is cut at one wait.
+    snapshots.connected(id, topic, uuid::Uuid::new_v4());
     tokio::time::pause();
     let before = tokio::time::Instant::now();
-    desk.node_statuses(peers.mesh.me()).await;
+    desk.node_statuses(id).await;
     assert!(
         before.elapsed() < SYNC_FIRST_WAIT + Duration::from_millis(10),
         "{:?}",
@@ -734,22 +531,30 @@ async fn a_node_that_refuses_the_topic_after_pushing_is_read_directly_again() {
         .bind()
         .await
         .unwrap();
-    let (desk, peers) = widget_desk(&dir, &endpoint, |mesh| SteppedPeers {
-        mesh,
-        subscription: Arc::new(std::sync::Mutex::new(Subscription::Pushes(7))),
-        delay: Arc::default(),
-        calls: Arc::default(),
-        hangs: false,
-    })
-    .await;
+    let (desk, mesh, machines, calls) = widget_desk(&dir, &endpoint, false).await;
+    let id = mesh.me();
+    let snapshots = machines.snapshots().clone();
+    snapshots.open_stream(id, Read::SyncList.topic().unwrap());
+    snapshots.push(id, Read::SyncList, status_of(7));
     let files = |sync: &[ProjectSync]| sync[0].machines[0].files;
     assert_eq!(files(&desk.sync().await), 7);
 
     // A node that pushed and now refuses is read directly, and a call's answer is kept.
-    *peers.subscription.lock().unwrap() = Subscription::Refuses;
-    assert_eq!(files(&desk.sync().await), 1);
+    let refusal = "no state has been published for this topic";
+    snapshots.refuse(id, Read::SyncList, refusal);
+    let first = snapshots.queries(id)[0].id;
+    let (synced, ()) = tokio::join!(desk.sync(), async {
+        let mut changes = snapshots.changes();
+
+        // The read asks again, and the node refuses it.
+        while snapshots.queries(id).iter().all(|query| query.id == first) {
+            changes.changed().await.unwrap();
+        }
+        snapshots.refuse(id, Read::SyncList, refusal);
+    });
+    assert_eq!(files(&synced), 1);
     assert_eq!(files(&desk.sync().await), 1, "the direct answer is kept");
-    assert_eq!(peers.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
 
     endpoint.close().await;
 }

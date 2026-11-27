@@ -183,7 +183,7 @@ impl Desk {
             ));
         }
 
-        let source = self.peers.client(from).await?;
+        let source = self.machines.client(from).await?;
         let reply = sync_call(
             &source,
             &Request::HandoffSnapshot {
@@ -199,7 +199,7 @@ impl Desk {
                 ));
             }
         };
-        let target = self.peers.client(to).await?;
+        let target = self.machines.client(to).await?;
         let reply = sync_call(
             &target,
             &Request::HandoffApply {
@@ -224,7 +224,7 @@ impl Desk {
         enabled: Option<bool>,
     ) -> Result<beep_proto::node::sync::SyncthingFiles> {
         let client = self
-            .peers
+            .machines
             .client(
                 machine
                     .parse()
@@ -278,7 +278,7 @@ impl Desk {
         wait: Duration,
     ) -> Option<Vec<ProjectStatus>> {
         let direct = self.hosts.direct_syncs();
-        let client = timeout(wait, self.peers.client(machine))
+        let client = timeout(wait, self.machines.client(machine))
             .await
             .ok()
             .and_then(Result::ok);
@@ -519,7 +519,7 @@ impl Desk {
             })
         });
         let (dataset, relative) = selection.unwrap_or_else(|| (project.to_owned(), path));
-        let client = self.peers.client(machine).await?;
+        let client = self.machines.client(machine).await?;
         let reply = sync_call(
             &client,
             &Request::Resolve {
@@ -541,7 +541,7 @@ impl Desk {
         let machine: EndpointId = machine
             .parse()
             .map_err(|_| FleetError::refused("That machine is not known."))?;
-        let client = self.peers.client(machine).await?;
+        let client = self.machines.client(machine).await?;
         let reply = sync_call(
             &client,
             &Request::StartOver {

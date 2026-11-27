@@ -1,5 +1,4 @@
 use super::*;
-use async_trait::async_trait;
 use beep_mesh::{DeviceKind, JOIN_ALPN, PEER_ALPN, transport_config};
 use beep_proto::node::{
     Opened,
@@ -170,23 +169,6 @@ async fn until_online(mesh: &Mesh, id: EndpointId, online: bool) {
     .expect("the machine's presence changed in time");
 }
 
-struct Test(Mesh);
-
-#[async_trait]
-impl Peers for Test {
-    async fn mesh(&self) -> Result<Mesh> {
-        Ok(self.0.clone())
-    }
-    fn me(&self) -> EndpointId {
-        self.0.me()
-    }
-    async fn client(&self, machine: EndpointId) -> Result<PeerClient> {
-        beep_mesh::with_deadline(machine, &self.0)
-            .await
-            .map_err(|e| FleetError::Offline(e.to_string()))
-    }
-}
-
 fn asking() -> Alert {
     Alert {
         session: "s1".into(),
@@ -302,7 +284,10 @@ async fn two(closed: Arc<Notify>) -> (Dev, Dev) {
 #[tokio::test]
 async fn a_machines_question_arrives_with_its_options() {
     let (desktop, node) = two(Arc::new(Notify::new())).await;
-    let (following, mut heard) = follow(Arc::new(Test(desktop.mesh.clone())), desktop.mesh.clone());
+    let (following, mut heard) = follow(
+        Machines::for_tests(desktop.mesh.clone()),
+        desktop.mesh.clone(),
+    );
     let following = tokio::spawn(following);
     let (key, notice, options) = timeout(LIMIT, async {
         loop {
@@ -342,7 +327,10 @@ async fn a_notice_carries_the_title_the_user_gave_its_session() {
     )
     .await
     .expect("the title is saved");
-    let (following, mut heard) = follow(Arc::new(Test(desktop.mesh.clone())), desktop.mesh.clone());
+    let (following, mut heard) = follow(
+        Machines::for_tests(desktop.mesh.clone()),
+        desktop.mesh.clone(),
+    );
     let _following = tokio::spawn(following);
     let notice = timeout(LIMIT, async {
         loop {
@@ -360,7 +348,10 @@ async fn a_notice_carries_the_title_the_user_gave_its_session() {
 async fn machine_leaving_stops_its_stream() {
     let closed = Arc::new(Notify::new());
     let (desktop, node) = two(closed.clone()).await;
-    let (following, mut heard) = follow(Arc::new(Test(desktop.mesh.clone())), desktop.mesh.clone());
+    let (following, mut heard) = follow(
+        Machines::for_tests(desktop.mesh.clone()),
+        desktop.mesh.clone(),
+    );
     let _following = tokio::spawn(following);
     timeout(LIMIT, async {
         while !matches!(heard.recv().await, Some(Heard::Notice { .. })) {}
@@ -382,7 +373,10 @@ async fn a_paired_phone_gets_no_stream() {
     let (desktop, _node) = two(Arc::new(Notify::new())).await;
     let phone_asked = Arc::new(Notify::new());
     let phone = phone(&desktop, "pocket", phone_asked.clone()).await;
-    let (following, mut heard) = follow(Arc::new(Test(desktop.mesh.clone())), desktop.mesh.clone());
+    let (following, mut heard) = follow(
+        Machines::for_tests(desktop.mesh.clone()),
+        desktop.mesh.clone(),
+    );
     let _following = tokio::spawn(following);
     // The node's notice proves the pass over the members ran.
     timeout(LIMIT, async {

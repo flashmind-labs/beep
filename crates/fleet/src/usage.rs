@@ -55,7 +55,7 @@ impl Desk {
     #[tracing::instrument(skip_all, fields(peer = %machine.fmt_short()))]
     async fn listen(&self, machine: EndpointId, name: String, said: &mut Said) {
         let open_limit = self.settle.max(MIN_OPEN);
-        let Ok(Ok(client)) = timeout(open_limit, self.peers.client(machine)).await else {
+        let Ok(Ok(client)) = timeout(open_limit, self.machines.client(machine)).await else {
             self.hosts
                 .usage()
                 .merge_and_fill(machine, false, Vec::new(), HashMap::new(), said);
@@ -124,7 +124,7 @@ impl Desk {
             return;
         }
         // The agents the machine said it has, or both when it has not said.
-        let env = self.peers.last_env(machine);
+        let env = self.machines.last_env(machine);
         let runs = |agent: &AgentSlug| {
             env.as_ref()
                 .is_none_or(|env| env.tools.iter().any(|tool| tool.name == agent.as_ref()))

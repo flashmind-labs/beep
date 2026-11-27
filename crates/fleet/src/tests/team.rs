@@ -1,32 +1,12 @@
 use super::*;
 use crate::{
-    Peers,
+    Machines,
     records::{Place, ProjectRecord, place_key, project_key},
 };
-use async_trait::async_trait;
-use beep_mesh::{Mesh, PeerClient, TeamWrites, take_roster, transport_config};
+use beep_mesh::{Mesh, TeamWrites, take_roster, transport_config};
 use beep_proto::team::Removed;
 use iroh::{Endpoint, SecretKey, endpoint::presets};
-use std::sync::Arc;
 use tempfile::TempDir;
-
-/// A desktop alone in its mesh: no node answers it.
-struct Alone(Mesh);
-
-#[async_trait]
-impl Peers for Alone {
-    async fn mesh(&self) -> Result<Mesh> {
-        Ok(self.0.clone())
-    }
-
-    fn me(&self) -> EndpointId {
-        self.0.me()
-    }
-
-    async fn client(&self, _machine: EndpointId) -> Result<PeerClient> {
-        Err(FleetError::Offline("the node".into()))
-    }
-}
 
 /// A desk over a new mesh with `org/web` imported on this desktop.
 async fn desk(dir: &TempDir) -> (Desk, Mesh) {
@@ -53,7 +33,7 @@ async fn desk(dir: &TempDir) -> (Desk, Mesh) {
     write(&mesh, place_key("org/web", mesh.me()), Some(&place))
         .await
         .expect("written");
-    let desk = Desk::open(Arc::new(Alone(mesh.clone())))
+    let desk = Desk::open(Machines::for_tests(mesh.clone()))
         .await
         .expect("a desk");
 

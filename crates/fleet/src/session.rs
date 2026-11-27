@@ -8,7 +8,7 @@ use crate::{
     changed::{Changed, ProjectRead},
     desk::{Desk, DesktopHosts},
     error::{FleetError, Result},
-    peer::Peers,
+    machines::Machines,
 };
 use crate::{usage::freshest, usage_cache::PlanFollow};
 use beep_proto::watched;
@@ -276,7 +276,7 @@ impl Spent {
 
 pub struct Session {
     options: Options,
-    peers: Arc<dyn Peers>,
+    machines: Arc<Machines>,
     hosts: DesktopHosts,
     changes: UnboundedSender<Changed>,
     /// The feed's one reader, until the follower takes it.
@@ -311,13 +311,13 @@ impl Session {
             .take()
     }
 
-    /// A session over `peers`. [`Session::changes`] tells of each background read that finished.
-    pub fn new(peers: Arc<dyn Peers>, options: Options) -> Result<Arc<Self>> {
+    /// A session over `machines`. [`Session::changes`] tells of each background read that finished.
+    pub fn new(machines: Arc<Machines>, options: Options) -> Result<Arc<Self>> {
         let saved = options.usage_file.as_deref().and_then(load_spend);
         let (changes, follower) = mpsc::unbounded_channel();
         Ok(Arc::new(Self {
             options,
-            peers,
+            machines,
             hosts: DesktopHosts::new(changes.clone())?,
             changes,
             follower: Mutex::new(Some(follower)),
@@ -337,7 +337,7 @@ impl Session {
 
     /// A desk over the mesh, waiting a few seconds for it to open.
     pub async fn desk(&self) -> Result<Desk> {
-        let opened = Desk::with(self.peers.clone(), self.hosts.clone());
+        let opened = Desk::with(self.machines.clone(), self.hosts.clone());
         let mut desk = timeout(self.options.mesh_wait, opened)
             .await
             .map_err(|_| FleetError::NoMesh("still opening".into()))??;

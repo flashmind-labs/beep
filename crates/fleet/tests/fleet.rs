@@ -2,10 +2,9 @@
 //! that answers `status/1`, `shell/1` and `agents/1`; the desktops and the machines are real
 //! members of one mesh. Waits ride on `updates()` and outer timeouts; nothing sleeps.
 
-use async_trait::async_trait;
 use beep_fleet::{
-    Desk, FleetError, ImportJob, Options, Peers, RepositoryRename, RepositoryRenameResult, Session,
-    project_id,
+    Desk, FleetError, ImportJob, Machines, Opened as MeshOpened, Options, RepositoryRename,
+    RepositoryRenameResult, Session, project_id,
 };
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
@@ -28,7 +27,6 @@ use beep_proto::{
 };
 use iroh::{Endpoint, EndpointId, SecretKey, endpoint::presets, protocol::Router};
 use std::{
-    collections::HashMap,
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, Ordering},
@@ -313,86 +311,35 @@ impl FakeNode {
     }
 }
 
-/// A node that pushes its sync status; every other read goes to the node.
-struct PushedSync(Vec<ProjectStatus>);
+/// The desktop's machines: real links to the other desktops, and the fake nodes standing in for
+/// the machines' own sessions, each pushing the sync status it holds.
+fn peering(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)], stuck: &[&Dev]) -> Arc<Machines> {
+    let machines = Machines::for_tests(dev.mesh.clone());
 
-impl beep_mesh::SnapshotReader for PushedSync {
-    fn snapshot(&self, _read: beep_proto::node::events::Read) -> beep_mesh::SnapshotFuture<'_> {
-        Box::pin(async { None })
+    for (dev, node) in nodes {
+        let topic = sync_topic();
+        machines.serve(dev.id, node.session());
+        machines.snapshots().open_stream(dev.id, topic);
+        machines.snapshots().push(
+            dev.id,
+            beep_proto::node::events::Read::SyncList,
+            beep_proto::node::events::Value::Sync(Box::new(sync::Reply::Status {
+                projects: node.synced.clone(),
+            })),
+        );
     }
 
-    fn follow(&self, _read: beep_proto::node::events::Read) -> beep_mesh::FollowFuture<'_> {
-        let status = beep_proto::node::events::Value::Sync(Box::new(sync::Reply::Status {
-            projects: self.0.clone(),
-        }));
-        Box::pin(async move { Some(tokio::sync::watch::channel(Some(Ok(status))).1) })
+    for dev in stuck {
+        machines.stall(dev.id);
     }
+
+    machines
 }
 
-/// The desktop's hold on the mesh: real links to the other desktops, and the fake nodes standing
-/// in for the machines' own sessions.
-struct Peering {
-    mesh: Mesh,
-    me: EndpointId,
-    nodes: HashMap<EndpointId, (SessionFn, Vec<ProjectStatus>)>,
-    /// Machines that never answer, to show a call does not wait on them.
-    stuck: Vec<EndpointId>,
-    /// While set, the mesh is not there.
-    broken: AtomicBool,
-    /// The mesh never finishes opening.
-    never: bool,
-    /// What machines said before, which `last_env` gives back.
-    kept: HashMap<EndpointId, EnvReport>,
-}
-
-#[async_trait]
-impl Peers for Peering {
-    async fn mesh(&self) -> Result<Mesh, FleetError> {
-        if self.never {
-            std::future::pending::<()>().await;
-        }
-
-        if self.broken.load(Ordering::Relaxed) {
-            return Err(FleetError::NoMesh("gone".into()));
-        }
-
-        Ok(self.mesh.clone())
-    }
-
-    fn me(&self) -> EndpointId {
-        self.me
-    }
-
-    fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
-        self.kept.get(&machine).cloned()
-    }
-
-    async fn client(&self, machine: EndpointId) -> Result<PeerClient, FleetError> {
-        if self.stuck.contains(&machine) {
-            std::future::pending::<()>().await;
-        }
-
-        Ok(match self.nodes.get(&machine) {
-            Some((session, synced)) => PeerClient::local(session.clone())
-                .with_snapshot_reader(Arc::new(PushedSync(synced.clone()))),
-            None => PeerClient::over(self.mesh.clone(), machine),
-        })
-    }
-}
-
-fn peering(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)], stuck: &[&Dev]) -> Arc<Peering> {
-    Arc::new(Peering {
-        mesh: dev.mesh.clone(),
-        me: dev.id,
-        nodes: nodes
-            .iter()
-            .map(|(dev, node)| (dev.id, (node.session(), node.synced.clone())))
-            .collect(),
-        stuck: stuck.iter().map(|dev| dev.id).collect(),
-        broken: AtomicBool::new(false),
-        never: false,
-        kept: HashMap::new(),
-    })
+fn sync_topic() -> beep_proto::node::events::Topic {
+    beep_proto::node::events::Read::SyncList
+        .topic()
+        .expect("the sync list has a topic")
 }
 
 async fn desk(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)]) -> Desk {
@@ -2363,7 +2310,7 @@ async fn local_project(
     node: &Arc<FakeNode>,
     fresh: Duration,
 ) -> (
-    Arc<Peering>,
+    Arc<Machines>,
     Arc<beep_fleet::Session>,
     tokio::sync::mpsc::UnboundedReceiver<beep_fleet::Changed>,
 ) {
@@ -2427,14 +2374,14 @@ async fn a_background_read_that_fails_does_not_tell_the_page() {
         .await
         .expect("a cold read");
     // Stale at once; the mesh goes away, so the read behind it fails.
-    peers.broken.store(true, Ordering::Relaxed);
+    peers.set_opened(MeshOpened::Failed("gone".into()));
     session
         .lists("acme/widget", false)
         .await
         .expect("the last read");
     session.settled().await;
     assert_eq!(heard(&mut changes), 0, "a failure is not news");
-    peers.broken.store(false, Ordering::Relaxed);
+    peers.set_opened(MeshOpened::Open(f.studio.mesh.clone()));
     session
         .lists("acme/widget", false)
         .await
@@ -2472,10 +2419,7 @@ async fn forgetting_makes_the_next_read_go_to_the_host() {
 #[tokio::test]
 async fn a_session_does_not_wait_for_a_mesh_that_never_opens() {
     let f = fleet().await;
-    let mut peers = Arc::try_unwrap(peering(&f.studio, &[], &[]))
-        .ok()
-        .expect("one owner");
-    peers.never = true;
+    let peers = Machines::new(f.studio.id, None);
     let session = beep_fleet::Session::new(
         Arc::new(peers),
         beep_fleet::Options {
@@ -3133,16 +3077,10 @@ async fn the_agent_accounts_list_this_mac_though_its_own_probe_says_nothing() {
         ..FakeNode::default()
     });
     // This Mac has no node to ask here: all it has is what its node reported before.
-    let peering = Peering {
-        mesh: f.laptop.mesh.clone(),
-        me: f.laptop.id,
-        nodes: HashMap::from([(f.build.id, (build.session(), Vec::new()))]),
-        stuck: Vec::new(),
-        broken: AtomicBool::new(false),
-        never: false,
-        kept: HashMap::from([(f.laptop.id, with_agents())]),
-    };
-    let laptop = Desk::open(Arc::new(peering)).await.expect("the desk opens");
+    let peering = Machines::for_tests(f.laptop.mesh.clone());
+    peering.serve(f.build.id, build.session());
+    peering.set_env(f.laptop.id, with_agents());
+    let laptop = Desk::open(peering).await.expect("the desk opens");
     let accounts = laptop.agent_accounts().await.expect("it lists");
     let names: Vec<_> = accounts
         .machines
