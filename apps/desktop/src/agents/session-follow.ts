@@ -8,7 +8,7 @@ import { currentLocation, go } from "../center/nav.ts";
 import { type AgentRow, type AgentPage, type OpenAgent, type AgentModes, type AgentTask, AG, AGENT_ACTIVE, AGENT_LAST, AGENT_READ_WAIT_MS, openModes, openTasks, where } from "./agents-state.ts";
 import { drawAgentBody } from "./logview.tsx";
 import { disposeQueue } from "./composer-ui.tsx";
-import { Channel, invoke, logError, logInfo, recordTiming } from "../ui/tauri.ts";
+import { Channel, invoke, listen, logError, logInfo, recordTiming } from "../ui/tauri.ts";
 import { joinRuns, newestRead, viewRead } from "./older-state.ts";
 import { hasNews, LINKED, noteAfterRead, readFailed, RETRY_MS, viewError } from "./reconnect-state.ts";
 import { endPage, mergePage } from "./open-page.ts";
@@ -152,8 +152,13 @@ export function warmSessions(all: readonly AgentRow[]) {
     const state = `${row.machine_id} ${row.status} ${activityOf(row)}`;
     if (tried.get(key) === state) continue;
     tried.set(key, state);
-    const o = openOf(row), activity = activityOf(row);
-    const follow = () => { if (activity !== "idle" && paneShown()) feed.warm(o, activity); };
+    const o = openOf(row);
+    // The row as it is once the kept page is read: it may have gone idle since.
+    const follow = () => {
+      const now = sessions.find(s => s.machine_id === row.machine_id && s.id === row.id);
+      const activity = now ? activityOf(now) : "idle";
+      if (activity !== "idle" && paneShown()) feed.warm(o, activity);
+    };
 
     if (transcripts.peek(key)) follow();
     else void keptTranscript(o).then(follow);
@@ -161,7 +166,8 @@ export function warmSessions(all: readonly AgentRow[]) {
 }
 
 sessionsRead.add(() => warmSessions(sessions));
-transcripts.open = () => AG.open ? transcriptKey(AG.open) : null;
+// A link that dropped closed the readers off screen: the next list warms them again.
+listen("reconnected", () => tried.clear());
 
 /// The steers the live page lists. It must still be followed for its queue to be current.
 export function heldSteers(o: OpenAgent): string[] {

@@ -136,3 +136,22 @@ test("amending a held page replaces it and tells the listeners", () => {
   cache.amend("missing", page => page);
   assert.equal(heard, 1);
 });
+
+test("the pinned page is never evicted, and a seed obeys the limit", () => {
+  const cache = new TranscriptCache<Run>(2);
+  cache.receive("open", update("snapshot", 0, ["a"]));
+  cache.pin("open");
+  cache.receive("one", update("snapshot", 0, ["b"]));
+  cache.receive("two", update("snapshot", 0, ["c"]));
+  assert.ok(cache.peek("open"));
+  assert.equal(cache.peek("one"), undefined);
+  assert.ok(cache.peek("two"));
+
+  const kept = (text: string) => ({ page: { earlier: 0, entries: [{ kind: "agent", text }] }, cursor: { start: 0, next: 1, fingerprint: text } });
+  cache.seed("three", kept("d"));
+  cache.seed("four", kept("e"));
+  assert.ok(cache.peek("open"));
+  assert.equal(cache.peek("two"), undefined);
+  assert.equal(cache.peek("three"), undefined);
+  assert.ok(cache.peek("four"));
+});

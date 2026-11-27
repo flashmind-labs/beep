@@ -40,7 +40,9 @@ export class TranscriptCache<T extends Run> {
   private readonly extras = new Map<string, { modes: AgentModes | null; tasks: AgentTask[] }>();
 
   /// The key of the session on screen, whose page is never evicted: its next update must append to it.
-  open: () => string | null = () => null;
+  private pinned: string | null = null;
+
+  pin(key: string | null) { this.pinned = key; }
 
   constructor(limit = 8, characters = 8 * 1024 * 1024) {
     this.limit = limit;
@@ -154,7 +156,7 @@ export class TranscriptCache<T extends Run> {
 
   /// Drops the oldest pages past the limits, except the one on screen.
   private evict() {
-    const shown = this.open();
+    const shown = this.pinned;
 
     while (this.sessions.size > this.limit || this.size() > this.characters) {
       const oldest = [...this.sessions.keys()].find(key => key !== shown);

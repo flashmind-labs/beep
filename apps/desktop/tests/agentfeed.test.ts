@@ -216,3 +216,18 @@ test("a held session opens again after its link drops, and reports one that neve
   assert.deepEqual(reports, ["failed"]);
   assert.deepEqual(failed, []);
 });
+
+test("a warmed asking session stays followed among eight hidden ones that were viewed", () => {
+  const { feed, readers, closed } = setup();
+
+  for (let i = 0; i < BACKGROUND_FOLLOWS; i++) {
+    feed.follow(`seen-${i}`);
+    readers[i].receive("page");
+    feed.activity(`seen-${i}`, "running");
+  }
+
+  feed.leave();
+  feed.warm("asked", "asking");
+  assert.equal(feed.followed().includes("asked"), true);
+  assert.equal(closed.includes(String(BACKGROUND_FOLLOWS)), false);
+});

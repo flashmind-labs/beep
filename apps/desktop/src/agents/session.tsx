@@ -102,6 +102,7 @@ function showSession(s: AgentRow, { why = "", back: from, adopt = false }: { why
   setView("agent");
   AG.draft = null;
   const open: OpenAgent = openOf(s);
+  transcripts.pin(transcriptKey(open));
   const log = inPlace ? null : keptLogs.get(sessionKey(s)) ?? null;
   const held = keptPage(log, transcripts.get(transcriptKey(open))?.page ?? null);
   openPage(s, held);

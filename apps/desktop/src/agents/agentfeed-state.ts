@@ -107,13 +107,14 @@ export class AgentFeed<K, T> {
   /// is not shown, so it marks nothing read, and it counts under `BACKGROUND_FOLLOWS`. It starts as
   /// `activity`, so the limit weighs it as what it does.
   warm(key: K, activity: Activity) {
-    const reader = this.ensure(key, this.transport.name(key));
-    if (reader.name !== this.shown && reader.activity === "idle") reader.activity = activity;
+    const name = this.transport.name(key);
+    const reader = this.ensure(key, name, activity);
+    if (name !== this.shown && reader.activity === "idle") reader.activity = activity;
     this.limit();
   }
 
   /// The reader of `name`, opened again when it ended and its time to retry came.
-  private ensure(key: K, name: string) {
+  private ensure(key: K, name: string, activity: Activity = "idle") {
     let reader = this.readers.get(name);
 
     if (reader?.ended && this.transport.now() >= reader.retryAt) {
@@ -121,7 +122,7 @@ export class AgentFeed<K, T> {
       reader = undefined;
     }
 
-    return reader ?? this.open(key, name);
+    return reader ?? this.open(key, name, activity);
   }
 
   /// The session on screen leaves it: the window hid or another view opened.
@@ -183,11 +184,11 @@ export class AgentFeed<K, T> {
     }
   }
 
-  private open(key: K, name: string) {
+  private open(key: K, name: string, activity: Activity = "idle") {
     const now = this.transport.now();
     const reader: Reader<K> = {
       key, name, id: this.transport.id(), live: false, version: ++this.serial, retryAt: 0, ended: false,
-      viewed: 0, activity: "idle", idleSince: now, idle: null,
+      viewed: 0, activity, idleSince: now, idle: null,
     };
     this.readers.set(name, reader);
     const receive = (update: T) => {
