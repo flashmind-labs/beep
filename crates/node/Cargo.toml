@@ -1,6 +1,6 @@
 [package]
 name = "beep-node"
-version = "0.8.31"
+version = "0.8.32"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

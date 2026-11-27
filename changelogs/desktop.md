@@ -7,6 +7,32 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.45] - 2026-11-27
+
+### Added
+
+- Desktop: the bell and a system notification now tell you when someone asks for your review or assigns you a pull request or issue on GitHub or Forgejo. Turn it off in Settings under Pull request notifications.
+
+### Fixed
+
+- Beep Desktop and Mobile start a continued session as soon as you finish picking a harness and model from `Continue with`, or when picking another harness from `Retry with another model`.
+- Beep Desktop and Mobile update the composer placeholder and keep focus in the message field when switching to another harness in the model picker.
+- Beep Desktop and Mobile show `Continued from` and `Continued in` links in the session log and keep the earlier session's title when continuing a chat under another harness.
+- Desktop: New and short conversations now display at the top of the window again instead of sitting at the bottom, while long conversations still stay anchored at the latest message while older history loads.
+- Desktop: Starting a new conversation no longer shows a temporary or untitled duplicate alongside it in Running.
+- Desktop: Windows on macOS keep their content visible in Mission Control and when switching back from another Space instead of showing a blank grey or blurred background.
+- Desktop: the model picker in a chat now offers only the coding agents the project allows, so a model can no longer switch a chat to an agent the project blocks.
+- Desktop: Updating or quitting Beep on macOS no longer freezes the app when several project windows are open.
+- Desktop: a coding agent reply that mentions a tag such as `<title>` shows the tag as text instead of breaking the rest of the reply.
+- Desktop: Queued steer messages with attached images can now be removed and edited.
+- Desktop: Removing or editing a queued steer message updates the queue immediately on click.
+
+### Performance
+
+- Desktop: Compresses network streams with zstd and requests incremental updates for session lists and live transcripts to reduce bandwidth, with slower background update cadence when hidden or off screen.
+- Desktop: Backs off mesh reconnect attempts to offline peers.
+- Desktop: Sessions on a busy machine open in moments again, instead of waiting up to 20 seconds behind lookups that ran after every file change.
+
 ## [0.10.44] - 2026-11-27
 
 ### Added

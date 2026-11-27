@@ -2,6 +2,27 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.32] - 2026-11-27
+
+### Added
+
+- Beep Node supports live in-turn steering for `pi` sessions through ACP `_session/steering`.
+
+### Fixed
+
+- Node: Send messages and steers queued while an agent works on a background task update instead of leaving them stuck after the session returns to idle.
+- Beep Node finishes stopping `pi` turns as soon as the model stream aborts instead of timing out on slow extension `agent_settled` hooks, and preserves queued steers if an unstoppable session is later resumed.
+- Beep Node inherits the earlier session's title when starting a continued session across harnesses.
+- Node: Format `flsh` and `pi` Beep MCP tool calls in live turns and saved transcripts, and show subagent cards for `flsh` `start_agent` calls.
+- Node: Opening a tool-heavy conversation now includes enough folded turns in the initial snapshot to fill the view without extra history reads.
+- Node: Agent sessions that Beep is starting or running no longer appear a second time as untitled external sessions.
+
+### Performance
+
+- Node: Syncs projects only when mesh peers are connected, sharing single connections across projects and backing off reconnect attempts to offline peers.
+- Node: Compresses large network messages with zstd when supported by peers to reduce bandwidth usage.
+- Node: Sends incremental updates for session queries and live transcripts instead of retransmitting full snapshots on every change, with slower update cadence for background sessions.
+
 ## [0.8.31] - 2026-11-27
 
 ### Added
