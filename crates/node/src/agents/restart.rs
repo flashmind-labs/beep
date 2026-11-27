@@ -11,9 +11,12 @@ use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
     sync::Arc,
-    time::Duration,
 };
-use tokio::{task::spawn_blocking, time::timeout};
+#[cfg(feature = "cli")]
+use std::time::Duration;
+use tokio::task::spawn_blocking;
+#[cfg(feature = "cli")]
+use tokio::time::timeout;
 
 /// The first line of a resumed session's transcript.
 const RESUMED: &str = "Resumed after beep-node restarted";

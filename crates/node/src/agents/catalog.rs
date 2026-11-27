@@ -24,7 +24,7 @@ use tokio::{sync::watch, time::timeout};
 pub(super) const SETTINGS_WAIT: Duration = Duration::from_secs(60);
 
 #[derive(Default)]
-pub(crate) struct Catalog {
+pub struct Catalog {
     /// The agents it can start, replaced when detection finds others.
     pub(super) kinds: watch::Sender<Arc<Vec<AgentKind>>>,
     /// The adapters the node installs itself.
@@ -65,7 +65,7 @@ impl Catalog {
     /// Lists the skills in Beep's own skills folder for the sessions
     /// started from now on, as a node that serves does. Only the first call
     /// counts.
-    pub(crate) fn list_beep_skills(&self) {
+    pub fn list_beep_skills(&self) {
         if let Some(dir) = crate::machine::provision::skills_dir() {
             let _ = self.skills_dir.set(dir);
         }

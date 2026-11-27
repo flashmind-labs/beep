@@ -122,7 +122,7 @@ host! {
         sources: Mutex<std::sync::Weak<follow::observers::Sources>>,
         /// The agents it can start, how their adapters stand and the user's
         /// settings for them.
-        pub(crate) catalog: Arc<catalog::Catalog>,
+        pub catalog: Arc<catalog::Catalog>,
         pub(crate) sessions: sessions::Sessions,
         /// The pictures sessions' transcripts show, by session.
         images: Arc<Images>,
