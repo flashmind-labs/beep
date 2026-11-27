@@ -44,6 +44,7 @@ use tokio::{
 use tokio_util::{sync::CancellationToken, task::AbortOnDropHandle};
 
 mod fetch;
+mod gate;
 pub(crate) mod offer;
 mod progress;
 
@@ -364,8 +365,8 @@ impl Transfers {
             membership,
         )
         .await?;
-        let grants = Arc::new(Grants::new(syncs.access()));
-        let (events, events_task) = grants::events(grants.clone());
+        let grants = Arc::new(Grants::new());
+        let (events, events_task) = gate::events(grants.clone(), syncs.clone());
         let served = Served {
             blobs: BlobsProtocol::new(&parts.store, Some(events)),
             sync: PeerHandler {

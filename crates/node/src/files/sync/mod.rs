@@ -5,7 +5,6 @@ use crate::{
     files::Folders,
     files::syncthing::{Managed, Syncthing},
     files::{
-        grants::Access,
         place::{Journal, Room, open_target},
     },
     membership::Membership,
@@ -190,7 +189,9 @@ impl Inner {
     }
 }
 
-impl Access for Inner {
+impl Inner {
+    /// Whether `peer` may fetch anything at all: a device the node's mesh
+    /// lists as removed may not, whatever is open for it.
     fn allows(&self, peer: &EndpointId) -> bool {
         !self.removed(peer)
     }
@@ -279,9 +280,14 @@ impl Syncs {
         Ok(syncs)
     }
 
-    /// What lets peers fetch the projects' files.
-    pub(crate) fn access(&self) -> Arc<dyn Access> {
-        self.inner.clone()
+    /// Whether `peer` is a peer of a synced project, so may connect.
+    pub(crate) fn may_connect(&self, peer: &EndpointId) -> bool {
+        self.inner.may_connect(peer)
+    }
+
+    /// Whether `peer` may fetch the blob `hash` of a synced project.
+    pub(crate) fn may_get(&self, peer: &EndpointId, hash: &Hash) -> bool {
+        self.inner.may_get(peer, hash)
     }
 
     /// How other nodes reach this one.
@@ -1102,7 +1108,7 @@ impl Syncs {
 
     /// Whether `peer` may still make requests: it was not removed from the
     /// mesh.
-    fn allows(&self, peer: &EndpointId) -> bool {
+    pub(crate) fn allows(&self, peer: &EndpointId) -> bool {
         self.inner.allows(peer)
     }
 }
