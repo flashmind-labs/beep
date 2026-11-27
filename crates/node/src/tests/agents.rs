@@ -276,6 +276,39 @@ async fn a_transcripts_owner_reads_a_live_session_without_agents() {
     agents.shutdown().await;
 }
 
+/// One `Sessions` and one `Links` are shared by every owner built from
+/// them, and shutting down a node with no sessions returns.
+#[tokio::test]
+async fn the_owners_share_one_sessions_and_one_links() {
+    let agents = Agents::new(Parts::default());
+
+    for sessions in [
+        &agents.starter.sessions,
+        &agents.family.sessions,
+        &agents.listings.sessions,
+        &agents.delete.sessions,
+        &agents.reopen.sessions,
+    ] {
+        assert!(Arc::ptr_eq(sessions, &agents.sessions));
+    }
+
+    for links in [
+        &agents.starter.links,
+        &agents.family.links,
+        &agents.reopen.links,
+    ] {
+        assert!(Arc::ptr_eq(links, &agents.links));
+    }
+
+    assert!(Arc::ptr_eq(&agents.starter.family, &agents.family));
+    assert!(Arc::ptr_eq(&agents.starter.delete, &agents.delete));
+    assert!(Arc::ptr_eq(&agents.starter.reopen, &agents.reopen));
+    assert!(Arc::ptr_eq(&agents.starter.listings, &agents.listings));
+    tokio::time::timeout(Duration::from_secs(5), agents.shutdown())
+        .await
+        .expect("a node with no sessions shuts down");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn a_replayed_image_is_served_and_found_again_once_evicted() {

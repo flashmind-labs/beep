@@ -536,6 +536,40 @@ async fn the_receiver_of_closed_children_is_taken_once() {
     assert!(agents.delete.take_closed().is_none());
 }
 
+/// `start_upkeep` takes the closed-children receiver once and deletes a
+/// background child that closes, holding only the catalog and the deleter.
+#[tokio::test]
+async fn start_upkeep_deletes_a_background_child_that_closes() {
+    let Machine { dir: _dir, agents } = Machine::new();
+    let agents = Arc::new(agents);
+    let upkeep = agents.start_upkeep();
+    let session = agents
+        .starter
+        .start(
+            &kind("claude"),
+            Some("/"),
+            Begin {
+                resume: Some(SessionId::from(CLAUDE_ID)),
+                ..Begin::default()
+            },
+        )
+        .await
+        .expect("a session");
+    assert_eq!(agents.sessions.list().len(), 1);
+    agents.delete.tidy_when_closed(&session);
+    session.close().await;
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !agents.sessions.list().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the closed child is deleted by the upkeep");
+    assert!(agents.delete.take_closed().is_none(), "the upkeep took it");
+    drop(upkeep);
+}
+
 #[tokio::test]
 async fn a_background_child_that_closes_for_good_is_deleted_by_its_own_receiver() {
     let m = Machine::new();
