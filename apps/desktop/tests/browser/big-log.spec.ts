@@ -188,3 +188,32 @@ test("a session that asks is followed before it opens and paints at once", async
   await expect(page.locator("#agbody .dagmain")).toBeAttached();
   expect(await calls("agent_view")).toHaveLength(0);
 });
+
+const askingRow = { ...session, id: "asking-two", title: "Needs an answer", status: "asking", question: { id: "q1", text: "Proceed?", detail: null, options: [] } };
+const follows = (page: import("@playwright/test").Page, id: string) =>
+  page.evaluate(wanted => window.__navigation.calls().filter(c => c.command === "agent_follow" && c.args.session === wanted).map(c => c.args), id);
+
+test("an asking session with a kept page is followed on from the kept cursor", async ({ page }) => {
+  const cursor = { start: 0, next: 2, fingerprint: "kept" };
+  await openDesktop(page, true, { transcript_kept: { page: { session: askingRow, plan: [], entries: [{ kind: "user", text: "Kept question" }, { kind: "agent", text: "Kept answer" }], earlier: 0, error: null, queued: 0, queued_messages: [], turns: 1, usage: null }, cursor } });
+  await page.evaluate(rows => { window.__navigation.respond("agent_sessions", rows); window.__navigation.notify("home"); }, [askingRow]);
+
+  await expect.poll(async () => (await follows(page, askingRow.id)).length).toBe(1);
+  expect((await follows(page, askingRow.id))[0].after).toEqual(cursor);
+});
+
+test("a warm follow that failed is not tried again by the next identical push", async ({ page }) => {
+  await openDesktop(page, true);
+  await page.evaluate(() => window.__navigation.rejectAll("agent_follow"));
+  const push = () => page.evaluate(rows => { window.__navigation.respond("agent_sessions", rows); window.__navigation.notify("home"); }, [askingRow]);
+
+  await push();
+  await expect.poll(async () => (await follows(page, askingRow.id)).length).toBe(1);
+  const kept = () => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "transcript_kept").length);
+  const reads = await kept();
+  await push();
+  await push();
+  await page.waitForTimeout(300);
+  expect((await follows(page, askingRow.id)).length).toBe(1);
+  expect(await kept()).toBe(reads);
+});

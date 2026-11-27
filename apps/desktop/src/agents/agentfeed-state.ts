@@ -104,9 +104,11 @@ export class AgentFeed<K, T> {
   }
 
   /// Follows `key` off screen, ahead of its being opened. It is an ordinary background reader: it
-  /// is not shown, so it marks nothing read, and it counts under `BACKGROUND_FOLLOWS`.
-  warm(key: K) {
-    this.ensure(key, this.transport.name(key));
+  /// is not shown, so it marks nothing read, and it counts under `BACKGROUND_FOLLOWS`. It starts as
+  /// `activity`, so the limit weighs it as what it does.
+  warm(key: K, activity: Activity) {
+    const reader = this.ensure(key, this.transport.name(key));
+    if (reader.name !== this.shown && reader.activity === "idle") reader.activity = activity;
     this.limit();
   }
 

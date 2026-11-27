@@ -7,7 +7,7 @@ test("artifact list updates retain focus and the selected preview frame", async 
   const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>').toString("base64");
   const html = paneScript + `<a href="data:image/svg+xml;base64,${svg}" download="graph.svg">Export SVG</a>`;
   const src = `data:text/html,${encodeURIComponent(html)}`;
-  await openDesktop(page, true, { agent_artifact: { kind: "html", size: html.length, src }, agent_preview_export: "/home/user/Downloads/graph.svg" });
+  await openDesktop(page, true, { agent_sessions: [], agent_artifact: { kind: "html", size: html.length, src }, agent_preview_export: "/home/user/Downloads/graph.svg" });
   await page.evaluate(() => {
     const invoke = window.__TAURI__.core.invoke;
     window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {

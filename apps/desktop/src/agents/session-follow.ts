@@ -124,12 +124,14 @@ export async function keptTranscript(o: OpenAgent): Promise<AgentPage | null> {
 
 /// How many sessions are made ready before they are opened.
 const WARM_SESSIONS = 4;
-/// The sessions being warmed, by key, so a push that comes meanwhile does not start them twice.
-const warming = new Set<string>();
+/// What each session warmed was doing when it was tried, by key. A session is tried again only when
+/// that changes, so a failed follow or a kept read is not repeated by every push of the list.
+const tried = new Map<string, string>();
 
 /// Makes ready the sessions the user most likely opens next, so each draws at the bottom at once:
 /// those asking, then those running, then the latest visited. Each takes its page kept on disk; one
-/// that asks or runs and has none is followed off screen. An idle one is not read before a click.
+/// that asks or runs is then followed off screen, from the cursor of that page when it has one. An
+/// idle one is not read over the mesh before a click.
 export function warmSessions(all: readonly AgentRow[]) {
   if (!paneShown() || onPhone()) return;
   // A start has no stream to follow.
@@ -144,18 +146,22 @@ export function warmSessions(all: readonly AgentRow[]) {
     picked.set(transcriptKey(openOf(row)), row);
   }
 
-  for (const [key, row] of picked) {
-    if (transcripts.peek(key) || warming.has(key)) continue;
-    warming.add(key);
-    const o = openOf(row);
+  for (const key of [...tried.keys()]) if (!picked.has(key)) tried.delete(key);
 
-    void keptTranscript(o).finally(() => warming.delete(key)).then(() => {
-      if (activityOf(row) !== "idle" && !transcripts.peek(key) && paneShown()) feed.warm(o);
-    });
+  for (const [key, row] of picked) {
+    const state = `${row.machine_id} ${row.status} ${activityOf(row)}`;
+    if (tried.get(key) === state) continue;
+    tried.set(key, state);
+    const o = openOf(row), activity = activityOf(row);
+    const follow = () => { if (activity !== "idle" && paneShown()) feed.warm(o, activity); };
+
+    if (transcripts.peek(key)) follow();
+    else void keptTranscript(o).then(follow);
   }
 }
 
 sessionsRead.add(() => warmSessions(sessions));
+transcripts.open = () => AG.open ? transcriptKey(AG.open) : null;
 
 /// The steers the live page lists. It must still be followed for its queue to be current.
 export function heldSteers(o: OpenAgent): string[] {

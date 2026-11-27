@@ -39,6 +39,9 @@ export class TranscriptCache<T extends Run> {
   /// dropped when the session is evicted or forgotten, not when a gap drops the page.
   private readonly extras = new Map<string, { modes: AgentModes | null; tasks: AgentTask[] }>();
 
+  /// The key of the session on screen, whose page is never evicted: its next update must append to it.
+  open: () => string | null = () => null;
+
   constructor(limit = 8, characters = 8 * 1024 * 1024) {
     this.limit = limit;
     this.characters = characters;
@@ -70,6 +73,7 @@ export class TranscriptCache<T extends Run> {
   seed(key: string, kept: Cached<T>) {
     if (this.sessions.has(key)) return;
     this.sessions.set(key, kept);
+    this.evict();
     this.changed();
   }
 
@@ -142,16 +146,22 @@ export class TranscriptCache<T extends Run> {
     this.sizes.set(key, size);
     if (update.modes !== undefined && update.tasks) this.extras.set(key, { modes: update.modes, tasks: update.tasks });
 
+    this.evict();
+    this.changed();
+
+    return page;
+  }
+
+  /// Drops the oldest pages past the limits, except the one on screen.
+  private evict() {
+    const shown = this.open();
+
     while (this.sessions.size > this.limit || this.size() > this.characters) {
-      const oldest = this.sessions.keys().next().value;
+      const oldest = [...this.sessions.keys()].find(key => key !== shown);
       // One retained window is bounded by the node even when it exceeds the shared budget.
       if (oldest === undefined || this.sessions.size === 1) break;
       this.delete(oldest);
     }
-
-    this.changed();
-
-    return page;
   }
 
   private size() {
