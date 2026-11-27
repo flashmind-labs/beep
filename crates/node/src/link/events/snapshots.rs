@@ -1,6 +1,22 @@
 use beep_proto::SessionId;
 use beep_proto::node::agent::SessionInfo;
-use super::*;
+use super::ask::{ask, execute};
+use crate::link::Offers;
+use anyhow::{Context, Result, bail};
+use beep_proto::node::{
+    agent::{SessionsReply, SessionsRequest},
+    events::{self, CallReply, Operation, Topic},
+};
+
+use std::{
+    collections::{BTreeMap, HashSet},
+    path::PathBuf,
+    time::Duration,
+};
+use tokio::{
+    task::JoinSet,
+    time::{Instant, timeout},
+};
 use beep_proto::{node::device::Device, watched};
 use tokio::sync::watch;
 use crate::events::{ChangeKind, Touched};
@@ -602,7 +618,7 @@ impl Snapshots {
                             .and_then(|team| crate::team::apps::cards_of(team, &project))
                             .map_or(Value::Missing, Value::TeamCards)),
                         Source::Terminal(id) => {
-                            let list = super::ask(
+                            let list = ask(
                                 &beep_proto::node::terminal::Request::List {},
                                 crate::run::terminal::serve,
                             )
@@ -876,7 +892,7 @@ async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Res
             }
         }
         Read::SignIn { tool } => {
-            let state = super::ask(
+            let state = ask(
                 &beep_proto::node::sign_in::Request::State { tool },
                 crate::machine::sign_in::serve,
             )
@@ -889,7 +905,7 @@ async fn read_value(offers: Offers, caller: iroh::EndpointId, read: Read) -> Res
             crate::run::tasks::answer(crate::run::tasks::Table::Shared, request).await,
         )),
         Read::TerminalList => {
-            let list = super::ask(
+            let list = ask(
                 &beep_proto::node::terminal::Request::List {},
                 crate::run::terminal::serve,
             )

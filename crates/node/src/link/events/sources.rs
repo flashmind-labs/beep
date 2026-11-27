@@ -1,6 +1,9 @@
 //! Topic streams own the sources they keep running. Registries hold weak references only.
 
-use super::{FileBindings, FileWatcher, MAX_FILE_ROOTS, Offers, TOO_MANY_ROOTS, broad_files, has_git};
+use super::roots::{
+    FileBindings, FileWatcher, MAX_FILE_ROOTS, TOO_MANY_ROOTS, broad_files, has_git, resolve,
+};
+use crate::link::Offers;
 use crate::{
     AsyncMutex,
     events::{Change, ChangeKind, Touched},
@@ -100,7 +103,7 @@ impl Source {
     /// started last wins, whichever finishes last.
     async fn resolve(&self, offers: &Offers) -> Result<()> {
         let ticket = self.issued.fetch_add(1, Ordering::Relaxed) + 1;
-        let wanted = super::resolve(offers, std::slice::from_ref(&self.topic)).await?;
+        let wanted = resolve(offers, std::slice::from_ref(&self.topic)).await?;
         #[cfg(test)]
         {
             let gate = crate::lock(&self.after_lookup).take();

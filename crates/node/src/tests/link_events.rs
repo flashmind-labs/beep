@@ -1,8 +1,10 @@
 use super::*;
 use beep_proto::node::{
-    events::{Query, Read, Reply, Value},
+    agent::SessionsReply,
+    events::{CallReply, Operation, Query, Read, Reply, Value},
     local_link, process,
 };
+use tokio_util::task::AbortOnDropHandle;
 
 async fn next(rx: &mut LinkRx) -> Reply {
     loop {

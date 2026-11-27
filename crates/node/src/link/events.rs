@@ -2,19 +2,16 @@
 
 use super::Offers;
 use crate::events::{HEARTBEAT, Touched};
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
-    agent::{SessionsReply, SessionsRequest},
-    events::{self, CallReply, Incoming, Operation, Request, Topic},
+    events::{self, Incoming, Request, Topic},
     subscriptions::{self, Reply},
 };
 use beep_proto::watched;
-use futures::{FutureExt, StreamExt, future::join_all};
+use futures::{FutureExt, StreamExt};
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
-    path::PathBuf,
-    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{
@@ -23,27 +20,21 @@ use tokio::{
     time::{Instant, MissedTickBehavior, interval_at, timeout},
 };
 use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
-use tokio_util::task::AbortOnDropHandle;
 
 const WRITE_WAIT: Duration = Duration::from_secs(15);
 const MAX_CALLS: usize = 16;
 const MAX_QUEUED_WATCHES: usize = 16;
-const MAX_FILE_ROOTS: usize = 512;
-const TOO_MANY_ROOTS: &str = "too many watched directories; subscribe to specific file roots";
 
+mod ask;
 mod git;
 mod git_reads;
 mod snapshots;
+mod roots;
 pub(crate) mod sources;
+pub(super) use ask::execute;
+use roots::broad_files;
 use snapshots::Snapshots;
 use sources::{Pass, Passes, Subscriptions};
-
-type FileBindings = BTreeMap<Topic, Vec<PathBuf>>;
-
-struct FileWatcher {
-    paths: crate::events::paths::Paths,
-    bindings: Arc<Mutex<FileBindings>>,
-}
 
 /// Which stream protocol a loop serves. `events/1` and `peer-subscriptions/1` carry the same
 /// topics and snapshots, with different bytes, and only `events/1` takes calls.
@@ -466,169 +457,6 @@ fn watches_files(topics: &[Topic]) -> bool {
     topics
         .iter()
         .any(|topic| matches!(topic.name(), "files" | "*"))
-}
-
-fn broad_files(topics: &[Topic]) -> bool {
-    topics
-        .iter()
-        .any(|topic| topic.name() == "*" || (topic.name() == "files" && topic.key().is_none()))
-}
-
-/// The roots `topics` name now, by topic.
-async fn resolve(offers: &Offers, topics: &[Topic]) -> Result<BTreeMap<Topic, PathBuf>> {
-    let mut wanted = BTreeMap::new();
-
-    if broad_files(topics) {
-        for root in offers.agents.notification_roots().await? {
-            let key = root.to_str().context("a notification root is not UTF-8")?;
-            wanted.insert(Topic::keyed("files", key), root);
-        }
-    }
-
-    // The roots are checked together: each check can wait on a worktree list.
-    let projects: Vec<_> = project_files(offers)
-        .into_iter()
-        .filter(|(topic, _)| topics.iter().any(|wanted| wanted.covers(topic)))
-        .collect();
-    let reached = join_all(
-        projects
-            .iter()
-            .map(|(_, path)| offers.agents.reachable(path, crate::agents::reach::Access::Read)),
-    )
-    .await;
-
-    for ((topic, _), reached) in projects.into_iter().zip(reached) {
-        match reached {
-            Ok(root) => {
-                wanted.insert(topic, root);
-            }
-            Err(error) if topics.iter().any(|wanted| wanted == &topic) => return Err(error),
-            Err(_) => {}
-        }
-    }
-
-    let literal: Vec<_> = topics
-        .iter()
-        .filter(|topic| topic.name() == "files" && !topic.is_pattern())
-        .filter_map(|topic| match topic.resource_segments() {
-            // Local paths are opaque literal segments. Project aliases use their mesh names.
-            [path] if std::path::Path::new(path).is_absolute() || path.starts_with("~/") => {
-                Some((topic, path))
-            }
-            _ => None,
-        })
-        .collect();
-    let reached = join_all(
-        literal
-            .iter()
-            .map(|(_, path)| offers.agents.reachable(path, crate::agents::reach::Access::Read)),
-    )
-    .await;
-
-    for ((topic, _), root) in literal.into_iter().zip(reached) {
-        wanted.insert(topic.clone(), root?);
-    }
-
-    if wanted.len() > MAX_FILE_ROOTS {
-        bail!(TOO_MANY_ROOTS);
-    }
-
-    Ok(wanted)
-}
-
-/// Whether a root's bindings include its Git metadata after the root itself.
-fn has_git(dependencies: &[PathBuf]) -> bool {
-    dependencies.len() > 1
-}
-
-/// Resolve public project aliases through this node's signed mesh placement records.
-fn project_files(offers: &Offers) -> BTreeMap<Topic, String> {
-    use beep_mesh::Key;
-    use beep_proto::node::mesh_state::{StateValue, SyncSpec};
-    let Some(mesh) = offers.mesh.get() else {
-        return BTreeMap::new();
-    };
-    let mut projects = BTreeMap::new();
-
-    for (key, bytes) in mesh.scan("sync/") {
-        if let Key::Sync(name) = key
-            && let Ok(spec) = SyncSpec::from_bytes(&bytes)
-            && let Some(folder) = spec.folders.get(&mesh.me())
-        {
-            let topic = Topic::scoped("files", name.split('/'));
-            if topic.valid() {
-                projects.insert(topic, folder.clone());
-            }
-        }
-    }
-
-    for (name, _, place) in super::from_mesh::placed_projects(&mesh, mesh.me()) {
-        let topic = Topic::scoped("files", name.split('/'));
-        if topic.valid() {
-            projects.insert(topic, place.folder);
-        }
-    }
-
-    projects
-}
-
-pub(super) async fn execute(
-    agents: Arc<crate::agents::Agents>,
-    caller: iroh::EndpointId,
-    operation: Operation,
-) -> Result<CallReply> {
-    match operation {
-        Operation::Agent {
-            agent,
-            session,
-            request,
-        } => {
-            let info = agents
-                .send_session(&agent, &session, request)
-                .await
-                .map_err(anyhow::Error::msg)?;
-            Ok(CallReply::Agent {
-                info: Box::new(info),
-            })
-        }
-        Operation::Process(request) => Ok(CallReply::Process(
-            crate::run::tasks::answer(crate::run::tasks::Table::Shared, request).await,
-        )),
-        Operation::Sessions(request) => {
-            if matches!(
-                request,
-                SessionsRequest::Watch { .. }
-                    | SessionsRequest::FollowPresence {}
-                    | SessionsRequest::FollowImages {}
-                    | SessionsRequest::FollowAlerts {}
-                    | SessionsRequest::FollowRuns {}
-                    | SessionsRequest::FollowUsage { .. }
-            ) {
-                bail!("use a topic subscription for a following request");
-            }
-            let reply = ask(&request, |tx, rx| {
-                crate::agents::serve_sessions(tx, rx, agents, caller, None)
-            })
-            .await?
-            .context("session request closed without a reply")?;
-            Ok(CallReply::Sessions(Box::new(reply)))
-        }
-    }
-}
-
-/// Sends one `request` to `serve` on an in-memory link and reads its first
-/// reply; `None` when the stream ends without one.
-async fn ask<Req, Rep, F>(request: &Req, serve: impl FnOnce(LinkTx, LinkRx) -> F) -> Result<Option<Rep>>
-where
-    Req: serde::Serialize,
-    Rep: serde::de::DeserializeOwned,
-    F: Future<Output = Result<()>> + Send + 'static,
-{
-    let link = beep_proto::node::local_link();
-    let _task = AbortOnDropHandle::new(tokio::spawn(serve(link.node.0, link.node.1)));
-    let (mut tx, mut rx) = link.caller;
-    tx.send(request).await?;
-    rx.recv().await
 }
 
 #[cfg(test)]
