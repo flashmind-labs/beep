@@ -95,7 +95,7 @@ impl Node {
 }
 
 /// What a node serves beside its shell.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Offers {
     /// The coding agents and their sessions, made once so the sessions
     /// outlive each connection.
@@ -137,6 +137,33 @@ pub struct Offers {
     /// Answers the assistant's project tools, for the desktop app. Other
     /// nodes send them to a desktop of the mesh.
     pub project_tools: Option<Arc<dyn ProjectTools>>,
+}
+
+impl Default for Offers {
+    /// Offers with no agents, whose sessions and sync share one occupancy.
+    fn default() -> Self {
+        let occupancy = Occupancy::default();
+
+        Self {
+            agents: Arc::new(Agents::new(Vec::new(), occupancy.clone())),
+            occupancy,
+            extra: Vec::new(),
+            log: Logs::default(),
+            provision: None,
+            traffic: Traffic::default(),
+            sampler: Sampler::default(),
+            mesh: Membership::default(),
+            transfers: Sharing::default(),
+            event_sources: Arc::default(),
+            withheld: Arc::default(),
+            #[cfg(test)]
+            bind_gates: Arc::default(),
+            skills: Skills::default(),
+            own: None,
+            team: None,
+            project_tools: None,
+        }
+    }
 }
 
 impl Offers {

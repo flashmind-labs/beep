@@ -109,3 +109,23 @@ fn only_stopped_sessions_leave_a_folder_idle() {
     let many = vec![session(Presence::Stopped); MAX_IN_FOLDERS];
     assert!(!idle(&many), "a folder with that many cannot be known idle");
 }
+
+#[tokio::test]
+async fn a_fresh_write_refuses_though_no_process_holds_the_file() {
+    let (codex, folder) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let sessions = codex.path().join("sessions/2026/11/01");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(
+        sessions.join("rollout-fresh.jsonl"),
+        format!(
+            "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"fresh\",\"cwd\":{},\"source\":\"cli\"}}}}\n",
+            serde_json::to_string(&folder.path().to_string_lossy()).unwrap()
+        ),
+    )
+    .unwrap();
+    let occupancy = Occupancy::over(Store::default(), Stores::at(Some(codex.path()), None, None));
+
+    let refused = occupancy.reserve(folder.path()).await.err().unwrap();
+
+    assert!(refusal(refused).contains("external session is running"));
+}

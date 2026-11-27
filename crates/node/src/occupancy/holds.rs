@@ -48,7 +48,7 @@ pub struct Running {
 
 impl RepositoryHolds {
     /// Marks `cwd` as the folder of a start or session until the guard drops.
-    pub fn running(&self, cwd: PathBuf) -> Running {
+    pub(crate) fn running(&self, cwd: PathBuf) -> Running {
         let id = self.0.next.fetch_add(1, Ordering::Relaxed);
         crate::lock(&self.0.running).push((id, cwd));
 
@@ -62,7 +62,7 @@ impl RepositoryHolds {
     /// refused while another hold has it. A start registers its folder
     /// before it checks the holds, so a start this misses finds the folder
     /// held; whether a session already runs in it is for the caller to ask.
-    pub async fn hold(&self, folder: &Path) -> Result<RepositoryHold> {
+    pub(crate) async fn hold(&self, folder: &Path) -> Result<RepositoryHold> {
         let folder = folder.to_owned();
         let folder =
             tokio::task::spawn_blocking(move || crate::fs::paths::canonicalize(&folder))
@@ -81,7 +81,7 @@ impl RepositoryHolds {
     }
 
     /// Whether a session runs in `folder` or below it. Blocks on the file system.
-    pub fn running_under(&self, folder: &Path) -> bool {
+    pub(crate) fn running_under(&self, folder: &Path) -> bool {
         let running: Vec<PathBuf> = crate::lock(&self.0.running)
             .iter()
             .map(|(_, path)| path.clone())
@@ -92,7 +92,7 @@ impl RepositoryHolds {
 
     /// Refuses a session in `cwd` while sync preserves the local edits of
     /// its checkout.
-    pub fn check_start(&self, cwd: &Path) -> Result<()> {
+    pub(crate) fn check_start(&self, cwd: &Path) -> Result<()> {
         let real = crate::fs::paths::canonicalize(cwd).unwrap_or_else(|_| cwd.to_owned());
         ensure!(
             !crate::lock(&self.0.held)

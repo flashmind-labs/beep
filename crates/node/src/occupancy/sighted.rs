@@ -11,7 +11,6 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Weak,
-        atomic::{AtomicUsize, Ordering},
     },
 };
 use tokio::sync::watch;
@@ -57,7 +56,9 @@ pub(super) struct Reading {
     /// does. Held only to join or start one, never across a read.
     pub(super) running: std::sync::Mutex<Weak<ReadInFlight>>,
     pub(super) listings: AsyncMutex<Listings>,
-    pub(super) watchers: AtomicUsize,
+    /// How many watchers hold a `Watching`. Held while a read is published
+    /// and while the last watcher clears it, so a stale copy never outlives them.
+    pub(super) watchers: std::sync::Mutex<usize>,
 }
 
 /// Held by a watcher that calls `Occupancy::refresh` as the stores change:
@@ -67,7 +68,7 @@ pub(crate) struct Watching(Arc<Reading>);
 impl Reading {
     /// Notes a watcher that refreshes on every change, until the guard drops.
     pub(super) fn watching(self: &Arc<Self>) -> Watching {
-        self.watchers.fetch_add(1, Ordering::SeqCst);
+        *crate::lock(&self.watchers) += 1;
 
         Watching(self.clone())
     }
@@ -75,7 +76,10 @@ impl Reading {
 
 impl Drop for Watching {
     fn drop(&mut self) {
-        if self.0.watchers.fetch_sub(1, Ordering::SeqCst) == 1 {
+        let mut watchers = crate::lock(&self.0.watchers);
+        *watchers -= 1;
+
+        if *watchers == 0 {
             self.0.published.send_replace(None);
         }
     }

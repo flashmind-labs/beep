@@ -11,7 +11,6 @@ use serde_json::{Value, json};
 use std::{
     collections::HashMap,
     path::Path,
-    sync::Arc,
     time::{Duration, Instant},
 };
 use tempfile::TempDir;
@@ -86,7 +85,7 @@ async fn hooks_deliver_what_beep_queued_and_pass_through_without_a_node() {
     assert_eq!(hook(down.path(), "Stop", json!({})).await, "");
 
     let dir = TempDir::new().unwrap();
-    let external = Arc::new(Occupancy::default());
+    let external = Occupancy::default();
     let listening = {
         let external = external.clone();
         let dir = dir.path().to_owned();

@@ -83,7 +83,7 @@ impl Occupancy {
         }))
     }
 
-    pub fn holds(&self) -> &RepositoryHolds {
+    pub(crate) fn holds(&self) -> &RepositoryHolds {
         &self.0.holds
     }
 

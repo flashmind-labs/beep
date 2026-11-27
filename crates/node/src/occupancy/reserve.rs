@@ -36,9 +36,9 @@ impl Occupancy {
             "Local edits block Git sync; close running sessions before automatic recovery."
         );
         // A presence that cannot be established is not evidence of an idle checkout.
-        let sessions = self.sessions_in(&folder).await;
+        let sessions = self.sessions_in(&folder).await?;
         ensure!(
-            sessions.is_ok_and(|sessions| idle(&sessions)),
+            idle(&sessions),
             "Local edits block Git sync; an external session is running or its presence is unknown."
         );
 
@@ -60,19 +60,16 @@ impl Occupancy {
             let now = SystemTime::now();
             others
                 .into_iter()
-                .map(|seen| (seen.agent, stores.describe(seen, now)))
+                .map(|seen| stores.describe(seen, now))
                 .collect::<Vec<_>>()
         });
         let (claude, others) = tokio::join!(self.claude().named(ids, HashMap::new()), described);
         let mut sessions = claude?;
-
-        for (agent, mut found) in others? {
-            found.presence = self.presence_of(agent, &found).await;
-            sessions.push(found);
-        }
+        // As the listing gives them: a recent write is not undone by finding
+        // no process that holds the file.
+        sessions.extend(others?);
 
         self.presence().merge(&mut sessions);
-        self.settle_closed(&mut sessions);
         sessions.retain(|session| found::within(Path::new(&session.cwd), folder));
 
         Ok(sessions)

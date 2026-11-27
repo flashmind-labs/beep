@@ -14,7 +14,7 @@ use beep_proto::watched;
 use std::{
     collections::BTreeSet,
     path::PathBuf,
-    sync::{Arc, Weak, atomic::Ordering},
+    sync::{Arc, Weak},
 };
 use tokio::task::spawn_blocking;
 
@@ -61,12 +61,16 @@ impl Occupancy {
     pub(crate) async fn refresh(&self, changed: &BTreeSet<Agent>) -> Result<Sighted> {
         let read = self.read_stores(changed).await;
 
-        if self.0.reading.watchers.load(Ordering::SeqCst) > 0 {
+        let watchers = lock(&self.0.reading.watchers);
+
+        if *watchers > 0 {
             self.0
                 .reading
                 .published
                 .send_replace(read.as_ref().ok().cloned());
         }
+
+        drop(watchers);
 
         read
     }
