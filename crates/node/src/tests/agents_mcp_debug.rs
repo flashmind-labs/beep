@@ -50,7 +50,7 @@ async fn node(log: &str) -> (Peers, crate::link::peers::Bound, tempfile::TempDir
         ..Offers::default()
     }
     .bound(&endpoint, dir.path(), "build-box");
-    let peers = Peers::new(offers.clone());
+    let peers = Peers::new(offers.clone()).await;
     (peers, offers, dir)
 }
 

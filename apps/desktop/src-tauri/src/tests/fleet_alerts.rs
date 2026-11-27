@@ -79,7 +79,7 @@ async fn an_agents_question_reaches_the_desktop_and_its_answer_returns() {
     let endpoint = bind().await;
     let offers =
         Offers::local(&[agent], Provision::new(dir.path())).bound(&endpoint, dir.path(), "Studio");
-    let fleet = Arc::new(Fleet::new(endpoint, dir.path(), "Studio", offers));
+    let fleet = Arc::new(Fleet::new(endpoint, dir.path(), "Studio", offers).await);
     fleet.run().await;
     let (following, mut heard_from) = start(fleet.clone());
     let following = tokio::spawn(following);

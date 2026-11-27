@@ -170,7 +170,7 @@ pub async fn serve(
     }
     // The mesh: peers reach the node over `beep-peer/2`. The router runs
     // from here, so a join takes effect at once.
-    let peers = Peers::new(offers.clone());
+    let peers = Peers::new(offers.clone()).await;
 
     if let Err(e) = peers.open().await {
         log::warn!("not serving the mesh: {e:#}");
@@ -523,7 +523,7 @@ impl Peers {
     /// The node's membership over `offers`, made by `Offers::bound`: that
     /// is where the node's key and team link are made, before any copy of
     /// the offers goes elsewhere.
-    pub fn new(bound: Bound) -> Self {
+    pub async fn new(bound: Bound) -> Self {
         let Bound { offers, own, team } = bound;
         let deliveries = AbortOnDropHandle::new(tokio::spawn(deliver_handoffs(
             offers.clone(),

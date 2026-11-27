@@ -88,7 +88,7 @@ async fn machine(network: bool) -> Machine {
         dir.path(),
         "build-box",
     );
-    let peers = Peers::new(offers);
+    let peers = Peers::new(offers).await;
     Machine {
         client: PeerClient::local(peers.local_session()),
         peers,

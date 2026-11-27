@@ -105,7 +105,7 @@ async fn leaving_does_not_wait_for_a_connection_still_in_its_handshake() {
         .await
         .expect("a ticket");
     let node_dir = tempfile::tempdir().expect("temp dir");
-    let peers = Peers::new(Offers::default().bound(&node, node_dir.path(), "box"));
+    let peers = Peers::new(Offers::default().bound(&node, node_dir.path(), "box")).await;
     let _node_router = Router::builder(node.clone())
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler())
@@ -145,7 +145,7 @@ async fn transfers_served_to_the_mesh_reach_the_offers_it_was_made_from() {
         .await
         .expect("the endpoint binds");
     let offers = Offers::default().bound(&endpoint, dir.path(), "box");
-    let peers = Peers::new(offers.clone());
+    let peers = Peers::new(offers.clone()).await;
     let transfers = Transfers::start_with(
         &endpoint,
         &dir.path().join("blobs"),
@@ -179,7 +179,7 @@ async fn a_machine_not_lent_refuses_agent_streams_from_other_desktops() {
     let dir = tempfile::tempdir().expect("temp dir");
     let offers = Offers::default();
     offers.lend_to_peers(false);
-    let peers = Peers::new(offers.bound(&node, dir.path(), "box"));
+    let peers = Peers::new(offers.bound(&node, dir.path(), "box")).await;
     let addr = node.addr();
     let dialing = tokio::spawn({
         let desktop = desktop.clone();
@@ -300,7 +300,7 @@ async fn ask_report_using(
         ..Offers::default()
     };
     offers.lend_to_peers(false);
-    let peers = Peers::new(offers.bound(&node, dir.path(), "box"));
+    let peers = Peers::new(offers.bound(&node, dir.path(), "box")).await;
     let addr = node.addr();
     let dialing = tokio::spawn({
         let desktop = desktop.clone();
@@ -416,7 +416,7 @@ async fn channel_pair(dedicated: bool) -> ChannelPair {
         .invite(DeviceKind::Node, Duration::from_secs(60))
         .await
         .unwrap();
-    let peers = Peers::new(Offers::default().bound(&endpoint, dirs.1.path(), "node"));
+    let peers = Peers::new(Offers::default().bound(&endpoint, dirs.1.path(), "node")).await;
     let mut router = Router::builder(endpoint.clone())
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler());
@@ -599,7 +599,7 @@ async fn leaving_the_mesh_forgets_the_teams() {
         .bind()
         .await
         .expect("the endpoint binds");
-    let peers = Peers::new(Offers::default().bound(&endpoint, dir.path(), "box"));
+    let peers = Peers::new(Offers::default().bound(&endpoint, dir.path(), "box")).await;
     let repo: TeamRepo = "github.com/org/repo".parse().expect("a repo");
     let alice = Member {
         login: "alice".parse().expect("a login"),

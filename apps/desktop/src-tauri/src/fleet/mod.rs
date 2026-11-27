@@ -202,9 +202,9 @@ impl Fleet {
     /// Does nothing slow: calls to this Mac work at once, and `run` opens
     /// the mesh.
     #[cfg(desktop)]
-    pub fn new(endpoint: Endpoint, dir: &Path, name: &str, offers: Bound) -> Self {
+    pub async fn new(endpoint: Endpoint, dir: &Path, name: &str, offers: Bound) -> Self {
         let me = endpoint.id();
-        let peers = Peers::new(offers);
+        let peers = Peers::new(offers).await;
         // Sessions that open these wait for the services `run` starts.
         peers.expect(&mesh::LATER);
         // Local file reads need no blob store: served from the first call.
