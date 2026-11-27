@@ -69,7 +69,7 @@ apps/desktop/src/stores/agents/place.ts | changed | setTimeout#1 | debounce | re
 apps/desktop/src/parts/session/session-follow.ts | followFrom | setTimeout#1 | retry | the feed schedules a follow reopen or idle drop after its delay
 apps/desktop/src/parts/session/session-follow.ts | still | setTimeout#1 | retry | reopens a lost session follow every RETRY_MS
 apps/desktop/src/parts/session/session-follow.ts | watchRead | setTimeout#1 | deadline | logs if nothing was read after the watch time
-apps/desktop/src/parts/session/sessionmenu.ts | build | setTimeout#1 | ui | opens the model picker after the menu closes
+apps/desktop/src/parts/session/sessionmenu.ts | start | setTimeout#1 | ui | starts the continued session once the opened view shows it
 apps/desktop/src/stores/agents/sessions.ts | finish | setTimeout#1 | deadline | stops waiting for a session list after ms
 apps/desktop/src/parts/session/turn-heading-view.tsx | tickClocks | setInterval#1 | ui | ticks the running turn clock each second while shown
 apps/desktop/src/parts/session/turnrows.ts | copyCode | setTimeout#1 | ui | restores the copy icon after the copied mark
