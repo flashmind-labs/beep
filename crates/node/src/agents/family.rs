@@ -8,6 +8,7 @@
 //! child, from the link the caller passes, so a chain across machines
 //! cannot get around them.
 
+use crate::agents::sessions;
 use beep_proto::SessionId;
 use super::{Agents, Begin, Session, live::{Live, Mark}, session::Command};
 use crate::known::known;
@@ -27,7 +28,7 @@ mod remote;
 
 
 pub(crate) use links::{ChildNote, ChildStart, RemoteKid, Review, Waiting, Who};
-use links::{MAX_CHILDREN, MAX_DEPTH, Root, is_child_of};
+use links::{MAX_CHILDREN, MAX_DEPTH, Root};
 pub(crate) use links::NO_AGENT;
 
 /// How long the count of a root's agents on another machine may take.
@@ -43,16 +44,10 @@ impl Agents {
         self.mesh().map(|mesh| mesh.me())
     }
 
-    /// The id a session goes by in links: the agent's own when it has one,
-    /// which outlives a restart.
-    pub(crate) fn name_of(session: &Session) -> SessionId {
-        session.link_name()
-    }
-
     /// The calling session `session` of this node, and who it is to its
     /// children.
     pub(crate) fn caller(&self, session: &SessionId) -> Option<(Arc<Session>, Who)> {
-        let found = self.get(session)?;
+        let found = self.sessions.get(session)?;
         let who = self.who_of(&found);
         Some((found, who))
     }
@@ -61,7 +56,7 @@ impl Agents {
     pub(super) fn who_of(&self, session: &Session) -> Who {
         Who {
             machine: self.me(),
-            session: Self::name_of(session),
+            session: sessions::name_of(session),
         }
     }
 
@@ -120,7 +115,7 @@ impl Agents {
     fn take_place(&self, root: &Root, elsewhere: usize) -> Result<Arc<()>, String> {
         let mut starting = crate::lock(&self.links.starting);
         starting.retain(|(_, held)| held.strong_count() > 0);
-        let here = self.live_descendants(root.0, &root.1)
+        let here = self.sessions.live_descendants(root.0, &root.1)
             + starting.iter().filter(|(under, _)| under == root).count();
 
         if elsewhere + here >= MAX_CHILDREN {
@@ -134,34 +129,6 @@ impl Agents {
         Ok(held)
     }
 
-    /// The live sessions here that descend from the root `root`.
-    pub(crate) fn live_descendants(&self, root_machine: Option<EndpointId>, root: &SessionId) -> usize {
-        self.sessions
-            .read()
-            .values()
-            .filter(|session| {
-                watched::read(&session.live, |live| {
-                    live.status() != Status::Ended
-                        && live.info.parent.as_ref().is_some_and(|link| {
-                            link.root == *root && link.root_machine == root_machine
-                        })
-                })
-            })
-            .count()
-    }
-
-    /// The live children of `who` that run here.
-    pub(crate) fn children_of(&self, who: &Who) -> Vec<Arc<Session>> {
-        let mut kids: Vec<Arc<Session>> = self
-            .session_map()
-            .values()
-            .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
-            .cloned()
-            .collect();
-        kids.sort_by_key(|session| watched::read(&session.live, |live| live.info.started_at));
-        kids
-    }
-
     fn children_count(&self, who: &Who) -> usize {
         let local = self.sessions.local_children(who);
         let remote = self
@@ -172,23 +139,14 @@ impl Agents {
         local + remote
     }
 
-    /// The child `id` of `who` that runs here; the same refusal for a
-    /// session that is not there and one that is not `who`'s, so an agent
-    /// learns nothing of the others.
-    pub(crate) fn child_of(&self, who: &Who, id: &SessionId) -> Result<Arc<Session>, String> {
-        self.get(id)
-            .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
-            .ok_or_else(|| format!("{NO_AGENT} {id}."))
-    }
-
     /// Hands `text`, from the agent `from`, to the live session `id` here,
     /// which counts it against `PEER_MESSAGES`.
     pub(crate) async fn message(&self, from: &SessionId, id: &SessionId, text: String) -> Result<(), String> {
         let session = self
             .sessions.peers(None)
             .into_iter()
-            .find(|session| session.id == *id || Self::name_of(session) == *id)
-            .filter(|session| Self::name_of(session) != *from)
+            .find(|session| session.id == *id || sessions::name_of(session) == *id)
+            .filter(|session| sessions::name_of(session) != *from)
             .ok_or_else(|| format!("No agent {id} runs there. Use list_agents to find one."))?;
 
         session.take_peer_message()?;
@@ -221,7 +179,7 @@ impl Agents {
         };
         let follows = self.parent_live_of(&link);
         let parent = (link.machine == self.me())
-            .then(|| self.get(&link.session))
+            .then(|| self.sessions.get(&link.session))
             .flatten();
         let root = (link.root_machine, link.root.clone());
         let title = start.title.filter(|title| !title.trim().is_empty());
@@ -274,7 +232,7 @@ impl Agents {
     pub(in crate::agents) fn join_family(&self, session: &Arc<Session>) {
         self.watch_parent(session);
 
-        for child in self.children_of(&self.who_of(session)) {
+        for child in self.sessions.children_of(&self.who_of(session)) {
             self.watch_parent(&child);
             child.follow(session.live.clone());
         }
@@ -283,7 +241,7 @@ impl Agents {
     /// The parent's state, when it runs here: the child ends with it.
     pub(super) fn parent_live_of(&self, link: &ParentLink) -> Option<watch::Receiver<Live>> {
         (link.machine == self.me())
-            .then(|| self.get(&link.session))
+            .then(|| self.sessions.get(&link.session))
             .flatten()
             .map(|parent| parent.live.clone())
     }
@@ -324,7 +282,7 @@ impl Agents {
 
             let who = self.who_of(&next);
 
-            for kid in self.children_of(&who) {
+            for kid in self.sessions.children_of(&who) {
                 if watched::read(&kid.live, |live| live.status() != Status::Ended) {
                     queue.push(kid.clone());
                     local.push(kid);

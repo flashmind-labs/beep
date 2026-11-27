@@ -249,7 +249,7 @@ async fn show_sent(
             .saturating_add(watched::read_and_update(&mut offer, |bytes| *bytes));
         let shown = Sent { done, ..sent };
 
-        if let Err(e) = node.agents.sending(session, shown).await {
+        if let Err(e) = node.agents.sessions.sending(session, shown).await {
             log::debug!("send progress not shown: {e:#}");
             return;
         }

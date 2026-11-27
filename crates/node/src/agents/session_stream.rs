@@ -60,7 +60,7 @@ impl Agents {
         id: &SessionId,
         request: Request,
     ) -> Result<SessionInfo, String> {
-        let found = self.get(id).filter(|session| session.agent == agent);
+        let found = self.sessions.get(id).filter(|session| session.agent == agent);
         let message = matches!(
             request,
             Request::Prompt { .. } | Request::PromptImages { .. } | Request::Steer { .. }
@@ -153,7 +153,7 @@ pub async fn serve_session(
             continues,
         } => match Prompt::with_images(prompt, images) {
             Ok(Prompt { text, images, .. }) => {
-                let earlier = continues.as_ref().and_then(|id| agents.get(id));
+                let earlier = continues.as_ref().and_then(|id| agents.sessions.get(id));
                 let begin = Begin {
                     prompt: Some(text),
                     images,
@@ -190,7 +190,7 @@ pub async fn serve_session(
             .resume(&kind, &session, prompt, model)
             .await
             .map_err(|e| format!("{e:#}")),
-        Request::Attach { session } => match agents.get(&session) {
+        Request::Attach { session } => match agents.sessions.get(&session) {
             Some(found) if found.agent == kind.name => Ok(found),
             Some(found) => Err(format!("session {session} runs {}", found.agent)),
             None => Err(format!("there is no session {session}")),

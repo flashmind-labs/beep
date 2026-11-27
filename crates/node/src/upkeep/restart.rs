@@ -184,7 +184,7 @@ pub async fn reopen_and_keep(dir: &Path, agents: &Agents) {
 /// aborted: sessions that end from now on ended with it, and what is open
 /// is noted in `dir` for the next start.
 pub fn note_on_quit(dir: &Path, agents: &Agents) -> Result<()> {
-    agents.begin_stopping();
+    agents.sessions.begin_stopping();
     Reopen::now(agents).save(dir)
 }
 

@@ -601,7 +601,7 @@ impl Agents {
         followed: Option<(&crate::logs::claude::Followed, Option<u64>)>,
         keep_pictures: bool,
     ) -> Result<Option<(Vec<Entry>, u64)>> {
-        if let Some(found) = self.get(session) {
+        if let Some(found) = self.sessions.get(session) {
             return Ok(Some(self.live_transcript(&found, last, before).await));
         }
 
@@ -642,7 +642,7 @@ impl Agents {
             !id.as_ref().starts_with("subagent:"),
             "This subagent is managed by its parent. Open the parent to continue it."
         );
-        let ours = self.get(id);
+        let ours = self.sessions.get(id);
 
         if let Some(session) = &ours
             && session.agent != kind.name
@@ -667,7 +667,7 @@ impl Agents {
         let id = &id;
         let owned = self.sessions.owned();
 
-        if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
+        if let Some(session) = owned.get(id).and_then(|node_id| self.sessions.get(node_id))
             && session.agent == kind.name
             && watched::read(&session.live, |live| live.status() != Status::Ended)
         {

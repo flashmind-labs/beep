@@ -1,21 +1,28 @@
 //! The sessions this node runs. `Sessions` is the only code that changes the
 //! map; it publishes each change as a new map, so readers take no lock.
 
-use super::{Session, family::links::{Who, is_child_of}, limits::MAX_KEPT};
+use super::{
+    Answered, Asking, Session,
+    family::links::{NO_AGENT, Who, is_child_of},
+    limits::MAX_KEPT,
+    live::Sent,
+    session::Command,
+};
 use crate::AsyncMutex;
-use anyhow::Result;
+use anyhow::{Context, Result};
+use iroh::EndpointId;
 use beep_proto::{
     SessionId,
-    node::agent::{SessionInfo, Status},
+    node::agent::{SessionDevice, SessionInfo, Status},
     watched,
 };
 use std::{
     collections::{HashMap, HashSet, hash_map::RandomState},
     hash::BuildHasher,
     path::PathBuf,
-    sync::{Arc, Mutex, MutexGuard, Weak, atomic::AtomicBool},
+    sync::{Arc, Mutex, MutexGuard, Weak, atomic::{AtomicBool, Ordering}},
 };
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 pub(crate) type Map = HashMap<SessionId, Arc<Session>>;
 
@@ -48,7 +55,7 @@ struct Pending {
 
 impl Sessions {
     /// The sessions now. A later change does not show in it.
-    pub(super) fn read(&self) -> Arc<Map> {
+    pub(crate) fn read(&self) -> Arc<Map> {
         watched::read_sent(&self.map, Arc::clone)
     }
 
@@ -233,6 +240,119 @@ impl Sessions {
         pending.retain(|start| start.held.strong_count() > 0);
         pending
     }
+
+    /// The session `id` names: by the id it started under or by the
+    /// agent's own id.
+    pub(crate) fn get(&self, id: &SessionId) -> Option<Arc<Session>> {
+        find_session(&self.read(), id)
+    }
+
+    /// Whether `session` is one of this node's and still runs.
+    pub(crate) fn runs(&self, session: &SessionId) -> bool {
+        self.get(session).is_some_and(|session| {
+            watched::read(&session.live, |live| live.status() != Status::Ended)
+        })
+    }
+
+    /// The folder `session` works in, if it is one of this node's.
+    pub(crate) fn folder_of(&self, session: &SessionId) -> Option<PathBuf> {
+        self.get(session)
+            .map(|session| PathBuf::from(session.info().cwd))
+    }
+
+    /// The entries of the full list whose id is `id`, without copying the others.
+    pub(crate) fn listed_session(&self, id: &SessionId) -> Vec<SessionInfo> {
+        self.listed_where(true, Some(id))
+    }
+
+    /// Marks the node as stopping: sessions that end from now on ended
+    /// with it, even when the service manager stopped their agents first.
+    pub fn begin_stopping(&self) {
+        self.stopping.store(true, Ordering::Relaxed);
+    }
+
+    /// Keeps `device` as the device `session` uses, or forgets it.
+    pub(crate) async fn set_device(
+        &self,
+        session: &SessionId,
+        device: Option<SessionDevice>,
+    ) -> Result<()> {
+        let session = self
+            .get(session)
+            .with_context(|| format!("there is no session {session} here"))?;
+        session
+            .order(Command::SetDevice(device))
+            .await
+            .map_err(anyhow::Error::msg)
+    }
+
+    /// Shows in `session` how far its running `send_files` call has sent.
+    pub(crate) async fn sending(&self, session: &SessionId, sent: Sent) -> Result<()> {
+        let session = self
+            .get(session)
+            .with_context(|| format!("there is no session {session} here"))?;
+        session
+            .order(Command::Sending(sent))
+            .await
+            .map_err(anyhow::Error::msg)
+    }
+
+    /// Puts `question` to the user in `session` and waits for the answer.
+    /// Fails when the session ends or its turn is cancelled first.
+    pub(crate) async fn ask(&self, session: &SessionId, question: Asking) -> Result<Answered> {
+        let session = self
+            .get(session)
+            .with_context(|| format!("there is no session {session} here"))?;
+        let (reply, answer) = oneshot::channel();
+        // Dropped with the wait (a timeout, a call the agent gave up on, even while the order
+        // is still being handed over), it takes the question back from the session.
+        let mut waiting = Withdraw(Some(session.clone()));
+        session
+            .order(Command::Ask { question, reply })
+            .await
+            .map_err(anyhow::Error::msg)?;
+        let answered = answer
+            .await
+            .context("the question was dropped: the turn was cancelled or the session ended");
+        waiting.0 = None;
+        answered
+    }
+
+    /// The live sessions here that descend from the root `root`.
+    pub(crate) fn live_descendants(&self, root_machine: Option<EndpointId>, root: &SessionId) -> usize {
+        self.read()
+            .values()
+            .filter(|session| {
+                watched::read(&session.live, |live| {
+                    live.status() != Status::Ended
+                        && live.info.parent.as_ref().is_some_and(|link| {
+                            link.root == *root && link.root_machine == root_machine
+                        })
+                })
+            })
+            .count()
+    }
+
+    /// The live children of `who` that run here.
+    pub(crate) fn children_of(&self, who: &Who) -> Vec<Arc<Session>> {
+        let mut kids: Vec<Arc<Session>> = self
+            .read()
+            .values()
+            .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
+            .cloned()
+            .collect();
+        kids.sort_by_key(|session| watched::read(&session.live, |live| live.info.started_at));
+        kids
+    }
+
+    /// The child `id` of `who` that runs here; the same refusal for a
+    /// session that is not there and one that is not `who`'s, so an agent
+    /// learns nothing of the others.
+    pub(crate) fn child_of(&self, who: &Who, id: &SessionId) -> Result<Arc<Session>, String> {
+        self.get(id)
+            .filter(|session| watched::read(&session.live, |live| is_child_of(live, who)))
+            .ok_or_else(|| format!("{NO_AGENT} {id}."))
+    }
 }
 
 fn reserve(
@@ -315,6 +435,12 @@ pub(super) fn new_id() -> SessionId {
     SessionId::new(format!("{:06x}", random & 0xff_ffff))
 }
 
+/// The id a session goes by in links: the agent's own when it has one,
+/// which outlives a restart.
+pub(crate) fn name_of(session: &Session) -> SessionId {
+    session.link_name()
+}
+
 /// The session `id` names in `sessions`, by its key or the agent's id.
 pub(super) fn find_session(
     sessions: &Map,
@@ -337,6 +463,21 @@ pub(super) fn find_session(
             })
         })
         .cloned()
+}
+
+/// Takes back the questions nobody waits for any more, once the wait that held it ends before an
+/// answer. The order is short and ends with the session, so it runs on its own.
+struct Withdraw(Option<Arc<Session>>);
+
+impl Drop for Withdraw {
+    fn drop(&mut self) {
+        if let Some(session) = self.0.take() {
+            tokio::spawn(async move {
+                // Refused when the session already ended, which took its questions with it.
+                let _ = session.order(Command::Withdraw).await;
+            });
+        }
+    }
 }
 
 #[cfg(test)]

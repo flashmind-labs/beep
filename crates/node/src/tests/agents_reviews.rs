@@ -1,3 +1,4 @@
+use crate::agents::sessions;
 use super::*;
 use crate::agents::Parts;
 use crate::agents::AgentKind;
@@ -112,7 +113,7 @@ impl Rig {
             loop {
                 if let Some(run) = self.agents.reviews.review(id)
                     && !run.running()
-                    && self.agents.get(id).is_none()
+                    && self.agents.sessions.get(id).is_none()
                 {
                     return run;
                 }
@@ -156,9 +157,9 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
         .start_review(rig.order("HOLD", Some(parent.id.clone())))
         .await
         .expect("the review starts");
-    let reviewer = rig.agents.get(&run.id).expect("the reviewer runs");
+    let reviewer = rig.agents.sessions.get(&run.id).expect("the reviewer runs");
     let link = reviewer.info().parent.expect("the reviewer is a child");
-    assert_eq!(link.session, Agents::name_of(&parent));
+    assert_eq!(link.session, sessions::name_of(&parent));
     assert!(rig.agents.reviews.is_reviewer(&run.id));
     assert!(!rig.agents.reviews.is_reviewer(&parent.id));
     let listed: Vec<SessionId> = rig.agents.sessions.list().into_iter().map(|info| info.id).collect();
@@ -204,7 +205,7 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
         std::slice::from_ref(&done)
     );
     assert_eq!(
-        rig.agents.reviews.reviews_of(&Agents::name_of(&parent)),
+        rig.agents.reviews.reviews_of(&sessions::name_of(&parent)),
         std::slice::from_ref(&done)
     );
     let who = rig.agents.who_of(&parent);
@@ -268,7 +269,7 @@ async fn a_finished_reviewer_leaves_no_session_on_disk() {
     rig.agents
         .reviews.submit_review(&run.id, found())
         .expect("the reviewer hands in");
-    let reviewer = rig.agents.get(&run.id).expect("the reviewer runs");
+    let reviewer = rig.agents.sessions.get(&run.id).expect("the reviewer runs");
     reviewer
         .order(Command::Cancel { by_user: false })
         .await
@@ -312,7 +313,7 @@ async fn a_wait_on_a_review_ends_when_the_review_does() {
         .start_review(rig.order("HOLD", Some(parent.id.clone())))
         .await
         .expect("the review starts");
-    let reviewer = rig.agents.get(&run.id).expect("the reviewer runs");
+    let reviewer = rig.agents.sessions.get(&run.id).expect("the reviewer runs");
     let wait = tokio::spawn({
         let (agents, who, run) = (rig.agents.clone(), who.clone(), run.clone());
         async move { crate::tools::review::waited(&agents, &who, run).await }

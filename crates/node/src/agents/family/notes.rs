@@ -16,6 +16,7 @@
 //! hears of it instead (`changes`). A parent on another machine is told as
 //! before.
 
+use crate::agents::sessions;
 use beep_proto::SessionId;
 use super::links::{ChildNote, NoteState, Waits};
 use crate::agents::{Agents, Session, live::Live, session::Command};
@@ -80,7 +81,7 @@ impl Agents {
                 peer,
                 parent: link.session,
             },
-            _ => match self.get(&link.session) {
+            _ => match self.sessions.get(&link.session) {
                 Some(parent) => To::Here {
                     parent: Arc::downgrade(&parent),
                     waits: self.links.waits.clone(),
@@ -113,6 +114,8 @@ impl Agents {
             })
             .ok_or_else(|| format!("{} {}.", super::NO_AGENT, note.id))?;
         let session = self
+            .sessions
+
             .get(parent)
             .ok_or_else(|| format!("There is no session {parent} here."))?;
         let id = format!("{}@{}", kid.id, kid.name);
@@ -148,7 +151,7 @@ impl Agents {
     pub(crate) fn teammates_session(&self, id: &SessionId) -> Option<Arc<Session>> {
         self.sessions.peers(None)
             .into_iter()
-            .find(|session| session.id == *id || Self::name_of(session) == *id)
+            .find(|session| session.id == *id || sessions::name_of(session) == *id)
     }
 }
 
@@ -372,7 +375,7 @@ async fn deliver(
         return Ok(());
     }
 
-    if waits.wake(&Agents::name_of(parent), id) || note.state == NoteState::Settled {
+    if waits.wake(&sessions::name_of(parent), id) || note.state == NoteState::Settled {
         return Ok(());
     }
 

@@ -393,7 +393,7 @@ async fn a_target_that_gives_up_after_the_session_ended_has_it_start_again_here(
         .expect("it ends in time");
     assert!(done.is_err(), "the move did not happen");
     assert!(
-        source.env.agents.runs(&SessionId::from("held-1")),
+        source.env.agents.sessions.runs(&SessionId::from("held-1")),
         "the session runs again where it was"
     );
     assert_eq!(
@@ -430,7 +430,7 @@ async fn a_move_cancelled_after_the_session_ended_does_not_start_it_while_the_ta
     )
     .await;
     assert!(
-        !source.env.agents.runs(&SessionId::from("held-1")),
+        !source.env.agents.sessions.runs(&SessionId::from("held-1")),
         "the session does not run on two machines"
     );
     source.env.agents.shutdown().await;

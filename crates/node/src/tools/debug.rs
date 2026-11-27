@@ -525,7 +525,7 @@ async fn file(
         detail: Some(detail),
         options,
     };
-    let with_issue = match timeout(ASK_LIMIT, node.agents.ask(session, question)).await {
+    let with_issue = match timeout(ASK_LIMIT, node.agents.sessions.ask(session, question)).await {
         Ok(Ok(Answered::Picked(option))) if option.id == SEND => false,
         Ok(Ok(Answered::Picked(option))) if option.id == SEND_AND_ISSUE => true,
         Ok(Ok(_)) => {

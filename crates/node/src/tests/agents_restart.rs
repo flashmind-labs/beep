@@ -1,3 +1,4 @@
+use crate::agents::sessions;
 use super::*;
 use crate::agents::Parts;
 use crate::{
@@ -176,7 +177,7 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
+    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.info.turns == 2).await;
     let read = std::fs::read_to_string(&log).expect("adapter log");
@@ -212,7 +213,7 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let session = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
+    let session = after.sessions.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 2).await;
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
@@ -241,7 +242,7 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
+    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.status() == Status::Idle).await;
     assert_eq!(watched::read(&live, |live| live.info.started_at), 100);
@@ -312,7 +313,7 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
         .await.expect("the session starts");
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
-    let name = Agents::name_of(&session);
+    let name = sessions::name_of(&session);
     let mut kid = RemoteKid::expected(&name, iroh::SecretKey::generate().public(), "box");
     kid.id = "k1".into();
     // Adopting changes the note with no session opening or closing.
@@ -331,8 +332,8 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(vec![noted]).await;
-    let resumed = after.get(&name).expect("resumed under the agent's id");
-    assert_eq!(after.remote_kids(&Agents::name_of(&resumed)), vec![kid]);
+    let resumed = after.sessions.get(&name).expect("resumed under the agent's id");
+    assert_eq!(after.remote_kids(&sessions::name_of(&resumed)), vec![kid]);
     before.shutdown().await;
     after.shutdown().await;
 }
@@ -374,7 +375,7 @@ async fn a_session_comes_back_after_a_crash() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(noted.sessions).await;
-    let resumed = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
+    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.status() == Status::Idle).await;
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
@@ -428,7 +429,7 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let session = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
+    let session = after.sessions.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
     let mut live = session.live.clone();
     until(&mut live, |live| {
         live.info.model == Some(ModelId::new("deep"))
@@ -467,7 +468,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
+    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed");
     let mut live = resumed.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
     watched::read(&live, |live| {
@@ -844,7 +845,7 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
+    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed");
     until(&mut resumed.live.clone(), |live| {
         live.info.title.as_deref() == Some("Explain Rust lifetimes")
     })
@@ -876,7 +877,7 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
     let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
-    let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
+    let resumed = after.sessions.get(&SessionId::from("held-1")).expect("resumed");
     resumed
         .order(Command::Prompt("rename it".to_owned().into()))
         .await

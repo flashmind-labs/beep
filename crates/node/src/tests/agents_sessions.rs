@@ -1,7 +1,7 @@
 use crate::agents::{AgentKind, Agents, session::Begin};
 use crate::agents::Parts;
 use beep_proto::{SessionId, watched};
-use super::reserve;
+use super::{Sessions, reserve};
 use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::timeout};
 
@@ -34,16 +34,16 @@ async fn an_inserted_session_is_there_for_the_next_read() {
     let kind = silent();
     let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
 
-    assert!(agents.session_map().is_empty());
+    assert!(agents.sessions.read().is_empty());
 
     let session = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
 
-    assert!(agents.get(&session.id).is_some());
-    assert!(agents.session_map().contains_key(&session.id));
+    assert!(agents.sessions.get(&session.id).is_some());
+    assert!(agents.sessions.read().contains_key(&session.id));
 
     agents.sessions.remove(std::slice::from_ref(&session.id));
 
-    assert!(agents.get(&session.id).is_none());
+    assert!(agents.sessions.get(&session.id).is_none());
 }
 
 #[tokio::test]
@@ -59,11 +59,11 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
         .unwrap();
 
     let others = async {
-        assert!(agents.get(&first.id).is_some());
+        assert!(agents.sessions.get(&first.id).is_some());
         agents.sessions.list();
         agents.sessions.listed(true);
         let second = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
-        assert!(agents.get(&second.id).is_some());
+        assert!(agents.sessions.get(&second.id).is_some());
     };
     timeout(LONG, others).await.expect("another start was held up");
 }
@@ -245,3 +245,21 @@ async fn a_node_with_no_children_counts_none() {
     assert!(agents.sessions.owned().is_empty());
 }
 
+
+#[tokio::test]
+async fn sessions_answer_the_reads_without_an_agents() {
+    let kind = silent();
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
+    let session = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+
+    let sessions = Sessions::default();
+    let reservation = sessions.reserve(None).unwrap();
+    let id = reservation.id.clone();
+    sessions.insert(reservation, None, session.clone());
+
+    assert!(Arc::ptr_eq(&sessions.get(&id).unwrap(), &session));
+    assert!(sessions.get(&SessionId::from("nobody")).is_none());
+    assert!(sessions.runs(&id));
+    assert!(!sessions.runs(&SessionId::from("nobody")));
+    assert_eq!(super::name_of(&session), session.id);
+}

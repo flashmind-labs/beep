@@ -182,7 +182,7 @@ impl Backend for Served {
     }
 
     async fn ask(&self, session: &SessionId, question: Asking) -> Result<Answered> {
-        self.node.agents.ask(session, question).await
+        self.node.agents.sessions.ask(session, question).await
     }
 
     fn reviewer(&self, session: &SessionId) -> bool {
@@ -205,7 +205,7 @@ impl Backend for Served {
     }
 
     fn media(&self, session: &SessionId) -> Option<media::Media> {
-        self.node.agents.folder_of(session).map(media::Media::new)
+        self.node.agents.sessions.folder_of(session).map(media::Media::new)
     }
 }
 
@@ -289,7 +289,7 @@ async fn connection(
         );
     }
 
-    if !node.node.agents.runs(&hello.session) {
+    if !node.node.agents.sessions.runs(&hello.session) {
         bail!(
             "refused an MCP connection: session {} does not run",
             hello.session

@@ -94,7 +94,7 @@ impl Agents {
             .info()
             .parent
             .filter(|link| link.machine == me.machine)
-            .and_then(|link| self.get(&link.session));
+            .and_then(|link| self.sessions.get(&link.session));
         let mut lines = Vec::new();
         let mut seen = Vec::new();
 
@@ -113,10 +113,10 @@ impl Agents {
         let here = crate::agents::machine_list::machine_name(self.mesh().as_ref());
         let siblings = main
             .iter()
-            .flat_map(|main| self.children_of(&self.who_of(main)))
+            .flat_map(|main| self.sessions.children_of(&self.who_of(main)))
             .filter(|other| !Arc::ptr_eq(other, session));
 
-        for thread in self.children_of(&me).into_iter().chain(siblings) {
+        for thread in self.sessions.children_of(&me).into_iter().chain(siblings) {
             // A reviewer is known by its session: its state does not say.
             let Some((mark, line)) = watched::read(&thread.live, |live| {
                 (!thread.reviewer && is_thread(&live.info))

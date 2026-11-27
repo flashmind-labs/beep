@@ -348,7 +348,7 @@ pub async fn serve_sessions(
             size,
             data,
         } => {
-            let running = agents.get(&session);
+            let running = agents.sessions.get(&session);
             let draft = root.is_empty() && super::uploads::is_draft(&agent, &session);
             let write = move || {
                 let path = super::uploads::write(
@@ -450,11 +450,13 @@ pub async fn serve_sessions(
         // A session that is not running offers nothing.
         SessionsRequest::Commands { session } => SessionsReply::Commands {
             commands: agents
+                .sessions
+
                 .get(&session)
                 .map(|found| found.commands())
                 .unwrap_or_default(),
         },
-        SessionsRequest::Processes { session } => match agents.get(&session) {
+        SessionsRequest::Processes { session } => match agents.sessions.get(&session) {
             Some(found) if found.info().state.status != agent::Status::Ended => found
                 .processes
                 .list()
@@ -468,7 +470,7 @@ pub async fn serve_sessions(
                 containers: Vec::new(),
             },
         },
-        SessionsRequest::StopContainer { session, id } => match agents.get(&session) {
+        SessionsRequest::StopContainer { session, id } => match agents.sessions.get(&session) {
             Some(found) if found.info().state.status != agent::Status::Ended => found
                 .processes
                 .stop_container(&id)
@@ -476,7 +478,7 @@ pub async fn serve_sessions(
                 .map_or_else(failed, |()| SessionsReply::ProcessStopped {}),
             _ => failed("the session has ended"),
         },
-        SessionsRequest::StopProcess { session, pid } => match agents.get(&session) {
+        SessionsRequest::StopProcess { session, pid } => match agents.sessions.get(&session) {
             Some(found) if found.info().state.status != agent::Status::Ended => found
                 .processes
                 .stop(pid)

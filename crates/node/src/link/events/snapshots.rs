@@ -613,7 +613,7 @@ impl Snapshots {
                         Source::Read(read) => read_value(offers, caller, read).await,
                         Source::Agent(session) => {
                             Ok(Value::Sessions(Box::new(SessionsReply::Sessions {
-                                sessions: offers.agents.listed_session(&session),
+                                sessions: offers.agents.sessions.listed_session(&session),
                             })))
                         }
                         Source::Reviews => Ok(Value::Sessions(Box::new(SessionsReply::Reviews {

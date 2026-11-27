@@ -211,7 +211,7 @@ pub(super) async fn call(
     };
 
     if let Some(device) = used
-        && let Err(e) = node.agents.set_device(session, Some(device)).await
+        && let Err(e) = node.agents.sessions.set_device(session, Some(device)).await
     {
         log::debug!("the session did not keep its device: {e:#}");
     }

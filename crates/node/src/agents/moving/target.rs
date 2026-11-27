@@ -112,7 +112,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
         flsh::check(&kind, &env.name_of(&env.mesh.me())).await?;
     }
 
-    if env.agents.runs(&record.id) {
+    if env.agents.sessions.runs(&record.id) {
         // A restart between starting and noting it.
         return Ok(());
     }

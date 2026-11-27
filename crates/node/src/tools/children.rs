@@ -7,6 +7,7 @@
 //! starts it and checks the limits. An agent stops and checks only its own
 //! children; it lists and messages any agent the user runs.
 
+use crate::agents::sessions;
 use crate::agents::machine_list::Machine;
 use crate::agents::child_view::{ChildView, full_id};
 use crate::agents::reply::{fail, json_of, ok, parse};
@@ -482,7 +483,7 @@ impl Reach<'_> {
     /// Every child of the caller, here and elsewhere.
     async fn list(&self) -> Reply {
         let here = self.my_name();
-        let children = self.agents.children_of(self.who);
+        let children = self.agents.sessions.children_of(self.who);
         self.shown(children.iter().map(|child| &**child));
         let mut views: Vec<ChildView> = children
             .iter()
@@ -633,7 +634,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
     let child_view = |child: &Session| {
         json_of(&ChildView {
             notes_settles,
-            ..ChildView::of(&child.info(), &Agents::name_of(child))
+            ..ChildView::of(&child.info(), &sessions::name_of(child))
         })
     };
 
@@ -685,6 +686,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
             let call: CountCall = parse(&request.args)?;
 
             Ok(ok(agents
+                .sessions
                 .live_descendants(call.root_machine, &call.root)
                 .to_string()))
         }
@@ -697,7 +699,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
                 return Ok(fail("Give the `text` to send."));
             };
 
-            match agents.child_of(&who, &call.id) {
+            match agents.sessions.child_of(&who, &call.id) {
                 Ok(child) => Agents::tell_child(&child, text).await?,
                 Err(_) => agents.message(&who.session, &call.id, text).await?,
             }
@@ -706,7 +708,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
         }
         Tool::AgentStatus | Tool::StopAgent => {
             let call: PeerCall = parse(&request.args)?;
-            let child = agents.child_of(&who, &call.id)?;
+            let child = agents.sessions.child_of(&who, &call.id)?;
 
             Ok(match request.tool {
                 Tool::AgentStatus => child_view(&child),

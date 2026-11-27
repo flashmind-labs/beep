@@ -1,6 +1,7 @@
 //! How a caller reaches its children (`Reach`), and the subagent card its
 //! transcript shows for each `start_agent` call (`show_children`).
 
+use crate::agents::sessions;
 use crate::calls::command_name;
 use super::{Agents, Session, child_view::ChildView, family::{RemoteKid, Who}, live::Mark, machine_list::{Machine, find_named, machine_name}};
 use beep_mesh::Mesh;
@@ -94,12 +95,12 @@ impl Reach<'_> {
     /// `child` as it stands on this machine, which the caller has now seen.
     pub(crate) fn view_here(&self, child: &Session) -> ChildView {
         self.shown([child]);
-        ChildView::of(&child.info(), &Agents::name_of(child)).named(&self.my_name())
+        ChildView::of(&child.info(), &sessions::name_of(child)).named(&self.my_name())
     }
     /// Notes that the caller was shown `children` as they stand, so its next
     /// turn is not told of them again.
     pub(crate) fn shown<'a>(&self, children: impl IntoIterator<Item = &'a Session>) {
-        if let Some(caller) = self.agents.get(&self.who.session) {
+        if let Some(caller) = self.agents.sessions.get(&self.who.session) {
             caller.see_soon(
                 children
                     .into_iter()
@@ -132,7 +133,7 @@ impl Reach<'_> {
         let none = || format!("You have no agent {}.", id.session);
 
         match self.target(id.machine).map_err(|_| none())? {
-            None => Ok(Found::Here(self.agents.child_of(self.who, &id.session)?)),
+            None => Ok(Found::Here(self.agents.sessions.child_of(self.who, &id.session)?)),
             Some(machine) => self
                 .agents
                 .remote_kids(&self.who.session)

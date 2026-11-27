@@ -71,7 +71,7 @@ host! {
     mod running;
     mod session;
     mod session_stream;
-    mod sessions;
+    pub(crate) mod sessions;
     pub(crate) use crate::socket;
     pub(crate) mod spend;
     pub(crate) mod start;

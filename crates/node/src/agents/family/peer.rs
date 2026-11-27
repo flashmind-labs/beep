@@ -3,6 +3,7 @@
 //! counting a root's agents, asking about a parent, and reading a child's
 //! state without making a transcript read wait for it.
 
+use crate::agents::sessions;
 use super::links::{ChildNote, NO_AGENT, Parent, RemoteKid, Views};
 use crate::agents::{Agents, child_view::ChildView, machine_list::{Machine, machine_name}, reply::json_of};
 use crate::peer_stream::over_the_mesh;
@@ -392,7 +393,7 @@ pub(crate) fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<List
         .iter()
         .map(|session| {
             let info = session.info();
-            let mut view = ChildView::of(&info, &Agents::name_of(session));
+            let mut view = ChildView::of(&info, &sessions::name_of(session));
             view.project = mesh
                 .as_ref()
                 .and_then(|mesh| crate::agents::projects::of_folder(mesh, &info.cwd, mesh.me()));

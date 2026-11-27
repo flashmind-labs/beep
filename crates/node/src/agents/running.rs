@@ -1,7 +1,7 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use crate::machine::env::locate::folder;
-use super::{AgentKind, Agents, Answered, Asking, Session, checkout, harnesses, live::Sent, machine_list, projects, session::{Begin, Command, History, Start}, sessions::{self, new_id}};
+use super::{AgentKind, Agents, Session, checkout, harnesses, machine_list, projects, session::{Begin, Command, History, Start}, sessions::new_id};
 use crate::{
     agents::child_reach,
     process::spawn_env,
@@ -9,10 +9,7 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_proto::SessionId;
 use beep_proto::node::{
-    agent::{
-        self, CheckoutPlan, SessionDevice, SessionInfo,
-        Status,
-    },
+    agent::{self, CheckoutPlan, Status},
 };
 use beep_proto::watched;
 use beep_proto::{AccountName, AgentAccount};
@@ -21,74 +18,11 @@ use std::{
     borrow::Cow,
     path::{Path, PathBuf},
     str::FromStr,
-    sync::{Arc, atomic::Ordering},
+    sync::Arc,
 };
-use tokio::{
-    sync::oneshot,
-    task::spawn_blocking,
-};
+use tokio::task::spawn_blocking;
 
 impl Agents {
-    /// Whether `session` is one of this node's and still runs.
-    pub(crate) fn runs(&self, session: &SessionId) -> bool {
-        self.get(session).is_some_and(|session| {
-            watched::read(&session.live, |live| live.status() != Status::Ended)
-        })
-    }
-
-    /// The folder `session` works in, if it is one of this node's.
-    pub(crate) fn folder_of(&self, session: &SessionId) -> Option<PathBuf> {
-        self.get(session)
-            .map(|session| PathBuf::from(session.info().cwd))
-    }
-
-    /// Keeps `device` as the device `session` uses, or forgets it.
-    pub(crate) async fn set_device(
-        &self,
-        session: &SessionId,
-        device: Option<SessionDevice>,
-    ) -> Result<()> {
-        let session = self
-            .get(session)
-            .with_context(|| format!("there is no session {session} here"))?;
-        session
-            .order(Command::SetDevice(device))
-            .await
-            .map_err(anyhow::Error::msg)
-    }
-
-    /// Shows in `session` how far its running `send_files` call has sent.
-    pub(crate) async fn sending(&self, session: &SessionId, sent: Sent) -> Result<()> {
-        let session = self
-            .get(session)
-            .with_context(|| format!("there is no session {session} here"))?;
-        session
-            .order(Command::Sending(sent))
-            .await
-            .map_err(anyhow::Error::msg)
-    }
-
-    /// Puts `question` to the user in `session` and waits for the answer.
-    /// Fails when the session ends or its turn is cancelled first.
-    pub(crate) async fn ask(&self, session: &SessionId, question: Asking) -> Result<Answered> {
-        let session = self
-            .get(session)
-            .with_context(|| format!("there is no session {session} here"))?;
-        let (reply, answer) = oneshot::channel();
-        // Dropped with the wait (a timeout, a call the agent gave up on, even while the order
-        // is still being handed over), it takes the question back from the session.
-        let mut waiting = Withdraw(Some(session.clone()));
-        session
-            .order(Command::Ask { question, reply })
-            .await
-            .map_err(anyhow::Error::msg)?;
-        let answered = answer
-            .await
-            .context("the question was dropped: the turn was cancelled or the session ended");
-        waiting.0 = None;
-        answered
-    }
-
     /// The last `last` entries of a session this node runs and how many
     /// came before them, each Codex subagent among them with the steps
     /// its rollout holds: codex-acp sends none of them.
@@ -299,37 +233,15 @@ impl Agents {
     /// Closes every running session and waits until their agents have
     /// stopped: for the node shutting down.
     pub async fn shutdown(&self) {
-        self.begin_stopping();
-        let running: Vec<Arc<Session>> = self
-            .session_map()
+        self.sessions.begin_stopping();
+        let running: Vec<Arc<Session>> = self.sessions
+            .read()
             .values()
             .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
             .cloned()
             .collect();
         futures::future::join_all(running.iter().map(|session| session.close())).await;
         self.lsp.shutdown().await;
-    }
-
-    /// Marks the node as stopping: sessions that end from now on ended
-    /// with it, even when the service manager stopped their agents first.
-    pub fn begin_stopping(&self) {
-        self.sessions.stopping.store(true, Ordering::Relaxed);
-    }
-
-    /// The sessions now, as last published.
-    pub(crate) fn session_map(&self) -> Arc<sessions::Map> {
-        self.sessions.read()
-    }
-
-    /// The session `id` names: by the id it started under or by the
-    /// agent's own id.
-    pub(crate) fn get(&self, id: &SessionId) -> Option<Arc<Session>> {
-        sessions::find_session(&self.sessions.read(), id)
-    }
-
-    /// The entries of the full list whose id is `id`, without copying the others.
-    pub(crate) fn listed_session(&self, id: &SessionId) -> Vec<SessionInfo> {
-        self.sessions.listed_where(true, Some(id))
     }
 
     /// Starts a session in the branch or worktree `checkout` makes in
@@ -410,6 +322,7 @@ impl Agents {
             Some(earlier) => {
                 if begin.title.is_none()
                     && let Some(title) = self
+                        .sessions
                         .get(earlier)
                         .and_then(|session| session.info().title)
                         .or_else(|| self.reopen.saved(earlier).and_then(|saved| saved.info.title))
@@ -660,21 +573,5 @@ impl Agents {
 
         super::conversation::thread_folder(&home, Path::new(&parent.info().cwd), title, new_id)
             .context("making the thread's folder")
-    }
-}
-
-
-/// Takes back the questions nobody waits for any more, once the wait that held it ends before an
-/// answer. The order is short and ends with the session, so it runs on its own.
-struct Withdraw(Option<Arc<Session>>);
-
-impl Drop for Withdraw {
-    fn drop(&mut self) {
-        if let Some(session) = self.0.take() {
-            tokio::spawn(async move {
-                // Refused when the session already ended, which took its questions with it.
-                let _ = session.order(Command::Withdraw).await;
-            });
-        }
     }
 }

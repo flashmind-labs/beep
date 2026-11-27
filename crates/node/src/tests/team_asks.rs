@@ -1,3 +1,4 @@
+use crate::agents::sessions;
 use super::*;
 use crate::agents::Parts;
 use crate::tags::{Part, parts};
@@ -109,7 +110,7 @@ impl Landing {
         .expect("the first turn ends")
         .expect("the session lives");
 
-        (format!("{}@build-box", Agents::name_of(&session)), live)
+        (format!("{}@build-box", sessions::name_of(&session)), live)
     }
 }
 

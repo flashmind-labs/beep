@@ -95,6 +95,7 @@ pub(super) async fn run(
 
 fn live(env: &Env, id: &SessionId) -> Option<Arc<Session>> {
     env.agents
+        .sessions
         .get(id)
         .filter(|session| watched::read(&session.live, Live::status) != Status::Ended)
 }

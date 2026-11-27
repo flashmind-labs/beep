@@ -545,7 +545,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     assert_eq!(session.info().id, AGENT_ID);
     assert_eq!(agents.sessions.list()[0].id, AGENT_ID);
     assert!(Arc::ptr_eq(
-        &agents.get(&SessionId::from(AGENT_ID)).unwrap(),
+        &agents.sessions.get(&SessionId::from(AGENT_ID)).unwrap(),
         &session
     ));
     agents.shutdown().await;
@@ -609,8 +609,8 @@ done"#,
     );
     assert_eq!(listed[0].id, AGENT_ID);
     assert_eq!(listed[0].state.status, Status::Idle);
-    assert!(agents.get(&first.id).is_none());
-    let current = agents.get(&SessionId::from(AGENT_ID)).unwrap();
+    assert!(agents.sessions.get(&first.id).is_none());
+    let current = agents.sessions.get(&SessionId::from(AGENT_ID)).unwrap();
     assert!(Arc::ptr_eq(&current, &resumed));
     current
         .order(Command::Prompt("Continue the work".to_owned().into()))

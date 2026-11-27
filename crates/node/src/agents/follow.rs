@@ -146,6 +146,8 @@ async fn follow(
 ) -> Result<FollowEnd> {
     let mut presence = agents.occupancy.presence().subscribe();
     let mut live = agents
+        .sessions
+
         .get(&request.session)
         .map(|session| session.live.clone());
     // A Claude Code session started outside Beep is found once, and the
@@ -334,6 +336,8 @@ async fn follow(
 
         if live.is_none() {
             live = agents
+                .sessions
+
                 .get(&request.session)
                 .map(|session| session.live.clone());
         }
@@ -916,7 +920,7 @@ async fn snapshot(
         from,
     } = read;
     let started = Instant::now();
-    let source = match agents.get(&request.session) {
+    let source = match agents.sessions.get(&request.session) {
         Some(session) => {
             let info = session.info();
 
@@ -989,7 +993,7 @@ async fn paths(
     request: &FollowSession,
     followed: Option<&Followed>,
 ) -> Result<Vec<PathBuf>> {
-    if agents.get(&request.session).is_some() {
+    if agents.sessions.get(&request.session).is_some() {
         return Ok(if request.agent == "codex" {
             agents.listings.follow_roots(Agent::Codex)
         } else {

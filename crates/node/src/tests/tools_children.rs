@@ -224,7 +224,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     .await
     .unwrap()
     .unwrap();
-    let parent_id = Agents::name_of(&parent);
+    let parent_id = sessions::name_of(&parent);
 
     for args in [
         json!({"harness":"kid", "prompt":"work", "project":"missing"}),
@@ -276,6 +276,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     let who = node.agents.caller(&parent_id).unwrap().1;
     let child = node
         .agents
+        .sessions
         .child_of(&who, &ChildId::from(done.id.as_str()).session)
         .unwrap();
     assert_eq!(child.info().cwd, checkout.display().to_string());
@@ -338,7 +339,7 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
     .await
     .expect("the chat settles")
     .expect("the chat is kept");
-    let chat = Agents::name_of(&chat);
+    let chat = sessions::name_of(&chat);
 
     // `start_thread` calls `start_agent` with what it takes: no harness.
     let (failed, text) = tool(
@@ -404,7 +405,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
     .await
     .expect("the chat settles")
     .expect("the chat is kept");
-    let chat = Agents::name_of(&chat);
+    let chat = sessions::name_of(&chat);
     let start = |persona: &str, harness: Option<&str>| {
         let mut args = json!({ "title": persona, "prompt": "work", "persona": persona });
         if let Some(harness) = harness {
@@ -418,7 +419,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
     assert!(!failed, "{text}");
     let researcher = view(&text);
     assert_eq!(researcher.harness, "codex");
-    let session = node.agents.get(&researcher.key).expect("the thread runs here");
+    let session = node.agents.sessions.get(&researcher.key).expect("the thread runs here");
     assert_eq!(session.info().persona.map(|persona| persona.name).as_deref(), Some("researcher"));
     // Claude's, which it has not: the chat's.
     let (failed, text) = start("writer", None).await;
@@ -470,7 +471,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         .expect("the session is kept");
     }
 
-    let (mine, theirs) = (Agents::name_of(&mine), Agents::name_of(&theirs));
+    let (mine, theirs) = (sessions::name_of(&mine), sessions::name_of(&theirs));
 
     // `wait` returns the answer once the child's turn ends.
     let (failed, text) = tool(
@@ -516,7 +517,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
             },
         )
         .await.unwrap();
-    assert_eq!(node.agents.children_of(&who).len(), 3);
+    assert_eq!(node.agents.sessions.children_of(&who).len(), 3);
     let (_, text) = tool(&node, &mine, Tool::ListAgents, json!({})).await;
     let listed: Vec<ChildView> = serde_json::from_str(&text).expect("a list");
     assert_eq!(listed.len(), 2, "{text}");
@@ -614,7 +615,7 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     .await
     .expect("the session settles")
     .expect("the session is kept");
-    let id = Agents::name_of(&parent);
+    let id = sessions::name_of(&parent);
     let (failed, text) = tool(
         &node,
         &id,

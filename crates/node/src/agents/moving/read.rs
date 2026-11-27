@@ -377,7 +377,7 @@ pub(super) async fn serve(
             // ended. A session that may still be coming back from a
             // restart, or that the source is still finishing with, counts
             // as running.
-            let mut live = !agents.reopen.reopened() || agents.runs(&id) || agents.moves.holds(&id);
+            let mut live = !agents.reopen.reopened() || agents.sessions.runs(&id) || agents.moves.holds(&id);
             // Whether the source says when it is done: not for a move still
             // settling from an earlier one, which the target asks again.
             let mut settling = false;
@@ -393,7 +393,7 @@ pub(super) async fn serve(
                     }
                     Previous::Released => {
                         // A cancelled move may have reopened it during the read.
-                        live |= agents.runs(&id) || agents.moves.holds(&id);
+                        live |= agents.sessions.runs(&id) || agents.moves.holds(&id);
                     }
                 }
             }
@@ -465,7 +465,7 @@ pub(super) async fn serve(
             // While the sessions come back from a restart, or the source
             // ends this one again, the target asks again: no refusal, which
             // would end the move.
-            if !agents.reopen.reopened() || agents.runs(&id) {
+            if !agents.reopen.reopened() || agents.sessions.runs(&id) {
                 return Ok(());
             }
 
@@ -509,7 +509,7 @@ pub(super) async fn serve(
         }
         Request::Files { id } => {
             // As for a worktree: the target asks again.
-            if !agents.reopen.reopened() || agents.runs(&id) {
+            if !agents.reopen.reopened() || agents.sessions.runs(&id) {
                 log::info!(
                     "session {id}: its files are asked for, but it still runs here or the sessions are not read yet; the target asks again"
                 );
@@ -596,7 +596,7 @@ async fn until_done(agents: &Agents, id: &SessionId) {
     loop {
         agents.reopen.until_reopened().await;
 
-        if !(agents.runs(id) || agents.moves.holds(id)) || released.changed().await.is_err() {
+        if !(agents.sessions.runs(id) || agents.moves.holds(id)) || released.changed().await.is_err() {
             return;
         }
     }

@@ -5,6 +5,7 @@
 //! 0.8.28 does not serve its list to a node: it is asked every
 //! `ORPHAN_CHECK` instead.
 
+use crate::agents::sessions;
 use super::links::Parent;
 use crate::agents::{Agents, Session, live::Live};
 use crate::agents::session::{NODE_STOPPED, ended_for_good};
@@ -186,7 +187,7 @@ impl Agents {
         id: &SessionId,
         key: &SessionId,
     ) -> bool {
-        let Some(parent_session) = self.get(parent) else {
+        let Some(parent_session) = self.sessions.get(parent) else {
             return false;
         };
 
@@ -250,7 +251,7 @@ pub(super) async fn feed(
                 let Some(mesh) = watched::read(&meshes, Clone::clone) else {
                     return Some(Parent::Silent);
                 };
-                let name = Agents::name_of(&session);
+                let name = sessions::name_of(&session);
 
                 Some(super::peer::ask_parent(&mesh, peer, &link.session, &name, &session.id).await)
             };
@@ -390,7 +391,7 @@ async fn ask_every(
             return;
         };
         let answer =
-            super::peer::ask_parent(mesh, peer, &link.session, &Agents::name_of(&session), &session.id)
+            super::peer::ask_parent(mesh, peer, &link.session, &sessions::name_of(&session), &session.id)
                 .await;
 
         if tx.send(answer).await.is_err() {

@@ -6,6 +6,7 @@
 //! and has a machine with the project start a session on an issue newly
 //! assigned to the user (`Tool::TeamPickup`).
 
+use crate::agents::sessions;
 use super::{Node, desktop, server::ASK_LIMIT};
 use crate::agents::reply::{fail, json_of, ok, parse};
 use crate::agents::child_view::full_id;
@@ -82,7 +83,7 @@ struct Handed {
 /// The team link and the team `session`'s project is on, when it is on one.
 pub(super) fn team_of(node: &Node, session: &SessionId) -> Option<(TeamLink, TeamRepo)> {
     let link = node.team.clone();
-    let folder = node.agents.folder_of(session)?;
+    let folder = node.agents.sessions.folder_of(session)?;
     let repo = link.home(|home| home.team_of(&folder))?;
     link.with(|teams| teams.rosters.get(&repo).is_some()).then_some(())?;
 
@@ -140,7 +141,7 @@ pub(super) async fn join_call(node: &Node, request: &Request) -> Reply {
         ],
     };
 
-    match timeout(ASK_LIMIT, node.agents.ask(&request.session, question)).await {
+    match timeout(ASK_LIMIT, node.agents.sessions.ask(&request.session, question)).await {
         Ok(Ok(Answered::Picked(option))) if option.id == JOIN_CONFIRM => {}
         Ok(Ok(_)) => {
             return fail(
@@ -256,10 +257,11 @@ fn outgoing(
     }
 
     let session = agents
+        .sessions
         .get(&request.session)
         .ok_or("This session no longer runs.")?;
     let card = full_id(
-        Agents::name_of(&session).as_ref(),
+        sessions::name_of(&session).as_ref(),
         &machine_name(Some(mesh)),
     );
     let own = link.home(|home| home.mesh);
