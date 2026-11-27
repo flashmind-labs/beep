@@ -668,6 +668,9 @@ fn setup(
     app: &mut App,
     #[cfg(desktop)] recorder: std::thread::JoinHandle<anyhow::Result<PrometheusHandle>>,
 ) -> anyhow::Result<()> {
+    // Setup runs on the main thread: enter the runtime so what it builds can spawn tasks.
+    let runtime = tauri::async_runtime::handle();
+    let _entered = runtime.inner().enter();
     platform::startup::stage("setup");
     // Kept as state so it lives as long as the app.
     #[cfg(target_os = "android")]
