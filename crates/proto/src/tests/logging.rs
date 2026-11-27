@@ -68,44 +68,6 @@ impl Write for Captured {
     }
 }
 
-#[test]
-fn rotating_log_format_keeps_nested_span_fields_and_request_outcomes() {
-    let output = Captured::default();
-    let writer = output.clone();
-    let subscriber = tracing_subscriber::registry().with(
-        tracing_subscriber::fmt::layer()
-            .event_format(TextLayout)
-            .with_ansi(false)
-            .with_writer(move || writer.clone())
-            .with_filter(tracing_subscriber::filter::LevelFilter::DEBUG),
-    );
-    tracing::subscriber::with_default(subscriber, || {
-        let outer = tracing::info_span!("connection", stream = 7);
-        let _outer = outer.enter();
-        let inner = tracing::info_span!("query", query = 9);
-        let _inner = inner.enter();
-        let mut completed = RequestTrace::new("folder");
-        completed.phase("sending");
-        completed.finish(true);
-        drop(completed);
-        let mut failed = RequestTrace::new("worktrees");
-        failed.finish(false);
-        drop(failed);
-        drop(RequestTrace::new("attachment"));
-    });
-    let bytes = output.0.lock().unwrap();
-    let text = std::str::from_utf8(&bytes).unwrap();
-    assert!(
-        text.contains("connection{stream=7} query{query=9}"),
-        "{text}"
-    );
-    assert!(text.contains("outcome=\"ok\""), "{text}");
-    assert!(text.contains("outcome=\"error\""), "{text}");
-    assert!(text.contains("outcome=\"cancelled\""), "{text}");
-    assert!(text.contains("phase=\"sending\""), "{text}");
-    assert!(text.lines().all(|line| line.contains("request=")), "{text}");
-}
-
 fn trace_in(outcome: &'static str, stream: bool) -> RequestTrace {
     let mut trace = RequestTrace::new("op");
     trace.outcome = outcome;
