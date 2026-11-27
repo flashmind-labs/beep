@@ -11,7 +11,7 @@ import { disposeQueue } from "./composer-ui.tsx";
 import { Channel, invoke, listen, logError, logInfo, recordTiming } from "../../ui/tauri.ts";
 import { joinRuns, newestRead, viewRead } from "../../stores/agents/older-state.ts";
 import { hasNews, LINKED, noteAfterRead, readFailed, RETRY_MS, viewError } from "../../stores/agents/reconnect-state.ts";
-import { endPage, mergePage } from "../../stores/agents/open-page.ts";
+import { endPage, mergePage, setPageQueued } from "../../stores/agents/open-page.ts";
 import { followStale, followsOnly, isOpen, setNote, setReadNote, openSession, staleFrame, stoppingNow } from "./open-state.ts";
 import { sessionBody } from "../../stores/agents/session-frame-state.ts";
 import { isNativeSession, nativeUpdate } from "../../stores/agents/native-session-state.ts";
@@ -176,6 +176,7 @@ export function heldSteers(o: OpenAgent): string[] {
 
 /// The node dropped its steers after Stop all.
 export function clearHeldSteers(o: OpenAgent) {
+  if (AG.open && transcriptKey(AG.open) === transcriptKey(o)) setPageQueued([]);
   transcripts.amend(transcriptKey(o), page => ({ ...page, queued: 0, queued_messages: [] }));
 }
 

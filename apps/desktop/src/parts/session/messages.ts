@@ -1,6 +1,7 @@
 // Sending to a coding agent: messages, steers,
 // answers to its questions, and interrupting it.
-import { appendEntry, clearQuestion, removeEntry } from "../../stores/agents/open-page.ts";
+import { appendEntry, clearQuestion, removeEntry, setPageQueued } from "../../stores/agents/open-page.ts";
+import { transcriptKey, transcripts } from "../../stores/agents/transcript-cache-state.ts";
 import { type Attached, attachOf, heldMessage, type Extras, type OutboxRow, type Resume, type Waiting } from "../../stores/agents/agentqueue.ts";
 import { canContinueElsewhere } from "../../stores/agents/continue-state.ts";
 import { imageLines, sentText } from "../../stores/agents/agentlog.ts";
@@ -28,11 +29,50 @@ import { loadSessions, sessions } from "../../stores/agents/sessions.ts";
 import { agentMessage, sessionBody } from "../../stores/agents/session-frame-state.ts";
 import { shownQuestionsIn } from "./mode-view.tsx";
 
+const sameOpen = (a: OpenAgent | null, b: OpenAgent | null) =>
+  !!a && !!b && a.machine_id === b.machine_id && a.agent === b.agent && a.session === b.session;
+
+function setQueuedMessages(o: OpenAgent, queued_messages: string[]) {
+  if (sameOpen(AG.open, o)) setPageQueued(queued_messages);
+  transcripts.amend(transcriptKey(o), page => ({ ...page, queued: queued_messages.length, queued_messages }));
+}
+
 /// The steers the open session's node holds for the turn, as its last update lists them.
-export const heldQueue = () => AG.page?.queued_messages ?? [];
+export function heldQueue(): string[] {
+  const o = AG.open;
+  if (dropping && sameOpen(dropping.open, o)) {
+    return [...dropping.shown.map(kept => kept.form), ...dropping.nonSteers];
+  }
+  const raw = AG.page?.queued_messages ?? [];
+  const pending = pendingQueue;
+  if (pending && o && pending.session === o.session && (AG.page?.turns ?? 0) === pending.turns) {
+    const stale = !!pending.removed && raw.filter(form => form === pending.removed?.form).length >= pending.removed.beforeCount;
+    if (pending.resending || raw === pending.expectedRef || stale) {
+      const inOutbox = new Map<string, number>();
+      for (const row of AG.outbox) {
+        if (row.how === "steer" && !pending.priorOutboxIds.has(row.id)) {
+          const form = listedAs(row.text, row.images);
+          inOutbox.set(form, (inOutbox.get(form) ?? 0) + 1);
+        }
+      }
+      const steers = pending.steers.filter(form => {
+        const count = inOutbox.get(form) ?? 0;
+        if (count <= 0) return true;
+        inOutbox.set(form, count - 1);
+        return false;
+      });
+      return [...steers, ...pending.nonSteers];
+    }
+  }
+  pendingQueue = null;
+  return raw;
+}
 
 /// The steers the node holds above the field, then the messages kept on this device.
 export function drawQueue() {
+  if (AG.open && !dropping && !turnRuns() && !AG.page?.queued_messages?.length && !AG.outbox.length) {
+    forgetSteered(AG.open.session);
+  }
   if (!agentMessage.current?.isConnected) { if (S.view !== "agent" || !sessionBody()) disposeQueue(); return; }
   showAgentQueue(heldQueue(), editQueued, AG.outbox, editOutbox);
 }
@@ -143,6 +183,37 @@ function forgetPics(kept: ReturnType<typeof rememberPics>) {
   if (at >= 0) pendingPics.splice(at, 1);
 }
 
+/// A `drop_steers` in flight, so the row leaves the queue on click and rapid
+/// clicks take more steers out of the same batch without sending them again.
+interface DroppingSteers {
+  open: OpenAgent;
+  before: string[];
+  shown: Kept[];
+  unlisted: Kept[];
+  nonSteers: string[];
+  edits: Draft[];
+}
+let dropping: DroppingSteers | null = null;
+/// Steers expected after `drop_steers` answered: keeps remaining steers visible without
+/// duplicating rows as the outbox re-sends them, and hides stream frames from before the drop.
+interface PendingQueue {
+  session: string;
+  turns: number;
+  steers: string[];
+  nonSteers: string[];
+  expectedRef: string[];
+  priorOutboxIds: Set<number>;
+  removed: { form: string; beforeCount: number } | null;
+  resending: boolean;
+}
+let pendingQueue: PendingQueue | null = null;
+
+function forgetSteered(session: string) {
+  for (let i = steered.length - 1; i >= 0; i--) {
+    if (steered[i].session === session) steered.splice(i, 1);
+  }
+}
+
 /// The outbox handed steer `row` to the node of `session`: it is tied to the oldest steer of
 /// this window with the same pictures, in the order they were sent.
 function recordSteer(session: string, row: OutboxRow) {
@@ -150,9 +221,10 @@ function recordSteer(session: string, row: OutboxRow) {
   const same = (images: readonly Attached[]) => images.length === names.length && images.every((image, at) => image.name === names[at]);
   const at = names.length ? pendingPics.findIndex(p => p.session === session && same(p.draft.images) && (p.draft.files?.length || outgoing(p.draft.text, p.draft.images).text === row.text)) : -1;
   const images = at >= 0 ? pendingPics.splice(at, 1)[0].draft.images : [];
-  // The node lists a picture by the key the outbox gave it.
-  const keys = row.keys.length === names.length ? row.keys : names;
-  steered.push({ session, id: row.id, form: listedAs(row.text, keys), images, lost: names.length > 0 && !images.length });
+  // The node lists each picture in `queued_messages` by its upload name.
+  const form = listedAs(row.text, names);
+  if (pendingQueue?.session === session && !pendingQueue.resending && pendingQueue.removed?.form === form) pendingQueue = null;
+  steered.push({ session, id: row.id, form, images, lost: names.length > 0 && !images.length });
   if (steered.length > MAX_STEER_PICS) steered.shift();
 }
 
@@ -160,19 +232,36 @@ function recordSteer(session: string, row: OutboxRow) {
 /// `held` each is, and those it took that the list does not show yet. The list also holds
 /// queued prompts, which are not steers.
 function steersOf(o: OpenAgent, held: readonly string[]) {
-  const records = steered.filter(kept => kept.session === o.session);
   const rows = AG.outbox.filter(row => row.state === "sent" && row.how === "steer");
+  const sentIds = new Set(rows.map(row => row.id));
+  const records = steered.filter(kept => kept.session === o.session);
+  const settled = records.filter(kept => !sentIds.has(kept.id));
+  const counts = new Map<string, number>();
+  for (const form of held) counts.set(form, (counts.get(form) ?? 0) + 1);
+
+  // Settled records beyond what `held` still lists were already delivered in FIFO order.
+  const keptSettled: Kept[] = [];
+  for (let i = settled.length - 1; i >= 0; i--) {
+    const left = counts.get(settled[i].form) ?? 0;
+    if (left > 0) {
+      counts.set(settled[i].form, left - 1);
+      keptSettled.push(settled[i]);
+    }
+  }
+  keptSettled.reverse();
+
   const mine: (Kept | null)[] = held.map(() => null);
   const unlisted: Kept[] = [];
+
+  for (const kept of keptSettled) {
+    const at = held.findIndex((form, n) => !mine[n] && form === kept.form);
+    if (at >= 0) mine[at] = kept;
+  }
 
   for (const row of rows) {
     const kept = records.find(k => k.id === row.id) ?? { session: o.session, id: row.id, form: listedAs(row.text, row.images), images: [], lost: row.images.length > 0 };
     const at = held.findIndex((form, n) => !mine[n] && form === kept.form);
     if (at >= 0) mine[at] = kept; else unlisted.push(kept);
-  }
-
-  for (const [at, form] of held.entries()) {
-    if (!mine[at]) mine[at] = records.find(k => k.form === form && !mine.includes(k) && !rows.some(row => row.id === k.id)) ?? null;
   }
 
   return { mine, unlisted };
@@ -183,25 +272,97 @@ function steersOf(o: OpenAgent, held: readonly string[]) {
 /// go again behind it, each with its own pictures. Only a steer this app sent can be taken:
 /// the list also holds queued prompts, which dropping the steers would not take out.
 export async function editQueued(i: number, edit: boolean) {
-  const o = AG.open, held = heldQueue();
-  if (!o || held[i] === undefined) return;
+  const o = AG.open;
+  if (!o) return;
+
+  if (dropping && sameOpen(dropping.open, o)) {
+    if (i < 0 || i >= dropping.shown.length) return;
+    const [taken] = dropping.shown.splice(i, 1);
+    if (edit) dropping.edits.push({ typed: heldMessage(taken.form).words, paths: [], images: taken.images });
+    setQueuedMessages(o, [...dropping.shown.map(kept => kept.form), ...dropping.nonSteers]);
+    drawQueue();
+    redrawAgentHints();
+    return;
+  }
+
+  const held = heldQueue();
+  if (held[i] === undefined) return;
   const { mine, unlisted } = steersOf(o, held);
   const taken = mine[i];
   if (!taken) return;
-  if (!await steerAgent({ drop_steers: null }) || !isOpen(o)) return;
-  const again = [...mine.flatMap((kept, at) => kept && at !== i ? [kept] : []), ...unlisted];
-  let lost = false;
 
-  for (const kept of again) {
-    const words = kept.images.length || kept.lost ? heldMessage(kept.form).words : kept.form;
-    lost ||= kept.lost;
-    if (words || kept.images.length) await sendSteer({ typed: words, text: words, paths: [], images: kept.images }, false);
-  }
+  const mentions = currentMentions();
+  const shown = mine.flatMap((kept, at) => kept && at !== i ? [kept] : []);
+  const nonSteers = held.filter((_, at) => !mine[at]);
+  const edits: Draft[] = edit ? [{ typed: heldMessage(held[i]).words, paths: [], images: taken.images }] : [];
+  const batch: DroppingSteers = { open: o, before: [...held], shown, unlisted, nonSteers, edits };
+  dropping = batch;
+  pendingQueue = null;
 
-  if (edit) backInField({ typed: heldMessage(held[i]).words, paths: [], images: taken.images });
-  if (lost) setNote("A picture of a queued message could not be sent again.");
+  setQueuedMessages(o, [...shown.map(kept => kept.form), ...nonSteers]);
   drawQueue();
   redrawAgentHints();
+
+  const ok = await steerAgent({ drop_steers: null });
+  if (dropping === batch) dropping = null;
+
+  if (!ok) {
+    setQueuedMessages(o, batch.before);
+    if (isOpen(o)) {
+      drawQueue();
+      redrawAgentHints();
+    }
+    return;
+  }
+
+  forgetSteered(o.session);
+  if (sameOpen(AG.open, o)) {
+    AG.outbox = AG.outbox.filter(row => !(row.state === "sent" && row.how === "steer"));
+  }
+
+  const again = [...batch.shown, ...batch.unlisted];
+  const shownForms = batch.shown.map(kept => kept.form);
+  const afterForms = [...batch.nonSteers, ...again.map(kept => kept.form)];
+  const removedForm = batch.before.find(form => afterForms.filter(f => f === form).length < batch.before.filter(f => f === form).length);
+  const expectedRef = [...shownForms, ...batch.nonSteers];
+  const currentPending: PendingQueue = {
+    session: o.session,
+    turns: AG.page?.turns ?? 0,
+    steers: shownForms,
+    nonSteers: [...batch.nonSteers],
+    expectedRef,
+    priorOutboxIds: new Set(AG.outbox.map(row => row.id)),
+    removed: removedForm !== undefined ? { form: removedForm, beforeCount: batch.before.filter(f => f === removedForm).length } : null,
+    resending: again.length > 0,
+  };
+  pendingQueue = currentPending;
+  setQueuedMessages(o, expectedRef);
+
+  if (isOpen(o)) {
+    for (const draft of batch.edits) backInField(draft);
+    drawQueue();
+    redrawAgentHints();
+  } else {
+    for (const draft of [...batch.edits].reverse()) restoreDraft(draft, mentions, o);
+  }
+
+  let lost = false;
+
+  try {
+    for (const kept of again) {
+      const words = kept.images.length || kept.lost ? heldMessage(kept.form).words : kept.form;
+      lost ||= kept.lost;
+      if (words || kept.images.length) await sendSteer({ typed: words, text: words, paths: [], images: kept.images }, false, o);
+    }
+  } finally {
+    currentPending.resending = false;
+  }
+
+  if (isOpen(o)) {
+    if (lost) setNote("A picture of a queued message could not be sent again.");
+    drawQueue();
+    redrawAgentHints();
+  }
 }
 
 /// Enter while the turn runs: steers it.
@@ -312,12 +473,11 @@ async function joinRead(draft: Waiting, reads: ReturnType<typeof attachReads>, s
 
 /// Sends `q` as a steer of the open session: from here the outbox keeps it, and a message
 /// the machine refused goes back in the field when `back`.
-async function sendSteer(q: Waiting, back = true) {
-  const o = AG.open;
+async function sendSteer(q: Waiting, back = true, o = AG.open) {
   if (!o) return false;
   if (q.images.length) keepAgentPics(o, q.images);
   const pics = rememberPics(o, q);
-  const sent = await sendText({ steer: outgoing(q.text, q.images) }, seenNow(), extrasOf(o, q, false));
+  const sent = await sendText({ steer: outgoing(q.text, q.images) }, sameOpen(AG.open, o) ? seenNow() : null, extrasOf(o, q, false), o);
   if (sent === "failed") forgetPics(pics);
 
   if (sent === "failed" && back && isOpen(o)) backInField(q);
@@ -406,9 +566,8 @@ const seenNow = (): Seen | null => AG.page ? { entries: AG.page.earlier + AG.pag
 /// "waiting" when it waits on this device until the machine can be reached,
 /// else "failed", with the note saying why. The outbox owns a message once
 /// it has it, so one whose send got no answer in time waits there too.
-async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen: Seen | null, extras: Extras = {}): Promise<"sent" | "waiting" | "failed"> {
-  const o = AG.open;
-  if (!o || (AG.page?.session.external && !extras.resume)) return "failed";
+async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen: Seen | null, extras: Extras = {}, o = AG.open): Promise<"sent" | "waiting" | "failed"> {
+  if (!o || (sameOpen(AG.open, o) && AG.page?.session.external && !extras.resume)) return "failed";
   const failed = await sendOnce(o, steer, seen, extras);
   const sent = !failed ? "sent" : failed.kind === "waiting" || failed.kind === "timeout" ? "waiting" : "failed";
 

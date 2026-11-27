@@ -76,6 +76,11 @@ export function endPage() {
   if (page) page = endedPage(page);
 }
 
+/// Replaces the open page's queued messages before the next push confirms them.
+export function setPageQueued(queued_messages: string[]) {
+  if (page) page = { ...page, queued: queued_messages.length, queued_messages };
+}
+
 /// The open question was answered.
 export function clearQuestion() {
   if (page) page = { ...page, session: { ...page.session, question: null, status: "working" } };

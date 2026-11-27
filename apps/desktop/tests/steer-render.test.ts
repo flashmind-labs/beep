@@ -243,8 +243,8 @@ test("editing a steer the node holds drops the node's steers, sends the others a
   t.after(() => { forgetAgentFollows(); delete answers.agent_steer; });
   page.queued = 3;
   page.queued_messages = ["First one", "Use the existing fixture\n[Image: shot.png]", "Third one"];
-  const sent = (id: number, text: string, images: string[]) => ({ id, how: "steer", text, images, keys: images, state: "sent", reason: null });
-  emit("outbox-changed", { machine_id: "m1", agent: "claude", session: "steer-render", revision: 1, rows: [], sent: [sent(1, "First one", []), sent(2, "Use the existing fixture", ["shot.png"]), sent(3, "Third one", [])], resumed: null, pick: null });
+  const sent = (id: number, text: string, images: string[], keys: string[]) => ({ id, how: "steer", text, images, keys, state: "sent", reason: null });
+  emit("outbox-changed", { machine_id: "m1", agent: "claude", session: "steer-render", revision: 1, rows: [], sent: [sent(1, "First one", [], []), sent(2, "Use the existing fixture", ["shot.png"], ["3f8a91c20b4e7d12"]), sent(3, "Third one", [], [])], resumed: null, pick: null });
   drawQueue();
   assert.equal(bar.querySelectorAll("#agqueue .it.steer").length, 3);
   calls.length = 0;
@@ -255,6 +255,71 @@ test("editing a steer the node holds drops the node's steers, sends the others a
     JSON.stringify({ steer: { text: "Third one" } }),
   ]);
   assert.equal(input.value, "Use the existing fixture");
+});
+
+test("removing a steer updates the queue immediately on click, ignores stale pre-drop frames, and restores on failure", async t => {
+  const { input } = setup();
+  input.value = "";
+  let finishDrop!: (value: string[]) => void;
+  answers.agent_steer = new Promise<string[]>(resolve => { finishDrop = resolve; });
+  t.after(() => { forgetAgentFollows(); delete answers.agent_steer; });
+  const where = { machine_id: "m1", agent: "claude", session: "steer-render" };
+  const firstForm = "??\n[Image: Pasted image 9.png]";
+  const secondForm = "Check this image.\n[Image: Pasted image 11.png]";
+  emit("outbox-changed", {
+    ...where, revision: 1, rows: [], resumed: null, pick: null,
+    sent: [
+      { id: 10, how: "steer", text: "??", images: ["Pasted image 9.png"], keys: ["a1b2c3d4e5f60718"], state: "sent", reason: null },
+      { id: 11, how: "steer", text: "Check this image.", images: ["Pasted image 11.png"], keys: ["9988776655443322"], state: "sent", reason: null },
+    ],
+  });
+  hold(firstForm, secondForm);
+  drawQueue();
+  assert.equal(bar.querySelectorAll("#agqueue .it.steer").length, 2);
+
+  // Clicking Remove drops the row from the UI at once, before `drop_steers` answers.
+  const removeButtons = bar.querySelectorAll<HTMLButtonElement>('#agqueue button[aria-label="Remove"]');
+  removeButtons[1]?.click();
+  assert.equal(bar.querySelectorAll("#agqueue .it.steer").length, 1);
+  assert.equal(bar.querySelector("#agqueue .t")?.textContent, "??");
+
+  // Rapidly removing the remaining steer before `drop_steers` settles clears the queue and sends nothing back.
+  bar.querySelector<HTMLButtonElement>('#agqueue button[aria-label="Remove"]')?.click();
+  assert.equal(bar.querySelector("#agqueue"), null);
+
+  // A stream delta encoded before the node processed `drop_steers` does not flash the steers back.
+  hold(firstForm, secondForm);
+  drawAgentBody(undefined, true);
+  assert.equal(bar.querySelector("#agqueue"), null);
+
+  finishDrop([]);
+  await settle();
+  await settle();
+  assert.deepEqual(calls.filter(call => call.cmd === "agent_steer").map(call => (call.args as { steer: unknown }).steer), ["drop_steers"]);
+
+  // A frame encoded before the drop stays hidden; the post-drop frame settles the state.
+  hold(firstForm, secondForm);
+  drawAgentBody(undefined, true);
+  assert.equal(bar.querySelector("#agqueue"), null);
+  hold();
+  drawAgentBody(undefined, true);
+  assert.equal(bar.querySelector("#agqueue"), null);
+
+  // If `drop_steers` fails, the optimistically removed steer returns to the queue.
+  let failDrop!: (reason: string) => void;
+  answers.agent_steer = new Promise<string[]>((_resolve, reject) => { failDrop = reject; });
+  emit("outbox-changed", {
+    ...where, revision: 2, rows: [], resumed: null, pick: null,
+    sent: [{ id: 12, how: "steer", text: "Retry later", images: [], keys: [], state: "sent", reason: null }],
+  });
+  hold("Retry later");
+  drawQueue();
+  assert.equal(bar.querySelector("#agqueue .t")?.textContent, "Retry later");
+  const pending = editQueued(0, false);
+  assert.equal(bar.querySelector("#agqueue"), null);
+  failDrop("lost: machine unreachable");
+  await pending;
+  assert.equal(bar.querySelector("#agqueue .t")?.textContent, "Retry later");
 });
 
 test("editing a queued steer sends the others again with their own pictures, though the pictures share a name", async t => {
@@ -272,11 +337,11 @@ test("editing a queued steer sends the others again with their own pictures, tho
     await settle();
   }
 
-  // The outbox hands them over in order, each under its own key; the node lists those.
+  // The outbox hands them over in order; the node lists each picture by its filename.
   const [first] = sentAs();
   const row = (id: number, key: string) => ({ id, how: "steer", text: first?.text ?? "", images: ["image.jpg"], keys: [key], state: "sent", reason: null });
   emit("outbox-changed", { ...where, revision: 1, rows: [], sent: [row(1, "k1"), row(2, "k2"), row(3, "k3")], resumed: null, pick: null });
-  page.queued_messages = [1, 2, 3].map(n => `${first?.text}\n[Image: k${n}]`);
+  page.queued_messages = [1, 2, 3].map(() => `${first?.text}\n[Image: image.jpg]`);
   page.queued = 3;
   AG.att = [];
   calls.length = 0;
