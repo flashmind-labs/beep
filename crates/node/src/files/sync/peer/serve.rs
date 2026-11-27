@@ -4,7 +4,10 @@ use super::{
     branches,
     wire::{ObjectScope, ObjectWant, Reply, Request},
 };
-use crate::files::sync::{Syncs, gitdir::{self, Repo}};
+use crate::files::sync::{
+    Syncs,
+    gitdir::{self, Repo},
+};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{LinkRx, LinkTx, link};
 use iroh::{

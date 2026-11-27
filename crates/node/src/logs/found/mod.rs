@@ -21,6 +21,7 @@ pub(crate) use common::{
     Agent, Memos, Seen, first_line, is_jsonl, newest_files, open_database, quiet_presence,
     unix_millis, unix_secs, unix_seconds, walk_files,
 };
+pub(crate) use memo::wal_path;
 pub(crate) mod agy;
 pub(crate) mod codex;
 mod codex_run;
@@ -28,7 +29,6 @@ mod delete;
 mod disk;
 pub(crate) mod flsh;
 pub(crate) mod memo;
-pub(crate) use memo::wal_path;
 pub(crate) mod opencode;
 pub(crate) mod pi;
 pub(crate) mod folder_place;

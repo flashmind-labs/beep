@@ -435,7 +435,7 @@ pub(crate) enum Listing {
     Failed(String),
 }
 
-/// All per-node read projections shared on [`Fleet`].
+/// All per-node read projections shared on `Fleet`.
 pub(crate) struct Projections {
     pub(crate) models: Arc<Projected<(EndpointId, String), AgentModels>>,
     pub(crate) custom_agents: Arc<Projected<(EndpointId, String), Vec<CustomAgent>>>,
