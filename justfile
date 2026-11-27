@@ -100,6 +100,62 @@ deps base="origin/main":
 desktop-check:
     cd apps/desktop && npm ci --silent && npm run build && npm run check
     cd apps/desktop/src-tauri && cargo fmt -p beep-desktop --check && cargo clippy -p beep-desktop --all-targets -- -D warnings && cargo test -p beep-desktop
+    just desktop-smoke
+
+# Start the debug desktop app under a virtual display with scratch data and check setup finishes
+desktop-smoke:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v xvfb-run >/dev/null; then
+        echo "desktop-smoke: xvfb-run not found, skipping"
+        exit 0
+    fi
+    cargo build -p beep-desktop
+    bin="${CARGO_TARGET_DIR:-target}/debug/beep-desktop"
+    mkdir -p "$HOME/.cache/tmp"
+    scratch=$(mktemp -d -p "$HOME/.cache/tmp" desktop-smoke.XXXX)
+    err="$scratch/stderr.log"
+    # The app logs to a file under the state folder, not to stderr.
+    logs="$scratch/state/beep/logs"
+    show() { cat "$logs"/* 2>/dev/null; }
+    pid=
+    runner=
+    cleanup() {
+        if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+            kill -TERM "$pid" 2>/dev/null || true
+        fi
+        wait "$runner" 2>/dev/null || true
+        rm -rf "$scratch"
+    }
+    trap cleanup EXIT
+    mkdir -p "$scratch/home" "$scratch/data" "$scratch/config" "$scratch/cache" "$scratch/state"
+    # Scratch dirs keep the run off the real data; no session bus keeps it off the real keyring.
+    env -u DBUS_SESSION_BUS_ADDRESS \
+        HOME="$scratch/home" XDG_DATA_HOME="$scratch/data" XDG_CONFIG_HOME="$scratch/config" \
+        XDG_CACHE_HOME="$scratch/cache" XDG_STATE_HOME="$scratch/state" \
+        WEBKIT_DISABLE_COMPOSITING_MODE=1 \
+        xvfb-run -a sh -c 'echo $$ > "$1"; exec "$2"' sh "$scratch/app.pid" "$bin" 2>"$err" &
+    runner=$!
+    until [ -s "$scratch/app.pid" ]; do
+        kill -0 "$runner" 2>/dev/null || break
+        sleep 1
+    done
+    pid=$(cat "$scratch/app.pid" 2>/dev/null || true)
+    for _ in $(seq 60); do
+        if show | grep -q 'startup: setup done'; then
+            echo "desktop-smoke: setup done"
+            exit 0
+        fi
+        if ! kill -0 "$runner" 2>/dev/null; then
+            echo "desktop-smoke: app exited before setup finished" >&2
+            { tail -n 20 "$err"; show | tail -n 40; } >&2
+            exit 1
+        fi
+        sleep 1
+    done
+    echo "desktop-smoke: timed out waiting for setup" >&2
+    { tail -n 20 "$err"; show | tail -n 40; } >&2
+    exit 1
 
 # Build the phone app (the desktop app built for iOS) for the simulator
 ios-build:

@@ -65,6 +65,11 @@ pub fn run() {
         std::process::exit(status);
     }
 
+    // The main thread builds the app and runs setup, callbacks and sync commands:
+    // it stays inside the runtime so anything they build can spawn.
+    let runtime = tauri::async_runtime::handle();
+    let _entered = runtime.inner().enter();
+
     let _log = platform::logfile::start();
     log::info!("Beep {} starting", env!("CARGO_PKG_VERSION"));
     platform::startup::stage("main");
