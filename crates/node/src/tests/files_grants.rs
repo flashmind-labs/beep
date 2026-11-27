@@ -2,6 +2,10 @@ use super::*;
 use iroh::SecretKey;
 use iroh_blobs::Hash;
 
+fn granted(answer: Answer) -> bool {
+    matches!(answer, Answer::Granted(_))
+}
+
 #[test]
 fn only_the_granted_peer_gets_the_granted_root() {
     let grants = Arc::new(Grants::new());
@@ -15,23 +19,19 @@ fn only_the_granted_peer_gets_the_granted_root() {
     assert!(grants.connect(1, Some(stranger), false).is_err());
     assert!(grants.connect(2, None, false).is_err());
     assert!(grants.connect(3, Some(peer), false).is_ok());
-    assert!(grants.get(3, &GetRequest::blob(file), |_| false).is_ok());
-    assert!(grants.get(3, &GetRequest::all(folder), |_| false).is_ok());
+    assert!(granted(grants.get(3, &GetRequest::blob(file))));
+    assert!(granted(grants.get(3, &GetRequest::all(folder))));
     // A file's hash read as a folder would reach other blobs.
-    assert!(grants.get(3, &GetRequest::all(file), |_| false).is_err());
-    assert!(
-        grants
-            .get(3, &GetRequest::blob(Hash::new(b"other")), |_| false)
-            .is_err()
-    );
-    assert!(grants.get(1, &GetRequest::blob(file), |_| false).is_err());
+    assert!(!granted(grants.get(3, &GetRequest::all(file))));
+    assert!(!granted(grants.get(3, &GetRequest::blob(Hash::new(b"other")))));
+    assert!(!granted(grants.get(1, &GetRequest::blob(file))));
 
     drop(guard);
-    assert!(grants.get(3, &GetRequest::blob(file), |_| false).is_err());
+    assert!(!granted(grants.get(3, &GetRequest::blob(file))));
     drop(folder_guard);
     assert!(grants.connect(4, Some(peer), false).is_err());
     grants.closed(3);
-    assert!(grants.get(3, &GetRequest::all(folder), |_| false).is_err());
+    assert!(!granted(grants.get(3, &GetRequest::all(folder))));
 }
 
 #[test]
@@ -43,7 +43,13 @@ fn a_synced_peer_gets_only_the_project_blobs_and_only_raw() {
     assert!(grants.connect(1, Some(stranger), false).is_err());
     assert!(grants.connect(2, Some(member), true).is_ok());
     assert_eq!(grants.peer(2), Some(member));
-    assert!(grants.get(2, &GetRequest::blob(file), |_| true).is_ok());
-    assert!(grants.get(2, &GetRequest::all(file), |_| true).is_err());
-    assert!(grants.get(2, &GetRequest::blob(file), |_| false).is_err());
+    // A blob with no grant is left to sync, a folder read of it is refused.
+    assert!(matches!(
+        grants.get(2, &GetRequest::blob(file)),
+        Answer::NoGrant(peer) if peer == member
+    ));
+    assert!(matches!(
+        grants.get(2, &GetRequest::all(file)),
+        Answer::Refused
+    ));
 }

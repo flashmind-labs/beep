@@ -111,22 +111,14 @@ impl Grants {
         lock(&self.inner).connections.remove(&connection);
     }
 
-    /// Whether the peer on `connection` may make `request`: a root it was
-    /// granted, and for a file only the blob itself, or, when `synced`, a
-    /// blob of a project the peer syncs, which `synced` says of the
-    /// peer and is asked only when no grant matches. A granted root comes with where
-    /// its bytes sent go.
-    pub(crate) fn get(
-        &self,
-        connection: u64,
-        request: &GetRequest,
-        synced: impl FnOnce(&EndpointId) -> bool,
-    ) -> Result<Option<watch::Sender<u64>>, AbortReason> {
+    /// What the grants say of `request` from the peer on `connection`: a
+    /// granted root comes with where its bytes sent go. A blob without a
+    /// grant is left to what sync says of the peer.
+    pub(crate) fn get(&self, connection: u64, request: &GetRequest) -> Answer {
         let inner = lock(&self.inner);
-        let peer = inner
-            .connections
-            .get(&connection)
-            .ok_or(AbortReason::Permission)?;
+        let Some(peer) = inner.connections.get(&connection) else {
+            return Answer::Refused;
+        };
 
         let granted = inner.grants.values().find(|grant| {
             grant.peer == *peer
@@ -134,11 +126,20 @@ impl Grants {
                 && (grant.content.format == BlobFormat::HashSeq || request.ranges.is_blob())
         });
         match granted {
-            Some(grant) => Ok(Some(grant.sent.clone())),
-            None if request.ranges.is_blob() && synced(peer) => Ok(None),
-            None => Err(AbortReason::Permission),
+            Some(grant) => Answer::Granted(grant.sent.clone()),
+            None if request.ranges.is_blob() => Answer::NoGrant(*peer),
+            None => Answer::Refused,
         }
     }
+}
+
+/// The grants' answer to a request.
+pub(crate) enum Answer {
+    /// A grant covers it; the sender counts the bytes sent.
+    Granted(watch::Sender<u64>),
+    /// A blob of this peer with no grant: only a synced project may allow it.
+    NoGrant(EndpointId),
+    Refused,
 }
 
 #[cfg(test)]

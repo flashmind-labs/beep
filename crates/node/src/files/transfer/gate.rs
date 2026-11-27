@@ -2,7 +2,7 @@
 //! (a removed device is out, a peer of a synced project may fetch its files)
 //! and then of the grants of the open offers, and the rest is refused.
 
-use crate::files::{grants::Grants, sync::Syncs};
+use crate::files::{grants::{Answer, Grants}, sync::Syncs};
 use iroh::EndpointId;
 use iroh_blobs::{
     protocol::GetRequest,
@@ -50,12 +50,16 @@ fn get(
         return Err(AbortReason::Permission);
     }
 
-    grants.get(connection, request, |peer| syncs.may_get(peer, &request.hash))
+    match grants.get(connection, request) {
+        Answer::Granted(sent) => Ok(Some(sent)),
+        Answer::NoGrant(peer) if syncs.may_get(&peer, &request.hash) => Ok(None),
+        Answer::NoGrant(_) | Answer::Refused => Err(AbortReason::Permission),
+    }
 }
 
 /// The events the blobs protocol sends, answered from `grants` and what
-/// `syncs` says of the peer by a task the handle owns. Requests that could reach other blobs (`get_many`,
-/// `observe`) and writes (`push`) are refused.
+/// `syncs` says of the peer by a task the handle owns. Requests that could
+/// reach other blobs (`get_many`, `observe`) and writes (`push`) are refused.
 pub(super) fn events(grants: Arc<Grants>, syncs: Syncs) -> (EventSender, AbortOnDropHandle<()>) {
     let mask = EventMask {
         connected: ConnectMode::Intercept,
