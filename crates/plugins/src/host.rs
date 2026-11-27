@@ -51,9 +51,9 @@ pub trait Handler: Send + Sync + 'static {
     fn wanted(&self, topics: &[Topic]);
 
     /// Something in the plugins' list or states changed, such as a plugin turned
-    /// off, stopped or installed. Read it with `Host::status`. CPU time and
-    /// pending timers do not count.
-    fn status_changed(&self) {}
+    /// off, stopped or installed, with the list as `Host::status` returns it now.
+    /// CPU time and pending timers do not count.
+    fn status_changed(&self, _statuses: &[PluginStatus]) {}
 }
 
 type Shared = Arc<dyn Handler>;
@@ -637,8 +637,8 @@ impl Supervisor {
     fn report_status(&mut self) {
         let now = locked(&self.published.registry).list();
         if now != self.reported {
+            self.handler.status_changed(&now);
             self.reported = now;
-            self.handler.status_changed();
         }
     }
 

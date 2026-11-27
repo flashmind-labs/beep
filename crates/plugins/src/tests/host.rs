@@ -1233,15 +1233,15 @@ fn the_new_states_serialize_by_name() {
     );
 }
 
-struct StatusWatch(mpsc::Sender<()>);
+struct StatusWatch(mpsc::Sender<Vec<PluginStatus>>);
 
 impl Handler for StatusWatch {
     fn shown(&self, _placements: &[Placement]) {}
 
     fn wanted(&self, _topics: &[Topic]) {}
 
-    fn status_changed(&self) {
-        let _ = self.0.send(());
+    fn status_changed(&self, statuses: &[PluginStatus]) {
+        let _ = self.0.send(statuses.to_vec());
     }
 }
 
@@ -1261,7 +1261,17 @@ fn the_handler_hears_when_a_status_changes() {
 
     host.approve(&plugin_id("cat-one")).unwrap();
 
-    heard.recv_timeout(TIMEOUT).expect("no status change heard");
+    let paused = |statuses: &[PluginStatus]| {
+        statuses
+            .iter()
+            .any(|status| status.id == plugin_id("cat-one") && status.state == PluginState::Paused)
+    };
+    loop {
+        let statuses = heard.recv_timeout(TIMEOUT).expect("no status change heard");
+        if paused(&statuses) {
+            break;
+        }
+    }
     assert_eq!(
         status_of(&host, "cat-one").unwrap().state,
         PluginState::Paused
