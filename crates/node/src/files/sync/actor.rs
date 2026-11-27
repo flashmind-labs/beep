@@ -8,23 +8,58 @@
 //! overlap (each takes the project's `Gate`); changes to different projects
 //! run together.
 
-use super::{FAILED, Running, STOPPING, Shared, Source, Syncs, halt};
-use crate::{AsyncMutex, actor, lock};
+use super::project::Shared;
+use crate::{AsyncMutex, lock};
 use beep_proto::node::sync::{Project, ProjectStatus, State};
 use futures::future::join_all;
 use std::{
     collections::BTreeMap,
-    future::Future,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 use tokio::{
     sync::{OwnedMutexGuard, oneshot, watch},
     task::JoinSet,
+    time::timeout,
 };
 use tokio_util::task::AbortOnDropHandle;
+
+/// What a change asked for while the node stops is told.
+pub(super) const STOPPING: &str = "this node is stopping";
+/// What a change that ended without an answer, as by a panic, tells.
+pub(super) const FAILED: &str = "the change to the synced projects failed";
+/// How long a project that stops may take to save its state.
+const STOP_LIMIT: Duration = Duration::from_secs(10);
+
+/// A project's run: its state and the task that syncs it.
+pub(super) struct Running {
+    pub(super) shared: Arc<Shared>,
+    pub(super) task: AbortOnDropHandle<()>,
+}
+
+/// Where a list of projects comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Source {
+    /// Set directly or saved on disk: keeps to `folders`.
+    Direct,
+    /// The signed mesh. A desktop set it, and may run any command on the
+    /// machine anyway, so its folder may be anywhere.
+    Mesh,
+}
+
+/// Stops `running` and waits for its task, which saves its state, a while.
+pub(super) async fn halt(running: Running) -> Arc<Shared> {
+    running.shared.stop();
+
+    if timeout(STOP_LIMIT, running.task).await.is_err() {
+        log::warn!("{} did not stop in time", running.shared.name());
+    }
+
+    running.shared
+}
 
 /// Every project, as the actor last published them.
 pub(super) type Seen = Arc<BTreeMap<String, Entry>>;
@@ -129,7 +164,7 @@ pub(super) struct Projects {
     /// projects that sync: two of them never interleave.
     pub(super) list: AsyncMutex<()>,
     /// The changes in progress.
-    ops: Mutex<JoinSet<()>>,
+    pub(super) ops: Mutex<JoinSet<()>>,
     /// The runs halting for a shutdown.
     halts: Mutex<JoinSet<()>>,
 }
@@ -360,47 +395,6 @@ pub(super) struct Gate<'a> {
 impl Drop for Gate<'_> {
     fn drop(&mut self) {
         self.projects.settle(&self.name);
-    }
-}
-
-impl Syncs {
-    /// Runs a change as a task of the syncs and waits for its end; says why
-    /// when it did not end: the node is stopping, or the change failed.
-    pub(super) async fn change<T, Fut>(
-        &self,
-        label: &'static str,
-        change: impl FnOnce(Syncs) -> Fut,
-    ) -> Result<T, &'static str>
-    where
-        T: Send + 'static,
-        Fut: Future<Output = T> + Send + 'static,
-    {
-        let projects = &self.inner.projects;
-
-        // A node that stops makes no more changes.
-        if projects.closing() {
-            return Err(STOPPING);
-        }
-
-        let (done, reply) = oneshot::channel();
-        let work = actor::job("sync", label, change(self.clone()));
-        {
-            let mut ops = lock(&projects.ops);
-
-            while let Some(ended) = ops.try_join_next() {
-                if let Err(e) = ended {
-                    log::warn!("a change to the synced projects ended early: {e}");
-                }
-            }
-
-            ops.spawn(async move {
-                done.send(work.await).ok();
-            });
-        }
-
-        reply
-            .await
-            .map_err(|_| if projects.closing() { STOPPING } else { FAILED })
     }
 }
 

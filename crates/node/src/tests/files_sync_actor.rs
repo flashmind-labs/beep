@@ -1,5 +1,5 @@
 use super::*;
-use crate::files::sync::STOPPING;
+use crate::files::sync::Syncs;
 use crate::{files::Folders, files::syncthing::Syncthing, fs::paths};
 use futures::FutureExt;
 use iroh::{SecretKey, endpoint::presets};

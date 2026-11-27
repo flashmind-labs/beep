@@ -34,8 +34,9 @@ use std::{
     time::Duration,
 };
 use tokio::{
+    sync::oneshot,
     task::spawn_blocking,
-    time::{Instant, timeout},
+    time::Instant,
 };
 use tokio_util::task::AbortOnDropHandle;
 
@@ -59,7 +60,7 @@ mod scan;
 mod syncthing;
 mod watch;
 
-use actor::{Entry, Phase, Projects};
+use actor::{Entry, FAILED, Phase, Projects, Running, STOPPING, Source, halt};
 pub(crate) use parts::Parts;
 use peer::SyncPool;
 pub(crate) use peer::{ALPN, PeerHandler};
@@ -69,12 +70,6 @@ use watch::{Key, Watcher};
 
 /// How long a scan `Request::Rescan` asks for may take.
 const RESCAN_LIMIT: Duration = Duration::from_secs(120);
-/// What a change asked for while the node stops is told.
-const STOPPING: &str = "this node is stopping";
-/// What a change that ended without an answer, as by a panic, tells.
-const FAILED: &str = "the change to the synced projects failed";
-/// How long a project that stops may take to save its state.
-const STOP_LIMIT: Duration = Duration::from_secs(10);
 /// The projects the server last named (which, where, with which peers),
 /// kept so sync goes on while the server is down.
 const CONFIG: &str = "projects.json";
@@ -83,22 +78,6 @@ const CONFIG: &str = "projects.json";
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct Config {
     projects: Vec<Project>,
-}
-
-/// A project's run: its state and the task that syncs it.
-struct Running {
-    shared: Arc<Shared>,
-    task: AbortOnDropHandle<()>,
-}
-
-/// Where a list of projects comes from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Source {
-    /// Set directly or saved on disk: keeps to `folders`.
-    Direct,
-    /// The signed mesh. A desktop set it, and may run any command on the
-    /// machine anyway, so its folder may be anywhere.
-    Mesh,
 }
 
 struct Inner {
@@ -124,17 +103,6 @@ struct Inner {
     mesh: Membership,
     /// Shared `beep-sync/7` connection per peer across all synced projects.
     sync_pool: SyncPool,
-}
-
-/// Stops `running` and waits for its task, which saves its state, a while.
-async fn halt(running: Running) -> Arc<Shared> {
-    running.shared.stop();
-
-    if timeout(STOP_LIMIT, running.task).await.is_err() {
-        log::warn!("{} did not stop in time", running.shared.name());
-    }
-
-    running.shared
 }
 
 /// Counts one pull served while it lives.
@@ -216,6 +184,45 @@ fn key_of(name: &str, folder: &Path) -> Key {
 }
 
 impl Syncs {
+    /// Runs a change as a task of the syncs and waits for its end; says why
+    /// when it did not end: the node is stopping, or the change failed.
+    pub(super) async fn change<T, Fut>(
+        &self,
+        label: &'static str,
+        change: impl FnOnce(Syncs) -> Fut,
+    ) -> Result<T, &'static str>
+    where
+        T: Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
+    {
+        let projects = &self.inner.projects;
+
+        // A node that stops makes no more changes.
+        if projects.closing() {
+            return Err(STOPPING);
+        }
+
+        let (done, reply) = oneshot::channel();
+        let work = crate::actor::job("sync", label, change(self.clone()));
+        {
+            let mut ops = lock(&projects.ops);
+
+            while let Some(ended) = ops.try_join_next() {
+                if let Err(e) = ended {
+                    log::warn!("a change to the synced projects ended early: {e}");
+                }
+            }
+
+            ops.spawn(async move {
+                done.send(work.await).ok();
+            });
+        }
+
+        reply
+            .await
+            .map_err(|_| if projects.closing() { STOPPING } else { FAILED })
+    }
+
     /// Starts the projects saved in `dir`, as the server last set them,
     /// holding those `syncthing` keeps in step.
     pub(crate) async fn start(
