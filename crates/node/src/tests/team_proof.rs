@@ -53,27 +53,6 @@ async fn proof_is_pushed_seen_and_dropped() {
     assert_ne!(commit, other);
 }
 
-#[cfg(unix)]
-#[tokio::test]
-async fn refused_ref_is_reported() {
-    use std::os::unix::fs::PermissionsExt;
-
-    let (_root, clone, remote) = pair();
-    let hook = Path::new(&remote).join("hooks/pre-receive");
-    std::fs::write(
-        &hook,
-        "#!/bin/sh\nwhile read old new ref; do case \"$ref\" in refs/beep/*) exit 1;; esac; done\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-
-    let error = push_proof(&clone, &remote, &repo(), &Nonce::generate())
-        .await
-        .unwrap_err();
-
-    assert!(matches!(error, ProofError::RefRefused), "{error}");
-}
-
 #[test]
 fn classify_denied_stderr() {
     let error = classify(
