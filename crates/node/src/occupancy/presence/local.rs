@@ -4,8 +4,7 @@
 //! `--dir` keeps its own there, so it never replaces the installed node's.
 
 use beep_proto::SessionId;
-use super::Registration;
-use crate::occupancy::Occupancy;
+use super::{Registration, Registry};
 use crate::run::local_socket::{Listener, Stream};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -14,6 +13,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
+    sync::Arc,
     time::Duration,
 };
 use tokio::{
@@ -111,18 +111,18 @@ fn publish(path: &Path, address: &str) -> Result<Published> {
 
 /// Serves native session presence until cancelled by the node's owner,
 /// with the user's locator: for a node embedded in the desktop.
-pub(crate) async fn listen(occupancy: Occupancy, dir: &Path) -> Result<()> {
+pub(crate) async fn listen(registry: Arc<Registry>, dir: &Path) -> Result<()> {
     let path = locator_path(std::env::var_os("BEEP_PRESENCE_FILE"), None)?;
-    serve_at(occupancy, dir, path).await
+    serve_at(registry, dir, path).await
 }
 
 /// As `listen`, for a standalone node in `dir`, with its locator in `dir`.
-pub(crate) async fn listen_in(occupancy: Occupancy, dir: &Path) -> Result<()> {
+pub(crate) async fn listen_in(registry: Arc<Registry>, dir: &Path) -> Result<()> {
     let path = locator_path(std::env::var_os("BEEP_PRESENCE_FILE"), Some(dir))?;
-    serve_at(occupancy, dir, path).await
+    serve_at(registry, dir, path).await
 }
 
-async fn serve_at(occupancy: Occupancy, dir: &Path, path: PathBuf) -> Result<()> {
+async fn serve_at(registry: Arc<Registry>, dir: &Path, path: PathBuf) -> Result<()> {
     // A short private socket folder, including for long desktop paths.
     let dir = std::path::absolute(dir)?;
     let socket = crate::socket::presence_path(&dir);
@@ -136,19 +136,19 @@ async fn serve_at(occupancy: Occupancy, dir: &Path, path: PathBuf) -> Result<()>
     #[cfg(windows)]
     let address = crate::run::local_socket::pipe_name(&socket);
     let _published = tokio::task::spawn_blocking(move || publish(&path, &address)).await??;
-    serve(&mut listener, occupancy).await
+    serve(&mut listener, registry).await
 }
 
-async fn serve(listener: &mut Listener, occupancy: Occupancy) -> Result<()> {
+async fn serve(listener: &mut Listener, registry: Arc<Registry>) -> Result<()> {
     let mut connections = JoinSet::new();
 
     loop {
         tokio::select! {
             accepted = listener.accept(), if connections.len() < MAX_CONNECTIONS => {
                 let stream = accepted?;
-                let occupancy = occupancy.clone();
+                let registry = registry.clone();
                 connections.spawn(async move {
-                    if let Err(e) = connection(stream, &occupancy).await {
+                    if let Err(e) = connection(stream, &registry).await {
                         log::debug!("session presence connection ended: {e:#}");
                     }
                 });
@@ -163,14 +163,14 @@ async fn serve(listener: &mut Listener, occupancy: Occupancy) -> Result<()> {
 }
 
 struct Open<'a> {
-    occupancy: &'a Occupancy,
+    registry: &'a Registry,
     id: SessionId,
     connection: Uuid,
 }
 
 impl Drop for Open<'_> {
     fn drop(&mut self) {
-        self.occupancy.presence().close(&self.id, self.connection);
+        self.registry.close(&self.id, self.connection);
     }
 }
 
@@ -188,17 +188,17 @@ async fn read(reader: &mut BufReader<Stream>) -> Result<Option<Registration>> {
     Ok(Some(serde_json::from_str(&line)?))
 }
 
-async fn connection(stream: Stream, occupancy: &Occupancy) -> Result<()> {
+async fn connection(stream: Stream, registry: &Registry) -> Result<()> {
     let mut reader = BufReader::new(stream);
     let Some(registration) = timeout(HELLO_WAIT, read(&mut reader)).await?? else {
         return Ok(());
     };
     let open = Open {
-        occupancy,
+        registry,
         id: registration.session_id.clone(),
         connection: Uuid::new_v4(),
     };
-    occupancy.presence().register(registration, open.connection)?;
+    registry.register(registration, open.connection)?;
     reader
         .get_mut()
         .write_all(b"{\"version\":1,\"ok\":true}\n")
@@ -208,7 +208,7 @@ async fn connection(stream: Stream, occupancy: &Occupancy) -> Result<()> {
             bail!("a presence connection belongs to one session");
         }
 
-        occupancy.presence().register(registration, open.connection)?;
+        registry.register(registration, open.connection)?;
     }
 
     Ok(())

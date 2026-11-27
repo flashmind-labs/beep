@@ -47,7 +47,7 @@ struct Inner {
     /// The checkouts held for Git recovery and the folders sessions run in.
     holds: RepositoryHolds,
     /// Sessions held open by a local CLI, including idle prompts.
-    presence: presence::Registry,
+    presence: Arc<presence::Registry>,
     /// What Claude Code's hooks report.
     hooks: claude::Hooks,
     /// Which processes hold the sessions' files, checked once for all.
@@ -112,12 +112,12 @@ impl Occupancy {
     /// Takes native session presence for the user, for a node embedded in
     /// the desktop.
     pub async fn listen_presence(&self, dir: &Path) -> Result<()> {
-        presence::listen(self.clone(), dir).await
+        presence::listen(self.0.presence.clone(), dir).await
     }
 
     /// As `listen_presence`, for a standalone node in `dir`.
     pub async fn listen_presence_in(&self, dir: &Path) -> Result<()> {
-        presence::listen_in(self.clone(), dir).await
+        presence::listen_in(self.0.presence.clone(), dir).await
     }
 
     /// How session `id` does now as its hooks report it, after queuing
