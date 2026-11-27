@@ -254,3 +254,107 @@ fn a_later_presence_title_replaces_the_first_prompt() {
         Some("Explain Rust lifetime annotations")
     );
 }
+
+#[tokio::test]
+async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
+    use crate::agents::{AgentKind, session::Begin};
+    use std::collections::BTreeMap;
+
+    let kind = AgentKind {
+        name: "flsh".into(),
+        program: "sh".into(),
+        args: vec!["-c".into(), "cat > /dev/null".into()],
+        env: BTreeMap::new(),
+        compact: None,
+        compact_models: Vec::new(),
+        default_model: None,
+        bridge: None,
+    };
+    let agents = Arc::new(Agents::new(vec![kind.clone()]));
+    let link = beep_proto::node::local_link();
+    let (mut client_tx, mut client_rx) = link.caller;
+    let (server_tx, server_rx) = link.node;
+    let serving = agents.clone();
+    let task = tokio::spawn(async move {
+        super::super::serve_sessions(
+            server_tx,
+            server_rx,
+            serving,
+            iroh::SecretKey::generate().public(),
+            None,
+        )
+        .await
+    });
+    client_tx
+        .send(&SessionsRequest::FollowPresence {})
+        .await
+        .unwrap();
+    async fn next(rx: &mut LinkRx) -> Vec<ExternalSession> {
+        match timeout(Duration::from_secs(5), rx.recv::<SessionsReply>())
+            .await
+            .unwrap()
+            .unwrap()
+        {
+            Some(SessionsReply::External { sessions }) => sessions,
+            other => panic!("expected presence snapshot, got {other:?}"),
+        }
+    }
+    assert!(next(&mut client_rx).await.is_empty());
+
+    // A process spawned by Beep registers presence before ACP names its session:
+    // its root pid already marks it as owned by Beep.
+    let starting = agents
+        .start(&kind, Some("/"), Begin::default())
+        .await
+        .unwrap();
+    let mut spawned = registration("session_starting");
+    spawned.pid = Some(starting.processes.root());
+    agents.presence.register(spawned, Uuid::new_v4()).unwrap();
+    let sessions = next(&mut client_rx).await;
+    assert_eq!(
+        sessions[0].taken_over,
+        Some(SessionId::from("session_starting")),
+        "a starting Beep process must not show as an outside session"
+    );
+
+    // An outside session taken over in Beep pushes its new ownership without a
+    // new registration on the presence socket.
+    let mut outside = registration("session_outside");
+    outside.pid = Some(u32::MAX);
+    agents.presence.register(outside, Uuid::new_v4()).unwrap();
+    let sessions = next(&mut client_rx).await;
+    assert_eq!(
+        sessions
+            .iter()
+            .find(|s| s.id == "session_outside")
+            .and_then(|s| s.taken_over.as_ref()),
+        None
+    );
+
+    let _resumed = agents
+        .start(
+            &kind,
+            Some("/"),
+            Begin {
+                resume: Some("session_outside".into()),
+                ..Begin::default()
+            },
+        )
+        .await
+        .unwrap();
+    let sessions = next(&mut client_rx).await;
+    assert_eq!(
+        sessions
+            .iter()
+            .find(|s| s.id == "session_outside")
+            .and_then(|s| s.taken_over.clone()),
+        Some(SessionId::from("session_outside"))
+    );
+
+    drop(client_tx);
+    timeout(Duration::from_secs(5), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+}

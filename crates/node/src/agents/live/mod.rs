@@ -77,6 +77,8 @@ pub(crate) struct Live {
     /// The agent's own id for the session, once it gave one: for Claude
     /// Code, the transcript's name.
     pub(crate) agent_session: Option<SessionId>,
+    /// The root pid of the agent's process or CLI, once started.
+    pub(super) root_pid: Option<u32>,
     /// The prompts still waiting when the node stopped, to send once it
     /// resumes the session.
     pub(super) held: Vec<Prompt>,

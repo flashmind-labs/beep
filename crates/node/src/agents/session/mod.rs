@@ -543,6 +543,7 @@ impl Session {
         }
         // Known from the start, so a second takeover of it is refused.
         first.agent_session = resume.clone();
+        first.root_pid = agent.running.pid();
         let (live_tx, live) = watch::channel(first);
         let (orders, orders_rx) = crate::actor::channel("session", ORDERS);
         let history = (kind.name == "claude").then(Default::default);

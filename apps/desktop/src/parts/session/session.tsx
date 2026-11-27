@@ -48,8 +48,9 @@ import { moveStore, refreshMoves } from "../../stores/agents/move-store.ts";
 import { movedTo } from "../../stores/agents/move-state.ts";
 import { sameSession } from "../../stores/agents/running-state.ts";
 import { isNativeSession } from "../../stores/agents/native-session-state.ts";
-import { type AgentStarted, isStarting } from "../../stores/agents/starting-state.ts";
-import { became, dropFollow, feed, flushDraw, forgetUnfollowedExtras, keptTranscript, leaveStart, pollAgent, track, traceSession, watchRead } from "./session-follow.ts";
+import { became, type AgentStarted, isStarting } from "../../stores/agents/starting-state.ts";
+import { dropFollow, feed, flushDraw, forgetUnfollowedExtras, keptTranscript, leaveStart, pollAgent, track, traceSession, watchRead } from "./session-follow.ts";
+import { takeStartedSession } from "../../stores/center/homeedit.ts";
 import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./session-head.tsx";
 import { agentClick, openParent, openSessionLink, toolKey } from "./session-click.ts";
 import { startLost } from "./session-follow.ts";
@@ -333,6 +334,7 @@ listen("sessions-changed", () => {
 listen<AgentStarted>("agent-started", ({ payload: { start, session, first_message } }) => {
   setFirstMessage(session, first_message);
   became.set(start, session);
+  takeStartedSession(start, session);
   const pick = sessionPicks.get(start);
 
   if (pick) {

@@ -432,3 +432,41 @@ fn owned_rows_replace_only_their_own_machines_history() {
     // No owned row of machine A says they run, so they show as ended.
     assert!(rows.iter().all(|row| row.status == AgentStatus::Ended {}));
 }
+
+#[test]
+fn owned_rows_replace_history_scanned_before_takeover_was_noted() {
+    let host = Host {
+        id: "machine-a".into(),
+        name: "build-box".into(),
+    };
+    let stale = past_session(
+        &host,
+        ExternalSession {
+            id: "s1".into(),
+            agent: "claude".into(),
+            presence: Presence::Running,
+            last_activity: 10,
+            taken_over: None,
+            ..ExternalSession::default()
+        },
+    );
+    assert!(stale.external);
+
+    let mut named = stale.clone();
+    named.external = false;
+    named.title = Some("Fix the build".into());
+    named.status = AgentStatus::Working {};
+    let rows = merge_owned(
+        vec![stale],
+        vec![Linked {
+            session: named,
+            parent: None,
+            reviewer: false,
+        }],
+    );
+
+    assert_eq!(rows.len(), 1);
+    assert!(!rows[0].external);
+    assert_eq!(rows[0].title.as_deref(), Some("Fix the build"));
+    assert_eq!(rows[0].status, AgentStatus::Working {});
+}

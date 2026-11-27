@@ -117,6 +117,13 @@ function needsChanged(home: HomeView): boolean {
   return JSON.stringify(home.needs_you) !== JSON.stringify(read.last?.needs_you ?? []);
 }
 
+/// Whether the set of running session ids changed: starts, handoffs and closes
+/// show at once rather than waiting behind turn-progress throttling.
+function runningIdsChanged(home: HomeView): boolean {
+  const ids = (list: HomeView["running"]) => (list ?? []).map(r => `${r.machine_id} ${r.id}`).sort().join("\n");
+  return ids(home.running) !== ids(read.last?.running ?? null);
+}
+
 /// Agents, processes and moves change Home many times a second during turns.
 /// Home and the sidebar follow at most once a second; what waits on the
 /// user shows at once.
@@ -214,7 +221,7 @@ subscribeChanges(topic("home"), { deliver: "each", receive: event => {
   pushedHome = pushed;
   if (!started) { void refresh(); return; }
   if (loading) pushedDuring = true;
-  homeChanged("value" in pushed && needsChanged(pushed.value));
+  homeChanged("value" in pushed && (needsChanged(pushed.value) || runningIdsChanged(pushed.value)));
 } });
 subscribeChanges(topic("projects"), { deliver: "each", receive: async event => {
   const top = pushedView<string[]>(event.data, "projects_on_top"), groups = pushedView<ProjectGroup[] | null>(event.data, "project_groups");

@@ -702,7 +702,10 @@ impl Actor {
                     Some(line) => self.heard(&line),
                     None => stderr_open = false,
                 },
-                pid = inputs.running.started() => inputs.processes.set_root(pid),
+                pid = inputs.running.started() => {
+                    self.live.send_modify(|live| live.root_pid = Some(pid));
+                    inputs.processes.set_root(pid);
+                }
                 () = tokio::time::sleep_until(
                     self.held_end.as_ref().map_or_else(tokio::time::Instant::now, |held| held.due)
                 ), if self.held_end.is_some() => self.subagents_quiet(),

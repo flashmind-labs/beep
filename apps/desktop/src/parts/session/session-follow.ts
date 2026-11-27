@@ -17,7 +17,7 @@ import { sessionBody } from "../../stores/agents/session-frame-state.ts";
 import { isNativeSession, nativeUpdate } from "../../stores/agents/native-session-state.ts";
 import { keepNativeSession, sessions, sessionsRead } from "../../stores/agents/sessions.ts";
 import { conversationHistory, openOf } from "../../stores/agents/conversation-state.ts";
-import { isStarting } from "../../stores/agents/starting-state.ts";
+import { became, isStarting } from "../../stores/agents/starting-state.ts";
 import { loadOlder } from "./older.ts";
 import { readModes } from "./modepill.tsx";
 import { readTasks } from "./tasks.tsx";
@@ -256,10 +256,6 @@ changeListeners.push(() => {
   // What was held joins the model now: a later update must not come before it.
   if (S.view !== "agent") { flushDraw(true); stopAgentFollow(); disposeQueue(); }
 });
-
-/// The session each start kept on this device became, by the start's id: a page that still
-/// names the start opens the session.
-export const became = new Map<string, AgentRow>();
 
 let pollAgain: { open: OpenAgent; readNow: boolean } | null = null;
 

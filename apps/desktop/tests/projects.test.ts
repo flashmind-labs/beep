@@ -4,6 +4,7 @@ import type { ProjectRow, SessionRow } from "../src/stores/project/projects-stat
 import { plainPath } from "../src/parts/project/filesync.ts";
 import { START, folderHelp, folderUnder, goesInText, hasCustomFolder, projectUnder, next, looksLikeRepo, progressText, doneText, cleanError, typedFolder } from "../src/stores/addproject/importproject-state.ts";
 import { foundFor, mergeProjects, projectRunning, projectPastSessions, pastSessions, nextSessions, whereRows, whereCount, groupPath, inGroupPath, groupOf, folderOn, parseFolded, sideProjects, syncedBy, forgeLinks } from "../src/stores/project/projects-state.ts";
+import { became } from "../src/stores/agents/starting-state.ts";
 import { overviewGroups, overviewSub } from "../src/stores/project/overview-state.ts";
 import type { RunningAgent } from "../src/stores/agents/running-state.ts";
 
@@ -333,4 +334,29 @@ test("project lists a moved conversation once with its target title and state", 
   assert.deepEqual(projectPastSessions([{ ...source, status: "ended" }], running, moves), []);
   assert.equal(projectRunning(project, [], [source], moves)[0].machine_id, "m1", "source remains until target lists");
   assert.equal(projectPastSessions([{ ...source, status: "ended" }], [], moves).length, 1);
+});
+
+test("project Running drops a start placeholder and untitled scan duplicate once the real session arrives", t => {
+  const project = { machines: [{ id: "m1", name: "build-box", folder: "/srv/project" }] };
+  const startId = "start:00000000-0000-4000-8000-000000000001";
+  const startRow: RunningAgent = {
+    kind: "agent", machine_id: "m1", machine_name: "build-box", id: startId, agent: "codex",
+    title: "Send a new prompt", cwd: "/srv/project", status: "starting", doing: "Starting Codex on build-box",
+    started_at: 1, last_activity: 1, external: false,
+  };
+  const named: SessionRow = {
+    machine_id: "m1", machine_name: "build-box", id: "session-1", agent: "codex",
+    title: "Send a new prompt", cwd: "/srv/project", status: "working", doing: null,
+    question: null, started_at: 1, last_activity: 2, external: false, assistant: false, persona: null,
+  };
+  t.after(() => { became.delete(startId); });
+  became.set(startId, named);
+
+  const fromHistory = projectRunning(project, [startRow], [named]);
+  assert.deepEqual(fromHistory.map(r => r.id), ["session-1"]);
+
+  const phantomExternal: RunningAgent = { ...startRow, id: "session-1", title: null, status: "running", doing: null, external: true };
+  const ownedLive: RunningAgent = { ...named, kind: "agent" };
+  const deduped = projectRunning(project, [phantomExternal, ownedLive, startRow], [named]);
+  assert.deepEqual(deduped.map(r => [r.id, r.external, r.title]), [["session-1", false, "Send a new prompt"]]);
 });

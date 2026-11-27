@@ -1,4 +1,5 @@
 import { dedupe, type MoveRecord } from "../agents/move-state.ts";
+import { became } from "../agents/starting-state.ts";
 import { plural } from "../../ui/format.ts";
 import type { AgentQuestion, RunningAgent } from "../agents/running-state.ts";
 import type { HostRow } from "../../parts/project/runs.tsx";
@@ -209,13 +210,30 @@ export function lookingText(machines: readonly { online: boolean }[] | null | un
 /// before Home has refreshed. Home supplies the full state when both have a row.
 export function projectRunning(project: Pick<Project, "machines">, running: readonly RunningAgent[] | null | undefined, sessions: readonly SessionRow[] | null | undefined, moves: readonly MoveRecord[] = []): RunningAgent[] {
   const inside = (r: RunningAgent) => project.machines.some(m => r.machine_id === m.id && (r.cwd === m.folder || r.cwd.startsWith(m.folder + "/")));
-  const live = (running || []).filter(inside);
-  const known = new Set(live.map(r => `${r.machine_id} ${r.id}`));
+  const namedKeys = new Set<string>();
+  for (const r of running || []) if (!r.id.startsWith("start:")) namedKeys.add(`${r.machine_id} ${r.id}`);
+  for (const s of sessions || []) if (s.status !== "ended") namedKeys.add(`${s.machine_id} ${s.id}`);
+
+  const live: RunningAgent[] = [];
+  const known = new Map<string, number>();
+
+  for (const r of (running || []).filter(inside)) {
+    const named = became.get(r.id);
+    if (named && namedKeys.has(`${named.machine_id} ${named.id}`)) continue;
+    const key = `${r.machine_id} ${r.id}`;
+    const at = known.get(key);
+    if (at === undefined) {
+      known.set(key, live.length);
+      live.push(r);
+    } else if (live[at].external && !r.external) {
+      live[at] = r;
+    }
+  }
 
   for (const s of sessions || []) {
     const key = `${s.machine_id} ${s.id}`;
     if (s.status === "ended" || known.has(key)) continue;
-    known.add(key);
+    known.set(key, live.length);
     live.push({ ...s, kind: "agent" });
   }
   return dedupe(live, moves);

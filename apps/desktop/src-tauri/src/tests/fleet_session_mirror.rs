@@ -879,3 +879,51 @@ async fn the_views_file_is_written_at_most_every_thirty_seconds() {
     );
     assert!(started.elapsed() >= KEEP_EVERY);
 }
+
+#[tokio::test]
+async fn started_and_owned_sessions_drop_matching_scan_and_presence_rows() {
+    let a = machine(1);
+    let rig = rig(vec![a], vec![external(a, "s1", AgentStatus::Running {})]);
+
+    let mut named = session(a, "s1", AgentStatus::Working {});
+    named.title = Some("Fix the build".into());
+    rig.mirror.started(named).await;
+
+    let rows = rig.mirror.current();
+    assert_eq!(ids(&rows, a), ["s1"]);
+    let only = rows.iter().next().unwrap();
+    assert!(!only.external);
+    assert_eq!(only.title.as_deref(), Some("Fix the build"));
+
+    // Stale presence with `taken_over: None` cannot add an untitled duplicate
+    // for a session already in `beep`, while another outside session still shows.
+    let host = Host {
+        id: a.to_string(),
+        name: "build-box".into(),
+    };
+    let report = |id: &str| ExternalSession {
+        id: id.into(),
+        agent: "claude".into(),
+        cwd: "/srv/project".into(),
+        presence: Presence::Running,
+        taken_over: None,
+        ..ExternalSession::default()
+    };
+    rig.mirror
+        .presence(a, host, vec![report("s1"), report("s2")]);
+    let rows = rows_where(&rig.mirror, |rows| ids(rows, a) == ["s1", "s2"]).await;
+    assert_eq!(rows.iter().filter(|row| row.id == "s1").count(), 1);
+    assert!(!rows.iter().find(|row| row.id == "s1").unwrap().external);
+    assert!(rows.iter().find(|row| row.id == "s2").unwrap().external);
+
+    // Once `s2` is pushed as owned by Beep, its scan duplicate is pruned too.
+    rig.mirror.pushed(
+        a,
+        vec![
+            top(session(a, "s1", AgentStatus::Working {})),
+            top(session(a, "s2", AgentStatus::Working {})),
+        ],
+    );
+    let rows = rows_where(&rig.mirror, |rows| rows.iter().all(|row| !row.external)).await;
+    assert_eq!(ids(&rows, a), ["s1", "s2"]);
+}

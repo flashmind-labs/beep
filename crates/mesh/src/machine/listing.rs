@@ -253,17 +253,19 @@ pub fn merge_owned(past: Vec<MachineSession>, owned: Vec<Linked>) -> Vec<Machine
     past.into_iter()
         .filter(|past| !children.contains(&key(past)))
         .map(|mut past| {
+            if let Some(owned) = owned.remove(&key(&past)) {
+                return owned;
+            }
+
             // A transcript names the session that took it over, but cannot say
             // whether its turn is working, idle, asking or ended now.
             if past.external {
                 return past;
             }
 
-            owned.remove(&key(&past)).unwrap_or_else(|| {
-                // No owned row says it runs, so it does not show as running.
-                past.status = AgentStatus::Ended {};
-                past
-            })
+            // No owned row says it runs, so it does not show as running.
+            past.status = AgentStatus::Ended {};
+            past
         })
         .collect()
 }

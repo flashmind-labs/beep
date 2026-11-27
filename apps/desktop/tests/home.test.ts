@@ -172,3 +172,31 @@ test("an empty list says connecting until a machine that runs agents answers", (
   assert.equal(machinesReach([phone, host(false, false)]), "offline");
   assert.equal(machinesReach([phone]), "reached");
 });
+
+test("agent-started replaces the start placeholder in Home and sessions without duplicating", async () => {
+  const { startedInHome } = await import("../src/stores/center/home-state.ts");
+  const { replaceStartedSession } = await import("../src/stores/agents/starting-state.ts");
+
+  const startRow = {
+    kind: "agent" as const, machine_id: "m1", machine_name: "build-box", id: "start:1",
+    agent: "claude", title: "New prompt", cwd: "/srv/project", status: "starting",
+    doing: "Starting Claude Code on build-box", started_at: 10, last_activity: 10, external: false,
+  };
+  const real = {
+    machine_id: "m1", machine_name: "build-box", id: "real-1", agent: "claude",
+    title: "New prompt", cwd: "/srv/project", status: "working" as const, doing: null,
+    started_at: 10, last_activity: 12, external: false, question: null, subagents: 0,
+    assistant: false, persona: null,
+  };
+  const home = { machines: [], running: [startRow], needs_you: [], projects: [] };
+  const replaced = startedInHome(home, "start:1", real);
+  assert.deepEqual(replaced.running?.map(r => [r.id, r.status]), [["real-1", "working"]]);
+
+  // If an `agents` push already inserted `real-1` beside `start:1`, `start:1` is dropped cleanly.
+  const both = { ...home, running: [{ ...real, kind: "agent" as const }, startRow] };
+  assert.deepEqual(startedInHome(both, "start:1", real).running?.map(r => r.id), ["real-1"]);
+
+  const listed = [{ ...startRow, status: "starting" as const, question: null, subagents: 0, assistant: false, persona: null }];
+  assert.deepEqual(replaceStartedSession(listed, "start:1", real).map(r => r.id), ["real-1"]);
+  assert.deepEqual(replaceStartedSession([real, listed[0]], "start:1", real).map(r => r.id), ["real-1"]);
+});

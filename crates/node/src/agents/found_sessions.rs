@@ -326,6 +326,7 @@ impl Agents {
             .partition(|seen| seen.agent == Agent::Claude);
         let ids: HashSet<SessionId> = claude.into_iter().map(|seen| seen.id).collect();
         let owned = self.owned();
+        let starting = self.starting_pids();
         let stores = self.stores.clone();
         let described = spawn_blocking(move || {
             let now = SystemTime::now();
@@ -350,12 +351,15 @@ impl Agents {
             }
         }
 
-        // A running reviewer is never listed (`Session::reviewer`).
+        // A running reviewer is never listed (`Session::reviewer`), nor is a
+        // session whose process this node is still starting before ACP names it.
         sessions.retain(|session| {
             !session
                 .taken_over
                 .as_ref()
                 .is_some_and(|id| self.is_reviewer(id))
+                && !(session.taken_over.is_none()
+                    && session.pid.is_some_and(|pid| starting.contains(&pid)))
         });
 
         self.mark_kept(&mut sessions);
@@ -382,11 +386,20 @@ impl Agents {
         limit: u32,
         session: Option<SessionId>,
     ) -> Result<Vec<ExternalSession>> {
-        if agent == Agent::Claude.as_ref() {
-            self.external.list(limit, session, self.owned()).await
+        let starting = self.starting_pids();
+        let mut sessions = if agent == Agent::Claude.as_ref() {
+            self.external.list(limit, session, self.owned()).await?
         } else {
-            self.stores_external(agent, limit, session).await
+            self.stores_external(agent, limit, session).await?
+        };
+
+        for found in &mut sessions {
+            if found.taken_over.is_none() && found.pid.is_some_and(|pid| starting.contains(&pid)) {
+                found.taken_over = Some(found.id.clone());
+            }
         }
+
+        Ok(sessions)
     }
 
     pub(super) fn follow_roots(&self, agent: Agent) -> Vec<PathBuf> {
@@ -491,6 +504,7 @@ impl Agents {
             .with_context(|| format!("this node lists no {agent} sessions started outside Beep"))?;
         let limit = clamp_limit(limit, 1, MAX_IN_FOLDERS);
         let owned = self.owned();
+        let starting = self.starting_pids();
         let stores = self.stores.clone();
         let only = session.clone();
         let mut sessions = spawn_blocking(move || {
@@ -537,7 +551,12 @@ impl Agents {
         }
 
         for found in &mut sessions {
-            found.taken_over = owned.get(&found.id).cloned();
+            found.taken_over = owned.get(&found.id).cloned().or_else(|| {
+                found
+                    .pid
+                    .filter(|pid| starting.contains(pid))
+                    .map(|_| found.id.clone())
+            });
         }
 
         Ok(sessions)
@@ -574,6 +593,20 @@ impl Agents {
             .filter_map(|session| {
                 watched::read(&session.live, |live| {
                     Some((live.agent_session.clone()?, live.info.id.clone()))
+                })
+            })
+            .collect()
+    }
+
+    /// The root pids of sessions this node is starting before ACP names them.
+    pub(super) fn starting_pids(&self) -> HashSet<u32> {
+        self.session_map()
+            .values()
+            .filter_map(|session| {
+                watched::read(&session.live, |live| {
+                    (live.status() != Status::Ended && live.agent_session.is_none())
+                        .then_some(live.root_pid)
+                        .flatten()
                 })
             })
             .collect()

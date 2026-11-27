@@ -1,6 +1,7 @@
 // What Home's rows say and how its sections are laid out, apart from the DOM
 // so it can be tested.
 import { agentName, type AgentQuestion, type RunningAgent } from "../agents/running-state.ts";
+import type { AgentSession } from "../agents/agents-state.ts";
 import type { MachineTraffic } from "../machines/traffic-state.ts";
 import type { CardStats, MachineCard } from "../../parts/machines/machine-state.ts";
 import type { ProjectRow } from "../project/projects-state.ts";
@@ -73,5 +74,34 @@ export function keepUnchanged(before: HomeView | null, after: HomeView): HomeVie
 /// A Needs you row: the question as its title, and one muted line.
 export function needsLine(n: Pick<NeedsYou, "agent" | "title" | "machine_name"> & { question: Pick<AgentQuestion, "text" | "detail"> }) {
   return { title: n.question.text, sub: [n.question.detail, agentName(n.agent), n.title || n.machine_name].filter(Boolean).join(" · ") };
+}
+
+/// Replaces the start placeholder `start` in `home.running` with `session`, or
+/// drops `start` when `session` already arrived or is not a top-level live row.
+export function startedInHome(home: HomeView, start: string, session: AgentSession): HomeView {
+  if (!home.running) return home;
+  const live = session.status !== "ended" && !session.reviewer && !session.parent;
+  const named: RunningAgent = { ...session, kind: "agent" };
+  const hadStart = home.running.some(r => r.id === start);
+  const hadSession = home.running.some(r => r.machine_id === session.machine_id && r.id === session.id);
+  if (!hadStart && (!live || hadSession)) return home;
+
+  const running: RunningAgent[] = [];
+  let placed = false;
+
+  for (const row of home.running) {
+    if (row.id === start) {
+      if (live && !hadSession && !placed) { running.push(named); placed = true; }
+      continue;
+    }
+    if (row.machine_id === session.machine_id && row.id === session.id) {
+      if (live && !placed) { running.push(named); placed = true; }
+      continue;
+    }
+    running.push(row);
+  }
+
+  if (live && !placed) running.unshift(named);
+  return { ...home, running };
 }
 

@@ -3,6 +3,7 @@ import { subscribeEach, topic } from "../../ui/mesh-events.ts";
 import { pushedList } from "../../ui/snapshot-state.ts";
 import { AMBIENT_MS, ambient } from "../../ui/active.ts";
 import type { AgentRow, AgentSession } from "./agents-state.ts";
+import { replaceStartedSession, type AgentStarted } from "./starting-state.ts";
 import type { MoveRecord } from "./move-state.ts";
 import { retitled, sessionKey, type Retitled } from "./conversation-state.ts";
 import { parentRow } from "./nesting-state.ts";
@@ -71,6 +72,10 @@ moveStore.subscribe(state => { if (state.records !== moves) { moves = state.reco
 // A reconnect says a push may have been missed: the sessions are read again, once a second at most.
 const reread = ambient(() => loadSessions().catch(e => console.warn("sessions:", e)), AMBIENT_MS);
 listen("reconnected", () => reread());
+listen<AgentStarted>("agent-started", ({ payload: { start, session } }) => {
+  if (!listed) return;
+  take(replaceStartedSession(listed, start, session));
+});
 // A title comes with its value, a cleared one with the agent's own: the kept rows take it.
 listen<Retitled>("agent-title-changed", ({ payload }) => {
   const next = retitled(sessions, payload);

@@ -20,7 +20,7 @@ use crate::{
         Fleet, Machines,
         agents::{self as direct, StartFailed},
         session_lists::SessionRow,
-        session_mirror::{NotAStart, StartId, closed},
+        session_mirror::{NotAStart, SessionMirror, StartId, closed},
     },
 };
 use beep_mesh::RETRY;
@@ -581,11 +581,16 @@ impl Link for MeshLink {
             }
         }
 
+        self.app
+            .state::<Arc<SessionMirror>>()
+            .started(started.session.clone())
+            .await;
+
         // The windows hear first: until then a read of the start finds it gone.
         let event = AgentStarted {
             start: start.id.to_string(),
             first_message: start.first_message(),
-            session: started.session.clone().into(),
+            session: started.session.into(),
         };
 
         if let Err(e) = self.app.emit(STARTED, event) {

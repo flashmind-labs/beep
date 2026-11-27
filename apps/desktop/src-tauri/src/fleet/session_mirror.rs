@@ -28,7 +28,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::{
-    sync::{OwnedSemaphorePermit, Semaphore, mpsc, watch},
+    sync::{OwnedSemaphorePermit, Semaphore, mpsc, oneshot, watch},
     task::{AbortHandle, JoinSet},
     time::{Instant, sleep, timeout},
 };
@@ -155,6 +155,10 @@ impl Rows {
             } else {
                 held.beep.push(session);
             }
+        }
+
+        for held in rows.machines.values_mut() {
+            drop_owned(&held.beep, &held.children, &mut held.scans);
         }
 
         rows
@@ -364,6 +368,11 @@ enum Message {
         machine_id: String,
         report: Box<ExternalSession>,
     },
+    /// A start on this device was named by its machine.
+    Started {
+        session: Box<MachineSession>,
+        done: oneshot::Sender<()>,
+    },
 }
 
 /// The handle readers and edits use.
@@ -535,6 +544,24 @@ impl SessionMirror {
         });
     }
 
+    /// Keeps `session` in the mirror as soon as its machine names it, before
+    /// the start placeholder leaves, so no read between sees neither or an
+    /// untitled scan row beside it.
+    pub(crate) async fn started(&self, session: MachineSession) {
+        let (done, settled) = oneshot::channel();
+        if self
+            .inbox
+            .send(Message::Started {
+                session: Box::new(session),
+                done,
+            })
+            .await
+            .is_ok()
+        {
+            let _ = settled.await;
+        }
+    }
+
     fn send(&self, message: Message) {
         if let Err(e) = self.inbox.try_send(message) {
             log::warn!("the session mirror did not take a change: {e}");
@@ -688,6 +715,10 @@ impl<O: Outside> Actor<O> {
             } => self.took_presence(machine, Reported { host, sessions }),
             Message::Reported { machine_id, report } => {
                 self.edit(|rows| report_in(rows, &machine_id, &report));
+            }
+            Message::Started { session, done } => {
+                self.session_started(*session);
+                let _ = done.send(());
             }
         }
     }
@@ -885,6 +916,7 @@ impl<O: Outside> Actor<O> {
             let held = all.machines.entry(machine).or_default();
             let mut scans = held.scans.clone();
             apply_presence(&reported.host, &reported.sessions, &mut scans);
+            drop_owned(&held.beep, &held.children, &mut scans);
             drawn = differ(&held.scans, &scans);
             let changed = held.scans != scans;
             held.scans = scans;
@@ -898,6 +930,38 @@ impl<O: Outside> Actor<O> {
         }
 
         self.expire_scans(machine);
+    }
+
+    fn session_started(&mut self, session: MachineSession) {
+        let Ok(machine) = session.machine_id.parse::<EndpointId>() else {
+            return;
+        };
+        self.edited(&session.machine_id);
+        let mut drawn = false;
+
+        self.revise(|all| {
+            let held = all.machines.entry(machine).or_default();
+            let mut beep = held.beep.clone();
+            if !beep
+                .iter()
+                .chain(&held.children)
+                .any(|row| row.agent == session.agent && row.id == session.id)
+            {
+                beep.push(session);
+            }
+            let mut scans = held.scans.clone();
+            drop_owned(&beep, &held.children, &mut scans);
+            drawn = differ(&held.beep, &beep) || differ(&held.scans, &scans);
+            let changed = held.beep != beep || held.scans != scans;
+            held.beep = beep;
+            held.scans = scans;
+
+            changed
+        });
+
+        if drawn {
+            self.outside.drawn(Drawn::Listed);
+        }
     }
 
     fn scanned(&mut self, machine: EndpointId, rows: Option<Vec<MachineSession>>) {
@@ -974,14 +1038,18 @@ impl<O: Outside> Actor<O> {
 
         self.revise(|all| {
             let held = all.machines.entry(machine).or_default();
-            drawn = differ(&held.beep, &rows);
+            let mut scans = held.scans.clone();
+            drop_owned(&rows, &children, &mut scans);
+            drawn = differ(&held.beep, &rows) || differ(&held.scans, &scans);
             let changed = held.beep != rows
                 || held.children != children
                 || held.links != links
+                || held.scans != scans
                 || held.source != Source::Live;
             held.beep = rows;
             held.children = children;
             held.links = links;
+            held.scans = scans;
             held.source = Source::Live;
 
             changed
@@ -1002,6 +1070,7 @@ impl<O: Outside> Actor<O> {
             if let Some(reported) = &held.presence {
                 apply_presence(&reported.host, &reported.sessions, &mut rows);
             }
+            drop_owned(&held.beep, &held.children, &mut rows);
 
             drawn = differ(&held.scans, &rows);
             let changed = held.scans != rows;
@@ -1057,6 +1126,21 @@ async fn slot(slots: &Arc<Semaphore>, mine: bool) -> Option<OwnedSemaphorePermit
 
 fn is(row: &MachineSession, machine_id: &str, session: &SessionId) -> bool {
     row.machine_id == machine_id && row.id == *session
+}
+
+/// Drops scanned rows that Beep already owns on the same machine, so a session
+/// started or resumed in Beep never shows a second time as found outside Beep.
+fn drop_owned(
+    beep: &[MachineSession],
+    children: &[MachineSession],
+    scans: &mut Vec<MachineSession>,
+) {
+    scans.retain(|scan| {
+        !beep
+            .iter()
+            .chain(children)
+            .any(|owned| owned.agent == scan.agent && owned.id == scan.id)
+    });
 }
 
 /// Clears the question a session's answer settled, or every one, and puts
