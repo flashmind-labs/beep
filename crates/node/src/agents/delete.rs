@@ -49,9 +49,9 @@ impl Default for Tidy {
 /// and the background children that closed for good.
 pub(crate) struct Delete {
     closed: Tidy,
-    sessions: Arc<Sessions>,
+    pub(super) sessions: Arc<Sessions>,
     reopen: Arc<Reopen>,
-    listings: Arc<Listings>,
+    pub(super) listings: Arc<Listings>,
     occupancy: Occupancy,
     search: Arc<Opener>,
 }

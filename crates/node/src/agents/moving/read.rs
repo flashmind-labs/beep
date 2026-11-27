@@ -662,9 +662,9 @@ async fn locate(
         .ok()
         .and_then(|agent| Harness::try_from(agent).ok())
         .ok_or_else(|| format!("{agent} sessions cannot move"))?;
-    let path = match agents.transcript_file(movable, id).await {
+    let path = match agents.listings.transcript_file(movable, id).await {
         Some(path) => path,
-        None if movable == Harness::Flsh && agents.flsh_in_database(id).await => {
+        None if movable == Harness::Flsh && agents.listings.flsh_in_database(id).await => {
             return Err(super::flsh::outdated(me));
         }
         None => return Err(format!("this machine has no {agent} session {id}")),

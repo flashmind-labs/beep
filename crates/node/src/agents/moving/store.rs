@@ -1,7 +1,7 @@
 //! Where this machine keeps a session's transcript, and writing one in.
 
 use super::{Harness, Stored};
-use crate::agents::{Agents};
+use crate::agents::{delete::Delete, listings::Listings, sessions};
 use crate::logs::claude_dir;
 use crate::logs::found::{self, Agent};
 use anyhow::{Context, Result, ensure};
@@ -15,7 +15,7 @@ use std::{
 };
 use tokio::task::spawn_blocking;
 
-impl Agents {
+impl Listings {
     /// The transcript file of session `id` of `harness` here, when there
     /// is one.
     pub(super) async fn transcript_file(
@@ -23,7 +23,7 @@ impl Agents {
         harness: Harness,
         id: &SessionId,
     ) -> Option<PathBuf> {
-        self.listings.store_file(Some(Into::<Agent>::into(harness)), id)
+        self.store_file(Some(Into::<Agent>::into(harness)), id)
             .await
             .ok()
             .flatten()
@@ -32,7 +32,7 @@ impl Agents {
     /// Whether flsh session `id` is here only in the database of a flsh
     /// from before 0.2.9.
     pub(super) async fn flsh_in_database(&self, id: &SessionId) -> bool {
-        let (stores, id) = (self.listings.stores().clone(), id.to_owned());
+        let (stores, id) = (self.stores().clone(), id.to_owned());
         spawn_blocking(move || {
             stores
                 .sessions(Some(Agent::Flsh))
@@ -145,7 +145,7 @@ fn private(path: &Path) -> std::io::Result<fs::File> {
     options.open(path)
 }
 
-impl Agents {
+impl Delete {
     /// Refiles a closed conversation in another working folder.
     pub(crate) async fn relocate_session(
         &self,
@@ -161,7 +161,7 @@ impl Agents {
             "this agent cannot move projects yet"
         );
         ensure!(super::saved::valid_id(id.as_ref()), "invalid session id");
-        let ours = self.get(id);
+        let ours = sessions::find_session(&self.sessions.read(), id);
         let agent_id = match &ours {
             Some(session) => {
                 ensure!(
@@ -174,7 +174,8 @@ impl Agents {
             None => id.clone(),
         };
         ensure!(
-            self.session_map()
+            self.sessions
+                .read()
                 .values()
                 .filter(|session| session.agent == agent
                     && watched::read(&session.live, |live| {
@@ -183,10 +184,11 @@ impl Agents {
                 .all(|session| session.info().state.status == Status::Ended),
             "close the session before moving it"
         );
-        self.delete.check_closed_files(which, &agent_id, ours.is_some())
+        self.check_closed_files(which, &agent_id, ours.is_some())
             .await?;
         let harness = Harness::try_from(which).map_err(|_| anyhow::anyhow!("unsupported agent"))?;
         let file = self
+            .listings
             .transcript_file(harness, &agent_id)
             .await
             .context("session transcript not found")?;
@@ -259,7 +261,7 @@ impl Agents {
         })
         .await??;
 
-        for (key, session) in self.session_map().iter() {
+        for (key, session) in self.sessions.read().iter() {
             if session.agent == agent
                 && (key == id
                     || watched::read(&session.live, |live| {

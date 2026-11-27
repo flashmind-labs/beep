@@ -295,7 +295,7 @@ async fn a_closed_codex_session_moves_without_changing_the_conversation() {
     let destination = m.dir.path().join("destination");
     fs::create_dir(&destination).expect("destination");
     m.agents
-        .relocate_session("codex", &SessionId::from(CODEX_ID), destination.to_str().expect("UTF-8 path"))
+        .delete.relocate_session("codex", &SessionId::from(CODEX_ID), destination.to_str().expect("UTF-8 path"))
         .await
         .expect("move");
     let moved = m
@@ -307,13 +307,13 @@ async fn a_closed_codex_session_moves_without_changing_the_conversation() {
     assert!(m.codex(CODEX_OTHER));
     assert!(
         m.agents
-            .relocate_session("codex", &SessionId::from("../outside"), "/srv/project")
+            .delete.relocate_session("codex", &SessionId::from("../outside"), "/srv/project")
             .await
             .is_err()
     );
     assert!(
         m.agents
-            .relocate_session("codex", &SessionId::from(CODEX_OTHER), "/missing/destination")
+            .delete.relocate_session("codex", &SessionId::from(CODEX_OTHER), "/missing/destination")
             .await
             .is_err()
     );
@@ -337,13 +337,13 @@ async fn an_ended_owned_session_keeps_its_identity_after_moving() {
         .await.expect("session");
     assert!(
         m.agents
-            .relocate_session("codex", &session.id, destination.to_str().unwrap())
+            .delete.relocate_session("codex", &session.id, destination.to_str().unwrap())
             .await
             .is_err()
     );
     session.close().await;
     m.agents
-        .relocate_session("codex", &session.id, destination.to_str().unwrap())
+        .delete.relocate_session("codex", &session.id, destination.to_str().unwrap())
         .await
         .expect("move");
     let listed = m.agents.sessions.list();
@@ -358,7 +358,7 @@ async fn a_pi_session_moves_to_its_new_store_folder() {
     let destination = m.dir.path().join("destination");
     fs::create_dir(&destination).expect("destination");
     m.agents
-        .relocate_session("pi", &SessionId::from("p1"), destination.to_str().unwrap())
+        .delete.relocate_session("pi", &SessionId::from("p1"), destination.to_str().unwrap())
         .await
         .expect("move");
     let found = m
@@ -391,7 +391,7 @@ async fn a_claude_session_moves_with_its_subagents() {
         ),
     );
     m.agents
-        .relocate_session("claude", &SessionId::from(CLAUDE_ID), destination.to_str().unwrap())
+        .delete.relocate_session("claude", &SessionId::from(CLAUDE_ID), destination.to_str().unwrap())
         .await
         .expect("move");
     let found = m

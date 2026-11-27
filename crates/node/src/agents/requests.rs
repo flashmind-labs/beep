@@ -493,6 +493,7 @@ pub async fn serve_sessions(
             session,
             folder,
         } => agents
+            .delete
             .relocate_session(&agent, &session, &folder)
             .await
             .map_or_else(failed, |()| SessionsReply::Deleted {}),
