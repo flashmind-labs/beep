@@ -404,36 +404,6 @@ impl TeamLink {
         }
     }
 
-    /// Admits the stranger whose first message is `join`, a `TeamMsg::Join`,
-    /// on its own link. Anything else is not a join and ends the link.
-    pub(crate) async fn admit_join(
-        &self,
-        peer: EndpointId,
-        join: TeamMsg,
-        tx: LinkTx,
-        rx: LinkRx,
-    ) -> Result<(), TeamError> {
-        let TeamMsg::Join {
-            secret,
-            repo,
-            login,
-            mesh,
-            devices,
-        } = join
-        else {
-            return Ok(());
-        };
-        let join = super::join::Join {
-            secret,
-            repo,
-            login,
-            mesh,
-            devices,
-        };
-
-        self.admit(peer, join, tx, rx).await
-    }
-
     /// Whether `peer` is on `repo`'s team, which this device serves the board of.
     pub(crate) fn serves(&self, peer: EndpointId, repo: &TeamRepo) -> bool {
         self.with(|teams| teams.rosters.allows(peer, repo))

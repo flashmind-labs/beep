@@ -169,7 +169,9 @@ impl Peers {
         self.inner.later.send_modify(BTreeSet::clear);
     }
 
-    /// Lets go of the mesh, so it can stop: nothing in the node holds it
+    /// Lets go of the mesh, so it can stop: the mesh is cleared first, so the
+    /// follower starts nothing on it; the follower is then aborted and
+    /// awaited, which drops what it held. Nothing in the node holds the mesh
     /// once this returns. Peers are refused until `install`.
     pub async fn leave(&self) {
         let offers = self.inner.offers().clone();

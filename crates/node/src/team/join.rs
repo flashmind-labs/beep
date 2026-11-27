@@ -45,12 +45,12 @@ const GIT_LIMIT: Duration = Duration::from_secs(20);
 const CHECKOUT_WAIT: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 5 });
 
 /// A `Join` as the inviter takes it.
-pub(super) struct Join {
-    pub(super) secret: [u8; 32],
-    pub(super) repo: TeamRepo,
-    pub(super) login: ForgeLogin,
-    pub(super) mesh: EndpointId,
-    pub(super) devices: Vec<EndpointAddr>,
+pub(crate) struct Join {
+    pub(crate) secret: [u8; 32],
+    pub(crate) repo: TeamRepo,
+    pub(crate) login: ForgeLogin,
+    pub(crate) mesh: EndpointId,
+    pub(crate) devices: Vec<EndpointAddr>,
 }
 
 /// What the joiner sent in its `Join`: the entry it takes on the team.
@@ -223,7 +223,7 @@ impl TeamLink {
     /// The inviter's side of a join from `peer`: the team's roster or why
     /// not, within `ADMIT_LIMIT`. A proof ref the joiner may have pushed is
     /// deleted after the answer, however the check ended.
-    pub(super) async fn admit(
+    pub(crate) async fn admit(
         &self,
         peer: EndpointId,
         join: Join,

@@ -6,7 +6,13 @@
 
 use beep_proto::SessionId;
 use crate::{
+    files::transfer::Sharing,
+    machine::service::logs::Logs,
+    membership::Membership,
+    status::Own,
+    team::link::TeamLink,
     agents::{
+        Agents,
         Answered, Asking,
         mcp_launch::{Launch, SOCKET_ENV, TOKEN_ENV},
         socket,
@@ -42,7 +48,6 @@ pub(crate) mod harness;
 mod machines;
 pub(crate) mod peer_tools;
 mod media;
-mod node;
 pub(crate) mod review;
 mod server;
 pub(crate) mod team;
@@ -52,11 +57,24 @@ mod transcripts;
 
 pub use crate::agents::calls::{SERVER_NAME, command_name};
 pub use crate::agents::mcp_launch::Invocation;
-pub use node::Node;
 pub(crate) use caller::Caller;
 pub use desktop_call::ProjectTools;
 pub(crate) use server::Backend;
 use server::Called;
+
+/// What the tools read of this node, which `link` builds from what it
+/// serves: the sessions, the mesh and the node's own values.
+#[derive(Clone)]
+pub struct Node {
+    pub(crate) agents: Arc<Agents>,
+    pub(crate) mesh: Membership,
+    pub(crate) transfers: Sharing,
+    pub(crate) team: TeamLink,
+    pub(crate) project_tools: Option<Arc<dyn ProjectTools>>,
+    pub(crate) own: Own,
+    /// The node's log, which `beep_logs` reads through the report targets.
+    pub(crate) log: Logs,
+}
 
 /// The most MCP connections served at once: one per running session, and
 /// a node runs at most a few dozen.

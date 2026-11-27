@@ -6,6 +6,7 @@
 use super::{Node, team::deliver};
 use crate::team::{
     asks::Answer,
+    join::Join,
     link::{FIRST_FRAME, READ, TeamError, TeamLink, finish},
 };
 use beep_proto::{
@@ -72,7 +73,23 @@ async fn serve(node: &Node, connection: &Connection) -> Result<(), TeamError> {
 
     match first {
         None => Ok(()),
-        Some(join @ TeamMsg::Join { .. }) => team.admit_join(peer, join, tx, rx).await,
+        Some(TeamMsg::Join {
+            secret,
+            repo,
+            login,
+            mesh,
+            devices,
+        }) => {
+            let join = Join {
+                secret,
+                repo,
+                login,
+                mesh,
+                devices,
+            };
+
+            team.admit(peer, join, tx, rx).await
+        }
         Some(TeamMsg::Invite { repo, ticket }) => {
             if let Some(refused) = team.invited(peer, repo, ticket) {
                 tx.send(&refused).await?;
