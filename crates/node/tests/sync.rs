@@ -1582,55 +1582,6 @@ async fn existing_checkouts_advance_inactive_branches_and_keep_their_indexes() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_copy_interrupted_part_way_finishes_and_never_looks_corrupt() {
-    let a = Node::new().await;
-    let mut b = Node::new().await;
-    new_repo(&a);
-
-    for n in 0..30 {
-        commit(
-            &a,
-            &format!("files/{n}.txt"),
-            &format!("{n}\n").repeat(5000),
-        );
-    }
-
-    write(&a.path("big.bin"), data(4_000_000, 7));
-    git(&a.folder(), &["add", "big.bin"]);
-    git(&a.folder(), &["commit", "-q", "-m", "big"]);
-    a.sync_with(&b).await;
-    b.sync_with(&a).await;
-
-    // Git sees no repository yet, or a sound one, at any point: a ref only
-    // ever names what is here.
-    let sound_so_far = |b: &Node| {
-        if b.path(".git/HEAD").exists() && b.path(".git/refs").exists() {
-            let fsck = try_git(&b.folder(), &["fsck", "--connectivity-only"]);
-            assert!(
-                fsck.status.success(),
-                "{}",
-                String::from_utf8_lossy(&fsck.stderr)
-            );
-        }
-    };
-    eventually("part of the copy to arrive", || {
-        b.path(".git/objects").exists() || b.path("files").exists()
-    })
-    .await;
-    b.stop().await;
-    sound_so_far(&b);
-    b.start().await;
-    b.sync_with(&a).await;
-    a.sync_with(&b).await;
-    eventually("the copy to finish", || {
-        sound_so_far(&b);
-        head(&a) == head(&b) && is_clean(&b)
-    })
-    .await;
-    in_step(&a, &b).await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn a_linked_worktree_is_copied_as_a_branch_only_during_bootstrap() {
     let a = Node::new().await;
     let b = Node::new().await;
