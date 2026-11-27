@@ -76,7 +76,8 @@ impl Agents {
         let session = match found {
             _ if message && ended => {
                 let kind = self.catalog.kind_or_refusal(agent)?;
-                self.resume(&kind, id, None, None)
+                self.starter
+                    .resume(&kind, id, None, None)
                     .await
                     .map_err(|e| format!("{e:#}"))?
             }
@@ -169,6 +170,7 @@ pub async fn serve_session(
                     ..Begin::default()
                 };
                 let started = agents
+                    .starter
                     .start_in(&kind, cwd.as_deref(), checkout, begin)
                     .await
                     .map_err(|e| format!("{e:#}"));
@@ -190,6 +192,7 @@ pub async fn serve_session(
             prompt,
             model,
         } => agents
+            .starter
             .resume(&kind, &session, prompt, model)
             .await
             .map_err(|e| format!("{e:#}")),

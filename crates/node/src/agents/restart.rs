@@ -2,10 +2,11 @@
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
 use super::{
-    AgentKind, Agents, Begin,
+    AgentKind, Begin,
     acp::Prompt,
     checkout, moving,
     reopen::{OpenSession, Reopen, SavedSession},
+    running::Starter,
     session::{CONTINUE, Command, NODE_STOPPED, Session},
     sessions::find_session,
 };
@@ -274,7 +275,7 @@ impl Reopen {
     }
 }
 
-impl Agents {
+impl Starter {
     /// Resumes `sessions`, once the user's settings for the agents came or
     /// after `SETTINGS_WAIT`.
     pub(crate) async fn reopen(&self, sessions: Vec<OpenSession>) {

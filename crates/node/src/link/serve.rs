@@ -257,7 +257,7 @@ pub async fn serve(
     let agents = offers.agents.clone();
     let note_dir = state.dir.clone();
     let mut keeping = AbortOnDropHandle::new(tokio::spawn(async move {
-        agents.reopen(reopen.sessions).await;
+        agents.starter.reopen(reopen.sessions).await;
         restart::keep(&note_dir, &agents).await;
     }));
     stop.await;

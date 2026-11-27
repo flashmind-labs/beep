@@ -40,6 +40,7 @@ async fn an_inserted_session_is_there_for_the_next_read() {
     assert!(agents.sessions.read().is_empty());
 
     let session = agents
+        .starter
         .start(&kind, Some("/"), Begin::default())
         .await
         .unwrap();
@@ -60,6 +61,7 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
         ..Parts::default()
     });
     let first = agents
+        .starter
         .start(&kind, Some("/"), Begin::default())
         .await
         .unwrap();
@@ -72,6 +74,7 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
         agents.sessions.list();
         agents.sessions.listed(true);
         let second = agents
+            .starter
             .start(&kind, Some("/"), Begin::default())
             .await
             .unwrap();
@@ -93,6 +96,7 @@ async fn one_session_is_not_taken_over_while_another_takeover_starts() {
     let first = agents.sessions.reserve(Some(SessionId::from(id))).unwrap();
 
     let refused = agents
+        .starter
         .start(&kind, Some("/"), resuming(id))
         .await
         .err()
@@ -104,7 +108,11 @@ async fn one_session_is_not_taken_over_while_another_takeover_starts() {
 
     // A start that gave up frees the session and its folder.
     drop(first);
-    agents.start(&kind, Some("/"), resuming(id)).await.unwrap();
+    agents
+        .starter
+        .start(&kind, Some("/"), resuming(id))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -132,7 +140,10 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     });
     let holds = agents.occupancy.holds();
     let hold = holds.hold(root).await.unwrap();
-    let blocked = agents.start(&kind, root.to_str(), Begin::default()).await;
+    let blocked = agents
+        .starter
+        .start(&kind, root.to_str(), Begin::default())
+        .await;
     assert!(
         blocked
             .err()
@@ -145,7 +156,10 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     #[cfg(unix)]
     {
         std::os::unix::fs::symlink(root, &alias).unwrap();
-        let blocked = agents.start(&kind, alias.to_str(), Begin::default()).await;
+        let blocked = agents
+            .starter
+            .start(&kind, alias.to_str(), Begin::default())
+            .await;
         assert!(
             blocked
                 .err()
@@ -159,6 +173,7 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
 
     drop(hold);
     let session = agents
+        .starter
         .start(&kind, alias.to_str(), Begin::default())
         .await
         .unwrap();
@@ -284,6 +299,7 @@ async fn a_subscriber_sees_an_insert_and_a_removal() {
     assert!(watched::read_and_update(&mut map, |map| map.is_empty()));
 
     let session = agents
+        .starter
         .start(&kind, Some("/"), Begin::default())
         .await
         .unwrap();
@@ -305,6 +321,7 @@ async fn a_node_with_no_children_counts_none() {
         ..Parts::default()
     });
     let session = agents
+        .starter
         .start(&kind, Some("/"), Begin::default())
         .await
         .unwrap();
@@ -323,6 +340,7 @@ async fn sessions_answer_the_reads_without_an_agents() {
         ..Parts::default()
     });
     let session = agents
+        .starter
         .start(&kind, Some("/"), Begin::default())
         .await
         .unwrap();

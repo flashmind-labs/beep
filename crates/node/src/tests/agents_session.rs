@@ -2631,6 +2631,7 @@ async fn saved_instructions_reach_new_and_resumed_sessions_without_editing_files
         let log = dir.join(format!("sent-{index}.jsonl"));
         let kind = script("codex", SYSTEM_PROMPT_ADAPTER, &log);
         let session = agents
+            .starter
             .start(
                 &kind,
                 dir.to_str(),

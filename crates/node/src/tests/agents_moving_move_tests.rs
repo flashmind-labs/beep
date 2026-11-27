@@ -89,7 +89,7 @@ async fn source_env() -> Source {
         kinds: vec![kind()],
         ..Parts::default()
     }));
-    agents.reopen(Vec::new()).await;
+    agents.starter.reopen(Vec::new()).await;
     let env = Env {
         agents,
         mesh,
@@ -132,6 +132,7 @@ async fn asking(source: &Source) -> Arc<crate::agents::Session> {
     let session = source
         .env
         .agents
+        .starter
         .start(
             &kind(),
             Some(&source.work.to_string_lossy()),

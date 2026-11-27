@@ -559,7 +559,7 @@ pub async fn serve_sessions(
             })
             .await
         }
-        SessionsRequest::StartReview { order } => match agents.start_review(order).await {
+        SessionsRequest::StartReview { order } => match agents.starter.start_review(order).await {
             Ok(run) => SessionsReply::Review { run },
             Err(message) => SessionsReply::Error { message },
         },

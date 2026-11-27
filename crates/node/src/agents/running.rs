@@ -1,22 +1,36 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use super::{
-    AgentKind, Agents, Session, checkout, family,
-    family::{ChildStart, links::MAX_DEPTH},
-    harnesses,
+    AgentKind, AlertHub, Session,
+    catalog::Catalog,
+    checkout,
+    checkouts::Checkouts,
+    delete::Delete,
+    family,
+    family::{
+        ChildStart, Family,
+        links::{Links, MAX_DEPTH},
+    },
+    images::Images,
+    listings::Listings,
     live::Mark,
     machine_list, projects,
+    reopen::Reopen,
+    reviews::kept::Reviews,
     session::{Begin, Start},
+    sessions::Sessions,
     sessions::new_id,
+    usage::Usage,
 };
+use crate::events::Hub;
 use crate::machine::env::locate::folder;
+use crate::occupancy::Occupancy;
 use crate::process::spawn_env;
 use anyhow::{Context, Result};
 use beep_proto::SessionId;
 use beep_proto::node::agent::{CheckoutPlan, ParentLink, Persona, Status};
 use beep_proto::watched;
 use beep_proto::{AccountName, AgentAccount};
-use std::time::Duration;
 use std::{
     borrow::Cow,
     path::{Path, PathBuf},
@@ -24,46 +38,66 @@ use std::{
     sync::Arc,
 };
 
-impl Agents {
-    /// While the node runs: checks installed harness releases once an hour
-    /// and deletes background children as they close.
-    pub fn start_upkeep(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
-        let agents = self.clone();
-        tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
-            let harness_checks = async {
-                let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
-                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+/// Starts sessions: new ones, resumed ones, reopened ones and reviewers,
+/// and puts each in its family.
+pub(crate) struct Starter {
+    pub(super) catalog: Arc<Catalog>,
+    pub(super) sessions: Arc<Sessions>,
+    pub(super) links: Arc<Links>,
+    pub(super) family: Arc<Family>,
+    pub(super) occupancy: Occupancy,
+    pub(super) usage: Arc<Usage>,
+    pub(super) images: Arc<Images>,
+    pub(super) alerts: Arc<AlertHub>,
+    pub(super) checkouts: Arc<Checkouts>,
+    pub(super) events: Hub,
+    pub(super) reopen: Arc<Reopen>,
+    pub(super) listings: Arc<Listings>,
+    pub(super) reviews: Arc<Reviews>,
+    pub(super) delete: Arc<Delete>,
+}
 
-                loop {
-                    interval.tick().await;
-                    harnesses::refresh_versions(&agents.catalog.kinds(), &agents.catalog.latest)
-                        .await;
-                }
-            };
-            let background_children = async {
-                if let Some(closed) = agents.delete.take_closed() {
-                    agents.delete.delete_closed_background(closed).await;
-                }
-            };
-            tokio::join!(harness_checks, background_children);
-        }))
+impl Starter {
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one owner per lower owner it reads"
+    )]
+    pub(crate) fn new(
+        catalog: Arc<Catalog>,
+        sessions: Arc<Sessions>,
+        links: Arc<Links>,
+        family: Arc<Family>,
+        occupancy: Occupancy,
+        usage: Arc<Usage>,
+        images: Arc<Images>,
+        alerts: Arc<AlertHub>,
+        checkouts: Arc<Checkouts>,
+        events: Hub,
+        reopen: Arc<Reopen>,
+        listings: Arc<Listings>,
+        reviews: Arc<Reviews>,
+        delete: Arc<Delete>,
+    ) -> Self {
+        Self {
+            catalog,
+            sessions,
+            links,
+            family,
+            occupancy,
+            usage,
+            images,
+            alerts,
+            checkouts,
+            events,
+            reopen,
+            listings,
+            reviews,
+            delete,
+        }
     }
+}
 
-    /// Closes every running session and waits until their agents have
-    /// stopped: for the node shutting down.
-    pub async fn shutdown(&self) {
-        self.sessions.begin_stopping();
-        let running: Vec<Arc<Session>> = self
-            .sessions
-            .read()
-            .values()
-            .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
-            .cloned()
-            .collect();
-        futures::future::join_all(running.iter().map(|session| session.close())).await;
-        self.lsp.shutdown().await;
-    }
-
+impl Starter {
     /// Starts a session in the branch or worktree `checkout` makes in
     /// `cwd`, or in `cwd` itself without one. A start that would be refused
     /// is refused before anything is made.
@@ -400,7 +434,7 @@ fn own_folder(cwd: Option<&str>, begin: &Begin) -> Result<Option<String>> {
     Ok(made.map(|folder| folder.to_string_lossy().into_owned()))
 }
 
-impl Agents {
+impl Starter {
     /// Starts the child `link` describes, here. The node that starts it
     /// checks the limits, whichever machine the parent is on.
     pub(crate) async fn start_child(
@@ -468,20 +502,16 @@ impl Agents {
         session.named_info().await?;
         Ok(session)
     }
+}
 
-    /// The subfolder of its own, made now, that a child called `title`
-    /// starts in when its parent names none and `parent` is in an assistant
-    /// conversation's folder. `None` anywhere else: it starts in the parent's.
-    pub(crate) fn child_folder(
-        &self,
-        parent: &Session,
-        title: Option<&str>,
-    ) -> Result<Option<PathBuf>> {
-        let Some(home) = dirs::home_dir() else {
-            return Ok(None);
-        };
+/// The subfolder of its own, made now, that a child called `title`
+/// starts in when its parent names none and `parent` is in an assistant
+/// conversation's folder. `None` anywhere else: it starts in the parent's.
+pub(crate) fn child_folder(parent: &Session, title: Option<&str>) -> Result<Option<PathBuf>> {
+    let Some(home) = dirs::home_dir() else {
+        return Ok(None);
+    };
 
-        super::conversation::thread_folder(&home, Path::new(&parent.info().cwd), title, new_id)
-            .context("making the thread's folder")
-    }
+    super::conversation::thread_folder(&home, Path::new(&parent.info().cwd), title, new_id)
+        .context("making the thread's folder")
 }

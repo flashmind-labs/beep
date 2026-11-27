@@ -107,7 +107,7 @@ async fn run_review(node: &Node, request: &Request) -> Result<Reply, String> {
                 focus: args.focus.unwrap_or_default(),
                 parent: Some(caller.id.clone()),
             };
-            agents.start_review(order).await?
+            agents.starter.start_review(order).await?
         }
     };
 

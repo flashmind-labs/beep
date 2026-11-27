@@ -5,11 +5,13 @@
 //! stopped; the review stays here for the caller and the desktops.
 
 use super::{
-    Agents, Begin, Session,
+    Begin, Session,
+    delete::Delete,
     family::{ChildStart, Review, Who},
     live::Live,
+    running::Starter,
     session::Command,
-    sessions::find_session,
+    sessions::{Sessions, find_session},
     unix_now,
 };
 use crate::known::known;
@@ -27,12 +29,9 @@ pub(crate) const MAX_FINDINGS: usize = 30;
 /// What a reviewer that ended its turn without a review is told, once.
 pub(crate) const NUDGE: &str = "Call submit_review with your findings.";
 
-impl Agents {
+impl Starter {
     /// Starts a reviewer as `order` says and gives its review as it starts.
-    pub(crate) async fn start_review(
-        self: &Arc<Self>,
-        order: ReviewOrder,
-    ) -> Result<ReviewRun, String> {
+    pub(crate) async fn start_review(&self, order: ReviewOrder) -> Result<ReviewRun, String> {
         self.catalog.kind_or_refusal(&order.agent)?;
 
         let (cwd, base, harness) = (order.cwd.clone(), order.base.clone(), order.agent.clone());
@@ -104,7 +103,12 @@ impl Agents {
             review: None,
             error: None,
         };
-        let watch = tokio::spawn(follow(self.clone(), session));
+        let watch = tokio::spawn(follow(
+            self.reviews.clone(),
+            self.delete.clone(),
+            self.sessions.clone(),
+            session,
+        ));
         self.reviews.keep(Kept {
             run: run.clone(),
             parent,
@@ -266,21 +270,24 @@ fn step(live: &Live, submitted: bool, nudged: bool) -> Step {
 
 /// Follows the reviewer until it submitted, failed or was stopped, then
 /// closes it and drops it from the node's sessions.
-async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
+async fn follow(
+    reviews: Arc<Reviews>,
+    delete: Arc<Delete>,
+    sessions: Arc<Sessions>,
+    session: Arc<Session>,
+) {
     let id = session.id.clone();
     let mut live = session.live.clone();
     let mut nudged = false;
 
     loop {
-        let submitted = agents.reviews.submitted(&id);
+        let submitted = reviews.submitted(&id);
         let next = watched::read_and_update(&mut live, |live| step(live, submitted, nudged));
 
         match next {
             Step::Wait => {
                 if live.changed().await.is_err() {
-                    agents
-                        .reviews
-                        .fail_review(&id, "The reviewer is gone.".to_owned());
+                    reviews.fail_review(&id, "The reviewer is gone.".to_owned());
                     break;
                 }
             }
@@ -291,15 +298,13 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
                     .order(Command::Prompt(NUDGE.to_owned().into()))
                     .await
                 {
-                    agents
-                        .reviews
-                        .fail_review(&id, format!("The reviewer could not be nudged: {e}"));
+                    reviews.fail_review(&id, format!("The reviewer could not be nudged: {e}"));
                     break;
                 }
             }
             Step::Done => break,
             Step::Fail(why) => {
-                agents.reviews.fail_review(&id, why);
+                reviews.fail_review(&id, why);
                 break;
             }
         }
@@ -309,9 +314,9 @@ async fn follow(agents: Arc<Agents>, session: Arc<Session>) {
 
     // A reviewer is temporary: its harness's own files go with it, so no
     // session list finds it on disk afterwards.
-    if let Err(e) = agents.delete.delete_session(&session.agent, &id).await {
+    if let Err(e) = delete.delete_session(&session.agent, &id).await {
         log::warn!("reviewer {id} not deleted: {e:#}");
-        agents.sessions.remove(std::slice::from_ref(&id));
+        sessions.remove(std::slice::from_ref(&id));
     }
 
     crate::events::open_changed();

@@ -108,6 +108,7 @@ pub(super) async fn resume(
         .and_then(|link| env.agents.family.parent_live_of(link));
     let session = env
         .agents
+        .starter
         .start(kind, Some(&cwd), Begin { follows, ..begin })
         .await?;
     env.agents.family.join_family(&session);

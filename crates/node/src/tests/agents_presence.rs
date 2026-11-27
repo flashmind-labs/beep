@@ -291,6 +291,7 @@ async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
     // A process spawned by Beep registers presence before ACP names its session:
     // its root pid already marks it as owned by Beep.
     let starting = agents
+        .starter
         .start(&kind, Some("/"), Begin::default())
         .await
         .unwrap();
@@ -327,6 +328,7 @@ async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
     );
 
     let _resumed = agents
+        .starter
         .start(
             &kind,
             Some("/"),

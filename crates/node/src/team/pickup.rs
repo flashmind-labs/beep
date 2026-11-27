@@ -741,6 +741,7 @@ pub(crate) async fn start_issue(
         branch: branch.clone(),
     };
     let (id, worktree) = agents
+        .starter
         .start_on_issue(
             &checkout.folder.to_string_lossy(),
             plan,

@@ -18,7 +18,11 @@ pub(crate) use crate::calls;
 #[cfg(feature = "host")]
 use crate::occupancy::Occupancy;
 #[cfg(feature = "host")]
-use std::{path::PathBuf, sync::Arc};
+use beep_proto::node::agent::Status;
+#[cfg(feature = "host")]
+use beep_proto::watched;
+#[cfg(feature = "host")]
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 #[cfg(feature = "host")]
 pub mod claude;
@@ -118,7 +122,7 @@ mod restart;
 #[cfg(feature = "host")]
 pub(crate) mod reviews;
 #[cfg(feature = "host")]
-mod running;
+pub(crate) mod running;
 #[cfg(feature = "host")]
 pub mod search;
 #[cfg(feature = "host")]
@@ -210,8 +214,6 @@ pub struct Agents {
     /// What sessions spend and how much of the agents' plans is left.
     pub(crate) usage: Arc<usage::Usage>,
     pub(crate) sessions: Arc<sessions::Sessions>,
-    /// The pictures sessions' transcripts show, by session.
-    images: Arc<Images>,
     /// What sessions did that the user would want to hear about.
     alerts: Arc<AlertHub>,
     /// What git says of the folders sessions and peers read.
@@ -240,6 +242,8 @@ pub struct Agents {
     pub(crate) family: Arc<family::Family>,
     /// Reads a session's transcript, live or found.
     pub(crate) transcripts: Arc<transcripts::Transcripts>,
+    /// Starts sessions and puts each in its family.
+    pub(crate) starter: Arc<running::Starter>,
     /// The watchers of the agents' stores, while clients follow them.
     pub(crate) bridge: Arc<follow::sources::EventBridge>,
 }
@@ -325,14 +329,35 @@ impl Agents {
             family.clone(),
         ));
 
+        let usage = Arc::new(usage::Usage::new(catalog.clone()));
+        let alerts = Arc::<AlertHub>::default();
+        let checkouts = Arc::<checkouts::Checkouts>::default();
+        let starter = Arc::new(running::Starter::new(
+            catalog.clone(),
+            sessions.clone(),
+            links.clone(),
+            family.clone(),
+            parts.occupancy.clone(),
+            usage.clone(),
+            images.clone(),
+            alerts.clone(),
+            checkouts.clone(),
+            events.clone(),
+            reopen.clone(),
+            listings.clone(),
+            reviews.clone(),
+            delete.clone(),
+        ));
+
         Self {
             bridge,
             delete,
             family,
             transcripts,
+            starter,
             listings,
             events: events.clone(),
-            usage: Arc::new(usage::Usage::new(catalog.clone())),
+            usage,
             occupancy: parts.occupancy.clone(),
             reviews,
             reopen,
@@ -341,13 +366,51 @@ impl Agents {
             sessions,
             catalog,
             search,
-            images,
-            alerts: Arc::default(),
-            checkouts: Arc::default(),
+            alerts,
+            checkouts,
             lsp: lsp::Pool::default(),
             ci: Arc::default(),
             moves: moving::Moves::default(),
         }
+    }
+
+    /// While the node runs: checks installed harness releases once an hour
+    /// and deletes background children as they close.
+    pub fn start_upkeep(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
+        let agents = self.clone();
+        tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
+            let harness_checks = async {
+                let mut interval = tokio::time::interval(Duration::from_secs(60 * 60));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+
+                loop {
+                    interval.tick().await;
+                    harnesses::refresh_versions(&agents.catalog.kinds(), &agents.catalog.latest)
+                        .await;
+                }
+            };
+            let background_children = async {
+                if let Some(closed) = agents.delete.take_closed() {
+                    agents.delete.delete_closed_background(closed).await;
+                }
+            };
+            tokio::join!(harness_checks, background_children);
+        }))
+    }
+
+    /// Closes every running session and waits until their agents have
+    /// stopped: for the node shutting down.
+    pub async fn shutdown(&self) {
+        self.sessions.begin_stopping();
+        let running: Vec<Arc<Session>> = self
+            .sessions
+            .read()
+            .values()
+            .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
+            .cloned()
+            .collect();
+        futures::future::join_all(running.iter().map(|session| session.close())).await;
+        self.lsp.shutdown().await;
     }
 }
 

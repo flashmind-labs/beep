@@ -260,6 +260,7 @@ done
         ..Parts::default()
     });
     let session = agents
+        .starter
         .start(&kind, Some(&dir.path().to_string_lossy()), Begin::default())
         .await
         .unwrap();

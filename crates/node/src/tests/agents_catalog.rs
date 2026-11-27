@@ -125,6 +125,7 @@ async fn mcp_servers_told(launch: Option<Arc<Launch>>) -> serde_json::Value {
         ..Parts::default()
     });
     let session = agents
+        .starter
         .start(&kind, dir.path().to_str(), crate::agents::Begin::default())
         .await
         .expect("a session starts");

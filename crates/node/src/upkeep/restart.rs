@@ -176,7 +176,7 @@ pub async fn reopen_and_keep(dir: &Path, agents: &Agents) {
     let reopen = Reopen::read(dir);
     agents.reopen.keep_saved(reopen.saved);
     terminal::reopen(dir, reopen.terminals).await;
-    agents.reopen(reopen.sessions).await;
+    agents.starter.reopen(reopen.sessions).await;
     keep(dir, agents).await;
 }
 

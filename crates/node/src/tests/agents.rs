@@ -160,6 +160,7 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
         ..Begin::default()
     };
     let session = agents
+        .starter
         .start(
             &kind,
             Some(root.path().to_str().expect("a UTF-8 path")),
@@ -226,6 +227,7 @@ async fn a_transcripts_owner_reads_a_live_session_without_agents() {
         ..Begin::default()
     };
     let session = agents
+        .starter
         .start(
             &kind,
             Some(root.path().to_str().expect("a UTF-8 path")),
@@ -316,6 +318,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
         ..Begin::default()
     };
     let session = agents
+        .starter
         .start(&kind, Some(dir.to_str().unwrap()), begin)
         .await
         .unwrap();
@@ -342,7 +345,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     );
     // Newer pictures push it out; the session's file still has it.
     for fill in 2..40 {
-        agents.images.keep(
+        agents.listings.images.keep(
             &session.id,
             Picture {
                 mime: "image/png".into(),
@@ -351,13 +354,19 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
         );
     }
 
-    assert!(agents.images.get(&session.id, &key).is_none(), "evicted");
+    assert!(
+        agents.listings.images.get(&session.id, &key).is_none(),
+        "evicted"
+    );
     let found = agents.listings.image(&session.id, &key).await.unwrap();
     assert_eq!(
         found.map(|picture| picture.data.clone()),
         Some(shot.clone())
     );
-    assert!(agents.images.get(&session.id, &key).is_some(), "kept again");
+    assert!(
+        agents.listings.images.get(&session.id, &key).is_some(),
+        "kept again"
+    );
     // A session started outside Beep is read from its file by its id.
     let outside = agents
         .listings
@@ -476,8 +485,17 @@ async fn one_session_cannot_be_taken_over_twice() {
         resume: Some(SessionId::from(id)),
         ..Begin::default()
     };
-    let first = agents.start(&kind, Some("/"), begin()).await.unwrap();
-    let second = agents.start(&kind, Some("/"), begin()).await.err().unwrap();
+    let first = agents
+        .starter
+        .start(&kind, Some("/"), begin())
+        .await
+        .unwrap();
+    let second = agents
+        .starter
+        .start(&kind, Some("/"), begin())
+        .await
+        .err()
+        .unwrap();
     assert!(
         second
             .to_string()
@@ -500,11 +518,12 @@ async fn an_ended_node_session_resumes_from_the_agents_session() {
         resume: Some(SessionId::from(id)),
         ..Begin::default()
     };
-    let first = agents.start(&kind, Some("/"), begin).await.unwrap();
+    let first = agents.starter.start(&kind, Some("/"), begin).await.unwrap();
     first.close().await;
     // Nothing on this machine has the agent's session, so it is the
     // agent's id that the node looks for, not its own.
     let err = agents
+        .starter
         .resume(&kind, &first.id, None, None)
         .await
         .err()
@@ -541,6 +560,7 @@ done
     });
     let root = tempfile::tempdir().unwrap();
     let first = agents
+        .starter
         .start(
             &kind,
             root.path().to_str(),
@@ -563,6 +583,7 @@ done
     .unwrap();
     first.close().await;
     let resumed = agents
+        .starter
         .resume(
             &kind,
             &SessionId::from("hermes-session"),
@@ -593,6 +614,7 @@ done
     resumed.close().await;
     assert!(
         agents
+            .starter
             .resume(&kind, &SessionId::from("outside-session"), None, None)
             .await
             .is_err()
@@ -625,7 +647,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
         ..Parts::default()
     });
     let begin = Begin::default();
-    let session = agents.start(&kind, Some("/"), begin).await.unwrap();
+    let session = agents.starter.start(&kind, Some("/"), begin).await.unwrap();
     assert!(session.info().id.is_empty());
     assert!(
         agents.sessions.list().is_empty(),
@@ -675,6 +697,7 @@ done"#,
         ..Parts::default()
     });
     let first = agents
+        .starter
         .start(&kind, Some("/"), Begin::default())
         .await
         .unwrap();
@@ -683,6 +706,7 @@ done"#,
     first.close().await;
 
     let resumed = agents
+        .starter
         .start(
             &kind,
             Some("/"),
@@ -758,6 +782,7 @@ async fn a_refused_start_makes_no_branch() {
     };
     let plan = CheckoutPlan::NewBranch { base: None };
     let refused = agents
+        .starter
         .start_in(&kind, work.to_str(), Some(plan), begin)
         .await
         .err();
@@ -784,6 +809,7 @@ async fn a_start_git_sync_holds_back_makes_no_worktree() {
         ..Begin::default()
     };
     let refused = agents
+        .starter
         .start_in(&kind, work.to_str(), Some(plan), begin)
         .await
         .err();
@@ -809,7 +835,7 @@ async fn an_issue_session_reports_its_agents_id_and_worktree() {
         base: None,
         branch: "issue-7-fix-it".to_owned(),
     };
-    let started = agents.start_on_issue(
+    let started = agents.starter.start_on_issue(
         work.to_str().unwrap(),
         plan,
         "#7 Fix it".to_owned(),
@@ -842,8 +868,16 @@ async fn a_session_resumes_only_on_its_own_agent() {
         resume: Some(SessionId::from("0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b").to_owned()),
         ..Begin::default()
     };
-    let running = agents.start(&codex, Some("/"), begin).await.unwrap();
-    let err = agents.resume(&claude, &running.id, None, None).await.err();
+    let running = agents
+        .starter
+        .start(&codex, Some("/"), begin)
+        .await
+        .unwrap();
+    let err = agents
+        .starter
+        .resume(&claude, &running.id, None, None)
+        .await
+        .err();
     assert!(
         err.is_some_and(|e| e.to_string().contains("runs codex")),
         "a claude stream took over a codex session"
@@ -898,6 +932,7 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
     }));
     let kind = sh_agent("codex", THINKING_ADAPTER);
     let session = agents
+        .starter
         .start(&kind, root.path().to_str(), Begin::default())
         .await
         .unwrap();
@@ -1011,6 +1046,7 @@ mod actor_tests {
             ..Parts::default()
         }));
         let session = agents
+            .starter
             .start(&kind, root.path().to_str(), Begin::default())
             .await
             .unwrap();
@@ -1199,6 +1235,7 @@ while read -r line; do :; done
 "#
     .replace("SESSION_ID", CLAUDE_ID);
     let session = agents
+        .starter
         .start(
             &sh_agent("claude", &script),
             Some(repo.to_str().unwrap()),
@@ -1331,6 +1368,7 @@ done
             script.to_owned()
         };
         let session = agents
+            .starter
             .start(
                 &sh_agent("claude", &script),
                 Some(root.path().to_str().unwrap()),
@@ -1428,6 +1466,7 @@ done
 "#;
     let first_kind = sh_agent("pi", THINKING_ADAPTER);
     let earlier = agents
+        .starter
         .start(
             &first_kind,
             Some(dir.path().to_str().unwrap()),
@@ -1450,6 +1489,7 @@ done
 
     let next_kind = sh_agent("flsh", renaming);
     let continued = agents
+        .starter
         .start(
             &next_kind,
             Some(dir.path().to_str().unwrap()),

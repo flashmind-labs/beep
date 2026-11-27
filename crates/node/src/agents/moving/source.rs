@@ -245,7 +245,7 @@ async fn fail(
             }
         }
         (None, Some(open)) => {
-            if let Err(e) = env.agents.reopen_one(open).await {
+            if let Err(e) = env.agents.starter.reopen_one(open).await {
                 log::warn!(
                     "session {} could not start again after its move failed: {e:#}",
                     record.id
@@ -313,7 +313,7 @@ pub(super) async fn cancel(env: &Env, id: &SessionId, at: u64, to: EndpointId) -
     }
 
     if let Some(open) = closed.open
-        && let Err(e) = env.agents.reopen_one(open).await
+        && let Err(e) = env.agents.starter.reopen_one(open).await
     {
         log::warn!("session {id} could not start again after its move was cancelled: {e:#}");
     }

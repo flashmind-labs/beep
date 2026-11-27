@@ -227,6 +227,7 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
     };
     let session = m
         .agents
+        .starter
         .start(&kind("claude"), Some("/"), begin)
         .await
         .expect("a session");
@@ -407,6 +408,7 @@ async fn an_ended_owned_session_keeps_its_identity_after_moving() {
     fs::create_dir(&destination).expect("destination");
     let session = m
         .agents
+        .starter
         .start(
             &kind("codex"),
             Some("/"),
@@ -539,6 +541,7 @@ async fn a_background_child_that_closes_for_good_is_deleted_by_its_own_receiver(
     let m = Machine::new();
     let session = m
         .agents
+        .starter
         .start(
             &kind("claude"),
             Some("/"),

@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::Parts;
+use crate::agents::{Agents, Parts};
 
 #[tokio::test]
 async fn the_walk_publishes_after_it_ends_and_lets_a_rescan_run() {

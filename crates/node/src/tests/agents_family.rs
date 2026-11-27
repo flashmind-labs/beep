@@ -66,6 +66,7 @@ async fn until(session: &Session, done: impl FnMut(&Live) -> bool) {
 /// A session the user began, once it took its first prompt.
 async fn root(agents: &Agents, harness: &AgentKind, dir: &Path) -> Arc<Session> {
     let session = agents
+        .starter
         .start(
             harness,
             Some(&dir.to_string_lossy()),
@@ -107,6 +108,7 @@ async fn child_of(
     let who = agents.family.who_of(parent);
     let link = agents.family.link_for(parent, &who).expect("within limits");
     agents
+        .starter
         .start_child(link, start(harness, prompt, dir))
         .await
         .expect("the child starts")
@@ -208,6 +210,7 @@ async fn the_depth_a_caller_on_another_machine_passes_is_checked_here() {
     };
     let refused = rig
         .agents
+        .starter
         .start_child(link(MAX_DEPTH + 1), start("kid", "go", rig.dir.path()))
         .await
         .unwrap_err();
@@ -215,12 +218,14 @@ async fn the_depth_a_caller_on_another_machine_passes_is_checked_here() {
     // A link that claims depth 0 is no way round it either.
     let refused = rig
         .agents
+        .starter
         .start_child(link(0), start("kid", "go", rig.dir.path()))
         .await
         .unwrap_err();
     assert!(refused.contains("levels deep"), "{refused}");
     let child = rig
         .agents
+        .starter
         .start_child(link(MAX_DEPTH), start("kid", "go", rig.dir.path()))
         .await
         .expect("the last level starts");
@@ -256,6 +261,7 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
         .collect();
     let refused = rig
         .agents
+        .starter
         .start_child(link.clone(), start("kid", "go", rig.dir.path()))
         .await
         .unwrap_err();
@@ -266,6 +272,7 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
     for _ in 0..MAX_CHILDREN {
         let child = rig
             .agents
+            .starter
             .start_child(link.clone(), start("kid", "go", rig.dir.path()))
             .await
             .expect("within the limit");
@@ -274,6 +281,7 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
 
     let refused = rig
         .agents
+        .starter
         .start_child(link.clone(), start("kid", "go", rig.dir.path()))
         .await
         .unwrap_err();
@@ -281,6 +289,7 @@ async fn a_root_may_not_have_more_than_eight_agents_across_machines() {
     // Once one ends there is room again.
     started[0].close().await;
     rig.agents
+        .starter
         .start_child(link, start("kid", "go", rig.dir.path()))
         .await
         .expect("a slot is free");
@@ -593,6 +602,7 @@ async fn the_words_that_resume_an_ended_thread_are_the_users() {
 
     let resumed = rig
         .agents
+        .starter
         .resume(&rig.kid, &child.id, Some("say it".into()), None)
         .await
         .expect("the thread resumes");
@@ -667,6 +677,7 @@ async fn a_reviewer_is_no_thread_of_its_parents_chat() {
         .expect("within limits");
     let reviewer = rig
         .agents
+        .starter
         .start_child(
             link,
             ChildStart {
@@ -706,6 +717,7 @@ async fn a_thread_keeps_the_name_its_parent_gave_when_its_agent_names_it() {
         .expect("within limits");
     let given = rig
         .agents
+        .starter
         .start_child(link, named(Some("Solid-state timelines")))
         .await
         .expect("the child starts");
@@ -716,6 +728,7 @@ async fn a_thread_keeps_the_name_its_parent_gave_when_its_agent_names_it() {
         .expect("within limits");
     let unnamed = rig
         .agents
+        .starter
         .start_child(link, named(None))
         .await
         .expect("the child starts");
@@ -728,6 +741,7 @@ async fn a_thread_keeps_the_name_its_parent_gave_when_its_agent_names_it() {
     given.close().await;
     let again = rig
         .agents
+        .starter
         .resume(&rig.kid, &given.id, Some("name it".into()), None)
         .await
         .expect("the thread resumes");
@@ -784,6 +798,7 @@ async fn a_thread_takes_the_title_its_parent_gives() {
         .expect("within limits");
     let child = rig
         .agents
+        .starter
         .start_child(
             link,
             ChildStart {
@@ -842,6 +857,7 @@ async fn a_thread_with_its_parent_elsewhere_takes_the_message_unchanged() {
     };
     let child = rig
         .agents
+        .starter
         .start_child(link, start("kid", "work", rig.dir.path()))
         .await
         .expect("the child starts");
@@ -940,6 +956,96 @@ async fn a_family_built_from_the_nodes_owners_finds_and_stops_a_child() {
     rig.agents.shutdown().await;
 }
 
+/// A background child reopened under a parent that runs here follows the
+/// parent's state, and is handed to the deleter when the parent ends it.
+#[tokio::test]
+async fn a_reopened_background_child_follows_its_parent_and_reaches_the_deleter() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let who = rig.agents.family.who_of(&parent);
+    let mut link = rig
+        .agents
+        .family
+        .link_for(&parent, &who)
+        .expect("within limits");
+    link.background = true;
+    let child = rig
+        .agents
+        .starter
+        .start_child(link, start("kid", "work", rig.dir.path()))
+        .await
+        .expect("the child starts");
+    until(&child, |live| live.info.turns == 1).await;
+    let before = child.info().parent.expect("a link");
+    let noted = serde_json::to_string(&rig.agents.reopen.open_sessions()).expect("the note writes");
+    rig.agents.shutdown().await;
+
+    let mut noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
+    noted.sort_by_key(|open| std::cmp::Reverse(open.depth()));
+    let after = Agents::new(Parts {
+        kinds: vec![rig.top.clone(), rig.kid.clone()],
+        ..Parts::default()
+    });
+    after.catalog.settings_arrived();
+    let mut closed = after.delete.take_closed().expect("the deleter's end");
+
+    for open in noted.into_iter().rev() {
+        after
+            .starter
+            .reopen_one(open)
+            .await
+            .expect("the session reopens");
+    }
+
+    let resumed = after
+        .sessions
+        .get(&before.session)
+        .expect("the parent is back");
+    let kids = after.sessions.children_of(&after.family.who_of(&resumed));
+    assert_eq!(kids.len(), 1);
+    resumed.close().await;
+    until(&kids[0], |live| live.status() == Status::Ended).await;
+
+    let told = timeout(Duration::from_secs(20), closed.recv())
+        .await
+        .expect("told in time")
+        .expect("the channel is open");
+    assert_eq!(told.id, kids[0].id);
+    after.shutdown().await;
+}
+
+/// A parent reopened with a child on another machine counts it through
+/// `Family`, and counts the next one adopted after the resume.
+#[tokio::test]
+async fn a_resumed_parent_counts_its_remote_children_through_the_family() {
+    let rig = Rig::new();
+    let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
+    let name = sessions::name_of(&parent);
+    let machine = iroh::SecretKey::generate().public();
+    let mut kid = RemoteKid::expected(&name, machine, "box");
+    kid.id = SessionId::from("k1");
+    rig.agents.links.adopt_remote(&parent, kid);
+    let noted = serde_json::to_string(&rig.agents.reopen.open_sessions()).expect("the note writes");
+    rig.agents.shutdown().await;
+
+    let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
+    let after = Agents::new(Parts {
+        kinds: vec![rig.top.clone(), rig.kid.clone()],
+        ..Parts::default()
+    });
+    after.catalog.settings_arrived();
+    after.starter.reopen(noted).await;
+    let resumed = after.sessions.get(&name).expect("the parent is back");
+    let who = after.family.who_of(&resumed);
+    assert_eq!(after.family.children_count(&who), 1);
+
+    let mut later = RemoteKid::expected(&name, machine, "box");
+    later.id = SessionId::from("k2");
+    after.links.adopt_remote(&resumed, later);
+    assert_eq!(after.family.children_count(&who), 2);
+    after.shutdown().await;
+}
+
 #[tokio::test]
 async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
     let rig = Rig::new();
@@ -959,7 +1065,7 @@ async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
     // The child is noted first on purpose: parents resume before children.
     let mut noted = noted;
     noted.sort_by_key(|open| std::cmp::Reverse(open.depth()));
-    after.reopen(noted).await;
+    after.starter.reopen(noted).await;
     let resumed = after
         .sessions
         .get(&before.session)
@@ -999,6 +1105,7 @@ async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name
     };
     let child = rig
         .agents
+        .starter
         .start_child(
             link,
             ChildStart {
@@ -1038,7 +1145,7 @@ async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(noted).await;
+    after.starter.reopen(noted).await;
     let id = sessions::name_of(&child);
     let resumed = after.sessions.get(&id).expect("the thread is back");
     assert_eq!(resumed.info().persona, Some(persona));
@@ -1156,6 +1263,7 @@ async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
     link.mode = Some("plan".into());
     let child = rig
         .agents
+        .starter
         .start_child(link, start("kid", "work", rig.dir.path()))
         .await
         .expect("the child starts in plan mode");
@@ -1169,7 +1277,10 @@ async fn a_resumed_session_goes_on_under_its_parent_in_its_mode() {
         account: None,
         named: false,
     };
-    let begin = rig.agents.resumed_begin(&SessionId::from("agent-id"), held);
+    let begin = rig
+        .agents
+        .starter
+        .resumed_begin(&SessionId::from("agent-id"), held);
     assert_eq!(begin.parent, before.parent);
     assert_eq!(begin.mode.as_deref(), Some("plan"));
     assert_eq!(begin.resume, Some(SessionId::from("agent-id")));
@@ -1192,7 +1303,7 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(noted).await;
+    after.starter.reopen(noted).await;
     let resumed = after
         .sessions
         .get(&sessions::name_of(&child))
@@ -1839,6 +1950,7 @@ async fn a_far_parent_s_stop_all_stops_its_child_here() {
     ] {
         let child = rig
             .agents
+            .starter
             .start_child(link.clone(), start("kid", "hang on", rig.dir.path()))
             .await
             .expect("the child starts");
@@ -1885,6 +1997,7 @@ async fn a_node_with_no_mesh_does_not_say_it_notes_every_settle() {
     };
     let child = rig
         .agents
+        .starter
         .start_child(link, start("kid", "hello", rig.dir.path()))
         .await
         .expect("the child starts");
@@ -2246,6 +2359,7 @@ async fn a_background_child_that_closes_is_handed_to_the_deleter_at_once() {
     link.background = true;
     let child = rig
         .agents
+        .starter
         .start_child(link, start("kid", "one", rig.dir.path()))
         .await
         .expect("the child starts");

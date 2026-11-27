@@ -13,6 +13,7 @@ use crate::agents::child_view::{ChildView, full_id};
 use crate::agents::family::Family;
 use crate::agents::machine_list::Machine;
 use crate::agents::reply::{fail, json_of, ok, parse};
+use crate::agents::running::child_folder;
 use crate::agents::sessions;
 use crate::agents::{
     Agents, Session,
@@ -273,10 +274,7 @@ impl Calls<'_> {
     ) -> Result<ChildView, String> {
         let made = match start.cwd {
             Some(_) => None,
-            None => self
-                .agents
-                .child_folder(parent, start.title.as_deref())
-                .map_err(|e| format!("{e:#}"))?,
+            None => child_folder(parent, start.title.as_deref()).map_err(|e| format!("{e:#}"))?,
         };
         let cwd = match (start.cwd, &made) {
             (Some(cwd), _) => cwd,
@@ -285,6 +283,7 @@ impl Calls<'_> {
         };
         let child = self
             .agents
+            .starter
             .start_child(
                 link,
                 ChildStart {
@@ -688,7 +687,7 @@ async fn serve_peer(agents: &Agents, peer: EndpointId, request: &Request) -> Res
                 title: order.title,
                 persona: None,
             };
-            let child = agents.start_child(order.parent, start).await?;
+            let child = agents.starter.start_child(order.parent, start).await?;
 
             Ok(child_view(&child))
         }

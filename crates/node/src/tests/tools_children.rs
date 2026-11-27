@@ -207,6 +207,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     node.mesh.set(mesh);
     let parent = node
         .agents
+        .starter
         .start(
             &node.agents.catalog.kinds()[0],
             Some(dir.path().to_str().unwrap()),
@@ -321,6 +322,7 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
     let cwd = dir.path().to_string_lossy().into_owned();
     let chat = node
         .agents
+        .starter
         .start(
             &node.agents.catalog.kinds()[0],
             Some(&cwd),
@@ -395,6 +397,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
     let cwd = dir.path().to_string_lossy().into_owned();
     let chat = node
         .agents
+        .starter
         .start(
             &node.agents.catalog.kinds()[0],
             Some(&cwd),
@@ -473,6 +476,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let cwd = dir.path().to_string_lossy().into_owned();
     let start = async |name: &str| {
         node.agents
+            .starter
             .start(
                 &node.agents.catalog.kinds()[0],
                 Some(&cwd),
@@ -540,6 +544,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     unnamed_kind.args = vec!["-c".into(), "cat > /dev/null".into()];
     let unnamed = node
         .agents
+        .starter
         .start(
             &unnamed_kind,
             Some(&cwd),
@@ -634,6 +639,7 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     let cwd = dir.path().to_string_lossy().into_owned();
     let parent = node
         .agents
+        .starter
         .start(
             &node.agents.catalog.kinds()[0],
             Some(&cwd),
@@ -690,6 +696,7 @@ async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
             ..Begin::default()
         };
         agents
+            .starter
             .start(&agents.catalog.kinds()[0], Some(&cwd), begin)
             .await
             .expect("a session starts")

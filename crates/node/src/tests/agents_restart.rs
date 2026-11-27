@@ -1,6 +1,6 @@
 use super::*;
-use crate::agents::Parts;
 use crate::agents::sessions;
+use crate::agents::{Agents, Parts};
 use crate::{
     agents::{AgentKind, Session, family::RemoteKid, live::Live},
     link::restart::{self, Reopen},
@@ -80,6 +80,7 @@ async fn until(live: &mut watch::Receiver<Live>, done: impl FnMut(&Live) -> bool
 /// Queues a prompt while the first turn waits for an answer.
 async fn queued_during_a_turn(agents: &Agents, kind: &AgentKind, cwd: &Path) -> Arc<Session> {
     let session = agents
+        .starter
         .start(kind, Some(&cwd.to_string_lossy()), begin("first"))
         .await
         .expect("the session starts");
@@ -135,6 +136,7 @@ async fn an_update_restarts_once_the_busy_session_closes() {
         ..Parts::default()
     });
     let session = agents
+        .starter
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
         .await
         .expect("the session starts");
@@ -165,6 +167,7 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
         ..Parts::default()
     });
     let session = before
+        .starter
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
         .await
         .expect("the session starts");
@@ -193,7 +196,7 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(stopped).await;
+    after.starter.reopen(stopped).await;
     let resumed = after
         .sessions
         .get(&SessionId::from("held-1"))
@@ -238,7 +241,7 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(stopped).await;
+    after.starter.reopen(stopped).await;
     let session = after
         .sessions
         .get(&SessionId::from("held-1"))
@@ -261,6 +264,7 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
         ..Parts::default()
     });
     let session = before
+        .starter
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
         .await
         .expect("the session starts");
@@ -277,7 +281,7 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(stopped).await;
+    after.starter.reopen(stopped).await;
     let resumed = after
         .sessions
         .get(&SessionId::from("held-1"))
@@ -313,6 +317,7 @@ async fn a_session_the_agent_replays_keeps_a_timestamp_snapshot() {
         ..Parts::default()
     });
     let session = before
+        .starter
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
         .await
         .expect("the session starts");
@@ -355,6 +360,7 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
         }))
     };
     let session = before
+        .starter
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
         .await
         .expect("the session starts");
@@ -381,7 +387,7 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(vec![noted]).await;
+    after.starter.reopen(vec![noted]).await;
     let resumed = after
         .sessions
         .get(&name)
@@ -410,6 +416,7 @@ async fn a_session_comes_back_after_a_crash() {
         }))
     };
     let session = before
+        .starter
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
         .await
         .expect("the session starts");
@@ -437,7 +444,7 @@ async fn a_session_comes_back_after_a_crash() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(noted.sessions).await;
+    after.starter.reopen(noted.sessions).await;
     let resumed = after
         .sessions
         .get(&SessionId::from("held-1"))
@@ -470,6 +477,7 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
         ..Parts::default()
     });
     let session = before
+        .starter
         .start(
             &kind,
             Some(&dir.path().to_string_lossy()),
@@ -504,7 +512,7 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(stopped).await;
+    after.starter.reopen(stopped).await;
     let session = after
         .sessions
         .get(&SessionId::from("held-1"))
@@ -539,6 +547,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
         ..Parts::default()
     });
     let session = before
+        .starter
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
         .await
         .expect("starts");
@@ -553,7 +562,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(stopped).await;
+    after.starter.reopen(stopped).await;
     let resumed = after
         .sessions
         .get(&SessionId::from("held-1"))
@@ -581,6 +590,7 @@ async fn begin_assistant_lists_as_assistant() {
         ..Parts::default()
     });
     let session = agents
+        .starter
         .start(
             &kind,
             Some(&dir.path().to_string_lossy()),
@@ -611,6 +621,7 @@ async fn assistant_survives_restart() {
         ..Parts::default()
     });
     let session = before
+        .starter
         .start(
             &kind,
             Some(&dir.path().to_string_lossy()),
@@ -632,7 +643,7 @@ async fn assistant_survives_restart() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(stopped).await;
+    after.starter.reopen(stopped).await;
     assert!(after.reviews.is_assistant(&SessionId::from("held-1")));
     after.shutdown().await;
 }
@@ -647,6 +658,7 @@ async fn a_fresh_start_in_the_home_folder_is_no_assistant() {
     });
     // No folder is the home folder; only the flag makes the assistant.
     let home = agents
+        .starter
         .start(&kind, None, begin("hello"))
         .await
         .expect("the session starts");
@@ -665,6 +677,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
         ..Parts::default()
     });
     let session = before
+        .starter
         .start(
             &kind,
             Some(&dir.path().to_string_lossy()),
@@ -696,6 +709,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
     after.reopen.keep_saved(Reopen::read(dir.path()).saved);
     after.catalog.settings_arrived();
     let resumed = after
+        .starter
         .resume(&kind, &SessionId::from("held-1"), None, None)
         .await
         .expect("taken over");
@@ -728,6 +742,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
     }]);
     agents.catalog.settings_arrived();
     let resumed = agents
+        .starter
         .resume(&kind, &SessionId::from("held-1"), None, None)
         .await
         .expect("taken over");
@@ -891,6 +906,7 @@ async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
         ..Parts::default()
     });
     let session = agents
+        .starter
         .start(
             &kind,
             Some(&dir.path().to_string_lossy()),
@@ -925,6 +941,7 @@ async fn a_refiled_session_is_saved_and_reopened_in_its_new_folder() {
         ..Parts::default()
     });
     let session = agents
+        .starter
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
         .await
         .expect("the session starts");
@@ -964,6 +981,7 @@ fn a_reviewer_taken_over_is_never_the_assistant() {
 
     assert!(
         !agents
+            .starter
             .resumed_begin(&SessionId::from("held-1"), saved)
             .assistant
     );
@@ -985,6 +1003,7 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
         ..Parts::default()
     });
     let session = before
+        .starter
         .start(
             &kind,
             Some(&dir.path().to_string_lossy()),
@@ -1002,7 +1021,7 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(stopped).await;
+    after.starter.reopen(stopped).await;
     let resumed = after
         .sessions
         .get(&SessionId::from("held-1"))
@@ -1032,6 +1051,7 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
         ..Parts::default()
     });
     let session = before
+        .starter
         .start(
             &kind,
             Some(&dir.path().to_string_lossy()),
@@ -1048,7 +1068,7 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
         ..Parts::default()
     });
     after.catalog.settings_arrived();
-    after.reopen(stopped).await;
+    after.starter.reopen(stopped).await;
     let resumed = after
         .sessions
         .get(&SessionId::from("held-1"))

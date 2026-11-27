@@ -96,6 +96,7 @@ impl Landing {
         self.mesh.set(mesh);
         let session = self
             .agents
+            .starter
             .start(
                 &self.agents.catalog.kinds()[0],
                 self._dir.path().to_str(),

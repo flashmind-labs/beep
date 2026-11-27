@@ -165,7 +165,7 @@ crates/node/src/agents/moving/target.rs | from_source | sleep#1 | retry | backof
 crates/node/src/agents/processes/mod.rs | pace | sleep#1 | outside | reads the OS process table every 1 s or 60 s
 crates/node/src/agents/requests.rs | send_usage | sleep#1 | outside | reads plan usage through agent CLIs every 5 min
 crates/node/src/agents/requests.rs | warn_if_slow_after | sleep#1 | deadline | logs a request that got no answer in time
-crates/node/src/agents/running.rs | start_upkeep | interval#1 | outside | hourly check of harness releases
+crates/node/src/agents/mod.rs | start_upkeep | interval#1 | outside | hourly check of harness releases
 crates/node/src/agents/search/schedule.rs | next_pass | sleep_until#1 | retry | next failed session read, or a notified change
 crates/node/src/agents/search/schedule.rs | next_pass | sleep_until#2 | pace | at most one search pass per minute
 crates/node/src/agents/session/actor.rs | drive | sleep_until#1 | deadline | alerts a held turn end if subagents stay silent

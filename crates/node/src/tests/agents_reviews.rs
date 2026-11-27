@@ -1,7 +1,7 @@
 use super::*;
 use crate::agents::AgentKind;
-use crate::agents::Parts;
 use crate::agents::sessions;
+use crate::agents::{Agents, Parts};
 use beep_proto::node::agent::{CodeFinding, CodeVerdict, FindingSeverity};
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, time::Duration};
@@ -95,6 +95,7 @@ impl Rig {
         };
         let session = self
             .agents
+            .starter
             .start(&top, Some(&cwd), begin)
             .await
             .expect("the session starts");
@@ -158,6 +159,7 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
     let parent = rig.root().await;
     let run = rig
         .agents
+        .starter
         .start_review(rig.order("HOLD", Some(parent.id.clone())))
         .await
         .expect("the review starts");
@@ -233,6 +235,7 @@ async fn a_reviewer_that_ends_without_a_review_is_nudged_once() {
     let rig = Rig::new();
     let run = rig
         .agents
+        .starter
         .start_review(rig.order("", None))
         .await
         .expect("the review starts");
@@ -249,6 +252,46 @@ async fn a_reviewer_that_ends_without_a_review_is_nudged_once() {
         rig.agents.sessions.listed(true).is_empty(),
         "a reviewer without a parent is never listed"
     );
+}
+
+/// `follow` fails the review of a session that ends its turns without
+/// `submit_review`, holding only the reviews, the deleter and the sessions.
+#[tokio::test]
+async fn follow_fails_a_review_from_the_three_owners_it_reads() {
+    let rig = Rig::new();
+    let session = rig.root().await;
+    let id = session.id.clone();
+    let (reviews, delete, sessions) = (
+        rig.agents.reviews.clone(),
+        rig.agents.delete.clone(),
+        rig.agents.sessions.clone(),
+    );
+    reviews.keep(kept::Kept {
+        run: ReviewRun {
+            id: id.clone(),
+            cwd: rig.cwd(),
+            base: "main".into(),
+            agent: "top".into(),
+            ..ReviewRun::default()
+        },
+        parent: None,
+        parent_key: None,
+        _watch: None,
+    });
+
+    timeout(
+        Duration::from_secs(20),
+        follow(reviews.clone(), delete, sessions.clone(), session),
+    )
+    .await
+    .expect("the follow ends");
+
+    let run = reviews.review(&id).expect("the review is kept");
+    assert_eq!(
+        run.error.as_deref(),
+        Some("The reviewer ended without calling submit_review.")
+    );
+    assert!(sessions.get(&id).is_none());
 }
 
 #[tokio::test]
@@ -278,6 +321,7 @@ async fn a_finished_reviewer_leaves_no_session_on_disk() {
     };
     let run = rig
         .agents
+        .starter
         .start_review(ReviewOrder {
             agent: "claude".into(),
             ..rig.order("HOLD", None)
@@ -329,6 +373,7 @@ async fn a_wait_on_a_review_ends_when_the_review_does() {
     let who = rig.agents.family.who_of(&parent);
     let run = rig
         .agents
+        .starter
         .start_review(rig.order("HOLD", Some(parent.id.clone())))
         .await
         .expect("the review starts");

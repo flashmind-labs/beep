@@ -1,9 +1,10 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
 use super::{
-    AgentKind, Agents, Begin, SavedSession, Session, claude,
+    AgentKind, Begin, SavedSession, Session, claude,
     limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS},
     listings::{Listed, Listings},
+    running::Starter,
     session::{Command, History},
     sessions,
 };
@@ -759,7 +760,7 @@ impl Listings {
     }
 }
 
-impl Agents {
+impl Starter {
     /// Takes over the Claude Code session `id` started outside Beep, once
     /// nothing runs it; one this node already runs is returned as it is.
     /// `id` may also be one of this node's sessions that ended: it goes on
