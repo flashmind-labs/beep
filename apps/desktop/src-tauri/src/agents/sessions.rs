@@ -14,7 +14,7 @@ use crate::{
     fleet::{
         Fleet, Machines, agents as direct,
         asked::{BEFORE_SET_DEVICE, ORDER_LIMIT, READ_LIMIT, SMALL_LIMIT, newer_than},
-        node_actor::{FAST_JOB_WAIT, JobKind},
+        jobs::{FAST_JOB_WAIT, JobKind},
         projects::{FleetState, desk},
         session_lists::{SessionLists, SessionRow},
         session_mirror::{SessionMirror, StartId},

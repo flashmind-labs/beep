@@ -9,7 +9,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines, files as direct,
-        node_actor::{FAST_JOB_WAIT, JobKind},
+        jobs::{FAST_JOB_WAIT, JobKind},
         view_signal::View,
     },
 };

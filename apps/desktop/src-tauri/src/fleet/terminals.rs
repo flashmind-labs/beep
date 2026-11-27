@@ -5,7 +5,7 @@
 
 use super::{
     Fleet,
-    node_actor::{FAST_JOB_WAIT, JobKind},
+    jobs::{FAST_JOB_WAIT, JobKind},
     terminal_rows::{Row, find, forget, rows, save},
 };
 use crate::{

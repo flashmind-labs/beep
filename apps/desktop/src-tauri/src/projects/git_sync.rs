@@ -6,7 +6,7 @@ use crate::{
     fleet::{
         Fleet, Machines,
         files::{PeerShell, Place},
-        node_actor::GitStateRow,
+        projections::GitStateRow,
     },
 };
 use beep_projects::{

@@ -8,7 +8,9 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
-        node_actor::{DEVICE_LIST_LIMIT, JobKind, Listing, Projected, mark_device_power},
+        jobs::JobKind,
+        node_actor::mark_device_power,
+        projections::{DEVICE_LIST_LIMIT, Listing, Projected},
     },
     machines::{Registry, Unfollow},
 };

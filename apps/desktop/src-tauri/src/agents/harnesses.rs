@@ -5,7 +5,7 @@ use crate::{
     error::{Result, plain},
     fleet::{
         Machines, agents as direct,
-        node_actor::{FAST_JOB_WAIT, JobKind},
+        jobs::{FAST_JOB_WAIT, JobKind},
         projects::{FleetState, desk},
     },
 };

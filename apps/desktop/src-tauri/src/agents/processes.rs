@@ -5,7 +5,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Machines,
-        node_actor::{FAST_JOB_WAIT, JobKind},
+        jobs::{FAST_JOB_WAIT, JobKind},
     },
 };
 use beep_mesh::MeshError;

@@ -2,7 +2,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
-        node_actor::{JobKind, JobOutcome},
+        jobs::{JobKind, JobOutcome},
     },
 };
 use beep_proto::node::mcp_servers::{EditableServer, Harness, PROTOCOL, Reply, Request, Server};

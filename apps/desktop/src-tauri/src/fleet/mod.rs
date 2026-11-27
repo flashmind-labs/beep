@@ -13,11 +13,13 @@ mod copies;
 pub(crate) mod events;
 pub(crate) mod files;
 pub(crate) mod home_signal;
+pub(crate) mod jobs;
 #[cfg(desktop)]
 mod mesh;
 pub(crate) mod node_actor;
 pub(crate) mod outbox;
 pub(crate) mod phone;
+pub(crate) mod projections;
 pub(crate) mod projects;
 pub(crate) mod session_lists;
 pub(crate) mod session_mirror;
@@ -43,7 +45,7 @@ use copies::Copies;
 use iroh::{Endpoint, EndpointId, SecretKey, protocol::Router};
 #[cfg(desktop)]
 use mesh::Serving;
-pub(crate) use node_actor::ToolPush;
+pub(crate) use projections::ToolPush;
 pub(crate) use session_mirror::SessionParent;
 pub use status::{ClockOff, Status};
 #[cfg(mobile)]
@@ -177,8 +179,8 @@ pub struct Fleet {
     copies: Copies,
     /// The newest release of each tool a node installs.
     releases: ToolReleases,
-    projections: node_actor::Projections,
-    node_ops: Arc<node_actor::NodeOps>,
+    projections: projections::Projections,
+    node_ops: Arc<jobs::NodeOps>,
 }
 
 impl Fleet {
@@ -215,8 +217,8 @@ impl Fleet {
             joining: AsyncMutex::new(()),
             copies: Copies::default(),
             releases: ToolReleases::default(),
-            projections: node_actor::Projections::default(),
-            node_ops: Arc::new(node_actor::NodeOps::default()),
+            projections: projections::Projections::default(),
+            node_ops: Arc::new(jobs::NodeOps::default()),
         }
     }
 
@@ -237,8 +239,8 @@ impl Fleet {
             joining: AsyncMutex::new(()),
             copies: Copies::default(),
             releases: ToolReleases::default(),
-            projections: node_actor::Projections::default(),
-            node_ops: Arc::new(node_actor::NodeOps::default()),
+            projections: projections::Projections::default(),
+            node_ops: Arc::new(jobs::NodeOps::default()),
         }
     }
 
@@ -425,11 +427,11 @@ impl Fleet {
         &self.releases
     }
 
-    pub(crate) fn projections(&self) -> &node_actor::Projections {
+    pub(crate) fn projections(&self) -> &projections::Projections {
         &self.projections
     }
 
-    pub(crate) fn node_ops(&self) -> &Arc<node_actor::NodeOps> {
+    pub(crate) fn node_ops(&self) -> &Arc<jobs::NodeOps> {
         &self.node_ops
     }
 
