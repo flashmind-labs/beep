@@ -36,19 +36,20 @@ test("a model of another harness waits for the next message instead of switching
   expect(steers).toEqual([]);
 });
 
-test("Continue with from the session menu starts the continued session once the stepped picker finishes", async ({ page }) => {
+test("Continue with in the session menu picks harness, model and thinking, then opens the continued session", async ({ page }) => {
   const idle = { ...earlier, status: "idle" };
   const started = { ...base, id: "new", agent: "codex", title: "Plan the work", status: "starting", continues: "early" };
   const home = { machines: [], projects: [], running: [{ ...idle, kind: "agent" as const }], needs_you: [] };
   await openDesktop(page, false, { agent_sessions: [idle], center_home: home, agent_view: view(idle), agent_hosts: [host], agent_models: models, agent_begin: { session: started, why: "" } });
   await page.locator(".cwin").getByText("Plan the work").first().click({ button: "right" });
   await page.getByRole("menuitem", { name: "Continue with" }).click();
-  await page.locator('[data-agh="codex"]').click();
-  await page.locator('[data-agmo="test-model"]').click();
-  await page.locator('[data-age=""]').click();
+  await page.getByRole("menuitem", { name: "Codex" }).click();
+  await page.getByRole("menuitem", { name: "Test model" }).click();
+  await page.getByRole("menuitem", { name: "High", exact: true }).click();
   await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_begin").map(c => c.args))).toMatchObject([
-    { machineId: "build-box", agent: "codex", cwd: "/srv/project", model: "test-model", prompt: "Continue.", continues: "early" },
+    { machineId: "build-box", agent: "codex", cwd: "/srv/project", model: "test-model", effort: "high", prompt: "Continue.", continues: "early" },
   ]);
+  await expect.poll(() => page.evaluate(() => window.__navigation.calls().filter(c => c.command === "agent_view").map(c => c.args.session))).toContain("new");
 });
 
 test("Retry with another model starts a continued session when another harness is chosen", async ({ page }) => {

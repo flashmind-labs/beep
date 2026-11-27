@@ -16,13 +16,16 @@ import { type SideWork, sessionOffers, stopAllAsks } from "../../stores/agents/s
 import { AG, AGENT_ACTIVE, ensureAgentHosts, openOf, where } from "../../stores/agents/agents-state.ts";
 import { sameSession } from "../../stores/agents/running-state.ts";
 import { canContinueElsewhere } from "../../stores/agents/continue-state.ts";
-import { canContinueWith, continueWithSession } from "./modelpill.tsx";
+import { canContinueWith, harnessesFor } from "./modelpill.tsx";
+import { agentKind } from "../../stores/agents/agent-kind.ts";
+import { effortsOf, modelId, modelRows } from "../../stores/agents/agentpick.ts";
+import { knownModels, modelsOn } from "../../stores/agents/model-store.ts";
 import { drawAgentBody, workingSubagents } from "./logview.tsx";
-import { type Draft, draftNewThread, drainOutbox, drawQueue, heldQueue, restoreDraft, resumeEndedSession, sendOnce } from "./messages.ts";
+import { type Draft, continueSessionNow, draftNewThread, drainOutbox, drawQueue, heldQueue, restoreDraft, resumeEndedSession, sendOnce } from "./messages.ts";
 import { runs, transcriptKey, transcripts } from "../../stores/agents/transcript-cache-state.ts";
 import { closeSession } from "../../stores/agents/closing.ts";
 import { clearHeldSteers, forgetTranscript, heldSteers } from "./session-follow.ts";
-import { forgetLog, resumeFollow, setNote, turnRuns } from "./open-state.ts";
+import { continuePicks, forgetLog, resumeFollow, setNote, turnRuns } from "./open-state.ts";
 import { conversationKey } from "../../stores/agents/conversation-state.ts";
 import { currentMentions, mentionsOf } from "../../stores/agents/mentions.ts";
 import { heldMessage } from "../../stores/agents/agentqueue.ts";
@@ -49,6 +52,48 @@ function stopAll(s: AgentRow) {
     action: "Stop all",
     run,
   });
+}
+
+/// Walks `Continue with` in the menu: the harness, its model, then its thinking
+/// level when it has levels. The last pick starts the continued session, which opens.
+function continueSteps(e: MouseEvent, s: AgentRow, open: (s: AgentRow) => void) {
+  const back = (to: () => void): MenuItem[] => [{ label: "Back", icon: "back", on: to }, { kind: "separator" }];
+  const start = (agent: string, model: string, effort: string | null) => {
+    continuePicks.set(s.id, { agent, model: modelId(knownModels(s.machine_id, agent), model), effort, fast: null });
+    if (!sameSession(AG.open, s)) open(s);
+    setTimeout(() => void continueSessionNow(openOf(s)), 0);
+  };
+
+  const harnesses = () => openMenu(e, "Continue with", [
+    ...back(() => void sessionMenu(e, s, open)),
+    ...harnessesFor(s).filter(agent => agent !== s.agent).map(agent => ({ label: agentKind(agent).name, chevron: true, on: () => models(agent) })),
+  ]);
+
+  const models = (agent: string) => {
+    const thinks = effortsOf(agent).length > 0;
+    const lines = (): MenuItem[] => {
+      const { rows, note } = modelRows(knownModels(s.machine_id, agent), "");
+      return [
+        ...back(harnesses),
+        ...rows.map(row => ({ label: row.label, detail: row.note || undefined, chevron: thinks, on: () => thinking(agent, row.value) })),
+        ...(note ? [{ label: note, disabled: true, on: () => {} }] : []),
+      ];
+    };
+    const update = openMenu(e, agentKind(agent).name, lines(), "Model");
+    modelsOn(s.machine_id, agent, () => update(lines()));
+  };
+
+  const thinking = (agent: string, model: string) => {
+    const efforts = effortsOf(agent);
+    if (!efforts.length) return start(agent, model, null);
+    openMenu(e, agentKind(agent).name, [
+      ...back(() => models(agent)),
+      { label: "Default", on: () => start(agent, model, null) },
+      ...efforts.map(effort => ({ label: effort.label, on: () => start(agent, model, effort.value) })),
+    ], "Thinking");
+  };
+
+  harnesses();
 }
 
 /// Opens the menu for `s` where `e` was clicked. `open` is what clicking the row does.
@@ -80,10 +125,7 @@ export async function sessionMenu(e: MouseEvent, s: AgentRow, open: (s: AgentRow
       runGroup.push({ label: "Stop all", icon: "stopAll", on: () => stopAll(s) });
     }
     if (canContinueElsewhere(s) && canContinueWith(s)) {
-      runGroup.push({ label: "Continue with", icon: "sync", chevron: true, on: () => {
-        if (!sameSession(AG.open, s)) open(s);
-        setTimeout(() => continueWithSession(s.id), 0);
-      } });
+      runGroup.push({ label: "Continue with", icon: "sync", chevron: true, on: () => continueSteps(e, s, open) });
     }
     if (offers.resume) {
       runGroup.push({ label: "Resume", icon: "run", on: () => resumeEndedSession(openOf(s), started => open(started)) });

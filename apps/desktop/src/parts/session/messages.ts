@@ -626,7 +626,8 @@ async function continueChat(o: OpenAgent, draft: Waiting, state: MentionState) {
     sessionPicks.set(started.session.id, { model: model ?? "", effort: pick.effort, fast });
     startedWith(started.session, text, images ?? []);
     uploads.forget();
-    if (isOpen(o)) openSession(started.session, { back: AG.back });
+    // The chat goes on in the new session: open it when the earlier one shows.
+    if (S.view === "agent" && sameSession(AG.open, row)) openSession(started.session, { back: AG.back });
   } catch (e) {
     uploads.discardAll();
     state.error = String(e).replace(/^bad request: /, "");
