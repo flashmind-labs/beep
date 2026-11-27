@@ -30,7 +30,7 @@ impl Syncthing {
                         folder.paused = false;
                     }
 
-                    let home = self.inner.home.clone();
+                    let home = self.inner.home().map(Path::to_owned);
                     Some(
                         tokio::task::spawn_blocking(move || super::resolve(raw, home.as_deref()))
                             .await?,
@@ -52,7 +52,7 @@ impl Syncthing {
                 }),
             None => {
                 let folder = folder.clone();
-                let home = self.inner.home.clone();
+                let home = self.inner.home().map(Path::to_owned);
                 tokio::task::spawn_blocking(move || super::marked(&folder, home.as_deref())).await?
             }
         };

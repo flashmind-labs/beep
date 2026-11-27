@@ -5,13 +5,13 @@ mod apps;
 mod gpu;
 mod latest;
 mod probe;
+pub(crate) mod syncthing;
 pub(crate) mod locate;
 
 pub(crate) use latest::{Probes, changed, fresh, machine};
 pub(crate) use probe::{beside, output};
 use probe::{first_line, ran};
 
-use crate::files::syncthing::Syncthing;
 use crate::process::spawn_env::{self, Scope};
 use beep_proto::node::harness::parse_version;
 use beep_proto::node::{EnvReport, Login, ToolInfo};
@@ -145,7 +145,7 @@ async fn probe_machine() -> EnvReport {
         avds: avds().await,
         apps: apps::apps().await,
         gpus: gpu::gpus().await,
-        syncthing: Syncthing::local().folders().await,
+        syncthing: syncthing::Daemon::local().folders().await.unwrap_or_default(),
         // Filled in by the status stream, which knows the installs.
         adapters: Vec::new(),
         version: env!("CARGO_PKG_VERSION").to_owned(),
