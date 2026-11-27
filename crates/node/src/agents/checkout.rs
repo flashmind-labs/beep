@@ -475,7 +475,10 @@ pub(crate) mod tests {
             .prefix(&format!("beep-checkout-{name}"))
             .tempdir()
             .expect("a temporary folder");
-        let work = dir.path().join("work");
+        // Git reports real paths, and macOS temp folders sit behind a symlink.
+        let work = fs::canonicalize(dir.path())
+            .expect("the temporary folder")
+            .join("work");
         fs::create_dir_all(work.join("src")).expect("the work folder");
         run(&work, &["init", "--quiet", "--initial-branch=main"]);
         fs::write(work.join("README.md"), "hi\n").expect("a file");
@@ -608,7 +611,7 @@ pub(crate) mod tests {
     #[test]
     fn a_base_only_on_origin_or_nowhere() {
         let (dir, work) = repo("origin");
-        let clone = dir.path().join("clone");
+        let clone = work.with_file_name("clone");
         let from = work.to_str().expect("a UTF-8 path");
         let to = clone.to_str().expect("a UTF-8 path");
         run(dir.path(), &["clone", "--quiet", from, to]);
@@ -661,7 +664,7 @@ pub(crate) mod tests {
     fn a_branch_worktree_is_reused_or_added_from_origin() {
         let (dir, work) = repo("continue");
         run(&work, &["branch", "login-copy"]);
-        let clone = dir.path().join("clone");
+        let clone = work.with_file_name("clone");
         let from = work.to_str().expect("a UTF-8 path");
         let to = clone.to_str().expect("a UTF-8 path");
         run(dir.path(), &["clone", "--quiet", from, to]);

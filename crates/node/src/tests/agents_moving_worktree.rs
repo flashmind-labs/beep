@@ -328,7 +328,11 @@ fn a_move_carries_commits_and_changes_between_independent_checkouts() {
         &target,
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
     );
-    assert_eq!(PathBuf::from(common), copy.join(".git"));
+    // Git reports the real path, and macOS temp folders sit behind a symlink.
+    assert_eq!(
+        PathBuf::from(common),
+        fs::canonicalize(&copy).expect("a folder").join(".git")
+    );
     assert_eq!(git(&wt, &["symbolic-ref", "--short", "HEAD"]), "feat");
 
     // Taken back, the branch the move made goes too.
