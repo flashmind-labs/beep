@@ -229,7 +229,7 @@ async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
         default_model: None,
         bridge: None,
     };
-    let agents = Arc::new(Agents::new(vec![kind.clone()]));
+    let agents = Arc::new(Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default()));
     let link = beep_proto::node::local_link();
     let (mut client_tx, mut client_rx) = link.caller;
     let (server_tx, server_rx) = link.node;
@@ -268,7 +268,7 @@ async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
         .unwrap();
     let mut spawned = registration("session_starting");
     spawned.pid = Some(starting.processes.root());
-    agents.presence.register(spawned, Uuid::new_v4()).unwrap();
+    agents.occupancy.presence().register(spawned, Uuid::new_v4()).unwrap();
     let sessions = next(&mut client_rx).await;
     assert_eq!(
         sessions[0].taken_over,
@@ -280,7 +280,7 @@ async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
     // new registration on the presence socket.
     let mut outside = registration("session_outside");
     outside.pid = Some(u32::MAX);
-    agents.presence.register(outside, Uuid::new_v4()).unwrap();
+    agents.occupancy.presence().register(outside, Uuid::new_v4()).unwrap();
     let sessions = next(&mut client_rx).await;
     assert_eq!(
         sessions
