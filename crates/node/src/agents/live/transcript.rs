@@ -1,7 +1,7 @@
 //! The transcript and state of a session: entries, spend and questions.
 
 use super::{
-    CLAUDE_RATE_LIMIT, Live, MAX_ENTRIES, MAX_ENTRY, MAX_LINE, TurnTokens,
+    CLAUDE_RATE_LIMIT, Live, MAX_ENTRIES, MAX_ENTRY, TurnTokens,
     content::{cut, detail},
     tools::CodexChild,
 };
@@ -394,7 +394,6 @@ impl Live {
                 kind: wire_name(&option.kind).parse().unwrap_or(OptionKind::Other),
             })
             .collect();
-        let text = cut(&text, MAX_LINE);
         // Some agents title the question with the command itself.
         let detail = call
             .fields
