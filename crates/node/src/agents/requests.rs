@@ -634,7 +634,7 @@ fn end_trace(
 async fn live_reply(agents: &Agents, session: &SessionId, steer: Option<agent::Steer>) -> SessionsReply {
     agents
         .occupancy
-        .live(session, steer, agents.owned())
+        .live(session, steer, agents.sessions.owned())
         .await
         .map_or_else(failed, |status| SessionsReply::Live {
             status: Box::new(status),

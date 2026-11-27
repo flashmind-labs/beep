@@ -12,146 +12,38 @@ use beep_proto::SessionId;
 use super::{Agents, Begin, Session, live::{Live, Mark}, session::{Command, ended_for_good}};
 use crate::known::known;
 use crate::membership::Membership;
-use beep_proto::{AccountName, AgentAccount, CustomAgent, ModelId};
-use beep_proto::node::agent::{Effort, ParentLink, Persona, SessionInfo, Status};
+use beep_proto::AgentAccount;
+use beep_proto::node::agent::{ParentLink, Persona, SessionInfo, Status};
 use beep_proto::watched;
 use iroh::EndpointId;
-use std::{
-    collections::HashMap,
-    str::FromStr,
-    sync::{Arc, Mutex, Weak},
-    time::Duration,
-};
+use std::{str::FromStr, sync::Arc, time::Duration};
 use futures::{StreamExt, stream::FuturesUnordered};
-use tokio::sync::{
-    SetOnce,
-    mpsc::{UnboundedReceiver, UnboundedSender},
-    watch,
-};
-use tokio_util::task::AbortOnDropHandle;
+use tokio::sync::{mpsc::UnboundedReceiver, watch};
 
 mod changes;
+pub(crate) mod links;
 pub(crate) mod notes;
 pub(crate) mod peer;
 mod orphans;
 mod remote;
 
 
-pub(crate) use notes::{ChildNote, Waiting, Waits};
-pub(crate) use orphans::Parent;
-pub(crate) use remote::RemoteKid;
+pub(crate) use links::{ChildNote, ChildStart, RemoteKid, Review, Waiting, Who};
+use links::{Closed, MAX_CHILDREN, MAX_DEPTH, Root, is_child_of};
+pub(crate) use links::NO_AGENT;
 
-/// How many starts deep a chain may go: a session started by a session
-/// started by a session started by one the user began.
-pub(crate) const MAX_DEPTH: u8 = 3;
-/// The most live descendants one root session may have, and the most direct
-/// children one session may have.
-pub(crate) const MAX_CHILDREN: usize = 8;
-/// The session a chain of starts began from, and its machine.
-type Root = (Option<EndpointId>, SessionId);
 /// How long the count of a root's agents on another machine may take.
 const COUNT_LIMIT: Duration = Duration::from_secs(3);
-/// What a machine says when it has no child of that name for the caller: also
-/// what stopping one that is already gone reads as success on.
-pub(crate) const NO_AGENT: &str = "You have no agent";
-
-/// What the node knows of the family trees it takes part in.
-#[derive(Default)]
-pub(crate) struct Family {
-    remote: Arc<Mutex<Vec<RemoteKid>>>,
-    membership: Arc<SetOnce<Membership>>,
-    /// Per parent with children elsewhere, the task that stops them when it
-    /// ends for good.
-    watchers: Mutex<HashMap<SessionId, AbortOnDropHandle<()>>>,
-    /// The child starts under way here, each under its root. They count
-    /// with the root's live agents, so two starts cannot both take the last
-    /// place.
-    starting: Mutex<Vec<(Root, Weak<()>)>>,
-    /// What transcripts show of children on other machines.
-    pub(crate) views: peer::Views,
-    /// The children parents wait on in `start_agent`, which send no note
-    /// meanwhile.
-    pub(crate) waits: Waits,
-    /// The background children that closed for good, to delete.
-    closed: Tidy,
-}
-
-/// A background child that closed for good.
-pub(super) struct Closed {
-    agent: String,
-    id: SessionId,
-}
-
-/// Where closed background children report, and the end that deletes them,
-/// taken once by the upkeep.
-pub(super) struct Tidy {
-    tx: UnboundedSender<Closed>,
-    rx: Mutex<Option<UnboundedReceiver<Closed>>>,
-}
-
-impl Default for Tidy {
-    fn default() -> Self {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-
-        Self {
-            tx,
-            rx: Mutex::new(Some(rx)),
-        }
-    }
-}
-
-impl Family {
-    /// The receiver of the closed background children, for the one task that
-    /// deletes them.
-    pub(super) fn take_closed(&self) -> Option<UnboundedReceiver<Closed>> {
-        crate::lock(&self.closed.rx).take()
-    }
-}
-
-/// Who calls a family tool: a session of some machine.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Who {
-    /// `None` for a node that belongs to no mesh.
-    pub(crate) machine: Option<EndpointId>,
-    /// The session's id as its children's links name it.
-    pub(crate) session: SessionId,
-}
-
-/// What a child starts with, from the call that starts it.
-#[derive(Debug)]
-pub(crate) struct ChildStart {
-    pub(crate) harness: String,
-    pub(crate) prompt: String,
-    pub(crate) cwd: Option<String>,
-    pub(crate) model: Option<ModelId>,
-    /// A temporary reviewer, started in its harness's read-only mode.
-    pub(crate) review: Option<Review>,
-    /// The named account its parent runs as. A child of an agent that keeps
-    /// accounts runs as that agent's account of the same name, or not at all.
-    pub(crate) account: Option<AccountName>,
-    /// The name its parent gives it, which its chat lists it under.
-    pub(crate) title: Option<String>,
-    /// The custom agent it runs as, whose instructions it is told.
-    pub(crate) persona: Option<CustomAgent>,
-}
-
-/// What a reviewer child starts with besides `ChildStart`'s.
-#[derive(Debug, Default)]
-pub(crate) struct Review {
-    pub(crate) effort: Option<Effort>,
-    pub(crate) fast: Option<bool>,
-}
-
 impl Agents {
     /// Lets the family reach other machines, once the node serves the Beep
     /// MCP server. Only the first call counts.
     pub(crate) fn serve_mesh(&self, membership: Membership) {
-        let _ = self.family.membership.set(membership);
+        let _ = self.links.membership.set(membership);
     }
 
     /// The mesh, when this node belongs to one.
     pub(crate) fn mesh(&self) -> Option<beep_mesh::Mesh> {
-        self.family.membership.get().and_then(Membership::get)
+        self.links.membership.get().and_then(Membership::get)
     }
 
     /// This machine's id in its mesh.
@@ -235,7 +127,7 @@ impl Agents {
     /// what it returns is dropped. Refused when the root's live agents,
     /// `elsewhere` and here, and the starts under way here fill it.
     fn take_place(&self, root: &Root, elsewhere: usize) -> Result<Arc<()>, String> {
-        let mut starting = crate::lock(&self.family.starting);
+        let mut starting = crate::lock(&self.links.starting);
         starting.retain(|(_, held)| held.strong_count() > 0);
         let here = self.live_descendants(root.0, &root.1)
             + starting.iter().filter(|(under, _)| under == root).count();
@@ -253,7 +145,8 @@ impl Agents {
 
     /// The live sessions here that descend from the root `root`.
     pub(crate) fn live_descendants(&self, root_machine: Option<EndpointId>, root: &SessionId) -> usize {
-        self.session_map()
+        self.sessions
+            .read()
             .values()
             .filter(|session| {
                 watched::read(&session.live, |live| {
@@ -279,11 +172,7 @@ impl Agents {
     }
 
     fn children_count(&self, who: &Who) -> usize {
-        let local = self
-            .children_of(who)
-            .iter()
-            .filter(|session| watched::read(&session.live, |live| live.status() != Status::Ended))
-            .count();
+        let local = self.sessions.local_children(who);
         let remote = self
             .remote_kids(&who.session)
             .iter()
@@ -301,35 +190,11 @@ impl Agents {
             .ok_or_else(|| format!("{NO_AGENT} {id}."))
     }
 
-    /// The live sessions here that other agents may list and message: every
-    /// one the user sees, oldest first; with those that ended and were last
-    /// active at or after `ended_since`, Unix seconds, when given.
-    pub(super) fn peers(&self, ended_since: Option<u64>) -> Vec<Arc<Session>> {
-        let mut peers: Vec<Arc<Session>> = self
-            .session_map()
-            .values()
-            .filter(|session| {
-                !session.reviewer
-                    && watched::read(&session.live, |live| {
-                        let shown = match live.status() {
-                            Status::Ended => ended_since
-                                .is_some_and(|since| live.info.last_activity >= since),
-                            _ => true,
-                        };
-                        live.agent_session.is_some() && shown
-                    })
-            })
-            .cloned()
-            .collect();
-        peers.sort_by_key(|session| watched::read(&session.live, |live| live.info.started_at));
-        peers
-    }
-
     /// Hands `text`, from the agent `from`, to the live session `id` here,
     /// which counts it against `PEER_MESSAGES`.
     pub(crate) async fn message(&self, from: &SessionId, id: &SessionId, text: String) -> Result<(), String> {
         let session = self
-            .peers(None)
+            .sessions.peers(None)
             .into_iter()
             .find(|session| session.id == *id || Self::name_of(session) == *id)
             .filter(|session| Self::name_of(session) != *from)
@@ -434,7 +299,7 @@ impl Agents {
 
     /// Has `session`, a background child, say when it closes for good.
     pub(super) fn tidy_when_closed(&self, session: &Session) {
-        let (closed, mut live) = (self.family.closed.tx.clone(), session.live.clone());
+        let (closed, mut live) = (self.closed.tx.clone(), session.live.clone());
         let (agent, id) = (session.agent.clone(), session.id.clone());
         let task = tokio::spawn(async move {
             if watched::wait_for(&mut live, ended_for_good).await.is_ok() {
@@ -471,7 +336,7 @@ impl Agents {
     /// Holds a wait of `parent` on its child `child`; the wait ends when
     /// the result drops.
     pub(crate) fn hold_wait(&self, parent: &SessionId, child: &str) -> Waiting {
-        self.family.waits.hold(parent, child)
+        self.links.waits.hold(parent, child)
     }
 
     /// Stops the turn of `child` on behalf of a parent on another machine,
@@ -534,14 +399,6 @@ impl Agents {
         )
         .await;
     }
-}
-
-/// Whether `live` is a child of `who`.
-fn is_child_of(live: &Live, who: &Who) -> bool {
-    live.info
-        .parent
-        .as_ref()
-        .is_some_and(|link| link.session == who.session && link.machine == who.machine)
 }
 
 /// The mode a parent is held to: the id of the mode it is in when that is

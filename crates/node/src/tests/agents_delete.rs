@@ -194,7 +194,7 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
     }
 
     assert!(m.claude(CLAUDE_ID), "the transcript stays");
-    assert_eq!(m.agents.list().len(), 1);
+    assert_eq!(m.agents.sessions.list().len(), 1);
 
     session.close().await;
     m.agents
@@ -202,7 +202,7 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
         .await
         .unwrap();
     assert!(!m.claude(CLAUDE_ID) && !m.side(CLAUDE_ID));
-    assert!(m.agents.list().is_empty(), "the node's record is gone");
+    assert!(m.agents.sessions.list().is_empty(), "the node's record is gone");
     assert!(m.agents.open_sessions().is_empty(), "and not reopened");
 }
 
@@ -344,7 +344,7 @@ async fn an_ended_owned_session_keeps_its_identity_after_moving() {
         .relocate_session("codex", &session.id, destination.to_str().unwrap())
         .await
         .expect("move");
-    let listed = m.agents.list();
+    let listed = m.agents.sessions.list();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, session.info().id);
     assert_eq!(Path::new(&listed[0].cwd), destination);

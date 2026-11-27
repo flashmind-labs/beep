@@ -497,7 +497,7 @@ async fn begin_assistant_lists_as_assistant() {
     let mut live = session.live.clone();
     until(&mut live, |live| live.info.turns == 1).await;
 
-    let listed = agents.list();
+    let listed = agents.sessions.list();
     assert_eq!(listed.len(), 1);
     assert!(listed[0].assistant);
     assert!(agents.is_assistant(&listed[0].id));
@@ -793,7 +793,7 @@ async fn a_refiled_session_is_saved_and_reopened_in_its_new_folder() {
     // The one copy: a watcher that holds the state sees it change.
     assert!(live.has_changed().expect("the state is kept"));
     assert_eq!(session.info().cwd, "/srv/refiled");
-    assert_eq!(agents.list()[0].cwd, "/srv/refiled");
+    assert_eq!(agents.sessions.list()[0].cwd, "/srv/refiled");
     let saved = agents.saved(&SessionId::from("held-1")).expect("saved");
     assert_eq!(saved.info.cwd, "/srv/refiled");
     agents.shutdown().await;

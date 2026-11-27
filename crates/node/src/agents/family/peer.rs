@@ -3,7 +3,7 @@
 //! counting a root's agents, asking about a parent, and reading a child's
 //! state without making a transcript read wait for it.
 
-use super::{ChildNote, NO_AGENT, Parent, RemoteKid};
+use super::links::{ChildNote, NO_AGENT, Parent, RemoteKid, Views};
 use crate::agents::{Agents, child_view::ChildView, machine_list::{Machine, machine_name}, reply::json_of};
 use crate::peer_stream::over_the_mesh;
 use beep_mesh::Mesh;
@@ -15,9 +15,7 @@ use serde_json::json;
 use std::{
     collections::BTreeSet,
     borrow::Cow,
-    collections::HashMap,
     future::Future,
-    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::time::{Instant, sleep, timeout};
@@ -321,21 +319,6 @@ pub(crate) async fn fetch_view(
     parse_view(&kid.name, &text)
 }
 
-/// The last state read of each child on another machine, for transcripts: a
-/// read of a transcript shows what is known and never waits on a machine,
-/// which may be off. A state older than `VIEW_FRESH` is read again in the
-/// background, for the next read.
-#[derive(Clone, Default)]
-pub(crate) struct Views(Arc<Mutex<HashMap<(EndpointId, SessionId), Seen>>>);
-
-#[derive(Default)]
-struct Seen {
-    view: Option<ChildView>,
-    /// When the last read ended, well or not.
-    at: Option<Instant>,
-    reading: Option<AbortOnDropHandle<()>>,
-}
-
 impl Views {
     /// The last state read of `kid`, `parent`'s child; none before the first
     /// read comes back.
@@ -405,7 +388,7 @@ pub(crate) fn listed_here(agents: &Agents, ended_since: Option<u64>) -> Vec<List
     let mesh = agents.mesh();
 
     agents
-        .peers(ended_since)
+        .sessions.peers(ended_since)
         .iter()
         .map(|session| {
             let info = session.info();

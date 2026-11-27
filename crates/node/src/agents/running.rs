@@ -49,16 +49,6 @@ impl Agents {
             .map(|session| PathBuf::from(session.info().cwd))
     }
 
-    /// The folders this node's sessions work in, the ended ones it keeps too.
-    pub(crate) fn folders(&self) -> std::collections::BTreeSet<PathBuf> {
-        let sessions: Vec<Arc<Session>> = self.session_map().values().cloned().collect();
-
-        sessions
-            .iter()
-            .map(|session| PathBuf::from(session.info().cwd))
-            .collect()
-    }
-
     /// Keeps `device` as the device `session` uses, or forgets it.
     pub(crate) async fn set_device(
         &self,
@@ -448,7 +438,7 @@ impl Agents {
                 }
             };
             let background_children = async {
-                if let Some(closed) = agents.family.take_closed() {
+                if let Some(closed) = agents.closed.take() {
                     agents.delete_closed_background(closed).await;
                 }
             };
@@ -478,7 +468,7 @@ impl Agents {
     /// Marks the node as stopping: sessions that end from now on ended
     /// with it, even when the service manager stopped their agents first.
     pub fn begin_stopping(&self) {
-        self.stopping.store(true, Ordering::Relaxed);
+        self.sessions.stopping.store(true, Ordering::Relaxed);
     }
 
     /// The sessions now, as last published.
@@ -541,26 +531,16 @@ impl Agents {
     /// The session `id` names: by the id it started under or by the
     /// agent's own id.
     pub(crate) fn get(&self, id: &SessionId) -> Option<Arc<Session>> {
-        find_session(&self.session_map(), id)
-    }
-
-    /// Every named session but the reviewers, oldest first.
-    pub(super) fn list(&self) -> Vec<SessionInfo> {
-        self.listed(false)
-    }
-
-    /// `list`, with the reviewers that run as a child when `reviewers`.
-    pub(super) fn listed(&self, reviewers: bool) -> Vec<SessionInfo> {
-        self.listed_where(reviewers, None)
+        sessions::find_session(&self.sessions.read(), id)
     }
 
     /// Listings also read Claude Code's current folder from its native
     /// transcript. Shell tools may change it without naming a structured cwd.
     pub(super) async fn listed_with_places(&self, reviewers: bool) -> Vec<SessionInfo> {
         let mut sessions = if reviewers {
-            self.listed(true)
+            self.sessions.listed(true)
         } else {
-            self.list()
+            self.sessions.list()
         };
         let owned: HashMap<SessionId, SessionId> = sessions
             .iter()
@@ -595,29 +575,7 @@ impl Agents {
 
     /// The entries of the full list whose id is `id`, without copying the others.
     pub(crate) fn listed_session(&self, id: &SessionId) -> Vec<SessionInfo> {
-        self.listed_where(true, Some(id))
-    }
-
-    fn listed_where(&self, reviewers: bool, id: Option<&SessionId>) -> Vec<SessionInfo> {
-        let mut sessions: Vec<SessionInfo> = self
-            .session_map()
-            .values()
-            .filter_map(|s| {
-                // One read: a second while this one is held waits behind any
-                // write queued in between, which waits on this one, and the
-                // node stops.
-                let info = watched::read(&s.live, |live| {
-                    (live.agent_session.is_some()
-                        && id.is_none_or(|id| live.info.id == *id)
-                        && (!s.reviewer || reviewers && live.info.parent.is_some()))
-                    .then(|| live.info.clone())
-                })?;
-
-                Some(s.listed(info))
-            })
-            .collect();
-        sessions.sort_by_key(|info| info.started_at);
-        sessions
+        self.sessions.listed_where(true, Some(id))
     }
 
     /// Starts a session in the branch or worktree `checkout` makes in
@@ -810,7 +768,7 @@ impl Agents {
             usage: self.usage.clone(),
             alerts,
             checkouts: self.checkouts.clone(),
-            stopping: self.stopping.clone(),
+            stopping: self.sessions.stopping.clone(),
             running: Some(running),
             docker,
         })?;
@@ -879,30 +837,6 @@ impl Agents {
         crate::events::open_changed();
         Ok(session)
     }
-}
-
-/// The session `id` names in `sessions`, by its key or the agent's id.
-fn find_session(
-    sessions: &HashMap<SessionId, Arc<Session>>,
-    id: &SessionId,
-) -> Option<Arc<Session>> {
-    if let Some(found) = sessions.get(id) {
-        return Some(found.clone());
-    }
-
-    sessions
-        .values()
-        .filter(|session| {
-            watched::read(&session.live, |live| {
-                live.agent_session.as_ref() == Some(id)
-            })
-        })
-        .max_by_key(|session| {
-            watched::read(&session.live, |live| {
-                (live.status() != Status::Ended, live.info.started_at)
-            })
-        })
-        .cloned()
 }
 
 /// Refuses a start as `account` that this node cannot sign `agent` in as,

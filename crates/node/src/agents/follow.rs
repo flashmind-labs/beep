@@ -102,7 +102,7 @@ impl SummaryCache {
             if refresh_claude {
                 agents
                     .external()
-                    .list(512, None, agents.owned())
+                    .list(512, None, agents.sessions.owned())
                     .await
                     .map(Some)
             } else {
@@ -1036,7 +1036,7 @@ async fn snapshot(
                     vec![
                         agents
                             .external()
-                            .followed(followed, stale, agents.owned())
+                            .followed(followed, stale, agents.sessions.owned())
                             .await?,
                     ]
                 }

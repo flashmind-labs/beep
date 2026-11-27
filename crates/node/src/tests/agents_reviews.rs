@@ -160,11 +160,11 @@ async fn a_submitted_review_stays_with_the_parent_and_the_reviewer_goes() {
     assert_eq!(link.session, Agents::name_of(&parent));
     assert!(rig.agents.is_reviewer(&run.id));
     assert!(!rig.agents.is_reviewer(&parent.id));
-    let listed: Vec<SessionId> = rig.agents.list().into_iter().map(|info| info.id).collect();
+    let listed: Vec<SessionId> = rig.agents.sessions.list().into_iter().map(|info| info.id).collect();
     assert_eq!(listed, [parent.info().id], "the reviewer is not listed");
     let mut all: Vec<(SessionId, bool)> = rig
         .agents
-        .listed(true)
+        .sessions.listed(true)
         .into_iter()
         .map(|info| (info.id, info.reviewer))
         .collect();
@@ -226,9 +226,9 @@ async fn a_reviewer_that_ends_without_a_review_is_nudged_once() {
         done.error.as_deref(),
         Some("The reviewer ended without calling submit_review.")
     );
-    assert!(rig.agents.list().is_empty());
+    assert!(rig.agents.sessions.list().is_empty());
     assert!(
-        rig.agents.listed(true).is_empty(),
+        rig.agents.sessions.listed(true).is_empty(),
         "a reviewer without a parent is never listed"
     );
 }

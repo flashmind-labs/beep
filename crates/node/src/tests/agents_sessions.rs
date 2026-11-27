@@ -1,5 +1,5 @@
 use crate::agents::{AgentKind, Agents, session::Begin};
-use beep_proto::SessionId;
+use beep_proto::{SessionId, watched};
 use super::reserve;
 use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
 use tokio::{sync::watch, time::timeout};
@@ -59,8 +59,8 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
 
     let others = async {
         assert!(agents.get(&first.id).is_some());
-        agents.list();
-        agents.listed(true);
+        agents.sessions.list();
+        agents.sessions.listed(true);
         let second = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
         assert!(agents.get(&second.id).is_some());
     };
@@ -191,3 +191,56 @@ async fn a_resumed_session_blocks_recovery() {
     let blocked = agents.occupancy.reserve(checkout.path()).await;
     assert!(blocked.err().unwrap().to_string().contains("external session is running"));
 }
+
+#[tokio::test]
+async fn one_lock_serves_every_holder_of_a_stored_session() {
+    let agents = Agents::new(vec![silent()], crate::occupancy::Occupancy::default());
+    let id = SessionId::from("stored-1");
+
+    let first = agents.sessions.store_of(&id);
+    let again = agents.sessions.store_of(&id);
+    let other = agents.sessions.store_of(&SessionId::from("stored-2"));
+
+    assert!(Arc::ptr_eq(&first, &again));
+    assert!(!Arc::ptr_eq(&first, &other));
+
+    drop((first, again));
+
+    assert_eq!(crate::lock(&agents.sessions.store).len(), 2);
+
+    // A lock nobody holds is forgotten by the next look.
+    agents.sessions.store_of(&SessionId::from("stored-3"));
+    assert_eq!(crate::lock(&agents.sessions.store).len(), 2);
+}
+
+#[tokio::test]
+async fn a_subscriber_sees_an_insert_and_a_removal() {
+    let kind = silent();
+    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let mut map = agents.sessions.subscribe();
+
+    assert!(watched::read_and_update(&mut map, |map| map.is_empty()));
+
+    let session = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+
+    timeout(LONG, map.changed()).await.unwrap().unwrap();
+    assert!(watched::read_and_update(&mut map, |map| map.contains_key(&session.id)));
+
+    agents.sessions.remove(std::slice::from_ref(&session.id));
+
+    timeout(LONG, map.changed()).await.unwrap().unwrap();
+    assert!(watched::read_and_update(&mut map, |map| map.is_empty()));
+}
+
+#[tokio::test]
+async fn a_node_with_no_children_counts_none() {
+    let kind = silent();
+    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let session = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+    let who = agents.who_of(&session);
+
+    assert_eq!(agents.sessions.local_children(&who), 0);
+    assert!(agents.sessions.peers(None).is_empty());
+    assert!(agents.sessions.owned().is_empty());
+}
+

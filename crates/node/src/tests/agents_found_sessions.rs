@@ -43,20 +43,20 @@ async fn a_listing_for_one_limit_does_not_wait_for_another() {
 async fn stored_sessions_lock_one_at_a_time_each_and_the_lock_is_forgotten_after() {
     let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
     let (one, other) = (SessionId::from("one"), SessionId::from("other"));
-    let first = agents.store_of(&one);
+    let first = agents.sessions.store_of(&one);
     let held = first.lock().await;
 
-    let same = agents.store_of(&one);
+    let same = agents.sessions.store_of(&one);
     assert!(same.try_lock().is_err(), "the same session waits");
     assert!(
-        agents.store_of(&other).try_lock().is_ok(),
+        agents.sessions.store_of(&other).try_lock().is_ok(),
         "another session does not"
     );
 
     drop((held, same));
     drop(first);
-    let _other = agents.store_of(&other);
-    assert_eq!(crate::lock(&agents.session_store).len(), 1);
+    let _other = agents.sessions.store_of(&other);
+    assert_eq!(crate::lock(&agents.sessions.store).len(), 1);
 }
 
 #[tokio::test]

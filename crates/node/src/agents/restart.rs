@@ -208,7 +208,7 @@ impl Agents {
             .iter()
             .filter_map(|session| {
                 let mut open = Self::as_it_runs(session, Keep::Open)?;
-                open.kids = self.kids_to_keep(&open.session);
+                open.kids = self.links.kids_to_keep(&open.session);
                 Some(open)
             })
             .collect()
@@ -405,7 +405,7 @@ impl Agents {
     pub(crate) fn open_session(&self, id: &SessionId) -> Option<OpenSession> {
         let session = self.get(id)?;
         let mut open = Self::as_it_runs(&session, Keep::Moving)?;
-        open.kids = self.kids_to_keep(&open.session);
+        open.kids = self.links.kids_to_keep(&open.session);
         Some(open)
     }
 

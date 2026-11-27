@@ -22,8 +22,8 @@ pub(super) async fn follow(
 
     loop {
         watched::read_and_update(&mut changes, |_| ());
-        let owned = agents.owned();
-        let starting = agents.starting_pids();
+        let owned = agents.sessions.owned();
+        let starting = agents.sessions.starting_pids();
         let mut sessions = agents.occupancy.presence().snapshot();
 
         for session in &mut sessions {

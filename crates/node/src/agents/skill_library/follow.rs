@@ -84,7 +84,7 @@ pub(crate) async fn follow(
 
     loop {
         let now = online(&mesh);
-        let folders = agents.folders();
+        let folders = agents.sessions.folders();
         let pass = Pass {
             mesh: &mesh,
             dir: &dir,
@@ -126,7 +126,7 @@ pub(crate) async fn follow(
                 }
                 // A thread of a chat with picks gets them in its folder as it starts.
                 change = sessions.recv() => match change {
-                    Ok(Change { topic, .. }) if topic.name() == "agents" && agents.folders() != folders => break,
+                    Ok(Change { topic, .. }) if topic.name() == "agents" && agents.sessions.folders() != folders => break,
                     Err(RecvError::Lagged(_)) => break,
                     Err(RecvError::Closed) => sessions = agents.events.subscribe(),
                     Ok(_) => {}

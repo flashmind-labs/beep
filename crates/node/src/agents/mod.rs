@@ -14,7 +14,6 @@ host! {
     pub(crate) use crate::calls;
     use crate::{AsyncMutex, occupancy::Occupancy};
     use crate::logs::found;
-    use beep_proto::SessionId;
     use std::{
         collections::HashMap,
         path::PathBuf,
@@ -126,9 +125,6 @@ host! {
         /// settings for them.
         pub(crate) catalog: Arc<catalog::Catalog>,
         pub(crate) sessions: sessions::Sessions,
-        /// Serializes changes to a stored session against resuming it, one
-        /// lock for each session by the agent's own id; see `store_of`.
-        session_store: Mutex<HashMap<SessionId, std::sync::Weak<AsyncMutex<()>>>>,
         /// The pictures sessions' transcripts show, by session.
         images: Arc<Images>,
         /// What sessions spend and how much of the agents' plans is left.
@@ -153,13 +149,13 @@ host! {
         /// requests may reach beside the sessions' folders.
         folders: OnceLock<Vec<PathBuf>>,
         /// The sessions that started sessions, and the children on other machines.
-        family: family::Family,
+        pub(crate) links: Arc<family::links::Links>,
+        /// The background children that closed for good, to delete.
+        closed: family::links::Tidy,
         /// The reviews reviewers handed in, and the reviewers running.
         reviews: reviews::Reviews,
         /// The search index, once the mesh opened it.
         search: OnceLock<Arc<search::SearchIndex>>,
-        /// Set once the node is stopping.
-        stopping: Arc<AtomicBool>,
         /// Set once the sessions open before the last stop have been resumed, or
         /// there were none.
         reopened: watch::Sender<bool>,

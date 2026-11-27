@@ -1,17 +1,19 @@
 //! The sessions this node runs. `Sessions` is the only code that changes the
 //! map; it publishes each change as a new map, so readers take no lock.
 
-use super::{Session, limits::MAX_KEPT};
+use super::{Session, family::links::{Who, is_child_of}, limits::MAX_KEPT};
+use crate::AsyncMutex;
 use anyhow::Result;
 use beep_proto::{
     SessionId,
-    node::agent::Status,
+    node::agent::{SessionInfo, Status},
     watched,
 };
 use std::{
-    collections::{HashMap, hash_map::RandomState},
+    collections::{HashMap, HashSet, hash_map::RandomState},
     hash::BuildHasher,
-    sync::{Arc, Mutex, MutexGuard, Weak},
+    path::PathBuf,
+    sync::{Arc, Mutex, MutexGuard, Weak, atomic::AtomicBool},
 };
 use tokio::sync::watch;
 
@@ -24,6 +26,11 @@ pub(crate) struct Sessions {
     /// The starts that hold an id and have no session yet. Locked for each
     /// reservation and insert, so an id is checked and taken in one step.
     pending: Mutex<Vec<Pending>>,
+    /// Serializes changes to a stored session against resuming it, one
+    /// lock for each session by the agent's own id; see `store_of`.
+    pub(super) store: Mutex<HashMap<SessionId, Weak<AsyncMutex<()>>>>,
+    /// Set once the node is stopping.
+    pub(super) stopping: Arc<AtomicBool>,
 }
 
 /// A start that has its id and no session yet. Dropped, it gives the id
@@ -92,6 +99,131 @@ impl Sessions {
             ids.iter().for_each(|id| drop(sessions.remove(id)));
             true
         });
+    }
+
+    /// Every named session but the reviewers, oldest first.
+    pub(super) fn list(&self) -> Vec<SessionInfo> {
+        self.listed(false)
+    }
+
+    /// `list`, with the reviewers that run as a child when `reviewers`.
+    pub(super) fn listed(&self, reviewers: bool) -> Vec<SessionInfo> {
+        self.listed_where(reviewers, None)
+    }
+
+    pub(super) fn listed_where(&self, reviewers: bool, id: Option<&SessionId>) -> Vec<SessionInfo> {
+        let mut sessions: Vec<SessionInfo> = self
+            .read()
+            .values()
+            .filter_map(|s| {
+                // One read: a second while this one is held waits behind any
+                // write queued in between, which waits on this one, and the
+                // node stops.
+                let info = watched::read(&s.live, |live| {
+                    (live.agent_session.is_some()
+                        && id.is_none_or(|id| live.info.id == *id)
+                        && (!s.reviewer || reviewers && live.info.parent.is_some()))
+                    .then(|| live.info.clone())
+                })?;
+
+                Some(s.listed(info))
+            })
+            .collect();
+        sessions.sort_by_key(|info| info.started_at);
+        sessions
+    }
+
+    /// The folders this node's sessions work in, the ended ones it keeps too.
+    pub(super) fn folders(&self) -> std::collections::BTreeSet<PathBuf> {
+        let sessions: Vec<Arc<Session>> = self.read().values().cloned().collect();
+
+        sessions
+            .iter()
+            .map(|session| PathBuf::from(session.info().cwd))
+            .collect()
+    }
+
+    /// The sessions this node runs, by the agent's own id, to the node's id.
+    pub(super) fn owned(&self) -> HashMap<SessionId, SessionId> {
+        self.read()
+            .values()
+            .filter_map(|session| {
+                watched::read(&session.live, |live| {
+                    Some((live.agent_session.clone()?, live.info.id.clone()))
+                })
+            })
+            .collect()
+    }
+
+    /// The root pids of sessions this node is starting before ACP names them.
+    pub(super) fn starting_pids(&self) -> HashSet<u32> {
+        self.read()
+            .values()
+            .filter_map(|session| {
+                watched::read(&session.live, |live| {
+                    (live.status() != Status::Ended && live.agent_session.is_none())
+                        .then_some(live.root_pid)
+                        .flatten()
+                })
+            })
+            .collect()
+    }
+
+    /// The lock that keeps a resume, a delete and a move of one stored
+    /// session from interleaving. It is per session, by the agent's own id
+    /// when the session is here, so two sessions never wait on each other.
+    /// It lasts while a holder keeps the handle.
+    pub(super) fn store_of(&self, id: &SessionId) -> Arc<AsyncMutex<()>> {
+        let key = find_session(&self.read(), id)
+            .and_then(|session| watched::read(&session.live, |live| live.agent_session.clone()))
+            .unwrap_or_else(|| id.clone());
+        let mut held = crate::lock(&self.store);
+        held.retain(|_, lock| lock.strong_count() > 0);
+
+        if let Some(lock) = held.get(&key).and_then(std::sync::Weak::upgrade) {
+            return lock;
+        }
+
+        let lock = Arc::new(AsyncMutex::new(()));
+        held.insert(key, Arc::downgrade(&lock));
+
+        lock
+    }
+
+    /// The live sessions here that other agents may list and message: every
+    /// one the user sees, oldest first; with those that ended and were last
+    /// active at or after `ended_since`, Unix seconds, when given.
+    pub(super) fn peers(&self, ended_since: Option<u64>) -> Vec<Arc<Session>> {
+        let mut peers: Vec<Arc<Session>> = self
+            .read()
+            .values()
+            .filter(|session| {
+                !session.reviewer
+                    && watched::read(&session.live, |live| {
+                        let shown = match live.status() {
+                            Status::Ended => ended_since
+                                .is_some_and(|since| live.info.last_activity >= since),
+                            _ => true,
+                        };
+                        live.agent_session.is_some() && shown
+                    })
+            })
+            .cloned()
+            .collect();
+        peers.sort_by_key(|session| watched::read(&session.live, |live| live.info.started_at));
+        peers
+    }
+
+    /// The live children of `who` that run here.
+    pub(super) fn local_children(&self, who: &Who) -> usize {
+        self.read()
+            .values()
+            .filter(|session| {
+                watched::read(&session.live, |live| {
+                    is_child_of(live, who) && live.status() != Status::Ended
+                })
+            })
+            .count()
     }
 
     /// The starts under way. One that was dropped before it inserted gives
@@ -177,12 +309,36 @@ fn doomed(sessions: &Map, resume: Option<&SessionId>) -> Vec<SessionId> {
     doomed
 }
 
-#[cfg(test)]
-#[path = "../tests/agents_sessions.rs"]
-mod tests;
-
 /// Six hex digits, random enough to tell sessions apart.
 pub(super) fn new_id() -> SessionId {
     let random = RandomState::new().hash_one(std::time::SystemTime::now());
     SessionId::new(format!("{:06x}", random & 0xff_ffff))
 }
+
+/// The session `id` names in `sessions`, by its key or the agent's id.
+pub(super) fn find_session(
+    sessions: &Map,
+    id: &SessionId,
+) -> Option<Arc<Session>> {
+    if let Some(found) = sessions.get(id) {
+        return Some(found.clone());
+    }
+
+    sessions
+        .values()
+        .filter(|session| {
+            watched::read(&session.live, |live| {
+                live.agent_session.as_ref() == Some(id)
+            })
+        })
+        .max_by_key(|session| {
+            watched::read(&session.live, |live| {
+                (live.status() != Status::Ended, live.info.started_at)
+            })
+        })
+        .cloned()
+}
+
+#[cfg(test)]
+#[path = "../tests/agents_sessions.rs"]
+mod tests;

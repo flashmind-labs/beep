@@ -1,5 +1,5 @@
 use super::*;
-use crate::agents::{AgentKind, OpenSession, SavedSession};
+use crate::agents::{AgentKind, OpenSession, SavedSession, family::links::{Links, Waits}};
 use crate::team::{asks::Delivery, link::TeamLink};
 use beep_proto::node::agent::{Persona, Request};
 use beep_proto::watched;
@@ -288,7 +288,7 @@ async fn a_session_may_not_have_more_than_eight_children() {
             ended: false,
             since: 0,
         };
-        crate::lock(&rig.agents.family.remote).push(kid);
+        crate::lock(&rig.agents.links.remote).push(kid);
     }
 
     let refused = rig.agents.link_for(&parent, &who).unwrap_err();
@@ -1105,7 +1105,8 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
 
 #[tokio::test(start_paused = true)]
 async fn a_pushed_list_says_whether_the_parent_is_there_and_a_burst_of_changes_is_one_ask() {
-    use orphans::{ORPHAN_CHECK, Parent, Word, asks, word};
+    use links::Parent;
+    use orphans::{ORPHAN_CHECK, Word, asks, word};
     use std::sync::{Arc, atomic::{AtomicU32, Ordering::SeqCst}};
     use tokio::{sync::{Notify, mpsc, watch}, task::yield_now, time::advance};
 
@@ -1184,7 +1185,8 @@ async fn a_pushed_list_says_whether_the_parent_is_there_and_a_burst_of_changes_i
 // answered, though the parent's row never changes.
 #[tokio::test(start_paused = true)]
 async fn an_unanswered_ask_is_asked_again_until_it_is_answered() {
-    use orphans::{ORPHAN_CHECK, Parent, asks};
+    use links::Parent;
+    use orphans::{ORPHAN_CHECK, asks};
     use std::sync::{Arc, Mutex, atomic::{AtomicU32, Ordering::SeqCst}};
     use tokio::{sync::{Notify, mpsc, watch}, task::yield_now, time::advance};
 
@@ -1259,7 +1261,8 @@ fn a_transient_error_on_a_stream_is_not_a_refusal() {
 #[tokio::test(start_paused = true)]
 async fn a_redial_does_not_reset_the_pacing_of_the_asks() {
     use beep_proto::node::{agent::SessionsReply, events::Value};
-    use orphans::{ORPHAN_CHECK, Parent, Rings, asks, hear_list};
+    use links::Parent;
+    use orphans::{ORPHAN_CHECK, Rings, asks, hear_list};
     use std::sync::{Arc, atomic::{AtomicU32, Ordering::SeqCst}};
     use tokio::{sync::{Notify, mpsc, watch}, task::yield_now, time::advance};
     use tokio_util::task::AbortOnDropHandle;
@@ -1348,7 +1351,7 @@ async fn the_orphan_check_waits_for_the_node_to_set_its_membership() {
     assert!(heard.try_recv().is_err());
 
     membership.set(crate::membership::Membership::default()).ok();
-    assert_eq!(tokio::time::timeout(Duration::from_millis(1), heard.recv()).await.ok().flatten(), Some(orphans::Parent::Silent));
+    assert_eq!(tokio::time::timeout(Duration::from_millis(1), heard.recv()).await.ok().flatten(), Some(links::Parent::Silent));
     task.abort();
 }
 
@@ -1356,7 +1359,8 @@ async fn the_orphan_check_waits_for_the_node_to_set_its_membership() {
 // `ORPHAN_AFTER`, on the pushed word and the clock only.
 #[tokio::test(start_paused = true)]
 async fn a_child_closes_once_its_parent_has_been_gone_or_silent_for_long_enough() {
-    use orphans::{ORPHAN_AFTER, Parent, orphaned};
+    use links::Parent;
+    use orphans::{ORPHAN_AFTER, orphaned};
     use tokio::{sync::mpsc, task::yield_now, time::advance};
 
     let (tx, heard) = mpsc::channel(4);
@@ -1430,7 +1434,7 @@ async fn a_settle_note_wakes_a_wait_and_goes_in_no_prompt() {
         id: "k1".into(),
         key: SessionId::default(),
         name: "kid".to_owned(),
-        state: crate::agents::family::notes::NoteState::Settled,
+        state: crate::agents::family::links::NoteState::Settled,
         text: String::new(),
     };
     let turns = parent.info().turns;
@@ -1441,7 +1445,7 @@ async fn a_settle_note_wakes_a_wait_and_goes_in_no_prompt() {
         .expect("the note is taken");
     assert_eq!(parent.info().turns, turns);
 
-    let waiting = rig.agents.family.waits.hold(&name, "k1@box");
+    let waiting = rig.agents.links.waits.hold(&name, "k1@box");
     rig.agents
         .note_from(there, &name, &note)
         .await
@@ -1531,7 +1535,7 @@ async fn sessions_are_listed_while_the_open_note_waits_on_the_children() {
     let agents = &rig.agents;
     let noted = std::thread::scope(|scope| {
         // The children's list is busy, so the note stops on it.
-        let busy = crate::lock(&agents.family.remote);
+        let busy = crate::lock(&agents.links.remote);
         let (tx, rx) = mpsc::channel();
         let noting = scope.spawn(move || {
             let me = std::fs::read_link("/proc/thread-self").expect("the thread's /proc entry");
@@ -1549,7 +1553,7 @@ async fn sessions_are_listed_while_the_open_note_waits_on_the_children() {
         let (tx, rx) = mpsc::channel();
         scope.spawn(move || {
             // Sending fails only once the test gave up.
-            let _ = tx.send(agents.list().len());
+            let _ = tx.send(agents.sessions.list().len());
         });
         let listed = rx.recv_timeout(Duration::from_secs(10));
         drop(busy);
@@ -1977,7 +1981,7 @@ async fn a_note_the_parents_node_refuses_is_not_sent_again() {
 #[tokio::test]
 async fn a_background_child_that_closes_is_handed_to_the_deleter_at_once() {
     let rig = Rig::new();
-    let mut closed = rig.agents.family.take_closed().expect("the deleter's end");
+    let mut closed = rig.agents.closed.take().expect("the deleter's end");
     let parent = root(&rig.agents, &rig.top, rig.dir.path()).await;
     let who = rig.agents.who_of(&parent);
     let mut link = rig.agents.link_for(&parent, &who).expect("within limits");
@@ -2002,4 +2006,21 @@ async fn a_background_child_that_closes_is_handed_to_the_deleter_at_once() {
     // The one that is no background child tells nobody.
     assert!(closed.try_recv().is_err());
     rig.agents.shutdown().await;
+}
+
+#[test]
+fn links_keep_the_remote_children_without_an_agents() {
+    let links = Links::default();
+    let machine = SecretKeyFor::id();
+    let parent = SessionId::from("p0");
+    let mut settled = RemoteKid::expected(&parent, machine, "box");
+    settled.id = SessionId::from("k0");
+    let waiting = RemoteKid::expected(&parent, machine, "box");
+    crate::lock(&links.remote).extend([settled.clone(), waiting.clone()]);
+
+    assert_eq!(links.kids_to_keep(&parent), [settled]);
+    assert!(links.kids_to_keep(&SessionId::from("other")).is_empty());
+    assert!(links.keeps(&parent, machine, &SessionId::from("k0"), &SessionId::default()));
+    assert!(links.keeps(&parent, machine, &SessionId::from("x"), &SessionId::from("y")));
+    assert!(!links.keeps(&SessionId::from("other"), machine, &SessionId::from("k0"), &SessionId::default()));
 }

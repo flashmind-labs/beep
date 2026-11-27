@@ -153,7 +153,7 @@ impl Agents {
         id: &SessionId,
         destination: &str,
     ) -> anyhow::Result<()> {
-        let store = self.store_of(id);
+        let store = self.sessions.store_of(id);
         let _store = store.lock().await;
         let which: Agent = agent.parse().ok().context("unknown agent")?;
         ensure!(
@@ -190,7 +190,7 @@ impl Agents {
             .transcript_file(harness, &agent_id)
             .await
             .context("session transcript not found")?;
-        let mut owned = self.owned();
+        let mut owned = self.sessions.owned();
         owned.remove(&agent_id);
         let old = PathBuf::from(
             self.find_external(which, &agent_id, owned)

@@ -395,7 +395,7 @@ async fn one_session_cannot_be_taken_over_twice() {
             .contains(&format!("already runs here as {}", first.id)),
         "{second}"
     );
-    assert_eq!(agents.owned().get(id), Some(&first.id));
+    assert_eq!(agents.sessions.owned().get(id), Some(&first.id));
 }
 
 #[cfg(unix)]
@@ -530,7 +530,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     let session = agents.start(&kind, Some("/"), begin).await.unwrap();
     assert!(session.info().id.is_empty());
     assert!(
-        agents.list().is_empty(),
+        agents.sessions.list().is_empty(),
         "ACP has not named this session yet"
     );
     let mut live = session.live.clone();
@@ -542,7 +542,7 @@ async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     .expect("the agent gives its id")
     .expect("the session is still there");
     assert_eq!(session.info().id, AGENT_ID);
-    assert_eq!(agents.list()[0].id, AGENT_ID);
+    assert_eq!(agents.sessions.list()[0].id, AGENT_ID);
     assert!(Arc::ptr_eq(
         &agents.get(&SessionId::from(AGENT_ID)).unwrap(),
         &session
@@ -600,7 +600,7 @@ done"#,
     .await
     .expect("the resumed session loads")
     .unwrap();
-    let listed = agents.list();
+    let listed = agents.sessions.list();
     assert_eq!(
         listed.len(),
         1,

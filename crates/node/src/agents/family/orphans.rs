@@ -5,7 +5,8 @@
 //! 0.8.28 does not serve its list to a node: it is asked every
 //! `ORPHAN_CHECK` instead.
 
-use super::{Agents, Session};
+use super::links::Parent;
+use crate::agents::{Agents, Session, live::Live};
 use crate::agents::session::{NODE_STOPPED, ended_for_good};
 use crate::membership::Membership;
 use crate::machine::elect::online;
@@ -39,18 +40,6 @@ const REASK: Duration = Duration::from_secs(5);
 /// How long the parent may be gone or silent before the child closes: long
 /// enough for a restart of its node, which resumes it.
 pub(super) const ORPHAN_AFTER: Duration = Duration::from_secs(600);
-
-/// What a child learned of its parent.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Parent {
-    /// It keeps the child, or answered something that does not say it does
-    /// not (a node too old to know the question).
-    Keeps,
-    /// Its node answered: the parent is gone or does not keep the child.
-    Gone,
-    /// Its node did not answer.
-    Silent,
-}
 
 /// The parent's row in a pushed list, when it is there and not ended for
 /// good (an end with the node resumes).
@@ -182,7 +171,7 @@ impl Agents {
         let Some(peer) = link.machine else {
             return;
         };
-        let (membership, session_ref) = (self.family.membership.clone(), Arc::downgrade(session));
+        let (membership, session_ref) = (self.links.membership.clone(), Arc::downgrade(session));
         let live = session.live.clone();
         let task = tokio::spawn(check_parent(membership, session_ref, live, peer, link));
         session.keep(task);
@@ -205,7 +194,7 @@ impl Agents {
             return false;
         }
 
-        self.family.keeps(parent, machine, id, key)
+        self.links.keeps(parent, machine, id, key)
     }
 }
 
@@ -214,7 +203,7 @@ impl Agents {
 async fn check_parent(
     membership: Arc<SetOnce<Membership>>,
     session: std::sync::Weak<Session>,
-    mut live: tokio::sync::watch::Receiver<super::Live>,
+    mut live: tokio::sync::watch::Receiver<Live>,
     peer: EndpointId,
     link: ParentLink,
 ) {

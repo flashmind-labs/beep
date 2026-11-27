@@ -158,7 +158,7 @@ impl Reach<'_> {
             Found::There(kid) => self
                 .mesh
                 .as_ref()
-                .and_then(|mesh| self.agents.family.views.of(mesh, &self.who.session, &kid))
+                .and_then(|mesh| self.agents.links.views.of(mesh, &self.who.session, &kid))
                 .map_or_else(|| started.clone(), |view| view.named(&kid.name)),
         }
     }}

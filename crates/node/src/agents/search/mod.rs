@@ -300,9 +300,9 @@ async fn conversations(agents: &Agents) -> Vec<Conversation> {
         Err(e) => log::warn!("listing archived sessions to index: {e:#}"),
     }
 
-    let owned = agents.owned();
+    let owned = agents.sessions.owned();
     let mut live: HashMap<SessionId, SessionInfo> = agents
-        .listed(true)
+        .sessions.listed(true)
         .into_iter()
         .map(|info| (info.id.clone(), info))
         .collect();

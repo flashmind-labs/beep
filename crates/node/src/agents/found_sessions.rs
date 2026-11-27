@@ -6,7 +6,6 @@ use crate::occupancy::Holding;
 use crate::logs::picture::Picture;
 use crate::logs::window::clamp_limit;
 use crate::{
-    AsyncMutex,
     logs::found::{self, Agent},
 };
 use anyhow::{Context, Result};
@@ -264,8 +263,8 @@ impl Agents {
             .into_iter()
             .partition(|seen| seen.agent == Agent::Claude);
         let ids: HashSet<SessionId> = claude.into_iter().map(|seen| seen.id).collect();
-        let owned = self.owned();
-        let starting = self.starting_pids();
+        let owned = self.sessions.owned();
+        let starting = self.sessions.starting_pids();
         let stores = self.stores().clone();
         let described = spawn_blocking(move || {
             let now = SystemTime::now();
@@ -326,9 +325,9 @@ impl Agents {
         limit: u32,
         session: Option<SessionId>,
     ) -> Result<Vec<ExternalSession>> {
-        let starting = self.starting_pids();
+        let starting = self.sessions.starting_pids();
         let mut sessions = if agent == Agent::Claude.as_ref() {
-            self.external().list(limit, session, self.owned()).await?
+            self.external().list(limit, session, self.sessions.owned()).await?
         } else {
             self.stores_external(agent, limit, session).await?
         };
@@ -443,8 +442,8 @@ impl Agents {
             .filter(|agent| *agent != Agent::Claude)
             .with_context(|| format!("this node lists no {agent} sessions started outside Beep"))?;
         let limit = clamp_limit(limit, 1, MAX_IN_FOLDERS);
-        let owned = self.owned();
-        let starting = self.starting_pids();
+        let owned = self.sessions.owned();
+        let starting = self.sessions.starting_pids();
         let stores = self.stores().clone();
         let only = session.clone();
         let mut sessions = spawn_blocking(move || {
@@ -526,32 +525,6 @@ impl Agents {
         found
     }
 
-    /// The sessions this node runs, by the agent's own id, to the node's id.
-    pub(super) fn owned(&self) -> HashMap<SessionId, SessionId> {
-        self.session_map()
-            .values()
-            .filter_map(|session| {
-                watched::read(&session.live, |live| {
-                    Some((live.agent_session.clone()?, live.info.id.clone()))
-                })
-            })
-            .collect()
-    }
-
-    /// The root pids of sessions this node is starting before ACP names them.
-    pub(super) fn starting_pids(&self) -> HashSet<u32> {
-        self.session_map()
-            .values()
-            .filter_map(|session| {
-                watched::read(&session.live, |live| {
-                    (live.status() != Status::Ended && live.agent_session.is_none())
-                        .then_some(live.root_pid)
-                        .flatten()
-                })
-            })
-            .collect()
-    }
-
     /// Ends the process running `agent`'s session `id`, started outside Beep,
     /// so it can go on here. The process is the one this node finds running
     /// that session now, never one a caller names.
@@ -587,28 +560,6 @@ impl Agents {
         Ok(())
     }
 
-    /// The lock that keeps a resume, a delete and a move of one stored
-    /// session from interleaving. It is per session, by the agent's own id
-    /// when the session is here, so two sessions never wait on each other.
-    /// It lasts while a holder keeps the handle.
-    pub(super) fn store_of(&self, id: &SessionId) -> Arc<AsyncMutex<()>> {
-        let key = self
-            .get(id)
-            .and_then(|session| watched::read(&session.live, |live| live.agent_session.clone()))
-            .unwrap_or_else(|| id.clone());
-        let mut held = crate::lock(&self.session_store);
-        held.retain(|_, lock| lock.strong_count() > 0);
-
-        if let Some(lock) = held.get(&key).and_then(std::sync::Weak::upgrade) {
-            return lock;
-        }
-
-        let lock = Arc::new(AsyncMutex::new(()));
-        held.insert(key, Arc::downgrade(&lock));
-
-        lock
-    }
-
     /// Takes over the Claude Code session `id` started outside Beep, once
     /// nothing runs it; one this node already runs is returned as it is.
     /// `id` may also be one of this node's sessions that ended: it goes on
@@ -620,7 +571,7 @@ impl Agents {
         prompt: Option<String>,
         model: Option<ModelId>,
     ) -> Result<Arc<Session>> {
-        let store = self.store_of(id);
+        let store = self.sessions.store_of(id);
         let _store = store.lock().await;
         anyhow::ensure!(
             !id.as_ref().starts_with("subagent:"),
@@ -649,7 +600,7 @@ impl Agents {
             None => id.clone(),
         };
         let id = &id;
-        let owned = self.owned();
+        let owned = self.sessions.owned();
 
         if let Some(session) = owned.get(id).and_then(|node_id| self.get(node_id))
             && session.agent == kind.name

@@ -17,23 +17,23 @@
 //! before.
 
 use beep_proto::SessionId;
-use super::{Agents, Command, Live, Session};
+use super::links::{ChildNote, NoteState, Waits};
+use crate::agents::{Agents, Session, live::Live, session::Command};
 use crate::agents::live::Mark;
 use crate::agents::child_view::{ChildView, full_id};
 use super::peer::NoteFailed;
-use crate::{agents::tags, membership::Membership};
+use crate::membership::Membership;
 use beep_proto::node::agent::{Status, StopReason};
 use beep_proto::watched;
 use iroh::EndpointId;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
     future::Future,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Weak},
     time::Duration,
 };
 use tokio::{
-    sync::{Notify, watch},
+    sync::watch,
     time::sleep,
 };
 
@@ -46,141 +46,6 @@ pub(crate) enum Delivery {
     Ask,
     /// The answer to the session's own ask: a note.
     Reply,
-}
-
-/// What a child came to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, strum::AsRefStr)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub(crate) enum NoteState {
-    /// Its turn ended with nothing queued behind it.
-    Finished,
-    /// It waits on the user.
-    Asking,
-    /// The user stopped its turn.
-    Stopped,
-    /// The user closed its session.
-    Closed,
-    /// It settled without news for the parent: its session ended, a turn
-    /// the parent stopped, or its last background work. Only wakes a wait,
-    /// and goes in no prompt. A parent's node that does not know it refuses
-    /// the note.
-    Settled,
-}
-
-/// What a child's node tells the parent's: JSON in an `AgentNote` call.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub(crate) struct ChildNote {
-    /// The child's id on its machine, as its parent got it.
-    pub(crate) id: SessionId,
-    /// Its id on its machine from before the agent gave its own.
-    #[serde(default)]
-    pub(crate) key: SessionId,
-    /// Its title, else its harness.
-    #[serde(default)]
-    pub(crate) name: String,
-    pub(crate) state: NoteState,
-    /// Its last message when it finished, its question when it asks.
-    #[serde(default)]
-    pub(crate) text: String,
-}
-
-impl ChildNote {
-    /// The note as the parent's agent reads it, about the child it knows as
-    /// `id`.
-    pub(crate) fn text_for(&self, id: &str) -> String {
-        let (head, tail) = match self.state {
-            NoteState::Finished => (
-                format!("[child {id} finished] {}", self.text),
-                "Reply with send_to_agent to continue it, or stop it with stop_agent once you \
-                 need nothing more from it.",
-            ),
-            NoteState::Asking => (
-                format!("[child {id} is waiting on the user] {}", self.text),
-                "Only the user can answer this.",
-            ),
-            NoteState::Stopped => (
-                format!("[child {id} was stopped by the user] {}", self.text),
-                "Reply with send_to_agent to continue it.",
-            ),
-            NoteState::Closed => (
-                format!("[child {id} was stopped by the user] {}", self.text),
-                "Its session ended.",
-            ),
-            NoteState::Settled => (format!("[child {id} settled] {}", self.text), ""),
-        };
-        let body = format!("{}\n{tail}", head.trim_end());
-        tags::from_child(id, &self.name, self.state.as_ref(), &body)
-    }
-}
-
-/// The children each parent waits on in `start_agent`, by the parent's name
-/// and the child's id as the parent got it, each with what wakes its wait. Parallel waits on one child each have their own.
-#[derive(Clone, Default)]
-pub(crate) struct Waits(Arc<Mutex<HashMap<WaitKey, Vec<Arc<Notify>>>>>);
-
-/// A parent's name and the child's id as the parent got it.
-type WaitKey = (SessionId, String);
-
-/// Held while a parent waits on a child; the wait ends when it drops.
-pub(crate) struct Waiting {
-    waits: Waits,
-    key: WaitKey,
-    woken: Arc<Notify>,
-}
-
-impl Waiting {
-    /// Ready once the child's node pushed a note about it. A note that came
-    /// before this is asked for still counts.
-    pub(crate) async fn woken(&self) {
-        self.woken.notified().await;
-    }
-}
-
-impl Drop for Waiting {
-    fn drop(&mut self) {
-        let mut held = crate::lock(&self.waits.0);
-
-        if let Some(all) = held.get_mut(&self.key) {
-            all.retain(|one| !Arc::ptr_eq(one, &self.woken));
-
-            if all.is_empty() {
-                held.remove(&self.key);
-            }
-        }
-    }
-}
-
-impl Waits {
-    pub(crate) fn hold(&self, parent: &SessionId, child: &str) -> Waiting {
-        let key = (parent.to_owned(), child.to_owned());
-        let woken = Arc::new(Notify::new());
-        crate::lock(&self.0)
-            .entry(key.clone())
-            .or_default()
-            .push(woken.clone());
-        Waiting {
-            waits: self.clone(),
-            key,
-            woken,
-        }
-    }
-
-    /// Wakes the wait of `parent` on `child`, if any. The wait answers the
-    /// note, so it goes in no prompt.
-    pub(super) fn wake(&self, parent: &SessionId, child: &str) -> bool {
-        let held = crate::lock(&self.0);
-
-        let Some(all) = held.get(&(parent.to_owned(), child.to_owned())) else {
-            return false;
-        };
-
-        for woken in all {
-            woken.notify_one();
-        }
-
-        true
-    }
 }
 
 /// A note and how the child stood when it was made.
@@ -218,7 +83,7 @@ impl Agents {
             _ => match self.get(&link.session) {
                 Some(parent) => To::Here {
                     parent: Arc::downgrade(&parent),
-                    waits: self.family.waits.clone(),
+                    waits: self.links.waits.clone(),
                 },
                 None => return,
             },
@@ -228,7 +93,7 @@ impl Agents {
             live: session.live.clone(),
             session: Arc::downgrade(session),
         };
-        let task = follow(child, to, self.family.membership.clone());
+        let task = follow(child, to, self.links.membership.clone());
         session.keep(tokio::spawn(task));
     }
 
@@ -251,7 +116,7 @@ impl Agents {
             .get(parent)
             .ok_or_else(|| format!("There is no session {parent} here."))?;
         let id = format!("{}@{}", kid.id, kid.name);
-        deliver(&session, &self.family.waits, &id, note, None).await
+        deliver(&session, &self.links.waits, &id, note, None).await
     }
 }
 
@@ -281,7 +146,7 @@ impl Agents {
 
     /// The live session here a team knows by `id`: its own id or its agent's.
     pub(crate) fn teammates_session(&self, id: &SessionId) -> Option<Arc<Session>> {
-        self.peers(None)
+        self.sessions.peers(None)
             .into_iter()
             .find(|session| session.id == *id || Self::name_of(session) == *id)
     }

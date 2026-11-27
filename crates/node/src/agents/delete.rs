@@ -17,7 +17,7 @@ impl Agents {
     /// files go first, then the node's record of it, so a failure leaves
     /// the session listed. What it spent stays in the spend totals.
     pub(super) async fn delete_session(&self, agent: &str, id: &SessionId) -> Result<()> {
-        let store = self.store_of(id);
+        let store = self.sessions.store_of(id);
         let _store = store.lock().await;
         let which = agent
             .parse::<Agent>()
@@ -126,7 +126,7 @@ impl Agents {
         id: &SessionId,
         ours: bool,
     ) -> Result<()> {
-        let mut owned = self.owned();
+        let mut owned = self.sessions.owned();
         owned.remove(id);
         let mut found = self.find_external(agent, id, owned).await?;
 
@@ -155,7 +155,7 @@ impl Agents {
     /// that follows finds them closed. Nothing happens for a session no
     /// process is known to hold.
     async fn end_holder(&self, agent: Agent, id: &SessionId) -> Result<()> {
-        let mut owned = self.owned();
+        let mut owned = self.sessions.owned();
         owned.remove(id);
 
         if let Some(pid) = self
