@@ -1,6 +1,6 @@
 //! The machines of the mesh as agents name them.
 
-use super::calls::command_name;
+use crate::calls::command_name;
 use beep_mesh::{DeviceStatus, Mesh, machine::Device};
 use iroh::EndpointId;
 

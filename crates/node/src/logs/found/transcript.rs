@@ -2,7 +2,8 @@
 //! the last entries as the node answers a transcript request with them.
 
 use beep_proto::SessionId;
-use super::{Agent, Stores, codex_run};
+use super::{Stores, codex_run};
+use super::common::{Agent};
 use crate::logs::subagent::Run as SubagentRun;
 use crate::logs::window::Excerpt;
 use crate::text::cut;
@@ -106,7 +107,7 @@ fn prompt_of(content: &Value) -> String {
 fn codex(path: &Path) -> io::Result<Vec<Entry>> {
     let mut entries: Vec<Entry> = Vec::new();
     let mut calls: HashMap<String, usize> = HashMap::new();
-    let head = super::first_line(path)?.unwrap_or_default();
+    let head = super::common::first_line(path)?.unwrap_or_default();
     let meta: Value = serde_json::from_str(&head).unwrap_or_default();
     let native = meta["payload"]["source"].is_object();
     let skip = meta["payload"]["subagent_history_start_ordinal"]

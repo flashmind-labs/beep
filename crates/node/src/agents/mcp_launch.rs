@@ -2,7 +2,7 @@
 //! session's `session/new` as `beep-node mcp --session <id>`, and
 //! `Invocation` is that command.
 
-use super::{calls::SERVER_NAME, socket};
+use crate::{calls::SERVER_NAME, socket};
 use agent_client_protocol::v1::schema::{EnvVariable, McpServer, McpServerStdio};
 use beep_proto::SessionId;
 use std::{ffi::OsString, path::PathBuf};

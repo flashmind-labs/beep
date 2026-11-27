@@ -2,8 +2,8 @@
 //! `<agent dir>/sessions/--<folder>--/<time>_<id>.jsonl`, a `session` header on
 //! the first line and a `session_info` line naming it.
 
-use super::{Agent, Memos, Seen, header_sessions, is_jsonl, prompt_title};
-use crate::logs::found::unix_seconds;
+use super::common::{Agent, Memos, Seen, header_sessions, is_jsonl, prompt_title};
+use super::common::unix_seconds;
 use crate::logs::window::{MAX_HEAD, content_text, head_lines};
 use beep_proto::SessionId;
 use serde_json::Value;

@@ -2,7 +2,7 @@
 //! role and task from the header, its calls, done once their `*_output` comes,
 //! and `task_complete` with what it answered.
 
-use super::newest_files;
+use super::common::{Child, newest_files};
 use crate::logs::subagent::RunStep;
 use crate::logs::subagent::Run as SubagentRun;
 use crate::text::cut;
@@ -37,12 +37,6 @@ const DETAILS: [&str; 9] = [
     "task_name",
     "message",
 ];
-
-#[derive(Debug, Clone)]
-pub(crate) struct Child {
-    pub(crate) parent: SessionId,
-    pub(crate) session: SessionId,
-}
 
 /// Parent and native conversation ID from a child rollout's header.
 pub(crate) fn parent(line: &str) -> Option<Child> {

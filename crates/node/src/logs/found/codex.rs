@@ -2,10 +2,8 @@
 //! `<CODEX_HOME>/sessions/<yyyy>/<mm>/<dd>/rollout-*.jsonl`, with the titles
 //! the user gave in `<CODEX_HOME>/session_index.jsonl`.
 
-use super::{
-    Agent, Memos, Seen, folder_place::call_folder, header_sessions, prompt_title, unix_seconds,
-    unix_secs,
-};
+use super::{folder_place::call_folder};
+use super::common::{Agent, Memos, Seen, header_sessions, prompt_title, unix_seconds, unix_secs};
 use crate::logs::subagent::Conversation;
 use crate::logs::window::{MAX_HEAD, content_text, head_lines, tail_lines};
 use beep_proto::SessionId;
@@ -109,7 +107,7 @@ pub(crate) fn native(root: &Path, id: &SessionId) -> Option<Seen> {
         return None;
     };
     let file = super::codex_run::rollout(root, thread)?;
-    let line = super::first_line(&file).ok()??;
+    let line = super::common::first_line(&file).ok()??;
     let mut seen = header_with_children(&line, true)?;
 
     if seen.id != thread {

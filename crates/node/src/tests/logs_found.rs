@@ -1,4 +1,6 @@
 use super::*;
+use super::common::{MAX_FILES, prompt_title};
+use std::fs::File;
 
 fn seen(agent: Agent, id: &str, cwd: &Path, at: u64) -> Seen {
     Seen {

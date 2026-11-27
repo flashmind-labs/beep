@@ -104,7 +104,7 @@ impl<V: Clone> Memo<V> {
         database: &Path,
         read: impl FnOnce() -> Result<V, E>,
     ) -> Result<V, E> {
-        let wal = super::wal_path(database);
+        let wal = super::common::wal_path(database);
         let stamps = vec![stamp_of(database), non_empty_stamp_of(&wal)];
         self.read_with_stamps(database, stamps, |_| read())
     }

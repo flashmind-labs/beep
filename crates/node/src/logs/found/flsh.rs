@@ -5,8 +5,8 @@
 //! `sessions.db`, read here (read-only) until flsh has imported it, which
 //! it marks with `.sqlite-imported`.
 
-use super::{Agent, Memos, Seen, is_jsonl, newest_files, prompt_title, read_databases, xdg_data_dir};
-use crate::logs::found::unix_seconds;
+use super::common::{Agent, Memos, Seen, is_jsonl, newest_files, prompt_title, read_databases, xdg_data_dir};
+use super::common::unix_seconds;
 use crate::logs::window::{MAX_HEAD, head_lines};
 use beep_proto::SessionId;
 use serde_json::Value;
@@ -129,7 +129,7 @@ fn head(path: &Path) -> Option<Seen> {
 /// A locked database, or one older than the `working_dir` column, fails
 /// here and is skipped.
 fn read(database: &Path) -> rusqlite::Result<Vec<Seen>> {
-    let conn = super::open_database(database)?;
+    let conn = super::common::open_database(database)?;
     let mut statement = conn.prepare(QUERY)?;
     let rows = statement.query_map([], |row| {
         let created: Option<i64> = row.get(3)?;

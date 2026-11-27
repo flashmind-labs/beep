@@ -3,7 +3,7 @@
 //! skipped.
 
 use beep_proto::SessionId;
-use super::{Agent, Memos, Seen, prompt_title, read_databases, xdg_data_dir};
+use super::common::{Agent, Memos, Seen, prompt_title, read_databases, xdg_data_dir};
 use std::{
     env,
     ffi::OsStr,
@@ -93,7 +93,7 @@ fn databases(dir: &Path) -> Vec<PathBuf> {
 }
 
 fn read(database: &Path) -> rusqlite::Result<Vec<Seen>> {
-    let conn = super::open_database(database)?;
+    let conn = super::common::open_database(database)?;
     let mut statement = conn.prepare(QUERY)?;
     let rows = statement.query_map([], |row| {
         let title: Option<String> = row.get(1)?;

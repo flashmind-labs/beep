@@ -5,12 +5,11 @@
 //! session started as subagents, are in `conversation_summaries.db` beside
 //! the folder.
 
-use super::{Agent, Memos, Seen, newest_files, open_database, prompt_title};
+use super::common::{Summaries, Agent, Memos, Seen, newest_files, open_database, prompt_title};
 use beep_proto::SessionId;
 use prost::Message;
 use rusqlite::OptionalExtension;
 use std::{
-    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -41,14 +40,6 @@ pub(crate) fn is_conversation(path: &Path) -> bool {
     path.extension().is_some_and(|ext| ext == "db")
 }
 
-/// What `conversation_summaries.db` says of the conversations.
-#[derive(Debug, Default)]
-pub(crate) struct Summaries {
-    titles: HashMap<SessionId, String>,
-    /// Conversations a session started, as subagents.
-    children: HashSet<SessionId>,
-}
-
 /// The conversations in `root` that the user started, newest first.
 pub(crate) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
     let summaries = summaries_at(root)
@@ -76,11 +67,11 @@ pub(crate) fn sessions(root: &Path, memos: &Memos) -> Vec<Seen> {
 
             // agy opens every conversation when it starts, which touches an
             // empty `-wal`: only one holding writes counts.
-            let wal_at = std::fs::metadata(super::wal_path(&path))
+            let wal_at = std::fs::metadata(super::common::wal_path(&path))
                 .ok()
                 .filter(|meta| meta.len() > 0)
                 .and_then(|meta| meta.modified().ok())
-                .map_or(0, super::unix_secs);
+                .map_or(0, super::common::unix_secs);
             seen.last_activity = at.max(wal_at).max(seen.started_at);
             seen.title = summaries.titles.get(&seen.id).cloned();
             Some(seen)

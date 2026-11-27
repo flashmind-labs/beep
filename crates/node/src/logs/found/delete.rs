@@ -2,7 +2,8 @@
 //! always checked to lie inside the store first.
 
 use beep_proto::SessionId;
-use super::{Agent, Stores};
+use super::{Stores};
+use super::common::{Agent};
 use crate::fs::paths;
 use anyhow::{Context, Result, bail, ensure};
 use std::{

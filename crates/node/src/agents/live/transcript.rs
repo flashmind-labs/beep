@@ -5,7 +5,7 @@ use super::{
     content::{cut, detail},
     tools::CodexChild,
 };
-use crate::agents::calls::Tool as BeepTool;
+use crate::calls::Tool as BeepTool;
 use crate::agents::{acp::wire_name, images::Images, unix_now, usage::{UsageHub, claude_rate_limit, flsh_credits}};
 use crate::logs::picture::Picture;
 use crate::logs::subagent::Run;
