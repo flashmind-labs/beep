@@ -66,9 +66,9 @@ export function takeEarlier(run: Run) {
   if (page) page = { ...page, ...run };
 }
 
-/// The session row the page shows.
+/// The session row the page shows; reviving an ended session clears its ending error.
 export function setPageSession(s: AgentRow) {
-  if (page) page = { ...page, session: s };
+  if (page) page = { ...page, session: s, ...(page.session.status === "ended" && s.status !== "ended" ? { error: null } : {}) };
 }
 
 /// The session ended with its machine: no turn runs on.

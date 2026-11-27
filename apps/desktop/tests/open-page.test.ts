@@ -20,3 +20,14 @@ test("the open page never changes the page it opened on", () => {
   assert.deepEqual(held.entries.map(en => en.text), ["hello"]);
   assert.equal(held.session.status, "idle");
 });
+
+test("reviving an ended session clears its ending error", () => {
+  const ended = { ...session, status: "ended" as const };
+  openPage(ended, { ...held, session: ended, error: "the agent exited" });
+  setPageSession({ ...ended });
+  assert.equal(currentPage()?.error, "the agent exited");
+
+  setPageSession({ ...session, status: "starting" });
+  assert.equal(currentPage()?.session.status, "starting");
+  assert.equal(currentPage()?.error, null);
+});

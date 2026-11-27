@@ -186,6 +186,96 @@ test("an ended session hands the message and its resume to the outbox, shows a r
   await expect.poll(async () => (await calls(page, "agent_view")).some(call => (call.args as { session?: string }).session === "send-two")).toBe(true);
 });
 
+test("resuming an ended session under the same id clears its error card and follows the new turn without stalling", async ({ page }) => {
+  const endedRow = { ...session, status: "ended" };
+  const endedPage = {
+    session: endedRow, model: null, plan: [], earlier: 0, error: "the agent exited",
+    turns: 1, queued: 0, queued_messages: [], entries: [{ kind: "agent", text: "Before exit" }],
+  };
+  await openDesktop(page, false, { agent_view: endedPage, agent_steer: [], agent_tree_upload: uploaded });
+  await page.evaluate(({ where, endedPage, session }) => {
+    const invoke = window.__TAURI__.core.invoke;
+    let live = false;
+    let revivedOnView = false;
+    let follows = 0;
+    let lastChannel: { onmessage(message: unknown): void } | null = null;
+    let closeEnded: (() => void) | null = null;
+    const cursor = { start: 0, next: 1, fingerprint: "ended-1" };
+    Object.assign(window, {
+      __follows: () => follows,
+      __triggerRace: () => {
+        window.__navigation.hold("agent_view");
+        // Queue a stale ended frame for `requestAnimationFrame`, then close the ended stream so
+        // `disconnected` starts `pollAgent(false)` (`AG.inflight`) before that frame runs.
+        lastChannel?.onmessage({ kind: "snapshot", resumed: true, cursor, page: endedPage, modes: null, tasks: [] });
+        revivedOnView = true;
+        closeEnded?.();
+      },
+    });
+    window.__TAURI__.core.invoke = async <T>(command: string, args?: Record<string, unknown>) => {
+      if (command === "agent_follow") {
+        follows++;
+        const ch = args?.onEvent as { onmessage(message: unknown): void } | undefined;
+        if (ch) lastChannel = ch;
+        if (!live) {
+          ch?.onmessage({ kind: "snapshot", resumed: false, cursor, page: endedPage, modes: null, tasks: [] });
+          return new Promise<never>((_, reject) => {
+            closeEnded = () => reject(new Error("session stream disconnected"));
+          });
+        }
+        ch?.onmessage({
+          kind: "snapshot", resumed: false,
+          cursor: { start: 0, next: 3, fingerprint: "live-3" },
+          page: {
+            session: { ...session, status: "working" }, model: null, plan: [], earlier: 0, error: null,
+            turns: 2, queued: 0, queued_messages: [],
+            entries: [{ kind: "agent", text: "Before exit" }, { kind: "user", text: "Carry on" }, { kind: "agent", text: "Back to work" }],
+          },
+          modes: null, tasks: [],
+        });
+        return new Promise<never>(() => {});
+      }
+      if (command === "agent_view" && revivedOnView) {
+        revivedOnView = false;
+        live = true;
+        // `outbox-changed` arrives while `agent_view` is in flight and the stale rAF frame is still pending.
+        const resumed = { ...session, status: "starting" };
+        window.__navigation.emit("outbox-changed", { ...where, revision: 2, rows: [], sent: [], resumed, pick: null });
+      }
+      if (command === "agent_steer" && args?.resume) {
+        window.__navigation.emit("outbox-changed", {
+          ...where, revision: 1,
+          rows: [{ id: 1, how: "steer", text: "Carry on", images: [], state: "resuming", reason: null, keys: [] }],
+          sent: [], resumed: null, pick: null,
+        });
+        throw { kind: "waiting", message: "Waiting for the connection" };
+      }
+      return invoke<T>(command, args);
+    };
+  }, { where, endedPage, session });
+
+  await page.evaluate(agent => window.__navigation.open({ agent }), endedRow);
+  await expect(page.locator(".derrcard")).toContainText("the agent exited");
+  expect(await page.evaluate(() => (window as unknown as { __follows(): number }).__follows())).toBe(1);
+
+  // Sending while ended hands the resume to the outbox without opening a second follow against the ended session.
+  await page.locator("#agmsg").fill("Carry on");
+  await page.locator("#agmsg").press("Enter");
+  await expect(page.locator(".ag-queue .it.out")).toContainText("resuming");
+  expect(await page.evaluate(() => (window as unknown as { __follows(): number }).__follows())).toBe(1);
+
+  await page.evaluate(() => (window as unknown as { __triggerRace(): void }).__triggerRace());
+
+  // The old error card clears immediately and stays gone across animation frames while `agent_view` is still held.
+  await expect(page.locator(".derrcard")).toHaveCount(0);
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  await expect(page.locator(".derrcard")).toHaveCount(0);
+
+  // Releasing the stale `agent_view` immediately opens the new follow without waiting for the 5 s retry timer.
+  await page.evaluate(() => window.__navigation.release("agent_view"));
+  await expect(page.locator(".dcoderen.agent").last()).toContainText("Back to work", { timeout: 2000 });
+});
+
 test("a pasted image crosses once, with the message, and is not uploaded", async ({ page }) => {
   await open(page);
   await picker(page).setInputFiles([image]);

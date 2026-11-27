@@ -49,7 +49,7 @@ import { movedTo } from "./move-state.ts";
 import { sameSession } from "./running-state.ts";
 import { isNativeSession } from "./native-session-state.ts";
 import { type AgentStarted, isStarting } from "./starting-state.ts";
-import { became, feed, flushDraw, forgetUnfollowedExtras, keptTranscript, leaveStart, pollAgent, track, traceSession, watchRead } from "./session-follow.ts";
+import { became, dropFollow, feed, flushDraw, forgetUnfollowedExtras, keptTranscript, leaveStart, pollAgent, track, traceSession, watchRead } from "./session-follow.ts";
 import { drawAgentHeading, headText, redrawAgentHints, agentHints } from "./session-head.tsx";
 import { agentClick, openParent, openSessionLink, toolKey } from "./session-click.ts";
 import { startLost } from "./session-follow.ts";
@@ -67,12 +67,13 @@ function showSession(s: AgentRow, { why = "", back: from, adopt = false }: { why
   if (!why && sameSession(AG.open, s) && AG.page?.session.id === s.id) {
     if (AG.page.session.status === "ended" && s.status !== "ended") {
       clearTimeout(AG.timer);
-      feed.drop(AG.open!);
+      dropFollow(AG.open!);
       setPageSession(s);
       AG.sig = "";
       drawAgentHeading();
       drawModelPill();
       redrawAgentHints();
+      drawAgentBody();
     }
     if (AG.open) track.first = { open: AG.open, at: performance.now() };
     if (from !== undefined) AG.back = from;

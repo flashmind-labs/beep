@@ -415,7 +415,7 @@ async function sendText(steer: { prompt: Outgoing } | { steer: Outgoing }, seen:
   if (isOpen(o)) {
     setNote(failed && sent === "failed" ? failed.message : "");
     logStale.notify();
-    resumeFollow();
+    if (sent === "sent" || !extras.resume) resumeFollow();
   }
 
   return sent;

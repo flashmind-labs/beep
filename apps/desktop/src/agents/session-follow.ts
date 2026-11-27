@@ -221,9 +221,19 @@ export function flushDraw(now = false) {
   else if (AG.open === next.open && AG.page) mergePage(next.page, next.replace);
 }
 
+/// Stops following `o` and discards any frame queued from its old stream.
+export function dropFollow(o: OpenAgent) {
+  if (held && transcriptKey(held.open) === transcriptKey(o)) {
+    cancelAnimationFrame(held.frame);
+    held = null;
+  }
+  feed.drop(o);
+}
+
 /// The open session leaves the screen; it stays followed while it runs or asks.
 export function stopAgentFollow() {
   clearTimeout(AG.timer);
+  pollAgain = null;
   feed.leave();
   forgetUnfollowedExtras(AG.open);
 }
@@ -237,6 +247,7 @@ export function forgetUnfollowedExtras(o: OpenAgent | null) {
 /// Stops following every session, the open one included.
 export function forgetAgentFollows() {
   clearTimeout(AG.timer);
+  pollAgain = null;
   feed.clear();
 }
 
@@ -249,21 +260,26 @@ changeListeners.push(() => {
 /// names the start opens the session.
 export const became = new Map<string, AgentRow>();
 
+let pollAgain: { open: OpenAgent; readNow: boolean } | null = null;
+
 /// Asks for the open session, and opens its follow again after `RETRY_MS`
 /// while it stays on screen without one. Opening reads once even if the webview's
 /// visibility has not caught up. Never two calls at once for one session.
 export async function pollAgent(readNow = false) {
   clearTimeout(AG.timer);
   const o = AG.open;
-  if (!o) { feed.leave(); return; }
+  if (!o) { pollAgain = null; feed.leave(); return; }
   const trace = readNow || !AG.sig;
   const skip = !isOpen(o) ? "different-view" : AG.inflight === o || track.kept === o ? "in-flight" : !readNow && !paneShown() ? "hidden" : null;
 
   if (skip) {
+    if (AG.inflight === o) pollAgain = { open: o, readNow: (pollAgain?.open === o && pollAgain.readNow) || readNow };
     if (skip !== "in-flight") feed.leave();
     if (trace) traceSession("read-skipped", o, { reason: skip, readNow });
     return;
   }
+
+  if (pollAgain?.open === o) pollAgain = null;
 
   // A start has no stream: this device answers its reads.
   if (paneShown() && !isStarting(o.session)) feed.follow(o);
@@ -327,7 +343,14 @@ export async function pollAgent(readNow = false) {
   }
 
   // Another session opened while this one was asked: follow that one.
-  if (AG.open !== o) { if (isOpen(AG.open) && !AG.inflight) pollAgent(); return; }
+  if (AG.open !== o) { pollAgain = null; if (isOpen(AG.open) && !AG.inflight) void pollAgent(); return; }
+
+  if (pollAgain?.open === o || (!still() && !feed.live(o))) {
+    const again = pollAgain?.open === o && pollAgain.readNow;
+    pollAgain = null;
+    if (isOpen(o) && (again || paneShown())) void pollAgent(again);
+    return;
+  }
 
   if (!isOpen(o) || !paneShown()) {
     if (trace) traceSession("polling-stopped", o, { reason: !isOpen(o) ? "different-view" : "hidden" });
