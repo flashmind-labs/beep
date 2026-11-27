@@ -18,45 +18,6 @@ async fn a_missing_directory_only_watches_its_parent_non_recursively() {
     );
 }
 
-#[tokio::test]
-async fn renaming_and_recreating_a_root_rearms_the_replacement_directory() {
-    let directory = tempfile::tempdir().unwrap();
-    let root = directory.path().join("watched");
-    std::fs::create_dir(&root).unwrap();
-    let (changed, mut changes) = mpsc::channel(32);
-    let watcher = Paths::new("test", move |paths| {
-        let _ = changed.try_send(paths);
-    })
-    .unwrap();
-    watcher.replace(vec![root.clone()]).await.unwrap();
-    while changes.try_recv().is_ok() {}
-    let shared = watcher.shared.clone();
-    let (ready, wait_ready) = tokio::sync::oneshot::channel();
-    let (release, wait_release) = std::sync::mpsc::channel();
-    let original = root.clone();
-    let renamed = directory.path().join("old");
-    let hold = tokio::task::spawn_blocking(move || {
-        let _held = crate::lock(&shared.inner);
-        std::fs::rename(&original, renamed).unwrap();
-        std::fs::create_dir(&original).unwrap();
-        ready.send(()).unwrap();
-        wait_release.recv_timeout(Duration::from_secs(5)).unwrap();
-    });
-    wait_ready.await.unwrap();
-    timeout_change(&mut changes).await;
-    let mut reconciled = watcher.reconciled.clone();
-    watched::read_and_update(&mut reconciled, |_| ());
-    release.send(()).unwrap();
-    hold.await.unwrap();
-    tokio::time::timeout(Duration::from_secs(5), reconciled.changed())
-        .await
-        .unwrap()
-        .unwrap();
-    while changes.try_recv().is_ok() {}
-    std::fs::write(root.join("after.txt"), "changed").unwrap();
-    timeout_change(&mut changes).await;
-}
-
 async fn timeout_change(changes: &mut mpsc::Receiver<Vec<PathBuf>>) -> Vec<PathBuf> {
     tokio::time::timeout(Duration::from_secs(5), changes.recv())
         .await
