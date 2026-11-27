@@ -485,14 +485,26 @@ fn bill(rows: &[Row<'_>]) -> SpendPeriod {
     }
 }
 
+/// The project, harness, model and billing one cell sums.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+struct CellKey<'r> {
+    project: &'r Option<String>,
+    agent: &'r AgentSlug,
+    model: &'r ModelId,
+    subscription: bool,
+}
+
 fn cells(rows: &[Row<'_>]) -> Vec<SpendCell> {
-    let mut grouped: BTreeMap<(&Option<String>, &AgentSlug, &ModelId, bool), (f64, u64)> =
-        BTreeMap::new();
+    let mut grouped: BTreeMap<CellKey<'_>, (f64, u64)> = BTreeMap::new();
 
     for row in rows {
-        let entry = grouped
-            .entry((&row.project, row.agent, &row.hour.model, !metered(row)))
-            .or_default();
+        let key = CellKey {
+            project: &row.project,
+            agent: row.agent,
+            model: &row.hour.model,
+            subscription: !metered(row),
+        };
+        let entry = grouped.entry(key).or_default();
         entry.0 += row.hour.cost_usd;
         entry.1 = entry.1.saturating_add(row.hour.tokens());
     }
@@ -501,7 +513,15 @@ fn cells(rows: &[Row<'_>]) -> Vec<SpendCell> {
         .into_iter()
         .filter(|(_, (cost_usd, tokens))| *cost_usd > 0.0 || *tokens > 0)
         .map(
-            |((project, agent, model, subscription), (cost_usd, tokens))| SpendCell {
+            |(
+                CellKey {
+                    project,
+                    agent,
+                    model,
+                    subscription,
+                },
+                (cost_usd, tokens),
+            )| SpendCell {
                 project: project.clone(),
                 agent: agent.clone(),
                 model: model.clone(),
@@ -511,7 +531,15 @@ fn cells(rows: &[Row<'_>]) -> Vec<SpendCell> {
             },
         )
         .collect();
-    cells.sort_by(|a, b| cmp_cost(a.cost_usd, b.cost_usd).then(b.tokens.cmp(&a.tokens)));
+    // A subscription's estimate is in no total, so it ranks as nothing paid.
+    let paid = |cell: &SpendCell| {
+        if cell.subscription {
+            0.0
+        } else {
+            cell.cost_usd
+        }
+    };
+    cells.sort_by(|a, b| cmp_cost(paid(a), paid(b)).then(b.tokens.cmp(&a.tokens)));
     cells
 }
 

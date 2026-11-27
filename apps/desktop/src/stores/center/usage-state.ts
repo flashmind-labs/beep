@@ -262,18 +262,23 @@ export interface Breakdown {
   total: { cost_usd: number; tokens: number };
 }
 
-/// The harnesses and projects the cells name, each once, in the order they first appear.
-export function filterOptions(cells: SpendCell[]) {
-  const agents = [...new Set(cells.map(cell => cell.agent))];
-  const projects = [...new Set(cells.flatMap(cell => cell.project === null ? [] : [cell.project]))];
+/// Whether `cell` is in the harness and the project `filter` names.
+function passes(cell: SpendCell, filter: UsageFilter) {
+  return (filter.agent === null || cell.agent === filter.agent) && (filter.project === null || cell.project === filter.project);
+}
+
+/// The harnesses among the cells of the picked project and the projects among the cells of the
+/// picked harness, each once, in the order they first appear.
+export function filterOptions(cells: SpendCell[], filter: UsageFilter) {
+  const agents = [...new Set(cells.filter(cell => passes(cell, { ...filter, agent: null })).map(cell => cell.agent))];
+  const projects = [...new Set(cells.filter(cell => passes(cell, { ...filter, project: null })).flatMap(cell => cell.project === null ? [] : [cell.project]))];
   return { agents, projects };
 }
 
-/// `filter`, or all where it names a harness or project the cells no longer have.
+/// `filter`, with all for a harness the cells no longer have, or a project the picked harness has none of.
 export function settleFilter(cells: SpendCell[], filter: UsageFilter): UsageFilter {
-  const { agents, projects } = filterOptions(cells);
-  const agent = filter.agent !== null && agents.includes(filter.agent) ? filter.agent : null;
-  const project = filter.project !== null && projects.includes(filter.project) ? filter.project : null;
+  const agent = filter.agent !== null && cells.some(cell => cell.agent === filter.agent) ? filter.agent : null;
+  const project = filter.project !== null && cells.some(cell => cell.project === filter.project && (agent === null || cell.agent === agent)) ? filter.project : null;
   return agent === filter.agent && project === filter.project ? filter : { agent, project };
 }
 
@@ -285,7 +290,7 @@ export function breakdown(cells: SpendCell[], filter: UsageFilter): Breakdown {
   const total = { cost_usd: 0, tokens: 0 };
 
   for (const cell of cells) {
-    if ((filter.agent !== null && cell.agent !== filter.agent) || (filter.project !== null && cell.project !== filter.project)) continue;
+    if (!passes(cell, filter)) continue;
 
     const paid = cell.subscription ? 0 : cell.cost_usd;
     const key = `${cell.agent}:${cell.subscription}`;

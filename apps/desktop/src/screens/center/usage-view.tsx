@@ -74,14 +74,15 @@ function Choices({ label, all, options, value, pick }: { label: string; all: str
 function Period({ view, periodKey, allProjects, filter, narrow, pick, more }: {
   view: UsageView; periodKey: PeriodKey; allProjects: boolean; filter: UsageFilter; narrow(filter: UsageFilter): void; pick(key: PeriodKey): void; more(): void;
 }) {
-  const period = view[periodKey], historical = view.historical ?? [], cells = period.cells ?? [];
+  const period = view[periodKey], cells = period.cells ?? [];
   const filtered = filter.agent !== null || filter.project !== null;
   const shown = filtered ? breakdown(cells, filter) : null;
-  const { agents, projects } = filterOptions(cells);
-  const harnesses = shown?.harnesses ?? period.harnesses, models = modelTotals(harnesses);
+  const { agents, projects } = filterOptions(cells, filter);
+  const harnesses = shown?.harnesses ?? period.harnesses, models = shown?.models ?? modelTotals(harnesses);
   const total = shown?.total ?? { cost_usd: period.total.cost_usd, tokens: period.tokens };
   const all = period.daily ?? [];
   const daily = filter.agent !== null ? [] : filter.project !== null ? all.filter(row => row.project === filter.project) : all;
+  const historical = (view.historical ?? []).filter(row => (filter.agent === null || row.agent === filter.agent) && (filter.project === null || row.project === filter.project));
   const [showHistory, setShowHistory] = useState(false);
   const hasSpend = period.tokens > 0 || period.total.cost_usd > 0;
 
@@ -94,7 +95,7 @@ function Period({ view, periodKey, allProjects, filter, narrow, pick, more }: {
     {daily.length > 0
       ? <ProjectTable rows={daily} expanded={allProjects} toggle={more} />
       : periodKey === "today" && !filtered && <div className="us-row"><small>{hasSpend ? "Daily breakdown unavailable" : "Nothing yet today"}</small></div>}
-    {(harnesses.length > 0 || hasSpend) && <table className="us-table">
+    {(shown ? harnesses.length > 0 : harnesses.length > 0 || hasSpend) && <table className="us-table">
       <caption>By harness</caption>
       <thead><tr><th scope="col">Harness</th><th scope="col" className="num">Spend</th><th scope="col" className="num">Tokens</th></tr></thead>
       <tbody>{harnesses.map(spend => <tr key={`${spend.agent}:${spend.subscription}`}>
