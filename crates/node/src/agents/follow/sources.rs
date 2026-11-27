@@ -1,12 +1,10 @@
 //! Event sources for sessions on this machine.
 
-use super::{SummaryCache, recent_deadline};
-use crate::{agents::Agents, logs::found::Agent, occupancy::Watching};
+use super::{SummaryCache, observers::*, recent_deadline};
+use crate::{agents::Agents, logs::found::Agent};
 use anyhow::{Context, Result};
-use beep_proto::SessionId;
 use std::{
-    collections::BTreeSet,
-    path::{Path, PathBuf},
+    path::PathBuf,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -15,134 +13,6 @@ use tokio::{
     task::spawn_blocking,
     time::{Instant, sleep},
 };
-
-pub(crate) struct Sources {
-    paths: crate::events::paths::Paths,
-    processes: std::sync::Mutex<std::collections::HashMap<(String, SessionId), ProcessWatch>>,
-    pending: Arc<Mutex<Pending>>,
-    dirty: mpsc::Sender<()>,
-    /// Tells the occupancy the stores are read as they change.
-    _watching: Watching,
-    _summary: tokio_util::task::AbortOnDropHandle<()>,
-}
-
-#[derive(Default)]
-struct Pending {
-    agents: BTreeSet<Agent>,
-}
-
-impl Pending {
-    fn record(&mut self, roots: &[(Agent, PathBuf)], changed: &[PathBuf]) {
-        self.agents.extend(
-            roots
-                .iter()
-                .filter_map(|(agent, path)| changed.contains(path).then_some(*agent)),
-        );
-    }
-
-    /// Records every agent whose watched root saw a relevant file change.
-    /// Returns `false` when every reported path is noise (logs, `-shm`, empty `-wal`).
-    fn record_paths(
-        &mut self,
-        roots: &[(Agent, PathBuf)],
-        changed_roots: &[PathBuf],
-        changed_paths: Option<&[PathBuf]>,
-    ) -> bool {
-        let Some(paths) = changed_paths else {
-            self.record(roots, changed_roots);
-            return !changed_roots.is_empty();
-        };
-
-        let mut matched = false;
-        for (agent, root) in roots {
-            if changed_roots.contains(root)
-                && paths.iter().any(|path| relevant_path(*agent, root, path))
-            {
-                self.agents.insert(*agent);
-                matched = true;
-            }
-        }
-        matched
-    }
-}
-
-fn non_empty_wal(path: &Path) -> bool {
-    std::fs::metadata(path).is_ok_and(|meta| meta.len() > 0)
-}
-
-/// Whether a filesystem event at `path` under `root` can change `agent`'s
-/// sessions or spend. Skips logs, SQLite `-shm` sidecars and empty `-wal`
-/// files created when a CLI or reader opens a WAL database.
-fn relevant_path(agent: Agent, root: &Path, path: &Path) -> bool {
-    if path == root {
-        return true;
-    }
-
-    if root.starts_with(path) {
-        return root.exists();
-    }
-
-    let Ok(relative) = path.strip_prefix(root) else {
-        return false;
-    };
-    let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
-        return false;
-    };
-
-    if name.ends_with("-shm") {
-        return false;
-    }
-
-    match agent {
-        Agent::Claude => name.ends_with(".jsonl") || name.ends_with(".json"),
-        Agent::Codex | Agent::Pi => name.ends_with(".jsonl"),
-        Agent::Flsh => {
-            name.ends_with(".jsonl")
-                || name.ends_with(".db")
-                || (name.ends_with(".db-wal") && non_empty_wal(path))
-                || name.ends_with(".openrouter.json")
-                || name == ".sqlite-imported"
-        }
-        Agent::OpenCode => {
-            relative.components().count() == 1
-                && (name.ends_with(".db")
-                    || (name.ends_with(".db-wal") && non_empty_wal(path))
-                    || name == "auth.json")
-        }
-        Agent::Agy => {
-            relative.components().count() == 1
-                && (name.ends_with(".db") || (name.ends_with(".db-wal") && non_empty_wal(path)))
-        }
-    }
-}
-
-#[derive(PartialEq, Eq)]
-enum Observation {
-    Process(u32),
-    Recent(u64),
-}
-
-struct ProcessWatch {
-    revision: Observation,
-    seen: Instant,
-    cwd: PathBuf,
-    _task: tokio_util::task::AbortOnDropHandle<()>,
-}
-
-fn active_roots(
-    processes: &std::collections::HashMap<(String, SessionId), ProcessWatch>,
-) -> Vec<PathBuf> {
-    let mut roots: Vec<_> = processes
-        .values()
-        .filter(|held| {
-            matches!(held.revision, Observation::Process(_)) && !held._task.is_finished()
-        })
-        .map(|held| held.cwd.clone())
-        .collect();
-    roots.sort();
-    roots.dedup();
-    roots
-}
 
 impl Agents {
     pub(in crate::agents) fn observe_external(

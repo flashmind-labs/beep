@@ -10,7 +10,7 @@ use beep_proto::node::{
     harness::AgentSettings,
 };
 use beep_proto::watched;
-use std::{collections::BTreeMap, path::Path, time::Duration};
+use std::{collections::{BTreeMap, HashMap}, path::Path, time::Duration};
 
 /// A Claude Code session id, as its transcript file is named.
 #[cfg(unix)]

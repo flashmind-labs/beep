@@ -1,6 +1,6 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
-use super::{AgentKind, Agents, Begin, SavedSession, Session, claude, limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS}, session::Command};
+use super::{AgentKind, Agents, Begin, SavedSession, Session, claude, listings::Listed, limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS}, session::Command};
 use crate::logs::{claude::Store, found::Stores};
 use crate::occupancy::Holding;
 use crate::logs::picture::Picture;
@@ -30,13 +30,6 @@ use tokio::{task::spawn_blocking, time::Instant};
 /// How long `close_external` waits for the process to end.
 const CLOSE_WAIT: Duration = Duration::from_secs(8);
 
-/// The last folder listing, for the asks that waited while it ran.
-pub(super) struct Listed {
-    /// When it ended.
-    at: Instant,
-    folders: Arc<Vec<SessionFolder>>,
-}
-
 /// The absolute folders asked, each also by its real path.
 async fn asked_folders(folders: Vec<String>) -> Result<Vec<PathBuf>> {
     let folders: Vec<PathBuf> = folders
@@ -56,7 +49,7 @@ impl Agents {
     /// none saved, `disk_checkouts` refuses until it ends. No rescan runs
     /// meanwhile, so the walk is the only writer of the list.
     pub async fn warm(&self, root: Option<PathBuf>, dir: PathBuf) {
-        let _walking = self.rescanning.lock().await;
+        let _walking = self.listings.rescanning.lock().await;
         let Some(root) = root else {
             self.publish_checkouts(Some(Arc::default()));
             self.read_logs_ahead().await;
@@ -91,7 +84,7 @@ impl Agents {
     /// counts, and saves the list in `dir`. Nothing while a walk runs or another
     /// rescan does: what that one finds serves this one too.
     pub async fn rescan(&self, root: PathBuf, dir: PathBuf) -> Result<()> {
-        let Ok(_walking) = self.rescanning.try_lock() else {
+        let Ok(_walking) = self.listings.rescanning.try_lock() else {
             return Ok(());
         };
 
@@ -105,7 +98,7 @@ impl Agents {
     }
 
     fn publish_checkouts(&self, checkouts: Option<Arc<Vec<found::Checkout>>>) {
-        *crate::lock(&self.on_disk) = checkouts;
+        *crate::lock(&self.listings.on_disk) = checkouts;
     }
 
     async fn read_logs_ahead(&self) {
@@ -118,7 +111,7 @@ impl Agents {
     /// read some, which the first walk can make minutes: requests do not wait,
     /// and an answer without them would say a checkout is not there.
     fn disk_checkouts(&self) -> Result<Arc<Vec<found::Checkout>>> {
-        crate::lock(&self.on_disk)
+        crate::lock(&self.listings.on_disk)
             .clone()
             .context("still looking for checkouts on this machine")
     }
@@ -179,7 +172,7 @@ impl Agents {
     pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
         let limit = clamp_limit(limit, DEFAULT_FOLDERS, MAX_FOLDERS);
         let asked = Instant::now();
-        let slot = crate::lock(&self.listed).entry(limit).or_default().clone();
+        let slot = crate::lock(&self.listings.listed).entry(limit).or_default().clone();
         let mut listed = slot.lock().await;
 
         if let Some(done) = listed.as_ref()

@@ -13,84 +13,14 @@ use beep_proto::node::agent::{
 };
 use beep_proto::watched;
 use house::HouseRules;
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-};
-use tokio::sync::Notify;
+use kept::Kept;
+use std::sync::Arc;
 use tokio_util::task::AbortOnDropHandle;
 
-/// The most reviews kept, finished ones going first.
-const MAX_REVIEWS: usize = 64;
 /// The most findings one review hands in.
 pub(crate) const MAX_FINDINGS: usize = 30;
 /// What a reviewer that ended its turn without a review is told, once.
 pub(crate) const NUDGE: &str = "Call submit_review with your findings.";
-
-/// The reviews this node ran and runs.
-pub(super) struct Reviews {
-    kept: Mutex<VecDeque<Kept>>,
-    events: crate::events::Hub,
-    /// Woken when a review changes, for the callers that wait on one.
-    changed: Notify,
-}
-
-struct Kept {
-    run: ReviewRun,
-    /// Who asked, as the family names the parent.
-    parent: Option<Who>,
-    /// The parent's id on this node.
-    parent_key: Option<SessionId>,
-    /// Follows the reviewer until it is done.
-    _watch: Option<AbortOnDropHandle<()>>,
-}
-
-impl Default for Reviews {
-    fn default() -> Self {
-        Self::new(crate::events::system().clone())
-    }
-}
-
-impl Reviews {
-    pub(super) fn new(events: crate::events::Hub) -> Self {
-        Self {
-            kept: Mutex::default(),
-            events,
-            changed: Notify::new(),
-        }
-    }
-
-    fn with<T>(&self, id: &SessionId, f: impl FnOnce(&mut Kept) -> T) -> Option<T> {
-        let mut all = crate::lock(&self.kept);
-        let kept = all.iter_mut().find(|kept| kept.run.id == *id)?;
-        let before = kept.run.clone();
-        let value = f(kept);
-
-        if kept.run != before {
-            self.events
-                .changed(beep_proto::node::events::Topic::keyed("reviews", id));
-            self.changed.notify_waiters();
-        }
-
-        Some(value)
-    }
-
-    fn keep(&self, kept: Kept) {
-        let mut all = crate::lock(&self.kept);
-
-        if all.len() >= MAX_REVIEWS
-            && let Some(at) = all.iter().position(|kept| !kept.run.running())
-        {
-            all.remove(at);
-        }
-
-        self.events.changed(beep_proto::node::events::Topic::keyed(
-            "reviews",
-            &kept.run.id,
-        ));
-        all.push_back(kept);
-    }
-}
 
 impl Agents {
     pub(crate) fn review_snapshots(&self) -> Vec<ReviewRun> {
@@ -439,6 +369,7 @@ pub(crate) fn prompt(base: &str, focus: &str, house: Option<&HouseRules>) -> Str
 }
 
 mod house;
+pub(super) mod kept;
 
 #[cfg(test)]
 #[path = "../tests/agents_reviews.rs"]

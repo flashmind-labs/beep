@@ -1,16 +1,12 @@
 //! Keeping agent sessions across a node restart: the next start resumes each noted
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
-use beep_proto::{AccountName, SessionId};
-use super::{AgentKind, Agents, Begin, acp::Prompt, checkout, family::RemoteKid, moving, session::{CONTINUE, Command, NODE_STOPPED, Session}};
+use beep_proto::SessionId;
+use super::{AgentKind, Agents, Begin, acp::Prompt, checkout, moving, reopen::{OpenSession, SavedSession}, session::{CONTINUE, Command, NODE_STOPPED, Session}};
 use crate::logs::found::Agent;
 use anyhow::{Context, Result};
 use beep_proto::watched;
-use beep_proto::{
-    ModelId,
-    node::agent::{Effort, Entry, ParentLink, Persona, SessionDevice, SessionInfo, Status},
-};
-use serde::{Deserialize, Serialize};
+use beep_proto::node::agent::{SessionInfo, Status};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -29,25 +25,6 @@ const KEPT_ENTRIES: usize = 1000;
 /// The most sessions the note keeps, for sessions taken over later.
 const KEPT_SAVED: usize = 500;
 
-/// What the node keeps of a session, also after it ended, so it goes on as
-/// it was when it is resumed, taken over or moved: its `SessionInfo` as
-/// listed, and the thinking level, which the info does not carry.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-pub(crate) struct SavedSession {
-    /// By the agent's own id.
-    pub(crate) info: SessionInfo,
-    #[serde(default)]
-    pub(crate) effort: Option<Effort>,
-    #[serde(default)]
-    pub(crate) fast: Option<bool>,
-    /// The named account it ran as; `None` for the default one.
-    #[serde(default)]
-    pub(crate) account: Option<AccountName>,
-    /// Its parent gave its title, which its agent's own names leave alone.
-    #[serde(default)]
-    pub(crate) named: bool,
-}
-
 /// Why a session is read to start again.
 #[derive(Clone, Copy, PartialEq)]
 enum Keep {
@@ -56,100 +33,6 @@ enum Keep {
     Open,
     /// For a move to another machine, as it runs now.
     Moving,
-}
-
-/// A session the node stopped, to resume when it starts again.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub(crate) struct OpenSession {
-    /// The agent, such as `claude`.
-    agent: String,
-    /// The agent's own id for the session.
-    pub(crate) session: SessionId,
-    cwd: PathBuf,
-    #[serde(default)]
-    started_at: u64,
-    #[serde(default)]
-    last_activity: u64,
-    /// Prompts that had not gone to the agent yet.
-    held: Vec<Prompt>,
-    /// The session mode it was in.
-    #[serde(default)]
-    mode: Option<String>,
-    /// The session that started it with `start_agent`.
-    #[serde(default)]
-    parent: Option<ParentLink>,
-    /// The children it started on other machines.
-    #[serde(default)]
-    pub(super) kids: Vec<RemoteKid>,
-    /// Its last transcript entries, kept when the node stopped, for an
-    /// agent that resumes with `session/resume`, which replays nothing.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    transcript: Vec<Entry>,
-    /// The model it ran on. A resumed agent starts on its own default otherwise.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    model: Option<ModelId>,
-    #[serde(default)]
-    title: Option<String>,
-    /// The device it used, kept as `SessionInfo::device`.
-    #[serde(default)]
-    device: Option<SessionDevice>,
-    /// The linked worktrees it created, kept as `SessionInfo::worktrees`.
-    #[serde(default)]
-    worktrees: Vec<String>,
-    /// Whether it is the home assistant.
-    #[serde(default)]
-    assistant: bool,
-    /// The thinking level it ran at.
-    #[serde(default)]
-    effort: Option<Effort>,
-    #[serde(default)]
-    fast: Option<bool>,
-    /// The named account it ran as; `None` for the default one.
-    #[serde(default)]
-    account: Option<AccountName>,
-    /// Its parent gave its title.
-    #[serde(default)]
-    named: bool,
-    /// The custom agent it runs as.
-    #[serde(default)]
-    persona: Option<Persona>,
-    /// The session it carries on.
-    #[serde(default)]
-    continues: Option<SessionId>,
-    /// The team issue its first prompt named.
-    #[serde(default)]
-    issue: Option<u64>,
-}
-
-impl From<&OpenSession> for SavedSession {
-    /// What a note from before saved sessions knows of open session `open`.
-    fn from(open: &OpenSession) -> Self {
-        let cwd = open.cwd.to_string_lossy().into_owned();
-
-        Self {
-            info: SessionInfo {
-                id: open.session.clone(),
-                agent: open.agent.clone(),
-                cwd,
-                title: open.title.clone(),
-                mode: open.mode.clone(),
-                parent: open.parent.clone(),
-                model: open.model.clone(),
-                device: open.device.clone(),
-                worktrees: open.worktrees.clone(),
-                account: open.account.clone(),
-                assistant: open.assistant,
-                persona: open.persona.clone(),
-                continues: open.continues.clone(),
-                issue: open.issue,
-                ..SessionInfo::default()
-            },
-            effort: open.effort,
-            fast: open.fast,
-            account: open.account.clone(),
-            named: open.named,
-        }
-    }
 }
 
 impl OpenSession {
@@ -223,18 +106,18 @@ impl Agents {
             .iter()
             .filter_map(|session| Self::saved_of(session))
             .collect();
-        kept_with(&mut crate::lock(&self.saved), now, |kept| &kept.info.id)
+        kept_with(&mut crate::lock(&self.reopen.saved), now, |kept| &kept.info.id)
     }
 
     /// Takes the sessions kept in the note from before the node started.
     pub(crate) fn keep_saved(&self, saved: Vec<SavedSession>) {
-        *crate::lock(&self.saved) = saved;
+        *crate::lock(&self.reopen.saved) = saved;
     }
 
     /// Keeps `saved`, a session that came from another machine ended, as
     /// one that ended here.
     pub(crate) fn keep_arrived(&self, saved: SavedSession) {
-        kept_with(&mut crate::lock(&self.saved), vec![saved], |kept| &kept.info.id);
+        kept_with(&mut crate::lock(&self.reopen.saved), vec![saved], |kept| &kept.info.id);
         crate::events::open_changed();
     }
 
@@ -245,7 +128,7 @@ impl Agents {
             return Some(saved);
         }
 
-        crate::lock(&self.saved)
+        crate::lock(&self.reopen.saved)
             .iter()
             .rfind(|kept| kept.info.id == *id)
             .cloned()
@@ -254,7 +137,7 @@ impl Agents {
     /// Drops what was kept of session `id`, by the agent's own id, once it
     /// is deleted.
     pub(super) fn forget_saved(&self, id: &SessionId) {
-        crate::lock(&self.saved).retain(|kept| kept.info.id != *id);
+        crate::lock(&self.reopen.saved).retain(|kept| kept.info.id != *id);
     }
 
     /// The linked worktrees session `id` created, as `saved` gives them.
@@ -356,7 +239,7 @@ impl Agents {
     /// after `SETTINGS_WAIT`.
     pub(crate) async fn reopen(&self, sessions: Vec<OpenSession>) {
         if sessions.is_empty() {
-            self.reopened.send_replace(true);
+            self.reopen.reopened.send_replace(true);
             return;
         }
 
@@ -383,7 +266,7 @@ impl Agents {
             .await;
         }
 
-        self.reopened.send_replace(true);
+        self.reopen.reopened.send_replace(true);
     }
 
     /// Waits until the sessions that were open before the last stop run
@@ -391,14 +274,14 @@ impl Agents {
     /// back.
     pub(crate) async fn until_reopened(&self) {
         // An error means the node is gone, which also ends the wait.
-        let _ = watched::wait_for(&mut self.reopened.subscribe(), |done| *done).await;
+        let _ = watched::wait_for(&mut self.reopen.reopened.subscribe(), |done| *done).await;
     }
 
     /// Whether the sessions open before the last stop run again, or there
     /// were none. Until then a session may be about to come back, so one
     /// that does not run is not yet one that ended.
     pub fn reopened(&self) -> bool {
-        watched::read_sent(&self.reopened, |done| *done)
+        watched::read_sent(&self.reopen.reopened, |done| *done)
     }
 
     /// What it takes to start session `id` again, as it runs now.

@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 #[test]
 fn changes_keep_every_affected_harness_until_the_batch_is_taken() {

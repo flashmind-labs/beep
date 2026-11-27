@@ -12,14 +12,12 @@ host! {
     pub(crate) mod child_reach;
     pub(crate) mod child_view;
     pub(crate) use crate::calls;
-    use crate::{AsyncMutex, occupancy::Occupancy};
-    use crate::logs::found;
+    use crate::occupancy::Occupancy;
     use std::{
-        collections::HashMap,
         path::PathBuf,
         sync::{Arc, Mutex, OnceLock, atomic::AtomicBool},
     };
-    use tokio::{sync::watch, time::Instant};
+    use tokio::time::Instant;
 
     pub mod claude;
     mod claude_direct;
@@ -50,6 +48,7 @@ host! {
     mod images;
     pub(crate) mod kinds;
     mod launch;
+    mod listings;
     mod limits;
     pub(crate) mod live;
     pub(crate) mod machine_list;
@@ -67,6 +66,7 @@ host! {
     pub(crate) mod reach;
     pub mod search;
     mod requests;
+    mod reopen;
     mod restart;
     pub(crate) mod reviews;
     mod running;
@@ -97,7 +97,7 @@ host! {
     pub(crate) use moving::project_folder;
     pub use requests::serve_sessions;
     pub(crate) use requests::{TRANSCRIPT_PROTOCOL, serve_transcripts};
-    pub(crate) use restart::{OpenSession, SavedSession};
+    pub(crate) use reopen::{OpenSession, SavedSession};
     pub(crate) use session::{Answered, Asking};
     pub use session_stream::serve_session;
 
@@ -119,7 +119,7 @@ host! {
         /// Who works in which folder here, shared with sync.
         occupancy: Occupancy,
         pub events: crate::events::Hub,
-        sources: Mutex<std::sync::Weak<follow::Sources>>,
+        sources: Mutex<std::sync::Weak<follow::observers::Sources>>,
         event_forward: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
         /// The agents it can start, how their adapters stand and the user's
         /// settings for them.
@@ -153,24 +153,13 @@ host! {
         /// The background children that closed for good, to delete.
         closed: family::links::Tidy,
         /// The reviews reviewers handed in, and the reviewers running.
-        reviews: reviews::Reviews,
+        reviews: reviews::kept::Reviews,
         /// The search index, once the mesh opened it.
         search: OnceLock<Arc<search::SearchIndex>>,
-        /// Set once the sessions open before the last stop have been resumed, or
-        /// there were none.
-        reopened: watch::Sender<bool>,
-        /// The checkouts found on disk under home, once `warm` read them.
-        /// Written after a walk, by the one walk running.
-        on_disk: Mutex<Option<Arc<Vec<found::Checkout>>>>,
-        /// Held while a walk for checkouts runs, deep or quick; one at a
-        /// time. `warm` waits for it, a rescan does not.
-        rescanning: AsyncMutex<()>,
-        /// The last folder listing for each limit; held while one runs, so
-        /// asks for that limit that come meanwhile share it instead of each
-        /// running git for every folder.
-        listed: Mutex<HashMap<usize, Arc<AsyncMutex<Option<found_sessions::Listed>>>>>,
-        /// What sessions were, ended ones too, from the restart note.
-        saved: Mutex<Vec<restart::SavedSession>>,
+        /// The sessions kept across the last stop, and whether they were resumed.
+        reopen: reopen::Reopen,
+        /// What the node has read of the folders it lists sessions in.
+        listings: listings::Listings,
     }
 
     impl Agents {
@@ -182,7 +171,7 @@ host! {
                 catalog: Arc::new(catalog::Catalog::new(kinds)),
                 occupancy,
                 spend: Arc::new(Spend::locate()),
-                reviews: reviews::Reviews::new(events),
+                reviews: reviews::kept::Reviews::new(events),
                 ..Self::default()
             }
         }

@@ -66,7 +66,7 @@ fn source(content: &str) -> Source {
         ..Agents::default()
     };
     // The sessions open before the last stop run again: none were open.
-    agents.reopened.send_replace(true);
+    agents.reopen.reopened.send_replace(true);
     Source {
         _dir: dir,
         rollout,
@@ -441,10 +441,10 @@ async fn a_session_that_may_still_be_coming_back_from_a_restart_reads_as_running
     let server = serving(&source.agents).await;
     let mine = TempDir::new().expect("a temp folder");
     let copy = mine.path().join("copy.jsonl");
-    source.agents.reopened.send_replace(false);
+    source.agents.reopen.reopened.send_replace(false);
     let pulled = read_from(&server, &copy, ID).await.expect("a read");
     assert!(pulled.live, "the source may still append when it reopens");
-    source.agents.reopened.send_replace(true);
+    source.agents.reopen.reopened.send_replace(true);
     let pulled = read_from(&server, &copy, ID).await.expect("a read");
     assert!(!pulled.live);
 }
@@ -560,7 +560,7 @@ fn flsh_source() -> (TempDir, Arc<Agents>) {
         occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(None, None, Some(dir.path()))),
         ..Agents::default()
     };
-    agents.reopened.send_replace(true);
+    agents.reopen.reopened.send_replace(true);
     (dir, Arc::new(agents))
 }
 
@@ -691,7 +691,7 @@ async fn project_server() -> (TempDir, std::path::PathBuf, Router) {
 async fn project_server_reopened(reopened: bool) -> (TempDir, std::path::PathBuf, Router) {
     let (dir, main) = project();
     let agents = Agents::default();
-    agents.reopened.send_replace(reopened);
+    agents.reopen.reopened.send_replace(reopened);
     let endpoint = endpoint().await;
     let router = Router::builder(endpoint)
         .accept(ALPN, Project(Arc::new(agents), main.clone()))

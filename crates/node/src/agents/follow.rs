@@ -56,8 +56,9 @@ const COALESCE_LIVE: Duration = Duration::from_millis(40);
 const COALESCE_FILE: Duration = Duration::from_millis(200);
 const COALESCE_BACKGROUND: Duration = Duration::from_secs(1);
 
+pub(super) mod observers;
 mod sources;
-pub(crate) use sources::Sources;
+pub(crate) use observers::Sources;
 
 #[derive(Debug, PartialEq)]
 struct Summary {

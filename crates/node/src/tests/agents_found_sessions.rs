@@ -12,7 +12,7 @@ async fn the_walk_publishes_after_it_ends_and_lets_a_rescan_run() {
         .warm(Some(home.path().to_path_buf()), dir.path().to_path_buf())
         .await;
 
-    assert!(agents.rescanning.try_lock().is_ok());
+    assert!(agents.listings.rescanning.try_lock().is_ok());
     let found = agents.disk_checkouts().expect("the walk published its list");
     assert!(found.iter().any(|checkout| checkout.root.ends_with("work/app")));
 
@@ -29,7 +29,7 @@ async fn the_walk_publishes_after_it_ends_and_lets_a_rescan_run() {
 async fn a_listing_for_one_limit_does_not_wait_for_another() {
     let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
     agents.warm(None, std::path::PathBuf::new()).await;
-    let slot = crate::lock(&agents.listed).entry(5).or_default().clone();
+    let slot = crate::lock(&agents.listings.listed).entry(5).or_default().clone();
     let _running = slot.lock().await;
 
     let listed = tokio::time::timeout(std::time::Duration::from_secs(20), agents.found_folders(10))
@@ -62,7 +62,7 @@ async fn stored_sessions_lock_one_at_a_time_each_and_the_lock_is_forgotten_after
 #[tokio::test]
 async fn the_warm_walk_waits_for_a_rescan_that_runs() {
     let agents = Arc::new(Agents::new(Vec::new(), crate::occupancy::Occupancy::default()));
-    let rescan = agents.rescanning.lock().await;
+    let rescan = agents.listings.rescanning.lock().await;
     let warm = tokio::spawn({
         let agents = agents.clone();
         async move { agents.warm(None, std::path::PathBuf::new()).await }

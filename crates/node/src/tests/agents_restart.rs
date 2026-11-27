@@ -1,9 +1,10 @@
 use super::*;
 use crate::{
-    agents::{AgentKind, Session, live::Live},
+    agents::{AgentKind, Session, family::RemoteKid, live::Live},
     link::restart::{self, Reopen},
 };
-use beep_proto::node::agent::{EntryKind, ExternalSession};
+use beep_proto::ModelId;
+use beep_proto::node::agent::{EntryKind, ExternalSession, ParentLink};
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
 use tokio::sync::watch;
