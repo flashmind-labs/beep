@@ -556,27 +556,40 @@ impl Actor {
         }
     }
 
+    /// Whether a waiting prompt can go out now: the session is ready and no
+    /// prompt, compaction, steer or question of its own is open. A turn the
+    /// agent started on its own takes a prompt, which joins it.
+    pub(super) fn can_prompt(&self) -> bool {
+        self.ready_for_prompts
+            && self.acp_session.is_some()
+            && self.turn.is_none()
+            && !self.compactor.running()
+            && self.steering.is_none()
+            && self.asked.is_empty()
+    }
+
+    pub(super) fn has_waiting_prompts(&self) -> bool {
+        !(self.queued.is_empty() && self.steers.is_empty())
+    }
+
     /// Sends the next waiting prompt, if any.
     pub(super) fn next_prompt(&mut self, cx: &ConnectionTo<Agent>) {
-        if !self.ready_for_prompts {
+        // A session that moves still runs what waited before the
+        // move: nothing new comes in, and it ends once the queue is empty.
+        if !self.can_prompt() {
             return;
         }
 
         let Some(session) = self.acp_session.clone() else {
             return;
         };
-        // A session that moves still runs what waited before the
-        // move: nothing new comes in, and it ends once the queue is empty.
-        if self.steering.is_some() {
-            return;
-        }
 
-        let waiting = !(self.queued.is_empty() && self.steers.is_empty());
+        let waiting = self.has_waiting_prompts();
 
         // A conversation past the threshold compacts as soon as its turn
         // ends, so the next message need not wait for it. A session that
         // moves with nothing waiting leaves it to its new machine.
-        if (waiting || !self.moving) && self.compactor.start(!self.asked.is_empty()) {
+        if (waiting || !self.moving) && self.compactor.start(false) {
             self.compact(cx, &session);
             return;
         }

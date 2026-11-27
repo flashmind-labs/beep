@@ -41,7 +41,7 @@ impl Actor {
 
             Command::Prompt(prompt) => self.enqueue(cx, prompt, false),
             Command::Steer(prompt) => self.enqueue(cx, prompt, true),
-            Command::Answer { question, reply } => self.answer(question, &reply),
+            Command::Answer { question, reply } => self.answer(cx, question, &reply),
             Command::DropSteers => {
                 self.steers.clear();
 
@@ -75,7 +75,7 @@ impl Actor {
             Command::NotMoving => {
                 self.moving = false;
 
-                if watched::read_sent(&self.live, Live::status) == Status::Idle {
+                if self.can_prompt() {
                     self.next_prompt(cx);
                 }
 
@@ -105,6 +105,7 @@ impl Actor {
                         );
                     });
                     self.show_question();
+                    self.resume_after_question(cx)?;
                 }
 
                 Ok(Ok(()))
@@ -182,7 +183,7 @@ impl Actor {
             && prompt.images.is_empty()
         {
             let question = asked.question.id;
-            return self.answer(question, &prompt.text);
+            return self.answer(cx, question, &prompt.text);
         }
 
         let prompt = self.fitted(prompt);
@@ -198,7 +199,7 @@ impl Actor {
         }
         self.show_queued();
 
-        if watched::read_sent(&self.live, Live::status) == Status::Idle {
+        if self.can_prompt() {
             self.next_prompt(cx);
         } else if steer && self.offers.takes_steering {
             self.steer_now(cx)?;
@@ -528,7 +529,12 @@ impl Actor {
         self.show_question();
     }
 
-    fn answer(&mut self, question: u32, reply: &str) -> Result<Result<(), String>> {
+    fn answer(
+        &mut self,
+        cx: &ConnectionTo<Agent>,
+        question: u32,
+        reply: &str,
+    ) -> Result<Result<(), String>> {
         let Some(asked) = self.asked.front() else {
             return Ok(Err("there is no open question".into()));
         };
@@ -556,7 +562,10 @@ impl Actor {
                     self.answered(reply.trim());
                     self.ask_form(*form);
                 }
-                acp::Answer::Sent(name) => self.answered(&name),
+                acp::Answer::Sent(name) => {
+                    self.answered(&name);
+                    self.resume_after_question(cx)?;
+                }
             }
             return Ok(Ok(()));
         }
@@ -580,6 +589,7 @@ impl Actor {
                 let _ = sender.send(answered);
             }
             self.answered(&name);
+            self.resume_after_question(cx)?;
             return Ok(Ok(()));
         }
 
@@ -630,6 +640,7 @@ impl Actor {
         }
 
         self.answered(&name);
+        self.resume_after_question(cx)?;
         Ok(Ok(()))
     }
 
@@ -638,6 +649,24 @@ impl Actor {
             live.push(EntryKind::Question, &format!("Answered: {name}"));
         });
         self.show_question();
+    }
+
+    /// Sends a prompt or steer that waited for the open questions, once the
+    /// last one is answered or withdrawn.
+    fn resume_after_question(&mut self, cx: &ConnectionTo<Agent>) -> Result<()> {
+        if !self.asked.is_empty() {
+            return Ok(());
+        }
+
+        if self.can_prompt() {
+            if self.has_waiting_prompts() {
+                self.next_prompt(cx);
+            }
+        } else if self.offers.takes_steering {
+            self.steer_now(cx)?;
+        }
+
+        Ok(())
     }
 
     /// Shows the first waiting question, or none, in the state.

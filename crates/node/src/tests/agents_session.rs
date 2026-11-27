@@ -3220,6 +3220,69 @@ async fn stop_all_without_subagents_stops_the_turn_and_background_commands() {
     session.close().await;
 }
 
+/// A steer sent while Claude Code works on a turn it started on its own goes
+/// out as `session/prompt` instead of sitting stuck in `queued_messages` (#1272).
+#[cfg(unix)]
+#[tokio::test]
+async fn a_steer_during_an_autonomous_turn_runs_instead_of_staying_queued() {
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path();
+    let log = dir.join("sent.jsonl");
+    let adapter = r#"
+read -r line; log "$1"
+reply '{"protocolVersion":1,"agentInfo":{"name":"@agentclientprotocol/claude-agent-acp","version":"0.101.0"},"agentCapabilities":{},"_meta":{"steering":{"supported":true}}}'
+update() { printf '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"s","update":%s}}\n' "$1"; }
+turns=0
+while read -r line; do
+    log "$1"
+    case "$line" in
+    *'"session/new"'*) reply '{"sessionId":"s"}' ;;
+    *'"session/prompt"'*)
+        prompt=$(id)
+        turns=$((turns + 1))
+        if [ "$turns" -eq 1 ]; then
+            update '{"sessionUpdate":"tool_call","toolCallId":"t1","title":"Run upload","kind":"execute","status":"in_progress"}'
+            update '{"sessionUpdate":"async_task_spawned","asyncTaskId":"bg1","name":"upload","taskType":"local_bash","description":"Run upload","showInTranscript":true,"canStop":true,"toolCallId":"t1"}'
+            update '{"sessionUpdate":"tool_call_update","toolCallId":"t1","status":"completed","_meta":{"jetbrains":{"air":{"version":1,"asyncTasks":{"backgrounded":true}}}}}'
+            printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+            update '{"sessionUpdate":"async_task_spawned","asyncTaskId":"turn1","name":"Claude is working","taskType":"turn","description":"","showInTranscript":false,"canStop":true}'
+        else
+            update '{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"In .env"}}'
+            printf '{"jsonrpc":"2.0","id":%s,"result":{"stopReason":"end_turn"}}\n' "$prompt"
+            update '{"sessionUpdate":"async_task_state_update","asyncTaskId":"turn1","state":"completed"}'
+        fi
+        ;;
+    *) reply '{}' ;;
+    esac
+done
+"#;
+    let kind = script("claude", adapter, &log);
+    let session = Session::start(start_on(&kind, dir, None)).unwrap();
+    until(&session, |live| {
+        live.info.turns == 1 && live.info.state.summary == "Working on its own"
+    })
+    .await;
+    assert_eq!(session.info().state.status, Status::Working);
+
+    session
+        .order(Command::Steer("where are the keys?".to_owned().into()))
+        .await
+        .unwrap();
+    until(&session, |live| {
+        live.info.turns == 2 && live.status() == Status::Idle
+    })
+    .await;
+
+    let state = session.info().state;
+    assert_eq!(state.queued, 0);
+    assert!(state.queued_messages.is_empty());
+    assert_eq!(state.tasks.len(), 1, "background command still tracked");
+    let methods = methods(&log);
+    assert_eq!(methods.iter().filter(|m| *m == "session/prompt").count(), 2);
+    assert!(!methods.contains(&"_session/steering".to_owned()));
+    session.close().await;
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn an_image_sent_during_resume_waits_for_image_capabilities() {

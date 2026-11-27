@@ -341,3 +341,167 @@ fn the_adapter_banner_is_left_out_once() {
     actor.replays = true;
     assert!(!actor.is_banner("a replayed answer"));
 }
+
+#[tokio::test]
+async fn a_steer_during_an_autonomous_turn_goes_out_as_a_prompt() {
+    with_actor(async |mut actor, cx| {
+        actor.offers.protocol = acp::Protocol::V1;
+        actor.offers.takes_steering = true;
+        actor
+            .live
+            .send_modify(|live| live.info.state.status = Status::Idle);
+
+        let spawned = |id: &str| {
+            Event::Task(acp::AsyncTask::Spawned {
+                async_task_id: id.into(),
+                name: "Claude is working".into(),
+                task_type: "turn".into(),
+                description: String::new(),
+                can_stop: true,
+                output_file_path: None,
+                tool_call_id: None,
+            })
+        };
+        let ended = |id: &str| {
+            Event::Task(acp::AsyncTask::StateUpdate {
+                async_task_id: id.into(),
+                state: "completed".into(),
+                summary: None,
+                output_file_path: None,
+                tool_call_id: None,
+            })
+        };
+
+        actor.event(&cx, spawned("turn-1")).unwrap();
+        assert_eq!(
+            watched::read_sent(&actor.live, Live::status),
+            Status::Working
+        );
+        assert!(actor.turn.is_none());
+
+        actor
+            .command(&cx, Command::Steer("where are the keys?".to_owned().into()))
+            .unwrap()
+            .unwrap();
+        assert!(actor.turn.is_some(), "sent as a prompt");
+        assert!(actor.steers.is_empty());
+        assert!(actor.steering.is_none());
+        assert_eq!(
+            watched::read_sent(&actor.live, |live| live.info.state.queued),
+            0
+        );
+
+        // End that prompt and the autonomous turn; test a steer held behind an open question.
+        actor
+            .reply(
+                &cx,
+                Reply::Prompt(Ok(PromptResponse::new(
+                    agent_client_protocol::v1::schema::StopReason::EndTurn,
+                ))),
+            )
+            .unwrap();
+        actor.event(&cx, ended("turn-1")).unwrap();
+        assert_eq!(watched::read_sent(&actor.live, Live::status), Status::Idle);
+
+        actor.event(&cx, spawned("turn-2")).unwrap();
+        let (reply, _answer) = oneshot::channel();
+        actor
+            .command(
+                &cx,
+                Command::Ask {
+                    question: super::super::Asking {
+                        text: "Proceed?".into(),
+                        detail: None,
+                        options: Vec::new(),
+                    },
+                    reply,
+                },
+            )
+            .unwrap()
+            .unwrap();
+        actor
+            .command(&cx, Command::Steer("after question".to_owned().into()))
+            .unwrap()
+            .unwrap();
+        assert!(actor.turn.is_none(), "waits while the question is open");
+        assert_eq!(actor.steers.len(), 1);
+
+        let id = watched::read_sent(&actor.live, |live| {
+            live.info.question.as_ref().unwrap().id
+        });
+        actor
+            .command(
+                &cx,
+                Command::Answer {
+                    question: id,
+                    reply: "yes".into(),
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert!(actor.turn.is_some(), "sent once the question clears");
+        assert!(actor.steers.is_empty());
+
+        // End the prompt, hold a steer directly, and verify task completion drains it too.
+        actor
+            .reply(
+                &cx,
+                Reply::Prompt(Ok(PromptResponse::new(
+                    agent_client_protocol::v1::schema::StopReason::EndTurn,
+                ))),
+            )
+            .unwrap();
+        actor
+            .steers
+            .push_back(Prompt::from("held until task ends".to_owned()));
+        actor.show_queued();
+        actor.event(&cx, ended("turn-2")).unwrap();
+        assert!(actor.turn.is_some(), "autonomous turn end drains waiting steers");
+        assert!(actor.steers.is_empty());
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn a_steer_during_v1_compaction_waits_for_compaction_to_finish() {
+    with_actor(async |mut actor, cx| {
+        actor.offers.protocol = acp::Protocol::V1;
+        actor.offers.takes_steering = true;
+        actor.compactor = Compactor::new(Route::Advertised, Policy::AtTokens(100));
+        actor.live.send_modify(|live| {
+            live.info.context = Some(beep_proto::AgentContext {
+                used: 150,
+                size: 200,
+            });
+            live.commands.push(beep_proto::node::agent::AgentCommand {
+                name: "compact".into(),
+                description: String::new(),
+                hint: String::new(),
+            });
+        });
+
+        actor.turn_done(&cx, StopReason::EndTurn, None);
+        assert!(actor.compactor.running());
+        assert!(actor.turn.is_none());
+
+        actor
+            .command(&cx, Command::Steer("after compact".to_owned().into()))
+            .unwrap()
+            .unwrap();
+        assert!(actor.turn.is_none(), "waits while /compact runs");
+        assert_eq!(actor.steers.len(), 1);
+
+        actor
+            .reply(
+                &cx,
+                Reply::Compacted(Ok(PromptResponse::new(
+                    agent_client_protocol::v1::schema::StopReason::EndTurn,
+                ))),
+            )
+            .unwrap();
+        assert!(!actor.compactor.running());
+        assert!(actor.turn.is_some(), "sent once /compact finishes");
+        assert!(actor.steers.is_empty());
+    })
+    .await;
+}

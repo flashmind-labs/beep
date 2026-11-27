@@ -253,6 +253,10 @@ impl Compactor {
         true
     }
 
+    pub(super) fn running(&self) -> bool {
+        self.running
+    }
+
     /// Keeps agent text that answers the node's `/compact`, so it shows as
     /// the compaction and not as part of the last reply. False when none
     /// runs.

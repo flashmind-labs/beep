@@ -918,6 +918,9 @@ impl Actor {
             Event::Task(task) => {
                 self.live.send_if_modified(|live| live.apply_task(task));
                 self.subagents_moved();
+                if self.has_waiting_prompts() {
+                    self.next_prompt(cx);
+                }
             }
         }
 
@@ -1540,7 +1543,7 @@ impl Actor {
 
         // A prompt that goes out at once leaves no moment of Idle to read:
         // only a session with nothing to do waits for a prompt.
-        let goes_now = !(self.queued.is_empty() && self.steers.is_empty());
+        let goes_now = self.has_waiting_prompts();
         if !goes_now {
             self.live
                 .send_modify(|live| live.info.state.status = Status::Idle);
