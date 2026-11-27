@@ -1657,8 +1657,12 @@ async fn a_removed_machine_stops_syncing_at_once() {
         .await
         .expect("the removal is signed");
     // The node closes the removed machine's open sync connection.
-    pair.a.logged("refused a sync connection").await;
+    pair.a.logged("no longer a peer").await;
+    let conn_a = pair.desktop.reach(pair.a.id).await;
+    let before = proj_status(&conn_a).await.expect("a syncs it").files;
     fs::write(pair.a_folder.join("after.txt"), "after").expect("a file");
+    // a has the new file on its list; the removed machine never gets it.
+    until_status(&conn_a, |status| status.files > before).await;
     assert!(!pair.b_folder.join("after.txt").exists());
 }
 
