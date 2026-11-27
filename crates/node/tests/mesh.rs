@@ -1656,10 +1656,9 @@ async fn a_removed_machine_stops_syncing_at_once() {
         .remove(pair.b.id)
         .await
         .expect("the removal is signed");
-    pair.a.logged("from the mesh: sync proj with 0 peers").await;
-    fs::write(pair.a_folder.join("after.txt"), "after").expect("a file");
-    // The removed machine keeps asking; the node refuses it.
+    // The node closes the removed machine's open sync connection.
     pair.a.logged("refused a sync connection").await;
+    fs::write(pair.a_folder.join("after.txt"), "after").expect("a file");
     assert!(!pair.b_folder.join("after.txt").exists());
 }
 

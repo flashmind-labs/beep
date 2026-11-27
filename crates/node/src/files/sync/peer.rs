@@ -254,6 +254,7 @@ impl ProtocolHandler for PeerHandler {
                     }
 
                     if !self.syncs.is_peer(&peer) {
+                        log::info!("refused a sync connection from {peer}: no longer a peer");
                         connection.close(1u32.into(), b"not a peer");
                         return Ok(());
                     }
