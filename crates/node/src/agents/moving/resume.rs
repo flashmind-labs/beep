@@ -71,7 +71,7 @@ pub(super) async fn store(
 
     if let Some(agent) = agent {
         let (agents, id) = (env.agents.clone(), id.to_owned());
-        spawn_blocking(move || agents.spend.mark_counted(agent, &id, &path))
+        spawn_blocking(move || agents.usage.spend.mark_counted(agent, &id, &path))
             .await?
             .context("marking the copied usage as counted")?;
     }

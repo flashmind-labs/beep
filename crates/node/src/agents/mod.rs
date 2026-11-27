@@ -15,9 +15,8 @@ host! {
     use crate::occupancy::Occupancy;
     use std::{
         path::PathBuf,
-        sync::{Arc, Mutex, atomic::AtomicBool},
+        sync::{Arc, Mutex},
     };
-    use tokio::time::Instant;
 
     pub mod claude;
     mod claude_direct;
@@ -105,8 +104,6 @@ host! {
     pub(crate) use processes::Demand as ProcessDemand;
     pub(crate) use processes::watch_ports;
     use images::Images;
-    use spend::Spend;
-    use usage::UsageHub;
     pub(crate) use session::Session;
     pub(crate) use session::Begin;
 
@@ -123,11 +120,11 @@ host! {
         /// The agents it can start, how their adapters stand and the user's
         /// settings for them.
         pub catalog: Arc<catalog::Catalog>,
+        /// What sessions spend and how much of the agents' plans is left.
+        pub(crate) usage: Arc<usage::Usage>,
         pub(crate) sessions: Arc<sessions::Sessions>,
         /// The pictures sessions' transcripts show, by session.
         images: Arc<Images>,
-        /// What sessions spend and how much of the agents' plans is left.
-        usage: Arc<UsageHub>,
         /// What sessions did that the user would want to hear about.
         alerts: Arc<AlertHub>,
         /// What git says of the folders sessions and peers read.
@@ -136,12 +133,6 @@ host! {
         lsp: lsp::Pool,
         /// The CI runs this node tells, and how it reaches the hosts.
         pub(crate) ci: Arc<ci::Ci>,
-        /// What sessions spent, from the agents' own logs.
-        spend: Arc<Spend>,
-        /// Set while the agents' plans are read.
-        reading_plans: AtomicBool,
-        /// When the last plan read started, so short-lived streams do not re-run it before `PLAN_EVERY`.
-        last_plan_read: Mutex<Option<Instant>>,
         /// How the moves of sessions to this machine stand.
         moves: moving::Moves,
         /// The workspace and the folders shared in `node.toml`, which file
@@ -187,9 +178,9 @@ host! {
 
             Self {
                 events: events.clone(),
+                usage: Arc::new(usage::Usage::new(catalog.clone())),
                 catalog,
                 occupancy: parts.occupancy,
-                spend: Arc::new(Spend::locate()),
                 reviews: reviews::kept::Reviews::new(events),
                 links: Arc::new(family::links::Links::new(parts.mesh)),
                 folders: parts.folders,

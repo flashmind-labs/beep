@@ -152,9 +152,9 @@ pub async fn serve(
     offers.offer_searches(&state.dir, &state.search);
     // The plans read ahead too: Claude Code takes a while to start, and a
     // desktop opening its window would otherwise wait for it.
-    let agents = offers.agents.clone();
+    let usage = offers.agents.usage.clone();
     let _plans = AbortOnDropHandle::new(tokio::spawn(async move {
-        agents.read_plans_at_start().await;
+        usage.read_plans_at_start().await;
     }));
     let mut started = None;
     let mut served = None;

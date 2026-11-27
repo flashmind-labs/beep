@@ -790,8 +790,9 @@ async fn send_usage(
     history: bool,
     caller: EndpointId,
 ) -> Result<()> {
-    let turns = agents.usage.turns.follow(caller);
-    let mut plans = agents.usage.plans();
+    let usage = &agents.usage;
+    let turns = usage.hub.turns.follow(caller);
+    let mut plans = usage.hub.plans();
     // What earlier reads left goes out at once: a desktop opens a stream per
     // look and listens only briefly, so it would miss a CLI that starts slowly.
     let mut sent = watched::read_and_update(&mut plans, Clone::clone);
@@ -804,16 +805,16 @@ async fn send_usage(
     }
 
     // One timer for the node's streams, reading the plans at once as the first begins.
-    let _timer = agents.usage.timer(|| {
-        let agents = Arc::downgrade(agents);
+    let _timer = usage.hub.timer(|| {
+        let usage = Arc::downgrade(usage);
 
         AbortOnDropHandle::new(tokio::spawn(async move {
             loop {
-                let Some(agents) = agents.upgrade() else {
+                let Some(usage) = usage.upgrade() else {
                     return;
                 };
-                let wait = agents.read_plans_if_due(PLAN_EVERY);
-                drop(agents);
+                let wait = usage.read_plans_if_due(PLAN_EVERY);
+                drop(usage);
                 sleep(wait).await;
             }
         }))
@@ -824,7 +825,7 @@ async fn send_usage(
     // reports so far go out at once, the later ones as the scan changes them.
     let (_scan, mut spend) = match history {
         true => {
-            let (scan, mut spend) = agents.spend.follow(agents.log_changes().await?);
+            let (scan, mut spend) = usage.spend.follow(agents.log_changes().await?);
             spend.mark_changed();
             (Some(scan), Some(spend))
         }
@@ -865,7 +866,7 @@ async fn send_usage(
                     let recent = last_read.is_some_and(|at| at.elapsed() < PLAN_REFRESH_GAP);
 
                     if !recent {
-                        agents.read_plans_soon();
+                        usage.read_plans_soon();
                         last_read = Some(Instant::now());
                     }
                 }

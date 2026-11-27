@@ -2,7 +2,7 @@
 //! `read_codex`, `read_agy`), from the agent's own CLI as signed in here.
 //! None sends a model request, and the node never reads their token files.
 
-use super::{unix_now, usage::{WEEK_MINUTES, claude_window}};
+use super::unix_now;
 use crate::process::{GroupLeader, STOP_GRACE, line_reader::{Line, LineReader}, own_group};
 use anyhow::{Context, Result, bail};
 use beep_proto::{
@@ -16,6 +16,22 @@ use tokio::{
     process::{ChildStdin, Command},
     time::timeout,
 };
+
+/// A week, in minutes: the length of Claude Code's weekly windows.
+pub(crate) const WEEK_MINUTES: u32 = 7 * 24 * 60;
+
+/// How long a Claude Code limit window is, in minutes, and what it is
+/// limited to, by its name; `None` for one that is no plan window, such
+/// as overage.
+pub(crate) fn claude_window(kind: &str) -> Option<(u32, Option<&'static str>)> {
+    Some(match kind {
+        "five_hour" => (5 * 60, None),
+        "seven_day" => (WEEK_MINUTES, None),
+        "seven_day_opus" => (WEEK_MINUTES, Some("Opus")),
+        "seven_day_sonnet" => (WEEK_MINUTES, Some("Sonnet")),
+        _ => return None,
+    })
+}
 
 /// How long one read may take, the CLI's start included.
 const READ_TIMEOUT: Duration = Duration::from_secs(30);

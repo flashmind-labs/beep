@@ -3,7 +3,11 @@
 //! its own place among the finished turns. Plan usage is the
 //! latest report per agent, from `plans` or Claude Code's rate limit events.
 
-use crate::agents::AlertHub;
+use crate::agents::{AlertHub, catalog::Catalog, plans::{self, claude_window}, spend::Spend};
+use crate::process::spawn_env;
+use anyhow::Result;
+use beep_proto::AgentAccount;
+use futures::{StreamExt, stream::FuturesUnordered};
 use beep_proto::{
     AccountName, AgentSlug, ProviderCredits,
     node::usage::{LimitWindow, PlanUsage, TurnUsage},
@@ -11,11 +15,137 @@ use beep_proto::{
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    sync::{Arc, Mutex, Weak},
+    sync::{Arc, Mutex, Weak, atomic::{AtomicBool, Ordering}},
     time::Duration,
 };
-use tokio::sync::watch;
+use tokio::{sync::watch, time::Instant};
 use tokio_util::task::AbortOnDropHandle;
+
+/// What sessions spend and how much of the agents' plans is left, with the
+/// reads of the plans.
+#[derive(Default)]
+pub(crate) struct Usage {
+    /// What finished turns spent and the plans' state, for the followers.
+    pub(super) hub: Arc<UsageHub>,
+    /// What sessions spent, from the agents' own logs.
+    pub(super) spend: Arc<Spend>,
+    /// Which agents the plans are read from, and how they sign in.
+    catalog: Arc<Catalog>,
+    /// Set while the agents' plans are read.
+    reading_plans: AtomicBool,
+    /// When the last plan read started, so short-lived streams do not re-run it before `PLAN_EVERY`.
+    last_plan_read: Mutex<Option<Instant>>,
+}
+
+impl Usage {
+    pub(crate) fn new(catalog: Arc<Catalog>) -> Self {
+        Self {
+            spend: Arc::new(Spend::locate()),
+            catalog,
+            ..Self::default()
+        }
+    }
+
+    /// Starts reading the plans into the hub, unless a read runs. The read
+    /// outlives the stream that asked: a desktop listens only briefly, and a
+    /// CLI that answers after it left still has its answer kept for the next
+    /// look. A read ends within `plans::READ_TIMEOUT`.
+    pub(crate) fn read_plans_soon(self: &Arc<Self>) {
+        let _ = self.read_plans_if_due(Duration::ZERO);
+    }
+
+    /// Starts reading the plans when at least `min_gap` passed since the last
+    /// read began, and returns how long to wait until the next due read.
+    pub(crate) fn read_plans_if_due(self: &Arc<Self>, min_gap: Duration) -> Duration {
+        let mut last = crate::lock(&self.last_plan_read);
+
+        if let Some(at) = *last
+            && let Some(remaining) = min_gap.checked_sub(at.elapsed())
+            && !remaining.is_zero()
+        {
+            return remaining;
+        }
+
+        if self.reading_plans.swap(true, Ordering::Relaxed) {
+            return min_gap;
+        }
+
+        *last = Some(Instant::now());
+        drop(last);
+
+        let usage = self.clone();
+        tokio::spawn(async move {
+            usage.read_plans().await;
+            usage.reading_plans.store(false, Ordering::Relaxed);
+        });
+        min_gap
+    }
+
+    /// Reads the plans once the node starts, so the first desktop to look
+    /// finds them read instead of waiting for Claude Code to start. It
+    /// waits for the user's agent settings, which say how each CLI signs in,
+    /// for `SETTINGS_WAIT` at most.
+    pub(crate) async fn read_plans_at_start(self: &Arc<Self>) {
+        if !self.catalog.settings_came().await {
+            log::debug!("reading the plans without the agent settings");
+        }
+
+        self.read_plans_soon();
+    }
+
+    /// Reads how much of each plan is left from the CLIs of the agents this
+    /// node runs, once per account, into the hub as each answers: a slow CLI
+    /// does not hold back the others. One that cannot say is left out.
+    async fn read_plans(&self) {
+        let reads = [AgentAccount::Claude, AgentAccount::Codex]
+            .into_iter()
+            .flat_map(|agent| {
+                let named = spawn_env::accounts_of(agent).into_iter().map(Some);
+                std::iter::once(None)
+                    .chain(named)
+                    .map(move |account| (agent, account))
+            })
+            .map(|(agent, account)| self.read_plan(agent, account))
+            .collect::<FuturesUnordered<_>>();
+        tokio::join!(reads.collect::<Vec<()>>(), self.read_agy_plan());
+    }
+
+    /// Reads Antigravity's plan into the hub; it has no named accounts.
+    async fn read_agy_plan(&self) {
+        let name = AgentSlug::AGY;
+        let Some(command) = self.catalog.cli(name.as_ref(), None, plans::AGY_ARGS) else {
+            return;
+        };
+
+        self.keep_plan(name.as_ref(), None, plans::read_agy(command).await);
+    }
+
+    /// Reads `agent`'s plan on `account` into the hub.
+    async fn read_plan(&self, agent: AgentAccount, account: Option<AccountName>) {
+        let args = match agent {
+            AgentAccount::Claude => plans::CLAUDE_ARGS,
+            AgentAccount::Codex => plans::CODEX_ARGS,
+        };
+        let Some(command) = self.catalog.cli(agent.as_ref(), account.as_ref(), args) else {
+            return;
+        };
+        let read = match agent {
+            AgentAccount::Claude => plans::read_claude(command).await,
+            AgentAccount::Codex => plans::read_codex(command).await,
+        };
+
+        self.keep_plan(agent.as_ref(), account, read);
+    }
+
+    /// Keeps `name`'s plan read on `account` in `usage`.
+    fn keep_plan(&self, name: &str, account: Option<AccountName>, read: Result<Option<PlanUsage>>) {
+        match read {
+            Ok(Some(plan)) => self.hub.set_plan(PlanUsage { account, ..plan }),
+            Ok(None) => {}
+            Err(e) => log::info!("{name} plan usage not read: {e:#}"),
+        }
+    }
+}
 
 /// The most finished turns kept for the followers; the oldest go.
 const MAX_TURNS: usize = 500;
@@ -237,22 +367,6 @@ pub(crate) fn claude_rate_limit(info: &Value) -> Vec<LimitWindow> {
         .and_then(|kind| window(kind, info))
         .into_iter()
         .collect()
-}
-
-/// A week, in minutes: the length of Claude Code's weekly windows.
-pub(crate) const WEEK_MINUTES: u32 = 7 * 24 * 60;
-
-/// How long a Claude Code limit window is, in minutes, and what it is
-/// limited to, by its name; `None` for one that is no plan window, such
-/// as overage.
-pub(crate) fn claude_window(kind: &str) -> Option<(u32, Option<&'static str>)> {
-    Some(match kind {
-        "five_hour" => (5 * 60, None),
-        "seven_day" => (WEEK_MINUTES, None),
-        "seven_day_opus" => (WEEK_MINUTES, Some("Opus")),
-        "seven_day_sonnet" => (WEEK_MINUTES, Some("Sonnet")),
-        _ => return None,
-    })
 }
 
 #[cfg(test)]

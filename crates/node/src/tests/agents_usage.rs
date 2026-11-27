@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::catalog::Catalog;
 use beep_proto::watched;
 use serde_json::json;
 use std::time::Duration;
@@ -178,4 +179,36 @@ async fn streams_share_one_plan_timer_until_the_last_ends() {
     drop(phone);
     let _again = hub.timer(start);
     assert_eq!(started.load(std::sync::atomic::Ordering::Relaxed), 2);
+}
+
+/// Built from the catalog alone: every field is a value of a type below
+/// `Usage`, and a new one fails here until its type is named.
+#[test]
+fn usage_is_built_from_the_catalog_alone() {
+    let catalog = Arc::new(Catalog::default());
+    let Usage {
+        hub,
+        spend,
+        catalog: held,
+        reading_plans,
+        last_plan_read,
+    } = Usage::new(catalog.clone());
+    let _: &Arc<UsageHub> = &hub;
+    let _: &Arc<Spend> = &spend;
+    let _: &AtomicBool = &reading_plans;
+    let _: &Mutex<Option<Instant>> = &last_plan_read;
+
+    assert!(Arc::ptr_eq(&held, &catalog));
+}
+
+#[tokio::test]
+async fn read_plans_if_due_enforces_min_gap_across_streams() {
+    let usage = Arc::new(Usage::new(Arc::new(Catalog::default())));
+    let gap = Duration::from_secs(300);
+
+    let first = usage.read_plans_if_due(gap);
+    assert_eq!(first, gap);
+
+    let second = usage.read_plans_if_due(gap);
+    assert!(second < gap && !second.is_zero());
 }

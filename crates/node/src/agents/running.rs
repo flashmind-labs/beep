@@ -1,7 +1,7 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use crate::machine::env::locate::folder;
-use super::{AgentKind, Agents, Answered, Asking, Session, checkout, harnesses, live::Sent, machine_list, models, plans, projects, session::{Begin, Command, History, Start}, sessions::{self, new_id}};
+use super::{AgentKind, Agents, Answered, Asking, Session, checkout, harnesses, live::Sent, machine_list, models, projects, session::{Begin, Command, History, Start}, sessions::{self, new_id}};
 use crate::{
     agents::child_reach,
     process::spawn_env,
@@ -14,11 +14,9 @@ use beep_proto::node::{
         Status,
     },
     harness::AgentSettings,
-    usage::PlanUsage,
 };
 use beep_proto::watched;
-use beep_proto::{AccountName, AgentAccount, AgentHost, AgentSlug};
-use futures::{StreamExt, stream::FuturesUnordered};
+use beep_proto::{AccountName, AgentAccount, AgentHost};
 use std::time::Duration;
 use std::{
     borrow::Cow,
@@ -30,7 +28,6 @@ use std::{
 use tokio::{
     sync::{oneshot, watch},
     task::spawn_blocking,
-    time::Instant,
 };
 
 impl Agents {
@@ -298,106 +295,6 @@ impl Agents {
             list.current = Some(model.to_string());
         }
         Some(list)
-    }
-
-    /// Starts reading the plans into `usage`, unless a read runs. The read
-    /// outlives the stream that asked: a desktop listens only briefly, and a
-    /// CLI that answers after it left still has its answer kept for the next
-    /// look. A read ends within `plans::READ_TIMEOUT`.
-    pub(crate) fn read_plans_soon(self: &Arc<Self>) {
-        let _ = self.read_plans_if_due(Duration::ZERO);
-    }
-
-    /// Starts reading the plans when at least `min_gap` passed since the last
-    /// read began, and returns how long to wait until the next due read.
-    pub(crate) fn read_plans_if_due(self: &Arc<Self>, min_gap: Duration) -> Duration {
-        let mut last = crate::lock(&self.last_plan_read);
-
-        if let Some(at) = *last
-            && let Some(remaining) = min_gap.checked_sub(at.elapsed())
-            && !remaining.is_zero()
-        {
-            return remaining;
-        }
-
-        if self.reading_plans.swap(true, Ordering::Relaxed) {
-            return min_gap;
-        }
-
-        *last = Some(Instant::now());
-        drop(last);
-
-        let agents = self.clone();
-        tokio::spawn(async move {
-            agents.read_plans().await;
-            agents.reading_plans.store(false, Ordering::Relaxed);
-        });
-        min_gap
-    }
-
-    /// Reads the plans once the node starts, so the first desktop to look
-    /// finds them read instead of waiting for Claude Code to start. It
-    /// waits for the user's agent settings, which say how each CLI signs in,
-    /// for `SETTINGS_WAIT` at most.
-    pub(crate) async fn read_plans_at_start(self: &Arc<Self>) {
-        if !self.catalog.settings_came().await {
-            log::debug!("reading the plans without the agent settings");
-        }
-
-        self.read_plans_soon();
-    }
-
-    /// Reads how much of each plan is left from the CLIs of the agents this
-    /// node runs, once per account, into `usage` as each answers: a slow CLI
-    /// does not hold back the others. One that cannot say is left out.
-    async fn read_plans(&self) {
-        let reads = [AgentAccount::Claude, AgentAccount::Codex]
-            .into_iter()
-            .flat_map(|agent| {
-                let named = spawn_env::accounts_of(agent).into_iter().map(Some);
-                std::iter::once(None)
-                    .chain(named)
-                    .map(move |account| (agent, account))
-            })
-            .map(|(agent, account)| self.read_plan(agent, account))
-            .collect::<FuturesUnordered<_>>();
-        tokio::join!(reads.collect::<Vec<()>>(), self.read_agy_plan());
-    }
-
-    /// Reads Antigravity's plan into `usage`; it has no named accounts.
-    async fn read_agy_plan(&self) {
-        let name = AgentSlug::AGY;
-        let Some(command) = self.catalog.cli(name.as_ref(), None, plans::AGY_ARGS) else {
-            return;
-        };
-
-        self.keep_plan(name.as_ref(), None, plans::read_agy(command).await);
-    }
-
-    /// Reads `agent`'s plan on `account` into `usage`.
-    async fn read_plan(&self, agent: AgentAccount, account: Option<AccountName>) {
-        let args = match agent {
-            AgentAccount::Claude => plans::CLAUDE_ARGS,
-            AgentAccount::Codex => plans::CODEX_ARGS,
-        };
-        let Some(command) = self.catalog.cli(agent.as_ref(), account.as_ref(), args) else {
-            return;
-        };
-        let read = match agent {
-            AgentAccount::Claude => plans::read_claude(command).await,
-            AgentAccount::Codex => plans::read_codex(command).await,
-        };
-
-        self.keep_plan(agent.as_ref(), account, read);
-    }
-
-    /// Keeps `name`'s plan read on `account` in `usage`.
-    fn keep_plan(&self, name: &str, account: Option<AccountName>, read: Result<Option<PlanUsage>>) {
-        match read {
-            Ok(Some(plan)) => self.usage.set_plan(PlanUsage { account, ..plan }),
-            Ok(None) => {}
-            Err(e) => log::info!("{name} plan usage not read: {e:#}"),
-        }
     }
 
     /// While the node runs: checks installed harness releases once an hour
@@ -737,7 +634,7 @@ impl Agents {
             mcp: self.catalog.mcp.as_ref().map(|launch| launch.server(&id)),
             context,
             images: self.images.clone(),
-            usage: self.usage.clone(),
+            usage: self.usage.hub.clone(),
             alerts,
             checkouts: self.checkouts.clone(),
             stopping: self.sessions.stopping.clone(),
