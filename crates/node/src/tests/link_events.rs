@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use beep_proto::node::{
     agent::SessionsReply,
     events::{CallReply, Operation, Query, Read, Reply, Value},
@@ -225,8 +226,7 @@ async fn adding_queries_preserves_default_snapshots_and_rejects_mutations() {
 async fn file_snapshots_include_new_entries_and_enforce_reach() {
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
-    let offers = Offers::default();
-    offers.agents.share_folders(vec![root.path().to_owned()]);
+    let offers = Offers::from_parts(Parts { folders: vec![root.path().to_owned()], ..Parts::default() });
     let (mut tx, mut rx, _task) = start(offers).await;
     tx.send(&Request::Watch {
         id: 1,
@@ -251,8 +251,7 @@ async fn file_snapshots_include_new_entries_and_enforce_reach() {
 #[tokio::test]
 async fn a_folders_snapshot_names_the_paths_that_changed_since_the_one_before() {
     let root = tempfile::tempdir().unwrap();
-    let offers = Offers::default();
-    offers.agents.share_folders(vec![root.path().to_owned()]);
+    let offers = Offers::from_parts(Parts { folders: vec![root.path().to_owned()], ..Parts::default() });
     let (mut tx, mut rx, _task) = start(offers).await;
     let topic = Topic::keyed("files", root.path().to_str().unwrap());
     watch(&mut tx, &mut rx, 1, vec![topic.clone()], vec![]).await;
@@ -329,8 +328,7 @@ async fn a_blocked_topic_stream_does_not_block_another_subscription() {
 #[tokio::test]
 async fn a_watch_is_answered_while_its_watchers_are_still_binding() {
     let root = tempfile::tempdir().unwrap();
-    let offers = Offers::default();
-    offers.agents.share_folders(vec![root.path().to_owned()]);
+    let offers = Offers::from_parts(Parts { folders: vec![root.path().to_owned()], ..Parts::default() });
     let (mut tx, mut rx, _task) = start(offers.clone()).await;
     let (reached, reached_rx) = tokio::sync::oneshot::channel();
     let (release_tx, release) = tokio::sync::oneshot::channel();
@@ -361,8 +359,7 @@ async fn a_watch_is_answered_while_its_watchers_are_still_binding() {
 #[tokio::test]
 async fn a_ping_is_answered_while_a_watch_is_looked_up_and_watches_keep_their_order() {
     let root = tempfile::tempdir().unwrap();
-    let offers = Offers::default();
-    offers.agents.share_folders(vec![root.path().to_owned()]);
+    let offers = Offers::from_parts(Parts { folders: vec![root.path().to_owned()], ..Parts::default() });
     let (mut tx, mut rx, _task) = start(offers.clone()).await;
     let topic = Topic::keyed("files", root.path().to_str().unwrap());
     // Holding the registry stops every source lookup, so the watches wait.

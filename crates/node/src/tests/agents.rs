@@ -1,4 +1,5 @@
 use super::kinds::launch;
+use crate::agents::Parts;
 use super::*;
 use crate::known::KNOWN;
 use crate::machine::env::locate::{folder, home_twins};
@@ -381,7 +382,7 @@ fn another_machines_home_folder_maps_here() {
 async fn one_session_cannot_be_taken_over_twice() {
     // An adapter that never answers: the session stays starting.
     let kind = sh_agent("claude", "cat > /dev/null");
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let begin = || Begin {
         resume: Some(SessionId::from(id)),
@@ -402,7 +403,7 @@ async fn one_session_cannot_be_taken_over_twice() {
 #[tokio::test]
 async fn an_ended_node_session_resumes_from_the_agents_session() {
     let kind = sh_agent("claude", "cat > /dev/null");
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let begin = Begin {
         resume: Some(SessionId::from(id)),
@@ -443,7 +444,7 @@ esac
 done
 "#,
     );
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let root = tempfile::tempdir().unwrap();
     let first = agents
         .start(
@@ -525,7 +526,7 @@ while read -r line; do reply '{}'; done
 async fn a_session_goes_by_the_agents_id_and_ends_with_the_node() {
     const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
     let kind = sh_agent("codex", NAMING_ADAPTER);
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let begin = Begin::default();
     let session = agents.start(&kind, Some("/"), begin).await.unwrap();
     assert!(session.info().id.is_empty());
@@ -572,7 +573,7 @@ esac
 done"#,
         );
     let kind = sh_agent("codex", &script);
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let first = agents
         .start(&kind, Some("/"), Begin::default())
         .await
@@ -640,7 +641,7 @@ done"#,
 async fn a_refused_start_makes_no_branch() {
     let (_dir, work) = checkout::tests::repo("refused");
     let kind = sh_agent("codex", "cat > /dev/null");
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     agents.catalog.set_settings(AgentSettings {
         harnesses: vec![beep_proto::node::harness::HarnessConfig {
             enabled: false,
@@ -666,7 +667,7 @@ async fn a_refused_start_makes_no_branch() {
 async fn a_start_git_sync_holds_back_makes_no_worktree() {
     let (_dir, work) = checkout::tests::repo("held");
     let kind = sh_agent("codex", "cat > /dev/null");
-    let agents = Arc::new(Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default()));
+    let agents = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
     let _hold = agents.occupancy.holds().hold(&work).await.unwrap();
     let plan = CheckoutPlan::NamedWorktree {
         base: None,
@@ -694,7 +695,7 @@ async fn a_start_git_sync_holds_back_makes_no_worktree() {
 async fn an_issue_session_reports_its_agents_id_and_worktree() {
     const AGENT_ID: &str = "0199b2c3-4d5e-7f60-8a9b-0c1d2e3f4a5b";
     let (_dir, work) = checkout::tests::repo("issue");
-    let agents = Agents::new(vec![sh_agent("codex", NAMING_ADAPTER)], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![sh_agent("codex", NAMING_ADAPTER)], ..Parts::default() });
     let plan = CheckoutPlan::NamedWorktree {
         base: None,
         branch: "issue-7-fix-it".to_owned(),
@@ -724,7 +725,7 @@ async fn an_issue_session_reports_its_agents_id_and_worktree() {
 async fn a_session_resumes_only_on_its_own_agent() {
     let kind = |name: &str| sh_agent(name, "cat > /dev/null");
     let (claude, codex) = (kind("claude"), kind("codex"));
-    let agents = Agents::new(vec![claude.clone(), codex.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![claude.clone(), codex.clone()], ..Parts::default() });
     let begin = Begin {
         resume: Some(SessionId::from("0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b").to_owned()),
         ..Begin::default()
@@ -883,7 +884,7 @@ mod actor_tests {
             default_model: None,
             bridge: None,
         };
-        let agents = Arc::new(Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default()));
+        let agents = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
         let session = agents
             .start(&kind, root.path().to_str(), Begin::default())
             .await

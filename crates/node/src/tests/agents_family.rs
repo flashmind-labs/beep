@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::agents::{AgentKind, OpenSession, SavedSession, family::links::{Links, Waits}};
 use crate::team::{asks::Delivery, link::TeamLink};
 use beep_proto::node::agent::{Persona, Request};
@@ -117,7 +118,7 @@ impl Rig {
         let dir = tempfile::tempdir().expect("a temporary folder");
         let top = kind("top", &dir.path().join("top.log"));
         let kid = kind("kid", &dir.path().join("kid.log"));
-        let agents = Agents::new(vec![top.clone(), kid.clone()], crate::occupancy::Occupancy::default());
+        let agents = Agents::new(Parts { kinds: vec![top.clone(), kid.clone()], ..Parts::default() });
         Self {
             dir,
             agents,
@@ -874,7 +875,7 @@ async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
     rig.agents.shutdown().await;
 
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
-    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![rig.top.clone(), rig.kid.clone()], ..Parts::default() });
     after.catalog.settings_arrived();
     // The child is noted first on purpose: parents resume before children.
     let mut noted = noted;
@@ -942,7 +943,7 @@ async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name
     assert!(saved.iter().any(|kept| kept.info.persona.as_ref() == Some(&persona)));
     rig.agents.shutdown().await;
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
-    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![rig.top.clone(), rig.kid.clone()], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(noted).await;
     let id = Agents::name_of(&child);
@@ -1089,7 +1090,7 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     let noted = rig.agents.open_sessions();
     rig.agents.shutdown().await;
 
-    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![rig.top.clone(), rig.kid.clone()], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(noted).await;
     let resumed = after
@@ -1322,12 +1323,12 @@ async fn a_redial_does_not_reset_the_pacing_of_the_asks() {
     assert_eq!(asked.load(SeqCst), 2);
 }
 
-// The orphan check waits for the node to serve its mesh instead of giving
-// up: a node outside any mesh reads as a parent that is silent.
+// A node outside any mesh reads as a parent that is silent, at once: the
+// membership is a value the check holds, not one it waits for.
 #[tokio::test(start_paused = true)]
-async fn the_orphan_check_waits_for_the_node_to_set_its_membership() {
-    use std::sync::{Arc, Weak};
-    use tokio::{sync::{SetOnce, mpsc}, task::yield_now};
+async fn the_orphan_check_reads_a_node_outside_any_mesh_as_a_silent_parent() {
+    use std::sync::Weak;
+    use tokio::sync::mpsc;
 
     let link = ParentLink {
         machine: Some(SecretKeyFor::id()),
@@ -1341,17 +1342,11 @@ async fn the_orphan_check_waits_for_the_node_to_set_its_membership() {
         mode: None,
         background: false,
     };
-    let membership = Arc::new(SetOnce::new());
     let (tx, mut heard) = mpsc::channel(4);
     let peer = SecretKeyFor::id();
-    let task = tokio::spawn(orphans::feed(membership.clone(), Weak::new(), peer, link, tx));
+    let task = tokio::spawn(orphans::feed(crate::membership::Membership::default(), Weak::new(), peer, link, tx));
 
-    yield_now().await;
-    assert!(!task.is_finished(), "an unset membership is waited for");
-    assert!(heard.try_recv().is_err());
-
-    membership.set(crate::membership::Membership::default()).ok();
-    assert_eq!(tokio::time::timeout(Duration::from_millis(1), heard.recv()).await.ok().flatten(), Some(links::Parent::Silent));
+    assert_eq!(heard.recv().await, Some(links::Parent::Silent));
     task.abort();
 }
 
@@ -2023,4 +2018,27 @@ fn links_keep_the_remote_children_without_an_agents() {
     assert!(links.keeps(&parent, machine, &SessionId::from("k0"), &SessionId::default()));
     assert!(links.keeps(&parent, machine, &SessionId::from("x"), &SessionId::from("y")));
     assert!(!links.keeps(&SessionId::from("other"), machine, &SessionId::from("k0"), &SessionId::default()));
+}
+
+// The links are made from the node's membership and answer without an
+// `Agents` around them.
+#[test]
+fn links_are_built_from_a_membership_and_name_the_kids_a_restart_keeps() {
+    let links = Links::new(crate::membership::Membership::default());
+    let (parent, other) = (SessionId::from("p1"), SessionId::from("p2"));
+    let kid = |parent: &SessionId, id: &str| RemoteKid {
+        parent: parent.clone(),
+        machine: SecretKeyFor::id(),
+        name: format!("box-{id}"),
+        id: SessionId::from(id),
+        ended: false,
+        since: 0,
+    };
+    crate::lock(&links.remote).extend([kid(&parent, "k1"), kid(&other, "k2"), kid(&parent, "")]);
+
+    assert!(links.membership.get().is_none());
+    // The pending start is not kept, and the other parent's kid is not its.
+    let kept = links.kids_to_keep(&parent);
+    assert_eq!(kept.len(), 1);
+    assert_eq!(kept[0].id, SessionId::from("k1"));
 }

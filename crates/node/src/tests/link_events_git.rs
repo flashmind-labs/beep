@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::agents::checkouts::watch_paths;
 use crate::link::Offers;
 use beep_projects::{Shell, ShellOutput};
@@ -68,8 +69,7 @@ async fn projection(rx: &mut LinkRx, query: u64) -> GitOutput {
 }
 
 async fn subscribe(root: &Path) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
-    let offers = Offers::default();
-    offers.agents.share_folders(vec![root.to_owned()]);
+    let offers = Offers::from_parts(Parts { folders: vec![root.to_owned()], ..Parts::default() });
     let link = local_link();
     let task = AbortOnDropHandle::new(tokio::spawn(super::super::serve(
         link.node.0,
@@ -196,8 +196,7 @@ async fn git_reads_validate_revisions_authorize_roots_and_leave_refs_unchanged()
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
     git(root.path(), &["init", "--initial-branch=main"]).await;
-    let agents = Agents::default();
-    agents.share_folders(vec![root.path().to_owned()]);
+    let agents = Agents::new(Parts { folders: vec![root.path().to_owned()], ..Parts::default() });
     assert!(
         read(&agents, outside.path().to_str().unwrap(), GitRead::State)
             .await
@@ -304,8 +303,7 @@ mod current {
     #[tokio::test]
     async fn a_folder_that_becomes_a_repository_while_binding_pushes_its_later_commits() {
         let root = tempfile::tempdir().unwrap();
-        let offers = Offers::default();
-        offers.agents.share_folders(vec![root.path().to_owned()]);
+        let offers = Offers::from_parts(Parts { folders: vec![root.path().to_owned()], ..Parts::default() });
         let (reached, reached_rx) = tokio::sync::oneshot::channel();
         let (release_tx, release) = tokio::sync::oneshot::channel();
         crate::lock(&offers.bind_gates).push(crate::link::events::sources::Gate {

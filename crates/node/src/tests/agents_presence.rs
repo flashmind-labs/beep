@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::occupancy::presence::Registration;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{ExternalSession, Presence, SessionsReply, SessionsRequest};
@@ -229,7 +230,7 @@ async fn starting_and_owned_sessions_mark_their_presence_taken_over() {
         default_model: None,
         bridge: None,
     };
-    let agents = Arc::new(Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default()));
+    let agents = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
     let link = beep_proto::node::local_link();
     let (mut client_tx, mut client_rx) = link.caller;
     let (server_tx, server_rx) = link.node;

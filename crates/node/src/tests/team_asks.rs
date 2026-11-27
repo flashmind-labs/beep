@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::tags::{Part, parts};
 use crate::team::asks::Answer;
 use crate::team::board::tests::{Pair, login, repo};
@@ -60,9 +61,11 @@ impl Landing {
             bridge: None,
         };
 
+        let mesh = Membership::default();
+
         Self {
-            agents: Arc::new(Agents::new(vec![kind], crate::occupancy::Occupancy::default())),
-            mesh: Membership::default(),
+            agents: Arc::new(Agents::new(Parts { kinds: vec![kind], mesh: mesh.clone(), ..Parts::default() })),
+            mesh,
             _dir: tempfile::tempdir().expect("a folder"),
         }
     }
@@ -83,7 +86,6 @@ impl Landing {
             .await
             .expect("a mesh");
         self.mesh.set(mesh);
-        self.agents.serve_mesh(self.mesh.clone());
         let session = self
             .agents
             .start(

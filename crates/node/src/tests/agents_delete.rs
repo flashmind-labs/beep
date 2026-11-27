@@ -89,7 +89,7 @@ impl Machine {
 
         write(&root.join("outside.jsonl"), "keep me");
         let agents = Agents {
-            catalog: Arc::new(crate::agents::catalog::Catalog::new(vec![kind("claude"), kind("codex"), kind("pi")])),
+            catalog: Arc::new(crate::agents::catalog::Catalog::new(vec![kind("claude"), kind("codex"), kind("pi")], None, None)),
             occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(&root.join("claude")), crate::logs::found::Stores::at(Some(&root.join("codex")), Some(&root.join("pi")), None)),
             ..Agents::default()
         };

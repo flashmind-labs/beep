@@ -94,14 +94,6 @@ pub(super) fn refused(asked: &str, access: Access) -> anyhow::Error {
 }
 
 impl Agents {
-    /// Lets file requests reach `folders`, the workspace and the folders
-    /// shared in `node.toml`, beside the sessions' folders. Set once.
-    pub fn share_folders(&self, folders: Vec<PathBuf>) {
-        if self.folders.set(folders).is_err() {
-            log::warn!("the shared folders were set already");
-        }
-    }
-
     /// The folders the node's sessions work in, once each.
     fn session_folders(&self) -> Vec<PathBuf> {
         let mut folders = self.session_cwds();
@@ -132,7 +124,7 @@ impl Agents {
     /// What file requests may reach, the sessions' folders among them;
     /// those of sessions started outside Beep only with `sighted`.
     fn reach(&self, sighted: Vec<PathBuf>) -> Reach {
-        let mut work: Vec<PathBuf> = self.folders.get().cloned().unwrap_or_default();
+        let mut work: Vec<PathBuf> = self.folders.clone();
         let mut sessions = self.session_cwds();
         sessions.extend(sighted);
         sessions.extend(self.live_presence_folders());
@@ -163,7 +155,7 @@ impl Agents {
 
     /// Work directories currently authorized for namespace-wide file subscriptions.
     pub(crate) async fn notification_roots(&self) -> Result<Vec<PathBuf>> {
-        let mut work = self.folders.get().cloned().unwrap_or_default();
+        let mut work = self.folders.clone();
         work.extend(self.session_map().values().filter_map(|session| {
             let info = session.info();
             (info.state.status != beep_proto::node::agent::Status::Ended)

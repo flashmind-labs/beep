@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::agents::{child_reach::show_children, family::peer};
 use serde_json::json;
 use crate::{
@@ -200,9 +201,8 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     .await
     .unwrap();
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")], crate::occupancy::Occupancy::default()));
+    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("top"), kind("kid")], mesh: node.mesh.clone(), ..Parts::default() }));
     node.mesh.set(mesh);
-    node.agents.serve_mesh(node.mesh.clone());
     let parent = node
         .agents
         .start(
@@ -315,7 +315,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
 async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")], crate::occupancy::Occupancy::default()));
+    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("top"), kind("kid")], mesh: node.mesh.clone(), ..Parts::default() }));
     let cwd = dir.path().to_string_lossy().into_owned();
     let chat = node
         .agents
@@ -381,7 +381,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
     );
     write(".claude/agents/writer.md", "---\nname: writer\n---\nWrite plainly.");
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(vec![kind("top"), kind("codex")], crate::occupancy::Occupancy::default()));
+    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("top"), kind("codex")], mesh: node.mesh.clone(), ..Parts::default() }));
     let cwd = dir.path().to_string_lossy().into_owned();
     let chat = node
         .agents
@@ -440,7 +440,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
 async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(vec![kind("top"), kind("kid")], crate::occupancy::Occupancy::default()));
+    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("top"), kind("kid")], mesh: node.mesh.clone(), ..Parts::default() }));
     let cwd = dir.path().to_string_lossy().into_owned();
     let start = async |name: &str| {
         node
@@ -590,7 +590,7 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let mut node = Node::test(dir.path()).await;
     // The harness named `claude` has a full access mode of its own.
-    node.agents = Arc::new(Agents::new(vec![kind("claude"), kind("kid")], crate::occupancy::Occupancy::default()));
+    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind("claude"), kind("kid")], mesh: node.mesh.clone(), ..Parts::default() }));
     let cwd = dir.path().to_string_lossy().into_owned();
     let parent = node
         .agents
@@ -638,7 +638,7 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
 #[tokio::test]
 async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let agents = Agents::new(vec![kind("top")], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind("top")], ..Parts::default() });
     let cwd = dir.path().to_string_lossy().into_owned();
     let start = async || {
         let begin = Begin {

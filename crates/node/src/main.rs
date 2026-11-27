@@ -1,7 +1,7 @@
 //! The `beep-node` command line.
 
 use beep_node::{
-    agents::{Agents, claude::hooks},
+    agents::{Agents, Parts, claude::hooks},
     link::{self, peers, state},
     machine::{env, host, service},
     tools,
@@ -515,9 +515,12 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Sessions { limit } => {
-            for session in Agents::new(Vec::new(), beep_node::occupancy::Occupancy::new())
-                .external_sessions(limit)
-                .await?
+            for session in Agents::new(Parts {
+                occupancy: beep_node::occupancy::Occupancy::new(),
+                ..Parts::default()
+            })
+            .external_sessions(limit)
+            .await?
             {
                 let title = session.title.as_deref().unwrap_or("untitled");
                 println!(

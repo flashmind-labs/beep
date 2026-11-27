@@ -179,7 +179,7 @@ struct Child {
 
 /// Follows a child's state and sends a note for each turn it finishes, each
 /// time it starts to ask and each stop by the user, until it ends.
-async fn follow(child: Child, to: To, membership: Arc<tokio::sync::SetOnce<Membership>>) {
+async fn follow(child: Child, to: To, membership: Membership) {
     let Child {
         id: key,
         mut live,
@@ -266,7 +266,7 @@ async fn follow(child: Child, to: To, membership: Arc<tokio::sync::SetOnce<Membe
         let sent = match &to {
             To::Here { parent, waits } => match parent.upgrade() {
                 Some(parent) => {
-                    let mesh = membership.get().and_then(Membership::get);
+                    let mesh = membership.get();
                     let id = full_id(note.id.as_ref(), &crate::agents::machine_list::machine_name(mesh.as_ref()));
                     let seen = Seen {
                         child: &key,
@@ -279,7 +279,7 @@ async fn follow(child: Child, to: To, membership: Arc<tokio::sync::SetOnce<Membe
             },
             To::There { peer, parent } => {
                 tell_until_heard(|| async {
-                    match membership.get().and_then(Membership::get) {
+                    match membership.get() {
                         Some(mesh) => super::peer::note_parent(&mesh, *peer, parent, &note).await,
                         None => Err(NoteFailed::Silent("this machine is in no mesh".to_owned())),
                     }

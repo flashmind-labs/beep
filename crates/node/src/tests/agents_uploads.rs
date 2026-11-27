@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::agents::{Agents, work_folder::prune};
 use super::maintain::read;
 use tempfile::TempDir;
@@ -234,7 +235,7 @@ done
         default_model: None,
         bridge: None,
     };
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = agents
         .start(&kind, Some(&dir.path().to_string_lossy()), Begin::default())
         .await

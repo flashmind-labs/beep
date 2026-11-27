@@ -1,11 +1,12 @@
 use super::*;
+use crate::agents::Parts;
 
 #[tokio::test]
 async fn the_walk_publishes_after_it_ends_and_lets_a_rescan_run() {
     let home = tempfile::tempdir().expect("a temporary folder");
     let dir = tempfile::tempdir().expect("a temporary folder");
     std::fs::create_dir_all(home.path().join("work/app/.git")).expect("a checkout");
-    let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts::default());
     assert!(agents.disk_checkouts().is_err(), "nothing is known before a walk");
 
     agents
@@ -27,7 +28,7 @@ async fn the_walk_publishes_after_it_ends_and_lets_a_rescan_run() {
 
 #[tokio::test]
 async fn a_listing_for_one_limit_does_not_wait_for_another() {
-    let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts::default());
     agents.warm(None, std::path::PathBuf::new()).await;
     let slot = crate::lock(&agents.listings.listed).entry(5).or_default().clone();
     let _running = slot.lock().await;
@@ -41,7 +42,7 @@ async fn a_listing_for_one_limit_does_not_wait_for_another() {
 
 #[tokio::test]
 async fn stored_sessions_lock_one_at_a_time_each_and_the_lock_is_forgotten_after() {
-    let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts::default());
     let (one, other) = (SessionId::from("one"), SessionId::from("other"));
     let first = agents.sessions.store_of(&one);
     let held = first.lock().await;
@@ -61,7 +62,7 @@ async fn stored_sessions_lock_one_at_a_time_each_and_the_lock_is_forgotten_after
 
 #[tokio::test]
 async fn the_warm_walk_waits_for_a_rescan_that_runs() {
-    let agents = Arc::new(Agents::new(Vec::new(), crate::occupancy::Occupancy::default()));
+    let agents = Arc::new(Agents::new(Parts::default()));
     let rescan = agents.listings.rescanning.lock().await;
     let warm = tokio::spawn({
         let agents = agents.clone();
@@ -101,7 +102,7 @@ async fn a_project_reached_through_a_symlink_lists_a_worktree_session_at_its_rea
         crate::logs::claude::Store::default(),
         crate::logs::found::Stores::at(Some(codex.path()), None, None),
     );
-    let agents = Agents::new(Vec::new(), occupancy);
+    let agents = Agents::new(Parts { occupancy, ..Parts::default() });
 
     let listed = agents
         .sessions_in(vec![link.to_string_lossy().into_owned()], 10)
@@ -133,7 +134,7 @@ async fn a_project_asked_by_its_real_path_lists_a_session_recorded_through_the_l
         crate::logs::claude::Store::default(),
         crate::logs::found::Stores::at(Some(codex.path()), None, None),
     );
-    let agents = Agents::new(Vec::new(), occupancy);
+    let agents = Agents::new(Parts { occupancy, ..Parts::default() });
 
     let listed = agents
         .sessions_in(vec![real.to_string_lossy().into_owned()], 10)

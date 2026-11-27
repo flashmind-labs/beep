@@ -16,7 +16,7 @@ use std::{
 };
 use tokio::{
     sync::{
-        Notify, SetOnce,
+        Notify,
         mpsc::{UnboundedReceiver, UnboundedSender},
     },
     time::Instant,
@@ -40,7 +40,8 @@ pub(crate) const NO_AGENT: &str = "You have no agent";
 #[derive(Default)]
 pub(crate) struct Links {
     pub(super) remote: Arc<Mutex<Vec<RemoteKid>>>,
-    pub(super) membership: Arc<SetOnce<Membership>>,
+    /// The mesh the node belongs to, once it does.
+    pub(super) membership: Membership,
     /// Per parent with children elsewhere, the task that stops them when it
     /// ends for good.
     pub(super) watchers: Mutex<HashMap<SessionId, AbortOnDropHandle<()>>>,
@@ -56,6 +57,13 @@ pub(crate) struct Links {
 }
 
 impl Links {
+    pub(crate) fn new(membership: Membership) -> Self {
+        Self {
+            membership,
+            ..Self::default()
+        }
+    }
+
     /// Whether `kid` is one `parent` keeps on `machine`: by the id its machine
     /// lists it under or the one it had when it started.
     pub(super) fn keeps(&self, parent: &SessionId, machine: EndpointId, id: &SessionId, key: &SessionId) -> bool {

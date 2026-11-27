@@ -1,9 +1,10 @@
 use super::*;
+use crate::agents::Parts;
 
 #[test]
 fn a_machine_not_lent_keeps_its_status_but_gives_no_shell_task_or_screen() {
     let dir = tempfile::tempdir().expect("a temp folder");
-    let offers = Offers::local(&[], Provision::new(dir.path()));
+    let offers = Offers::local(Parts::default(), Provision::new(dir.path()));
     assert!(offers.lends_to_peers(), "lent until the host says not");
     offers.lend_to_peers(false);
     // Offers made earlier from this one share the setting.

@@ -55,7 +55,7 @@ const REPORT: &str = "report";
 const REPORT_RULE: &str = "Use the `report` skill to generate your final response \
     when you finish a task or stop before it is done.";
 
-pub(crate) fn beep_dir() -> Option<PathBuf> {
+pub fn beep_dir() -> Option<PathBuf> {
     let home = dirs::home_dir();
     crate::config_home(&|name| env::var_os(name), home.as_deref())
         .map(|dir| dir.join("beep").join("skills"))

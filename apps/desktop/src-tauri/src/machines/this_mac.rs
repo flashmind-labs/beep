@@ -7,10 +7,13 @@ use crate::{
     machines::{ThisMacStatus, ThisMacView, desktop},
 };
 use beep_node::{
-    agents::skills::Skills,
+    agents::{Parts, detect, search::SearchIndex, skills::Skills},
     link::{self, Bound, Offers, state::Search},
-    machine::{provision::Provision, service::logs::Logs},
-    tools::{self, Node, ProjectTools},
+    machine::{
+        provision::{self, Provision},
+        service::logs::Logs,
+    },
+    tools::{self, Node, ProjectTools, Socket},
 };
 use beep_proto::node::desktop::Permission;
 use iroh::{Endpoint, EndpointId};
@@ -42,6 +45,8 @@ struct NodeHome {
     /// with agents found on the login shell's PATH (the app adopts it at
     /// start), plus desktop control.
     offers: Bound,
+    /// The MCP server's socket, bound with the app and served by `start`.
+    mcp: Mutex<Option<Socket>>,
 }
 
 impl Machine {
@@ -55,8 +60,33 @@ impl Machine {
     ) -> Self {
         let provision = Provision::new(dir);
         let name = crate::beep::identity::computer_name();
-        let mut offers = Offers::local(&[], provision.clone()).bound(endpoint, dir, &name);
-        offers.agents.catalog.list_beep_skills();
+        // The socket's folder exists before the bind.
+        let _ = std::fs::create_dir_all(dir);
+        // Bound here so sessions start with the server; `start` serves it.
+        let mcp = async_runtime::block_on(async { tools::bind(dir) });
+        let search = async_runtime::block_on(async {
+            let path = dir.join("search.sqlite");
+
+            match tokio::task::spawn_blocking(move || SearchIndex::open(&path)).await {
+                Ok(Ok(index)) => Some(Arc::new(index)),
+                Ok(Err(e)) => {
+                    log::warn!("no search index: {e:#}");
+                    None
+                }
+                Err(e) => {
+                    log::warn!("no search index: {e:#}");
+                    None
+                }
+            }
+        });
+        let parts = Parts {
+            kinds: detect(&[], Some(dir)),
+            launch: mcp.as_ref().map(Socket::launch),
+            skills_dir: provision::skills_dir(),
+            search,
+            ..Parts::default()
+        };
+        let mut offers = Offers::local(parts, provision.clone()).bound(endpoint, dir, &name);
         // The assistant's project tools on this Mac reach this app.
         offers.project_tools = project_tools;
         #[cfg(target_os = "macos")]
@@ -80,6 +110,7 @@ impl Machine {
                 dir: dir.to_path_buf(),
                 provision,
                 offers,
+                mcp: Mutex::new(mcp),
             }),
         }
     }
@@ -105,7 +136,9 @@ impl Machine {
                 .install_adapters(home.dir.clone(), Vec::new());
             let _upkeep = home.offers.agents.start_upkeep();
             let _events = home.offers.agents.events.forward_system();
-            let _mcp = tools::start(&home.dir, Node::of(&home.offers));
+            let _mcp = lock(&home.mcp)
+                .take()
+                .map(|socket| tools::serve(socket, Node::of(&home.offers)));
             // Terminal Claude Code sessions report their state here; the
             // MCP server stops when this task does, with the app. The
             // phones on this Mac's adb go to the desktops that follow them.

@@ -4,17 +4,20 @@
 
 use super::{
     adapters::installs::Installs,
-    harnesses::{Latest, Settings},
+    harnesses::{self, Latest, Settings},
     kinds::AgentKind,
     mcp_launch::Launch,
     models::ModelCache,
 };
 use anyhow::Result;
-use beep_proto::node::harness::AgentSettings;
+use crate::process::{self, spawn_env::{self, Scope}};
+use beep_proto::node::harness::{AgentSettings, HarnessReport};
+use beep_proto::AccountName;
 use beep_proto::watched;
 use std::{
+    env,
     path::PathBuf,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{Arc, Mutex},
     time::Duration,
 };
 use tokio::{sync::watch, time::timeout};
@@ -40,35 +43,55 @@ pub struct Catalog {
     /// Set once the mesh gave the user's agent settings, which resumed
     /// sessions start with.
     pub(super) settled: watch::Sender<bool>,
-    /// How sessions start the Beep MCP server, once the node serves it.
-    pub(super) mcp: OnceLock<Arc<Launch>>,
-    /// Beep's own skills folder, listed for sessions once the node
-    /// serves: one made without it, as in tests, lists none.
-    pub(super) skills_dir: OnceLock<PathBuf>,
+    /// How sessions start the Beep MCP server: `None` for a node that does
+    /// not serve it, as in tests.
+    pub(super) mcp: Option<Arc<Launch>>,
+    /// Beep's own skills folder, listed for sessions: `None` lists none.
+    pub(super) skills_dir: Option<PathBuf>,
 }
 
 impl Catalog {
-    pub(crate) fn new(kinds: Vec<AgentKind>) -> Self {
+    pub(crate) fn new(
+        kinds: Vec<AgentKind>,
+        mcp: Option<Arc<Launch>>,
+        skills_dir: Option<PathBuf>,
+    ) -> Self {
         Self {
             kinds: watch::Sender::new(Arc::new(kinds)),
+            mcp,
+            skills_dir,
             ..Self::default()
         }
     }
 
-    /// Gives the sessions started from now on the Beep MCP server, as
-    /// `launch` starts it. Only the first call counts.
-    pub(crate) fn serve_mcp(&self, launch: Arc<Launch>) {
-        // A second launch would give the same server.
-        let _ = self.mcp.set(launch);
+    /// The CLI of agent `name`, with `args`, as a plan read starts it: signed
+    /// in as the agent's sessions on `account` are, with the user's settings
+    /// for it. `None` when this node does not run it or the user turned it off.
+    pub(super) fn cli(
+        &self,
+        name: &str,
+        account: Option<&AccountName>,
+        args: &[&str],
+    ) -> Option<tokio::process::Command> {
+        let kind = watched::read_sent(&self.kinds, |kinds| {
+            kinds.iter().find(|kind| kind.name == name).cloned()
+        })?;
+        let kind = self.settings.configured(&kind).ok()?;
+        let program = harnesses::find(name)?;
+        let mut command = process::command(program);
+        spawn_env::apply(&mut command, Scope::for_agent(name, account));
+        command
+            .args(args)
+            .envs(&kind.env)
+            .current_dir(env::temp_dir());
+        Some(command)
     }
 
-    /// Lists the skills in Beep's own skills folder for the sessions
-    /// started from now on, as a node that serves does. Only the first call
-    /// counts.
-    pub fn list_beep_skills(&self) {
-        if let Some(dir) = crate::machine::provision::skills_dir() {
-            let _ = self.skills_dir.set(dir);
-        }
+    /// What this node finds of each agent harness it knows.
+    pub(super) async fn harnesses(&self, refresh: bool) -> HarnessReport {
+        let kinds = watched::read_sent(&self.kinds, Clone::clone);
+
+        harnesses::report(&kinds, &self.settings, &self.latest, refresh).await
     }
 
     /// Applies the saved Beep instructions to sessions started or resumed from now on.

@@ -7,7 +7,8 @@ mod skills;
 mod teacli;
 mod tools;
 
-pub(crate) use skills::{beep_dir as skills_dir, brief as skills_brief, installed_by_beep};
+pub use skills::beep_dir as skills_dir;
+pub(crate) use skills::{brief as skills_brief, installed_by_beep};
 pub(crate) use tools::{curl, listed_sha256, remove_dir, unpack, verify};
 
 use crate::{AsyncMutex, lock, process::spawn_env};

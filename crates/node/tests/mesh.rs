@@ -9,7 +9,7 @@
 //! two runtime workers so parallel tests do not start a pool per CPU.
 
 use beep_mesh::{DeviceKind, JOIN_ALPN, JoinTicket, Key, Mesh, PEER_ALPN};
-use beep_node::agents::AgentKind;
+use beep_node::agents::{AgentKind, Parts, detect};
 use beep_node::link::{
     Bound, Offers,
     peers::{Peers, ReportError},
@@ -1989,8 +1989,12 @@ async fn desktop_with_node(agents: &[AgentKind]) -> (Member, Bound) {
     let mesh = Mesh::create(dir.path(), endpoint.clone(), "desktop")
         .await
         .expect("the mesh is created");
-    let offers =
-        Offers::local(agents, Provision::new(dir.path())).bound(&endpoint, dir.path(), "desktop");
+    let provision = Provision::new(dir.path());
+    let parts = Parts {
+        kinds: detect(agents, Some(dir.path())),
+        ..Parts::default()
+    };
+    let offers = Offers::local(parts, provision).bound(&endpoint, dir.path(), "desktop");
     let peers = Peers::new(offers.clone()).await;
     let router = Router::builder(endpoint)
         .accept(PEER_ALPN, peers.peer_handler())

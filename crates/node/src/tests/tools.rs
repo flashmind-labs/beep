@@ -69,3 +69,29 @@ fn a_sessions_arguments_read_back_as_its_invocation() {
         })
     );
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn bind_gives_the_launch_of_the_socket_it_listens_on() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let socket = bind(dir.path()).expect("the socket binds");
+    let launch = socket.launch();
+
+    assert_eq!(launch.dir, std::path::absolute(dir.path()).unwrap());
+    assert!(launch.socket.exists(), "the listener made the socket the launch names");
+    assert!(crate::run::local_socket::is_listening(&launch.socket));
+
+    // A node that left a socket behind is replaced by the next bind, as
+    // `Listener::bind` replaces a stopped node's socket.
+    let again = bind(dir.path()).expect("a stale socket is replaced");
+    assert_eq!(again.launch().socket, launch.socket);
+}
+
+#[tokio::test]
+async fn a_socket_that_cannot_bind_gives_no_launch() {
+    let dir = tempfile::tempdir().expect("a temp folder");
+    let file = dir.path().join("not-a-folder");
+    std::fs::write(&file, "").expect("a file");
+
+    assert!(bind(&file).is_none());
+}

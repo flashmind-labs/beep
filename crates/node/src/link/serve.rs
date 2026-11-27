@@ -2,7 +2,7 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::{AgentKind, SESSIONS_ALPN, skills::Skills},
+    agents::{AgentKind, Parts, SESSIONS_ALPN, detect, search::SearchIndex, skills::Skills},
     files::Folders,
     files::transfer::Transfers,
     link::Protocol,
@@ -96,9 +96,36 @@ pub async fn serve(
     let provision = Provision::new(&state.dir);
     let _provision = provision.start();
     let _sccache = provision.start_sccache();
-    let mut offers =
-        Offers::local(&state.agents, provision).bound(&endpoint, &state.dir, &state.name);
-    offers.agents.catalog.list_beep_skills();
+    // Files only when the owner shared folders in node.toml or a workspace.
+    let shared: Vec<_> = workspace
+        .map(Path::to_path_buf)
+        .into_iter()
+        .chain(state.files.iter().cloned())
+        .collect();
+    // The agents' Beep MCP server runs this binary against a socket in the
+    // node's folder.
+    let mcp = tools::bind(&state.dir);
+    let index_path = state.dir.join("search.sqlite");
+    let search = match tokio::task::spawn_blocking(move || SearchIndex::open(&index_path)).await {
+        Ok(Ok(index)) => Some(Arc::new(index)),
+        Ok(Err(e)) => {
+            log::warn!("no search index: {e:#}");
+            None
+        }
+        Err(e) => {
+            log::warn!("no search index: {e:#}");
+            None
+        }
+    };
+    let parts = Parts {
+        kinds: detect(&state.agents, Some(provision.dir())),
+        launch: mcp.as_ref().map(tools::Socket::launch),
+        skills_dir: crate::machine::provision::skills_dir(),
+        folders: shared.clone(),
+        search,
+        ..Parts::default()
+    };
+    let mut offers = Offers::local(parts, provision).bound(&endpoint, &state.dir, &state.name);
     let _upkeep = offers.agents.start_upkeep();
     let _events = offers.agents.events.forward_system();
     let _uploads = crate::agents::uploads::maintain(offers.agents.sessions.subscribe());
@@ -119,14 +146,7 @@ pub async fn serve(
         let updates = crate::upkeep::update::Updates::new(offers.agents.clone());
         offers.extra.push(Arc::new(updates));
     }
-    // Files only when the owner shared folders in node.toml or a workspace.
-    let shared: Vec<_> = workspace
-        .map(Path::to_path_buf)
-        .into_iter()
-        .chain(state.files.iter().cloned())
-        .collect();
     let folders = Folders::new(&shared);
-    offers.agents.share_folders(shared.clone());
     // The agents' logs read once ahead, so the first file request for a
     // session started outside Beep does not wait for them.
     offers.offer_searches(&state.dir, &state.search);
@@ -218,9 +238,7 @@ pub async fn serve(
             log::warn!("not taking session presence: {e:#}");
         }
     }));
-    // The agents' Beep MCP server runs this binary against a socket in the
-    // node's folder.
-    let _mcp = tools::start(&state.dir, Node::of(&offers));
+    let _mcp = mcp.map(|socket| tools::serve(socket, Node::of(&offers)));
     // Desktops read the device list when adb sees a phone come or go.
     let _devices = AbortOnDropHandle::new(tokio::spawn(device::track_phones()));
     // Logs when the async workers, or a step that hung before, stop moving.

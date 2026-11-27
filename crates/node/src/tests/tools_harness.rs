@@ -1,4 +1,5 @@
 use beep_proto::SessionId;
+use crate::agents::Parts;
 use super::*;
 use crate::{
     agents::AgentKind,
@@ -89,7 +90,7 @@ cat > /dev/null
         bridge: None,
     };
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(vec![kind], crate::occupancy::Occupancy::default()));
+    node.agents = Arc::new(Agents::new(Parts { kinds: vec![kind], ..Parts::default() }));
     let node = Served {
         node,
         screens: Default::default(),

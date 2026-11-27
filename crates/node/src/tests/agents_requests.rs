@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use beep_proto::node::agent::EntryKind;
 use serde_json::json;
 use std::{fs, path::Path};
@@ -274,8 +275,7 @@ async fn a_folder_listing_shows_an_edit_made_after_the_status_was_kept() {
     }
 
     let (_dir, work) = repo("folder");
-    let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
-    agents.share_folders(vec![work.clone()]);
+    let agents = Agents::new(Parts { folders: vec![work.clone()], ..Parts::default() });
     let root = work.to_str().unwrap();
     let readme = |reply: SessionsReply| match reply {
         SessionsReply::Folder { folder } => folder

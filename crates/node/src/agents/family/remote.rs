@@ -6,7 +6,6 @@ use beep_proto::SessionId;
 use super::links::RemoteKid;
 use crate::agents::{Agents, Session};
 use crate::agents::session::parent_gone;
-use crate::membership::Membership;
 use iroh::EndpointId;
 use std::sync::Mutex;
 use tokio_util::task::AbortOnDropHandle;
@@ -92,7 +91,7 @@ impl Agents {
                 return;
             }
 
-            let Some(mesh) = membership.get().and_then(Membership::get) else {
+            let Some(mesh) = membership.get() else {
                 return;
             };
             let kids: Vec<RemoteKid> = crate::lock(&remote)

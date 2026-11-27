@@ -3,7 +3,7 @@
 //! and `PATH` for the whole process.
 #![cfg(unix)]
 
-use beep_node::agents::Agents;
+use beep_node::agents::{Agents, Parts};
 use std::{env, fs, os::unix::fs::PermissionsExt, path::Path, process::Command};
 use tempfile::TempDir;
 
@@ -107,7 +107,7 @@ fn listing_checkouts_runs_no_git_and_sees_changes() {
     tokio::runtime::Runtime::new()
         .expect("a runtime")
         .block_on(async {
-            let agents = Agents::new(Vec::new(), beep_node::occupancy::Occupancy::default());
+            let agents = Agents::new(Parts::default());
             agents.warm(Some(home.clone()), dir.clone()).await;
             runs(&log);
 

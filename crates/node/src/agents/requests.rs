@@ -261,7 +261,7 @@ pub async fn serve_sessions(
                 .stream(send_index(tx, rx, &agents, &epoch, after))
                 .await;
         }
-        SessionsRequest::Search { query, sessions } => match agents.search.get().cloned() {
+        SessionsRequest::Search { query, sessions } => match agents.search.clone() {
             Some(index) => index
                 .find(query, sessions)
                 .await
@@ -520,12 +520,12 @@ pub async fn serve_sessions(
         },
         SessionsRequest::DiscardCopy { .. } => SessionsReply::CopyDone {},
         SessionsRequest::Harnesses { refresh } => SessionsReply::Harnesses {
-            report: agents.harnesses(refresh).await,
+            report: agents.catalog.harnesses(refresh).await,
         },
         SessionsRequest::UpdateHarness { agent } => {
             match harnesses::update(&agents.kinds(), &agents.catalog.latest, &agent).await {
                 Ok(()) => SessionsReply::Harnesses {
-                    report: agents.harnesses(false).await,
+                    report: agents.catalog.harnesses(false).await,
                 },
                 Err(e) => failed(e),
             }
@@ -888,7 +888,7 @@ async fn send_index(
     epoch: &str,
     mut after: u64,
 ) -> Result<()> {
-    let Some(index) = agents.search.get().cloned() else {
+    let Some(index) = agents.search.clone() else {
         return tx
             .send(&failed("this node's search index is not open yet"))
             .await;

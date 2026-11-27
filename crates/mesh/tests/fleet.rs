@@ -11,7 +11,7 @@ use beep_mesh::{
     transport_config, with_deadline,
 };
 use beep_node::{
-    agents::AgentKind,
+    agents::{AgentKind, Parts, detect},
     link::{Offers, peers::Peers},
     machine::provision::Provision,
 };
@@ -83,11 +83,12 @@ async fn machine(network: bool) -> Machine {
         default_model: None,
         bridge: None,
     };
-    let offers = Offers::local(&[agent], Provision::new(dir.path())).bound(
-        &endpoint,
-        dir.path(),
-        "build-box",
-    );
+    let provision = Provision::new(dir.path());
+    let parts = Parts {
+        kinds: detect(&[agent], Some(dir.path())),
+        ..Parts::default()
+    };
+    let offers = Offers::local(parts, provision).bound(&endpoint, dir.path(), "build-box");
     let peers = Peers::new(offers).await;
     Machine {
         client: PeerClient::local(peers.local_session()),

@@ -1,7 +1,11 @@
 use super::*;
 use crate::error::DesktopError;
 use beep_mesh::transport_config;
-use beep_node::{agents::AgentKind, link::Offers, machine::provision::Provision};
+use beep_node::{
+    agents::{AgentKind, Parts, detect},
+    link::Offers,
+    machine::provision::Provision,
+};
 use beep_proto::{
     ApiError,
     node::agent::{Request, protocol},
@@ -77,8 +81,12 @@ async fn an_agents_question_reaches_the_desktop_and_its_answer_returns() {
         bridge: None,
     };
     let endpoint = bind().await;
-    let offers =
-        Offers::local(&[agent], Provision::new(dir.path())).bound(&endpoint, dir.path(), "Studio");
+    let provision = Provision::new(dir.path());
+    let parts = Parts {
+        kinds: detect(&[agent], Some(dir.path())),
+        ..Parts::default()
+    };
+    let offers = Offers::local(parts, provision).bound(&endpoint, dir.path(), "Studio");
     let fleet = Arc::new(Fleet::new(endpoint, dir.path(), "Studio", offers).await);
     fleet.run().await;
     let (following, mut heard_from) = start(fleet.clone());

@@ -9,7 +9,7 @@ use super::{
     source,
     store::{StoreRoots, write},
 };
-use crate::agents::{AgentKind, Agents, Begin, session::Command};
+use crate::agents::{AgentKind, Agents, Begin, Parts, session::Command};
 use beep_mesh::{Key, Mesh, transport_config};
 use beep_proto::SessionId;
 use beep_proto::watched;
@@ -85,7 +85,7 @@ async fn source_env() -> Source {
         .expect("the mesh is made");
     let work = dir.path().join("work");
     fs::create_dir_all(&work).expect("a work folder");
-    let agents = Arc::new(Agents::new(vec![kind()], crate::occupancy::Occupancy::default()));
+    let agents = Arc::new(Agents::new(Parts { kinds: vec![kind()], ..Parts::default() }));
     agents.reopen(Vec::new()).await;
     let env = Env {
         agents,

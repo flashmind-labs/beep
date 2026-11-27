@@ -2,7 +2,7 @@
 
 use crate::{
     occupancy::Occupancy,
-    agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, skills::Skills},
+    agents::{Agents, Parts, TRANSCRIPT_PROTOCOL, skills::Skills},
     files::transfer::Sharing,
     link::{
         EventSources, protocol::SessionProtocol, sampler::Sampler, search::Searches, state::Search,
@@ -65,7 +65,7 @@ impl Node {
             .bind()
             .await
             .expect("the endpoint binds");
-        let bound = Offers::local(&[], Provision::new(dir)).bound(&endpoint, dir, "build-box");
+        let bound = Offers::local(Parts::default(), Provision::new(dir)).bound(&endpoint, dir, "build-box");
         Self::of(&bound)
     }
 }
@@ -142,27 +142,7 @@ pub struct Offers {
 impl Default for Offers {
     /// Offers with no agents, whose sessions and sync share one occupancy.
     fn default() -> Self {
-        let occupancy = Occupancy::default();
-
-        Self {
-            agents: Arc::new(Agents::new(Vec::new(), occupancy.clone())),
-            occupancy,
-            extra: Vec::new(),
-            log: Logs::default(),
-            provision: None,
-            traffic: Traffic::default(),
-            sampler: Sampler::default(),
-            mesh: Membership::default(),
-            transfers: Sharing::default(),
-            event_sources: Arc::default(),
-            withheld: Arc::default(),
-            #[cfg(test)]
-            bind_gates: Arc::default(),
-            skills: Skills::default(),
-            own: None,
-            team: None,
-            project_tools: None,
-        }
+        Self::of(Parts::default(), None)
     }
 }
 
@@ -220,23 +200,37 @@ impl Offers {
     }
 
     /// What every node serves, the CLI and the Mac app alike: the coding
-    /// agents found on the PATH (with `agents` from `node.toml`) and their
-    /// sessions, and `provision`. A host adds its own protocols to `extra`.
-    pub fn local(agents: &[AgentKind], provision: Arc<Provision>) -> Self {
-        let occupancy = Occupancy::new();
+    /// agents in `parts.kinds` and their sessions, and `provision`. The
+    /// agents share the occupancy `local` makes with the offers, so `parts`
+    /// names the rest. A host adds its own protocols to `extra`.
+    pub fn local(parts: Parts, provision: Arc<Provision>) -> Self {
+        let parts = Parts {
+            occupancy: Occupancy::new(),
+            ..parts
+        };
+
+        Self::of(parts, Some(provision))
+    }
+
+    /// Offers with no provision over agents made of `parts`, for a test.
+    #[cfg(test)]
+    pub(crate) fn from_parts(parts: Parts) -> Self {
+        Self::of(parts, None)
+    }
+
+    /// Offers whose agents, sync and mesh share `parts`' occupancy and mesh.
+    fn of(parts: Parts, provision: Option<Arc<Provision>>) -> Self {
+        let (occupancy, mesh) = (parts.occupancy.clone(), parts.mesh.clone());
 
         Self {
-            agents: Arc::new(Agents::new(
-                crate::agents::detect(agents, Some(provision.dir())),
-                occupancy.clone(),
-            )),
+            agents: Arc::new(Agents::new(parts)),
             occupancy,
             extra: Vec::new(),
             log: Logs::default(),
-            provision: Some(provision),
+            provision,
             traffic: Traffic::default(),
             sampler: Sampler::default(),
-            mesh: Membership::default(),
+            mesh,
             transfers: Sharing::default(),
             event_sources: Arc::default(),
             withheld: Arc::default(),

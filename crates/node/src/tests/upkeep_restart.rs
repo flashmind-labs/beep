@@ -1,11 +1,12 @@
 use super::*;
+use crate::agents::Parts;
 use std::time::Duration;
 use tokio::time::timeout;
 
 #[tokio::test]
 async fn an_update_can_wait_for_idle() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let agents = Arc::new(Agents::new(Vec::new(), crate::occupancy::Occupancy::default()));
+    let agents = Arc::new(Agents::new(Parts::default()));
     let listening = {
         let (dir, agents) = (dir.path().to_path_buf(), agents.clone());
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(
@@ -28,7 +29,7 @@ async fn an_update_can_wait_for_idle() {
 #[tokio::test]
 async fn a_host_marks_sessions_reopened_and_notes_what_is_open() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let agents = Arc::new(Agents::new(Vec::new(), crate::occupancy::Occupancy::default()));
+    let agents = Arc::new(Agents::new(Parts::default()));
     let keeping = {
         let (dir, agents) = (dir.path().to_path_buf(), agents.clone());
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {

@@ -4,8 +4,7 @@ use crate::machine::env::locate::folder;
 use super::{AgentKind, Agents, Answered, Asking, Session, checkout, harnesses, live::Sent, machine_list, models, plans, projects, session::{Begin, Command, History, Start}, sessions::{self, new_id}};
 use crate::{
     agents::child_reach,
-    process::spawn_env::{self, Scope},
-    process,
+    process::spawn_env,
 };
 use anyhow::{Context, Result};
 use beep_proto::SessionId;
@@ -14,21 +13,20 @@ use beep_proto::node::{
         self, CheckoutPlan, ModelList, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
         Status,
     },
-    harness::{AgentSettings, HarnessReport},
+    harness::AgentSettings,
     usage::PlanUsage,
 };
 use beep_proto::watched;
 use beep_proto::{AccountName, AgentAccount, AgentHost, AgentSlug};
+use futures::{StreamExt, stream::FuturesUnordered};
 use std::time::Duration;
 use std::{
     borrow::Cow,
     collections::HashMap,
-    env,
     path::{Path, PathBuf},
     str::FromStr,
     sync::{Arc, atomic::Ordering},
 };
-use futures::{StreamExt, stream::FuturesUnordered};
 use tokio::{
     sync::{oneshot, watch},
     task::spawn_blocking,
@@ -302,27 +300,6 @@ impl Agents {
         Some(list)
     }
 
-    /// The CLI of agent `name`, with `args`, as a plan read starts it: signed
-    /// in as the agent's sessions on `account` are, with the user's settings
-    /// for it. `None` when this node does not run it or the user turned it off.
-    fn cli(
-        &self,
-        name: &str,
-        account: Option<&AccountName>,
-        args: &[&str],
-    ) -> Option<tokio::process::Command> {
-        let kind = self.named(name)?;
-        let kind = self.catalog.settings.configured(&kind).ok()?;
-        let program = harnesses::find(name)?;
-        let mut command = process::command(program);
-        spawn_env::apply(&mut command, Scope::for_agent(name, account));
-        command
-            .args(args)
-            .envs(&kind.env)
-            .current_dir(env::temp_dir());
-        Some(command)
-    }
-
     /// Starts reading the plans into `usage`, unless a read runs. The read
     /// outlives the stream that asked: a desktop listens only briefly, and a
     /// CLI that answers after it left still has its answer kept for the next
@@ -390,7 +367,7 @@ impl Agents {
     /// Reads Antigravity's plan into `usage`; it has no named accounts.
     async fn read_agy_plan(&self) {
         let name = AgentSlug::AGY;
-        let Some(command) = self.cli(name.as_ref(), None, plans::AGY_ARGS) else {
+        let Some(command) = self.catalog.cli(name.as_ref(), None, plans::AGY_ARGS) else {
             return;
         };
 
@@ -403,7 +380,7 @@ impl Agents {
             AgentAccount::Claude => plans::CLAUDE_ARGS,
             AgentAccount::Codex => plans::CODEX_ARGS,
         };
-        let Some(command) = self.cli(agent.as_ref(), account.as_ref(), args) else {
+        let Some(command) = self.catalog.cli(agent.as_ref(), account.as_ref(), args) else {
             return;
         };
         let read = match agent {
@@ -444,11 +421,6 @@ impl Agents {
             };
             tokio::join!(harness_checks, background_children);
         }))
-    }
-
-    /// What this node finds of each agent harness it knows.
-    pub(super) async fn harnesses(&self, refresh: bool) -> HarnessReport {
-        harnesses::report(&self.kinds(), &self.catalog.settings, &self.catalog.latest, refresh).await
     }
 
     /// Closes every running session and waits until their agents have
@@ -760,9 +732,9 @@ impl Agents {
             skills: self
                 .catalog
                 .skills_dir
-                .get()
-                .and_then(|dir| crate::machine::provision::skills_brief(dir)),
-            mcp: self.catalog.mcp.get().map(|launch| launch.server(&id)),
+                .as_deref()
+                .and_then(crate::machine::provision::skills_brief),
+            mcp: self.catalog.mcp.as_ref().map(|launch| launch.server(&id)),
             context,
             images: self.images.clone(),
             usage: self.usage.clone(),

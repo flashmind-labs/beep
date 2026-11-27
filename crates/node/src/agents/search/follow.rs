@@ -17,7 +17,6 @@ use futures::{StreamExt, stream};
 use std::{
     cmp::Reverse,
     collections::{HashMap, HashSet},
-    path::PathBuf,
     sync::Arc,
 };
 use tokio::{
@@ -26,23 +25,8 @@ use tokio::{
     time::{Instant, timeout},
 };
 
-/// Opens the index in `dir` once, for the node's life, and keeps it up to
-/// date while the mesh is open.
-pub(crate) async fn follow(mesh: Mesh, dir: PathBuf, agents: Arc<Agents>) {
-    let index = match agents.search.get() {
-        Some(index) => index.clone(),
-        None => match spawn_blocking(move || SearchIndex::open(&dir.join("search.sqlite"))).await {
-            Ok(Ok(index)) => agents.search.get_or_init(|| Arc::new(index)).clone(),
-            Ok(Err(e)) => {
-                log::warn!("no search index: {e:#}");
-                return;
-            }
-            Err(e) => {
-                log::warn!("no search index: {e:#}");
-                return;
-            }
-        },
-    };
+/// Keeps `index` up to date while the mesh is open.
+pub(crate) async fn follow(mesh: Mesh, index: Arc<SearchIndex>, agents: Arc<Agents>) {
     // Held for the node's life: its watch rings `agent` when a store changes.
     let _stores = match agents.watch_event_sources().await {
         Ok(sources) => Some(sources),

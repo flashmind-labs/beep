@@ -35,7 +35,7 @@ const IN_FLIGHT: usize = 4;
 /// Pages saved before this keep their progress when it runs out.
 const SESSION_WAIT: Duration = Duration::from_secs(60);
 
-pub(crate) struct SearchIndex {
+pub struct SearchIndex {
     store: Mutex<Store>,
     // WAL readers keep answering while a large session is being indexed.
     reader: Mutex<Store>,

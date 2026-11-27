@@ -15,7 +15,7 @@ host! {
     use crate::occupancy::Occupancy;
     use std::{
         path::PathBuf,
-        sync::{Arc, Mutex, OnceLock, atomic::AtomicBool},
+        sync::{Arc, Mutex, atomic::AtomicBool},
     };
     use tokio::time::Instant;
 
@@ -105,10 +105,10 @@ host! {
     pub(crate) use processes::Demand as ProcessDemand;
     pub(crate) use processes::watch_ports;
     use images::Images;
-    pub(crate) use session::Session;
-    pub(crate) use session::Begin;
     use spend::Spend;
     use usage::UsageHub;
+    pub(crate) use session::Session;
+    pub(crate) use session::Begin;
 
     pub(crate) use crate::logs::unix_now;
 
@@ -123,7 +123,7 @@ host! {
         /// The agents it can start, how their adapters stand and the user's
         /// settings for them.
         pub catalog: Arc<catalog::Catalog>,
-        pub(crate) sessions: sessions::Sessions,
+        pub(crate) sessions: Arc<sessions::Sessions>,
         /// The pictures sessions' transcripts show, by session.
         images: Arc<Images>,
         /// What sessions spend and how much of the agents' plans is left.
@@ -146,31 +146,54 @@ host! {
         moves: moving::Moves,
         /// The workspace and the folders shared in `node.toml`, which file
         /// requests may reach beside the sessions' folders.
-        folders: OnceLock<Vec<PathBuf>>,
+        folders: Vec<PathBuf>,
         /// The sessions that started sessions, and the children on other machines.
         pub(crate) links: Arc<family::links::Links>,
         /// The background children that closed for good, to delete.
         closed: family::links::Tidy,
         /// The reviews reviewers handed in, and the reviewers running.
         reviews: reviews::kept::Reviews,
-        /// The search index, once the mesh opened it.
-        search: OnceLock<Arc<search::SearchIndex>>,
+        /// The search index, when the node opened one.
+        pub(crate) search: Option<Arc<search::SearchIndex>>,
         /// The sessions kept across the last stop, and whether they were resumed.
         reopen: reopen::Reopen,
         /// What the node has read of the folders it lists sessions in.
         listings: listings::Listings,
     }
 
+    /// What an `Agents` is made of that the node decides before it exists.
+    #[derive(Default)]
+    pub struct Parts {
+        /// The agents it can start.
+        pub kinds: Vec<AgentKind>,
+        /// Who works in which folder here, shared with sync.
+        pub occupancy: Occupancy,
+        /// The mesh the node belongs to, once it does.
+        pub mesh: crate::membership::Membership,
+        /// How sessions start the Beep MCP server, when the node serves it.
+        pub launch: Option<Arc<mcp_launch::Launch>>,
+        /// Beep's own skills folder, when the node lists it for sessions.
+        pub skills_dir: Option<PathBuf>,
+        /// The workspace and the folders shared in `node.toml`.
+        pub folders: Vec<PathBuf>,
+        /// The search index, when the node opened one.
+        pub search: Option<Arc<search::SearchIndex>>,
+    }
+
     impl Agents {
-        pub fn new(kinds: Vec<AgentKind>, occupancy: Occupancy) -> Self {
+        pub fn new(parts: Parts) -> Self {
             let events = crate::events::Hub::default();
+            let catalog = Arc::new(catalog::Catalog::new(parts.kinds, parts.launch, parts.skills_dir));
 
             Self {
                 events: events.clone(),
-                catalog: Arc::new(catalog::Catalog::new(kinds)),
-                occupancy,
+                catalog,
+                occupancy: parts.occupancy,
                 spend: Arc::new(Spend::locate()),
                 reviews: reviews::kept::Reviews::new(events),
+                links: Arc::new(family::links::Links::new(parts.mesh)),
+                folders: parts.folders,
+                search: parts.search,
                 ..Self::default()
             }
         }

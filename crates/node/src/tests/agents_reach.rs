@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use std::fs;
 use tempfile::TempDir;
 
@@ -156,8 +157,7 @@ fn claude_codes_temp_folder_is_in_tmp_by_uid() {
 async fn a_shared_folder_is_reached_through_the_agents() {
     let project = TempDir::new().unwrap();
     fs::write(project.path().join("model.glb"), "glTF").unwrap();
-    let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
-    agents.share_folders(vec![project.path().to_owned()]);
+    let agents = Agents::new(Parts { folders: vec![project.path().to_owned()], ..Parts::default() });
     let asked = project.path().join("model.glb");
     let real = agents
         .reachable(asked.to_str().unwrap(), Access::Write)

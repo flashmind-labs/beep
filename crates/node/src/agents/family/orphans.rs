@@ -26,7 +26,7 @@ use std::{
 };
 use tokio::{
     select,
-    sync::{Notify, SetOnce, mpsc, watch},
+    sync::{Notify, mpsc, watch},
     time::{Instant, sleep, sleep_until},
 };
 use tokio_util::task::AbortOnDropHandle;
@@ -201,7 +201,7 @@ impl Agents {
 /// The child's side: follows `peer`'s word on the parent until the child
 /// ends, and closes it when it is orphaned.
 async fn check_parent(
-    membership: Arc<SetOnce<Membership>>,
+    membership: Membership,
     session: std::sync::Weak<Session>,
     mut live: tokio::sync::watch::Receiver<Live>,
     peer: EndpointId,
@@ -230,14 +230,12 @@ async fn check_parent(
 /// Tells `tx` how the parent stands: from each list `peer` pushes, and
 /// silent while the machine is away. Ends when the child's side does.
 pub(super) async fn feed(
-    membership: Arc<SetOnce<Membership>>,
+    membership: Membership,
     session: std::sync::Weak<Session>,
     peer: EndpointId,
     link: ParentLink,
     tx: mpsc::Sender<Parent>,
 ) {
-    // The node may not serve its mesh yet: the check waits for it.
-    let membership = membership.wait().await.clone();
     let mut meshes = membership.subscribe();
     let (moved, there) = (Arc::new(Notify::new()), watch::channel(true).0);
     // Asks for as long as the child is followed, so the pacing of its asks

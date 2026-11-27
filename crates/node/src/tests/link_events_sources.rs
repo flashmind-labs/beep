@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::link::Offers;
 
 // Two lookups of one source overlap: the one that started first finishes last
@@ -13,8 +14,7 @@ async fn an_older_lookup_that_lands_last_does_not_replace_a_newer_one() {
     std::fs::create_dir(&new).unwrap();
     let link = shared.path().join("link");
     std::os::unix::fs::symlink(&old, &link).unwrap();
-    let offers = Offers::default();
-    offers.agents.share_folders(vec![shared.path().to_owned()]);
+    let offers = Offers::from_parts(Parts { folders: vec![shared.path().to_owned()], ..Parts::default() });
     let topic = Topic::keyed("files", link.to_str().unwrap());
     let source = Source::new(&offers, &topic).await.unwrap();
     let before = crate::lock(&source.roots).clone();

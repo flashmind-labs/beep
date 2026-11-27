@@ -1,5 +1,5 @@
 //! The Beep MCP server, whose tools let this node's coding agents work across
-//! the user's machines: `start` serves it,
+//! the user's machines: `bind` and `serve` start it,
 //! and `Launch` names it in each session's `session/new` as
 //! `beep-node mcp --session <id>`. `tools` sits above `team` and `agents` and
 //! below `link`, which builds its `Node`.
@@ -71,10 +71,25 @@ impl Invocation {
     }
 }
 
-/// Serves the Beep MCP server for `node`'s sessions from the socket in
-/// `dir` until the handle drops, with sessions running this executable as
-/// the server's command. `None`, logged, when this executable is not found.
-pub fn start(dir: &Path, node: Node) -> Option<AbortOnDropHandle<()>> {
+/// The socket of the Beep MCP server, bound and waiting for `serve`.
+pub struct Socket {
+    launch: Arc<Launch>,
+    listener: Listener,
+}
+
+impl Socket {
+    /// How sessions start the server on this socket.
+    #[must_use]
+    pub fn launch(&self) -> Arc<Launch> {
+        self.launch.clone()
+    }
+}
+
+/// Binds the socket of the Beep MCP server in `dir`, with sessions running
+/// this executable as the server's command: `serve` takes it, and sessions
+/// start with its `launch`. `None`, logged, when this executable is not found
+/// or the socket does not bind.
+pub fn bind(dir: &Path) -> Option<Socket> {
     let exe = match std::env::current_exe().and_then(std::path::absolute) {
         Ok(exe) => exe,
         Err(e) => {
@@ -84,11 +99,26 @@ pub fn start(dir: &Path, node: Node) -> Option<AbortOnDropHandle<()>> {
     };
     let dir = std::path::absolute(dir).unwrap_or_else(|_| dir.to_path_buf());
     let launch = Arc::new(Launch::new(exe, dir));
-    Some(AbortOnDropHandle::new(tokio::spawn(async move {
-        if let Err(e) = listen(launch, node).await {
+    let listener = socket::prepare(&launch.socket, &launch.dir)
+        .and_then(|()| Listener::bind(&launch.socket));
+
+    match listener {
+        Ok(listener) => Some(Socket { launch, listener }),
+        Err(e) => {
+            log::warn!("not serving the Beep MCP server: {e:#}");
+            None
+        }
+    }
+}
+
+/// Serves the Beep MCP server for `node`'s sessions on `socket`, bound by
+/// `bind`, until the handle drops.
+pub fn serve(socket: Socket, node: Node) -> AbortOnDropHandle<()> {
+    AbortOnDropHandle::new(tokio::spawn(async move {
+        if let Err(e) = listen(socket, node).await {
             log::warn!("not serving the Beep MCP server: {e:#}");
         }
-    })))
+    }))
 }
 
 /// What `server` uses on a node: the mesh for calls, the sessions for
@@ -196,16 +226,12 @@ struct Hello {
 /// checks the session's token and serves MCP itself. `ask_user` becomes a
 /// question in the session; every other call goes to the mesh over
 /// `tools/1`.
-async fn listen(launch: Arc<Launch>, node: Node) -> Result<()> {
-    let socket = &launch.socket;
-    socket::prepare(socket, &launch.dir)?;
-    let mut listener = Listener::bind(socket)?;
+async fn listen(socket: Socket, node: Node) -> Result<()> {
+    let Socket { launch, mut listener } = socket;
     log::info!(
         "serving the Beep MCP server on {}",
-        local_socket::shown(socket)
+        local_socket::shown(&launch.socket)
     );
-    node.agents.catalog.serve_mcp(launch.clone());
-    node.agents.serve_mesh(node.mesh.clone());
     let node = Arc::new(Served {
         node,
         screens: devices::Screens::default(),

@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::{
     agents::{AgentKind, Session, family::RemoteKid, live::Live},
     link::restart::{self, Reopen},
@@ -94,7 +95,7 @@ async fn an_update_waits_for_the_turn_and_the_next_prompt_goes_after() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = queued_during_a_turn(&agents, &kind, dir.path()).await;
     let mut live = session.live.clone();
     let idle = agents.until_idle();
@@ -124,7 +125,7 @@ async fn an_update_waits_for_the_turn_and_the_next_prompt_goes_after() {
 async fn an_update_restarts_once_the_busy_session_closes() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = agents
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
         .await.expect("the session starts");
@@ -148,7 +149,7 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
         .await.expect("the session starts");
@@ -172,7 +173,7 @@ async fn an_interrupted_turn_continues_before_queued_prompts() {
             .collect::<Vec<_>>(),
         vec![crate::tags::context(CONTINUE), "after".to_owned()]
     );
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
     let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
@@ -191,7 +192,7 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let _session = queued_during_a_turn(&before, &kind, dir.path()).await;
     before.shutdown().await;
     let stopped = before.open_sessions();
@@ -208,7 +209,7 @@ async fn a_held_session_resumes_after_the_restart_with_its_prompt() {
     let read = std::fs::read_to_string(&log).expect("the adapter's log");
     assert!(!read.contains(r#""text":"after""#), "{read}");
 
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
     let session = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
@@ -225,7 +226,7 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = resuming_adapter(&log);
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
         .await.expect("the session starts");
@@ -237,7 +238,7 @@ async fn a_session_resumed_without_a_replay_keeps_its_transcript() {
     stopped[0].started_at = 100;
     stopped[0].last_activity = 200;
 
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
     let resumed = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
@@ -267,7 +268,7 @@ async fn a_session_the_agent_replays_keeps_a_timestamp_snapshot() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
         .await.expect("the session starts");
@@ -299,7 +300,7 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Arc::new(Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default()));
+    let before = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
     let keeping = {
         let (dir, agents) = (dir.path().to_path_buf(), before.clone());
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
@@ -327,7 +328,7 @@ async fn a_child_on_another_machine_is_noted_and_comes_back_after_a_crash() {
     // The node dies here: the note is what is left.
     drop(keeping);
 
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(vec![noted]).await;
     let resumed = after.get(&name).expect("resumed under the agent's id");
@@ -341,7 +342,7 @@ async fn a_session_comes_back_after_a_crash() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Arc::new(Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default()));
+    let before = Arc::new(Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() }));
     let keeping = {
         let (dir, agents) = (dir.path().to_path_buf(), before.clone());
         tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
@@ -370,7 +371,7 @@ async fn a_session_comes_back_after_a_crash() {
     drop(keeping);
     assert_eq!(Reopen::read(dir.path()).sessions, noted.sessions);
 
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(noted.sessions).await;
     let resumed = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
@@ -397,7 +398,7 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
             r#"*'"session/load"'*) reply '{}'"#,
             &format!(r#"*'"session/load"'*) reply '{{{MODELS}}}'"#),
         );
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = before
         .start(
             &kind,
@@ -415,7 +416,7 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
     let stopped = before.open_sessions();
     assert_eq!(stopped[0].model, Some(ModelId::new("deep")));
     // Kept for a take-over after it ended, across the restart note.
-    let noted = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
+    let noted = Agents::new(Parts::default());
     noted.keep_saved(before.saved_sessions());
     let saved = noted.saved(&SessionId::from("held-1")).expect("saved across the note");
     assert_eq!(saved.info.model, Some(ModelId::new("deep")));
@@ -424,7 +425,7 @@ async fn a_resumed_session_goes_back_to_the_model_it_ran_on() {
         vec!["/srv/app/.worktrees/fix".to_owned()]
     );
 
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
     let session = after.get(&SessionId::from("held-1")).expect("resumed under the agent's id");
@@ -453,7 +454,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
           echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"held-1","update":{"sessionUpdate":"session_info_update","title":"Continue after node restart"}}}'
           reply '{"stopReason":"end_turn"}'"#,
     );
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("first"))
         .await.expect("starts");
@@ -463,7 +464,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
     .await;
     before.shutdown().await;
     let stopped = before.open_sessions();
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
     let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
@@ -485,7 +486,7 @@ async fn recovery_context_keeps_the_title_even_when_the_adapter_renames_it() {
 async fn begin_assistant_lists_as_assistant() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = agents
         .start(
             &kind,
@@ -511,7 +512,7 @@ async fn assistant_survives_restart() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let log = dir.path().join("log");
     let kind = adapter(&log);
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = before
         .start(
             &kind,
@@ -528,7 +529,7 @@ async fn assistant_survives_restart() {
     let stopped = before.open_sessions();
     assert!(stopped[0].assistant);
 
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
     assert!(after.is_assistant(&SessionId::from("held-1")));
@@ -539,7 +540,7 @@ async fn assistant_survives_restart() {
 async fn a_fresh_start_in_the_home_folder_is_no_assistant() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     // No folder is the home folder; only the flag makes the assistant.
     let home = agents
         .start(&kind, None, begin("hello"))
@@ -554,7 +555,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
     // Not the home folder: only the flag makes it the assistant, as on Windows.
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = before
         .start(
             &kind,
@@ -575,7 +576,7 @@ async fn an_ended_assistant_stays_the_assistant_after_a_restart() {
     note.save(dir.path()).expect("the note writes");
     before.shutdown().await;
 
-    let after = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     after.keep_saved(Reopen::read(dir.path()).saved);
     after.catalog.settings_arrived();
     let resumed = after
@@ -593,7 +594,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
     let home = dirs::home_dir().expect("a home folder");
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     agents.keep_saved(vec![SavedSession {
         info: SessionInfo {
             id: "held-1".into(),
@@ -617,7 +618,7 @@ async fn a_saved_session_in_the_home_folder_keeps_its_saved_flag() {
 
 #[test]
 fn an_ended_assistant_kept_from_before_is_still_the_assistant() {
-    let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts::default());
     let kept = |id: &str, assistant: bool, reviewer: bool| SavedSession {
         info: SessionInfo {
             id: id.into(),
@@ -754,7 +755,7 @@ fn a_new_note_reads_as_an_old_node_keeps_it() {
 async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = agents
         .start(
             &kind,
@@ -781,7 +782,7 @@ async fn a_saved_session_keeps_what_it_goes_on_with_and_not_its_state() {
 async fn a_refiled_session_is_saved_and_reopened_in_its_new_folder() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     let kind = adapter(&dir.path().join("log"));
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = agents
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("hello"))
         .await
@@ -803,7 +804,7 @@ async fn a_refiled_session_is_saved_and_reopened_in_its_new_folder() {
 
 #[test]
 fn a_reviewer_taken_over_is_never_the_assistant() {
-    let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts::default());
     let saved = SavedSession {
         info: SessionInfo {
             id: "held-1".into(),
@@ -831,7 +832,7 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
         r#"*'"session/load"'*) reply '{}'
           echo '{"jsonrpc":"2.0","method":"session/update","params":{"sessionId":"held-1","update":{"sessionUpdate":"session_info_update","title":"Explain Rust lifetimes"}}}' ;;"#,
     );
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
         .await.expect("starts");
@@ -840,7 +841,7 @@ async fn a_reopened_session_takes_the_title_the_agent_sends_after_loading() {
     let stopped = before.open_sessions();
     assert_eq!(stopped[0].title.as_deref(), Some("explain lifetimes"));
 
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
     let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
@@ -864,7 +865,7 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
       reply '{"stopReason":"end_turn"}' ;;
     *'"session/prompt"'*) reply '{"stopReason":"end_turn"}' ;;"#,
     );
-    let before = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let before = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = before
         .start(&kind, Some(&dir.path().to_string_lossy()), begin("explain lifetimes"))
         .await.expect("starts");
@@ -872,7 +873,7 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
     before.shutdown().await;
     let stopped = before.open_sessions();
 
-    let after = Agents::new(vec![kind], crate::occupancy::Occupancy::default());
+    let after = Agents::new(Parts { kinds: vec![kind], ..Parts::default() });
     after.catalog.settings_arrived();
     after.reopen(stopped).await;
     let resumed = after.get(&SessionId::from("held-1")).expect("resumed");
@@ -892,7 +893,7 @@ async fn a_reopened_session_keeps_its_title_when_the_agent_titles_a_prompt() {
 #[tokio::test]
 async fn a_saved_assistant_chat_still_names_its_folder_to_delete() {
     let dir = tempfile::tempdir().expect("a temporary folder");
-    let agents = Agents::new(vec![adapter(&dir.path().join("log"))], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![adapter(&dir.path().join("log"))], ..Parts::default() });
     let kept = |id: &str, assistant: bool, parent: Option<ParentLink>| SavedSession {
         info: SessionInfo {
             id: id.into(),

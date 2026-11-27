@@ -11,7 +11,6 @@
 use beep_proto::SessionId;
 use super::{Agents, Begin, Session, live::{Live, Mark}, session::{Command, ended_for_good}};
 use crate::known::known;
-use crate::membership::Membership;
 use beep_proto::AgentAccount;
 use beep_proto::node::agent::{ParentLink, Persona, SessionInfo, Status};
 use beep_proto::watched;
@@ -35,15 +34,9 @@ pub(crate) use links::NO_AGENT;
 /// How long the count of a root's agents on another machine may take.
 const COUNT_LIMIT: Duration = Duration::from_secs(3);
 impl Agents {
-    /// Lets the family reach other machines, once the node serves the Beep
-    /// MCP server. Only the first call counts.
-    pub(crate) fn serve_mesh(&self, membership: Membership) {
-        let _ = self.links.membership.set(membership);
-    }
-
     /// The mesh, when this node belongs to one.
     pub(crate) fn mesh(&self) -> Option<beep_mesh::Mesh> {
-        self.links.membership.get().and_then(Membership::get)
+        self.links.membership.get()
     }
 
     /// This machine's id in its mesh.

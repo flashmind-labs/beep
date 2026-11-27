@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::link::state::State;
 use std::fs;
 
@@ -10,7 +11,7 @@ async fn a_new_search_folder_is_saved_and_a_missing_one_refused() {
     // Walks this empty folder, not the home of whoever runs the test.
     let empty = temp.path().join("empty");
     fs::create_dir(&empty).expect("a folder");
-    let agents = Arc::new(Agents::new(Vec::new(), crate::occupancy::Occupancy::default()));
+    let agents = Arc::new(Agents::new(Parts::default()));
     let start = Search::from(empty.display().to_string().as_str());
     let searches = Searches::start(dir.clone(), agents, &start);
     let home = Reply::Folder {

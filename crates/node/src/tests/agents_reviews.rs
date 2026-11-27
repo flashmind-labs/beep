@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 use crate::agents::AgentKind;
 use beep_proto::node::agent::{CodeFinding, CodeVerdict, FindingSeverity};
 use beep_proto::watched;
@@ -60,7 +61,7 @@ impl Rig {
         let top = kind("top", &dir.path().join("top.log"));
         let kid = kind("kid", &dir.path().join("kid.log"));
         Self {
-            agents: Arc::new(Agents::new(vec![top, kid], crate::occupancy::Occupancy::default())),
+            agents: Arc::new(Agents::new(Parts { kinds: vec![top, kid], ..Parts::default() })),
             dir,
         }
     }
@@ -250,7 +251,7 @@ async fn a_finished_reviewer_leaves_no_session_on_disk() {
     let rig = Rig {
         agents: Arc::new(Agents {
             occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(&dir.path().join("claude")), Default::default()),
-            ..Agents::new(vec![claude], crate::occupancy::Occupancy::default())
+            ..Agents::new(Parts { kinds: vec![claude], ..Parts::default() })
         }),
         dir,
     };

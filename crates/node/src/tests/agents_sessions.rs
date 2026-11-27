@@ -1,4 +1,5 @@
 use crate::agents::{AgentKind, Agents, session::Begin};
+use crate::agents::Parts;
 use beep_proto::{SessionId, watched};
 use super::reserve;
 use std::{collections::BTreeMap, path::Path, sync::Arc, time::Duration};
@@ -31,7 +32,7 @@ fn resuming(id: &str) -> Begin {
 #[tokio::test]
 async fn an_inserted_session_is_there_for_the_next_read() {
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
 
     assert!(agents.session_map().is_empty());
 
@@ -48,7 +49,7 @@ async fn an_inserted_session_is_there_for_the_next_read() {
 #[tokio::test]
 async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let first = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
     // A start between taking its id and inserting, which is where the
     // process spawns.
@@ -70,7 +71,7 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
 #[tokio::test]
 async fn one_session_is_not_taken_over_while_another_takeover_starts() {
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let first = agents
         .sessions
@@ -108,7 +109,7 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let holds = agents.occupancy.holds();
     let hold = holds.hold(root).await.unwrap();
     let blocked = agents.start(&kind, root.to_str(), Begin::default()).await;
@@ -194,7 +195,7 @@ async fn a_resumed_session_blocks_recovery() {
 
 #[tokio::test]
 async fn one_lock_serves_every_holder_of_a_stored_session() {
-    let agents = Agents::new(vec![silent()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![silent()], ..Parts::default() });
     let id = SessionId::from("stored-1");
 
     let first = agents.sessions.store_of(&id);
@@ -216,7 +217,7 @@ async fn one_lock_serves_every_holder_of_a_stored_session() {
 #[tokio::test]
 async fn a_subscriber_sees_an_insert_and_a_removal() {
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let mut map = agents.sessions.subscribe();
 
     assert!(watched::read_and_update(&mut map, |map| map.is_empty()));
@@ -235,7 +236,7 @@ async fn a_subscriber_sees_an_insert_and_a_removal() {
 #[tokio::test]
 async fn a_node_with_no_children_counts_none() {
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let agents = Agents::new(Parts { kinds: vec![kind.clone()], ..Parts::default() });
     let session = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
     let who = agents.who_of(&session);
 

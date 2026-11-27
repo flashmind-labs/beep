@@ -1,4 +1,5 @@
 use super::*;
+use crate::agents::Parts;
 
 #[test]
 fn known_protocol_names_round_trip_and_compare_as_variants() {
@@ -83,7 +84,7 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
         mcp_servers::{Reply, Request},
     };
     let dir = tempfile::tempdir()?;
-    let offers = Offers::local(&[], Provision::new(dir.path()));
+    let offers = Offers::local(Parts::default(), Provision::new(dir.path()));
     let peer = iroh::SecretKey::generate().public();
     let protocol = SessionProtocol::McpServers;
 
