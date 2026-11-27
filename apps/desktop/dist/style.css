@@ -1039,6 +1039,7 @@ body:not(.mobile) .aglocation #agbranch:not(:empty)::before { content: " · " }
 
 /* Settings, Appearance: the skins as swatches, dark then light. */
 .dskins { display: grid; gap: 6px; margin-bottom: 12px }
+.dtoggle + .dskins { margin-top: 12px }
 .dskins small { font-size: 12px; color: var(--muted) }
 .dskins > div { display: flex; flex-wrap: wrap; gap: 6px }
 .dskin { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: transparent; color: var(--muted); font-size: 13px; cursor: default }

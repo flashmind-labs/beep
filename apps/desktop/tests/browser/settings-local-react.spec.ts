@@ -22,6 +22,50 @@ test("Appearance keeps the chosen control focused across refresh", async ({ page
   await expect.poll(() => page.evaluate(() => { const host: unknown = Reflect.get(window, "appearanceHost"); return host instanceof HTMLElement ? host.isConnected : null; })).toBe(false);
 });
 
+test("System theme adapts between chosen dark and light skins with system preferences", { tag: "@windows" }, async ({ page }) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await openDesktop(page, false, responses);
+  await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("button", { name: "Appearance", exact: true }).click();
+
+  const toggle = settings.getByRole("switch", { name: "System theme" });
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  await expect(settings.locator('[data-skin-pick="linear"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(settings.locator('[data-skin-pick="paper"]')).toHaveAttribute("aria-pressed", "false");
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await expect(settings).toContainText("Switches between Linear and Light with the system appearance");
+  await expect(settings.locator('[data-skin-pick="linear"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(settings.locator('[data-skin-pick="paper"]')).toHaveAttribute("aria-pressed", "true");
+  expect(await page.evaluate(() => document.documentElement.dataset.skin ?? null)).toBeNull();
+
+  await page.emulateMedia({ colorScheme: "light" });
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.skin ?? null)).toBe("paper");
+
+  await settings.locator('[data-skin-pick="warm"]').click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await expect(settings.locator('[data-skin-pick="warm"]')).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.skin ?? null)).toBe("warm");
+  await expect(settings).toContainText("Switches between Linear and Warm with the system appearance");
+
+  await settings.locator('[data-skin-pick="tokyo"]').click();
+  await expect(toggle).toHaveAttribute("aria-checked", "true");
+  await expect(settings.locator('[data-skin-pick="tokyo"]')).toHaveAttribute("aria-pressed", "true");
+  expect(await page.evaluate(() => document.documentElement.dataset.skin ?? null)).toBe("warm");
+  await expect(settings).toContainText("Switches between Tokyo Night and Warm with the system appearance");
+
+  await page.emulateMedia({ colorScheme: "dark" });
+  await expect.poll(() => page.evaluate(() => document.documentElement.dataset.skin ?? null)).toBe("tokyo");
+
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-checked", "false");
+  expect(await page.evaluate(() => document.documentElement.dataset.skin ?? null)).toBe("tokyo");
+  await expect(settings.locator('[data-skin-pick="tokyo"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(settings.locator('[data-skin-pick="warm"]')).toHaveAttribute("aria-pressed", "false");
+});
+
 test("computer controls call the existing native commands", { tag: "@windows" }, async ({ page }, info) => {
   await openDesktop(page, false, responses);
   await page.locator("#side").getByRole("button", { name: "Settings", exact: true }).click();

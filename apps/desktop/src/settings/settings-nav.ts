@@ -5,7 +5,7 @@
 /// words its search also finds them by.
 const SETTINGS_PAGES = [
   ["general", "General", "name updates version"],
-  ["appearance", "Appearance", "skin theme colors paintings motion"],
+  ["appearance", "Appearance", "skin theme colors paintings motion dark light system"],
   ["mac", "This computer", "control screen recording accessibility"],
   ["machines", "Machines", "nodes devices"],
   ["agents", "Agents", "accounts login sign in models coding agents"],
@@ -52,6 +52,7 @@ export const SETTING_ROWS: readonly (readonly [SettingsPage, string])[] = [
   ["general", "Keyboard shortcuts"],
   ["general", "Developer mode"],
   ["general", "Report a problem"],
+  ["appearance", "System theme"],
   ["appearance", "Projects"],
   ["appearance", "Conversation scrollbar"],
   ["appearance", "Prompt marks"],

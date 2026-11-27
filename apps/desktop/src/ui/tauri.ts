@@ -31,8 +31,9 @@ interface TauriGlobal {
     getCurrentWebviewWindow(): {
       readonly label: string;
       listen<T = unknown>(event: string, handler: (event: TauriEvent<T>) => void): Promise<() => void>;
-      /// The title bar's theme on Windows and Linux. Absent from the tests' stand-ins.
-      setTheme?(theme: "light" | "dark"): Promise<void>;
+      /// The title bar's theme on Windows and Linux; null follows the system. Absent from the tests' stand-ins.
+      setTheme?(theme: "light" | "dark" | null): Promise<void>;
+      theme?(): Promise<"light" | "dark" | null>;
     };
   };
 }

@@ -2,6 +2,7 @@
 // Previews receive only the cached SVG, so they do not load Mermaid again.
 import { type SyntheticEvent } from "react";
 import { createDocumentScope } from "../ui/document-root.tsx";
+import { skinChanged } from "../ui/skin.ts";
 import { invoke, useBuildCapabilities } from "../ui/tauri.ts";
 import { saveUrl } from "./media.tsx";
 import { notice } from "./viewer-overlay.tsx";
@@ -205,4 +206,15 @@ function sweep() {
 // A Mermaid block not yet drawn plays a 1 ms animation (style.css) as it shows, so a new block
 // costs one event, and the rest of the page's changes cost nothing.
 document.addEventListener("animationstart", event => { if (event.animationName === "diagram-found") scan(); });
+skinChanged.add(() => {
+  if (!diagrams.size) return;
+  const before = lastPalette;
+  palette();
+  if (before && lastPalette === before) return;
+  for (const [frame, diagram] of diagrams) {
+    if (diagram.expanded) render(diagram);
+    else if (diagram.fallback) frame.remove();
+  }
+  scan();
+});
 scan();

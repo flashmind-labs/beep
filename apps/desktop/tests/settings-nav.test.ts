@@ -36,6 +36,7 @@ test("search finds pages by name or search word, and subpages by name", () => {
   assert.deepEqual(find("dev mode"), ["Developer mode"]);
   // A row's title comes before a page found only by its search words.
   assert.deepEqual(find("prompt"), ["Prompt marks", "instr"]);
+  assert.deepEqual(find("system theme"), ["System theme", "appearance"]);
   assert.deepEqual(find("codex"), ["codex"]);
   assert.deepEqual(find("accounts"), ["agents"]);
   assert.deepEqual(find("xyz"), []);

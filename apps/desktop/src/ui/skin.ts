@@ -37,26 +37,95 @@ export const SKINS: readonly Skin[] = [
 ];
 
 const DEFAULT_SKIN = "linear";
+const DEFAULT_LIGHT_SKIN = "paper";
 const KEY = "beep.skin";
+const SYSTEM_KEY = "beep.skin.system";
+const DARK_KEY = "beep.skin.dark";
+const LIGHT_KEY = "beep.skin.light";
+const SKIN_KEYS = new Set([KEY, SYSTEM_KEY, DARK_KEY, LIGHT_KEY]);
 /// The picked plugin skin's tokens, so a window shows them before the plugins are read.
 const TOKENS_KEY = "beep.skin.tokens";
 /// A plugin skin's id in the pick.
 const PLUGIN = "plugin:";
 
+export interface SkinPreference {
+  /// Whether the window switches between `dark` and `light` with the OS preference.
+  system: boolean;
+  /// The skin id drawn right now.
+  active: string;
+  /// The dark skin used when `system` is on.
+  dark: string;
+  /// The light skin used when `system` is on.
+  light: string;
+}
+
 /// The skins installed plugins offer, read from the desktop. Empty on a phone.
 export const skinPlugins = createStore<{ skins: readonly PluginSkin[] }>(() => ({ skins: [] }));
 let pluginsRead = false;
+const memoryStore = new Map<string, string>();
+/// What Windows or Linux reported for the OS theme while following the system;
+/// null when `prefers-color-scheme` speaks for itself.
+let nativeLight: boolean | null = null;
 
 export const pluginSkinId = (plugin: string) => `${PLUGIN}${plugin}`;
 
-/// The picked skin's id, the default when none or an unknown one is kept.
-export function skinId(): string {
-  let kept: string | null = null;
-  try { kept = localStorage.getItem(KEY); } catch {}
+const isDarkBuiltin = (id: string | null): id is string => id !== null && SKINS.some(s => s.id === id && !s.light);
+const isLightBuiltin = (id: string | null): id is string => id !== null && SKINS.some(s => s.id === id && s.light === true);
+
+function readItem(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return memoryStore.get(key) ?? null; }
+}
+
+function writeItem(key: string, value: string) {
+  memoryStore.set(key, value);
+  try { localStorage.setItem(key, value); } catch {}
+}
+
+/// Whether the window follows the system's light or dark appearance.
+export function systemSkin(): boolean {
+  return readItem(SYSTEM_KEY) === "true";
+}
+
+/// The dark skin paired with system mode: the one picked for dark, else a dark
+/// fixed pick, else Linear.
+export function darkSkinId(): string {
+  const dark = readItem(DARK_KEY);
+  if (isDarkBuiltin(dark)) return dark;
+  const fixed = readItem(KEY);
+  return isDarkBuiltin(fixed) ? fixed : DEFAULT_SKIN;
+}
+
+/// The light skin paired with system mode: the one picked for light, else a
+/// light fixed pick, else Light.
+export function lightSkinId(): string {
+  const light = readItem(LIGHT_KEY);
+  if (isLightBuiltin(light)) return light;
+  const fixed = readItem(KEY);
+  return isLightBuiltin(fixed) ? fixed : DEFAULT_LIGHT_SKIN;
+}
+
+function systemPrefersLight(): boolean {
+  if (nativeLight !== null) return nativeLight;
+  return typeof matchMedia === "function" && matchMedia("(prefers-color-scheme: light)").matches;
+}
+
+function fixedSkinId(): string {
+  const kept = readItem(KEY);
   if (kept === null) return DEFAULT_SKIN;
   if (kept.startsWith(PLUGIN)) return !pluginsRead || skinPlugins.getState().skins.some(s => pluginSkinId(s.id) === kept) ? kept : DEFAULT_SKIN;
   return SKINS.some(s => s.id === kept) ? kept : DEFAULT_SKIN;
 }
+
+/// The picked skin's id, following the system when enabled or falling back to Linear.
+export function skinId(): string {
+  return systemSkin() ? (systemPrefersLight() ? lightSkinId() : darkSkinId()) : fixedSkinId();
+}
+
+function readSkinPreference(): SkinPreference {
+  return { system: systemSkin(), active: skinId(), dark: darkSkinId(), light: lightSkinId() };
+}
+
+export const skinPreference = createStore<SkinPreference>(() => readSkinPreference());
 
 /// Called when this window takes another skin: what draws in its colours
 /// outside CSS, such as a terminal, draws again.
@@ -64,8 +133,39 @@ export const skinChanged = new Set<() => void>();
 
 /// The tokens this window set from a plugin skin, to clear them on the next pick.
 let pluginTokens: readonly string[] = [];
+type WindowTheme = "light" | "dark" | "system";
+let appliedWindowTheme: WindowTheme | null = null;
+let themeSync = 0;
+
+function syncWindowTheme(system: boolean, builtin: string) {
+  if (APPLE || onPhone()) return;
+
+  const desired: WindowTheme = system ? "system" : (isLightBuiltin(builtin) ? "light" : "dark");
+  if (desired === appliedWindowTheme) return;
+  appliedWindowTheme = desired;
+  const mine = ++themeSync;
+  const webview = window.__TAURI__.webviewWindow.getCurrentWebviewWindow();
+  if (desired !== "system") {
+    nativeLight = null;
+    webview.setTheme?.(desired).catch(() => {});
+    return;
+  }
+
+  if (!webview.setTheme) return;
+  webview.setTheme(null)
+    .then(() => webview.theme?.())
+    .then(theme => {
+      if (mine !== themeSync || !systemSkin() || (theme !== "light" && theme !== "dark")) return;
+      const isLight = theme === "light";
+      if (nativeLight === isLight) return;
+      nativeLight = isLight;
+      apply();
+    })
+    .catch(() => {});
+}
 
 function apply() {
+  const system = systemSkin();
   const id = skinId();
   const builtin = id.startsWith(PLUGIN) ? DEFAULT_SKIN : id;
   if (builtin === DEFAULT_SKIN) delete document.documentElement.dataset.skin;
@@ -76,40 +176,81 @@ function apply() {
   for (const token of pluginTokens) if (!tokens.has(token)) root.removeProperty(token);
   for (const [token, value] of tokens) root.setProperty(token, value);
   pluginTokens = [...tokens.keys()];
+  skinPreference.setState(readSkinPreference());
   for (const draw of skinChanged) draw();
 
-  // Windows and Linux draw the title bar: it takes the skin's light or dark.
-  if (APPLE || onPhone()) return;
-  const light = SKINS.find(s => s.id === builtin)?.light ?? false;
-  window.__TAURI__.webviewWindow.getCurrentWebviewWindow().setTheme?.(light ? "light" : "dark").catch(() => {});
+  // Windows and Linux draw the title bar: it follows the system or takes the skin's light or dark.
+  syncWindowTheme(system, builtin);
 }
 
 /// A plugin skin's tokens: from the plugins once read, and kept for the next launch.
 function pluginTokensOf(id: string): Map<string, string> {
   const skin = skinPlugins.getState().skins.find(s => pluginSkinId(s.id) === id);
   if (skin !== undefined) {
-    try { localStorage.setItem(TOKENS_KEY, JSON.stringify([...skin.tokens])); } catch {}
+    writeItem(TOKENS_KEY, JSON.stringify([...skin.tokens]));
     return new Map(skin.tokens);
   }
 
   try {
-    const kept: unknown = JSON.parse(localStorage.getItem(TOKENS_KEY) ?? "[]");
+    const kept: unknown = JSON.parse(readItem(TOKENS_KEY) ?? "[]");
     if (Array.isArray(kept)) return new Map(kept.filter((pair): pair is [string, string] => Array.isArray(pair) && typeof pair[0] === "string" && pair[0].startsWith("--") && typeof pair[1] === "string"));
   } catch {}
   return new Map();
 }
 
-/// Picks skin `id` for every window.
-export function setSkin(id: string) {
-  try { localStorage.setItem(KEY, id); } catch {}
+/// Turns following the system's light or dark appearance on or off for every window.
+export function setSystemSkin(enabled: boolean) {
+  if (enabled) {
+    writeItem(DARK_KEY, darkSkinId());
+    writeItem(LIGHT_KEY, lightSkinId());
+    writeItem(SYSTEM_KEY, "true");
+  } else {
+    writeItem(KEY, skinId());
+    writeItem(SYSTEM_KEY, "false");
+  }
   apply();
 }
 
-/// Draws this window in the picked skin, and follows picks made in others and skin
-/// plugins turned on, off or changed.
+/// Picks skin `id` for every window. While following the system, a dark or light
+/// built-in skin updates that side's pick; a plugin skin switches to itself.
+export function setSkin(id: string) {
+  if (systemSkin()) {
+    if (isLightBuiltin(id)) writeItem(LIGHT_KEY, id);
+    else if (isDarkBuiltin(id)) writeItem(DARK_KEY, id);
+    else {
+      writeItem(KEY, id);
+      writeItem(SYSTEM_KEY, "false");
+    }
+  } else {
+    writeItem(KEY, id);
+    if (isLightBuiltin(id)) writeItem(LIGHT_KEY, id);
+    else if (isDarkBuiltin(id)) writeItem(DARK_KEY, id);
+  }
+  apply();
+}
+
+/// Draws this window in the picked skin, and follows picks made in others, system
+/// theme changes, and skin plugins turned on, off or changed.
 export function followSkin() {
   apply();
-  addEventListener("storage", e => { if (e.key === KEY) apply(); });
+  addEventListener("storage", e => { if (e.key === null || SKIN_KEYS.has(e.key)) apply(); });
+  if (typeof matchMedia === "function") {
+    matchMedia("(prefers-color-scheme: light)").addEventListener("change", e => {
+      if (nativeLight !== null) nativeLight = e.matches;
+      if (systemSkin()) apply();
+    });
+  }
+  if (!APPLE && !onPhone()) {
+    void window.__TAURI__.webviewWindow.getCurrentWebviewWindow()
+      .listen<unknown>("tauri://theme-changed", ({ payload }) => {
+        if (!systemSkin() || (payload !== "light" && payload !== "dark")) return;
+        const isLight = payload === "light";
+        if (nativeLight === isLight) return;
+        nativeLight = isLight;
+        apply();
+      })
+      .catch(() => {});
+  }
 
   // The payload is the list, or null while the desktop has not started its plugins.
   void listen<unknown>("plugins-status", ({ payload }) => { if (payload !== null) takePluginSkins(payload, ++skinReads); }).catch(() => {});

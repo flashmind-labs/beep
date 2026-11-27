@@ -216,6 +216,11 @@ body.cbody
           section#set-appearance-sec [data-sec="appearance"]
             div.dsec.flat.top "Appearance"
             div#set-appearance
+              div.dtoggle
+                span
+                  b "System theme"
+                  small "Switch between dark and light skins with the system appearance"
+                button#systemTheme.dswitch [aria-checked="false" aria-label="System theme" role="switch" type="button"]
               div.dskins
                 small "Dark"
                 div
