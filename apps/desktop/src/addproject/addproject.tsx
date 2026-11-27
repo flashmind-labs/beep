@@ -87,7 +87,7 @@ export function openAddProject(options: AddProjectOptions = {}) {
     .then(rows => { if (live() && found === null) found = rows; })
     .catch(e => { if (live() && found === null) { found = []; error = reason(e); } })
     .finally(() => { if (live()) draw(); });
-  rescanAll(machines => {
+  rescanAll(invoke, machines => {
     if (!live()) return;
     for (const m of machines) looking.set(m.id, m.name);
     draw();
@@ -179,7 +179,7 @@ async function importPicked() {
     if (!row) return;
 
     try {
-      landed.push(await importFound(row, syncthingFiles));
+      landed.push(await importFound(invoke, row, syncthingFiles));
       if (live()) { status.set(name, { state: "done" }); picked.delete(name); }
     } catch (e) {
       if (live()) status.set(name, { state: "failed", why: reason(e) });
@@ -204,7 +204,7 @@ async function doImport(row: FoundRow) {
   draw();
 
   try {
-    const project = await importFound(row, syncthing.value());
+    const project = await importFound(invoke, row, syncthing.value());
     if (mine === opened && root) { importing = null; closeAddProject(); }
     then?.(project);
   } catch (e) {

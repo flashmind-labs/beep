@@ -2,7 +2,7 @@
 // functions so they can be tested without Tauri. importproject.ts draws it.
 import type { ProjectRow, MachineFolder } from "../project/projects-state.ts";
 import { reason } from "../ui/format.ts";
-import { invoke } from "../ui/tauri.ts";
+import type { invoke as Invoke } from "../ui/tauri.ts";
 
 /// "org/repo", a GitHub URL, a Forgejo URL or `git@host:org/repo`: what the
 /// Beep takes. It says why when it is none of these.
@@ -234,6 +234,6 @@ export function doneText(project: Pick<ProjectRow, "cloned" | "machine_name" | "
 }
 
 /// Where `machine` keeps its projects: its Projects in folder, else its home.
-export function projectsIn(machine: string): Promise<string> {
+export function projectsIn(invoke: typeof Invoke, machine: string): Promise<string> {
   return invoke<string>("machine_search", { machineId: machine }).then(folder => folder.trim() || "~", () => "~");
 }

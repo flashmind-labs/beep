@@ -1,4 +1,3 @@
-import "./tauri-window.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { browseStart, copyLine, offers, shortName } from "../src/project/addmachine-state.ts";

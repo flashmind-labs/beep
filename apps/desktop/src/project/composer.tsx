@@ -923,7 +923,7 @@ async function addToMachine(project: string, m: AgentHost) {
   projectChanged.notify();
 
   try {
-    const folder = projectUnder(await projectsIn(m.machine_id), project);
+    const folder = projectUnder(await projectsIn(invoke, m.machine_id), project);
     await invoke<string>("project_add_to_machine", { project, machineId: m.machine_id, folder });
     await new Promise<void>(resolve => {
       let done = false;

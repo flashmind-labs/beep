@@ -50,7 +50,7 @@ export function openAddFolder(options: AddFolderOptions = {}) {
     machine = id;
     error = null;
     draw();
-    if (!starts.has(id)) void projectsIn(id).then(root => { starts.set(id, root); draw(); });
+    if (!starts.has(id)) void projectsIn(invoke, id).then(root => { starts.set(id, root); draw(); });
   };
 
   /// The Syncthing choice, which shows only for a folder Syncthing holds; or why a checkout cannot be added.

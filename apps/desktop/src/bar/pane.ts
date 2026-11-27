@@ -33,9 +33,9 @@ export type PaneTarget =
 export const pane = {
   /// Draws Settings into `el`, the window's sheet, leaving the pane as it
   /// is. It opens on `page` when given, else on the page picked last.
-  settings(el: HTMLElement, page?: string) {
+  settings(el: HTMLElement, page?: string | null) {
     loadHosts();
-    return ensureSettings().then(m => m.renderSettings(el, page));
+    return ensureSettings().then(m => m.renderSettings(el, page ?? undefined));
   },
   /// Esc in the sheet: back from a subpage to its page. False when the
   /// sheet shows a page, so Esc closes it.

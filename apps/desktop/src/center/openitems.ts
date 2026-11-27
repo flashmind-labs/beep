@@ -94,7 +94,7 @@ export async function quickImport(p: OpenRepo) {
     // A checkout the machines found imports as it is, not as a second clone.
     if (!state.found) await loadFound();
     const here = foundFor(state.found, p.repo);
-    if (here) await importFound(here);
+    if (here) await importFound(invoke, here);
     else keepLastImport(await invoke<ProjectRow>("import_project", { repo: importRepo(p), machineId: machine.id, folder: null, worktrees: [] }));
     rowImports.delete(p.key);
   } catch (e) {

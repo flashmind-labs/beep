@@ -3,7 +3,7 @@
 // ticked, and running a batch of imports a few at a time.
 import { agentLabel, importPlan } from "../project/projects-state.ts";
 import type { FoundRow, ProjectRow } from "../project/projects-state.ts";
-import { invoke } from "../ui/tauri.ts";
+import type { invoke as Invoke } from "../ui/tauri.ts";
 import { reason } from "../ui/format.ts";
 
 /// At most this many imports run at once in a batch.
@@ -104,7 +104,7 @@ export interface FoundAfter {
 const scans = new Map<string, Promise<FoundAfter>>();
 
 /// Has `machine` look for checkouts again, once at a time.
-function rescan(machine: FoundMachine) {
+function rescan(invoke: typeof Invoke, machine: FoundMachine) {
   let scan = scans.get(machine.id);
 
   if (!scan) {
@@ -119,7 +119,7 @@ function rescan(machine: FoundMachine) {
 
 /// Has every online machine look for checkouts again. `start` gets them as
 /// the looks begin, and `each` the list after each machine answers.
-export async function rescanAll(start: (machines: FoundMachine[]) => void, each: (machine: FoundMachine, after: FoundAfter) => void) {
+export async function rescanAll(invoke: typeof Invoke, start: (machines: FoundMachine[]) => void, each: (machine: FoundMachine, after: FoundAfter) => void) {
   let machines: FoundMachine[] = [];
 
   try {
@@ -129,11 +129,11 @@ export async function rescanAll(start: (machines: FoundMachine[]) => void, each:
   }
 
   start(machines);
-  await Promise.all(machines.map(machine => rescan(machine).then(after => each(machine, after))));
+  await Promise.all(machines.map(machine => rescan(invoke, machine).then(after => each(machine, after))));
 }
 
 /// Imports a found row in place on each machine that has it.
-export async function importFound(row: FoundRow, syncthingFiles: boolean | null = null) {
+export async function importFound(invoke: typeof Invoke, row: FoundRow, syncthingFiles: boolean | null = null) {
   let first: ProjectRow | null = null;
 
   for (const one of importPlan(row)) {

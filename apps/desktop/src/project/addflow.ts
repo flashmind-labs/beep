@@ -48,7 +48,7 @@ export const loadFound = single(async () => {
   }
 
   drawFound();
-  await rescanAll(() => {}, (_, after) => {
+  await rescanAll(invoke, () => {}, (_, after) => {
     if (!after.rows) return;
     state.found = after.rows;
     drawFound();
@@ -70,7 +70,7 @@ export async function importFromPage(row: FoundRow) {
   homeDataChanged.notify();
 
   try {
-    const project = await importFound(row);
+    const project = await importFound(invoke, row);
     state.importing = null;
     landed(project);
   } catch (e) {

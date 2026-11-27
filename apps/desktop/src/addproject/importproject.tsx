@@ -244,7 +244,7 @@ function draw() {
 function learnBase() {
   const machine = state.machine, mine = opening;
   if (!machine || roots.has(machine)) return;
-  void projectsIn(machine).then(folder => {
+  void projectsIn(invoke, machine).then(folder => {
     roots.set(machine, folder);
     if (mine === opening && root && state.machine === machine) { scheduleTypedFolder(true); draw(); }
   });

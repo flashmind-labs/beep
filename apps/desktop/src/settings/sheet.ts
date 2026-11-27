@@ -31,7 +31,7 @@ async function ensureSettingsMod() {
 let settingsOpen: { scrim: HTMLElement; keys: (e: KeyboardEvent) => void; back: HTMLElement | null; render(content: ReactNode): void; dispose(): void } | null = null;
 const settingsTiming = new PageTiming(() => performance.now(), callback => { requestAnimationFrame(callback); }, () => !document.hidden, (page, ms) => { if (settingsOpen) { recordTiming("page", page, ms); perfOpened("settings", ms); } });
 
-export function openSettings(section?: string) {
+export function openSettings(section?: string | null) {
   // A project window has no Settings of its own: the main window opens them.
   if (windowAlone) return toMain("settings");
   // Already open: show page `section`, such as "machines".

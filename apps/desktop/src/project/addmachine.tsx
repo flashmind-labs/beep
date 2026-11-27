@@ -103,5 +103,5 @@ export function openAddToMachine(o: AddToMachine) {
     return;
   }
 
-  void projectsIn(machine.id).then(root => { start = root; draw(); });
+  void projectsIn(invoke, machine.id).then(root => { start = root; draw(); });
 }

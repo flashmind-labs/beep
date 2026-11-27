@@ -15,8 +15,9 @@ function open(request: ScreenRequest) {
     case "addproject": return addProject();
     case "teamjoin": return void import("../project/teamjoin.tsx").then(m => m.openTeamJoin(null));
     case "machines": return void import("../machines/machines.tsx").then(m => m.renderMachines());
-    case "settings": return openSettings(request.section ?? undefined);
+    case "settings": return openSettings(request.section);
     case "newthread": return void import("../agents/assistant-page.tsx").then(m => m.newThread(request.chat));
+    default: return request satisfies never;
   }
 }
 

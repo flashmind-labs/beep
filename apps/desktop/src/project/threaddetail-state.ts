@@ -62,8 +62,25 @@ const STALE_MS = 60_000;
 /// A comment being written or posted under one thread.
 type Draft = { text: string; posting: boolean; error?: string };
 
+/// One thread as its pane shows it: the read, the comment being written, and how to change it.
+export interface ThreadModel {
+  key: string;
+  stub: ThreadStub;
+  data: ThreadDetailRow | null | undefined;
+  error: string | undefined;
+  /// The comment being written as it stands now, which changes while the pane stays.
+  writing(): { text: string; posting: boolean; draftError: string | undefined };
+  edit(value: string): void;
+  post(): void;
+}
+
+/// The threads read in full and the comments written under them.
+export interface ThreadDetails {
+  thread(projectId: string, stub: ThreadStub): ThreadModel;
+}
+
 /// A comment goes to the host through a machine with the project.
-export function makeThreadDetail(deps: { redraw: () => void }) {
+export function makeThreadDetail(deps: { redraw: () => void }): ThreadDetails {
   const reads = new Map<string, Read>();
   const drafts = new Map<string, Draft>();
 

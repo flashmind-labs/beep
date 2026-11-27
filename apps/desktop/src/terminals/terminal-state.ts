@@ -16,7 +16,7 @@ import { newTermLike } from "./newkey-state.ts";
 /// The view-only terminal's output while the Terminals page shows one.
 export const terminalOutput = createRef<HTMLPreElement>();
 
-export function makeTerminals(deps: TerminalDeps) {
+export function makeTerminals(deps: TerminalDeps): Terminals {
   const { invoke, channel: streamChannel, makeScreen, ago, redraw } = deps;
   /// A line in the app's log: how a terminal's stream went.
   const log = (message: string, info: boolean) => { invoke("log_webview", { message, info }).catch(() => {}); };
@@ -423,6 +423,40 @@ export function makeTerminals(deps: TerminalDeps) {
   };
 }
 
+/// The terminals model: what the lists and the sidebar read, and what the Terminals page draws with.
+export interface Terminals {
+  load(name: string): Promise<void>;
+  list(name: string): TerminalRow[] | undefined;
+  follow(name: string | null): void;
+  newOn(machine: string | null): void;
+  newLikeOpen(): boolean;
+  focusOpen(): boolean;
+  /// Opens terminal `id` on the Terminals page, attached live.
+  show(id: string): void;
+  /// Closes the open terminal or form on the Terminals page, back to its list.
+  unselect(): void;
+  stop(): void;
+  /// What the Terminals page draws with: the page's state and the actions its panel takes.
+  page: {
+    of(name: string): ProjectTerminals;
+    liveOf(name: string, id: string): Live;
+    start(name: string, form: TerminalForm): Promise<void>;
+    close(name: string, id: string): Promise<void>;
+    detach(live: Live, kind?: "detached" | "paused" | "disposed"): void;
+    attach(name: string, live: Live, tries?: number): void;
+    watch(name: string | null): void;
+    select(name: string, id: string): void;
+    load(name: string): Promise<void>;
+    newOn(machine: string | null): void;
+    focusOpen(): boolean;
+    redraw(): void;
+    ago: Ago;
+    /// Shows the Terminals page: it drops the live views of any other.
+    enter(): void;
+    form(): number;
+  };
+}
+
 /// A terminal (TerminalRow).
 export interface TerminalRow {
   id: string;
@@ -650,7 +684,7 @@ export function viewLink(link: TerminalLink): Link {
 }
 
 /// The open terminal's live view: its screen and how far its output got.
-interface Live {
+export interface Live {
   id: string;
   screen: Screen;
   link: TerminalLink;
@@ -667,7 +701,7 @@ interface Live {
 }
 
 /// One project's terminals: `list` is undefined while it loads.
-interface ProjectTerminals {
+export interface ProjectTerminals {
   list: TerminalRow[] | undefined;
   open: string | null;
   output: OutputView | null;

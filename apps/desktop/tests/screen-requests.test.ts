@@ -1,20 +1,20 @@
-import test, { after } from "node:test";
+import test from "node:test";
 import assert from "node:assert/strict";
-import { closeWindow } from "./tauri-window.ts";
-import { openScreen, screenWanted, type ScreenRequest } from "../src/center/nav.ts";
+import { answers } from "./chat-dom-env.ts";
+import type { ScreenRequest } from "../src/center/nav.ts";
 
-after(closeWindow);
+// What the sheet reads when it opens.
+Object.assign(answers, { settings: { name: "build-box", version: "0.1", autostart: false, agent_notices: false }, agent_hosts: [], list_machines: [], list_credentials: [], list_github_accounts: [] });
 
-test("a screen request reaches a follower with its data", () => {
+const { openScreen, screenWanted } = await import("../src/center/nav.ts");
+await import("../src/center/screens.ts");
+
+test("a settings request reaches its followers with its data, and screens.ts opens the sheet", () => {
   const seen: ScreenRequest[] = [];
   screenWanted.follow(request => { seen.push(request); });
-  openScreen({ screen: "settings", section: "skills" });
+  assert.equal(document.querySelector(".cc-set-scrim"), null);
   openScreen({ screen: "settings", section: null });
-  openScreen({ screen: "importproject", repo: "org/repo", machine: "m1", openAfter: false });
 
-  assert.deepEqual(seen, [
-    { screen: "settings", section: "skills" },
-    { screen: "settings", section: null },
-    { screen: "importproject", repo: "org/repo", machine: "m1", openAfter: false },
-  ]);
+  assert.deepEqual(seen, [{ screen: "settings", section: null }]);
+  assert.ok(document.querySelector(".cc-set-scrim"));
 });

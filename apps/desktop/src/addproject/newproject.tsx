@@ -56,7 +56,7 @@ export function openNewProject(options: NewProjectOptions = {}) {
   draw();
   const mine = opening;
   for (const machine of online()) {
-    void projectsIn(machine.id).then(folder => {
+    void projectsIn(invoke, machine.id).then(folder => {
       if (mine !== opening || !root) return;
       defaults.set(machine.id, folder);
       draw();

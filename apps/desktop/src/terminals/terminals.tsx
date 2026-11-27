@@ -7,10 +7,7 @@ import { TerminalFooter, TerminalHeader } from "./terminal-controls.tsx";
 import { confirmSheet, openMenu, type MenuItem } from "../ui/menu.tsx";
 import { Button } from "../ui/kit.tsx";
 import { ALL, byMachine, stateLabel } from "./terminal-list.ts";
-import { linkLabel, viewLink, type TerminalMachine, type TerminalPlace, type TerminalRow, type makeTerminals } from "./terminal-state.ts";
-
-/// The terminals model the page draws.
-type Terminals = ReturnType<typeof makeTerminals>;
+import { linkLabel, viewLink, type TerminalMachine, type TerminalPlace, type TerminalRow, type Terminals } from "./terminal-state.ts";
 
 /// The Terminals page: every machine with its terminals at the left, the
 /// open terminal or the New terminal form at the right.

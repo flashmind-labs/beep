@@ -1,4 +1,3 @@
-import "./tauri-window.ts";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { eachLimited, tickable, toImport } from "../src/addproject/addproject-state.ts";
