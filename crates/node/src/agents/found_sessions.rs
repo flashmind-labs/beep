@@ -38,13 +38,16 @@ pub(super) struct Listed {
     folders: Arc<Vec<SessionFolder>>,
 }
 
-fn asked_folders(folders: Vec<String>) -> Vec<PathBuf> {
-    folders
+/// The absolute folders asked, each also by its real path.
+async fn asked_folders(folders: Vec<String>) -> Result<Vec<PathBuf>> {
+    let folders: Vec<PathBuf> = folders
         .into_iter()
         .take(MAX_ASKED_FOLDERS)
         .map(PathBuf::from)
         .filter(|folder| folder.is_absolute())
-        .collect()
+        .collect();
+
+    Ok(spawn_blocking(move || found::with_real(folders)).await?)
 }
 
 impl Agents {
@@ -211,7 +214,7 @@ impl Agents {
         limit: u32,
     ) -> Result<Vec<ExternalSession>> {
         let limit = clamp_limit(limit, DEFAULT_IN_FOLDERS, MAX_IN_FOLDERS);
-        let folders = asked_folders(folders);
+        let folders = asked_folders(folders).await?;
         let picked = found::in_folders(self.sightings().await?, &folders, limit);
         let mut sessions = self.describe_history(picked, &folders).await?;
         sessions.truncate(limit);
@@ -228,7 +231,7 @@ impl Agents {
         before: Option<HistoryCursor>,
     ) -> Result<SessionPage> {
         let limit = clamp_limit(limit, DEFAULT_IN_FOLDERS, MAX_IN_FOLDERS);
-        let folders = asked_folders(folders);
+        let folders = asked_folders(folders).await?;
         let (picked, next) =
             found::history_page(self.sightings().await?, &folders, limit, before.as_ref());
         let selected: HashSet<_> = picked

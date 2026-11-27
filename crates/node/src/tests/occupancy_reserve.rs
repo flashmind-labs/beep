@@ -129,3 +129,34 @@ async fn a_fresh_write_refuses_though_no_process_holds_the_file() {
 
     assert!(refusal(refused).contains("external session is running"));
 }
+
+/// A codex session written a moment ago in `cwd`, under `codex`.
+#[cfg(unix)]
+fn fresh_codex_session(codex: &Path, cwd: &Path) {
+    let sessions = codex.join("sessions/2026/11/01");
+    std::fs::create_dir_all(&sessions).unwrap();
+    std::fs::write(
+        sessions.join("rollout-fresh.jsonl"),
+        format!(
+            "{{\"type\":\"session_meta\",\"payload\":{{\"id\":\"fresh\",\"cwd\":{},\"source\":\"cli\"}}}}\n",
+            serde_json::to_string(&cwd.to_string_lossy()).unwrap()
+        ),
+    )
+    .unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn a_folder_is_refused_for_a_session_that_started_through_a_symlink() {
+    let (codex, data) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
+    let real = std::fs::canonicalize(data.path()).unwrap().join("proj");
+    std::fs::create_dir_all(real.join(".worktrees/feature")).unwrap();
+    let link = data.path().join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    fresh_codex_session(codex.path(), &link.join(".worktrees/feature"));
+    let occupancy = Occupancy::over(Store::default(), Stores::at(Some(codex.path()), None, None));
+
+    let refused = occupancy.reserve(&real).await.err().unwrap();
+
+    assert!(refusal(refused).contains("external session is running"));
+}

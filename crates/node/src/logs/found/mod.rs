@@ -528,6 +528,41 @@ pub(crate) fn with_commits(out: &mut [SessionFolder], commit: impl Fn(&Path) -> 
     out.sort_by(newest_first);
 }
 
+/// `folders` and, for each that resolves to another path (a symlink, or a
+/// worktree start that came back canonical), that real path too, so a
+/// session's `cwd` matches whichever form it was recorded in. Read once per
+/// query, not once per session.
+pub(crate) fn with_real(folders: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut out = Vec::with_capacity(folders.len());
+    for folder in folders {
+        let real = crate::fs::paths::canonicalize(&folder).ok();
+        for one in [Some(folder), real].into_iter().flatten() {
+            if !out.contains(&one) {
+                out.push(one);
+            }
+        }
+    }
+
+    out
+}
+
+/// `seen` with each `cwd` resolved to its real path, as `folder` of a hold is,
+/// so a session started through a symlink matches. Each distinct `cwd` is
+/// resolved once; one that no longer resolves stays as recorded.
+pub(crate) fn with_real_cwds(seen: Vec<Seen>) -> Vec<Seen> {
+    let mut real: HashMap<PathBuf, PathBuf> = HashMap::new();
+
+    seen.into_iter()
+        .map(|mut one| {
+            let resolved = real.entry(one.cwd.clone()).or_insert_with(|| {
+                crate::fs::paths::canonicalize(&one.cwd).unwrap_or_else(|_| one.cwd.clone())
+            });
+            one.cwd = resolved.clone();
+            one
+        })
+        .collect()
+}
+
 /// Whether `cwd` is `folder` or inside it.
 pub(crate) fn within(cwd: &Path, folder: &Path) -> bool {
     folder.parent().is_some() && cwd.starts_with(folder)
