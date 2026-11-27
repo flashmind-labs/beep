@@ -7,14 +7,11 @@ use crate::{
     files::transfer::Transfers,
     link::Protocol,
     link::from_mesh,
+    link::peers::{self, Bound, Inner, Offers, Own, Peers, Who, withheld},
     link::protocol::SessionProtocol,
     link::restart::{self, Reopen},
     link::state::State,
     link::traffic::Traffic,
-    watchdog,
-    link::{
-        peers::{self, Bound, Inner, Offers, Own, Peers, Who, withheld},
-    },
     machine::provision::Provision,
     machine::service::logs::Logs,
     run::device,
@@ -22,15 +19,14 @@ use crate::{
     run::tasks,
     run::terminal,
     tools::{self, Caller, Node, peer_tools},
+    watchdog,
 };
 use anyhow::{Context, Result, bail};
-use beep_proto::logging::RequestTrace;
-use futures::future::BoxFuture;
 use beep_mesh::{JOIN_ALPN, PEER_ALPN};
-use beep_proto::node::{
-    LinkRx, LinkTx, Opened, version,
-};
+use beep_proto::logging::RequestTrace;
+use beep_proto::node::{LinkRx, LinkTx, Opened, version};
 use beep_proto::watched;
+use futures::future::BoxFuture;
 use iroh::{Endpoint, endpoint::presets};
 use std::{
     collections::BTreeSet,
@@ -150,7 +146,8 @@ pub async fn serve(
         folders.clone(),
         offers.mesh.clone(),
     )
-    .await {
+    .await
+    {
         Ok((transfers, handlers)) => {
             served = Some(handlers);
             offers.extra.push(Arc::new(transfers.syncs()));
@@ -184,12 +181,18 @@ pub async fn serve(
         .accept(PEER_ALPN, peers.peer_handler())
         .accept(JOIN_ALPN, peers.join_handler())
         .accept(SESSIONS_ALPN, peers.sessions_handler())
-        .accept(beep_proto::node::commands::ALPN, crate::link::commands::CommandsAlpn::new(&peers))
+        .accept(
+            beep_proto::node::commands::ALPN,
+            crate::link::commands::CommandsAlpn::new(&peers),
+        )
         .accept(
             beep_proto::node::subscriptions::ALPN,
             crate::link::subscriptions::SubscriptionsAlpn::new(&peers),
         )
-        .accept(beep_proto::node::forward::ALPN, crate::link::forward::ForwardAlpn::new(&peers))
+        .accept(
+            beep_proto::node::forward::ALPN,
+            crate::link::forward::ForwardAlpn::new(&peers),
+        )
         .accept(beep_proto::team::ALPN, peers.team_handler());
     if let Some(served) = served {
         router = served.add_to(router);
@@ -361,6 +364,7 @@ pub(super) async fn serve_open(
     protocol: SessionProtocol,
     offers: Offers,
     who: Who,
+    compress: bool,
 ) -> Result<()> {
     if matches!(who, Who::Node { .. }) && !node_may_open(&protocol) {
         let reason = format!("a node may not open {}", protocol);
@@ -371,7 +375,13 @@ pub(super) async fn serve_open(
         let reason = format!("this node does not offer {protocol}");
         return tx.send(&Opened::Refused { reason }).await;
     };
-    tx.send(&Opened::Ready {}).await?;
+
+    if compress && protocol != SessionProtocol::DeviceVideo {
+        tx.send(&Opened::ReadyCompressed {}).await?;
+        tx.enable_zstd();
+    } else {
+        tx.send(&Opened::Ready {}).await?;
+    }
 
     match route {
         Route::Agent(kind) => crate::agents::serve_session(tx, rx, offers.agents, kind).await,
@@ -427,9 +437,7 @@ pub(super) async fn serve_open(
             SessionProtocol::Device => offers.agents.serve_device(tx, rx).await,
             SessionProtocol::DeviceVideo => device::video::serve(tx, rx).await,
             SessionProtocol::SignIn => crate::machine::sign_in::serve(tx, rx).await,
-            SessionProtocol::McpServers => {
-                tools::configured::serve(offers.agents, tx, rx).await
-            }
+            SessionProtocol::McpServers => tools::configured::serve(offers.agents, tx, rx).await,
             SessionProtocol::Commands => {
                 super::commands::serve_open(tx, rx, offers, who.id()).await
             }
@@ -515,7 +523,6 @@ pub async fn listen_hooks(agents: &Agents, dir: &Path) {
     }
 }
 
-
 impl Peers {
     /// The node's membership over `offers`, made by `Offers::bound`: that
     /// is where the node's key and team link are made, before any copy of
@@ -547,54 +554,59 @@ fn serve_stream(
     rx: LinkRx,
     protocol: SessionProtocol,
     who: Who,
+    compress: bool,
     mut trace: RequestTrace,
 ) -> BoxFuture<'static, Result<()>> {
     Box::pin(async move {
-        let result = serve_protocol(&inner, tx, rx, protocol, who, &mut trace).await;
+        let result = serve_protocol(&inner, tx, rx, protocol, who, compress, &mut trace).await;
         trace.end(&result);
         result
     })
 }
 
 async fn serve_protocol(
-        inner: &Inner,
-        tx: LinkTx,
-        rx: LinkRx,
-        protocol: SessionProtocol,
-        who: Who,
-        trace: &mut beep_proto::logging::RequestTrace,
-    ) -> Result<()> {
-        // A protocol still on its way is waited for; the others are not held up.
-        let mut later = inner.later.subscribe();
+    inner: &Inner,
+    tx: LinkTx,
+    rx: LinkRx,
+    protocol: SessionProtocol,
+    who: Who,
+    compress: bool,
+    trace: &mut beep_proto::logging::RequestTrace,
+) -> Result<()> {
+    // A protocol still on its way is waited for; the others are not held up.
+    let mut later = inner.later.subscribe();
 
-        if watched::wait_for(&mut later, |later| {
-            !later.contains::<str>(protocol.as_ref())
-        })
-        .await
-        .is_err()
-        {
-            bail!("the node stopped");
-        }
-
-        trace.phase("serving");
-        trace.long_lived();
-        let offers = inner.offers().clone();
-        // Diagnostics are open to every machine of the mesh, even when not lent.
-        if Own::is_diagnostic(&protocol) {
-            let node = offers.node(&inner.own, &inner.team);
-            return inner.own.serve_diagnostic(protocol, tx, rx, node).await;
-        }
-
-        // The person at this machine is not held to the setting; a device of the mesh is.
-        if who.id() != inner.own.endpoint.id()
-            && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
-        {
-            let mut tx = tx;
-            return tx.send(&Opened::Refused { reason }).await;
-        }
-
-        serve_open(tx, rx, protocol, offers, who).await
+    if watched::wait_for(&mut later, |later| {
+        !later.contains::<str>(protocol.as_ref())
+    })
+    .await
+    .is_err()
+    {
+        bail!("the node stopped");
     }
+
+    trace.phase("serving");
+    trace.long_lived();
+    let offers = inner.offers().clone();
+    // Diagnostics are open to every machine of the mesh, even when not lent.
+    if Own::is_diagnostic(&protocol) {
+        let node = offers.node(&inner.own, &inner.team);
+        return inner
+            .own
+            .serve_diagnostic(protocol, tx, rx, node, compress)
+            .await;
+    }
+
+    // The person at this machine is not held to the setting; a device of the mesh is.
+    if who.id() != inner.own.endpoint.id()
+        && let Some(reason) = withheld(protocol.as_ref(), offers.lends_to_peers())
+    {
+        let mut tx = tx;
+        return tx.send(&Opened::Refused { reason }).await;
+    }
+
+    serve_open(tx, rx, protocol, offers, who, compress).await
+}
 
 #[cfg(test)]
 #[path = "../tests/link_serve.rs"]

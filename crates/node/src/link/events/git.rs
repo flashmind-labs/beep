@@ -8,9 +8,7 @@ use beep_proto::node::{
     events::{GitOutput, GitRead},
     local_link, shell,
 };
-use std::{
-    path::Path,
-};
+use std::path::Path;
 use tokio_util::task::AbortOnDropHandle;
 
 fn script(root: &str, query: GitRead) -> Result<String> {

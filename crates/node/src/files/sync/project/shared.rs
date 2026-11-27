@@ -4,6 +4,7 @@ use super::{
     list::merge_peer,
     state::{Cursor, GitCopy, State, read_saved},
 };
+use crate::files::place::Folder;
 use crate::files::sync::{
     disk::{self, Stat},
     gitdir::{self, BranchTip, Checkout, Oid, Repo, WriteGuard},
@@ -13,7 +14,6 @@ use crate::files::sync::{
     scan::MAX_FILES,
     watch::Key,
 };
-use crate::files::place::Folder;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::sync::{Keep, ProjectStatus};
 use beep_proto::watched;

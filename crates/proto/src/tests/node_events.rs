@@ -82,6 +82,7 @@ fn dedicated_protocols_reject_each_others_operations() {
         topic: Topic::new("agents"),
         queries: vec![],
         deltas: false,
+        query_deltas: false,
     };
     let bytes = rmp_serde::to_vec(&watch).unwrap();
     assert!(crate::lenient::from_slice::<commands::Request>(&bytes).is_err());
@@ -277,6 +278,7 @@ fn a_watch_from_before_deltas_asks_for_none() {
             topic: Topic::new("agents"),
             queries: vec![],
             deltas: false,
+            query_deltas: false,
         }
     );
 }
@@ -339,4 +341,56 @@ fn other_snapshots_pass_the_follower_unchanged() {
     };
 
     assert_eq!(held.hear(other.clone()), Some(other));
+}
+
+#[test]
+fn external_delta_rebuilds_query_list_and_detects_gaps() {
+    let ext = |agent: &str, id: &str, last_activity: u64, title: &str| agent::ExternalSession {
+        id: id.into(),
+        agent: agent.into(),
+        title: Some(title.into()),
+        last_activity,
+        ..agent::ExternalSession::default()
+    };
+    let snap = |revision: u64, value: Value| Snapshot {
+        topic: Topic::new("agents"),
+        query: Some(9),
+        revision,
+        value,
+    };
+    let whole_val = |sessions: Vec<agent::ExternalSession>| {
+        Value::Sessions(Box::new(agent::SessionsReply::External { sessions }))
+    };
+
+    let first = vec![
+        ext("claude", "s2", 200, "two"),
+        ext("claude", "s1", 100, "one"),
+    ];
+    let second = vec![
+        ext("claude", "s3", 300, "three"),
+        ext("claude", "s2", 250, "two-edited"),
+    ];
+
+    let mut held = HeldSessions::default();
+    assert_eq!(
+        held.hear(snap(1, whole_val(first.clone()))),
+        Some(snap(1, whole_val(first.clone())))
+    );
+
+    let delta = ExternalDelta::between(&first, &second, 1);
+    assert_eq!(delta.changed.len(), 2);
+    assert_eq!(delta.removed, vec![("claude".into(), "s1".into())]);
+
+    // Wrong sequence is detected as a gap.
+    let bad = ExternalDelta::between(&first, &second, 99);
+    assert_eq!(
+        held.hear(snap(2, Value::ExternalDelta(Box::new(bad)))),
+        None
+    );
+
+    // Matching sequence reconstructs the full external session list newest-first.
+    assert_eq!(
+        held.hear(snap(2, Value::ExternalDelta(Box::new(delta)))),
+        Some(snap(2, whole_val(second)))
+    );
 }

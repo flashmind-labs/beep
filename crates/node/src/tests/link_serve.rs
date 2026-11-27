@@ -3,8 +3,8 @@ use super::*;
 #[test]
 fn known_protocol_names_round_trip_and_compare_as_variants() {
     use beep_proto::node::{
-        agent, device, events, mcp_servers, metrics, process, report, shell, sign_in, skill_library, skills,
-        status, terminal, tool_update, tools, version,
+        agent, device, events, mcp_servers, metrics, process, report, shell, sign_in,
+        skill_library, skills, status, terminal, tool_update, tools, version,
     };
 
     for (name, protocol) in [
@@ -78,7 +78,10 @@ fn another_node_opens_devices_only_while_this_machine_is_lent() {
 
 #[tokio::test]
 async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
-    use beep_proto::node::{local_link, mcp_servers::{Reply, Request}};
+    use beep_proto::node::{
+        local_link,
+        mcp_servers::{Reply, Request},
+    };
     let dir = tempfile::tempdir()?;
     let offers = Offers::local(&[], Provision::new(dir.path()));
     let peer = iroh::SecretKey::generate().public();
@@ -87,16 +90,40 @@ async fn only_a_controller_can_read_or_change_mcp_servers() -> Result<()> {
     let link = local_link();
     let (_, mut rx) = link.caller;
     let (node_tx, node_rx) = link.node;
-    serve_open(node_tx, node_rx, protocol.clone(), offers.clone(), Who::Node { peer, desktop_here: false }).await?;
-    assert!(matches!(rx.recv::<Opened>().await?, Some(Opened::Refused { .. })));
+    serve_open(
+        node_tx,
+        node_rx,
+        protocol.clone(),
+        offers.clone(),
+        Who::Node {
+            peer,
+            desktop_here: false,
+        },
+        false,
+    )
+    .await?;
+    assert!(matches!(
+        rx.recv::<Opened>().await?,
+        Some(Opened::Refused { .. })
+    ));
 
     let link = local_link();
     let (mut tx, mut rx) = link.caller;
     let (node_tx, node_rx) = link.node;
-    let node = tokio::spawn(serve_open(node_tx, node_rx, protocol, offers, Who::Everything(peer)));
+    let node = tokio::spawn(serve_open(
+        node_tx,
+        node_rx,
+        protocol,
+        offers,
+        Who::Everything(peer),
+        false,
+    ));
     tx.send(&Request::Harnesses).await?;
     assert!(matches!(rx.recv::<Opened>().await?, Some(Opened::Ready {})));
-    assert!(matches!(rx.recv::<Reply>().await?, Some(Reply::Harnesses(_))));
+    assert!(matches!(
+        rx.recv::<Reply>().await?,
+        Some(Reply::Harnesses(_))
+    ));
     node.await??;
 
     Ok(())

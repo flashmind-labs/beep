@@ -3,12 +3,10 @@
 
 use crate::{
     files::Folders,
+    files::place::{Journal, Room, open_target},
     files::syncthing::{Managed, Syncthing},
-    files::{
-        place::{Journal, Room, open_target},
-    },
-    membership::Membership,
     lock,
+    membership::Membership,
     protocol::{Protocol, Session},
 };
 use anyhow::{Context, Result, bail};
@@ -60,6 +58,7 @@ mod syncthing;
 mod watch;
 
 use actor::{Entry, Phase, Projects};
+use peer::SyncPool;
 pub(crate) use peer::{ALPN, PeerHandler};
 use project::{Shared, Start};
 pub(crate) use rules::Rules;
@@ -135,6 +134,8 @@ struct Inner {
     /// The mesh this node is in, once it is in one: it names the projects,
     /// and its device list says who may sync them.
     mesh: Membership,
+    /// Shared `beep-sync/7` connection per peer across all synced projects.
+    sync_pool: SyncPool,
 }
 
 /// Stops `running` and waits for its task, which saves its state, a while.
@@ -183,9 +184,7 @@ impl Inner {
     /// joined is no concern of the mesh: a machine still linked through
     /// the server keeps the grants the server issued it.
     fn removed(&self, peer: &EndpointId) -> bool {
-        self.mesh
-            .get()
-            .is_some_and(|mesh| mesh.is_removed(*peer))
+        self.mesh.get().is_some_and(|mesh| mesh.is_removed(*peer))
     }
 }
 
@@ -262,6 +261,7 @@ impl Syncs {
                 checking: Mutex::default(),
                 serving: Arc::default(),
                 mesh,
+                sync_pool: SyncPool::default(),
             }),
         };
 
@@ -345,7 +345,13 @@ impl Syncs {
     pub(crate) fn forget_recoveries(&self) {
         lock(&self.inner.recoveries).clear();
 
-        for shared in self.inner.projects.seen().values().filter_map(Entry::running) {
+        for shared in self
+            .inner
+            .projects
+            .seen()
+            .values()
+            .filter_map(Entry::running)
+        {
             shared.set_recovery(None);
         }
     }
@@ -507,9 +513,11 @@ impl Syncs {
 
         log::debug!("sync {}: starting", project.name);
         // One that was held or stopped stays listed as it was until it runs.
-        if !state.seen().get(&project.name).is_some_and(|entry| {
-            matches!(entry.phase, Phase::Held(_) | Phase::Stopped(_))
-        }) {
+        if !state
+            .seen()
+            .get(&project.name)
+            .is_some_and(|entry| matches!(entry.phase, Phase::Held(_) | Phase::Stopped(_)))
+        {
             state.put(&project, from, Phase::Starting);
         }
 
@@ -607,6 +615,8 @@ impl Syncs {
             shared.clone(),
             self.inner.parts.clone(),
             self.inner.watcher.clone(),
+            self.inner.sync_pool.clone(),
+            self.inner.mesh.clone(),
         ));
         Ok(Running {
             shared,
@@ -785,7 +795,11 @@ impl Syncs {
         let Some(entry) = state.seen().get(name).cloned() else {
             return;
         };
-        let Entry { project, from, phase } = entry;
+        let Entry {
+            project,
+            from,
+            phase,
+        } = entry;
 
         if phase.is_running() {
             let folder = PathBuf::from(&project.folder);
@@ -1021,7 +1035,12 @@ impl Syncs {
         let _gates = state.gates(names.clone()).await;
         let running: Vec<String> = names
             .into_iter()
-            .filter(|name| state.seen().get(name).is_some_and(|entry| entry.phase.is_running()))
+            .filter(|name| {
+                state
+                    .seen()
+                    .get(name)
+                    .is_some_and(|entry| entry.phase.is_running())
+            })
             .collect();
 
         if !running.iter().any(|name| name == project) {

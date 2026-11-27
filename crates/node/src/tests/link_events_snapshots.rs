@@ -386,7 +386,11 @@ async fn a_kept_lookup_of_one_outside_session_is_not_read_again_on_every_change(
     let mut reads = 0;
     for _ in 0..100 {
         tokio::time::advance(Duration::from_millis(100)).await;
-        snapshots.changed(&Topic::keyed("agent", "busy"), ChangeKind::Any, &Touched::All);
+        snapshots.changed(
+            &Topic::keyed("agent", "busy"),
+            ChangeKind::Any,
+            &Touched::All,
+        );
         snapshots.start(&offers, caller);
 
         if snapshots.entries[&key].running {
@@ -502,9 +506,11 @@ fn sources(topics: &[Topic]) -> Vec<(Topic, Source)> {
 fn a_released_readers_topics_get_what_a_released_node_gave() {
     let all = sources(&[Topic::new("*")]);
 
-    assert!(all.iter().all(|(topic, _)| {
-        !matches!(topic.name(), "devices" | "device-list" | "tool-updates")
-    }));
+    assert!(
+        all.iter().all(|(topic, _)| {
+            !matches!(topic.name(), "devices" | "device-list" | "tool-updates")
+        })
+    );
     // A released node had no source for `devices`, and a released reader
     // cannot decode the list.
     assert!(sources(&[Topic::new("devices")]).is_empty());
@@ -521,7 +527,12 @@ fn a_released_readers_topics_get_what_a_released_node_gave() {
 fn a_device_ping_refreshes_the_device_list() {
     let topic = Topic::new("device-list");
     let mut snapshots = Snapshots::new();
-    snapshots.replace(&Offers::default(), std::slice::from_ref(&topic), &[], &BTreeMap::new());
+    snapshots.replace(
+        &Offers::default(),
+        std::slice::from_ref(&topic),
+        &[],
+        &BTreeMap::new(),
+    );
     let key = (topic, None);
     snapshots.entries.get_mut(&key).unwrap().dirty = false;
 
@@ -534,7 +545,12 @@ fn a_device_ping_refreshes_the_device_list() {
 async fn tool_updates_are_missing_until_the_node_has_checked() {
     let topic = Topic::new("tool-updates");
     let mut snapshots = Snapshots::new();
-    snapshots.replace(&Offers::default(), std::slice::from_ref(&topic), &[], &BTreeMap::new());
+    snapshots.replace(
+        &Offers::default(),
+        std::slice::from_ref(&topic),
+        &[],
+        &BTreeMap::new(),
+    );
     snapshots.start(&Offers::default(), iroh::SecretKey::generate().public());
 
     let Some(Reply::Snapshot(snapshot)) = stepped_snapshot(&mut snapshots).await else {
@@ -564,7 +580,11 @@ fn a_projects_team_cards_have_a_source_of_their_own() {
         vec![(topic.clone(), Source::TeamCards("org/repo".to_owned()))]
     );
     // Not for `*`, and not for every project at once.
-    assert!(sources(&[Topic::new("*")]).iter().all(|(topic, _)| topic.name() != TEAM_CARDS_TOPIC));
+    assert!(
+        sources(&[Topic::new("*")])
+            .iter()
+            .all(|(topic, _)| topic.name() != TEAM_CARDS_TOPIC)
+    );
     assert!(sources(&[Topic::new(TEAM_CARDS_TOPIC)]).is_empty());
     // A ring of the project's topic reads the cards again.
     assert!(affected(&topic, &topic));
@@ -579,7 +599,11 @@ fn move_progress_has_a_source_of_its_own() {
         vec![(topic.clone(), Source::Moves)]
     );
     // Not for `*`: released readers cannot decode it.
-    assert!(sources(&[Topic::new("*")]).iter().all(|(topic, _)| topic.name() != MOVE_PROGRESS_TOPIC));
+    assert!(
+        sources(&[Topic::new("*")])
+            .iter()
+            .all(|(topic, _)| topic.name() != MOVE_PROGRESS_TOPIC)
+    );
     assert!(affected(&topic, &topic));
 }
 
@@ -592,7 +616,11 @@ fn the_invites_have_a_source_of_their_own() {
         vec![(topic.clone(), Source::TeamInvites)]
     );
     // Not for `*`.
-    assert!(sources(&[Topic::new("*")]).iter().all(|(topic, _)| topic.name() != TEAM_INVITES_TOPIC));
+    assert!(
+        sources(&[Topic::new("*")])
+            .iter()
+            .all(|(topic, _)| topic.name() != TEAM_INVITES_TOPIC)
+    );
     // A ring of the topic reads the invites again.
     assert!(affected(&topic, &topic));
 }
@@ -706,7 +734,9 @@ fn session_at(n: u64, tick: u64) -> SessionInfo {
             } else {
                 String::new()
             },
-            files_touched: (0..(tick / 3).min(40)).map(|f| format!("src/file{f}.rs")).collect(),
+            files_touched: (0..(tick / 3).min(40))
+                .map(|f| format!("src/file{f}.rs"))
+                .collect(),
             ..Default::default()
         },
         last_message: body,
@@ -742,7 +772,8 @@ async fn what_changes_during_a_turn_does_not_change_the_session_list() {
         info.context = Some(beep_proto::AgentContext { used: 1, size: 2 });
         info.cost_usd = Some(9.0);
         info.state.files_touched.push("src/new.rs".into());
-        info.last_message.push_str(" More words after the first line.");
+        info.last_message
+            .push_str(" More words after the first line.");
     }
     assert!(heard(&mut snapshots, list(grown)).await.is_none());
 
@@ -773,7 +804,10 @@ async fn a_follower_of_deltas_gets_the_changed_rows_after_the_whole_list() {
     let Value::SessionsDelta(delta) = delta.value else {
         panic!("a delta, not the list");
     };
-    assert_eq!(delta.after, whole.revision, "it says which message it follows");
+    assert_eq!(
+        delta.after, whole.revision,
+        "it says which message it follows"
+    );
     assert_eq!(delta.changed.len(), 1);
     assert_eq!(delta.changed[0].id.to_string(), "session1");
     assert_eq!(delta.removed.len(), 1);
@@ -850,6 +884,128 @@ fn only_the_agents_list_is_cut_to_rows() {
 
     assert_ne!(shown(&agents, whole.clone()), whole);
     // A query for the same read, and the keyed topic of one session, stay whole.
-    assert_eq!(shown(&(Topic::new("agents"), Some(1)), whole.clone()), whole);
-    assert_eq!(shown(&(Topic::keyed("agent", "session1"), None), whole.clone()), whole);
+    assert_eq!(
+        shown(&(Topic::new("agents"), Some(1)), whole.clone()),
+        whole
+    );
+    assert_eq!(
+        shown(&(Topic::keyed("agent", "session1"), None), whole.clone()),
+        whole
+    );
+}
+
+#[test]
+fn unkeyed_agent_does_not_dirty_projections_and_agent_log_is_harness_scoped() {
+    let list_all = Source::Read(Read::Sessions(Box::new(SessionsRequest::ListAll {})));
+    let claude = Source::Read(Read::Sessions(Box::new(SessionsRequest::External {
+        agent: "claude".into(),
+        limit: 50,
+        session: None,
+    })));
+    let codex = Source::Read(Read::Sessions(Box::new(SessionsRequest::External {
+        agent: "codex".into(),
+        limit: 50,
+        session: None,
+    })));
+    let in_folders = Source::Read(Read::Sessions(Box::new(SessionsRequest::InFolders {
+        folders: vec!["/srv/project".into()],
+        limit: 50,
+    })));
+    let one_session = Source::Agent("s1".into());
+    let agents_topic = Topic::new("agents");
+    let unkeyed_agent = Topic::new("agent");
+    let keyed_agent = Topic::keyed("agent", "s1");
+    let codex_log = Topic::keyed("agent-log", "codex");
+
+    assert!(!affected_entry(&agents_topic, &list_all, &unkeyed_agent));
+    assert!(!affected_entry(&agents_topic, &claude, &unkeyed_agent));
+    assert!(!affected_entry(&agents_topic, &codex, &unkeyed_agent));
+    assert!(!affected_entry(&agents_topic, &in_folders, &unkeyed_agent));
+    assert!(!affected_entry(&keyed_agent, &one_session, &unkeyed_agent));
+
+    assert!(!affected_entry(&agents_topic, &list_all, &codex_log));
+    assert!(!affected_entry(&agents_topic, &claude, &codex_log));
+    assert!(affected_entry(&agents_topic, &codex, &codex_log));
+    assert!(affected_entry(&agents_topic, &in_folders, &codex_log));
+
+    assert!(affected_entry(&agents_topic, &list_all, &agents_topic));
+    assert!(affected_entry(&agents_topic, &list_all, &keyed_agent));
+    assert!(affected_entry(&agents_topic, &claude, &agents_topic));
+    assert!(affected_entry(&keyed_agent, &one_session, &keyed_agent));
+}
+
+#[tokio::test]
+async fn external_query_sends_deltas_only_when_follower_opts_in() {
+    use beep_proto::node::agent::ExternalSession;
+
+    let ext = |id: &str, last_activity: u64| ExternalSession {
+        id: id.into(),
+        agent: "codex".into(),
+        last_activity,
+        ..ExternalSession::default()
+    };
+    let make = |query_deltas: bool| {
+        let mut snapshots = Snapshots::new();
+        snapshots.follow_query_deltas(query_deltas);
+        snapshots.replace(
+            &Offers::default(),
+            &[Topic::new("agents")],
+            &[Query {
+                id: 5,
+                topic: Topic::new("agents"),
+                read: Read::Sessions(Box::new(SessionsRequest::External {
+                    agent: "codex".into(),
+                    limit: 50,
+                    session: None,
+                })),
+            }],
+            &BTreeMap::new(),
+        );
+        snapshots
+    };
+    let step = |snapshots: &mut Snapshots, sessions: Vec<ExternalSession>| {
+        let key = (Topic::new("agents"), Some(5));
+        let value = Value::Sessions(Box::new(SessionsReply::External { sessions }));
+        let bytes = rmp_serde::to_vec(&value).unwrap().len();
+        let generation = snapshots.generation;
+        snapshots.entries.get_mut(&key).unwrap().running = true;
+        snapshots.reads.spawn(async move {
+            Completed {
+                generation,
+                key,
+                result: Ok((value, bytes)),
+            }
+        });
+    };
+
+    let first = vec![ext("s1", 300), ext("s2", 200), ext("s3", 100)];
+    let second = vec![ext("s1", 350), ext("s2", 200), ext("s3", 100)];
+
+    // Opted-in follower receives initial full snapshot then ExternalDelta.
+    let mut with_deltas = make(true);
+    step(&mut with_deltas, first.clone());
+    assert!(matches!(
+        stepped_snapshot(&mut with_deltas).await,
+        Some(Reply::Snapshot(s)) if matches!(s.value, Value::Sessions(_))
+    ));
+    step(&mut with_deltas, second.clone());
+    let Some(Reply::Snapshot(delta)) = stepped_snapshot(&mut with_deltas).await else {
+        panic!("expected external delta snapshot");
+    };
+    let Value::ExternalDelta(delta) = delta.value else {
+        panic!("expected ExternalDelta, got {:?}", delta.value);
+    };
+    assert_eq!(delta.changed.len(), 1);
+    assert_eq!(delta.changed[0].id.as_ref(), "s1");
+    assert!(delta.removed.is_empty());
+
+    // Legacy follower without query_deltas keeps getting full External snapshots.
+    let mut legacy = make(false);
+    step(&mut legacy, first);
+    let _ = stepped_snapshot(&mut legacy).await;
+    step(&mut legacy, second);
+    assert!(matches!(
+        stepped_snapshot(&mut legacy).await,
+        Some(Reply::Snapshot(s)) if matches!(s.value, Value::Sessions(_))
+    ));
 }

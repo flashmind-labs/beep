@@ -16,6 +16,9 @@ use tracing::{info, warn};
 
 /// A connection that lasted this long counts as having worked.
 const STABLE: Duration = Duration::from_secs(5);
+/// Longest pause between dials to an offline member; an address or network
+/// change ends the pause early and resets it to `RETRY`.
+const MAX_RETRY: Duration = Duration::from_secs(300);
 /// A removed peer's link may take this long to deliver the news before it is cut.
 const GRACE: Duration = Duration::from_secs(3);
 /// The larger id lets the smaller dial first, so one dial does the work.
@@ -134,6 +137,7 @@ pub(super) async fn own(inner: Arc<Inner>) {
 #[tracing::instrument(skip_all, fields(peer = %peer.fmt_short()))]
 async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
     let mut waited = false;
+    let mut backoff = RETRY;
     // Our own addresses: a change means the network came back or moved.
     let mut ours = inner.endpoint.watch_addr();
     let mut network = true;
@@ -148,6 +152,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
         }
 
         if let Some(conn) = inner.live(peer) {
+            backoff = RETRY;
             tokio::select! {
                 () = &mut notified => {}
                 _ = conn.closed() => {}
@@ -186,7 +191,10 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                 }
             }
         };
-        let Some(dialed) = dialed else { continue };
+        let Some(dialed) = dialed else {
+            backoff = RETRY;
+            continue;
+        };
 
         match dialed {
             Ok(Ok(conn)) => {
@@ -194,6 +202,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                 waited = false;
 
                 if started.elapsed() >= STABLE {
+                    backoff = RETRY;
                     continue;
                 }
             }
@@ -205,11 +214,12 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             }
             Err(_) => info!("dial to {to} timed out"),
         }
-        // A member that stays away is tried every `RETRY`. One that comes
-        // back dials us itself, and a new address for it or for us, as after
-        // a sleep or a Wi-Fi drop, ends the wait early.
-        let pause = sleep(RETRY);
+        // A member that stays away is tried with exponential backoff up to
+        // `MAX_RETRY`. One that comes back dials us itself, and a new address
+        // for it or for us, as after a sleep or a Wi-Fi drop, ends the wait early.
+        let pause = sleep(backoff);
         tokio::pin!(pause);
+        let mut timed_out = false;
 
         loop {
             let moved = inner.addr_wake.notified();
@@ -218,20 +228,34 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             let now = inner.addrs().get(&peer).cloned();
 
             if now != tried {
+                backoff = RETRY;
+                break;
+            }
+
+            if inner.live(peer).is_some() {
+                backoff = RETRY;
                 break;
             }
 
             tokio::select! {
-                () = &mut pause => break,
+                () = &mut pause => {
+                    timed_out = true;
+                    break;
+                }
                 () = &mut moved => {}
                 changed = ours.updated(), if network => {
                     if changed.is_ok() {
+                        backoff = RETRY;
                         break;
                     }
 
                     network = false;
                 }
             }
+        }
+
+        if timed_out {
+            backoff = (backoff * 2).min(MAX_RETRY);
         }
     }
 }

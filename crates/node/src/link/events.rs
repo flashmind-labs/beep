@@ -28,8 +28,8 @@ const MAX_QUEUED_WATCHES: usize = 16;
 mod ask;
 mod git;
 mod git_reads;
-mod snapshots;
 mod roots;
+mod snapshots;
 pub(crate) mod sources;
 pub(super) use ask::execute;
 use roots::broad_files;
@@ -72,6 +72,7 @@ struct Watched {
     topics: Vec<Topic>,
     queries: Vec<events::Query>,
     deltas: bool,
+    query_deltas: bool,
     result: Result<Subscriptions>,
 }
 
@@ -81,6 +82,7 @@ struct Queued {
     topics: Vec<Topic>,
     queries: Vec<events::Query>,
     deltas: bool,
+    query_deltas: bool,
 }
 
 /// Checks a queued watch and starts looking its sources up, or answers it with an error.
@@ -93,7 +95,13 @@ async fn begin_watch(
     queued: Queued,
     watching: &mut JoinSet<Watched>,
 ) -> Result<()> {
-    let Queued { id, topics: wanted, queries: wanted_queries, deltas } = queued;
+    let Queued {
+        id,
+        topics: wanted,
+        queries: wanted_queries,
+        deltas,
+        query_deltas,
+    } = queued;
     let started = Instant::now();
     tracing::info!(%stream, watch = id, topics = wanted.len(), queries = wanted_queries.len(), "subscription watch received");
     for query in &wanted_queries {
@@ -101,7 +109,9 @@ async fn begin_watch(
     }
 
     let valid = if !reach.allows(&wanted, &wanted_queries) {
-        Err(anyhow::anyhow!("a node may watch only the agents and forge-reach topics"))
+        Err(anyhow::anyhow!(
+            "a node may watch only the agents and forge-reach topics"
+        ))
     } else if wanted.len() > events::MAX_TOPICS {
         Err(anyhow::anyhow!("too many subscription topics"))
     } else if wanted.iter().any(|topic| !topic.valid()) {
@@ -116,12 +126,28 @@ async fn begin_watch(
             let source_topics = sources(&wanted, &wanted_queries);
             watching.spawn(async move {
                 let result = sources::subscribe(&offers, &source_topics).await;
-                Watched { id, started, topics: wanted, queries: wanted_queries, deltas, result }
+                Watched {
+                    id,
+                    started,
+                    topics: wanted,
+                    queries: wanted_queries,
+                    deltas,
+                    query_deltas,
+                    result,
+                }
             });
         }
         Err(error) => {
             tracing::warn!(%stream, watch = id, elapsed_ms = started.elapsed().as_millis() as u64, "subscription watch rejected");
-            send(tx, wire, Reply::Error { id, reason: format!("{error:#}") }).await?;
+            send(
+                tx,
+                wire,
+                Reply::Error {
+                    id,
+                    reason: format!("{error:#}"),
+                },
+            )
+            .await?;
         }
     }
 
@@ -134,7 +160,7 @@ pub(crate) async fn serve(
     offers: Offers,
     caller: iroh::EndpointId,
 ) -> Result<()> {
-    run(Wire::Events, tx, rx, offers, caller, Reach::Whole).await
+    run(Wire::Events, tx, rx, offers, caller, Reach::Whole, false).await
 }
 
 pub(super) async fn serve_subscriptions(
@@ -143,8 +169,9 @@ pub(super) async fn serve_subscriptions(
     offers: Offers,
     caller: iroh::EndpointId,
     reach: Reach,
+    compress: bool,
 ) -> Result<()> {
-    run(Wire::Subscriptions, tx, rx, offers, caller, reach).await
+    run(Wire::Subscriptions, tx, rx, offers, caller, reach, compress).await
 }
 
 async fn run(
@@ -154,6 +181,7 @@ async fn run(
     offers: Offers,
     caller: iroh::EndpointId,
     reach: Reach,
+    compress: bool,
 ) -> Result<()> {
     let mut snapshots = Snapshots::new();
     let stream = snapshots.stream();
@@ -187,7 +215,13 @@ async fn run(
     let mut pending = HashSet::new();
     let mut heartbeat = interval_at(Instant::now() + HEARTBEAT, HEARTBEAT);
     heartbeat.set_missed_tick_behavior(MissedTickBehavior::Skip);
-    send(&mut tx, wire, Reply::Ready).await?;
+    if compress && wire == Wire::Subscriptions {
+        send(&mut tx, wire, Reply::ReadyCompressed).await?;
+        tx.enable_zstd();
+        rx.enable_zstd();
+    } else {
+        send(&mut tx, wire, Reply::Ready).await?;
+    }
 
     loop {
         while watching.is_empty()
@@ -210,11 +244,13 @@ async fn run(
                     anyhow::ensure!(offers.lends_to_peers() || offers.mesh.get().is_some_and(|mesh| mesh.me() == caller), "this machine is no longer shared");
                 }
 
-                let (request, deltas) = match request? {
-                    None => (None, false),
-                    Some((Incoming::Request(request), deltas)) => (Some(request), deltas),
+                let (request, deltas, query_deltas) = match request? {
+                    None => (None, false, false),
+                    Some((Incoming::Request(request), deltas, query_deltas)) => {
+                        (Some(request), deltas, query_deltas)
+                    }
                     // From a newer app: refuse the call, keep the stream.
-                    Some((Incoming::Unread { id, reason }, _)) => {
+                    Some((Incoming::Unread { id, reason }, _, _)) => {
                         tracing::warn!(%stream, call = id, %reason, "subscription call not read");
                         send(&mut tx, wire, Reply::Error { id, reason }).await?;
                         continue;
@@ -229,7 +265,13 @@ async fn run(
                     if queued.len() >= MAX_QUEUED_WATCHES {
                         send(&mut tx, wire, Reply::Error { id, reason: "too many pending watches".into() }).await?;
                     } else {
-                        queued.push_back(Queued { id, topics, queries, deltas });
+                        queued.push_back(Queued {
+                            id,
+                            topics,
+                            queries,
+                            deltas,
+                            query_deltas,
+                        });
                     }
                 }
                 Some(Request::Refresh { id }) => {
@@ -248,7 +290,15 @@ async fn run(
                 }
             },
             Some(done) = watching.join_next(), if !watching.is_empty() => {
-                let Watched { id, started, topics: wanted, queries: wanted_queries, deltas, result } = done.context("a topic watch stopped")?;
+                let Watched {
+                    id,
+                    started,
+                    topics: wanted,
+                    queries: wanted_queries,
+                    deltas,
+                    query_deltas,
+                    result,
+                } = done.context("a topic watch stopped")?;
 
                 match result {
                     Ok(next) => {
@@ -257,6 +307,7 @@ async fn run(
                         topics = wanted;
                         queries = wanted_queries;
                         snapshots.follow_deltas(deltas);
+                        snapshots.follow_query_deltas(query_deltas);
                         snapshots.replace(&offers, &topics, &queries, &roots);
                         // The first snapshots do not wait for the watchers.
                         passes.start(Pass::bind(&subscriptions));
@@ -383,25 +434,42 @@ async fn run(
 }
 
 /// The next request of the stream, as `events/1` names it, and whether its
-/// sender takes the `agents` list as deltas. `events/1` has no such flag.
-async fn read_request(wire: Wire, rx: &mut LinkRx) -> Result<Option<(Incoming, bool)>> {
+/// sender takes the `agents` list and external queries as deltas. `events/1`
+/// has no such flags.
+async fn read_request(wire: Wire, rx: &mut LinkRx) -> Result<Option<(Incoming, bool, bool)>> {
     match wire {
-        Wire::Events => Ok(rx.recv_with(Incoming::read).await?.map(|read| (read, false))),
-        Wire::Subscriptions => Ok(rx
-            .recv::<subscriptions::Request>()
+        Wire::Events => Ok(rx
+            .recv_with(Incoming::read)
             .await?
-            .map(|request| match request {
-                subscriptions::Request::Watch { id, topic, queries, deltas } => (
-                    Incoming::Request(Request::Watch { id, topics: vec![topic], queries }),
-                    deltas,
-                ),
-                subscriptions::Request::Refresh { id } => {
-                    (Incoming::Request(Request::Refresh { id }), false)
-                }
-                subscriptions::Request::Ping { id } => {
-                    (Incoming::Request(Request::Ping { id }), false)
-                }
-            })),
+            .map(|read| (read, false, false))),
+        Wire::Subscriptions => {
+            Ok(rx
+                .recv::<subscriptions::Request>()
+                .await?
+                .map(|request| match request {
+                    subscriptions::Request::Watch {
+                        id,
+                        topic,
+                        queries,
+                        deltas,
+                        query_deltas,
+                    } => (
+                        Incoming::Request(Request::Watch {
+                            id,
+                            topics: vec![topic],
+                            queries,
+                        }),
+                        deltas,
+                        query_deltas,
+                    ),
+                    subscriptions::Request::Refresh { id } => {
+                        (Incoming::Request(Request::Refresh { id }), false, false)
+                    }
+                    subscriptions::Request::Ping { id } => {
+                        (Incoming::Request(Request::Ping { id }), false, false)
+                    }
+                }))
+        }
     }
 }
 
@@ -410,7 +478,11 @@ fn sources(topics: &[Topic], queries: &[events::Query]) -> Vec<Topic> {
     sources.extend(queries.iter().map(|query| query.topic.clone()));
 
     if sources.iter().any(|topic| topic.name() == "agents") {
-        sources.extend([Topic::new("agent"), Topic::new("moves")]);
+        sources.extend([
+            Topic::new("agent"),
+            Topic::new("agent-log"),
+            Topic::new("moves"),
+        ]);
     }
 
     if sources.iter().any(|topic| topic.name() == "agent") {

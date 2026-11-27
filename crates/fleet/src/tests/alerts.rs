@@ -242,7 +242,7 @@ impl Serves {
             Serves::Asked(asked) => return asked.notify_one(),
         };
         let (mut tx, mut rx) = link(send, recv);
-        let Ok(Some(commands::Open::Session { protocol })) = rx.recv().await else {
+        let Ok(Some(commands::Open::Session { protocol, .. })) = rx.recv().await else {
             return;
         };
 

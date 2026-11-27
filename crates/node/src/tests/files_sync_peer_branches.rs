@@ -8,8 +8,8 @@ use crate::files::sync::{
 };
 use crate::files::{
     Folders,
-    sync::{map::Replica, project::Start},
     place::open_target,
+    sync::{map::Replica, project::Start},
 };
 use iroh::{
     Endpoint,

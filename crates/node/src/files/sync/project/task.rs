@@ -7,10 +7,11 @@ use super::{
 use crate::files::sync::{
     Parts,
     map::is_conflict,
-    peer,
+    peer::{self, SyncPool},
     progress::Meter,
     watch::{Key, Mode, RESCAN, Watcher},
 };
+use crate::membership::Membership;
 use anyhow::Result;
 use beep_proto::node::sync::State as SyncState;
 use beep_proto::watched;
@@ -147,7 +148,13 @@ impl DeleteTimer {
 /// it changed (or on a timer), records the edits in the list, then applies
 /// the list to the folder. Pulls from peers merge into the list from their
 /// own tasks and wake this one.
-pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watcher: Watcher) {
+pub(in crate::files::sync) async fn run(
+    shared: Arc<Shared>,
+    parts: Parts,
+    watcher: Watcher,
+    pool: SyncPool,
+    mesh: Membership,
+) {
     let (wake, mut woken) = mpsc::channel(1);
     watcher.add(shared.key, shared.root(), shared.rules.clone(), wake);
     // The folder itself is watched before the first walk, so a change
@@ -168,7 +175,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
         task.apply().await;
         task.save(true).await;
         let current = watched::read_and_update(&mut peers, Clone::clone);
-        start_pulls(&mut pulls, &shared, &task.parts, &current);
+        start_pulls(&mut pulls, &shared, &task.parts, &pool, &mesh, &current);
     }
 
     let mut settle = ChangeTimer::default();
@@ -206,7 +213,7 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 task.apply().await;
                 deletes.scanned(!task.held.is_empty(), last_scan);
                 let current = watched::read_and_update(&mut peers, Clone::clone);
-                start_pulls(&mut pulls, &shared, &task.parts, &current);
+                start_pulls(&mut pulls, &shared, &task.parts, &pool, &mesh, &current);
             }
             continue;
         }
@@ -321,9 +328,11 @@ pub(in crate::files::sync) async fn run(shared: Arc<Shared>, parts: Parts, watch
                 pulls = JoinSet::new();
                 shared.listen_again();
                 let current = watched::read_and_update(&mut peers, Clone::clone);
-        start_pulls(&mut pulls, &shared, &task.parts, &current);
-                retry = RETRY;
-                apply = true;
+                start_pulls(&mut pulls, &shared, &task.parts, &pool, &mesh, &current);
+                if !task.scan_failed {
+                    retry = RETRY;
+                    apply = true;
+                }
             }
             Some(ended) = pulls.join_next() => if let Err(e) = ended {
                 log::warn!("a pull of {} failed: {e}", shared.name);
@@ -361,12 +370,16 @@ fn start_pulls(
     pulls: &mut JoinSet<()>,
     shared: &Arc<Shared>,
     parts: &Parts,
+    pool: &SyncPool,
+    mesh: &Membership,
     peers: &[EndpointAddr],
 ) {
     for peer in peers {
         pulls.spawn(peer::pull(
             shared.clone(),
             parts.endpoint.clone(),
+            pool.clone(),
+            mesh.clone(),
             peer.clone(),
         ));
     }

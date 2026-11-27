@@ -606,7 +606,7 @@ impl iroh::protocol::ProtocolHandler for SessionsProtocol {
                     let answers = self.0;
                     streams.spawn(async move {
                         let (mut tx, mut rx) = link(send, recv);
-                        let Ok(Some(Open::Session { protocol })) = rx.recv::<Open>().await else { return; };
+                        let Ok(Some(Open::Session { protocol, .. })) = rx.recv::<Open>().await else { return; };
                         if protocol != "agents/1" {
                             let _ = tx.send(&Opened::Refused { reason: "not offered".into() }).await;
                             return;

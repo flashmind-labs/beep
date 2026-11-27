@@ -12,7 +12,10 @@ use tokio_util::task::AbortOnDropHandle;
 
 /// Sends one `request` to `serve` on an in-memory link and reads its first
 /// reply; `None` when the stream ends without one.
-pub(super) async fn ask<Req, Rep, F>(request: &Req, serve: impl FnOnce(LinkTx, LinkRx) -> F) -> Result<Option<Rep>>
+pub(super) async fn ask<Req, Rep, F>(
+    request: &Req,
+    serve: impl FnOnce(LinkTx, LinkRx) -> F,
+) -> Result<Option<Rep>>
 where
     Req: serde::Serialize,
     Rep: serde::de::DeserializeOwned,

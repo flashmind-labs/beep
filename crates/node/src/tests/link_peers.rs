@@ -197,7 +197,12 @@ async fn a_machine_not_lent_refuses_agent_streams_from_other_desktops() {
         for _ in 0..2 {
             let (send, recv) = from_desktop.accept_bi().await.expect("a stream arrives");
             let (tx, rx) = link(send, recv);
-            peers.inner.clone().serve(tx, rx, who).await.expect("served");
+            peers
+                .inner
+                .clone()
+                .serve(tx, rx, who)
+                .await
+                .expect("served");
         }
         // Dropping the connection now would cut off the last answer.
         from_desktop
@@ -208,6 +213,7 @@ async fn a_machine_not_lent_refuses_agent_streams_from_other_desktops() {
         let (mut tx, mut rx) = link(send, recv);
         tx.send(&Open {
             protocol: protocol.to_owned(),
+            compress: false,
         })
         .await
         .expect("the protocol is sent");
@@ -317,13 +323,19 @@ async fn ask_report_using(
     let serving = tokio::spawn(async move {
         let (send, recv) = from_desktop.accept_bi().await.expect("a stream arrives");
         let (tx, rx) = link(send, recv);
-        peers.inner.clone().serve(tx, rx, who).await.expect("served");
+        peers
+            .inner
+            .clone()
+            .serve(tx, rx, who)
+            .await
+            .expect("served");
         from_desktop
     });
     let (send, recv) = to_node.open_bi().await.expect("a stream opens");
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&Open {
         protocol: protocol.to_owned(),
+        compress: false,
     })
     .await
     .expect("the protocol is sent");
@@ -422,9 +434,18 @@ async fn channel_pair(dedicated: bool) -> ChannelPair {
         .accept(JOIN_ALPN, peers.join_handler());
     if dedicated {
         router = router
-            .accept(commands::ALPN, crate::link::commands::CommandsAlpn::new(&peers))
-            .accept(subscriptions::ALPN, crate::link::subscriptions::SubscriptionsAlpn::new(&peers))
-            .accept(forward::ALPN, crate::link::forward::ForwardAlpn::new(&peers));
+            .accept(
+                commands::ALPN,
+                crate::link::commands::CommandsAlpn::new(&peers),
+            )
+            .accept(
+                subscriptions::ALPN,
+                crate::link::subscriptions::SubscriptionsAlpn::new(&peers),
+            )
+            .accept(
+                forward::ALPN,
+                crate::link::forward::ForwardAlpn::new(&peers),
+            );
     }
     let node_router = router.spawn();
     peers.join(&ticket.encode_string()).await.unwrap();
@@ -472,6 +493,7 @@ async fn dedicated_peer_protocols_reuse_connections_and_close_when_membership_en
         topic: topic.clone(),
         queries: vec![],
         deltas: false,
+        query_deltas: false,
     })
     .await
     .unwrap();
@@ -621,7 +643,15 @@ async fn leaving_the_mesh_forgets_the_teams() {
 
     peers.leave().await;
 
-    peers.inner.team.with(|teams| assert!(teams.rosters.get(&repo).is_none()));
-    assert!(!peers.inner.team.served(|served| served.boards.serves(&repo)));
+    peers
+        .inner
+        .team
+        .with(|teams| assert!(teams.rosters.get(&repo).is_none()));
+    assert!(
+        !peers
+            .inner
+            .team
+            .served(|served| served.boards.serves(&repo))
+    );
     assert!(peers.inner.team.served(|served| served.gateways.is_empty()));
 }

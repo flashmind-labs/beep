@@ -4,8 +4,8 @@
 
 use super::rules::MARKER;
 use crate::{
-    fs::fsat::{self, FileId},
     files::place::Folder,
+    fs::fsat::{self, FileId},
 };
 use anyhow::{Context, Result, bail};
 use beep_proto::node::sync::{FOLDER_CHANGED as CHANGED, FOLDER_MISSING};

@@ -284,7 +284,9 @@ impl Agents {
 
     /// The rings of the agents' logs changing, for the spend scan, which holds
     /// the log observers while it runs.
-    pub(crate) async fn log_changes(self: &Arc<Self>) -> anyhow::Result<crate::agents::spend::LogChanges> {
+    pub(crate) async fn log_changes(
+        self: &Arc<Self>,
+    ) -> anyhow::Result<crate::agents::spend::LogChanges> {
         let rings = self.events.subscribe();
         // Without the watcher nothing rings, and a scan would run once and wait for ever: the
         // stream that asked ends with the error, and its reader opens another.
@@ -337,7 +339,16 @@ impl Agents {
                     let pending = std::mem::take(&mut *crate::lock(&summary_pending));
 
                     if !pending.agents.is_empty() {
+                        // Unkeyed `agent` stays for log watchers (spend, search, claude).
+                        // External session projections listen to harness-scoped `agent-log.<agent>`
+                        // so writes in one harness do not dirty unrelated projections.
                         hub.changed(beep_proto::node::events::Topic::new("agent"));
+                        for agent in &pending.agents {
+                            hub.changed(beep_proto::node::events::Topic::keyed(
+                                "agent-log",
+                                agent.as_ref(),
+                            ));
+                        }
                     }
 
                     let changed = match cache.read(&agents, &pending.agents).await {

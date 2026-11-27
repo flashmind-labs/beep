@@ -242,7 +242,7 @@ async fn a_stalled_version_probe_does_not_delay_status_reports() {
     let session: SessionFn = Arc::new(move |mut tx, mut rx| {
         let started = started.clone();
         Box::pin(async move {
-            let Some(Open { protocol }) = rx.recv::<Open>().await.unwrap() else {
+            let Some(Open { protocol, .. }) = rx.recv::<Open>().await.unwrap() else {
                 return;
             };
             tx.send(&Opened::Ready {}).await.unwrap();

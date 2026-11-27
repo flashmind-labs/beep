@@ -38,6 +38,7 @@ tracing-subscriber = { workspace = true, features = ["fmt", "env-filter", "traci
 url.workspace = true
 uuid = { workspace = true, features = ["serde"] }
 webpki-roots = { workspace = true, optional = true }
+zstd.workspace = true
 
 [dev-dependencies]
 n0-error.workspace = true

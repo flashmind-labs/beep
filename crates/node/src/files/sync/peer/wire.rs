@@ -1,24 +1,20 @@
 //! What a sync peer says to another: the requests and replies of a pull, and
 //! the pull of a Git pack.
 
+use super::super::gitdir::BranchTip;
 use super::super::{
     STALL,
     gitdir::{Checkout, Oid, Repo},
     map::{Entry, Replica},
     project::Shared,
 };
-use super::super::gitdir::BranchTip;
 use anyhow::{Context, Result, bail};
 use beep_mesh::OPEN_TIMEOUT;
 use beep_proto::node::link;
 use iroh::endpoint::Connection;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tokio::{
-    io::AsyncWriteExt,
-    task::spawn_blocking,
-    time::timeout,
-};
+use tokio::{io::AsyncWriteExt, task::spawn_blocking, time::timeout};
 
 /// How long a Git object transfer waits for its first chunk, then for each
 /// next one.
@@ -122,7 +118,11 @@ pub(super) struct ObjectWant {
     pub(super) scope: ObjectScope,
 }
 
-pub(super) async fn receive_objects(connection: &Connection, shared: &Shared, want: ObjectWant) -> Result<()> {
+pub(super) async fn receive_objects(
+    connection: &Connection,
+    shared: &Shared,
+    want: ObjectWant,
+) -> Result<()> {
     let (send, recv) = timeout(OPEN_TIMEOUT, connection.open_bi())
         .await
         .context("The Git object transfer did not start")??;

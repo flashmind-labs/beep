@@ -8,7 +8,6 @@ use super::{
     task::{ChangeTimer, DELETE_SETTLE, DeleteTimer, MAX_SETTLE, SETTLE, Task},
 };
 use crate::files::holds::{Recoveries, RepositoryHold, RepositoryHolds};
-use crate::fs::paths;
 use crate::files::sync::{
     Parts,
     disk::{Found, Stat},
@@ -18,6 +17,7 @@ use crate::files::sync::{
     scan::{self, MAX_FILES},
     watch::{Mode, Watcher},
 };
+use crate::fs::paths;
 use crate::{
     files::Folders,
     files::place::{Journal, open_target},
@@ -1210,7 +1210,10 @@ async fn an_answer_the_round_after_does_not_use_is_dropped_with_its_hold() {
     let (holds, hold) = recovery_hold(&project).await;
     shared.ask_recovery(&Recoveries::default());
     shared.answer_recovery(Ok(hold));
-    assert!(starts_refused(&holds, &project), "held until the round takes it");
+    assert!(
+        starts_refused(&holds, &project),
+        "held until the round takes it"
+    );
 
     // The round finds nothing to align (the user committed, a peer left):
     // the answer ends with it, and Beep sessions may start again.

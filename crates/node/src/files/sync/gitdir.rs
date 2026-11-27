@@ -201,7 +201,12 @@ fn created(repo: &gix::Repository, id: &gix::oid) -> i64 {
 
     let seconds = match object.kind {
         gix::object::Kind::Commit => object.into_commit().committer().ok().map(|s| s.seconds()),
-        gix::object::Kind::Tag => object.into_tag().tagger().ok().flatten().map(|s| s.seconds()),
+        gix::object::Kind::Tag => object
+            .into_tag()
+            .tagger()
+            .ok()
+            .flatten()
+            .map(|s| s.seconds()),
         _ => None,
     };
     seconds.unwrap_or(0)
@@ -714,7 +719,6 @@ impl Repo {
         }
     }
 
-
     /// This repository for questions about refs and history, answered in
     /// process instead of by a git process. Like [`Self::git`], it ignores the
     /// environment and global config that could point it elsewhere.
@@ -834,7 +838,11 @@ impl Repo {
         // An error means part of a history has not come.
         let cache = repo.commit_graph_if_enabled().ok()?;
         let mut graph = repo.revision_graph(cache.as_ref());
-        Some(gix_revision::merge_base(a, &[b], &mut graph).ok()?.is_some_and(|bases| *bases.first() == a))
+        Some(
+            gix_revision::merge_base(a, &[b], &mut graph)
+                .ok()?
+                .is_some_and(|bases| *bases.first() == a),
+        )
     }
 
     /// Sets ref `name` to `new` if it is still `old`.

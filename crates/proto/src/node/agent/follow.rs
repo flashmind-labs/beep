@@ -17,6 +17,21 @@ pub struct FollowSession {
     pub last: u32,
     #[serde(default)]
     pub after: Option<SessionCursor>,
+    /// Client accepts `SessionUpdate::Patch`, prefix-validated tail resumes,
+    /// and may send `FollowControl` frames after the node sets `controls: true`.
+    #[serde(default)]
+    pub patches: bool,
+    /// Initial visibility when `patches` is true.
+    #[serde(default)]
+    pub shown: bool,
+}
+
+/// Client-to-node control message on `agent-view/1`, sent only when the node
+/// acknowledged control support on its initial snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FollowControl {
+    /// Whether the followed session is currently visible on screen.
+    Shown(bool),
 }
 
 /// A checkpoint for the retained transcript window, not a replay-log position.
@@ -28,6 +43,13 @@ pub struct SessionCursor {
     pub next: u64,
     /// BLAKE3 of canonical entries in `[start, next)`.
     pub fingerprint: String,
+    /// Position after the settled prefix `[start, prefix_next)` (typically `next - 1`),
+    /// allowing reconnect resume when only the trailing streaming entry mutated.
+    #[serde(default)]
+    pub prefix_next: u64,
+    /// BLAKE3 of canonical entries in `[start, prefix_next)`, empty when absent.
+    #[serde(default)]
+    pub prefix_fingerprint: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -46,6 +68,30 @@ pub struct SessionSnapshot {
     pub cursor: SessionCursor,
     /// The initial snapshot validated `after`; keep its cached prefix.
     pub resumed: bool,
+    /// The node accepts `FollowControl` messages on this stream.
+    #[serde(default)]
+    pub controls: bool,
+}
+
+/// One incremental mutation against the client's retained transcript entries.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum EntryPatch {
+    /// Appends `text` to the existing entry at `index`; all other fields are unchanged.
+    AppendText { index: u64, text: String },
+    /// Replaces an existing entry or appends at the end.
+    Replace { index: u64, entry: Entry },
+    /// Truncates the transcript to end at `next`.
+    Truncate { next: u64 },
+}
+
+/// Incremental transcript update that avoids re-sending unchanged source metadata
+/// and already-transmitted entry text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SessionPatch {
+    /// Present only when `SessionSource` changed since the previous update.
+    pub source: Option<SessionSource>,
+    pub cursor: SessionCursor,
+    pub ops: Vec<EntryPatch>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -58,4 +104,6 @@ pub enum SessionUpdate {
     Error {
         reason: String,
     },
+    /// Incremental entry patches and optional source metadata for `patches: true` clients.
+    Patch(Box<SessionPatch>),
 }

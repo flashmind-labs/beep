@@ -74,12 +74,17 @@ async fn try_handshake(
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&Open {
         protocol: protocol.to_owned(),
+        compress: protocol != beep_proto::node::device_video::PROTOCOL,
     })
     .await?;
     let opened: Opened = rx.recv().await?.context("the machine closed the call")?;
 
     Ok(match opened {
         Opened::Refused { reason } => Err(reason),
+        Opened::ReadyCompressed {} => {
+            rx.enable_zstd();
+            Ok((tx, rx))
+        }
         _ => Ok((tx, rx)),
     })
 }
@@ -118,10 +123,18 @@ impl PeerWatch {
     /// not serve it to a node, as one from before this.
     pub(crate) async fn open(mesh: &Mesh, peer: EndpointId, topic: Topic) -> Result<Self> {
         let (mut tx, mut rx) = handshake(mesh, peer, subscriptions::PROTOCOL).await?;
-        tx.send(&SubscriptionsOpen {}).await?;
+        let wants_compress = !rx.is_zstd();
+        tx.send(&SubscriptionsOpen {
+            compress: wants_compress,
+        })
+        .await?;
 
         match timeout(IDLE, rx.recv::<Reply>()).await?? {
             Some(Reply::Ready) => {}
+            Some(Reply::ReadyCompressed) => {
+                tx.enable_zstd();
+                rx.enable_zstd();
+            }
             _ => bail!("the subscription stream did not start with Ready"),
         }
 
@@ -130,6 +143,7 @@ impl PeerWatch {
             topic,
             queries: Vec::new(),
             deltas: true,
+            query_deltas: false,
         })
         .await?;
 
@@ -173,7 +187,9 @@ pub(crate) fn heard(reply: Reply, held: &mut HeldSessions) -> Result<Option<Valu
         Reply::Error { reason, .. } | Reply::SnapshotError { reason, .. } => {
             Err(anyhow::anyhow!("the machine reported an error: {reason}"))
         }
-        Reply::Ready | Reply::Watching { .. } | Reply::Pong { .. } => Ok(None),
+        Reply::Ready | Reply::ReadyCompressed | Reply::Watching { .. } | Reply::Pong { .. } => {
+            Ok(None)
+        }
     }
 }
 

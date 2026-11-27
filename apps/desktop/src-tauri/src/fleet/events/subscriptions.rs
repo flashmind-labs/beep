@@ -107,6 +107,7 @@ impl SubscriptionWorker {
                 topic: topic.clone(),
                 queries,
                 deltas: true,
+                query_deltas: true,
             }),
         )
         .await
@@ -147,6 +148,7 @@ impl SubscriptionWorker {
                         topic: topic.clone(),
                         queries,
                         deltas: true,
+                        query_deltas: true,
                     }),
                 )
                 .await

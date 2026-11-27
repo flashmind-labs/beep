@@ -16,7 +16,8 @@ use beep_proto::watched;
 use beep_proto::{
     AgentMode, AgentSessionModes, AgentSessionView, AgentSlug, AgentStatus, AgentTask, SessionId,
     node::agent::{
-        FOLLOW_READERS_FULL, FollowSession, SESSION_FOLLOW_PROTOCOL, SessionCursor, SessionSource,
+        Entry, EntryPatch, FOLLOW_READERS_FULL, FollowControl, FollowSession,
+        SESSION_FOLLOW_PROTOCOL, SessionCursor, SessionPatch, SessionSnapshot, SessionSource,
         SessionUpdate,
     },
 };
@@ -346,16 +347,24 @@ pub async fn agent_follow(
             .member(&machine_id)
             .ok_or_else(|| DesktopError::BadRequest("machine is not in the mesh".into()))?;
         let client = fleet.client(machine).await?;
+        // A hidden window hears nothing until it shows again.
+        let mut window_shown = app.state::<OnScreen>().watch(window.label());
+        let initial_shown = watched::read(&on_screen, |shown| *shown) && !hidden(&window_shown);
         let request = FollowSession {
             agent: Into::<AgentSlug>::into(agent),
             session: Into::<SessionId>::into(session.clone()),
             last,
             after,
+            patches: true,
+            shown: initial_shown,
         };
-        let (mut _tx, mut rx) = client
+        let (mut tx, mut rx) = client
             .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
             .await?;
         let mut pace = Pace::default();
+        let mut follow_state = FollowState::default();
+        let mut node_controls = false;
+        let mut sent_shown = initial_shown;
         let followed = SessionKey {
             machine_id: machine_id.clone(),
             agent: request.agent.as_ref().to_owned(),
@@ -367,8 +376,6 @@ pub async fn agent_follow(
         );
         let mut retried = false;
         let mut waiting_for_page = Some(started);
-        // A hidden window hears nothing until it shows again.
-        let mut window_shown = app.state::<OnScreen>().watch(window.label());
         let mut watching = true;
         pace.window(hidden(&window_shown), Instant::now());
 
@@ -405,10 +412,16 @@ pub async fn agent_follow(
                         return Ok(());
                     }
 
+                    let shown_now = watched::read_and_update(&mut on_screen, |shown| *shown);
+                    let visible = shown_now && !hidden(&window_shown);
+
+                    if node_controls && visible != sent_shown {
+                        sent_shown = visible;
+                        let _ = tx.send(&FollowControl::Shown(visible)).await;
+                    }
+
                     // Shown again: what was held goes at once.
-                    if watched::read_and_update(&mut on_screen, |shown| *shown)
-                        && let Some(pushed) = pace.flush(Instant::now())
-                    {
+                    if shown_now && let Some(pushed) = pace.flush(Instant::now()) {
                         on_event.send(pushed.into())?;
                     }
 
@@ -418,6 +431,12 @@ pub async fn agent_follow(
                     // The window is gone: the next update ends the follow.
                     let hidden = !closed && hidden(&window_shown);
                     watching = !closed;
+                    let visible = !hidden && watched::read(&on_screen, |shown| *shown);
+
+                    if node_controls && visible != sent_shown {
+                        sent_shown = visible;
+                        let _ = tx.send(&FollowControl::Shown(visible)).await;
+                    }
 
                     if hidden {
                         keeper.write(Instant::now());
@@ -449,8 +468,27 @@ pub async fn agent_follow(
             }
 
             let (kind, snapshot) = match update {
-                SessionUpdate::Snapshot(snapshot) => (UpdateKind::Snapshot, *snapshot),
-                SessionUpdate::Delta(snapshot) => (UpdateKind::Delta, *snapshot),
+                SessionUpdate::Snapshot(snapshot) => {
+                    let snapshot = *snapshot;
+                    follow_state.record_snapshot(&snapshot, true);
+                    if snapshot.controls {
+                        node_controls = true;
+                    }
+                    (UpdateKind::Snapshot, snapshot)
+                }
+                SessionUpdate::Delta(snapshot) => {
+                    let snapshot = *snapshot;
+                    follow_state.record_snapshot(&snapshot, false);
+                    if snapshot.controls {
+                        node_controls = true;
+                    }
+                    (UpdateKind::Delta, snapshot)
+                }
+                SessionUpdate::Patch(patch) => {
+                    node_controls = true;
+                    let snapshot = follow_state.apply_patch(*patch)?;
+                    (UpdateKind::Delta, snapshot)
+                }
                 SessionUpdate::KeepAlive => continue,
                 // A full node: the shown session takes the place of one of
                 // this window's background readers there, once. A background
@@ -466,14 +504,27 @@ pub async fn agent_follow(
                     retried = true;
                     waiting_for_page = Some(Instant::now());
                     sleep(RELEASE_WAIT).await;
-                    (_tx, rx) = client
-                        .open_sending(SESSION_FOLLOW_PROTOCOL, &request)
+                    let visible =
+                        watched::read(&on_screen, |shown| *shown) && !hidden(&window_shown);
+                    let mut retry_request = request.clone();
+                    retry_request.shown = visible;
+                    (tx, rx) = client
+                        .open_sending(SESSION_FOLLOW_PROTOCOL, &retry_request)
                         .await?;
+                    follow_state = FollowState::default();
+                    node_controls = false;
+                    sent_shown = visible;
                     silence.heard();
                     continue;
                 }
                 SessionUpdate::Error { reason } => return Err(DesktopError::BadRequest(reason)),
             };
+
+            let visible = shown && !hidden(&window_shown);
+            if node_controls && visible != sent_shown {
+                sent_shown = visible;
+                let _ = tx.send(&FollowControl::Shown(visible)).await;
+            }
             if let Some(started) = waiting_for_page.take() {
                 tracing::info!(
                     elapsed_ms = started.elapsed().as_millis(),
@@ -642,6 +693,130 @@ impl Silence {
 
     async fn expired(&mut self) {
         self.0.as_mut().await;
+    }
+}
+
+/// Reconstructs contiguous snapshots from incremental `SessionUpdate::Patch` frames
+/// so downstream pacing, disk caching, and webview state stay unchanged.
+#[derive(Default)]
+struct FollowState {
+    source: Option<SessionSource>,
+    earlier: u64,
+    entries: Vec<Entry>,
+}
+
+impl FollowState {
+    fn record_snapshot(&mut self, snapshot: &SessionSnapshot, is_snapshot: bool) {
+        self.source = Some(snapshot.source.clone());
+
+        if (is_snapshot && !snapshot.resumed)
+            || self.entries.is_empty()
+            || snapshot.earlier <= self.earlier
+        {
+            self.earlier = snapshot.earlier;
+            self.entries = snapshot.entries.clone();
+        } else {
+            let end = self.earlier.saturating_add(self.entries.len() as u64);
+
+            if snapshot.earlier <= end
+                && let Ok(keep) = usize::try_from(snapshot.earlier - self.earlier)
+            {
+                self.entries.truncate(keep);
+                self.entries.extend(snapshot.entries.iter().cloned());
+            } else {
+                self.earlier = snapshot.earlier;
+                self.entries = snapshot.entries.clone();
+            }
+        }
+
+        self.trim_to(snapshot.cursor.start);
+    }
+
+    fn apply_patch(&mut self, patch: SessionPatch) -> Result<SessionSnapshot> {
+        if let Some(source) = patch.source {
+            self.source = Some(source);
+        }
+
+        let source = self.source.clone().ok_or_else(|| {
+            DesktopError::BadRequest("session patch arrived before snapshot".into())
+        })?;
+        let mut min_touched: Option<u64> = None;
+
+        for op in patch.ops {
+            match op {
+                EntryPatch::AppendText { index, text } => {
+                    let offset = index
+                        .checked_sub(self.earlier)
+                        .and_then(|d| usize::try_from(d).ok())
+                        .ok_or_else(|| {
+                            DesktopError::BadRequest("session patch append out of range".into())
+                        })?;
+                    let entry = self.entries.get_mut(offset).ok_or_else(|| {
+                        DesktopError::BadRequest("session patch append target missing".into())
+                    })?;
+                    entry.text.push_str(&text);
+                    min_touched = Some(min_touched.map_or(index, |m| m.min(index)));
+                }
+                EntryPatch::Replace { index, entry } => {
+                    let offset = index
+                        .checked_sub(self.earlier)
+                        .and_then(|d| usize::try_from(d).ok())
+                        .ok_or_else(|| {
+                            DesktopError::BadRequest("session patch replace out of range".into())
+                        })?;
+
+                    if offset < self.entries.len() {
+                        self.entries[offset] = entry;
+                    } else if offset == self.entries.len() {
+                        self.entries.push(entry);
+                    } else {
+                        return Err(DesktopError::BadRequest(
+                            "session patch replace left a gap".into(),
+                        ));
+                    }
+
+                    min_touched = Some(min_touched.map_or(index, |m| m.min(index)));
+                }
+                EntryPatch::Truncate { next } => {
+                    let keep = next
+                        .checked_sub(self.earlier)
+                        .and_then(|d| usize::try_from(d).ok())
+                        .ok_or_else(|| {
+                            DesktopError::BadRequest("session patch truncate out of range".into())
+                        })?;
+                    self.entries.truncate(keep);
+                    min_touched = Some(min_touched.map_or(next, |m| m.min(next)));
+                }
+            }
+        }
+
+        self.trim_to(patch.cursor.start);
+        let earlier = min_touched
+            .unwrap_or(patch.cursor.next)
+            .max(self.earlier)
+            .min(patch.cursor.next);
+        let start = usize::try_from(earlier - self.earlier).unwrap_or(self.entries.len());
+        let entries = self.entries[start..].to_vec();
+
+        Ok(SessionSnapshot {
+            source,
+            entries,
+            earlier,
+            cursor: patch.cursor,
+            resumed: false,
+            controls: true,
+        })
+    }
+
+    fn trim_to(&mut self, start: u64) {
+        if start > self.earlier {
+            let cut = (start - self.earlier).min(self.entries.len() as u64);
+
+            if let Ok(cut_usize) = usize::try_from(cut) {
+                self.entries.drain(..cut_usize);
+                self.earlier += cut;
+            }
+        }
     }
 }
 

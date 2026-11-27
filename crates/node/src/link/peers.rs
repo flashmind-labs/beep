@@ -6,30 +6,30 @@
 //! The protocols are served from the start and answer once the node is in a
 //! mesh, so `join` takes effect without a restart.
 
+#[cfg(feature = "cli")]
+use crate::link::local_status::LocalStatus;
 use crate::{
     agents::SessionsAlpn,
     files::transfer::Transfers,
     link::Protocol,
+    link::protocol::SessionProtocol,
+    machine::{env, stats},
     run::local_socket::{Listener, Stream},
     status::{MESH_SOCKET, STATUS_LINE},
-
-    link::protocol::SessionProtocol,
-    watchdog::{self, Step},
-    machine::{env, stats},
     team::link::TeamLink,
     tools::{Node, team_link::TeamAlpn},
+    watchdog::{self, Step},
 };
 use anyhow::{Context, Result, bail};
 use beep_mesh::{
-    DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol,
-    PeerStream, SessionFn,
+    DeviceKind, DeviceStatus, Invitation, JoinProtocol, Mesh, MeshProtocol, PeerStream, SessionFn,
 };
 use beep_proto::node::{EnvReport, LinkRx, LinkTx, link, status::Report};
-use futures::future::BoxFuture;
 use beep_proto::watched;
 #[cfg(feature = "cli")]
 use beep_report::Share;
 use beep_report::collect;
+use futures::future::BoxFuture;
 use iroh::{
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
@@ -111,16 +111,17 @@ pub(super) type ServeProtocol = fn(
     LinkRx,
     SessionProtocol,
     Who,
+    bool,
     beep_proto::logging::RequestTrace,
 ) -> BoxFuture<'static, Result<()>>;
 
 impl Inner {
     /// Serves a stream a peer, or this process, opened.
     async fn serve(self: Arc<Self>, tx: LinkTx, mut rx: LinkRx, who: Who) -> Result<()> {
-        let protocol = read_open(&mut rx).await?;
+        let (protocol, compress) = read_open(&mut rx).await?;
         let mut trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
         trace.phase("waiting for protocol readiness");
-        (self.serve_protocol)(self.clone(), tx, rx, protocol, who, trace).await
+        (self.serve_protocol)(self.clone(), tx, rx, protocol, who, compress, trace).await
     }
 
     pub(super) fn offers(&self) -> MutexGuard<'_, Offers> {
@@ -211,6 +212,7 @@ impl Peers {
         peer: iroh::EndpointId,
         mesh: iroh::EndpointId,
         protocol: &str,
+        compress: bool,
     ) -> Result<()> {
         let protocol = protocol.parse::<SessionProtocol>()?;
         anyhow::ensure!(
@@ -219,7 +221,8 @@ impl Peers {
         );
         let trace = beep_proto::logging::RequestTrace::new(protocol.to_string());
         let who = self.channel_who(peer, mesh).context("not authorized")?;
-        (self.inner.serve_protocol)(self.inner.clone(), tx, rx, protocol, who, trace).await
+        (self.inner.serve_protocol)(self.inner.clone(), tx, rx, protocol, who, compress, trace)
+            .await
     }
 
     pub(super) fn channel_offers(&self) -> Offers {
@@ -267,8 +270,7 @@ impl Peers {
             DeviceKind::Node => Who::Node {
                 peer,
                 desktop_here: devices.iter().any(|status| {
-                    status.device.id == active.me()
-                        && status.device.kind == DeviceKind::Desktop
+                    status.device.id == active.me() && status.device.kind == DeviceKind::Desktop
                 }),
             },
         })
@@ -357,8 +359,7 @@ impl Peers {
 
     /// Whether this device is in a mesh it was not removed from.
     pub fn is_member(&self) -> bool {
-        self.active()
-            .is_some_and(|mesh| mesh.is_member(mesh.me()))
+        self.active().is_some_and(|mesh| mesh.is_member(mesh.me()))
     }
 
     /// The mesh's devices, empty before the node joined.
@@ -608,7 +609,9 @@ const CLOSE_WAIT: Duration = Duration::from_secs(5);
 async fn close_within(mesh: Mesh) -> Result<()> {
     let _ = timeout(CLOSE_WAIT, mesh.released()).await;
 
-    mesh.close().await.map_err(|in_use| anyhow::anyhow!("{in_use}"))
+    mesh.close()
+        .await
+        .map_err(|in_use| anyhow::anyhow!("{in_use}"))
 }
 
 /// Takes the mesh commands on the node's socket until the node stops.
@@ -711,7 +714,10 @@ const MAX_REQUEST: u64 = 16 * 1024;
 /// ticket goes over the node's own socket, which only its user can open.
 #[cfg(feature = "cli")]
 pub async fn join(dir: &Path, ticket: &str) -> Result<()> {
-    expect_reply(ask(dir, &format!("{JOIN}{}", ticket.trim())).await?, "joined")
+    expect_reply(
+        ask(dir, &format!("{JOIN}{}", ticket.trim())).await?,
+        "joined",
+    )
 }
 
 /// `Ok` when the node's first line is `done`, else its failure.

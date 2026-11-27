@@ -1,6 +1,6 @@
 use super::kinds::launch;
-use crate::machine::env::locate::home_twins;
 use super::*;
+use crate::machine::env::locate::home_twins;
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{self, CheckoutPlan, SessionsReply, Status},
@@ -144,7 +144,8 @@ async fn a_transcript_read_gives_thoughts_only_to_a_server_that_asks() {
             Some(root.path().to_str().expect("a UTF-8 path")),
             begin,
         )
-        .await.expect("the session starts");
+        .await
+        .expect("the session starts");
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -229,7 +230,8 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     };
     let session = agents
         .start(&kind, Some(dir.to_str().unwrap()), begin)
-        .await.unwrap();
+        .await
+        .unwrap();
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -449,7 +451,8 @@ done
                 ..Begin::default()
             },
         )
-        .await.unwrap();
+        .await
+        .unwrap();
     let mut live = first.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -567,7 +570,10 @@ done"#,
         );
     let kind = sh_agent("codex", &script);
     let agents = Agents::new(vec![kind.clone()]);
-    let first = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
+    let first = agents
+        .start(&kind, Some("/"), Begin::default())
+        .await
+        .unwrap();
     first.named_info().await.unwrap();
     assert_ne!(first.id, AGENT_ID);
     first.close().await;
@@ -581,7 +587,8 @@ done"#,
                 ..Begin::default()
             },
         )
-        .await.unwrap();
+        .await
+        .unwrap();
     let mut live = resumed.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -766,7 +773,8 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
     let kind = sh_agent("codex", THINKING_ADAPTER);
     let session = agents
         .start(&kind, root.path().to_str(), Begin::default())
-        .await.unwrap();
+        .await
+        .unwrap();
     let mut live = session.live.clone();
     timeout(
         Duration::from_secs(10),
@@ -780,6 +788,8 @@ async fn a_live_view_survives_idle_time_and_detaching_keeps_the_agent_running() 
         session: Into::<SessionId>::into(session.info().id),
         last: 200,
         after: None,
+        patches: false,
+        shown: true,
     };
     let link = beep_proto::node::local_link();
     let task = tokio::spawn(serve_follow(link.node.0, link.node.1, agents.clone()));
@@ -873,7 +883,8 @@ mod actor_tests {
         let agents = Arc::new(Agents::new(vec![kind.clone()]));
         let session = agents
             .start(&kind, root.path().to_str(), Begin::default())
-            .await.unwrap();
+            .await
+            .unwrap();
         let public_id = session.named_info().await.unwrap().id;
         let mut live = session.live.clone();
         timeout(
@@ -1061,7 +1072,8 @@ while read -r line; do :; done
             Some(repo.to_str().unwrap()),
             Begin::default(),
         )
-        .await.unwrap();
+        .await
+        .unwrap();
     let mut live = session.live.clone();
     tokio::time::timeout(
         Duration::from_secs(10),
@@ -1142,8 +1154,7 @@ async fn resumed_claude_reads_native_history_before_a_partial_replay() {
             serde_json::json!({"type":"user", "uuid":"old-user", "message":{"content":"yes"}}),
             serde_json::json!({"type":"assistant", "uuid":"old-agent", "parentUuid":"old-user", "message":{"content":[{"type":"text", "text":"Original answer"}]}}),
         ];
-        let summary =
-            "This session is being continued from a previous conversation that ran out of context. Keep the literal <beep-context>example</beep-context> in the summary.";
+        let summary = "This session is being continued from a previous conversation that ran out of context. Keep the literal <beep-context>example</beep-context> in the summary.";
         if compacted {
             records.push(serde_json::json!({"type":"system", "subtype":"compact_boundary"}));
             records.push(serde_json::json!({"type":"user","isCompactSummary":true,"message":{"content":"Older summary"}}));
@@ -1191,7 +1202,8 @@ done
                     ..Begin::default()
                 },
             )
-            .await.unwrap();
+            .await
+            .unwrap();
         let mut live = session.live.clone();
         tokio::time::timeout(
             Duration::from_secs(10),

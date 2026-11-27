@@ -19,6 +19,8 @@ fn pushed(kind: UpdateKind, earlier: u32, texts: &[&str], status: AgentStatus) -
             start: 0,
             next,
             fingerprint: next.to_string(),
+            prefix_next: 0,
+            prefix_fingerprint: String::new(),
         },
         resumed: false,
         view: AgentSessionView {

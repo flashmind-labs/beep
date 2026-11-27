@@ -3,7 +3,9 @@
 //! retain changed paths; overflow and errors request reconciliation.
 
 use super::{gitdir, rules::Rules};
+use crate::events::{ChangeKind, Touched};
 use crate::{lock, read_lock};
+use beep_proto::node::events::Topic;
 use notify::{
     Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher as _,
     event::{AccessKind, AccessMode},
@@ -14,8 +16,6 @@ use std::{
     sync::{Arc, Mutex, RwLock},
     time::Duration,
 };
-use crate::events::{ChangeKind, Touched};
-use beep_proto::node::events::Topic;
 use tokio::{
     sync::{Notify, mpsc},
     task::spawn_blocking,
@@ -369,11 +369,10 @@ impl Watcher {
         let routes: Arc<Mutex<HashMap<Key, Route>>> = Arc::default();
         let events = routes.clone();
         let (announcer, announcing) = Announcer::start();
-        let watcher =
-            notify::recommended_watcher(move |event: notify::Result<Event>| {
-                crate::events::paths::counted("sync", &event);
+        let watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+            crate::events::paths::counted("sync", &event);
 
-                match event {
+            match event {
                 Ok(event) => route(&events, &announcer, &event),
                 Err(e) => {
                     log::debug!("watch error: {e}");
@@ -383,8 +382,8 @@ impl Watcher {
                         &Event::new(EventKind::Other).set_flag(notify::event::Flag::Rescan),
                     );
                 }
-                }
-            });
+            }
+        });
         let watcher = match watcher {
             Ok(watcher) => Some(watcher),
             Err(e) => {

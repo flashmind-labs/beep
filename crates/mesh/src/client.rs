@@ -340,14 +340,37 @@ impl PeerClient {
     pub async fn open_subscriptions(&self) -> Result<(LinkTx, LinkRx), MeshError> {
         use beep_proto::node::subscriptions::{ALPN, Open, PROTOCOL, Reply};
 
-        self.open_channel(
-            ALPN,
-            PROTOCOL,
-            &Open {},
-            |reply| matches!(reply, Reply::Ready),
-            "the subscriptions stream did not start with Ready",
-        )
+        let channel = self.channel(ALPN).await?;
+        let mark = channel.as_ref().map(Mark::of);
+        let opened = timeout(OPEN_TIMEOUT, async {
+            let (mut tx, mut rx) = match &channel {
+                Some(connection) => {
+                    let (mut tx, rx) = open_connection(connection).await?;
+                    timeout(OPEN_TIMEOUT, tx.send(&Open { compress: true }))
+                        .await
+                        .map_err(|error| MeshError::Link(error.into()))?
+                        .map_err(MeshError::Link)?;
+                    (tx, rx)
+                }
+                None => self.sending(PROTOCOL, &Open { compress: false }).await?,
+            };
+            match rx.recv::<Reply>().await.map_err(MeshError::Link)? {
+                Some(Reply::Ready) => Ok((tx, rx)),
+                Some(Reply::ReadyCompressed) => {
+                    tx.enable_zstd();
+                    rx.enable_zstd();
+                    Ok((tx, rx))
+                }
+                _ => Err(MeshError::Link(anyhow::anyhow!(
+                    "the subscriptions stream did not start with Ready"
+                ))),
+            }
+        })
         .await
+        .map_err(|error| MeshError::Link(error.into()))
+        .and_then(|opened| opened);
+        self.stalled(channel.as_ref(), mark, &opened);
+        opened
     }
 
     async fn open_channel<Q: Serialize, R: DeserializeOwned>(
@@ -569,6 +592,7 @@ impl PeerClient {
                 let (mut tx, rx) = link(send, recv);
                 tx.send(&beep_proto::node::commands::Open::Session {
                     protocol: protocol.to_owned(),
+                    compress: wants_zstd(protocol),
                 })
                 .await
                 .map_err(MeshError::Link)?;
@@ -581,7 +605,7 @@ impl PeerClient {
         match &self.via {
             Via::Peer(open_bi) => timeout(open_timeout, async {
                 let (mut tx, rx) = open_bi().await?;
-                send_open(&mut tx, protocol).await?;
+                send_open(&mut tx, protocol, wants_zstd(protocol)).await?;
                 Ok((tx, rx))
             })
             .await
@@ -596,7 +620,7 @@ impl PeerClient {
                 // the pipes, so nothing outlives the call or the stream.
                 spawn(session(node_tx, node_rx));
                 let (mut tx, rx) = pair.caller;
-                send_open(&mut tx, protocol).await?;
+                send_open(&mut tx, protocol, false).await?;
                 Ok((tx, rx))
             }
         }
@@ -761,10 +785,17 @@ impl PeerClient {
     }
 }
 
+/// Whether a session stream over the network should negotiate zstd compression.
+/// Already-compressed video streams skip compression.
+fn wants_zstd(protocol: &str) -> bool {
+    protocol != beep_proto::node::device_video::PROTOCOL
+}
+
 /// Sends `Open`.
-async fn send_open(tx: &mut LinkTx, protocol: &str) -> Result<(), MeshError> {
+async fn send_open(tx: &mut LinkTx, protocol: &str, compress: bool) -> Result<(), MeshError> {
     let open = Open {
         protocol: protocol.to_owned(),
+        compress,
     };
     tx.send(&open).await.map_err(MeshError::Link)
 }
@@ -782,6 +813,10 @@ async fn answer(rx: &mut LinkRx, protocol: &str) -> Result<(), MeshError> {
         })?;
     match opened {
         Opened::Ready {} => Ok(()),
+        Opened::ReadyCompressed {} => {
+            rx.enable_zstd();
+            Ok(())
+        }
         Opened::Refused { reason } => Err(MeshError::Declined {
             protocol: protocol.to_owned(),
             reason,

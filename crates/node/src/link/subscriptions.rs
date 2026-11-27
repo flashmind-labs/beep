@@ -1,7 +1,8 @@
 //! Topic subscriptions on their own authenticated QUIC connection.
 
 use super::{
-    Offers, Session, channels, events::{self, Reach},
+    Offers, Session, channels,
+    events::{self, Reach},
     peers::{CHANNEL_OPEN_WAIT, Peers},
 };
 use anyhow::{Context, Result};
@@ -60,8 +61,9 @@ pub(super) async fn serve_open(
     caller: EndpointId,
     reach: Reach,
 ) -> Result<()> {
-    timeout(CHANNEL_OPEN_WAIT, rx.recv::<Open>())
+    let open = timeout(CHANNEL_OPEN_WAIT, rx.recv::<Open>())
         .await??
         .context("the subscription stream closed before opening")?;
-    events::serve_subscriptions(tx, rx, offers, caller, reach).await
+    let compress = open.compress && !tx.is_zstd();
+    events::serve_subscriptions(tx, rx, offers, caller, reach, compress).await
 }

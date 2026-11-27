@@ -2,27 +2,35 @@
 //! over iroh, so sync goes on while the server is down, and `PeerHandler`
 //! serves them to each project's peers only.
 
-use tracing::Instrument;
-use beep_mesh::{OPEN_TIMEOUT, RETRY};
 use super::{
     Syncs,
     gitdir::{Checkout, Repo},
     project::{Cursor, Shared},
 };
-use wire::{ObjectScope, ObjectWant, Reply, Request, receive_objects};
+use crate::{AsyncMutex, lock, membership::Membership};
 use anyhow::{Context, Result, bail};
+use beep_mesh::{OPEN_TIMEOUT, RETRY};
 use beep_proto::node::{LinkRx, LinkTx, link};
+use beep_proto::watched;
 use iroh::{
     Endpoint, EndpointAddr, EndpointId,
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
 };
-use std::{fmt, process::Stdio, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt,
+    process::Stdio,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     task::{JoinSet, spawn_blocking},
     time::{Instant, sleep, timeout},
 };
+use tracing::Instrument;
+use wire::{ObjectScope, ObjectWant, Reply, Request, receive_objects};
 
 mod branches;
 mod wire;
@@ -33,10 +41,57 @@ pub(crate) const ALPN: &[u8] = b"beep-sync/7";
 
 /// The most entries one batch carries.
 const BATCH: usize = 1000;
-/// The most projects one peer pulls at once over a connection.
-const MAX_STREAMS: usize = 64;
+/// The most projects one peer pulls at once over a shared connection.
+const MAX_STREAMS: usize = 256;
 /// The most commits a puller offers as had.
 const MAX_HAVES: usize = 64;
+/// Longest backoff between failed pulls while a peer is online or unmeshed.
+const MAX_PULL_RETRY: Duration = Duration::from_secs(60);
+/// A pull that lasted at least this long resets its retry backoff.
+const STABLE_PULL: Duration = Duration::from_secs(5);
+
+type PeerSlot = Arc<AsyncMutex<Option<Connection>>>;
+
+/// Shares one `beep-sync/7` connection per peer across all synced projects.
+#[derive(Clone, Default)]
+pub(super) struct SyncPool {
+    peers: Arc<Mutex<HashMap<EndpointId, PeerSlot>>>,
+}
+
+impl SyncPool {
+    fn slot(&self, peer: EndpointId) -> PeerSlot {
+        lock(&self.peers).entry(peer).or_default().clone()
+    }
+
+    async fn connect(&self, endpoint: &Endpoint, peer: &EndpointAddr) -> Result<Connection> {
+        let slot = self.slot(peer.id);
+        let mut guard = slot.lock().await;
+
+        if let Some(conn) = guard.as_ref()
+            && conn.close_reason().is_none()
+        {
+            return Ok(conn.clone());
+        }
+
+        let conn = timeout(OPEN_TIMEOUT, endpoint.connect(peer.clone(), ALPN))
+            .await
+            .context("could not reach the peer in time")??;
+        *guard = Some(conn.clone());
+        Ok(conn)
+    }
+
+    async fn drop_if(&self, peer: EndpointId, connection: &Connection) {
+        let slot = self.slot(peer);
+        let mut guard = slot.lock().await;
+
+        if guard
+            .as_ref()
+            .is_some_and(|held| held.stable_id() == connection.stable_id())
+        {
+            *guard = None;
+        }
+    }
+}
 
 /// Answers other nodes' pulls.
 #[derive(Clone)]
@@ -314,26 +369,107 @@ async fn serve(syncs: Syncs, peer: iroh::EndpointId, mut tx: LinkTx, mut rx: Lin
     }
 }
 
-/// Pulls `shared`'s list from `peer` until the project stops, reconnecting
-/// every `RETRY`. Asked to pull again, a waiting pull dials at once.
-pub(super) async fn pull(shared: Arc<Shared>, endpoint: Endpoint, peer: EndpointAddr) {
-    let mut again = shared.watch_pull_again();
+/// Waits until `peer` has an established mesh connection when this node is in
+/// a mesh. Returns `false` if the project stopped while waiting.
+async fn wait_for_mesh_peer(shared: &Shared, mesh: &Membership, peer: EndpointId) -> bool {
+    let mut membership = mesh.subscribe();
 
     loop {
+        let active = watched::read_and_update(&mut membership, Clone::clone);
+        let Some(active) = active else {
+            return true;
+        };
+
+        if active.peer(peer).is_some() {
+            return true;
+        }
+
+        // Peer is offline in the mesh: settle sync state instead of staying
+        // in Syncing, and wait reactively for the mesh connection.
+        shared.heard(&peer);
+        let mut updates = active.updates();
+
+        loop {
+            if active.peer(peer).is_some() {
+                return true;
+            }
+
+            tokio::select! {
+                () = shared.stopped() => return false,
+                changed = updates.changed() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                }
+                changed = membership.changed() => {
+                    if changed.is_err() {
+                        return false;
+                    }
+
+                    break;
+                }
+            }
+        }
+    }
+}
+
+/// Pulls `shared`'s list from `peer` until the project stops. When in a mesh,
+/// waits reactively for the mesh link to `peer` before opening a stream on the
+/// shared `beep-sync/7` connection.
+pub(super) async fn pull(
+    shared: Arc<Shared>,
+    endpoint: Endpoint,
+    pool: SyncPool,
+    mesh: Membership,
+    peer: EndpointAddr,
+) {
+    let mut again = shared.watch_pull_again();
+    let mut backoff = RETRY;
+
+    loop {
+        if !wait_for_mesh_peer(&shared, &mesh, peer.id).await {
+            return;
+        }
+
         again.mark_unchanged();
+        let started = Instant::now();
         let pulled = tokio::select! {
-            pulled = pull_once(&shared, &endpoint, &peer) => pulled,
+            pulled = pull_once(&shared, &endpoint, &pool, &peer) => pulled,
             () = shared.stopped() => return,
         };
 
-        if let Err(e) = pulled {
-            log::debug!("pulling {} from {}: {e:#}", shared.name(), peer.id);
-        }
+        let reset = match &pulled {
+            Ok(()) => started.elapsed() >= STABLE_PULL,
+            Err(e) => {
+                log::debug!("pulling {} from {}: {e:#}", shared.name(), peer.id);
+                false
+            }
+        };
 
         shared.heard(&peer.id);
+
+        if reset {
+            backoff = RETRY;
+        }
+
+        // If the peer dropped offline in the mesh, go straight back to waiting
+        // reactively instead of burning retry timers.
+        if mesh
+            .get()
+            .is_some_and(|active| active.peer(peer.id).is_none())
+        {
+            backoff = RETRY;
+            continue;
+        }
+
+        let wait = backoff;
         tokio::select! {
-            () = sleep(RETRY) => {}
-            _ = again.changed() => {}
+            () = sleep(wait) => {
+                backoff = (backoff * 2).min(MAX_PULL_RETRY);
+            }
+            _ = again.changed() => {
+                backoff = RETRY;
+            }
             () = shared.stopped() => return,
         }
     }
@@ -342,13 +478,36 @@ pub(super) async fn pull(shared: Arc<Shared>, endpoint: Endpoint, peer: Endpoint
 async fn pull_once(
     shared: &Shared,
     endpoint: &Endpoint,
+    pool: &SyncPool,
     peer: &EndpointAddr,
 ) -> Result<()> {
     let started = Instant::now();
-    let connection = timeout(OPEN_TIMEOUT, endpoint.connect(peer.clone(), ALPN))
-        .await
-        .context("could not reach the peer in time")??;
-    let (_tx, mut rx, mut first) = branches::open_pull(&connection, shared, &peer.id).await?;
+    let connection = pool.connect(endpoint, peer).await?;
+    let opened = branches::open_pull(&connection, shared, &peer.id).await;
+    let (_tx, mut rx, mut first) = match opened {
+        Ok(opened) => opened,
+        Err(error) => {
+            pool.drop_if(peer.id, &connection).await;
+            return Err(error);
+        }
+    };
+    let result = pull_loop(shared, &connection, peer, started, &mut rx, &mut first).await;
+
+    if result.is_err() && connection.close_reason().is_some() {
+        pool.drop_if(peer.id, &connection).await;
+    }
+
+    result
+}
+
+async fn pull_loop(
+    shared: &Shared,
+    connection: &Connection,
+    peer: &EndpointAddr,
+    started: Instant,
+    rx: &mut LinkRx,
+    first: &mut Option<Reply>,
+) -> Result<()> {
     let mut last = None;
     let mut again = shared.watch_pull_again();
     again.mark_unchanged();
@@ -359,7 +518,7 @@ async fn pull_once(
         } else {
             tokio::select! {
                 reply = rx.recv::<Reply>() => reply?,
-                // Asked to start over: dropping the connection ends the pull.
+                // Asked to start over: dropping the stream ends this pull only.
                 _ = again.changed() => return Ok(()),
             }
         };
@@ -369,7 +528,7 @@ async fn pull_once(
 
         match reply {
             Reply::Branches { tips } => {
-                branches::receive_catalog(&connection, shared, &peer.id, tips).await?;
+                branches::receive_catalog(connection, shared, &peer.id, tips).await?;
             }
             Reply::Head {
                 commit,
@@ -414,7 +573,7 @@ async fn pull_once(
 
                     if need {
                         receive_objects(
-                            &connection,
+                            connection,
                             shared,
                             ObjectWant {
                                 commit: target,

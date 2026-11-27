@@ -274,7 +274,10 @@ async fn a_folders_snapshot_names_the_paths_that_changed_since_the_one_before() 
         };
 
         if !changed.is_empty() {
-            assert!(changed.iter().all(|path| path.starts_with("named-")), "{changed:?}");
+            assert!(
+                changed.iter().all(|path| path.starts_with("named-")),
+                "{changed:?}"
+            );
             return;
         }
     }
@@ -416,6 +419,7 @@ mod node_caller {
             topic,
             queries: Vec::new(),
             deltas: false,
+            query_deltas: false,
         }
     }
 
@@ -429,6 +433,7 @@ mod node_caller {
             offers.clone(),
             iroh::SecretKey::generate().public(),
             Reach::Node,
+            false,
         )));
         let (mut tx, mut rx) = link.caller;
         assert!(matches!(reply(&mut rx).await, Reply::Ready));
@@ -440,10 +445,14 @@ mod node_caller {
             (4, Topic::new("*")),
         ] {
             tx.send(&watch(id, topic)).await.unwrap();
-            assert!(matches!(reply(&mut rx).await, Reply::Error { id: refused, .. } if refused == id));
+            assert!(
+                matches!(reply(&mut rx).await, Reply::Error { id: refused, .. } if refused == id)
+            );
         }
 
-        tx.send(&watch(5, Topic::new(FORGE_REACH_TOPIC))).await.unwrap();
+        tx.send(&watch(5, Topic::new(FORGE_REACH_TOPIC)))
+            .await
+            .unwrap();
         let mut said = false;
 
         // How a host is reached is pushed when it changes, not asked for.
@@ -451,7 +460,10 @@ mod node_caller {
             match reply(&mut rx).await {
                 Reply::Snapshot(snapshot) => {
                     if let Value::ForgeReach(reach) = snapshot.value {
-                        said = reach.hosts.get("github.com").is_some_and(|host| host.reached);
+                        said = reach
+                            .hosts
+                            .get("github.com")
+                            .is_some_and(|host| host.reached);
                     }
 
                     if !said {

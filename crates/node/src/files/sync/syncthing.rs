@@ -1,10 +1,10 @@
 //! Hands one checkout between Beep and Syncthing without pausing its share.
 
 use super::{Phase, Syncs, halt, open_target, spawn_blocking};
-use futures::future::join_all;
 use anyhow::{Result, bail};
-use std::path::Path;
 use beep_proto::node::sync::SyncthingFiles;
+use futures::future::join_all;
+use std::path::Path;
 
 impl Syncs {
     pub async fn syncthing_files(
@@ -81,27 +81,28 @@ impl Syncs {
                 .project_files(root, Some(enabled))
                 .await;
 
-            join_all(stopped.into_iter().map(|(project, from, shared)| async move {
-                if let Some(managed) = self
-                    .inner
-                    .syncthing
-                    .check(Path::new(&project.folder))
-                    .await
-                {
-                    // Syncthing writes the folder now: start from a fresh scan.
-                    self.forget(&shared).await;
-                    state.put(&project, from, Phase::Held(managed.reason()));
-                } else {
-                    match self.run(&project, from).await {
-                        Ok(running) => self.started(&project, from, running),
-                        Err(e) => {
-                            let message = format!("{e:#}");
-                            log::warn!("could not resume project sync: {message}");
-                            state.put(&project, from, Phase::Stopped(message));
+            join_all(
+                stopped
+                    .into_iter()
+                    .map(|(project, from, shared)| async move {
+                        if let Some(managed) =
+                            self.inner.syncthing.check(Path::new(&project.folder)).await
+                        {
+                            // Syncthing writes the folder now: start from a fresh scan.
+                            self.forget(&shared).await;
+                            state.put(&project, from, Phase::Held(managed.reason()));
+                        } else {
+                            match self.run(&project, from).await {
+                                Ok(running) => self.started(&project, from, running),
+                                Err(e) => {
+                                    let message = format!("{e:#}");
+                                    log::warn!("could not resume project sync: {message}");
+                                    state.put(&project, from, Phase::Stopped(message));
+                                }
+                            }
                         }
-                    }
-                }
-            }))
+                    }),
+            )
             .await;
 
             result

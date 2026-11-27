@@ -1,6 +1,6 @@
-use beep_mesh::Mesh;
 use super::*;
 use crate::fs::paths;
+use beep_mesh::Mesh;
 use beep_mesh::{DeviceKind, JOIN_ALPN, PEER_ALPN, transport_config};
 use iroh::{SecretKey, endpoint::presets, protocol::Router};
 use tempfile::TempDir;

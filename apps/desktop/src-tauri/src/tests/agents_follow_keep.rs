@@ -6,6 +6,8 @@ fn cursor(start: u64, next: u64) -> SessionCursor {
         start,
         next,
         fingerprint: next.to_string(),
+        prefix_next: 0,
+        prefix_fingerprint: String::new(),
     }
 }
 

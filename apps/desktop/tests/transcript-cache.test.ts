@@ -18,6 +18,7 @@ test("reconnect applies a snapshot after N and keeps the validated cached prefix
   assert.equal(cursor.next, 2);
   assert.deepEqual(cache.receive("one", update("snapshot", 2, ["third"], 0, true))?.entries.map(e => e.text), ["first", "second", "third"]);
   assert.deepEqual(cache.receive("one", update("snapshot", 3, [], 0, true))?.entries.map(e => e.text), ["first", "second", "third"]);
+  assert.deepEqual(cache.receive("one", update("snapshot", 2, ["third-edited", "fourth"], 0, true))?.entries.map(e => e.text), ["first", "second", "third-edited", "fourth"]);
 });
 
 test("same-count delta replacements and empty truncations keep canonical positions", () => {

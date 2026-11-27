@@ -1,24 +1,23 @@
 //! What a node serves (`Offers`), and who opened a session (`Who`).
 
 use crate::{
-    membership::Membership,
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, skills::Skills},
     files::transfer::Sharing,
     link::{
-        EventSources, protocol::SessionProtocol, sampler::Sampler, search::Searches,
-        state::Search, traffic::Traffic,
+        EventSources, protocol::SessionProtocol, sampler::Sampler, search::Searches, state::Search,
+        traffic::Traffic,
     },
-    protocol::Protocol,
     machine::{provision::Provision, service::logs::Logs},
+    membership::Membership,
+    membership::Membership,
+    protocol::Protocol,
     run::{device, shell, tasks, terminal},
     status::Own,
     team::{home::ForgeCli, link::TeamLink},
     tools::{Node, ProjectTools},
 };
 use anyhow::{Context, Result};
-use beep_proto::node::{
-    LinkRx, Open, agent, desktop, mcp_servers, setup, sign_in, tool_update,
-};
+use beep_proto::node::{LinkRx, Open, agent, desktop, mcp_servers, setup, sign_in, tool_update};
 use iroh::{Endpoint, EndpointId};
 use std::{
     path::Path,
@@ -32,9 +31,6 @@ use tokio::time::timeout;
 
 /// How long a device has to name a session's protocol.
 const OPEN_TIMEOUT: Duration = Duration::from_secs(10);
-
-
-
 
 /// Offers made with the node's own values, which `Peers::new` takes. It
 /// derefs to the offers.
@@ -168,7 +164,11 @@ impl Offers {
         self.team = Some(team.clone());
         self.own = Some(own.clone());
 
-        Bound { offers: self, own, team }
+        Bound {
+            offers: self,
+            own,
+            team,
+        }
     }
 
     /// What the Beep MCP server's tools read of this node: the sessions,
@@ -278,13 +278,13 @@ impl Who {
     }
 }
 
-/// Reads the protocol a session stream opens with.
-pub(crate) async fn read_open(rx: &mut LinkRx) -> Result<SessionProtocol> {
+/// Reads the protocol a session stream opens with and whether it asked for compression.
+pub(crate) async fn read_open(rx: &mut LinkRx) -> Result<(SessionProtocol, bool)> {
     let open: Open = timeout(OPEN_TIMEOUT, rx.recv())
         .await
         .context("the session did not say its protocol")??
         .context("the session closed before its protocol")?;
-    Ok(SessionProtocol::from(open.protocol.as_ref()))
+    Ok((SessionProtocol::from(open.protocol.as_ref()), open.compress))
 }
 
 /// Why a device of the mesh may not open `protocol` on a machine that does

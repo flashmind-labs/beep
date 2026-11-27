@@ -12,6 +12,8 @@ export interface TranscriptCursor {
   start: number;
   next: number;
   fingerprint: string;
+  prefix_next?: number;
+  prefix_fingerprint?: string;
 }
 
 export interface TranscriptUpdate<T extends Run> {
@@ -128,8 +130,7 @@ export class TranscriptCache<T extends Run> {
       || cursor.start < 0 || cursor.next < cursor.start
       || update.page.earlier + update.page.entries.length !== cursor.next
       || (append && (!held || update.page.earlier < held.page.earlier
-        || update.page.earlier > held.cursor.next
-        || (update.resumed && update.page.earlier !== held.cursor.next)))) {
+        || update.page.earlier > held.cursor.next))) {
       this.drop(key);
       return null;
     }

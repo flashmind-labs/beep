@@ -21,6 +21,8 @@ fn page(text: &str) -> KeptTranscript {
             start: 0,
             next: 1,
             fingerprint: "f".into(),
+            prefix_next: 0,
+            prefix_fingerprint: String::new(),
         }),
     }
 }

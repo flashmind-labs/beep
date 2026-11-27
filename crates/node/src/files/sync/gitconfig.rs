@@ -200,8 +200,7 @@ impl Scan<'_> {
         self.next();
         let mut name = String::new();
 
-        while let Some(c) = self
-            .peek()
+        while let Some(c) = self.peek()
             && (c.is_ascii_alphanumeric() || "-.".contains(c))
         {
             name.push(c);
@@ -244,8 +243,7 @@ impl Scan<'_> {
     fn name(&mut self) -> Option<String> {
         let mut name = String::new();
 
-        while let Some(c) = self
-            .peek()
+        while let Some(c) = self.peek()
             && (c.is_ascii_alphanumeric() || c == '-')
         {
             name.push(c);

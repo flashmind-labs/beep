@@ -11,7 +11,8 @@ use std::{
 };
 
 pub(super) const MAX_FILE_ROOTS: usize = 512;
-pub(super) const TOO_MANY_ROOTS: &str = "too many watched directories; subscribe to specific file roots";
+pub(super) const TOO_MANY_ROOTS: &str =
+    "too many watched directories; subscribe to specific file roots";
 
 pub(super) type FileBindings = BTreeMap<Topic, Vec<PathBuf>>;
 
@@ -42,11 +43,11 @@ pub(super) async fn resolve(offers: &Offers, topics: &[Topic]) -> Result<BTreeMa
         .into_iter()
         .filter(|(topic, _)| topics.iter().any(|wanted| wanted.covers(topic)))
         .collect();
-    let reached = join_all(
-        projects
-            .iter()
-            .map(|(_, path)| offers.agents.reachable(path, crate::agents::reach::Access::Read)),
-    )
+    let reached = join_all(projects.iter().map(|(_, path)| {
+        offers
+            .agents
+            .reachable(path, crate::agents::reach::Access::Read)
+    }))
     .await;
 
     for ((topic, _), reached) in projects.into_iter().zip(reached) {
@@ -70,11 +71,11 @@ pub(super) async fn resolve(offers: &Offers, topics: &[Topic]) -> Result<BTreeMa
             _ => None,
         })
         .collect();
-    let reached = join_all(
-        literal
-            .iter()
-            .map(|(_, path)| offers.agents.reachable(path, crate::agents::reach::Access::Read)),
-    )
+    let reached = join_all(literal.iter().map(|(_, path)| {
+        offers
+            .agents
+            .reachable(path, crate::agents::reach::Access::Read)
+    }))
     .await;
 
     for ((topic, _), root) in literal.into_iter().zip(reached) {

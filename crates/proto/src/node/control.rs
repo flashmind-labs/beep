@@ -44,6 +44,9 @@ pub struct ForgejoLogin {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Open {
     pub protocol: String,
+    /// Requests negotiated zstd frame compression for replies from the node.
+    #[serde(default)]
+    pub compress: bool,
 }
 
 /// The node's answer to `Open`.
@@ -51,5 +54,9 @@ pub struct Open {
 #[non_exhaustive]
 pub enum Opened {
     Ready {},
-    Refused { reason: String },
+    Refused {
+        reason: String,
+    },
+    /// Accepted with zstd frame compression active on node -> client frames.
+    ReadyCompressed {},
 }

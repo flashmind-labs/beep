@@ -1,10 +1,10 @@
 //! Commands on their own authenticated QUIC connection.
 
-use crate::events::HEARTBEAT;
 use super::{
     Offers, Session, channels, events,
     peers::{CHANNEL_OPEN_WAIT, Peers},
 };
+use crate::events::HEARTBEAT;
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -63,9 +63,9 @@ fn serve_stream(
                 );
                 serve(tx, rx, offers, peer).await
             }
-            Open::Session { protocol } => {
+            Open::Session { protocol, compress } => {
                 peers
-                    .serve_command_session(tx, rx, peer, mesh, &protocol)
+                    .serve_command_session(tx, rx, peer, mesh, &protocol, compress)
                     .await
             }
         }

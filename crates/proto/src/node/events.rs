@@ -112,6 +112,74 @@ pub enum Value {
     SessionsDelta(Box<SessionsDelta>),
     /// How this node's calls to each code host went, under `forge-reach`.
     ForgeReach(tools::ForgeReach),
+    /// What changed in an external session query (`External` or `InFolders`)
+    /// since the snapshot or delta `after` names, for a follower that asked
+    /// for query deltas.
+    ExternalDelta(Box<ExternalDelta>),
+}
+
+/// The external sessions that changed, by `(agent, id)`, and those that left
+/// the listing.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct ExternalDelta {
+    /// The revision of the snapshot or delta of this query sent just before.
+    pub after: u64,
+    pub changed: Vec<agent::ExternalSession>,
+    pub removed: Vec<(String, SessionId)>,
+}
+
+impl ExternalDelta {
+    /// What takes `before` to `now`.
+    pub fn between(
+        before: &[agent::ExternalSession],
+        now: &[agent::ExternalSession],
+        after: u64,
+    ) -> Self {
+        let held: std::collections::HashMap<_, _> = before
+            .iter()
+            .map(|session| ((session.agent.as_str(), &session.id), session))
+            .collect();
+        let kept: std::collections::HashSet<_> = now
+            .iter()
+            .map(|session| (session.agent.as_str(), &session.id))
+            .collect();
+
+        Self {
+            after,
+            changed: now
+                .iter()
+                .filter(|session| held.get(&(session.agent.as_str(), &session.id)) != Some(session))
+                .cloned()
+                .collect(),
+            removed: before
+                .iter()
+                .filter(|session| !kept.contains(&(session.agent.as_str(), &session.id)))
+                .map(|session| (session.agent.clone(), session.id.clone()))
+                .collect(),
+        }
+    }
+
+    /// Applies it to the list it was made against, newest activity first.
+    pub fn apply(self, sessions: &mut Vec<agent::ExternalSession>) {
+        sessions.retain(|session| {
+            !self
+                .removed
+                .iter()
+                .any(|(agent, id)| session.agent == *agent && session.id == *id)
+        });
+
+        for row in self.changed {
+            match sessions
+                .iter_mut()
+                .find(|session| session.agent == row.agent && session.id == row.id)
+            {
+                Some(held) => *held = row,
+                None => sessions.push(row),
+            }
+        }
+
+        sessions.sort_by_key(|session| std::cmp::Reverse(session.last_activity));
+    }
 }
 
 /// The rows of the `agents` list that changed, by session id, and the ids
@@ -246,12 +314,22 @@ pub enum Reply {
     },
 }
 
-/// The `agents` list as a follower of deltas holds it, to apply them to.
+/// One external session query as a follower of query deltas holds it.
+#[derive(Debug, Default)]
+struct HeldExternal {
+    revision: u64,
+    sessions: Vec<agent::ExternalSession>,
+}
+
+/// The `agents` list and its external-session queries as a follower of deltas
+/// holds them, to apply deltas to.
 #[derive(Debug, Default)]
 pub struct HeldSessions {
     /// The revision of the last message of the list, 0 before the first.
     revision: u64,
     sessions: Vec<agent::SessionInfo>,
+    /// Held external-session lists keyed by query id.
+    queries: std::collections::HashMap<u64, HeldExternal>,
 }
 
 impl HeldSessions {
@@ -260,7 +338,46 @@ impl HeldSessions {
     /// not follow the last message held, which means one was missed: the
     /// follower has to watch again for the whole list.
     pub fn hear(&mut self, mut snapshot: Snapshot) -> Option<Snapshot> {
-        if snapshot.topic.name() != "agents" || snapshot.query.is_some() {
+        if snapshot.topic.name() != "agents" {
+            return Some(snapshot);
+        }
+
+        if let Some(query_id) = snapshot.query {
+            if let Value::ExternalDelta(delta) = &mut snapshot.value {
+                let held = self.queries.get_mut(&query_id)?;
+
+                if held.revision == 0 || delta.after != held.revision {
+                    return None;
+                }
+
+                std::mem::take(delta).apply(&mut held.sessions);
+                snapshot.value = Value::Sessions(Box::new(agent::SessionsReply::External {
+                    sessions: held.sessions.clone(),
+                }));
+                held.revision = snapshot.revision;
+                return Some(snapshot);
+            }
+
+            match &snapshot.value {
+                Value::Sessions(reply) => match reply.as_ref() {
+                    agent::SessionsReply::External { sessions } => {
+                        self.queries.insert(
+                            query_id,
+                            HeldExternal {
+                                revision: snapshot.revision,
+                                sessions: sessions.clone(),
+                            },
+                        );
+                    }
+                    _ => {
+                        self.queries.remove(&query_id);
+                    }
+                },
+                _ => {
+                    self.queries.remove(&query_id);
+                }
+            }
+
             return Some(snapshot);
         }
 

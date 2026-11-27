@@ -258,7 +258,10 @@ mod current {
         }
     }
 
-    async fn subscribe(offers: Offers, root: &Path) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
+    async fn subscribe(
+        offers: Offers,
+        root: &Path,
+    ) -> (LinkTx, LinkRx, AbortOnDropHandle<Result<()>>) {
         let link = local_link();
         let task = AbortOnDropHandle::new(tokio::spawn(crate::link::events::serve_subscriptions(
             link.node.0,
@@ -266,6 +269,7 @@ mod current {
             offers,
             iroh::SecretKey::generate().public(),
             crate::link::events::Reach::Whole,
+            false,
         )));
         let (mut tx, mut rx) = link.caller;
         assert_eq!(rx.recv::<Reply>().await.unwrap(), Some(Reply::Ready));
@@ -287,6 +291,7 @@ mod current {
                 },
             }],
             deltas: false,
+            query_deltas: false,
         })
         .await
         .unwrap();
@@ -326,8 +331,17 @@ mod current {
 
 /// Runs `script` the way the shell read would, for comparing with gitoxide.
 async fn sh(script: &str) -> String {
-    let output = Command::new("sh").arg("-c").arg(script).output().await.unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(script)
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8(output.stdout).unwrap()
 }
 
@@ -347,9 +361,23 @@ async fn gitoxide_reads_the_state_and_branches_the_scripts_print() {
     }
 
     git(&base, &["clone", "-q", "origin", "work"]).await;
-    git(&origin, &["commit", "-q", "--allow-empty", "-m", "upstream only"]).await;
+    git(
+        &origin,
+        &["commit", "-q", "--allow-empty", "-m", "upstream only"],
+    )
+    .await;
     git(&work, &["fetch", "-q"]).await;
-    git(&work, &["commit", "-q", "--allow-empty", "-m", "local only\n\nwith a body"]).await;
+    git(
+        &work,
+        &[
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "local only\n\nwith a body",
+        ],
+    )
+    .await;
     git(&work, &["branch", "old", "HEAD~2"]).await;
     git(&work, &["switch", "-q", "-c", "feature"]).await;
 
@@ -359,7 +387,11 @@ async fn gitoxide_reads_the_state_and_branches_the_scripts_print() {
 
     git(&work, &["switch", "-q", "main"]).await;
     let linked = base.join("linked");
-    git(&work, &["worktree", "add", "-q", linked.to_str().unwrap(), "feature"]).await;
+    git(
+        &work,
+        &["worktree", "add", "-q", linked.to_str().unwrap(), "feature"],
+    )
+    .await;
 
     for root in [&work, &linked] {
         let folder = root.to_str().unwrap();

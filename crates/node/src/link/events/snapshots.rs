@@ -1,29 +1,29 @@
-use beep_proto::SessionId;
-use beep_proto::node::agent::SessionInfo;
 use super::ask::{ask, execute};
+use crate::events::{ChangeKind, Touched};
 use crate::link::Offers;
 use anyhow::{Context, Result, bail};
+use beep_proto::SessionId;
+use beep_proto::node::agent::SessionInfo;
+use beep_proto::node::process::TaskId;
+use beep_proto::node::subscriptions::Reply;
 use beep_proto::node::{
     agent::{SessionsReply, SessionsRequest},
     events::{
-        self, CallReply, FORGE_REACH_TOPIC, MOVE_PROGRESS_TOPIC, Operation, Query, Read,
-        SessionsDelta, Snapshot, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic, Value,
+        self, CallReply, ExternalDelta, FORGE_REACH_TOPIC, MOVE_PROGRESS_TOPIC, Operation, Query,
+        Read, SessionsDelta, Snapshot, TEAM_CARDS_TOPIC, TEAM_INVITES_TOPIC, Topic, Value,
     },
 };
+use beep_proto::{node::device::Device, watched};
 use std::{
     collections::{BTreeMap, HashSet},
     path::PathBuf,
     time::Duration,
 };
+use tokio::sync::watch;
 use tokio::{
     task::JoinSet,
     time::{Instant, timeout},
 };
-use beep_proto::{node::device::Device, watched};
-use tokio::sync::watch;
-use crate::events::{ChangeKind, Touched};
-use beep_proto::node::process::TaskId;
-use beep_proto::node::subscriptions::Reply;
 
 const MAX_READS: usize = 4;
 const MAX_VALUE_BYTES: usize = 4 * 1024 * 1024;
@@ -189,6 +189,8 @@ pub(super) struct Snapshots {
     revision: u64,
     /// The follower applies `Value::SessionsDelta`.
     deltas: bool,
+    /// The follower applies `Value::ExternalDelta` on external-session queries.
+    query_deltas: bool,
     entries: BTreeMap<Key, Projection>,
     reads: JoinSet<Completed>,
     /// The device list the follow of the `devices` topics stores.
@@ -203,6 +205,7 @@ impl Snapshots {
             generation: 0,
             revision: 0,
             deltas: false,
+            query_deltas: false,
             entries: BTreeMap::new(),
             reads: JoinSet::new(),
             devices: crate::run::device::stored(),
@@ -215,6 +218,14 @@ impl Snapshots {
     pub(super) fn follow_deltas(&mut self, deltas: bool) {
         if self.deltas != deltas {
             self.deltas = deltas;
+            self.reset();
+        }
+    }
+
+    /// Whether the follower takes external-session queries as deltas.
+    pub(super) fn follow_query_deltas(&mut self, query_deltas: bool) {
+        if self.query_deltas != query_deltas {
+            self.query_deltas = query_deltas;
             self.reset();
         }
     }
@@ -325,7 +336,10 @@ impl Snapshots {
         }
 
         // These carry values released readers cannot decode, so `*` leaves them out.
-        for topic in topics.iter().filter(|topic| topic.name() == crate::run::device::LIST_TOPIC) {
+        for topic in topics
+            .iter()
+            .filter(|topic| topic.name() == crate::run::device::LIST_TOPIC)
+        {
             wanted.push((topic.clone(), Source::Devices));
         }
 
@@ -383,7 +397,10 @@ impl Snapshots {
             wanted.push((Topic::new("sync"), Source::Read(Read::SyncList)));
         }
         // Only a topic that names it gets it, never `*`.
-        if topics.iter().any(|topic| topic.name() == MOVE_PROGRESS_TOPIC) {
+        if topics
+            .iter()
+            .any(|topic| topic.name() == MOVE_PROGRESS_TOPIC)
+        {
             wanted.push((Topic::new(MOVE_PROGRESS_TOPIC), Source::Moves));
         }
         if selected("moves") {
@@ -446,6 +463,7 @@ impl Snapshots {
                     "files"
                         | "agents"
                         | "agent"
+                        | "agent-log"
                         | "processes"
                         | "process-output"
                         | "terminals"
@@ -525,7 +543,8 @@ impl Snapshots {
             // Git projections read refs, the index and history, never working-tree files.
             let git = matches!(entry.source, Source::Read(Read::Git { .. }));
 
-            if affected(read, topic) && !(git && kind == ChangeKind::WorkTree) {
+            if affected_entry(read, &entry.source, topic) && !(git && kind == ChangeKind::WorkTree)
+            {
                 entry.dirty = true;
 
                 // Only the folder's own change says which of its paths changed.
@@ -755,12 +774,19 @@ impl Snapshots {
                 }
 
                 let after = entry.sent;
-                let delta = self
-                    .deltas
-                    .then_some(entry.previous.as_ref())
-                    .flatten()
-                    .filter(|_| after != 0 && lists_sessions(&key))
-                    .and_then(|before| delta_of(before, &value, after));
+                let delta = entry
+                    .previous
+                    .as_ref()
+                    .filter(|_| after != 0)
+                    .and_then(|before| {
+                        if self.deltas && lists_sessions(&key) {
+                            delta_of(before, &value, after)
+                        } else if self.query_deltas && lists_external(&key) {
+                            external_delta_of(before, &value, after)
+                        } else {
+                            None
+                        }
+                    });
                 entry.bytes = bytes;
                 entry.previous = Some(value.clone());
                 self.revision = self
@@ -770,7 +796,9 @@ impl Snapshots {
                 entry.sent = self.revision;
                 let value = named(delta.unwrap_or(value), touched);
                 let sent = match &value {
-                    Value::SessionsDelta(_) => rmp_serde::to_vec(&value)?.len(),
+                    Value::SessionsDelta(_) | Value::ExternalDelta(_) => {
+                        rmp_serde::to_vec(&value)?.len()
+                    }
                     _ => bytes,
                 };
                 let topic = key.0.name().to_owned();
@@ -829,6 +857,11 @@ fn lists_sessions(key: &Key) -> bool {
     key.1.is_none() && key.0.name() == "agents"
 }
 
+/// Whether the projection under `key` is an external-session query that query deltas apply to.
+fn lists_external(key: &Key) -> bool {
+    key.1.is_some() && key.0.name() == "agents"
+}
+
 /// What the projection under `key` sends of `value`: the `agents` list holds
 /// the rows a list shows (see `SessionInfo::row`) and nothing else.
 fn shown(key: &Key, value: Value) -> Value {
@@ -853,16 +886,59 @@ fn delta_of(before: &Value, now: &Value, after: u64) -> Option<Value> {
     let (Value::Sessions(before), Value::Sessions(now)) = (before, now) else {
         return None;
     };
-    let (
-        SessionsReply::Sessions { sessions: before },
-        SessionsReply::Sessions { sessions: now },
-    ) = (before.as_ref(), now.as_ref())
+    let (SessionsReply::Sessions { sessions: before }, SessionsReply::Sessions { sessions: now }) =
+        (before.as_ref(), now.as_ref())
     else {
         return None;
     };
     let delta = SessionsDelta::between(before, now, after);
 
     (delta.changed.len() < now.len()).then(|| Value::SessionsDelta(Box::new(delta)))
+}
+
+/// What takes the external session list `before` to `now`, when that is less
+/// to send than `now`.
+fn external_delta_of(before: &Value, now: &Value, after: u64) -> Option<Value> {
+    let (Value::Sessions(before), Value::Sessions(now)) = (before, now) else {
+        return None;
+    };
+    let (SessionsReply::External { sessions: before }, SessionsReply::External { sessions: now }) =
+        (before.as_ref(), now.as_ref())
+    else {
+        return None;
+    };
+    let delta = ExternalDelta::between(before, now, after);
+
+    (delta.changed.len() < now.len()).then(|| Value::ExternalDelta(Box::new(delta)))
+}
+
+fn is_unkeyed_agent(topic: &Topic) -> bool {
+    topic.name() == "agent" && topic.is_pattern() && topic.resource_segments().is_empty()
+}
+
+fn affected_entry(read: &Topic, source: &Source, change: &Topic) -> bool {
+    // External log writes emit unkeyed `agent` for internal log watchers
+    // (spend, search, claude) and harness-scoped `agent-log.<agent>` for
+    // external-session queries. Do not dirty unrelated session projections on
+    // every line written to a harness log file.
+    if is_unkeyed_agent(change) {
+        return false;
+    }
+
+    if change.name() == "agent-log" {
+        return match source {
+            Source::Read(Read::Sessions(request)) => match request.as_ref() {
+                SessionsRequest::External { agent, .. } => {
+                    change.is_pattern() || change.key() == Some(agent.as_str())
+                }
+                SessionsRequest::InFolders { .. } => true,
+                _ => false,
+            },
+            _ => false,
+        };
+    }
+
+    affected(read, change)
 }
 
 fn affected(read: &Topic, change: &Topic) -> bool {

@@ -38,8 +38,14 @@ impl Own {
         mut tx: LinkTx,
         rx: LinkRx,
         node: Node,
+        compress: bool,
     ) -> Result<()> {
-        tx.send(&Opened::Ready {}).await?;
+        if compress {
+            tx.send(&Opened::ReadyCompressed {}).await?;
+            tx.enable_zstd();
+        } else {
+            tx.send(&Opened::Ready {}).await?;
+        }
         let metrics = self.dir.join("metrics.log");
 
         match protocol {
@@ -69,8 +75,8 @@ impl Own {
             let (own, node) = (own.clone(), node.clone());
             Box::pin(async move {
                 let served = async {
-                    let protocol = read_open(&mut rx).await?;
-                    own.serve_diagnostic(protocol, tx, rx, node).await
+                    let (protocol, compress) = read_open(&mut rx).await?;
+                    own.serve_diagnostic(protocol, tx, rx, node, compress).await
                 };
 
                 if let Err(e) = served.await {
@@ -182,7 +188,10 @@ impl Own {
 
     /// The mesh's devices, empty before the node joined.
     pub(crate) fn devices(&self, node: &Node) -> Vec<beep_mesh::DeviceStatus> {
-        node.mesh.get().map(|mesh| mesh.devices()).unwrap_or_default()
+        node.mesh
+            .get()
+            .map(|mesh| mesh.devices())
+            .unwrap_or_default()
     }
 }
 

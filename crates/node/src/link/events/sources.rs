@@ -10,7 +10,11 @@ use crate::{
 };
 use anyhow::{Context as _, Result, ensure};
 use beep_proto::node::events::Topic;
-use futures::{Stream, StreamExt, future::{join_all, try_join_all}, stream};
+use futures::{
+    Stream, StreamExt,
+    future::{join_all, try_join_all},
+    stream,
+};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
@@ -64,7 +68,7 @@ pub(crate) struct Source {
 impl Source {
     async fn new(offers: &Offers, topic: &Topic) -> Result<Self> {
         let agent_sources = if broad_files(std::slice::from_ref(topic))
-            || matches!(topic.name(), "agent" | "agents" | "*")
+            || matches!(topic.name(), "agent" | "agents" | "agent-log" | "*")
         {
             Some(offers.agents.watch_event_sources().await?)
         } else {
@@ -268,7 +272,10 @@ fn touched_of(root: &Path, git: &[PathBuf], moved: Option<&[PathBuf]>) -> Touche
                 return Touched::All;
             }
 
-            let parts: Vec<_> = inside.components().map(|part| part.as_os_str().to_string_lossy()).collect();
+            let parts: Vec<_> = inside
+                .components()
+                .map(|part| part.as_os_str().to_string_lossy())
+                .collect();
             named.push(parts.join("/"));
         } else if git.iter().any(|dependency| path.starts_with(dependency)) {
             named.push(".git".to_owned());
@@ -283,10 +290,7 @@ fn touched_of(root: &Path, git: &[PathBuf], moved: Option<&[PathBuf]>) -> Touche
 /// Each root with the Git metadata to watch beside it. A root kept from the
 /// last pass keeps its Git paths without asking Git again. One without them
 /// asks again: it may have become a repository, or Git failed.
-async fn git_bindings(
-    wanted: &BTreeMap<Topic, PathBuf>,
-    held: &FileBindings,
-) -> FileBindings {
+async fn git_bindings(wanted: &BTreeMap<Topic, PathBuf>, held: &FileBindings) -> FileBindings {
     stream::iter(wanted.clone())
         .map(|(topic, root)| {
             let kept = held

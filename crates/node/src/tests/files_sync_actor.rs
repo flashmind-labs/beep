@@ -1,9 +1,9 @@
 use super::*;
 use crate::files::sync::STOPPING;
-use crate::{files::Folders, fs::paths, files::syncthing::Syncthing};
+use crate::{files::Folders, files::syncthing::Syncthing, fs::paths};
 use futures::FutureExt;
-use std::{path::Path, time::Duration};
 use iroh::{SecretKey, endpoint::presets};
+use std::{path::Path, time::Duration};
 use tempfile::TempDir;
 use tokio::time::timeout;
 
@@ -64,7 +64,10 @@ async fn a_start_over_whose_caller_left_still_ends_running() {
     let waiting = async {
         loop {
             assert!(
-                rig.syncs.status().iter().any(|status| status.name == "proj"),
+                rig.syncs
+                    .status()
+                    .iter()
+                    .any(|status| status.name == "proj"),
                 "a project in a change is still listed"
             );
 
@@ -92,7 +95,12 @@ async fn a_project_being_stopped_is_listed_but_does_not_serve() {
     let actor = &rig.syncs.inner.projects;
     let running = actor.take("proj").expect("it runs");
 
-    assert!(rig.syncs.status().iter().any(|status| status.name == "proj"));
+    assert!(
+        rig.syncs
+            .status()
+            .iter()
+            .any(|status| status.name == "proj")
+    );
     assert!(rig.syncs.project("proj").is_none());
     assert!(matches!(
         actor.seen().get("proj").map(|entry| &entry.phase),
@@ -116,7 +124,11 @@ async fn a_change_after_the_shutdown_is_refused() {
         name: "stopped".to_owned(),
         ..rig.project.clone()
     };
-    actor.put(&held, Source::Direct, Phase::Held("by Syncthing".to_owned()));
+    actor.put(
+        &held,
+        Source::Direct,
+        Phase::Held("by Syncthing".to_owned()),
+    );
     actor.put(&stopped, Source::Direct, Phase::Stopped("gone".to_owned()));
     assert_eq!(rig.syncs.status().len(), 3);
     rig.syncs.shutdown().await;
@@ -176,11 +188,7 @@ async fn a_change_left_half_way_is_stopped_not_lost() {
         ..rig.project.clone()
     };
     actor.put(&named("starting"), Source::Direct, Phase::Starting);
-    actor.put(
-        &named("stopping"),
-        Source::Direct,
-        Phase::Stopping(shared),
-    );
+    actor.put(&named("stopping"), Source::Direct, Phase::Stopping(shared));
     actor.put(
         &named("held"),
         Source::Direct,
@@ -241,7 +249,9 @@ async fn a_configure_does_not_start_a_project_syncthing_took_while_it_waited() {
 
     // Let it reach the gate; the marker comes after.
     for _ in 0..100 {
-        tokio::task::spawn_blocking(|| ()).await.expect("the pool runs");
+        tokio::task::spawn_blocking(|| ())
+            .await
+            .expect("the pool runs");
         tokio::task::yield_now().await;
     }
 
@@ -249,6 +259,9 @@ async fn a_configure_does_not_start_a_project_syncthing_took_while_it_waited() {
     drop(gate);
     configure.await.expect("the configure ends");
 
-    assert!(rig.syncs.project("proj").is_none(), "Syncthing keeps the folder");
+    assert!(
+        rig.syncs.project("proj").is_none(),
+        "Syncthing keeps the folder"
+    );
     rig.transfers.shutdown().await.expect("the node stops");
 }

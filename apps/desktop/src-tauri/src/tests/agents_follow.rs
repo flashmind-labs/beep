@@ -255,3 +255,67 @@ async fn only_a_frame_postpones_the_silence_deadline_in_the_follow_loop() {
     .await;
     assert!(waiting.is_err());
 }
+
+#[test]
+fn follow_state_reconstructs_snapshots_from_patches() {
+    use beep_proto::node::agent::{Entry, EntryKind};
+
+    let mut state = FollowState::default();
+    let cursor = |start, next| SessionCursor {
+        start,
+        next,
+        fingerprint: format!("{start}:{next}"),
+        prefix_next: next.saturating_sub(1),
+        prefix_fingerprint: String::new(),
+    };
+    let initial = SessionSnapshot {
+        source: SessionSource::Owned(Box::default()),
+        entries: vec![
+            Entry::new(EntryKind::User, "hi".into()),
+            Entry::new(EntryKind::Agent, "hel".into()),
+        ],
+        earlier: 0,
+        cursor: cursor(0, 2),
+        resumed: false,
+        controls: true,
+    };
+    state.record_snapshot(&initial, true);
+
+    let appended = state
+        .apply_patch(SessionPatch {
+            source: None,
+            cursor: cursor(0, 2),
+            ops: vec![EntryPatch::AppendText {
+                index: 1,
+                text: "lo".into(),
+            }],
+        })
+        .unwrap();
+    assert_eq!(appended.earlier, 1);
+    assert_eq!(appended.entries.len(), 1);
+    assert_eq!(appended.entries[0].text, "hello");
+
+    let replaced = state
+        .apply_patch(SessionPatch {
+            source: None,
+            cursor: cursor(0, 3),
+            ops: vec![EntryPatch::Replace {
+                index: 2,
+                entry: Entry::new(EntryKind::Agent, "next".into()),
+            }],
+        })
+        .unwrap();
+    assert_eq!(replaced.earlier, 2);
+    assert_eq!(replaced.entries.len(), 1);
+    assert_eq!(replaced.entries[0].text, "next");
+
+    let truncated = state
+        .apply_patch(SessionPatch {
+            source: None,
+            cursor: cursor(0, 2),
+            ops: vec![EntryPatch::Truncate { next: 2 }],
+        })
+        .unwrap();
+    assert_eq!(truncated.earlier, 2);
+    assert!(truncated.entries.is_empty());
+}

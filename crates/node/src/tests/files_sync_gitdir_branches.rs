@@ -89,7 +89,10 @@ fn a_repeated_catalog_reports_only_the_tips_that_moved() {
 
     let moved = [tip("main", second)];
     assert_eq!(repo.prepare_peer_refs(&peer, &moved).unwrap(), moved);
-    assert_eq!(repo.cached_branches(&peer).unwrap(), vec![tip("main", first)]);
+    assert_eq!(
+        repo.cached_branches(&peer).unwrap(),
+        vec![tip("main", first)]
+    );
 }
 
 #[test]

@@ -12,7 +12,12 @@ pub const ALPN: &[u8] = b"beep-peer/cmd/1";
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Open {
     Calls,
-    Session { protocol: String },
+    Session {
+        protocol: String,
+        /// Requests negotiated zstd frame compression for replies from the node.
+        #[serde(default)]
+        compress: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

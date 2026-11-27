@@ -1,14 +1,17 @@
 //! Fetching blobs from peers, and copying them out of the store.
 
 use super::shared::Shared;
-use beep_mesh::OPEN_TIMEOUT;
-use crate::files::sync::{Parts, STALL, map::FileMeta, scan::MAX_BYTES};
 use crate::files::place::{Reserved, space_at};
+use crate::files::sync::{Parts, STALL, map::FileMeta, scan::MAX_BYTES};
 use crate::lock;
 use anyhow::{Context, Result, anyhow, bail};
 use bao_tree::io::BaoContentItem;
+use beep_mesh::OPEN_TIMEOUT;
 use beep_proto::watched;
-use futures::{FutureExt as _, StreamExt as _, TryFutureExt as _, future::{BoxFuture, Shared as SharedFuture}};
+use futures::{
+    FutureExt as _, StreamExt as _, TryFutureExt as _,
+    future::{BoxFuture, Shared as SharedFuture},
+};
 use iroh::{EndpointAddr, EndpointId, endpoint::Connection};
 use iroh_blobs::{
     Hash, HashAndFormat,
@@ -17,12 +20,12 @@ use iroh_blobs::{
 };
 use std::{
     collections::{HashMap, HashSet, VecDeque},
+    future::Future,
     io::SeekFrom,
     sync::{
         Arc, Mutex,
         atomic::{AtomicU64, Ordering},
     },
-    future::Future,
     time::Duration,
 };
 use tokio::{

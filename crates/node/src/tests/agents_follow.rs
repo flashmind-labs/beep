@@ -289,6 +289,8 @@ async fn database_only_sessions_return_the_existing_transcript_error_and_refresh
         session: "example".into(),
         last: 200,
         after: None,
+        patches: false,
+        shown: true,
     })
     .await
     .unwrap();
@@ -311,26 +313,31 @@ async fn database_only_sessions_return_the_existing_transcript_error_and_refresh
 }
 
 fn page(earlier: u64, text: &[&str]) -> SessionSnapshot {
+    let entries: Vec<_> = text
+        .iter()
+        .map(|text| Entry::new(EntryKind::Agent, (*text).into()))
+        .collect();
+    let (prefix_next, prefix_fingerprint) = if entries.is_empty() {
+        (earlier, String::new())
+    } else {
+        (
+            earlier + entries.len() as u64 - 1,
+            reference::fingerprint(earlier, &entries[..entries.len() - 1]).unwrap(),
+        )
+    };
     SessionSnapshot {
         source: SessionSource::Owned(Box::default()),
-        entries: text
-            .iter()
-            .map(|text| Entry::new(EntryKind::Agent, (*text).into()))
-            .collect(),
-        earlier,
         cursor: SessionCursor {
             start: earlier,
-            next: earlier + text.len() as u64,
-            fingerprint: reference::fingerprint(
-                earlier,
-                &text
-                    .iter()
-                    .map(|text| Entry::new(EntryKind::Agent, (*text).into()))
-                    .collect::<Vec<_>>(),
-            )
-            .unwrap(),
+            next: earlier + entries.len() as u64,
+            fingerprint: reference::fingerprint(earlier, &entries).unwrap(),
+            prefix_next,
+            prefix_fingerprint,
         },
+        entries,
+        earlier,
         resumed: false,
+        controls: false,
     }
 }
 
@@ -349,6 +356,8 @@ fn request(after: Option<SessionCursor>) -> FollowSession {
         session: "example".into(),
         last: 200,
         after,
+        patches: false,
+        shown: true,
     }
 }
 
@@ -426,8 +435,12 @@ fn retention_counts_complete_encoded_entries_and_rejects_an_oversized_entry() {
 #[test]
 fn deltas_replace_same_count_edits_and_truncate_the_suffix() {
     let before = page(3, &["one", "thi"]);
-    let (retained, update) =
-        next_update(page(3, &["one", "thinking"]), Some(held(&before)), &request(None)).unwrap();
+    let (retained, update) = next_update(
+        page(3, &["one", "thinking"]),
+        Some(held(&before)),
+        &request(None),
+    )
+    .unwrap();
     let SessionUpdate::Delta(update) = update else {
         panic!("expected delta")
     };
@@ -454,8 +467,14 @@ fn readers_over_the_cache_budget_evict_the_least_recently_updated_window() {
     assert_eq!(windows.bytes, 2 * cost);
 
     let oldest = windows.take(1).unwrap();
-    assert!(oldest.entries.is_empty(), "the oldest window dropped its cache");
-    assert_eq!(oldest.cursor.next, 2, "it still knows what its reader holds");
+    assert!(
+        oldest.entries.is_empty(),
+        "the oldest window dropped its cache"
+    );
+    assert_eq!(
+        oldest.cursor.next, 2,
+        "it still knows what its reader holds"
+    );
     assert!(!windows.take(3).unwrap().entries.is_empty());
     assert_eq!(windows.bytes, cost, "only the second window still caches");
 }
@@ -487,8 +506,9 @@ fn an_evicted_window_sends_only_new_entries_and_resends_after_an_edit() {
     let SessionUpdate::Delta(update) = update else {
         panic!("expected delta")
     };
-    assert_eq!(update.earlier, 3);
-    assert_eq!(update.entries.len(), 2);
+    assert_eq!(update.earlier, 4);
+    assert_eq!(update.entries.len(), 1);
+    assert_eq!(update.entries[0].text, "edited");
 }
 
 #[test]
@@ -512,7 +532,9 @@ fn moving_retention_keeps_overlap_and_gaps_reset_the_snapshot() {
         page(0, &["reset", "before", "window"]),
     ] {
         assert!(matches!(
-            next_update(fresh, Some(held(&before)), &request(None)).unwrap().1,
+            next_update(fresh, Some(held(&before)), &request(None))
+                .unwrap()
+                .1,
             SessionUpdate::Snapshot(_)
         ));
     }
@@ -577,6 +599,8 @@ async fn a_resume_window_can_extend_beyond_the_initial_two_hundred_entries() {
         session: id.into(),
         last: 200,
         after: None,
+        patches: false,
+        shown: true,
     };
     let raw = snapshot(&agents, &request, read_retained()).await.unwrap();
     assert_eq!(raw.entries.len(), 250);
@@ -595,6 +619,90 @@ async fn a_resume_window_can_extend_beyond_the_initial_two_hundred_entries() {
     assert!(update.resumed);
     assert_eq!(update.earlier, 250);
     assert_eq!(update.entries.len(), 1);
+}
+
+#[test]
+fn patches_send_append_text_without_source_and_isolate_single_entry_edits() {
+    let mut req = request(None);
+    req.patches = true;
+
+    let (w1, first) = next_update(page(0, &["one", "two", "hello"]), None, &req).unwrap();
+    let SessionUpdate::Snapshot(snap) = first else {
+        panic!("expected initial snapshot");
+    };
+    assert!(snap.controls);
+
+    // Appending text to the tail entry emits a tiny AppendText patch with source: None.
+    let (w2, second) =
+        next_update(page(0, &["one", "two", "hello world"]), Some(w1), &req).unwrap();
+    let SessionUpdate::Patch(patch) = second else {
+        panic!("expected patch, got {second:?}");
+    };
+    assert!(patch.source.is_none());
+    assert_eq!(
+        patch.ops,
+        vec![EntryPatch::AppendText {
+            index: 2,
+            text: " world".into(),
+        }]
+    );
+
+    // Editing an earlier entry leaves trailing entries out of the patch.
+    let mut edited = page(0, &["one", "two", "hello world"]);
+    edited.entries[0].tool = Some(beep_proto::AgentToolCall {
+        result: Some("done".into()),
+        ..Default::default()
+    });
+    let (w3, third) = next_update(edited, Some(w2), &req).unwrap();
+    let SessionUpdate::Patch(patch) = third else {
+        panic!("expected patch");
+    };
+    assert!(patch.source.is_none());
+    assert_eq!(patch.ops.len(), 1);
+    assert!(matches!(patch.ops[0], EntryPatch::Replace { index: 0, .. }));
+
+    // Truncating emits Truncate without resending retained entries.
+    let (_, fourth) = next_update(page(0, &["one"]), Some(w3), &req).unwrap();
+    let SessionUpdate::Patch(patch) = fourth else {
+        panic!("expected patch");
+    };
+    assert!(
+        patch
+            .ops
+            .iter()
+            .any(|op| matches!(op, EntryPatch::Truncate { next: 1 }))
+    );
+}
+
+#[test]
+fn reconnect_resumes_from_prefix_when_only_tail_entry_mutated() {
+    let mut req = request(None);
+    req.patches = true;
+
+    let (initial, _) = next_update(page(3, &["one", "two", "hel"]), None, &req).unwrap();
+    let after = page(3, &["one", "two", "hello", "four"]);
+
+    // Patch-capable client validates prefix [3, 5) and receives only entries [5, 7).
+    req.after = Some(initial.cursor.clone());
+    let (_, resumed) = next_update(after.clone(), None, &req).unwrap();
+    let SessionUpdate::Snapshot(snap) = resumed else {
+        panic!("expected snapshot");
+    };
+    assert!(snap.resumed);
+    assert_eq!(snap.earlier, 5);
+    assert_eq!(snap.entries.len(), 2);
+    assert_eq!(snap.entries[0].text, "hello");
+    assert_eq!(snap.entries[1].text, "four");
+
+    // Legacy client without patches falls back to a full snapshot.
+    let legacy = request(Some(initial.cursor));
+    let (_, full) = next_update(after, None, &legacy).unwrap();
+    let SessionUpdate::Snapshot(snap) = full else {
+        panic!("expected snapshot");
+    };
+    assert!(!snap.resumed);
+    assert_eq!(snap.earlier, 3);
+    assert_eq!(snap.entries.len(), 4);
 }
 
 /// The full re-encoding builder this module replaced, kept to prove identical output.
@@ -619,6 +727,15 @@ mod reference {
         snapshot.earlier += skip as u64;
         snapshot.cursor.start = snapshot.earlier;
         snapshot.cursor.fingerprint = fingerprint(snapshot.earlier, &snapshot.entries)?;
+        if snapshot.entries.is_empty() {
+            snapshot.cursor.prefix_next = snapshot.earlier;
+            snapshot.cursor.prefix_fingerprint.clear();
+        } else {
+            let prefix_len = snapshot.entries.len() - 1;
+            snapshot.cursor.prefix_next = snapshot.earlier + prefix_len as u64;
+            snapshot.cursor.prefix_fingerprint =
+                fingerprint(snapshot.earlier, &snapshot.entries[..prefix_len])?;
+        }
         Ok(snapshot)
     }
 
@@ -656,6 +773,7 @@ mod reference {
             earlier: snapshot.earlier + skip as u64,
             cursor: snapshot.cursor.clone(),
             resumed,
+            controls: false,
         }
     }
 
@@ -722,8 +840,11 @@ fn incremental_updates_send_the_same_bytes_as_full_reencoding() {
             start: earlier,
             next: earlier + entries.len() as u64,
             fingerprint: String::new(),
+            prefix_next: earlier,
+            prefix_fingerprint: String::new(),
         },
         resumed: false,
+        controls: false,
     };
     let text = |n: usize| Entry::new(EntryKind::Agent, format!("entry {n}"));
     let mut entries: Vec<_> = (0..300).map(text).collect();
@@ -814,8 +935,11 @@ fn streaming_update_cost() {
             start: 0,
             next: entries.len() as u64,
             fingerprint: String::new(),
+            prefix_next: 0,
+            prefix_fingerprint: String::new(),
         },
         resumed: false,
+        controls: false,
     };
     let (whole, _) = retain(read(&entries), None).unwrap();
     let whole = SessionCursor {
@@ -833,10 +957,16 @@ fn streaming_update_cost() {
         let (mut before, mut after) = (Vec::new(), Vec::new());
 
         for round in 0..rounds {
-            streamed.last_mut().unwrap().text.push_str(&format!(" token {round}"));
+            streamed
+                .last_mut()
+                .unwrap()
+                .text
+                .push_str(&format!(" token {round}"));
             let snapshot = read(&streamed);
             let started = std::time::Instant::now();
-            old = reference::next_update(snapshot, Some(&old), &request).unwrap().0;
+            old = reference::next_update(snapshot, Some(&old), &request)
+                .unwrap()
+                .0;
             before.push(started.elapsed());
             let snapshot = read(&streamed);
             let started = std::time::Instant::now();
@@ -853,7 +983,6 @@ fn streaming_update_cost() {
         );
     }
 }
-
 
 /// A snapshot read of a session's retained entries, found by listing.
 fn read_retained() -> Read<'static> {

@@ -425,6 +425,7 @@ async fn open(conn: &Link, protocol: &str) -> (Stream, Opened) {
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&Open {
         protocol: protocol.to_owned(),
+        compress: false,
     })
     .await
     .expect("the open is sent");
@@ -457,6 +458,7 @@ async fn try_tool(conn: &Link, tool: Tool, args: serde_json::Value) -> Result<Re
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&Open {
         protocol: TOOLS.to_owned(),
+        compress: false,
     })
     .await
     .map_err(|e| fail(&e))?;
@@ -737,7 +739,7 @@ async fn another_node_may_follow_the_agents_and_forge_reach_topics_and_no_other(
     let mut stream = ready(&conn, SUBSCRIPTIONS).await;
     stream
         .tx
-        .send(&SubscriptionsOpen {})
+        .send(&SubscriptionsOpen { compress: false })
         .await
         .expect("the open is sent");
     assert!(matches!(
@@ -752,6 +754,7 @@ async fn another_node_may_follow_the_agents_and_forge_reach_topics_and_no_other(
         topic,
         queries: Vec::new(),
         deltas: false,
+        query_deltas: false,
     };
 
     stream
@@ -2397,6 +2400,7 @@ async fn agent_tool(
     let (mut tx, mut rx) = link(send, recv);
     tx.send(&Open {
         protocol: TOOLS.to_owned(),
+        compress: false,
     })
     .await
     .expect("the open is sent");

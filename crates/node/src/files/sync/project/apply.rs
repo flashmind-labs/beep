@@ -152,11 +152,17 @@ impl Task {
         };
 
         if let Some(e) = error {
-            self.scan_failed = true;
-            self.fail("not syncing", &e);
-            self.publish_status(None);
+            // Keep an existing scan failure intact so status.error does not
+            // oscillate between "scanning failed" and "not syncing".
+            if !(self.scan_failed && self.error.is_some()) {
+                self.scan_failed = true;
+                self.fail("not syncing", &e);
+                self.publish_status(None);
+            }
             return false;
         }
+
+        self.scan_failed = false;
 
         let aligned = self.shared.align_git(answer, waiting).await;
 
@@ -605,7 +611,10 @@ impl Task {
     }
 
     fn count_received(&self, round: &mut Round) {
-        let received = self.fetcher.received().saturating_sub(round.received_before);
+        let received = self
+            .fetcher
+            .received()
+            .saturating_sub(round.received_before);
         round.meter.received(received, Instant::now());
     }
 

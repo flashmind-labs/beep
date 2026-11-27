@@ -8,8 +8,8 @@
 //! overlap (each takes the project's `Gate`); changes to different projects
 //! run together.
 
-use crate::{AsyncMutex, actor, lock};
 use super::{FAILED, Running, STOPPING, Shared, Source, Syncs, halt};
+use crate::{AsyncMutex, actor, lock};
 use beep_proto::node::sync::{Project, ProjectStatus, State};
 use futures::future::join_all;
 use std::{
