@@ -43,8 +43,8 @@ use tokio::{
 };
 use uuid::Uuid;
 
-/// How long a machine has to list its devices: the node's own 30 s limit for
-/// a Mac with nothing attached, plus margin for the network.
+/// How long a machine has to list its devices: a Mac's `simctl` and
+/// `devicectl` take up to about 20 s with nothing attached, plus margin.
 const LIST_LIMIT: Duration = Duration::from_secs(35);
 /// Freshness window while a device on the machine is booting.
 const BOOTING_LIST_FRESH: Duration = Duration::from_secs(1);

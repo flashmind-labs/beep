@@ -37,7 +37,8 @@ const VIEW_STOPPED: &str = "the device's view stopped";
 /// How long a machine has to list its devices: a Mac asks `devicectl` for up
 /// to 20 s and `simctl` can take 17 s with nothing booted.
 const LIST_LIMIT: Duration = Duration::from_secs(30);
-/// How long a machine has to open or clear an app: `devicectl` may take 25 s.
+/// How long a machine has to open or clear an app. It lists its devices again
+/// first, then runs `devicectl` (up to 20 s each), so a slow Mac can run out.
 const APP_LIMIT: Duration = Duration::from_secs(30);
 /// How long a machine has to start or stop a device.
 const POWER_LIMIT: Duration = Duration::from_secs(60);
