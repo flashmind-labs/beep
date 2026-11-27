@@ -1,6 +1,6 @@
 //! Pushes an initial snapshot and subsequent changes to an open session view.
 
-use super::{Agents, MAX_TRANSCRIPT, };
+use super::{Agents, limits::MAX_TRANSCRIPT};
 use crate::logs::claude::Followed;
 use crate::logs::found::Agent;
 use crate::logs::transcript_stage;

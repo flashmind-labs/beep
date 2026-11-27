@@ -19,7 +19,6 @@ host! {
         collections::HashMap,
         path::PathBuf,
         sync::{Arc, Mutex, OnceLock, atomic::AtomicBool},
-        time::Duration,
     };
     use tokio::{sync::watch, time::Instant};
 
@@ -51,6 +50,7 @@ host! {
     mod images;
     pub(crate) mod kinds;
     mod launch;
+    mod limits;
     pub(crate) mod live;
     pub(crate) mod machine_list;
     pub(crate) mod projects;
@@ -101,45 +101,15 @@ host! {
     pub(crate) use session::{Answered, Asking};
     pub use session_stream::serve_session;
 
-    use acp::Prompt;
     pub(crate) use alerts::AlertHub;
     pub(crate) use processes::Demand as ProcessDemand;
     pub(crate) use processes::watch_ports;
     use images::Images;
-    use crate::known::{Adapter, KNOWN, known, route};
     use models::ModelCache;
-    use crate::machine::env::locate::folder;
     pub(crate) use session::Session;
     pub(crate) use session::Begin;
-    use session::Command;
-    use session::Start;
     use spend::Spend;
     use usage::UsageHub;
-
-    /// The most sessions kept, ended ones included; the oldest ended go first.
-    const MAX_KEPT: usize = 64;
-    /// The most transcript entries one request reads.
-    const MAX_TRANSCRIPT: u32 = 200;
-    /// The most folders `Folders` answers, and how many when the caller names
-    /// no number.
-    const MAX_FOLDERS: usize = 800;
-    const DEFAULT_FOLDERS: usize = 100;
-    /// The most sessions `InFolders` answers, and how many by default.
-    const MAX_IN_FOLDERS: usize = crate::occupancy::MAX_IN_FOLDERS;
-    const DEFAULT_IN_FOLDERS: usize = 50;
-    /// The most folders one `InFolders` names.
-    const MAX_ASKED_FOLDERS: usize = 32;
-    /// The largest picture `Image` answers, under the link's frame limit.
-    const MAX_IMAGE: usize = 7 * 1024 * 1024;
-    /// How often the plans' usage is read while the caller follows it, and
-    /// the least time between two reads it asks for.
-    const PLAN_EVERY: Duration = Duration::from_secs(5 * 60);
-    const PLAN_REFRESH_GAP: Duration = Duration::from_secs(30);
-    /// The least time between two reads of the agents' logs for what sessions
-    /// spent: a busy agent changes its log on every line.
-    const SPEND_GAP: Duration = Duration::from_secs(10);
-    /// How long a file request may wait for a look in the agents' logs.
-    const SIGHTING_WAIT: Duration = Duration::from_secs(5);
 
     pub(crate) use crate::logs::unix_now;
 

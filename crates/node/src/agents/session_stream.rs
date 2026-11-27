@@ -1,6 +1,6 @@
 //! The stream the caller follows one session on.
 
-use super::{AgentKind, Agents, Begin, Command, Prompt, live};
+use super::{AgentKind, Agents, Begin, acp::Prompt, live, session::Command};
 use anyhow::{Context, Result};
 use beep_proto::ModelId;
 use beep_proto::SessionId;

@@ -1,7 +1,7 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use crate::machine::env::locate::folder;
-use super::{AgentKind, Agents, Answered, Asking, Command, Session, Start, checkout, harnesses, live::Sent, machine_list, models, plans, projects, session::{Begin, History}, sessions::{self, new_id}};
+use super::{AgentKind, Agents, Answered, Asking, Session, checkout, harnesses, live::Sent, machine_list, models, plans, projects, session::{Begin, Command, History, Start}, sessions::{self, new_id}};
 use crate::{
     agents::{child_reach, mcp_launch::Launch},
     process::spawn_env::{self, Scope},

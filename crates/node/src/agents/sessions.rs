@@ -1,7 +1,7 @@
 //! The sessions this node runs. `Sessions` is the only code that changes the
 //! map; it publishes each change as a new map, so readers take no lock.
 
-use super::{MAX_KEPT, Session};
+use super::{Session, limits::MAX_KEPT};
 use anyhow::Result;
 use beep_proto::{
     SessionId,

@@ -2,7 +2,7 @@
 //! requests (`Reach`, `Access`). Every path is checked with its links and
 //! `..` resolved.
 
-use super::{Agents, SIGHTING_WAIT, media_file::resolve, worktrees};
+use super::{Agents, limits::SIGHTING_WAIT, media_file::resolve, worktrees};
 use crate::fs::paths::{self, real};
 use crate::run::device::{self, Served};
 use beep_proto::node::{LinkRx, LinkTx};

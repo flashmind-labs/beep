@@ -24,7 +24,7 @@ use crate::logs::spend::{
 pub(crate) use crate::logs::spend::pi_session_cost;
 
 use crate::{
-    agents::{SPEND_GAP, unix_now},
+    agents::{limits::SPEND_GAP, unix_now},
     logs::found::Agent,
     events::Change,
     lock,

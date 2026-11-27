@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn model_rules_follow_switches_and_revert_to_harness_setting() {
-    let mut compactor = Compactor::new(crate::agents::route("codex"), Policy::AtTokens(800))
+    let mut compactor = Compactor::new(crate::known::route("codex"), Policy::AtTokens(800))
         .with_models(vec![
             ModelCompact {
                 model: "model-small".into(),

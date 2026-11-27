@@ -1,6 +1,6 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
-use super::{AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS, SavedSession, Session, claude};
+use super::{AgentKind, Agents, Begin, SavedSession, Session, claude, limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS}, session::Command};
 use crate::logs::{claude::Store, found::Stores};
 use crate::occupancy::Holding;
 use crate::logs::picture::Picture;

@@ -2,7 +2,8 @@
 //! `agent::CheckoutPlan` asks: made in the session's folder's git checkout
 //! before the agent starts.
 
-use super::{folder, worktrees};
+use super::worktrees;
+use crate::machine::env::locate::folder;
 use crate::logs::found;
 use anyhow::{Context, Result, bail, ensure};
 use beep_proto::node::agent::{

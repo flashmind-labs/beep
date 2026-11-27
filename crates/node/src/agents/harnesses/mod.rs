@@ -5,13 +5,13 @@
 mod install;
 
 use super::{
-    Adapter, AgentKind, KNOWN, flsh_config,
+    AgentKind, flsh_config,
     kinds::{direct, in_wsl},
     models::{flsh_dir_of, pi_dir_of},
     unix_now,
 };
 use crate::{
-    AsyncMutex, lock,
+    AsyncMutex, known::{Adapter, KNOWN}, lock,
     machine::env::{claude_logged_in, opencode_logged_in, output},
     process::spawn_env::{self, Scope},
 };

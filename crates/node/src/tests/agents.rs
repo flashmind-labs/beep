@@ -1,6 +1,8 @@
 use super::kinds::launch;
 use super::*;
-use crate::machine::env::locate::home_twins;
+use crate::known::KNOWN;
+use crate::machine::env::locate::{folder, home_twins};
+use super::session::Command;
 use crate::logs::picture::Picture;
 use beep_proto::SessionId;
 use beep_proto::node::{
@@ -8,7 +10,7 @@ use beep_proto::node::{
     harness::AgentSettings,
 };
 use beep_proto::watched;
-use std::{collections::BTreeMap, path::Path};
+use std::{collections::BTreeMap, path::Path, time::Duration};
 
 /// A Claude Code session id, as its transcript file is named.
 #[cfg(unix)]

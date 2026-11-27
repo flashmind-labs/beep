@@ -9,7 +9,8 @@
 //! cannot get around them.
 
 use beep_proto::SessionId;
-use super::{Agents, Begin, Command, Session, known, live::{Live, Mark}, session::ended_for_good};
+use super::{Agents, Begin, Session, live::{Live, Mark}, session::{Command, ended_for_good}};
+use crate::known::known;
 use crate::membership::Membership;
 use beep_proto::{AccountName, AgentAccount, CustomAgent, ModelId};
 use beep_proto::node::agent::{Effort, ParentLink, Persona, SessionInfo, Status};

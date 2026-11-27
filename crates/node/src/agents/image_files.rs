@@ -14,7 +14,7 @@ use std::{
 /// The most image files shown for one turn.
 pub(crate) const MAX_PER_TURN: usize = 8;
 /// The largest image file read, so the caller can be sent it whole.
-pub(crate) const MAX_FILE: usize = super::MAX_IMAGE;
+pub(crate) const MAX_FILE: usize = super::limits::MAX_IMAGE;
 
 /// The image types read, by file extension.
 const TYPES: &[(&str, &str)] = &[

@@ -2,7 +2,8 @@
 //! field (`find`, `ModelCache`). flsh lists them with `flsh models`; the
 //! others are read from a `session/new` made only to ask.
 
-use super::{AgentKind, acp::{self, MAX_MODELS, Offered}, launch::{AgentIn, AgentOut, Started}, known};
+use super::{AgentKind, acp::{self, MAX_MODELS, Offered}, launch::{AgentIn, AgentOut, Started}};
+use crate::known::known;
 use crate::{
     AsyncMutex,
     logs::found::Agent,

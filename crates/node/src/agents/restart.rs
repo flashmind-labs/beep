@@ -2,7 +2,7 @@
 //! `OpenSession` by the agent's own id, with the prompts that still waited.
 
 use beep_proto::{AccountName, SessionId};
-use super::{AgentKind, Agents, Begin, Command, Prompt, checkout, family::RemoteKid, moving, session::{CONTINUE, NODE_STOPPED, Session}};
+use super::{AgentKind, Agents, Begin, acp::Prompt, checkout, family::RemoteKid, moving, session::{CONTINUE, Command, NODE_STOPPED, Session}};
 use crate::logs::found::Agent;
 use anyhow::{Context, Result};
 use beep_proto::watched;
