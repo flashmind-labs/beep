@@ -12,11 +12,7 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-#[cfg(feature = "cli")]
-use std::time::Duration;
 use tokio::task::spawn_blocking;
-#[cfg(feature = "cli")]
-use tokio::time::timeout;
 
 /// The first line of a resumed session's transcript.
 const RESUMED: &str = "Resumed after beep-node restarted";
@@ -69,10 +65,10 @@ impl Agents {
     #[cfg(feature = "cli")]
     pub(crate) async fn restart_when_idle<T>(
         &self,
-        limit: Duration,
+        limit: std::time::Duration,
         restart: impl Future<Output = T>,
     ) -> T {
-        if timeout(limit, self.until_idle()).await.is_err() {
+        if tokio::time::timeout(limit, self.until_idle()).await.is_err() {
             log::info!("a turn still runs after the wait; restarting anyway");
         }
 

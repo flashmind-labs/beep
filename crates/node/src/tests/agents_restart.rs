@@ -7,7 +7,8 @@ use beep_proto::ModelId;
 use beep_proto::node::agent::{EntryKind, ExternalSession, ParentLink};
 use beep_proto::watched;
 use std::{collections::BTreeMap, path::Path, sync::Arc};
-use tokio::sync::watch;
+use tokio::{sync::watch, time::timeout};
+use std::time::Duration;
 
 /// An ACP adapter in shell that logs each line it reads to `$1`. It
 /// asks permission on the prompt "first" and ends that turn once

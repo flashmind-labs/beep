@@ -40,20 +40,22 @@ async fn a_system_change_reaches_a_hub_only_while_its_forward_is_held() {
     ));
 
     let forward = hub.forward_system();
-    // The task takes its subscription when it first runs.
-    tokio::task::yield_now().await;
     system().changed(topic.clone());
-    let heard = tokio::time::timeout(std::time::Duration::from_secs(10), changes.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(heard.topic, topic);
+    // Other tests change the process-wide hub too: wait for this topic.
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        loop {
+            if changes.recv().await.unwrap().topic == topic {
+                return;
+            }
+        }
+    })
+    .await
+    .unwrap();
 
     drop(forward);
     tokio::task::yield_now().await;
-    system().changed(topic);
-    assert!(matches!(
-        changes.try_recv(),
-        Err(broadcast::error::TryRecvError::Empty)
-    ));
+    system().changed(topic.clone());
+    while let Ok(change) = changes.try_recv() {
+        assert_ne!(change.topic, topic);
+    }
 }

@@ -20,7 +20,7 @@ pub(crate) fn maintain(sessions: watch::Receiver<Arc<Map>>) -> AbortOnDropHandle
 
         loop {
             every.tick().await;
-            let (running, folders) = watched::read(&sessions, |map| of(map));
+            let (running, folders) = read(&sessions);
             let done = tokio::task::spawn_blocking(move || -> Result<()> {
                 let now = SystemTime::now();
 
@@ -43,6 +43,14 @@ pub(crate) fn maintain(sessions: watch::Receiver<Arc<Map>>) -> AbortOnDropHandle
             }
         }
     }))
+}
+
+/// `of` for the sessions now: the map is copied first, so no session's state
+/// is read while the map read is held.
+pub(super) fn read(sessions: &watch::Receiver<Arc<Map>>) -> (HashSet<String>, HashSet<PathBuf>) {
+    let map = watched::read(sessions, Arc::clone);
+
+    of(&map)
 }
 
 /// The attachment owners of the sessions still running, and the folders

@@ -1,6 +1,6 @@
 use super::*;
 use crate::agents::{Agents, work_folder::prune};
-use super::maintain::of;
+use super::maintain::read;
 use tempfile::TempDir;
 
 fn put(cache: &Path, session: &str, name: &str, bytes: &[u8]) -> String {
@@ -243,7 +243,7 @@ done
     session.close().await;
     session.moved_to("/srv/refiled");
 
-    let (_, folders) = of(&agents.session_map());
+    let (_, folders) = read(&agents.sessions.subscribe());
 
     assert!(folders.contains(Path::new("/srv/refiled")));
     assert!(!folders.contains(dir.path()));
