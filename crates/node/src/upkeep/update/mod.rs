@@ -12,7 +12,7 @@ mod target;
 mod types;
 
 use crate::{
-    link::restart::{self, Drained},
+    upkeep::restart::{self, Drained},
     machine::service,
 };
 use beep_proto::node::update::ReleaseChannel;

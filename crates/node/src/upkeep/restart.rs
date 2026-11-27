@@ -284,5 +284,5 @@ mod client {
 pub(crate) use client::{Drained, UpdateConnection, drain};
 
 #[cfg(test)]
-#[path = "../tests/link_restart.rs"]
+#[path = "../tests/upkeep_restart.rs"]
 mod tests;

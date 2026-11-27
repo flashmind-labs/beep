@@ -19,7 +19,7 @@ host! {
     mod report;
     pub(crate) mod search;
     mod metrics;
-    pub(crate) mod restart;
+    pub(crate) use crate::upkeep::restart;
     pub use restart::{note_on_quit, reopen_and_keep};
     pub mod diagnostics;
     mod serve;

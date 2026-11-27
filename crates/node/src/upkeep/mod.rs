@@ -6,6 +6,7 @@
 pub(crate) mod ci;
 #[cfg(feature = "cli")]
 mod local_status;
+pub(crate) mod restart;
 #[cfg(feature = "cli")]
 pub mod update;
 
