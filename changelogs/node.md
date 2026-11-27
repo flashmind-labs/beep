@@ -2,6 +2,22 @@
 
 Earlier releases predate this changelog.
 
+## [0.8.31] - 2026-11-27
+
+### Added
+
+- Node: Document `beep://session/<id>` session links in the Beep chat prompt brief so agents can link directly to other sessions.
+
+### Fixed
+
+- Node: Antigravity sessions treat their starting default mode as full access, ordering Full access then Plan first for mode switching and allowing child agents on other harnesses.
+- Node: one slow stream open to another machine no longer closes the whole connection while it is still delivering data.
+
+### Performance
+
+- Stop short-lived usage streams and timestamp-only plan updates from repeatedly spawning agent CLIs on every background spend refresh on macOS and Linux nodes.
+- Filter noisy non-session files (logs, SQLite `-shm` sidecars, empty `-wal` files, and hidden skill directories) and debounce `agent` change notifications so idle nodes avoid filesystem watcher storms and redundant session snapshot reads.
+
 ## [0.8.30] - 2026-11-26
 
 ### Changed

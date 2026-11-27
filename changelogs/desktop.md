@@ -7,6 +7,32 @@ Other apps have independent versions and changelogs:
 [node](node.md), [Android](android.md),
 [iOS](ios.md), and [server](server.md).
 
+## [0.10.44] - 2026-11-27
+
+### Added
+
+- Desktop: Added a System theme switch in Settings, Appearance to switch between your dark and light skins with the system appearance.
+- macOS: Settings > General has an "Open with Option twice" switch to turn off the double Option tap that opens the quick agent.
+
+### Changed
+
+- Desktop: on macOS, Windows and Linux, voice dictation pauses playing media before opening the microphone and resumes playback once microphone capture ends and audio output leaves call mode.
+- Desktop: in a detached project window on macOS, Windows and Linux, Command K now searches only that project's sessions, pull requests, issues, branches, terminals and sections instead of listing other projects and global actions.
+
+### Fixed
+
+- Desktop: a conversation now opens at its latest message and stays there while older entries load above it, instead of jumping as they arrive. Sessions that ask or run are ready before you open them.
+- macOS, Windows and Linux: clicking a child agent that is gone no longer shows "That agent's session is no longer on its machine." on another session you switched to.
+- Desktop: a session view whose machine stopped sending updates now reconnects after 35 seconds, even while the window is being moved, resized or focused.
+- Desktop: one slow request to a machine no longer drops every open session, status and shell stream to it while the connection is still delivering data.
+- Desktop: sending a message to an ended agent session no longer leaves the conversation stuck on the previous error card and queued banner after the agent resumes.
+- Desktop: a session whose turn ended while its subagents or background commands still run now shows the running spinner in session lists.
+
+### Performance
+
+- macOS, Windows, Linux: Isolated window shell, session frame, sidebar, and rail updates so only changed items re-render, added CSS paint and layer containment for spinners and panes, stepped dot-matrix animations to 10 fps, paused background painting loops on hidden, inert, and unfocused windows, and avoided per-keystroke layout reflows in the message composer.
+- Avoid emitting redundant usage refresh notifications and disk writes when background spend reads return unchanged totals and plan limits on macOS and desktop builds.
+
 ## [0.10.43] - 2026-11-27
 
 ### Added
