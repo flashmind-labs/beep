@@ -16,42 +16,38 @@ mod ios;
 mod iphone;
 mod phone;
 mod platforms;
+mod screen;
 pub(crate) mod video;
 
 use anyhow::{Context, Result};
 use beep_proto::node::{
     LinkRx, LinkTx,
     device::{
-        Device, DeviceId, DeviceState, Element, Frame, Input, MAX_LOG_LINES, MAX_SIDE, Platform,
+        Device, DeviceId, DeviceState, Element, Input, MAX_LOG_LINES, MAX_SIDE, Platform,
         Reply, Request,
     },
 };
 use beep_proto::{node::events::Topic, watched};
-use futures::{FutureExt, Stream, StreamExt};
 use std::{
     future::Future,
     path::{Path, PathBuf},
     sync::{
-        Arc, LazyLock, Mutex,
-        atomic::{AtomicU8, Ordering},
+        LazyLock, Mutex,
     },
     time::Duration,
 };
-use strum::FromRepr;
 use tokio::{
     select,
-    sync::{mpsc, watch},
-    time::{Instant, sleep, sleep_until},
+    sync::watch,
+    time::sleep,
 };
 use tokio_util::task::AbortOnDropHandle;
-use tonic::Status;
 
 pub use beep_proto::node::device::PROTOCOL;
 pub use phone::track_phones;
 
-/// The shortest interval between starting frames: about 30 a second.
-const FRAME_GAP: Duration = Duration::from_millis(33);
-/// Off macOS, where no iOS simulator is listed.
+use screen::{CHANGED, Live, Screen};
+
 #[cfg(not(target_os = "macos"))]
 const NO_SIMULATORS: &str = "iOS simulators only run on a Mac.";
 /// The smallest frame a desktop may ask for, so a bad size still shows
@@ -183,9 +179,6 @@ const BOOTING_EVERY: Duration = Duration::from_secs(2);
 /// is plugged in, which end outside Beep with no event. A shut-down simulator
 /// starts with a boot here, which rings `CHANGED`.
 const SIMULATORS_EVERY: Duration = Duration::from_secs(5);
-
-/// Rung when adb, or a boot or shutdown here, may have changed the list.
-static CHANGED: LazyLock<watch::Sender<()>> = LazyLock::new(|| watch::Sender::new(()));
 
 /// The list as `Follow` last read it: none until it read, or after the last
 /// client stopped following.
@@ -459,31 +452,7 @@ fn listed(reply: Reply) -> Reply {
     reply
 }
 
-/// What a device shows, newest only.
-#[derive(Debug, Clone)]
-enum Screen {
-    /// No frame yet.
-    Starting,
-    Frame(Frame),
-    /// The view cannot go on, and why.
-    Ended(String),
-}
-
-/// Bounded encoder output. Dropping the attachment stops its producer.
-struct VideoFeed {
-    packets: mpsc::Receiver<beep_proto::node::device_video::Reply>,
-    controls: Controls,
-    work: AbortOnDropHandle<()>,
-}
-
-/// A device being shown: its screen, kept current by `_work`, and where
-/// input goes.
-struct Live {
-    screen: watch::Receiver<Screen>,
-    controls: Controls,
-    _work: AbortOnDropHandle<()>,
-}
-
+#[cfg_attr(all(test, not(target_os = "macos")), allow(dead_code))]
 enum Controls {
     Android(Box<android::Controls>),
     Phone(Box<phone::Controls>),
@@ -573,7 +542,7 @@ async fn stream(
 }
 
 /// Starts following device `id`, which must be on or booting.
-async fn open(id: &DeviceId, max_side: u32) -> Result<Live> {
+async fn open(id: &DeviceId, max_side: u32) -> Result<Live<Controls>> {
     let device = find(id).await?;
 
     if device.state == DeviceState::Off {
@@ -581,119 +550,23 @@ async fn open(id: &DeviceId, max_side: u32) -> Result<Live> {
     }
 
     match device.platform {
-        Platform::Android if device.phone => phone::attach(id, max_side).await,
-        Platform::Android => android::attach(id, max_side).await,
+        Platform::Android if device.phone => phone::attach(id, max_side)
+            .await
+            .map(|live| live.map(|controls| Controls::Phone(Box::new(controls)))),
+        Platform::Android => android::attach(id, max_side)
+            .await
+            .map(|live| live.map(|controls| Controls::Android(Box::new(controls)))),
         #[cfg(target_os = "macos")]
-        Platform::Ios if device.phone => iphone::attach(id, max_side).await,
+        Platform::Ios if device.phone => iphone::attach(id, max_side)
+            .await
+            .map(|live| live.map(|()| Controls::Iphone)),
         #[cfg(target_os = "macos")]
-        Platform::Ios => ios::attach(id, max_side).await,
+        Platform::Ios => ios::attach(id, max_side)
+            .await
+            .map(|live| live.map(|controls| Controls::Ios(Box::new(controls)))),
         #[cfg(not(target_os = "macos"))]
         Platform::Ios => anyhow::bail!(NO_SIMULATORS),
     }
-}
-
-/// Shows what `stream` sends, newest first and at most one frame per
-/// `FRAME_GAP`, until it ends, then ends `screen` with `ended`. `show` makes
-/// a frame of a message, or `None` when the screen did not change.
-async fn follow<T>(
-    mut stream: impl Stream<Item = Result<T, Status>> + Unpin,
-    screen: watch::Sender<Screen>,
-    mut show: impl AsyncFnMut(T) -> Result<Option<Frame>>,
-    ended: &str,
-) {
-    let mut next_frame = Instant::now();
-    let mut next_shown = next_frame;
-    let reason = loop {
-        sleep_until(next_frame).await;
-        let message = match newest(&mut stream).await {
-            Ok(Some(message)) => message,
-            Ok(None) => break ended.to_owned(),
-            Err(status) => break format!("{ended} ({})", status.message()),
-        };
-
-        next_frame = Instant::now() + FRAME_GAP;
-
-        match show(message).await {
-            Ok(Some(frame)) => {
-                // A fast frame after a slow conversion must not cause a burst.
-                sleep_until(next_shown).await;
-                screen.send_replace(Screen::Frame(frame));
-                next_shown = Instant::now() + FRAME_GAP;
-            }
-            Ok(None) => {}
-            Err(e) => log::warn!("a device frame was not shown: {e:#}"),
-        }
-    };
-    screen.send_replace(Screen::Ended(reason));
-}
-
-/// The next message of `stream`, skipping to the newest of those already
-/// waiting; `None` once it ended.
-async fn newest<T>(
-    stream: &mut (impl Stream<Item = Result<T, Status>> + Unpin),
-) -> Result<Option<T>, Status> {
-    let Some(mut message) = stream.next().await.transpose()? else {
-        return Ok(None);
-    };
-
-    while let Some(waiting) = stream.next().now_or_never() {
-        match waiting.transpose()? {
-            Some(newer) => message = newer,
-            None => break,
-        }
-    }
-
-    Ok(Some(message))
-}
-
-/// How a device's screen is turned from upright, as its frames show it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, FromRepr)]
-#[repr(u8)]
-enum Turn {
-    #[default]
-    Upright,
-    /// The upright screen turned a quarter turn counterclockwise: its top
-    /// is at the frame's left.
-    Left,
-    UpsideDown,
-    /// The upright screen turned a quarter turn clockwise: its top is at
-    /// the frame's right.
-    Right,
-}
-
-impl Turn {
-    /// Where fractions `x`, `y` of a frame turned this way are on the
-    /// upright screen, which devices take touches on.
-    fn upright(self, x: f32, y: f32) -> (f32, f32) {
-        match self {
-            Self::Upright => (x, y),
-            Self::Left => (1.0 - y, x),
-            Self::UpsideDown => (1.0 - x, 1.0 - y),
-            Self::Right => (y, 1.0 - x),
-        }
-    }
-}
-
-/// The turn of the newest frame, set as frames come and read by the
-/// controls.
-#[derive(Debug, Clone, Default)]
-struct Turned(Arc<AtomicU8>);
-
-impl Turned {
-    fn get(&self) -> Turn {
-        Turn::from_repr(self.0.load(Ordering::Relaxed)).unwrap_or_default()
-    }
-
-    fn set(&self, turn: Turn) {
-        self.0.store(turn as u8, Ordering::Relaxed);
-    }
-}
-
-/// The point at fractions `x`, `y` of a `width` by `height` screen, each
-/// fraction kept within the screen.
-fn point(x: f32, y: f32, width: f64, height: f64) -> (f64, f64) {
-    let fraction = |f: f32| f64::from(if f.is_nan() { 0.0 } else { f.clamp(0.0, 1.0) });
-    (fraction(x) * width, fraction(y) * height)
 }
 
 #[cfg(test)]

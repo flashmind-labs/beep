@@ -1,7 +1,10 @@
 //! Native H.264 capture and ordered forwarding. Encoder bytes are never dropped:
 //! losing one chunk can invalidate every following delta frame.
 
-use super::{DeviceId, DeviceState, MAX_SIDE, Platform, Turn, VideoFeed, android, find};
+use super::{
+    Controls, DeviceId, DeviceState, MAX_SIDE, Platform, android, find,
+    screen::{Turn, VideoFeed},
+};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::{
     LinkRx, LinkTx,
@@ -78,16 +81,27 @@ pub(crate) async fn serve(mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     }
 }
 
-async fn open(id: &DeviceId, max_side: u32) -> Result<VideoFeed> {
+async fn open(id: &DeviceId, max_side: u32) -> Result<VideoFeed<Controls>> {
     let device = find(id).await?;
     if device.state != DeviceState::On {
         bail!("the device is not running");
     }
 
     match device.platform {
-        Platform::Android => android::video(id, max_side, device.phone).await,
+        Platform::Android if device.phone => android::phone_video(id, max_side)
+            .map(|feed| feed.map(|controls| Controls::Phone(Box::new(controls)))),
+        Platform::Android => android::video(id, max_side)
+            .await
+            .map(|feed| feed.map(|controls| Controls::Android(Box::new(controls)))),
         #[cfg(target_os = "macos")]
-        Platform::Ios => super::ios::video(id, max_side, device.phone).await,
+        Platform::Ios => super::ios::video(id, max_side, device.phone)
+            .await
+            .map(|feed| {
+                feed.map(|controls| match controls {
+                    Some(controls) => Controls::Ios(Box::new(controls)),
+                    None => Controls::Iphone,
+                })
+            }),
         #[cfg(not(target_os = "macos"))]
         Platform::Ios => bail!("iOS video capture requires a Mac"),
     }

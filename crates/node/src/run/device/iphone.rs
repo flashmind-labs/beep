@@ -2,7 +2,10 @@
 //! listed, shown from one screenshot after another, and given apps to
 //! install and launch. `devicectl` has no touch input, so they take none.
 
-use super::{Controls as AnyControls, Live, Screen, phone};
+use super::{
+    phone,
+    screen::{Live, Screen},
+};
 use crate::process;
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{Device, DeviceId, DeviceState, Platform};
@@ -147,13 +150,13 @@ pub(super) async fn launch(id: &DeviceId, target: &str) -> Result<()> {
 }
 
 /// Follows iPhone `id`'s screen, one screenshot after another.
-pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
+pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live<()>> {
     let (screen, shown) = watch::channel(Screen::Starting);
     let work = tokio::spawn(capture(id.clone(), max_side, screen));
 
     Ok(Live {
         screen: shown,
-        controls: AnyControls::Iphone,
+        controls: (),
         _work: AbortOnDropHandle::new(work),
     })
 }

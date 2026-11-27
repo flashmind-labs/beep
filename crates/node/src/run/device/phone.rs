@@ -4,9 +4,8 @@
 //! `android`, which reaches them faster.
 
 use super::{
-    Controls as AnyControls, FRAME_GAP, Live, Screen,
     adb::{CALL_TIMEOUT, NO_ADB, call},
-    point,
+    screen::{CHANGED, FRAME_GAP, Live, Screen, point},
 };
 use crate::{lock, machine::env, process};
 use anyhow::{Context, Result, bail};
@@ -152,7 +151,7 @@ async fn follow_adb(adb: &Path) -> Result<()> {
             });
             // The list reads `PHONES` from here on, which is current now.
             TRACKING.store(true, Ordering::Release);
-            super::CHANGED.send_replace(());
+            CHANGED.send_replace(());
         }
 
         anyhow::Ok(())
@@ -232,7 +231,7 @@ async fn release(adb: &Path, id: &DeviceId) -> Option<String> {
 }
 
 /// Follows phone `id`'s screen, one screenshot after another.
-pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
+pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live<Controls>> {
     let adb = env::adb().context(NO_ADB)?;
     let (screen, shown) = watch::channel(Screen::Starting);
     let (size, sized) = watch::channel(None);
@@ -246,7 +245,7 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
 
     Ok(Live {
         screen: shown,
-        controls: AnyControls::Phone(Box::new(controls)),
+        controls,
         _work: AbortOnDropHandle::new(work),
     })
 }

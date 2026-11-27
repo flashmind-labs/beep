@@ -205,8 +205,8 @@ crates/node/src/run/device/android.rs | next_video_geometry | sleep#1 | outside 
 crates/node/src/run/device/android.rs | wait_running | sleep#1 | outside | checks an emulator booting through adb every second
 crates/node/src/run/device/ios.rs | next_video_geometry | sleep#1 | outside | waits 500 ms then reads the screen size from idb
 crates/node/src/run/device/ios.rs | start | sleep#1 | outside | waits for the idb socket file every 100 ms
-crates/node/src/run/device/mod.rs | follow | sleep_until#1 | pace | spaces device frames by the frame gap
-crates/node/src/run/device/mod.rs | follow | sleep_until#2 | pace | spaces shown frames by the frame gap
+crates/node/src/run/device/screen.rs | follow | sleep_until#1 | pace | spaces device frames by the frame gap
+crates/node/src/run/device/screen.rs | follow | sleep_until#2 | pace | spaces shown frames by the frame gap
 crates/node/src/run/device/mod.rs | following_list | sleep#1 | outside | rereads the device list while booting or simulators run
 crates/node/src/run/device/phone.rs | capture | sleep_until#1 | pace | spaces shown frames by the frame gap
 crates/node/src/run/device/phone.rs | capture | sleep_until#2 | pace | spaces phone screenshots by the frame gap

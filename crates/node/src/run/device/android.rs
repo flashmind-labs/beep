@@ -2,7 +2,10 @@
 //! from the discovery files each emulator writes, and each one's gRPC
 //! `EmulatorController` for its screen and input.
 
-use super::{Controls as AnyControls, Live, Screen, Turn, Turned, VideoFeed, follow, point};
+use super::{
+    phone as phones,
+    screen::{Live, Screen, Turn, Turned, VideoFeed, follow, point},
+};
 use crate::{lock, machine::env, process};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{
@@ -330,7 +333,7 @@ pub(super) async fn shutdown(id: &DeviceId) -> Result<()> {
 }
 
 /// Follows AVD `id`'s screen, waiting for it while it boots.
-pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
+pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live<Controls>> {
     let controls = controls(id).await?;
     let mut client = controls.client.clone();
     let (width, height) = (controls.width, controls.height);
@@ -364,36 +367,38 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
     let work = tokio::spawn(follow(stream, screen, show, "The emulator stopped."));
     Ok(Live {
         screen: shown,
-        controls: AnyControls::Android(Box::new(controls)),
+        controls,
         _work: AbortOnDropHandle::new(work),
     })
 }
 
-/// Uses Android's native encoder for both emulators and physical phones.
-pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<VideoFeed> {
-    use super::phone as phones;
-    use beep_proto::node::device_video::Reply;
-    use tokio::sync::{mpsc, watch};
+/// Uses Android's native encoder for an emulator.
+pub(super) async fn video(id: &DeviceId, max_side: u32) -> Result<VideoFeed<Controls>> {
+    let controls = controls(id).await?;
+    let turned = controls.turned.clone();
+    let (size, _) = tokio::sync::watch::channel(None);
+    let serial = serial(id).await?;
 
-    let (controls, size, turned, serial) = if phone {
-        let phones::VideoControls { controls, size } = phones::video_controls(id)?;
-        (
-            AnyControls::Phone(Box::new(controls)),
-            size,
-            None,
-            id.clone(),
-        )
-    } else {
-        let controls = controls(id).await?;
-        let turned = controls.turned.clone();
-        let (size, _) = watch::channel(None);
-        (
-            AnyControls::Android(Box::new(controls)),
-            size,
-            Some(turned),
-            serial(id).await?,
-        )
-    };
+    feed(controls, size, Some(turned), serial, max_side)
+}
+
+/// Uses Android's native encoder for a physical phone.
+pub(super) fn phone_video(id: &DeviceId, max_side: u32) -> Result<VideoFeed<phones::Controls>> {
+    let phones::VideoControls { controls, size } = phones::video_controls(id)?;
+
+    feed(controls, size, None, id.clone(), max_side)
+}
+
+fn feed<C>(
+    controls: C,
+    size: tokio::sync::watch::Sender<Option<(u32, u32)>>,
+    turned: Option<Turned>,
+    serial: DeviceId,
+    max_side: u32,
+) -> Result<VideoFeed<C>> {
+    use beep_proto::node::device_video::Reply;
+    use tokio::sync::mpsc;
+
     let adb = env::adb().context(super::adb::NO_ADB)?;
     let (packets, received) = mpsc::channel(2);
     let work = tokio::spawn(async move {

@@ -2,7 +2,7 @@
 //! shown through an `idb_companion` the stream starts for itself, on a Unix
 //! socket only this node uses.
 
-use super::{Controls as AnyControls, Live, Screen, Turn, Turned, VideoFeed, follow, point};
+use super::screen::{Live, Screen, Turn, Turned, VideoFeed, follow, point};
 use crate::{lock, process};
 use anyhow::{Context, Result, bail};
 use beep_proto::node::device::{
@@ -319,7 +319,7 @@ async fn simctl(args: &[&str]) -> Result<String> {
 
 /// Follows simulator `id`'s screen through an idb_companion of this
 /// stream's own, once the simulator finished booting.
-pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
+pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live<Controls>> {
     let Capture {
         mut client,
         screen,
@@ -363,13 +363,17 @@ pub(super) async fn attach(id: &DeviceId, max_side: u32) -> Result<Live> {
     };
     Ok(Live {
         screen: shown,
-        controls: AnyControls::Ios(Box::new(controls)),
+        controls,
         _work: AbortOnDropHandle::new(work),
     })
 }
 
 /// Passes the device's encoder output through without decoding or re-encoding.
-pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<VideoFeed> {
+pub(super) async fn video(
+    id: &DeviceId,
+    max_side: u32,
+    phone: bool,
+) -> Result<VideoFeed<Option<Controls>>> {
     use beep_proto::node::device_video::{self, Reply, Rotation};
     let Capture {
         mut client,
@@ -386,16 +390,16 @@ pub(super) async fn video(id: &DeviceId, max_side: u32, phone: bool) -> Result<V
     let id = id.clone();
     let (dimensions, input_screen) = watch::channel(screen);
     let (controls, companion) = if phone {
-        (AnyControls::Iphone, Some(companion))
+        (None, Some(companion))
     } else {
         (
-            AnyControls::Ios(Box::new(Controls {
+            Some(Controls {
                 client,
                 screen: input_screen,
                 udid: id.clone(),
                 turned,
                 _companion: companion,
-            })),
+            }),
             None,
         )
     };
