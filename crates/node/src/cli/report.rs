@@ -40,7 +40,7 @@ pub(crate) async fn run(dir: &Path, period: Period, yes: bool, text: Option<Stri
     let (shares, mesh) = match peers::collect_report(dir, since).await {
         Ok(Some(shares)) => {
             // The mesh's id only labels the report; one the node does not give is left out.
-            let mesh = peers::local_status(dir)
+            let mesh = beep_node::upkeep::local_status(dir)
                 .await
                 .ok()
                 .flatten()

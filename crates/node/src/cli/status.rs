@@ -1,6 +1,6 @@
 //! `beep-node status`: the running node, its mesh and each project's sync.
 
-pub(crate) use beep_node::link::local_status::render;
+pub(crate) use beep_node::status::render;
 
 /// This build's version.
 pub(crate) const VERSION: &str = env!("CARGO_PKG_VERSION");

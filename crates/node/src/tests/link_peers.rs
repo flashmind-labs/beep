@@ -363,7 +363,7 @@ async fn join_waits_for_a_node_that_starts_late() {
         retries += 1;
 
         if retries == 1 {
-            let listener = Listener::bind(&dir.path().join(SOCKET)).expect("bind");
+            let listener = Listener::bind(&dir.path().join(MESH_SOCKET)).expect("bind");
             serve_probe_then_join(listener);
         }
     })

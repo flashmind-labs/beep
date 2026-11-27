@@ -2,7 +2,7 @@
 //! problem report, its log for a period, status, version and OS.
 
 use crate::{
-    link::local_status::{LocalStatus, render},
+    status::{LocalStatus, render},
     process::spawn_env,
     machine::{env::{locate, os_version}, service::logs::Logs},
 };

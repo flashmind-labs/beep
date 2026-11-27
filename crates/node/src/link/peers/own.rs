@@ -3,11 +3,10 @@
 //! so what asks for them needs no handle on the running node.
 
 use super::read_open;
-use crate::{status::Own, tools::Node};
-use crate::link::{
-    local_status::{self, LocalStatus},
-    protocol::SessionProtocol,
-    report::serve_report,
+use crate::{
+    link::{protocol::SessionProtocol, report::serve_report},
+    status::{self, LocalStatus, Own},
+    tools::Node,
 };
 use anyhow::{Result, bail};
 use beep_mesh::{DeviceKind, Mesh, PeerClient, SessionFn};
@@ -89,7 +88,7 @@ impl Own {
             .map(Mesh::devices)
             .unwrap_or_default()
             .into_iter()
-            .map(|status| local_status::Peer {
+            .map(|status| status::Peer {
                 id: status.device.id,
                 name: status.device.name,
                 kind: status.device.kind,
@@ -106,7 +105,7 @@ impl Own {
                 tokio::task::spawn_blocking(move || {
                     statuses
                         .into_iter()
-                        .map(|status| local_status::Project {
+                        .map(|status| status::Project {
                             held: held.contains(&status.name),
                             missing: !Path::new(&status.folder).exists(),
                             status,

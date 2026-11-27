@@ -11,6 +11,7 @@ use crate::{
     files::transfer::Transfers,
     link::Protocol,
     run::local_socket::{Listener, Stream},
+    status::{MESH_SOCKET, STATUS_LINE},
 
     link::protocol::SessionProtocol,
     link::watchdog::{self, Step},
@@ -29,8 +30,6 @@ use beep_proto::watched;
 #[cfg(feature = "cli")]
 use beep_report::Share;
 use beep_report::collect;
-#[cfg(feature = "cli")]
-use crate::link::local_status::LocalStatus;
 use iroh::{
     endpoint::Connection,
     protocol::{AcceptError, ProtocolHandler},
@@ -58,17 +57,12 @@ pub use offers::{Bound, Offers};
 pub(crate) use crate::status::Own;
 pub(crate) use offers::{Who, read_open, withheld};
 
-/// The socket `beep-node mesh` reaches the running node on, in its folder.
-const SOCKET: &str = "mesh.sock";
 /// `join <ticket>`; the node answers `joined`, or `failed <why>`.
 const JOIN: &str = "join ";
 /// The node answers one line per device, then `end`.
 const DEVICES: &str = "devices";
 /// `leave`; the node answers `left`, or `failed <why>`.
 const LEAVE: &str = "leave";
-/// The node answers a `LocalStatus` in compact msgpack, then closes. A node
-/// from before it closes without answering.
-const STATUS: &str = "status";
 /// `report <since>`, Unix seconds; the node answers every device's
 /// `Share` of a problem report, a `Vec<Share>` in compact msgpack, then
 /// closes. A node from before it closes without answering.
@@ -617,7 +611,7 @@ async fn close_within(mesh: Mesh) -> Result<()> {
 
 /// Takes the mesh commands on the node's socket until the node stops.
 pub(crate) async fn listen(dir: &Path, peers: Peers) -> Result<()> {
-    let mut listener = Listener::bind(&dir.join(SOCKET))?;
+    let mut listener = Listener::bind(&dir.join(MESH_SOCKET))?;
     let mut commands = JoinSet::new();
     log::info!("taking mesh commands on the control socket");
 
@@ -688,7 +682,7 @@ async fn answer(stream: Stream, peers: &Peers) -> Result<()> {
 
         out.push_str("end\n");
         out
-    } else if request == STATUS {
+    } else if request == STATUS_LINE {
         let node = peers.inner.node();
         let status = peers.inner.own.local_status(&node).await?;
         write.write_all(&rmp_serde::to_vec(&status)?).await?;
@@ -737,7 +731,7 @@ pub async fn leave(dir: &Path) -> Result<()> {
 /// Whether a node is running from `dir` and takes mesh commands.
 #[cfg(feature = "cli")]
 pub fn is_running(dir: &Path) -> bool {
-    crate::run::local_socket::is_listening(&dir.join(SOCKET))
+    crate::run::local_socket::is_listening(&dir.join(MESH_SOCKET))
 }
 
 /// How long `join_when_up` waits for a node that was just started.
@@ -761,7 +755,7 @@ async fn wait_for_node(dir: &Path, limit: Duration, mut retrying: impl FnMut()) 
     use crate::run::local_socket;
     /// The pause between attempts.
     const RETRY: Duration = Duration::from_millis(100);
-    let socket = dir.join(SOCKET);
+    let socket = dir.join(MESH_SOCKET);
     let attempts = async {
         loop {
             if local_socket::connect(&socket).await.is_ok() {
@@ -788,35 +782,6 @@ pub async fn devices(dir: &Path) -> Result<Vec<String>> {
     let mut lines = ask(dir, DEVICES).await?;
     lines.retain(|line| line != "end");
     Ok(lines)
-}
-
-/// What the node running from `dir` says of itself; `None` when no node
-/// runs from there.
-#[cfg(feature = "cli")]
-pub async fn local_status(dir: &Path) -> Result<Option<LocalStatus>> {
-    use crate::run::local_socket;
-    /// How long the node may take to answer.
-    const STATUS_LIMIT: Duration = Duration::from_secs(20);
-    /// The most bytes read: far more than a status takes.
-    const MAX_STATUS: u64 = 4 * 1024 * 1024;
-    let Ok(stream) = local_socket::connect(&dir.join(SOCKET)).await else {
-        return Ok(None);
-    };
-    let (read, mut write) = split(stream);
-    write.write_all(format!("{STATUS}\n").as_bytes()).await?;
-    let mut bytes = Vec::new();
-    timeout(STATUS_LIMIT, read.take(MAX_STATUS).read_to_end(&mut bytes))
-        .await
-        .context("the node took too long to answer")??;
-    if bytes.is_empty() {
-        bail!(
-            "the running node is older than this beep-node and cannot say; restart it on \
-             this version (`beep-node update`, or restart the service)"
-        );
-    }
-
-    let status = beep_proto::lenient::from_slice(&bytes).context("reading the node's status")?;
-    Ok(Some(status))
 }
 
 /// Why the running node gave no report; the text is the share's status.
@@ -850,7 +815,7 @@ pub async fn collect_report_within(
     use crate::run::local_socket;
     /// The most bytes read: every device's share at its cap, and more.
     const MAX_SHARES: u64 = 64 * 1024 * 1024;
-    let Ok(stream) = local_socket::connect(&dir.join(SOCKET)).await else {
+    let Ok(stream) = local_socket::connect(&dir.join(MESH_SOCKET)).await else {
         return Ok(None);
     };
     let (read, mut write) = split(stream);
@@ -877,7 +842,7 @@ async fn ask(dir: &Path, request: &str) -> Result<Vec<String>> {
     use crate::run::local_socket;
     /// How long a command waits for the running node.
     const ASK_LIMIT: Duration = Duration::from_secs(60);
-    let stream = local_socket::connect(&dir.join(SOCKET))
+    let stream = local_socket::connect(&dir.join(MESH_SOCKET))
         .await
         .context("no node is running from this folder; start it with `beep-node run`")?;
     let (read, mut write) = split(stream);

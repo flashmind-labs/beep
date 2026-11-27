@@ -29,7 +29,7 @@ host! {
     pub mod machine;
     pub mod peer_stream;
     mod membership;
-    mod status;
+    pub mod status;
     mod known;
     mod process;
     mod fs;
@@ -37,6 +37,7 @@ host! {
     mod team;
     mod custom_agents;
     pub mod tools;
+    pub mod upkeep;
 }
 
 /// Kills every background task and terminal still running, at once. For

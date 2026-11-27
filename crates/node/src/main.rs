@@ -561,7 +561,7 @@ async fn run() -> Result<()> {
             }
         }
         Command::Status { quiet: false } => {
-            let text = match peers::local_status(&dir).await? {
+            let text = match beep_node::upkeep::local_status(&dir).await? {
                 Some(status) => {
                     let now = SystemTime::now()
                         .duration_since(UNIX_EPOCH)

@@ -110,7 +110,7 @@ async fn restarted(
 /// The version of the node running from `dir`, if one runs and says it.
 #[cfg(feature = "cli")]
 async fn running(dir: &Path) -> Option<Version> {
-    let status = crate::link::peers::local_status(dir).await.ok()??;
+    let status = crate::upkeep::local_status(dir).await.ok()??;
     status.version.parse().ok()
 }
 
