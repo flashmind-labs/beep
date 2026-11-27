@@ -64,7 +64,7 @@ impl PeerShell {
     /// from asking it.
     pub(crate) async fn on(fleet: &Fleet, machine: EndpointId) -> Result<Self> {
         let client = fleet.client(machine).await?;
-        let windows = match fleet.status().last_env(machine) {
+        let windows = match fleet.reach().last_env(machine) {
             Some(env) => is_windows(&env.os),
             None => agent_files::on_windows(&client).await?,
         };

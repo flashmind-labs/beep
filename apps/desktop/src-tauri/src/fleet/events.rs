@@ -1,7 +1,7 @@
 //! All windows share one duplex stream per subscription on each demanded node.
 
 use super::{
-    Fleet, Machines, Opened, agents as direct,
+    Fleet, Machines, MeshState, agents as direct,
     outbox::{
         Primed, Reading, Sink, WindowOutbox, compact_topics, controller_topic, home_sources,
         validate,
@@ -11,6 +11,7 @@ use super::{
     view_signal::{Change, Interest, Update, ring},
 };
 use crate::error::{DesktopError, Result};
+use beep_mesh::Snapshots;
 use beep_proto::node::events::{self, CallReply, Operation, Topic};
 use beep_proto::watched;
 use iroh::EndpointId;
@@ -29,7 +30,6 @@ use uuid::Uuid;
 
 mod commands;
 mod subscriptions;
-pub(crate) use beep_mesh::{Heard, Snapshots};
 #[cfg(test)]
 use commands::Registered;
 use commands::{Call, CommandWorker, Commands};
@@ -249,8 +249,8 @@ fn topics_for(interests: &[Interest], machine: EndpointId, local: EndpointId) ->
 /// The node topic of the tools it found a newer release of.
 const TOOL_UPDATES: &str = "tool-updates";
 
-fn mesh_is_open(mesh: &watch::Receiver<Opened>) -> bool {
-    watched::read(mesh, |opened| matches!(opened, Opened::Open(_)))
+fn mesh_is_open(mesh: &watch::Receiver<MeshState>) -> bool {
+    watched::read(mesh, |opened| matches!(opened, MeshState::Open(_)))
 }
 
 /// Whether the loop has nothing to subscribe to: no view wants a topic and no wait holds one.

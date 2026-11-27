@@ -4,7 +4,7 @@
 //! each machine tells, and routes all of it to the app. An answer goes back
 //! to the machine.
 
-use super::{Fleet, Opened};
+use super::{Fleet, MeshState};
 use crate::error::Result;
 use beep_fleet::alerts::{self as shared, Heard as Told};
 use beep_mesh::{MeshError, RETRY};
@@ -67,7 +67,7 @@ async fn follow(fleet: Arc<Fleet>, out: mpsc::Sender<Direct>) {
 
     loop {
         let current = watched::read_and_update(&mut opened, Clone::clone);
-        let Opened::Open(mesh) = current else {
+        let MeshState::Open(mesh) = current else {
             // No mesh to follow: the streams let go of it, so it can close.
             if opened.changed().await.is_err() {
                 return;

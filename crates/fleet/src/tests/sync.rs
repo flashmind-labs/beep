@@ -1,6 +1,6 @@
 use super::*;
 use crate::direct_syncs::SYNC_FRESH;
-use crate::{Machines, Opened};
+use crate::{Machines, MeshState, StandIn};
 use beep_mesh::{Mesh, transport_config};
 use beep_proto::node::mesh_state::StateValue;
 use beep_proto::{
@@ -244,17 +244,20 @@ async fn degraded_node_does_not_stall_sync_and_shows_its_answer_on_the_next_read
     .unwrap();
 
     let (release, opened) = tokio::sync::watch::channel(false);
-    let widget = |files, bytes| ProjectStatus {
+    let sized = |files, bytes| ProjectStatus {
         files,
         bytes,
         ..widget(files)
     };
     let machines = Arc::new(Machines::new(
         mesh.me(),
-        Some(answering(vec![widget(10, 512)])),
+        Some(answering(vec![sized(10, 512)])),
     ));
-    machines.set_opened(Opened::Open(mesh.clone()));
-    machines.serve_when(node.me(), answering(vec![widget(4, 128)]), opened);
+    machines.set_opened(MeshState::Open(mesh.clone()));
+    machines.stand_in(
+        node.me(),
+        StandIn::NodeWhen(answering(vec![sized(4, 128)]), opened),
+    );
     let session = Session::new(machines, Options::default()).unwrap();
     let desk = session.desk().await.unwrap();
 
@@ -345,7 +348,7 @@ fn counting(mesh: &Mesh, hangs: bool) -> (Arc<Machines>, Arc<std::sync::atomic::
         })
     });
     let machines = Arc::new(Machines::new(mesh.me(), Some(node)));
-    machines.set_opened(Opened::Open(mesh.clone()));
+    machines.set_opened(MeshState::Open(mesh.clone()));
 
     (machines, calls)
 }

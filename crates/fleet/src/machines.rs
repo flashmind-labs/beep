@@ -17,7 +17,7 @@ const OPENING: Duration = Duration::from_secs(10);
 
 /// Where the mesh stands.
 #[derive(Clone)]
-pub enum Opened {
+pub enum MeshState {
     Opening,
     /// A phone with no mesh yet: it waits for a desktop's phone ticket.
     Unpaired,
@@ -32,7 +32,7 @@ pub struct Machines {
     me: EndpointId,
     /// This machine's own node, served in this process. None on a phone.
     local: Option<SessionFn>,
-    opened: watch::Sender<Opened>,
+    opened: watch::Sender<MeshState>,
     snapshots: Arc<Snapshots>,
     env: Mutex<HashMap<EndpointId, EnvReport>>,
     offers: Mutex<HashMap<EndpointId, Vec<String>>>,
@@ -47,7 +47,7 @@ impl Machines {
         Self {
             me,
             local,
-            opened: watch::channel(Opened::Opening).0,
+            opened: watch::channel(MeshState::Opening).0,
             snapshots: Arc::default(),
             env: Mutex::default(),
             offers: Mutex::default(),
@@ -72,19 +72,19 @@ impl Machines {
     }
 
     /// Tells where the mesh stands.
-    pub fn set_opened(&self, opened: Opened) {
+    pub fn set_opened(&self, opened: MeshState) {
         self.opened.send_replace(opened);
     }
 
     /// Follows where the mesh stands.
-    pub fn opened(&self) -> watch::Receiver<Opened> {
+    pub fn opened(&self) -> watch::Receiver<MeshState> {
         self.opened.subscribe()
     }
 
     /// The mesh, once it is open.
     pub fn mesh_now(&self) -> Option<Mesh> {
         watched::read_sent(&self.opened, |opened| match opened {
-            Opened::Open(mesh) => Some(mesh.clone()),
+            MeshState::Open(mesh) => Some(mesh.clone()),
             _ => None,
         })
     }
@@ -92,19 +92,19 @@ impl Machines {
     /// The mesh, waiting for it to open. Fails when it could not.
     pub async fn mesh(&self) -> Result<Mesh> {
         let mut opened = self.opened.subscribe();
-        watched::wait_for(&mut opened, |opened| !matches!(opened, Opened::Opening))
+        watched::wait_for(&mut opened, |opened| !matches!(opened, MeshState::Opening))
             .await
             .map_err(|_| FleetError::NoMesh("the app is closing".into()))?;
         let opened = watched::read(&opened, Clone::clone);
 
         match opened {
-            Opened::Open(mesh) if self.local.is_none() && !mesh.is_member(self.me) => Err(
+            MeshState::Open(mesh) if self.local.is_none() && !mesh.is_member(self.me) => Err(
                 FleetError::NoMesh("this device was removed from the mesh".into()),
             ),
-            Opened::Open(mesh) => Ok(mesh),
-            Opened::Unpaired => Err(FleetError::NoMesh("this phone is not paired".into())),
-            Opened::Failed(why) => Err(FleetError::NoMesh(why)),
-            Opened::Opening => Err(FleetError::NoMesh("still opening".into())),
+            MeshState::Open(mesh) => Ok(mesh),
+            MeshState::Unpaired => Err(FleetError::NoMesh("this phone is not paired".into())),
+            MeshState::Failed(why) => Err(FleetError::NoMesh(why)),
+            MeshState::Opening => Err(FleetError::NoMesh("still opening".into())),
         }
     }
 
@@ -115,12 +115,13 @@ impl Machines {
     pub async fn client(&self, machine: EndpointId) -> Result<PeerClient> {
         #[cfg(any(test, feature = "test-util"))]
         if let Some(stand_in) = self.node(machine) {
-            if let Some(mut open) = stand_in.open {
-                let _ = watched::wait_for(&mut open, |open| *open).await;
-            }
-
-            let Some(session) = stand_in.session else {
-                return std::future::pending().await;
+            let session = match stand_in {
+                StandIn::Node(session) => session,
+                StandIn::NodeWhen(session, mut open) => {
+                    let _ = watched::wait_for(&mut open, |open| *open).await;
+                    session
+                }
+                StandIn::Stalled => return std::future::pending().await,
             };
 
             return Ok(PeerClient::local(session).with_snapshots(self.snapshots.clone(), machine));
@@ -216,45 +217,13 @@ impl Machines {
     /// The machines of `mesh`, open, as a desktop that hosts no node of its own sees them.
     pub fn for_tests(mesh: Mesh) -> Arc<Self> {
         let machines = Self::new(mesh.me(), None);
-        machines.set_opened(Opened::Open(mesh));
+        machines.set_opened(MeshState::Open(mesh));
 
         Arc::new(machines)
     }
 
-    /// Has `machine` served by `session` in this process, as a test's stand-in for its node.
-    pub fn serve(&self, machine: EndpointId, session: SessionFn) {
-        self.stand_in(
-            machine,
-            StandIn {
-                session: Some(session),
-                open: None,
-            },
-        );
-    }
-
-    /// Like `serve`, but a request for the client waits until `open` says true.
-    pub fn serve_when(&self, machine: EndpointId, session: SessionFn, open: watch::Receiver<bool>) {
-        self.stand_in(
-            machine,
-            StandIn {
-                session: Some(session),
-                open: Some(open),
-            },
-        );
-    }
-
-    /// Has `machine` never answer a request for its client, to show that a call does not wait.
-    pub fn stall(&self, machine: EndpointId) {
-        self.stand_in(
-            machine,
-            StandIn {
-                session: None,
-                open: None,
-            },
-        );
-    }
-
-    fn stand_in(&self, machine: EndpointId, stand_in: StandIn) {
+    /// Has `machine` stood in for by `stand_in`, a test's node for it.
+    pub fn stand_in(&self, machine: EndpointId, stand_in: StandIn) {
         self.nodes
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -270,11 +239,14 @@ impl Machines {
     }
 }
 
-/// What a test has serve a machine: its node, and when its client may be had.
+/// What a test has serve a machine.
 #[cfg(any(test, feature = "test-util"))]
 #[derive(Clone)]
-struct StandIn {
-    /// `None` when the machine never answers.
-    session: Option<SessionFn>,
-    open: Option<watch::Receiver<bool>>,
+pub enum StandIn {
+    /// A node in this process.
+    Node(SessionFn),
+    /// A node whose client may be had once the flag says true.
+    NodeWhen(SessionFn, watch::Receiver<bool>),
+    /// A machine that never answers a request for its client, to show that a call does not wait.
+    Stalled,
 }

@@ -648,8 +648,8 @@ fn output_subscribers_receive_their_projected_state_under_the_requested_topic() 
 
 #[test]
 fn scheduling_workers_does_not_consume_a_pending_mesh_swap() {
-    let (source, changed) = watch::channel(Opened::Opening);
-    source.send_replace(Opened::Failed("closed".into()));
+    let (source, changed) = watch::channel(MeshState::Opening);
+    source.send_replace(MeshState::Failed("closed".into()));
     assert!(!mesh_is_open(&changed));
     assert!(changed.has_changed().unwrap());
 }

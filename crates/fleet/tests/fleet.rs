@@ -3,8 +3,8 @@
 //! members of one mesh. Waits ride on `updates()` and outer timeouts; nothing sleeps.
 
 use beep_fleet::{
-    Desk, FleetError, ImportJob, Machines, Opened as MeshOpened, Options, RepositoryRename,
-    RepositoryRenameResult, Session, project_id,
+    Desk, FleetError, ImportJob, Machines, MeshState, Options, RepositoryRename,
+    RepositoryRenameResult, Session, StandIn, project_id,
 };
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient, SessionFn, transport_config,
@@ -318,7 +318,7 @@ fn peering(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)], stuck: &[&Dev]) -> Arc<M
 
     for (dev, node) in nodes {
         let topic = sync_topic();
-        machines.serve(dev.id, node.session());
+        machines.stand_in(dev.id, StandIn::Node(node.session()));
         machines.snapshots().open_stream(dev.id, topic);
         machines.snapshots().push(
             dev.id,
@@ -330,7 +330,7 @@ fn peering(dev: &Dev, nodes: &[(&Dev, &Arc<FakeNode>)], stuck: &[&Dev]) -> Arc<M
     }
 
     for dev in stuck {
-        machines.stall(dev.id);
+        machines.stand_in(dev.id, StandIn::Stalled);
     }
 
     machines
@@ -2374,14 +2374,14 @@ async fn a_background_read_that_fails_does_not_tell_the_page() {
         .await
         .expect("a cold read");
     // Stale at once; the mesh goes away, so the read behind it fails.
-    peers.set_opened(MeshOpened::Failed("gone".into()));
+    peers.set_opened(MeshState::Failed("gone".into()));
     session
         .lists("acme/widget", false)
         .await
         .expect("the last read");
     session.settled().await;
     assert_eq!(heard(&mut changes), 0, "a failure is not news");
-    peers.set_opened(MeshOpened::Open(f.studio.mesh.clone()));
+    peers.set_opened(MeshState::Open(f.studio.mesh.clone()));
     session
         .lists("acme/widget", false)
         .await
@@ -3078,7 +3078,7 @@ async fn the_agent_accounts_list_this_mac_though_its_own_probe_says_nothing() {
     });
     // This Mac has no node to ask here: all it has is what its node reported before.
     let peering = Machines::for_tests(f.laptop.mesh.clone());
-    peering.serve(f.build.id, build.session());
+    peering.stand_in(f.build.id, StandIn::Node(build.session()));
     peering.set_env(f.laptop.id, with_agents());
     let laptop = Desk::open(peering).await.expect("the desk opens");
     let accounts = laptop.agent_accounts().await.expect("it lists");

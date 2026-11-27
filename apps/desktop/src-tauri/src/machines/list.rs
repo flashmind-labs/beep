@@ -251,7 +251,7 @@ pub async fn list_machines(fleet: State<'_, Arc<Fleet>>) -> Result<Vec<MachineVi
                     .is_none_or(|id| !fleet.mesh().is_some_and(|mesh| mesh.is_observer(id))),
                 temporary: id.is_some_and(|id| temporary.contains(&id)),
                 adapters: id
-                    .and_then(|id| fleet.status().last_env(id))
+                    .and_then(|id| fleet.reach().last_env(id))
                     .map(|env| env.adapters)
                     .unwrap_or_default(),
                 ..view

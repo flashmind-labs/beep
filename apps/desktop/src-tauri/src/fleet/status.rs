@@ -291,7 +291,6 @@ struct Watching {
 }
 
 pub struct Status {
-    me: EndpointId,
     /// The embedded node, which is followed in this process. None on a phone.
     session: Option<SessionFn>,
     shared: Arc<Shared>,
@@ -309,7 +308,6 @@ impl Status {
         let seen_file = dir.join(SEEN_FILE);
         let remembered = read_seen(&seen_file);
         Self {
-            me: machines.me(),
             session,
             seen_file,
             remembered,
@@ -333,7 +331,7 @@ impl Status {
         settle_later(self.shared.clone());
         let (stop, stopped) = oneshot::channel();
         let follower = Follower {
-            me: self.me,
+            me: self.shared.machines.me(),
             session: self.session.clone(),
             shared: self.shared.clone(),
             mesh,
@@ -405,11 +403,6 @@ impl Status {
     /// The beep-node `machine` runs, once it said.
     pub fn version(&self, machine: EndpointId) -> Option<String> {
         self.shared.peers().get(&machine)?.version.clone()
-    }
-
-    /// What `machine` last reported about itself, if it did.
-    pub fn last_env(&self, machine: EndpointId) -> Option<EnvReport> {
-        self.shared.machines.last_env(machine)
     }
 
     /// The apps, graphics cards and abilities of each machine; one that has
@@ -492,16 +485,15 @@ impl Status {
     /// The machines that are on and update over `update/1`. Their agent
     /// sessions are not counted: the update itself asks.
     pub fn updatable(&self) -> Vec<UpdatableMachine> {
+        let updates = |peer: &Peer| {
+            self.shared
+                .machines
+                .offers_protocol(peer.device.id, update::PROTOCOL)
+        };
         self.shared
             .peers()
             .values()
-            .filter(|peer| {
-                peer.online
-                    && self
-                        .shared
-                        .machines
-                        .offers_protocol(peer.device.id, update::PROTOCOL)
-            })
+            .filter(|peer| peer.online && updates(peer))
             .map(|peer| UpdatableMachine {
                 id: peer.device.id.to_string(),
                 agent_sessions: 0,
@@ -513,17 +505,16 @@ impl Status {
     /// `latest`. This Mac's node is the desktop's build, so it is left out.
     #[cfg(desktop)]
     pub fn behind(&self, latest: &semver::Version) -> Vec<Device> {
+        let me = self.shared.machines.me();
+        let updates = |peer: &Peer| {
+            self.shared
+                .machines
+                .offers_protocol(peer.device.id, update::PROTOCOL)
+        };
         self.shared
             .peers()
             .values()
-            .filter(|peer| {
-                peer.online
-                    && self
-                        .shared
-                        .machines
-                        .offers_protocol(peer.device.id, update::PROTOCOL)
-                    && peer.device.id != self.me
-            })
+            .filter(|peer| peer.online && updates(peer) && peer.device.id != me)
             .filter(|peer| {
                 peer.version
                     .as_deref()
@@ -537,11 +528,12 @@ impl Status {
     /// The machines that are on and serve `protocol`, this Mac among them
     /// while its node runs.
     pub fn offering(&self, protocol: &str) -> Vec<EndpointId> {
-        let local = self.session.is_some();
+        let local = self.shared.machines.hosts();
+        let me = self.shared.machines.me();
         self.shared
             .peers()
             .values()
-            .filter(|peer| peer.online || (local && peer.device.id == self.me))
+            .filter(|peer| peer.online || (local && peer.device.id == me))
             .filter(|peer| {
                 self.shared
                     .machines

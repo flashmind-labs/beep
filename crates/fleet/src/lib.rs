@@ -36,7 +36,9 @@ pub use desk::Desk;
 pub use error::{FleetError, Result};
 pub use git_board::{GitKept, GitUpdate};
 pub use issues::{has_project, places, project_id, project_names};
-pub use machines::{Machines, Opened};
+#[cfg(any(test, feature = "test-util"))]
+pub use machines::StandIn;
+pub use machines::{Machines, MeshState};
 pub use moves::{ChatMoveAsk, ChatSession, MoveAsk};
 pub use nearest::nearest_first;
 pub use notice_read::{Read, digest, mark_read, read_marks};

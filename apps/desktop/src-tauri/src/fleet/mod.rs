@@ -29,7 +29,7 @@ pub(crate) mod view_signal;
 pub(crate) mod work_copy;
 
 use crate::error::{DesktopError, Result};
-use beep_fleet::Opened;
+use beep_fleet::MeshState;
 use beep_mesh::{
     DEFAULT_TICKET_TTL, DeviceKind, DeviceStatus, InUse, Invitation, JoinTicket, Mesh, PeerClient,
     machine::releases::ToolReleases,
@@ -86,9 +86,9 @@ async fn close_within(mesh: Mesh, wait: Duration) -> Result<(), InUse> {
 }
 
 /// The mesh's own updates, from the mesh open now.
-fn members(opened: &mut watch::Receiver<Opened>) -> Option<watch::Receiver<u64>> {
+fn members(opened: &mut watch::Receiver<MeshState>) -> Option<watch::Receiver<u64>> {
     let mesh = watched::read_and_update(opened, |opened| match opened {
-        Opened::Open(mesh) => Some(mesh.clone()),
+        MeshState::Open(mesh) => Some(mesh.clone()),
         _ => None,
     });
 
@@ -98,7 +98,7 @@ fn members(opened: &mut watch::Receiver<Opened>) -> Option<watch::Receiver<u64>>
 /// Follows the mesh opening or being replaced, its devices, state and who
 /// is online, and the machines' reports where they change the machine list.
 pub(crate) struct Changes {
-    opened: watch::Receiver<Opened>,
+    opened: watch::Receiver<MeshState>,
     members: Option<watch::Receiver<u64>>,
     status: watch::Receiver<status::Revision>,
     machines: u64,
@@ -297,17 +297,17 @@ impl Fleet {
                 if mesh.is_member(self.me)
                     && let Err(error) = mesh.set_desktop_hosting(true).await
                 {
-                    self.reach.set_opened(Opened::Failed(error.to_string()));
+                    self.reach.set_opened(MeshState::Failed(error.to_string()));
                     return;
                 }
                 self.peers.install(mesh.clone());
 
                 self.status.watch(mesh.clone()).await;
-                self.reach.set_opened(Opened::Open(mesh));
+                self.reach.set_opened(MeshState::Open(mesh));
             }
             Err(e) => {
                 log::warn!("not in a mesh: {e:#}");
-                self.reach.set_opened(Opened::Failed(e.to_string()));
+                self.reach.set_opened(MeshState::Failed(e.to_string()));
             }
         }
     }
@@ -337,7 +337,7 @@ impl Fleet {
         // On disk first, so a crash after the swap still brings them along.
         carry::save(&self.dir, &old.scan(""))?;
         peers.leave().await;
-        self.reach.set_opened(Opened::Opening);
+        self.reach.set_opened(MeshState::Opening);
         // The status follows and the alert follows (which let go on seeing the
         // mesh close) stop holding it; calls still running get `CLOSE_WAIT`.
         self.status.stop().await;
@@ -347,7 +347,7 @@ impl Fleet {
             let InUse(old) = in_use;
             peers.install(old.clone());
             self.status.watch(old.clone()).await;
-            self.reach.set_opened(Opened::Open(old));
+            self.reach.set_opened(MeshState::Open(old));
             carry::discard(&self.dir);
             return Err(DesktopError::BadRequest(message));
         }
@@ -365,12 +365,12 @@ impl Fleet {
         };
         let carried = carry::replay(&self.dir, &new).await;
         if let Err(error) = new.set_desktop_hosting(true).await {
-            self.reach.set_opened(Opened::Failed(error.to_string()));
+            self.reach.set_opened(MeshState::Failed(error.to_string()));
             return Err(error.into());
         }
         peers.install(new.clone());
         self.status.watch(new.clone()).await;
-        self.reach.set_opened(Opened::Open(new));
+        self.reach.set_opened(MeshState::Open(new));
         carried
     }
 
@@ -425,16 +425,6 @@ impl Fleet {
         &self.releases
     }
 
-    /// Holds `read` on `machine` while the receiver lives; see `Snapshots::follow`.
-    pub(crate) fn snapshots_follow(
-        &self,
-        machine: EndpointId,
-        read: beep_proto::node::events::Read,
-    ) -> Option<std::result::Result<watch::Receiver<beep_mesh::Followed>, beep_mesh::MeshError>>
-    {
-        self.reach.snapshots().register(machine, read)
-    }
-
     pub(crate) fn projections(&self) -> &node_actor::Projections {
         &self.projections
     }
@@ -474,12 +464,12 @@ impl Fleet {
     }
 
     /// What the nodes say on the topics the windows and standing interests follow.
-    pub(crate) fn heard(&self) -> tokio::sync::broadcast::Receiver<events::Heard> {
+    pub(crate) fn heard(&self) -> tokio::sync::broadcast::Receiver<beep_mesh::Heard> {
         self.reach.snapshots().heard()
     }
 
     /// What each node last said on the topics `heard` carries, for a follower that lagged.
-    pub(crate) fn heard_latest(&self) -> Vec<events::Heard> {
+    pub(crate) fn heard_latest(&self) -> Vec<beep_mesh::Heard> {
         self.reach.snapshots().latest()
     }
 
@@ -554,11 +544,11 @@ impl Fleet {
         match Mesh::open(&self.dir, self.endpoint.clone()).await {
             Ok(Some(mesh)) => self.observe(mesh).await,
             Ok(None) => {
-                self.reach.set_opened(Opened::Unpaired);
+                self.reach.set_opened(MeshState::Unpaired);
             }
             Err(e) => {
                 log::warn!("not in a mesh: {e:#}");
-                self.reach.set_opened(Opened::Failed(e.to_string()));
+                self.reach.set_opened(MeshState::Failed(e.to_string()));
             }
         }
     }
@@ -574,11 +564,11 @@ impl Fleet {
                     .lock()
                     .unwrap_or_else(PoisonError::into_inner) = Some(router);
                 self.status.watch(mesh.clone()).await;
-                self.reach.set_opened(Opened::Open(mesh));
+                self.reach.set_opened(MeshState::Open(mesh));
             }
             Err(e) => {
                 log::warn!("not observing the mesh: {e:#}");
-                self.reach.set_opened(Opened::Failed(e.to_string()));
+                self.reach.set_opened(MeshState::Failed(e.to_string()));
             }
         }
     }
@@ -588,7 +578,7 @@ impl Fleet {
     /// not paired, and `pair` may replace its mesh.
     pub async fn paired(&self) -> bool {
         let mut opened = self.reach.opened();
-        if watched::wait_for(&mut opened, |opened| !matches!(opened, Opened::Opening))
+        if watched::wait_for(&mut opened, |opened| !matches!(opened, MeshState::Opening))
             .await
             .is_err()
         {
@@ -597,7 +587,7 @@ impl Fleet {
 
         let opened = watched::read(&opened, Clone::clone);
 
-        matches!(&opened, Opened::Open(mesh) if mesh.is_member(self.me))
+        matches!(&opened, MeshState::Open(mesh) if mesh.is_member(self.me))
     }
 
     /// Joins the mesh a desktop's phone ticket names, as an observer. A phone the mesh removed

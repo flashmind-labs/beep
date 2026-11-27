@@ -189,7 +189,7 @@ pub(crate) async fn scanned_sessions_of(
         let client = fleet.client(machine).await.ok()?;
         let host = fleet.host_of(machine);
         let home = fleet
-            .status()
+            .reach()
             .last_env(machine)
             .map(|env| env.home)
             .filter(|home| !home.is_empty());
@@ -286,7 +286,7 @@ pub(crate) async fn find_session(
 /// stream that carries them ends. False when no stream was open to hold them on.
 pub(crate) async fn hold_scanned_reads(fleet: &Fleet, machine: EndpointId) -> bool {
     let conversations = fleet
-        .status()
+        .reach()
         .last_env(machine)
         .map(|env| env.home)
         .filter(|home| !home.is_empty())
@@ -313,7 +313,9 @@ pub(crate) async fn hold_scanned_reads(fleet: &Fleet, machine: EndpointId) -> bo
     let held: Vec<_> = requests
         .filter_map(|request| {
             fleet
-                .snapshots_follow(machine, Read::Sessions(Box::new(request)))?
+                .reach()
+                .snapshots()
+                .register(machine, Read::Sessions(Box::new(request)))?
                 .ok()
         })
         .map(|mut held| Box::pin(async move { while held.changed().await.is_ok() {} }))

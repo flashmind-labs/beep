@@ -278,7 +278,7 @@ async fn feed(fleet: Arc<Fleet>, asks: mpsc::UnboundedSender<Ask>, key: MachineF
     let limit = u32::try_from(MAX_PROJECT_SESSIONS).unwrap_or(u32::MAX);
     let read = Read::Sessions(Box::new(SessionsRequest::InFolders { folders, limit }));
 
-    if let Some(Ok(mut current)) = fleet.snapshots_follow(machine, read) {
+    if let Some(Ok(mut current)) = fleet.reach().snapshots().register(machine, read) {
         let host = fleet.host_of(machine);
 
         loop {

@@ -1,12 +1,13 @@
 //! One snapshot worker per demanded topic, independent of action delivery.
 
-use super::{Fleet, Heard, Snapshots, Update, commands::retrying, invalidate};
+use super::{Fleet, Update, commands::retrying, invalidate};
 use crate::error::{DesktopError, Result};
 use crate::fleet::outbox::{WindowOutbox, controller_topic};
 use crate::fleet::{
     session_mirror::SessionMirror,
     view_signal::{Change, moving, ring},
 };
+use beep_mesh::{Heard, Snapshots};
 use beep_proto::node::{
     agent::SessionsReply,
     events::{self, Topic},

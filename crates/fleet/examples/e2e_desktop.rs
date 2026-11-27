@@ -17,7 +17,7 @@
 //! A ticket is written to `<dir>/ticket-<label>`, never printed.
 
 use anyhow::{Context, Result, anyhow, bail};
-use beep_fleet::{Desk, ImportJob, Machines, Opened as MeshOpened};
+use beep_fleet::{Desk, ImportJob, Machines, MeshState};
 use beep_mesh::{
     DeviceKind, JOIN_ALPN, Key, Mesh, PEER_ALPN, PeerClient,
     machine::{
@@ -524,7 +524,7 @@ async fn main() -> Result<()> {
         .spawn();
     let me = endpoint.id();
     let machines = Machines::new(me, None);
-    machines.set_opened(MeshOpened::Open(mesh.clone()));
+    machines.set_opened(MeshState::Open(mesh.clone()));
     let desk = Desk::open(Arc::new(machines)).await?;
     println!("up as {}", me.fmt_short());
     let mut driver = Driver {

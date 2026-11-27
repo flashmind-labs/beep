@@ -55,7 +55,7 @@ async fn a_project_is_stopped_when_the_node_pushes_a_status_without_it() {
     let unasked: beep_mesh::SessionFn =
         std::sync::Arc::new(|_, _| panic!("the status is pushed, not asked"));
     let machines = std::sync::Arc::new(crate::Machines::new(mesh.me(), Some(unasked)));
-    machines.set_opened(crate::Opened::Open(mesh.clone()));
+    machines.set_opened(crate::MeshState::Open(mesh.clone()));
     let pushed = machines.snapshots().clone();
     pushed.open_stream(mesh.me(), Read::SyncList.topic().unwrap());
     pushed.push(mesh.me(), Read::SyncList, syncing(&["acme/widget"]));
