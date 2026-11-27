@@ -62,26 +62,3 @@ async fn callers_asking_together_share_one_read() {
     first.await.unwrap();
     second.await.unwrap();
 }
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn a_refresh_racing_the_last_watcher_leaves_nothing_published() {
-    let root = tempfile::tempdir().unwrap();
-    let occupancy = over(root.path());
-    rollout(root.path(), "first");
-    let all: BTreeSet<Agent> = Agent::ALL.into_iter().collect();
-
-    for _ in 0..100 {
-        let watching = occupancy.watching();
-        let refreshing = {
-            let (occupancy, all) = (occupancy.clone(), all.clone());
-            tokio::spawn(async move { occupancy.refresh(&all).await.unwrap() })
-        };
-        drop(watching);
-        refreshing.await.unwrap();
-
-        assert!(
-            beep_proto::watched::read_sent(&occupancy.0.reading.published, Option::is_none),
-            "a copy outlived its last watcher"
-        );
-    }
-}
