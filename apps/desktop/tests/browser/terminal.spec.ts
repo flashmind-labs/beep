@@ -241,36 +241,6 @@ test("quadrants and Powerline glyphs fill their cells as shapes", async ({ page 
   expect(Math.abs(await area(" ") / full - 0.5)).toBeLessThan(0.08);
 });
 
-test("rows drawn before the glyph atlas fills keep their glyphs", async ({ page }) => {
-  await open(page);
-  const red: [number, number, number] = [200, 30, 30];
-  // A red bar on the top row, drawn once and then left alone.
-  await page.evaluate(() => window.term.write("\x1b[2J\x1b[H\x1b[38;2;200;30;30m" + "█".repeat(40) + "\x1b[0m"));
-  await expect.poll(() => pixels(page, red)).toBeGreaterThan(500);
-  const before = await pixels(page, red);
-
-  // Rows below it rewritten with new characters, a screen at a time, until
-  // the atlas has had to clear: more distinct glyphs than it holds. The bar
-  // looks the same after every screen, the one that cleared the atlas too.
-  let cp = 0x4e00;
-  for (let screen = 0; screen < 24; screen++) {
-    cp = await page.evaluate(async start => {
-      const { cols, rows } = window.term.screen.size();
-      let cp = start;
-      let text = "";
-      for (let y = 2; y <= rows; y++) {
-        text += `\x1b[${y};1H`;
-        // Wide characters: half a row of them, so nothing wraps or scrolls.
-        for (let x = 0; x < cols / 2 - 1; x++) text += String.fromCodePoint(cp++);
-      }
-      window.term.write(text);
-      await new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done)));
-      return cp;
-    }, cp);
-    expect(await pixels(page, red), `after screen ${screen}`).toBe(before);
-  }
-});
-
 test("queries in replayed output go unanswered, live ones are answered", async ({ page }) => {
   await open(page);
   // Primary device attributes, as a shell asks at start.

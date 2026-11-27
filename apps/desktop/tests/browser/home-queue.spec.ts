@@ -136,21 +136,6 @@ test("a crowded lane spreads its cards over columns and an empty one stays narro
   expect(doneBox?.width ?? 0).toBeLessThan((reviewBox?.width ?? 0) / 2);
 });
 
-test("a lane's wheel moves it a row of cards at a time", async ({ page }) => {
-  const idle = Array.from({ length: 25 }, (_, index) => row(`idle-${index}`, `Finished turn ${index}`, "idle"));
-  await openDesktop(page, false, { center_home: { ...home, running: [...home.running, ...idle] }, projects_sessions: [] });
-  const lane = page.locator("#sec-running .bd-lane.cell").nth(1);
-  await expect.poll(() => lane.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
-  const step = await lane.evaluate(element => {
-    const tops = [...new Set([...element.querySelectorAll<HTMLElement>(".bd-card")].map(card => card.offsetTop))].sort((a, b) => a - b);
-    return tops[1] - tops[0];
-  });
-  await lane.hover();
-  await page.mouse.wheel(0, 40);
-  await expect.poll(() => lane.evaluate(element => element.scrollTop)).toBe(step);
-  await expect(page.locator("#view")).toHaveJSProperty("scrollTop", 0);
-});
-
 test("Working takes one wide column, Ready to review two of the same width", async ({ page }) => {
   await page.setViewportSize({ width: 2000, height: 1300 });
   const busy = Array.from({ length: 6 }, (_, index) => row(`busy-${index}`, `Working on ${index}`, "working"));

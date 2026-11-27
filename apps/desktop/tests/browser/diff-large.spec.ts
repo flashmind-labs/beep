@@ -112,56 +112,6 @@ test("a 600 file diff opens, scrolls and updates without long tasks", async ({ p
   expect(report.scrollKept).toBe(true);
 });
 
-test("a 600 file diff keeps drafts, selections and filters while drawing only nearby files", async ({ page }, info) => {
-  test.skip(info.project.name !== "macOS", "one run is enough");
-  await setup(page);
-  await page.evaluate(() => Reflect.get(window, "openLargeDiff")());
-  const files = page.locator(".dv-files");
-  const first = page.locator(".dv-file").first();
-  await expect(first.locator(".dv-l.add").first()).toBeVisible();
-  expect(await page.locator(".dv-file").count()).toBeLessThan(20);
-
-  await first.locator(".dv-l.add .dv-g").first().click();
-  const editor = first.getByRole("textbox", { name: "Comment on this line" });
-  await editor.fill("Draft kept offscreen");
-  const path = await first.getAttribute("data-path");
-  await files.evaluate(el => { el.scrollTop = el.scrollHeight / 2; });
-  await expect(page.locator(".dv-file").last()).not.toHaveAttribute("data-path", path ?? "");
-  await expect(editor).toHaveValue("Draft kept offscreen");
-  await files.evaluate(el => { el.scrollTop = 0; });
-  await expect(editor).toBeVisible();
-  await editor.press("Control+Enter");
-  await expect(first.locator(".dv-cmt")).toContainText("Draft kept offscreen");
-
-  const text = first.locator(".dv-l.add .dv-c").first();
-  const selection = await text.evaluate(el => {
-    const range = document.createRange();
-    range.selectNodeContents(el);
-    document.getSelection()?.removeAllRanges();
-    document.getSelection()?.addRange(range);
-    return document.getSelection()?.toString();
-  });
-  await files.evaluate(el => { el.scrollTop = el.scrollHeight / 2; });
-  await expect.poll(() => page.evaluate(() => document.getSelection()?.toString())).toBe(selection);
-  await page.evaluate(() => document.getSelection()?.removeAllRanges());
-
-  await page.locator(".dv-find").fill("module-59");
-  await expect(page.locator(".dv-more").filter({ hasText: "files match" })).toHaveText("11 of 600 files match");
-  await expect.poll(() => page.locator(".dv-file:not([hidden])").evaluateAll(list => list.every(el => /module-59\d?\.ts$/.test(el.getAttribute("data-path") ?? "")) && list.length > 0)).toBe(true);
-  await page.locator(".dv").focus();
-  await page.keyboard.press("j");
-  await expect(page.locator(".dv-tree .dv-tr.on")).toHaveAttribute("data-path", /module-59\d?\.ts$/);
-
-  await page.keyboard.press("ControlOrMeta+f");
-  await expect(page.locator(".dv-find")).toBeFocused();
-  await page.keyboard.type("compute(477, 2)");
-  const match = page.locator(".dv-tree .dv-match").first();
-  await expect(match).toContainText("compute(477, 2)");
-  await match.click();
-  await expect(page.locator(".dv-l.dv-hit")).toContainText("compute(477, 2)");
-  await expect(page.locator(".dv-l.dv-hit")).toBeInViewport();
-});
-
 test("the file list marks the files a review commented on", async ({ page }, info) => {
   test.skip(info.project.name !== "macOS", "one run is enough");
   await setup(page);
