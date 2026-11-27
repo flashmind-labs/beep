@@ -1,6 +1,4 @@
 use super::*;
-use crate::agents::{claude::External};
-use crate::logs::found::Stores;
 use beep_proto::node::agent::EntryKind;
 use serde_json::json;
 use std::{fs, path::Path};
@@ -53,8 +51,7 @@ fn pi_session() -> String {
 fn agents(codex: &Path, pi: &Path) -> Agents {
     let nothing = tempfile::tempdir().expect("a temp folder");
     Agents {
-        external: External::at(nothing.path()),
-        stores: Stores::at(Some(codex), Some(pi), None),
+        occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(nothing.path()), crate::logs::found::Stores::at(Some(codex), Some(pi), None)),
         ..Agents::default()
     }
 }
@@ -277,7 +274,7 @@ async fn a_folder_listing_shows_an_edit_made_after_the_status_was_kept() {
     }
 
     let (_dir, work) = repo("folder");
-    let agents = Agents::new(Vec::new());
+    let agents = Agents::new(Vec::new(), crate::occupancy::Occupancy::default());
     agents.share_folders(vec![work.clone()]);
     let root = work.to_str().unwrap();
     let readme = |reply: SessionsReply| match reply {

@@ -28,7 +28,7 @@ host! {
     mod traffic;
 
     pub use peers::{Bound, Offers};
-    pub use serve::{listen_hooks, serve};
+    pub use serve::serve;
     pub use traffic::Traffic;
 }
 

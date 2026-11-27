@@ -184,12 +184,12 @@ impl Live {
     }
 
     /// Whether a hook spoke for `session` since the node started.
-    pub(super) fn knows(&self, session: &SessionId) -> bool {
+    pub(crate) fn knows(&self, session: &SessionId) -> bool {
         lock(&self.0).contains_key(session)
     }
 
     /// `found` as its hooks report it.
-    pub(super) fn status(&self, mut found: ExternalSession) -> LiveStatus {
+    pub(crate) fn status(&self, mut found: ExternalSession) -> LiveStatus {
         let sessions = lock(&self.0);
         let Some(tracked) = sessions.get(&found.id) else {
             return LiveStatus {
@@ -222,7 +222,7 @@ impl Live {
 
     /// Queues `steer` for `session`'s next hook; the error says why it
     /// cannot be.
-    pub(super) fn steer(&self, session: &SessionId, steer: Steer) -> Result<(), String> {
+    pub(crate) fn steer(&self, session: &SessionId, steer: Steer) -> Result<(), String> {
         let mut sessions = lock(&self.0);
         let Some(tracked) = sessions.get_mut(session) else {
             return Err(format!(

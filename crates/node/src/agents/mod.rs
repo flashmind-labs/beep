@@ -12,16 +12,16 @@ host! {
     pub(crate) mod child_reach;
     pub(crate) mod child_view;
     pub(crate) use crate::calls;
-    use crate::{AsyncMutex, agents::claude::External, logs::found::Stores, agents::mcp_launch::Launch};
+    use crate::{AsyncMutex, agents::mcp_launch::Launch, occupancy::Occupancy};
     use crate::logs::found;
     use beep_proto::SessionId;
     use std::{
         collections::HashMap,
         path::PathBuf,
         sync::{Arc, Mutex, OnceLock, atomic::AtomicBool},
-        time::{Duration, SystemTime, UNIX_EPOCH},
+        time::Duration,
     };
-    use tokio::{sync::watch, time::Instant};
+    use tokio::sync::watch;
 
     pub mod claude;
     mod claude_direct;
@@ -45,7 +45,6 @@ host! {
     mod flsh_config;
     mod found_sessions;
     mod harnesses;
-    mod holders;
     mod installs;
     mod image_files;
     mod image_index;
@@ -61,12 +60,12 @@ host! {
     mod models;
     pub(crate) mod moving;
     mod pipe;
+    mod recovery;
     pub(crate) mod reply;
     mod plans;
-    pub mod presence;
+    mod presence_stream;
     mod processes;
     pub(crate) mod reach;
-    mod recovery;
     pub mod search;
     mod requests;
     mod restart;
@@ -127,7 +126,7 @@ host! {
     const MAX_FOLDERS: usize = 800;
     const DEFAULT_FOLDERS: usize = 100;
     /// The most sessions `InFolders` answers, and how many by default.
-    const MAX_IN_FOLDERS: usize = crate::files::holds::MAX_IN_FOLDERS;
+    const MAX_IN_FOLDERS: usize = crate::occupancy::MAX_IN_FOLDERS;
     const DEFAULT_IN_FOLDERS: usize = 50;
     /// The most folders one `InFolders` names.
     const MAX_ASKED_FOLDERS: usize = 32;
@@ -143,19 +142,14 @@ host! {
     /// How long a file request may wait for a look in the agents' logs.
     const SIGHTING_WAIT: Duration = Duration::from_secs(5);
 
-    /// Now, in Unix seconds.
-    fn unix_now() -> u64 {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |since| since.as_secs())
-    }
+    pub(crate) use crate::logs::unix_now;
 
     /// The agents this node offers and the sessions it runs. Sessions belong
     /// to the daemon, so they outlive the streams and the connection.
     #[derive(Default)]
     pub struct Agents {
-        /// Checkouts held for local Git recovery, and the folders sessions run in.
-        holds: OnceLock<crate::files::holds::RepositoryHolds>,
+        /// Who works in which folder here, shared with sync.
+        occupancy: Occupancy,
         /// Follows the checkouts that wait for Git recovery, once started.
         recovering: OnceLock<tokio_util::task::AbortOnDropHandle<()>>,
         pub events: crate::events::Hub,
@@ -169,12 +163,6 @@ host! {
         /// Serializes changes to a stored session against resuming it, one
         /// lock for each session by the agent's own id; see `store_of`.
         session_store: Mutex<HashMap<SessionId, std::sync::Weak<AsyncMutex<()>>>>,
-        /// Claude Code sessions started outside Beep.
-        external: External,
-        /// Sessions held open by a local CLI, including idle prompts.
-        presence: presence::Registry,
-        /// Where Codex, pi, flsh and OpenCode keep their sessions.
-        stores: Stores,
         /// The pictures sessions' transcripts show, by session.
         images: Arc<Images>,
         /// What sessions spend and how much of the agents' plans is left.
@@ -238,11 +226,6 @@ host! {
         /// asks for that limit that come meanwhile share it instead of each
         /// running git for every folder.
         listed: Mutex<HashMap<usize, Arc<AsyncMutex<Option<found_sessions::Listed>>>>>,
-        /// Sessions started outside Beep whose process this node ended or
-        /// saw exit lately, by id, with when.
-        closed: Arc<Mutex<HashMap<SessionId, Instant>>>,
-        /// Which processes hold the sessions' files, checked once for all.
-        holders: holders::Holders,
         /// What sessions were, ended ones too, from the restart note.
         saved: Mutex<Vec<restart::SavedSession>>,
     }
@@ -272,14 +255,13 @@ host! {
     }
 
     impl Agents {
-        pub fn new(kinds: Vec<AgentKind>) -> Self {
+        pub fn new(kinds: Vec<AgentKind>, occupancy: Occupancy) -> Self {
             let events = crate::events::Hub::default();
 
             Self {
                 events: events.clone(),
                 kinds: watch::Sender::new(Arc::new(kinds)),
-                external: External::locate(),
-                stores: Stores::locate(),
+                occupancy,
                 spend: Arc::new(Spend::locate()),
                 reviews: reviews::Reviews::new(events),
                 ..Self::default()

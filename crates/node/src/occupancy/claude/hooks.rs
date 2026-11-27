@@ -547,5 +547,5 @@ pub(super) async fn send(socket: &Path, message: &HookMessage) -> Result<String>
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_claude_hooks.rs"]
+#[path = "../../tests/occupancy_claude_hooks.rs"]
 mod tests;

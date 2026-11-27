@@ -4,7 +4,7 @@ use super::{
 };
 use super::saved::{Folder, Outgoing, Phase, Saved};
 use crate::{
-    agents::{Agents, found::Stores},
+    agents::Agents,
     membership::Membership,
 };
 use beep_proto::SessionId;
@@ -62,7 +62,7 @@ fn source(content: &str) -> Source {
     let rollout = day.join(format!("rollout-2026-11-04T09-30-00-{ID}.jsonl"));
     fs::write(&rollout, content).expect("a rollout");
     let agents = Agents {
-        stores: Stores::at(Some(dir.path()), None, None),
+        occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(Some(dir.path()), None, None)),
         ..Agents::default()
     };
     // The sessions open before the last stop run again: none were open.
@@ -557,7 +557,7 @@ fn flsh_source() -> (TempDir, Arc<Agents>) {
     )
     .expect("a database");
     let agents = Agents {
-        stores: Stores::at(None, None, Some(dir.path())),
+        occupancy: crate::occupancy::Occupancy::over(Default::default(), crate::logs::found::Stores::at(None, None, Some(dir.path()))),
         ..Agents::default()
     };
     agents.reopened.send_replace(true);

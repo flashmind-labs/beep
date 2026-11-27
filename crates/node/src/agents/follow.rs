@@ -86,7 +86,7 @@ impl SummaryCache {
         agents: &Agents,
         changed: &BTreeSet<Agent>,
     ) -> Result<(Vec<Summary>, Vec<Seen>)> {
-        let stores = agents.stores.clone();
+        let stores = agents.stores().clone();
         let mut listings = std::mem::take(&mut self.stores);
         let changed = changed.clone();
         let refresh_claude = self.claude.is_none() || changed.contains(&Agent::Claude);
@@ -115,8 +115,8 @@ impl SummaryCache {
         let claude = async {
             if refresh_claude {
                 let (listed, seen) = tokio::join!(
-                    agents.external.list(512, None, agents.owned()),
-                    agents.external.sightings()
+                    agents.external().list(512, None, agents.owned()),
+                    agents.external().sightings()
                 );
 
                 // Either failing fails the read, so readers do not keep an
@@ -148,8 +148,8 @@ impl SummaryCache {
         let mut sessions = self.claude.clone().unwrap_or_default();
         agents.observe_external(&sessions);
         sessions.extend(others);
-        agents.presence.merge(&mut sessions);
-        agents.settle_closed(&mut sessions);
+        agents.occupancy.presence().merge(&mut sessions);
+        agents.occupancy.settle_closed(&mut sessions);
         let mut summary: Vec<_> = sessions
             .into_iter()
             .map(|session| Summary {
@@ -259,14 +259,14 @@ async fn follow(
     reader: &Reader,
     mut shown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> Result<FollowEnd> {
-    let mut presence = agents.presence.subscribe();
+    let mut presence = agents.occupancy.presence().subscribe();
     let mut live = agents
         .get(&request.session)
         .map(|session| session.live.clone());
     // A Claude Code session started outside Beep is found once, and the
     // machine's processes are read again only when its presence may change.
     let mut followed = if live.is_none() && request.agent == "claude" {
-        agents.external.follow(&request.session).await?
+        agents.external().follow(&request.session).await?
     } else {
         None
     };
@@ -277,7 +277,7 @@ async fn follow(
     let _watcher = if paths.is_empty() {
         None
     } else {
-        let presence_path = agents.external.presence_path();
+        let presence_path = agents.external().presence_path();
         let presence_changed = stale.clone();
         let watcher = crate::events::paths::Paths::new("agent-presence", move |roots| {
             if presence_path
@@ -1060,7 +1060,7 @@ async fn snapshot(
                 Some(followed) => {
                     vec![
                         agents
-                            .external
+                            .external()
                             .followed(followed, stale, agents.owned())
                             .await?,
                     ]
@@ -1075,7 +1075,7 @@ async fn snapshot(
                 .into_iter()
                 .find(|session| session.id == request.session)
                 .context("session is no longer on the machine")?;
-            agents.settle_closed(std::slice::from_mut(&mut found));
+            agents.occupancy.settle_closed(std::slice::from_mut(&mut found));
             SessionSource::External(Box::new(found))
         }
     };
@@ -1145,7 +1145,7 @@ async fn paths(
     }
 
     if request.agent == "claude" {
-        paths.extend(agents.external.presence_path());
+        paths.extend(agents.external().presence_path());
     } else if request.agent == "codex" {
         paths.extend(agents.follow_roots(Agent::Codex));
     }

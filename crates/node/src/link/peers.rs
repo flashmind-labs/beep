@@ -369,6 +369,12 @@ impl Peers {
         self.inner.active()
     }
 
+    /// Who works in which folder on this machine, for a service started
+    /// beside the router.
+    pub fn occupancy(&self) -> crate::occupancy::Occupancy {
+        self.inner.offers().occupancy.clone()
+    }
+
     /// The node's membership, for a service started beside the router.
     pub fn membership(&self) -> crate::membership::Membership {
         self.inner.offers().mesh.clone()

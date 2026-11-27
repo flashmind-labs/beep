@@ -150,7 +150,7 @@ impl Agents {
                 && !calls.is_empty()
             {
                 match self
-                    .external
+                    .external()
                     .attach_children(&id, calls, entries.clone())
                     .await
                 {
@@ -169,7 +169,7 @@ impl Agents {
             let end = before.unwrap_or(native).min(native);
             if end > 0 {
                 match self
-                    .external
+                    .external()
                     .page(history.path, last - entries.len(), Some(end))
                     .await
                 {
@@ -219,14 +219,14 @@ impl Agents {
         // history. Newest-page polls can keep their existing position.
         let result: Result<History> = async {
             let path = self
-                .external
+                .external()
                 .file(&id)
                 .await?
                 .context("native transcript not found")?;
             let (replay, dropped) = watched::read(&session.live, |live| {
                 live.transcript_before(usize::MAX, None)
             });
-            let native = self.external.prefix_len(path.clone(), replay).await?;
+            let native = self.external().prefix_len(path.clone(), replay).await?;
             Ok(History {
                 path,
                 native,
@@ -255,7 +255,7 @@ impl Agents {
         if session.agent == "codex" {
             let parent = watched::read(&session.live, |live| live.agent_session.clone());
             if let Some(parent) = parent {
-                let stores = self.stores.clone();
+                let stores = self.stores().clone();
                 match spawn_blocking(move || stores.codex_children(&parent)).await {
                     Ok(runs) if !runs.is_empty() => {
                         let _ = session.order(Command::RecoverCodexChildren(runs)).await;
@@ -274,7 +274,7 @@ impl Agents {
             return (entries, earlier);
         }
 
-        let stores = self.stores.clone();
+        let stores = self.stores().clone();
         let read = spawn_blocking(move || {
             children
                 .into_iter()
@@ -513,13 +513,6 @@ impl Agents {
         self.stopping.store(true, Ordering::Relaxed);
     }
 
-    /// The checkouts held for Git recovery, shared with the sync that holds them.
-    pub fn holds(&self) -> crate::files::holds::RepositoryHolds {
-        self.holds
-            .get_or_init(crate::files::holds::RepositoryHolds::default)
-            .clone()
-    }
-
     /// The sessions now, as last published.
     pub(crate) fn session_map(&self) -> Arc<sessions::Map> {
         self.sessions.read()
@@ -631,7 +624,7 @@ impl Agents {
             return sessions;
         }
 
-        match self.external.places(owned.keys().cloned().collect()).await {
+        match self.external().places(owned.keys().cloned().collect()).await {
             Ok(found) => {
                 for (id, place) in found {
                     if let Some(info) = sessions
@@ -704,7 +697,7 @@ impl Agents {
         signs_in(&kind.name, begin.account.as_ref())?;
         let (cwd, _) = in_project(cwd, begin.resume.is_some(), None)?;
 
-        self.holds().check_start(&cwd)
+        self.occupancy.holds().check_start(&cwd)
     }
 
     /// The harness Auto starts here, as a desktop picks one when the start
@@ -821,8 +814,8 @@ impl Agents {
         // spawns. Recovery reads the starts under way.
         let reservation = self.sessions.reserve(resume.clone())?;
         let id = reservation.id.clone();
-        let running = self.holds().running(cwd.clone());
-        self.holds().check_start(&cwd)?;
+        let running = self.occupancy.holds().running(cwd.clone());
+        self.occupancy.holds().check_start(&cwd)?;
         // A reviewer changes nothing, so it needs no git rule.
         let rule = checkout::rule(&cwd).filter(|_| !begin.review).map(str::to_owned);
         let instructions = crate::lock(&self.instructions)

@@ -282,7 +282,7 @@ pub(super) struct Start<'a> {
     /// the node, whatever its exit says.
     pub(super) stopping: Arc<AtomicBool>,
     /// The folder it runs in, marked to Git sync until it ends.
-    pub(super) running: Option<crate::files::holds::Running>,
+    pub(super) running: Option<crate::occupancy::Running>,
     /// The agent's own Docker socket, set as its `DOCKER_HOST`.
     pub(super) docker: Option<super::processes::Docker>,
 }

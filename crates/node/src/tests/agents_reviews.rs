@@ -60,7 +60,7 @@ impl Rig {
         let top = kind("top", &dir.path().join("top.log"));
         let kid = kind("kid", &dir.path().join("kid.log"));
         Self {
-            agents: Arc::new(Agents::new(vec![top, kid])),
+            agents: Arc::new(Agents::new(vec![top, kid], crate::occupancy::Occupancy::default())),
             dir,
         }
     }
@@ -249,8 +249,8 @@ async fn a_finished_reviewer_leaves_no_session_on_disk() {
     let claude = named_kind("claude", &dir.path().join("claude.log"), ID);
     let rig = Rig {
         agents: Arc::new(Agents {
-            external: crate::agents::claude::External::at(&dir.path().join("claude")),
-            ..Agents::new(vec![claude])
+            occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(&dir.path().join("claude")), Default::default()),
+            ..Agents::new(vec![claude], crate::occupancy::Occupancy::default())
         }),
         dir,
     };

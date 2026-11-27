@@ -1,7 +1,7 @@
 //! The `agents/1` requests: one answer each, or a stream the caller follows.
 
 use beep_proto::SessionId;
-use super::{Agents, AlertHub, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, harnesses, media_file, reach, spend::Reports, work_folder, worktrees};
+use super::{Agents, AlertHub, claude, MAX_IMAGE, MAX_TRANSCRIPT, PLAN_EVERY, PLAN_REFRESH_GAP, harnesses, media_file, reach, spend::Reports, work_folder, worktrees};
 use crate::{custom_agents, files::transfer::Transfers};
 use anyhow::{Context, Result};
 use beep_mesh::machine::thumb::{Picture, thumb_of};
@@ -230,12 +230,12 @@ pub async fn serve_sessions(
             let _stores = agents.watch_event_sources().await;
 
             return trace
-                .stream(agents.external.watch(tx, rx, sessions, rings))
+                .stream(claude::watch::serve(tx, rx, &agents.occupancy, sessions, rings))
                 .await;
         }
         SessionsRequest::FollowImages {} => failed("this node does not send pictures"),
         SessionsRequest::FollowPresence {} => {
-            return trace.stream(super::presence::follow(tx, rx, &agents)).await;
+            return trace.stream(super::presence_stream::follow(tx, rx, &agents)).await;
         }
         SessionsRequest::FollowAlerts {} => {
             return trace
@@ -580,7 +580,7 @@ pub async fn serve_sessions(
         _ => None,
     };
     if let Some(sessions) = metadata {
-        agents.settle_closed(sessions);
+        agents.occupancy.settle_closed(sessions);
         agents.observe_external(sessions);
     }
 
@@ -633,7 +633,7 @@ fn end_trace(
 
 async fn live_reply(agents: &Agents, session: &SessionId, steer: Option<agent::Steer>) -> SessionsReply {
     agents
-        .external
+        .occupancy
         .live(session, steer, agents.owned())
         .await
         .map_or_else(failed, |status| SessionsReply::Live {

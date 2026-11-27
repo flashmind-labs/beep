@@ -1,6 +1,7 @@
 //! What a node serves (`Offers`), and who opened a session (`Who`).
 
 use crate::{
+    occupancy::Occupancy,
     agents::{AgentKind, Agents, TRANSCRIPT_PROTOCOL, skills::Skills},
     files::transfer::Sharing,
     link::{
@@ -99,6 +100,8 @@ pub struct Offers {
     /// The coding agents and their sessions, made once so the sessions
     /// outlive each connection.
     pub agents: Arc<Agents>,
+    /// Who works in which folder here, which the agents and sync share.
+    pub occupancy: Occupancy,
     /// Protocols the host adds, such as the Mac app's `desktop/1`.
     pub extra: Vec<Arc<dyn Protocol>>,
     /// The log `report/1` shares.
@@ -193,11 +196,14 @@ impl Offers {
     /// agents found on the PATH (with `agents` from `node.toml`) and their
     /// sessions, and `provision`. A host adds its own protocols to `extra`.
     pub fn local(agents: &[AgentKind], provision: Arc<Provision>) -> Self {
+        let occupancy = Occupancy::new();
+
         Self {
-            agents: Arc::new(Agents::new(crate::agents::detect(
-                agents,
-                Some(provision.dir()),
-            ))),
+            agents: Arc::new(Agents::new(
+                crate::agents::detect(agents, Some(provision.dir())),
+                occupancy.clone(),
+            )),
+            occupancy,
             extra: Vec::new(),
             log: Logs::default(),
             provision: Some(provision),

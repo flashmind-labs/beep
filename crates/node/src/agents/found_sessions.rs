@@ -1,11 +1,12 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
-use super::{AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS, SavedSession, Session, Sighted, holders::{self, Holding}};
+use super::{AgentKind, Agents, Begin, Command, DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS, SavedSession, Session, Sighted, claude};
+use crate::logs::{claude::Store, found::Stores};
+use crate::occupancy::Holding;
 use crate::logs::picture::Picture;
 use crate::logs::window::clamp_limit;
 use crate::{
     AsyncMutex,
-    agents::claude::{self, External},
     logs::found::{self, Agent},
 };
 use anyhow::{Context, Result};
@@ -29,9 +30,6 @@ use tokio::{task::spawn_blocking, time::Instant};
 
 /// How long `close_external` waits for the process to end.
 const CLOSE_WAIT: Duration = Duration::from_secs(8);
-/// How long a session it closed reads as stopped despite a recent write:
-/// as long as such a write counts.
-const CLOSED_FOR: Duration = Duration::from_secs(3 * 60);
 
 /// The last folder listing, for the asks that waited while it ran.
 pub(super) struct Listed {
@@ -130,7 +128,8 @@ impl Agents {
         let mut folders = folders.as_ref().clone();
         let before = folders.len();
         folders.extend(
-            self.presence
+            self.occupancy
+                .presence()
                 .snapshot()
                 .into_iter()
                 .map(|native| PathBuf::from(native.cwd)),
@@ -181,9 +180,9 @@ impl Agents {
     async fn read_all_stores(&self) -> Result<Sighted> {
         metrics::counter!("beep_store_reads_total").increment(1);
 
-        let stores = self.stores.clone();
+        let stores = self.stores().clone();
         let others = spawn_blocking(move || stores.sessions(None));
-        let (claude, others) = tokio::join!(self.external.sightings(), others);
+        let (claude, others) = tokio::join!(self.external().sightings(), others);
         let mut seen = claude.unwrap_or_else(|e| {
             log::warn!("Claude Code sessions not read: {e:#}");
             Vec::new()
@@ -193,9 +192,14 @@ impl Agents {
         Ok(Sighted::of(seen))
     }
 
-    /// The Claude Code sessions started outside Beep.
-    pub fn external(&self) -> &External {
-        &self.external
+    /// Where Claude Code keeps the sessions started outside Beep.
+    pub(crate) fn external(&self) -> &Store {
+        self.occupancy.claude()
+    }
+
+    /// Where Codex, pi, flsh and OpenCode keep theirs.
+    pub(crate) fn stores(&self) -> &Stores {
+        self.occupancy.stores()
     }
 
     /// The Claude Code sessions started outside Beep, newest first.
@@ -217,7 +221,7 @@ impl Agents {
 
     /// `seen` with the sessions known only from a live connection.
     fn with_present(&self, mut seen: Vec<found::Seen>) -> Vec<found::Seen> {
-        for native in self.presence.snapshot() {
+        for native in self.occupancy.presence().snapshot() {
             if seen
                 .iter()
                 .any(|seen| seen.agent.as_ref() == native.agent && seen.id == native.id)
@@ -324,7 +328,7 @@ impl Agents {
         let ids: HashSet<SessionId> = claude.into_iter().map(|seen| seen.id).collect();
         let owned = self.owned();
         let starting = self.starting_pids();
-        let stores = self.stores.clone();
+        let stores = self.stores().clone();
         let described = spawn_blocking(move || {
             let now = SystemTime::now();
             others
@@ -332,10 +336,10 @@ impl Agents {
                 .map(|seen| stores.describe(seen, now))
                 .collect::<Vec<_>>()
         });
-        let (claude, others) = tokio::join!(self.external.named(ids, owned.clone()), described);
+        let (claude, others) = tokio::join!(self.external().named(ids, owned.clone()), described);
         let mut sessions = claude?;
         sessions.extend(others.context("reading the sessions' titles")?);
-        self.presence.merge(&mut sessions);
+        self.occupancy.presence().merge(&mut sessions);
         sessions.retain(|session| {
             folders
                 .iter()
@@ -385,7 +389,7 @@ impl Agents {
     ) -> Result<Vec<ExternalSession>> {
         let starting = self.starting_pids();
         let mut sessions = if agent == Agent::Claude.as_ref() {
-            self.external.list(limit, session, self.owned()).await?
+            self.external().list(limit, session, self.owned()).await?
         } else {
             self.stores_external(agent, limit, session).await?
         };
@@ -401,8 +405,8 @@ impl Agents {
 
     pub(super) fn follow_roots(&self, agent: Agent) -> Vec<PathBuf> {
         match agent {
-            Agent::Claude => self.external.follow_paths(),
-            other => self.stores.follow_paths(Some(other)),
+            Agent::Claude => self.external().follow_paths(),
+            other => self.stores().follow_paths(Some(other)),
         }
     }
 
@@ -419,11 +423,11 @@ impl Agents {
         }
 
         let read = match followed {
-            Some((f, from)) => Some(self.external.followed_transcript(f, last, from).await?),
-            None => match self.external.transcript(session, last, before).await? {
+            Some((f, from)) => Some(self.external().followed_transcript(f, last, from).await?),
+            None => match self.external().transcript(session, last, before).await? {
                 Some(read) => Some(read),
                 None => {
-                    let (stores, id) = (self.stores.clone(), session.to_owned());
+                    let (stores, id) = (self.stores().clone(), session.to_owned());
                     spawn_blocking(move || stores.transcript(&id, last, before)).await??
                 }
             },
@@ -473,13 +477,13 @@ impl Agents {
     ) -> Result<Option<ExternalSession>> {
         Ok(match agent {
             Agent::Claude => self
-                .external
+                .external()
                 .list(1, Some(id.clone()), owned)
                 .await?
                 .into_iter()
                 .next(),
             other => {
-                let stores = self.stores.clone();
+                let stores = self.stores().clone();
                 let id = id.clone();
                 spawn_blocking(move || stores.find(other, &id)).await?
             }
@@ -502,7 +506,7 @@ impl Agents {
         let limit = clamp_limit(limit, 1, MAX_IN_FOLDERS);
         let owned = self.owned();
         let starting = self.starting_pids();
-        let stores = self.stores.clone();
+        let stores = self.stores().clone();
         let only = session.clone();
         let mut sessions = spawn_blocking(move || {
             let now = SystemTime::now();
@@ -520,7 +524,7 @@ impl Agents {
                 .collect::<Vec<_>>()
         })
         .await?;
-        let held = self.held(agent, &sessions).await;
+        let held = self.occupancy.held(agent, &sessions).await;
 
         for found in &mut sessions {
             // A native thread shares its parent's process. Its own turn events,
@@ -530,14 +534,14 @@ impl Agents {
             }
 
             let held = held.get(&found.id).copied().unwrap_or(Holding::Unknown);
-            found.presence = holders::settle(found.presence, found.pid, held);
+            found.presence = crate::occupancy::settle(found.presence, found.pid, held);
 
             if found.pid.is_none() {
                 found.pid = held.pid();
             }
         }
 
-        self.presence.merge(&mut sessions);
+        self.occupancy.presence().merge(&mut sessions);
         sessions.retain(|found| {
             found.agent == agent.as_ref() && only.as_ref().is_none_or(|id| found.id == *id)
         });
@@ -631,11 +635,7 @@ impl Agents {
 
         // Noted first: a follow reads the session again as soon as its
         // process exits, and must find it closed then.
-        {
-            let mut closed = crate::lock(&self.closed);
-            closed.retain(|_, at| at.elapsed() < CLOSED_FOR);
-            closed.insert(id.to_owned(), Instant::now());
-        }
+        self.occupancy.note_closed(id);
 
         if let Some(pid) = session.pid {
             super::processes::close_outside(pid, CLOSE_WAIT)
@@ -646,27 +646,6 @@ impl Agents {
         self.events.changed(Topic::keyed("agent", id));
         self.events.changed(Topic::new("agents"));
         Ok(())
-    }
-
-    /// A session `close_external` ended lately reads as stopped, not as
-    /// active a moment ago from its last write.
-    pub(super) fn settle_closed(&self, sessions: &mut [ExternalSession]) {
-        let mut closed = crate::lock(&self.closed);
-
-        if closed.is_empty() {
-            return;
-        }
-
-        closed.retain(|_, at| at.elapsed() < CLOSED_FOR);
-
-        for found in sessions {
-            if found.pid.is_none()
-                && found.presence == Presence::Recent
-                && closed.contains_key(&found.id)
-            {
-                found.presence = Presence::Stopped;
-            }
-        }
     }
 
     /// The lock that keeps a resume, a delete and a move of one stored
@@ -748,8 +727,8 @@ impl Agents {
                 .with_context(|| {
                     format!("there is no {} session {id} on this machine", kind.name)
                 })?;
-            found.presence = self.presence(agent, &found).await;
-            self.settle_closed(std::slice::from_mut(&mut found));
+            found.presence = self.occupancy.presence_of(agent, &found).await;
+            self.occupancy.settle_closed(std::slice::from_mut(&mut found));
 
             if let Some(reason) = claude::refuse_takeover(&found) {
                 anyhow::bail!("{reason}");
@@ -851,69 +830,6 @@ impl Agents {
         }
     }
 
-    /// What `found`, a session in `agent`'s logs, is doing, once a
-    /// recent write alone is checked: Codex keeps a session's rollout open
-    /// while it runs, and a session Beep ran here ended with Beep.
-    pub(super) async fn presence(&self, agent: Agent, found: &ExternalSession) -> Presence {
-        if let Some(registered) = self
-            .presence
-            .snapshot()
-            .into_iter()
-            .find(|native| native.agent == agent.as_ref() && native.id == found.id)
-        {
-            return registered.presence;
-        }
-
-        let held = self.held(agent, std::slice::from_ref(found)).await;
-        holders::settle(
-            found.presence,
-            found.pid,
-            held.get(&found.id).copied().unwrap_or(Holding::Unknown),
-        )
-    }
-
-    /// What holds the file of each of `found` that no process was seen
-    /// running, by session id, all looked up at once.
-    async fn held(&self, agent: Agent, found: &[ExternalSession]) -> HashMap<SessionId, Holding> {
-        let ids: Vec<SessionId> = found
-            .iter()
-            .filter(|found| found.pid.is_none())
-            .map(|found| found.id.clone())
-            .collect();
-        // Claude Code does not keep its transcript open, but its processes
-        // were looked at already and none runs these sessions.
-        if agent == Agent::Claude {
-            return ids.into_iter().map(|id| (id, Holding::Closed)).collect();
-        }
-
-        if ids.is_empty() {
-            return HashMap::new();
-        }
-
-        let stores = self.stores.clone();
-        let files = spawn_blocking(move || {
-            ids.into_iter()
-                .filter_map(|id| Some((stores.file(Some(agent), &id)?, id)))
-                .collect::<HashMap<PathBuf, SessionId>>()
-        })
-        .await
-        .unwrap_or_else(|e| {
-            log::warn!("could not find the sessions' files: {e}");
-            HashMap::new()
-        });
-        let open = self
-            .holders
-            .held_open(files.keys().cloned().collect())
-            .await;
-        files
-            .into_iter()
-            .map(|(file, id)| {
-                let holding = open.get(&file).copied().unwrap_or(Holding::Unknown);
-                (id, holding)
-            })
-            .collect()
-    }
-
     /// The picture `key` of `session`'s transcript: kept, or else found
     /// again in the agent's own file of the session and kept. `session` is
     /// one of this node's sessions or one started outside Beep.
@@ -958,7 +874,7 @@ impl Agents {
         id: &SessionId,
     ) -> Result<Option<PathBuf>> {
         if agent.is_none_or(|agent| agent == Agent::Claude)
-            && let Some(file) = self.external.file(id).await?
+            && let Some(file) = self.external().file(id).await?
         {
             return Ok(Some(file));
         }
@@ -967,7 +883,7 @@ impl Agents {
             return Ok(None);
         }
 
-        let (stores, id) = (self.stores.clone(), id.to_owned());
+        let (stores, id) = (self.stores().clone(), id.to_owned());
         Ok(spawn_blocking(move || stores.file(agent, &id)).await?)
     }
 }

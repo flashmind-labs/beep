@@ -32,6 +32,7 @@ host! {
     mod membership;
     pub mod status;
     mod known;
+    pub mod occupancy;
     mod process;
     mod fs;
     pub(crate) mod calls;

@@ -120,7 +120,8 @@ impl Agents {
 
     /// The folders of the sessions started outside Beep that run now.
     fn live_presence_folders(&self) -> Vec<PathBuf> {
-        self.presence
+        self.occupancy
+            .presence()
             .snapshot()
             .into_iter()
             .filter(|session| session.presence.is_live())

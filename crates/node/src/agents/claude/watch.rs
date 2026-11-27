@@ -1,33 +1,24 @@
-//! Following external sessions: hook events from the socket, passed to
-//! every `Watch` stream through a broadcast, and for sessions that send no
-//! hooks, their transcripts read when the agents' stores ring.
+//! Following external sessions' transcripts for `Watch` streams: hook events
+//! from the occupancy tell a session its hooks speak for it, and for sessions
+//! that send no hooks their transcripts are read when the agents' stores ring.
 
+use crate::logs::claude::transcript::{Digest, read_from};
+use crate::{events::Change, occupancy::Occupancy};
+use anyhow::Result;
 use beep_proto::SessionId;
-use super::{
-    hooks::{HookEvent, HookMessage},
-    live::Live,
-};
-use crate::logs::claude::{
-    discover::Store,
-    transcript::{Digest, read_from},
-};
-use crate::run::local_socket::{self as socket, Listener, Stream};
-use anyhow::{Context, Result};
-use crate::events::Change;
 use beep_proto::node::{
     LinkRx, LinkTx,
     agent::{Activity, ActivityKind, SessionsReply},
 };
 use std::{
     fs::{self, File},
-    path::{Path, PathBuf},
+    path::PathBuf,
     time::Duration,
 };
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
     sync::broadcast::{self, error::RecvError},
     task::spawn_blocking,
-    time::{Instant, sleep_until, timeout},
+    time::{Instant, sleep_until},
 };
 
 /// The most sessions one stream follows.
@@ -36,78 +27,6 @@ const MAX_WATCHED: usize = 32;
 const HOOK_GRACE: Duration = Duration::from_secs(3);
 /// The most of a transcript's growth read in one check.
 const MAX_GROWTH: u64 = 4 * 1024 * 1024;
-/// Hook events waiting for slow streams.
-const HUB_SIZE: usize = 64;
-/// How long a hook has to send its line.
-const HOOK_READ: Duration = Duration::from_secs(2);
-const MAX_HOOK_LINE: u64 = 64 * 1024;
-
-/// Hands hook events to every stream that follows sessions.
-pub(crate) struct Hub(broadcast::Sender<Activity>);
-
-impl Default for Hub {
-    fn default() -> Self {
-        Self(broadcast::channel(HUB_SIZE).0)
-    }
-}
-
-impl Hub {
-    fn send(&self, activity: Activity) {
-        // Nobody follows anything now; the event is not needed.
-        let _ = self.0.send(activity);
-    }
-}
-
-/// Takes hook events on `socket` until the node stops, one connection at a
-/// time, each a single line answered with what the hook prints.
-pub(crate) async fn listen(socket: &Path, hub: &Hub, live: &Live) -> Result<()> {
-    let mut listener = Listener::bind(socket)?;
-    log::info!("taking Claude Code hooks on {}", socket::shown(socket));
-
-    loop {
-        let stream = listener.accept().await?;
-
-        match timeout(HOOK_READ, read_hook(stream, live)).await {
-            Ok(Ok(Some(activity))) => {
-                log::debug!(
-                    "hook: session {} {}",
-                    activity.session,
-                    activity.kind.as_ref()
-                );
-                crate::events::system().changed(beep_proto::node::events::Topic::keyed(
-                    "agent",
-                    &activity.session,
-                ));
-                crate::events::system().changed(beep_proto::node::events::Topic::new("agents"));
-                hub.send(activity);
-            }
-            Ok(Ok(None)) => {}
-            Ok(Err(e)) => log::debug!("skipped a hook: {e:#}"),
-            Err(_) => log::debug!("a hook sent nothing in time"),
-        }
-    }
-}
-
-async fn read_hook(mut stream: Stream, live: &Live) -> Result<Option<Activity>> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut line = String::new();
-    BufReader::new((&mut stream).take(MAX_HOOK_LINE))
-        .read_line(&mut line)
-        .await?;
-    let message: HookMessage = serde_json::from_str(&line).context("not a hook message")?;
-    let answer = live.hear(&message);
-
-    if let Some(answer) = &answer {
-        stream.write_all(answer.to_string().as_bytes()).await?;
-        stream.shutdown().await?;
-    }
-    // A blocked stop goes on with the turn, so the turn did not end.
-    if message.event == HookEvent::Stop && answer.is_some() {
-        return Ok(None);
-    }
-
-    Ok(message.activity())
-}
 
 /// One followed transcript, read as it grows.
 struct Tracker {
@@ -204,12 +123,12 @@ impl Tracker {
 pub(crate) async fn serve(
     mut tx: LinkTx,
     mut rx: LinkRx,
-    store: Option<Store>,
-    hub: &Hub,
+    occupancy: &Occupancy,
     sessions: Vec<SessionId>,
     mut rings: broadcast::Receiver<Change>,
 ) -> Result<()> {
-    let mut events = hub.0.subscribe();
+    let mut events = occupancy.hook_events();
+    let store = occupancy.claude().store();
     let (mut trackers, unknown) = spawn_blocking(move || {
         let mut trackers = Vec::new();
         let mut unknown = Vec::new();

@@ -5,7 +5,7 @@
 
 use beep_proto::SessionId;
 use super::Registration;
-use crate::agents::Agents;
+use crate::occupancy::Occupancy;
 use crate::run::local_socket::{Listener, Stream};
 use anyhow::{Context, Result, bail};
 use serde::Serialize;
@@ -14,7 +14,6 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::Arc,
     time::Duration,
 };
 use tokio::{
@@ -112,18 +111,18 @@ fn publish(path: &Path, address: &str) -> Result<Published> {
 
 /// Serves native session presence until cancelled by the node's owner,
 /// with the user's locator: for a node embedded in the desktop.
-pub async fn listen(agents: Arc<Agents>, dir: &Path) -> Result<()> {
+pub(crate) async fn listen(occupancy: Occupancy, dir: &Path) -> Result<()> {
     let path = locator_path(std::env::var_os("BEEP_PRESENCE_FILE"), None)?;
-    serve_at(agents, dir, path).await
+    serve_at(occupancy, dir, path).await
 }
 
 /// As `listen`, for a standalone node in `dir`, with its locator in `dir`.
-pub async fn listen_in(agents: Arc<Agents>, dir: &Path) -> Result<()> {
+pub(crate) async fn listen_in(occupancy: Occupancy, dir: &Path) -> Result<()> {
     let path = locator_path(std::env::var_os("BEEP_PRESENCE_FILE"), Some(dir))?;
-    serve_at(agents, dir, path).await
+    serve_at(occupancy, dir, path).await
 }
 
-async fn serve_at(agents: Arc<Agents>, dir: &Path, path: PathBuf) -> Result<()> {
+async fn serve_at(occupancy: Occupancy, dir: &Path, path: PathBuf) -> Result<()> {
     // A short private socket folder, including for long desktop paths.
     let dir = std::path::absolute(dir)?;
     let socket = crate::socket::presence_path(&dir);
@@ -137,19 +136,19 @@ async fn serve_at(agents: Arc<Agents>, dir: &Path, path: PathBuf) -> Result<()> 
     #[cfg(windows)]
     let address = crate::run::local_socket::pipe_name(&socket);
     let _published = tokio::task::spawn_blocking(move || publish(&path, &address)).await??;
-    serve(&mut listener, agents).await
+    serve(&mut listener, occupancy).await
 }
 
-async fn serve(listener: &mut Listener, agents: Arc<Agents>) -> Result<()> {
+async fn serve(listener: &mut Listener, occupancy: Occupancy) -> Result<()> {
     let mut connections = JoinSet::new();
 
     loop {
         tokio::select! {
             accepted = listener.accept(), if connections.len() < MAX_CONNECTIONS => {
                 let stream = accepted?;
-                let agents = agents.clone();
+                let occupancy = occupancy.clone();
                 connections.spawn(async move {
-                    if let Err(e) = connection(stream, &agents).await {
+                    if let Err(e) = connection(stream, &occupancy).await {
                         log::debug!("session presence connection ended: {e:#}");
                     }
                 });
@@ -164,14 +163,14 @@ async fn serve(listener: &mut Listener, agents: Arc<Agents>) -> Result<()> {
 }
 
 struct Open<'a> {
-    agents: &'a Agents,
+    occupancy: &'a Occupancy,
     id: SessionId,
     connection: Uuid,
 }
 
 impl Drop for Open<'_> {
     fn drop(&mut self) {
-        self.agents.presence.close(&self.id, self.connection);
+        self.occupancy.presence().close(&self.id, self.connection);
     }
 }
 
@@ -189,17 +188,17 @@ async fn read(reader: &mut BufReader<Stream>) -> Result<Option<Registration>> {
     Ok(Some(serde_json::from_str(&line)?))
 }
 
-async fn connection(stream: Stream, agents: &Agents) -> Result<()> {
+async fn connection(stream: Stream, occupancy: &Occupancy) -> Result<()> {
     let mut reader = BufReader::new(stream);
     let Some(registration) = timeout(HELLO_WAIT, read(&mut reader)).await?? else {
         return Ok(());
     };
     let open = Open {
-        agents,
+        occupancy,
         id: registration.session_id.clone(),
         connection: Uuid::new_v4(),
     };
-    agents.presence.register(registration, open.connection)?;
+    occupancy.presence().register(registration, open.connection)?;
     reader
         .get_mut()
         .write_all(b"{\"version\":1,\"ok\":true}\n")
@@ -209,12 +208,12 @@ async fn connection(stream: Stream, agents: &Agents) -> Result<()> {
             bail!("a presence connection belongs to one session");
         }
 
-        agents.presence.register(registration, open.connection)?;
+        occupancy.presence().register(registration, open.connection)?;
     }
 
     Ok(())
 }
 
 #[cfg(test)]
-#[path = "../../tests/agents_presence_local.rs"]
+#[path = "../../tests/occupancy_presence_local.rs"]
 mod tests;

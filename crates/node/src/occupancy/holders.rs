@@ -42,7 +42,7 @@ const MAX_WAITING: usize = 64;
 
 /// What holds a session's file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Holding {
+pub(crate) enum Holding {
     /// The process with this pid has it open.
     Open(u32),
     /// No process has it open.
@@ -52,7 +52,7 @@ pub(super) enum Holding {
 }
 
 impl Holding {
-    pub(super) fn pid(self) -> Option<u32> {
+    pub(crate) fn pid(self) -> Option<u32> {
         match self {
             Self::Open(pid) => Some(pid),
             Self::Closed | Self::Unknown => None,
@@ -434,7 +434,7 @@ async fn open_among(_real: Vec<PathBuf>) -> Option<HashMap<PathBuf, u32>> {
 /// running it, and `held` what has its file open. A recent write alone
 /// does not make a session live when nothing holds it; a failed check
 /// leaves what the log said.
-pub(super) fn settle(presence: Presence, pid: Option<u32>, held: Holding) -> Presence {
+pub(crate) fn settle(presence: Presence, pid: Option<u32>, held: Holding) -> Presence {
     if pid.is_some() {
         return presence;
     }
@@ -449,5 +449,5 @@ pub(super) fn settle(presence: Presence, pid: Option<u32>, held: Holding) -> Pre
 }
 
 #[cfg(test)]
-#[path = "../tests/agents_holders.rs"]
+#[path = "../tests/occupancy_holders.rs"]
 mod tests;

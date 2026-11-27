@@ -134,7 +134,7 @@ impl Agents {
             // Deleting cannot be undone: for Claude Code a recent write still
             // counts, in case a process Beep cannot see is writing it.
             if agent != Agent::Claude {
-                found.presence = self.presence(agent, found).await;
+                found.presence = self.occupancy.presence_of(agent, found).await;
             }
 
             let live = found.pid.is_some() || (found.presence.is_live() && !ours);
@@ -174,9 +174,9 @@ impl Agents {
         self.check_closed_files(agent, id, ours).await?;
 
         match agent {
-            Agent::Claude => self.external.delete(id).await,
+            Agent::Claude => self.external().delete(id).await,
             other => {
-                let stores = self.stores.clone();
+                let stores = self.stores().clone();
                 let id = id.clone();
                 spawn_blocking(move || stores.delete(other, &id)).await?
             }

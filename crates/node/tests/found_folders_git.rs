@@ -107,7 +107,7 @@ fn listing_checkouts_runs_no_git_and_sees_changes() {
     tokio::runtime::Runtime::new()
         .expect("a runtime")
         .block_on(async {
-            let agents = Agents::new(Vec::new());
+            let agents = Agents::new(Vec::new(), beep_node::occupancy::Occupancy::default());
             agents.warm(Some(home.clone()), dir.clone()).await;
             runs(&log);
 

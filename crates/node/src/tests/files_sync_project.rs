@@ -7,7 +7,8 @@ use super::{
     state::{Saved, Seen, State, read_saved},
     task::{ChangeTimer, DELETE_SETTLE, DeleteTimer, MAX_SETTLE, SETTLE, Task},
 };
-use crate::files::holds::{Recoveries, RepositoryHold, RepositoryHolds};
+use crate::files::holds::Recoveries;
+use crate::occupancy::{RepositoryHold, RepositoryHolds};
 use crate::files::sync::{
     Parts,
     disk::{Found, Stat},

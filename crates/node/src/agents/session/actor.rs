@@ -219,7 +219,7 @@ pub(super) struct Node {
     /// Set once the node is stopping.
     pub(super) stopping: Arc<AtomicBool>,
     /// The folder the session runs in, marked to Git sync until it ends.
-    pub(super) running: Option<crate::files::holds::Running>,
+    pub(super) running: Option<crate::occupancy::Running>,
 }
 
 pub(super) struct Actor {

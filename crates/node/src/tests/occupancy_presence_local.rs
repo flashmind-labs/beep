@@ -27,10 +27,10 @@ fn an_old_listener_leaves_a_replacement_locator_alone() {
 #[tokio::test]
 async fn an_idle_connection_stays_present_until_eof_or_cancellation() {
     for cancel in [false, true] {
-        let agents = Arc::new(Agents::default());
-        let mut changes = agents.presence.subscribe();
+        let occupancy = Occupancy::default();
+        let mut changes = occupancy.presence().subscribe();
         let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
-        let serving = agents.clone();
+        let serving = occupancy.clone();
         let task = tokio::spawn(async move { connection(server, &serving).await });
         let registration = serde_json::json!({
             "version": 1, "agent": "flsh", "session_id": "session_a",
@@ -50,7 +50,7 @@ async fn an_idle_connection_stays_present_until_eof_or_cancellation() {
             serde_json::from_str::<serde_json::Value>(&answer).unwrap()["ok"],
             true
         );
-        assert_eq!(agents.presence.snapshot()[0].presence, Presence::Running);
+        assert_eq!(occupancy.presence().snapshot()[0].presence, Presence::Running);
         watched::read_and_update(&mut changes, |_| ());
         if cancel {
             task.abort();
@@ -64,15 +64,15 @@ async fn an_idle_connection_stays_present_until_eof_or_cancellation() {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(agents.presence.snapshot()[0].presence, Presence::Stopped);
+        assert_eq!(occupancy.presence().snapshot()[0].presence, Presence::Stopped);
     }
 }
 
 #[cfg(unix)]
 #[tokio::test]
 async fn oversized_registrations_are_refused_without_tracking_a_session() {
-    let agents = Arc::new(Agents::default());
-    let serving = agents.clone();
+    let occupancy = Occupancy::default();
+    let serving = occupancy.clone();
     let (mut client, server) = tokio::net::UnixStream::pair().unwrap();
     let task = tokio::spawn(async move { connection(server, &serving).await });
     client
@@ -80,7 +80,7 @@ async fn oversized_registrations_are_refused_without_tracking_a_session() {
         .await
         .unwrap();
     assert!(timeout(HELLO_WAIT, task).await.unwrap().unwrap().is_err());
-    assert!(agents.presence.snapshot().is_empty());
+    assert!(occupancy.presence().snapshot().is_empty());
 }
 
 #[test]

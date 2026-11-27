@@ -1,9 +1,9 @@
-use beep_proto::SessionId;
 use super::*;
-use crate::agents::Agents;
-use crate::logs::found::Stores;
-use beep_proto::node::agent::{ExternalSession, SessionsReply, SessionsRequest};
-use beep_proto::node::{LinkRx, agent::Presence};
+use crate::occupancy::presence::Registration;
+use beep_proto::SessionId;
+use beep_proto::node::agent::{ExternalSession, Presence, SessionsReply, SessionsRequest};
+use crate::occupancy::presence::Registry;
+use beep_proto::node::LinkRx;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::time::{Duration, timeout};
@@ -17,52 +17,13 @@ fn registration(id: &str) -> Registration {
     .unwrap()
 }
 
-#[test]
-fn only_the_last_connection_closes_a_session() {
-    let registry = Registry::default();
-    let a = Uuid::new_v4();
-    let b = Uuid::new_v4();
-    registry.register(registration("session_a"), a).unwrap();
-    registry.register(registration("session_a"), b).unwrap();
-    registry.close(&SessionId::from("session_a"), a);
-    assert_eq!(registry.snapshot()[0].presence, Presence::Running);
-    registry.close(&SessionId::from("session_a"), b);
-    assert_eq!(registry.snapshot()[0].presence, Presence::Stopped);
-    assert_eq!(registry.snapshot()[0].pid, None);
-}
-
-#[test]
-fn registration_is_validated_and_session_metadata_updates() {
-    let registry = Registry::default();
-    let connection = Uuid::new_v4();
-    let mut invalid = registration("session_a");
-    invalid.cwd = "relative".into();
-    assert!(registry.register(invalid, connection).is_err());
-    assert!(registry.snapshot().is_empty());
-    let mut changed = registration("session_a");
-    let cwd = std::env::temp_dir()
-        .join("presence-other")
-        .display()
-        .to_string();
-    changed.cwd = cwd.clone();
-    changed.title = Some("Working title".into());
-    registry.register(changed, connection).unwrap();
-    assert_eq!(registry.snapshot()[0].cwd, cwd);
-    assert_eq!(
-        registry.snapshot()[0].title.as_deref(),
-        Some("Working title")
-    );
-}
-
 #[tokio::test]
 async fn native_presence_answers_without_a_transcript_and_overrides_recent_files() {
-    let agents = Agents {
-        stores: Stores::default(),
-        ..Agents::default()
-    };
+    let agents = Agents::default();
     let id = Uuid::new_v4();
     agents
-        .presence
+        .occupancy
+        .presence()
         .register(registration("session_a"), id)
         .unwrap();
     let found = agents
@@ -78,7 +39,7 @@ async fn native_presence_answers_without_a_transcript_and_overrides_recent_files
             .unwrap()
             .is_empty()
     );
-    agents.presence.close(&SessionId::from("session_a"), id);
+    agents.occupancy.presence().close(&SessionId::from("session_a"), id);
     let found = agents.stores_external("flsh", 10, None).await.unwrap();
     assert_eq!(found[0].presence, Presence::Stopped);
 }
@@ -91,7 +52,7 @@ async fn a_mesh_follow_reports_open_and_close_without_polling() {
     let (mut client_tx, mut client_rx) = link.caller;
     let (server_tx, server_rx) = link.node;
     let task = tokio::spawn(async move {
-        super::super::serve_sessions(
+        crate::agents::serve_sessions(
             server_tx,
             server_rx,
             serving,
@@ -116,14 +77,15 @@ async fn a_mesh_follow_reports_open_and_close_without_polling() {
     );
     let id = Uuid::new_v4();
     agents
-        .presence
+        .occupancy
+        .presence()
         .register(registration("session_a"), id)
         .unwrap();
     let Some(SessionsReply::External { sessions }) = next(&mut client_rx).await else {
         panic!("no presence snapshot");
     };
     assert_eq!(sessions[0].presence, Presence::Running);
-    agents.presence.close(&SessionId::from("session_a"), id);
+    agents.occupancy.presence().close(&SessionId::from("session_a"), id);
     let Some(SessionsReply::External { sessions }) = next(&mut client_rx).await else {
         panic!("no presence snapshot");
     };
@@ -142,7 +104,7 @@ async fn ask(agents: &Arc<Agents>, request: SessionsRequest) -> SessionsReply {
     let (server_tx, server_rx) = link.node;
     let serving = agents.clone();
     let task = tokio::spawn(async move {
-        super::super::serve_sessions(
+        crate::agents::serve_sessions(
             server_tx,
             server_rx,
             serving,
@@ -167,10 +129,7 @@ async fn ask(agents: &Arc<Agents>, request: SessionsRequest) -> SessionsReply {
 async fn continuing_here_ends_only_the_followed_session_s_process() {
     use std::os::unix::process::ExitStatusExt;
 
-    let agents = Arc::new(Agents {
-        stores: Stores::default(),
-        ..Agents::default()
-    });
+    let agents = Arc::new(Agents::default());
     let mut child = tokio::process::Command::new("sleep")
         .arg("60")
         .kill_on_drop(true)
@@ -178,10 +137,10 @@ async fn continuing_here_ends_only_the_followed_session_s_process() {
         .unwrap();
     let mut outside = registration("session_a");
     outside.pid = child.id();
-    agents.presence.register(outside, Uuid::new_v4()).unwrap();
+    agents.occupancy.presence().register(outside, Uuid::new_v4()).unwrap();
     let mut node = registration("session_b");
     node.pid = Some(std::process::id());
-    agents.presence.register(node, Uuid::new_v4()).unwrap();
+    agents.occupancy.presence().register(node, Uuid::new_v4()).unwrap();
 
     // The process is the one the node finds running that harness's session.
     for (agent, session) in [("codex", "session_a"), ("flsh", "session_c"), ("flsh", "session_b")] {

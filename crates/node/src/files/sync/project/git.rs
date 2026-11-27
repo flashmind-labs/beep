@@ -1,7 +1,7 @@
 //! Applying received branch histories without switching a user's checkout.
 
 use super::shared::Shared;
-use crate::files::holds::RepositoryHold;
+use crate::occupancy::RepositoryHold;
 use crate::files::sync::gitdir::{self, BranchTip, Repo};
 use anyhow::{Context, Result, anyhow, bail};
 use std::collections::{BTreeMap, HashMap, HashSet};

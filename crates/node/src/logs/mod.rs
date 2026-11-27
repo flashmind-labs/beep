@@ -20,3 +20,10 @@ pub(crate) fn transcript_stage(stage: &'static str, started: std::time::Instant)
     metrics::histogram!("beep_transcript_stage_seconds", "stage" => stage)
         .record(started.elapsed().as_secs_f64());
 }
+
+/// Now, in Unix seconds.
+pub(crate) fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
+}

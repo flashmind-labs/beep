@@ -515,7 +515,10 @@ async fn run() -> Result<()> {
             Ok(())
         }
         Command::Sessions { limit } => {
-            for session in Agents::new(Vec::new()).external_sessions(limit).await? {
+            for session in Agents::new(Vec::new(), beep_node::occupancy::Occupancy::new())
+                .external_sessions(limit)
+                .await?
+            {
                 let title = session.title.as_deref().unwrap_or("untitled");
                 println!(
                     "{} {} in {}: {}{}",

@@ -32,7 +32,7 @@ impl Agents {
     /// Whether flsh session `id` is here only in the database of a flsh
     /// from before 0.2.9.
     pub(super) async fn flsh_in_database(&self, id: &SessionId) -> bool {
-        let (stores, id) = (self.stores.clone(), id.to_owned());
+        let (stores, id) = (self.stores().clone(), id.to_owned());
         spawn_blocking(move || {
             stores
                 .sessions(Some(Agent::Flsh))

@@ -43,7 +43,7 @@ pub(super) enum RecoveryTurn {
     Idle,
     /// Published in the recoveries; no answer yet.
     Asked,
-    Answered(Result<crate::files::holds::RepositoryHold>),
+    Answered(Result<crate::occupancy::RepositoryHold>),
 }
 
 /// What a project's task shares with the pulls and the node.
@@ -414,7 +414,7 @@ impl Shared {
     /// Returns it with whether an ask is still waiting.
     pub(super) fn take_recovery_answer(
         &self,
-    ) -> (Option<Result<crate::files::holds::RepositoryHold>>, bool) {
+    ) -> (Option<Result<crate::occupancy::RepositoryHold>>, bool) {
         let mut turn = crate::lock(&self.recovery_turn);
 
         match std::mem::take(&mut *turn) {
@@ -437,7 +437,7 @@ impl Shared {
     /// is dropped, and its hold with it.
     pub(in crate::files::sync) fn answer_recovery(
         &self,
-        answer: Result<crate::files::holds::RepositoryHold>,
+        answer: Result<crate::occupancy::RepositoryHold>,
     ) {
         let mut turn = crate::lock(&self.recovery_turn);
 

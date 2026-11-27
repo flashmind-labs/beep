@@ -8,7 +8,7 @@ use crate::{
 };
 use beep_node::{
     agents::skills::Skills,
-    link::{self, Bound, Offers, listen_hooks, state::Search},
+    link::{self, Bound, Offers, state::Search},
     machine::{provision::Provision, service::logs::Logs},
     tools::{self, Node, ProjectTools},
 };
@@ -108,12 +108,13 @@ impl Machine {
             // MCP server stops when this task does, with the app. The
             // phones on this Mac's adb go to the desktops that follow them.
             tokio::join!(
-                listen_hooks(&home.offers.agents, &home.dir),
                 async {
-                    if let Err(e) =
-                        beep_node::agents::presence::listen(home.offers.agents.clone(), &home.dir)
-                            .await
-                    {
+                    if let Err(e) = home.offers.occupancy.listen_hooks(&home.dir).await {
+                        log::warn!("not taking Claude Code hooks: {e:#}");
+                    }
+                },
+                async {
+                    if let Err(e) = home.offers.occupancy.listen_presence(&home.dir).await {
                         log::warn!("not taking session presence: {e:#}");
                     }
                 },

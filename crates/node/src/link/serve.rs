@@ -2,7 +2,7 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::{AgentKind, Agents, SESSIONS_ALPN, skills::Skills},
+    agents::{AgentKind, SESSIONS_ALPN, skills::Skills},
     files::Folders,
     files::transfer::Transfers,
     link::Protocol,
@@ -201,15 +201,17 @@ pub async fn serve(
     let router = router.spawn();
     log::info!("offering {:?}", offers.names());
     // Claude Code's hooks report to the node over a socket in its folder.
-    let agents = offers.agents.clone();
+    let occupancy = offers.occupancy.clone();
     let hooks_dir = state.dir.clone();
     let _hooks = AbortOnDropHandle::new(tokio::spawn(async move {
-        listen_hooks(&agents, &hooks_dir).await;
+        if let Err(e) = occupancy.listen_hooks(&hooks_dir).await {
+            log::warn!("not taking Claude Code hooks: {e:#}");
+        }
     }));
-    let agents = offers.agents.clone();
+    let occupancy = offers.occupancy.clone();
     let presence_dir = state.dir.clone();
     let _presence = AbortOnDropHandle::new(tokio::spawn(async move {
-        if let Err(e) = crate::agents::presence::listen_in(agents, &presence_dir).await {
+        if let Err(e) = occupancy.listen_presence_in(&presence_dir).await {
             log::warn!("not taking session presence: {e:#}");
         }
     }));
@@ -513,14 +515,6 @@ fn route(protocol: &SessionProtocol, offers: &Offers) -> Option<Route> {
         .iter()
         .find(|p| p.name() == protocol.as_ref())
         .map(|extra| Route::Extra(extra.clone()))
-}
-
-/// Takes Claude Code's hook events on a socket in `dir` until the node
-/// stops, so terminal sessions have live state.
-pub async fn listen_hooks(agents: &Agents, dir: &Path) {
-    if let Err(e) = agents.external().listen_hooks(dir).await {
-        log::warn!("not taking Claude Code hooks: {e:#}");
-    }
 }
 
 impl Peers {

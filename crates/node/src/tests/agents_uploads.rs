@@ -232,7 +232,7 @@ done
         default_model: None,
         bridge: None,
     };
-    let agents = Agents::new(vec![kind.clone()]);
+    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
     let session = agents
         .start(&kind, Some(&dir.path().to_string_lossy()), Begin::default())
         .await

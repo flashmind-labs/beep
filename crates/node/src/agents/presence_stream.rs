@@ -11,12 +11,12 @@ use tokio::sync::broadcast::error::RecvError;
 
 /// Sends the known presence first, then after every open, update, close or
 /// ownership change.
-pub(in crate::agents) async fn follow(
+pub(super) async fn follow(
     mut tx: LinkTx,
     mut rx: LinkRx,
     agents: &Agents,
 ) -> Result<()> {
-    let mut changes = agents.presence.subscribe();
+    let mut changes = agents.occupancy.presence().subscribe();
     let mut events = agents.events.subscribe();
     let mut sent: Option<Vec<ExternalSession>> = None;
 
@@ -24,7 +24,7 @@ pub(in crate::agents) async fn follow(
         watched::read_and_update(&mut changes, |_| ());
         let owned = agents.owned();
         let starting = agents.starting_pids();
-        let mut sessions = agents.presence.snapshot();
+        let mut sessions = agents.occupancy.presence().snapshot();
 
         for session in &mut sessions {
             session.taken_over = owned.get(&session.id).cloned().or_else(|| {
@@ -62,3 +62,7 @@ pub(in crate::agents) async fn follow(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../tests/agents_presence.rs"]
+mod tests;

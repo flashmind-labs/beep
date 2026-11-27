@@ -73,7 +73,7 @@ fn a_checkout_under_the_search_folder_is_found_whatever_was_looked_at_before() {
         .block_on(async {
             // The node just started: the walk has not ended, and an answer
             // without the checkout would be taken to mean it is not there.
-            let starting = Agents::new(Vec::new());
+            let starting = Agents::new(Vec::new(), beep_node::occupancy::Occupancy::default());
             assert!(
                 starting.found_folders(ASK).await.is_err(),
                 "a node that has not looked yet must not answer"
@@ -90,7 +90,7 @@ fn a_checkout_under_the_search_folder_is_found_whatever_was_looked_at_before() {
             // the first walk saved.
             let later = home.join("Projects/acme/github/later");
             repo(&later, "https://example.com/acme/later.git");
-            let restarted = Agents::new(Vec::new());
+            let restarted = Agents::new(Vec::new(), beep_node::occupancy::Occupancy::default());
             restarted.warm(Some(home.clone()), dir.clone()).await;
             let second = found(&restarted).await;
             assert!(second.iter().any(|(path, _)| *path == later), "{second:?}");
@@ -100,7 +100,7 @@ fn a_checkout_under_the_search_folder_is_found_whatever_was_looked_at_before() {
                 fs::create_dir_all(home.join(format!("many/{one}/.git"))).expect("a checkout");
             }
 
-            let full = Agents::new(Vec::new());
+            let full = Agents::new(Vec::new(), beep_node::occupancy::Occupancy::default());
             full.warm(Some(home.clone()), dir.clone()).await;
             let all = found(&full).await;
             assert!(all.len() > MANY, "only {} came back", all.len());

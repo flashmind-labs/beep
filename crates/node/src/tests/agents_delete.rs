@@ -1,6 +1,5 @@
 use super::*;
-use crate::agents::{AgentKind, Begin, claude::External};
-use crate::logs::found::Stores;
+use crate::agents::{AgentKind, Begin};
 use std::{
     collections::BTreeMap,
     fs::{self, File},
@@ -92,8 +91,7 @@ impl Machine {
         write(&root.join("outside.jsonl"), "keep me");
         let agents = Agents {
             kinds: watch::Sender::new(Arc::new(vec![kind("claude"), kind("codex"), kind("pi")])),
-            external: External::at(&root.join("claude")),
-            stores: Stores::at(Some(&root.join("codex")), Some(&root.join("pi")), None),
+            occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(&root.join("claude")), crate::logs::found::Stores::at(Some(&root.join("codex")), Some(&root.join("pi")), None)),
             ..Agents::default()
         };
         Self { dir, agents }
@@ -163,7 +161,7 @@ async fn each_harness_deletes_only_its_own_session() {
 async fn a_deleted_session_is_no_longer_listed() {
     let m = Machine::new();
     let listed = |m: &Machine| {
-        let stores = m.agents.stores.clone();
+        let stores = m.agents.stores().clone();
         stores.find(Agent::Codex, &SessionId::from(CODEX_ID)).is_some()
     };
     assert!(listed(&m));
@@ -172,7 +170,7 @@ async fn a_deleted_session_is_no_longer_listed() {
     m.agents.delete_session("claude", &SessionId::from(CLAUDE_ID)).await.unwrap();
     let left = m
         .agents
-        .external
+        .external()
         .list(10, None, Default::default())
         .await
         .unwrap();
@@ -301,7 +299,7 @@ async fn a_closed_codex_session_moves_without_changing_the_conversation() {
         .expect("move");
     let moved = m
         .agents
-        .stores
+        .stores()
         .find(Agent::Codex, &SessionId::from(CODEX_ID))
         .expect("moved session");
     assert_eq!(Path::new(&moved.cwd), destination);
@@ -364,7 +362,7 @@ async fn a_pi_session_moves_to_its_new_store_folder() {
         .expect("move");
     let found = m
         .agents
-        .stores
+        .stores()
         .find(Agent::Pi, &SessionId::from("p1"))
         .expect("moved session");
     assert_eq!(Path::new(&found.cwd), destination);
@@ -397,7 +395,7 @@ async fn a_claude_session_moves_with_its_subagents() {
         .expect("move");
     let found = m
         .agents
-        .external
+        .external()
         .list(1, Some(SessionId::from(CLAUDE_ID)), Default::default())
         .await
         .unwrap()
@@ -406,7 +404,7 @@ async fn a_claude_session_moves_with_its_subagents() {
     assert_eq!(Path::new(&found.cwd), destination);
     let moved = m
         .agents
-        .external
+        .external()
         .file(&SessionId::from(CLAUDE_ID))
         .await
         .unwrap()

@@ -47,5 +47,5 @@ impl Drop for Installation {
 }
 
 #[cfg(test)]
-#[path = "../../../tests/agents_claude_hooks_lifecycle.rs"]
+#[path = "../../../tests/occupancy_claude_hooks_lifecycle.rs"]
 mod tests;

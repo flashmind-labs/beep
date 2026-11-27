@@ -2,8 +2,7 @@
 
 use beep_proto::SessionId;
 use crate::{
-    agents::unix_now,
-    logs::found::Agent,
+    logs::{found::Agent, unix_now},
     lock,
 };
 use anyhow::{Result, bail};
@@ -21,17 +20,17 @@ const MAX_ACTIVE: usize = 256;
 const MAX_ENDED: usize = 256;
 
 #[derive(Debug, Deserialize)]
-pub(super) struct Registration {
-    pub(super) version: u32,
-    pub(super) agent: Agent,
-    pub(super) session_id: SessionId,
-    pub(super) cwd: String,
+pub(crate) struct Registration {
+    pub(crate) version: u32,
+    pub(crate) agent: Agent,
+    pub(crate) session_id: SessionId,
+    pub(crate) cwd: String,
     #[serde(default)]
-    pub(super) pid: Option<u32>,
+    pub(crate) pid: Option<u32>,
     #[serde(default)]
-    pub(super) title: Option<String>,
+    pub(crate) title: Option<String>,
     #[serde(default)]
-    pub(super) started_at: u64,
+    pub(crate) started_at: u64,
 }
 
 impl Registration {
@@ -60,17 +59,17 @@ struct Tracked {
 }
 
 #[derive(Default)]
-pub(in crate::agents) struct Registry {
+pub(crate) struct Registry {
     tracked: Mutex<HashMap<SessionId, Tracked>>,
     changes: watch::Sender<u64>,
 }
 
 impl Registry {
-    pub(in crate::agents) fn subscribe(&self) -> watch::Receiver<u64> {
+    pub(crate) fn subscribe(&self) -> watch::Receiver<u64> {
         self.changes.subscribe()
     }
 
-    pub(super) fn register(&self, registration: Registration, connection: Uuid) -> Result<()> {
+    pub(crate) fn register(&self, registration: Registration, connection: Uuid) -> Result<()> {
         registration.validate()?;
         let mut tracked = lock(&self.tracked);
         let exists = tracked.get(&registration.session_id);
@@ -115,7 +114,7 @@ impl Registry {
         Ok(())
     }
 
-    pub(super) fn close(&self, id: &SessionId, connection: Uuid) {
+    pub(crate) fn close(&self, id: &SessionId, connection: Uuid) {
         let mut tracked = lock(&self.tracked);
         let Some(session) = tracked.get_mut(id) else {
             return;
@@ -147,7 +146,7 @@ impl Registry {
         crate::events::system().changed(beep_proto::node::events::Topic::new("agents"));
     }
 
-    pub(in crate::agents) fn snapshot(&self) -> Vec<ExternalSession> {
+    pub(crate) fn snapshot(&self) -> Vec<ExternalSession> {
         let mut sessions: Vec<_> = lock(&self.tracked)
             .values()
             .map(|tracked| tracked.session.clone())
@@ -158,7 +157,7 @@ impl Registry {
 
     /// Presence overrides heuristics; transcript text and titles stay when
     /// the registration did not supply them. Open sessions need no log yet.
-    pub(in crate::agents) fn merge(&self, sessions: &mut Vec<ExternalSession>) {
+    pub(crate) fn merge(&self, sessions: &mut Vec<ExternalSession>) {
         for registered in self.snapshot() {
             if let Some(found) = sessions
                 .iter_mut()

@@ -19,8 +19,7 @@ async fn an_archived_conversation_outside_projects_is_indexed_and_can_be_read() 
         format!("{header}\n{message}\n"),
     )?;
     let agents = Agents {
-        external: crate::agents::claude::External::at(root.path()),
-        stores: crate::logs::found::Stores::at(Some(root.path()), None, None),
+        occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::at(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
         ..Agents::default()
     };
     let sessions = conversations(&agents).await;

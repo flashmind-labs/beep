@@ -3,7 +3,7 @@
 //! runs there and answers each with the hold that lets sync recover.
 
 use super::{Agents, MAX_IN_FOLDERS};
-use crate::files::{holds::RepositoryHold, sync::Syncs};
+use crate::{files::sync::Syncs, occupancy::RepositoryHold};
 use anyhow::{Result, ensure};
 use beep_proto::node::agent::Presence;
 use std::{
@@ -47,7 +47,7 @@ impl Agents {
     /// judged now: the sessions of this node, and the sessions started
     /// outside Beep as the stores show them.
     pub(super) async fn reserve_repository(&self, folder: &Path) -> Result<RepositoryHold> {
-        let holds = self.holds();
+        let holds = self.occupancy.holds();
         let hold = holds.hold(folder).await?;
         let folder = hold.folder().to_owned();
         let root = folder.clone();

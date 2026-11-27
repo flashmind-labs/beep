@@ -117,7 +117,7 @@ impl Rig {
         let dir = tempfile::tempdir().expect("a temporary folder");
         let top = kind("top", &dir.path().join("top.log"));
         let kid = kind("kid", &dir.path().join("kid.log"));
-        let agents = Agents::new(vec![top.clone(), kid.clone()]);
+        let agents = Agents::new(vec![top.clone(), kid.clone()], crate::occupancy::Occupancy::default());
         Self {
             dir,
             agents,
@@ -874,7 +874,7 @@ async fn the_link_survives_a_restart_and_the_family_still_stops_together() {
     rig.agents.shutdown().await;
 
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
-    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()]);
+    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()], crate::occupancy::Occupancy::default());
     after.settings_arrived();
     // The child is noted first on purpose: parents resume before children.
     let mut noted = noted;
@@ -942,7 +942,7 @@ async fn a_thread_started_as_a_persona_hears_its_instructions_and_keeps_its_name
     assert!(saved.iter().any(|kept| kept.info.persona.as_ref() == Some(&persona)));
     rig.agents.shutdown().await;
     let noted: Vec<OpenSession> = serde_json::from_str(&noted).expect("the note reads");
-    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()]);
+    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()], crate::occupancy::Occupancy::default());
     after.settings_arrived();
     after.reopen(noted).await;
     let id = Agents::name_of(&child);
@@ -1089,7 +1089,7 @@ async fn a_resumed_child_with_nothing_to_do_reads_idle() {
     let noted = rig.agents.open_sessions();
     rig.agents.shutdown().await;
 
-    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()]);
+    let after = Agents::new(vec![rig.top.clone(), rig.kid.clone()], crate::occupancy::Occupancy::default());
     after.settings_arrived();
     after.reopen(noted).await;
     let resumed = after

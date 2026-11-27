@@ -61,7 +61,7 @@ impl Landing {
         };
 
         Self {
-            agents: Arc::new(Agents::new(vec![kind])),
+            agents: Arc::new(Agents::new(vec![kind], crate::occupancy::Occupancy::default())),
             mesh: Membership::default(),
             _dir: tempfile::tempdir().expect("a folder"),
         }

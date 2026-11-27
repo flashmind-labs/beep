@@ -31,7 +31,7 @@ fn resuming(id: &str) -> Begin {
 #[tokio::test]
 async fn an_inserted_session_is_there_for_the_next_read() {
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()]);
+    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
 
     assert!(agents.session_map().is_empty());
 
@@ -48,7 +48,7 @@ async fn an_inserted_session_is_there_for_the_next_read() {
 #[tokio::test]
 async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()]);
+    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
     let first = agents.start(&kind, Some("/"), Begin::default()).await.unwrap();
     // A start between taking its id and inserting, which is where the
     // process spawns.
@@ -70,7 +70,7 @@ async fn a_start_that_has_not_finished_holds_nothing_other_sessions_need() {
 #[tokio::test]
 async fn one_session_is_not_taken_over_while_another_takeover_starts() {
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()]);
+    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
     let id = "0f3c2a9e-1111-4222-8333-944455556666";
     let first = agents
         .sessions
@@ -108,8 +108,8 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
     let kind = silent();
-    let agents = Agents::new(vec![kind.clone()]);
-    let holds = agents.holds();
+    let agents = Agents::new(vec![kind.clone()], crate::occupancy::Occupancy::default());
+    let holds = agents.occupancy.holds();
     let hold = holds.hold(root).await.unwrap();
     let blocked = agents.start(&kind, root.to_str(), Begin::default()).await;
     assert!(blocked.err().unwrap().to_string().contains("preserving local edits"));
@@ -138,12 +138,9 @@ async fn recovery_blocks_new_sessions_and_open_sessions_block_recovery() {
 /// Agents whose Claude Code sessions are read from `claude` and that find
 /// no others.
 fn reading(claude: &Path) -> (Agents, tempfile::TempDir) {
-    use crate::agents::{claude::External};
-use crate::logs::found::Stores;
     let nothing = tempfile::tempdir().unwrap();
     let agents = Agents {
-        external: External::locate_in(claude),
-        stores: Stores::at(Some(nothing.path()), Some(nothing.path()), None),
+        occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(claude), crate::logs::found::Stores::at(Some(nothing.path()), Some(nothing.path()), None)),
         ..Agents::default()
     };
 

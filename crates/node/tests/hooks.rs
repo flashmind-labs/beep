@@ -4,7 +4,7 @@
 //! once when no node listens.
 #![cfg(unix)]
 
-use beep_node::agents::claude::External;
+use beep_node::occupancy::Occupancy;
 use beep_proto::SessionId;
 use beep_proto::node::agent::{LiveState, Steer};
 use serde_json::{Value, json};
@@ -86,7 +86,7 @@ async fn hooks_deliver_what_beep_queued_and_pass_through_without_a_node() {
     assert_eq!(hook(down.path(), "Stop", json!({})).await, "");
 
     let dir = TempDir::new().unwrap();
-    let external = Arc::new(External::default());
+    let external = Arc::new(Occupancy::default());
     let listening = {
         let external = external.clone();
         let dir = dir.path().to_owned();

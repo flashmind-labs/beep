@@ -203,14 +203,14 @@ impl Agents {
             let agent = session.agent.parse::<Agent>().ok();
             let pending = source.pending.clone();
             let dirty = source.dirty.clone();
-            let closed = self.closed.clone();
+            let occupancy = self.occupancy.clone();
             let task = tokio_util::task::AbortOnDropHandle::new(tokio::spawn(async move {
                 match exit {
                     // Seen to exit: the session reads as stopped at once, not
                     // as active a moment ago from its last write.
                     Some(exit) => {
                         exit.wait().await;
-                        crate::lock(&closed).insert(id.clone(), Instant::now());
+                        occupancy.note_closed(&id);
                     }
                     None => {
                         if let Some(deadline) = deadline {

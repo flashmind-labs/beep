@@ -89,7 +89,7 @@ cat > /dev/null
         bridge: None,
     };
     let mut node = Node::test(dir.path()).await;
-    node.agents = Arc::new(Agents::new(vec![kind]));
+    node.agents = Arc::new(Agents::new(vec![kind], crate::occupancy::Occupancy::default()));
     let node = Served {
         node,
         screens: Default::default(),
