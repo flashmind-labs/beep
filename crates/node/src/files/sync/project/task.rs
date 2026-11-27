@@ -5,8 +5,8 @@ use super::{
     shared::Shared,
 };
 use crate::files::sync::{
-    Parts,
     map::is_conflict,
+    parts::Parts,
     peer::{self, SyncPool},
     progress::Meter,
     watch::{Key, Mode, RESCAN, Watcher},

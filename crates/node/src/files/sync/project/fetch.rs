@@ -2,7 +2,11 @@
 
 use super::shared::Shared;
 use crate::files::place::{Reserved, space_at};
-use crate::files::sync::{Parts, STALL, map::FileMeta, scan::MAX_BYTES};
+use crate::files::sync::{
+    map::FileMeta,
+    parts::{Parts, STALL},
+    scan::MAX_BYTES,
+};
 use crate::lock;
 use anyhow::{Context, Result, anyhow, bail};
 use bao_tree::io::BaoContentItem;

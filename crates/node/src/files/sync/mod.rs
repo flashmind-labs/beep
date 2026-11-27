@@ -3,7 +3,7 @@
 
 use crate::{
     files::Folders,
-    files::place::{Journal, Room, open_target},
+    files::place::open_target,
     files::syncthing::{Managed, Syncthing},
     lock,
     membership::Membership,
@@ -19,8 +19,8 @@ use beep_proto::node::{
     },
 };
 use futures::future::join_all;
-use iroh::{Endpoint, EndpointAddr, EndpointId};
-use iroh_blobs::{Hash, store::fs::FsStore};
+use iroh::{EndpointAddr, EndpointId};
+use iroh_blobs::Hash;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeSet,
@@ -49,6 +49,7 @@ mod map;
 #[cfg(test)]
 #[path = "../../tests/files_sync_map_sim.rs"]
 mod map_sim;
+mod parts;
 mod peer;
 mod progress;
 mod project;
@@ -59,6 +60,7 @@ mod syncthing;
 mod watch;
 
 use actor::{Entry, Phase, Projects};
+pub(crate) use parts::Parts;
 use peer::SyncPool;
 pub(crate) use peer::{ALPN, PeerHandler};
 use project::{Shared, Start};
@@ -67,12 +69,6 @@ use watch::{Key, Watcher};
 
 /// How long a scan `Request::Rescan` asks for may take.
 const RESCAN_LIMIT: Duration = Duration::from_secs(120);
-/// How long a transfer may wait for its next data before it gives up. A
-/// connection can stay open on a path that no longer carries data (a NAT
-/// mapping gone, with the relay keeping the connection alive); without a
-/// limit such a transfer waits forever. The next round tries again over a
-/// new connection and keeps what came.
-const STALL: Duration = Duration::from_secs(30);
 /// What a change asked for while the node stops is told.
 const STOPPING: &str = "this node is stopping";
 /// What a change that ended without an answer, as by a panic, tells.
@@ -82,16 +78,6 @@ const STOP_LIMIT: Duration = Duration::from_secs(10);
 /// The projects the server last named (which, where, with which peers),
 /// kept so sync goes on while the server is down.
 const CONFIG: &str = "projects.json";
-
-/// What sync shares with transfers.
-#[derive(Clone)]
-pub(crate) struct Parts {
-    pub(crate) endpoint: Endpoint,
-    pub(crate) store: FsStore,
-    pub(crate) store_dir: PathBuf,
-    pub(crate) journal: Journal,
-    pub(crate) room: Arc<Room>,
-}
 
 /// The projects as the server last set them.
 #[derive(Debug, Default, Serialize, Deserialize)]

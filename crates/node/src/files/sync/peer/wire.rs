@@ -3,9 +3,9 @@
 
 use super::super::gitdir::BranchTip;
 use super::super::{
-    STALL,
     gitdir::{Checkout, Oid, Repo},
     map::{Entry, Replica},
+    parts::STALL,
     project::Shared,
 };
 use anyhow::{Context, Result, bail};
