@@ -18,6 +18,7 @@ import { draftMessage, showSessionFrame } from "./session-frame-state.ts";
 import { draftCwd } from "./draft-state.ts";
 import { agentHints, drawEditors } from "./session-head.tsx";
 import { stopAgentFollow } from "./session-follow.ts";
+import { transcripts } from "./transcript-cache-state.ts";
 import { leaveLog } from "./session.tsx";
 import { clearPage } from "./open-page.ts";
 
@@ -40,6 +41,7 @@ export function openDraft(project: string, on: string | null) {
     leaveLog();
     clearPage();
     Object.assign(AG, { open: null, draft: project, inflight: null });
+    transcripts.pin(null);
     closeSession();
     setView("agent");
     drawFrame(project);

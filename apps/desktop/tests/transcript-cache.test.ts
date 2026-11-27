@@ -155,3 +155,14 @@ test("the pinned page is never evicted, and a seed obeys the limit", () => {
   assert.equal(cache.peek("three"), undefined);
   assert.ok(cache.peek("four"));
 });
+
+test("a page is evicted again once nothing is pinned", () => {
+  const cache = new TranscriptCache<Run>(1);
+  cache.receive("open", update("snapshot", 0, ["a"]));
+  cache.pin("open");
+  cache.receive("one", update("snapshot", 0, ["b"]));
+  assert.ok(cache.peek("open"));
+  cache.pin(null);
+  cache.receive("two", update("snapshot", 0, ["c"]));
+  assert.equal(cache.peek("open"), undefined);
+});
