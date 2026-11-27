@@ -225,6 +225,14 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
             let moved = inner.addr_wake.notified();
             tokio::pin!(moved);
             moved.as_mut().enable();
+            let woke = inner.wake.notified();
+            tokio::pin!(woke);
+            woke.as_mut().enable();
+
+            if inner.is_closed() || !inner.is_member(peer) || !inner.is_member(inner.me()) {
+                return peer;
+            }
+
             let now = inner.addrs().get(&peer).cloned();
 
             if now != tried {
@@ -243,6 +251,7 @@ async fn dial(inner: Arc<Inner>, peer: EndpointId) -> EndpointId {
                     break;
                 }
                 () = &mut moved => {}
+                () = &mut woke => {}
                 changed = ours.updated(), if network => {
                     if changed.is_ok() {
                         backoff = RETRY;

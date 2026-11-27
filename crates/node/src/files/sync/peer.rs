@@ -43,6 +43,10 @@ pub(crate) const ALPN: &[u8] = b"beep-sync/7";
 const BATCH: usize = 1000;
 /// The most projects one peer pulls at once over a shared connection.
 const MAX_STREAMS: usize = 256;
+/// The most active pulls placed onto a single pooled connection. Stays under
+/// released peers' `MAX_STREAMS = 64` and Quinn's 100-bidi-stream limit so
+/// auxiliary fetch streams (`GetGit`/`GetObjects`/`Get`) always have headroom.
+const POOL_MAX_PULLS: usize = 48;
 /// The most commits a puller offers as had.
 const MAX_HAVES: usize = 64;
 /// Longest backoff between failed pulls while a peer is online or unmeshed.
@@ -50,45 +54,155 @@ const MAX_PULL_RETRY: Duration = Duration::from_secs(60);
 /// A pull that lasted at least this long resets its retry backoff.
 const STABLE_PULL: Duration = Duration::from_secs(5);
 
-type PeerSlot = Arc<AsyncMutex<Option<Connection>>>;
+struct PooledConn {
+    conn: Connection,
+    leases: usize,
+    broken: bool,
+}
 
-/// Shares one `beep-sync/7` connection per peer across all synced projects.
+type DialLock = Arc<AsyncMutex<()>>;
+
+/// Shares `beep-sync/7` connections per peer across synced projects, bounded to
+/// `POOL_MAX_PULLS` active pulls per connection and closed as soon as the last
+/// pull lease drops.
 #[derive(Clone, Default)]
 pub(super) struct SyncPool {
-    peers: Arc<Mutex<HashMap<EndpointId, PeerSlot>>>,
+    peers: Arc<Mutex<HashMap<EndpointId, Vec<PooledConn>>>>,
+    dials: Arc<Mutex<HashMap<EndpointId, DialLock>>>,
+}
+
+struct SyncLease {
+    pool: SyncPool,
+    peer: EndpointId,
+    conn: Connection,
+}
+
+impl SyncLease {
+    fn connection(&self) -> &Connection {
+        &self.conn
+    }
+
+    fn mark_broken(&self) {
+        self.pool.mark_broken(self.peer, &self.conn);
+    }
+}
+
+impl Drop for SyncLease {
+    fn drop(&mut self) {
+        let close = {
+            let mut peers = lock(&self.pool.peers);
+            let mut close = None;
+
+            if let Some(list) = peers.get_mut(&self.peer) {
+                if let Some(index) = list
+                    .iter()
+                    .position(|held| held.conn.stable_id() == self.conn.stable_id())
+                {
+                    list[index].leases = list[index].leases.saturating_sub(1);
+
+                    if list[index].leases == 0 {
+                        close = Some(list.remove(index).conn);
+                    }
+                }
+
+                if list.is_empty() {
+                    peers.remove(&self.peer);
+                }
+            }
+
+            close
+        };
+
+        if let Some(conn) = close {
+            conn.close(0u32.into(), b"idle");
+        }
+    }
 }
 
 impl SyncPool {
-    fn slot(&self, peer: EndpointId) -> PeerSlot {
-        lock(&self.peers).entry(peer).or_default().clone()
+    fn try_reuse(&self, peer: EndpointId) -> Option<SyncLease> {
+        let mut peers = lock(&self.peers);
+        let list = peers.get_mut(&peer)?;
+        list.retain(|held| held.leases > 0 || held.conn.close_reason().is_none());
+
+        let found = list.iter_mut().find(|held| {
+            !held.broken && held.leases < POOL_MAX_PULLS && held.conn.close_reason().is_none()
+        });
+
+        let lease = found.map(|held| {
+            held.leases += 1;
+            SyncLease {
+                pool: self.clone(),
+                peer,
+                conn: held.conn.clone(),
+            }
+        });
+
+        if list.is_empty() {
+            peers.remove(&peer);
+        }
+
+        lease
     }
 
-    async fn connect(&self, endpoint: &Endpoint, peer: &EndpointAddr) -> Result<Connection> {
-        let slot = self.slot(peer.id);
-        let mut guard = slot.lock().await;
+    async fn acquire(&self, endpoint: &Endpoint, peer: &EndpointAddr) -> Result<SyncLease> {
+        if let Some(lease) = self.try_reuse(peer.id) {
+            return Ok(lease);
+        }
 
-        if let Some(conn) = guard.as_ref()
-            && conn.close_reason().is_none()
-        {
-            return Ok(conn.clone());
+        let dial = lock(&self.dials).entry(peer.id).or_default().clone();
+        let _guard = dial.lock().await;
+
+        if let Some(lease) = self.try_reuse(peer.id) {
+            return Ok(lease);
         }
 
         let conn = timeout(OPEN_TIMEOUT, endpoint.connect(peer.clone(), ALPN))
             .await
             .context("could not reach the peer in time")??;
-        *guard = Some(conn.clone());
-        Ok(conn)
+        lock(&self.peers)
+            .entry(peer.id)
+            .or_default()
+            .push(PooledConn {
+                conn: conn.clone(),
+                leases: 1,
+                broken: false,
+            });
+
+        Ok(SyncLease {
+            pool: self.clone(),
+            peer: peer.id,
+            conn,
+        })
     }
 
-    async fn drop_if(&self, peer: EndpointId, connection: &Connection) {
-        let slot = self.slot(peer);
-        let mut guard = slot.lock().await;
+    fn mark_broken(&self, peer: EndpointId, connection: &Connection) {
+        let close = {
+            let mut peers = lock(&self.peers);
+            let mut close = None;
 
-        if guard
-            .as_ref()
-            .is_some_and(|held| held.stable_id() == connection.stable_id())
-        {
-            *guard = None;
+            if let Some(list) = peers.get_mut(&peer) {
+                if let Some(index) = list
+                    .iter()
+                    .position(|held| held.conn.stable_id() == connection.stable_id())
+                {
+                    list[index].broken = true;
+
+                    if list[index].leases == 0 {
+                        close = Some(list.remove(index).conn);
+                    }
+                }
+
+                if list.is_empty() {
+                    peers.remove(&peer);
+                }
+            }
+
+            close
+        };
+
+        if let Some(conn) = close {
+            conn.close(0u32.into(), b"broken");
         }
     }
 }
@@ -482,19 +596,20 @@ async fn pull_once(
     peer: &EndpointAddr,
 ) -> Result<()> {
     let started = Instant::now();
-    let connection = pool.connect(endpoint, peer).await?;
-    let opened = branches::open_pull(&connection, shared, &peer.id).await;
+    let lease = pool.acquire(endpoint, peer).await?;
+    let connection = lease.connection();
+    let opened = branches::open_pull(connection, shared, &peer.id).await;
     let (_tx, mut rx, mut first) = match opened {
         Ok(opened) => opened,
         Err(error) => {
-            pool.drop_if(peer.id, &connection).await;
+            lease.mark_broken();
             return Err(error);
         }
     };
-    let result = pull_loop(shared, &connection, peer, started, &mut rx, &mut first).await;
+    let result = pull_loop(shared, connection, peer, started, &mut rx, &mut first).await;
 
     if result.is_err() && connection.close_reason().is_some() {
-        pool.drop_if(peer.id, &connection).await;
+        lease.mark_broken();
     }
 
     result
@@ -509,6 +624,7 @@ async fn pull_loop(
     first: &mut Option<Reply>,
 ) -> Result<()> {
     let mut last = None;
+    let mut heard_answer = false;
     let mut again = shared.watch_pull_again();
     again.mark_unchanged();
 
@@ -523,8 +639,13 @@ async fn pull_loop(
             }
         };
         let Some(reply) = reply else {
+            if !heard_answer {
+                bail!("peer closed sync pull stream before answering");
+            }
+
             break;
         };
+        heard_answer = true;
 
         match reply {
             Reply::Branches { tips } => {

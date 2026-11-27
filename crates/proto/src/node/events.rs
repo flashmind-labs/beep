@@ -333,6 +333,11 @@ pub struct HeldSessions {
 }
 
 impl HeldSessions {
+    /// Drops held external-session query state whose query id is no longer watched.
+    pub fn retain_queries(&mut self, keep: impl Fn(u64) -> bool) {
+        self.queries.retain(|id, _| keep(*id));
+    }
+
     /// `snapshot` as a snapshot of the whole list: a delta applied to what
     /// is held, any other snapshot as it came. `None` for a delta that does
     /// not follow the last message held, which means one was missed: the

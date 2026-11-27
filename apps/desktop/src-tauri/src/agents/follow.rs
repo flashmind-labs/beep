@@ -791,6 +791,13 @@ impl FollowState {
         }
 
         self.trim_to(patch.cursor.start);
+
+        if self.earlier.checked_add(self.entries.len() as u64) != Some(patch.cursor.next) {
+            return Err(DesktopError::BadRequest(
+                "session patch length mismatch".into(),
+            ));
+        }
+
         let earlier = min_touched
             .unwrap_or(patch.cursor.next)
             .max(self.earlier)

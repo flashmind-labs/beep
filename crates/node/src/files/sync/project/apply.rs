@@ -162,8 +162,6 @@ impl Task {
             return false;
         }
 
-        self.scan_failed = false;
-
         let aligned = self.shared.align_git(answer, waiting).await;
 
         if aligned

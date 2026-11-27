@@ -27,7 +27,9 @@ pub(super) async fn open_pull(
     let cursor = shared.cursor(peer);
 
     for with_branches in [true, false] {
-        let (send, recv) = connection.open_bi().await?;
+        let (send, recv) = timeout(beep_mesh::OPEN_TIMEOUT, connection.open_bi())
+            .await
+            .context("opening sync pull stream timed out")??;
         let (mut tx, mut rx) = link(send, recv);
         let request = if with_branches {
             Request::PullBranches {
@@ -58,8 +60,9 @@ pub(super) async fn open_pull(
 
                 return Ok((tx, rx, Some(reply)));
             }
+            Err(_) => anyhow::bail!("peer did not answer sync pull in time"),
             // Old nodes reject the new request on this stream. Open a legacy pull.
-            _ => shared.forget_branches(peer),
+            Ok(Ok(None) | Err(_)) => shared.forget_branches(peer),
         }
     }
 

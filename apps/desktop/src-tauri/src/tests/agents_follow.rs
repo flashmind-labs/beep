@@ -318,4 +318,24 @@ fn follow_state_reconstructs_snapshots_from_patches() {
         .unwrap();
     assert_eq!(truncated.earlier, 2);
     assert!(truncated.entries.is_empty());
+
+    // Out-of-sync cursor lengths return an error instead of slicing out of bounds.
+    assert!(
+        state
+            .apply_patch(SessionPatch {
+                source: None,
+                cursor: cursor(0, 5),
+                ops: Vec::new(),
+            })
+            .is_err()
+    );
+    assert!(
+        state
+            .apply_patch(SessionPatch {
+                source: None,
+                cursor: cursor(0, 1),
+                ops: Vec::new(),
+            })
+            .is_err()
+    );
 }

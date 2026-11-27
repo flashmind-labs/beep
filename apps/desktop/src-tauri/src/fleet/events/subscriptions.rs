@@ -182,6 +182,12 @@ impl SubscriptionWorker {
                         Reply::Watching { id } => {
                             log::debug!("node watch acknowledged machine={machine} generation={generation} watch={id}");
                             watches.remove(&id);
+
+                            if watches.is_empty() {
+                                listed.retain_queries(|query_id| {
+                                    sent.iter().any(|query| query.id == query_id)
+                                });
+                            }
                         },
                         Reply::Snapshot(snapshot) => {
                             // A delta that does not follow the last message means one was missed:
