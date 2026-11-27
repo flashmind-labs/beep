@@ -206,7 +206,7 @@ async fn a_project_child_uses_its_checkout_and_accepts_followups() {
     let parent = node
         .agents
         .start(
-            &node.agents.kinds()[0],
+            &node.agents.catalog.kinds()[0],
             Some(dir.path().to_str().unwrap()),
             Begin {
                 prompt: Some("hello".into()),
@@ -320,7 +320,7 @@ async fn a_thread_runs_on_its_chats_harness_unless_it_names_one() {
     let chat = node
         .agents
         .start(
-            &node.agents.kinds()[0],
+            &node.agents.catalog.kinds()[0],
             Some(&cwd),
             Begin {
                 prompt: Some("hello".to_owned()),
@@ -386,7 +386,7 @@ async fn a_thread_runs_as_a_persona_on_its_harness_when_this_machine_has_it() {
     let chat = node
         .agents
         .start(
-            &node.agents.kinds()[0],
+            &node.agents.catalog.kinds()[0],
             Some(&cwd),
             Begin {
                 prompt: Some("hello".to_owned()),
@@ -446,7 +446,7 @@ async fn an_agent_starts_follows_messages_and_stops_its_own_child() {
         node
             .agents
             .start(
-                &node.agents.kinds()[0],
+                &node.agents.catalog.kinds()[0],
                 Some(&cwd),
                 Begin {
                     prompt: Some(format!("hello {name}")),
@@ -595,7 +595,7 @@ async fn an_agent_in_a_restricted_mode_starts_no_child_of_another_harness() {
     let parent = node
         .agents
         .start(
-            &node.agents.kinds()[0],
+            &node.agents.catalog.kinds()[0],
             Some(&cwd),
             Begin {
                 prompt: Some("hello".into()),
@@ -645,7 +645,7 @@ async fn another_machine_lists_the_sessions_ended_since_only_when_asked() {
             prompt: Some("hello".to_owned()),
             ..Begin::default()
         };
-        agents.start(&agents.kinds()[0], Some(&cwd), begin).await.expect("a session starts")
+        agents.start(&agents.catalog.kinds()[0], Some(&cwd), begin).await.expect("a session starts")
     };
     let (ended, running) = (start().await, start().await);
 

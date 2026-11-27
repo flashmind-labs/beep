@@ -748,7 +748,7 @@ async fn sessions_list_with_no_agent_program_found() {
         ..Parts::default()
     });
     assert_eq!(
-        agents.offers(),
+        agents.catalog.offers(),
         vec![
             agent::SESSIONS_PROTOCOL.to_owned(),
             agent::SESSION_FOLLOW_PROTOCOL.to_owned(),

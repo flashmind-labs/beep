@@ -72,7 +72,7 @@ impl Agents {
         // A message to a session that ended opens it again first.
         let session = match found {
             _ if message && ended => {
-                let kind = self.kind_or_refusal(agent)?;
+                let kind = self.catalog.kind_or_refusal(agent)?;
                 self.resume(&kind, id, None, None)
                     .await
                     .map_err(|e| format!("{e:#}"))?

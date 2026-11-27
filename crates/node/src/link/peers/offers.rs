@@ -261,7 +261,7 @@ impl Offers {
             mcp_servers::PROTOCOL.to_owned(),
         ]
         .into_iter()
-        .chain(self.agents.offers())
+        .chain(self.agents.catalog.offers())
         .chain(
             self.provision
                 .iter()

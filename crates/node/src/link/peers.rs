@@ -529,9 +529,9 @@ async fn status_with(
     probes: &Arc<env::Probes>,
 ) -> Result<()> {
     // An agent whose adapter the node installed later is offered then.
-    let mut kinds = offers.agents.kinds_changed();
+    let mut kinds = offers.agents.catalog.kinds_changed();
     kinds.mark_unchanged();
-    let mut adapters = offers.agents.adapters_changed();
+    let mut adapters = offers.agents.catalog.adapters_changed();
     adapters.mark_unchanged();
     tx.send(&Report::Offers(offers.names())).await?;
     let mut probed = probes.follow();
@@ -563,14 +563,14 @@ async fn status_with(
                 });
 
                 if let Some(now) = now {
-                    let now = EnvReport { adapters: offers.agents.adapter_installs(), ..now };
+                    let now = EnvReport { adapters: offers.agents.catalog.adapter_installs(), ..now };
                     send_env(&mut tx, &mut reported, now).await?;
                 }
             }
             // An adapter install started or ended: said with the last probe.
             Ok(()) = adapters.changed() => {
                 if let Some(before) = reported.clone() {
-                    let now = EnvReport { adapters: offers.agents.adapter_installs(), ..before };
+                    let now = EnvReport { adapters: offers.agents.catalog.adapter_installs(), ..before };
                     send_env(&mut tx, &mut reported, now).await?;
                 }
             }

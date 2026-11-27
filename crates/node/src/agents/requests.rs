@@ -501,7 +501,7 @@ pub async fn serve_sessions(
             .delete.delete_session(&agent, &session)
             .await
             .map_or_else(failed, |()| SessionsReply::Deleted {}),
-        SessionsRequest::Models { agent } => match agents.models(&agent).await {
+        SessionsRequest::Models { agent } => match agents.catalog.models(&agent).await {
             Some(models) => SessionsReply::Models { models },
             None => SessionsReply::Error {
                 message: format!("this node has no agent {agent}"),
@@ -524,7 +524,7 @@ pub async fn serve_sessions(
             report: agents.catalog.harnesses(refresh).await,
         },
         SessionsRequest::UpdateHarness { agent } => {
-            match harnesses::update(&agents.kinds(), &agents.catalog.latest, &agent).await {
+            match harnesses::update(&agents.catalog.kinds(), &agents.catalog.latest, &agent).await {
                 Ok(()) => SessionsReply::Harnesses {
                     report: agents.catalog.harnesses(false).await,
                 },

@@ -1,7 +1,7 @@
 //! Starting, finding and stopping the sessions this node runs.
 
 use crate::machine::env::locate::folder;
-use super::{AgentKind, Agents, Answered, Asking, Session, checkout, harnesses, live::Sent, machine_list, models, projects, session::{Begin, Command, History, Start}, sessions::{self, new_id}};
+use super::{AgentKind, Agents, Answered, Asking, Session, checkout, harnesses, live::Sent, machine_list, projects, session::{Begin, Command, History, Start}, sessions::{self, new_id}};
 use crate::{
     agents::child_reach,
     process::spawn_env,
@@ -10,13 +10,12 @@ use anyhow::{Context, Result};
 use beep_proto::SessionId;
 use beep_proto::node::{
     agent::{
-        self, CheckoutPlan, ModelList, SESSIONS_PROTOCOL, SessionDevice, SessionInfo,
+        self, CheckoutPlan, SessionDevice, SessionInfo,
         Status,
     },
-    harness::AgentSettings,
 };
 use beep_proto::watched;
-use beep_proto::{AccountName, AgentAccount, AgentHost};
+use beep_proto::{AccountName, AgentAccount};
 use std::time::Duration;
 use std::{
     borrow::Cow,
@@ -25,7 +24,7 @@ use std::{
     sync::{Arc, atomic::Ordering},
 };
 use tokio::{
-    sync::{oneshot, watch},
+    sync::oneshot,
     task::spawn_blocking,
 };
 
@@ -274,28 +273,6 @@ impl Agents {
         (entries, earlier)
     }
 
-    /// The settings now in force.
-    pub fn settings(&self) -> AgentSettings {
-        self.catalog.settings.current()
-    }
-
-    /// The models the agent `name` can run on here; `None` when this node
-    /// has no such agent.
-    pub(crate) async fn models(&self, name: &str) -> Option<ModelList> {
-        let kind = self.named(name)?;
-        let kind = self
-            .catalog
-            .settings
-            .configured(&kind)
-            .unwrap_or_else(|_| kind.clone());
-        let default_model = kind.default_model.clone();
-        let mut list = self.catalog.models.get(name, models::find(kind)).await;
-        if let Some(model) = default_model {
-            list.current = Some(model.to_string());
-        }
-        Some(list)
-    }
-
     /// While the node runs: checks installed harness releases once an hour
     /// and deletes background children as they close.
     pub fn start_upkeep(self: &Arc<Self>) -> tokio_util::task::AbortOnDropHandle<()> {
@@ -307,7 +284,7 @@ impl Agents {
 
                 loop {
                     interval.tick().await;
-                    harnesses::refresh_versions(&agents.kinds(), &agents.catalog.latest).await;
+                    harnesses::refresh_versions(&agents.catalog.kinds(), &agents.catalog.latest).await;
                 }
             };
             let background_children = async {
@@ -342,58 +319,6 @@ impl Agents {
     /// The sessions now, as last published.
     pub(crate) fn session_map(&self) -> Arc<sessions::Map> {
         self.sessions.read()
-    }
-
-    /// The protocols to offer: one per agent, and `agents/1` always, so the
-    /// sessions found on disk list even when no agent's program was found.
-    pub fn offers(&self) -> Vec<String> {
-        let mut offers: Vec<String> = self
-            .kinds()
-            .iter()
-            .map(|kind| agent::protocol(&kind.name))
-            .collect();
-        offers.push(SESSIONS_PROTOCOL.to_owned());
-        offers.push(agent::SESSION_FOLLOW_PROTOCOL.to_owned());
-        offers.push(beep_proto::node::events::PROTOCOL.to_owned());
-        offers
-    }
-
-    /// The agent `protocol` names, when this node has it.
-    pub fn kind(&self, protocol: &str) -> Option<AgentKind> {
-        let name = agent::agent_of(protocol)?;
-        self.named(name)
-    }
-
-    /// The agent called `name`, when this node has it.
-    pub(crate) fn named(&self, name: &str) -> Option<AgentKind> {
-        self.kinds().iter().find(|kind| kind.name == name).cloned()
-    }
-
-    /// The agent called `name`, or why this node cannot start it.
-    pub(super) fn kind_or_refusal(&self, name: &str) -> Result<AgentKind, String> {
-        let kinds = self.kinds();
-
-        kinds
-            .iter()
-            .find(|kind| kind.name == name)
-            .cloned()
-            .ok_or_else(|| {
-                let have: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
-                format!(
-                    "This machine has no {name} agent. It has: {}.",
-                    have.join(", ")
-                )
-            })
-    }
-
-    /// The agents this node can start now.
-    pub(crate) fn kinds(&self) -> Arc<Vec<AgentKind>> {
-        watched::read_sent(&self.catalog.kinds, Clone::clone)
-    }
-
-    /// Changes each time the agents this node can start change.
-    pub(crate) fn kinds_changed(&self) -> watch::Receiver<Arc<Vec<AgentKind>>> {
-        self.catalog.kinds.subscribe()
     }
 
     /// The session `id` names: by the id it started under or by the
@@ -439,23 +364,6 @@ impl Agents {
         self.occupancy.holds().check_start(&cwd)
     }
 
-    /// The harness Auto starts here, as a desktop picks one when the start
-    /// names none.
-    pub(crate) fn auto_harness(&self) -> Option<AgentKind> {
-        let kinds = self.kinds();
-        let host = AgentHost {
-            machine_id: String::new(),
-            machine_name: String::new(),
-            agents: kinds.iter().map(|kind| kind.name.clone()).collect(),
-            workspace: None,
-            home: None,
-            capabilities: Vec::new(),
-        };
-        let name = beep_mesh::machine::pick_agent(&host, None).ok()?;
-
-        kinds.iter().find(|kind| kind.name == name).cloned()
-    }
-
     /// Starts an issue's automatic session: the `auto_harness`, on the
     /// worktree `plan` makes in `cwd`, titled `title`. Its id, once the
     /// agent names it as listings and cards do, and the worktree it works
@@ -468,7 +376,7 @@ impl Agents {
         prompt: String,
     ) -> Result<(SessionId, String)> {
         let kind = self
-            .auto_harness()
+            .catalog.auto_harness()
             .context("this machine has no coding agent")?;
         let begin = Begin {
             prompt: Some(prompt),

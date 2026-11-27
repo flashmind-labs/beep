@@ -3,7 +3,7 @@
 mod fields;
 
 use super::SERVER_NAME;
-use crate::agents::{Agents, kinds};
+use crate::agents::{catalog::Catalog, kinds};
 use crate::logs::found;
 use crate::machine::env::locate;
 use anyhow::{Context, Result, bail, ensure};
@@ -27,48 +27,48 @@ const MAX_CONFIG: u64 = 8 * 1024 * 1024;
 const MAX_SERVER: usize = 64 * 1024;
 static WRITING: Mutex<()> = Mutex::new(());
 
-pub(crate) async fn serve(agents: Arc<Agents>, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
+pub(crate) async fn serve(catalog: Arc<Catalog>, mut tx: LinkTx, mut rx: LinkRx) -> Result<()> {
     let Some(request) = rx.recv::<Request>().await? else {
         return Ok(());
     };
 
-    let reply = spawn_blocking(move || answer(&agents, request)).await?;
+    let reply = spawn_blocking(move || answer(&catalog, request)).await?;
     tx.send(&reply.unwrap_or_else(|error| Reply::Refused(error.to_string()))).await?;
     tx.finish().await
 }
 
-fn answer(agents: &Agents, request: Request) -> Result<Reply> {
+fn answer(catalog: &Catalog, request: Request) -> Result<Reply> {
     match request {
-        Request::Harnesses => Ok(Reply::Harnesses(HARNESSES.into_iter().filter(|&h| config_path(agents, h).is_some()).collect())),
+        Request::Harnesses => Ok(Reply::Harnesses(HARNESSES.into_iter().filter(|&h| config_path(catalog, h).is_some()).collect())),
         Request::List { harness } => {
-            let path = available(agents, harness)?;
+            let path = available(catalog, harness)?;
             Ok(Reply::Servers(Document::parse(harness, &read(&path)?)?.servers(harness)?))
         }
         Request::Save { harness, previous, server } => {
-            change(&available(agents, harness)?, harness, Change::Save { previous, server })
+            change(&available(catalog, harness)?, harness, Change::Save { previous, server })
         }
         Request::Remove { harness, name } => {
-            change(&available(agents, harness)?, harness, Change::Remove(name))
+            change(&available(catalog, harness)?, harness, Change::Remove(name))
         }
         Request::Export { harness, name } => {
-            let path = available(agents, harness)?;
+            let path = available(catalog, harness)?;
             let server = Document::parse(harness, &read(&path)?)?.native(&name)?
                 .context("That MCP server was removed.")?;
             Ok(Reply::NativeServer(server))
         }
         Request::Apply { harness, server } => {
-            change(&available(agents, harness)?, harness, Change::Apply(server))
+            change(&available(catalog, harness)?, harness, Change::Apply(server))
         }
     }
 }
 
-fn available(agents: &Agents, harness: Harness) -> Result<PathBuf> {
-    config_path(agents, harness).context("This machine has no supported local configuration for that harness.")
+fn available(catalog: &Catalog, harness: Harness) -> Result<PathBuf> {
+    config_path(catalog, harness).context("This machine has no supported local configuration for that harness.")
 }
 
-fn config_path(agents: &Agents, harness: Harness) -> Option<PathBuf> {
+fn config_path(catalog: &Catalog, harness: Harness) -> Option<PathBuf> {
     let home = dirs::home_dir();
-    let kind = agents.named(harness.as_ref());
+    let kind = catalog.named(harness.as_ref());
     let native = kind.as_ref().filter(|kind| !kinds::in_wsl(kind));
     let override_dir = |key| native.and_then(|kind| kind.env.get(key)).filter(|value| !value.is_empty()).map(PathBuf::from);
     let path = match harness {

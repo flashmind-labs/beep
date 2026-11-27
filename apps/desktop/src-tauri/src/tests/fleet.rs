@@ -577,7 +577,7 @@ async fn the_node_follows_the_new_mesh_after_a_join() {
         .await
         .expect("the setting is written");
     timeout(LIMIT, async {
-        while node_offers.agents.settings().harnesses != [setting.clone()] {
+        while node_offers.agents.catalog.settings().harnesses != [setting.clone()] {
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })

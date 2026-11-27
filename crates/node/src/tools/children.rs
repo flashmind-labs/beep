@@ -227,7 +227,7 @@ impl Reach<'_> {
         // takes, so only an explicit `model` picks one.
         let harness = match (harness, &persona) {
             (Some(harness), _) => harness,
-            (None, Some(persona)) if self.agents.named(persona.harness.as_ref()).is_some() => {
+            (None, Some(persona)) if self.agents.catalog.named(persona.harness.as_ref()).is_some() => {
                 persona.harness.as_ref().to_owned()
             }
             (None, _) => parent.agent.clone(),

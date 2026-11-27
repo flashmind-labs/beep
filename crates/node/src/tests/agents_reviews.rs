@@ -83,7 +83,7 @@ impl Rig {
 
     /// A session the user began, once its first turn ended.
     async fn root(&self) -> Arc<Session> {
-        let top = self.agents.named("top").expect("the top agent");
+        let top = self.agents.catalog.named("top").expect("the top agent");
         let cwd = self.cwd();
         let begin = Begin {
             prompt: Some("go".into()),

@@ -6,7 +6,6 @@ use super::{
     adapters::{install, installs::Install, layout},
     catalog::Catalog,
     kinds::{self, AgentKind, Detection},
-    Agents,
 };
 use crate::status::Agent;
 use beep_proto::node::AdapterInstall;
@@ -107,23 +106,21 @@ impl Catalog {
         });
         self.adapters.again.notify_one();
     }
-}
 
-impl Agents {
     /// The agents this node offers and how their adapters stand, for
     /// `beep-node status`.
     pub(crate) fn agent_report(&self) -> Vec<Agent> {
-        self.catalog.adapters.report(&self.kinds())
+        self.adapters.report(&self.kinds())
     }
 
     /// The adapters on their way or failed, for `EnvReport::adapters`.
     pub(crate) fn adapter_installs(&self) -> Vec<AdapterInstall> {
-        self.catalog.adapters.pending()
+        self.adapters.pending()
     }
 
     /// Changes each time an adapter install starts, ends or is forgotten.
     pub(crate) fn adapters_changed(&self) -> watch::Receiver<BTreeMap<&'static str, Install>> {
-        self.catalog.adapters.states.subscribe()
+        self.adapters.states.subscribe()
     }
 }
 

@@ -95,8 +95,8 @@ pub(crate) async fn answer(agents: &Agents, request: &Request) -> Reply {
         Ok(args) => args,
         Err(e) => return fail(e),
     };
-    let Some(models) = agents.models(&args.harness).await else {
-        let kinds = agents.kinds();
+    let Some(models) = agents.catalog.models(&args.harness).await else {
+        let kinds = agents.catalog.kinds();
         let names: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
         return fail(format!(
             "This machine has no {} agent. It has: {}.",

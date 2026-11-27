@@ -50,10 +50,10 @@ fn a_catalog_is_built_from_values() {
 fn the_agents_a_catalog_holds_are_found_by_name_and_protocol() {
     let agents = Agents::new(Parts { kinds: vec![kind("claude"), kind("codex")], ..Parts::default() });
 
-    assert_eq!(agents.named("codex").map(|kind| kind.name), Some("codex".to_owned()));
-    assert!(agents.named("pi").is_none());
+    assert_eq!(agents.catalog.named("codex").map(|kind| kind.name), Some("codex".to_owned()));
+    assert!(agents.catalog.named("pi").is_none());
     assert_eq!(
-        agents.kind(&agent::protocol("claude")).map(|kind| kind.name),
+        agents.catalog.kind(&agent::protocol("claude")).map(|kind| kind.name),
         Some("claude".to_owned())
     );
 }
@@ -61,7 +61,7 @@ fn the_agents_a_catalog_holds_are_found_by_name_and_protocol() {
 #[test]
 fn a_new_detection_wakes_the_followers_once_and_only_when_it_differs() {
     let agents = Agents::new(Parts { kinds: vec![kind("claude")], ..Parts::default() });
-    let mut changed = agents.kinds_changed();
+    let mut changed = agents.catalog.kinds_changed();
     watched::read_and_update(&mut changed, |_| ());
 
     agents.catalog.set_kinds(vec![kind("claude")]);
@@ -69,7 +69,7 @@ fn a_new_detection_wakes_the_followers_once_and_only_when_it_differs() {
 
     agents.catalog.set_kinds(vec![kind("claude"), kind("pi")]);
     assert!(changed.has_changed().unwrap());
-    assert_eq!(agents.kinds().len(), 2);
+    assert_eq!(agents.catalog.kinds().len(), 2);
 }
 
 /// The adapter writes the `session/new` request it got into the file named
@@ -135,4 +135,22 @@ fn a_catalog_without_values_lists_no_skills_and_no_server() {
 
     assert!(catalog.mcp.is_none());
     assert!(catalog.skills_dir.is_none());
+}
+
+#[test]
+fn auto_picks_what_the_desktop_picks_from_the_catalog_alone() {
+    let kinds = vec![kind("pi"), kind("claude")];
+    let host = beep_proto::AgentHost {
+        machine_id: String::new(),
+        machine_name: String::new(),
+        agents: kinds.iter().map(|kind| kind.name.clone()).collect(),
+        workspace: None,
+        home: None,
+        capabilities: Vec::new(),
+    };
+    let picked = beep_mesh::machine::pick_agent(&host, None).expect("an agent is picked");
+
+    let catalog = Catalog::new(kinds, None, None);
+
+    assert_eq!(catalog.auto_harness().map(|kind| kind.name), Some(picked));
 }

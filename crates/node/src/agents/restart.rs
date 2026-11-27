@@ -297,7 +297,7 @@ impl Agents {
 
     pub(crate) async fn reopen_one(&self, open: OpenSession) -> Result<()> {
         let kind = self
-            .named(&open.agent)
+            .catalog.named(&open.agent)
             .with_context(|| format!("this node no longer runs {}", open.agent))?;
         self.catalog.prepare(&kind).await?;
         let cwd = ready_to_resume(&kind, &open.session, &open.cwd).await;

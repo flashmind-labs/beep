@@ -7,12 +7,13 @@ use super::{
     harnesses::{self, Latest, Settings},
     kinds::AgentKind,
     mcp_launch::Launch,
-    models::ModelCache,
+    models::{self, ModelCache},
 };
 use anyhow::Result;
 use crate::process::{self, spawn_env::{self, Scope}};
+use beep_proto::node::agent::{self, ModelList, SESSIONS_PROTOCOL};
 use beep_proto::node::harness::{AgentSettings, HarnessReport};
-use beep_proto::AccountName;
+use beep_proto::{AccountName, AgentHost};
 use beep_proto::watched;
 use std::{
     env,
@@ -147,6 +148,96 @@ impl Catalog {
         )
         .await
         .is_ok()
+    }
+
+    /// The settings now in force.
+    pub fn settings(&self) -> AgentSettings {
+        self.settings.current()
+    }
+
+    /// The models the agent `name` can run on here; `None` when this node
+    /// has no such agent.
+    pub(crate) async fn models(&self, name: &str) -> Option<ModelList> {
+        let kind = self.named(name)?;
+        let kind = self
+            .settings
+            .configured(&kind)
+            .unwrap_or_else(|_| kind.clone());
+        let default_model = kind.default_model.clone();
+        let mut list = self.models.get(name, models::find(kind)).await;
+        if let Some(model) = default_model {
+            list.current = Some(model.to_string());
+        }
+        Some(list)
+    }
+
+    /// The protocols to offer: one per agent, and `agents/1` always, so the
+    /// sessions found on disk list even when no agent's program was found.
+    pub fn offers(&self) -> Vec<String> {
+        let mut offers: Vec<String> = self
+            .kinds()
+            .iter()
+            .map(|kind| agent::protocol(&kind.name))
+            .collect();
+        offers.push(SESSIONS_PROTOCOL.to_owned());
+        offers.push(agent::SESSION_FOLLOW_PROTOCOL.to_owned());
+        offers.push(beep_proto::node::events::PROTOCOL.to_owned());
+        offers
+    }
+
+    /// The agent `protocol` names, when this node has it.
+    pub fn kind(&self, protocol: &str) -> Option<AgentKind> {
+        let name = agent::agent_of(protocol)?;
+        self.named(name)
+    }
+
+    /// The agent called `name`, when this node has it.
+    pub(crate) fn named(&self, name: &str) -> Option<AgentKind> {
+        self.kinds().iter().find(|kind| kind.name == name).cloned()
+    }
+
+    /// The agent called `name`, or why this node cannot start it.
+    pub(super) fn kind_or_refusal(&self, name: &str) -> Result<AgentKind, String> {
+        let kinds = self.kinds();
+
+        kinds
+            .iter()
+            .find(|kind| kind.name == name)
+            .cloned()
+            .ok_or_else(|| {
+                let have: Vec<&str> = kinds.iter().map(|kind| kind.name.as_str()).collect();
+                format!(
+                    "This machine has no {name} agent. It has: {}.",
+                    have.join(", ")
+                )
+            })
+    }
+
+    /// The agents this node can start now.
+    pub(crate) fn kinds(&self) -> Arc<Vec<AgentKind>> {
+        watched::read_sent(&self.kinds, Clone::clone)
+    }
+
+    /// Changes each time the agents this node can start change.
+    pub(crate) fn kinds_changed(&self) -> watch::Receiver<Arc<Vec<AgentKind>>> {
+        self.kinds.subscribe()
+    }
+
+    /// The harness Auto starts here, as a desktop picks one when the start
+    /// names none.
+    pub(crate) fn auto_harness(&self) -> Option<AgentKind> {
+        let kinds = self.kinds();
+        let host = AgentHost {
+            machine_id: String::new(),
+            machine_name: String::new(),
+            agents: kinds.iter().map(|kind| kind.name.clone()).collect(),
+            workspace: None,
+            home: None,
+            capabilities: Vec::new(),
+        };
+        let name = beep_mesh::machine::pick_agent(&host, None).ok()?;
+
+        kinds.iter().find(|kind| kind.name == name).cloned()
     }
 }
 

@@ -461,7 +461,7 @@ pub(super) async fn serve_open(
             SessionProtocol::Device => offers.agents.reach.serve_device(tx, rx).await,
             SessionProtocol::DeviceVideo => device::video::serve(tx, rx).await,
             SessionProtocol::SignIn => crate::machine::sign_in::serve(tx, rx).await,
-            SessionProtocol::McpServers => tools::configured::serve(offers.agents, tx, rx).await,
+            SessionProtocol::McpServers => tools::configured::serve(offers.agents.catalog.clone(), tx, rx).await,
             SessionProtocol::Commands => {
                 super::commands::serve_open(tx, rx, offers, who.id()).await
             }
@@ -528,7 +528,7 @@ fn route(protocol: &SessionProtocol, offers: &Offers) -> Option<Route> {
         _ => {}
     }
 
-    if let Some(kind) = offers.agents.kind(protocol.as_ref()) {
+    if let Some(kind) = offers.agents.catalog.kind(protocol.as_ref()) {
         return Some(Route::Agent(kind));
     }
 

@@ -131,7 +131,7 @@ impl Own {
             mesh: mesh.map(|mesh| mesh.id()),
             devices,
             projects,
-            agents: node.agents.agent_report(),
+            agents: node.agents.catalog.agent_report(),
         })
     }
 

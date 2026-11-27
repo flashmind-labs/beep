@@ -89,7 +89,7 @@ impl Landing {
         let session = self
             .agents
             .start(
-                &self.agents.kinds()[0],
+                &self.agents.catalog.kinds()[0],
                 self._dir.path().to_str(),
                 Begin {
                     prompt: Some("hello".into()),

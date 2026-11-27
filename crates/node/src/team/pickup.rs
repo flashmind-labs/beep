@@ -639,7 +639,7 @@ async fn start(round: &Round<'_>, issue: &OpenIssue) -> Result<Auto, Unstarted> 
     };
     let mut refused = "no machine of the mesh with the project runs an agent".to_owned();
 
-    if round.project.checkout.is_some() && round.agents.auto_harness().is_some() {
+    if round.project.checkout.is_some() && round.agents.catalog.auto_harness().is_some() {
         match timeout(START_LIMIT, start_issue(round.agents, round.mesh, &order)).await {
             Ok(Ok(auto)) => return Ok(auto),
             Ok(Err(e)) => refused = e,

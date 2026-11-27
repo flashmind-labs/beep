@@ -105,6 +105,7 @@ async fn move_here(env: &Env, record: &SessionMove, tracker: &Tracker) -> Result
 
     let kind = env
         .agents
+        .catalog
         .named(record.agent.as_ref())
         .with_context(|| format!("this machine has no {}", record.agent))?;
     if kind.name.parse::<Agent>().ok() == Some(Agent::Flsh) {
