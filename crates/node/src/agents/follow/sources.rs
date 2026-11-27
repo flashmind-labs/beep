@@ -182,7 +182,7 @@ impl Agents {
         let roots: Vec<_> = Agent::ALL
             .into_iter()
             .flat_map(|agent| {
-                self.follow_roots(agent)
+                self.listings.follow_roots(agent)
                     .into_iter()
                     .map(move |path| (agent, path))
             })

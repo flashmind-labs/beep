@@ -246,7 +246,7 @@ impl Offers {
     /// Offers `search/1`: the checkouts saved in the node's folder `dir`,
     /// read ahead from the agents' logs. Needs a running Tokio runtime.
     pub fn offer_searches(&mut self, dir: &Path, search: &Search) {
-        let searches = Searches::start(dir.to_owned(), self.agents.clone(), search);
+        let searches = Searches::start(dir.to_owned(), self.agents.listings.clone(), search);
         self.extra.push(Arc::new(searches));
     }
 

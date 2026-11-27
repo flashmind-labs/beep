@@ -23,7 +23,7 @@ impl Agents {
         harness: Harness,
         id: &SessionId,
     ) -> Option<PathBuf> {
-        self.store_file(Some(Into::<Agent>::into(harness)), id)
+        self.listings.store_file(Some(Into::<Agent>::into(harness)), id)
             .await
             .ok()
             .flatten()
@@ -32,7 +32,7 @@ impl Agents {
     /// Whether flsh session `id` is here only in the database of a flsh
     /// from before 0.2.9.
     pub(super) async fn flsh_in_database(&self, id: &SessionId) -> bool {
-        let (stores, id) = (self.stores().clone(), id.to_owned());
+        let (stores, id) = (self.listings.stores().clone(), id.to_owned());
         spawn_blocking(move || {
             stores
                 .sessions(Some(Agent::Flsh))
@@ -193,7 +193,7 @@ impl Agents {
         let mut owned = self.sessions.owned();
         owned.remove(&agent_id);
         let old = PathBuf::from(
-            self.find_external(which, &agent_id, owned)
+            self.listings.find_external(which, &agent_id, owned)
                 .await?
                 .context("session not found")?
                 .cwd,

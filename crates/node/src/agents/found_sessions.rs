@@ -1,6 +1,6 @@
 //! Sessions and folders found in the agents' own logs and on disk.
 
-use super::{AgentKind, Agents, Begin, SavedSession, Session, claude, listings::Listed, limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS}, session::Command};
+use super::{AgentKind, Agents, Begin, SavedSession, Session, claude, listings::{Listed, Listings}, sessions, limits::{DEFAULT_FOLDERS, DEFAULT_IN_FOLDERS, MAX_ASKED_FOLDERS, MAX_FOLDERS, MAX_IN_FOLDERS}, session::Command};
 use crate::logs::{claude::Store, found::Stores};
 use crate::occupancy::Holding;
 use crate::logs::picture::Picture;
@@ -11,7 +11,7 @@ use crate::{
 use anyhow::{Context, Result};
 use beep_proto::node::{
     agent::{
-        Entry, ExternalAsk, ExternalSession, HistoryCursor, MAX_EXTERNAL_NAMED, Presence,
+        Entry, ExternalAsk, ExternalSession, HistoryCursor, MAX_EXTERNAL_NAMED, Presence, SessionInfo,
         SessionFolder, SessionPage, Status,
     },
     events::Topic,
@@ -42,14 +42,14 @@ async fn asked_folders(folders: Vec<String>) -> Result<Vec<PathBuf>> {
     Ok(spawn_blocking(move || found::with_real(folders)).await?)
 }
 
-impl Agents {
+impl Listings {
     /// Reads the checkouts saved in the node's folder `dir` and the agents'
     /// logs ahead of the first requests, then walks `root` so checkouts made
     /// or removed since count. The saved list answers during the walk; with
     /// none saved, `disk_checkouts` refuses until it ends. No rescan runs
     /// meanwhile, so the walk is the only writer of the list.
     pub async fn warm(&self, root: Option<PathBuf>, dir: PathBuf) {
-        let _walking = self.listings.rescanning.lock().await;
+        let _walking = self.rescanning.lock().await;
         let Some(root) = root else {
             self.publish_checkouts(Some(Arc::default()));
             self.read_logs_ahead().await;
@@ -84,7 +84,7 @@ impl Agents {
     /// counts, and saves the list in `dir`. Nothing while a walk runs or another
     /// rescan does: what that one finds serves this one too.
     pub async fn rescan(&self, root: PathBuf, dir: PathBuf) -> Result<()> {
-        let Ok(_walking) = self.listings.rescanning.try_lock() else {
+        let Ok(_walking) = self.rescanning.try_lock() else {
             return Ok(());
         };
 
@@ -98,7 +98,7 @@ impl Agents {
     }
 
     fn publish_checkouts(&self, checkouts: Option<Arc<Vec<found::Checkout>>>) {
-        *crate::lock(&self.listings.on_disk) = checkouts;
+        *crate::lock(&self.on_disk) = checkouts;
     }
 
     async fn read_logs_ahead(&self) {
@@ -111,7 +111,7 @@ impl Agents {
     /// read some, which the first walk can make minutes: requests do not wait,
     /// and an answer without them would say a checkout is not there.
     fn disk_checkouts(&self) -> Result<Arc<Vec<found::Checkout>>> {
-        crate::lock(&self.listings.on_disk)
+        crate::lock(&self.on_disk)
             .clone()
             .context("still looking for checkouts on this machine")
     }
@@ -128,11 +128,7 @@ impl Agents {
 
     /// The Claude Code sessions started outside Beep, newest first.
     pub async fn external_sessions(&self, limit: u32) -> Result<Vec<ExternalSession>> {
-        let sessions = self
-            .external_of(Agent::Claude.as_ref(), limit, None)
-            .await?;
-        self.observe_external(&sessions);
-        Ok(sessions)
+        self.external_of(Agent::Claude.as_ref(), limit, None).await
     }
 
     /// Every session the agents' stores hold, with the folder it ran in:
@@ -150,7 +146,7 @@ impl Agents {
     pub async fn found_folders(&self, limit: u32) -> Result<Vec<SessionFolder>> {
         let limit = clamp_limit(limit, DEFAULT_FOLDERS, MAX_FOLDERS);
         let asked = Instant::now();
-        let slot = crate::lock(&self.listings.listed).entry(limit).or_default().clone();
+        let slot = crate::lock(&self.listed).entry(limit).or_default().clone();
         let mut listed = slot.lock().await;
 
         if let Some(done) = listed.as_ref()
@@ -319,38 +315,6 @@ impl Agents {
         }
     }
 
-    pub(super) async fn transcript_window(
-        &self,
-        session: &SessionId,
-        last: usize,
-        before: Option<u64>,
-        followed: Option<(&crate::logs::claude::Followed, Option<u64>)>,
-        keep_pictures: bool,
-    ) -> Result<Option<(Vec<Entry>, u64)>> {
-        if let Some(found) = self.get(session) {
-            return Ok(Some(self.live_transcript(&found, last, before).await));
-        }
-
-        let read = match followed {
-            Some((f, from)) => Some(self.external().followed_transcript(f, last, from).await?),
-            None => match self.external().transcript(session, last, before).await? {
-                Some(read) => Some(read),
-                None => {
-                    let (stores, id) = (self.stores().clone(), session.to_owned());
-                    spawn_blocking(move || stores.transcript(&id, last, before)).await??
-                }
-            },
-        };
-        Ok(read.map(|read| {
-            if keep_pictures {
-                for picture in read.pictures {
-                    self.images.keep(session, picture);
-                }
-            }
-            (read.entries, read.earlier)
-        }))
-    }
-
     /// Gives those of `sessions` that ran here what this node kept of them:
     /// that one was the home assistant, so it stays with its chats once it
     /// ended, and the name its parent gave it and the custom agent it ran
@@ -500,7 +464,7 @@ impl Agents {
     /// so it can go on here. The process is the one this node finds running
     /// that session now, never one a caller names.
     pub(super) async fn close_external(&self, agent: &str, id: &SessionId) -> Result<()> {
-        anyhow::ensure!(self.get(id).is_none(), "the session already runs in Beep");
+        anyhow::ensure!(sessions::find_session(&self.sessions.read(), id).is_none(), "the session already runs in Beep");
         let found = self.external_of(agent, 1, Some(id.clone())).await?;
         let session = found
             .into_iter()
@@ -529,6 +493,136 @@ impl Agents {
         self.events.changed(Topic::keyed("agent", id));
         self.events.changed(Topic::new("agents"));
         Ok(())
+    }
+
+    /// The picture `key` of `session`'s transcript: kept, or else found
+    /// again in the agent's own file of the session and kept. `session` is
+    /// one of this node's sessions or one started outside Beep.
+    pub(crate) async fn image(&self, session: &SessionId, key: &str) -> Result<Option<Arc<Picture>>> {
+        if let Some(picture) = self.images.get(session, key) {
+            return Ok(Some(picture));
+        }
+
+        let Some(file) = self.session_file(session).await? else {
+            return Ok(None);
+        };
+        let (images, wanted) = (self.images.clone(), key.to_owned());
+        let found = spawn_blocking(move || images.find_in_file(&file, &wanted))
+            .await?
+            .context("reading the session's file")?;
+        let Some(picture) = found else {
+            return Ok(None);
+        };
+        self.images.keep(session, picture.clone());
+        Ok(Some(Arc::new(picture)))
+    }
+
+    /// The file the agent keeps `session` in: for one of this node's, the
+    /// agent's own session it runs.
+    pub(super) async fn session_file(&self, session: &SessionId) -> Result<Option<PathBuf>> {
+        let (agent, id) = match sessions::find_session(&self.sessions.read(), session) {
+            Some(running) => {
+                let Some(id) = watched::read(&running.live, |live| live.agent_session.clone())
+                else {
+                    return Ok(None);
+                };
+                (running.agent.parse::<Agent>().ok(), id)
+            }
+            None => (None, session.to_owned()),
+        };
+        self.store_file(agent, &id).await
+    }
+
+    pub(in crate::agents) async fn store_file(
+        &self,
+        agent: Option<Agent>,
+        id: &SessionId,
+    ) -> Result<Option<PathBuf>> {
+        if agent.is_none_or(|agent| agent == Agent::Claude)
+            && let Some(file) = self.external().file(id).await?
+        {
+            return Ok(Some(file));
+        }
+
+        if agent == Some(Agent::Claude) {
+            return Ok(None);
+        }
+
+        let (stores, id) = (self.stores().clone(), id.to_owned());
+        Ok(spawn_blocking(move || stores.file(agent, &id)).await?)
+    }
+
+    /// Listings also read Claude Code's current folder from its native
+    /// transcript. Shell tools may change it without naming a structured cwd.
+    pub(super) async fn listed_with_places(&self, reviewers: bool) -> Vec<SessionInfo> {
+        let mut sessions = if reviewers {
+            self.sessions.listed(true)
+        } else {
+            self.sessions.list()
+        };
+        let owned: HashMap<SessionId, SessionId> = sessions
+            .iter()
+            .filter(|info| info.agent == "claude")
+            .filter_map(|info| {
+                let session = sessions::find_session(&self.sessions.read(), &info.id)?;
+                let id = watched::read(&session.live, |live| live.agent_session.clone())?;
+                Some((id, info.id.clone()))
+            })
+            .collect();
+
+        if owned.is_empty() {
+            return sessions;
+        }
+
+        match self.external().places(owned.keys().cloned().collect()).await {
+            Ok(found) => {
+                for (id, place) in found {
+                    if let Some(info) = sessions
+                        .iter_mut()
+                        .find(|info| owned.get(&id) == Some(&info.id))
+                    {
+                        info.place = Some(place);
+                    }
+                }
+            }
+            Err(e) => log::debug!("native session folders not read: {e:#}"),
+        }
+
+        sessions
+    }
+}
+
+impl Agents {
+    pub(super) async fn transcript_window(
+        &self,
+        session: &SessionId,
+        last: usize,
+        before: Option<u64>,
+        followed: Option<(&crate::logs::claude::Followed, Option<u64>)>,
+        keep_pictures: bool,
+    ) -> Result<Option<(Vec<Entry>, u64)>> {
+        if let Some(found) = self.get(session) {
+            return Ok(Some(self.live_transcript(&found, last, before).await));
+        }
+
+        let read = match followed {
+            Some((f, from)) => Some(self.listings.external().followed_transcript(f, last, from).await?),
+            None => match self.listings.external().transcript(session, last, before).await? {
+                Some(read) => Some(read),
+                None => {
+                    let (stores, id) = (self.listings.stores().clone(), session.to_owned());
+                    spawn_blocking(move || stores.transcript(&id, last, before)).await??
+                }
+            },
+        };
+        Ok(read.map(|read| {
+            if keep_pictures {
+                for picture in read.pictures {
+                    self.images.keep(session, picture);
+                }
+            }
+            (read.entries, read.earlier)
+        }))
     }
 
     /// Takes over the Claude Code session `id` started outside Beep, once
@@ -583,7 +677,7 @@ impl Agents {
         // harness's private store. Outside sessions still need that reader.
         let cwd = if let Ok(agent) = kind.name.parse::<Agent>() {
             let mut found = self
-                .find_external(agent, id, owned)
+                .listings.find_external(agent, id, owned)
                 .await?
                 .with_context(|| {
                     format!("there is no {} session {id} on this machine", kind.name)
@@ -689,63 +783,6 @@ impl Agents {
             issue: info.issue,
             ..Begin::default()
         }
-    }
-
-    /// The picture `key` of `session`'s transcript: kept, or else found
-    /// again in the agent's own file of the session and kept. `session` is
-    /// one of this node's sessions or one started outside Beep.
-    pub(crate) async fn image(&self, session: &SessionId, key: &str) -> Result<Option<Arc<Picture>>> {
-        if let Some(picture) = self.images.get(session, key) {
-            return Ok(Some(picture));
-        }
-
-        let Some(file) = self.session_file(session).await? else {
-            return Ok(None);
-        };
-        let (images, wanted) = (self.images.clone(), key.to_owned());
-        let found = spawn_blocking(move || images.find_in_file(&file, &wanted))
-            .await?
-            .context("reading the session's file")?;
-        let Some(picture) = found else {
-            return Ok(None);
-        };
-        self.images.keep(session, picture.clone());
-        Ok(Some(Arc::new(picture)))
-    }
-
-    /// The file the agent keeps `session` in: for one of this node's, the
-    /// agent's own session it runs.
-    pub(super) async fn session_file(&self, session: &SessionId) -> Result<Option<PathBuf>> {
-        let (agent, id) = match self.get(session) {
-            Some(running) => {
-                let Some(id) = watched::read(&running.live, |live| live.agent_session.clone())
-                else {
-                    return Ok(None);
-                };
-                (running.agent.parse::<Agent>().ok(), id)
-            }
-            None => (None, session.to_owned()),
-        };
-        self.store_file(agent, &id).await
-    }
-
-    pub(in crate::agents) async fn store_file(
-        &self,
-        agent: Option<Agent>,
-        id: &SessionId,
-    ) -> Result<Option<PathBuf>> {
-        if agent.is_none_or(|agent| agent == Agent::Claude)
-            && let Some(file) = self.external().file(id).await?
-        {
-            return Ok(Some(file));
-        }
-
-        if agent == Some(Agent::Claude) {
-            return Ok(None);
-        }
-
-        let (stores, id) = (self.stores().clone(), id.to_owned());
-        Ok(spawn_blocking(move || stores.file(agent, &id)).await?)
     }
 }
 

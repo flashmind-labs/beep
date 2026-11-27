@@ -75,7 +75,7 @@ async fn a_codex_session_started_outside_beep_lists_then_reads() {
     let agents = agents(codex.path(), pi.path());
 
     let listed = agents
-        .stores_external("codex", 10, Some(CODEX_ID.into()))
+        .listings.stores_external("codex", 10, Some(CODEX_ID.into()))
         .await
         .expect("the listing");
     assert_eq!(listed.len(), 1);
@@ -221,12 +221,12 @@ async fn a_native_codex_conversation_reads_only_its_own_messages_and_outputs() {
     let agents = agents(codex.path(), pi.path());
     let id = format!("subagent:codex:{CODEX_ID}");
     let listed = agents
-        .stores_external("codex", 10, None)
+        .listings.stores_external("codex", 10, None)
         .await
         .expect("roots");
     assert!(listed.is_empty());
     let listed = agents
-        .stores_external("codex", 1, Some(SessionId::from(id.clone())))
+        .listings.stores_external("codex", 1, Some(SessionId::from(id.clone())))
         .await
         .expect("native session");
     assert_eq!(listed.len(), 1);

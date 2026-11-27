@@ -133,9 +133,9 @@ async fn wake_on_changes(index: &SearchIndex, agents: &Agents, mesh: &Mesh) {
 /// Keep the agent's id as the index key so taking over a conversation
 /// changes how it opens without creating another copy of its messages.
 pub(super) async fn conversations(agents: &Agents) -> Vec<Conversation> {
-    let stores = agents.stores().clone();
+    let stores = agents.listings.stores().clone();
     let archived = spawn_blocking(move || stores.archived_codex());
-    let (sightings, archived) = tokio::join!(agents.sightings(), archived);
+    let (sightings, archived) = tokio::join!(agents.listings.sightings(), archived);
     let mut seen = match sightings {
         Ok(seen) => seen,
         Err(e) => {

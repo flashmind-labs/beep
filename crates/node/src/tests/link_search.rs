@@ -11,9 +11,9 @@ async fn a_new_search_folder_is_saved_and_a_missing_one_refused() {
     // Walks this empty folder, not the home of whoever runs the test.
     let empty = temp.path().join("empty");
     fs::create_dir(&empty).expect("a folder");
-    let agents = Arc::new(Agents::new(Parts::default()));
+    let agents = Arc::new(crate::agents::Agents::new(Parts::default()));
     let start = Search::from(empty.display().to_string().as_str());
-    let searches = Searches::start(dir.clone(), agents, &start);
+    let searches = Searches::start(dir.clone(), agents.listings.clone(), &start);
     let home = Reply::Folder {
         folder: "~/".into(),
     };

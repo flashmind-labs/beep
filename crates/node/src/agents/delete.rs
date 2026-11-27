@@ -128,7 +128,7 @@ impl Agents {
     ) -> Result<()> {
         let mut owned = self.sessions.owned();
         owned.remove(id);
-        let mut found = self.find_external(agent, id, owned).await?;
+        let mut found = self.listings.find_external(agent, id, owned).await?;
 
         if let Some(found) = &mut found {
             // Deleting cannot be undone: for Claude Code a recent write still
@@ -159,7 +159,7 @@ impl Agents {
         owned.remove(id);
 
         if let Some(pid) = self
-            .find_external(agent, id, owned)
+            .listings.find_external(agent, id, owned)
             .await?
             .and_then(|found| found.pid)
         {
@@ -174,9 +174,9 @@ impl Agents {
         self.check_closed_files(agent, id, ours).await?;
 
         match agent {
-            Agent::Claude => self.external().delete(id).await,
+            Agent::Claude => self.listings.external().delete(id).await,
             other => {
-                let stores = self.stores().clone();
+                let stores = self.listings.stores().clone();
                 let id = id.clone();
                 spawn_blocking(move || stores.delete(other, &id)).await?
             }

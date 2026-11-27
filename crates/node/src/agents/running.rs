@@ -20,7 +20,6 @@ use beep_proto::{AccountName, AgentAccount, AgentHost};
 use std::time::Duration;
 use std::{
     borrow::Cow,
-    collections::HashMap,
     path::{Path, PathBuf},
     str::FromStr,
     sync::{Arc, atomic::Ordering},
@@ -119,7 +118,7 @@ impl Agents {
                 && !calls.is_empty()
             {
                 match self
-                    .external()
+                    .listings.external()
                     .attach_children(&id, calls, entries.clone())
                     .await
                 {
@@ -138,7 +137,7 @@ impl Agents {
             let end = before.unwrap_or(native).min(native);
             if end > 0 {
                 match self
-                    .external()
+                    .listings.external()
                     .page(history.path, last - entries.len(), Some(end))
                     .await
                 {
@@ -188,14 +187,14 @@ impl Agents {
         // history. Newest-page polls can keep their existing position.
         let result: Result<History> = async {
             let path = self
-                .external()
+                .listings.external()
                 .file(&id)
                 .await?
                 .context("native transcript not found")?;
             let (replay, dropped) = watched::read(&session.live, |live| {
                 live.transcript_before(usize::MAX, None)
             });
-            let native = self.external().prefix_len(path.clone(), replay).await?;
+            let native = self.listings.external().prefix_len(path.clone(), replay).await?;
             Ok(History {
                 path,
                 native,
@@ -224,7 +223,7 @@ impl Agents {
         if session.agent == "codex" {
             let parent = watched::read(&session.live, |live| live.agent_session.clone());
             if let Some(parent) = parent {
-                let stores = self.stores().clone();
+                let stores = self.listings.stores().clone();
                 match spawn_blocking(move || stores.codex_children(&parent)).await {
                     Ok(runs) if !runs.is_empty() => {
                         let _ = session.order(Command::RecoverCodexChildren(runs)).await;
@@ -243,7 +242,7 @@ impl Agents {
             return (entries, earlier);
         }
 
-        let stores = self.stores().clone();
+        let stores = self.listings.stores().clone();
         let read = spawn_blocking(move || {
             children
                 .into_iter()
@@ -401,45 +400,6 @@ impl Agents {
     /// agent's own id.
     pub(crate) fn get(&self, id: &SessionId) -> Option<Arc<Session>> {
         sessions::find_session(&self.sessions.read(), id)
-    }
-
-    /// Listings also read Claude Code's current folder from its native
-    /// transcript. Shell tools may change it without naming a structured cwd.
-    pub(super) async fn listed_with_places(&self, reviewers: bool) -> Vec<SessionInfo> {
-        let mut sessions = if reviewers {
-            self.sessions.listed(true)
-        } else {
-            self.sessions.list()
-        };
-        let owned: HashMap<SessionId, SessionId> = sessions
-            .iter()
-            .filter(|info| info.agent == "claude")
-            .filter_map(|info| {
-                let session = self.get(&info.id)?;
-                let id = watched::read(&session.live, |live| live.agent_session.clone())?;
-                Some((id, info.id.clone()))
-            })
-            .collect();
-
-        if owned.is_empty() {
-            return sessions;
-        }
-
-        match self.external().places(owned.keys().cloned().collect()).await {
-            Ok(found) => {
-                for (id, place) in found {
-                    if let Some(info) = sessions
-                        .iter_mut()
-                        .find(|info| owned.get(&id) == Some(&info.id))
-                    {
-                        info.place = Some(place);
-                    }
-                }
-            }
-            Err(e) => log::debug!("native session folders not read: {e:#}"),
-        }
-
-        sessions
     }
 
     /// The entries of the full list whose id is `id`, without copying the others.

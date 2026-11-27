@@ -82,7 +82,7 @@ impl SummaryCache {
     /// again for the agents in `changed`.
     async fn read(&mut self, agents: &Agents, changed: &BTreeSet<Agent>) -> Result<Vec<Summary>> {
         let sighted = agents.occupancy.refresh(changed).await?;
-        let stores = agents.stores().clone();
+        let stores = agents.listings.stores().clone();
         let refresh_claude = self.claude.is_none() || changed.contains(&Agent::Claude);
         let described = spawn_blocking(move || {
             // Preserve the stores' order when activity times tie.
@@ -102,7 +102,7 @@ impl SummaryCache {
         let claude = async {
             if refresh_claude {
                 agents
-                    .external()
+                    .listings.external()
                     .list(512, None, agents.sessions.owned())
                     .await
                     .map(Some)
@@ -242,7 +242,7 @@ async fn follow(
     // A Claude Code session started outside Beep is found once, and the
     // machine's processes are read again only when its presence may change.
     let mut followed = if live.is_none() && request.agent == "claude" {
-        agents.external().follow(&request.session).await?
+        agents.listings.external().follow(&request.session).await?
     } else {
         None
     };
@@ -253,7 +253,7 @@ async fn follow(
     let _watcher = if paths.is_empty() {
         None
     } else {
-        let presence_path = agents.external().presence_path();
+        let presence_path = agents.listings.external().presence_path();
         let presence_changed = stale.clone();
         let watcher = crate::events::paths::Paths::new("agent-presence", move |roots| {
             if presence_path
@@ -1036,14 +1036,14 @@ async fn snapshot(
                 Some(followed) => {
                     vec![
                         agents
-                            .external()
+                            .listings.external()
                             .followed(followed, stale, agents.sessions.owned())
                             .await?,
                     ]
                 }
                 None => {
                     agents
-                        .raw_external_of(request.agent.as_ref(), 1, Some(request.session.clone()))
+                        .listings.raw_external_of(request.agent.as_ref(), 1, Some(request.session.clone()))
                         .await?
                 }
             };
@@ -1096,7 +1096,7 @@ async fn paths(
 ) -> Result<Vec<PathBuf>> {
     if agents.get(&request.session).is_some() {
         return Ok(if request.agent == "codex" {
-            agents.follow_roots(Agent::Codex)
+            agents.listings.follow_roots(Agent::Codex)
         } else {
             Vec::new()
         });
@@ -1106,7 +1106,7 @@ async fn paths(
 
     let file = match followed {
         Some(followed) => Some(followed.path().to_owned()),
-        None => agents.session_file(&request.session).await?,
+        None => agents.listings.session_file(&request.session).await?,
     };
 
     if let Some(file) = file {
@@ -1121,9 +1121,9 @@ async fn paths(
     }
 
     if request.agent == "claude" {
-        paths.extend(agents.external().presence_path());
+        paths.extend(agents.listings.external().presence_path());
     } else if request.agent == "codex" {
-        paths.extend(agents.follow_roots(Agent::Codex));
+        paths.extend(agents.listings.follow_roots(Agent::Codex));
     }
 
     Ok(paths)

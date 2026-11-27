@@ -177,10 +177,10 @@ pub async fn serve_sessions(
     let _slow = watch_slow(&request, caller);
     let mut reply = match request {
         SessionsRequest::List {} => SessionsReply::Sessions {
-            sessions: agents.listed_with_places(false).await,
+            sessions: agents.listings.listed_with_places(false).await,
         },
         SessionsRequest::ListAll {} => SessionsReply::Sessions {
-            sessions: agents.listed_with_places(true).await,
+            sessions: agents.listings.listed_with_places(true).await,
         },
         SessionsRequest::Transcript {
             session,
@@ -197,18 +197,18 @@ pub async fn serve_sessions(
             limit,
             session,
         } => agents
-            .external_of(&agent, limit, session)
+            .listings.external_of(&agent, limit, session)
             .await
             .map_or_else(failed, |sessions| SessionsReply::External { sessions }),
         SessionsRequest::ExternalNamed { sessions } => SessionsReply::External {
-            sessions: agents.external_named(sessions).await,
+            sessions: agents.listings.external_named(sessions).await,
         },
         SessionsRequest::Folders { limit } => agents
-            .found_folders(limit)
+            .listings.found_folders(limit)
             .await
             .map_or_else(failed, |folders| SessionsReply::Folders { folders }),
         SessionsRequest::InFolders { folders, limit } => agents
-            .sessions_in(folders, limit)
+            .listings.sessions_in(folders, limit)
             .await
             .map_or_else(failed, |sessions| SessionsReply::External { sessions }),
         SessionsRequest::InFoldersPage {
@@ -216,7 +216,7 @@ pub async fn serve_sessions(
             limit,
             before,
         } => agents
-            .sessions_page(folders, limit, before)
+            .listings.sessions_page(folders, limit, before)
             .await
             .map_or_else(failed, |page| SessionsReply::SessionPage { page }),
         SessionsRequest::Live { session } => live_reply(&agents, &session, None).await,
@@ -485,7 +485,7 @@ pub async fn serve_sessions(
             _ => failed("the session has ended"),
         },
         SessionsRequest::CloseExternal { agent, session } => agents
-            .close_external(&agent, &session)
+            .listings.close_external(&agent, &session)
             .await
             .map_or_else(failed, |()| SessionsReply::ProcessStopped {}),
         SessionsRequest::RelocateSession {
@@ -936,7 +936,7 @@ async fn send_index(
 
 /// The picture `key` of `session` as `Image` answers it.
 async fn image_reply(agents: &Agents, session: &SessionId, key: &str) -> SessionsReply {
-    match agents.image(session, key).await {
+    match agents.listings.image(session, key).await {
         Ok(Some(picture)) if picture.data.len() <= MAX_IMAGE => SessionsReply::Image {
             mime: picture.mime.clone(),
             data: picture.data.clone(),

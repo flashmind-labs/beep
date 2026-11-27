@@ -7,33 +7,33 @@ async fn the_walk_publishes_after_it_ends_and_lets_a_rescan_run() {
     let dir = tempfile::tempdir().expect("a temporary folder");
     std::fs::create_dir_all(home.path().join("work/app/.git")).expect("a checkout");
     let agents = Agents::new(Parts::default());
-    assert!(agents.disk_checkouts().is_err(), "nothing is known before a walk");
+    assert!(agents.listings.disk_checkouts().is_err(), "nothing is known before a walk");
 
     agents
-        .warm(Some(home.path().to_path_buf()), dir.path().to_path_buf())
+        .listings.warm(Some(home.path().to_path_buf()), dir.path().to_path_buf())
         .await;
 
     assert!(agents.listings.rescanning.try_lock().is_ok());
-    let found = agents.disk_checkouts().expect("the walk published its list");
+    let found = agents.listings.disk_checkouts().expect("the walk published its list");
     assert!(found.iter().any(|checkout| checkout.root.ends_with("work/app")));
 
     std::fs::create_dir_all(home.path().join("work/new/.git")).expect("a checkout");
     agents
-        .rescan(home.path().to_path_buf(), dir.path().to_path_buf())
+        .listings.rescan(home.path().to_path_buf(), dir.path().to_path_buf())
         .await
         .expect("the rescan runs");
-    let found = agents.disk_checkouts().expect("the rescan published its list");
+    let found = agents.listings.disk_checkouts().expect("the rescan published its list");
     assert!(found.iter().any(|checkout| checkout.root.ends_with("work/new")));
 }
 
 #[tokio::test]
 async fn a_listing_for_one_limit_does_not_wait_for_another() {
     let agents = Agents::new(Parts::default());
-    agents.warm(None, std::path::PathBuf::new()).await;
+    agents.listings.warm(None, std::path::PathBuf::new()).await;
     let slot = crate::lock(&agents.listings.listed).entry(5).or_default().clone();
     let _running = slot.lock().await;
 
-    let listed = tokio::time::timeout(std::time::Duration::from_secs(20), agents.found_folders(10))
+    let listed = tokio::time::timeout(std::time::Duration::from_secs(20), agents.listings.found_folders(10))
         .await
         .expect("a listing for another limit is not held up");
 
@@ -66,17 +66,17 @@ async fn the_warm_walk_waits_for_a_rescan_that_runs() {
     let rescan = agents.listings.rescanning.lock().await;
     let warm = tokio::spawn({
         let agents = agents.clone();
-        async move { agents.warm(None, std::path::PathBuf::new()).await }
+        async move { agents.listings.warm(None, std::path::PathBuf::new()).await }
     });
 
     for _ in 0..20 {
         tokio::task::yield_now().await;
     }
-    assert!(agents.disk_checkouts().is_err(), "warm walked beside the rescan");
+    assert!(agents.listings.disk_checkouts().is_err(), "warm walked beside the rescan");
 
     drop(rescan);
     warm.await.expect("warm ended");
-    assert!(agents.disk_checkouts().is_ok());
+    assert!(agents.listings.disk_checkouts().is_ok());
 }
 
 #[cfg(unix)]
@@ -105,7 +105,7 @@ async fn a_project_reached_through_a_symlink_lists_a_worktree_session_at_its_rea
     let agents = Agents::new(Parts { occupancy, ..Parts::default() });
 
     let listed = agents
-        .sessions_in(vec![link.to_string_lossy().into_owned()], 10)
+        .listings.sessions_in(vec![link.to_string_lossy().into_owned()], 10)
         .await
         .unwrap();
 
@@ -137,9 +137,35 @@ async fn a_project_asked_by_its_real_path_lists_a_session_recorded_through_the_l
     let agents = Agents::new(Parts { occupancy, ..Parts::default() });
 
     let listed = agents
-        .sessions_in(vec![real.to_string_lossy().into_owned()], 10)
+        .listings.sessions_in(vec![real.to_string_lossy().into_owned()], 10)
         .await
         .unwrap();
 
     assert_eq!(listed.len(), 1, "{listed:?}");
+}
+
+#[tokio::test]
+async fn listings_list_a_transcript_from_the_stores_they_are_built_over() {
+    use crate::agents::{Reopen, family::links::Links, listings::Listings, reviews::kept::Reviews, sessions::Sessions};
+
+    let root = tempfile::tempdir().expect("a temp folder");
+    let project = root.path().join("projects/-srv-project");
+    std::fs::create_dir_all(&project).expect("folders");
+    let line = r#"{"type":"user","cwd":"/srv/project","timestamp":"2026-11-02T10:00:00.000Z","message":{"role":"user","content":"hi"}}"#;
+    std::fs::write(project.join("0f3c2a9e-1111-4222-8333-944455556666.jsonl"), format!("{line}\n")).expect("a transcript");
+    let events = crate::events::Hub::default();
+    let sessions = Arc::new(Sessions::default());
+    let listings: Listings = Listings::new(
+        sessions.clone(),
+        crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), Default::default()),
+        Arc::default(),
+        events.clone(),
+        Arc::new(Reviews::new(events, sessions.clone())),
+        Arc::new(Reopen::new(sessions, Arc::new(Links::new(Default::default())))),
+    );
+
+    let found = listings.external_sessions(10).await.expect("a list");
+
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].cwd, "/srv/project");
 }

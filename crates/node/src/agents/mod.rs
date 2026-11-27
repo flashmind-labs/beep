@@ -47,7 +47,7 @@ host! {
     mod images;
     pub(crate) mod kinds;
     mod launch;
-    mod listings;
+    pub(crate) mod listings;
     mod limits;
     pub(crate) mod live;
     pub(crate) mod machine_list;
@@ -148,7 +148,7 @@ host! {
         /// The sessions kept across the last stop, and whether they were resumed.
         pub reopen: Arc<reopen::Reopen>,
         /// What the node has read of the folders it lists sessions in.
-        listings: listings::Listings,
+        pub listings: Arc<listings::Listings>,
     }
 
     /// What an `Agents` is made of that the node decides before it exists.
@@ -177,26 +177,37 @@ host! {
             let catalog = Arc::new(catalog::Catalog::new(parts.kinds, parts.launch, parts.skills_dir));
             let links = Arc::new(family::links::Links::new(parts.mesh));
 
+            let reviews = Arc::new(reviews::kept::Reviews::new(events.clone(), sessions.clone()));
+            let reopen = Arc::new(reopen::Reopen::new(sessions.clone(), links.clone()));
+            let images = Arc::<Images>::default();
+
             Self {
+                listings: Arc::new(listings::Listings::new(
+                    sessions.clone(),
+                    parts.occupancy.clone(),
+                    images.clone(),
+                    events.clone(),
+                    reviews.clone(),
+                    reopen.clone(),
+                )),
                 events: events.clone(),
                 usage: Arc::new(usage::Usage::new(catalog.clone())),
                 occupancy: parts.occupancy.clone(),
-                reviews: Arc::new(reviews::kept::Reviews::new(events, sessions.clone())),
-                reopen: Arc::new(reopen::Reopen::new(sessions.clone(), links.clone())),
+                reviews,
+                reopen,
                 links,
                 reach: Arc::new(reach::Reach::new(parts.folders, sessions.clone(), parts.occupancy.clone())),
                 sessions,
                 catalog,
                 search: search::Opener::new(parts.search),
                 sources: Mutex::default(),
-                images: Arc::default(),
+                images,
                 alerts: Arc::default(),
                 checkouts: Arc::default(),
                 lsp: lsp::Pool::default(),
                 ci: Arc::default(),
                 moves: moving::Moves::default(),
                 closed: family::links::Tidy::default(),
-                listings: listings::Listings::default(),
             }
         }
     }

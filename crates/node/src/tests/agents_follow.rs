@@ -202,10 +202,10 @@ async fn listings_follow_what_the_watcher_read_of_the_stores() {
         ..Parts::default()
     }));
     write("first");
-    assert_eq!(agents.sightings().await.unwrap().len(), 1);
+    assert_eq!(agents.listings.sightings().await.unwrap().len(), 1);
     // Unwatched, no copy of a read is kept: the next listing sees the change.
     write("second");
-    assert_eq!(agents.sightings().await.unwrap().len(), 2);
+    assert_eq!(agents.listings.sightings().await.unwrap().len(), 2);
 
     let mut changes = agents.events.subscribe();
     let _source = agents.watch_event_sources().await.unwrap();
@@ -221,12 +221,12 @@ async fn listings_follow_what_the_watcher_read_of_the_stores() {
         .unwrap();
     }
     summarized(&mut changes).await;
-    assert_eq!(agents.sightings().await.unwrap().len(), 2);
+    assert_eq!(agents.listings.sightings().await.unwrap().len(), 2);
 
     // Watched, the summary task's read answers: it is ahead of the ping.
     write("third");
     summarized(&mut changes).await;
-    assert_eq!(agents.sightings().await.unwrap().len(), 3);
+    assert_eq!(agents.listings.sightings().await.unwrap().len(), 3);
 }
 
 #[tokio::test]
@@ -992,7 +992,7 @@ async fn callers_asking_during_a_store_read_share_it() {
         occupancy: crate::occupancy::Occupancy::over(crate::logs::claude::Store::locate_in(root.path()), crate::logs::found::Stores::at(Some(root.path()), None, None)),
         ..Parts::default()
     });
-    let (first, second) = (agents.sightings(), crate::agents::reach::sighted_folders(&agents.occupancy));
+    let (first, second) = (agents.listings.sightings(), crate::agents::reach::sighted_folders(&agents.occupancy));
     tokio::pin!(first, second);
     assert!(futures::poll!(first.as_mut()).is_pending());
     assert!(futures::poll!(second.as_mut()).is_pending());

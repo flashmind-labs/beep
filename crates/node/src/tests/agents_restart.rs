@@ -654,7 +654,7 @@ fn an_ended_assistant_kept_from_before_is_still_the_assistant() {
             ..ExternalSession::default()
         })
         .collect();
-    agents.mark_kept(&mut found);
+    agents.listings.mark_kept(&mut found);
     let assistants: Vec<&str> = found
         .iter()
         .filter(|session| session.assistant)

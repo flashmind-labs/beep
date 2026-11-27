@@ -519,6 +519,7 @@ async fn run() -> Result<()> {
                 occupancy: beep_node::occupancy::Occupancy::new(),
                 ..Parts::default()
             })
+            .listings
             .external_sessions(limit)
             .await?
             {

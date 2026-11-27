@@ -28,20 +28,20 @@ async fn native_presence_answers_without_a_transcript_and_overrides_recent_files
         .register(registration("session_a"), id)
         .unwrap();
     let found = agents
-        .stores_external("flsh", 10, Some("session_a".into()))
+        .listings.stores_external("flsh", 10, Some("session_a".into()))
         .await
         .unwrap();
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].presence, Presence::Running);
     assert!(
         agents
-            .stores_external("codex", 10, None)
+            .listings.stores_external("codex", 10, None)
             .await
             .unwrap()
             .is_empty()
     );
     agents.occupancy.presence().close(&SessionId::from("session_a"), id);
-    let found = agents.stores_external("flsh", 10, None).await.unwrap();
+    let found = agents.listings.stores_external("flsh", 10, None).await.unwrap();
     assert_eq!(found[0].presence, Presence::Stopped);
 }
 

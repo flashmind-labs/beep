@@ -3,7 +3,7 @@
 
 use crate::{
     AsyncMutex,
-    agents::Agents,
+    agents::listings::Listings,
     logs::found,
     link::state::{self, Search},
     protocol::{Protocol, Session},
@@ -27,7 +27,7 @@ pub struct Searches(Arc<Inner>);
 
 struct Inner {
     dir: PathBuf,
-    agents: Arc<Agents>,
+    listings: Arc<Listings>,
     /// The running or last walk; held while the folder changes, so changes
     /// go one at a time.
     walk: AsyncMutex<Option<AbortOnDropHandle<()>>>,
@@ -36,11 +36,11 @@ struct Inner {
 impl Searches {
     /// Reads the checkouts saved in the node's folder `dir`, walking
     /// `search` in the background when none are saved.
-    pub fn start(dir: PathBuf, agents: Arc<Agents>, search: &Search) -> Self {
-        let walk = walk(&agents, search.root(), &dir);
+    pub fn start(dir: PathBuf, listings: Arc<Listings>, search: &Search) -> Self {
+        let walk = walk(&listings, search.root(), &dir);
         Self(Arc::new(Inner {
             dir,
-            agents,
+            listings,
             walk: AsyncMutex::new(Some(walk)),
         }))
     }
@@ -80,7 +80,7 @@ impl Searches {
         // A walk still running saves what it found in the old folder when
         // it ends: the new one waits for it, then drops that.
         let before = walking.take();
-        let (agents, dir) = (inner.agents.clone(), inner.dir.clone());
+        let (listings, dir) = (inner.listings.clone(), inner.dir.clone());
         *walking = Some(AbortOnDropHandle::new(tokio::spawn(async move {
             if let Some(Err(e)) = OptionFuture::from(before).await {
                 log::debug!("the last walk ended: {e}");
@@ -89,7 +89,7 @@ impl Searches {
             let forget = dir.clone();
 
             match blocking(move || found::forget_checkouts(&forget)).await {
-                Ok(()) => agents.warm(Some(root), dir).await,
+                Ok(()) => listings.warm(Some(root), dir).await,
                 Err(e) => log::warn!("not looking for checkouts again: {e:#}"),
             }
         })));
@@ -103,7 +103,7 @@ impl Searches {
         let dir = self.0.dir.clone();
         let search = blocking(move || state::saved_search(&dir)).await?;
         let root = search.existing_root()?;
-        self.0.agents.rescan(root, self.0.dir.clone()).await?;
+        self.0.listings.rescan(root, self.0.dir.clone()).await?;
         Ok(search)
     }
 }
@@ -114,11 +114,11 @@ async fn blocking<T: Send + 'static>(
     spawn_blocking(work).await?
 }
 
-/// Has `agents` read the checkouts saved in `dir`, walking `root` when
+/// Has `listings` read the checkouts saved in `dir`, walking `root` when
 /// none are saved.
-fn walk(agents: &Arc<Agents>, root: Option<PathBuf>, dir: &Path) -> AbortOnDropHandle<()> {
-    let (agents, dir) = (agents.clone(), dir.to_owned());
-    AbortOnDropHandle::new(tokio::spawn(async move { agents.warm(root, dir).await }))
+fn walk(listings: &Arc<Listings>, root: Option<PathBuf>, dir: &Path) -> AbortOnDropHandle<()> {
+    let (listings, dir) = (listings.clone(), dir.to_owned());
+    AbortOnDropHandle::new(tokio::spawn(async move { listings.warm(root, dir).await }))
 }
 
 fn failed(reason: String) -> Reply {

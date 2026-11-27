@@ -252,7 +252,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
         entries[0].text,
         format!("what is this\n[image: image-{key}]\n")
     );
-    let served = agents.image(&session.id, &key).await.unwrap();
+    let served = agents.listings.image(&session.id, &key).await.unwrap();
     assert_eq!(
         served.map(|picture| picture.data.clone()),
         Some(shot.clone())
@@ -269,7 +269,7 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     }
 
     assert!(agents.images.get(&session.id, &key).is_none(), "evicted");
-    let found = agents.image(&session.id, &key).await.unwrap();
+    let found = agents.listings.image(&session.id, &key).await.unwrap();
     assert_eq!(
         found.map(|picture| picture.data.clone()),
         Some(shot.clone())
@@ -277,12 +277,12 @@ async fn a_replayed_image_is_served_and_found_again_once_evicted() {
     assert!(agents.images.get(&session.id, &key).is_some(), "kept again");
     // A session started outside Beep is read from its file by its id.
     let outside = agents
-        .image(&SessionId::from(CLAUDE_ID), &key)
+        .listings.image(&SessionId::from(CLAUDE_ID), &key)
         .await
         .unwrap();
     assert_eq!(outside.map(|picture| picture.data.clone()), Some(shot));
     let missing = agents
-        .image(&SessionId::from(CLAUDE_ID), &image_key(b"other"))
+        .listings.image(&SessionId::from(CLAUDE_ID), &image_key(b"other"))
         .await;
     assert!(missing.unwrap().is_none());
     session.close().await;
@@ -760,7 +760,7 @@ async fn sessions_list_with_no_agent_program_found() {
     let line = r#"{"type":"user","cwd":"/srv/project","timestamp":"2026-11-02T10:00:00.000Z","message":{"role":"user","content":"hi"}}"#;
     let file = project.join(format!("{CLAUDE_ID}.jsonl"));
     std::fs::write(file, format!("{line}\n")).expect("a transcript");
-    let listed = agents.external().list(10, None, HashMap::new()).await;
+    let listed = agents.listings.external().list(10, None, HashMap::new()).await;
     assert_eq!(listed.expect("a list").len(), 1);
 }
 
@@ -1001,7 +1001,7 @@ async fn project_history_pages_metadata_without_preview_text() {
     let mut ids = std::collections::HashSet::new();
     loop {
         let page = agents
-            .sessions_page(vec!["/srv/project".into()], 50, cursor)
+            .listings.sessions_page(vec!["/srv/project".into()], 50, cursor)
             .await
             .unwrap();
         assert!(page.sessions.len() <= 50);
@@ -1087,7 +1087,7 @@ while read -r line; do :; done
     .expect("still running");
 
     append(&tree);
-    let listed = agents.listed_with_places(false).await;
+    let listed = agents.listings.listed_with_places(false).await;
     let place = listed[0].place.as_ref().expect("a reported checkout");
     // macOS temp folders sit behind a `/var` link that `paths::canonicalize` resolves.
     let tree = tree.canonicalize().expect("the linked checkout");
@@ -1097,7 +1097,7 @@ while read -r line; do :; done
     assert_eq!(listed[0].cwd, repo.to_string_lossy());
 
     append(&repo);
-    let listed = agents.listed_with_places(false).await;
+    let listed = agents.listings.listed_with_places(false).await;
     assert!(!listed[0].place.as_ref().unwrap().linked);
     session.close().await;
 }
