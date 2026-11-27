@@ -7,7 +7,7 @@ use crate::{
     machines::{ThisMacStatus, ThisMacView, desktop},
 };
 use beep_node::{
-    agents::{Parts, detect, search::SearchIndex, skills::Skills},
+    agents::{Parts, detect, skills::Skills},
     link::{self, Bound, Offers, state::Search},
     machine::{
         provision::{self, Provision},
@@ -64,26 +64,11 @@ impl Machine {
         let _ = std::fs::create_dir_all(dir);
         // Bound here so sessions start with the server; `start` serves it.
         let mcp = async_runtime::block_on(async { tools::bind(dir) });
-        let search = async_runtime::block_on(async {
-            let path = dir.join("search.sqlite");
-
-            match tokio::task::spawn_blocking(move || SearchIndex::open(&path)).await {
-                Ok(Ok(index)) => Some(Arc::new(index)),
-                Ok(Err(e)) => {
-                    log::warn!("no search index: {e:#}");
-                    None
-                }
-                Err(e) => {
-                    log::warn!("no search index: {e:#}");
-                    None
-                }
-            }
-        });
         let parts = Parts {
             kinds: detect(&[], Some(dir)),
             launch: mcp.as_ref().map(Socket::launch),
             skills_dir: provision::skills_dir(),
-            search,
+            search: Some(dir.join("search.sqlite")),
             ..Parts::default()
         };
         let mut offers = Offers::local(parts, provision.clone()).bound(endpoint, dir, &name);

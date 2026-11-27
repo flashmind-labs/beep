@@ -112,7 +112,6 @@ host! {
 
     /// The agents this node offers and the sessions it runs. Sessions belong
     /// to the daemon, so they outlive the streams and the connection.
-    #[derive(Default)]
     pub struct Agents {
         /// Who works in which folder here, shared with sync.
         occupancy: Occupancy,
@@ -144,8 +143,8 @@ host! {
         closed: family::links::Tidy,
         /// The reviews reviewers handed in, and the reviewers running.
         pub(crate) reviews: Arc<reviews::kept::Reviews>,
-        /// The search index, when the node opened one.
-        pub(crate) search: Option<Arc<search::SearchIndex>>,
+        /// The search index, once the mesh opened it.
+        pub(crate) search: search::Opener,
         /// The sessions kept across the last stop, and whether they were resumed.
         pub reopen: Arc<reopen::Reopen>,
         /// What the node has read of the folders it lists sessions in.
@@ -167,8 +166,8 @@ host! {
         pub skills_dir: Option<PathBuf>,
         /// The workspace and the folders shared in `node.toml`.
         pub folders: Vec<PathBuf>,
-        /// The search index, when the node opened one.
-        pub search: Option<Arc<search::SearchIndex>>,
+        /// The search index's file, which the node opens when it joins a mesh.
+        pub search: Option<PathBuf>,
     }
 
     impl Agents {
@@ -188,9 +187,24 @@ host! {
                 reach: Arc::new(reach::Reach::new(parts.folders, sessions.clone(), parts.occupancy.clone())),
                 sessions,
                 catalog,
-                search: parts.search,
-                ..Self::default()
+                search: search::Opener::new(parts.search),
+                sources: Mutex::default(),
+                images: Arc::default(),
+                alerts: Arc::default(),
+                checkouts: Arc::default(),
+                lsp: lsp::Pool::default(),
+                ci: Arc::default(),
+                moves: moving::Moves::default(),
+                closed: family::links::Tidy::default(),
+                listings: listings::Listings::default(),
             }
+        }
+    }
+
+    impl Default for Agents {
+        /// An `Agents` with nothing configured, as a test or a bare node has.
+        fn default() -> Self {
+            Self::new(Parts::default())
         }
     }
 

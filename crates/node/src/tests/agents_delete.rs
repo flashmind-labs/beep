@@ -195,6 +195,7 @@ async fn a_running_session_is_refused_and_an_ended_one_is_forgotten() {
 
     assert!(m.claude(CLAUDE_ID), "the transcript stays");
     assert_eq!(m.agents.sessions.list().len(), 1);
+    assert_eq!(m.agents.reopen.open_sessions().len(), 1, "it would be reopened");
 
     session.close().await;
     m.agents

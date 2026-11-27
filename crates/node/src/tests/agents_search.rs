@@ -156,3 +156,18 @@ fn a_store_write_wakes_a_pass_with_no_timer_behind_it() {
     assert!(reads_stores("agents"));
     assert!(!reads_stores("terminals"));
 }
+
+#[tokio::test]
+async fn an_index_that_would_not_open_opens_when_the_next_mesh_joins() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("node");
+    let opener = Opener::new(Some(folder.join("search.sqlite")));
+
+    assert!(opener.open().await.is_none(), "the folder is missing");
+    assert!(opener.get().is_none());
+
+    std::fs::create_dir(&folder).unwrap();
+    let index = opener.open().await.expect("the next join opens it");
+    assert!(Arc::ptr_eq(&index, &opener.get().unwrap()));
+    assert!(Arc::ptr_eq(&index, &opener.open().await.unwrap()), "once open it stays");
+}

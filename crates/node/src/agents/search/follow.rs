@@ -25,8 +25,12 @@ use tokio::{
     time::{Instant, timeout},
 };
 
-/// Keeps `index` up to date while the mesh is open.
-pub(crate) async fn follow(mesh: Mesh, index: Arc<SearchIndex>, agents: Arc<Agents>) {
+/// Opens the index if the node has none yet, and keeps it up to date while
+/// the mesh is open.
+pub(crate) async fn follow(mesh: Mesh, agents: Arc<Agents>) {
+    let Some(index) = agents.search.open().await else {
+        return;
+    };
     // Held for the node's life: its watch rings `agent` when a store changes.
     let _stores = match agents.watch_event_sources().await {
         Ok(sources) => Some(sources),

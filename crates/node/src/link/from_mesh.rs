@@ -116,16 +116,7 @@ async fn set(own: Own, link: TeamLink, active: Mesh, offers: Offers) {
         dir.clone(),
         reaches,
     );
-    let search = {
-        let (mesh, agents) = (active.clone(), offers.agents.clone());
-
-        async move {
-            match agents.search.clone() {
-                Some(index) => crate::agents::follow_search(mesh, index, agents).await,
-                None => log::warn!("no search index"),
-            }
-        }
-    };
+    let search = crate::agents::follow_search(active.clone(), offers.agents.clone());
     let moves = crate::agents::follow_moves(
         active,
         own.endpoint.clone(),

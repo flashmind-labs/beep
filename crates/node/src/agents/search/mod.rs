@@ -15,8 +15,8 @@ use beep_proto::{
 use schedule::{Conversation, Due, Schedule};
 use std::{
     collections::HashSet,
-    path::Path,
-    sync::{Arc, Mutex, MutexGuard, PoisonError},
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError},
     time::Duration,
 };
 pub use store::IndexCopy;
@@ -34,6 +34,49 @@ const MOST_TEXT: usize = 256 * 1024;
 const IN_FLIGHT: usize = 4;
 /// Pages saved before this keep their progress when it runs out.
 const SESSION_WAIT: Duration = Duration::from_secs(60);
+
+/// Owns whether the node has a search index: opened when the mesh is
+/// joined, and tried again on the next join if the file would not open.
+pub struct Opener {
+    path: Option<PathBuf>,
+    index: OnceLock<Arc<SearchIndex>>,
+}
+
+impl Opener {
+    pub fn new(path: Option<PathBuf>) -> Self {
+        Self {
+            path,
+            index: OnceLock::new(),
+        }
+    }
+
+    /// The index, once it is open.
+    pub fn get(&self) -> Option<Arc<SearchIndex>> {
+        self.index.get().cloned()
+    }
+
+    /// Opens the index if it is not open yet. `None` when there is no file
+    /// to open or it would not open now.
+    pub async fn open(&self) -> Option<Arc<SearchIndex>> {
+        if let Some(index) = self.get() {
+            return Some(index);
+        }
+
+        let path = self.path.clone()?;
+
+        match spawn_blocking(move || SearchIndex::open(&path)).await {
+            Ok(Ok(index)) => Some(self.index.get_or_init(|| Arc::new(index)).clone()),
+            Ok(Err(e)) => {
+                log::warn!("no search index: {e:#}");
+                None
+            }
+            Err(e) => {
+                log::warn!("no search index: {e:#}");
+                None
+            }
+        }
+    }
+}
 
 pub struct SearchIndex {
     store: Mutex<Store>,

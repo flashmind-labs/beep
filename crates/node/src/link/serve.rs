@@ -2,7 +2,7 @@
 //! server, and the sessions devices of the mesh open, until it stops.
 
 use crate::{
-    agents::{AgentKind, Parts, SESSIONS_ALPN, detect, search::SearchIndex, skills::Skills},
+    agents::{AgentKind, Parts, SESSIONS_ALPN, detect, skills::Skills},
     files::Folders,
     files::transfer::Transfers,
     link::Protocol,
@@ -105,24 +105,12 @@ pub async fn serve(
     // The agents' Beep MCP server runs this binary against a socket in the
     // node's folder.
     let mcp = tools::bind(&state.dir);
-    let index_path = state.dir.join("search.sqlite");
-    let search = match tokio::task::spawn_blocking(move || SearchIndex::open(&index_path)).await {
-        Ok(Ok(index)) => Some(Arc::new(index)),
-        Ok(Err(e)) => {
-            log::warn!("no search index: {e:#}");
-            None
-        }
-        Err(e) => {
-            log::warn!("no search index: {e:#}");
-            None
-        }
-    };
     let parts = Parts {
         kinds: detect(&state.agents, Some(provision.dir())),
         launch: mcp.as_ref().map(tools::Socket::launch),
         skills_dir: crate::machine::provision::skills_dir(),
         folders: shared.clone(),
-        search,
+        search: Some(state.dir.join("search.sqlite")),
         ..Parts::default()
     };
     let mut offers = Offers::local(parts, provision).bound(&endpoint, &state.dir, &state.name);
