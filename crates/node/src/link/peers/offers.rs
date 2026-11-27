@@ -9,7 +9,6 @@ use crate::{
     },
     machine::{provision::Provision, service::logs::Logs},
     membership::Membership,
-    membership::Membership,
     protocol::Protocol,
     run::{device, shell, tasks, terminal},
     status::Own,

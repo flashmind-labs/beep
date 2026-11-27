@@ -6,8 +6,6 @@
 //! The protocols are served from the start and answer once the node is in a
 //! mesh, so `join` takes effect without a restart.
 
-#[cfg(feature = "cli")]
-use crate::link::local_status::LocalStatus;
 use crate::{
     agents::SessionsAlpn,
     files::transfer::Transfers,
