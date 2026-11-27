@@ -124,6 +124,7 @@ def rust_edges(root: Path, depth: int):
     texts = {}
     for f in files:
         text = re.sub(r"//[^\n]*", "", f.read_text(errors="replace")).split("#[cfg(test)]")[0]
+        text = re.sub(r"\bpub\(in [^)]*\)", "pub", text)
         texts[rust_module(root, f)] = text
     reexports = {}
     for _ in range(3):
