@@ -291,7 +291,6 @@ impl Agents {
             sessions.clone(),
             parts.occupancy.clone(),
         ));
-        let search = Arc::new(search::Opener::new(parts.search));
 
         let listings = Arc::new(listings::Listings::new(
             sessions.clone(),
@@ -314,6 +313,14 @@ impl Agents {
             listings.clone(),
             reach.clone(),
             sessions.clone(),
+        ));
+
+        let search = Arc::new(search::Opener::new(
+            parts.search,
+            listings.clone(),
+            sessions.clone(),
+            bridge.clone(),
+            events.clone(),
         ));
 
         let delete = Arc::new(delete::Delete::new(

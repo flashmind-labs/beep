@@ -8,6 +8,10 @@ mod store;
 
 pub(crate) use follow::follow;
 
+use crate::{
+    agents::{follow::sources::EventBridge, listings::Listings, sessions::Sessions},
+    events::Hub,
+};
 use beep_proto::{
     SessionId,
     node::agent::{IndexRow, SearchHit},
@@ -40,13 +44,28 @@ const SESSION_WAIT: Duration = Duration::from_secs(60);
 pub struct Opener {
     path: Option<PathBuf>,
     index: OnceLock<Arc<SearchIndex>>,
+    /// What the follow reads to index conversations.
+    listings: Arc<Listings>,
+    sessions: Arc<Sessions>,
+    bridge: Arc<EventBridge>,
+    events: Hub,
 }
 
 impl Opener {
-    pub fn new(path: Option<PathBuf>) -> Self {
+    pub(crate) fn new(
+        path: Option<PathBuf>,
+        listings: Arc<Listings>,
+        sessions: Arc<Sessions>,
+        bridge: Arc<EventBridge>,
+        events: Hub,
+    ) -> Self {
         Self {
             path,
             index: OnceLock::new(),
+            listings,
+            sessions,
+            bridge,
+            events,
         }
     }
 

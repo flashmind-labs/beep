@@ -1,13 +1,14 @@
 //! Keeps the search index up to date: reads what the agents' stores and
 //! sessions hold, one session at a time, while the mesh is open.
 
+use super::Opener;
 use super::{
     IN_FLIGHT, MOST_TEXT, PAGE, Page, Pass, SESSION_WAIT, SearchIndex, advance,
     schedule::{Conversation, Pacer},
     sooner,
     store::Indexed,
 };
-use crate::agents::Agents;
+use crate::agents::transcripts::Transcripts;
 use beep_mesh::Mesh;
 use beep_proto::{
     SessionId,
@@ -27,12 +28,12 @@ use tokio::{
 
 /// Opens the index if the node has none yet, and keeps it up to date while
 /// the mesh is open.
-pub(crate) async fn follow(mesh: Mesh, agents: Arc<Agents>) {
-    let Some(index) = agents.search.open().await else {
+pub(crate) async fn follow(mesh: Mesh, search: Arc<Opener>, transcripts: Arc<Transcripts>) {
+    let Some(index) = search.open().await else {
         return;
     };
     // Held for the node's life: its watch rings `agent` when a store changes.
-    let _stores = match agents.bridge.watch_event_sources().await {
+    let _stores = match search.bridge.watch_event_sources().await {
         Ok(sources) => Some(sources),
         Err(e) => {
             log::warn!("the agents' stores are not watched for search: {e:#}");
@@ -41,7 +42,7 @@ pub(crate) async fn follow(mesh: Mesh, agents: Arc<Agents>) {
     };
     let mut pacer = Pacer::default();
     let mut wake = None;
-    let wakes = wake_on_changes(&index, &agents, &mesh);
+    let wakes = wake_on_changes(&index, &search, &mesh);
     tokio::pin!(wakes);
 
     loop {
@@ -50,18 +51,18 @@ pub(crate) async fn follow(mesh: Mesh, agents: Arc<Agents>) {
             () = &mut wakes => return,
         }
 
-        let sessions = conversations(&agents).await;
+        let sessions = conversations(&search).await;
         let (due, next) = index.due(sessions);
         wake = next;
         let mut work = stream::iter(due)
             .map(|session| {
                 let index = index.clone();
-                let agents = agents.clone();
+                let transcripts = transcripts.clone();
                 async move {
                     let mut saved = false;
                     let read = timeout(
                         SESSION_WAIT,
-                        index_new(&agents, &index, &session, &mut saved),
+                        index_new(&transcripts, &index, &session, &mut saved),
                     )
                     .await;
                     let pass = match read {
@@ -108,8 +109,8 @@ pub(super) fn reads_stores(topic: &str) -> bool {
 
 /// Wakes a pass on session or mesh changes. Ends when the node's events
 /// or the mesh close.
-async fn wake_on_changes(index: &SearchIndex, agents: &Agents, mesh: &Mesh) {
-    let mut events = agents.events.subscribe();
+async fn wake_on_changes(index: &SearchIndex, search: &Opener, mesh: &Mesh) {
+    let mut events = search.events.subscribe();
     let mut updates = mesh.updates();
 
     loop {
@@ -132,10 +133,10 @@ async fn wake_on_changes(index: &SearchIndex, agents: &Agents, mesh: &Mesh) {
 
 /// Keep the agent's id as the index key so taking over a conversation
 /// changes how it opens without creating another copy of its messages.
-pub(super) async fn conversations(agents: &Agents) -> Vec<Conversation> {
-    let stores = agents.listings.stores().clone();
+pub(super) async fn conversations(search: &Opener) -> Vec<Conversation> {
+    let stores = search.listings.stores().clone();
     let archived = spawn_blocking(move || stores.archived_codex());
-    let (sightings, archived) = tokio::join!(agents.listings.sightings(), archived);
+    let (sightings, archived) = tokio::join!(search.listings.sightings(), archived);
     let mut seen = match sightings {
         Ok(seen) => seen,
         Err(e) => {
@@ -148,8 +149,8 @@ pub(super) async fn conversations(agents: &Agents) -> Vec<Conversation> {
         Err(e) => log::warn!("listing archived sessions to index: {e:#}"),
     }
 
-    let owned = agents.sessions.owned();
-    let mut live: HashMap<SessionId, SessionInfo> = agents
+    let owned = search.sessions.owned();
+    let mut live: HashMap<SessionId, SessionInfo> = search
         .sessions
         .listed(true)
         .into_iter()
@@ -203,7 +204,7 @@ pub(super) async fn conversations(agents: &Agents) -> Vec<Conversation> {
 /// page first, and saves each page as it arrives, setting `saved`. False
 /// when it was already current.
 pub(super) async fn index_new(
-    agents: &Agents,
+    transcripts: &Transcripts,
     index: &Arc<SearchIndex>,
     session: &Conversation,
     saved: &mut bool,
@@ -241,7 +242,7 @@ pub(super) async fn index_new(
 
     loop {
         let before = progress.walk.map(|walk| walk.low);
-        let (texts, page) = read_page(agents, &session.id, before).await?;
+        let (texts, page) = read_page(transcripts, &session.id, before).await?;
         newest |= before.is_none();
         progress = advance(progress, page);
         let current = newest && progress.walk.is_none();
@@ -279,12 +280,11 @@ pub(super) async fn index_new(
 /// The user's prompts and the agent's replies on the page before entry
 /// `before` (the newest page when `None`).
 async fn read_page(
-    agents: &Agents,
+    transcripts: &Transcripts,
     session: &SessionId,
     before: Option<u64>,
 ) -> anyhow::Result<(Vec<String>, Page)> {
-    let Some((entries, earlier)) = agents
-        .transcripts
+    let Some((entries, earlier)) = transcripts
         .read_transcript(session, PAGE, before, false)
         .await?
     else {

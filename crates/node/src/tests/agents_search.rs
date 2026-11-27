@@ -3,10 +3,7 @@ use super::*;
 use crate::agents::Agents;
 use crate::agents::Parts;
 
-#[tokio::test]
-async fn an_archived_conversation_outside_projects_is_indexed_and_can_be_read() -> anyhow::Result<()>
-{
-    let root = tempfile::tempdir()?;
+fn archived_codex(root: &tempfile::TempDir) -> anyhow::Result<Agents> {
     let archive = root.path().join("archived_sessions");
     std::fs::create_dir(&archive)?;
     let header = serde_json::json!({
@@ -21,19 +18,46 @@ async fn an_archived_conversation_outside_projects_is_indexed_and_can_be_read() 
         archive.join("rollout-test.jsonl"),
         format!("{header}\n{message}\n"),
     )?;
-    let agents = Agents::new(Parts {
+    Ok(Agents::new(Parts {
         occupancy: crate::occupancy::Occupancy::over(
             crate::logs::claude::Store::at(root.path()),
             crate::logs::found::Stores::at(Some(root.path()), None, None),
         ),
         ..Parts::default()
-    });
-    let sessions = conversations(&agents).await;
+    }))
+}
+
+#[tokio::test]
+async fn an_opener_lists_conversations_from_the_owners_it_holds() -> anyhow::Result<()> {
+    let root = tempfile::tempdir()?;
+    let agents = archived_codex(&root)?;
+    let opener = Opener::new(
+        None,
+        agents.listings.clone(),
+        agents.sessions.clone(),
+        agents.bridge.clone(),
+        agents.events.clone(),
+    );
+    let ids: Vec<_> = conversations(&opener)
+        .await
+        .into_iter()
+        .map(|one| one.id)
+        .collect();
+    assert_eq!(ids, [SessionId::from("archived-session")]);
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_archived_conversation_outside_projects_is_indexed_and_can_be_read() -> anyhow::Result<()>
+{
+    let root = tempfile::tempdir()?;
+    let agents = archived_codex(&root)?;
+    let sessions = conversations(&agents.search).await;
     let [session] = sessions.as_slice() else {
         anyhow::bail!("expected the archived conversation");
     };
     let index = Arc::new(SearchIndex::open(&root.path().join("search.sqlite"))?);
-    assert!(index_new(&agents, &index, session, &mut false).await?);
+    assert!(index_new(&agents.transcripts, &index, session, &mut false).await?);
     let hits = index.find("retry".into(), Vec::new()).await?;
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].session, session.id);
@@ -165,7 +189,14 @@ fn a_store_write_wakes_a_pass_with_no_timer_behind_it() {
 async fn an_index_that_would_not_open_opens_when_the_next_mesh_joins() {
     let dir = tempfile::tempdir().unwrap();
     let folder = dir.path().join("node");
-    let opener = Opener::new(Some(folder.join("search.sqlite")));
+    let agents = Agents::default();
+    let opener = Opener::new(
+        Some(folder.join("search.sqlite")),
+        agents.listings.clone(),
+        agents.sessions.clone(),
+        agents.bridge.clone(),
+        agents.events.clone(),
+    );
 
     assert!(opener.open().await.is_none(), "the folder is missing");
     assert!(opener.get().is_none());

@@ -115,7 +115,11 @@ async fn set(own: Own, link: TeamLink, active: Mesh, offers: Offers) {
         dir.clone(),
         reaches,
     );
-    let search = crate::agents::follow_search(active.clone(), offers.agents.clone());
+    let search = crate::agents::follow_search(
+        active.clone(),
+        offers.agents.search.clone(),
+        offers.agents.transcripts.clone(),
+    );
     let moves = crate::agents::follow_moves(
         active,
         own.endpoint.clone(),
