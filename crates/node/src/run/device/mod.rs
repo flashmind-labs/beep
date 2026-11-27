@@ -169,8 +169,13 @@ pub(crate) async fn list() -> Vec<Device> {
     devices.extend(phones);
     devices.extend(iphones);
     devices.extend(simulators);
+    *crate::lock(&LAST) = devices.clone();
     devices
 }
+
+/// The devices the latest `list` read. It is filled by the reads that
+/// already happen, and lets a command skip a second one.
+static LAST: Mutex<Vec<Device>> = Mutex::new(Vec::new());
 
 /// How often the list is read again while a device boots: the emulator says
 /// it is up to no one but its own port.
@@ -298,6 +303,35 @@ async fn find(id: &DeviceId) -> Result<Device> {
         .with_context(|| format!("No device {id} on this machine."))
 }
 
+/// Device `id` as the latest list showed it, when that list had it on, so a
+/// command for a device the caller just listed does not read every platform
+/// again: a Mac's `simctl` and `devicectl` take up to 20 s. Reads the list
+/// when the device was not listed on, which also catches one that came up since.
+async fn find_on<Read, Reading>(
+    id: &DeviceId,
+    last: &Mutex<Vec<Device>>,
+    read: Read,
+) -> Result<Device>
+where
+    Read: FnOnce() -> Reading,
+    Reading: Future<Output = Vec<Device>>,
+{
+    let known = crate::lock(last)
+        .iter()
+        .find(|device| device.id == *id && device.state == DeviceState::On)
+        .cloned();
+
+    if let Some(device) = known {
+        return Ok(device);
+    }
+
+    read()
+        .await
+        .into_iter()
+        .find(|device| device.id == *id)
+        .with_context(|| format!("No device {id} on this machine."))
+}
+
 async fn boot(id: &DeviceId) -> Result<()> {
     match on_its_own(find(id).await?)?.platform {
         Platform::Android => android::boot(id).await,
@@ -390,7 +424,7 @@ enum Reached {
 
 /// How device `id` takes commands, once it is on.
 async fn reach(id: &DeviceId) -> Result<Reached> {
-    let device = find(id).await?;
+    let device = find_on(id, &LAST, list).await?;
 
     if device.state != DeviceState::On {
         anyhow::bail!("{} is not on.", device.name);

@@ -8,7 +8,7 @@ use crate::{
     error::{DesktopError, Result},
     fleet::{
         Fleet, Machines,
-        node_actor::{JobKind, mark_device_power},
+        node_actor::{JobKind, Projected, mark_device_power},
     },
     machines::{Registry, Unfollow},
 };
@@ -26,6 +26,7 @@ use beep_proto::{
 use futures::{StreamExt, stream};
 use iroh::EndpointId;
 use serde::Serialize;
+use std::future::Future;
 use std::{
     sync::{
         Arc, Mutex, PoisonError,
@@ -101,13 +102,6 @@ pub async fn device_list(
         .collect();
 
     let fleet_arc = fleet.inner().clone();
-    let fresh_for = |devices: &Vec<Device>| {
-        if devices.iter().any(|d| d.state == DeviceState::Booting) {
-            BOOTING_LIST_FRESH
-        } else {
-            IDLE_LIST_FRESH
-        }
-    };
     let mut listed: Vec<DeviceMachine> = stream::iter(machines)
         .map(|machine| {
             let app = app.clone();
@@ -117,33 +111,13 @@ pub async fn device_list(
                     let _ = app.emit("devices-changed", ());
                 };
                 let fleet_fetch = fleet_arc.clone();
-                let outcome = if machine == fleet_arc.id() {
-                    Some(
-                        fleet_arc
-                            .projections()
-                            .devices
-                            .read_with_fresh(
-                                machine,
-                                fresh_for,
-                                PartialEq::eq,
-                                notify,
-                                move || async move { list(&fleet_fetch, machine).await },
-                            )
-                            .await,
-                    )
-                } else {
-                    fleet_arc
-                        .projections()
-                        .devices
-                        .read_fast_with_fresh(
-                            machine,
-                            fresh_for,
-                            PartialEq::eq,
-                            notify,
-                            move || async move { list(&fleet_fetch, machine).await },
-                        )
-                        .await
-                };
+                let outcome = read_devices(
+                    fleet_arc.projections().devices.clone(),
+                    machine,
+                    notify,
+                    move || async move { list(&fleet_fetch, machine).await },
+                )
+                .await;
                 let (devices, error) = match outcome {
                     Some(Ok(devices)) => (devices, None),
                     Some(Err(e)) => (Vec::new(), Some(e.to_string())),
@@ -163,6 +137,33 @@ pub async fn device_list(
 
     listed.sort_by(|a, b| a.machine_name.cmp(&b.machine_name));
     Ok(listed)
+}
+
+/// What `machine` shows now: the held list, or none once the list took longer
+/// than the projection's first wait. This machine's own node is capped the same
+/// as any other, so a cold or hung node does not hold the window. The list
+/// goes on being read for up to `LIST_LIMIT` and `notify` says when it came.
+async fn read_devices<F, Fut>(
+    devices: Arc<Projected<EndpointId, Vec<Device>>>,
+    machine: EndpointId,
+    notify: impl FnOnce() + Send + 'static,
+    fetch: F,
+) -> Option<Result<Vec<Device>>>
+where
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = Result<Vec<Device>>> + Send + 'static,
+{
+    let fresh_for = |devices: &Vec<Device>| {
+        if devices.iter().any(|d| d.state == DeviceState::Booting) {
+            BOOTING_LIST_FRESH
+        } else {
+            IDLE_LIST_FRESH
+        }
+    };
+
+    devices
+        .read_fast_with_fresh(machine, fresh_for, PartialEq::eq, notify, fetch)
+        .await
 }
 
 async fn list(fleet: &Fleet, machine: EndpointId) -> Result<Vec<Device>> {

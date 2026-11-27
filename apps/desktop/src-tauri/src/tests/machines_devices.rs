@@ -347,3 +347,25 @@ async fn overflow_touch_up_waits_behind_queued_touch_down_without_blocking() {
         })
     );
 }
+
+#[tokio::test(start_paused = true)]
+async fn this_machines_cold_list_is_capped_by_the_first_wait() {
+    let machine = iroh::SecretKey::from_bytes(&[7; 32]).public();
+    let devices = Projected::new(
+        Duration::from_secs(10),
+        Duration::from_millis(600),
+        Duration::from_secs(8),
+    );
+    let started = Instant::now();
+
+    let read = read_devices(
+        devices,
+        machine,
+        || {},
+        || async { std::future::pending::<Result<Vec<Device>>>().await },
+    )
+    .await;
+
+    assert!(read.is_none());
+    assert!(started.elapsed() < Duration::from_secs(1));
+}
